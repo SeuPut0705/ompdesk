@@ -1210,6 +1210,23 @@ export class SidecarPool {
 		}
 	}
 
+	/**
+	 * Main renamed a live session (stock `set_session_name` answers without the `session_info_update` a rename
+	 * from inside omp sends): the tab entry, its strip and every window's session title learn the name now.
+	 */
+	noteSessionName(tabId: string, title: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		entry.title = title;
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		for (const target of entry.full?.windows.values() ?? []) {
+			forwardToWindow(target.win, IPC_EVENTS.SESSION_INFO_UPDATE, {
+				tabId: entry.tabId,
+				payload: { type: "session_info_update", title },
+			});
+		}
+	}
+
 	/** A viewer left: the level it asked for no longer counts, and the omp drops to what the rest need. */
 	#forgetSubagentLevel(entry: PoolEntry, winId: number): void {
 		const levels = entry.subagentLevels;

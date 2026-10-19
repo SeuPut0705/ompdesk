@@ -121,6 +121,8 @@ export interface AutopilotPool {
 	} | null;
 	releaseTabWhenExited(tabId: string): Promise<void>;
 	noteStopped(tabId: string): void;
+	/** Main renamed the tab's live session: the windows learn the name (stock sends no update for an RPC rename). */
+	noteSessionName(tabId: string, title: string): void;
 	routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean>;
 }
 
@@ -448,12 +450,15 @@ export class Autopilot {
 		if (!run || !status?.active) return frame;
 		run.status = status;
 		if (status.settings) run.settings = status.settings;
-		const first = status.now?.n === 1 ? status.now.title : undefined;
-		if (first && run.title && !run.title.item) {
-			run.title = { ...run.title, item: true };
-			void this.#retitle(run, first);
-		}
+		this.#titleByItem(run, status.now?.n === 1 ? status.now.title : undefined);
 		return { ...frame, status: this.#overlaid(run, status) };
+	}
+
+	/** The run's title names its first cycle's item once: from `pick` while cycle 1 runs, else from cycle 1's record. */
+	#titleByItem(run: Run, item: string | undefined): void {
+		if (!item || !run.title || run.title.item) return;
+		run.title = { ...run.title, item: true };
+		void this.#retitle(run, item);
 	}
 
 	/** The bridge's cycle end, stop request and settled frames. */
@@ -464,6 +469,7 @@ export class Autopilot {
 		if (frame.type === "autopilot_cycle_end") {
 			const record = frame.record as AutopilotCycleRecord;
 			const receivedAt = this.#now();
+			if (record.n === 1) this.#titleByItem(run, record.title);
 			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt));
 		} else if (frame.type === "autopilot_nudge") {
 			const reason = frame.reason as AutopilotNudgeReason;
@@ -1534,6 +1540,7 @@ export class Autopilot {
 				if ((state.sessionName ?? "") !== run.title.name) return;
 			}
 			await this.#stock(run.tabId, { type: "set_session_name", name });
+			this.#deps.pool.noteSessionName(run.tabId, name);
 			run.title = { name, item: run.title?.item ?? false };
 		} catch (error) {
 			this.#log(`naming the run's session failed: ${error instanceof Error ? error.message : String(error)}`);

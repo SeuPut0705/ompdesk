@@ -75,6 +75,8 @@ class World {
 	guide: unknown = { exists: false, text: "" };
 	/** Stock's session name per tab (`set_session_name` / `get_state`). */
 	sessionNames = new Map<string, string>();
+	/** What the windows were told the session is called (`noteSessionName`). */
+	shownNames = new Map<string, string>();
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -200,6 +202,9 @@ function build(
 		},
 		noteStopped: tab => {
 			world.stopped.push(tab);
+		},
+		noteSessionName: (tab, title) => {
+			world.shownNames.set(tab, title);
 		},
 		routeSideChannel: async (id, response, tab) => {
 			world.answers.push({ id, tab: tab ?? "", response });
@@ -412,6 +417,8 @@ describe("start", () => {
 		const picked = { ...base, now: { n: 1, startedAt: 1, area: "bugs" as const, title: "Fix slugify spaces" } };
 		autopilot.overlay(sidecar, { type: "autopilot_update", status: picked });
 		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces"));
+		// Stock sends no update for an RPC rename: the windows are told by main.
+		expect(world.shownNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces");
 		// The user renames it; a later cycle-1 frame changes nothing.
 		world.sessionNames.set("ap-1", "mine");
 		autopilot.overlay(sidecar, {
