@@ -173,9 +173,9 @@ export async function servePull(
 	for (const { entry, cursor } of entries) {
 		if (pages.length >= BATCH_PAGES || bytes >= BATCH_BYTES) break;
 		examined++;
+		// A read that fails fails the pull: the cursor stays before this page, so the next round reads it again.
+		const copy = await deps.store.pageCopy(entry.ref);
 		next = cursor;
-		const copy = await deps.store.pageCopy(entry.ref).catch(() => null);
-		if (!copy) continue;
 		const origin = copy.origin ?? self;
 		// An unedited copy of the asking device's own page: it has the page already.
 		if (origin === peer) continue;
@@ -448,7 +448,11 @@ export class MemorySync {
 		for (const entry of candidates) {
 			if (entry.at > newest) newest = entry.at;
 			const copy = await this.#deps.store.pageCopy(entry.ref).catch(() => null);
-			if (!copy) continue;
+			// The push time moves on past it: offer it again next round whatever its time.
+			if (!copy) {
+				if (!state.pending.includes(entry.key)) state.pending.push(entry.key);
+				continue;
+			}
 			const hash = pageHash(copy);
 			const base = state.base[entry.key];
 			// Unchanged since the two agreed, or an unedited copy of the host's own page: nothing to tell it.
@@ -464,6 +468,8 @@ export class MemorySync {
 		}
 		await flush();
 		state.push = newest;
+		// A page deleted here since it was left pending has nothing more to offer.
+		state.pending = state.pending.filter(key => local.has(key));
 	}
 
 	#unpend(state: HostState, key: string): void {

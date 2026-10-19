@@ -15,6 +15,8 @@ class FakeServer {
 	readonly pages = new Map<string, Stored>();
 	writes: string[] = [];
 	ready = true;
+	/** Paths whose next read fails once (the server answering 500, a timeout). */
+	readonly failOnce = new Set<string>();
 	constructor(
 		readonly now: () => string,
 		readonly normalize: (copy: MemoryPageCopy) => MemoryPageCopy = copy => copy,
@@ -53,6 +55,7 @@ class FakeServer {
 				.filter(p => p.workspace === ref.workspace && p.project === ref.project)
 				.map(p => ({ workspace: p.workspace, project: p.project, path: p.path, updatedAt: p.at })),
 		pageCopy: async ref => {
+			if (this.failOnce.delete(ref.path)) throw new Error("Memory answered 500");
 			const stored = this.pages.get(`${ref.project}/${ref.path}`);
 			if (!stored) throw new Error("page not found");
 			const { at: _at, ...copy } = structuredClone(stored);
@@ -185,6 +188,39 @@ describe("memory sync between two computers", () => {
 		// The host's change came last: it is now on both.
 		expect(win.body("decisions/x.md")).toBe("changed on the host, after the pull");
 		expect(mac.body("decisions/x.md")).toBe("changed on the host, after the pull");
+	});
+
+	it("a page the host could not read once still arrives, though nothing changed it since", async () => {
+		win.edit("decisions/a.md", "first");
+		win.edit("decisions/b.md", "second");
+		win.failOnce.add("decisions/b.md");
+
+		expect(await sync.sync("win")).toBeNull();
+		expect(logs).toContainEqual(
+			expect.objectContaining({ message: "failed", details: expect.objectContaining({ step: "pull" }) }),
+		);
+		// The batch failed as a whole and the cursor stayed: nothing here yet, both on the next round.
+		expect(mac.writes).toEqual([]);
+
+		expect(await sync.sync("win")).toMatchObject({ pulled: 2 });
+		expect(mac.body("decisions/a.md")).toBe("first");
+		expect(mac.body("decisions/b.md")).toBe("second");
+	});
+
+	it("a page this computer could not read once is still sent, though nothing changed it since", async () => {
+		mac.edit("decisions/a.md", "first");
+		mac.edit("decisions/b.md", "second");
+		mac.failOnce.add("decisions/a.md");
+
+		expect(await sync.sync("win")).toMatchObject({ pushed: 1 });
+		expect(win.body("decisions/a.md")).toBeUndefined();
+		expect(win.body("decisions/b.md")).toBe("second");
+
+		expect(await sync.sync("win")).toMatchObject({ pushed: 1 });
+		expect(win.body("decisions/a.md")).toBe("first");
+		crossed = 0;
+		expect(await sync.sync("win")).toEqual({ pulled: 0, pushed: 0, conflicts: 0 });
+		expect(crossed).toBe(0);
 	});
 
 	it("writes nothing for a page both computers already hold the same", async () => {
