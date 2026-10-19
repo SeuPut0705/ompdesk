@@ -685,14 +685,20 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 		await test.step("the phone pairs and has two tabs", async () => {
 			await phone.goto(`${proxy?.url}/`);
 			await expect(phone.getByRole("button", { name: "Open menu" })).toBeVisible({ timeout: 60_000 });
-			await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+			const spawned = await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+			tabA = spawned?.tabId ?? "";
+			expect(tabA).not.toBe("");
 			await phone.reload();
 			await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
-			tabA = (await dActiveTab(phone)) ?? "";
-			expect(tabA).not.toBe("");
+			// The spawned tab, active and ready (the page's untouched first tab gives way to it).
 			await expect
-				.poll(() =>
-					phone.evaluate(async id => (await window.omp.tabs.list()).find(t => t.tabId === id)?.status, tabA),
+				.poll(
+					() =>
+						phone.evaluate(
+							async id => (await window.omp.tabs.list()).find(t => t.tabId === id && t.active)?.status,
+							tabA,
+						),
+					{ timeout: 60_000 },
 				)
 				.toBe("ready");
 			// A turn that keeps running while the phone switches to another tab.
@@ -700,10 +706,11 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 				id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
 				tabA,
 			);
-			expect(started.success).toBe(true);
+			expect(started.success, JSON.stringify(started)).toBe(true);
 			// A second session from the phone's own drawer: the page moves onto it.
 			await phone.getByRole("button", { name: "Open menu" }).click();
-			await phone.locator("[data-drawer] [data-sidebar-new-agent]").first().click();
+			// A code session starts from its project row's + (the sidebar has no New session button).
+			await phone.locator("[data-drawer] [data-sidebar-group-new]").first().click();
 			await expect
 				.poll(() => phone.evaluate(async () => (await window.omp.tabs.list()).length), { timeout: 30_000 })
 				.toBe(2);
@@ -758,16 +765,19 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 					timeout: 30_000,
 				})
 				.toBe(1);
-			// Nothing else goes by the steer's echo: it shows once, and the record holds one frame.
+			// Nothing else goes by the steer's echo: until the loop takes it the steer waits in the queue (or shows as
+			// its echo), never twice, and the record holds one frame.
 			await phone.waitForTimeout(1500);
-			await expect(steerRows).toHaveCount(1);
+			expect(await steerRows.count()).toBeLessThanOrEqual(1);
 			// A web page's composer leaves the choice to the host: stock's steer is a prompt with `streamingBehavior: "steer"`.
 			expect((await dFrames(record)).filter(dSent)).toMatchObject([{ type: "prompt", streamingBehavior: "steer" }]);
-			// The running loop takes the steer in as its own user message; the page's own echo of it gives way.
+			// The running loop takes the steer in as its own user message: it stays on the page (its row, or the work
+			// card's steer note once the card folds it) and the record still holds the one frame.
 			expect(await dBash(phone, tabA, "fixture:steer-next")).toMatchObject({ success: true });
-			await expect(steerRows).toHaveCount(1, { timeout: 30_000 });
-			await phone.waitForTimeout(1500);
-			await expect(steerRows).toHaveCount(1);
+			await expect
+				.poll(() => phone.getByText("steer from the phone", { exact: true }).count(), { timeout: 30_000 })
+				.toBeGreaterThan(0);
+			expect((await dFrames(record)).filter(dSent)).toHaveLength(1);
 			expect(await dBash(phone, tabA, "fixture:steer-finish")).toMatchObject({ success: true });
 			await expect(phone.getByRole("button", { name: /^(Stop|중지)$/ })).toHaveCount(0, { timeout: 30_000 });
 		});

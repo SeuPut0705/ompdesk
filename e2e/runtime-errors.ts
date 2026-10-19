@@ -1,23 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect } from "@playwright/test";
-
-/** The `gui-runtime.jsonl` sources that mean something went wrong the user may have seen or a process broke. */
-const ERROR_SOURCES: Record<string, true> = {
-	"react-render": true,
-	"react-uncaught": true,
-	"react-recoverable": true,
-	"window-error": true,
-	"unhandled-rejection": true,
-	"renderer-console": true,
-	"renderer-load": true,
-	preload: true,
-	"renderer-process": true,
-	"renderer-unresponsive": true,
-	"main-uncaught": true,
-	"main-unhandled-rejection": true,
-	"error-toast": true,
-};
+import { isRuntimeFailure, type RuntimeLogLine } from "./runtime-error-lines";
 
 export interface RuntimeError {
 	source: string;
@@ -25,7 +9,7 @@ export interface RuntimeError {
 	line: string;
 }
 
-/** Every error line of `<userData>/logs/gui-runtime.jsonl` (rotated `.1` included), oldest first. */
+/** Every failure line of `<userData>/logs/gui-runtime.jsonl` (rotated `.1` included), oldest first. */
 export async function runtimeErrors(userData: string): Promise<RuntimeError[]> {
 	const file = path.join(userData, "logs", "gui-runtime.jsonl");
 	const text = [
@@ -35,14 +19,14 @@ export async function runtimeErrors(userData: string): Promise<RuntimeError[]> {
 	const errors: RuntimeError[] = [];
 	for (const line of text.split("\n")) {
 		if (!line.trim()) continue;
-		let entry: { source?: unknown; message?: unknown };
+		let entry: RuntimeLogLine;
 		try {
-			entry = JSON.parse(line) as typeof entry;
+			entry = JSON.parse(line) as RuntimeLogLine;
 		} catch {
 			continue;
 		}
+		if (!isRuntimeFailure(entry)) continue;
 		const source = typeof entry.source === "string" ? entry.source : "";
-		if (!ERROR_SOURCES[source]) continue;
 		errors.push({ source, message: typeof entry.message === "string" ? entry.message : "", line });
 	}
 	return errors;
