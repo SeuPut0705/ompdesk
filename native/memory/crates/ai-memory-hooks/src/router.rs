@@ -2968,25 +2968,39 @@ async fn resolve_project_ids_inner(
     // match below deliberately keep `cwd_norm` (case-folded) so #806 handoff
     // stickiness is unaffected, and `derive_project_from_cwd` re-normalizes the
     // repo_path it returns regardless of the input casing.
-    let (project_name, repo_path) = match (project_override, cwd_raw, cwd_norm.as_deref()) {
-        (Some(p), _, Some(c)) => (
-            p.to_string(),
-            repo_path_from_project_override(c, p, project_strategy),
-        ),
-        (Some(p), _, None) => (p.to_string(), None),
-        (None, Some(raw), Some(_)) => match derive_project_from_cwd(raw, project_strategy) {
-            Some(resolved) => resolved,
-            None => return Ok((state.workspace_id, state.project_id)),
-        },
-        _ => {
-            // The early-return at the top of the function guards
-            // against a cwd-less, override-less event; the explicit
-            // fallback here keeps the resolver panic-free if that guard
-            // ever moves or gets refactored. Same effect as
-            // `unreachable!`, but visible at compile time instead of
-            // inside the panic message.
-            return Ok((state.workspace_id, state.project_id));
+    //
+    // Both probes read the disk (git discovery, canonicalize) and run on the
+    // blocking pool: an `open()` there can wait indefinitely (on macOS, a
+    // launchd-run server reaching into a TCC-protected folder whose prompt is
+    // unanswered), and on a runtime worker enough such waits held every
+    // worker, so the server stopped answering anything, `/healthz` included.
+    let probe_override = project_override.map(str::to_owned);
+    let probe_raw = cwd_raw.map(str::to_owned);
+    let probe_norm = cwd_norm.clone();
+    let probed = tokio::task::spawn_blocking(move || {
+        match (
+            probe_override.as_deref(),
+            probe_raw.as_deref(),
+            probe_norm.as_deref(),
+        ) {
+            (Some(p), _, Some(c)) => Some((
+                p.to_string(),
+                repo_path_from_project_override(c, p, project_strategy),
+            )),
+            (Some(p), _, None) => Some((p.to_string(), None)),
+            (None, Some(raw), Some(_)) => derive_project_from_cwd(raw, project_strategy),
+            // The early-return at the top of the function guards against a
+            // cwd-less, override-less event; the explicit fallback here keeps
+            // the resolver panic-free if that guard ever moves or gets
+            // refactored. Same effect as `unreachable!`, but visible at
+            // compile time instead of inside the panic message.
+            _ => None,
         }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("project probe for the event's cwd failed: {e}"))?;
+    let Some((project_name, repo_path)) = probed else {
+        return Ok((state.workspace_id, state.project_id));
     };
 
     // The reserved global preferences scope (issue #154) and the profile
