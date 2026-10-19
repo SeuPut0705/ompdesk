@@ -693,6 +693,34 @@ describe("LocalHostServices", () => {
 		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
 	});
 
+	it("deletes a session the device's own tabs still hold from an earlier connection or as a duplicate, never one running a turn", async () => {
+		const { services, sidecars, deleteSession } = setup();
+		const before = new FakeConnection(peer("device-x"));
+		await services.call(before.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: false }, before);
+		await services.call(before.peer, "tab.start", { rtab: "old" }, before);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		services.disconnected(before.peer, before);
+
+		// The relaunched device never showed that tab, so it closes nothing first: a running turn refuses.
+		const after = new FakeConnection(peer("device-x"));
+		const refused = await services
+			.call(after.peer, "sessions.delete", { sessionPath: "/s/x.jsonl" }, after)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_running");
+		expect(sidecars[0]?.disposed).toBe(false);
+
+		// Idle, the device's own leftover tab is released and the file goes.
+		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
+		const deleting = services.call(after.peer, "sessions.delete", { sessionPath: "/s/x.jsonl" }, after);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecars[0]?.disposed).toBe(true);
+		sidecars[0]?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
+	});
+
 	it("refuses to delete a session another device's live host tab holds", async () => {
 		const { services, sidecars, deleteSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
