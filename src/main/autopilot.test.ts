@@ -73,6 +73,8 @@ class World {
 	failGoalResume = false;
 	/** What the bridge answers `modes.autopilot_guide` with. */
 	guide: unknown = { exists: false, text: "" };
+	/** Stock's session name per tab (`set_session_name` / `get_state`). */
+	sessionNames = new Map<string, string>();
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -87,6 +89,8 @@ class World {
 		if (type === "get_plan_mode") return ok({ enabled: this.plan });
 		if (type === "get_goal") return ok(this.goal);
 		if (type === "get_session_stats") return ok(this.stats.get(tab) ?? { tokens: { total: 0 }, cost: 0 });
+		if (type === "set_session_name") this.sessionNames.set(tab, String(rest.name));
+		if (type === "get_state") return ok({ sessionName: this.sessionNames.get(tab) ?? null });
 		if (type === "set_goal" && rest.objective && this.failGoalCreate) return fail("goal refused");
 		if (type === "set_goal" && rest.action === "resume" && this.failGoalResume)
 			return fail("No paused goal to resume.");
@@ -398,6 +402,24 @@ describe("start", () => {
 			settings: { focus: ["tests"], ship: { autoPush: true } },
 		});
 		expect(await fs.stat(path.join(tmp, "wt-2026-10-17"))).toBeTruthy();
+	});
+
+	it("titles the run's session from the start, then by its first cycle's item, never over the user's own name", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		expect(world.sessionNames.get("ap-1")).toBe(`Autopilot · ${path.basename(main)}`);
+		const base = world.statuses.get("ap-1") as AutopilotStatus;
+		const picked = { ...base, now: { n: 1, startedAt: 1, area: "bugs" as const, title: "Fix slugify spaces" } };
+		autopilot.overlay(sidecar, { type: "autopilot_update", status: picked });
+		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces"));
+		// The user renames it; a later cycle-1 frame changes nothing.
+		world.sessionNames.set("ap-1", "mine");
+		autopilot.overlay(sidecar, {
+			type: "autopilot_update",
+			status: { ...picked, now: { ...picked.now, title: "x" } },
+		});
+		await autopilot.idle();
+		expect(world.sessionNames.get("ap-1")).toBe("mine");
 	});
 
 	describe("the ship level nobody chose", () => {

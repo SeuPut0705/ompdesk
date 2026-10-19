@@ -21,7 +21,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
 	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_BRIDGE_METHODS,
@@ -222,6 +222,8 @@ interface Run {
 	/** The cycle-end pipeline of one run is sequential. */
 	chain: Promise<unknown>;
 	refreshing: boolean;
+	/** The title this run gave its session (`runSessionTitle`), and whether it already names the first cycle's item. */
+	title?: { name: string; item: boolean };
 	refreshAgain: boolean;
 	stopPolling: (() => void) | null;
 	releaseItem?: string;
@@ -262,6 +264,18 @@ const COMPLETION_REASONS: ReadonlySet<string> = new Set(["budget", "time", "cycl
 export function localDate(date: Date): string {
 	const pad = (value: number) => String(value).padStart(2, "0");
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+const TITLE_ITEM_MAX = 40;
+
+/**
+ * The run's session title, `<prefix> · <what>`: the repository's folder name from the moment the run starts, then its
+ * first cycle's picked item. Stock's auto title names a session from the user's first message, and a run has none, so
+ * without this the run's row read "Untitled".
+ */
+export function runSessionTitle(prefix: string, what: string): string {
+	const text = what.replace(/\s+/g, " ").trim();
+	return `${prefix} · ${text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text}`;
 }
 
 /** The settings of a start: defaults, then the stored prefs the sheet prefilled, then what the start sent. */
@@ -434,6 +448,11 @@ export class Autopilot {
 		if (!run || !status?.active) return frame;
 		run.status = status;
 		if (status.settings) run.settings = status.settings;
+		const first = status.now?.n === 1 ? status.now.title : undefined;
+		if (first && run.title && !run.title.item) {
+			run.title = { ...run.title, item: true };
+			void this.#retitle(run, first);
+		}
 		return { ...frame, status: this.#overlaid(run, status) };
 	}
 
@@ -660,6 +679,7 @@ export class Autopilot {
 		run.starting = true;
 		try {
 			await this.#ready(newTab);
+			await this.#retitle(run, basename(toplevel));
 			const arm: AutopilotArmParams = {
 				role: "parent",
 				root: made.path,
@@ -1503,6 +1523,21 @@ export class Autopilot {
 		const response = await this.#stockResponse(tabId, command);
 		if (!response.success) throw new Error(response.error ?? `${String(command.type)} failed`);
 		return response.data as T;
+	}
+
+	/** Names the run's session (`runSessionTitle`); a later rename only replaces the run's own title, never the user's. */
+	async #retitle(run: Run, what: string): Promise<void> {
+		const name = runSessionTitle(this.#deps.text("autopilot.sessionTitle"), what);
+		try {
+			if (run.title) {
+				const state = await this.#stock<{ sessionName?: string | null }>(run.tabId, { type: "get_state" });
+				if ((state.sessionName ?? "") !== run.title.name) return;
+			}
+			await this.#stock(run.tabId, { type: "set_session_name", name });
+			run.title = { name, item: run.title?.item ?? false };
+		} catch (error) {
+			this.#log(`naming the run's session failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	async #ready(tabId: string): Promise<SidecarLike> {
