@@ -2213,9 +2213,11 @@ describe("LocalHostServices host.git.*: a device's agent working on a session th
 		const root = join(workDir, "wt");
 		const asked: unknown[] = [];
 		const { services, local } = setup(undefined, {
-			request: async <T>(method: string, request?: unknown) => {
-				asked.push({ method, request });
-				return { root, hash: "abc1234" } as T;
+			worktreeLocation: {
+				request: async <T>(method: string, request?: unknown) => {
+					asked.push({ method, request });
+					return { root, hash: "abc1234" } as T;
+				},
 			},
 		});
 		// No omp runs on this computer: the location never comes from a session.
