@@ -107,6 +107,10 @@ function ConnectStep() {
 	const justConnected = useRef<string | null>(null);
 	const [connected, setConnected] = useState<string | null>(null);
 	const settling = useRef(false);
+	// What already served when this step opened (Back from the model step, or setup reopened on purpose): only a
+	// provider that connects after that ends the setup, or Back would land on the model step again at once.
+	const servingAtOpen = useRef<ReadonlySet<string> | null>(null);
+	servingAtOpen.current ??= servingProviderIds(providers, customConfigs);
 	const advance = useCallback(
 		async (providerId: string) => {
 			justConnected.current = providerId;
@@ -124,10 +128,10 @@ function ConnectStep() {
 	useEffect(() => {
 		if (provisional || customForm || login.state.running || settling.current) return;
 		const serving = servingProviderIds(providers, customConfigs);
-		if (serving.size === 0 && connected === null) return;
+		const [arrived] = [...serving].filter(id => !servingAtOpen.current?.has(id));
+		if (arrived === undefined && connected === null) return;
 		settling.current = true;
-		const [first] = serving;
-		const preferred = justConnected.current ?? first ?? null;
+		const preferred = justConnected.current ?? arrived ?? null;
 		void (async () => {
 			const models = await refreshAvailableModels(false).then(
 				result => result.models,
