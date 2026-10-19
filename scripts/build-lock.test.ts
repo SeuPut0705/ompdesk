@@ -3,17 +3,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { quoteForCmd } from "./build-lock";
+import { run } from "./build-lock";
 import { type LockLogEntry, readLockLog } from "./lock-log";
 
-describe("quoteForCmd", () => {
-	it("keeps plain arguments and quotes the ones cmd.exe would split or expand", () => {
-		expect(quoteForCmd("e2e/smoke.e2e.ts")).toBe("e2e/smoke.e2e.ts");
-		expect(quoteForCmd("responsive 390P-light-en$")).toBe('"responsive 390P-light-en$"');
-		expect(quoteForCmd("a&b")).toBe('"a&b"');
-		expect(quoteForCmd("")).toBe('""');
-		expect(quoteForCmd('say "hi"')).toBe('"say \\"hi\\""');
-		expect(quoteForCmd("C:\\My Dir\\")).toBe('"C:\\My Dir\\\\"');
+describe("run", () => {
+	it("delivers spaces, quotes, %PATH%, & and ^ to a native child unchanged", async () => {
+		const args = ["a b", 'say "hi"', "%PATH%", "x&y", "c^d", ""];
+		const script = "process.stdout.write(JSON.stringify(process.argv.slice(1)))";
+		const result = await run(["node", "-e", script, ...args], { capture: true });
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.output)).toEqual(args);
 	});
 });
 

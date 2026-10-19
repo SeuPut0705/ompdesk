@@ -27,6 +27,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
+import { findOnPath, launcherNames, needsShell, spawnArgs, spawnCommand } from "../src/main/spawn";
 import { appendLockLog, commandKind } from "./lock-log";
 import {
 	acquireSlot,
@@ -214,10 +215,16 @@ export interface RunResult {
 	output: string;
 }
 
-/** One argument for a cmd.exe command line: quoted when it holds a space or a metacharacter. */
-export function quoteForCmd(arg: string): string {
-	if (arg !== "" && !/[\s"&|<>^()%!]/.test(arg)) return arg;
-	return `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+/** The file to start and how: Windows resolves `bunx` to `bunx.exe` (no shell) or a `.cmd` shim (cmd.exe). */
+export function resolveLaunch(
+	file: string,
+	args: string[],
+	platform: NodeJS.Platform = process.platform,
+	pathEnv = process.env.PATH ?? process.env.Path ?? "",
+): { file: string; args: string[]; shell: boolean } {
+	if (platform !== "win32" || /[\\/]/.test(file)) return { file, args, shell: needsShell(file, platform) };
+	const bin = findOnPath(launcherNames(file, "win32"), pathEnv, "win32") ?? file;
+	return { file: spawnCommand(bin, platform), args: spawnArgs(bin, args, platform), shell: needsShell(bin, platform) };
 }
 
 /**
@@ -226,17 +233,15 @@ export function quoteForCmd(arg: string): string {
  */
 export function run(command: string[], options: { capture?: boolean } = {}): Promise<RunResult> {
 	const started = performance.now();
-	const [file, ...rest] = command;
-	if (!file) throw new Error("No command");
-	// Windows needs cmd.exe to start `bunx`/`npx` shims (.cmd), and cmd.exe gets one joined line, so an
-	// argument with a space or a cmd metacharacter (a Playwright `-g` title, a path) must be quoted.
+	const [first, ...rest] = command;
+	if (!first) throw new Error("No command");
 	const win = process.platform === "win32";
-	const args = win ? rest.map(quoteForCmd) : rest;
+	const { file, args, shell } = resolveLaunch(first, rest);
 	const child = spawn(file, args, {
 		// stdin stays closed: a child in its own process group reading the terminal would stop on SIGTTIN.
 		stdio: ["ignore", options.capture ? "pipe" : "inherit", options.capture ? "pipe" : "inherit"],
 		detached: !win,
-		shell: win,
+		shell,
 	});
 	children.add(child);
 	const chunks: Buffer[] = [];
