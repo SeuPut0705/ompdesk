@@ -26,6 +26,7 @@ import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import type { ClientWindow } from "./web/client-window";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
 import { micaSupported, windowChromeOptions } from "./window-chrome";
+import { showOnFirstPaint } from "./window-show";
 
 interface WindowState {
 	x?: number;
@@ -193,7 +194,8 @@ export class WindowManager {
 		this.#loadRenderer(record);
 		this.#markSoftwareCompositing(win);
 
-		win.once("ready-to-show", () => {
+		showOnFirstPaint(win, win.webContents, () => {
+			if (win.isDestroyed()) return;
 			// OMP_GUI_HEADLESS (e2e): index.ts makes windows transparent; never take focus.
 			if (process.env.OMP_GUI_HEADLESS === "1") win.showInactive();
 			else win.show();
