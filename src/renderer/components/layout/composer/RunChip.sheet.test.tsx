@@ -14,6 +14,7 @@ import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
+import { useSettingsStore } from "../../../stores/settings";
 
 const { document, window, Event, HTMLElement, Element, Node, PointerEvent } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -55,7 +56,7 @@ const { RunChip } = await import("./RunChip");
 let container: HTMLElement;
 let root: Root;
 
-async function openSheet(): Promise<Element> {
+async function openSheet(options: { openAdvanced?: boolean } = {}): Promise<Element> {
 	useSessionStore.setState({ sessionId: "s1", status: "ready" });
 	useModelStore.setState({
 		model: { provider: "acme", id: "big" } as never,
@@ -77,11 +78,13 @@ async function openSheet(): Promise<Element> {
 		);
 	});
 	await act(async () => (container.querySelector("[data-run-settings-trigger]") as HTMLElement).click());
-	// Advanced opens by itself while a value is not the default; open it otherwise, so every row is on screen.
-	const advanced = Array.from(document.querySelectorAll("button")).find(
-		button => button.textContent?.trim() === translate("input.runSettings.advanced"),
-	) as HTMLElement | undefined;
-	if (advanced?.getAttribute("aria-expanded") !== "true") await act(async () => advanced?.click());
+	// Advanced starts closed; open it so every row is on screen.
+	if (options.openAdvanced !== false) {
+		const advanced = Array.from(document.querySelectorAll("button")).find(
+			button => button.textContent?.trim() === translate("input.runSettings.advanced"),
+		) as HTMLElement | undefined;
+		if (advanced?.getAttribute("aria-expanded") !== "true") await act(async () => advanced?.click());
+	}
 	// The Context rows read the settings first.
 	await act(async () => {
 		await new Promise(resolve => setTimeout(resolve, 0));
@@ -96,6 +99,7 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	useModelStore.getState().reset();
+	useSettingsStore.getState().reset();
 	useSessionStore.getState().reset();
 	vi.clearAllMocks();
 });
@@ -156,5 +160,17 @@ describe("the Run sheet is one line per row", () => {
 		const row = sheet.querySelector("[data-context-size]");
 		expect(row?.textContent).toContain(translate("input.runSettings.contextLimit"));
 		expect(row?.querySelector("[data-setting-info]")).not.toBeNull();
+	});
+});
+
+describe("Advanced", () => {
+	it("starts closed even when a value in it differs from the default", async () => {
+		useSettingsStore.setState({ interruptMode: "immediate", autoRetry: false });
+		await openSheet({ openAdvanced: false });
+		const advanced = Array.from(document.querySelectorAll("button")).find(
+			button => button.textContent?.trim() === translate("input.runSettings.advanced"),
+		);
+		expect(advanced?.getAttribute("aria-expanded")).toBe("false");
+		expect(advanced?.parentElement?.querySelector("[data-switch-grid]")).toBeNull();
 	});
 });

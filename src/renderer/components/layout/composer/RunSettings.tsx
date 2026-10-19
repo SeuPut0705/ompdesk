@@ -168,12 +168,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 	const interruptMode = useSettingsStore(s => s.interruptMode);
 	const prewalkArmed = useSessionStore(s => s.prewalkArmed);
 	const { pending, run } = useSessionToggle();
-	// Defaults: auto-compaction and auto-retry on, steering one at a time,
-	// interrupts wait for the tool, prewalk unarmed. A changed value opens the
-	// section so non-default behavior is never hidden.
-	const advancedChanged =
-		!autoCompaction || !autoRetry || prewalkArmed || steeringMode === "all" || interruptMode === "immediate";
-	const [advancedOpen, setAdvancedOpen] = useState(advancedChanged);
+	const [advancedOpen, setAdvancedOpen] = useState(false);
 
 	return (
 		<>
