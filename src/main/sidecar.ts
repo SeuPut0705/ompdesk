@@ -11,6 +11,7 @@ import { stripVTControlCharacters } from "node:util";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_ENV, JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
+import { MEMORY_ENV } from "../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { OMPDESK_ROLES_ENV } from "../../resources/gui-bridge/ompdesk-role-contracts";
@@ -62,6 +63,35 @@ const HEALTH_RECOVERY_PROBE_MS = 5_000;
 const BRIDGE_ENTRY = "index.ts";
 /** `--config` overlay pinning `autoResume: false` so a fresh tab never reopens the last session. */
 const FRESH_LAUNCH_CONFIG = "fresh-launch.yml";
+
+/**
+ * The variables this sidecar (and sidecar-factory's `builtinMcp.env`) sets per spawn from its own options. One
+ * inherited from the environment OMPdesk was started in (a dev or test run launched from an OMPdesk session's shell)
+ * describes that other app's session: its bridge socket, delegation, memory file. So none is ever passed through;
+ * each spawn sets only its own.
+ */
+const SESSION_OWNED_ENV = [
+	"OMP_GUI_BRIDGE",
+	"OMP_GUI_REPLY_LANGUAGE",
+	"OMP_GUI_USER_PROFILE",
+	"OMP_GUI_NEXT_PROMPT",
+	"OMP_GUI_AUTO_TITLE",
+	JUDGE_ASSIST_ENV,
+	"OMP_GUI_PROMPT_ORIGIN",
+	"OMP_GUI_DELEGATION",
+	"OMP_GUI_ACCOUNT_ROTATION",
+	"OMP_GUI_ACCOUNT_ROTATION_STATE",
+	OMPDESK_ROLES_ENV,
+	"OMP_GUI_REA_ROOT",
+	"OMP_GUI_PSTACK",
+	MEMORY_ENV,
+] as const;
+
+function withoutSessionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const own = { ...env };
+	for (const key of SESSION_OWNED_ENV) delete own[key];
+	return own;
+}
 
 /** Stock commands after which the sidecar's session identity is unknown until the next `get_state`. */
 const SESSION_CHANGING_COMMANDS: Record<string, true> = {
@@ -568,10 +598,10 @@ export class SidecarManager extends EventEmitter {
 			child = spawn(spawnCommand(bin), spawnArgs(bin, args), {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
-					...process.env,
-					// Login-shell PATH first so the GUI proxy pref (and inherited
-					// proxy env) keeps precedence over rc-file proxy exports.
-					...this.#shellEnvVars,
+					// Login-shell env over the app's own, then the GUI proxy pref (and inherited proxy env) over
+					// rc-file proxy exports. What another OMPdesk session left in either is never this tab's
+					// (`SESSION_OWNED_ENV`).
+					...withoutSessionEnv({ ...process.env, ...this.#shellEnvVars }),
 					...this.#proxyEnvVars,
 					PATH: ompPathEnv(bin, this.#shellEnvVars.PATH ?? process.env.PATH ?? ""),
 					...(bridgeAddress ? { OMP_GUI_BRIDGE: bridgeAddress } : {}),

@@ -673,6 +673,52 @@ describe("SidecarManager spawn env", () => {
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	});
+
+	it("never passes on the session variables another OMPdesk session left in the app's or the login shell's environment", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-inherited-"));
+		const envPath = path.join(tempDir, "env.json");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("OMP_GUI_")))));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		// What an OMPdesk session's shell exports (a dev run started from one), plus a test hook that must still pass.
+		const parent: Record<string, string> = {
+			OMP_GUI_BRIDGE: path.join(tempDir, "parent-bridge.sock"),
+			OMP_GUI_JUDGE_ASSIST: "1",
+			OMP_GUI_DELEGATION: "solo",
+			OMP_GUI_MEMORY: path.join(tempDir, "parent-recall.json"),
+			OMP_GUI_REPLY_LANGUAGE: "Korean",
+			OMP_GUI_TEST_KEEP: "kept",
+		};
+		const saved = Object.fromEntries(Object.keys(parent).map(key => [key, process.env[key]]));
+		Object.assign(process.env, parent);
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			shellEnv: async () => ({ OMP_GUI_PSTACK: "1", OMP_GUI_ACCOUNT_ROTATION: "even" }),
+		});
+		try {
+			sidecar.start();
+			await expect
+				.poll(() => fs.readFile(envPath, "utf8").catch(() => ""), { timeout: 5_000, interval: 25 })
+				.not.toBe("");
+			const seen = JSON.parse(await fs.readFile(envPath, "utf8")) as Record<string, string>;
+			expect(seen.OMP_GUI_TEST_KEEP).toBe("kept");
+			for (const key of [...Object.keys(parent), "OMP_GUI_PSTACK", "OMP_GUI_ACCOUNT_ROTATION"]) {
+				if (key !== "OMP_GUI_TEST_KEEP") expect(seen[key], key).toBeUndefined();
+			}
+		} finally {
+			sidecar.dispose();
+			for (const [key, value] of Object.entries(saved)) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
 });
 
 /** A fake omp that serves the gui-bridge socket, answers `{}` and logs every request to `logPath`. */
