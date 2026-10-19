@@ -190,9 +190,9 @@ export interface ScheduleRow {
 	lastStatus: string | null;
 }
 
-/** The Schedules service seen by `ompdesk_schedule` (`host.ts` adapts `src/main/schedules.ts`). */
+/** The Schedules service seen by `ompdesk_schedule` (`host.ts` adapts `src/main/schedules.ts`, or a paired host's over the link). */
 export interface ScheduleSource {
-	list(): ScheduleRow[];
+	list(): Promise<ScheduleRow[]>;
 	save(draft: ScheduleDraft): Promise<ScheduleRow>;
 	remove(id: string): Promise<void>;
 }
@@ -277,8 +277,8 @@ export interface AgentControlHost {
 	removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval>;
 	/** Remember a session closed after its work landed, so its opener's family still lists it. */
 	recordClosed(child: ClosedChild): void;
-	/** The Schedules service (Settings › Schedules), or null where there is none. */
-	schedules(): ScheduleSource | null;
+	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
+	schedules(device?: string): ScheduleSource | null;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
 	observe(listener: () => void): () => void;
 	/** Autopilot: a stop of the caller's work is in flight; nothing new may start. */
@@ -2162,37 +2162,50 @@ export class AgentControl {
 		}
 	}
 
-	/** `ompdesk_schedule`: create, list or cancel the runs an agent put on the Schedules service. */
+	/** `ompdesk_schedule`: create, list or cancel the runs an agent put on the Schedules service of a device. */
 	async #schedule(caller: ControlTab, args: ScheduleArgs): Promise<string> {
-		const source = this.#host.schedules();
-		if (!source) fail("Scheduled runs are not available here.");
-		const rows = source.list();
+		// Default: the device the caller's own session runs on, so its folder is a path there.
+		let device: ControlDevice | null;
+		if (args.device !== undefined) device = this.#device(args.device);
+		else if (caller.device) {
+			const own = this.#host.devices().find(entry => entry.id === caller.device);
+			if (!own) fail(`${caller.deviceName ?? caller.device} is no longer a paired device.`);
+			device = own;
+		} else device = null;
+		if (device) this.#online(device);
+		const where = device ? `on ${device.name}` : "on this computer";
+		const source = this.#host.schedules(device?.id);
+		if (!source) fail(`Scheduled runs are not available ${where}.`);
+		const rows = await source.list();
 		if (args.action === "list") {
-			if (rows.length === 0) return "No scheduled runs.";
-			return rows
-				.map(
+			if (rows.length === 0) return `No scheduled runs ${where}.`;
+			return [
+				`Scheduled runs ${where}:`,
+				...rows.map(
 					row =>
 						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; ${row.enabled ? `next ${row.nextRun ?? "—"}` : "off"}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can cancel it]" : " [the user's own: leave it]"}`,
-				)
-				.join("\n");
+				),
+			].join("\n");
 		}
+		const deviceArg = device ? `,"device":${JSON.stringify(device.name)}` : "";
 		if (args.action === "cancel") {
 			const id = args.id ?? "";
 			const row =
 				rows.find(entry => entry.id === id) ??
 				rows.find(entry => id.length >= SESSION_PREFIX_MIN && entry.id.startsWith(id));
-			if (!row) fail(`No scheduled run "${id}". ompdesk_schedule {"action":"list"} shows them.`);
+			if (!row)
+				fail(`No scheduled run "${id}" ${where}. ompdesk_schedule {"action":"list"${deviceArg}} shows them.`);
 			if (!row.name.startsWith(AGENT_SCHEDULE_PREFIX))
 				fail(`“${row.name}” is the user's own schedule; only the user changes it (Settings › Schedules).`);
 			await source.remove(row.id);
-			return `Cancelled “${row.name}”.`;
+			return `Cancelled “${row.name}” ${where}.`;
 		}
-		if (caller.deviceName)
-			fail("Scheduled runs start on this computer; a session on a paired host cannot create one.");
 		const frequency: ScheduleFrequency =
 			args.every_minutes !== undefined
 				? { kind: "interval", minutes: args.every_minutes }
 				: { kind: "daily", time: args.daily_at ?? "09:00", days: [...new Set(args.days ?? [])].sort() };
+		// The caller's folder is a path on its own device; another device needs its folder named.
+		if (!args.folder && device?.id !== caller.device) fail(`folder is required: name an absolute folder ${where}.`);
 		const cwd = args.folder ?? caller.cwd;
 		if (!(cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd))) fail("folder must be an absolute path.");
 		const name = `${AGENT_SCHEDULE_PREFIX}${args.name ?? ""}`;
@@ -2204,7 +2217,7 @@ export class AgentControl {
 					caller: caller.title || "—",
 					name: args.name ?? "",
 					when: describeFrequency(frequency),
-					folder: cwd,
+					folder: device ? `${cwd} (${device.name})` : cwd,
 				}),
 			);
 			if (!approved) return "The user declined the schedule. Do not ask again unless they tell you to.";
@@ -2218,7 +2231,7 @@ export class AgentControl {
 			autoApprove: false,
 			enabled: true,
 		});
-		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`;
+		return `Scheduled “${row.name}” ${describeFrequency(frequency)} in ${cwd} ${where}; id ${row.id}; next run ${row.nextRun ?? "—"}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.`;
 	}
 
 	/** `ompdesk_autopilot`: start, read or stop an Autopilot run through the coordinator the Autopilot screen uses. */

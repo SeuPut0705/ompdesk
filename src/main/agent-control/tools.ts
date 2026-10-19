@@ -358,7 +358,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.schedule,
 		label: "Schedule an OMPdesk run",
-		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
+		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open on that device (its Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). device picks the computer it runs on (default: the one your session runs on). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -368,7 +368,11 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					type: "string",
 					description: "create: what each run is asked; it has no memory of this conversation.",
 				},
-				folder: { type: "string", description: "create: absolute project folder; default your own." },
+				folder: {
+					type: "string",
+					description:
+						"create: absolute project folder on that device; default your own (required on another device).",
+				},
 				every_minutes: {
 					type: "integer",
 					description: "create: repeat every N minutes.",
@@ -380,6 +384,10 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					description: "create with daily_at: weekdays, 0 = Sunday.",
 				},
 				model: { type: "string", description: "create: provider/id; default omp's default model." },
+				device: {
+					...DEVICE,
+					description: `${DEVICE.description} The computer whose schedules these are. Default: the device your own session runs on.`,
+				},
 				id: { type: "string", description: "cancel: the schedule id list shows." },
 			},
 			required: ["action"],
@@ -741,6 +749,7 @@ export const ARGS = {
 			days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
 			model: z.string().trim().min(1).max(200).optional(),
 			id: z.string().trim().min(1).max(200).optional(),
+			device: deviceArg.optional(),
 		})
 		.strict()
 		.superRefine((args, ctx) => {

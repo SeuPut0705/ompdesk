@@ -377,7 +377,7 @@ describe("AgentControlRuntime", () => {
 		});
 		expect(created.isError, created.text).toBe(false);
 		expect(created.text).toContain("id sched-1; next run 10:30");
-		expect(requests[0]).toMatchObject({
+		expect(requests.find(request => request.action === "save")).toMatchObject({
 			action: "save",
 			draft: { prompt: "run the checks", cwd: "/repo", autoApprove: false, enabled: true },
 		});
@@ -387,6 +387,55 @@ describe("AgentControlRuntime", () => {
 		expect(cancelled.isError).toBe(false);
 		expect(requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
 		expect(state.schedules).toEqual([]);
+	});
+
+	it("sends a paired host's schedules to that host's own service over the link", async () => {
+		let state: SchedulesState = { paused: false, schedules: [], runs: [], nextRuns: {} };
+		const request = vi.fn(async (_device: string, _method: string, params: unknown) => {
+			const { request: command } = params as { request: SchedulesRequest };
+			if (command.action === "save")
+				state = {
+					...state,
+					schedules: [...state.schedules, { ...command.draft, id: "host-s1", createdAt: "2026-10-19T00:00:00Z" }],
+					nextRuns: { "host-s1": "11:00" },
+				};
+			if (command.action === "delete")
+				state = { ...state, schedules: state.schedules.filter(schedule => schedule.id !== command.id) };
+			return state;
+		});
+		const local = { command: vi.fn() };
+		const { runtime, win } = setup({
+			schedules: () => local,
+			remote: { hosts: () => [{ deviceId: "dev-1", name: "Studio", state: "online" }], request: request as never },
+		});
+		const created = await runtime.run(win, "main0001", T.schedule, {
+			action: "create",
+			name: "Nightly",
+			prompt: "p",
+			every_minutes: 60,
+			device: "Studio",
+			folder: "/srv/app",
+		});
+		expect(created.isError, created.text).toBe(false);
+		expect(created.text).toContain("in /srv/app on Studio; id host-s1");
+		expect(request).toHaveBeenCalledWith("dev-1", "host.schedules.command", {
+			request: expect.objectContaining({
+				action: "save",
+				draft: expect.objectContaining({ name: "[agent] Nightly", cwd: "/srv/app", autoApprove: false }),
+			}),
+		});
+		expect((await runtime.run(win, "main0001", T.schedule, { action: "list", device: "Studio" })).text).toContain(
+			"host-s1 “[agent] Nightly” every 60 min in /srv/app",
+		);
+		await runtime.run(win, "main0001", T.schedule, { action: "cancel", id: "host-s1", device: "Studio" });
+		expect(request).toHaveBeenLastCalledWith("dev-1", "host.schedules.command", {
+			request: { action: "delete", id: "host-s1" },
+		});
+		expect(state.schedules).toEqual([]);
+		expect(
+			request.mock.calls.every(([device, method]) => device === "dev-1" && method === "host.schedules.command"),
+		).toBe(true);
+		expect(local.command).not.toHaveBeenCalled();
 	});
 
 	it("lists and steers another window's sessions through that window", async () => {

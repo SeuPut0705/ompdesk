@@ -62,8 +62,9 @@ import {
 	type RpcResponse,
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
-import type { Schedule, SchedulesState } from "../../shared/schedules";
+import type { Schedule, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { describePreparation } from "../local/git/worktree-seed";
+import { SchedulesStateSchema } from "../remote/app-protocol";
 import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
@@ -156,7 +157,7 @@ export interface AgentControlHostDeps {
 		defaultBranch: (cwd: string, remote: string) => Promise<string | null>;
 	};
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
-	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
+	schedules?: () => Pick<ScheduleService, "command"> | null;
 	/** The app's own handlers `ompdesk_app` goes through (src/main/ipc.ts): the `IpcRegistry` for the window, `PREFS_SET`, the language. */
 	app?: {
 		invoke: (win: ClientWindow, channel: string, args: readonly unknown[]) => Promise<unknown>;
@@ -684,9 +685,22 @@ export class AgentControlRuntime {
 			landing: worktree => landingFacts(worktree),
 			removeSafeWorktree: worktree => removeSafeWorktree(worktree),
 			recordClosed: child => this.#recordClosed(child),
-			schedules: () => {
-				const service = deps.schedules?.();
-				if (!service) return null;
+			schedules: device => {
+				// One Settings › Schedules command on the machine that runs the schedules: this computer's service,
+				// or a paired host's own over the link (`host.schedules.command`), which checks the draft the same way.
+				let command: (request: SchedulesRequest) => Promise<SchedulesState>;
+				if (device) {
+					const remote = deps.remote;
+					if (!remote) return null;
+					command = async request =>
+						SchedulesStateSchema.parse(
+							await remote.request<unknown>(device, "host.schedules.command", { request }),
+						);
+				} else {
+					const service = deps.schedules?.();
+					if (!service) return null;
+					command = request => service.command(request);
+				}
 				const rowOf = (state: SchedulesState, schedule: Schedule): ScheduleRow => ({
 					id: schedule.id,
 					name: schedule.name,
@@ -697,19 +711,19 @@ export class AgentControlRuntime {
 					lastStatus: state.runs.find(run => run.scheduleId === schedule.id)?.status ?? null,
 				});
 				return {
-					list: () => {
-						const state = service.state();
+					list: async () => {
+						const state = await command({ action: "get" });
 						return state.schedules.map(schedule => rowOf(state, schedule));
 					},
 					save: async draft => {
-						const before = new Set(service.state().schedules.map(schedule => schedule.id));
-						const state = await service.command({ action: "save", draft });
+						const before = new Set((await command({ action: "get" })).schedules.map(schedule => schedule.id));
+						const state = await command({ action: "save", draft });
 						const made = state.schedules.find(schedule => !before.has(schedule.id));
 						if (!made) throw new Error("The schedule was not saved.");
 						return rowOf(state, made);
 					},
 					remove: async id => {
-						await service.command({ action: "delete", id });
+						await command({ action: "delete", id });
 					},
 				};
 			},

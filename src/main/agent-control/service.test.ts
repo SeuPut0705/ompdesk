@@ -154,7 +154,7 @@ class FakeHost implements AgentControlHost {
 	};
 	scheduleRows: ScheduleRow[] = [];
 	scheduleSource: ScheduleSource | null = {
-		list: () => this.scheduleRows,
+		list: async () => this.scheduleRows,
 		save: async draft => {
 			const row: ScheduleRow = {
 				id: `sched${this.scheduleRows.length + 1}000`,
@@ -174,7 +174,12 @@ class FakeHost implements AgentControlHost {
 		},
 	};
 	savedDrafts: ScheduleDraft[] = [];
-	schedules = () => this.scheduleSource;
+	/** The device each `schedules()` call asked for (undefined = this computer). */
+	scheduleDevices: (string | undefined)[] = [];
+	schedules = (device?: string) => {
+		this.scheduleDevices.push(device);
+		return this.scheduleSource;
+	};
 	autopilot: AutopilotSource | undefined;
 	observe = (listener: () => void) => {
 		this.listeners.add(listener);
@@ -1197,8 +1202,8 @@ describe("ompdesk_schedule", () => {
 		});
 	});
 
-	it("checks the folder, remote callers and bad arguments, and caps nothing", async () => {
-		const host = new FakeHost({ tabId: "main0001" }, { tabId: "remo0002", deviceName: "Studio" });
+	it("checks the folder and bad arguments, and caps nothing", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
 		host.manage = true;
 		const service = control(host);
 		const base = { action: "create", name: "n", prompt: "p" };
@@ -1206,7 +1211,6 @@ describe("ompdesk_schedule", () => {
 		expect(
 			(await service.run("main0001", T.schedule, { ...base, every_minutes: 60, folder: "relative/dir" })).text,
 		).toMatch(/absolute/);
-		expect((await service.run("remo0002", T.schedule, { ...base, every_minutes: 60 })).text).toMatch(/this computer/);
 		expect((await service.run("main0001", T.schedule, { ...base })).text).toMatch(
 			/exactly one of every_minutes or daily_at/,
 		);
@@ -1254,6 +1258,53 @@ describe("ompdesk_schedule", () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		host.scheduleSource = null;
 		expect((await control(host).run("main0001", T.schedule, { action: "list" })).text).toMatch(/not available/);
+	});
+
+	it("works on the device the caller runs on by default, and on any paired device it names", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", cwd: "/repo" },
+			{ tabId: "remo0002", device: "studio-id", deviceName: "Studio", cwd: "C:\\Users\\kim\\app" },
+		);
+		host.deviceList = [
+			{ id: "studio-id", name: "Studio", state: "online" },
+			{ id: "pc-id", name: "PC", state: "offline" },
+		];
+		host.manage = true;
+		const service = control(host);
+		const base = { action: "create", name: "n", prompt: "p", every_minutes: 60 };
+
+		// A session on a paired host schedules on that host, in its own folder: no "this computer only" refusal.
+		const remote = await service.run("remo0002", T.schedule, base);
+		expect(remote.isError).toBe(false);
+		expect(remote.text).toContain("in C:\\Users\\kim\\app on Studio");
+		expect(host.scheduleDevices).toEqual(["studio-id"]);
+		expect(host.savedDrafts[0]).toMatchObject({ cwd: "C:\\Users\\kim\\app", autoApprove: false, name: "[agent] n" });
+
+		// A local caller names the host; its own folder is not a path there.
+		expect((await service.run("main0001", T.schedule, { ...base, device: "Studio" })).text).toMatch(
+			/folder is required/,
+		);
+		const named = await service.run("main0001", T.schedule, { ...base, device: "studio", folder: "/srv/app" });
+		expect(named.text).toContain("in /srv/app on Studio");
+		expect(host.scheduleDevices.at(-1)).toBe("studio-id");
+
+		const listed = await service.run("main0001", T.schedule, { action: "list", device: "Studio" });
+		expect(listed.text.split("\n")[0]).toBe("Scheduled runs on Studio:");
+		expect(host.scheduleDevices.at(-1)).toBe("studio-id");
+
+		const own = host.scheduleRows[0] as ScheduleRow;
+		const cancelled = await service.run("main0001", T.schedule, { action: "cancel", id: own.id, device: "Studio" });
+		expect(cancelled.text).toBe(`Cancelled “${own.name}” on Studio.`);
+		expect(host.scheduleDevices.at(-1)).toBe("studio-id");
+
+		// "local" from the paired session: this computer, whose folder it has to name.
+		expect((await service.run("remo0002", T.schedule, { ...base, device: "local" })).text).toMatch(
+			/folder is required: name an absolute folder on this computer/,
+		);
+		expect(host.scheduleDevices.at(-1)).toBeUndefined();
+		const offline = await service.run("main0001", T.schedule, { action: "list", device: "PC" });
+		expect(offline.isError).toBe(true);
+		expect(offline.text).toMatch(/PC is offline/);
 	});
 });
 
