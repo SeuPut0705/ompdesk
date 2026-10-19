@@ -28,6 +28,7 @@ export function MemoryProfile() {
 			{!profile && !read.error && <SkeletonRows label={t("common.loading")} widths={[70, 55, 62]} />}
 			{profile && (
 				<SettingsRow
+					tipOnly
 					description={t("memory.profile.info")}
 					id="setting-memory-profile"
 					label={t("memory.profile.status")}

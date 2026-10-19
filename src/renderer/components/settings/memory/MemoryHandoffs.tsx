@@ -24,7 +24,7 @@ export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {
 
 	const list = (
 		<div className="flex flex-col gap-0.5" data-memory-handoffs-list>
-			<p className="flex items-center gap-1 px-1 pb-1 text-sc-xs text-(--sc-text-muted)">
+			<p className="flex items-center gap-1 px-1 pb-3 text-sc-xs text-(--sc-text-muted)">
 				{t("memory.handoffs.title")}
 				<SettingInfo text={t("memory.handoffs.info")} />
 			</p>
@@ -68,7 +68,7 @@ export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {
 						icon={<X />}
 						onClick={() => setConfirm(true)}
 						size="sm"
-						variant="danger"
+						variant="secondary"
 					>
 						{t("memory.handoffs.cancel")}
 					</Button>

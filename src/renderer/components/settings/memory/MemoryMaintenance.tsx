@@ -36,6 +36,7 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 	return (
 		<div className="flex flex-col" data-memory-maintenance>
 			<SettingsRow
+				tipOnly
 				control={
 					<Button
 						data-memory-lint-run
@@ -85,6 +86,7 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 				</ul>
 			)}
 			<SettingsRow
+				tipOnly
 				control={
 					<span className="flex items-center gap-1">
 						<Button
@@ -106,7 +108,7 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 							disabled={!actionable}
 							onClick={() => setConfirmSweep(true)}
 							size="sm"
-							variant="danger"
+							variant="secondary"
 						>
 							{t("memory.maint.sweep.run")}
 						</Button>
@@ -130,6 +132,7 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 				)}
 			</SettingsRow>
 			<SettingsRow
+				tipOnly
 				control={
 					<Button
 						data-memory-purge
@@ -140,7 +143,7 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 							setPurge(true);
 						}}
 						size="sm"
-						variant="danger"
+						variant="secondary"
 					>
 						{t("memory.maint.purge")}
 					</Button>

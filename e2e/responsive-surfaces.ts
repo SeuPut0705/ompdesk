@@ -70,9 +70,11 @@ async function openDrawer(page: Page, look: Look): Promise<void> {
 
 async function openSettings(page: Page, section: string): Promise<void> {
 	await ui(page, "openSettings", section);
-	const nav = page.locator(`[data-settings-section="${section}"]`);
+	const nav = page.locator(`[data-settings-section="${section.split(":")[0]}"]`);
 	// A phone lists the sections first and pushes the chosen one; a tablet already shows it.
 	if (await nav.isVisible().catch(() => false)) await nav.click();
+	// A sub-target (`memory:pages`): the click above landed on the section's first view, so go to the sub-view.
+	if (section.includes(":")) await ui(page, "setSettingsSection", section);
 }
 
 /** Every Settings section of `SETTINGS_NAV` (settings-catalog.ts). */
@@ -241,6 +243,50 @@ export const SURFACES: readonly Surface[] = [
 			title: `Settings › ${section}`,
 			open: page => openSettings(page, section),
 			ready: "[data-settings-page]",
+			settle: 900,
+		}),
+	),
+	// Settings › Memory: every tab, and the list → detail states of Pages, Handoffs and Sessions.
+	...(["overview", "search", "pages", "handoffs", "sessions", "profile", "maintenance"] as const).map(
+		(tab): Surface => ({
+			id: `settings-memory-${tab}`,
+			area: "B",
+			title: `Settings › Memory › ${tab}`,
+			open: async page => {
+				await openSettings(page, `memory:${tab}`);
+				if (tab === "search") {
+					const box = page.locator("[data-memory-search] input[type=search], [data-memory-search] input").first();
+					await box.fill("sqlite");
+					await box.press("Enter");
+					await page.locator("[data-memory-hit]").first().waitFor({ timeout: 10_000 });
+				}
+				if (tab === "maintenance") {
+					await page.locator("[data-memory-lint-run]").click();
+					await page.locator("[data-memory-sweep-preview]").click();
+					await page.locator("[data-memory-sweep-result]").waitFor({ timeout: 10_000 });
+				}
+			},
+			ready: "[data-settings-page] [data-memory-tab]",
+			settle: 900,
+		}),
+	),
+	...(
+		[
+			["pages", "[data-memory-page]", "[data-memory-reader]"],
+			["handoffs", "[data-memory-handoff]", "[data-memory-handoff-detail]"],
+			["sessions", "[data-memory-session]", "[data-memory-observations]"],
+		] as const
+	).map(
+		([tab, row, detail]): Surface => ({
+			id: `settings-memory-${tab}-detail`,
+			area: "B",
+			title: `Settings › Memory › ${tab}, one open (a phone shows the detail alone)`,
+			open: async page => {
+				await openSettings(page, `memory:${tab}`);
+				await page.locator(row).first().click();
+				await page.locator(detail).first().waitFor({ timeout: 10_000 });
+			},
+			ready: "[data-settings-page] [data-memory-tab]",
 			settle: 900,
 		}),
 	),

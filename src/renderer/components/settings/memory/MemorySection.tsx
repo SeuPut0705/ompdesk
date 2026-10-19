@@ -97,12 +97,11 @@ export function MemorySection({ sub }: { sub?: string }) {
 	return (
 		<SettingsSection id="settings-memory" scope="app">
 			{usable && (
-				<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pb-2" data-memory-bar>
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2" data-memory-bar>
 					<Tabs
 						activeId={tab}
 						ariaLabel={t("memory.title")}
-						className="min-w-0 flex-1"
-						compact
+						className="w-full min-w-0 sm:w-auto sm:flex-1"
 						onChange={open}
 						tabs={tabs}
 					/>

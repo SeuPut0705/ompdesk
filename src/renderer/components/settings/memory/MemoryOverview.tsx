@@ -89,6 +89,7 @@ export function MemoryOverview({
 				onCheckedChange={checked => void act("toggle", () => window.omp.aiMemory.setEnabled(checked))}
 			/>
 			<SettingsRow
+				tipOnly
 				compactControl
 				control={
 					<span className="flex min-w-0 items-center gap-2 text-sc-sm text-(--sc-text-secondary)">
@@ -120,6 +121,7 @@ export function MemoryOverview({
 			{usable && (
 				<>
 					<SettingsRow
+						tipOnly
 						compactControl
 						control={
 							<span className="truncate text-sc-sm text-(--sc-text-secondary)" data-memory-scope>
@@ -133,6 +135,7 @@ export function MemoryOverview({
 					/>
 					{counts && (
 						<SettingsRow
+							tipOnly
 							compactControl
 							control={
 								<span className="text-sc-sm text-(--sc-text-secondary)" data-memory-counts>
@@ -148,6 +151,7 @@ export function MemoryOverview({
 						/>
 					)}
 					<SettingsRow
+						tipOnly
 						compactControl
 						control={
 							<span className="text-sc-sm text-(--sc-text-secondary)" data-memory-last>
@@ -159,6 +163,7 @@ export function MemoryOverview({
 						label={t("memory.overview.last")}
 					/>
 					<SettingsRow
+						tipOnly
 						compactControl
 						control={
 							<span className="text-sc-sm text-(--sc-text-secondary)" data-memory-disk>
@@ -169,9 +174,10 @@ export function MemoryOverview({
 						label={t("memory.overview.disk")}
 					/>
 					<SettingsRow
+						tipOnly
 						compactControl
 						control={
-							<span className="flex min-w-0 items-center gap-1">
+							<span className="flex min-w-0 items-center gap-3">
 								<span
 									className="max-w-48 truncate font-mono text-sc-xs text-(--sc-text-muted)"
 									data-memory-dir
@@ -196,6 +202,7 @@ export function MemoryOverview({
 						label={t("memory.overview.data")}
 					/>
 					<SettingsRow
+						tipOnly
 						compactControl
 						control={
 							<Button
@@ -213,6 +220,7 @@ export function MemoryOverview({
 						label={t("memory.overview.console")}
 					/>
 					<SettingsRow
+						tipOnly
 						compactControl
 						control={
 							<Button
@@ -240,40 +248,48 @@ export function MemoryOverview({
 			)}
 			{!unsupported && (state.enabled || state.wiring.terminal) && (
 				<SettingsRow
+					compactControl
 					control={
-						<Button
-							disabled={starting || busy !== null}
-							icon={<SquareTerminal />}
-							loading={busy === "terminal"}
-							onClick={() =>
-								void act(
-									"terminal",
-									() => window.omp.aiMemory.setTerminal(!state.wiring.terminal),
-									t(
-										state.wiring.terminal
-											? "memory.overview.terminal.removed"
-											: "memory.overview.terminal.done",
-									),
-								)
-							}
-							size="sm"
-							variant="secondary"
-						>
-							{t(state.wiring.terminal ? "memory.overview.terminal.remove" : "memory.overview.terminal.connect")}
-						</Button>
+						<span className="flex min-w-0 items-center gap-2">
+							{state.wiring.terminal && (
+								<span data-memory-terminal>
+									<Badge variant="success">{t("memory.overview.terminal.connected")}</Badge>
+								</span>
+							)}
+							<Button
+								disabled={starting || busy !== null}
+								icon={<SquareTerminal />}
+								loading={busy === "terminal"}
+								onClick={() =>
+									void act(
+										"terminal",
+										() => window.omp.aiMemory.setTerminal(!state.wiring.terminal),
+										t(
+											state.wiring.terminal
+												? "memory.overview.terminal.removed"
+												: "memory.overview.terminal.done",
+										),
+									)
+								}
+								size="sm"
+								variant="secondary"
+							>
+								{t(
+									state.wiring.terminal
+										? "memory.overview.terminal.remove"
+										: "memory.overview.terminal.connect",
+								)}
+							</Button>
+						</span>
 					}
 					description={t("memory.overview.terminal.info")}
 					id="setting-aiMemory-terminal"
 					label={t("memory.overview.terminal")}
-				>
-					{state.wiring.terminal && (
-						<span className="block text-sc-xs text-(--sc-text-muted)" data-memory-terminal>
-							{t("memory.overview.terminal.connected")}
-						</span>
-					)}
-				</SettingsRow>
+					tipOnly
+				/>
 			)}
 			<SettingsRow
+				tipOnly
 				compactControl
 				control={
 					<span className="text-sc-sm text-(--sc-text-secondary)" data-memory-privacy>

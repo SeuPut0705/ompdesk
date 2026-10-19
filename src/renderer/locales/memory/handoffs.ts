@@ -18,11 +18,11 @@ export const en: Record<string, string> = {
 	"memory.handoffs.cancelled": "Handoff cancelled",
 };
 export const ko: Record<string, string> = {
-	"memory.handoffs.title": "핸드오프",
+	"memory.handoffs.title": "인계",
 	"memory.handoffs.info":
 		"같은 폴더의 다음 세션이 이어서 시작하는 메모예요. 여기서 읽어도 소모되지 않고, 다음 세션이 그대로 받아요. 취소하면 버려져요.",
-	"memory.handoffs.empty": "핸드오프가 없어요.",
-	"memory.handoffs.pick": "핸드오프를 골라 보세요.",
+	"memory.handoffs.empty": "인계가 없어요.",
+	"memory.handoffs.pick": "인계를 골라 보세요.",
 	"memory.handoffs.state.open": "열림",
 	"memory.handoffs.state.accepted": "사용됨",
 	"memory.handoffs.state.expired": "만료됨",
@@ -30,8 +30,8 @@ export const ko: Record<string, string> = {
 	"memory.handoffs.summary": "요약",
 	"memory.handoffs.questions": "남은 질문",
 	"memory.handoffs.steps": "다음 단계",
-	"memory.handoffs.cancel": "핸드오프 취소",
-	"memory.handoffs.cancel.title": "이 핸드오프를 취소할까요?",
+	"memory.handoffs.cancel": "인계 취소",
+	"memory.handoffs.cancel.title": "이 인계를 취소할까요?",
 	"memory.handoffs.cancel.message": "다음 세션은 {agent}의 메모로 시작하지 않아요.",
-	"memory.handoffs.cancelled": "핸드오프를 취소했어요",
+	"memory.handoffs.cancelled": "인계를 취소했어요",
 };

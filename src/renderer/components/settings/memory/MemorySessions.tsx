@@ -30,7 +30,7 @@ export function MemorySessions({ project }: { project: AiMemoryProjectRef }) {
 
 	const list = (
 		<div className="flex flex-col gap-0.5" data-memory-sessions-list>
-			<p className="flex items-center gap-1 px-1 pb-1 text-sc-xs text-(--sc-text-muted)">
+			<p className="flex items-center gap-1 px-1 pb-3 text-sc-xs text-(--sc-text-muted)">
 				{t("memory.sessions.title")}
 				<SettingInfo text={t("memory.sessions.info")} />
 			</p>

@@ -98,7 +98,7 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 					<section data-memory-group={group} key={group}>
 						<button
 							aria-expanded={!folded}
-							className="flex w-full items-center gap-1 px-1 pt-2 pb-1 text-sc-xs font-semibold text-(--sc-text-muted) uppercase"
+							className="flex min-h-10 w-full items-center gap-1 px-1 text-sc-xs [html[data-input=touch]_&]:min-h-11 font-semibold text-(--sc-text-muted) uppercase"
 							data-memory-group-toggle={group}
 							onClick={() => toggle(group)}
 							type="button"
@@ -242,7 +242,7 @@ function PageReader({ target, onClose }: { target: MemoryPageTarget; onClose: ()
 					{page.pinned && <Badge variant="accent">{t("memory.pages.pinned")}</Badge>}
 				</p>
 			</header>
-			<div className="flex flex-wrap items-center gap-1" data-memory-actions>
+			<div className="flex flex-wrap items-center gap-x-1 gap-y-4 pb-2" data-memory-actions>
 				{draft === null ? (
 					<>
 						<Button
@@ -291,7 +291,7 @@ function PageReader({ target, onClose }: { target: MemoryPageTarget; onClose: ()
 							icon={<Trash2 />}
 							onClick={() => setConfirmDelete(true)}
 							size="sm"
-							variant="danger"
+							variant="secondary"
 						>
 							{t("common.delete")}
 						</Button>

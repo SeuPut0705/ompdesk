@@ -20,6 +20,7 @@ export function MemoryComponentRow() {
 	if (!state) return null;
 	return (
 		<SettingsRow
+			tipOnly
 			badge={<Badge variant="muted">{t("memory.component.badge")}</Badge>}
 			compactControl
 			control={

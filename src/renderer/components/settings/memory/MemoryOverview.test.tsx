@@ -12,6 +12,7 @@ import {
 	mount,
 	PROJECT,
 	q,
+	qa,
 	text,
 } from "./memory-test-harness";
 
@@ -35,6 +36,19 @@ describe("Memory › Overview", () => {
 		expect(text("[data-memory-disk]")).toBe("2.0 KB");
 		expect(text("[data-memory-dir]")).toBe("/data");
 		expect(text("[data-memory-privacy]")).toContain("Local only");
+	});
+
+	it("every row is one line: no inline description, the explanations are tooltips", async () => {
+		await mount(
+			<MemoryOverview
+				project={PROJECT}
+				projects={[APP, API]}
+				state={memoryState({ wiring: { app: true, terminal: true } })}
+			/>,
+		);
+		expect(qa("[data-setting-desc]")).toHaveLength(0);
+		expect(qa("[data-setting-info]").length).toBeGreaterThanOrEqual(6);
+		expect(text("[data-memory-terminal]")).toBe("Connected");
 	});
 
 	it("never says ai-memory in what it shows", async () => {

@@ -26,6 +26,11 @@ afterEach(cleanup);
 const mountIt = () => mount(<MemoryMaintenance project={PROJECT} state={memoryState()} />);
 
 describe("Memory › Maintenance", () => {
+	it("keeps every row to one line: descriptions are tooltips", async () => {
+		await mountIt();
+		expect(qa("[data-setting-desc]")).toHaveLength(0);
+	});
+
 	it("runs the lint check and lists findings that open their pages", async () => {
 		api.lint.mockResolvedValue([
 			{ kind: "duplicate", severity: "warning", message: "Two pages share a title", pages: ["notes/a.md"] },

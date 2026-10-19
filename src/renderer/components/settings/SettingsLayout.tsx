@@ -153,6 +153,8 @@ export interface SettingsRowProps {
 	footer?: ReactNode;
 	/** Boolean rows and one-button rows keep the control compact and right-aligned (never stacked on a phone). */
 	compactControl?: boolean;
+	/** Every string description goes behind the info glyph, however short (a row that must stay one line). */
+	tipOnly?: boolean;
 	className?: string;
 }
 
@@ -167,11 +169,12 @@ export function SettingsRow({
 	children,
 	footer,
 	compactControl,
+	tipOnly,
 	className,
 }: SettingsRowProps) {
 	const descriptionId = useId();
 	const LabelTag = htmlFor ? "label" : "span";
-	const { inline, tip, note } = splitDescription(description);
+	const { inline, tip, note } = splitDescription(description, tipOnly);
 	return (
 		<div className={cx("settings-row scroll-mt-4 py-1", className)} data-setting-row="true" id={id}>
 			<div

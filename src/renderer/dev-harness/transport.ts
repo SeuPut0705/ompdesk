@@ -45,6 +45,7 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
+import { memoryAnswer } from "./fixture-memory";
 import {
 	ACTIVE_TOOLS,
 	DIRECTORIES,
@@ -269,6 +270,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 		calls.push({ channel, args });
 		// Each case reads the one payload shape its channel carries.
 		const payload: unknown = args[0];
+		const memory = memoryAnswer(channel, args);
+		if (memory) return memory.value;
 		switch (channel) {
 			case IPC_COMMANDS.GET_TABS:
 				return tabsFixture();

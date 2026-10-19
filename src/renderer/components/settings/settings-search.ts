@@ -43,7 +43,7 @@ const SECTION_ALIASES: Record<SettingsSectionId, string> = {
 	tools: "tools extensions skills mcp servers hooks commands plugins marketplace templates resources",
 	workspace: "workspace project folders directories dirs worktrees launch profile system prompt",
 	memory:
-		"memory remember pages search sessions handoff profile console password privacy delete purge lint sweep recorded 메모리 기억 페이지 검색 핸드오프 프로필 개인정보 삭제",
+		"memory remember pages search sessions handoff profile console password privacy delete purge lint sweep recorded 메모리 기억 페이지 검색 인계 핸드오프 프로필 개인정보 삭제",
 	schedules: "schedules scheduled runs timer cron daily interval omp -p print 예약 실행",
 	connections: "ssh remote devices pair pairing code host connect other computer 원격 기기 연결 페어링",
 	updates: "updates version upgrade omp update about this computer setup doctor",
