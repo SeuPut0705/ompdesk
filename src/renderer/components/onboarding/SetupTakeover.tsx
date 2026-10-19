@@ -40,6 +40,12 @@ export function SetupTakeover({ open }: { open: boolean }) {
 				? { title: t("machineSetup.update.title"), description: t("machineSetup.update.description") }
 				: { title: t("machineSetup.install.title"), description: t("machineSetup.install.description") };
 
+	// The screen needs no action: focus the panel, not its first control, so no ring or tooltip appears.
+	// `useModalLayer` keeps focus that is already inside.
+	useLayoutEffect(() => {
+		if (open) panelRef.current?.focus();
+	}, [open]);
+
 	// The setup screen cannot be dismissed: Escape is swallowed by the layer.
 	useModalLayer(open, panelRef, NOOP);
 

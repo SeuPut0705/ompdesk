@@ -24,7 +24,12 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
-if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
+// linkedom has no focus model: record the last focused element and expose it as `activeElement`.
+let focused: Element | null = null;
+elementPrototype.focus = function (this: Element) {
+	focused = this;
+};
+Object.defineProperty(document, "activeElement", { get: () => focused ?? document.body, configurable: true });
 
 const fake = fakeSetupApi(
 	setupState("darwin", { omp: { phase: "idle", presence: { kind: "missing" } } }, { ompReady: false }),
@@ -49,6 +54,7 @@ async function mount(open: boolean): Promise<(open: boolean) => Promise<void>> {
 }
 
 afterEach(async () => {
+	focused = null;
 	fake.current.state = initialState;
 	vi.useRealTimers();
 	reducedMotion = false;
@@ -83,6 +89,23 @@ describe("SetupTakeover", () => {
 		expect(query('[data-testid="machine-setup"] ol')).not.toBeNull();
 		expect(query(".drag-region")).not.toBeNull();
 		expect(query(".no-drag")).not.toBeNull();
+	});
+
+	it("focuses the dialog itself on open, not its first control", async () => {
+		fake.current.state = setupState(
+			"darwin",
+			{
+				omp: {
+					...missingOmp,
+					phase: "running",
+					method: "bun-global",
+					command: "bun install -g @oh-my-pi/pi-coding-agent",
+				},
+			},
+			{ ompReady: false, requiredRunning: true },
+		);
+		await mount(true);
+		expect(document.activeElement).toBe(query('[data-testid="setup-takeover"]'));
 	});
 
 	it("says an install is running while it runs, and an update when omp is below the minimum", async () => {

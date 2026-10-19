@@ -243,11 +243,11 @@ async function flow(launched: Launched, name: string, text: { retry: RegExp }): 
 	launched.finishDownload();
 	// The installer's own work has no percent: the bar slides.
 	await expect(bar).not.toHaveAttribute("aria-valuenow", /./);
-	await expect(setup).toContainText("install -g @oh-my-pi/pi-coding-agent");
 	await expect(setup.getByRole("button", { name: /^install$/i })).toHaveCount(0);
 	const toggle = setup.getByTestId("setup-output-toggle");
 	await expect(toggle).toHaveAttribute("aria-expanded", "false");
 	await toggle.click();
+	await expect(setup).toContainText("install -g @oh-my-pi/pi-coding-agent");
 	await expect(setup).toContainText("Resolving @oh-my-pi/pi-coding-agent (attempt 1)");
 	await setup.getByTestId("setup-cancel").scrollIntoViewIfNeeded();
 	await capture(page, `${name}-1-running`);

@@ -131,7 +131,7 @@ afterEach(async () => {
 });
 
 describe("MachineSetupView", () => {
-	it("shows the running item's command, location, prompt and collapsed output with Cancel, and no install button", async () => {
+	it("keeps the running item's command and output behind Show details, says the OS prompt up front, and offers Cancel", async () => {
 		await mount(<MachineSetupView />, running);
 
 		const rows = Array.from(document.body.querySelectorAll("[data-setup-item]")).map(row => [
@@ -144,15 +144,20 @@ describe("MachineSetupView", () => {
 			["git", "running"],
 			["omp", "queued"],
 		]);
-		expect(text()).toContain("PortableGit-2.47.0-64-bit.7z.exe");
-		expect(text()).toContain("C:\\Users\\me\\AppData\\Local\\ompdesk\\git");
 		expect(text()).toContain(translate("machineSetup.prompt.uac"));
+		expect(text()).not.toContain("PortableGit-2.47.0-64-bit.7z.exe");
+		expect(text()).not.toContain("C:\\Users\\me\\AppData\\Local\\ompdesk\\git");
+		expect(text()).not.toContain("Extracting");
+		expect(text()).not.toContain("Installing on its own.");
 
 		const toggle = query('[data-testid="setup-output-toggle"]');
 		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-		expect(text()).not.toContain("Extracting");
+		expect(toggle?.textContent).toContain(translate("machineSetup.details.show"));
 		await act(async () => toggle?.click());
 		expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+		expect(toggle?.textContent).toContain(translate("machineSetup.details.hide"));
+		expect(text()).toContain("PortableGit-2.47.0-64-bit.7z.exe");
+		expect(text()).toContain("C:\\Users\\me\\AppData\\Local\\ompdesk\\git");
 		expect(text()).toContain("Extracting 42%");
 		expect(text()).not.toContain("\x1b[32m");
 
@@ -255,6 +260,23 @@ describe("MachineSetupView", () => {
 		expect(fake.api.retry).toHaveBeenCalledWith("omp");
 	});
 
+	it("hides a failed item's command and location until Show details, even with no output", async () => {
+		const noOutput = setupState(
+			"darwin",
+			{ omp: { ...failed.items.find(item => item.id === "omp"), output: "" } },
+			{ ompReady: false },
+		);
+		await mount(<MachineSetupView />, noOutput);
+
+		const toggle = query('[data-testid="setup-output-toggle"]');
+		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+		expect(text()).not.toContain("/Users/me/.bun/bin/omp");
+		expect(query('[data-testid="setup-retry"]')).not.toBeNull();
+		await act(async () => toggle?.click());
+		expect(text()).toContain("/Users/me/.bun/bin/omp");
+		expect(text()).not.toContain(translate("machineSetup.output.empty"));
+	});
+
 	it("names the connection when an install could not reach the internet, not an exit code", async () => {
 		const offline = setupState(
 			"darwin",
@@ -302,6 +324,7 @@ describe("MachineSetupView", () => {
 		const row = query('[data-setup-item="git"]');
 		expect(row?.className).toContain("flex-wrap");
 		expect(row?.className).toContain("min-w-0");
+		await act(async () => query('[data-testid="setup-output-toggle"]')?.click());
 		const location = Array.from(document.body.querySelectorAll("dd")).find(
 			dd => dd.textContent === "C:\\Users\\me\\AppData\\Local\\ompdesk\\git",
 		);

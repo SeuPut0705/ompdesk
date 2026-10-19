@@ -210,10 +210,22 @@ function CodeLine({ value, label }: { value: string; label?: string }) {
 	);
 }
 
-/** The exact command and its target, plus the OS prompt it will raise. */
-export function SetupItemDetails({ item }: { item: SetupItemState }) {
+/** The OS prompt the install will raise, said before it appears. */
+export function SetupItemPrompt({ item }: { item: SetupItemState }) {
 	const t = useT();
-	if (!item.command && !item.location && !item.prompt) return null;
+	if (!item.prompt) return null;
+	return (
+		<p className="flex min-w-0 items-start gap-1.5 text-sc-sm text-(--sc-text-secondary)">
+			<Info aria-hidden className="mt-0.5 size-4 shrink-0 text-(--sc-text-muted)" />
+			<span className="min-w-0 break-words">{t(`machineSetup.prompt.${item.prompt}`)}</span>
+		</p>
+	);
+}
+
+/** The exact command and its target, plus (unless `withPrompt` is false) the OS prompt it will raise. */
+export function SetupItemDetails({ item, withPrompt = true }: { item: SetupItemState; withPrompt?: boolean }) {
+	const t = useT();
+	if (!item.command && !item.location && !(withPrompt && item.prompt)) return null;
 	return (
 		<dl className="flex min-w-0 flex-col gap-2 text-sc-sm">
 			{item.command && (
@@ -232,18 +244,16 @@ export function SetupItemDetails({ item }: { item: SetupItemState }) {
 					</dd>
 				</div>
 			)}
-			{item.prompt && (
-				<p className="flex min-w-0 items-start gap-1.5 text-sc-sm text-(--sc-text-secondary)">
-					<Info aria-hidden className="mt-0.5 size-4 shrink-0 text-(--sc-text-muted)" />
-					<span className="min-w-0 break-words">{t(`machineSetup.prompt.${item.prompt}`)}</span>
-				</p>
-			)}
+			{withPrompt && <SetupItemPrompt item={item} />}
 		</dl>
 	);
 }
 
-/** Installer output, collapsed by default; follows the tail while open. */
-export function SetupOutput({ item }: { item: SetupItemState }) {
+/**
+ * Installer output, collapsed by default; follows the tail while open. `details`
+ * (command, location) shows above the output once opened and relabels the toggle.
+ */
+export function SetupOutput({ item, details }: { item: SetupItemState; details?: ReactNode }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
 	const id = useId();
@@ -252,7 +262,8 @@ export function SetupOutput({ item }: { item: SetupItemState }) {
 		const element = ref.current;
 		if (open && element && item.output) element.scrollTop = element.scrollHeight;
 	}, [item.output, open]);
-	if (!item.output && item.phase !== "running") return null;
+	const hasOutput = Boolean(item.output) || item.phase === "running";
+	if (!details && !hasOutput) return null;
 	return (
 		<div className="min-w-0">
 			<Button
@@ -264,22 +275,34 @@ export function SetupOutput({ item }: { item: SetupItemState }) {
 				size="sm"
 				variant="ghost"
 			>
-				{open ? t("machineSetup.output.hide") : t("machineSetup.output.show")}
+				{t(
+					open
+						? details
+							? "machineSetup.details.hide"
+							: "machineSetup.output.hide"
+						: details
+							? "machineSetup.details.show"
+							: "machineSetup.output.show",
+				)}
 			</Button>
 			{open && (
-				<pre
-					className="mt-1 max-h-64 min-w-0 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-code-bg) px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
-					id={id}
-					ref={ref}
-				>
-					{!item.output ? (
-						t("machineSetup.output.empty")
-					) : hasAnsi(item.output) ? (
-						<AnsiText text={item.output} />
-					) : (
-						item.output
+				<div className="mt-1 flex min-w-0 flex-col gap-2" id={id}>
+					{details}
+					{hasOutput && (
+						<pre
+							className="max-h-64 min-w-0 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-code-bg) px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
+							ref={ref}
+						>
+							{!item.output ? (
+								t("machineSetup.output.empty")
+							) : hasAnsi(item.output) ? (
+								<AnsiText text={item.output} />
+							) : (
+								item.output
+							)}
+						</pre>
 					)}
-				</pre>
+				</div>
 			)}
 		</div>
 	);
@@ -460,8 +483,13 @@ export function MachineSetupView() {
 
 			{focus && SETUP_DETAILED.includes(focus.phase) && (
 				<div className="flex min-w-0 flex-col gap-3 border-t border-(--sc-divider) pt-3">
-					<SetupItemDetails item={focus} />
-					<SetupOutput item={focus} />
+					<SetupItemPrompt item={focus} />
+					<SetupOutput
+						details={
+							focus.command || focus.location ? <SetupItemDetails item={focus} withPrompt={false} /> : undefined
+						}
+						item={focus}
+					/>
 				</div>
 			)}
 
@@ -475,10 +503,7 @@ export function MachineSetupView() {
 			)}
 
 			{state.requiredRunning && (
-				<div className="flex flex-wrap items-center gap-3">
-					<p className="min-w-0 flex-1 text-sc-sm break-words text-(--sc-text-muted)">
-						{t("machineSetup.runningHint")}
-					</p>
+				<div className="flex justify-end">
 					<Button
 						data-testid="setup-cancel"
 						loading={cancelling}
