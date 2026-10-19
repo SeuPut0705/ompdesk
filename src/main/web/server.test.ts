@@ -358,6 +358,13 @@ describe("static files", () => {
 		expect((await raw("/assets/missing.js")).status).toBe(404);
 		expect((await raw("/assets/../web-assets/builds.json")).status).not.toBe(200);
 	});
+
+	// Windows CI (release run 39191568825): the teardown's rmSync of userData hit ENOTEMPTY because the start's copy
+	// of the build into web-assets/ was still writing after stop() returned.
+	it("stop() returns only once the start's background work in userData is done", async () => {
+		await host.stop();
+		expect(existsSync(join(userData, "web-assets", "builds.json"))).toBe(true);
+	});
 });
 
 describe("connecting a device", () => {

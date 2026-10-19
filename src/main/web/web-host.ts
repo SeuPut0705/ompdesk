@@ -125,6 +125,8 @@ export class WebHost {
 	/** The previous builds' assets the server still serves (asset-archive.ts); filled once per launch at `start`. */
 	readonly assets: AssetArchive;
 	#archiving: Promise<void> | null = null;
+	/** The upload sweep in flight; one at a time, and `stop` waits for it. */
+	#sweeping: Promise<number> | null = null;
 	#sweeper: ReturnType<typeof setInterval> | undefined;
 
 	constructor(deps: WebHostDeps) {
@@ -229,9 +231,9 @@ export class WebHost {
 	async start(options: { port?: number } = {}): Promise<{ port: number }> {
 		const started = await this.server.start(options);
 		this.server.configure({ publicPort: started.port });
-		this.#sweeper ??= setInterval(() => void this.uploads.sweep().catch(() => 0), UPLOAD_SWEEP_MS);
+		this.#sweeper ??= setInterval(() => this.#sweep(), UPLOAD_SWEEP_MS);
 		this.#sweeper.unref();
-		void this.uploads.sweep().catch(() => 0);
+		this.#sweep();
 		const root = this.#deps.staticRoot();
 		if (root) {
 			this.#archiving ??= this.assets
@@ -241,12 +243,25 @@ export class WebHost {
 		return started;
 	}
 
-	/** Stop serving: sockets close (1001) and pending approvals are declined; devices stay connected, blocks stay. */
+	/**
+	 * Stop serving: sockets close (1001) and pending approvals are declined; devices stay connected, blocks stay.
+	 * Returns once the start's background work (the asset copy, an upload sweep) is done too, so nothing of this host
+	 * writes into userData after it.
+	 */
 	async stop(): Promise<void> {
 		clearInterval(this.#sweeper);
 		this.#sweeper = undefined;
 		this.notifier.dispose();
-		await this.server.stop();
+		await Promise.all([this.server.stop(), this.#archiving, this.#sweeping]);
+	}
+
+	#sweep(): void {
+		this.#sweeping ??= this.uploads
+			.sweep()
+			.catch(() => 0)
+			.finally(() => {
+				this.#sweeping = null;
+			});
 	}
 
 	/** The secret path of the serve handler's target (made on first use, kept 0600). */
