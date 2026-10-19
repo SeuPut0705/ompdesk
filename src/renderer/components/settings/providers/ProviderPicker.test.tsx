@@ -135,6 +135,12 @@ describe("ProviderPicker featured group", () => {
 		]);
 		// Only Grok has both logins, so only Grok has a second action.
 		expect(document.querySelectorAll("[data-featured-provider] button").length).toBe(6);
+		// The API-key action lives inside Grok's own card, not beside it.
+		const grok = document.querySelector('[data-featured-provider="xai-oauth"]');
+		expect(grok?.querySelectorAll("button").length).toBe(2);
+		expect(grok?.querySelector('button[data-provider-connect="xai"]')?.textContent).toBe(
+			translate("providers.featured.apiKeyAction"),
+		);
 		expect(document.querySelectorAll('[data-featured-provider] button[data-provider-connect="xai"]').length).toBe(1);
 	});
 

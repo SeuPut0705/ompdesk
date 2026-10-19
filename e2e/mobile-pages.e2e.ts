@@ -518,6 +518,11 @@ for (const { engine, device } of variants(
 					const fresh = async (extra = "") => openHarness(browser, device, look, extra);
 					const firstRun = await fresh("&firstrun=1");
 					await expect(firstRun.locator("[data-featured-providers]")).toBeVisible({ timeout: 30_000 });
+					// Grok's card holds the API-key action: scroll its whole card above the composer.
+					await firstRun.locator('[data-featured-provider="xai-oauth"]').scrollIntoViewIfNeeded();
+					await firstRun.evaluate(() =>
+						document.querySelector("[data-featured-providers]")?.scrollIntoView({ block: "start" }),
+					);
 					await capture(firstRun, "first-run-providers", tag);
 					await firstRun.context().close();
 					const settings = await fresh();

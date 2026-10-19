@@ -195,10 +195,12 @@ function FeaturedCard({
 	const { def, startId, apiKeyId, connected, mark } = card;
 	const subscription = def.kind === "subscription" && startId === def.id;
 	const busy = busyId(startId);
-	const frame =
-		"flex min-h-11 w-full items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) px-3 py-2 text-left";
+	const frame = "flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left";
 	return (
-		<li className="flex flex-col gap-0.5" data-featured-provider={def.id}>
+		<li
+			className="flex flex-col rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
+			data-featured-provider={def.id}
+		>
 			{connected ? (
 				<div className={frame} data-provider-connected={def.id}>
 					<ProviderMark provider={mark} />
@@ -210,7 +212,7 @@ function FeaturedCard({
 			) : (
 				<button
 					aria-label={t("providers.picker.connect", { provider: def.label })}
-					className={`${frame} text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
+					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
 					data-provider-connect={startId}
 					disabled={!sidecarReady || busy}
 					onClick={() => void login.start(startId)}
@@ -235,7 +237,7 @@ function FeaturedCard({
 			)}
 			{!connected && apiKeyId && (
 				<button
-					className="flex min-h-11 w-full items-center rounded-(--sc-radius-md) px-3 text-left text-sc-sm text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+					className="mt-auto flex min-h-11 w-full items-center rounded-b-(--sc-radius-lg) border-t border-(--sc-border-subtle) py-1 pr-3 pl-11 text-left text-sc-sm text-(--sc-text-muted) underline-offset-2 outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
 					data-provider-connect={apiKeyId}
 					disabled={!sidecarReady || busyId(apiKeyId)}
 					onClick={() => void login.start(apiKeyId)}
