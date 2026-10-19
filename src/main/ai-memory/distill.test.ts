@@ -142,6 +142,17 @@ describe("parseProposals", () => {
 		expect(parsed.refused).toHaveLength(5);
 	});
 
+	it("refuses a kind that only an object's prototype has, never filing a page under undefined/", () => {
+		const kinds = ["constructor", "toString", "__proto__", "hasOwnProperty"];
+		const parsed = parseProposals(
+			JSON.stringify({ pages: kinds.map(kind => ({ ...good, kind, title: `제목 ${kind}` })) }),
+			window,
+			[],
+		);
+		expect(parsed.proposals).toEqual([]);
+		expect(parsed.refused).toEqual(kinds.map(kind => `제목 ${kind}: unknown kind`));
+	});
+
 	it("takes at most the allowed pages, never the same title twice", () => {
 		const pages = Array.from({ length: 6 }, (_, index) => ({ ...good, title: `제목 ${index}` }));
 		const parsed = parseProposals(JSON.stringify({ pages }), window, []);

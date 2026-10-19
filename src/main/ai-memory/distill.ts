@@ -280,7 +280,8 @@ export function parseProposals(answer: string, digest: Pick<Digest, "prompts">, 
 				? digest.prompts.find(prompt => prompt.text.includes(quote))
 				: undefined;
 		const label = title || kind || "page";
-		const layout = KIND_LAYOUT[kind as DistillKind] as (typeof KIND_LAYOUT)[DistillKind] | undefined;
+		// Own keys only: "constructor" or "__proto__" would otherwise find a truthy layout on the object's prototype.
+		const layout = Object.hasOwn(KIND_LAYOUT, kind) ? KIND_LAYOUT[kind as DistillKind] : undefined;
 		if (!layout) parsed.refused.push(`${label}: unknown kind`);
 		else if (!title || title.length > TITLE_MAX)
 			parsed.refused.push(`${label}: title missing or longer than ${TITLE_MAX}`);
