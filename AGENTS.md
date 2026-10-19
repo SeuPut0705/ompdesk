@@ -1219,7 +1219,7 @@ Commit and push each change as it lands; release in small batches without waitin
 2. Release when a few user-visible changes have gathered, once or twice a day, never several times an hour: every release prompts every user to update and restart. A defect that makes the released app unusable ships right away on its own. No local gate: ci.yml already ran the blocking checks per push, and release.yml is the gate (types, biome, surface policy, vitest, Windows platform tests, `mac`/`win` packaging with `@smoke`, real-core). The full Playwright suite runs nightly and on demand (`e2e-nightly.yml`), not in a release.
 3. Release per the steps under Release: one dated bilingual `CHANGELOG.md` section covering every commit since the last release, one version bump, commit `release: vX.Y.Z`, push, watch the run to the end (rerun only failed jobs), tell the user it went out.
 
-- A run takes about 15 minutes to `publish`, bound by `mac`'s memory build (about 6 without it); every blocking job starts right after `prepare`.
+- A run takes about 6 minutes to `publish`, bound by `mac`, when the memory binary comes from the cache, and about 15 when native/memory or scripts/build-memory.ts changed (dry runs 39240205382 and 39238195669); every blocking job starts right after `prepare`.
 - Never leave an `Unreleased` section on `main`.
 - Do not reinstall the local app unless asked; the in-app updater picks the release up.
 
