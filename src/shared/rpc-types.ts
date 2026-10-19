@@ -2348,7 +2348,7 @@ export interface ModelRolesResult {
 	roles: ModelRoleEntry[];
 }
 
-/** One of stock's built-in model roles (get_model_role_metadata, get_model_roles); OMPdesk lists no custom role. */
+/** One of the running omp's model roles (get_model_role_metadata, get_model_roles), with what stock knows of it; OMPdesk lists no custom role. */
 export interface ModelRoleMetadata {
 	id: string;
 	name: string;
@@ -2356,6 +2356,10 @@ export interface ModelRoleMetadata {
 	color?: string;
 	hidden?: boolean;
 	section: "chat" | "kind";
+	/** Stock `modelKind`s of the catalog models the role's `accepts` takes (`chat`, `tiny`, `search`, …); absent from an older bridge. */
+	accepts?: string[];
+	/** Stock's built-in priority list for the role when it is empty (`rolePriorityDefaults`); absent from an older bridge. */
+	defaults?: string[];
 }
 
 /** Where auto-compaction triggers for one model (stock `describeModelCompactionPoint`, omp 18.8.5+). */

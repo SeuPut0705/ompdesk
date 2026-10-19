@@ -1,9 +1,7 @@
-import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AGENT_TEMPLATES } from "../shared/agent-templates";
+import { INSTALLED_OMP, runBridgeProbe } from "./test-bridge-probe";
 
 /**
  * Pins Settings' model roles to stock omp, on the installed omp in an empty
@@ -18,7 +16,6 @@ import { AGENT_TEMPLATES } from "../shared/agent-templates";
  * - each OMPdesk agent template runs on its first built-in role's model,
  *   through stock's agent model resolution.
  */
-const omp = join(homedir(), ".bun", "bin", "omp");
 
 const PROBE = `
 import { methods } from "./settings";
@@ -137,40 +134,6 @@ export default function (pi) {
 }
 `;
 
-/** Runs `source` as a bridge extension on the installed omp in an empty private agent dir; `OPENAI_API_KEY` is the only credential unless `env` adds one. */
-function runProbe(source: string, name: string, env: Record<string, string> = {}): Record<string, unknown> {
-	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-roles-"));
-	chmodSync(isolated, 0o700);
-	try {
-		cpSync(resolve("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
-		const extension = join(isolated, "bridge", "model-roles-probe.ts");
-		writeFileSync(extension, source);
-		const spawnEnv: Record<string, string | undefined> = {
-			...process.env,
-			PI_CODING_AGENT_DIR: isolated,
-			PI_CONFIG_DIR: isolated,
-			OMP_PROFILE: "",
-			PI_PROFILE: "",
-			OPENAI_API_KEY: "probe-not-a-real-key",
-			...env,
-		};
-		const credentials = ["ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
-		for (const key of [...credentials, "OPENROUTER_API_KEY", "TYPESAFE_API_KEY"]) {
-			if (!(key in env)) Reflect.deleteProperty(spawnEnv, key);
-		}
-		const result = spawnSync(
-			omp,
-			["--mode", "rpc", "--no-session", "--no-extensions", "--no-skills", "--no-rules", "-e", extension],
-			{ env: spawnEnv, encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024, input: "" },
-		);
-		const line = result.stderr.split("\n").find(value => value.startsWith(name));
-		expect(line, result.stderr.slice(-2500)).toMatch(new RegExp(`^${name}=`));
-		return JSON.parse(line?.slice(name.length + 1) ?? "{}") as Record<string, unknown>;
-	} finally {
-		rmSync(isolated, { recursive: true, force: true });
-	}
-}
-
 interface Effective {
 	model?: string;
 	source: string;
@@ -178,9 +141,9 @@ interface Effective {
 	unavailable?: boolean;
 }
 
-describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
+describe.skipIf(!existsSync(INSTALLED_OMP))("model roles on stock's resolution", () => {
 	it("reports each built-in role's effective model as stock resolves it and runs template agents on their first role", () => {
-		const probe = runProbe(PROBE, "ROLES_PROBE", {
+		const probe = runBridgeProbe(PROBE, "ROLES_PROBE", {
 			ROLES_PROBE_TEMPLATES: JSON.stringify(
 				AGENT_TEMPLATES.map(template => ({ name: template.name, model: template.model })),
 			),
@@ -236,7 +199,7 @@ describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
 
 	it("reports the judge's stock-preferred native model when no provider holds credentials for it, and nothing once one does", () => {
 		const probeJudge = (env: Record<string, string>) =>
-			runProbe(JUDGE_PROBE, "JUDGE_PROBE", env) as {
+			runBridgeProbe(JUDGE_PROBE, "JUDGE_PROBE", env) as {
 				effective: {
 					model: string;
 					source: string;

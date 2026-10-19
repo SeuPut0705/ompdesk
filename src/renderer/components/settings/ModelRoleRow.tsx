@@ -1,14 +1,14 @@
 /**
- * One built-in model role in Settings › Models & accounts › Model roles: what
- * it is for, the model it really runs on (`effective`, resolved by stock in the
- * bridge, an empty role's fallback included), that model's provider account
- * state with its live quota, the thinking level and the picker filtered by
- * stock's `accepts` (the entry's candidates).
+ * One model role in Settings › Models & accounts › Model roles: what it is for
+ * and what an empty one falls back to (`model-role-text.ts`, generic for a role
+ * no locale knows), the model it really runs on (`effective`, resolved by stock
+ * in the bridge, an empty role's fallback included), that model's provider
+ * account state with its live quota, the thinking level and the picker filtered
+ * by stock's `accepts` (the entry's candidates).
  */
 
 import { CircleDashed } from "lucide-react";
 import { useMemo } from "react";
-import { BUILTIN_ROLE_IDS } from "../../../../resources/gui-bridge/model-role-contracts";
 import type {
 	CompactionPoint,
 	ModelRoleEffective,
@@ -26,6 +26,7 @@ import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
 import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
+import { roleFallback, rolePurpose } from "./model-role-text";
 import { ProviderMark } from "./providers/ProviderMark";
 import { SettingsRow } from "./SettingsLayout";
 
@@ -246,6 +247,7 @@ export function ModelRoleRow({
 	onChange: (role: string, modelId: string | null) => void;
 }) {
 	const t = useT();
+	const { lang } = useLang();
 	const candidates = entry.candidates ?? [];
 	// Candidates grouped by model kind; display name first, selector beside it.
 	const groups = useMemo<ModelValueGroup[]>(
@@ -263,11 +265,9 @@ export function ModelRoleRow({
 		[candidates, t],
 	);
 
-	// A built-in role of a newer omp has no text here yet: its row stays quiet instead of showing a raw key.
-	const known = BUILTIN_ROLE_IDS.includes(entry.id);
-	// An empty role says what it follows; that joins its use in the info tooltip.
-	const fallback = known && entry.model === undefined ? t(`modelRoles.fallback.${entry.id}`) : undefined;
-	const use = known ? t(`modelRoles.use.${entry.id}`) : undefined;
+	// What the role is for and, while empty, what it follows: both in the info tooltip.
+	const use = rolePurpose(entry, name, t, lang);
+	const fallback = roleFallback(entry, t, roleName);
 
 	return (
 		<SettingsRow

@@ -17,10 +17,10 @@ import {
 	resolveModelOverride,
 	resolveRoleChain,
 	resolveRoleSelection,
+	rolePriorityDefaults,
 } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import {
 	CHAT_MODEL_ROLE_IDS,
-	getKnownRoleIds,
 	getRoleInfo,
 	MODEL_ROLE_IDS,
 	roleCandidatePool,
@@ -767,16 +767,19 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 // ============================================================================
 
 /**
- * Stock's built-in roles only: a `modelRoles.<id>` the user set outside OMPdesk stays in config.yml and stock still
- * resolves it as `@id`, but OMPdesk neither lists nor offers it.
+ * Every role of the running omp's `MODEL_ROLE_IDS`, with what stock knows of it: name, tag, section, `hidden`, the
+ * model kinds its `accepts` takes in the catalog and its built-in priority list (`rolePriorityDefaults`), so a role
+ * a newer omp adds is listed with no change to OMPdesk. A `modelRoles.<id>` the user set outside OMPdesk stays in
+ * config.yml and stock still resolves it as `@id`, but OMPdesk neither lists nor offers it.
  */
 function roleMetadata(session: AgentSession) {
-	return getKnownRoleIds(session.settings)
-		.filter(id => (MODEL_ROLE_IDS as readonly string[]).includes(id))
-		.map(id => {
-			const { name, tag, color, hidden, section } = getRoleInfo(id, session.settings);
-			return { id, name, tag, color, hidden, section };
-		});
+	const catalog = session.modelRegistry.getAll("all");
+	return MODEL_ROLE_IDS.map(id => {
+		const info = getRoleInfo(id, session.settings);
+		const { name, tag, color, hidden, section } = info;
+		const accepts = [...new Set(catalog.filter(model => info.accepts(model)).map(model => modelKind(model)))];
+		return { id, name, tag, color, hidden, section, accepts, defaults: rolePriorityDefaults(id) };
+	});
 }
 
 /** Stock's resolution bound to this session; each role resolves over its own candidate pool, as its stock caller does. */

@@ -732,7 +732,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/config/model-roles`]: [
-				"getKnownRoleIds()",
 				"getRoleInfo()",
 				"roleCandidatePool()",
 				"MODEL_ROLE_IDS",
@@ -744,6 +743,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"resolveModelOverride()",
 				"resolveRoleChain()",
 				"resolveRoleSelection()",
+				"rolePriorityDefaults()",
 			],
 			"@oh-my-pi/pi-catalog/types": ["modelKind()"],
 		},

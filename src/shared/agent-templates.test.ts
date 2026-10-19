@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { BUILTIN_ROLE_IDS } from "../../resources/gui-bridge/model-role-contracts";
+import { ROLE_ORDER } from "../../resources/gui-bridge/model-role-contracts";
 import { AGENT_THINKING_LEVELS, agentNameError, serializeAgentMarkdown, splitFrontmatter } from "./agent-definition";
 import { AGENT_TEMPLATES, templateDraft } from "./agent-templates";
 
@@ -60,9 +60,9 @@ describe("AGENT_TEMPLATES", () => {
 		}
 	});
 
-	it("name stock's built-in roles only, never a custom role", () => {
+	it("name roles Settings lists, never a custom role", () => {
 		for (const template of AGENT_TEMPLATES) {
-			for (const selector of template.model) expect(BUILTIN_ROLE_IDS, template.name).toContain(selector.slice(1));
+			for (const selector of template.model) expect(ROLE_ORDER, template.name).toContain(selector.slice(1));
 		}
 	});
 

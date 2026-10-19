@@ -1,20 +1,21 @@
 /**
- * Settings › Models & accounts › Model roles: which model each of stock's
- * built-in roles uses, grouped by purpose (Conversation, Agent work, Input &
- * output). Role metadata, the eligible candidate pool per role (stock's
- * `accepts`) and the model each role really resolves to (empty-role fallbacks
- * included) come from the backend (get_model_roles, built-in roles only); this
- * section adds the account state and live quota of that model's provider
- * (get_usage) and commits through set_model_role. Loads on mount and re-reads
- * whenever the sidecar (re)connects; a failed or impossible read is one quiet
- * InlineNotice over the last good rows instead of claiming no roles exist.
+ * Settings › Models & accounts › Model roles: which model each of the running
+ * omp's roles uses, grouped by purpose (Conversation, Agent work, Input &
+ * output; a role OMPdesk's ordering does not know goes by stock's section).
+ * Role metadata, the eligible candidate pool per role (stock's `accepts`) and
+ * the model each role really resolves to (empty-role fallbacks included) come
+ * from the backend (get_model_roles, every role stock has); this section adds
+ * the account state and live quota of that model's provider (get_usage) and
+ * commits through set_model_role. Loads on mount and re-reads whenever the
+ * sidecar (re)connects; a failed or impossible read is one quiet InlineNotice
+ * over the last good rows instead of claiming no roles exist.
  */
 
 import { RefreshCw, Tags } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-	BUILTIN_ROLE_IDS,
 	HIDDEN_ROLE_IDS,
+	ROLE_ORDER,
 	type RoleGroupId,
 	roleGroup,
 } from "../../../../resources/gui-bridge/model-role-contracts";
@@ -33,10 +34,10 @@ import { modelRoleName } from "./schema-i18n";
 
 const GROUP_ORDER: readonly RoleGroupId[] = ["conversation", "agent", "io"];
 
-/** Rows within a group: stock's built-ins in the contract's order, a newer omp's unknown ones after them. */
+/** Rows within a group: OMPdesk's preferred order, then the roles it does not know in the order stock lists them (the sort is stable). */
 function rank(entry: ModelRoleEntry): number {
-	const index = BUILTIN_ROLE_IDS.indexOf(entry.id);
-	return index >= 0 ? index : BUILTIN_ROLE_IDS.length;
+	const index = ROLE_ORDER.indexOf(entry.id);
+	return index >= 0 ? index : ROLE_ORDER.length;
 }
 
 export function ModelRolesSection() {
