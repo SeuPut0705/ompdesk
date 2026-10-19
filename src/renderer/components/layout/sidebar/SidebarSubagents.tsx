@@ -123,28 +123,21 @@ export function sidebarSubagentCount(tabId: string): number {
 const NARROW_SIDEBAR = 300;
 
 /**
- * A session row's icon sits at pl-2.5 (nested sessions use 28px)
- * and is --sc-icon-md (16px) wide, so its center is 8px further in.
- * The connector runs down from that center; child icons start one icon step
- * (16px) right of the parent icon, sub-subagents one more step, with their
- * own connector under the child icon.
+ * A session row has no leading slot: its title starts at the row's 8 px padding (sidebar.css), nested in a project
+ * or not. A child's connector runs down 2 px left of that title edge and the child's glyph starts 6 px right of it,
+ * so the child's title sits one step in; a sub-subagent is one more 16 px step in, with its own connector under the
+ * child's glyph. (Before the leading slot went, the same relations were measured from a title 30 px further right.)
  */
-const INDENT = {
-	top: ["pl-6.5", "pl-10.5"],
-	nested: ["pl-11", "pl-15"],
-} as const;
-const CONNECTOR = {
-	top: ["left-4.5", "left-8.5"],
-	nested: ["left-9", "left-13"],
-} as const;
+const INDENT = ["pl-3.5", "pl-7.5"] as const;
+const CONNECTOR = ["left-1.5", "left-5.5"] as const;
 
-function Connector({ nested, depth }: { nested: boolean; depth: 0 | 1 }) {
+function Connector({ depth }: { depth: 0 | 1 }) {
 	return (
 		<span
 			aria-hidden
 			className={cx(
 				"pointer-events-none absolute top-0 -bottom-px z-(--sc-z-raised) w-px bg-(--sc-border-subtle)",
-				CONNECTOR[nested ? "nested" : "top"][depth],
+				CONNECTOR[depth],
 			)}
 			data-sidebar-subagents-connector={depth}
 		/>
@@ -165,7 +158,6 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	agent,
 	tabId,
 	depth,
-	nested,
 	selected,
 	rovingKey,
 	onOpen,
@@ -174,7 +166,6 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	agent: SubagentSnapshot;
 	tabId: string;
 	depth: 0 | 1;
-	nested: boolean;
 	selected: boolean;
 	rovingKey: string;
 	onOpen: (id: string) => void;
@@ -217,8 +208,8 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 						if (anchor) onMenu(agent.id, anchor);
 					},
 				}}
-				connector={depth === 1 ? <Connector depth={1} nested={nested} /> : undefined}
-				indent={INDENT[nested ? "nested" : "top"][depth]}
+				connector={depth === 1 ? <Connector depth={1} /> : undefined}
+				indent={INDENT[depth]}
 				kind="subagent"
 				kindLabel={t("sidebar.family.kind.subagent")}
 				onOpen={() => onOpen(agent.id)}
@@ -416,14 +407,14 @@ function FamilyChip({
 }
 
 /** One session an agent opened, as a one-line child. */
-function OpenedRow({ child, nested }: { child: FamilyOpened; nested: boolean }) {
+function OpenedRow({ child }: { child: FamilyOpened }) {
 	const t = useT();
 	if (child.renaming) return <div>{child.renaming}</div>;
 	return (
 		<FamilyRow
 			age={child.age}
 			buttonProps={child.buttonProps}
-			indent={INDENT[nested ? "nested" : "top"][0]}
+			indent={INDENT[0]}
 			kind={child.kind}
 			kindLabel={t(child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session")}
 			onOpen={child.onOpen}
@@ -440,13 +431,11 @@ function OpenedRow({ child, nested }: { child: FamilyOpened; nested: boolean }) 
 function FamilyGroup({
 	tabId,
 	sessionKey,
-	nested,
 	opened,
 	slice,
 }: {
 	tabId: string;
 	sessionKey: string;
-	nested: boolean;
 	opened: readonly FamilyOpened[];
 	slice: AgentSlice;
 }) {
@@ -524,7 +513,6 @@ function FamilyGroup({
 			agent={agent}
 			depth={depth}
 			key={agent.id}
-			nested={nested}
 			onMenu={openMenu}
 			onOpen={openAgent}
 			rovingKey={`subagent:${tabId}:${agent.id}`}
@@ -532,7 +520,7 @@ function FamilyGroup({
 			tabId={tabId}
 		/>
 	);
-	const openedRow = (child: FamilyOpened) => <OpenedRow child={child} key={child.key} nested={nested} />;
+	const openedRow = (child: FamilyOpened) => <OpenedRow child={child} key={child.key} />;
 
 	return (
 		<>
@@ -546,7 +534,7 @@ function FamilyGroup({
 					ref={groupRef}
 					role="group"
 				>
-					<Connector depth={0} nested={nested} />
+					<Connector depth={0} />
 					{shownRows.map(row => agentRow(row.agent, row.depth))}
 					{shownOpened.map(openedRow)}
 				</div>
@@ -600,7 +588,7 @@ function FamilyGroup({
 }
 
 /** The group reading the tab's runtime; only ever rendered inside that runtime's provider. */
-function AttachedGroup(props: { tabId: string; sessionKey: string; nested: boolean; opened: readonly FamilyOpened[] }) {
+function AttachedGroup(props: { tabId: string; sessionKey: string; opened: readonly FamilyOpened[] }) {
 	return <FamilyGroup {...props} slice={useAgentSlice()} />;
 }
 
@@ -616,23 +604,18 @@ function AttachedChip(props: { sessionKey: string; opened: readonly FamilyOpened
 export const SidebarSubagents = memo(function SidebarSubagents({
 	tabId,
 	sessionKey,
-	nested = false,
 	opened = NO_OPENED,
 }: {
 	tabId: string | null;
 	sessionKey: string;
-	nested?: boolean;
 	opened?: readonly FamilyOpened[];
 }) {
 	const runtime = useTabSessionRuntime(tabId);
 	// A stored opener (no tab) still holds the sessions it opened: no roster, no runtime, `""` names no tab.
-	if (!runtime)
-		return (
-			<FamilyGroup nested={nested} opened={opened} sessionKey={sessionKey} slice={DETACHED} tabId={tabId ?? ""} />
-		);
+	if (!runtime) return <FamilyGroup opened={opened} sessionKey={sessionKey} slice={DETACHED} tabId={tabId ?? ""} />;
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
-			<AttachedGroup nested={nested} opened={opened} sessionKey={sessionKey} tabId={tabId ?? ""} />
+			<AttachedGroup opened={opened} sessionKey={sessionKey} tabId={tabId ?? ""} />
 		</SessionRuntimeProvider>
 	);
 });
@@ -676,7 +659,7 @@ export function SidebarLooseChildren({ foldKey, opened }: { foldKey: string; ope
 			role="group"
 		>
 			{shown.map(child => (
-				<OpenedRow child={child} key={child.key} nested={false} />
+				<OpenedRow child={child} key={child.key} />
 			))}
 		</div>
 	);

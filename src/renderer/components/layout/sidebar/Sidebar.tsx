@@ -1534,7 +1534,7 @@ export function Sidebar() {
 		</div>
 	);
 	/** One session its agent opened, as a one-line child under the session that opened it. */
-	const familyChildFor = (child: SidebarSession, nested: boolean): FamilyOpened => {
+	const familyChildFor = (child: SidebarSession): FamilyOpened => {
 		const key = `session:${child.path}`;
 		const row = sessionRowState(child);
 		const origin = projectName(child.cwd);
@@ -1583,10 +1583,7 @@ export function Sidebar() {
 			tooltip: [title, statusLabel, origin.tooltip].filter(Boolean).join("\n"),
 			selected: row.active,
 			onOpen: () => openSession(child),
-			renaming:
-				renamingSessionPath === child.path
-					? renderRenameField(child, key, openTabId, nested ? "pl-11" : "pl-6.5")
-					: undefined,
+			renaming: renamingSessionPath === child.path ? renderRenameField(child, key, openTabId, "pl-3.5") : undefined,
 			buttonProps: {
 				tabIndex: -1,
 				"data-roving-item": key,
@@ -1653,9 +1650,7 @@ export function Sidebar() {
 		const runChild = nested && variant === undefined && runParentOf.has(session.path);
 		// The sessions this one's agent opened nest under it, one indent level in, like its subagents.
 		const opened =
-			variant === "archived"
-				? []
-				: (familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child, nested));
+			variant === "archived" ? [] : (familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child));
 		const title =
 			sessionDisplayTitle(session, "") || tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
@@ -1668,25 +1663,28 @@ export function Sidebar() {
 		if (renamingSessionPath === session.path)
 			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
 		// The state is the row's light (`SessionLiveEdge`) or its left-edge bar (sidebar.css `data-signal`), its words the
-		// tooltip and screen-reader text: no leading dot. An unseen finish has no light or bar, so it keeps one mark, a ✓
-		// (a shape, not a colour alone).
+		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
+		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
+		// alone; else a chat, a pin or a fork.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
-		const leading: ReactNode =
-			session.kind === "chat" && !done ? (
-				<MessageCircle aria-hidden data-sidebar-session-icon />
-			) : pinned && !done ? (
-				<Pin aria-label={t("sidebar.pinned")} />
-			) : fork && !done ? (
-				<GitFork aria-hidden data-sidebar-fork />
-			) : (
-				<span
-					aria-hidden
-					className="flex size-(--sc-icon-md) items-center justify-center"
-					data-sidebar-session-icon
-				>
-					{done && <Check className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />}
-				</span>
-			);
+		const marker: ReactNode = done ? (
+			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
+		) : session.kind === "chat" ? (
+			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
+		) : pinned ? (
+			<Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" />
+		) : fork ? (
+			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
+		) : null;
+		const age = waiting ? (
+			<Badge className="omp-sidebar-approval" variant="warning">
+				{waitingLabel}
+			</Badge>
+		) : indexed ? (
+			<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
+				{formatTimeAgo(session.modified)}
+			</time>
+		) : null;
 		const openTabId = tab?.id;
 		return (
 			<Fragment key={session.path}>
@@ -1773,11 +1771,7 @@ export function Sidebar() {
 							}
 						},
 					}}
-					className={cx(
-						"omp-sidebar-session-row",
-						nested && "omp-sidebar-session-nested",
-						runChild && "omp-sidebar-session-run-child",
-					)}
+					className={cx("omp-sidebar-session-row", runChild && "omp-sidebar-session-run-child")}
 					description={
 						variant === "recent" && session.cwd ? (
 							<span data-sidebar-row-project title={projectName(session.cwd).tooltip}>
@@ -1785,16 +1779,12 @@ export function Sidebar() {
 							</span>
 						) : undefined
 					}
-					leading={leading}
 					meta={
-						waiting ? (
-							<Badge className="omp-sidebar-approval" variant="warning">
-								{waitingLabel}
-							</Badge>
-						) : indexed ? (
-							<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
-								{formatTimeAgo(session.modified)}
-							</time>
+						marker || age ? (
+							<span className="inline-flex items-center gap-1.5" data-sidebar-row-end>
+								{marker}
+								{age}
+							</span>
 						) : undefined
 					}
 					onClick={() => {
@@ -1849,7 +1839,7 @@ export function Sidebar() {
 					}
 				/>
 				{(openTabId || opened.length > 0) && (
-					<SidebarSubagents nested={nested} opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
+					<SidebarSubagents opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
 				)}
 			</Fragment>
 		);
@@ -1870,7 +1860,7 @@ export function Sidebar() {
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a project
 		// with nothing else to show has no group at all.
-		const loose = group.folded.map(child => familyChildFor(child, false)).filter(isShownOpened);
+		const loose = group.folded.map(child => familyChildFor(child)).filter(isShownOpened);
 		if (group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
@@ -2007,7 +1997,11 @@ export function Sidebar() {
 				    hundreds of sessions must not build the full DOM per
 				    debounced refresh just to hide it. */}
 						{!groupCollapsed && (
-							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
+							<div
+								className={cx("space-y-px", group.attached && "ml-3")}
+								data-session-group={group.cwd}
+								data-state="expanded"
+							>
 								{group.sessions.map(session => renderSessionRow(session, true))}
 								<SidebarLooseChildren foldKey={`group:${group.cwd}`} opened={loose} />
 							</div>
@@ -2279,7 +2273,7 @@ export function Sidebar() {
 										{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
 										<SidebarLooseChildren
 											foldKey="recent"
-											opened={recentFolded.map(child => familyChildFor(child, false))}
+											opened={recentFolded.map(child => familyChildFor(child))}
 										/>
 									</div>
 								)}

@@ -876,7 +876,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rowFor("Brand new").getAttribute("data-signal")).toBe("running");
 	});
 
-	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
+	it("leads no session row with a slot: a chat's glyph sits at the end, before the age", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -884,8 +884,13 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(container.querySelectorAll("[data-sidebar-workspace-icon]").length).toBeGreaterThan(0);
 		const chatRow = container.querySelector('[data-session-kind="chat"]');
 		const groupedAgentRow = container.querySelector('[data-session-group="/work/alpha"] [data-session-kind="agent"]');
-		expect(chatRow?.querySelector("svg[data-sidebar-session-icon]")).not.toBeNull();
-		expect(groupedAgentRow?.querySelector("span[data-sidebar-session-icon]")).not.toBeNull();
+		expect(chatRow?.querySelector("[data-sidebar-row-end] svg[data-sidebar-session-icon]")).not.toBeNull();
+		expect(groupedAgentRow?.querySelector("[data-sidebar-session-icon]")).toBeNull();
+		// The title is the row's first content: nothing (but the light) comes before it.
+		const firstContent = [...((groupedAgentRow as unknown as Element | null)?.children ?? [])].find(
+			child => !child.classList.contains("omp-live-edge"),
+		);
+		expect(firstContent?.querySelector("button")).not.toBeNull();
 	});
 
 	it("right-click on a workspace header opens the agent-only group menu with move actions", async () => {
@@ -2704,7 +2709,7 @@ describe("Sidebar with a split on screen", () => {
 		const open = translate("sidebar.row.open");
 		expect(rowFor("Pane A").textContent).not.toContain(open);
 		expect(rowFor("Outside D").textContent).toContain(open);
-		expect(rowFor("Outside D").querySelector("[data-sidebar-session-icon]")?.childElementCount).toBe(0);
+		expect(rowFor("Outside D").querySelector("[data-sidebar-session-icon], [data-sidebar-row-end] svg")).toBeNull();
 	});
 
 	it("shows no pane cue while a session is alone", async () => {
