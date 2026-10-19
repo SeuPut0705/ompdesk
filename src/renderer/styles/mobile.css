@@ -1433,26 +1433,23 @@ html[data-shell] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-grou
 		font-size: 12px;
 	}
 
-	/* Prompt suggestions: the row is 36 px (4 px more than portrait), so each 28 px chip reaches 36. */
+	/* Prompt suggestions: the row is 38 px (6 px more than portrait), so each 28 px chip reaches 5 px past its edge
+	   inside the row's clip (WebKit's chip box came out 2 px short of a 36 px row's reach). */
 	html[data-shell="phone"] .omp-next-chips[data-touch] {
-		height: 36px;
-		padding-block: 4px;
-		--hit-gap-y: 8px;
+		height: 38px;
+		padding-block: 5px;
+		--hit-gap-y: 10px;
 	}
 
-	/* A work card's head and its step chips: the step chips are 28 px boxes 8 px apart in a scroller whose padding
-	   (taken back by its margin) keeps their reach inside its clip; the head's "Steps" row is 36 px high. */
+	/* A work card's head and its step chips: the 24 px step chips sit 12 px apart in a scroller whose padding (taken
+	   back by its margin) keeps their 6 px reach inside its clip, so each is a 36 px tap and stays drawn at 24 (a chip
+	   is never lifted visually); the head's "Steps" row is 36 px high. */
 	html[data-shell="phone"] .omp-live-work-chips {
-		gap: 8px;
-		padding-block: 4px;
-		margin-block: -4px;
-		--hit-gap-x: 8px;
-		--hit-gap-y: 8px;
-	}
-
-	html[data-shell="phone"] .omp-live-work-chip {
-		min-width: 28px;
-		height: 28px;
+		gap: 12px;
+		padding-block: 6px;
+		margin-block: -6px;
+		--hit-gap-x: 12px;
+		--hit-gap-y: 12px;
 	}
 
 	html[data-shell="phone"] :is(.omp-work-head-side, .omp-execution-group-header--embedded) {
