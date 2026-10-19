@@ -239,6 +239,21 @@ describe("what the model and the transcript get", () => {
 		expect(estimateTokens(recallText(items))).toBeLessThanOrEqual(RECALL_MAX_TOKENS);
 	});
 
+	it("bounds the whole block, headings included, when titles and source paths are long", () => {
+		const items = recallCandidates({
+			hits: [0, 1, 2].map(index => ({
+				path: `decisions/${"아주긴경로이름".repeat(200)}${index}.md`,
+				title: `Title: ${"테일스케일 신원 결정 ".repeat(11)}${index}`,
+				snippet: "테일스케일 페어링",
+			})),
+		});
+		const text = recallText(items);
+		expect(estimateTokens(text)).toBeLessThanOrEqual(RECALL_MAX_TOKENS);
+		expect(text.startsWith("<memory-recall>\n")).toBe(true);
+		expect(text.endsWith("\n</memory-recall>")).toBe(true);
+		expect(text).toContain("1. Decision · ");
+	});
+
 	it("names titles and sources, never the text, in a shape the renderer reads back", () => {
 		const items = codeRuleSelect(PROMPT, recallCandidates(ANSWER));
 		const details = recallDetails(items, false);
