@@ -509,11 +509,10 @@ export function SettingsPage() {
 										>
 											{results ? t("settings.search.title") : sectionTitle}
 										</h2>
-										{(results || !isTerse(section)) && (
+										{/* Section intros (`settings.section.*.desc`) only feed the nav search's keywords. */}
+										{results && (
 											<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
-												{results
-													? t("settings.search.count", { count: results.length })
-													: t(`settings.section.${section}.desc`)}
+												{t("settings.search.count", { count: results.length })}
 											</p>
 										)}
 										{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
