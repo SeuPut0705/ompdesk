@@ -71,7 +71,8 @@ describe("RecallTermsIndex", () => {
 		await index.refresh();
 		expect(fake.calls[0]).toEqual(["native", 1]);
 		expect(await read(file)).toMatchObject({ native: 2, n: 3, df: { memory: 3, tailscale: 1 } });
-		expect((await stat(file)).mode & 0o777).toBe(0o600);
+		// Windows has no POSIX modes (a file's mode reads 0o666 whatever was asked); the store tests skip it alike.
+		if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
 	});
 
 	it("rebuilds from zero when the store changes or a cursor is past last", async () => {
