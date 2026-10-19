@@ -902,7 +902,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				}
 				if (!res.success) throw new Error(res.error);
 				await ctx.hydrateSession();
-				toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });
+				toast({ variant: "success", message: t("command.compactedTitle") });
 			},
 		},
 		guard: "destructive",

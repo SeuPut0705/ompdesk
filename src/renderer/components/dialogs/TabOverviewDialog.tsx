@@ -112,7 +112,7 @@ export function TabOverviewDialog() {
 				</div>
 				<div className="flex items-center justify-between gap-3 px-4 pt-3">
 					<span className="text-sc-xs text-(--sc-text-muted)">
-						{sort === "recent" ? t("tabOverview.recentHint") : t("tabOverview.orderHint")}
+						{sort === "order" ? t("tabOverview.orderHint") : null}
 					</span>
 					<Tabs
 						activeId={sort}

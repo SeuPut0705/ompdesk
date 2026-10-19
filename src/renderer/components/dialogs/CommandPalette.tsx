@@ -618,12 +618,7 @@ export function CommandPalette() {
 						(workingItems.length === 0 ? (
 							<EmptyState icon={<Search />} size="sm" title={t("palette.noCommands")} />
 						) : (
-							<EmptyState
-								description={t("palette.noMatchHint")}
-								icon={<Search />}
-								size="sm"
-								title={t("palette.noMatch")}
-							/>
+							<EmptyState icon={<Search />} size="sm" title={t("palette.noMatch")} />
 						))}
 
 					{grouped ? (
