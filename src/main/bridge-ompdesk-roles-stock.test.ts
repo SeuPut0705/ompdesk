@@ -90,6 +90,9 @@ export default function (pi) {
    out.cleared = row(all);
    out.clearedReview = resolve(["@review"]);
    out.clearedPicks = picks();
+   await settings.flush();
+   out.configUnchangedAfterClear = bytes() === configBefore;
+   out.clearedGlobalReview = settings.getGlobalModelRole("review") ?? null;
 
    // A user's own security-reviewer agent with a model line keeps it (the held tier outranks agent files).
    out.hook = "missing";
@@ -142,6 +145,8 @@ interface Probe {
 	picks: Record<string, string> | null;
 	plan: string | null;
 	configUnchanged: boolean;
+	configUnchangedAfterClear: boolean;
+	clearedGlobalReview: string | null;
 	globalReview: string | null;
 	cleared: Row | null;
 	clearedReview: string | null;
@@ -248,8 +253,15 @@ describe.skipIf(!existsSync(omp))("OMPdesk roles on stock omp", () => {
 		});
 		expect(probe.emptyReview).toBe(own);
 		expect(probe.securityEmpty.model).toBe(own);
-		// The pick for a role the user's config owns is written where they keep it.
-		expect(probe.globalReview).toBe(probe.A);
-		expect(probe.picks).toBeNull();
+		// Setting and clearing the role never rewrite config.yml: the pick waits in the picks file while the user's
+		// own value stays in force.
+		expect(probe.pickedReview).toBe(own);
+		expect(probe.picks).toEqual({ review: probe.A });
+		expect(probe.configUnchanged).toBe(true);
+		expect(probe.globalReview).toBe(own);
+		expect(probe.clearedReview).toBe(own);
+		expect(probe.clearedPicks).toEqual({});
+		expect(probe.configUnchangedAfterClear).toBe(true);
+		expect(probe.clearedGlobalReview).toBe(own);
 	}, 260_000);
 });

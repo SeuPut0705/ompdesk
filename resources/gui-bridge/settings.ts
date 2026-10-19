@@ -926,11 +926,11 @@ export const methods: BridgeMethods = {
 							.some(model => (provider === undefined || model.provider === provider) && model.id === id),
 				}),
 			);
-			const settings = session.settings as unknown as RoleSettings;
-			// An OMPdesk role is held at runtime, never written to config.yml, unless the user's config already owns it.
-			if (OMPDESK_ROLES.some(entry => entry.id === role) && !roleConfigured(settings, role)) {
+			// An OMPdesk role is held at runtime, never written to config.yml; a value the user's config sets stays in
+			// force (settleOmpdeskRoles yields to it), so a pick then waits in the picks file until that value is gone.
+			if (OMPDESK_ROLES.some(entry => entry.id === role)) {
 				writeRolePick(role, value);
-				settleOmpdeskRoles(settings);
+				settleOmpdeskRoles(session.settings as unknown as RoleSettings);
 			} else {
 				session.settings.setModelRole(role, value);
 				await session.settings.flush();
