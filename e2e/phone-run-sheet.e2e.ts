@@ -1,14 +1,15 @@
 import * as fs from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
-import { type Browser, chromium, devices, expect, type Locator, type Page, test } from "@playwright/test";
+import { type Browser, chromium, devices, expect, type Locator, type Page, test, webkit } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 
 /**
  * The phone's Run settings sheet and the composer row above it, on the dev harness (Pixel 8 emulation, touch input,
  * 360 / 390 / 412 px): every row of the sheet is ONE line (label + control, the explanation behind an (i) glyph, no
  * paragraph), small switches sit two to a row as icon tiles, the segmented choices are one row, and nothing of the
- * controls row runs under Stop/Send. OMP_GUI_RUN_SHEET=<dir> writes `<state>-<width>-<theme>-<lang>.png` captures.
+ * controls row runs under Stop/Send. Every composer sheet scrolls in ONE container with no drawn scrollbar track
+ * (Chromium Pixel 8 and WebKit iPhone 15). OMP_GUI_RUN_SHEET=<dir> writes `<state>-<width>-<theme>-<lang>.png` captures.
  */
 
 const captures = process.env.OMP_GUI_RUN_SHEET;
@@ -19,6 +20,7 @@ type Theme = "light" | "dark";
 let server: ViteDevServer | undefined;
 let origin = "";
 let browser: Browser | undefined;
+let webkitBrowser: Browser | undefined;
 
 async function freePort(): Promise<number> {
 	const { promise, resolve, reject } = Promise.withResolvers<number>();
@@ -46,6 +48,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
 	await browser?.close();
+	await webkitBrowser?.close();
 	await server?.close();
 });
 
@@ -54,14 +57,17 @@ interface PhoneOptions {
 	theme?: Theme;
 	width?: number;
 	height?: number;
+	engine?: "pixel8" | "webkit";
 }
 
 /** A phone on the harness with the composer idle and a model that offers every speed tier. */
 async function openPhone(options: PhoneOptions = {}): Promise<Page> {
-	const { lang = "ko", theme = "dark", width = 390, height = 844 } = options;
-	if (!browser) throw new Error("no browser");
-	const context = await browser.newContext({
-		...devices["Pixel 8"],
+	const { lang = "ko", theme = "dark", width = 390, height = 844, engine = "pixel8" } = options;
+	if (engine === "webkit") webkitBrowser ??= await webkit.launch();
+	const target = engine === "webkit" ? webkitBrowser : browser;
+	if (!target) throw new Error("no browser");
+	const context = await target.newContext({
+		...devices[engine === "webkit" ? "iPhone 15" : "Pixel 8"],
 		viewport: { width, height },
 		screen: { width, height },
 	});
@@ -306,6 +312,80 @@ for (const lang of ["ko", "en"] as const) {
 			}
 		});
 	}
+}
+
+/**
+ * Scroll containers of the open bottom sheet: elements that scroll vertically (`overflow-y` auto/scroll with more
+ * content than room), and the width any of them draws for a scrollbar track. A sheet is ONE scroller, and on touch its
+ * scrollbar is the platform's overlay (no custom `::-webkit-scrollbar` track taking width).
+ */
+async function sheetScrollers(page: Page): Promise<{ scrolling: string[]; trackWidths: number[] }> {
+	return page.evaluate(() => {
+		const sheet = document.querySelector("[data-action-sheet]");
+		if (!sheet) return { scrolling: ["no sheet"], trackWidths: [] };
+		const scrollers = [sheet, ...Array.from(sheet.querySelectorAll("*"))].filter(
+			node => node instanceof HTMLElement && /auto|scroll/.test(getComputedStyle(node).overflowY),
+		) as HTMLElement[];
+		return {
+			scrolling: scrollers
+				.filter(node => node.scrollHeight > node.clientHeight)
+				.map(node => `${node.tagName.toLowerCase()}.${node.className.split(" ").slice(0, 3).join(".")}`),
+			trackWidths: scrollers.map(node => {
+				const style = getComputedStyle(node);
+				return (
+					node.offsetWidth -
+					node.clientWidth -
+					parseFloat(style.borderLeftWidth) -
+					parseFloat(style.borderRightWidth)
+				);
+			}),
+		};
+	});
+}
+
+for (const engine of ["pixel8", "webkit"] as const) {
+	test(`every composer sheet scrolls in one container with no drawn track · ${engine}`, async () => {
+		const page = await openPhone({ engine });
+		try {
+			// The Run sheet is taller than 844 px of phone: the sheet itself scrolls, nothing inside it does.
+			await openRun(page);
+			await openAdvanced(page);
+			const run = await sheetScrollers(page);
+			expect(run.scrolling, "the Run sheet has exactly one scroller").toHaveLength(1);
+			expect(
+				run.trackWidths.every(width => width === 0),
+				"no scrollbar track takes width on touch",
+			).toBe(true);
+			await page.keyboard.press("Escape");
+			await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+			for (const chip of [
+				"[data-chip=thinking]",
+				"[data-chip=delegation]",
+				"[data-chip=context]",
+				"[data-model-chip]",
+				'button[aria-label="첨부 및 더 보기"]',
+			]) {
+				const trigger = page.locator(`.omp-composer-box ${chip}`).first();
+				await expect(trigger, `${chip} is in the composer`).toBeVisible();
+				await trigger.tap();
+				await expect(page.locator("[data-action-sheet]")).toHaveCount(1);
+				await page.waitForTimeout(300);
+				const sheet = await sheetScrollers(page);
+				expect(
+					sheet.scrolling.length,
+					`${chip} sheet: at most one scroller (${sheet.scrolling})`,
+				).toBeLessThanOrEqual(1);
+				expect(
+					sheet.trackWidths.every(width => width === 0),
+					`${chip} sheet draws no track`,
+				).toBe(true);
+				await page.keyboard.press("Escape");
+				await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+			}
+		} finally {
+			await page.context().close();
+		}
+	});
 }
 
 /** The desktop popover is the same one-line rows at its own width. */
