@@ -17,8 +17,10 @@
  *   bun run build:memory -- --check
  *
  * builds nothing: it holds a binary and record already in `resources/ai-memory-bin/` (CI restores them from its cache
- * when native/memory did not change) to native/memory/ompdesk.json, recomputes the binary's SHA-256 against the record
- * and runs its `--version`; any mismatch exits 1.
+ * when their inputs did not change) to native/memory/ompdesk.json and to the current `src/shared/memory-prompt.ts`
+ * (the CLI embeds it with `include_str!` into the omp extension it generates, so a binary built before an edit of it
+ * is stale with the same version), recomputes the binary's SHA-256 against the record and runs its `--version`; any
+ * mismatch exits 1.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -32,6 +34,8 @@ export const MEMORY_DIR = path.join(REPO_ROOT, "native", "memory");
 export const BIN_ROOT = path.join(REPO_ROOT, "resources", "ai-memory-bin");
 export const BUILD_MANIFEST = "ai-memory.build.json";
 export const BINARIES: Record<string, string> = { "darwin-arm64": "ai-memory", "win32-x64": "ai-memory.exe" };
+/** OMPdesk's own file the memory CLI compiles in (install_hooks.rs `include_str!`), outside native/memory. */
+export const MEMORY_PROMPT = path.join(REPO_ROOT, "src", "shared", "memory-prompt.ts");
 
 export interface BuildRecord {
 	version: string;
@@ -39,6 +43,8 @@ export interface BuildRecord {
 	upstreamCommit: string;
 	binary: string;
 	binarySha256: string;
+	/** SHA-256 of `src/shared/memory-prompt.ts` as the binary embedded it. */
+	memoryPromptSha256: string;
 	platform: string;
 	arch: string;
 	rustc: string;
@@ -60,7 +66,12 @@ function cargoPath(): string | null {
 	return candidates.find(file => file && fs.existsSync(file)) ?? null;
 }
 
-function check(key: string, binary: string, source: { version: string; upstreamCommit: string }): void {
+function check(
+	key: string,
+	binary: string,
+	source: { version: string; upstreamCommit: string },
+	memoryPromptSha256: string,
+): void {
 	const target = path.join(BIN_ROOT, key);
 	const file = path.join(target, binary);
 	if (!fs.existsSync(file) || !fs.existsSync(path.join(target, BUILD_MANIFEST)))
@@ -74,6 +85,8 @@ function check(key: string, binary: string, source: { version: string; upstreamC
 		fail(
 			`the binary was built from ${record.version} (${record.upstreamCommit}), native/memory is ${source.version} (${source.upstreamCommit}).`,
 		);
+	if (record.memoryPromptSha256 !== memoryPromptSha256)
+		fail("the binary embeds another src/shared/memory-prompt.ts than this checkout's; run `bun run build:memory`.");
 	const actual = createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 	if (actual !== record.binarySha256)
 		fail(`${binary} hashes to ${actual}; its build record expects ${record.binarySha256}.`);
@@ -92,8 +105,9 @@ if (import.meta.main) {
 		upstreamTag: string;
 		upstreamCommit: string;
 	};
+	const memoryPromptSha256 = createHash("sha256").update(fs.readFileSync(MEMORY_PROMPT)).digest("hex");
 	if (process.argv.includes("--check")) {
-		check(key, binary, source);
+		check(key, binary, source, memoryPromptSha256);
 		process.exit(0);
 	}
 	const cargo = cargoPath();
@@ -133,6 +147,7 @@ if (import.meta.main) {
 		upstreamCommit: source.upstreamCommit,
 		binary,
 		binarySha256: createHash("sha256").update(bytes).digest("hex"),
+		memoryPromptSha256,
 		platform: process.platform,
 		arch: process.arch,
 		rustc: execFileSync(
