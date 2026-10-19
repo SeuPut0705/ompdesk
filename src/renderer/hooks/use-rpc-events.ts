@@ -701,9 +701,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			if (disposed || closedTabFrame(statusTabId)) return;
 			// A tab whose runtime does not exist yet (a page that just loaded still shows the last load's ghosts) gets its
 			// own here: `withSessionRuntime` falls back to the focused runtime, so its status, and the `get_state` main
-			// answers for its active tab, would land in the focused pane under another tab's session.
-			if (statusTabId !== "" && sessionRuntime(statusTabId) === null && focusedSessionRuntime() !== null)
-				ensureTabRuntime(statusTabId);
+			// answers for its active tab, would land in whichever pane is focused by then, under another tab's session.
+			if (statusTabId !== "") ensureTabRuntime(statusTabId);
 			statusVersion++;
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
 			if (payload.status === "starting") {
@@ -736,6 +735,9 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 					try {
 						const runtime = sessionRuntime(statusTabId);
 						const command = runtime?.command ?? activeTabCommand;
+						// Without a runtime (no tab id) every write below resolves its stores by focus: remember whose focus
+						// this fetch was for and write nothing into a pane that took focus while it was in flight.
+						const focusedAtStart = runtime ? null : focusedSessionRuntime();
 						// A window opened "in new window" for a specific session
 						// switches to it BEFORE hydrating, so the first transcript
 						// it pulls is the target session, not the fresh empty one.
@@ -746,6 +748,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						}
 						const res = await command({ type: "get_state" });
 						if (runtime && sessionRuntime(statusTabId) !== runtime) return;
+						if (!runtime && focusedSessionRuntime() !== focusedAtStart) return;
 						if (!res.success) {
 							withSessionRuntime(statusTabId, () =>
 								useSessionStore.getState().setSidecarError(translate("events.sidecarNoResponse")),
