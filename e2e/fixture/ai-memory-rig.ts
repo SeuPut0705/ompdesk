@@ -60,7 +60,7 @@ export async function makeRig(): Promise<Rig> {
 	return rig;
 }
 
-export async function launch(rig: Rig): Promise<Launched> {
+export async function launch(rig: Rig, extraEnv: Record<string, string> = {}): Promise<Launched> {
 	const app = await launchApp({
 		project: rig.project,
 		desktop: rig.desktop,
@@ -75,6 +75,7 @@ export async function launch(rig: Rig): Promise<Launched> {
 			OMP_GUI_TEST_RECORD: rig.record,
 			// The fake's "service" is its pid file: that is the unit the app may stop.
 			OMP_GUI_AI_MEMORY_UNIT_PIDFILE: path.join(rig.home, ".fake-ai-memory", "server.pid"),
+			...extraEnv,
 		},
 	});
 	const page = await app.firstWindow();

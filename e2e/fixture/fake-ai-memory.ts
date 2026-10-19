@@ -18,7 +18,8 @@
  *   shared skills under `<HOME>/.agents/skills/ai-memory-*`, the data dir with `config.toml` (`bind` on a free port) and
  *   `auth-tokens/default`, and, unless `--no-service`, a DETACHED server (`__serve`) recorded in
  *   `<HOME>/.fake-ai-memory/server.pid` (the app's `OMP_GUI_AI_MEMORY_UNIT_PIDFILE` seam points at that file: it is the
- *   fake's "service unit"). Waits until `/healthz` answers, like ai-memory's own self-check.
+ *   fake's "service unit"). Waits until `/healthz` answers, like ai-memory's own self-check. With
+ *   `FAKE_AI_MEMORY_REFUSE_SERVICE=<file>` present, the service step fails once instead (launchd's error 5).
  * - `install-hooks --agent omp --apply --config-file F`, `install-mcp --client omp --apply --config-file F`,
  *   `install-skills --target-dir D`: the generated omp extension, the MCP entry file and the skills, each written ONLY
  *   at the path it was given.
@@ -188,6 +189,16 @@ async function setup(): Promise<void> {
 	if (argv.includes("--no-service")) {
 		console.log("setup complete (no service)");
 		process.exit(0);
+	}
+	// FAKE_AI_MEMORY_REFUSE_SERVICE=<file>: while that file exists, the service step fails once (it is deleted) as an
+	// update's did on macOS: launchd refused the bootstrap while the old server still drained.
+	const refuse = process.env.FAKE_AI_MEMORY_REFUSE_SERVICE;
+	if (refuse && existsSync(refuse)) {
+		rmSync(refuse);
+		console.log(
+			"problem: service: `launchctl bootstrap gui/501 ai-memory.plist` failed: Bootstrap failed: 5: Input/output error",
+		);
+		process.exit(1);
 	}
 	const running = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8")) : 0;
 	if (!running || !alive(running)) {

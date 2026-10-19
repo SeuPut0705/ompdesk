@@ -1057,6 +1057,10 @@ app.whenReady().then(() => {
 			: join(devResourcesDir, "ai-memory-bin", `${process.platform}-${process.arch}`),
 		binaryOverride: aiMemoryBinary,
 		noService: process.env.OMP_GUI_AI_MEMORY_NO_SERVICE === "1",
+		// e2e runs shorten the automatic re-runs of a failed wiring pass with the same seam as the scheduled turn retry.
+		...(process.env.OMP_GUI_RETRY_DELAYS_MS
+			? { retryDelaysMs: retryDelays(process.env.OMP_GUI_RETRY_DELAYS_MS) }
+			: {}),
 		home: homedir(),
 		agentDir,
 		rootDir: join(app.getPath("userData"), "ai-memory", "omp-ext"),

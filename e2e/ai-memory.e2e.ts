@@ -390,3 +390,45 @@ test("ai-memory moves an earlier build's global omp wiring to the app-owned root
 		await fs.rm(rig.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+test("an update-like relaunch whose service step is refused once comes back by itself, with the extension root current", async () => {
+	test.setTimeout(240_000);
+	const rig = await makeRig();
+	let current: Launched | null = null;
+	try {
+		current = await launch(rig);
+		await phaseIs(current.page, "ready");
+		const generated = await fs.readFile(path.join(rig.extRoot, "index.ts"), "utf8");
+		await exitApp(current.app);
+		current = null;
+
+		// v0.41.0's update: the root still holds an earlier build's extension, the old server is gone (setup booted it
+		// out) and launchd refuses the first bootstrap of the new one ("5: Input/output error").
+		await fs.writeFile(path.join(rig.extRoot, "index.ts"), `${generated}// an earlier build's extension\n`);
+		const pid = await serverPid(rig);
+		if (pid && isAlive(pid)) process.kill(pid);
+		const refuse = path.join(rig.root, "refuse-service");
+		await fs.writeFile(refuse, "");
+		const setupsBefore = (await commands(rig)).filter(command => command === SETUP).length;
+
+		current = await launch(rig, { FAKE_AI_MEMORY_REFUSE_SERVICE: refuse, OMP_GUI_RETRY_DELAYS_MS: "200" });
+		const { page } = current;
+		await phaseIs(page, "ready");
+		expect(existsSync(refuse)).toBe(false);
+		expect((await commands(rig)).filter(command => command === SETUP).length - setupsBefore).toBe(2);
+		expect(await fs.readFile(path.join(rig.extRoot, "index.ts"), "utf8")).toBe(generated);
+		const healthz = await fetch(`${(await state(page)).serverUrl}/healthz`);
+		expect(healthz.ok).toBe(true);
+		const log = (await fs.readFile(path.join(rig.desktop, "logs", "gui-runtime.jsonl"), "utf8"))
+			.split("\n")
+			.filter(line => line.includes('"source":"ai-memory"'));
+		expect(log.some(line => line.includes('"message":"failed"') && line.includes("Bootstrap failed: 5"))).toBe(true);
+		expect(log.some(line => line.includes('"message":"retry"'))).toBe(true);
+		expect(current.errors).toEqual([]);
+	} finally {
+		if (current) await exitApp(current.app);
+		const pid = await serverPid(rig);
+		if (pid && isAlive(pid)) process.kill(pid);
+		await fs.rm(rig.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});

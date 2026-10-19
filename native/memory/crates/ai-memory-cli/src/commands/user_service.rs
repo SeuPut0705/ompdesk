@@ -888,6 +888,33 @@ fn launchd_loaded(runner: &dyn CommandRunner, domain: &str) -> bool {
     )
 }
 
+/// How often `start_launchd` asks whether a booted-out job left the domain.
+const LAUNCHD_POLL: Duration = Duration::from_millis(100);
+/// How long a booted-out job may take to leave: the server drains on SIGTERM,
+/// and launchd keeps the label until its process exited.
+const LAUNCHD_GONE_POLLS: u32 = 300;
+/// Bootstrap attempts before `setup` gives up on the LaunchAgent.
+const BOOTSTRAP_ATTEMPTS: u32 = 3;
+/// Pause before bootstrapping again after a refusal.
+const BOOTSTRAP_RETRY: Duration = Duration::from_secs(1);
+
+/// Poll until `target` is no longer loaded; false when it still is after
+/// [`LAUNCHD_GONE_POLLS`].
+fn wait_unloaded(runner: &dyn CommandRunner, target: &str) -> bool {
+    for _ in 0..LAUNCHD_GONE_POLLS {
+        if !succeeds(runner, "launchctl", &["print", target]) {
+            return true;
+        }
+        runner.sleep(LAUNCHD_POLL);
+    }
+    !succeeds(runner, "launchctl", &["print", target])
+}
+
+/// `launchctl bootout` returns as soon as launchd took the request, while the
+/// job's process may still be draining; a `bootstrap` of the same label then
+/// fails with "5: Input/output error" and nothing is loaded. So a loaded job is
+/// booted out and waited for, and a refused bootstrap is tried again a bounded
+/// number of times.
 fn start_launchd(unit: &ServiceUnit, runner: &dyn CommandRunner, loaded: bool) -> Result<()> {
     let domain = launchd_domain(runner)?;
     if let Some(home) = unit
@@ -899,16 +926,32 @@ fn start_launchd(unit: &ServiceUnit, runner: &dyn CommandRunner, loaded: bool) -
         let logs = launchd_log_dir(home);
         std::fs::create_dir_all(&logs).with_context(|| format!("creating {}", logs.display()))?;
     }
+    let target = format!("{domain}/{LAUNCHD_LABEL}");
     if loaded {
-        require(
-            runner,
-            "launchctl",
-            &["bootout", &format!("{domain}/{LAUNCHD_LABEL}")],
-        )?;
+        let bootout = runner.run("launchctl", &["bootout", &target])?;
+        if !wait_unloaded(runner, &target) {
+            bail!(
+                "`launchctl bootout {target}` left the job loaded: {}",
+                bootout.stderr.trim()
+            );
+        }
     }
     let plist = unit.path.to_string_lossy();
-    require(runner, "launchctl", &["bootstrap", &domain, &plist])?;
-    Ok(())
+    let mut attempt = 1;
+    loop {
+        match require(runner, "launchctl", &["bootstrap", &domain, &plist]) {
+            Ok(_) => return Ok(()),
+            Err(error) if attempt < BOOTSTRAP_ATTEMPTS => {
+                eprintln!("{error:#} (attempt {attempt} of {BOOTSTRAP_ATTEMPTS}); trying again");
+                runner.sleep(BOOTSTRAP_RETRY);
+                wait_unloaded(runner, &target);
+                attempt += 1;
+            }
+            Err(error) => {
+                return Err(error.context(format!("after {BOOTSTRAP_ATTEMPTS} attempts")));
+            }
+        }
+    }
 }
 
 /// What `uninstall` did about the user service.

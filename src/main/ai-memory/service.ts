@@ -80,6 +80,12 @@ const HEALTH_STEP_MS = 500;
 /** Re-run `setup` after this many polls in a row that found the server down, at most once in REWIRE_COOLDOWN_MS. */
 const REWIRE_AFTER_POLLS = 2;
 const REWIRE_COOLDOWN_MS = 10 * 60_000;
+/**
+ * A failed wiring pass runs again by itself after each of these waits, then stays failed (Settings' Try again). The
+ * service manager can refuse a moment (launchd's bootstrap right after a bootout of the draining old server), so one
+ * refusal must not leave memory down until the next launch.
+ */
+const RETRY_DELAYS_MS: readonly number[] = [30_000, 2 * 60_000, 10 * 60_000];
 const OUTPUT_TAIL = 16 * 1024;
 /** The folders `ai-memory reset` wipes; everything else in the data directory (config, token, models) stays. */
 const DATA_FOLDERS = ["wiki", "db", "raw"] as const;
@@ -135,10 +141,12 @@ export interface AiMemoryServiceDeps {
 	externalProbe?: (bin: string) => Promise<string | null>;
 	pollMs?: number;
 	healthWaitMs?: number;
+	/** The waits before a failed wiring pass runs again by itself (`RETRY_DELAYS_MS`). */
+	retryDelaysMs?: readonly number[];
 	now?: () => number;
 }
 
-export type AiMemoryLogMessage = "launch" | "binary" | "phase" | "failed";
+export type AiMemoryLogMessage = "launch" | "binary" | "phase" | "failed" | "retry";
 export type AiMemoryLogDetails = Record<string, string | number | boolean | null>;
 
 interface Resolved {
@@ -215,6 +223,9 @@ export class AiMemoryService {
 	#statsAt = 0;
 	/** A wiring pass found no Bun: the setup's Bun arriving (`bunInstalled`) runs it again, once. */
 	#awaitingBun = false;
+	#retryTimer: NodeJS.Timeout | null = null;
+	/** Automatic re-runs since the last pass that wired; bounded by `retryDelaysMs`. */
+	#retries = 0;
 
 	constructor(deps: AiMemoryServiceDeps) {
 		this.#deps = deps;
@@ -300,6 +311,7 @@ export class AiMemoryService {
 		this.#deps.persistEnabled(enabled);
 		this.#patch({ enabled });
 		if (!this.#platformOk || !this.#deps.automatic) return Promise.resolve();
+		this.#cancelRetry();
 		this.#patch({ phase: "starting", step: enabled ? "stage" : "unwire", detail: null });
 		return this.#enqueue(() => (enabled ? this.#enable() : this.#disable(false)));
 	}
@@ -307,6 +319,7 @@ export class AiMemoryService {
 	/** Wire again after a failure (or an unreachable server). */
 	retry(): Promise<void> {
 		if (!this.#state.enabled || !this.#platformOk || !this.#deps.automatic) return Promise.resolve();
+		this.#cancelRetry();
 		this.#patch({ phase: "starting", step: "stage", detail: null });
 		return this.#enqueue(() => this.#enable());
 	}
@@ -476,7 +489,29 @@ export class AiMemoryService {
 		this.#disposed = true;
 		clearInterval(this.#timer ?? undefined);
 		this.#timer = null;
+		this.#cancelRetry();
 		this.#runner.cancel();
+	}
+
+	#cancelRetry(): void {
+		clearTimeout(this.#retryTimer ?? undefined);
+		this.#retryTimer = null;
+	}
+
+	/** After a failed wiring pass: run it again by itself, a bounded number of times. */
+	#scheduleRetry(): void {
+		const delays = this.#deps.retryDelaysMs ?? RETRY_DELAYS_MS;
+		if (this.#disposed || this.#awaitingBun || this.#retryTimer || this.#retries >= delays.length) return;
+		const inMs = delays[this.#retries] ?? 0;
+		this.#retries += 1;
+		this.#deps.log?.("retry", { attempt: this.#retries, of: delays.length, inMs, detail: this.#state.detail });
+		this.#retryTimer = setTimeout(() => {
+			this.#retryTimer = null;
+			if (this.#disposed || !this.#state.enabled || this.#state.phase !== "failed") return;
+			this.#patch({ phase: "starting", step: "stage", detail: null });
+			void this.#enqueue(() => this.#enable());
+		}, inMs);
+		this.#retryTimer.unref();
 	}
 
 	#enqueue(task: () => Promise<void>): Promise<void> {
@@ -741,6 +776,16 @@ export class AiMemoryService {
 				await this.#setup(resolved.bin, { terminal: terminalWired, service: owned });
 			} catch (error) {
 				if (error instanceof Cancelled) return;
+				// The extension root belongs to the binary in use, not to the service: an update whose service step failed
+				// still gets the new extension (`promptTitle`, the child-session rules), or it stays stale for the whole run.
+				await this.#generateRoot(resolved.bin).catch((rootError: unknown) =>
+					this.#deps.log?.("failed", {
+						step: "root",
+						detail: rootError instanceof Error ? rootError.message : String(rootError),
+						stack: null,
+					}),
+				);
+				this.#patch({ wiring: await this.#wiring() });
 				throw error;
 			}
 			const toml = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
@@ -758,11 +803,13 @@ export class AiMemoryService {
 				detail: up ? null : "The server does not answer yet.",
 			});
 			this.#downPolls = 0;
+			this.#retries = 0;
 			if (up) await this.#readStats();
 			this.#startPolling();
 			if (resolved.staged) void pruneStaged(this.#deps.toolsDir, resolved.staged);
 		} catch (error) {
 			this.#fail(error);
+			this.#scheduleRetry();
 		}
 	}
 
