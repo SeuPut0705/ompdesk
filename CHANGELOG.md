@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.40.0] - 2026-10-19
+
+화면 전체의 군더더기 설명을 걷어 내고, 에이전트가 OMPdesk를 확인 카드 없이 다룰 수 있게 했어요. 원격 세션은 이제 어느 쪽에서 열어도 하나로 이어져요.
+
+### 새로 생긴 것
+- 에이전트에게 OMPdesk 모든 권한을 주는 스위치를 넣었어요(기본 켜짐). 켜져 있으면 삭제, 설치, 종료, 설정 변경까지 확인 카드 없이 하고, 한 일은 알림과 되돌리기로 보여요. 계정 비밀번호와 토큰은 계속 읽을 수 없어요.
+- 시작하기와 모델 설정에서 ChatGPT, Claude, OpenRouter, Google, Grok을 맨 위 카드로 보여 줘요. 구독 로그인이 먼저, API 키가 다음이에요.
+- 오토파일럿이 시작 버튼 하나로 돌아가요. 저장소를 보고 내보내기 방식을 정하고(원격이 있으면 작업 브랜치 푸시, main에는 직접 푸시하지 않음), 병렬 수와 예산·시간 상한은 없어요. 알려진 버그를 먼저 고치고, 세션 제목은 작업 내용으로 붙어요.
+- 연결된 컴퓨터와 기기의 이름을 언제든 바꿀 수 있어요. 다른 컴퓨터의 이름도 원격으로 바꾸고, 바뀐 이름은 연결된 기기에 바로 보여요.
+- 호스트 컴퓨터 화면에서 다른 기기가 연 세션이 보이고, 열면 그 세션에 같이 보기로 붙어요.
+- 작업 중인 세션 카드에 입력창과 같은 빛이 테두리를 돌아요. 하위 작업 줄은 차분하게 두고, 숫자는 한 번만 보여요.
+- 윈도우에서 Git Bash가 하위 프로그램을 띄우지 못하면 설정의 Git 항목에 원인과 "고치기" 버튼이 나와요. Git 프로그램에만 예외를 걸고, "되돌리기"는 바꾼 설정 하나만 원래대로 돌려요.
+- 메모리가 세션을 작업 이름으로 기록하고, 사람이 쓴 대화에서 규칙과 결정을 스스로 정리해요(설정 › 메모리 › 대화에서 배우기).
+- 앱 자동 업데이트와 앱 멈춤, 입력 기록 시간 초과의 원인을 기록에 남겨요.
+
+### 바뀐 것
+- 설정, 대화상자, 패널, 사이드바, 대화 화면의 설명을 정리했어요. 줄마다 한 줄이고, 필요한 설명은 ⓘ 툴팁에 있어요. 설정 페이지 맨 위 소개 문장도 없앴어요.
+- 휴대폰의 실행 설정이 한 줄씩이고, 스위치는 두 칸 타일, 사고 수준·승인·위임은 버튼 한 줄이에요. 입력창 줄은 아이콘 위주라 보내기 버튼 밑으로 파고들지 않아요.
+- 에이전트가 연 세션은 끝나면 사이드바에 남지 않고, 작업판의 "검토가 필요해요"와 검토·승인·버리기 버튼도 없어졌어요. 결과는 메인 세션이 직접 확인하고 합쳐요.
+- 에이전트 도구의 횟수와 개수 제한을 모두 없앴어요.
+- 입력창 아래 "다른 기기와 함께 쓰는 중" 줄과 사이드바 숫자의 깜빡임, 사용 중인 계정 옆 세로선을 없앴어요.
+
+### 고친 것
+- 윈도우에서 앱이 한 번 정상 종료되면 그다음부터 그래픽 가속이 꺼진 채로 실행되던 것을 고쳤어요.
+- 원격 컴퓨터에서 이미 열려 있는 세션을 다른 기기가 열면 omp가 하나 더 떠서 대화가 갈라지던 것을 고쳤어요.
+- 계획 승인 카드가 답한 뒤에도 남던 것을 고쳤어요. 어느 창, 기기, 에이전트가 답해도 모든 창에서 닫혀요.
+- 이미 진행 중인 일에 "좋아 진행해" 같은 추천 문장이 나오던 것을 고쳤어요.
+- 작업 중이거나 바꾼 게 없는 세션이 "검토가 필요해요"에 뜨던 것을 고쳤어요.
+
+<!-- en -->
+
+Filler text is gone from every screen, and agents can operate OMPdesk without confirmation cards. A remote session now stays one session whichever side opens it.
+
+### Added
+- A "Give agents full control of OMPdesk" switch (on by default): agents delete, install, quit and change settings without a card, and every action shows as a notice with undo where possible. Account secrets and tokens stay unreadable.
+- Getting started and model settings lead with ChatGPT, Claude, OpenRouter, Google and Grok as cards, subscription sign-in first and API key second.
+- Autopilot starts with one button: it picks the shipping level from the repository (pushes its work branch when there is a remote, never straight to main), with no fan-out cap and no budget or time ceilings. It fixes known bugs first and titles its session after the work.
+- Rename a computer or device any time, including another computer remotely; the new name reaches connected devices at once.
+- A host's own windows list the sessions paired devices run on it and open them as a viewer.
+- A working session's card wears the composer's travelling light; child rows stay plain and the count shows once.
+- On Windows, when Git Bash cannot start child processes, the Git item in setup explains why and offers Fix, which exempts only Git's programs, and Undo, which restores only that one setting.
+- Memory names sessions after their task and learns rules and decisions from your own messages (Settings › Memory › Learn from conversations).
+- The runtime log records app auto-update decisions, the step a main-thread stall happened in, and where a timed-out history load waited.
+
+### Changed
+- Settings, dialogs, panels, the sidebar and the transcript lost their filler: one line per row, explanations in ⓘ tooltips, no intro sentence under Settings titles.
+- The phone's Run settings are one line per row with two-up switch tiles and segmented thinking, approval and delegation; the composer row is icon-first and nothing slides under Send.
+- Sessions an agent opened leave the sidebar once done, and the work board's "Needs review" with Review, Approve and Discard is gone; the main session reviews and lands its children itself.
+- The agent control tools have no count or rate limits.
+- The "shared with other devices" line under the composer, the breathing sidebar counts and the edge beside the account in use are gone.
+
+### Fixed
+- On Windows, one normal shutdown no longer leaves every later launch without hardware acceleration.
+- A device opening a session a host window already has open no longer starts a second omp that splits the conversation.
+- A plan approval card no longer stays after it was answered; any window, device or agent closes it everywhere.
+- No more "ok, go ahead" suggestions for work that is already underway.
+- Running sessions and sessions with no changes no longer show under "Needs review".
+
 ## [0.39.0] - 2026-10-19
 
 세션이 겹치거나 지운 세션이 되살아나던 문제를 고친 안정판이에요. 앱이 로딩 화면 없이 바로 뜨고, 휴대폰 입력창과 메모리 페이지가 새로 바뀌었어요.
