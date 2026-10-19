@@ -14,6 +14,7 @@ import type {
 	ResetPassRedeemResult,
 	UsageLimit,
 } from "../../shared/rpc-types";
+import { timedBridgeRequest } from "./slow-bridge-call";
 import { LocalCommandError, type LocalHandler } from "./types";
 
 /** Stock `get_logout_accounts` row (`LogoutAccount`). */
@@ -183,7 +184,8 @@ export const handlers: Record<string, LocalHandler> = {
 		await recap;
 		return armed;
 	},
-	history_recent: (command, ctx) => ctx.bridge.request("history_recent", command),
+	// A background read the renderer drops after the RPC timeout: when it is that slow, say where the time went.
+	history_recent: (command, ctx) => timedBridgeRequest(ctx, "history_recent", command),
 	history_search: (command, ctx) => ctx.bridge.request("history_search", command),
 	history_record: (command, ctx) => ctx.bridge.request("history_record", command),
 };
