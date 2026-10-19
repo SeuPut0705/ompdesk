@@ -262,8 +262,12 @@ async function expectQuietContinuation(page: Page, notice: string): Promise<void
 	const probe = await page.evaluate(() => window.__resumeProbe);
 	expect(probe?.rows, "the resuming row was shown").toBe(1);
 	expect(probe?.toasts, "no toast announces the resume").toEqual([]);
-	// The window is short on purpose: the transcript overflows, so "at the bottom" is a real claim.
-	expect((await gapToBottom(page)).overflow, "the transcript overflows the short window").toBeGreaterThan(0);
+	// The window is short on purpose: the transcript overflows, so "at the bottom" is a real claim. The canvas
+	// height is the virtualizer's: a row it just mounted counts at its estimate until its ResizeObserver reports in
+	// the next rendering step, so a read in between sees the estimates (the answer's 30 lines as 144 px).
+	await expect
+		.poll(async () => (await gapToBottom(page)).overflow, { message: "the transcript overflows the short window" })
+		.toBeGreaterThan(0);
 	await expect
 		.poll(async () => (await gapToBottom(page)).gap, { message: "the transcript stays at the bottom" })
 		.toBeLessThanOrEqual(2);
