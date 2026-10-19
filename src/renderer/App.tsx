@@ -64,6 +64,7 @@ import { useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
 import { chordFromEvent, compileKeymap, KEYMAP_ACTION_BY_ID, KEYMAP_ACTIONS, type KeymapActionId } from "./lib/keymap";
 import { restoreQueuedMessages, stopFromEscape } from "./lib/messages";
+import { openNotifiedTab } from "./lib/notification-click";
 import { subscribeOmpUpdated } from "./lib/omp-update";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
@@ -397,18 +398,8 @@ export function App() {
 	useEffect(() => watchSystemTheme(theme, () => applyThemeByName("system", { persist: false })), [theme]);
 	useEffect(() => applyFontSize(fontSize), [fontSize]);
 
-	// A clicked notification about a tab (finished, failed, waiting for input)
-	// brings that tab forward; main already raised the window.
-	useEffect(
-		() =>
-			window.omp.events.onNotificationClick(({ tabId }) => {
-				const tabs = useTabsStore.getState();
-				if (!tabs.tabs.some(tab => tab.id === tabId)) return;
-				useUiStore.getState().closeDestination();
-				void tabs.switchTab(tabId);
-			}),
-		[],
-	);
+	// A clicked notification about a tab brings that tab forward (lib/notification-click.ts).
+	useEffect(() => window.omp.events.onNotificationClick(({ tabId }) => openNotifiedTab(tabId)), []);
 
 	// Handle omp:// deep links (omp://new → new session; omp://session/<id> → switch).
 	useEffect(() => {

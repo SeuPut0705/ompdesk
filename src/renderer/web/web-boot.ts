@@ -260,11 +260,15 @@ async function bootApp(): Promise<void> {
 	window.addEventListener("online", () => transport.wake());
 	window.addEventListener("pageshow", () => transport.wake());
 
-	// A link or notification click the page was opened at (queued until the app listens), and later ones.
+	// A link or notification click the page was opened at (queued until the app listens), and later ones. Each is
+	// routed once: the hash goes, so a later reload (an update, the last resort of a resync) or a relaunch of the
+	// installed app from its task switcher opens where the person was, not the notified tab again.
 	const route = (hash: string) => {
 		const target = parseOpenHash(hash);
-		if (target?.kind === "deep-link") channels.emit(IPC_EVENTS.DEEP_LINK, target.link);
-		else if (target?.kind === "notification-click") channels.emit(IPC_EVENTS.NOTIFICATION_CLICK, target.payload);
+		if (!target) return;
+		if (target.kind === "deep-link") channels.emit(IPC_EVENTS.DEEP_LINK, target.link);
+		else if (target.kind === "notification-click") channels.emit(IPC_EVENTS.NOTIFICATION_CLICK, target.payload);
+		history.replaceState(history.state, "", `${location.pathname}${location.search}`);
 	};
 	route(location.hash);
 	window.addEventListener("hashchange", () => route(location.hash));
