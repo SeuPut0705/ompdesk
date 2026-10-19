@@ -1848,6 +1848,38 @@ describe("LocalHostServices: Autopilot of a device's tab", () => {
 		context.services.runEvents("/wt/run", reply as never);
 		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 700 });
 	});
+
+	it("counts a run's child's reply once while the device views the child: through the run, not the view", async () => {
+		const context = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", peer("device-x")]]);
+		context.services.attachQuota(
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			),
+		);
+		const child = new FakeHostSidecar(workDir, "agent");
+		child.setStatus("ready");
+		context.local.views.set("/s/child.jsonl", child);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/child.jsonl" }, x);
+		context.services.chargeRun("/wt/run", "device-x", "/s/run.jsonl");
+		// The window tab holding the child's session belongs to the run at /wt/run (Autopilot.runRootOf).
+		context.services.attachRunLookup(path => (path === "/s/child.jsonl" ? "/wt/run" : undefined));
+		const reply = [{ type: "message_end", message: { role: "assistant", usage: { totalTokens: 400 } } }];
+		child.emit("events", reply);
+		context.services.runEvents("/wt/run", reply as never);
+		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 400 });
+	});
 });
 
 describe("LocalHostServices host.* calls", () => {

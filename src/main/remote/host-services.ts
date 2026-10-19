@@ -368,6 +368,8 @@ export class LocalHostServices implements HostServices {
 	#autopilot: HostedAutopilot | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
+	/** The run (worktree root) a window tab holding a session belongs to: the run itself or one of its children. */
+	#runRootOfSession: ((sessionPath: string) => string | undefined) | null = null;
 
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
@@ -455,10 +457,21 @@ export class LocalHostServices implements HostServices {
 		if (this.#charges().delete(root)) this.#saveCharges();
 	}
 
-	/** A charged run's session: its replies count through `runEvents`, never through a device tab viewing it. */
+	/**
+	 * Which run a window tab holding a session belongs to (the coordinator's `runRootOf` for that session's owner, set
+	 * with the IPC handlers like `attachAutopilot`): a device viewing a charged run's child is deduped too.
+	 */
+	attachRunLookup(lookup: (sessionPath: string) => string | undefined): void {
+		this.#runRootOfSession = lookup;
+	}
+
+	/** A session of a charged run (the run or a child): its replies count through `runEvents`, never through a view. */
 	#chargedSession(sessionPath: string | undefined): boolean {
 		if (!sessionPath) return false;
-		for (const charge of this.#charges().values()) if (charge.session === sessionPath) return true;
+		const charges = this.#charges();
+		const root = this.#runRootOfSession?.(sessionPath);
+		if (root !== undefined && charges.has(root)) return true;
+		for (const charge of charges.values()) if (charge.session === sessionPath) return true;
 		return false;
 	}
 

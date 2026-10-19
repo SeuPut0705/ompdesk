@@ -191,6 +191,7 @@ export interface IpcDeps {
 		| "chargeRun"
 		| "runEvents"
 		| "endRun"
+		| "attachRunLookup"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
@@ -919,6 +920,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			handle: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
 		}),
 	);
+	// A device viewing any session of a run it is charged for (the run or a child) counts none of its replies twice.
+	deps.hostedTabs.attachRunLookup(sessionPath => {
+		const owner = sidecarPool.sessionOwner(sessionPath);
+		return owner ? autopilot.runRootOf(owner.tabId) : undefined;
+	});
 	// The desktop slot (src/main/desktop-slot-host.ts): the bridge's slot frames come through the sidecar factory.
 	const desktopSlot = new DesktopSlotHost({
 		pool: sidecarPool,
