@@ -663,7 +663,7 @@ export function SecuritySection() {
 	}
 
 	return (
-		<SettingsSection description={t("security.subtitle")} title={t("security.title")}>
+		<SettingsSection title={t("security.title")}>
 			{body}
 			<ConfirmDialog
 				busy={running}

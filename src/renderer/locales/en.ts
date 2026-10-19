@@ -1821,20 +1821,16 @@ export const en: Record<string, string> = {
 	"extPanel.empty.contextFiles": "No instruction files (AGENTS.md, CLAUDE.md, …) found for this session's folder.",
 	"extPanel.count.contextFiles": "{count} file names",
 	"extPanel.countFiltered.contextFiles": "{shown} of {total} file names",
-	"extPanel.footer.contextFiles":
-		"A switch covers every file of that name at that level, such as each folder's AGENTS.md. Changes apply from the next turn.",
+	"extPanel.footer.contextFiles": "Applies to every file of that name at that level, from the next turn.",
 	"extPanel.contextFileToggleFailed": "Couldn't update the instruction file",
 	"extPanel.contextFiles.level.project": "Project",
 	"extPanel.contextFiles.level.user": "Your account",
 	"settings.extensions.contextFiles.description":
 		"Choose which instruction files omp loads into the agent's system prompt: AGENTS.md, CLAUDE.md, GEMINI.md and others in this project and in your home folder.",
 	"extPanel.mcpActionFailed": "MCP action failed",
-	"extPanel.footer.hooks":
-		"Hook changes are saved now but apply from the next session, because hooks load at startup.",
-	"extPanel.footer.mcp":
-		"MCP enable/disable and reconnect apply live; remove deletes the server from the project config.",
-	"extPanel.footer.commands":
-		"Custom slash commands from skills, extensions, MCP prompts, and Markdown files. Read-only for now.",
+	"extPanel.footer.hooks": "Hook changes apply from the next session.",
+	"extPanel.footer.mcp": "Remove deletes the server from the project config.",
+	"extPanel.footer.commands": "Read-only.",
 	"extPanel.commands.source.custom": "custom",
 	"extPanel.commands.source.extension": "extension",
 	"extPanel.commands.source.file": "file",
@@ -4876,7 +4872,6 @@ export const en: Record<string, string> = {
 	// Operations: Security Center, SSH hosts, and unified updates
 	"common.refresh": "Refresh",
 	"security.title": "Security scans",
-	"security.subtitle": "Review the current project before changes ship.",
 	"security.ready.enabled": "Security enabled",
 	"security.ready.disabled": "Security is off; a scan will ask to turn it on",
 	"security.ready.model": "Model ready ({model})",
@@ -5896,7 +5891,6 @@ export const en: Record<string, string> = {
 	"modelOverrides.summary.none": "Only keys written by hand",
 	"settings.permissions.approval": "Agent permissions",
 	"settings.features.runModes": "Start a goal",
-	"settings.features.runModesDesc": "Opens the mode settings for the current session.",
 	"settings.features.advisorIdle": "Not running: no model is assigned to the advisor role.",
 	"settings.features.advisorModel": "Advisor model",
 	"settings.features.advisorModelUnset": "Pick a model, or let the assistant choose one.",
@@ -5906,8 +5900,6 @@ export const en: Record<string, string> = {
 	"settings.features.autopilot": "Autopilot",
 	"settings.features.configureRoles": "Set model roles",
 	"settings.features.subagents": "Subagents",
-	"settings.features.subagentsDesc":
-		"The agent can hand independent work to subagents and collect their results. Define and watch them in Agents.",
 	"settings.features.tools": "Tools",
 	"providerCfg.form.apiHint": "The API format your endpoint speaks.",
 	"providerCfg.form.headers": "Custom headers",

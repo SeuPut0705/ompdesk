@@ -1808,19 +1808,16 @@ export const ko: Record<string, string> = {
 	"extPanel.empty.contextFiles": "이 세션 폴더에서 찾은 지침 파일(AGENTS.md, CLAUDE.md 등)이 없어요.",
 	"extPanel.count.contextFiles": "파일 이름 {count}개",
 	"extPanel.countFiltered.contextFiles": "파일 이름 {total}개 중 {shown}개",
-	"extPanel.footer.contextFiles":
-		"스위치 하나가 그 수준에서 같은 이름의 파일 모두에 적용돼요(폴더마다 있는 AGENTS.md 등). 변경은 다음 턴부터 적용돼요.",
+	"extPanel.footer.contextFiles": "그 수준의 같은 이름 파일 모두에 다음 턴부터 적용돼요.",
 	"extPanel.contextFileToggleFailed": "지침 파일 설정을 바꾸지 못했어요",
 	"extPanel.contextFiles.level.project": "프로젝트",
 	"extPanel.contextFiles.level.user": "내 계정",
 	"settings.extensions.contextFiles.description":
 		"omp가 에이전트 시스템 프롬프트에 불러올 지침 파일을 골라요: 이 프로젝트와 홈 폴더의 AGENTS.md, CLAUDE.md, GEMINI.md 등.",
 	"extPanel.mcpActionFailed": "MCP 요청을 처리하지 못했어요",
-	"extPanel.footer.hooks": "훅 변경 사항은 지금 저장되지만, 훅은 시작할 때 불러오므로 다음 세션부터 적용돼요.",
-	"extPanel.footer.mcp":
-		"MCP 활성화/비활성화와 다시 연결은 즉시 적용돼요. 제거하면 프로젝트 설정에서 서버가 삭제돼요.",
-	"extPanel.footer.commands":
-		"스킬, 확장, MCP 프롬프트, Markdown 파일에서 가져온 사용자 슬래시 명령이에요. 지금은 읽기 전용이에요.",
+	"extPanel.footer.hooks": "훅 변경은 다음 세션부터 적용돼요.",
+	"extPanel.footer.mcp": "제거하면 프로젝트 설정에서 서버가 삭제돼요.",
+	"extPanel.footer.commands": "읽기 전용이에요.",
 	"extPanel.commands.source.custom": "커스텀",
 	"extPanel.commands.source.extension": "확장",
 	"extPanel.commands.source.file": "파일",
@@ -4863,7 +4860,6 @@ export const ko: Record<string, string> = {
 	// Operations: Security Center, SSH hosts, and unified updates
 	"common.refresh": "새로고침",
 	"security.title": "보안 스캔",
-	"security.subtitle": "변경 사항을 배포하기 전에 현재 프로젝트를 검토하세요.",
 	"security.ready.enabled": "보안 활성화됨",
 	"security.ready.disabled": "보안이 꺼져 있어요. 스캔할 때 켤지 물어봐요",
 	"security.ready.model": "모델 준비됨 ({model})",
@@ -5870,7 +5866,6 @@ export const ko: Record<string, string> = {
 	"modelOverrides.summary.none": "직접 적은 키만 있음",
 	"settings.permissions.approval": "에이전트 권한",
 	"settings.features.runModes": "목표 시작",
-	"settings.features.runModesDesc": "현재 세션의 모드 설정을 열어요.",
 	"settings.features.advisorIdle": "실행되지 않음: 어드바이저 역할에 지정된 모델이 없어요.",
 	"settings.features.advisorModel": "어드바이저 모델",
 	"settings.features.advisorModelUnset": "모델을 고르거나 도우미에게 맡겨 보세요.",
@@ -5881,8 +5876,6 @@ export const ko: Record<string, string> = {
 	"settings.features.autopilot": "오토파일럿",
 	"settings.features.configureRoles": "모델 역할 설정",
 	"settings.features.subagents": "서브에이전트",
-	"settings.features.subagentsDesc":
-		"에이전트는 독립적인 일을 서브에이전트에게 맡기고 결과를 모아요. 정의와 진행 상황은 에이전트에서 볼 수 있어요.",
 	"settings.features.tools": "도구",
 	"providerCfg.form.apiHint": "엔드포인트가 따르는 API 형식이에요.",
 	"providerCfg.form.headers": "사용자 지정 헤더",

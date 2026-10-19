@@ -34,7 +34,6 @@ export function AgentModes() {
 			<SettingsRow
 				icon={<Workflow />}
 				label={t("settings.features.runModes")}
-				description={t("settings.features.runModesDesc")}
 				control={
 					<div className="flex justify-end gap-2">
 						<Button
@@ -57,7 +56,6 @@ export function AgentModes() {
 			<SettingsRow
 				icon={<Network />}
 				label={t("settings.features.subagents")}
-				description={t("settings.features.subagentsDesc")}
 				control={
 					<Button
 						onClick={() => leaveTo(() => useUiStore.getState().openAgents("definitions"))}
