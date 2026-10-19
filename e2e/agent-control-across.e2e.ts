@@ -7,8 +7,10 @@ import { controlToolCaller as caller, exitApp, launchApp, openedSessions as open
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
-// sessions read and reopened without a tab, a judged compare of two sessions, and a session opened on a paired
-// device whose prompt runs on that device's omp and whose saved transcript is read back from it. The fake omp calls
+// sessions read and reopened without a tab, a judged compare of two sessions, and sessions on a paired device: one
+// opened there whose prompt runs on that device's omp, whose saved transcript is read back (paged), reopened after its
+// tab closed and deleted by its saved id; and one that is shown, notifies and reports to its opener across the link.
+// The fake omp calls
 // a tool with `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets; its judge
 // (`agent_control.judge`) ranks the sessions in evidence order. The rules behind each answer are unit-tested in
 // src/main/agent-control/service.test.ts and host.test.ts.
@@ -133,8 +135,8 @@ test.describe("on a paired device", () => {
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	});
 
-	test("opens a session on a paired device, waits for it there, and reads its saved transcript back", async () => {
-		test.setTimeout(240_000);
+	/** Two apps, the client paired to the host as "PC-B"; `call` runs a control tool as the client's focused tab. */
+	async function pairApps() {
 		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
 		const clientProfile = await makeRemoteProfile(parent, "client", {
 			language: "en",
@@ -151,6 +153,12 @@ test.describe("on a paired device", () => {
 			})
 			.toBe("online");
 		const call = await caller(client.page, clientProfile.record);
+		return { hostProfile, clientProfile, deviceId, call, client };
+	}
+
+	test("opens a session on a paired device, waits for it there, and reads its saved transcript back", async () => {
+		test.setTimeout(240_000);
+		const { hostProfile, clientProfile, deviceId, call } = await pairApps();
 
 		const listed = await call("ompdesk_sessions");
 		expect(listed.text).toContain(`Paired devices: PC-B (id ${deviceId}, online)`);
@@ -188,6 +196,13 @@ test.describe("on a paired device", () => {
 		expect(read.isError, read.text).toBe(false);
 		expect(read.text).toContain("saved on PC-B");
 		expect(read.text).toContain("Run this on the other computer");
+		// Paged from its end: the cursor of the last page reads the one before.
+		const last = await call("ompdesk_session_read", { session: id, limit: 1 });
+		const cursor = /"before":"(\d+)"/.exec(last.text)?.[1];
+		expect(cursor, last.text).toBeDefined();
+		const earlier = await call("ompdesk_session_read", { session: id, limit: 1, before: cursor });
+		expect(earlier.isError, earlier.text).toBe(false);
+		expect(earlier.text).not.toBe(last.text);
 
 		// Listed while open, the row names that tab; the device's close releases it at once, so the same row reopens.
 		const reopened = await call("ompdesk_session_open", { reopen: id });
@@ -217,5 +232,34 @@ test.describe("on a paired device", () => {
 				timeout: 30_000,
 			})
 			.not.toContain(id);
+	});
+
+	test("shows, notifies and reports from a session that runs on the paired device", async () => {
+		test.setTimeout(240_000);
+		const { hostProfile, call, client: app } = await pairApps();
+		const parentTab = (await app.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		const open = await call("ompdesk_session_open", { device: "PC-B", message: "Title: remote part\nDo it there" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+
+		// ompdesk_tab_focus: the device's tab comes to the front of this window.
+		expect((await call("ompdesk_tab_focus", { session: child })).isError).toBe(false);
+		await expect
+			.poll(async () => (await app.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId)
+			.toBe(child);
+
+		// The child runs on the host's omp; its control tools are answered here, as this computer's tab.
+		const asChild = await caller(app.page, hostProfile.record, child);
+		const notified = await asChild("ompdesk_notify", { title: "From PC-B", body: "done there" });
+		expect(notified.isError, notified.text).toBe(false);
+		const report = await asChild("ompdesk_report", { kind: "done", text: "Finished on PC-B", dispatch: "d1" });
+		expect(report.isError, report.text).toBe(false);
+		expect(report.text).not.toContain("not opened");
+		// The report reaches the opener on this computer as one mail in its transcript.
+		expect((await call("ompdesk_tab_focus", { session: parentTab })).isError).toBe(false);
+		await expect(app.page.locator("[data-agent-mail='done']").filter({ hasText: "Finished on PC-B" })).toBeVisible({
+			timeout: 30_000,
+		});
 	});
 });
