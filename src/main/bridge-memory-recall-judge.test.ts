@@ -84,6 +84,12 @@ describe("with a native judge", () => {
 		expect(codeRuleSelect(PROMPT, CANDIDATES).length).toBeGreaterThan(0);
 		expect(await selectRecall(PROMPT, CANDIDATES, bridgeJudge)).toEqual({ items: [], judged: true });
 	});
+
+	it("keeps a candidate the judge gives 0.5 and drops one just under it (the replay's threshold)", async () => {
+		install(async () => recallAnswer(0.5, 0.49, 0.1));
+		const selection = await selectRecall(PROMPT, CANDIDATES, bridgeJudge);
+		expect(ids(selection.items)).toEqual(["notes/jev.md"]);
+	});
 });
 
 describe("when the judge does not decide, the choice is the code rule's", () => {

@@ -55,10 +55,12 @@ export const RECALL_TIMEOUT_MS = 600;
 export const RECALL_MAX_TOKENS = 600;
 
 /**
- * Probability of "this snippet holds what the prompt needs" from which the judge keeps a candidate. A starting value:
- * the parent session's replay (answerable prompts against negative controls, false injection ≤ 10 %) sets it.
+ * Probability of "this snippet holds what the prompt needs" from which the judge keeps a candidate. Measured 20 Oct
+ * 2026 on the user's real data (16 prompts: 11 answerable, 5 negative controls; time-filtered store copies; Jev 1.14):
+ * 0.5 put the answer in 7/11 with 3/5 false injections, 0.6 in 5/11 with 2/5, 0.4 in 7/11 with 4/5, 0.7 in 5/11 with
+ * 2/5 (fewer found). 0.5 buys two answers for one false injection; n is small, so measure again as data grows.
  */
-export const RECALL_JUDGE_MIN = 0.6;
+export const RECALL_JUDGE_MIN = 0.5;
 
 export type MemoryRecallKind =
 	| "decision"
