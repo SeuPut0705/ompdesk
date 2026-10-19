@@ -30,6 +30,7 @@ import { WEB_HOST_CHANNELS, type WebBlobOpenResult } from "../../shared/web-host
 import type { WebServerFrame } from "../../shared/web-protocol";
 import type { WebPushStateResponse } from "../../shared/web-push";
 import type { TailnetPeer } from "../tailscale/whois";
+import { itWithFileSymlinks } from "../test-symlinks";
 import type { ClientWindow } from "./client-window";
 import type { IpcCaller } from "./ipc-registry";
 import { WebHost, type WebHostDeps } from "./web-host";
@@ -333,7 +334,7 @@ describe("static files", () => {
 		}
 	});
 
-	it("does not follow a symlink out of the built folder", async () => {
+	itWithFileSymlinks("does not follow a symlink out of the built folder", async () => {
 		symlinkSync(join(staticRoot, "secret.txt"), join(staticRoot, "assets", "link.js"));
 		const outside = mkdtempSync(join(tmpdir(), "web-outside-"));
 		writeFileSync(join(outside, "x.js"), "outside");

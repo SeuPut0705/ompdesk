@@ -94,7 +94,7 @@ for (const [language, theme] of variants([
 		const natives =
 			process.env.OMP_GUI_TEST_NATIVES ||
 			path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
-		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
+		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
 		const env = {
 			...process.env,
 			OMP_GUI_HEADLESS: "1",

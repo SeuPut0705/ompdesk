@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isLauncherPath, openLocalPath } from "./open-path";
+import { itWithFileSymlinks } from "./test-symlinks";
 
 let dir: string;
 beforeEach(() => {
@@ -96,7 +97,7 @@ describe("isLauncherPath", () => {
 		expect(await isLauncherPath(file("notes", "x", 0o755), "win32")).toBe(false);
 	});
 
-	it("refuses a plain-looking symlink to a launcher", async () => {
+	itWithFileSymlinks("refuses a plain-looking symlink to a launcher", async () => {
 		const real = file("real.command");
 		const link = path.join(dir, "readme.txt");
 		symlinkSync(real, link);

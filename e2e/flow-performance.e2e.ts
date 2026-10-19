@@ -201,7 +201,7 @@ async function launch(
 			process.env.OMP_GUI_TEST_NATIVES ||
 				path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives"),
 			path.join(path.dirname(omp), "node_modules/@oh-my-pi/pi-natives"),
-			"dir",
+			"junction",
 		);
 	const env = {
 		...process.env,

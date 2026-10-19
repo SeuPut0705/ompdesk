@@ -47,7 +47,7 @@ async function fixtureOmpWithNatives(root: string): Promise<string> {
 		process.env.OMP_GUI_TEST_NATIVES ||
 		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
 	const link = path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives");
-	if (!(await fs.lstat(link).catch(() => null))) await fs.symlink(natives, link, "dir");
+	if (!(await fs.lstat(link).catch(() => null))) await fs.symlink(natives, link, "junction");
 	return bin;
 }
 

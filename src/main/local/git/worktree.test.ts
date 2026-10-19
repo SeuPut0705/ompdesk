@@ -53,7 +53,7 @@ describe("removableWorktreePath", () => {
 	it("refuses paths that only look inside the root", async () => {
 		expect(await removableWorktreePath(path.join(root, "..", "projects", "app"), root)).toBeNull();
 		const link = path.join(root, "gui-link-1234567");
-		await fs.symlink(outside, link, "dir");
+		await fs.symlink(outside, link, "junction");
 		expect(await removableWorktreePath(link, root)).toBeNull();
 	});
 });

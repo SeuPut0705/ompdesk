@@ -103,7 +103,7 @@ for (const language of variants(["en", "ko"] as const)) {
 		const natives =
 			process.env.OMP_GUI_TEST_NATIVES ||
 			path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
-		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
+		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
 		const PATH = pathWithoutGh();
 		// The login-shell probe would add /opt/homebrew/bin (path_helper); this one reports PATH as it is.
 		const shell = path.join(root, "login-shell");
