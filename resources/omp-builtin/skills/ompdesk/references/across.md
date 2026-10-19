@@ -10,7 +10,7 @@
 
 - `ompdesk_session_read` takes an open session's id or a saved one's. A saved transcript is read as stock stored it, without opening it, paged from the end with `before`.
 - `ompdesk_session_open` with `reopen` (a saved id) opens it again as it was, on the device it is saved on; `message` then continues it. Reopen is for saved sessions; one that is open already is used directly.
-- `ompdesk_session_open` with `device` starts a new session on that paired device. Its `folder` must be absolute there (default: that device's workspace). A `worktree` is made on the computer the calling session runs on, so it does not combine with another `device`.
+- `ompdesk_session_open` with `device` starts a new session on that paired device. Its `folder` must be absolute there (default: that device's workspace). With `worktree` the checkout is made on that device beside its `folder`, which is then required; compare, merge and the worktree's removal run that device's git.
 - Send, wait, answer, show and stop work the same on every window and every device. A paired device's own grants and daily model limit apply to what runs there; its refusal is the answer.
 
 ## Judge competing work
