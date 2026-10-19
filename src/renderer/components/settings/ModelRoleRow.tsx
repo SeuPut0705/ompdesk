@@ -323,7 +323,9 @@ export function ModelRoleRow({
 				{entry.source === "project" && (
 					<p className="text-sc-xs text-(--sc-text-muted)">{t("modelRoles.sourceProject")}</p>
 				)}
-				{candidates.length === 0 && (
+				{/* The effective line already says whether the role resolves (a role can run on another role's
+				    model with an empty pool of its own); this one speaks only for a bridge that reports no resolution. */}
+				{candidates.length === 0 && !entry.effective && (
 					<p className="text-sc-xs text-(--sc-text-muted)">{t("modelRoles.noCandidates")}</p>
 				)}
 			</div>

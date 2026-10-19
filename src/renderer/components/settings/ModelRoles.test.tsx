@@ -263,6 +263,26 @@ describe("Model roles grouped by purpose", () => {
 		expect(options.join(" ")).not.toContain("anthropic/sonnet");
 	});
 
+	it("says a role has no model only when it resolves to none, and only once", async () => {
+		installRpc({}, [
+			...ROLES,
+			// Resolves through Fast although its own pool is empty: no "no models" line.
+			role("future-chat", "Future chat", {
+				candidates: [],
+				effective: { model: "openai/gpt", name: "GPT", source: "fallback", via: "smol" },
+			}),
+			// Resolves to nothing with an empty pool: one line says so.
+			role("future-kind", "Future kind", { section: "kind", candidates: [], effective: { source: "none" } }),
+		]);
+		await mount();
+
+		const noModels = [translate("modelRoles.noModel"), translate("modelRoles.noCandidates")];
+		const said = (id: string) => noModels.filter(text => rowText(id).includes(text)).length;
+		expect(rowText("future-chat")).toContain("GPT");
+		expect(said("future-chat")).toBe(0);
+		expect(said("future-kind")).toBe(1);
+	});
+
 	describe("the judge role's link to the small decisions it makes", () => {
 		it("opens Smart automation's judge row from the judge role only", async () => {
 			installRpc({}, [...ROLES, role("judge", "Judge", { section: "kind" })]);
