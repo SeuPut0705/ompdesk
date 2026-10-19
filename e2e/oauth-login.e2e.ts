@@ -101,10 +101,7 @@ async function openAnthropicRow(page: Page, language: Language) {
 /** Settings › Models with the Anthropic row's sign-in started; returns the row. */
 async function startSignIn(page: Page, language: Language) {
 	const anthropic = await openAnthropicRow(page, language);
-	await page
-		.locator("[data-settings-page]")
-		.getByRole("button", { name: tr(language, "providers.picker.connect", { provider: "Anthropic" }), exact: true })
-		.click();
+	await page.locator("[data-settings-page]").locator('button[data-provider-connect="anthropic"]').click();
 	await expect(anthropic.locator("[data-login-progress]")).toHaveText(tr(language, "providerList.login.waiting"));
 	return anthropic;
 }

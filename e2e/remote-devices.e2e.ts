@@ -197,7 +197,7 @@ test("@smoke pairs two devices, runs a prompt on the host, and shows the link dr
 		// Providers to connect sit behind "Add a provider" once one (the fixture) is connected.
 		await settings.getByRole("button", { name: "Add a provider" }).click();
 		const anthropic = settings.locator("[data-login-panel]");
-		await settings.getByRole("button", { name: "Connect Anthropic", exact: true }).click();
+		await settings.locator('button[data-provider-connect="anthropic"]').click();
 		await expect(anthropic.locator("[data-remote-login-hint]")).toContainText("the sign-in finishes on Host B");
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
 		await expect
