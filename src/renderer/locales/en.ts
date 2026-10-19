@@ -904,7 +904,7 @@ export const en: Record<string, string> = {
 	"sidebar.family.sessions": "Opened sessions {count}",
 	"sidebar.family.running": "Running {count}",
 	"sidebar.family.waiting": "Waiting for you {count}",
-	"sidebar.family.cost": "{cost} spent",
+	"sidebar.family.cost": "Whole family {cost} (this session and everything it started)",
 	"sidebar.family.unmerged": "Unmerged work",
 	"sidebar.family.kind.subagent": "Subagent",
 	"sidebar.family.kind.worktree": "Worktree session",
@@ -4495,7 +4495,7 @@ export const en: Record<string, string> = {
 	"panel.tabs.work": "Work tree",
 	"workTree.sessions": "Sessions and what they started",
 	"workTree.sessionsInfo":
-		"Every session in this window with subagents or opened sessions, on any computer: what runs, what waits for you, what needs a look, and each worktree branch. Finished ones are in the closed fold. Hover a row for its model, role and cost.",
+		"Every session in this window with subagents or opened sessions, on any computer: what runs, what waits for you, what needs a look, and each worktree branch. Finished ones are in the closed fold. The cost at a session's head is the whole family, the same as on its sidebar row: the session and everything it started. A row's cost is its own; hover it for its model and role.",
 	"workTree.empty": "No session has started other work",
 	"workTree.untitled": "Untitled",
 	"workTree.finished": "Finished {count}",

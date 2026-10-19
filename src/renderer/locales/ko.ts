@@ -889,7 +889,7 @@ export const ko: Record<string, string> = {
 	"sidebar.family.sessions": "파생 세션 {count}개",
 	"sidebar.family.running": "실행 중 {count}개",
 	"sidebar.family.waiting": "답변 대기 {count}개",
-	"sidebar.family.cost": "{cost} 사용",
+	"sidebar.family.cost": "가족 전체 {cost} (이 세션과 여기서 시작한 모든 작업)",
 	"sidebar.family.unmerged": "병합 안 된 작업",
 	"sidebar.family.kind.subagent": "서브에이전트",
 	"sidebar.family.kind.worktree": "워크트리 세션",
@@ -4484,7 +4484,7 @@ export const ko: Record<string, string> = {
 	"panel.tabs.work": "작업 트리",
 	"workTree.sessions": "세션과 거기서 시작한 작업",
 	"workTree.sessionsInfo":
-		"이 창에서 서브에이전트나 파생 세션이 있는 모든 세션을 기기와 상관없이 보여줘요. 실행 중인 것, 답변을 기다리는 것, 확인이 필요한 것, 워크트리 브랜치까지요. 끝난 것은 닫힌 묶음에 있어요. 행에 마우스를 올리면 모델, 역할, 비용이 보여요.",
+		"이 창에서 서브에이전트나 파생 세션이 있는 모든 세션을 기기와 상관없이 보여줘요. 실행 중인 것, 답변을 기다리는 것, 확인이 필요한 것, 워크트리 브랜치까지요. 끝난 것은 닫힌 묶음에 있어요. 세션 줄의 비용은 사이드바와 같은 가족 전체 비용이에요. 세션과 거기서 시작한 모든 작업을 합친 값이에요. 각 행의 비용은 그 행 자신의 것이고, 마우스를 올리면 모델과 역할이 보여요.",
 	"workTree.empty": "다른 작업을 시작한 세션이 없어요",
 	"workTree.untitled": "제목 없음",
 	"workTree.finished": "끝남 {count}개",

@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { RpcCommand, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { useAgentReviewStore } from "../../../stores/agent-review";
 import type { SessionStore } from "../../../stores/session";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
@@ -202,6 +203,7 @@ afterEach(async () => {
 	container?.remove();
 	document.body.innerHTML = "";
 	deleteSessionRuntime(TAB);
+	useAgentReviewStore.getState().reset();
 	useSidebarSubagentsStore.setState({
 		expanded: new Set(),
 		hidden: new Set(),
@@ -532,7 +534,8 @@ describe("a session's family: one-line rows", () => {
 		}
 	});
 
-	it("adds the family's cost once beside the running pill, finished children and opened sessions included", async () => {
+	it("adds the whole family's cost once beside the running pill: the session, subagents at work, opened sessions", async () => {
+		useAgentReviewStore.setState({ usage: { [SESSION]: { cost: 1 } } });
 		const progress = (cost: number) => ({ cost, modelRole: "task", resolvedModel: "anthropic/claude-x" });
 		seed([
 			snap({ id: "r1", index: 1, status: "running", progress: progress(0.1) as SubagentSnapshot["progress"] }),
@@ -557,8 +560,9 @@ describe("a session's family: one-line rows", () => {
 			const chip = toggle();
 			expect(chip?.getAttribute("data-family-compact")).toBe("true");
 			expect(chip?.querySelector("[data-family-running]")?.textContent).toBe("2");
-			expect(chip?.querySelector("[data-family-cost]")?.textContent).toBe("· $0.42");
-			expect(chip?.getAttribute("aria-label")).toContain(translate("sidebar.family.cost", { cost: "$0.42" }));
+			// 1 (the session, its finished subagent inside) + 0.1 at work + 0.05 + 0.07: the Work tree head's number too.
+			expect(chip?.querySelector("[data-family-cost]")?.textContent).toBe("· $1.22");
+			expect(chip?.getAttribute("aria-label")).toContain(translate("sidebar.family.cost", { cost: "$1.22" }));
 			// Each child row's tooltip (the family is open) names what it runs on and costs.
 			expect(row("r1").querySelector("button")?.getAttribute("title")).toContain(
 				"anthropic/claude-x · @task · $0.10",

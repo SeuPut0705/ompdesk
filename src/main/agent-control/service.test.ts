@@ -1233,13 +1233,14 @@ describe("the review queue", () => {
 		expect(await service.reviewItems("main0001")).toEqual([]);
 	});
 
-	it("tells what every opened session runs on and cost, a landed one without an item included", async () => {
+	it("tells what every opened session runs on and cost, a landed one included, and the caller's own cost", async () => {
 		const { host, service, ids } = await withWorktreeChildren();
 		Object.assign(host.tabsById.get(ids[0]) as FakeTab, {
 			model: { provider: "anthropic", id: "claude-x" },
 			cost: 0.3,
 		});
 		Object.assign(host.tabsById.get(ids[1]) as FakeTab, { cost: 0.12 });
+		Object.assign(host.tabsById.get("main0001") as FakeTab, { cost: 1.5 });
 		for (const [index, id] of ids.entries())
 			Object.assign(host.tabsById.get(id) as FakeTab, { sessionPath: `/s/kid${index}.jsonl` });
 		host.facts.set("omp/agent/a", {
@@ -1252,9 +1253,11 @@ describe("the review queue", () => {
 		});
 		const review = await service.review("main0001");
 		expect(review.items.map(item => item.tabId)).toEqual([ids[1]]);
+		// The caller's own journal too (no session file in this fixture: by its tab id), the base of the family's cost.
 		expect(review.usage).toEqual({
 			"/s/kid0.jsonl": { model: "anthropic/claude-x", cost: 0.3 },
 			"/s/kid1.jsonl": { cost: 0.12 },
+			main0001: { cost: 1.5 },
 		});
 	});
 });

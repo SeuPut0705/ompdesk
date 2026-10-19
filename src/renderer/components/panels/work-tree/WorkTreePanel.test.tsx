@@ -159,7 +159,11 @@ beforeEach(() => {
 	useTabsStore.setState({ tabs, activeTabId: "boss" });
 	useAgentReviewStore.setState({
 		byTab: {},
-		usage: { "/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05 }, "C:\\s\\far.jsonl": { cost: 0.03 } },
+		usage: {
+			"/s/boss.jsonl": { cost: 1 },
+			"/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05 },
+			"C:\\s\\far.jsonl": { cost: 0.03 },
+		},
 	});
 	useClosedChildrenStore.setState({
 		rows: [
@@ -197,8 +201,8 @@ describe("WorkTreePanel", () => {
 		expect(title("agent:boss:a")).toContain("anthropic/claude-x · @task · $0.10");
 		expect(title("tab:kid")).toContain("openai/gpt-z · $0.05");
 		expect(title("tab:far")).toContain("pc1");
-		// 0.1 + 0.2 + 0.05 + 0.03 + 0.07: finished children count, nothing twice.
-		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$0.45");
+		// The whole family: 1 (the session, its finished subagent's 0.2 inside) + 0.1 at work + 0.05 + 0.03 + 0.07 (closed).
+		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$1.25");
 
 		const fold = container.querySelector("[data-work-tree-finished]");
 		expect(fold?.getAttribute("aria-expanded")).toBe("false");
@@ -221,7 +225,8 @@ describe("WorkTreePanel", () => {
 			});
 		});
 		expect(rowKeys()).toEqual(["tab:boss", "tab:kid", "tab:far"]);
-		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$0.75");
+		// Both finished: their spend is in the session's journal (main's next push), no longer counted on their own.
+		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$1.15");
 	});
 
 	it("lists unused worktrees and removes only a landed one, after a confirm, then reads again", async () => {

@@ -36,6 +36,7 @@ import { cx, formatCost, formatTimeAgo, formatTokens } from "../../../lib/format
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
+import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useSessionStore } from "../../../stores/session";
 import {
 	SessionRuntimeProvider,
@@ -255,7 +256,7 @@ function useFamilyCounts(
 	sessionKey: string,
 	slice: AgentSlice,
 	opened: readonly FamilyOpened[],
-): { counts: FamilyCounts; cost: number; hidden: boolean; kids: readonly FamilyOpened[] } {
+): { counts: FamilyCounts; hidden: boolean; kids: readonly FamilyOpened[] } {
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
 	// A finished opened session that landed clean is not part of the family (see `isShownOpened`).
 	const kids = useMemo(() => opened.filter(isShownOpened), [opened]);
@@ -268,9 +269,7 @@ function useFamilyCounts(
 			),
 		[slice.subagents, kids, hidden],
 	);
-	// What was spent stays spent: finished and hidden children count in the cost.
-	const cost = useMemo(() => familyCost(slice.subagents.values(), opened), [slice.subagents, opened]);
-	return { counts, cost, hidden, kids };
+	return { counts, hidden, kids };
 }
 
 /**
@@ -288,7 +287,13 @@ function FamilyChip({
 	opened: readonly FamilyOpened[];
 }) {
 	const t = useT();
-	const { counts, cost } = useFamilyCounts(sessionKey, slice, opened);
+	const { counts } = useFamilyCounts(sessionKey, slice, opened);
+	// The whole family, the Work tree head's number too: the session (main's push), its subagents at work, all it opened.
+	const rootCost = useAgentReviewStore(s => s.usage[sessionKey]?.cost);
+	const cost = useMemo(
+		() => familyCost(rootCost, slice.subagents.values(), opened),
+		[rootCost, slice.subagents, opened],
+	);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
 	const [menuAt, setMenuAt] = useState<ContextMenuAnchor | null>(null);

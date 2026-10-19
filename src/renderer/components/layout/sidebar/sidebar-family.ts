@@ -194,14 +194,19 @@ export function childUsageText(model?: string, role?: string, cost?: number): st
 }
 
 /**
- * What the family has cost: every subagent of the roster and every session its agent opened, finished ones included
- * (they are not listed, but what they spent stays spent, so the total never drops when a child ends). Each child's
- * own cost as stock counts it (a subagent's progress, an opened session's session stats), so nothing is added twice.
+ * What the whole family has cost, the one number the sidebar chip and the Work tree's head show: the session's own
+ * journal (stock puts a finished subagent's spend there, with its task result), its subagents still at work, and every
+ * session it opened (each its own journal), closed ones included, so nothing counts twice and the total never drops
+ * when a child ends.
  */
-export function familyCost(subagents: Iterable<SubagentSnapshot>, opened: readonly { usage?: ChildUsage }[]): number {
-	let total = 0;
+export function familyCost(
+	rootCost: number | undefined,
+	subagents: Iterable<SubagentSnapshot>,
+	opened: readonly { usage?: ChildUsage }[],
+): number {
 	// `|| 0`: a cost stock has not reported (absent, NaN) adds nothing.
-	for (const agent of subagents) total += agent.progress?.cost || 0;
+	let total = rootCost || 0;
+	for (const agent of subagents) if (isLiveSubagentStatus(agent.status)) total += agent.progress?.cost || 0;
 	for (const child of opened) total += child.usage?.cost || 0;
 	return total;
 }

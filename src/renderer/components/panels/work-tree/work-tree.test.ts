@@ -4,6 +4,7 @@ import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../
 import type { IpcHostedSession } from "../../../../shared/ipc-types";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { SessionTab } from "../../../stores/tabs";
+import { familyCost } from "../../layout/sidebar/sidebar-family";
 import { buildWorkTree, type WorkTreeInput } from "./work-tree";
 
 const tab = (id: string, extra: Partial<SessionTab> = {}): SessionTab =>
@@ -47,6 +48,8 @@ function input(overrides: Partial<WorkTreeInput> = {}): WorkTreeInput {
 		tab("solo", { title: "Alone" }),
 	];
 	const usage: Record<string, AgentChildUsage> = {
+		// The session itself: its journal, its finished subagents' spend included.
+		"/s/boss.jsonl": { cost: 1 },
 		"/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05 },
 		"/s/done.jsonl": { cost: 0.02 },
 	};
@@ -97,12 +100,19 @@ describe("buildWorkTree", () => {
 		expect([family?.running, family?.waiting]).toEqual([4, 0]);
 	});
 
-	it("folds what finished, at any depth, and still counts its cost once", () => {
-		const [family] = buildWorkTree(input());
+	it("folds what finished, at any depth; the head is the whole family by the sidebar chip's own rule", () => {
+		const fixture = input();
+		const [family] = buildWorkTree(fixture);
 		expect(family?.finished.map(row => row.key)).toEqual(["agent:boss:b", "tab:done", "session:/s/old.jsonl"]);
 		expect(family?.finished[2]?.target).toEqual({ kind: "stored", sessionPath: "/s/old.jsonl", cwd: "/repo" });
-		// 0.1 + 0.2 (subagents) + 0.05 + 0.01 (kid and its subagent) + 0.02 + 0.07 (done, closed)
-		expect(family?.cost).toBeCloseTo(0.45, 10);
+		// 1 (boss, its finished subagent inside) + 0.1 (its subagent at work) + 0.05 (kid) + 0.02 (done) + 0.07 (closed);
+		// far has no stats yet. The kid's own subagent counts once it finishes, in the kid's journal.
+		expect(family?.cost).toBeCloseTo(1.24, 10);
+		// The same number the chip on boss's sidebar row shows for the same children.
+		const opened = [{ usage: { cost: 0.05 } }, { usage: { cost: 0.02 } }, {}, { usage: { cost: 0.07 } }];
+		expect(family?.cost).toBe(familyCost(1, fixture.subagents.get("boss")?.values() ?? [], opened));
+		// A child row shows its own cost.
+		expect(family?.rows.find(row => row.key === "tab:kid")?.usage.cost).toBe(0.05);
 	});
 
 	it("lists a paired device's session at work on this computer as a root of its own, and nothing idle", () => {

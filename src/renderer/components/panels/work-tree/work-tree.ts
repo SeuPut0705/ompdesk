@@ -20,6 +20,7 @@ import {
 	type ChildUsage,
 	type FamilyKind,
 	type FamilyState,
+	familyCost,
 	isFoldedSubagent,
 	subagentFamilyState,
 } from "../../layout/sidebar/sidebar-family";
@@ -58,7 +59,7 @@ export interface WorkTreeFamily {
 	rows: WorkTreeNode[];
 	/** Descendants that finished (and everything under them), for the closed fold. */
 	finished: WorkTreeNode[];
-	/** Every descendant's cost (finished ones included); the root's own is the title bar's. */
+	/** The whole family's cost (`familyCost`), the same number as the sidebar chip on the session's row. */
 	cost: number;
 	running: number;
 	waiting: number;
@@ -129,7 +130,6 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 		};
 		const add = (node: WorkTreeNode, done: boolean) => {
 			(done ? family.finished : family.rows).push(node);
-			if (typeof node.usage.cost === "number" && node.usage.cost > 0) family.cost += node.usage.cost;
 			if (done) return;
 			if (node.state === "running") family.running++;
 			if (node.state === "waiting") family.waiting++;
@@ -208,6 +208,16 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			}
 		};
 		visit(rootTab, 0, false);
+		// The whole family by the sidebar chip's own rule (`familyCost`): the session, its subagents at work, every
+		// session opened under it; an opened session's own subagents count once they finish, in its journal.
+		const opened = [...family.rows, ...family.finished].filter(
+			node => node.kind === "session" || node.kind === "worktree",
+		);
+		family.cost = familyCost(
+			usage[rootTab.sessionPath ?? rootTab.id]?.cost,
+			(subagents.get(rootTab.id) ?? NO_AGENTS).values(),
+			opened,
+		);
 		if (family.rows.length > 0 || family.finished.length > 0) families.push(family);
 	}
 

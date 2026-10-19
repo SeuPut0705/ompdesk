@@ -171,19 +171,22 @@ describe("familyCounts", () => {
 });
 
 describe("familyCost", () => {
-	it("adds every child's cost once, finished ones included, so the total never drops when a child ends", () => {
+	it("is the whole family: the session once, its subagents at work, every session it opened", () => {
 		const roster = [
 			agent("a", 1, "running", { progress: { cost: 0.12 } as SubagentSnapshot["progress"] }),
+			// Finished: stock already put its spend into the session's own journal cost (its task result).
 			agent("b", 2, "completed", { progress: { cost: 0.2 } as SubagentSnapshot["progress"] }),
 			agent("c", 3, "failed"),
 		];
 		// The opened sessions as the sidebar built them: a running one, a closed (done) one, one with no stats yet.
 		const opened = [{ usage: { cost: 0.05 } }, { usage: { cost: 0.05 } }, {}];
-		expect(familyCost(roster, opened)).toBeCloseTo(0.42, 10);
-		expect(familyCost([], [])).toBe(0);
+		// 1.00 (the session, its finished subagent's 0.20 inside) + 0.12 at work + 0.05 + 0.05.
+		expect(familyCost(1, roster, opened)).toBeCloseTo(1.22, 10);
+		expect(familyCost(undefined, [], [])).toBe(0);
 		// A cost stock has not reported (NaN, absent) counts as nothing rather than poisoning the sum.
 		expect(
 			familyCost(
+				Number.NaN,
 				[agent("x", 1, "running", { progress: { cost: Number.NaN } as SubagentSnapshot["progress"] })],
 				[{ usage: {} }],
 			),

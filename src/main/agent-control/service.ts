@@ -2205,19 +2205,23 @@ export class AgentControl {
 		if (!tabs) return { items: [], usage: {} };
 		const own = this.#openedBy(callerTabId, tabs);
 		const children = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden);
-		const rows = await Promise.all(
-			children.map(async tab => {
-				const [session, cost] = await Promise.all([this.#state(tab), this.#cost(tab)]);
-				const item = this.#reviewed.has(tab.tabId) ? null : await this.#reviewItem(tab, session);
-				const model = session.state?.model;
-				const usage: AgentChildUsage = { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
-				return { item, usage, key: tab.sessionPath ?? tab.tabId };
-			}),
-		);
-		return {
-			items: rows.flatMap(row => (row.item ? [row.item] : [])),
-			usage: Object.fromEntries(rows.map(row => [row.key, row.usage])),
-		};
+		// The session's own journal too: the family's cost (sidebar chip, Work tree head) is it plus all it opened.
+		const caller = tabs.find(tab => tab.tabId === callerTabId);
+		const [rows, callerCost] = await Promise.all([
+			Promise.all(
+				children.map(async tab => {
+					const [session, cost] = await Promise.all([this.#state(tab), this.#cost(tab)]);
+					const item = this.#reviewed.has(tab.tabId) ? null : await this.#reviewItem(tab, session);
+					const model = session.state?.model;
+					const usage: AgentChildUsage = { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
+					return { item, usage, key: tab.sessionPath ?? tab.tabId };
+				}),
+			),
+			caller ? this.#cost({ ...caller, hidden: false }) : 0,
+		]);
+		const usage: Record<string, AgentChildUsage> = Object.fromEntries(rows.map(row => [row.key, row.usage]));
+		if (caller) usage[caller.sessionPath ?? callerTabId] = { cost: callerCost };
+		return { items: rows.flatMap(row => (row.item ? [row.item] : [])), usage };
 	}
 
 	/** What a session has cost over its whole journal (the title bar's figure), 0 while its omp cannot say. */

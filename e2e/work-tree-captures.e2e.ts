@@ -1,9 +1,10 @@
 /**
  * Opt-in captures of the family cost and the Work tree view (`OMP_GUI_WORK_TREE_SHOTS=<dir>`), on the dev harness
  * (`vite.harness.config.ts`): a session with running and finished subagents (each with a model, role and cost), two
- * sessions its agent opened (one on a paired device), one main closed after it landed, and the harness's unused
+ * sessions its agent opened (one on a paired device), and the harness's unused
  * worktrees (`dev-harness/fixture-work-tree.ts`). Writes `<surface>-<view>-<theme>-<lang>.png` for desktop
- * (1280×800) and phone (390 wide) × light/dark × en/ko, and asserts what each child row tells: its model and cost.
+ * (1280×800) and phone (390 wide) × light/dark × en/ko, and asserts what each child row tells (its model and cost) and that
+ * the chip and the Work tree head show the same whole-family cost.
  * Behaviour is covered by `WorkTreePanel.test.tsx`, `work-tree.test.ts`, `sidebar-family.test.ts`.
  */
 import * as fs from "node:fs/promises";
@@ -76,6 +77,7 @@ if (SHOTS) {
 					if (surface.mobile) await page.getByRole("button", { name: /Open menu|메뉴 열기/ }).click();
 					const chip = page.locator("[data-sidebar-subagents-toggle]").first();
 					await expect(chip.locator("[data-family-cost]")).toBeVisible();
+					const chipCost = (await chip.locator("[data-family-cost]").textContent())?.replace("·", "").trim();
 					await chip.click();
 					await page.screenshot({ path: file("sidebar") });
 					if (surface.mobile) await page.keyboard.press("Escape");
@@ -89,6 +91,9 @@ if (SHOTS) {
 						.evaluateAll(rows => rows.map(row => row.getAttribute("title") ?? ""));
 					expect(titles.length).toBeGreaterThan(2);
 					for (const title of titles) expect(title).toMatch(/\$\d/);
+					// One rule everywhere: the chip and the tree head show the same whole-family cost.
+					const head = (await page.locator("[data-work-tree-summary]").first().textContent())?.trim();
+					expect(head).toBe(chipCost);
 					await page.screenshot({ path: file("panel") });
 					await page.locator("[data-work-tree-finished]").first().click();
 					await page.screenshot({ path: file("panel-finished") });
@@ -155,23 +160,13 @@ async function seed(page: Page): Promise<void> {
 				],
 			},
 			usage: {
+				// The session itself: the base of the family's cost on its chip and its Work tree head.
+				[parentPath]: { cost: 0.21 },
 				"/s/kid1.jsonl": { model: "openai/gpt-5.5-codex", cost: 0.18 },
 				"C:\\s\\kid2.jsonl": { model: "anthropic/claude-sonnet-5", cost: 0.09 },
 			},
 		});
-		stores.closedChildren.setState({
-			rows: [
-				{
-					path: "/s/docs.jsonl",
-					openedBySession: parentPath,
-					title: "Docs update",
-					cwd: parent.cwd,
-					closedAt: Date.now() - 3_600_000,
-					model: "anthropic/claude-haiku-5",
-					cost: 0.04,
-				},
-			],
-		});
+
 		const agent = (
 			id: string,
 			index: number,
