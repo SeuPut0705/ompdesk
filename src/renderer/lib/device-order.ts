@@ -2,7 +2,7 @@
  * Order of the sidebar's device sections (this device, `LOCAL_DEVICE`, and each paired host). The user's saved order
  * comes first; a device it does not name (paired since, or never placed) follows in the default order: this device,
  * then the hosts as the remote store lists them. Ids the saved order names that are not present are ignored here and
- * pruned by `useSidebarFolds.pruneDevices` once the host list has loaded.
+ * pruned by `useSidebarFolds.syncHosts` once the host list has loaded.
  */
 import { reorderProjects } from "./project-order";
 

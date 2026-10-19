@@ -30,7 +30,7 @@ import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
-import { resetSessionListFeeds } from "../../../stores/session-list";
+import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-list";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
@@ -2570,6 +2570,70 @@ describe("Sidebar device sections", () => {
 			await altArrow("dev-studio", "ArrowDown");
 			expect(order()).toEqual([LOCAL_DEVICE, "dev-studio"]);
 			expect(useSidebarFolds.getState().deviceOrder).toEqual([LOCAL_DEVICE, "dev-studio"]);
+		});
+
+		it("draws a remembered host above this device on the first frame, before the host list is read", async () => {
+			installWithRemote();
+			seedStores();
+			useRemoteStore.getState().reset();
+			useSidebarFolds.setState({
+				deviceOrder: ["dev-studio", LOCAL_DEVICE],
+				knownHosts: [{ id: "dev-studio", name: "studio" }],
+			});
+			await mount(<Sidebar />);
+
+			// First frame: the host's header sits above this device's list, quietly waiting.
+			expect(order()).toEqual(["dev-studio", LOCAL_DEVICE]);
+			const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+			expect(section?.getAttribute("data-device-pending")).toBe("");
+			expect(section?.querySelector("[data-sidebar-device-toggle]")?.textContent).toContain("studio");
+			expect(container.querySelector('[data-sidebar-device-header="local"]')).not.toBeNull();
+			const row = container.querySelector("[data-session-path]");
+
+			// The first read fills the same section in place: nothing is added above or remounted.
+			pairHosts(["dev-studio"]);
+			await flush();
+			expect(order()).toEqual(["dev-studio", LOCAL_DEVICE]);
+			expect(
+				container.querySelector('[data-sidebar-device="dev-studio"]')?.getAttribute("data-device-pending"),
+			).toBeNull();
+			expect(container.querySelector("[data-session-path]")).toBe(row);
+		});
+
+		it("shows a connecting host's last known rows without asking it, and keeps them when it comes online", async () => {
+			const omp = installWithRemote();
+			seedStores();
+			sessionListFeed("global", "dev-studio").store.setState({ sessions: REMOTE, isLoading: false });
+			pairHost("connecting");
+			await mount(<Sidebar />);
+
+			const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+			const row = section?.querySelector("[data-device-session]");
+			expect(row?.textContent).toContain("Remote fix");
+			expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
+
+			pairHost("online");
+			await flush();
+			expect(omp.sessions.list).toHaveBeenCalledWith("global", "dev-studio");
+			expect(container.querySelector('[data-sidebar-device="dev-studio"] [data-device-session]')).toBe(row);
+		});
+
+		it("drops a remembered host the first read no longer lists, and remembers the hosts it does", async () => {
+			installWithRemote();
+			seedStores();
+			useRemoteStore.getState().reset();
+			useSidebarFolds.setState({
+				deviceOrder: ["dev-gone", LOCAL_DEVICE],
+				knownHosts: [{ id: "dev-gone", name: "old box" }],
+			});
+			await mount(<Sidebar />);
+			expect(order()).toEqual(["dev-gone", LOCAL_DEVICE]);
+
+			pairHosts(["dev-office"]);
+			await flush();
+			expect(order()).toEqual([LOCAL_DEVICE, "dev-office"]);
+			expect(useSidebarFolds.getState().knownHosts).toEqual([{ id: "dev-office", name: "office", offline: true }]);
+			expect(useSidebarFolds.getState().deviceOrder).toEqual([LOCAL_DEVICE]);
 		});
 
 		it("keeps this device's rows mounted when the first host is paired", async () => {

@@ -18,11 +18,16 @@ interface SessionListResult {
 /**
  * The session list and its change subscription, shared by every caller of
  * the same scope and device (see stores/session-list.ts for the refresh
- * rules). `device` = paired host deviceId; absent = this device.
+ * rules). `device` = paired host deviceId; absent = this device. `read: false` shows the last known rows without
+ * asking (a paired host whose link is not up yet).
  */
-export function useSessionList(scope: SessionListScope = "local", device?: string): SessionListResult {
+export function useSessionList(
+	scope: SessionListScope = "local",
+	device?: string,
+	{ read = true }: { read?: boolean } = {},
+): SessionListResult {
 	const feed = sessionListFeed(scope, device);
-	useEffect(() => feed.retain(), [feed]);
+	useEffect(() => (read ? feed.retain() : undefined), [feed, read]);
 	const { sessions, isLoading, live, error } = useStore(feed.store);
 	return {
 		sessions,

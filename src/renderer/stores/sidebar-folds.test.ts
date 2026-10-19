@@ -97,7 +97,7 @@ describe("remembered folds", () => {
 
 		const exists = (key: string) => ["/work/live", "/repo"].includes(key.replace(/#agent$/, ""));
 		folds.getState().pruneGroups(exists);
-		folds.getState().pruneDevices(new Set(["dev-live"]));
+		folds.getState().syncHosts([{ id: "dev-live", name: "live" }]);
 
 		expect(folds.getState().groups).toEqual({ "/work/live": true, "/repo#agent": false });
 		expect(folds.getState().devices).toEqual({ [LOCAL_DEVICE]: true, "dev-live": true });
@@ -120,7 +120,7 @@ describe("remembered folds", () => {
 		let next = await launch();
 		expect(next.folds.getState().deviceOrder).toEqual(["dev-b", LOCAL_DEVICE, "dev-gone"]);
 
-		next.folds.getState().pruneDevices(new Set(["dev-b"]));
+		next.folds.getState().syncHosts([{ id: "dev-b", name: "b" }]);
 		expect(next.folds.getState().deviceOrder).toEqual(["dev-b", LOCAL_DEVICE]);
 		next = await launch();
 		expect(next.folds.getState().deviceOrder).toEqual(["dev-b", LOCAL_DEVICE]);

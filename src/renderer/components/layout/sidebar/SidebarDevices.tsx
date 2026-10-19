@@ -22,6 +22,7 @@ import {
 	X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useStore } from "zustand";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -34,6 +35,7 @@ import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-tit
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
+import { sessionListFeed } from "../../../stores/session-list";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
@@ -101,18 +103,25 @@ export function SidebarDeviceSection({
 	mode,
 	query,
 	nested,
+	pending = false,
 }: {
 	host: HostView;
 	mode: SidebarDeviceMode;
 	query: string;
 	/** Tab ids and session files of sessions a session of this computer opened here: they are rows of its family. */
 	nested?: ReadonlySet<string>;
+	/** A host the last host-list read named, drawn before this launch's first read: still, as it will look. */
+	pending?: boolean;
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
 	const handle = useDeviceHeaderHandle();
 	const online = host.state === "online";
 	const stateLabel = t(`remote.state.${host.state}`);
+	// While the link comes up the host's last known rows stand in (never read: an unlinked host is not asked), so the
+	// rows are already in place when it connects and nothing below them moves.
+	const hasLastKnownRows = useStore(sessionListFeed("global", host.deviceId).store, s => s.sessions.length > 0);
+	const showRows = online || (host.state === "connecting" && hasLastKnownRows);
 
 	const openRemote = async (args: RemoteOpenArgs) => {
 		useUiStore.getState().closeDestination();
@@ -120,7 +129,12 @@ export function SidebarDeviceSection({
 	};
 
 	return (
-		<section aria-label={host.name} data-device-state={host.state} data-sidebar-device={host.deviceId}>
+		<section
+			aria-label={host.name}
+			data-device-pending={pending ? "" : undefined}
+			data-device-state={host.state}
+			data-sidebar-device={host.deviceId}
+		>
 			<div className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
 				<button
 					{...handle}
@@ -134,7 +148,13 @@ export function SidebarDeviceSection({
 				>
 					<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 					<span className="min-w-0 truncate">{host.name}</span>
-					<span aria-hidden className={cx("size-1.5 shrink-0 rounded-full", DOT_CLASS[host.state])} />
+					<span
+						aria-hidden
+						className={cx(
+							"size-1.5 shrink-0 rounded-full",
+							pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
+						)}
+					/>
 					{host.state === "offline" ? (
 						<span
 							className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-2xs text-(--sc-text-subtle)"
@@ -168,8 +188,15 @@ export function SidebarDeviceSection({
 				/>
 			</div>
 			{!collapsed &&
-				(online ? (
-					<DeviceSessions host={host} mode={mode} nested={nested} onOpen={openRemote} query={query} />
+				(showRows ? (
+					<DeviceSessions
+						host={host}
+						mode={mode}
+						nested={nested}
+						onOpen={openRemote}
+						query={query}
+						read={online}
+					/>
 				) : host.state === "connecting" ? (
 					<p className="flex items-center gap-2 px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)">
 						<Spinner size="sm" />
@@ -180,22 +207,25 @@ export function SidebarDeviceSection({
 	);
 }
 
-/** The host's list; mounted only while the link is up, so an offline host is never asked. */
+/** The host's list. Read only while the link is up (`read`), so an unlinked host is never asked: before that its last
+ * known rows show. */
 function DeviceSessions({
 	host,
 	mode,
 	query,
 	nested,
 	onOpen,
+	read,
 }: {
 	host: HostView;
 	mode: SidebarDeviceMode;
 	query: string;
 	nested: ReadonlySet<string> | undefined;
 	onOpen: (args: RemoteOpenArgs) => Promise<void>;
+	read: boolean;
 }) {
 	const t = useT();
-	const { sessions, isLoading, error, refresh, deleteSession } = useSessionList("global", host.deviceId);
+	const { sessions, isLoading, error, refresh, deleteSession } = useSessionList("global", host.deviceId, { read });
 	const [pendingDelete, setPendingDelete] = useState<DeviceSession | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	// A finger has no hover, so Close and Delete would sit on every row for good: one ⋯ opens them as an action sheet

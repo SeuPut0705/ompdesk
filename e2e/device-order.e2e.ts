@@ -12,7 +12,7 @@ import * as fs from "node:fs/promises";
 import { createServer as createServer0 } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { chromium, expect, type Page, test } from "@playwright/test";
+import { chromium, _electron as electron, expect, type Page, test } from "@playwright/test";
 import { createServer } from "vite";
 import { exitApp } from "./harness";
 import {
@@ -20,7 +20,9 @@ import {
 	type Language,
 	launchRemote,
 	makeRemoteProfile,
+	openHostFolder,
 	type RemoteInstance,
+	type RemoteProfile,
 	type Theme,
 } from "./remote-harness";
 
@@ -127,6 +129,192 @@ for (const { language, theme } of VARIANTS) {
 		}
 	});
 }
+
+/** Per frame from the document's start: the first local row's top, whether a host section is pending/online, host rows. */
+const FRAME_PROBE = `(() => {
+	const frames = [];
+	window.__deviceFrames = frames;
+	const tick = () => {
+		const row = document.querySelector("[data-sidebar-local-device] [data-session-path]");
+		frames.push({
+			top: row ? row.getBoundingClientRect().top : null,
+			pending: document.querySelector("[data-device-pending]") !== null,
+			online: document.querySelector('[data-sidebar-device][data-device-state="online"]') !== null,
+			hostRows: document.querySelectorAll("[data-sidebar-device] [data-device-session]").length,
+		});
+		requestAnimationFrame(tick);
+	};
+	requestAnimationFrame(tick);
+})();`;
+
+interface DeviceFrame {
+	top: number | null;
+	pending: boolean;
+	online: boolean;
+	hostRows: number;
+}
+
+declare global {
+	interface Window {
+		__deviceFrames?: DeviceFrame[];
+	}
+}
+
+/** `launchRemote` with the frame probe installed before the first document (a reload when the window beat it). */
+async function launchProbed(profile: RemoteProfile): Promise<RemoteInstance> {
+	const args = [
+		path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
+		profile.project,
+		`--user-data-dir=${profile.desktop}`,
+	];
+	const app = await electron.launch({ args, env: profile.env });
+	await app.context().addInitScript(FRAME_PROBE);
+	const page = await app.firstWindow();
+	const errors: string[] = [];
+	page.on("pageerror", error => errors.push(error.message));
+	if (!(await page.evaluate(() => window.__deviceFrames !== undefined))) await page.reload();
+	await page.waitForFunction(() => window.omp?.remote != null);
+	return { app, page, profile, errors };
+}
+
+test("the local rows do not move across the first remote read of a relaunch", async () => {
+	test.setTimeout(240_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-device-order-")));
+	let host: RemoteInstance | undefined;
+	let client: RemoteInstance | undefined;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
+		const clientProfile = await makeRemoteProfile(parent, "client", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const hostId = await connectHost(host.page, client.page, "Studio B");
+		// A session of the host's own, so its section has rows to load on the next launch.
+		await openHostFolder(client.page, hostId, hostProfile.project);
+		const input = client.page.locator("[data-composer-input]").first();
+		await input.fill("hello from the host");
+		await input.press("Enter");
+		await expect(client.page.locator(`[data-sidebar-device="${hostId}"] [data-device-session]`).first()).toBeVisible({
+			timeout: 30_000,
+		});
+		await client.page.locator(`[data-device-drag-handle="${hostId}"]`).focus();
+		await client.page.keyboard.press("Alt+ArrowUp");
+		await expect.poll(() => order((client as RemoteInstance).page)).toEqual([hostId, "local"]);
+
+		// Chromium commits localStorage to the profile a few seconds after a write, and the quit below is abrupt.
+		await client.page.waitForTimeout(7000);
+		await exitApp(client.app);
+		client = await launchProbed(clientProfile);
+		const page = client.page;
+		await expect
+			.poll(
+				async () =>
+					page.evaluate(() => {
+						const last = window.__deviceFrames?.at(-1);
+						return last?.online === true && last.hostRows > 0;
+					}),
+				{ timeout: 60_000 },
+			)
+			.toBe(true);
+		await page.waitForTimeout(500); // frames after the rows are in: nothing may move then either
+		const frames = await page.evaluate(() => window.__deviceFrames ?? []);
+		const tops = frames.flatMap(frame => (frame.top === null ? [] : [frame.top]));
+		expect(tops.length).toBeGreaterThan(0);
+		const changes = frames
+			.flatMap((frame, index) => {
+				const before = frames[index - 1];
+				const moved =
+					!before ||
+					before.top !== frame.top ||
+					before.pending !== frame.pending ||
+					before.online !== frame.online ||
+					before.hostRows !== frame.hostRows;
+				return moved
+					? [
+							`#${index} top=${frame.top} pending=${frame.pending} online=${frame.online} hostRows=${frame.hostRows}`,
+						]
+					: [];
+			})
+			.join("\n");
+		const first = tops[0] as number;
+		expect(Math.max(...tops) - first, changes).toBeLessThanOrEqual(1);
+		expect(first - Math.min(...tops), changes).toBeLessThanOrEqual(1);
+		const pendingFrame = frames.findIndex(frame => frame.pending);
+		const onlineFrame = frames.findIndex(frame => frame.online);
+		console.log(
+			`device-order probe: ${frames.length} frames, pending first at ${pendingFrame}, online at ${onlineFrame}`,
+		);
+		// A pending section is drawn before the first remote read answers (the read may beat the first React frame).
+		expect(pendingFrame).toBeGreaterThanOrEqual(0);
+		expect(pendingFrame).toBeLessThan(onlineFrame);
+	} finally {
+		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
+		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("the drag chip stays under the pointer while the sidebar list scrolls", async () => {
+	test.setTimeout(240_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-device-order-")));
+	let host: RemoteInstance | undefined;
+	let client: RemoteInstance | undefined;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
+		const clientProfile = await makeRemoteProfile(parent, "client", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const hostId = await connectHost(host.page, client.page, "Studio B");
+		const page = client.page;
+		await expect(page.locator("[data-device-slot]")).toHaveCount(2);
+		// The list is as tall as a long one: a spacer after the sections (React leaves a foreign node alone).
+		const scroller = page.locator('[data-tour="sessions"]');
+		await scroller.evaluate(node => {
+			const spacer = document.createElement("div");
+			spacer.style.height = "2000px";
+			node.appendChild(spacer);
+		});
+		const handle = page.locator(`[data-device-drag-handle="${hostId}"]`);
+		const box = await handle.boundingBox();
+		if (!box) throw new Error("host header has no box");
+		const startX = box.x + 40;
+		const startY = box.y + box.height / 2;
+		await page.mouse.move(startX, startY);
+		await page.mouse.down();
+		for (let step = 1; step <= 8; step++) await page.mouse.move(startX, startY - step * 6);
+		const chip = page.locator("[data-device-drag-chip]");
+		await expect(chip).toBeVisible();
+		await scroller.evaluate(node => {
+			node.scrollTop = 300;
+		});
+		expect(await scroller.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+		const pointer = { x: startX + 30, y: startY - 20 };
+		for (let step = 1; step <= 4; step++)
+			await page.mouse.move(startX + (30 * step) / 4, startY - 48 + ((pointer.y - startY + 48) * step) / 4);
+		await expect
+			.poll(async () => {
+				const rect = await chip.boundingBox();
+				return rect ? [Math.round(rect.x - pointer.x), Math.round(rect.y - pointer.y)] : null;
+			})
+			.toEqual([12, -14]);
+		const rect = await chip.boundingBox();
+		expect(Math.abs((rect?.x ?? 0) - (pointer.x + 12))).toBeLessThanOrEqual(2);
+		expect(Math.abs((rect?.y ?? 0) - (pointer.y - 14))).toBeLessThanOrEqual(2);
+		await page.keyboard.press("Escape");
+		await page.mouse.up();
+	} finally {
+		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
+		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
 
 // Electron's window cannot go below its minimum width, so the 390 px frames come from the dev harness (phone drawer).
 for (const { language, theme } of SHOTS ? VARIANTS : []) {

@@ -8,7 +8,6 @@
  * page keeps its own order and the first frame paints it from the mirror.
  */
 import {
-	type ClientRect,
 	type CollisionDetection,
 	closestCenter,
 	DndContext,
@@ -34,6 +33,7 @@ import {
 	type PointerEvent as ReactPointerEvent,
 	type TouchEvent as ReactTouchEvent,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useRef,
 	useState,
@@ -317,34 +317,55 @@ function DeviceSlot({
 	);
 }
 
+/** Where a pointer or the first finger is, in viewport coordinates. */
+function pointOf(event: Event | null): { x: number; y: number } | null {
+	if (event && "touches" in event) {
+		const touch = (event as TouchEvent).touches[0];
+		return touch ? { x: touch.clientX, y: touch.clientY } : null;
+	}
+	return event && "clientX" in event ? { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY } : null;
+}
+
 /**
- * The chip that follows the pointer while a section is dragged: the header's place plus the drag's delta, drawn over
- * everything in a fixed layer. Its own component, so a pointer move re-renders only it.
+ * The chip that follows the pointer while a section is dragged, drawn over everything in a fixed layer. It reads the
+ * pointer itself: dnd-kit's drag delta includes the list's scroll, so a chip placed by it would drift off the pointer
+ * whenever the sidebar scrolls during the drag. Its own component, so a pointer move re-renders only it.
  */
 function DragChip({ label }: { label: (id: unknown) => string }) {
-	const [drag, setDrag] = useState<{ name: string; from: ClientRect | null; x: number; y: number } | null>(null);
+	const [name, setName] = useState<string | null>(null);
+	const [at, setAt] = useState<{ x: number; y: number } | null>(null);
 	useDndMonitor({
-		// dnd-kit measures the header's rect after it dispatched the start: the first move reads it.
-		onDragStart: ({ active }) => setDrag({ name: label(active.id), from: active.rect.current.initial, x: 0, y: 0 }),
-		onDragMove: ({ active, delta }) =>
-			setDrag(current => current && { ...current, from: current.from ?? active.rect.current.initial, ...delta }),
-		onDragEnd: () => setDrag(null),
-		onDragCancel: () => setDrag(null),
+		onDragStart: ({ active, activatorEvent }) => {
+			setName(label(active.id));
+			setAt(pointOf(activatorEvent));
+		},
+		onDragEnd: () => setName(null),
+		onDragCancel: () => setName(null),
 	});
-	if (!drag?.from) return null;
+	useEffect(() => {
+		if (name === null) return;
+		const follow = (event: Event) => {
+			const point = pointOf(event);
+			if (point) setAt(point);
+		};
+		window.addEventListener("pointermove", follow, { passive: true });
+		window.addEventListener("touchmove", follow, { passive: true });
+		return () => {
+			window.removeEventListener("pointermove", follow);
+			window.removeEventListener("touchmove", follow);
+		};
+	}, [name]);
+	if (name === null || !at) return null;
 	return createPortal(
 		<div
 			aria-hidden
-			className="pointer-events-none fixed z-(--sc-z-tooltip) flex h-7 max-w-56 items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2 text-sc-xs font-medium text-(--sc-text) shadow-(--sc-shadow-md)"
+			className="pointer-events-none fixed top-0 left-0 z-(--sc-z-tooltip) flex h-7 max-w-56 items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-elevated) px-2 text-sc-xs font-medium text-(--sc-text) shadow-(--sc-shadow-md)"
 			data-device-drag-chip
-			style={{
-				left: drag.from.left,
-				top: drag.from.top,
-				transform: `translate3d(${drag.x}px, ${drag.y}px, 0)`,
-			}}
+			// Just right of the pointer, centred on it: the chip never hides the drop line it is aiming at.
+			style={{ transform: `translate3d(${at.x + 12}px, ${at.y - 14}px, 0)` }}
 		>
 			<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-			<span className="min-w-0 truncate">{drag.name}</span>
+			<span className="min-w-0 truncate">{name}</span>
 		</div>,
 		document.body,
 	);

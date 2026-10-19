@@ -52,6 +52,15 @@ export interface SidebarFolds {
 	usageCollapsed: boolean;
 	/** Device section order the user set (`LOCAL_DEVICE` or a host's deviceId), top first; `lib/device-order.ts`. */
 	deviceOrder: string[];
+	/** The paired hosts the last host-list read named, so the first frame draws their sections before the next read. */
+	knownHosts: KnownHost[];
+}
+
+export interface KnownHost {
+	id: string;
+	name: string;
+	/** It was offline then: its section is drawn as an offline one (no rows), so the read that confirms it moves nothing. */
+	offline?: true;
 }
 
 export interface SidebarFamilies {
@@ -70,6 +79,7 @@ export const EMPTY_FOLDS: SidebarFolds = {
 	starterOpen: false,
 	usageCollapsed: false,
 	deviceOrder: [],
+	knownHosts: [],
 };
 
 export function deviceGroupKey(deviceId: string, cwd: string): string {
@@ -104,6 +114,7 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
 		starterOpen: record.starterOpen === true,
 		usageCollapsed: record.usageCollapsed === true,
 		deviceOrder: parseDeviceOrder(record.deviceOrder),
+		knownHosts: parseKnownHosts(record.knownHosts),
 	};
 }
 
@@ -114,6 +125,19 @@ function parseDeviceOrder(value: unknown): string[] {
 		(id): id is string => typeof id === "string" && id.length > 0 && id.length <= KEY_MAX_CHARS,
 	);
 	return [...new Set(ids)].slice(0, FOLD_LIMIT);
+}
+
+function parseKnownHosts(value: unknown): KnownHost[] {
+	if (!Array.isArray(value)) return [];
+	const hosts: KnownHost[] = [];
+	for (const entry of value) {
+		if (typeof entry !== "object" || entry === null) continue;
+		const { id, name, offline } = entry as Record<string, unknown>;
+		if (typeof id !== "string" || id.length === 0 || id.length > KEY_MAX_CHARS) continue;
+		if (typeof name !== "string" || name.length > KEY_MAX_CHARS || hosts.some(host => host.id === id)) continue;
+		hosts.push(offline === true ? { id, name, offline: true } : { id, name });
+	}
+	return hosts.slice(0, FOLD_LIMIT);
 }
 
 /** A live tab's row key (`tab:<id>`) is not a session: it never outlives the tab, so it is never remembered. */

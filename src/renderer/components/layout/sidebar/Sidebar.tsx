@@ -64,7 +64,7 @@ import {
 	useState,
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
-import type { IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
+import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
@@ -1080,11 +1080,35 @@ export function Sidebar() {
 	}, [listLive, allGroups, sessions, heldByTab, projectName]);
 	const hostsLoaded = useRemoteStore(s => s.state !== null);
 	useEffect(() => {
-		if (hostsLoaded) useSidebarFolds.getState().pruneDevices(new Set(hosts.map(host => host.deviceId)));
+		if (!hostsLoaded) return;
+		useSidebarFolds
+			.getState()
+			.syncHosts(
+				hosts.map(host =>
+					host.state === "offline"
+						? { id: host.deviceId, name: host.name, offline: true }
+						: { id: host.deviceId, name: host.name },
+				),
+			);
 	}, [hostsLoaded, hosts]);
+	// Until the host list's first read the sections are the hosts the last read named, so the first frame already has
+	// their place (a host saved above this device would otherwise push its rows down when the read lands).
+	const knownHosts = useSidebarFolds(s => s.knownHosts);
+	const sectionHosts = useMemo<readonly (HostView & { pending?: true })[]>(
+		() =>
+			hostsLoaded
+				? hosts
+				: knownHosts.map(host => ({
+						deviceId: host.id,
+						name: host.name,
+						state: host.offline ? "offline" : "connecting",
+						pending: true,
+					})),
+		[hostsLoaded, hosts, knownHosts],
+	);
 	// This device's own list folds under its header once a host is paired; a filter shows every match.
 	const localFoldedPref = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
-	const localFolded = localFoldedPref && hosts.length > 0 && query.length === 0;
+	const localFolded = localFoldedPref && sectionHosts.length > 0 && query.length === 0;
 	// A drag arms only after 6px of movement, so clicking a project still toggles it.
 	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
@@ -2354,16 +2378,16 @@ export function Sidebar() {
 								label: t("remote.sidebar.thisDevice"),
 								node: (
 									<div
-										aria-label={hosts.length > 0 ? t("remote.sidebar.thisDevice") : undefined}
+										aria-label={sectionHosts.length > 0 ? t("remote.sidebar.thisDevice") : undefined}
 										data-sidebar-local-device
-										role={hosts.length > 0 ? "region" : undefined}
+										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
-										{hosts.length > 0 && <SidebarLocalHeader />}
+										{sectionHosts.length > 0 && <SidebarLocalHeader />}
 										{localList}
 									</div>
 								),
 							},
-							...hosts.map(host => ({
+							...sectionHosts.map(host => ({
 								id: host.deviceId,
 								label: host.name,
 								node: (
@@ -2371,6 +2395,7 @@ export function Sidebar() {
 										host={host}
 										mode={mode}
 										nested={nestedRemote.get(host.deviceId)}
+										pending={host.pending === true}
 										query={query}
 									/>
 								),
