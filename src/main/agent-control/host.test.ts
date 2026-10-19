@@ -282,14 +282,16 @@ describe("AgentControlRuntime", () => {
 				sweepMs: 20,
 				viewers: { main0001: [phone] },
 			});
-			vi.spyOn(runtime.control, "reviewItems").mockImplementation(async () => [{ tabId: "new00003" }] as never);
+			vi.spyOn(runtime.control, "review").mockImplementation(
+				async () => ({ items: [{ tabId: "new00003" }], usage: {} }) as never,
+			);
 			const opening = runtime.run(win, "main0001", T.open, {});
 			await vi.advanceTimersByTimeAsync(2_000);
 			await opening;
 			const frames = (target: typeof win) =>
 				target.sent.filter(([channel]) => channel === AGENT_CONTROL_REVIEW).map(([, payload]) => payload);
-			expect(frames(win).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }] });
-			expect(frames(phone).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }] });
+			expect(frames(win).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }], usage: {} });
+			expect(frames(phone).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }], usage: {} });
 			// The phone asking for the list does not make it the window the opener's tools answer through.
 			await runtime.review(phone, "main0001");
 			await runtime.run(win, "main0001", T.open, {});
