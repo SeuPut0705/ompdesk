@@ -32,6 +32,7 @@ mod reader;
 mod retrieval_tuning;
 mod scope;
 mod session_consolidation;
+mod synced_conclusions;
 pub mod users;
 pub mod web_sessions;
 mod workstream;
@@ -110,6 +111,12 @@ pub use scope::{
     resolve_many_existing_scopes, resolve_many_existing_scopes_guarded,
 };
 pub use session_consolidation::{SESSION_CONSOLIDATION_MAX_ATTEMPTS, SessionConsolidationJob};
+pub use synced_conclusions::{
+    CONCLUSION_PAGE_MAX, ConclusionBatchError, ConclusionPage, ConclusionRecord, ConclusionSource,
+    ConclusionWriteStatus, IncomingConclusion, SYNCED_CONCLUSION_BATCH_MAX,
+    SYNCED_CONCLUSION_BODY_MAX_BYTES, SYNCED_CONCLUSION_ORIGIN_MAX_CHARS,
+    SYNCED_CONCLUSION_TITLE_MAX_CHARS, SyncedConclusionBatch,
+};
 pub use users::{LoginUser, TOKEN_HASH_LEN, TOKEN_RAW_LEN, TokenPepper, hash_token};
 pub use web_sessions::{LiveWebSession, WebSession, hash_session_secret};
 pub use workstream::{

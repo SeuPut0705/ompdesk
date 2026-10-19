@@ -1770,6 +1770,7 @@ pub async fn run(config: &Config, args: ServeArgs) -> Result<()> {
                     },
                 ))
                 .layer(DefaultBodyLimit::max(BOOTSTRAP_MAX_BODY_BYTES))
+                .layer(axum::Extension(sanitizer.clone()))
                 .layer(axum::middleware::from_fn_with_state(
                     auth_state.clone(),
                     require_dual_auth,

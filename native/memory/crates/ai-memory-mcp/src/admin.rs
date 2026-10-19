@@ -43,6 +43,10 @@
 //! - `POST /admin/move-project`   — move a project into another workspace
 //!   (copy latest pages via the write path, then purge the source).
 //! - `POST /admin/write-page`     — write or update a wiki page atomically.
+//! - `POST /admin/write-conclusions` — store session conclusions another computer
+//!   sent (insert-if-absent, scrubbed, capped).
+//! - `GET  /admin/conclusions`    — one page of the native or synced conclusion
+//!   stream, for a paired computer to pull.
 //! - `GET  /admin/read-page`      — fetch the full body of a single wiki page by path.
 //! - `POST /admin/delete-page`    — delete a single wiki page by path.
 //!
@@ -613,6 +617,8 @@ fn hex_to_sha256(hex: &str) -> Result<[u8; 32], String> {
 /// - `POST /admin/repair-session-times`
 /// - `POST /admin/merge-workspace`
 /// - `POST /admin/write-page`
+/// - `POST /admin/write-conclusions`
+/// - `GET  /admin/conclusions`
 /// - `POST /admin/delete-page`
 /// - user-management routes under `/admin/users*`
 pub fn admin_router(state: AdminState) -> Router {
@@ -714,6 +720,8 @@ pub fn admin_router_with_sweep_tuning(
         .route("/admin/rename-workspace", post(handle_rename_workspace))
         .route("/admin/merge-workspace", post(handle_merge_workspace))
         .route("/admin/write-page", post(handle_write_page))
+        .route("/admin/write-conclusions", post(handle_write_conclusions))
+        .route("/admin/conclusions", get(handle_list_conclusions))
         .route("/admin/delete-page", post(handle_delete_page));
     let users = Router::new()
         .route("/admin/users", get(handle_list_users))
@@ -8478,6 +8486,150 @@ async fn handle_write_page(
             .unwrap_or_else(|_| serde_json::json!({})),
         ),
     ))
+}
+
+// ---------------------------------------------------------------------
+// conclusions (session conclusions shared between a person's computers)
+// ---------------------------------------------------------------------
+
+/// One conclusion in `POST /admin/write-conclusions`.
+#[derive(Deserialize)]
+struct WriteConclusionItem {
+    /// The id the conclusion has on the computer it came from.
+    id: String,
+    /// Session of that computer, as a UUID.
+    session_id: String,
+    title: String,
+    body: String,
+    /// RFC 3339 capture time.
+    created_at: String,
+}
+
+/// JSON request body for `POST /admin/write-conclusions`.
+#[derive(Deserialize)]
+struct WriteConclusionsRequest {
+    /// Workspace name (auto-created if absent).
+    workspace: String,
+    /// Project name (auto-created if absent).
+    project: String,
+    /// The computer these conclusions come from; kept with each copy so a
+    /// pull never hands them back there.
+    origin_device: String,
+    /// 1 to `SYNCED_CONCLUSION_BATCH_MAX` conclusions.
+    conclusions: Vec<WriteConclusionItem>,
+}
+
+/// `POST /admin/write-conclusions`: store conclusions another of the person's
+/// computers captured, insert-if-absent. The whole request is checked before a
+/// scope is created or a row written; text is scrubbed with the server's
+/// sanitizer and cut to its bounds, so this is no way around redaction.
+async fn handle_write_conclusions(
+    State(state): State<Arc<AdminState>>,
+    sanitizer: Option<axum::Extension<ai_memory_core::Sanitizer>>,
+    Json(req): Json<WriteConclusionsRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let sanitizer = sanitizer
+        .map(|axum::Extension(sanitizer)| sanitizer)
+        .unwrap_or_else(ai_memory_core::Sanitizer::builtin);
+    let ids: Vec<String> = req.conclusions.iter().map(|c| c.id.clone()).collect();
+    let batch = ai_memory_store::SyncedConclusionBatch::prepare(
+        &req.origin_device,
+        req.conclusions
+            .into_iter()
+            .map(|c| ai_memory_store::IncomingConclusion {
+                id: c.id,
+                session_id: c.session_id,
+                title: c.title,
+                body: c.body,
+                created_at: c.created_at,
+            })
+            .collect(),
+        &sanitizer,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let target = create_ws_proj(&state, &req.workspace, &req.project).await?;
+    let (ws, proj) = target.scope.as_tuple();
+    let statuses = state
+        .writer
+        .write_synced_conclusions(ws, proj, batch)
+        .await
+        .map_err(|e| internal_err(e.to_string()))?;
+    let results: Vec<serde_json::Value> = ids
+        .into_iter()
+        .zip(statuses)
+        .map(|(id, status)| serde_json::json!({ "id": id, "status": status }))
+        .collect();
+    Ok(Json(serde_json::json!({ "results": results })))
+}
+
+/// Query string for `GET /admin/conclusions`. Kept as text so a bad value is
+/// a 422 from [`parse_conclusions_query`], not an extractor's 400.
+#[derive(Debug, Deserialize)]
+struct ConclusionsQuery {
+    source: Option<String>,
+    after: Option<String>,
+    limit: Option<String>,
+}
+
+const DEFAULT_CONCLUSIONS_PAGE: usize = 200;
+
+fn parse_conclusions_query(
+    q: &ConclusionsQuery,
+) -> Result<(ai_memory_store::ConclusionSource, i64, usize), String> {
+    let source = match q.source.as_deref() {
+        Some("native") => ai_memory_store::ConclusionSource::Native,
+        Some("synced") => ai_memory_store::ConclusionSource::Synced,
+        _ => return Err("source must be `native` or `synced`".into()),
+    };
+    let after = match q.after.as_deref() {
+        None => 0,
+        Some(raw) => raw
+            .parse::<i64>()
+            .ok()
+            .filter(|after| *after >= 0)
+            .ok_or("after must be a non-negative integer")?,
+    };
+    let limit = match q.limit.as_deref() {
+        None => DEFAULT_CONCLUSIONS_PAGE,
+        Some(raw) => raw
+            .parse::<usize>()
+            .ok()
+            .filter(|limit| (1..=ai_memory_store::CONCLUSION_PAGE_MAX).contains(limit))
+            .ok_or_else(|| {
+                format!(
+                    "limit must be an integer from 1 to {}",
+                    ai_memory_store::CONCLUSION_PAGE_MAX
+                )
+            })?,
+    };
+    Ok((source, after, limit))
+}
+
+/// `GET /admin/conclusions`: one page of a conclusion stream across every
+/// workspace and project, for a paired computer to pull. `native` lists this
+/// computer's own `Stop` conclusions, `synced` the copies it received.
+async fn handle_list_conclusions(
+    State(state): State<Arc<AdminState>>,
+    Query(q): Query<ConclusionsQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let (source, after, limit) = parse_conclusions_query(&q).map_err(|error| {
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "error": error })),
+        )
+    })?;
+    let page = state
+        .reader
+        .list_conclusions(source, after, limit)
+        .await
+        .map_err(|e| internal_err(e.to_string()))?;
+    Ok(Json(page))
 }
 
 // ---------------------------------------------------------------------

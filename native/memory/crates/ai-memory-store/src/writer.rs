@@ -33,6 +33,7 @@ use crate::ops::{
     ObservationPruneOutcome, PagesMode, PurgeSummary, ReorgSummary,
 };
 use crate::session_consolidation::SessionConsolidationJob;
+use crate::synced_conclusions::{ConclusionWriteStatus, SyncedConclusionBatch};
 use crate::users::{self, TOKEN_HASH_LEN};
 use crate::web_sessions::{self, WebSession};
 use crate::workstream::{
@@ -416,6 +417,12 @@ pub(crate) enum WriteCmd {
         cutoff_us: i64,
         batch: usize,
         reply: oneshot::Sender<StoreResult<ObservationPruneOutcome>>,
+    },
+    WriteSyncedConclusions {
+        workspace_id: WorkspaceId,
+        project_id: ProjectId,
+        batch: SyncedConclusionBatch,
+        reply: oneshot::Sender<StoreResult<Vec<ConclusionWriteStatus>>>,
     },
     HealCatchAllRepoPaths {
         home: Option<String>,
@@ -2237,6 +2244,30 @@ impl WriterHandle {
             workspace_id,
             project_id,
             cutoff_us,
+            batch,
+            reply: tx,
+        })
+        .await?;
+        rx.await.map_err(|_| StoreError::WriterClosed)?
+    }
+
+    /// Store session conclusions received from another of the person's
+    /// computers, insert-if-absent, in one transaction. The batch has already
+    /// passed [`SyncedConclusionBatch::prepare`], so what is written is
+    /// scrubbed and capped. One status per item, in order.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::WriterClosed`] or propagates SQL errors.
+    pub async fn write_synced_conclusions(
+        &self,
+        workspace_id: WorkspaceId,
+        project_id: ProjectId,
+        batch: SyncedConclusionBatch,
+    ) -> StoreResult<Vec<ConclusionWriteStatus>> {
+        let (tx, rx) = oneshot::channel();
+        self.send(WriteCmd::WriteSyncedConclusions {
+            workspace_id,
+            project_id,
             batch,
             reply: tx,
         })
@@ -4269,6 +4300,20 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::Receiver<WriteCmd>) {
                     batch,
                 );
                 send_or_warn(reply, result, "prune_consolidated_observations");
+            }
+            WriteCmd::WriteSyncedConclusions {
+                workspace_id,
+                project_id,
+                batch,
+                reply,
+            } => {
+                let result = crate::synced_conclusions::write_synced_conclusions(
+                    &mut conn,
+                    workspace_id,
+                    project_id,
+                    &batch,
+                );
+                send_or_warn(reply, result, "write_synced_conclusions");
             }
             WriteCmd::HealCatchAllRepoPaths { home, reply } => {
                 let result = ops::heal_catch_all_repo_paths(&mut conn, home.as_deref());

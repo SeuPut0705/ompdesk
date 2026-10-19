@@ -4185,6 +4185,10 @@ pub fn prune_consolidated_observations(
             &format!("{{\"deleted\":{deleted}}}"),
         )?;
     }
+    // Copies of another computer's conclusions age out by the same cutoff.
+    // They wait on no local session, so they go even when this batch deleted
+    // no observation.
+    crate::synced_conclusions::prune_before(&tx, workspace_id, project_id, cutoff_us)?;
     tx.commit()?;
     Ok(ObservationPruneOutcome {
         deleted,
@@ -5578,7 +5582,12 @@ pub enum PurgeMode {
 /// being made about it. A list inside a string literal cannot be compared to
 /// anything, and the failure mode of getting it wrong is silent — text stays
 /// searchable after an operator asked for it to be reclaimed.
-const ALL_FTS_INDEXES: &[&str] = &["observations_fts", "pages_fts", "workstream_events_fts"];
+const ALL_FTS_INDEXES: &[&str] = &[
+    "observations_fts",
+    "pages_fts",
+    "synced_conclusions_fts",
+    "workstream_events_fts",
+];
 
 /// Rebuild every FTS5 index, then `VACUUM`. Runs after the caller's
 /// transaction has committed: `VACUUM` cannot run inside one, and a rebuild is
@@ -6343,6 +6352,8 @@ pub(crate) fn purge_session_with_owner(
           WHERE session_id = ?1 AND workspace_id = ?2 AND project_id = ?3",
         rusqlite::params![&sid[..], &wid[..], &pid[..]],
     )? as u64;
+    // Copies of this session's conclusions that another computer sent.
+    crate::synced_conclusions::delete_for_session(&tx, workspace_id, project_id, session_id)?;
 
     // Profile evidence harvested from this session's prompts. A candidate
     // keeps the user's own sentence (`statement`, `quote`), so one left behind
@@ -7187,6 +7198,7 @@ pub fn move_project_workspace(
         "profile_candidates",
         "profile_entry_ledger",
         "profile_harvest_marks",
+        "synced_conclusions",
     ] {
         tx.execute(
             &format!(
@@ -13989,6 +14001,167 @@ pub(crate) mod tests {
         assert_eq!(side("from_workspace_id", &dst_ws), 1);
         assert_eq!(side("to_workspace_id", &src_ws), 1);
         assert_eq!(side("from_workspace_id", &src_ws), 1);
+    }
+
+    fn synced_batch(items: &[(&str, &str, &str, &str)]) -> crate::SyncedConclusionBatch {
+        crate::SyncedConclusionBatch::prepare(
+            "mac-1",
+            items
+                .iter()
+                .map(|(id, session, body, at)| crate::IncomingConclusion {
+                    id: (*id).into(),
+                    session_id: (*session).into(),
+                    title: "title".into(),
+                    body: (*body).into(),
+                    created_at: (*at).into(),
+                })
+                .collect(),
+            &ai_memory_core::Sanitizer::builtin(),
+        )
+        .unwrap()
+    }
+
+    fn synced_ids(conn: &Connection, project: ProjectId) -> Vec<String> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT origin_id FROM synced_conclusions WHERE project_id = ?1 ORDER BY origin_id",
+            )
+            .unwrap();
+        stmt.query_map(params![project.as_bytes()], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    /// Retention follows the receiver's observation prune: a copy captured
+    /// before the cutoff goes (and leaves the index), a newer one and another
+    /// project's old one stay.
+    #[test]
+    fn retention_prune_drops_synced_conclusions_older_than_the_cutoff_only() {
+        let (_tmp, mut conn, ws, proj) = fresh_db();
+        let other = get_or_create_project(&mut conn, &ws, "other", None).unwrap();
+        let session = SessionId::new().to_string();
+        let batch = synced_batch(&[
+            ("old", &session, "ancient walrus", "2026-01-01T00:00:00Z"),
+            ("new", &session, "recent walrus", "2026-10-01T00:00:00Z"),
+        ]);
+        crate::synced_conclusions::write_synced_conclusions(&mut conn, ws, proj, &batch).unwrap();
+        let elsewhere =
+            synced_batch(&[("old", &session, "ancient walrus", "2026-01-01T00:00:00Z")]);
+        crate::synced_conclusions::write_synced_conclusions(&mut conn, ws, other, &elsewhere)
+            .unwrap();
+
+        let cutoff: jiff::Timestamp = "2026-06-01T00:00:00Z".parse().unwrap();
+        let outcome =
+            prune_consolidated_observations(&mut conn, ws, proj, cutoff.as_microsecond(), 100)
+                .unwrap();
+        assert_eq!(outcome.deleted, 0, "no observation was involved");
+
+        assert_eq!(synced_ids(&conn, proj), ["new"]);
+        assert_eq!(synced_ids(&conn, other), ["old"]);
+        let indexed = |term: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM synced_conclusions_fts WHERE synced_conclusions_fts MATCH ?1",
+                params![term],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(indexed("recent"), 1);
+        assert_eq!(
+            indexed("ancient"),
+            1,
+            "only the other project's copy is left"
+        );
+    }
+
+    #[test]
+    fn purge_session_deletes_the_synced_conclusions_of_that_session_in_scope() {
+        let (_tmp, mut conn, ws, proj) = fresh_db();
+        let other = get_or_create_project(&mut conn, &ws, "other", None).unwrap();
+        let (target, _) = seed_session(&mut conn, ws, proj, "target");
+        let (keep, _) = seed_session(&mut conn, ws, proj, "keep");
+        let (target, keep) = (target.to_string(), keep.to_string());
+        let at = "2026-10-01T00:00:00Z";
+        crate::synced_conclusions::write_synced_conclusions(
+            &mut conn,
+            ws,
+            proj,
+            &synced_batch(&[
+                ("t", &target, "target text", at),
+                ("k", &keep, "keep text", at),
+            ]),
+        )
+        .unwrap();
+        crate::synced_conclusions::write_synced_conclusions(
+            &mut conn,
+            ws,
+            other,
+            &synced_batch(&[("t", &target, "target text", at)]),
+        )
+        .unwrap();
+
+        purge_session(
+            &mut conn,
+            ws,
+            proj,
+            target.parse().unwrap(),
+            None,
+            Compaction::Skip,
+            PurgeMode::Preview,
+        )
+        .unwrap();
+        assert_eq!(
+            synced_ids(&conn, proj),
+            ["k", "t"],
+            "a preview deletes nothing"
+        );
+
+        purge_session(
+            &mut conn,
+            ws,
+            proj,
+            target.parse().unwrap(),
+            None,
+            Compaction::Skip,
+            PurgeMode::Commit,
+        )
+        .unwrap();
+        assert_eq!(synced_ids(&conn, proj), ["k"]);
+        assert_eq!(
+            synced_ids(&conn, other),
+            ["t"],
+            "another project's copy stays"
+        );
+    }
+
+    #[test]
+    fn a_synced_conclusion_follows_its_project_into_another_workspace() {
+        let (_tmp, mut conn, src_ws, proj) = fresh_db();
+        let dst_ws = get_or_create_workspace(&mut conn, "destination").unwrap();
+        crate::synced_conclusions::write_synced_conclusions(
+            &mut conn,
+            src_ws,
+            proj,
+            &synced_batch(&[(
+                "a",
+                &SessionId::new().to_string(),
+                "text",
+                "2026-10-01T00:00:00Z",
+            )]),
+        )
+        .unwrap();
+
+        move_project_workspace(&mut conn, &proj, &src_ws, &dst_ws).unwrap();
+
+        let moved: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM synced_conclusions WHERE workspace_id = ?1",
+                params![dst_ws.as_bytes()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(moved, 1);
     }
 
     /// The purge tombstone is keyed on `(session, workspace, project)`, so it

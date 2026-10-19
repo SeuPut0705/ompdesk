@@ -36,6 +36,7 @@ use crate::error::{StoreError, StoreResult};
 use crate::fts_query::{FtsStopwords, prepare_fts5_query};
 use crate::maintenance::MaintenanceJob;
 use crate::retrieval_tuning::{RetrievalTuning, is_session_recall_query};
+use crate::synced_conclusions::ConclusionTitles;
 use crate::users::TOKEN_HASH_LEN;
 use crate::workstream::{ManagedRunContext, StoredManagedRunStatus, StoredWorkstreamSummary};
 
@@ -425,7 +426,7 @@ const OBSERVATION_STREAM_IDS_PER_PAGE: usize = 3;
 const OBSERVATION_SNIPPET_TOKENS: usize = 16;
 /// Token window of a conclusion excerpt. FTS5 caps a snippet at 64 tokens; a
 /// conclusion is the answer itself, so it gets the widest window.
-const CONCLUSION_SNIPPET_TOKENS: usize = 64;
+pub(crate) const CONCLUSION_SNIPPET_TOKENS: usize = 64;
 /// A project's first and last observation rowid, bound to `?1` = project id.
 ///
 /// `idx_observations_project` is `(project_id)` with the implicit rowid
@@ -3333,35 +3334,67 @@ impl ReaderPool {
         }
         self.with_conn(move |conn| {
             let tx = conn.unchecked_transaction()?;
-            let span: Option<(i64, i64)> = tx
-                .query_row(
-                    OBSERVATION_ROWID_SPAN_SQL,
-                    params![project_id.as_bytes()],
-                    |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
-                )
-                .map(|(lo, hi)| lo.zip(hi))?;
-            let Some((first_rowid, last_rowid)) = span else {
-                return Ok(Vec::new());
-            };
-            let owner_clause = match &owner_filter {
-                OwnerFilter::Any => "",
-                OwnerFilter::User(_) => {
-                    " AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = observations.session_id \
+            let mut hits = Self::native_conclusion_hits(
+                &tx,
+                workspace_id,
+                project_id,
+                &fts_query,
+                limit,
+                &owner_filter,
+            )?;
+            hits.extend(crate::synced_conclusions::search_synced(
+                &tx,
+                workspace_id,
+                project_id,
+                &fts_query,
+                limit,
+            )?);
+            let hits = crate::synced_conclusions::merge_conclusion_hits(hits, limit);
+            tx.finish()?;
+            Ok(hits)
+        })
+        .await
+    }
+
+    /// The local half of [`Self::search_conclusions_for_project_as`]: `Stop`
+    /// observations with a body, best match per session, titled.
+    fn native_conclusion_hits(
+        tx: &Connection,
+        workspace_id: WorkspaceId,
+        project_id: ProjectId,
+        fts_query: &str,
+        limit: usize,
+        owner_filter: &OwnerFilter,
+    ) -> StoreResult<Vec<ConclusionHit>> {
+        let span: Option<(i64, i64)> = tx
+            .query_row(
+                OBSERVATION_ROWID_SPAN_SQL,
+                params![project_id.as_bytes()],
+                |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+            )
+            .map(|(lo, hi)| lo.zip(hi))?;
+        let Some((first_rowid, last_rowid)) = span else {
+            return Ok(Vec::new());
+        };
+        let owner_clause = match owner_filter {
+            OwnerFilter::Any => "",
+            OwnerFilter::User(_) => {
+                " AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = observations.session_id \
                        AND (s.actor_user IS NULL OR s.actor_user = ?7))"
-                }
-                OwnerFilter::Unattributed => {
-                    " AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = observations.session_id \
+            }
+            OwnerFilter::Unattributed => {
+                " AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = observations.session_id \
                        AND s.actor_user IS NULL)"
-                }
-            };
-            // The window ranks each session's matching conclusions; `rn = 1`
-            // keeps the best, so a session with many matching Stops cannot
-            // crowd other sessions out of `limit`. CROSS JOIN pins the FTS
-            // table as the outer loop (see `observation_stream_votes`).
-            // `snippet()` is not usable under a window function, so the
-            // excerpt is a second point lookup per surviving row.
-            let mut stmt = tx.prepare(&format!(
-                "SELECT obs_rowid, session_id, created_at, rank FROM ( \
+            }
+        };
+        // The window ranks each session's matching conclusions; `rn = 1`
+        // keeps the best, so a session with many matching Stops cannot
+        // crowd other sessions out of `limit`. CROSS JOIN pins the FTS
+        // table as the outer loop (see `observation_stream_votes`).
+        // `snippet()` is not usable under a window function, so the
+        // excerpt is a second point lookup per surviving row.
+        let mut stmt = tx.prepare(&format!(
+            "SELECT obs_rowid, session_id, created_at, rank FROM ( \
                      SELECT observations.rowid AS obs_rowid, \
                             observations.session_id AS session_id, \
                             observations.created_at AS created_at, \
@@ -3379,104 +3412,75 @@ impl ReaderPool {
                        AND observations.kind = '{stop}' \
                        AND trim(observations.body) <> ''{owner_clause} \
                  ) WHERE rn = 1 ORDER BY rank LIMIT ?4",
-                stop = ObservationKind::Stop.as_str(),
-            ))?;
-            let mut sql_params: Vec<Value> = vec![
-                Value::Text(fts_query.clone()),
-                Value::Blob(workspace_id.as_bytes().to_vec()),
-                Value::Blob(project_id.as_bytes().to_vec()),
-                Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
-                Value::Integer(first_rowid),
-                Value::Integer(last_rowid),
-            ];
-            if let OwnerFilter::User(user) = &owner_filter {
-                sql_params.push(Value::Text(user.clone()));
-            }
-            let rows = stmt
-                .query_map(params_from_iter(sql_params.iter()), |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, Vec<u8>>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, f64>(3)?,
-                    ))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            drop(stmt);
-            let mut excerpt_of = tx.prepare(&format!(
-                "SELECT snippet(observations_fts, 1, '<mark>', '</mark>', '…', \
+            stop = ObservationKind::Stop.as_str(),
+        ))?;
+        let mut sql_params: Vec<Value> = vec![
+            Value::Text(fts_query.to_owned()),
+            Value::Blob(workspace_id.as_bytes().to_vec()),
+            Value::Blob(project_id.as_bytes().to_vec()),
+            Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)),
+            Value::Integer(first_rowid),
+            Value::Integer(last_rowid),
+        ];
+        if let OwnerFilter::User(user) = owner_filter {
+            sql_params.push(Value::Text(user.clone()));
+        }
+        let rows = stmt
+            .query_map(params_from_iter(sql_params.iter()), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, f64>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        let mut excerpt_of = tx.prepare(&format!(
+            "SELECT snippet(observations_fts, 1, '<mark>', '</mark>', '…', \
                                 {CONCLUSION_SNIPPET_TOKENS}) \
                  FROM observations_fts WHERE observations_fts MATCH ?1 AND rowid = ?2"
-            ))?;
-            let mut hits = Vec::with_capacity(rows.len());
-            for (obs_rowid, session_bytes, created_us, rank) in rows {
-                hits.push(ConclusionHit {
-                    session_id: SessionId::from_slice(&session_bytes)?,
-                    title: String::new(),
-                    excerpt: excerpt_of
-                        .query_row(params![fts_query, obs_rowid], |row| row.get(0))?,
-                    created_at: jiff::Timestamp::from_microsecond(created_us)
-                        .map(|ts| ts.to_string())
-                        .unwrap_or_default(),
-                    rank,
-                });
-            }
-            drop(excerpt_of);
-            if hits.is_empty() {
-                return Ok(hits);
-            }
+        ))?;
+        let mut hits = Vec::with_capacity(rows.len());
+        for (obs_rowid, session_bytes, created_us, rank) in rows {
+            hits.push(ConclusionHit {
+                session_id: SessionId::from_slice(&session_bytes)?,
+                title: String::new(),
+                excerpt: excerpt_of.query_row(params![fts_query, obs_rowid], |row| row.get(0))?,
+                created_at: jiff::Timestamp::from_microsecond(created_us)
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_default(),
+                rank,
+            });
+        }
+        drop(excerpt_of);
+        if hits.is_empty() {
+            return Ok(hits);
+        }
 
-            // Titles: the session's latest page, else its first prompt, else
-            // its id.
-            let paths: Vec<Value> = hits
-                .iter()
-                .map(|hit| Value::Text(format!("sessions/{}.md", hit.session_id)))
-                .collect();
-            let mut page_titles: std::collections::HashMap<String, String> =
-                std::collections::HashMap::new();
-            {
-                let placeholders = vec!["?"; paths.len()].join(", ");
-                let mut stmt = tx.prepare(&format!(
-                    "SELECT path, title FROM pages \
-                     WHERE workspace_id = ? AND project_id = ? AND is_latest = 1 \
-                       AND path IN ({placeholders})"
-                ))?;
-                let scope = [
-                    Value::Blob(workspace_id.as_bytes().to_vec()),
-                    Value::Blob(project_id.as_bytes().to_vec()),
-                ];
-                let rows = stmt
-                    .query_map(params_from_iter(scope.iter().chain(paths.iter())), |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                    })?;
-                for row in rows {
-                    let (path, title) = row?;
-                    page_titles.insert(path, title);
-                }
-            }
-            let mut prompt_title = tx.prepare(&format!(
-                "SELECT title FROM observations \
-                 WHERE session_id = ?1 AND kind = '{prompt}' AND title <> '' \
-                 ORDER BY created_at, rowid LIMIT 1",
-                prompt = ObservationKind::UserPrompt.as_str(),
-            ))?;
-            for hit in &mut hits {
-                let from_page = page_titles
-                    .remove(&format!("sessions/{}.md", hit.session_id))
-                    .filter(|title| !title.is_empty());
-                hit.title = match from_page {
-                    Some(title) => title,
-                    None => prompt_title
-                        .query_row(params![hit.session_id.as_bytes()], |row| {
-                            row.get::<_, String>(0)
-                        })
-                        .optional()?
-                        .unwrap_or_else(|| hit.session_id.to_string()),
-                };
-            }
-            drop(prompt_title);
-            tx.finish()?;
-            Ok(hits)
+        // Titles: the session's latest page, else its first prompt, else
+        // its id (one rule for search and for the pull listing).
+        let mut titles = ConclusionTitles::new(tx)?;
+        for hit in &mut hits {
+            hit.title = titles.title(workspace_id, project_id, hit.session_id)?;
+        }
+        Ok(hits)
+    }
+
+    /// One page of a conclusion stream for the pull listing: after the
+    /// cursor `after`, ascending, at most `limit` rows (see
+    /// [`crate::ConclusionPage`]). Reads every workspace and project.
+    ///
+    /// # Errors
+    /// Propagates any SQL or pool error.
+    pub async fn list_conclusions(
+        &self,
+        source: crate::ConclusionSource,
+        after: i64,
+        limit: usize,
+    ) -> StoreResult<crate::ConclusionPage> {
+        self.with_conn(move |conn| {
+            crate::synced_conclusions::list_conclusions(conn, source, after, limit)
         })
         .await
     }

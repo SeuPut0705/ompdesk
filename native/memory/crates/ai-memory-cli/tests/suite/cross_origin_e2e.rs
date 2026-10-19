@@ -209,6 +209,22 @@ mod slow {
                 }),
             ),
             post(
+                "admin write-conclusions",
+                "/admin/write-conclusions",
+                json!({
+                    "workspace": WORKSPACE,
+                    "project": EVIL_PROJECT,
+                    "origin_device": "a0-evil-device",
+                    "conclusions": [{
+                        "id": "a0-evil",
+                        "session_id": "00000000-0000-4000-8000-00000000a0a3",
+                        "title": CANARY,
+                        "body": CANARY,
+                        "created_at": "2026-10-19T10:00:00Z",
+                    }],
+                }),
+            ),
+            post(
                 "admin delete-page",
                 "/admin/delete-page",
                 json!({ "workspace": WORKSPACE, "project": PROJECT, "path": PAGE }),
@@ -699,6 +715,21 @@ mod slow {
                 json!({ "workspace": WORKSPACE, "project": EVIL_PROJECT, "path": "notes/rebind.md", "body": CANARY }).to_string(),
             ),
             (
+                "/admin/write-conclusions".to_string(),
+                json!({
+                    "workspace": WORKSPACE,
+                    "project": EVIL_PROJECT,
+                    "origin_device": "a0-evil-device",
+                    "conclusions": [{
+                        "id": "a0-rebind",
+                        "session_id": "00000000-0000-4000-8000-00000000a0a4",
+                        "title": CANARY,
+                        "body": CANARY,
+                        "created_at": "2026-10-19T10:00:00Z",
+                    }],
+                }).to_string(),
+            ),
+            (
                 "/mcp".to_string(),
                 mcp_call("memory_write_page", json!({ "workspace": WORKSPACE, "project": EVIL_PROJECT, "path": "notes/rebind-mcp.md", "body": CANARY })),
             ),
@@ -736,6 +767,7 @@ mod slow {
             "/hook",
             "/mcp",
             "/admin/write-page",
+            "/admin/write-conclusions",
             "/handoff",
             "/workstream/runs",
         ] {
