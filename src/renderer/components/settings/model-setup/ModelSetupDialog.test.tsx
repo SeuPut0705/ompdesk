@@ -125,10 +125,18 @@ const PLAN: ModelSetupPlan = {
 
 type RunResearch = (request: ModelSetupRequest, device?: string) => Promise<IpcModelSetupRunResult>;
 
-function install({ stored, reports = [] }: { stored?: unknown; reports?: UsageReport[] } = {}) {
+function install({
+	stored,
+	reports = [],
+	roles = ROLES,
+}: {
+	stored?: unknown;
+	reports?: UsageReport[];
+	roles?: ModelRoleEntry[];
+} = {}) {
 	let pending = Promise.withResolvers<IpcModelSetupRunResult>();
 	const rpc = {
-		getModelRoles: vi.fn(async () => ({ success: true, data: { roles: ROLES } })),
+		getModelRoles: vi.fn(async () => ({ success: true, data: { roles } })),
 		getModelSetupFacts: vi.fn(async () => ({ success: true, data: FACTS })),
 		getUsage: vi.fn(async () => ({ success: true, data: { reports } })),
 		setModelRole: vi.fn(
@@ -282,6 +290,24 @@ describe("ModelSetupDialog full auto", () => {
 		expect(document.querySelector('[data-model-setup-group="agent"] h4')?.textContent).toBe(
 			translate("modelRoles.group.agent"),
 		);
+	});
+
+	it("plans and lists a role this code has never heard of, like an OMPdesk-provided one", async () => {
+		const review: ModelRoleEntry = {
+			id: "review",
+			name: "Review",
+			section: "chat",
+			source: "default",
+			candidates: POOL,
+		};
+		install({ roles: [...ROLES, review] });
+		await mount();
+
+		expect(rowIds()).toContain("review");
+		expect(rowModel("review")).toBe("Opus");
+		expect(
+			document.querySelector('[data-model-setup-group="agent"] [data-model-setup-role="review"]'),
+		).not.toBeNull();
 	});
 
 	it("keeps a hand-set role unticked, leaves a stock role without a checkbox and marks a role already on its model", async () => {
