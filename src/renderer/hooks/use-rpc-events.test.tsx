@@ -38,7 +38,7 @@ import { type SessionStore, useSessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
-import { ensureTabRuntime } from "../stores/tab-runtime";
+import { ensureTabRuntime, replaceTabRuntime } from "../stores/tab-runtime";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
 import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
@@ -2118,6 +2118,27 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 			sessionId: "session-of-t-first",
 			status: "ready",
 		});
+	});
+
+	it("drops a failed boot health check whose tab's runtime was replaced before it failed", async () => {
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		seedTwoTabs();
+		await mount(<RpcEventsProbe />);
+		await flush();
+		const failed = Promise.withResolvers<RpcResponse>();
+		const original = commandForTab.getMockImplementation()!;
+		commandForTab.mockImplementation((tabId, command) =>
+			tabId === "t-live" && command.type === "get_state" ? failed.promise : original(tabId, command),
+		);
+		await act(async () => {
+			emitTabStatus({ status: "ready", cwd: "/alpha" } as IpcSidecarStatusPayload, "t-live");
+		});
+		// The tab's session changes while the check waits: a new runtime speaks for it now.
+		replaceTabRuntime("t-live");
+		setFocusedSessionRuntime("t-live");
+		failed.reject(new Error("link dropped"));
+		await flush();
+		expect(sessionRuntimeStore<SessionStore>("t-live", "session")?.getState().sidecarError).toBeNull();
 	});
 });
 
