@@ -179,6 +179,7 @@ export class RemoteDevices {
 	readonly #found = new Map<string, string>();
 	/** This computer's name on the tailnet: the device name until the user picks one. */
 	#tailnetName: string | null = null;
+	readonly #hostOnline = new Set<(deviceId: string) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
@@ -245,6 +246,29 @@ export class RemoteDevices {
 		const stored = this.#deps.prefs.get(DEVICE_NAME_KEY);
 		if (typeof stored === "string" && stored.trim()) return stored;
 		return this.#tailnetName ?? hostname().replace(/\.local$/i, "");
+	}
+
+	/** This computer's OMPdesk device id (what the computers it shares with know it by). */
+	get deviceId(): string {
+		return this.#identity.deviceId;
+	}
+
+	/** A device may still use this computer: paired here and its Tailscale node (or login) not blocked. */
+	allowsPeer(deviceId: string): boolean {
+		const peer = this.#peers.get(deviceId);
+		if (!peer) return false;
+		return !this.#deps.blocks()?.check({ nodeId: peer.nodeId, login: peer.login });
+	}
+
+	/** The hosts this computer is connected to now. */
+	onlineHosts(): string[] {
+		return [...this.#links].filter(([, link]) => link.client.state === "online").map(([deviceId]) => deviceId);
+	}
+
+	/** Called each time a link to a host comes up. */
+	onHostOnline(listener: (deviceId: string) => void): () => void {
+		this.#hostOnline.add(listener);
+		return () => this.#hostOnline.delete(listener);
 	}
 
 	async setHostEnabled(enabled: boolean): Promise<RemoteState> {
@@ -780,6 +804,7 @@ export class RemoteDevices {
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
 			// Its session list went stale while it was away (or never loaded).
 			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
+			for (const listener of this.#hostOnline) listener(deviceId);
 		});
 		client.on("event", (event, data) => {
 			if (event === SESSIONS_CHANGED_EVENT) {

@@ -24,6 +24,8 @@ import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
+import type { MemoryPageCopy } from "../ai-memory/client";
+import { servePull, servePush } from "../ai-memory/sync";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
@@ -31,7 +33,13 @@ import type { MachineServices } from "../machine-services";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
-import { decodeBinaryRead, OMP_UPDATE_EVENT, SCHEDULES_EVENT, type TabEventMessage } from "./app-protocol";
+import {
+	decodeBinaryRead,
+	MemoryPullReply,
+	OMP_UPDATE_EVENT,
+	SCHEDULES_EVENT,
+	type TabEventMessage,
+} from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
 import type { HostedTabView } from "./hosted-view";
@@ -2317,5 +2325,78 @@ describe("LocalHostServices host.git.*: a device's agent working on a session th
 		await expect(
 			services.call(x.peer, "host.git.worktreeCreate", { ...params, name: "Bad Name!" }, x),
 		).rejects.toThrow(/Invalid worktree name/);
+	});
+});
+
+describe("LocalHostServices host.memory.*: memory shared with the person's other computers", () => {
+	it("shares memory pages only with a device still allowed here, and none while memory is off", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const blocked = new FakeConnection(peer("device-blocked"));
+		const decision: MemoryPageCopy = {
+			workspace: "default",
+			project: "app",
+			path: "decisions/sharing.md",
+			title: "Sharing",
+			kind: "decision",
+			tier: "semantic",
+			body: "Tailscale identity only.",
+			tags: [],
+			pinned: false,
+			metadata: {},
+			updatedAt: "2026-10-19T10:00:00Z",
+		};
+		let ready = true;
+		const store = {
+			projects: vi.fn(async () => [{ workspace: "default", project: "app" }]),
+			pages: vi.fn(async () => [
+				decision,
+				{ workspace: "default", project: "app", path: "sessions/s1.md", updatedAt: "2026-10-19T10:01:00Z" },
+			]),
+			pageCopy: vi.fn(async () => decision),
+			writePageCopy: vi.fn(async () => {}),
+		};
+		const deps = { store, ready: () => ready, selfId: () => "this-host" };
+		const pull = { since: null };
+		await expect(services.call(x.peer, "host.memory.pull", pull, x)).rejects.toThrow(/\[unsupported\]/);
+		services.attachMemory({
+			pull: (id, params) => servePull(deps, id, params),
+			push: (id, params) => servePush(deps, id, params),
+			allows: id => id !== "device-blocked",
+		});
+
+		const reply = MemoryPullReply.parse(await services.call(x.peer, "host.memory.pull", pull, x));
+		expect(reply).toMatchObject({ memory: true, more: false });
+		// Durable pages only: the session page stays here.
+		expect(reply.pages).toEqual([expect.objectContaining({ path: "decisions/sharing.md", origin: "this-host" })]);
+		const sent = reply.pages[0];
+		if (!sent) throw new Error("no page");
+
+		store.pageCopy.mockClear();
+		const push = { pages: [{ page: { ...sent, body: "changed" }, expect: null }] };
+		await expect(services.call(blocked.peer, "host.memory.pull", pull, blocked)).rejects.toThrow(
+			/\[remote_blocked\]/,
+		);
+		await expect(services.call(blocked.peer, "host.memory.push", push, blocked)).rejects.toThrow(
+			/\[remote_blocked\]/,
+		);
+		expect(store.pageCopy).not.toHaveBeenCalled();
+
+		ready = false;
+		await expect(services.call(x.peer, "host.memory.pull", pull, x)).resolves.toEqual({
+			memory: false,
+			pages: [],
+			next: null,
+			more: false,
+		});
+		await expect(services.call(x.peer, "host.memory.push", push, x)).resolves.toEqual({ memory: false, results: [] });
+		expect(store.pageCopy).not.toHaveBeenCalled();
+		expect(store.writePageCopy).not.toHaveBeenCalled();
+
+		// A page a device may not send (a session page) never reaches the store.
+		ready = true;
+		const session = { pages: [{ page: { ...sent, path: "sessions/s1.md" }, expect: null }] };
+		await expect(services.call(x.peer, "host.memory.push", session, x)).rejects.toThrow(/Invalid host.memory.push/);
+		expect(store.writePageCopy).not.toHaveBeenCalled();
 	});
 });

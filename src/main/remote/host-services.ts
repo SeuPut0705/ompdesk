@@ -104,6 +104,11 @@ import {
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
+	MEMORY_METHODS,
+	MemoryPullParams,
+	type MemoryPullReply,
+	MemoryPushParams,
+	type MemoryPushReply,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
 	SCHEDULES_EVENT,
@@ -133,6 +138,14 @@ export const HOST_TAB_GRACE_MS = 10 * 60_000;
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
 /** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
+
+/** The memory pages this computer shares with the devices that use it (ai-memory/sync.ts `servePull`/`servePush`). */
+export interface HostMemory {
+	pull(peerId: string, params: MemoryPullParams): Promise<MemoryPullReply>;
+	push(peerId: string, params: MemoryPushParams): Promise<MemoryPushReply>;
+	/** The device may still use this computer: paired, its node not blocked. */
+	allows(peerId: string): boolean;
+}
 
 export interface HostServicesDeps {
 	/**
@@ -368,6 +381,7 @@ export class LocalHostServices implements HostServices {
 	/** `hostedSessions` as last announced: a listener hears only a real change. */
 	#hostedSnapshot = "[]";
 	#quota: PeerQuota | null = null;
+	#memory: HostMemory | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
@@ -398,6 +412,11 @@ export class LocalHostServices implements HostServices {
 	/** Per-device daily model limits (RemoteDevices owns the peer store they live in). */
 	attachQuota(quota: PeerQuota): void {
 		this.#quota = quota;
+	}
+
+	/** Memory shared with the devices that use this computer (set in index.ts once memory exists). */
+	attachMemory(memory: HostMemory): void {
+		this.#memory = memory;
 	}
 
 	/**
@@ -859,6 +878,11 @@ export class LocalHostServices implements HostServices {
 				const input = parse(GitWorktreeCreateParams, method, params);
 				return createWorktree(input.baseCwd, input, this.#deps.worktreeLocation ?? tablessWorktreeBridge);
 			}
+			// Memory: only durable pages, through this computer's own server; a device no longer allowed gets nothing.
+			case MEMORY_METHODS.pull:
+				return this.#memoryFor(peer).pull(peer.deviceId, parse(MemoryPullParams, method, params));
+			case MEMORY_METHODS.push:
+				return this.#memoryFor(peer).push(peer.deviceId, parse(MemoryPushParams, method, params));
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);
 		}
@@ -921,6 +945,14 @@ export class LocalHostServices implements HostServices {
 	/** This machine's account-rotation setting changed: the tabs it runs for paired devices follow it. */
 	syncAccountRotation(): void {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncAccountRotation();
+	}
+
+	/** Memory for a device that may still use this computer; a revoked or blocked one is refused. */
+	#memoryFor(peer: PeerInfo): HostMemory {
+		const memory = this.#memory;
+		if (!memory) throw codedError("unsupported", "Memory is not shared from this computer");
+		if (!memory.allows(peer.deviceId)) throw codedError("remote_blocked", "This device may not use this computer");
+		return memory;
 	}
 
 	/** A revoked device's tabs, benchmark and research stop now, grace or not. */
