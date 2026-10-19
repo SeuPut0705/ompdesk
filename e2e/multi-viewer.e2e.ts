@@ -118,13 +118,14 @@ test("two windows view one tab: echo, first answer wins, drafts, one notificatio
 	] as const);
 	expect(spawned).toMatchObject({ tabId: tab.tabId, attached: true });
 
-	// Both windows say the tab is shared (one quiet line under each composer; the title bar has no chip), and B can switch to it.
-	await expect(a.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
+	// Neither window marks the tab as shared (no title-bar chip, no line under the composer), and B can switch to it.
 	const row = b.locator(`[data-session-path="${tab.file}"], [data-session-path="tab:${tab.tabId}"]`).first();
 	await row.locator("button[data-roving-item]").click();
 	await expect(userBubbles(b)).toHaveCount(1);
-	await expect(b.locator("[data-composer-shared]")).toHaveText("Shared with 1 other device");
-	await expect(a.locator("[data-viewers-chip]")).toHaveCount(0);
+	for (const page of [a, b]) {
+		await expect(page.locator("[data-composer-shared]")).toHaveCount(0);
+		await expect(page.locator("[data-viewers-chip]")).toHaveCount(0);
+	}
 	await captureTo(captures, a, "viewers-a-shared");
 	await captureTo(captures, b, "viewers-b-shared");
 
