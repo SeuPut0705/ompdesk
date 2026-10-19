@@ -13,7 +13,7 @@
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackLayer } from "../../hooks/use-back-layer";
-import { useShellMode } from "../../hooks/use-shell-mode";
+import { useShellInput, useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
@@ -65,7 +65,10 @@ export function Popover({
 	onCloseRef.current = onClose;
 	const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
 	const sheet = useShellMode() === "phone";
-	useBackLayer(open && sheet, onClose);
+	const touch = useShellInput() === "touch";
+	// The system back gesture dismisses it on any touch screen, as it does a touch ContextMenu: on a tablet (where it
+	// stays a popover) back otherwise left the page, or closed the installed app.
+	useBackLayer(open && (sheet || touch), onClose);
 
 	useLayoutEffect(() => {
 		if (!open || sheet) {

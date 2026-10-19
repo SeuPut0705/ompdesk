@@ -8,6 +8,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
+import { resetShellModeForTests, TABLET_PORTRAIT_QUERY, TOUCH_QUERY } from "../../hooks/use-shell-mode";
+import { startBackLayers } from "../../lib/back-layer";
 import { Popover } from "./Popover";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -140,5 +142,53 @@ it("Tab on the last control closes the popover and moves on to the control after
 		if (savedFocus) Object.defineProperty(proto, "focus", savedFocus);
 		else Reflect.deleteProperty(proto, "focus");
 		Reflect.deleteProperty(document, "activeElement");
+	}
+});
+
+it("closes on a tablet's system back gesture instead of letting it leave the page", async () => {
+	// A portrait tablet's web page with a touch screen: the popover stays a popover (not the phone's sheet).
+	document.documentElement.dataset.platform = "web";
+	const pushed: unknown[] = [];
+	Object.assign(window, {
+		matchMedia: (query: string) => ({
+			matches: query === TOUCH_QUERY || query === TABLET_PORTRAIT_QUERY,
+			addEventListener: () => {},
+			removeEventListener: () => {},
+		}),
+		history: { pushState: (state: unknown) => pushed.push(state), back: () => {} },
+	});
+	resetShellModeForTests();
+	const stop = startBackLayers();
+	try {
+		const anchor = document.createElement("button");
+		document.body.appendChild(anchor);
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		let closed = 0;
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root?.render(
+				<Popover
+					anchorRef={{ current: anchor as unknown as HTMLElement }}
+					ariaLabel="Run settings"
+					onClose={() => {
+						closed += 1;
+					}}
+					open
+				>
+					settings
+				</Popover>,
+			);
+		});
+		expect(document.body.querySelector("[data-sheet-handle]")).toBeNull();
+		expect(pushed).toHaveLength(1);
+		await act(async () => window.dispatchEvent(new Event("popstate")));
+		expect(closed).toBe(1);
+	} finally {
+		stop();
+		delete document.documentElement.dataset.platform;
+		Reflect.deleteProperty(window, "matchMedia");
+		Reflect.deleteProperty(window, "history");
+		resetShellModeForTests();
 	}
 });

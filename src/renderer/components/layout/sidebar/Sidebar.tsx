@@ -232,6 +232,30 @@ function focusComposer(): void {
 	requestAnimationFrame(() => activeComposerInput()?.focus());
 }
 
+/** A session's own edits, in the order a touch sheet lists them first (delete last of them, set apart). */
+const TOUCH_SESSION_FIRST = ["session-rename", "session-pin", "session-move", "session-archive", "session-restore"];
+
+/**
+ * A session row's ⋯ sheet on a touch screen: a thumb reads it from the top and the sheet is taller than a phone,
+ * so rename, pin, archive and delete come first (the desktop's order put delete below the fold, behind sixteen
+ * items) and "Open" goes (tapping the row opens it). The rest follow in the desktop's order, set apart.
+ */
+function touchSessionMenu(items: readonly ContextMenuItem[]): ContextMenuItem[] {
+	const byId = new Map(items.map(item => [item.id, item]));
+	const edits = TOUCH_SESSION_FIRST.flatMap(id => {
+		const item = byId.get(id);
+		return item ? [{ ...item, separatorBefore: false }] : [];
+	});
+	const remove = byId.get("session-delete");
+	const first = remove ? [...edits, { ...remove, separatorBefore: edits.length > 0 }] : edits;
+	const taken = new Set([...TOUCH_SESSION_FIRST, "session-delete", "session-open"]);
+	const rest = items.filter(item => !taken.has(item.id));
+	return [
+		...first,
+		...rest.map((item, index) => (index === 0 ? { ...item, separatorBefore: first.length > 0 } : item)),
+	];
+}
+
 /** Destinations in the sidebar footer (design-spec §2.1): the only three. */
 const DESTINATIONS: { id: PageDestination; labelKey: string; icon: typeof Bot }[] = [
 	{ id: "agents", labelKey: "destination.agents", icon: Bot },
@@ -2611,181 +2635,182 @@ export function Sidebar() {
 							);
 						},
 					}));
+					const items: ContextMenuItem[] = [
+						{
+							id: "session-open",
+							label: t("sidebar.menu.open"),
+							icon: ChevronRight,
+							onSelect: () => {
+								setSessionMenu(null);
+								openSession(sessionMenu.session);
+							},
+						},
+						// File actions need a transcript on disk; live-only rows have none yet.
+						...(sessionMenu.session.liveTabId === undefined
+							? [
+									{
+										id: "session-open-tab",
+										label: t("sidebar.menu.openNewTab"),
+										icon: Plus,
+										onSelect: () => {
+											setSessionMenu(null);
+											useUiStore.getState().closeDestination();
+											void openTab({
+												cwd: sessionMenu.session.cwd,
+												kind: sessionMenu.session.kind ?? "agent",
+												sessionPath: sessionMenu.session.path,
+											});
+										},
+									},
+									// An open session splits through its tab items below instead.
+									...(targetTab === undefined
+										? [
+												{
+													id: "session-open-split",
+													label: t("sidebar.menu.openSplit"),
+													icon: Columns2,
+													onSelect: () => {
+														setSessionMenu(null);
+														void openSessionInSplit(sessionMenu.session);
+													},
+												},
+											]
+										: []),
+									{
+										id: "session-open-window",
+										label: t("sidebar.openInNewWindow"),
+										icon: ExternalLink,
+										onSelect: () => {
+											setSessionMenu(null);
+											void openSessionInNewWindow(sessionMenu.session);
+										},
+									},
+								]
+							: []),
+						...tabItems,
+						...(sessionMenu.session.device === undefined
+							? [
+									{
+										id: "session-agent-hidden",
+										label: agentHidden.includes(sessionMenu.session.path)
+											? t("sidebar.menu.showToAgents")
+											: t("sidebar.menu.hideFromAgents"),
+										icon: agentHidden.includes(sessionMenu.session.path) ? Eye : EyeOff,
+										onSelect: () => {
+											void useSidebarPrefs.getState().toggleAgentHidden(sessionMenu.session.path);
+											setSessionMenu(null);
+										},
+									},
+								]
+							: []),
+						...bundleItems,
+						...(sessionMenu.session.liveTabId === undefined
+							? [
+									{
+										id: "session-rename",
+										separatorBefore: true,
+										label: t("sidebar.rename"),
+										icon: Pencil,
+										onSelect: () => {
+											setSessionMenu(null);
+											startRename(sessionMenu.session);
+										},
+									},
+									{
+										id: "session-pin",
+										label: pinnedSessions.includes(sessionMenu.session.path)
+											? t("sidebar.menu.unpin")
+											: t("sidebar.menu.pin"),
+										icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
+										onSelect: () => {
+											const pinned = !pinnedSessions.includes(sessionMenu.session.path);
+											useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
+											setSessionMenu(null);
+											void tabRpc.setSessionPinned(sessionMenu.session.id, pinned).then(response => {
+												if (!response.success) {
+													toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
+												}
+											});
+										},
+									},
+									...(sessionMenu.session.kind === "chat"
+										? []
+										: [
+												{
+													id: "session-move",
+													label: t("sidebar.menu.moveToProject"),
+													icon: FolderInput,
+													disabled: targetTab !== undefined,
+													disabledReason: t("sidebar.moveOpenTab"),
+													onSelect: () => {
+														setMoveMenu(sessionMenu);
+														setSessionMenu(null);
+													},
+												},
+											]),
+									archivedIds.has(sessionMenu.session.id) && targetTab === undefined
+										? {
+												id: "session-restore",
+												label: t("sidebar.menu.restore"),
+												icon: ArchiveRestore,
+												onSelect: () => {
+													setSessionMenu(null);
+													setArchived([sessionMenu.session], false);
+												},
+											}
+										: {
+												id: "session-archive",
+												label: t("sidebar.menu.archive"),
+												icon: Archive,
+												disabled: targetTab !== undefined,
+												disabledReason: t("sidebar.archiveOpenTab"),
+												onSelect: () => {
+													setSessionMenu(null);
+													setArchived([sessionMenu.session], true);
+												},
+											},
+									{
+										id: "session-copy-path",
+										separatorBefore: true,
+										label: t("sidebar.menu.copyPath"),
+										icon: Copy,
+										onSelect: () => {
+											setSessionMenu(null);
+											void copySessionPath(sessionMenu.session);
+										},
+									},
+									{
+										id: "session-reveal",
+										label: t("sidebar.menu.reveal"),
+										icon: FolderSearch,
+										onSelect: () => {
+											setSessionMenu(null);
+											void revealSession(sessionMenu.session);
+										},
+									},
+									{
+										id: "session-delete",
+										separatorBefore: true,
+										label: t("common.delete"),
+										icon: Trash2,
+										danger: true,
+										disabled: targetBusy,
+										disabledReason: t("sidebar.menu.taskRunning"),
+										onSelect: () => {
+											setPendingDelete({ kind: "session", session: sessionMenu.session });
+											setSessionMenu(null);
+										},
+									},
+								]
+							: []),
+					];
 					return (
 						<ContextMenu
 							ariaLabel={sessionDisplayTitle(sessionMenu.session, t("sidebar.untitled"))}
 							x={sessionMenu.anchor.x}
 							y={sessionMenu.anchor.y}
 							onClose={() => setSessionMenu(null)}
-							items={[
-								{
-									id: "session-open",
-									label: t("sidebar.menu.open"),
-									icon: ChevronRight,
-									onSelect: () => {
-										setSessionMenu(null);
-										openSession(sessionMenu.session);
-									},
-								},
-								// File actions need a transcript on disk; live-only rows have none yet.
-								...(sessionMenu.session.liveTabId === undefined
-									? [
-											{
-												id: "session-open-tab",
-												label: t("sidebar.menu.openNewTab"),
-												icon: Plus,
-												onSelect: () => {
-													setSessionMenu(null);
-													useUiStore.getState().closeDestination();
-													void openTab({
-														cwd: sessionMenu.session.cwd,
-														kind: sessionMenu.session.kind ?? "agent",
-														sessionPath: sessionMenu.session.path,
-													});
-												},
-											},
-											// An open session splits through its tab items below instead.
-											...(targetTab === undefined
-												? [
-														{
-															id: "session-open-split",
-															label: t("sidebar.menu.openSplit"),
-															icon: Columns2,
-															onSelect: () => {
-																setSessionMenu(null);
-																void openSessionInSplit(sessionMenu.session);
-															},
-														},
-													]
-												: []),
-											{
-												id: "session-open-window",
-												label: t("sidebar.openInNewWindow"),
-												icon: ExternalLink,
-												onSelect: () => {
-													setSessionMenu(null);
-													void openSessionInNewWindow(sessionMenu.session);
-												},
-											},
-										]
-									: []),
-								...tabItems,
-								...(sessionMenu.session.device === undefined
-									? [
-											{
-												id: "session-agent-hidden",
-												label: agentHidden.includes(sessionMenu.session.path)
-													? t("sidebar.menu.showToAgents")
-													: t("sidebar.menu.hideFromAgents"),
-												icon: agentHidden.includes(sessionMenu.session.path) ? Eye : EyeOff,
-												onSelect: () => {
-													void useSidebarPrefs.getState().toggleAgentHidden(sessionMenu.session.path);
-													setSessionMenu(null);
-												},
-											},
-										]
-									: []),
-								...bundleItems,
-								...(sessionMenu.session.liveTabId === undefined
-									? [
-											{
-												id: "session-rename",
-												separatorBefore: true,
-												label: t("sidebar.rename"),
-												icon: Pencil,
-												onSelect: () => {
-													setSessionMenu(null);
-													startRename(sessionMenu.session);
-												},
-											},
-											{
-												id: "session-pin",
-												label: pinnedSessions.includes(sessionMenu.session.path)
-													? t("sidebar.menu.unpin")
-													: t("sidebar.menu.pin"),
-												icon: pinnedSessions.includes(sessionMenu.session.path) ? PinOff : Pin,
-												onSelect: () => {
-													const pinned = !pinnedSessions.includes(sessionMenu.session.path);
-													useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
-													setSessionMenu(null);
-													void tabRpc.setSessionPinned(sessionMenu.session.id, pinned).then(response => {
-														if (!response.success) {
-															toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
-														}
-													});
-												},
-											},
-											...(sessionMenu.session.kind === "chat"
-												? []
-												: [
-														{
-															id: "session-move",
-															label: t("sidebar.menu.moveToProject"),
-															icon: FolderInput,
-															disabled: targetTab !== undefined,
-															disabledReason: t("sidebar.moveOpenTab"),
-															onSelect: () => {
-																setMoveMenu(sessionMenu);
-																setSessionMenu(null);
-															},
-														},
-													]),
-											archivedIds.has(sessionMenu.session.id) && targetTab === undefined
-												? {
-														id: "session-restore",
-														label: t("sidebar.menu.restore"),
-														icon: ArchiveRestore,
-														onSelect: () => {
-															setSessionMenu(null);
-															setArchived([sessionMenu.session], false);
-														},
-													}
-												: {
-														id: "session-archive",
-														label: t("sidebar.menu.archive"),
-														icon: Archive,
-														disabled: targetTab !== undefined,
-														disabledReason: t("sidebar.archiveOpenTab"),
-														onSelect: () => {
-															setSessionMenu(null);
-															setArchived([sessionMenu.session], true);
-														},
-													},
-											{
-												id: "session-copy-path",
-												separatorBefore: true,
-												label: t("sidebar.menu.copyPath"),
-												icon: Copy,
-												onSelect: () => {
-													setSessionMenu(null);
-													void copySessionPath(sessionMenu.session);
-												},
-											},
-											{
-												id: "session-reveal",
-												label: t("sidebar.menu.reveal"),
-												icon: FolderSearch,
-												onSelect: () => {
-													setSessionMenu(null);
-													void revealSession(sessionMenu.session);
-												},
-											},
-											{
-												id: "session-delete",
-												separatorBefore: true,
-												label: t("common.delete"),
-												icon: Trash2,
-												danger: true,
-												disabled: targetBusy,
-												disabledReason: t("sidebar.menu.taskRunning"),
-												onSelect: () => {
-													setPendingDelete({ kind: "session", session: sessionMenu.session });
-													setSessionMenu(null);
-												},
-											},
-										]
-									: []),
-							]}
+							items={touchInput ? touchSessionMenu(items) : items}
 						/>
 					);
 				})()}

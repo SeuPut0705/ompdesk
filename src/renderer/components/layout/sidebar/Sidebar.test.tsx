@@ -3298,6 +3298,39 @@ describe("Sidebar on a touch screen", () => {
 		const head = container.querySelector(".omp-sidebar-project-menu");
 		expect(head?.getAttribute("class")).toContain("[@media(hover:none)]:opacity-100");
 	});
+
+	it("lists a session's own edits first in its ⋯ sheet, delete within the first screen, and no Open (the row's tap opens it)", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query === TOUCH_QUERY,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+			// The touch sheet is a back layer (the system back gesture closes it).
+			history: { pushState: () => {}, back: () => {} },
+		});
+		resetShellModeForTests();
+		await mount(<Sidebar />);
+		await fire(rowFor("Session /work/alpha/one")?.querySelector("[data-sidebar-row-menu]") ?? null, "onClick");
+		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
+			"Rename session",
+			"Pin to top",
+			"Move to project…",
+			"Archive",
+			"Delete",
+			"Open in new tab",
+			"Open in split view",
+			"Open in new window",
+			"Hide from other agents",
+			"Save diagnostic bundle",
+			"Save diagnostic bundle (anonymized)",
+			"Copy file path",
+			"Show in folder",
+		]);
+	});
 });
 
 describe("Sidebar remembered folds", () => {
