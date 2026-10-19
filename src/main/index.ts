@@ -409,6 +409,14 @@ function errorMessage(value: unknown): { message: string; stack?: string } {
 }
 
 function installMainRuntimeLogging(): void {
+	// A console line to a stdout/stderr whose reader is gone (the terminal or test runner that started this copy
+	// closed) fails with EPIPE on the stream; with no listener that is an uncaught exception and a crash dialog.
+	// Losing the line is fine: the runtime log keeps what matters.
+	for (const stream of [process.stdout, process.stderr]) {
+		stream.on("error", error => {
+			if ((error as NodeJS.ErrnoException).code !== "EPIPE") throw error;
+		});
+	}
 	process.on("uncaughtExceptionMonitor", (error, origin) => {
 		writeRuntimeLog({ source: "main-uncaught", ...errorMessage(error), details: { origin } });
 	});
