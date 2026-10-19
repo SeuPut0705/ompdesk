@@ -1,6 +1,72 @@
 # Changelog
 
-<!-- Next release (v0.42.0), move into its section: 라이선스가 MIT에서 Apache License 2.0으로 바뀌었어요(NOTICE 파일 추가). v0.41.0까지의 버전은 MIT 그대로예요. / OMPdesk is now licensed under the Apache License 2.0, with a NOTICE file; versions up to v0.41.0 stay MIT. -->
+## [0.42.0] - 2026-10-20
+
+모델 역할을 몇 초 만에 자동으로 구성하고, 원격 컴퓨터 세션도 이 컴퓨터 세션과 똑같이 다룰 수 있어요.
+
+### 새로 생긴 것
+- 모델 구성 도우미가 두 가지 방식이 됐어요. "완전 자동 구성"은 아무것도 고르지 않아도 연결된 구독 계정의 모델로 모든 역할을 0.5초 안에 채워요. "모델 선택 + 자동"은 고른 모델 안에서만 배정해요. 모델 호출이 없어서 비용이 들지 않아요. 적용과 되돌리기는 한 번에 되고, 직접 지정한 역할은 그대로 둬요. 완전 자동은 OpenRouter 같은 종량제 모델을 쓰지 않아요(판단 모델만 예외).
+- omp에 새 역할이 생기면 모델 역할 화면에 바로 나타나요. 사용자 지정 역할은 없어지고, OMPdesk가 다른 계열 모델로 검토하는 "리뷰" 역할을 더해요(설정 파일은 바꾸지 않아요).
+- 에이전트 도구가 원격 컴퓨터의 세션에서도 똑같이 동작해요. 세션 열기·닫기·삭제·다시 열기, 작업 폴더 만들기·비교·합치기, 예약 실행, 오토파일럿, 앱 조작 모두요. 원격 컴퓨터에 연 세션은 연 세션 아래 자식으로 보여요.
+- 하위 작업 비교가 바뀐 내용·검사 결과·합칠 때 충돌 예측까지 증거로 판정하고, 충돌이 예상되면 합치지 않아요.
+- 작업 묶음의 비용과 하위 작업별 모델이 보이고, 작업 트리 화면에서 주인 없이 남은 작업 폴더를 정리할 수 있어요. 조언자 비용도 보여요.
+- 메모리가 세션마다 결론을 남기고, 입력한 질문과 관련된 이전 결정을 찾아 조용한 한 줄로 알려 줘요. 한국어 조사를 떼고 찾고, 판단 모델이 엉뚱한 기억을 걸러요. 취향과 교정도 기억하고, 결정·취향은 페어링한 컴퓨터끼리 나눠요.
+- 세션 ⋯ 메뉴와 설정 › 업데이트 및 정보에서 "진단 묶음 저장"으로 세션 기록과 진단 정보를 개인 정보를 가린 압축 파일로 저장해요.
+- 백그라운드 작업이 하위 에이전트 아래 트리로 묶여 보여요.
+- 에이전트가 오래 걸리는 테스트와 빌드를 백그라운드로 돌리고 그동안 다른 일을 해요.
+- 사이드바의 이 기기·원격 컴퓨터 묶음 순서를 드래그로 바꾸면 기억해요.
+- 입력창의 컨텍스트 사용량이 작은 원으로 보여요.
+
+### 바뀐 것
+- 처음 실행이 짧아졌어요. 계정을 연결하면 브라우저가 알아서 열리고, 기본 모델이 자동으로 정해져서 클릭 한 번이면 대화를 시작해요. GitHub 연결 단계는 설정으로 옮겼어요.
+- 사이드바 위쪽이 한 줄이에요: 세션 찾기와 폴더 추가, 채팅 찾기와 새 채팅. 새 세션 버튼과 최근순 보기는 없어졌어요.
+- 하위 세션 보고는 한 줄로 접혀 보이고, 질문만 펼쳐져요.
+- 실행 설정의 고급은 항상 닫힌 채로 시작하고, 입력창의 사고 수준·위임 아이콘은 없어졌어요.
+- 라이선스가 MIT에서 Apache License 2.0으로 바뀌었어요(NOTICE 파일 추가). v0.41.0까지의 버전은 MIT 그대로예요.
+
+### 고친 것
+- Windows에서 창이 뜨지 않던 문제를 고쳤어요.
+- Windows 사이드바에 다른 컴퓨터가 열어 준 세션이 보이지 않던 문제와, 짧은 경로 이름 때문에 작업 폴더가 어긋나던 문제를 고쳤어요.
+- 업데이트 뒤 메모리 서버가 꺼진 채 돌아오지 않던 문제와, 켜져 있어도 응답하지 않던 문제를 고쳤어요.
+- 하위 세션 보고가 다음 메시지를 보낼 때까지 안 보이다가 몰아서 나오던 문제를 고쳤어요.
+- 휴대폰에서 하위 작업이 도는 세션의 작업현황이 안 뜨던 문제, 꺼진 앱에서 알림을 눌러도 탭이 안 열리던 문제, 세게 스크롤하면 끝에서 튀던 문제, 가로 화면의 작은 버튼을 고쳤어요.
+- 진단 묶음의 일반 모드에도 비밀값이 남지 않게 했어요.
+- 좁은 창에서 전송 버튼이 화면 밖으로 밀리던 문제를 고쳤어요.
+- 재시작 직후 다음 모델 요청 전에 끊긴 턴도 이어서 해요.
+
+<!-- en -->
+
+Model roles configure themselves in seconds, and a paired computer's sessions work exactly like this computer's.
+
+### Added
+- The model setup assistant has two modes. Full auto fills every role from your connected subscription models in under half a second without asking you to pick anything; Pick models + auto assigns only among the models you chose. It makes no model call, so it costs nothing. Apply and undo are one click each, and roles you set by hand stay. Full auto never uses metered models such as OpenRouter's (judge models excepted).
+- A role omp adds shows up in Model roles right away. Custom roles are gone; OMPdesk adds a Review role that checks with another model family (your config file is not touched).
+- Agent tools work on a paired computer's sessions just as here: open, close, delete and reopen sessions, make, compare and merge worktrees, schedules, Autopilot and app actions. A session opened on a paired computer shows as its opener's child.
+- Comparing child work now judges from evidence: the diff, check output and a merge conflict prediction. A predicted conflict blocks the merge.
+- A work family shows its cost and each child's model, and the Work tree view cleans up worktrees nothing uses any more. The advisor's cost is shown too.
+- Memory records each session's conclusion and recalls earlier decisions related to what you type, shown as one quiet line. Korean search ignores particles, and the judge model filters out unrelated memories. It also learns your preferences and corrections, and decisions and preferences are shared between paired computers.
+- "Save diagnostic bundle" in a session's ⋯ menu and in Settings › Updates & about saves the session's records and diagnostics as one zip with private data redacted.
+- Background jobs are shown as a tree under the subagent that started them.
+- Agents run long tests and builds in the background and keep working meanwhile.
+- Drag the This device and paired computer sections in the sidebar to reorder them; the order is remembered.
+- Context usage in the composer is a small ring.
+
+### Changed
+- First run is shorter: connecting an account opens the browser by itself and picks the default model, so one click gets you to your first message. Connecting GitHub moved to Settings.
+- The sidebar header is one line: Find sessions and Add folder, or Find chats and New chat. The New session button and the recent view are gone.
+- Child session reports fold to one line; only questions stay open.
+- Run settings' Advanced always starts closed, and the thinking and delegation icons beside the composer are gone.
+- OMPdesk is now licensed under the Apache License 2.0, with a NOTICE file; versions up to v0.41.0 stay MIT.
+
+### Fixed
+- A window that never appeared on Windows.
+- Sessions another computer opened missing from the Windows sidebar, and worktrees going astray under short Windows path names.
+- The memory server staying off after an update, and not answering while it ran.
+- Child session reports held back until your next message, then arriving all at once.
+- On the phone: the work strip missing for a session whose children were working, a notification tap not opening its tab from a closed app, a jump at the end of a fling, and small buttons in landscape.
+- Secrets left in a diagnostic bundle's normal mode.
+- The Send button pushed off-screen in a narrow window.
+- A turn cut off right before its next model request now continues after a relaunch.
 
 ## [0.41.0] - 2026-10-19
 
