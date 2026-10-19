@@ -5680,6 +5680,8 @@ import {{ closeSync, existsSync, opendirSync, openSync, readFileSync as readMark
 import {{ basename, dirname, join, resolve, sep }} from "node:path";
 import {{ homedir }} from "node:os";
 
+{memory_prompt}
+
 const SERVER = {server_literal}.replace(/\/+$/, "");
 const AGENT = "omp";
 {token_line}
@@ -5824,10 +5826,12 @@ function modelName(model: any): string | undefined {{
 }}
 
 function sessionPayload(ctx: any): Record<string, unknown> {{
+  const id = sessionID(ctx);
   return {{
-    sessionID: sessionID(ctx),
+    sessionID: id,
     cwd: ctx?.cwd,
     model: modelName(ctx?.model),
+    ...childMarker(ctx?.agent, id ? (agentDriven.get(id) ?? false) : false),
   }};
 }}
 
@@ -5858,6 +5862,8 @@ function contentToText(content: unknown): string {{
 
 const startedSessions = new Set<string>();
 const handoffChecked = new Set<string>();
+// Whether every prompt a session has received so far was written by an agent (see `nextAgentDriven`).
+const agentDriven = new Map<string, boolean>();
 const preCompactLast = new Map<string, number>();
 
 function startSession(ctx: any, extra: Record<string, unknown> = {{}}): void {{
@@ -5926,16 +5932,26 @@ export default function AiMemoryExtension(api: any): void {{
   }});
 
   api.on("before_agent_start", async (event: any, ctx: any) => {{
+    const id = sessionID(ctx);
+    const prompt = typeof event?.prompt === "string" ? event.prompt : "";
+    const firstPrompt = !!id && !agentDriven.has(id);
+    if (id) agentDriven.set(id, nextAgentDriven(agentDriven.get(id), prompt));
     startSession(ctx);
+    const title = promptTitle(prompt, {{
+      sessionName: firstPrompt ? ctx?.sessionManager?.getSessionName?.() : undefined,
+    }});
     postHook("user-prompt", {{
       ...sessionPayload(ctx),
       prompt: event?.prompt,
+      ...(title ? {{ promptTitle: title }} : {{}}),
       imageCount: Array.isArray(event?.images) ? event.images.length : undefined,
     }});
 
-    const id = sessionID(ctx);
     if (!id || handoffChecked.has(id)) return;
     handoffChecked.add(id);
+    // A subagent or a session only other agents have written to neither creates nor consumes a handoff:
+    // the baton waiting in this folder belongs to the next session a person starts.
+    if (isChildSession(ctx?.agent, agentDriven.get(id) ?? false)) return;
     const handoff = await fetchHandoff(ctx?.cwd ?? "", id);
     if (!handoff) return;
     return {{
@@ -5997,6 +6013,7 @@ export default function AiMemoryExtension(api: any): void {{
 "#,
         server_literal = ts_string_literal(server_url),
         token_line = token_line,
+        memory_prompt = include_str!("../../../../../../src/shared/memory-prompt.ts"),
     );
     // Anchors are compile-time constants over this same file's template;
     // a mismatch is a template edit that forgot the spool patch.
@@ -12159,6 +12176,27 @@ model = "gpt-5"
         assert!(plugin.contains("function resolveToken("));
         assert!(plugin.contains("const token = resolveToken();"));
         assert!(plugin.contains("if (!response.ok) return undefined;"));
+    }
+
+    #[test]
+    fn omp_extension_names_prompts_and_keeps_children_out_of_handoffs() {
+        let extension = build_omp_extension("http://127.0.0.1:49374", None, None, "denylist");
+        // The shared module (src/shared/memory-prompt.ts) is embedded byte for byte.
+        assert!(extension.contains(include_str!(
+            "../../../../../../src/shared/memory-prompt.ts"
+        )));
+        assert!(extension.contains("export function promptTitle("));
+        // The first prompt of a session names it; every payload of a child carries its marker.
+        assert!(extension.contains("...(title ? { promptTitle: title } : {}),"));
+        assert!(extension.contains("...childMarker(ctx?.agent,"));
+        // A child never fetches (consumes) a handoff, and the guard runs before the fetch.
+        let guard = extension
+            .find("if (isChildSession(ctx?.agent, agentDriven.get(id) ?? false)) return;")
+            .expect("a child session is guarded");
+        let fetch = extension
+            .find("await fetchHandoff(ctx?.cwd ?? \"\", id)")
+            .expect("a main session still fetches its handoff");
+        assert!(guard < fetch);
     }
 
     #[test]
