@@ -216,6 +216,9 @@ jobs:
           bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
+      # pwa-install and device-prefs drive a phone page in Playwright's own Chromium.
+      - name: Playwright browsers
+        run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"
       - if: failure()
         run: bash scripts/ci-failure.sh
@@ -382,6 +385,8 @@ jobs:
         run: bunx vitest run src/main/setup/runner.test.ts
       - name: omp update while omp runs
         run: bun scripts/omp-update-lock-check.ts
+      - name: Playwright browsers
+        run: bunx playwright install chromium
       - name: Playwright e2e
         run: bunx playwright test --grep "$env:E2E_GREP"
       - if: always()
