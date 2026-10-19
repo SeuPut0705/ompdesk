@@ -165,15 +165,12 @@ for (const engine of ENGINES)
 			await phone.evaluate(() => Reflect.set(window, "noReloadRun", true));
 
 			// (b) A reply streams; the link drops under it.
-			// A freshly loaded page swaps its first, seeded view of the tab for the live one; text typed before that lands
-			// in the view that goes, so type until it stays.
+			// Text typed into the page's first, seeded view of the tab stays when the live view takes its place.
 			const send = phone.getByRole("button", { name: /^(Send|보내기)$/ });
-			await expect(async () => {
-				if ((await field.inputValue()) !== "fixture stream") await field.fill("fixture stream");
-				await phone.waitForTimeout(1500);
-				expect(await field.inputValue()).toBe("fixture stream");
-				await expect(send).toBeEnabled({ timeout: 1000 });
-			}).toPass({ timeout: 60_000 });
+			await field.fill("fixture stream");
+			await phone.waitForTimeout(1500);
+			expect(await field.inputValue()).toBe("fixture stream");
+			await expect(send).toBeEnabled({ timeout: 1000 });
 			await send.click();
 			await expect(phone.getByText("Stream chunk 3.", { exact: false }).first()).toBeVisible({ timeout: 60_000 });
 			const progress = (await fixture(phone, tabId, "fixture:progress")).data;

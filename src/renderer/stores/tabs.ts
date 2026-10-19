@@ -161,6 +161,16 @@ function takeGhost(ghosts: SessionTab[], info: IpcTabInfo): SessionTab | undefin
 	return index === -1 ? undefined : ghosts.splice(index, 1)[0];
 }
 
+/** What the user typed into a ghost goes to the real tab that replaces it; what the real tab already holds wins. */
+function carryGhostComposer(ghostId: string, tabId: string): void {
+	const from = sessionRuntimeStore<ComposerStore>(ghostId, "composer")?.getState();
+	const to = sessionRuntimeStore<ComposerStore>(tabId, "composer");
+	if (!from || !to) return;
+	const held = to.getState();
+	if (from.draft !== "" && held.draft === "") held.setDraft(from.draft);
+	if (from.images.length > 0 && held.images.length === 0) held.setImages(from.images);
+}
+
 // Focus routing is window-global. Serialize changes so rapid tab clicks cannot
 // resolve out of order and leave main targeting the wrong sidecar.
 let switchVersion = 0;
@@ -552,11 +562,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				let existing = leftovers.get(info.tabId);
 				// No runtime of this id held a status before (an adopted ghost's runtime is the ghost's, not this one).
 				const newRuntime = existing === undefined;
+				let ghostId: string | undefined;
 				leftovers.delete(info.tabId);
 				if (!existing) {
 					// The ghost of this session becomes the real tab: same place in the strip, same selection.
 					const ghost = takeGhost(unclaimed, info);
 					if (ghost) {
+						ghostId = ghost.id;
 						adopted.set(ghost.id, info.tabId);
 						const { ghost: _ghost, ...plain } = ghost;
 						existing = plain;
@@ -568,6 +580,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				}
 				if (newRuntime || sessionChanged) fresh.push(info);
 				ensureTabRuntime(info.tabId);
+				if (ghostId) carryGhostComposer(ghostId, info.tabId);
 				const tab: SessionTab = {
 					...projectSessionTab(info, existing, sessionChanged, false),
 					...viewerFields(info),

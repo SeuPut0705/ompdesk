@@ -2621,6 +2621,61 @@ describe("tabs of the last run (the tab snapshot)", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("new-1");
 	});
 
+	it("carries the draft typed into a ghost to the real tab of its session", async () => {
+		useTabsStore.setState({
+			tabs: [ghost("old-a", { sessionPath: "/s/a.jsonl" }), ghost("old-b", { sessionPath: "/s/b.jsonl" })],
+			activeTabId: "old-a",
+		});
+		const typed = ensureTabRuntimeComposer("old-a");
+		const image: ComposerStore["images"][number] = {
+			content: { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+			preview: "data:image/png;base64,aW1hZ2U=",
+		};
+		typed.getState().setDraft("typed into the ghost");
+		typed.getState().setImages([image]);
+		ensureTabRuntime("old-b");
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("new-a", "/p"), sessionPath: "/s/a.jsonl" },
+			{ ...tabInfo("new-b", "/p"), sessionPath: "/s/b.jsonl" },
+		]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		const real = sessionRuntimeStore<ComposerStore>("new-a", "composer");
+		expect(real?.getState().draft).toBe("typed into the ghost");
+		expect(real?.getState().images).toEqual([image]);
+		expect(sessionRuntimeStore<ComposerStore>("new-b", "composer")?.getState().draft).toBe("");
+		expect(sessionRuntime("old-a")).toBeNull();
+	});
+
+	it("carries the draft of a blank ghost with no session file to the real tab that takes its place", async () => {
+		useTabsStore.setState({ tabs: [ghost("old-blank")], activeTabId: "old-blank" });
+		ensureTabRuntimeComposer("old-blank").getState().setDraft("fixture stream");
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("new-1", "/p"), sessionId: "s-new", active: true }]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(sessionRuntimeStore<ComposerStore>("new-1", "composer")?.getState().draft).toBe("fixture stream");
+	});
+
+	it("keeps what the real tab already holds over the ghost's draft", async () => {
+		useTabsStore.setState({ tabs: [ghost("old-a", { sessionPath: "/s/a.jsonl" })], activeTabId: "old-a" });
+		ensureTabRuntimeComposer("old-a").getState().setDraft("from the ghost");
+		ensureTabRuntimeComposer("new-a").getState().setDraft("already typed");
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("new-a", "/p"), sessionPath: "/s/a.jsonl" }]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(sessionRuntimeStore<ComposerStore>("new-a", "composer")?.getState().draft).toBe("already typed");
+	});
+
+	function ensureTabRuntimeComposer(id: string) {
+		ensureTabRuntime(id);
+		const composer = sessionRuntimeStore<ComposerStore>(id, "composer");
+		if (!composer) throw new Error(`no composer for ${id}`);
+		return composer;
+	}
+
 	it("drops the ghosts when main lists none of them, and never switches to or closes a ghost", async () => {
 		useTabsStore.setState({ tabs: [ghost("g1"), ghost("g2")], activeTabId: "g1" });
 		await useTabsStore.getState().switchTab("g2");
