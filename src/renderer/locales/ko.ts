@@ -2194,7 +2194,6 @@ export const ko: Record<string, string> = {
 	"settings.extensions.commands.description":
 		"파일, 확장, MCP 프롬프트 및 기타 등록된 소스가 제공하는 슬래시 명령을 살펴봐요.",
 	"settings.resources.title": "플러그인 및 리소스",
-	"settings.resources.description": "설치된 플러그인과 마켓플레이스를 관리하고, 프롬프트 템플릿을 한곳에서 살펴봐요.",
 	"settings.skills.title": "스킬",
 	"settings.skills.new": "새 관리 스킬",
 	"settings.skills.count": "스킬 {total}개 중 {shown}개",

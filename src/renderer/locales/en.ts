@@ -2210,8 +2210,6 @@ export const en: Record<string, string> = {
 	"settings.extensions.commands.description":
 		"Browse slash commands contributed by files, extensions, MCP prompts, and other registered sources.",
 	"settings.resources.title": "Plugins & resources",
-	"settings.resources.description":
-		"Manage installed plugins and marketplaces, and inspect prompt templates, from one durable home.",
 	"settings.skills.title": "Skills",
 	"settings.skills.new": "New managed skill",
 	"settings.skills.count": "{shown} of {total} skills",
