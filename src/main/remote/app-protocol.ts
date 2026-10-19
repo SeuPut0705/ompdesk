@@ -390,7 +390,9 @@ export const SchedulesLogParams = z.object({ runId: ScheduleId });
 /** `host.schedules.command` reply and `host.schedules.changed` event: the host's schedules, runs and next starts. */
 export const SchedulesStateSchema: z.ZodType<SchedulesState> = z.object({
 	paused: z.boolean(),
-	schedules: z.array(ScheduleDraftSchema.extend({ id: z.string(), createdAt: z.string() })),
+	schedules: z.array(
+		ScheduleDraftSchema.extend({ id: z.string(), createdAt: z.string(), device: z.string().optional() }),
+	),
 	runs: z.array(
 		z.object({
 			id: z.string(),

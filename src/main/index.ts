@@ -1131,6 +1131,16 @@ app.whenReady().then(() => {
 			// Devices showing this computer's schedules (Settings › Schedules on a tab here) follow.
 			devices.hostSchedulesChanged(state);
 		},
+		// A schedule a paired device saved here spends that device's daily model requests at every start.
+		reserve: device => {
+			const reservation = devices.reserveModelRequest(device);
+			return reservation.ok
+				? reservation
+				: {
+						ok: false,
+						reason: `The daily ${reservation.refusal === "requests" ? "request" : "token"} limit of the device that saved this schedule is used up on this computer's models`,
+					};
+		},
 	});
 	void scheduleService.start();
 	logWatcher = new LogWatcher();

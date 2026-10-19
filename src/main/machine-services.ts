@@ -85,8 +85,11 @@ export interface MachineServices {
 	ompUpdate(): Promise<OmpUpdateState>;
 	/** Check and update that machine's omp now, whatever its pref says; answers at once, the run goes on in the background. */
 	startOmpUpdate(): Promise<OmpUpdateState>;
-	/** Settings › Schedules on that machine: its own ScheduleService validates the request and runs the schedules there. */
-	schedules(request: SchedulesRequest): Promise<SchedulesState>;
+	/**
+	 * Settings › Schedules on that machine: its own ScheduleService validates the request and runs the schedules there.
+	 * `origin`: on this computer, the paired device whose request it serves (`host.schedules.command`), charged for its runs.
+	 */
+	schedules(request: SchedulesRequest, origin?: string): Promise<SchedulesState>;
 	/** A run's captured output on that machine, tail-capped. */
 	scheduleLog(runId: string): Promise<string>;
 }
@@ -344,8 +347,8 @@ export class LocalMachine implements MachineServices {
 		return updater.state();
 	}
 
-	async schedules(request: SchedulesRequest): Promise<SchedulesState> {
-		return this.#scheduleService().command(request);
+	async schedules(request: SchedulesRequest, origin?: string): Promise<SchedulesState> {
+		return this.#scheduleService().command(request, origin);
 	}
 
 	async scheduleLog(runId: string): Promise<string> {

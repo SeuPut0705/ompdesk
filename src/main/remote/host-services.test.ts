@@ -235,7 +235,9 @@ function fakeMachine() {
 		desktopUpdate: vi.fn(async (_action: HostUpdateAction): Promise<HostDesktopState> => DESKTOP),
 		ompUpdate: vi.fn(async (): Promise<OmpUpdateState> => OMP_UPDATE_IDLE),
 		startOmpUpdate: vi.fn(async (): Promise<OmpUpdateState> => ({ ...OMP_UPDATE_IDLE, phase: "checking" })),
-		schedules: vi.fn(async (_request: SchedulesRequest): Promise<SchedulesState> => SCHEDULES_EMPTY),
+		schedules: vi.fn(
+			async (_request: SchedulesRequest, _origin?: string): Promise<SchedulesState> => SCHEDULES_EMPTY,
+		),
 		scheduleLog: vi.fn(async (runId: string) => `log of ${runId}`),
 	} satisfies MachineServices;
 }
@@ -584,21 +586,6 @@ describe("LocalHostServices", () => {
 			expect(machine.runBenchmark).not.toHaveBeenCalled();
 			expect(machine.runModelSetup).not.toHaveBeenCalled();
 			expect(used(stored)).toBe(1);
-		});
-
-		it("counts a device's 'run now' of a schedule here as one model request and refuses it past the limit", async () => {
-			const { services, machine, stored, x } = limited({ requestsPerDay: 1 });
-			const runNow = { request: { action: "runNow", id: "s1" } };
-			await services.call(x.peer, "host.schedules.command", runNow, x);
-			expect(used(stored)).toBe(1);
-			const refused = await services
-				.call(x.peer, "host.schedules.command", runNow, x)
-				.catch((error: unknown) => error);
-			expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
-			expect(machine.schedules).toHaveBeenCalledTimes(1);
-			// Reading and editing the list spends nothing.
-			await services.call(x.peer, "host.schedules.command", { request: { action: "get" } }, x);
-			expect(machine.schedules).toHaveBeenCalledTimes(2);
 		});
 
 		it("counts a benchmark by its model runs and a model setup as one request, refunding a failed start", async () => {
@@ -1927,10 +1914,11 @@ describe("LocalHostServices host.* calls", () => {
 		);
 		await services.call(x.peer, "host.schedules.command", { request: { action: "save", draft } }, x);
 		await services.call(x.peer, "host.schedules.command", { request: { action: "delete", id: "s1" } }, x);
-		expect(machine.schedules.mock.calls.map(([request]) => request)).toEqual([
-			{ action: "get" },
-			{ action: "save", draft },
-			{ action: "delete", id: "s1" },
+		// Each request names the device it serves: a schedule it saves is its, charged at every run (schedules.test.ts).
+		expect(machine.schedules.mock.calls).toEqual([
+			[{ action: "get" }, "device-x"],
+			[{ action: "save", draft }, "device-x"],
+			[{ action: "delete", id: "s1" }, "device-x"],
 		]);
 		await expect(services.call(y.peer, "host.schedules.log", { runId: "r1" }, y)).resolves.toBe("log of r1");
 

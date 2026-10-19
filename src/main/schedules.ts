@@ -18,6 +18,7 @@ import { createWriteStream, existsSync, renameSync, writeFileSync } from "node:f
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
+import { codedError } from "../shared/ipc-error-codes";
 import {
 	nextRunAt,
 	SCHEDULE_RUNS_KEPT,
@@ -45,6 +46,9 @@ export interface RunProcess {
 
 export type RunLauncher = (schedule: Schedule, files: { log: string; prompt: string }) => Promise<RunProcess>;
 
+/** A paired device's daily model requests on this computer (`PeerQuota`): one counted, or why not. */
+export type ScheduleCharge = { ok: true; refund(): void } | { ok: false; reason: string };
+
 export interface ScheduleServiceOptions {
 	/** `schedules.json`. */
 	file: string;
@@ -52,6 +56,11 @@ export interface ScheduleServiceOptions {
 	logDir: string;
 	launch: RunLauncher;
 	onState: (state: SchedulesState) => void;
+	/**
+	 * Count one run against `device`'s daily model limit here. A schedule a paired device saved (`Schedule.device`)
+	 * is charged at every start, timed or not; absent = no device is ever charged (tests, no remote host).
+	 */
+	reserve?: (device: string) => ScheduleCharge;
 }
 
 interface StoredSchedules {
@@ -114,12 +123,17 @@ export class ScheduleService {
 		};
 	}
 
-	async command(request: SchedulesRequest): Promise<SchedulesState> {
+	/**
+	 * `origin`: the paired device a request comes from (`host.schedules.command`). A save from a device makes the
+	 * schedule that device's (its runs count against its daily model limit here); a save here makes it this computer's.
+	 * A run now from a device is charged to that device and refused past its limit.
+	 */
+	async command(request: SchedulesRequest, origin?: string): Promise<SchedulesState> {
 		switch (request.action) {
 			case "get":
 				break;
 			case "save":
-				this.#save(request.draft, request.id);
+				this.#save(request.draft, request.id, origin);
 				break;
 			case "delete": {
 				this.#find(request.id);
@@ -144,7 +158,9 @@ export class ScheduleService {
 			case "runNow": {
 				const schedule = this.#find(request.id);
 				if (this.#active.has(schedule.id)) throw new Error("This schedule is already running");
-				void this.#startRun(schedule, "manual");
+				const charge = origin === undefined ? undefined : this.#options.reserve?.(origin);
+				if (charge && !charge.ok) throw codedError("remote_limit_reached", charge.reason);
+				void this.#startRun(schedule, "manual", charge);
 				break;
 			}
 			case "stop": {
@@ -208,7 +224,7 @@ export class ScheduleService {
 		return schedule;
 	}
 
-	#save(draft: ScheduleDraft, id: string | undefined): void {
+	#save(draft: ScheduleDraft, id: string | undefined, origin: string | undefined): void {
 		const clean: ScheduleDraft = {
 			name: String(draft.name ?? "").trim(),
 			prompt: String(draft.prompt ?? ""),
@@ -230,10 +246,17 @@ export class ScheduleService {
 		if (id) {
 			const schedule = this.#find(id);
 			Object.assign(schedule, clean);
+			if (origin === undefined) delete schedule.device;
+			else schedule.device = origin;
 			this.#reschedule(schedule);
 			return;
 		}
-		const schedule: Schedule = { ...clean, id: randomUUID(), createdAt: new Date().toISOString() };
+		const schedule: Schedule = {
+			...clean,
+			id: randomUUID(),
+			createdAt: new Date().toISOString(),
+			...(origin === undefined ? {} : { device: origin }),
+		};
 		this.#schedules.push(schedule);
 		this.#reschedule(schedule);
 	}
@@ -277,12 +300,31 @@ export class ScheduleService {
 				this.#next.set(schedule.id, nextRunAt(schedule.frequency, new Date(now), new Date(due)).getTime());
 				continue;
 			}
-			void this.#startRun(schedule, "schedule");
+			const charge = schedule.device === undefined ? undefined : this.#options.reserve?.(schedule.device);
+			if (charge && !charge.ok) {
+				this.#record({
+					id: randomUUID(),
+					scheduleId: schedule.id,
+					trigger: "schedule",
+					startedAt: new Date(now).toISOString(),
+					endedAt: new Date(now).toISOString(),
+					status: "skipped",
+					exitCode: null,
+					error: charge.reason,
+				});
+				this.#next.set(schedule.id, nextRunAt(schedule.frequency, new Date(now), new Date(due)).getTime());
+				continue;
+			}
+			void this.#startRun(schedule, "schedule", charge);
 		}
 		if (changed) this.#changed();
 	}
 
-	async #startRun(schedule: Schedule, trigger: ScheduleRun["trigger"]): Promise<void> {
+	async #startRun(
+		schedule: Schedule,
+		trigger: ScheduleRun["trigger"],
+		charge: Extract<ScheduleCharge, { ok: true }> | undefined,
+	): Promise<void> {
 		const run: ScheduleRun = {
 			id: randomUUID(),
 			scheduleId: schedule.id,
@@ -303,17 +345,20 @@ export class ScheduleService {
 			prompt: join(this.#options.logDir, `${run.id}.prompt`),
 		};
 		let result: { code: number | null; error?: string };
+		let launched: RunProcess | null = null;
 		try {
 			await mkdir(this.#options.logDir, { recursive: true });
 			await writeFile(files.prompt, schedule.prompt);
 			if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
-			const launched = await this.#options.launch({ ...schedule }, files);
+			launched = await this.#options.launch({ ...schedule }, files);
 			active.process = launched;
 			if (active.stopRequested || this.#disposed) launched.stop();
 			result = await launched.done;
 		} catch (error) {
 			result = { code: null, error: error instanceof Error ? error.message : String(error) };
 		}
+		// A run that never started spent nothing of the device's day.
+		if (!launched) charge?.refund();
 		void rm(files.prompt, { force: true }).catch(() => {});
 		if (this.#active.get(schedule.id) === active) this.#active.delete(schedule.id);
 		if (this.#disposed) return;

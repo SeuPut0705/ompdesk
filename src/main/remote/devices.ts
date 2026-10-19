@@ -59,7 +59,7 @@ import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
-import { PeerQuota } from "./peer-quota";
+import { PeerQuota, type QuotaReservation } from "./peer-quota";
 import { PeerStore } from "./peers-store";
 import { REFUSAL_CODES } from "./protocol";
 import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
@@ -334,6 +334,11 @@ export class RemoteDevices {
 			throw codedError("remote_unknown_device", "Unknown device");
 		}
 		return this.#broadcastState();
+	}
+
+	/** Count one of a device's daily model requests on this computer outside a link call: a schedule it saved here starting. */
+	reserveModelRequest(deviceId: string): QuotaReservation {
+		return this.#quota.reserve(deviceId, 1);
 	}
 
 	/** A view shows (`true`) or stops showing the tailnet's computers; resolves with what is known now. */

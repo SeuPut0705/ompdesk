@@ -37,6 +37,8 @@ export interface ScheduleDraft {
 export interface Schedule extends ScheduleDraft {
 	id: string;
 	createdAt: string;
+	/** The paired device that saved it (its agent or Settings there): every run counts against that device's daily model limit on this computer. Absent = this computer's own. */
+	device?: string;
 }
 
 /** `stopped`: ended by the user or by the app closing; `skipped`: the previous run was still going. */

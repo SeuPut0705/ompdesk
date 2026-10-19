@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Schedule, ScheduleDraft, SchedulesState } from "../shared/schedules";
 import type { OmpResolution } from "./omp-runtime";
-import { ompRunLauncher, type RunLauncher, type RunProcess, SCHEDULE_TICK_MS, ScheduleService } from "./schedules";
+import {
+	ompRunLauncher,
+	type RunLauncher,
+	type RunProcess,
+	SCHEDULE_TICK_MS,
+	ScheduleService,
+	type ScheduleServiceOptions,
+} from "./schedules";
 import { SUPERVISOR_STOPPED_CODE } from "./setup/supervisor";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
@@ -59,12 +66,13 @@ function fakeLauncher() {
 }
 
 /** A service on `dir` whose `until(predicate)` settles with the first pushed state that matches. */
-function harness(dir: string, launch: RunLauncher) {
+function harness(dir: string, launch: RunLauncher, reserve?: ScheduleServiceOptions["reserve"]) {
 	const listeners = new Set<(state: SchedulesState) => void>();
 	const service = new ScheduleService({
 		file: join(dir, "schedules.json"),
 		logDir: join(dir, "runs"),
 		launch,
+		...(reserve ? { reserve } : {}),
 		onState: state => {
 			for (const listener of [...listeners]) listener(state);
 		},
@@ -165,6 +173,62 @@ describe("ScheduleService", () => {
 		const failed = await until(state => state.runs[0]?.status === "failed");
 		expect(launch).not.toHaveBeenCalled();
 		expect(failed.runs[0]?.error).toContain("Project folder not found");
+		service.dispose();
+	});
+
+	it("charges a paired device's schedule to that device's daily model limit and skips a timed run past it", async () => {
+		fakeClock(new Date(2026, 9, 15, 12, 0));
+		const dir = await tempDir();
+		const { launch, runs, launched } = fakeLauncher();
+		let left = 1;
+		const charged: string[] = [];
+		const reserve = (device: string) => {
+			if (left === 0) return { ok: false as const, reason: `${device}'s daily model limit is used up` };
+			left -= 1;
+			charged.push(device);
+			return { ok: true as const, refund: () => undefined };
+		};
+		const { service, until } = harness(dir, launch, reserve);
+		await service.start();
+		const saved = await service.command({ action: "save", draft: draft(dir) }, "dev-a");
+		const id = saved.schedules[0]?.id ?? "";
+		expect(saved.schedules[0]?.device).toBe("dev-a");
+
+		await vi.advanceTimersByTimeAsync(60 * 60_000);
+		await launched(1);
+		expect(charged).toEqual(["dev-a"]);
+		runs[0]?.finish(0);
+		await until(state => state.runs[0]?.status === "succeeded");
+
+		// The device's limit is used up: the next timed start is skipped with the reason, omp never launched.
+		await vi.advanceTimersByTimeAsync(60 * 60_000);
+		const skipped = await until(state => state.runs[0]?.status === "skipped");
+		expect(skipped.runs[0]?.error).toBe("dev-a's daily model limit is used up");
+		expect(launch).toHaveBeenCalledTimes(1);
+		// A run now from that device is refused; this computer's own run now is not charged to it.
+		await expect(service.command({ action: "runNow", id }, "dev-a")).rejects.toThrow("used up");
+		await service.command({ action: "runNow", id });
+		await launched(2);
+		expect(charged).toEqual(["dev-a"]);
+		// Saved again on this computer, it is this computer's schedule.
+		const own = await service.command({ action: "save", id, draft: draft(dir) });
+		expect(own.schedules[0]?.device).toBeUndefined();
+		service.dispose();
+	});
+
+	it("gives a device's reserved request back when its run cannot start", async () => {
+		fakeClock();
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const refunds: string[] = [];
+		const reserve = (device: string) => ({ ok: true as const, refund: () => refunds.push(device) });
+		const { service, until } = harness(dir, launch, reserve);
+		await service.start();
+		const id =
+			(await service.command({ action: "save", draft: draft(join(dir, "gone")) }, "dev-a")).schedules[0]?.id ?? "";
+		await service.command({ action: "runNow", id }, "dev-a");
+		await until(state => state.runs[0]?.status === "failed");
+		expect(refunds).toEqual(["dev-a"]);
 		service.dispose();
 	});
 
