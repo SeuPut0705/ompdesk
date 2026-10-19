@@ -1429,6 +1429,8 @@ export const en: Record<string, string> = {
 	"modelRoles.use.advisor": "A second opinion: reviews every turn and leaves notes while the advisor is on.",
 	"modelRoles.use.commit": "Commit messages and changelog entries (omp commit).",
 	"modelRoles.use.tiny": "Tiny background jobs such as session titles.",
+	"modelRoles.use.widget":
+		"Writes the live widget of a background job running over 15 seconds (omp's own wait card and jobs sheet), once per job.",
 	"modelRoles.use.vision": "Reads images when the current model can't.",
 	"modelRoles.use.image": "The image generation tool.",
 	"modelRoles.use.web": "The web search tool.",
@@ -1445,6 +1447,7 @@ export const en: Record<string, string> = {
 	"modelRoles.fallback.advisor": "Empty: follows Thinking when it has a model, otherwise omp's built-in list.",
 	"modelRoles.fallback.commit": "Empty: follows Fast, then the first conversation role that has a model.",
 	"modelRoles.fallback.tiny": "Empty: follows Fast.",
+	"modelRoles.fallback.widget": "Empty: follows Fast.",
 	"modelRoles.fallback.vision": "Empty: uses Default, then the model you're on.",
 	"modelRoles.fallback.image": "Empty: omp picks the first usable model of its built-in list.",
 	"modelRoles.fallback.web": "Empty: omp picks the first usable model of its built-in list.",

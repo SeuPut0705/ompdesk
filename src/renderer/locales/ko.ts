@@ -1413,6 +1413,8 @@ export const ko: Record<string, string> = {
 	"modelRoles.use.advisor": "어드바이저가 켜져 있는 동안 매 턴을 검토하고 의견을 남겨요.",
 	"modelRoles.use.commit": "커밋 메시지와 변경 기록을 써요(omp commit).",
 	"modelRoles.use.tiny": "세션 제목처럼 아주 작은 배경 작업에 써요.",
+	"modelRoles.use.widget":
+		"15초 넘게 도는 백그라운드 작업마다 실시간 위젯(omp 자체의 wait 카드와 작업 시트)을 한 번 써요.",
 	"modelRoles.use.vision": "지금 모델이 이미지를 읽지 못할 때 대신 읽어요.",
 	"modelRoles.use.image": "이미지 생성 도구가 써요.",
 	"modelRoles.use.web": "웹 검색 도구가 써요.",
@@ -1429,6 +1431,7 @@ export const ko: Record<string, string> = {
 	"modelRoles.fallback.advisor": "비어 있으면 사고 모델을 따르고, 그것도 없으면 omp 내장 목록에서 골라요.",
 	"modelRoles.fallback.commit": "비어 있으면 빠른 모델을 따르고, 없으면 모델이 지정된 첫 대화 역할을 써요.",
 	"modelRoles.fallback.tiny": "비어 있으면 빠른 모델을 따라가요.",
+	"modelRoles.fallback.widget": "비어 있으면 빠른 모델을 따라가요.",
 	"modelRoles.fallback.vision": "비어 있으면 기본 모델을, 다음으로 지금 쓰는 모델을 써요.",
 	"modelRoles.fallback.image": "비어 있으면 omp 내장 목록에서 쓸 수 있는 첫 모델을 골라요.",
 	"modelRoles.fallback.web": "비어 있으면 omp 내장 목록에서 쓸 수 있는 첫 모델을 골라요.",

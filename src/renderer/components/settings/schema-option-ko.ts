@@ -578,6 +578,9 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Always ask": "항상 묻기",
 	"Auto-approve read-only tools; require confirmation for write and exec tools.":
 		"읽기 전용 도구는 자동 승인하고, 쓰기 및 실행 도구는 확인을 요구해요.",
+	"Ask and remember": "묻고 기억하기",
+	"Ask before reading or writing a file, with answers that remember the file or its folder for this session or every session; require confirmation for exec tools.":
+		"파일을 읽거나 쓰기 전에 묻고, 답을 그 파일이나 폴더에 대해 이 세션 또는 모든 세션 동안 기억해요. 실행 도구는 확인을 요구해요.",
 	Write: "쓰기",
 	"Auto-approve read-only and write tools; require confirmation for exec tools such as bash, eval, browser, and task.":
 		"읽기 전용 및 쓰기 도구는 자동 승인하고, bash, eval, browser, task 같은 실행 도구는 확인을 요구해요.",

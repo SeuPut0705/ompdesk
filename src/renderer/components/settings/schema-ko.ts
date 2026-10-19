@@ -564,7 +564,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"tools.approvalMode": {
 		label: "도구 승인",
 		description:
-			"도구 호출의 기본 승인 동작이에요. '항상 묻기'는 읽기 전용 도구만 자동 승인하고, '쓰기'는 읽기와 프로젝트 쓰기 도구를 자동 승인하며, 'Yolo'는 모든 단계를 자동 승인하지만 사용자 정책으로 여전히 확인하거나 차단할 수 있어요.",
+			"도구 호출의 기본 승인 동작이에요. '항상 묻기'는 읽기 전용 도구만 자동 승인하고, '묻고 기억하기'는 파일을 읽기 전에도 묻고 파일이나 폴더를 기억할 수 있으며, '쓰기'는 읽기와 프로젝트 쓰기 도구를 자동 승인하고, 'Yolo'는 모든 단계를 자동 승인하지만 사용자 정책으로 여전히 확인하거나 차단할 수 있어요.",
 	},
 	"features.unexpectedStopDetection": {
 		label: "예기치 않은 중단 감지",
@@ -954,6 +954,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "에이전트가 도구에 설정할 수 있는 최대 타임아웃(초, 0 = 무제한)",
 	},
 	"async.enabled": { label: "비동기 실행", description: "비동기 bash 명령과 백그라운드 실행을 활성화해요" },
+	"async.widgets": {
+		label: "실시간 작업 위젯",
+		description:
+			"실행 중인 백그라운드 작업마다 출력에서 만든 실시간 위젯(차트, 막대, 상태 격자)을 wait 카드, 작업 알약, 작업 시트에 그려요. `widget` 모델 역할(기본값: `smol`)이 작업마다 사양을 하나 쓰고, 이후 갱신에는 모델 호출이 더 필요 없어요",
+	},
 	"tools.xdev": {
 		label: "xd:// 도구",
 		description:
@@ -1240,6 +1245,10 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "인증 브로커에 접근하는 토큰이에요. 보통 OMP_AUTH_BROKER_TOKEN 환경 변수로 설정해요",
 	},
 	shellPath: { label: "셸 경로", description: "자동 감지 결과를 덮어쓰는 사용자 지정 shell 실행 파일 경로" },
+	shellCommandPrefix: {
+		label: "셸 명령 접두사",
+		description: "레거시 확장에 전달하는 Pi 셸 명령 접두사예요. OMP 자체 셸에는 적용되지 않아요",
+	},
 	extensions: { label: "확장 경로", description: "시작 시 추가로 불러올 확장 경로 목록" },
 	enabledModels: {
 		label: "모델 허용 목록",

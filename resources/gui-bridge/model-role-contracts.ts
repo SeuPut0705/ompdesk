@@ -29,7 +29,7 @@ export const HIDDEN_ROLE_IDS: readonly string[] = Object.keys(HIDDEN_ROLES);
  */
 export const ROLE_GROUPS: readonly { id: RoleGroupId; roles: readonly string[] }[] = [
 	{ id: "conversation", roles: ["default", "slow", "smol", "plan"] },
-	{ id: "agent", roles: ["task", "advisor", "commit", "tiny"] },
+	{ id: "agent", roles: ["task", "advisor", "commit", "tiny", "widget"] },
 	{ id: "io", roles: ["vision", "image", "web", "speech", "dictation", "judge"] },
 ];
 

@@ -60,6 +60,7 @@ const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
 	Memory: "메모리",
 	Subtask: "하위 작업",
 	Advisor: "어드바이저",
+	"Job widgets": "작업 위젯",
 	"Image generation": "이미지 생성",
 	"Web search": "웹 검색",
 	Speech: "음성 합성",

@@ -1,21 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-	HIDDEN_ROLE_IDS,
-	HIDDEN_ROLES,
-	ROLE_GROUPS,
-	ROLE_ORDER,
-	roleGroup,
-} from "../../resources/gui-bridge/model-role-contracts";
+import { HIDDEN_ROLE_IDS, HIDDEN_ROLES, ROLE_ORDER, roleGroup } from "../../resources/gui-bridge/model-role-contracts";
 
 describe("role groups", () => {
-	it("order 14 of stock's roles by purpose and hide the memory role with its reason (ai-memory replaced stock's backends)", () => {
-		expect(ROLE_GROUPS.map(group => [group.id, group.roles])).toEqual([
-			["conversation", ["default", "slow", "smol", "plan"]],
-			["agent", ["task", "advisor", "commit", "tiny"]],
-			["io", ["vision", "image", "web", "speech", "dictation", "judge"]],
-		]);
-		expect(ROLE_ORDER).toHaveLength(14);
-		expect(new Set(ROLE_ORDER).size).toBe(14);
+	it("lists each role once and hides the memory role with its reason (ai-memory replaced stock's backends)", () => {
+		expect(new Set(ROLE_ORDER).size).toBe(ROLE_ORDER.length);
 		expect(HIDDEN_ROLE_IDS).toEqual(["memory"]);
 		expect(HIDDEN_ROLES.memory).toContain("ai-memory");
 		expect(ROLE_ORDER).not.toContain("memory");

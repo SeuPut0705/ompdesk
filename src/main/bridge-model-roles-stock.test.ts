@@ -152,7 +152,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("model roles on stock's resolution",
 		const { A, B } = probe;
 		expect(A).not.toBe(B);
 
-		// Stock's 15 built-ins and OMPdesk's own review, and nothing else, are listed.
+		// Stock's 16 built-ins and OMPdesk's own review, and nothing else, are listed.
 		expect((probe.ids as string[]).sort()).toEqual(
 			[
 				"advisor",
@@ -171,6 +171,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("model roles on stock's resolution",
 				"tiny",
 				"vision",
 				"web",
+				"widget",
 			].sort(),
 		);
 
