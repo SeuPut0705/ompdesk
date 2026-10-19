@@ -224,9 +224,13 @@ export interface WebDeviceConnected {
 	tailscaleLogin: string | null;
 }
 
-/** A new device waits for the desktop's decision (only while "approve new devices" is on). */
+/**
+ * A new device waits for the desktop's decision (only while "approve new devices" is on): a browser (Mobile web),
+ * or another OMPdesk computer that wants to use this one (`kind: "computer"`, no access tiers to pick).
+ */
 export interface WebPairingRequest {
 	id: string;
+	kind?: "browser" | "computer";
 	name: string;
 	userAgent: string;
 	tailscaleLogin: string | null;

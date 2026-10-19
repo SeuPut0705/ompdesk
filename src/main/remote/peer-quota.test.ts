@@ -21,7 +21,14 @@ function memoryPeers(...peers: PeerInfo[]) {
 	};
 }
 
-const LAPTOP: PeerInfo = { deviceId: "laptop", name: "laptop", staticPub: "pub", pairedAt: 0 };
+const LAPTOP: PeerInfo = {
+	deviceId: "laptop",
+	name: "laptop",
+	staticPub: "pub",
+	nodeId: "nLAPTOP",
+	login: null,
+	pairedAt: 0,
+};
 
 describe("PeerQuota", () => {
 	it("has no limit until one is set, and counts per local day", () => {

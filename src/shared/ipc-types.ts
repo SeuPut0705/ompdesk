@@ -131,8 +131,8 @@ export const IPC_EVENTS = {
 	BRIDGE_HEALTH: "bridge-health:changed",
 	/** Remote devices state changed (host role and paired hosts); payload is the whole RemoteState. */
 	REMOTE_STATE: "remote:state",
-	/** LAN discovery list changed while discovery runs; payload is the whole RemoteDiscoveredDevice[]. */
-	REMOTE_DISCOVERED: "remote:discovered",
+	/** The tailnet's computers changed while a window watches them; payload is the whole TailnetComputer[]. */
+	REMOTE_TAILNET: "remote:tailnet",
 	/** The window's open worktree-lifecycle questions changed; payload is the whole IpcWorktreePrompt[]. */
 	WORKTREE_PROMPTS: "worktree-lifecycle:prompts",
 	/** A worktree-lifecycle step the user should hear about (IpcWorktreeNotice). */
@@ -396,20 +396,26 @@ export const IPC_COMMANDS = {
 	REMOTE_SET_DEVICE_NAME: "remote:set-device-name",
 	/** Keep this computer awake while a device uses it; persisted in prefs */
 	REMOTE_SET_KEEP_AWAKE: "remote:set-keep-awake",
-	/** Mint a fresh pairing code */
-	REMOTE_ROTATE_CODE: "remote:rotate-code",
-	/** Forget a paired client device and close its live connections */
+	/** Forget a device that uses this computer and close its live connections (it may come back while allowed) */
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
+	/** Keep a device that uses this computer out: block its Tailscale node, forget it, close its connections */
+	REMOTE_BLOCK_PEER: "remote:block-peer",
+	/** Ask before a new device may use this computer (prefs `remote.confirmNewDevices`) */
+	REMOTE_SET_CONFIRM_NEW_DEVICES: "remote:set-confirm-new-devices",
 	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
 	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
 	/** Rename a paired host ({deviceId, name}): the host sets its own device name */
 	REMOTE_RENAME_HOST: "remote:rename-host",
 	/** Rename a connected device that uses this computer ({deviceId, name}): it renames itself */
 	REMOTE_RENAME_PEER: "remote:rename-peer",
-	/** Start or stop LAN discovery (pushes REMOTE_DISCOVERED) */
-	REMOTE_DISCOVER: "remote:discover",
-	/** Pair with a host by address and code */
-	REMOTE_PAIR: "remote:pair",
+	/** Watch the tailnet's computers (`true` while a view shows them; pushes REMOTE_TAILNET) */
+	REMOTE_WATCH_TAILNET: "remote:watch-tailnet",
+	/** Connect to a computer of the tailnet by its Tailscale node id */
+	REMOTE_CONNECT: "remote:connect",
+	/** Get Tailscale going for sharing: install it, or start the app (where the user also signs in) */
+	REMOTE_TAILSCALE_ACTION: "remote:tailscale-action",
+	/** The user read the notice about forgotten code-paired computers */
+	REMOTE_DISMISS_FORGOTTEN: "remote:dismiss-forgotten",
 	/** Forget a paired host and close its link */
 	REMOTE_REMOVE_HOST: "remote:remove-host",
 	/** Browse a paired host's directories (remote folder picker) */
@@ -459,6 +465,11 @@ export type RuntimeErrorSource =
 	 * (`update`, `outdated`, `resync-failed`, `chunk-load-failed`, `error-boundary`, …), sent on the next connect.
 	 */
 	| "web-reload"
+	/**
+	 * A tab on a paired host coming up (src/main/remote/remote-sidecar.ts): `message` is open, start, ready, stalled or
+	 * failed, `details` the device, rtab, `ms` since the bring-up began and, when it stalled or failed, the `step`.
+	 */
+	| "remote-tab"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -1007,6 +1018,9 @@ export interface IpcFsListPayload {
 	maxEntries?: number;
 }
 
+/** The most files one fs:list walk returns; a larger `maxEntries` is cut to it. The `@` list asks for all of it. */
+export const FS_LIST_MAX_ENTRIES = 20_000;
+
 export interface FsTreeEntry {
 	name: string;
 	/** Workspace-relative path using POSIX separators. */
@@ -1526,10 +1540,12 @@ export interface HostView {
 	home?: string;
 }
 
-/** A client device paired with this computer (B role). */
+/** A device that uses this computer (B role); recorded the first time Tailscale let it in. */
 export interface PeerView {
 	deviceId: string;
 	name: string;
+	/** The Tailscale login of the node it connects from; null for a device paired by code and not seen since. */
+	login: string | null;
 	online: boolean;
 	/** Epoch ms of the last live connection; null when it never connected after pairing. */
 	lastSeenAt: number | null;
@@ -1551,38 +1567,58 @@ export interface PeerUsageView {
 	tokens: number;
 }
 
-/** Host role of this computer. `port`/`code`/`expiresAt` are null while disabled. */
+/** Where sharing stands on this computer's Tailscale side. */
+export type RemoteTailnetPhase = "not-installed" | "not-running" | "needs-login" | "ready";
+
+/** Host role of this computer. `port` is null while not listening. */
 export interface RemoteHostState {
 	enabled: boolean;
 	name: string;
 	port: number | null;
-	/** `ip:port` LAN addresses. */
+	/** `ip:port` tailnet addresses it listens on. */
 	addresses: string[];
-	code: string | null;
-	/** Epoch ms when `code` stops working. */
-	expiresAt: number | null;
+	/** Every port it may use is taken by another program: it listens nowhere until one is free. */
+	listenError: { code: "port_in_use"; ports: number[] } | null;
 	peers: PeerView[];
 	/** Keep this computer awake while a device uses it (prefs `remote.keepAwake`, default on). */
 	keepAwake: boolean;
 	/** The sleep blocker is held now: a device uses this computer, or did within the last minute. */
 	keepingAwake: boolean;
-	/** Names of paired devices connected now or with a turn still running here. */
+	/** Names of devices connected now or with a turn still running here. */
 	usedBy: string[];
+	/** Ask on this computer before a new device may use it (prefs `remote.confirmNewDevices`, default off). */
+	confirmNewDevices: boolean;
 }
 
 export interface RemoteState {
+	/** This computer's Tailscale: sharing in either direction needs it up and signed in. */
+	tailnet: RemoteTailnetPhase;
 	host: RemoteHostState;
 	hosts: HostView[];
+	/** Computers paired by code with an older release that could not be found on the tailnet and were forgotten. */
+	forgotten: string[];
 }
 
-/** A host seen on the LAN by discovery. */
-export interface RemoteDiscoveredDevice {
-	deviceId: string;
+/** A computer of the tailnet, as this device sees it (Settings › Devices & connections). */
+export interface TailnetComputer {
+	/** Tailscale stable node ID. */
+	nodeId: string;
+	/** The host's own name once it answered, else the node's. */
 	name: string;
-	/** `ip:port`, ready for `remote.pair({address})`. */
-	address: string;
-	/** True when this device is already paired with it. */
-	paired: boolean;
+	/** The node's Tailscale login; null for a tagged node. */
+	login: string | null;
+	/**
+	 * - `available`: OMPdesk shares it and lets this device in;
+	 * - `refused`: OMPdesk shares it but refuses this device (`refusal` says why);
+	 * - `absent`: nothing answers (OMPdesk not running or not shared, or the node is offline).
+	 */
+	state: "available" | "refused" | "absent";
+	/** `not_allowed`, `blocked`, `key_mismatch`… (protocol.ts `REFUSAL_CODES`). */
+	refusal: string | null;
+	/** The host's device id once it answered. */
+	deviceId: string | null;
+	/** This device already uses it (it is one of `RemoteState.hosts`). */
+	connected: boolean;
 }
 
 export interface RemoteDirEntry {
@@ -1601,12 +1637,6 @@ export interface RemoteDirListing {
 	entries: RemoteDirEntry[];
 	/** More subdirectories matched than `entries` holds (the host's per-level bound); a filter narrows them. */
 	truncated?: boolean;
-}
-
-export interface IpcRemotePairPayload {
-	/** `host` or `host:port`. */
-	address: string;
-	code: string;
 }
 
 export interface IpcRemoteListDirsPayload {
@@ -1905,23 +1935,32 @@ export interface OmpApi {
 		setHostEnabled(enabled: boolean): Promise<RemoteState>;
 		setDeviceName(name: string): Promise<RemoteState>;
 		setKeepAwake(enabled: boolean): Promise<RemoteState>;
-		rotateCode(): Promise<RemoteState>;
+		/** Forget a device that uses this computer; it may connect again while its account is allowed. */
 		revokePeer(deviceId: string): Promise<RemoteState>;
+		/** Block the device's Tailscale node (shared with Mobile web's blocks) and forget the device. */
+		blockPeer(deviceId: string): Promise<RemoteState>;
+		setConfirmNewDevices(on: boolean): Promise<RemoteState>;
 		/** Daily model-use limits for a paired device; `{}` removes them. */
 		setPeerLimits(deviceId: string, limits: PeerLimits): Promise<RemoteState>;
 		/** Rename a paired host (it sets its own name). Throws `remote_offline` while it is unreachable. */
 		renameHost(deviceId: string, name: string): Promise<RemoteState>;
 		/** Ask a connected device that uses this computer to rename itself. Throws `remote_offline` when not connected. */
 		renamePeer(deviceId: string, name: string): Promise<RemoteState>;
-		/** Start or stop LAN discovery; resolves with the devices seen so far (empty on stop). */
-		discover(action: "start" | "stop"): Promise<RemoteDiscoveredDevice[]>;
-		/** Throws IpcError `remote_wrong_code|remote_expired|remote_locked|remote_unreachable|remote_protocol`. */
-		pair(payload: IpcRemotePairPayload): Promise<HostView>;
+		/** Watch (`true`) or stop watching the tailnet's computers; resolves with what is known now. */
+		watchTailnet(on: boolean): Promise<TailnetComputer[]>;
+		/**
+		 * Connect to a computer of the tailnet. Throws IpcError `remote_unreachable`, `remote_not_allowed`,
+		 * `remote_blocked`, `remote_declined`, `remote_key_mismatch`, `remote_no_identity`, `remote_protocol`.
+		 */
+		connect(nodeId: string): Promise<HostView>;
+		/** Install Tailscale, or start its app (where the user signs in). */
+		tailscaleAction(action: "install" | "start-app"): Promise<RemoteState>;
+		dismissForgotten(): Promise<RemoteState>;
 		removeHost(deviceId: string): Promise<RemoteState>;
 		/** One directory level on the host; `path` absent = the host's home, `query` filters by name. */
 		listDirs(deviceId: string, path?: string, query?: string): Promise<RemoteDirListing>;
 		onState(callback: (state: RemoteState) => void): () => void;
-		onDiscovered(callback: (devices: RemoteDiscoveredDevice[]) => void): () => void;
+		onTailnet(callback: (computers: TailnetComputer[]) => void): () => void;
 	};
 	stats: {
 		/** `device` = the paired host whose stats server answers; absent = this device. */

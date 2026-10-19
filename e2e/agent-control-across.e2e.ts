@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { controlToolCaller as caller, exitApp, launchApp, openedSessions as opened, readRecords } from "./harness";
-import { launchRemote, makeRemoteProfile, pair, type RemoteInstance } from "./remote-harness";
+import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
 // sessions read and reopened without a tab, a judged compare of two sessions, and a session opened on a paired
@@ -135,21 +135,16 @@ test.describe("on a paired device", () => {
 
 	test("opens a session on a paired device, waits for it there, and reads its saved transcript back", async () => {
 		test.setTimeout(240_000);
-		const base = 47_000 + Math.floor(Math.random() * 1000);
-		const hostProfile = await makeRemoteProfile(parent, "host", {
-			language: "en",
-			theme: "light",
-			discoveryPort: base,
-		});
+		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
 		const clientProfile = await makeRemoteProfile(parent, "client", {
 			language: "en",
 			theme: "light",
-			discoveryPort: base + 1,
+			port: hostProfile.port,
 			prefs: { batchNotifications: false },
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
-		const deviceId = await pair(host.page, client.page, "PC-B");
+		const deviceId = await connectHost(host.page, client.page, "PC-B");
 		await expect
 			.poll(async () => (await client?.page.evaluate(() => window.omp.remote.getState()))?.hosts[0]?.state, {
 				timeout: 30_000,

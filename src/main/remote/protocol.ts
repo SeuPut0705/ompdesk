@@ -1,59 +1,66 @@
 /**
  * Message shapes of the remote-device protocol, validated at the socket
- * boundary. `HANDSHAKE_VERSION` is the `v` of pair-init/auth-init;
+ * boundary. `HANDSHAKE_VERSION` is the `v` of probe/auth-init;
  * `PROTOCOL_VERSION` is the `protocol` of the encrypted hello.
+ *
+ * Version 2 has no pairing: who may connect is the host's Tailscale check
+ * (`tailscale whois` of the peer's tailnet address), and each side pins the
+ * other's static key on first contact (the host per Tailscale node).
  */
 import { z } from "zod";
-import { authTranscript, isRawKey, pairTranscript } from "./crypto";
+import { authTranscript, isRawKey } from "./crypto";
 
-export const HANDSHAKE_VERSION = 1;
+export const HANDSHAKE_VERSION = 2;
 export const PROTOCOL_VERSION = 1;
 
-/** Pairing failures the host reports in `pair-fail`. */
-export const PAIR_FAIL_CODES = ["wrong_code", "expired", "locked"] as const;
+/**
+ * Why a host refused a connection (`auth-fail` or a probe's `error`):
+ * - `not_tailnet`: the peer's address is no tailnet address;
+ * - `no_identity`: Tailscale cannot say whose node it is (unknown, or a tagged node);
+ * - `not_allowed`: the node's login is not on the host's allowed list;
+ * - `blocked`: the host blocked this node;
+ * - `declined`: the host's user declined (or did not answer) the new device;
+ * - `key_mismatch`: this node, or this device id, is pinned to another key on the host;
+ * - `protocol`: a handshake the host does not speak.
+ */
+export const REFUSAL_CODES = [
+	"not_tailnet",
+	"no_identity",
+	"not_allowed",
+	"blocked",
+	"declined",
+	"key_mismatch",
+	"protocol",
+] as const;
+export type RefusalCode = (typeof REFUSAL_CODES)[number];
 
 const rawKey = z.string().refine(isRawKey, "not a raw X25519 key");
 const deviceId = z.string().min(1).max(64);
 const deviceName = z.string().max(256);
-const mac = z.string().max(64);
 
 /** First frame of any connection; `v` is checked before the full shape. */
-export const Opening = z.object({ t: z.enum(["pair-init", "auth-init"]), v: z.unknown() });
+export const Opening = z.object({ t: z.enum(["probe", "auth-init"]), v: z.unknown() });
 
-export const PairInit = z.object({
-	t: z.literal("pair-init"),
+export const ErrorMessage = z.object({ t: z.literal("error"), code: z.string().max(64) });
+
+/** A probe passed the host's check: who answers, so a list can show it before connecting. */
+export const ProbeReply = z.discriminatedUnion("t", [
+	z.object({ t: z.literal("probe-ok"), deviceId, name: deviceName, appVersion: z.string().max(64) }),
+	ErrorMessage,
+]);
+
+export const AuthInit = z.object({
+	t: z.literal("auth-init"),
 	v: z.number(),
 	deviceId,
 	name: deviceName,
 	ephPub: rawKey,
 	staticPub: rawKey,
 });
-export type PairInit = z.infer<typeof PairInit>;
-
-export const PairChallenge = z.object({
-	t: z.literal("pair-challenge"),
-	deviceId,
-	name: deviceName,
-	ephPub: rawKey,
-	staticPub: rawKey,
-});
-export type PairChallenge = z.infer<typeof PairChallenge>;
-
-export const PairProof = z.object({ t: z.literal("pair-proof"), mac });
-
-export const ErrorMessage = z.object({ t: z.literal("error"), code: z.string().max(64) });
-
-export const PairResult = z.discriminatedUnion("t", [
-	z.object({ t: z.literal("pair-ok"), mac }),
-	z.object({ t: z.literal("pair-fail"), code: z.enum(PAIR_FAIL_CODES) }),
-	ErrorMessage,
-]);
-
-export const AuthInit = z.object({ t: z.literal("auth-init"), v: z.number(), deviceId, ephPub: rawKey });
 export type AuthInit = z.infer<typeof AuthInit>;
 
 export const AuthReply = z.discriminatedUnion("t", [
-	z.object({ t: z.literal("auth-resp"), deviceId, ephPub: rawKey }),
+	z.object({ t: z.literal("auth-resp"), deviceId, name: deviceName, ephPub: rawKey, staticPub: rawKey }),
 	z.object({ t: z.literal("auth-fail"), code: z.string().max(64) }),
 	ErrorMessage,
 ]);
@@ -97,20 +104,6 @@ export const WireResponse = z.discriminatedUnion("ok", [
 ]);
 
 export const WireEvent = z.object({ t: z.literal("evt"), event: z.string().min(1).max(128), data: z.unknown() });
-
-/** The pairing transcript hash, in message order: pair-init then pair-challenge. */
-export function pairTranscriptOf(init: PairInit, challenge: PairChallenge): Buffer {
-	return pairTranscript([
-		init.deviceId,
-		init.name,
-		init.ephPub,
-		init.staticPub,
-		challenge.deviceId,
-		challenge.name,
-		challenge.ephPub,
-		challenge.staticPub,
-	]);
-}
 
 export interface AuthParty {
 	deviceId: string;

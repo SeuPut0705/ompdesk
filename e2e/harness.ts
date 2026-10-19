@@ -146,13 +146,13 @@ export async function recordsOfType(file: string, type: string): Promise<Record<
 }
 
 /**
- * The main agent of `page`'s focused tab calls an OMPdesk control tool (the fake omp runs
+ * The main agent of `page`'s focused tab (or of `tabId`) calls an OMPdesk control tool (the fake omp runs
  * `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets in `record`);
  * resolves with the result the agent gets back.
  */
-export async function controlToolCaller(page: Page, record: string) {
+export async function controlToolCaller(page: Page, record: string, tabId?: string) {
 	const tabs = await page.evaluate(() => window.omp.tabs.list());
-	const main = tabs.find(tab => tab.active)?.tabId ?? "";
+	const main = tabId ?? tabs.find(tab => tab.active)?.tabId ?? "";
 	expect(main).not.toBe("");
 	const results = async () =>
 		(await readRecords(record))

@@ -5,11 +5,12 @@ import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { exitApp, fixtureOmp, openDestination, pressShortcutUntilVisible, walkRemotePicker } from "./harness";
+import { freePort, remoteTailscale } from "./remote-harness";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in flow audit of the right panel, Settings, Stats and Agents
-// (OMP_GUI_PANELS_FLOWS=<dir>), on the fake omp: remote pairing between two
-// apps through a host restart and an unpair, the provider and account flows
+// (OMP_GUI_PANELS_FLOWS=<dir>), on the fake omp: remote connection between two
+// apps over a fake tailnet through a host restart and a removal, the provider and account flows
 // (add an account, an API-key sign-in, remove, rotation mode, the custom
 // endpoint form) with a relaunch, a remapped shortcut that survives a relaunch
 // and fires, and a walk through every settings section, the stats and agents
@@ -140,30 +141,29 @@ async function cleanup(root: string): Promise<void> {
 	await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
-// ── Remote pairing between two apps, through a host restart and an unpair ──
-test("remote pairing flow", async () => {
+// ── Remote connection between two apps over a fake tailnet, through a host restart and a removal ──
+test("remote connection flow", async () => {
 	test.setTimeout(300_000);
 	const root = await tempRoot("remote");
-	const discovery = 49_000 + Math.floor(Math.random() * 1_000) * 2;
 	const hostRoot = path.join(root, "b");
 	const clientRoot = path.join(root, "a");
-	const hostEnv = (port: string) => ({
+	// One port for both apps, and for the host's relaunch: A probes the port B listens on.
+	const port = String(await freePort());
+	const remoteEnv = async (dir: string, name: string) => ({
+		...(await remoteTailscale(dir, name)).env,
+		OMP_GUI_TEST_REMOTE_LOOPBACK: "1",
 		OMP_GUI_REMOTE_PORT: port,
-		OMP_GUI_REMOTE_DISCOVERY_PORT: String(discovery),
 	});
-	let host: Instance | null = await launch(hostRoot, { env: hostEnv("0") });
-	let client: Instance | null = await launch(clientRoot, {
-		env: { OMP_GUI_REMOTE_DISCOVERY_PORT: String(discovery + 1) },
-	});
+	const hostEnv = await remoteEnv(hostRoot, "host");
+	let host: Instance | null = await launch(hostRoot, { env: hostEnv });
+	let client: Instance | null = await launch(clientRoot, { env: await remoteEnv(clientRoot, "client") });
 	const b = recorder(host.page, "remote-host");
 	const a = recorder(client.page, "remote-client");
 	try {
-		// B: share this computer, rename it, read its address and code.
+		// B: share this computer and rename it.
 		await openSettings(host.page, "connections");
 		await b.shoot("off");
 		await host.page.getByRole("switch", { name: "Let other devices use this computer" }).click();
-		const codeRow = host.page.locator("[data-remote-section] [data-remote-code]");
-		await expect(codeRow).toContainText(/[0-9A-Z]{4}-[0-9A-Z]{4}/);
 		const name = host.page.getByLabel("Device name", { exact: true });
 		await name.fill("Studio Mac mini");
 		await name.press("Enter");
@@ -171,35 +171,20 @@ test("remote pairing flow", async () => {
 			.poll(() => host?.page.evaluate(async () => (await window.omp.remote.getState()).host.name))
 			.toBe("Studio Mac mini");
 		await b.shoot("sharing");
-		const port = /:(\d+)/.exec(
-			(await host.page.locator("[data-remote-addresses] li").first().textContent()) ?? "",
-		)?.[1];
-		if (!port) throw new Error("expected the host's port");
 
-		// A: connect with a wrong code, then the right one.
+		// A: the tailnet lists B; connect to it.
 		await openSettings(client.page, "connections");
 		await a.shoot("empty");
-		await client.page.locator("[data-remote-connect]").click();
-		const dialog = client.page.getByRole("dialog", { name: "Connect to a device" });
-		await expect(dialog).toBeVisible();
-		await a.shoot("connect-dialog");
-		await dialog.locator("input[data-remote-address]").fill(`127.0.0.1:${port}`);
-		await dialog.locator("input[data-remote-code]").fill("ZZZZ-ZZZZ");
-		await dialog.locator("[data-remote-connect-submit]").click();
-		await expect(dialog.locator("[data-remote-connect-error]")).toBeVisible();
-		await a.shoot("wrong-code");
-		const code = /[0-9A-Z]{4}-[0-9A-Z]{4}/.exec((await codeRow.textContent()) ?? "")?.[0] ?? "";
-		await dialog.locator("input[data-remote-code]").fill(code);
-		await dialog.locator("[data-remote-connect-submit]").click();
-		await expect(dialog).toHaveCount(0);
+		const connect = client.page.locator("[data-remote-tailnet-connect]").first();
+		await expect(connect).toBeVisible({ timeout: 30_000 });
+		await a.shoot("tailnet");
+		await connect.click();
 		const hostRow = client.page.locator("[data-remote-hosts] [data-remote-host]");
 		await expect(hostRow).toContainText("Online");
 		await expect(hostRow).toContainText("Studio Mac mini");
-		await a.shoot("paired");
+		await a.shoot("connected");
 		const deviceId = (await hostRow.getAttribute("data-remote-host")) ?? "";
 		await expect(host.page.locator("[data-remote-peers] [data-remote-peer]")).toContainText("Online");
-		// The code that paired is spent: a fresh one shows on B.
-		await expect(codeRow).not.toContainText(code);
 		await b.shoot("peer-online");
 
 		// A: a session on B from the sidebar.
@@ -245,7 +230,7 @@ test("remote pairing flow", async () => {
 		host = null;
 		await expect(client.page.locator(`[data-remote-reconnecting="${deviceId}"]`)).toBeVisible();
 		await a.shoot("host-gone");
-		host = await launch(hostRoot, { env: hostEnv(port) });
+		host = await launch(hostRoot, { env: hostEnv });
 		await expect(client.page.locator(`[data-remote-reconnecting="${deviceId}"]`)).toHaveCount(0, {
 			timeout: 60_000,
 		});

@@ -4,7 +4,8 @@
  */
 
 import type { ExtensionUIRequest, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
-import { APPROVAL_TITLE_PREFIX, isApprovalRequest } from "../../../stores/extension-ui";
+import { APPROVAL_TITLE_PREFIX } from "../../../../shared/tool-approval";
+import { isApprovalRequest } from "../../../stores/extension-ui";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** Width of the board and the gap between it and the transcript column (components.css `--omp-board-*`). */

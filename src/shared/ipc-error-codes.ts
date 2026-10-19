@@ -93,15 +93,19 @@ export const IPC_ERROR_CODES = [
 	"worktree_remove_failed",
 	"bridge_unavailable",
 	"unsupported_omp",
-	// Remote devices (src/main/remote): link and pairing failures.
+	// Remote devices (src/main/remote): link failures, and a host's refusal (protocol.ts REFUSAL_CODES).
 	"remote_offline",
 	"remote_unknown_device",
 	"remote_path_native",
-	"remote_wrong_code",
-	"remote_expired",
-	"remote_locked",
 	"remote_unreachable",
 	"remote_protocol",
+	"remote_not_tailnet",
+	"remote_no_identity",
+	"remote_not_allowed",
+	"remote_blocked",
+	"remote_declined",
+	"remote_key_mismatch",
+	"remote_tailscale_off",
 	// A paired device's daily model-use limit on this host is used up (remote/peer-quota.ts).
 	"remote_limit_reached",
 	// A device asked a host to install its update (machine-services.ts desktopUpdate).

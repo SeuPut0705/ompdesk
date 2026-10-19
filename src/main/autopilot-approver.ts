@@ -9,8 +9,9 @@
 
 import type { AutopilotShipPolicy } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { findBanViolation } from "../../resources/gui-bridge/modes/autopilot-guard-core";
-import { AGENT_CARD_PREFIX, isApprovalSelect } from "../shared/agent-control";
+import { AGENT_CARD_PREFIX } from "../shared/agent-control";
 import type { ExtensionUIRequest, ExtensionUIResponse } from "../shared/rpc-types";
+import { isApprovalSelect } from "../shared/tool-approval";
 
 /** What the approver needs to know about an autopilot tab. */
 export interface ApproverRun {

@@ -127,7 +127,7 @@ class FakeConnection implements HostConnection {
 }
 
 function peer(deviceId: string): PeerInfo {
-	return { deviceId, name: deviceId, staticPub: "pub", pairedAt: 0 };
+	return { deviceId, name: deviceId, staticPub: "pub", nodeId: `n-${deviceId}`, login: null, pairedAt: 0 };
 }
 
 let workDir: string;

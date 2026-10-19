@@ -24,13 +24,13 @@ import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { capture, cssString, exitApp, readRecords, variants } from "./harness";
 import {
+	connectHost,
 	freePort,
 	type Language,
 	launchRemote,
 	linkProxy,
 	makeRemoteProfile,
 	openHostFolder,
-	pair,
 	type RemoteInstance,
 	type RemoteProfile,
 } from "./remote-harness";
@@ -100,24 +100,22 @@ for (const language of variants(["en", "ko"] as const))
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
 			const hostLanguage: Language = language === "en" ? "ko" : "en";
 			const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-resume-")));
-			const discovery = 52_000 + Math.floor(Math.random() * 1_000) * 2;
 			let host: RemoteInstance | null = null;
 			let client: RemoteInstance | null = null;
 			try {
 				const hostProfile = await makeRemoteProfile(parent, "b", {
 					language: hostLanguage,
 					theme,
-					discoveryPort: discovery,
 					port: await freePort(),
 				});
 				const clientProfile = await makeRemoteProfile(parent, "a", {
 					language,
 					theme,
-					discoveryPort: discovery + 1,
+					port: hostProfile.port,
 				});
 				host = await launchRemote(hostProfile);
 				client = await launchRemote(clientProfile);
-				const deviceId = await pair(host.page, client.page, "Host B");
+				const deviceId = await connectHost(host.page, client.page, "Host B");
 				await openHostFolder(client.page, deviceId, hostProfile.project);
 
 				await test.step("B is killed mid-turn: B's relaunch continues it, A shows it go on", async () => {
@@ -182,25 +180,23 @@ for (const language of variants(["en", "ko"] as const))
 			test.setTimeout(300_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
 			const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-wait-")));
-			const discovery = 53_000 + Math.floor(Math.random() * 1_000) * 2;
 			let host: RemoteInstance | null = null;
 			let client: RemoteInstance | null = null;
 			try {
 				const hostProfile = await makeRemoteProfile(parent, "b", {
 					language: language === "en" ? "ko" : "en",
 					theme,
-					discoveryPort: discovery,
 					port: await freePort(),
 				});
 				const clientProfile = await makeRemoteProfile(parent, "a", {
 					language,
 					theme,
-					discoveryPort: discovery + 1,
+					port: hostProfile.port,
 				});
 				host = await launchRemote(hostProfile);
 				client = await launchRemote(clientProfile);
 				const a = client.page;
-				const deviceId = await pair(host.page, a, "Host B");
+				const deviceId = await connectHost(host.page, a, "Host B");
 				await openHostFolder(a, deviceId, hostProfile.project);
 
 				// B's connection drops; A's does not: the wait is B's, and A shows it.
@@ -251,7 +247,6 @@ for (const [language, theme] of variants([
 		test.setTimeout(300_000);
 		const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
 		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-asks-")));
-		const discovery = 54_000 + Math.floor(Math.random() * 1_000) * 2;
 		const hostPort = await freePort();
 		const proxy = await linkProxy(hostPort);
 		let host: RemoteInstance | null = null;
@@ -260,18 +255,17 @@ for (const [language, theme] of variants([
 			const hostProfile = await makeRemoteProfile(parent, "b", {
 				language: language === "en" ? "ko" : "en",
 				theme,
-				discoveryPort: discovery,
 				port: hostPort,
 			});
 			const clientProfile = await makeRemoteProfile(parent, "a", {
 				language,
 				theme,
-				discoveryPort: discovery + 1,
+				port: Number(proxy.address.split(":")[1]),
 			});
 			host = await launchRemote(hostProfile);
 			client = await launchRemote(clientProfile);
 			const a = client.page;
-			const deviceId = await pair(host.page, a, "Host B", proxy.address);
+			const deviceId = await connectHost(host.page, a, "Host B");
 			const hostOwn = ompPids(hostProfile);
 			await openHostFolder(a, deviceId, hostProfile.project);
 			const prompt = a.locator("[data-prompt-card]");
@@ -357,7 +351,6 @@ for (const [language, theme] of variants([
 test("a sign-in open on a host's tab when the link drops and returns never becomes a chat card", async () => {
 	test.setTimeout(300_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-login-")));
-	const discovery = 54_000 + Math.floor(Math.random() * 1_000) * 2;
 	const hostPort = await freePort();
 	const proxy = await linkProxy(hostPort);
 	let host: RemoteInstance | null = null;
@@ -367,19 +360,18 @@ test("a sign-in open on a host's tab when the link drops and returns never becom
 		const hostProfile = await makeRemoteProfile(parent, "b", {
 			language: "en",
 			theme: "light",
-			discoveryPort: discovery,
 			port: hostPort,
 			env: { OMP_GUI_TEST_LOGIN: "1" },
 		});
 		const clientProfile = await makeRemoteProfile(parent, "a", {
 			language: "en",
 			theme: "light",
-			discoveryPort: discovery + 1,
+			port: Number(proxy.address.split(":")[1]),
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const a = client.page;
-		const deviceId = await pair(host.page, a, "Host B", proxy.address);
+		const deviceId = await connectHost(host.page, a, "Host B");
 		await openHostFolder(a, deviceId, hostProfile.project);
 		await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
 
@@ -448,24 +440,22 @@ test("a sign-in open on a host's tab when the link drops and returns never becom
 test("a device deletes a host's session from its sidebar row: the host's omp lets go, the file goes, and neither relaunch brings it back", async () => {
 	test.setTimeout(300_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-delete-")));
-	const discovery = 55_000 + Math.floor(Math.random() * 1_000) * 2;
 	let host: RemoteInstance | null = null;
 	let client: RemoteInstance | null = null;
 	try {
 		const hostProfile = await makeRemoteProfile(parent, "b", {
 			language: "en",
 			theme: "light",
-			discoveryPort: discovery,
 			port: await freePort(),
 		});
 		const clientProfile = await makeRemoteProfile(parent, "a", {
 			language: "en",
 			theme: "light",
-			discoveryPort: discovery + 1,
+			port: hostProfile.port,
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
-		const deviceId = await pair(host.page, client.page, "Host B");
+		const deviceId = await connectHost(host.page, client.page, "Host B");
 		await openHostFolder(client.page, deviceId, hostProfile.project);
 		const a = client.page;
 		await send(a, "remote hello");

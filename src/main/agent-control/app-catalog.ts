@@ -9,12 +9,15 @@
 
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
-import { IPC_COMMANDS, type RemoteState } from "../../shared/ipc-types";
+import { type HostView, IPC_COMMANDS, type RemoteState, type TailnetComputer } from "../../shared/ipc-types";
 import {
 	MOBILE_WEB_COMMAND,
 	MOBILE_WEB_GET_STATE,
+	WEB_BLOCKS_LIST,
+	WEB_BLOCKS_REMOVE,
 	WEB_DEVICES_LIST,
 	WEB_DEVICES_RENAME,
+	type WebBlockedInfo,
 	type WebDeviceInfo,
 } from "../../shared/mobile-web";
 import type { RpcCommand } from "../../shared/rpc-types";
@@ -782,18 +785,92 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		},
 	},
 	{
-		id: "remote.pair",
+		id: "remote.list_tailnet",
 		area: "connections",
 		description:
-			"Start pairing another computer: opens Settings › Devices & connections, where this computer's pairing code is shown and the person types the other one's. You never give or read a pairing code.",
+			"List the computers on the person's tailnet as this one sees them (node id, name, login, whether OMPdesk shares it and lets this computer in, and whether this computer already uses it).",
 		args: NO_ARGS,
-		tier: "sensitive",
-		manage: { always: "pairing gives another computer access to this one's sessions" },
-		describe: () => "start pairing another computer (opens Devices & connections; the person completes it there)",
+		tier: "read",
 		run: async ctx => {
-			ctx.ui({ kind: "settings", section: "connections", sub: "remote" });
+			const computers = (await ctx.invoke(C.REMOTE_WATCH_TAILNET, true)) as TailnetComputer[];
+			await ctx.invoke(C.REMOTE_WATCH_TAILNET, false);
+			if (computers.length === 0) return { text: "No other computer of the tailnet is online." };
 			return {
-				text: "Pairing started: Settings › Devices & connections is open; the person completes it. You cannot see or enter the code.",
+				text: computers
+					.map(
+						computer =>
+							`node ${computer.nodeId}: ${computer.name}${computer.login ? ` (${computer.login})` : ""}, ${computer.state}${computer.refusal ? ` (${computer.refusal})` : ""}${computer.connected ? ", connected" : ""}`,
+					)
+					.join("\n"),
+			};
+		},
+	},
+	{
+		id: "remote.connect",
+		area: "connections",
+		description:
+			"Connect this computer to another computer of the tailnet that shares OMPdesk (nodeId from remote.list_tailnet), so sessions can run there.",
+		args: objectSchema({ nodeId: { type: "string", minLength: 1, maxLength: 128 } }, ["nodeId"]),
+		tier: "sensitive",
+		manage: { always: "connecting gives this computer's sessions a way onto another computer" },
+		describe: args => `connect to the tailnet computer ${String(args.nodeId)}`,
+		run: async (ctx, args) => {
+			const host = (await ctx.invoke(C.REMOTE_CONNECT, String(args.nodeId))) as HostView;
+			return {
+				text: `Connected to ${host.name} (${host.deviceId}).`,
+				change: { en: "Connected computer", ko: "연결한 컴퓨터", value: host.name },
+			};
+		},
+	},
+	{
+		id: "remote.block",
+		area: "connections",
+		description:
+			"Keep a device that uses this computer out for good (deviceId from remote.devices): its Tailscale node is blocked and it is forgotten. Unblock with remote.unblock.",
+		args: objectSchema({ deviceId: { type: "string", minLength: 1, maxLength: 64 } }, ["deviceId"]),
+		tier: "sensitive",
+		manage: { lifts: "it only takes access away, and remote.unblock undoes it" },
+		describe: args => `block the device ${String(args.deviceId)}`,
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_BLOCK_PEER, String(args.deviceId));
+			return { text: "Blocked.", change: { en: "Blocked device", ko: "차단한 기기", value: String(args.deviceId) } };
+		},
+	},
+	{
+		id: "remote.unblock",
+		area: "connections",
+		description:
+			"Let a blocked device (a computer or a phone) connect again while its Tailscale account is allowed, by its block id or name.",
+		args: objectSchema({ block: { type: "string", minLength: 1, maxLength: 200 } }, ["block"]),
+		tier: "sensitive",
+		manage: { always: "unblocking lets a device the person kept out reach this computer again" },
+		describe: args => `unblock ${String(args.block)}`,
+		run: async (ctx, args) => {
+			const blocks = (await ctx.invoke(WEB_BLOCKS_LIST)) as WebBlockedInfo[];
+			const wanted = String(args.block);
+			const entry = blocks.find(block => block.id === wanted) ?? blocks.find(block => block.name === wanted);
+			if (!entry) throw new AppRefusal(`No block named ${wanted}.`);
+			await ctx.invoke(WEB_BLOCKS_REMOVE, entry.id);
+			return { text: "Unblocked.", change: { en: "Unblocked device", ko: "차단 해제", value: entry.name } };
+		},
+	},
+	{
+		id: "remote.set_allowed_users",
+		area: "connections",
+		description:
+			"Set the Tailscale accounts allowed to use this computer, from other computers and from the phone page alike (logins; this computer's own stays allowed when the list is empty).",
+		args: objectSchema({ users: { type: "array", items: { type: "string", maxLength: 200 }, maxItems: 50 } }, [
+			"users",
+		]),
+		tier: "sensitive",
+		manage: { always: "an allowed account can use this computer's sessions from any of its devices" },
+		describe: args => `allow the Tailscale accounts ${(args.users as string[]).join(", ")}`,
+		run: async (ctx, args) => {
+			const users = (args.users as unknown[]).map(String);
+			await ctx.invoke(MOBILE_WEB_COMMAND, { action: "set-allowed-users", users });
+			return {
+				text: "Allowed accounts saved.",
+				change: { en: "Allowed accounts", ko: "허용 계정", value: users.join(", ") },
 			};
 		},
 	},

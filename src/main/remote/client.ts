@@ -1,13 +1,14 @@
 /**
- * The client side (A) of remote devices: `pairWithHost` runs the pairing
- * handshake once, and a `RemoteClient` per paired host keeps one
- * authenticated link up (reconnecting with 1 s → 30 s backoff over the
- * host's stored addresses) and carries requests and pushed events.
+ * The client side (A) of remote devices. `probeHost` asks an address whether an OMPdesk host answers there and
+ * lets this device in (it shows the host before any connection); `connectFirst` runs the handshake once with a
+ * host this device never connected to and pins the host's key; a `RemoteClient` per known host keeps one
+ * authenticated link up (reconnecting with 1 s → 30 s backoff over the host's current addresses) and carries
+ * requests and pushed events.
  */
 import { EventEmitter } from "node:events";
 import { connect, type Socket } from "node:net";
 import { formatAddress, type HostPort, parseAddress } from "./address";
-import { authKeys, dh, generateKeyPair, macEquals, normalizeCode, pairKey, pairMac } from "./crypto";
+import { authKeys, dh, generateKeyPair } from "./crypto";
 import type { HostHello } from "./host-server";
 import type { HostStore, PairedHost } from "./hosts-store";
 import type { Identity } from "./identity";
@@ -17,11 +18,8 @@ import {
 	HANDSHAKE_VERSION,
 	HelloVersion,
 	HostHelloMessage,
-	PairChallenge,
-	type PairInit,
-	PairResult,
 	PROTOCOL_VERSION,
-	pairTranscriptOf,
+	ProbeReply,
 	WireEvent,
 	WireResponse,
 } from "./protocol";
@@ -33,11 +31,12 @@ export const RECONNECT_MIN_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 5_000;
+const PROBE_TIMEOUT_MS = 3_000;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 
 /**
- * A remote failure with a stable code: pairing (`wrong_code`, `expired`,
- * `locked`, `unreachable`, `protocol`), links (`remote_offline`, `unpaired`,
+ * A remote failure with a stable code: the host's refusal (`REFUSAL_CODES` in protocol.ts), this side's
+ * (`key_mismatch` for a host that answers with another key, `unreachable`, `protocol`), links (`remote_offline`,
  * `timeout`, `too_large`), or whatever code the host's handler failed with.
  */
 export class RemoteError extends Error {
@@ -50,14 +49,14 @@ export class RemoteError extends Error {
 	}
 }
 
-function dial(target: HostPort): Promise<Socket> {
+function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket> {
 	const socket = connect({ host: target.host, port: target.port });
 	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
 	const fail = (error: Error) => {
 		socket.destroy();
 		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`));
 	};
-	socket.setTimeout(CONNECT_TIMEOUT_MS, () => fail(new Error("connect timed out")));
+	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out")));
 	socket.once("error", fail);
 	socket.once("connect", () => {
 		socket.setTimeout(0);
@@ -73,61 +72,29 @@ function asRemoteError(error: unknown): RemoteError {
 	return new RemoteError("unreachable", error instanceof Error ? error.message : String(error));
 }
 
-export interface PairOptions {
-	identity: Identity;
-	/** `host`, `host:port`, `[v6]:port`. */
-	address: string;
-	code: string;
-	name: string;
-	appVersion: string;
-	/** Persist the host here on success (keeping its older addresses). */
-	hosts?: HostStore;
+async function dialAddress(address: string, timeoutMs?: number): Promise<Link> {
+	const target = parseAddress(address);
+	if (!target) throw new RemoteError("unreachable", `invalid address: ${address}`);
+	return new Link(await dial(target, timeoutMs));
 }
 
+/** What a probe found at an address: a host that lets this device in, or one that refuses it (and why). */
+export type ProbeResult =
+	| { ok: true; deviceId: string; name: string; appVersion: string }
+	| { ok: false; code: string };
+
 /**
- * Pair with the host at `address` using its displayed code. Throws RemoteError
- * `wrong_code`, `expired`, `locked`, `unreachable` or `protocol`.
+ * Ask `address` whether an OMPdesk host answers and would let this device in. Throws RemoteError `unreachable`
+ * when nothing (or something else) answers there.
  */
-export async function pairWithHost(opts: PairOptions): Promise<PairedHost> {
-	const code = normalizeCode(opts.code);
-	if (!code) throw new RemoteError("wrong_code", "the code must be 8 characters");
-	const target = parseAddress(opts.address);
-	if (!target) throw new RemoteError("unreachable", `invalid address: ${opts.address}`);
-	const link = new Link(await dial(target));
+export async function probeHost(address: string): Promise<ProbeResult> {
+	const link = await dialAddress(address, PROBE_TIMEOUT_MS);
 	try {
-		const eph = generateKeyPair();
-		const init: PairInit = {
-			t: "pair-init",
-			v: HANDSHAKE_VERSION,
-			deviceId: opts.identity.deviceId,
-			name: opts.name,
-			ephPub: eph.publicKey,
-			staticPub: opts.identity.publicKey,
-		};
-		link.send(init);
-		const reply = await link.receive(HANDSHAKE_TIMEOUT_MS);
-		if (reply.t === "error") throw new RemoteError(String(reply.code ?? "protocol"));
-		const challenge = PairChallenge.safeParse(reply);
-		if (!challenge.success) throw new RemoteError("protocol", "malformed pairing challenge");
-		const key = pairKey(dh(eph.privateKey, challenge.data.ephPub), code, pairTranscriptOf(init, challenge.data));
-		link.send({ t: "pair-proof", mac: pairMac(key, "A") });
-		const result = PairResult.safeParse(await link.receive(HANDSHAKE_TIMEOUT_MS));
-		if (!result.success) throw new RemoteError("protocol", "malformed pairing result");
-		if (result.data.t !== "pair-ok") throw new RemoteError(result.data.code);
-		if (!macEquals(pairMac(key, "B"), result.data.mac)) {
-			throw new RemoteError("protocol", "the host could not prove it knows the code");
-		}
-		const address = formatAddress(target);
-		const previous = opts.hosts?.get(challenge.data.deviceId);
-		const host: PairedHost = {
-			deviceId: challenge.data.deviceId,
-			name: challenge.data.name,
-			staticPub: challenge.data.staticPub,
-			addresses: [address, ...(previous?.addresses.filter(a => a !== address) ?? [])],
-			pairedAt: Date.now(),
-		};
-		opts.hosts?.put(host);
-		return opts.hosts?.get(host.deviceId) ?? host;
+		link.send({ t: "probe", v: HANDSHAKE_VERSION });
+		const reply = ProbeReply.safeParse(await link.receive(PROBE_TIMEOUT_MS));
+		if (!reply.success) throw new RemoteError("unreachable", `${address} is not an OMPdesk host`);
+		if (reply.data.t === "error") return { ok: false, code: reply.data.code };
+		return { ok: true, deviceId: reply.data.deviceId, name: reply.data.name, appVersion: reply.data.appVersion };
 	} catch (error) {
 		throw asRemoteError(error);
 	} finally {
@@ -135,13 +102,128 @@ export async function pairWithHost(opts: PairOptions): Promise<PairedHost> {
 	}
 }
 
+interface HandshakeOptions {
+	identity: Identity;
+	name: string;
+	appVersion: string;
+	/** The host this device pinned: its id and key must answer. Null on first contact (the key is pinned then). */
+	expected: { deviceId: string; staticPub: string } | null;
+}
+
+interface Handshake {
+	link: Link;
+	hello: HostHello;
+	host: { deviceId: string; name: string; staticPub: string };
+}
+
+/**
+ * Auth, client side: both static keys and both ephemeral keys go into the session keys (DH(eA,eB) ‖ DH(sA,eB) ‖
+ * DH(eA,sB)), so only the holder of the host key this device pinned can read or answer the link.
+ */
+async function handshake(address: string, opts: HandshakeOptions): Promise<Handshake> {
+	const link = await dialAddress(address);
+	try {
+		const { identity } = opts;
+		const eph = generateKeyPair();
+		link.send({
+			t: "auth-init",
+			v: HANDSHAKE_VERSION,
+			deviceId: identity.deviceId,
+			name: opts.name,
+			ephPub: eph.publicKey,
+			staticPub: identity.publicKey,
+		});
+		const reply = AuthReply.safeParse(await link.receive(HANDSHAKE_TIMEOUT_MS));
+		if (!reply.success) throw new RemoteError("protocol", "malformed auth reply");
+		if (reply.data.t !== "auth-resp") throw new RemoteError(reply.data.code);
+		const answer = reply.data;
+		if (opts.expected) {
+			// Another device now answers at this address.
+			if (answer.deviceId !== opts.expected.deviceId) {
+				throw new RemoteError("unreachable", `${address} is another device`);
+			}
+			if (answer.staticPub !== opts.expected.staticPub) {
+				throw new RemoteError("key_mismatch", `${address} answers with another key than the one pinned`);
+			}
+		}
+		const ikm = Buffer.concat([
+			dh(eph.privateKey, answer.ephPub),
+			dh(identity.privateKey, answer.ephPub),
+			dh(eph.privateKey, answer.staticPub),
+		]);
+		const keys = authKeys(
+			ikm,
+			authTranscriptOf(
+				{ deviceId: identity.deviceId, ephPub: eph.publicKey, staticPub: identity.publicKey },
+				{ deviceId: answer.deviceId, ephPub: answer.ephPub, staticPub: answer.staticPub },
+			),
+		);
+		link.secure(keys.ab, keys.ba);
+		link.send({ t: "hello", protocol: PROTOCOL_VERSION, appVersion: opts.appVersion, name: opts.name });
+		const message = await link.receive(HANDSHAKE_TIMEOUT_MS);
+		if (message.t === "error") throw new RemoteError(String(message.code ?? "protocol"));
+		const version = HelloVersion.safeParse(message);
+		if (!version.success || version.data.protocol !== PROTOCOL_VERSION) {
+			throw new RemoteError("protocol", `host protocol ${String(message.protocol)}, ours ${PROTOCOL_VERSION}`);
+		}
+		const hello = HostHelloMessage.safeParse(message);
+		if (!hello.success) throw new RemoteError("protocol", "malformed host hello");
+		const { t: _t, ...info } = hello.data;
+		return { link, hello: info, host: { deviceId: answer.deviceId, name: info.name, staticPub: answer.staticPub } };
+	} catch (error) {
+		link.destroy();
+		throw asRemoteError(error);
+	}
+}
+
+export interface FirstContactOptions {
+	identity: Identity;
+	address: string;
+	name: string;
+	appVersion: string;
+	/** The host's Tailscale node, recorded with it. */
+	nodeId: string;
+	hosts: HostStore;
+}
+
+/**
+ * Connect once to a host this device never connected to, pin its key and node, and record it. A host already
+ * pinned to that node must answer with the same id and key (`key_mismatch` otherwise).
+ */
+export async function connectFirst(opts: FirstContactOptions): Promise<PairedHost> {
+	const pinned = opts.hosts.byNode(opts.nodeId);
+	const { link, host } = await handshake(opts.address, {
+		identity: opts.identity,
+		name: opts.name,
+		appVersion: opts.appVersion,
+		expected: pinned ? { deviceId: pinned.deviceId, staticPub: pinned.staticPub } : null,
+	});
+	link.close();
+	const previous = opts.hosts.get(host.deviceId);
+	if (previous && previous.staticPub !== host.staticPub) {
+		throw new RemoteError("key_mismatch", `${host.name} answers with another key than the one pinned`);
+	}
+	const record: PairedHost = {
+		deviceId: host.deviceId,
+		name: host.name,
+		staticPub: host.staticPub,
+		nodeId: opts.nodeId,
+		addresses: [opts.address, ...(previous?.addresses.filter(a => a !== opts.address) ?? [])],
+		pairedAt: previous?.pairedAt ?? Date.now(),
+	};
+	opts.hosts.put(record);
+	return opts.hosts.get(record.deviceId) ?? record;
+}
+
 export interface RemoteClientOptions {
 	identity: Identity;
 	host: PairedHost;
 	appVersion: string;
 	name: () => string;
-	/** Read addresses from here on every attempt, and record the working one and the host's name. */
+	/** Read the pinned record from here on every attempt, and record the working address and the host's name. */
 	hosts?: HostStore;
+	/** Where the host can be reached now (its node's tailnet address first); the stored addresses when omitted. */
+	addresses?: (host: PairedHost) => Promise<string[]>;
 }
 
 interface Pending {
@@ -150,7 +232,7 @@ interface Pending {
 	timer: NodeJS.Timeout;
 }
 
-/** One paired host's link; auto-reconnects with backoff 1 s → 30 s between rounds of its addresses. */
+/** One known host's link; auto-reconnects with backoff 1 s → 30 s between rounds of its addresses. */
 export class RemoteClient {
 	readonly deviceId: string;
 	readonly #opts: RemoteClientOptions;
@@ -182,7 +264,7 @@ export class RemoteClient {
 		return this.#hello;
 	}
 
-	/** Why the last attempt failed (`unreachable`, `unpaired`, `protocol`); null once online. */
+	/** Why the last attempt failed (`unreachable`, a refusal code, `key_mismatch`, `protocol`); null once online. */
 	get error(): string | null {
 		return this.#error;
 	}
@@ -256,15 +338,27 @@ export class RemoteClient {
 		this.#emitter.emit("state", state);
 	}
 
+	/** The resolver's answer when there is one (it decides whether stored addresses count), else the stored ones. */
+	async #addresses(): Promise<string[]> {
+		const stored = this.#opts.hosts?.get(this.deviceId) ?? this.#host;
+		if (!this.#opts.addresses) return stored.addresses;
+		return this.#opts.addresses(stored).catch(() => []);
+	}
+
 	async #attempt(): Promise<void> {
 		this.#attempting = true;
 		this.#setState("connecting");
-		const addresses = this.#opts.hosts?.get(this.deviceId)?.addresses ?? this.#host.addresses;
+		const addresses = await this.#addresses();
 		let failure = new RemoteError("unreachable", "no address to dial");
 		for (const address of addresses) {
 			if (!this.#running) break;
 			try {
-				const { link, hello } = await this.#open(address);
+				const { link, hello } = await handshake(address, {
+					identity: this.#opts.identity,
+					name: this.#opts.name(),
+					appVersion: this.#opts.appVersion,
+					expected: { deviceId: this.deviceId, staticPub: this.#host.staticPub },
+				});
 				if (!this.#running) {
 					link.destroy();
 					break;
@@ -283,56 +377,6 @@ export class RemoteClient {
 		this.#error = failure.code;
 		this.#setState("offline");
 		this.#scheduleRetry();
-	}
-
-	/** Auth, client side: KK-like key agreement, then the hello exchange. */
-	async #open(address: string): Promise<{ link: Link; hello: HostHello }> {
-		const target = parseAddress(address);
-		if (!target) throw new RemoteError("unreachable", `invalid address: ${address}`);
-		const link = new Link(await dial(target));
-		try {
-			const { identity } = this.#opts;
-			const eph = generateKeyPair();
-			link.send({ t: "auth-init", v: HANDSHAKE_VERSION, deviceId: identity.deviceId, ephPub: eph.publicKey });
-			const reply = AuthReply.safeParse(await link.receive(HANDSHAKE_TIMEOUT_MS));
-			if (!reply.success) throw new RemoteError("protocol", "malformed auth reply");
-			if (reply.data.t !== "auth-resp") throw new RemoteError(reply.data.code);
-			// Another device now answers at this address.
-			if (reply.data.deviceId !== this.deviceId)
-				throw new RemoteError("unreachable", `${address} is another device`);
-			const ikm = Buffer.concat([
-				dh(eph.privateKey, reply.data.ephPub),
-				dh(identity.privateKey, reply.data.ephPub),
-				dh(eph.privateKey, this.#host.staticPub),
-			]);
-			const keys = authKeys(
-				ikm,
-				authTranscriptOf(
-					{ deviceId: identity.deviceId, ephPub: eph.publicKey, staticPub: identity.publicKey },
-					{ deviceId: this.deviceId, ephPub: reply.data.ephPub, staticPub: this.#host.staticPub },
-				),
-			);
-			link.secure(keys.ab, keys.ba);
-			link.send({
-				t: "hello",
-				protocol: PROTOCOL_VERSION,
-				appVersion: this.#opts.appVersion,
-				name: this.#opts.name(),
-			});
-			const answer = await link.receive(HANDSHAKE_TIMEOUT_MS);
-			if (answer.t === "error") throw new RemoteError(String(answer.code ?? "protocol"));
-			const version = HelloVersion.safeParse(answer);
-			if (!version.success || version.data.protocol !== PROTOCOL_VERSION) {
-				throw new RemoteError("protocol", `host protocol ${String(answer.protocol)}, ours ${PROTOCOL_VERSION}`);
-			}
-			const hello = HostHelloMessage.safeParse(answer);
-			if (!hello.success) throw new RemoteError("protocol", "malformed host hello");
-			const { t: _t, ...info } = hello.data;
-			return { link, hello: info };
-		} catch (error) {
-			link.destroy();
-			throw error;
-		}
 	}
 
 	#online(link: Link, hello: HostHello, address: string): void {

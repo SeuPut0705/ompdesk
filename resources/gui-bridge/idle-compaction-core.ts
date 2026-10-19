@@ -12,17 +12,27 @@
 
 import { IdleWindowTimer, type TimerSession } from "./timer-core";
 
-/** `cfgCompaction.get(settings)` fields this timer reads. */
+/** What an arm reads from stock: `cfgCompaction.get(settings)`'s idle fields and stock `getCacheWarmingDelayMs`. */
 export interface IdleSettings {
 	idleEnabled: boolean;
 	idleThresholdTokens: number;
 	idleTimeoutSeconds: number;
+	/** Stock `session/cache-warmer` `getCacheWarmingDelayMs`: when stock would refresh an entry of this lifetime. */
+	cacheWarmingDelayMs(ttlMs: number): number | undefined;
+}
+
+/** Stock `PromptCacheEntry` (`session/cache-warmer`): the cache entry the latest main-loop request wrote. */
+export interface PromptCacheEntry {
+	touchedAt: number;
+	tier: "short" | "long";
+	ttlMs: number;
 }
 
 /** The slice of the live AgentSession the timer touches. */
 export interface IdleSession extends TimerSession {
 	getContextUsage(): { tokens?: number | null } | undefined;
 	runIdleCompaction(): Promise<void>;
+	readonly promptCacheEntry?: PromptCacheEntry;
 }
 
 /** The three settings whose live change re-arms the timer (stock's `refreshIdleCompactionTimer`). */
@@ -35,6 +45,8 @@ export const IDLE_SETTING_PATHS: readonly string[] = [
 /** Stock clamps the delay to this many seconds. */
 const MIN_SECONDS = 60;
 const MAX_SECONDS = 3600;
+/** Stock's `IDLE_COMPACTION_CACHE_LEAD_MS` (event-controller.ts, not exported): compact this long before stock would refresh the entry. */
+export const IDLE_COMPACTION_CACHE_LEAD_MS = 5_000;
 
 export class IdleCompactionTimer<S extends IdleSession = IdleSession> extends IdleWindowTimer<S, IdleSettings> {
 	protected delayMs(settings: IdleSettings, session: S): number | undefined {
@@ -43,6 +55,14 @@ export class IdleCompactionTimer<S extends IdleSession = IdleSession> extends Id
 		if (threshold <= 0 || (session.getContextUsage()?.tokens ?? 0) < threshold) return undefined;
 		// A turn may have started while the settings loaded.
 		if (session.isStreaming || session.isCompacting) return undefined;
+		// Stock compacts just before a 1-hour (long-tier) prompt cache entry would lapse, while the summary request
+		// can still read the cached prefix; a 5-minute entry, an unknown lifetime and an expired entry fall back to
+		// the configured delay.
+		const entry = session.promptCacheEntry?.tier === "long" ? session.promptCacheEntry : undefined;
+		const refreshMs = entry ? settings.cacheWarmingDelayMs(entry.ttlMs) : undefined;
+		const now = Date.now();
+		if (entry && refreshMs !== undefined && entry.touchedAt + entry.ttlMs > now)
+			return Math.max(0, entry.touchedAt + refreshMs - IDLE_COMPACTION_CACHE_LEAD_MS - now);
 		return Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, settings.idleTimeoutSeconds)) * 1000;
 	}
 

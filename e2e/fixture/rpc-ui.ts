@@ -3887,6 +3887,15 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				title: `Allow tool: bash\n${"x".repeat(2200)}\ncritical final argument`,
 				options: ["Approve", "Deny"],
 			});
+		} else if (message === "fixture approval session") {
+			// Stock `requestApproval` over RPC for a prompt the approval mode raised (tools/approval.ts).
+			write({
+				type: "extension_ui_request",
+				id: "approval-session",
+				method: "select",
+				title: "Allow tool: bash\nls -la",
+				options: ["Approve", "Approve bash for this session", "Deny"],
+			});
 		} else if (message === "fixture ask") {
 			write({
 				type: "extension_ui_request",

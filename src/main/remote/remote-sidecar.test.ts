@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
@@ -50,16 +50,18 @@ function hostStatus(status: TabStatusArg["status"], extra: Partial<TabStatusArg>
 	};
 }
 
-function setup(): {
+function setup(options: { startTimeoutMs?: number } = {}): {
 	link: FakeLink;
 	sidecar: RemoteSidecar;
 	statuses: SidecarStatusPayload[];
 	disposed: number[];
 	deferredCloses: string[];
+	steps: string[];
 } {
 	const link = new FakeLink();
 	const disposed: number[] = [];
 	const deferredCloses: string[] = [];
+	const steps: string[] = [];
 	const sidecar = new RemoteSidecar({
 		link,
 		rtab: "tab-1",
@@ -67,12 +69,15 @@ function setup(): {
 		kind: "agent",
 		fresh: true,
 		offlineMessage: () => "Device offline",
+		stalledMessage: seconds => `Host B has not started this session after ${seconds} s`,
+		...options,
+		log: (step, details) => steps.push(details.step === undefined ? step : `${step} ${String(details.step)}`),
 		onDispose: () => disposed.push(1),
 		deferClose: rtab => deferredCloses.push(rtab),
 	});
 	const statuses: SidecarStatusPayload[] = [];
 	sidecar.on("status", (payload: SidecarStatusPayload) => statuses.push(payload));
-	return { link, sidecar, statuses, disposed, deferredCloses };
+	return { link, sidecar, statuses, disposed, deferredCloses, steps };
 }
 
 async function settle(): Promise<void> {
@@ -122,6 +127,89 @@ describe("RemoteSidecar", () => {
 		expect(await bridge.bridge.request("capabilities")).toEqual({
 			ompVersion: "19.0.0",
 			unavailable: [{ feature: "mcp" }],
+		});
+	});
+
+	describe("a start the host never finishes", () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("reports the host by name with Restart's error status once the start outlives its deadline", async () => {
+			vi.useFakeTimers();
+			const { link, sidecar, statuses, steps } = setup({ startTimeoutMs: 5000 });
+			sidecar.start();
+			await settle();
+			// The host took the tab but its omp never says it runs (a hung start on that computer).
+			sidecar.handleEvent(hostStatus("starting"));
+			await vi.advanceTimersByTimeAsync(4999);
+			expect(sidecar.status).toBe("starting");
+			await vi.advanceTimersByTimeAsync(1);
+			expect(statuses.at(-1)).toEqual({
+				status: "error",
+				cwd: "/canonical/p",
+				message: "Host B has not started this session after 5 s",
+			});
+			// Not the host's omp failing: its asks stay routed, and the host may still finish.
+			expect(sidecar.statusFromLink).toBe(true);
+			expect(steps).toEqual(["open", "start", "stalled ready"]);
+			sidecar.handleEvent(hostStatus("ready"));
+			expect(sidecar.status).toBe("ready");
+
+			// Restart is a new bring-up with its own deadline.
+			sidecar.restart();
+			await settle();
+			expect(link.methods().at(-1)).toBe("tab.restart");
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(sidecar.status).toBe("error");
+			expect(steps.at(-1)).toBe("stalled ready");
+		});
+
+		it("never fires once the host reports the tab running, and logs how the start went", async () => {
+			vi.useFakeTimers();
+			const { sidecar, steps } = setup({ startTimeoutMs: 5000 });
+			sidecar.start();
+			await settle();
+			sidecar.handleEvent(hostStatus("ready"));
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(sidecar.status).toBe("ready");
+			expect(steps).toEqual(["open", "start", "ready ready"]);
+		});
+
+		it("names a host whose open never answers instead of the link's raw timeout", async () => {
+			vi.useFakeTimers();
+			const { link, sidecar, steps } = setup();
+			// The link gives up on `tab.open` after its own 30 s, before the 60 s start deadline.
+			link.handlers["tab.open"] = () =>
+				new Promise((_, reject) =>
+					setTimeout(
+						() => reject(Object.assign(new Error("tab.open timed out after 30000 ms"), { code: "timeout" })),
+						30_000,
+					),
+				);
+			sidecar.start();
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(sidecar.statusPayload).toMatchObject({
+				status: "error",
+				message: "Host B has not started this session after 30 s",
+			});
+			expect(steps).toEqual(["failed open"]);
+		});
+
+		it("stalls on a link that never finishes connecting", async () => {
+			vi.useFakeTimers();
+			const { link, sidecar, steps } = setup({ startTimeoutMs: 5000 });
+			link.state = "connecting";
+			sidecar.start();
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(sidecar.status).toBe("error");
+			expect(steps).toEqual(["stalled link"]);
+			// The link comes up: the tab opens again by itself.
+			link.state = "online";
+			sidecar.linkStateChanged("online");
+			await settle();
+			expect(link.methods()).toEqual(["tab.open", "tab.start"]);
+			expect(sidecar.status).toBe("starting");
 		});
 	});
 

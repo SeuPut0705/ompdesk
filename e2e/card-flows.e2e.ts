@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp } from "./harness";
+import { freePort, remoteTailscale } from "./remote-harness";
 
 // Opt-in audit of the work card through whole flows on the fake omp's `fixture flow` run:
 // steers and queue changes, stop and resume, plan approval, a question, a mid-run compaction,
@@ -743,15 +744,14 @@ for (const [language, theme] of [
 test("a remote tab on a paired host", async () => {
 	test.setTimeout(240_000);
 	const root = await profileDir("remote");
-	const discovery = 49_000 + Math.floor(Math.random() * 500) * 2;
-	const host = await launch(path.join(root, "b"), {
-		OMP_GUI_REMOTE_PORT: "0",
-		OMP_GUI_REMOTE_DISCOVERY_PORT: String(discovery),
+	const port = String(await freePort());
+	const remoteEnv = async (dir: string, name: string) => ({
+		...(await remoteTailscale(dir, name)).env,
+		OMP_GUI_TEST_REMOTE_LOOPBACK: "1",
+		OMP_GUI_REMOTE_PORT: port,
 	});
-	const client = await launch(path.join(root, "a"), {
-		OMP_GUI_REMOTE_PORT: "0",
-		OMP_GUI_REMOTE_DISCOVERY_PORT: String(discovery + 1),
-	});
+	const host = await launch(path.join(root, "b"), await remoteEnv(path.join(root, "b"), "host"));
+	const client = await launch(path.join(root, "a"), await remoteEnv(path.join(root, "a"), "client"));
 	try {
 		const b = host.page;
 		const a = client.page;
@@ -763,17 +763,10 @@ test("a remote tab on a paired host", async () => {
 		await b.evaluate(() => window.omp.remote.setDeviceName("Host B"));
 		await openRemote(b);
 		await b.getByRole("switch", { name: "Let other devices use this computer" }).click();
-		const codeRow = b.locator("[data-remote-section] [data-remote-code]");
-		await expect(codeRow).toContainText(/[0-9A-Z]{4}-[0-9A-Z]{4}/);
-		const port = /:(\d+)/.exec((await b.locator("[data-remote-addresses] li").first().textContent()) ?? "")?.[1];
-		const code = /[0-9A-Z]{4}-[0-9A-Z]{4}/.exec((await codeRow.textContent()) ?? "")?.[0];
 		await openRemote(a);
-		await a.locator("[data-remote-connect]").click();
-		const dialog = a.getByRole("dialog", { name: "Connect to a device" });
-		await dialog.locator("input[data-remote-address]").fill(`127.0.0.1:${port}`);
-		await dialog.locator("input[data-remote-code]").fill(code ?? "");
-		await dialog.locator("[data-remote-connect-submit]").click();
-		await expect(dialog).toHaveCount(0);
+		const connect = a.locator("[data-remote-tailnet-connect]").first();
+		await expect(connect).toBeVisible({ timeout: 30_000 });
+		await connect.click();
 		const hostRow = a.locator("[data-remote-hosts] [data-remote-host]");
 		await expect(hostRow).toContainText("Online");
 		const deviceId = (await hostRow.getAttribute("data-remote-host")) ?? "";

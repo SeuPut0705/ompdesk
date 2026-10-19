@@ -48,6 +48,9 @@ export const MODEL_COMMAND_TYPES = [
 	"regenerate_session_title",
 	// The automatic mode choice (bridge modes/auto-mode.ts): one cheap judge request on the host per typed prompt.
 	"auto_mode_decide",
+	// Judge-model assists (bridge modes/judge-assist.ts): one judge request when a native judge resolves, else none.
+	"judge_needs_user",
+	"judge_preview_check",
 	// `ompdesk_compare` with criteria (bridge agent-control.ts): one judge request on the `slow` role model.
 	"agent_control_judge",
 	// A report from another session (bridge agent-control.ts): `triggerTurn` wakes the receiver for a turn.

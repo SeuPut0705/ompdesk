@@ -37,6 +37,7 @@ function asPeer(device: WebDeviceInfo): PeerView {
 	return {
 		deviceId: device.id,
 		name: device.name,
+		login: device.tailscaleLogin,
 		online: device.connected,
 		lastSeenAt: device.lastSeenAt,
 		limits: device.limits,

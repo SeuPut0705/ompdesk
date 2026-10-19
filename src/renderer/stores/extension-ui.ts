@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import type { IpcSignIn } from "../../shared/ipc-types";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest, isSignInRequest } from "../../shared/rpc-types";
+import { isApprovalSelect } from "../../shared/tool-approval";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export type WidgetPlacement = "aboveEditor" | "belowEditor";
@@ -81,22 +82,11 @@ export function openUrlTarget(request: Extract<ExtensionUIRequest, { method: "op
 	return remote ? request.url : (request.launchUrl ?? request.url);
 }
 
-/**
- * Tool approval reaches the GUI as a plain `select` with exactly
- * ["Approve", "Deny"] and a title "Allow tool: <name>\n<details>".
- */
-export const APPROVAL_TITLE_PREFIX = "Allow tool: ";
-
 export type ApprovalSelect = Extract<ExtensionUIRequest, { method: "select" }>;
 
+/** Stock's tool approval (`isApprovalSelect`), narrowed for the renderer's request union. */
 export function isApprovalRequest(request: ExtensionUIRequest): request is ApprovalSelect {
-	return (
-		request.method === "select" &&
-		request.options.length === 2 &&
-		request.options[0] === "Approve" &&
-		request.options[1] === "Deny" &&
-		request.title.startsWith(APPROVAL_TITLE_PREFIX)
-	);
+	return isApprovalSelect(request);
 }
 
 /** What a session blocked on the user waits for: a real approval, or any other answer. */

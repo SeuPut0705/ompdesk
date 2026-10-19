@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessagesPage } from "../../../shared/rpc-types";
-import { loadOlderTranscript } from "../../hooks/session-hydration";
+import { hydrateTabSession, loadOlderTranscript } from "../../hooks/session-hydration";
 import { compactionActionKey } from "../../lib/compaction-action";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
@@ -930,7 +930,8 @@ function SessionTranscript() {
 				<TranscriptHistoryStatus
 					error={pageError}
 					loading={isLoadingPage}
-					onRetry={() => void requestOlder()}
+					// With nothing loaded the failed read was the transcript's first: read it again, not an older page.
+					onRetry={() => void (rows.length === 0 && tabId ? hydrateTabSession(tabId) : requestOlder())}
 					updating={restoredAt !== null || switchPending !== null}
 				/>
 				{status === "starting" && !firstRunOpen && rows.length === 0 && !switchPending && knownSession && (
@@ -947,6 +948,7 @@ function SessionTranscript() {
 					rows.length === 0 &&
 					!isStreaming &&
 					!switchPending &&
+					!(pageError && knownSession) &&
 					!firstRunActive && (
 						<div className="omp-empty-canvas flex min-h-full flex-col justify-center pb-20">
 							<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />

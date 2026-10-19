@@ -1,15 +1,15 @@
 /**
- * Settings › Remote devices: the host role shows its addresses and pairing
- * code (copyable, with a countdown), an expired code refreshes on its own,
- * Remove revokes a paired device through main, and the keep-awake row shows
- * whether sleep is blocked now and toggles through setKeepAwake.
+ * Settings › Devices & connections, sharing between computers over Tailscale: the host role shows its tailnet
+ * addresses (or why it listens nowhere), Remove revokes a device and Block blocks its node through main, the
+ * keep-awake row shows whether sleep is blocked now, a missing Tailscale offers its fix, and the tailnet's
+ * computers connect by node. No pairing code anywhere.
  */
 
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PeerLimits, PeerView, RemoteState } from "../../../shared/ipc-types";
+import type { PeerLimits, PeerView, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useRemoteStore } from "../../stores/remote";
 import { useToastStore } from "../../stores/toast";
@@ -30,30 +30,44 @@ Object.assign(globalThis as Record<string, unknown>, {
 const LAPTOP: PeerView = {
 	deviceId: "peer-laptop",
 	name: "laptop",
+	login: "me@example.com",
 	online: true,
 	lastSeenAt: Date.now() - 60_000,
 	limits: {},
 	usage: { requests: 0, tokens: 0 },
 };
 
-function hostOn(overrides: Partial<RemoteState["host"]> = {}): RemoteState {
+function hostOn(overrides: Partial<RemoteState["host"]> = {}, rest: Partial<RemoteState> = {}): RemoteState {
 	return {
+		tailnet: "ready",
 		host: {
 			enabled: true,
 			name: "studio",
 			port: 47821,
-			addresses: ["192.168.0.12:47821", "100.64.0.7:47821"],
-			code: "K7QM-2XDP",
-			expiresAt: Date.now() + 9 * 60_000 + 30_000,
+			addresses: ["100.64.0.7:47821"],
+			listenError: null,
 			peers: [LAPTOP],
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
+			confirmNewDevices: false,
 			...overrides,
 		},
 		hosts: [],
+		forgotten: [],
+		...rest,
 	};
 }
+
+const STUDIO: TailnetComputer = {
+	nodeId: "nSTUDIO",
+	name: "Studio",
+	login: "me@example.com",
+	state: "available",
+	refusal: null,
+	deviceId: "dev-studio",
+	connected: false,
+};
 
 const remote = {
 	getState: vi.fn(async (): Promise<RemoteState> => hostOn()),
@@ -62,21 +76,28 @@ const remote = {
 	setKeepAwake: vi.fn(
 		async (enabled: boolean): Promise<RemoteState> => hostOn({ keepAwake: enabled, keepingAwake: false, usedBy: [] }),
 	),
-	rotateCode: vi.fn(
-		async (): Promise<RemoteState> => hostOn({ code: "NEW0-CODE", expiresAt: Date.now() + 10 * 60_000 }),
-	),
 	revokePeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
+	blockPeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
+	setConfirmNewDevices: vi.fn(async (on: boolean): Promise<RemoteState> => hostOn({ confirmNewDevices: on })),
 	setPeerLimits: vi.fn(async (_deviceId: string, _limits: PeerLimits): Promise<RemoteState> => hostOn()),
 	removeHost: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn()),
 	renameHost: vi.fn(async (_deviceId: string, _name: string): Promise<RemoteState> => hostOn()),
 	renamePeer: vi.fn(async (_deviceId: string, _name: string): Promise<RemoteState> => hostOn()),
-	discover: vi.fn(async () => []),
-	onDiscovered: vi.fn(() => () => {}),
+	watchTailnet: vi.fn(async (_on: boolean): Promise<TailnetComputer[]> => [STUDIO]),
+	connect: vi.fn(async (_nodeId: string) => ({ deviceId: "dev-studio", name: "Studio", state: "online" })),
+	tailscaleAction: vi.fn(async (_action: string): Promise<RemoteState> => hostOn()),
+	dismissForgotten: vi.fn(async (): Promise<RemoteState> => hostOn()),
 	onState: vi.fn(() => () => {}),
-	pair: vi.fn(),
+	onTailnet: vi.fn(() => () => {}),
 	listDirs: vi.fn(),
 };
-Object.assign(window as unknown as Record<string, unknown>, { omp: { remote } });
+const mobileWeb = {
+	getState: vi.fn(async () => {
+		throw new Error("not under test");
+	}),
+	devices: { list: vi.fn(async () => []), blocked: vi.fn(async () => []) },
+};
+Object.assign(window as unknown as Record<string, unknown>, { omp: { remote, mobileWeb } });
 
 const roots: Root[] = [];
 
@@ -173,27 +194,86 @@ describe("RemoteSection", () => {
 		expect(document.body.querySelector("[data-device-rename]")).toBeNull();
 	});
 
-	it("shows the addresses and the pairing code, each selectable and copyable, with a countdown", async () => {
+	it("shows the tailnet addresses, selectable and copyable, and no pairing code", async () => {
 		await mount();
 
-		const text = document.body.textContent ?? "";
-		expect(text).toContain(translate("remote.host.toggle"));
-		for (const value of ["192.168.0.12:47821", "100.64.0.7:47821", "K7QM-2XDP"]) {
-			const node = document.body.querySelector(`[data-copyable="${value}"]`);
-			expect(node?.textContent).toBe(value);
-			expect(node?.getAttribute("class")).toContain("select-all");
-			expect(buttonLabeled(translate("remote.copy", { value }))).toBeDefined();
-		}
-		expect(document.body.querySelector("[data-remote-code-expiry]")?.textContent).toBe(
-			translate("remote.host.expiresIn", { time: "9:30" }),
-		);
+		expect(document.body.textContent).toContain(translate("remote.host.toggle"));
+		const node = document.body.querySelector('[data-copyable="100.64.0.7:47821"]');
+		expect(node?.getAttribute("class")).toContain("select-all");
+		expect(buttonLabeled(translate("remote.copy", { value: "100.64.0.7:47821" }))).toBeDefined();
+		expect(document.body.querySelector("[data-remote-code]")).toBeNull();
 		const peer = document.body.querySelector('[data-remote-peer="peer-laptop"]');
-		expect(peer?.textContent).toContain("laptop");
 		// A narrow window truncates the name and "Last seen …"; each keeps its full text on hover.
 		expect(peer?.querySelector('[title="laptop"]')).not.toBeNull();
 		const seen = translate("remote.host.lastSeen", { time: "1m" });
 		expect([...(peer?.querySelectorAll("[title]") ?? [])].map(node => node.getAttribute("title"))).toContain(seen);
-		expect(remote.rotateCode).not.toHaveBeenCalled();
+	});
+
+	it("says which ports are taken when the host listens nowhere", async () => {
+		remote.getState.mockImplementation(async () =>
+			hostOn({ port: null, addresses: [], listenError: { code: "port_in_use", ports: [47821, 47822, 47823] } }),
+		);
+		await mount();
+		expect(document.body.querySelector("[data-remote-port-in-use]")?.textContent).toBe(
+			translate("remote.host.portInUse", { first: "47821", last: "47823" }),
+		);
+		expect(document.body.querySelector("[data-remote-addresses]")).toBeNull();
+	});
+
+	it("offers to install Tailscale when it is missing, and to open it when it is stopped", async () => {
+		remote.getState.mockImplementation(async () => hostOn({}, { tailnet: "not-installed" }));
+		await mount();
+		const install = document.body.querySelector('[data-remote-tailscale-action="install"]') as HTMLButtonElement;
+		expect(install.textContent).toBe(translate("remote.tailscale.install"));
+		await act(async () => install.click());
+		expect(remote.tailscaleAction).toHaveBeenCalledWith("install");
+		// Ready again (the reply): the row is gone and the tailnet's computers are listed.
+		expect(document.body.querySelector("[data-remote-tailscale]")).toBeNull();
+	});
+
+	it("lists the tailnet's computers and connects one by its node", async () => {
+		remote.watchTailnet.mockImplementation(async () => [
+			STUDIO,
+			{ ...STUDIO, nodeId: "nOTHER", name: "Other", state: "refused", refusal: "not_allowed", deviceId: null },
+		]);
+		await mount();
+		expect(remote.watchTailnet).toHaveBeenCalledWith(true);
+		const refused = document.body.querySelector('[data-remote-tailnet-row="nOTHER"]');
+		expect(refused?.textContent).toContain(translate("remote.tailnet.refused.not_allowed"));
+		expect(refused?.querySelector("[data-remote-tailnet-connect]")).toBeNull();
+		await act(async () => {
+			(document.body.querySelector('[data-remote-tailnet-connect="nSTUDIO"]') as HTMLButtonElement).click();
+		});
+		expect(remote.connect).toHaveBeenCalledWith("nSTUDIO");
+	});
+
+	it("blocks a device through blockPeer once the block is confirmed", async () => {
+		await mount();
+		await act(async () => {
+			buttonLabeled(translate("remote.blockLabel", { name: "laptop" }))?.click();
+		});
+		expect(document.body.textContent).toContain(translate("remote.blockBody", { name: "laptop" }));
+		await act(async () => {
+			const dialog = document.body.querySelector('[role="dialog"], [role="alertdialog"]');
+			(Array.from(dialog?.querySelectorAll("button") ?? []) as HTMLButtonElement[])
+				.find(button => (button.textContent ?? "").trim() === translate("remote.block"))
+				?.click();
+		});
+		expect(remote.blockPeer).toHaveBeenCalledWith("peer-laptop");
+		expect(remote.revokePeer).not.toHaveBeenCalled();
+	});
+
+	it("names the code-paired computers it forgot once, until dismissed", async () => {
+		remote.getState.mockImplementation(async () => hostOn({}, { forgotten: ["Old desk"] }));
+		await mount();
+		expect(document.body.querySelector("[data-remote-forgotten]")?.textContent).toBe(
+			translate("remote.forgotten.body", { names: "Old desk" }),
+		);
+		await act(async () => {
+			(document.body.querySelector("[data-remote-forgotten-dismiss]") as HTMLButtonElement).click();
+		});
+		expect(remote.dismissForgotten).toHaveBeenCalled();
+		expect(document.body.querySelector("[data-remote-forgotten]")).toBeNull();
 	});
 
 	it("revokes a paired device through revokePeer once the removal is confirmed", async () => {
@@ -235,41 +315,11 @@ describe("RemoteSection", () => {
 		expect(document.body.querySelector('[data-remote-host="host-studio"]')).not.toBeNull();
 	});
 
-	it("counts a new code down from its full lifetime, however long the page has been open", async () => {
-		vi.useFakeTimers({ toFake: ["Date"] });
-		try {
-			await mount();
-			vi.setSystemTime(Date.now() + 700);
-			await act(async () => {
-				buttonLabeled(translate("remote.host.newCode"))?.click();
-			});
-			expect(document.body.querySelector("[data-remote-code-expiry]")?.textContent).toBe(
-				translate("remote.host.expiresIn", { time: "10:00" }),
-			);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("replaces an expired code on its own, once", async () => {
-		remote.getState.mockImplementation(async () => hostOn({ expiresAt: Date.now() - 1_000 }));
-		await mount();
-		await act(async () => {
-			await Promise.resolve();
-		});
-
-		expect(remote.rotateCode).toHaveBeenCalledTimes(1);
-		expect(document.body.querySelector('[data-copyable="NEW0-CODE"]')).not.toBeNull();
-	});
-
 	it("hides the host details while sharing is off", async () => {
-		remote.getState.mockImplementation(async () =>
-			hostOn({ enabled: false, code: null, expiresAt: null, port: null, addresses: [] }),
-		);
+		remote.getState.mockImplementation(async () => hostOn({ enabled: false, port: null, addresses: [] }));
 		await mount();
 
 		expect(document.body.textContent).toContain(translate("remote.host.toggle"));
-		expect(document.body.querySelector("[data-remote-code]")).toBeNull();
 		expect(document.body.querySelector("[data-remote-addresses]")).toBeNull();
 		expect(keepAwakeRow()).toBeNull();
 	});

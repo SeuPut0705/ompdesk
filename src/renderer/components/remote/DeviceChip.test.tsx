@@ -34,19 +34,21 @@ Object.assign(window as unknown as Record<string, unknown>, {
 
 function remoteState(hosts: HostView[]): RemoteState {
 	return {
+		tailnet: "ready",
 		host: {
 			enabled: false,
 			name: "laptop",
 			port: null,
 			addresses: [],
-			code: null,
-			expiresAt: null,
+			listenError: null,
 			peers: [],
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
+			confirmNewDevices: false,
 		},
 		hosts,
+		forgotten: [],
 	};
 }
 

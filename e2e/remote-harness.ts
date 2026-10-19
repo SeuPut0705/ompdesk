@@ -1,10 +1,11 @@
 /**
- * Two OMPdesk instances on the fake omp for the remote-device suites: a host (B)
- * that shares itself and a client (A) that pairs with it and runs tabs there.
- * Each instance has its own profile, userData, discovery port and project; a
- * relaunch reuses all of them. A host that is relaunched needs a fixed port
- * (`fixedPort`), since A reconnects to the address it paired with. A pairing
- * through `linkProxy` lets a test cut the link while both apps keep running.
+ * Two OMPdesk instances on the fake omp for the remote-device suites: a host (B) that shares itself and a client
+ * (A) that connects to it over the "tailnet" and runs tabs there. Each instance has its own profile, userData, port,
+ * project and fake Tailscale (`fixtureTailscale`), on which 127.0.0.1 is the tailnet
+ * (`OMP_GUI_TEST_REMOTE_LOOPBACK=1`): the host listens there, and every app sees one peer node at 127.0.0.1 (the
+ * host's `whois` says who connects; the client's `status` lists the host to probe). A client is made with the
+ * host's port (`port: host.port`) or a `linkProxy`'s, since it probes that port and its successors. A connection
+ * through `linkProxy` lets a test cut the link while both apps keep running. No pairing code anywhere.
  */
 import * as fs from "node:fs/promises";
 import * as net from "node:net";
@@ -12,10 +13,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { fixtureOmp, walkRemotePicker } from "./harness";
 
 export type Language = "en" | "ko";
 export type Theme = "light" | "dark";
+
+/** The Tailscale account every remote suite's apps are signed in to. */
+export const REMOTE_LOGIN = "me@example.com";
 
 export interface RemoteProfile {
 	root: string;
@@ -24,6 +29,10 @@ export interface RemoteProfile {
 	/** The fixture omp's command log (OMP_GUI_TEST_RECORD). */
 	record: string;
 	env: Record<string, string>;
+	/** The port this app listens on as a host, and probes as a client. */
+	port: number;
+	/** This app's fake Tailscale: `tailscale.update({...})` changes what it says. */
+	tailscale: FixtureTailscale;
 }
 
 export interface RemoteInstance {
@@ -97,14 +106,25 @@ export async function linkProxy(targetPort: number): Promise<LinkProxy> {
 	return { address: `127.0.0.1:${port}`, drop: stop, restore: listen, close: stop };
 }
 
+/** A fake Tailscale on which this app is node `n-<name>`, signed in as `REMOTE_LOGIN`, with one peer at 127.0.0.1. */
+export function remoteTailscale(root: string, name: string): Promise<FixtureTailscale> {
+	return fixtureTailscale(root, {
+		login: REMOTE_LOGIN,
+		selfIps: ["127.0.0.1"],
+		selfStableId: `n-${name}`,
+		peers: [
+			{ hostName: "peer", os: "macOS", online: true, userId: 1001, ip: "127.0.0.1", stableId: `n-peer-${name}` },
+		],
+	});
+}
+
 export async function makeRemoteProfile(
 	parent: string,
 	name: string,
 	options: {
 		language: Language;
 		theme: Theme;
-		discoveryPort: number;
-		/** The host's listening port; 0 (default) = ephemeral. */
+		/** Listened on as a host and probed as a client: a client takes its host's (or a `linkProxy`'s). Default: free. */
 		port?: number;
 		env?: Record<string, string>;
 		prefs?: Record<string, unknown>;
@@ -132,6 +152,8 @@ export async function makeRemoteProfile(
 		process.env.OMP_GUI_TEST_NATIVES ||
 		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
 	await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
+	const tailscale = await remoteTailscale(root, name);
+	const port = options.port ?? (await freePort());
 	const env: Record<string, string> = {};
 	for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
 	Object.assign(env, {
@@ -142,12 +164,13 @@ export async function makeRemoteProfile(
 		OMP_GUI_OMP: bin,
 		OMP_GUI_TEST_RECORD: record,
 		OMP_GUI_TEST_SESSION_FILES: "1",
-		OMP_GUI_REMOTE_PORT: String(options.port ?? 0),
-		OMP_GUI_REMOTE_DISCOVERY_PORT: String(options.discoveryPort),
+		OMP_GUI_REMOTE_PORT: String(port),
+		OMP_GUI_TEST_REMOTE_LOOPBACK: "1",
+		...tailscale.env,
 		...options.env,
 	});
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	return { root, project: await fs.realpath(project), desktop, record, env };
+	return { root, project: await fs.realpath(project), desktop, record, env, port, tailscale };
 }
 
 /**
@@ -175,20 +198,33 @@ export async function launchRemote(
 	return { app, page, profile, errors };
 }
 
+/** A's view of the tailnet: the first computer that shares OMPdesk and lets A in (its node id), once one does. */
+export async function availableHost(client: Page): Promise<string> {
+	let nodeId = "";
+	await expect
+		.poll(
+			async () => {
+				const computers = await client.evaluate(() => window.omp.remote.watchTailnet(true));
+				nodeId = computers.find(computer => computer.state === "available")?.nodeId ?? "";
+				return nodeId;
+			},
+			{ timeout: 30_000 },
+		)
+		.not.toBe("");
+	return nodeId;
+}
+
 /**
- * B shares itself under `name`; A pairs through the remote API (the pairing UI is remote-devices.e2e.ts's),
- * at B's own port unless `address` (a `linkProxy`'s) is given.
+ * B shares itself under `name`; A finds it on the tailnet and connects through the remote API (the UI is
+ * remote-devices.e2e.ts's). No code: Tailscale says who A is.
  */
-export async function pair(host: Page, client: Page, name: string, address?: string): Promise<string> {
+export async function connectHost(host: Page, client: Page, name: string): Promise<string> {
 	await host.evaluate(value => window.omp.remote.setDeviceName(value), name);
 	await host.evaluate(() => window.omp.remote.setHostEnabled(true));
-	await expect.poll(async () => (await host.evaluate(() => window.omp.remote.getState())).host.code).toBeTruthy();
-	const { host: state } = await host.evaluate(() => window.omp.remote.getState());
-	const paired = await client.evaluate(payload => window.omp.remote.pair(payload), {
-		address: address ?? `127.0.0.1:${state.port}`,
-		code: state.code ?? "",
-	});
-	return paired.deviceId;
+	await expect.poll(async () => (await host.evaluate(() => window.omp.remote.getState())).host.port).toBeTruthy();
+	const nodeId = await availableHost(client);
+	const view = await client.evaluate(id => window.omp.remote.connect(id), nodeId);
+	return view.deviceId;
 }
 
 /** A: open a tab on B in `folder` through the sidebar's device section and its folder picker. */

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { ExtensionUIRequest, ExtensionUIResponse } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useAutopilotStore } from "../../stores/autopilot";
-import { useExtensionUiStore } from "../../stores/extension-ui";
+import { awaitedInput, useExtensionUiStore } from "../../stores/extension-ui";
 import { useToastStore } from "../../stores/toast";
 import { AskDockSlot, BelowEditorDockSlot } from "./ask-dock";
 import { ExtensionDialog } from "./ExtensionDialog";
@@ -610,6 +610,38 @@ describe("ExtensionDialog docked prompts", () => {
 		});
 		await flush();
 		expect(respondExtensionUi).toHaveBeenCalledWith({ type: "extension_ui_response", id: "approval", value: "Deny" });
+	});
+
+	it("draws stock's approval with the session option as the approval card and sends the option chosen", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "approval",
+				method: "select",
+				title: "Allow tool: bash\nls -la",
+				options: ["Approve", "Approve bash for this session", "Deny"],
+			}),
+		);
+		expect(awaitedInput(useExtensionUiStore.getState())).toBe("approval");
+		const rows = [...document.querySelectorAll(".omp-ask-dock [data-prompt-card] [data-choice]")] as unknown as Array<
+			TestElement & { getAttribute(name: string): string | null; click(): void }
+		>;
+		expect(rows.map(row => row.getAttribute("data-choice"))).toEqual([
+			"Approve",
+			"Approve bash for this session",
+			"Deny",
+		]);
+		expect(rows[1]?.textContent).toContain(translate("approval.approveSession", { subject: "bash" }));
+		await act(async () => {
+			rows[1]?.click();
+		});
+		await flush();
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "approval",
+			value: "Approve bash for this session",
+		});
 	});
 
 	it("holds an Autopilot tab's approval card back for main's approver, and shows one that waits on", async () => {

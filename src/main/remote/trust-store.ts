@@ -10,11 +10,11 @@ import { readJson, writeSecureJson } from "./secure-file";
 export class TrustStore<T extends { deviceId: string }> {
 	readonly #file: string;
 	readonly #key: string;
-	readonly #entry: z.ZodType<T>;
+	readonly #entry: z.ZodType<T, z.ZodTypeDef, unknown>;
 	readonly #copy: (entry: T) => T;
 	#entries: Map<string, T> | null = null;
 
-	constructor(file: string, key: string, entry: z.ZodType<T>, copy: (entry: T) => T) {
+	constructor(file: string, key: string, entry: z.ZodType<T, z.ZodTypeDef, unknown>, copy: (entry: T) => T) {
 		this.#file = file;
 		this.#key = key;
 		this.#entry = entry;

@@ -26,19 +26,28 @@ export const ADMIN_MACHINES_URL = "https://login.tailscale.com/admin/machines";
 const lenient = <T extends z.ZodTypeAny>(schema: T) => schema.nullish().catch(undefined);
 
 const PeerSchema = z.object({
+	ID: lenient(z.string()),
 	HostName: lenient(z.string()),
 	DNSName: lenient(z.string()),
 	OS: lenient(z.string()),
 	Online: lenient(z.boolean()),
 	UserID: lenient(z.number()),
+	TailscaleIPs: lenient(z.array(z.string())),
+	/** The peer's current direct endpoint (`ip:port`, often its LAN address); empty when relayed. */
+	CurAddr: lenient(z.string()),
+	/** Every endpoint the peer advertises (`ip:port`). */
+	Addrs: lenient(z.array(z.string())),
 });
 
 const StatusSchema = z.object({
 	Version: lenient(z.string()),
 	BackendState: z.string(),
 	AuthURL: lenient(z.string()),
+	TailscaleIPs: lenient(z.array(z.string())),
 	Self: lenient(
 		z.object({
+			ID: lenient(z.string()),
+			HostName: lenient(z.string()),
 			DNSName: lenient(z.string()),
 			UserID: lenient(z.number()),
 			Capabilities: lenient(z.array(z.string())),
@@ -77,6 +86,27 @@ export interface TailscaleStatus {
 	updateAvailable: boolean;
 	/** Hostnames of this user's online phones and tablets. */
 	phones: string[];
+	/** This machine's tailnet addresses (`TailscaleIPs`). */
+	selfIps: string[];
+	/** This machine's node (`Self.ID`, the stable ID `whois` reports). */
+	selfNodeId: string | null;
+	/** This machine's name on the tailnet. */
+	selfName: string | null;
+	/** The other nodes of the tailnet (and those shared with it). */
+	peers: TailnetNode[];
+}
+
+export interface TailnetNode {
+	/** Stable node ID (`Peer.ID`, what `whois` calls `Node.StableID`). */
+	nodeId: string;
+	name: string;
+	ips: string[];
+	os: string | null;
+	online: boolean;
+	/** The node's user's login; null for a tagged node or a user the document does not list. */
+	login: string | null;
+	/** The hosts of the node's current and advertised endpoints (its LAN or public addresses, not tailnet ones). */
+	endpoints: string[];
 }
 
 const BACKENDS: Record<string, BackendKind> = {
@@ -92,6 +122,16 @@ const BACKENDS: Record<string, BackendKind> = {
 /** Peers that count as the user's phone or tablet. */
 const MOBILE_OS = /^(ios|ipados|android)$/i;
 
+/** The host parts of `ip:port` / `[v6]:port` endpoints, without repeats. */
+function endpointHosts(endpoints: string[]): string[] {
+	const hosts = new Set<string>();
+	for (const endpoint of endpoints) {
+		const host = /^\[([^\]]+)\]:\d+$/.exec(endpoint)?.[1] ?? /^([^:]+):\d+$/.exec(endpoint)?.[1];
+		if (host) hosts.add(host);
+	}
+	return [...hosts];
+}
+
 /** The status document in `stdout`, or null when it is not one. */
 export function parseStatus(stdout: string): TailscaleStatus | null {
 	let json: unknown;
@@ -104,13 +144,26 @@ export function parseStatus(stdout: string): TailscaleStatus | null {
 	if (!parsed.success) return null;
 	const doc = parsed.data;
 	const userId = doc.Self?.UserID ?? null;
+	const loginOf = (id: number | null | undefined): string | null =>
+		id === null || id === undefined ? null : (doc.User?.[String(id)]?.LoginName ?? null);
 	const phones: string[] = [];
-	if (userId !== null) {
-		for (const peer of Object.values(doc.Peer ?? {})) {
-			if (peer.Online !== true || peer.UserID !== userId || !peer.OS || !MOBILE_OS.test(peer.OS)) continue;
-			const name = peer.HostName || peer.DNSName?.split(".")[0];
-			if (name) phones.push(name);
+	const peers: TailnetNode[] = [];
+	for (const peer of Object.values(doc.Peer ?? {})) {
+		const name = peer.HostName || peer.DNSName?.split(".")[0] || "";
+		if (peer.ID && name) {
+			peers.push({
+				nodeId: peer.ID,
+				name,
+				ips: peer.TailscaleIPs ?? [],
+				os: peer.OS ?? null,
+				online: peer.Online === true,
+				login: loginOf(peer.UserID),
+				endpoints: endpointHosts([peer.CurAddr ?? "", ...(peer.Addrs ?? [])]),
+			});
 		}
+		if (userId === null) continue;
+		if (peer.Online !== true || peer.UserID !== userId || !peer.OS || !MOBILE_OS.test(peer.OS)) continue;
+		if (name) phones.push(name);
 	}
 	const dnsName = doc.Self?.DNSName?.replace(/\.$/, "") || null;
 	return {
@@ -120,7 +173,7 @@ export function parseStatus(stdout: string): TailscaleStatus | null {
 		authUrl: doc.AuthURL || null,
 		dnsName,
 		userId,
-		login: userId === null ? null : (doc.User?.[String(userId)]?.LoginName ?? null),
+		login: loginOf(userId),
 		certDomains: doc.CertDomains ?? [],
 		magicDns: doc.CurrentTailnet?.MagicDNSEnabled ?? null,
 		capabilities: [...(doc.Self?.Capabilities ?? []), ...Object.keys(doc.Self?.CapMap ?? {})],
@@ -128,6 +181,10 @@ export function parseStatus(stdout: string): TailscaleStatus | null {
 		// `RunningLatest` is omitted when false; `LatestVersion` is only set then.
 		updateAvailable: doc.ClientVersion?.RunningLatest !== true && Boolean(doc.ClientVersion?.LatestVersion),
 		phones,
+		selfIps: doc.TailscaleIPs ?? [],
+		selfNodeId: doc.Self?.ID || null,
+		selfName: doc.Self?.HostName || dnsName?.split(".")[0] || null,
+		peers,
 	};
 }
 

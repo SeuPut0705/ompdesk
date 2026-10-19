@@ -1,32 +1,41 @@
 /**
- * Settings › Devices & connections, OMPdesk sharing. Two roles on one page:
+ * Settings › Devices & connections, OMPdesk sharing between computers, over Tailscale only (no pairing code). Two
+ * roles on one page:
  *
+ * - Tailscale's side: when it is missing, stopped or signed out, one row says so with the button that fixes it
+ *   (Mobile web's own install and start-the-app steps).
  * - This computer's device name (editable at any time, also while sharing is off: a device that only
- *   connects to others is known by it too). Saving announces it live to every paired computer and device.
- * - This computer (B, host): "Let other devices use this computer". While on,
- *   it shows "Keep this computer awake while a device is using it" (on by
- *   default; its description says whether sleep is blocked now and for whom),
- *   the LAN addresses and a single-use pairing
- *   code with its countdown — both selectable and copyable — and the paired
- *   devices with an online dot, today's model use against the daily limits
- *   this computer sets for each (Limits), Rename (asks a connected device to rename itself) and Remove
- *   (revoke). An expired code is replaced on its own.
- * - Other devices (A, client): the hosts this computer can run sessions on,
- *   with their link state, Rename (the host renames itself; needs the link) and Remove, plus "Connect to a device".
- *
- * Either Remove asks first: the pair only comes back with a new code.
+ *   connects to others is known by it too). Saving announces it live to every connected computer and device.
+ * - This computer (B, host): "Let other devices use this computer". While on, it shows "Keep this computer awake
+ *   while a device is using it", the tailnet addresses it listens on (or why it listens nowhere: every port it
+ *   may use is taken), "Approve new devices on this computer", the devices that use it with an online dot,
+ *   today's model use against the daily limits this computer sets for each (Limits), Rename (asks a connected
+ *   device to rename itself), Remove (it may connect again while its account is allowed) and Block (keeps its
+ *   Tailscale device out), then the allowed Tailscale accounts and the blocked devices, both shared with Mobile web.
+ * - Other devices (A, client): the hosts this computer runs sessions on, with their link state, Rename (the host
+ *   renames itself; needs the link) and Remove, then the computers of the tailnet with Connect.
  *
  * Main owns the state; every action answers with the whole new RemoteState.
  */
-import { Coffee, Monitor, MonitorSmartphone, Palette, Pencil, Plus, RefreshCw } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
-import type { RemoteHostState, RemoteState } from "../../../shared/ipc-types";
+import {
+	Ban,
+	Coffee,
+	Monitor,
+	MonitorSmartphone,
+	Network,
+	Palette,
+	Pencil,
+	RefreshCw,
+	ShieldCheck,
+} from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import type { RemoteHostState, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
 import { useHostAppearanceStore } from "../../hooks/use-host-appearance";
 import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
-import { useNowTick } from "../../lib/now-tick";
+import { loadMobileWeb, useMobileWebStore } from "../../stores/mobile-web";
 import { loadRemoteState, useRemoteStore } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
 import {
@@ -40,11 +49,10 @@ import {
 	Input,
 	ListRow,
 	SkeletonRows,
-	Spinner,
 } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
-import { RemoteConnectDialog } from "../remote/RemoteConnectDialog";
 import { DeviceNameField } from "./DeviceNameField";
+import { MobileWebAllowedUsers, MobileWebBlocked } from "./MobileWebDevices";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -58,18 +66,11 @@ async function mutate(action: () => Promise<RemoteState>, failureTitle: string):
 }
 
 /** Selectable monospace value with a copy button. */
-function CopyableValue({ value, large }: { value: string; large?: boolean }) {
+function CopyableValue({ value }: { value: string }) {
 	const t = useT();
 	return (
 		<span className="inline-flex min-w-0 items-center gap-1">
-			<span
-				className={
-					large
-						? "font-mono text-sc-xl font-semibold tracking-[0.12em] text-(--sc-text) select-all"
-						: "min-w-0 truncate font-mono text-sc-sm text-(--sc-text) select-all"
-				}
-				data-copyable={value}
-			>
+			<span className="min-w-0 truncate font-mono text-sc-sm text-(--sc-text) select-all" data-copyable={value}>
 				{value}
 			</span>
 			<CopyButton label={t("remote.copy", { value })} text={value} />
@@ -77,59 +78,139 @@ function CopyableValue({ value, large }: { value: string; large?: boolean }) {
 	);
 }
 
-/** m:ss until `expiresAt`. */
-function remaining(expiresAt: number, now: number): string {
-	const seconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
-	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-/** The pairing code, its countdown, and the refresh; an expired code is replaced automatically. */
-function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: number | null }) {
+/** Tailscale missing, stopped or signed out: what is wrong and the one button that fixes it. */
+function TailscaleRow({ phase }: { phase: RemoteState["tailnet"] }) {
 	const t = useT();
-	// Re-renders every second while a code counts down; the countdown itself reads the clock at render time,
-	// so a code that just arrived never shows more than its lifetime.
-	useNowTick(expiresAt !== null);
-	const [rotating, setRotating] = useState(false);
-	/** The expiry already handed to an automatic refresh, so a slow reply is not asked for twice. */
-	const rotatedFor = useRef<number | null>(null);
-
-	const rotate = async () => {
-		setRotating(true);
-		await mutate(() => window.omp.remote.rotateCode(), t("remote.host.codeFailed"));
-		setRotating(false);
-	};
-
-	useEffect(() => {
-		if (expiresAt === null || Date.now() < expiresAt || rotatedFor.current === expiresAt) return;
-		rotatedFor.current = expiresAt;
-		void rotate();
-	});
-
+	const [busy, setBusy] = useState(false);
+	if (phase === "ready") return null;
+	const action = phase === "not-installed" ? "install" : "start-app";
 	return (
 		<SettingsRow
-			description={t("remote.host.codeDesc")}
-			tipOnly
-			id="settings-remote-code"
-			label={t("remote.host.code")}
-		>
-			<div className="flex flex-wrap items-center gap-3" data-remote-code>
-				{code ? <CopyableValue large value={code} /> : <Spinner size="sm" />}
-				{expiresAt !== null && (
-					<span className="text-sc-sm text-(--sc-text-muted) tabular-nums" data-remote-code-expiry>
-						{t("remote.host.expiresIn", { time: remaining(expiresAt, Date.now()) })}
-					</span>
-				)}
+			control={
 				<Button
-					data-remote-rotate
-					icon={<RefreshCw />}
-					loading={rotating}
-					onClick={() => void rotate()}
+					data-remote-tailscale-action={action}
+					loading={busy}
+					onClick={() => {
+						setBusy(true);
+						void mutate(() => window.omp.remote.tailscaleAction(action), t("remote.tailscale.failed")).finally(
+							() => setBusy(false),
+						);
+					}}
 					size="sm"
 					variant="secondary"
 				>
-					{t("remote.host.newCode")}
+					{t(action === "install" ? "remote.tailscale.install" : "remote.tailscale.open")}
 				</Button>
-			</div>
+			}
+			icon={<Network />}
+			id="settings-remote-tailscale"
+			label={<span data-remote-tailscale={phase}>{t(`remote.tailscale.${phase}`)}</span>}
+		/>
+	);
+}
+
+/** Code-paired computers an older release kept that were not found on the tailnet: said once, then dismissed. */
+function ForgottenNotice({ names }: { names: string[] }) {
+	const t = useT();
+	if (names.length === 0) return null;
+	return (
+		<Banner
+			actions={
+				<Button
+					data-remote-forgotten-dismiss
+					onClick={() => void mutate(() => window.omp.remote.dismissForgotten(), t("remote.loadFailed"))}
+					size="sm"
+					variant="secondary"
+				>
+					{t("remote.forgotten.dismiss")}
+				</Button>
+			}
+			title={t("remote.forgotten.title")}
+			variant="info"
+		>
+			<span data-remote-forgotten>{t("remote.forgotten.body", { names: names.join(", ") })}</span>
+		</Banner>
+	);
+}
+
+/** The tailnet's computers while this view is open: who shares OMPdesk, who refuses this device and why, Connect. */
+function TailnetComputers({ ready }: { ready: boolean }) {
+	const t = useT();
+	const [computers, setComputers] = useState<TailnetComputer[] | null>(null);
+	const [connecting, setConnecting] = useState<string | null>(null);
+	useEffect(() => {
+		const off = window.omp.remote.onTailnet(setComputers);
+		window.omp.remote.watchTailnet(true).then(
+			list => setComputers(Array.isArray(list) ? list : []),
+			() => setComputers([]),
+		);
+		return () => {
+			off();
+			void window.omp.remote.watchTailnet(false).catch(() => {});
+		};
+	}, []);
+	const connect = async (computer: TailnetComputer) => {
+		setConnecting(computer.nodeId);
+		try {
+			await window.omp.remote.connect(computer.nodeId);
+			await loadRemoteState();
+		} catch (error) {
+			toastError({ title: t("remote.tailnet.connectFailed"), error });
+		} finally {
+			setConnecting(null);
+		}
+	};
+	return (
+		<SettingsRow description={t("remote.tailnet.desc")} label={t("remote.tailnet.title")} tipOnly>
+			{!ready ? null : computers === null ? (
+				<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.tailnet.searching")}</p>
+			) : computers.length === 0 ? (
+				<p className="text-sc-sm text-(--sc-text-muted)" data-remote-tailnet-empty>
+					{t("remote.tailnet.empty")}
+				</p>
+			) : (
+				<div className="flex flex-col gap-px" data-remote-tailnet>
+					{computers.map(computer => {
+						const status =
+							computer.state === "refused"
+								? t(`remote.tailnet.refused.${computer.refusal ?? "protocol"}`)
+								: t(computer.state === "available" ? "remote.tailnet.available" : "remote.tailnet.absent");
+						return (
+							<ListRow
+								description={
+									<span title={computer.login ?? undefined}>
+										{computer.login ? `${computer.login} · ${status}` : status}
+									</span>
+								}
+								key={computer.nodeId}
+								leading={<Monitor aria-hidden />}
+								rowProps={{
+									"data-remote-tailnet-row": computer.nodeId,
+									"data-remote-tailnet-state": computer.state,
+								}}
+								title={computer.name}
+								titleText={computer.name}
+								trailing={
+									computer.connected ? (
+										<Badge variant="muted">{t("remote.tailnet.connected")}</Badge>
+									) : computer.state === "available" ? (
+										<Button
+											aria-label={t("remote.tailnet.connectLabel", { name: computer.name })}
+											data-remote-tailnet-connect={computer.nodeId}
+											loading={connecting === computer.nodeId}
+											onClick={() => void connect(computer)}
+											size="sm"
+											variant="secondary"
+										>
+											{t("remote.tailnet.connect")}
+										</Button>
+									) : undefined
+								}
+							/>
+						);
+					})}
+				</div>
+			)}
 		</SettingsRow>
 	);
 }
@@ -245,33 +326,37 @@ export function RemoteSection() {
 	const state = useRemoteStore(store => store.state);
 	const loadError = useRemoteStore(store => store.loadError);
 	const [toggling, setToggling] = useState(false);
-	const [connectOpen, setConnectOpen] = useState(false);
-	/** The device a Remove is waiting to be confirmed for; it can only come back with a new code. */
+	/** The device a Remove or Block is waiting to be confirmed for. */
 	const [pendingRemove, setPendingRemove] = useState<{
-		kind: "peer" | "host";
+		kind: "peer" | "host" | "block";
 		deviceId: string;
 		name: string;
 	} | null>(null);
-	/** The paired device whose Limits dialog is open. */
+	/** The device whose Limits dialog is open. */
 	const [limitsFor, setLimitsFor] = useState<string | null>(null);
 	/** The row whose name is being edited: `peer:<id>` or `host:<id>`. */
 	const [renaming, setRenaming] = useState<string | null>(null);
+	// The allowed accounts and the blocks are Mobile web's (one list, one set of blocks for both).
+	const mobileWeb = useMobileWebStore(store => store.state);
+	const blocked = useMobileWebStore(store => store.blocked);
 
 	const confirmRemove = () => {
 		const target = pendingRemove;
 		setPendingRemove(null);
 		if (!target) return;
-		void mutate(
-			() =>
-				target.kind === "peer"
-					? window.omp.remote.revokePeer(target.deviceId)
-					: window.omp.remote.removeHost(target.deviceId),
-			t("remote.removeFailed"),
-		);
+		const action = {
+			peer: () => window.omp.remote.revokePeer(target.deviceId),
+			host: () => window.omp.remote.removeHost(target.deviceId),
+			block: () => window.omp.remote.blockPeer(target.deviceId),
+		}[target.kind];
+		void mutate(action, t(target.kind === "block" ? "remote.blockFailed" : "remote.removeFailed")).then(() => {
+			if (target.kind === "block") void loadMobileWeb();
+		});
 	};
 
 	useEffect(() => {
 		void loadRemoteState();
+		void loadMobileWeb();
 	}, []);
 
 	if (!state) {
@@ -296,7 +381,9 @@ export function RemoteSection() {
 	const { host, hosts } = state;
 	return (
 		<div className="flex flex-col gap-8" data-remote-section>
+			<ForgottenNotice names={state.forgotten} />
 			<SettingsSection title={t("remote.host.title")}>
+				<TailscaleRow phase={state.tailnet} />
 				<SettingsSwitchRow
 					icon={<MonitorSmartphone />}
 					checked={host.enabled}
@@ -317,7 +404,14 @@ export function RemoteSection() {
 					<>
 						<KeepAwakeRow host={host} />
 						<SettingsRow description={t("remote.host.addressesDesc")} tipOnly label={t("remote.host.addresses")}>
-							{host.addresses.length > 0 ? (
+							{host.listenError ? (
+								<p className="text-sc-sm text-(--sc-warning)" data-remote-port-in-use role="status">
+									{t("remote.host.portInUse", {
+										first: String(host.listenError.ports[0] ?? ""),
+										last: String(host.listenError.ports.at(-1) ?? ""),
+									})}
+								</p>
+							) : host.addresses.length > 0 ? (
 								<ul className="flex flex-col gap-1" data-remote-addresses>
 									{host.addresses.map(address => (
 										<li key={address}>
@@ -329,7 +423,17 @@ export function RemoteSection() {
 								<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.host.noAddresses")}</p>
 							)}
 						</SettingsRow>
-						<PairingCode code={host.code} expiresAt={host.expiresAt} />
+						<SettingsSwitchRow
+							icon={<ShieldCheck />}
+							checked={host.confirmNewDevices}
+							description={t("remote.host.confirmNewDesc")}
+							tipOnly
+							id="settings-remote-confirm-new"
+							label={t("remote.host.confirmNew")}
+							onCheckedChange={on =>
+								void mutate(() => window.omp.remote.setConfirmNewDevices(on), t("remote.host.confirmNewFailed"))
+							}
+						/>
 						<SettingsRow label={t("remote.host.peers")}>
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>
@@ -406,6 +510,22 @@ export function RemoteSection() {
 														>
 															{t("remote.remove")}
 														</Button>
+														<Button
+															aria-label={t("remote.blockLabel", { name: peer.name })}
+															data-remote-peer-block={peer.deviceId}
+															icon={<Ban />}
+															onClick={() =>
+																setPendingRemove({
+																	kind: "block",
+																	deviceId: peer.deviceId,
+																	name: peer.name,
+																})
+															}
+															size="sm"
+															variant="ghost"
+														>
+															{t("remote.block")}
+														</Button>
 													</div>
 												}
 											/>
@@ -419,21 +539,10 @@ export function RemoteSection() {
 					</>
 				)}
 			</SettingsSection>
+			{host.enabled && mobileWeb && <MobileWebAllowedUsers state={mobileWeb} />}
+			{host.enabled && blocked && blocked.length > 0 && <MobileWebBlocked blocked={blocked} />}
 
-			<SettingsSection
-				actions={
-					<Button
-						data-remote-connect
-						icon={<Plus />}
-						onClick={() => setConnectOpen(true)}
-						size="sm"
-						variant="secondary"
-					>
-						{t("remote.hosts.connect")}
-					</Button>
-				}
-				title={t("remote.hosts.title")}
-			>
+			<SettingsSection description={t("remote.hosts.desc")} title={t("remote.hosts.title")}>
 				{hosts.length > 0 ? (
 					<div className="flex flex-col gap-px py-2" data-remote-hosts>
 						{hosts.map(entry => (
@@ -496,18 +605,25 @@ export function RemoteSection() {
 				) : (
 					<p className="py-3 text-sc-sm text-(--sc-text-muted)">{t("remote.hosts.empty")}</p>
 				)}
+				<TailnetComputers ready={state.tailnet === "ready"} />
 				<HostAppearanceRow />
 			</SettingsSection>
-			<RemoteConnectDialog onClose={() => setConnectOpen(false)} open={connectOpen} />
 			<ConfirmDialog
-				confirmLabel={t("remote.remove")}
-				message={t(pendingRemove?.kind === "host" ? "remote.removeHostBody" : "remote.removePeerBody", {
-					name: pendingRemove?.name ?? "",
-				})}
+				confirmLabel={t(pendingRemove?.kind === "block" ? "remote.block" : "remote.remove")}
+				message={t(
+					pendingRemove?.kind === "host"
+						? "remote.removeHostBody"
+						: pendingRemove?.kind === "block"
+							? "remote.blockBody"
+							: "remote.removePeerBody",
+					{ name: pendingRemove?.name ?? "" },
+				)}
 				onCancel={() => setPendingRemove(null)}
 				onConfirm={confirmRemove}
 				open={pendingRemove !== null}
-				title={t("remote.removeTitle", { name: pendingRemove?.name ?? "" })}
+				title={t(pendingRemove?.kind === "block" ? "remote.blockTitle" : "remote.removeTitle", {
+					name: pendingRemove?.name ?? "",
+				})}
 			/>
 			<PeerLimitsDialog
 				key={limitsFor ?? ""}

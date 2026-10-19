@@ -31,12 +31,16 @@ import type {
 	IpcFsStatResult,
 	RemoteDirListing,
 } from "../shared/ipc-types";
-import { FS_WRITE_MAX_BYTES } from "../shared/ipc-types";
+import { FS_LIST_MAX_ENTRIES, FS_WRITE_MAX_BYTES } from "../shared/ipc-types";
 
 const FS_LIST_DEFAULT_DEPTH = 8;
 const FS_LIST_MAX_DEPTH = 16;
-const FS_LIST_DEFAULT_MAX_FILES = 2000;
-const FS_LIST_MAX_FILES_CAP = 20_000;
+/** Files one listing returns: `default` without a `maxEntries`, never more than `max`. */
+interface FsListFileCaps {
+	default: number;
+	max: number;
+}
+const FS_LIST_FILE_CAPS: FsListFileCaps = { default: 2000, max: FS_LIST_MAX_ENTRIES };
 const FS_READ_DEFAULT_MAX_BYTES = 200_000;
 const FS_READ_MAX_BYTES_CAP = 2_000_000;
 /** Markdown images become data URLs in the renderer; bound the bytes. */
@@ -285,10 +289,14 @@ function resolveReadPath(cwd: string | null, target: string): { abs: string } | 
 	return within ? { abs: within } : { error: "Path escapes the workspace", code: "path_escapes_workspace" };
 }
 
-/** The workspace tree under `rootAbs` (gitignore-aware, depth- and file-capped). */
+/**
+ * The workspace tree under `rootAbs` (gitignore-aware, depth- and file-capped). `fileCaps` is the production
+ * pair; a test passes small ones so the caps are proven on a dozen files instead of thousands.
+ */
 export async function listWorkspace(
 	rootAbs: string | null,
 	payload: Omit<IpcFsListPayload, "tabId">,
+	fileCaps: FsListFileCaps = FS_LIST_FILE_CAPS,
 ): Promise<IpcFsListResult> {
 	if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace", code: "no_workspace" };
 	const prefix = (typeof payload?.path === "string" ? payload.path : "")
@@ -308,7 +316,7 @@ export async function listWorkspace(
 	const state: WalkState = {
 		rules: await loadIgnoreRules(rootAbs),
 		maxDepth: clampInt(payload?.maxDepth, 1, FS_LIST_MAX_DEPTH, FS_LIST_DEFAULT_DEPTH),
-		maxFiles: clampInt(payload?.maxEntries, 1, FS_LIST_MAX_FILES_CAP, FS_LIST_DEFAULT_MAX_FILES),
+		maxFiles: clampInt(payload?.maxEntries, 1, fileCaps.max, fileCaps.default),
 		fileCount: 0,
 		truncated: false,
 	};

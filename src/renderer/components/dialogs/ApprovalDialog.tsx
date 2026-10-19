@@ -2,16 +2,24 @@
  * Tool-approval card for the sidecar's approval `select` (see
  * `isApprovalRequest`). It renders as the docked prompt card above the
  * composer (like the Claude app's permission prompt): tool name, capability
- * tier badge, a monospace args preview, then numbered choices. Focus lands on
- * the card, never on Approve; Deny (or Escape) answers "Deny".
+ * tier badge, a monospace args preview, then numbered choices in stock's
+ * order: Approve, "Approve <subject> for this session" when stock offers it,
+ * Deny. Focus lands on the card, never on Approve; Deny (or Escape) answers "Deny".
  */
 
 import { ShieldAlert } from "lucide-react";
 import { useMemo } from "react";
+import {
+	APPROVAL_TITLE_PREFIX,
+	APPROVE_DENY,
+	APPROVE_ONCE,
+	sessionApprovalOption,
+	sessionApprovalSubject,
+} from "../../../shared/tool-approval";
 import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { APPROVAL_TITLE_PREFIX, type ApprovalSelect } from "../../stores/extension-ui";
+import type { ApprovalSelect } from "../../stores/extension-ui";
 import { Badge, type BadgeVariant } from "../common";
 import { ChoiceList, PromptCard, TimeoutFooter } from "./PromptCard";
 
@@ -87,7 +95,16 @@ export function ApprovalDialog({
 	}, [request.title, t]);
 
 	const tier = tierFor(toolName);
-	const deny = () => onRespond({ value: "Deny" });
+	const deny = () => onRespond({ value: APPROVE_DENY });
+	const session = sessionApprovalOption(request);
+	const choices = [
+		{ key: APPROVE_ONCE, label: t("approval.approve") },
+		...(session
+			? [{ key: session, label: t("approval.approveSession", { subject: sessionApprovalSubject(session) }) }]
+			: []),
+		{ key: APPROVE_DENY, label: t("approval.deny"), tone: "danger" as const },
+	];
+	const choose = (key: string) => (key === APPROVE_DENY ? deny() : onRespond({ value: key }));
 
 	return (
 		<PromptCard
@@ -110,8 +127,8 @@ export function ApprovalDialog({
 			label={t("approval.title")}
 			onCancel={deny}
 			onDigit={n => {
-				if (n === 1) onRespond({ value: "Approve" });
-				else if (n === 2) deny();
+				const choice = choices[n - 1];
+				if (choice) choose(choice.key);
 			}}
 		>
 			<div className="mb-1 truncate font-mono text-sc-sm font-semibold">{toolName}</div>
@@ -124,13 +141,7 @@ export function ApprovalDialog({
 					<span className="text-sc-sm text-(--sc-text-muted) italic">{t("approval.noArgs")}</span>
 				)}
 			</div>
-			<ChoiceList
-				choices={[
-					{ key: "Approve", label: t("approval.approve") },
-					{ key: "Deny", label: t("approval.deny"), tone: "danger" },
-				]}
-				onChoose={key => (key === "Approve" ? onRespond({ value: "Approve" }) : deny())}
-			/>
+			<ChoiceList choices={choices} onChoose={choose} />
 		</PromptCard>
 	);
 }

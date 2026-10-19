@@ -36,7 +36,6 @@ import {
 	type AgentReviewItem,
 	agentTaskTitle,
 	type ClosedChild,
-	isApprovalSelect,
 	parseAgentMessage,
 	parseWorkerResult,
 	AGENT_CONTROL_TOOLS as T,
@@ -57,6 +56,7 @@ import type {
 	TodoPhase,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
+import { APPROVE_DENY, APPROVE_ONCE, isApprovalSelect } from "../../shared/tool-approval";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import {
@@ -1603,9 +1603,10 @@ export class AgentControl {
 			const approval = isApprovalSelect(request);
 			const choice = pickOption(
 				request.options,
-				args.choice ?? (args.approve === undefined ? undefined : args.approve ? "Approve" : "Deny"),
+				args.choice ?? (args.approve === undefined ? undefined : args.approve ? APPROVE_ONCE : APPROVE_DENY),
 			);
-			if (approval && choice === "Approve" && !this.#host.approveEnabled())
+			// Approving for this session grants more than "Approve", so both need the user's leave; Deny never does.
+			if (approval && choice !== APPROVE_DENY && !this.#host.approveEnabled())
 				fail(
 					"사용자 승인이 필요해요: this is a tool approval in another session and the user has not let agents approve for them (Settings › Tools & extensions). Tell the user, or show the session with ompdesk_tab_focus. Deny is allowed.",
 				);

@@ -1,7 +1,7 @@
 /**
- * The hosts this device paired with (A side): `<userData>/remote-hosts.json`,
- * mode 0600, rewritten atomically on every change. `addresses` is ordered
- * most-recently-working first; the client dials them in order.
+ * The hosts this device connected to (A side): `<userData>/remote-hosts.json`, mode 0600, rewritten atomically on
+ * every change. Each is pinned to its Tailscale node and its static key from the first connection. `addresses` is
+ * ordered most-recently-working first; the client dials the node's current tailnet address, then these.
  */
 import { join } from "node:path";
 import { z } from "zod";
@@ -13,6 +13,8 @@ export interface PairedHost {
 	name: string;
 	/** The host's long-term X25519 public key, base64url. */
 	staticPub: string;
+	/** The host's Tailscale node (stable ID). Null only in a record an older release wrote (see devices.ts). */
+	nodeId: string | null;
 	/** `host:port` strings, most recently working first. */
 	addresses: string[];
 	pairedAt: number;
@@ -25,6 +27,7 @@ const StoredHost = z.object({
 	deviceId: z.string().min(1),
 	name: z.string(),
 	staticPub: z.string().refine(isRawKey),
+	nodeId: z.string().min(1).nullable().default(null),
 	addresses: z.array(z.string()),
 	pairedAt: z.number(),
 });
@@ -50,5 +53,10 @@ export class HostStore extends TrustStore<PairedHost> {
 		const current = this.get(deviceId);
 		if (!current || current.addresses[0] === address) return current;
 		return this.update(deviceId, { addresses: [address, ...current.addresses.filter(a => a !== address)] });
+	}
+
+	/** The host pinned to a Tailscale node. */
+	byNode(nodeId: string): PairedHost | undefined {
+		return this.list().find(host => host.nodeId === nodeId);
 	}
 }

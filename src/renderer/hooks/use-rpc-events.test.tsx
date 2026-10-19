@@ -1748,6 +1748,25 @@ describe("hydrateSession streaming reconcile (F-HYDRATE)", () => {
 		expect(sessionRuntimeStore<MessagesStore>("t-tail-race", "messages")?.getState().messages).toEqual([message]);
 	});
 
+	it("a failed first transcript read says so instead of an empty session, and hydrating again clears it", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		seedReadyTab("t-first-fail");
+		const original = commandForTab.getMockImplementation()!;
+		let fail = true;
+		const message: AgentMessage = { role: "assistant", content: "on the host", timestamp: 1, entryId: "h1" };
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type !== "get_transcript_page") return original(tabId, command);
+			if (fail) throw new Error("tab.command timed out after 13000 ms");
+			return success({ messages: [message], totalMessages: 1 });
+		});
+		const messages = sessionRuntimeStore<MessagesStore>("t-first-fail", "messages")!;
+		await hydrateTabSession("t-first-fail");
+		expect(messages.getState()).toMatchObject({ messages: [], pageError: "tab.command timed out after 13000 ms" });
+		fail = false;
+		await hydrateTabSession("t-first-fail");
+		expect(messages.getState()).toMatchObject({ messages: [message], pageError: null });
+	});
+
 	it("shares one in-flight tab hydration per session and refetches after a session change or reload", async () => {
 		const { commandForTab } = installTabRoutedMockOmp();
 		seedReadyTab("t-once");

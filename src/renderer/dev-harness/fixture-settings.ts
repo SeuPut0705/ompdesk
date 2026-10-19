@@ -166,17 +166,18 @@ export const WEB_BLOCKS: WebBlockedInfo[] = [
 
 // ── Remote devices (Settings › Devices & connections › Share this computer) ───────────────────────────────────
 export const REMOTE_STATE: RemoteState = {
+	tailnet: "ready",
 	host: {
 		enabled: true,
 		name: "Studio Mac",
-		port: 47900,
-		addresses: ["192.168.0.12:47900", "10.0.0.5:47900"],
-		code: "482 915",
-		expiresAt: NOW + 9 * 60_000,
+		port: 47821,
+		addresses: ["100.101.102.103:47821", "[fd7a:115c:a1e0::1]:47821"],
+		listenError: null,
 		peers: [
 			{
 				deviceId: "peer-1",
 				name: "Work laptop",
+				login: "seuput@example.com",
 				online: true,
 				lastSeenAt: NOW - 30_000,
 				limits: { requestsPerDay: 100, tokensPerDay: 500_000 },
@@ -186,6 +187,7 @@ export const REMOTE_STATE: RemoteState = {
 		keepAwake: true,
 		keepingAwake: true,
 		usedBy: ["Work laptop"],
+		confirmNewDevices: false,
 	},
 	hosts: [
 		{
@@ -197,6 +199,7 @@ export const REMOTE_STATE: RemoteState = {
 		},
 		{ deviceId: "host-2", name: "Old desktop", state: "offline", platform: "win32" },
 	],
+	forgotten: [],
 };
 
 // ── Permissions, Projects, machine setup ─────────────────────────────────────────────────────────────────────

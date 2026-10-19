@@ -37,6 +37,13 @@ const notConnected = { type: "response", command: "test", success: false, error:
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		mobileWeb: fakeMobileWeb().api,
+		remote: {
+			getState: vi.fn(async () => {
+				throw new Error("the test applies the state itself");
+			}),
+			watchTailnet: vi.fn(async () => []),
+			onTailnet: vi.fn(() => () => {}),
+		},
 		prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 		system: { info: vi.fn(async () => ({ deviceLanguage: "en-US" })) },
 		sidecar: { restart: vi.fn(async () => {}) },
@@ -53,19 +60,21 @@ const HOST_ID = "host-studio";
 function remoteState(state: RemoteLinkState): RemoteState {
 	const hosts: HostView[] = [{ deviceId: HOST_ID, name: "Studio", state }];
 	return {
+		tailnet: "ready",
 		host: {
 			enabled: false,
 			name: "laptop",
 			port: null,
 			addresses: [],
-			code: null,
-			expiresAt: null,
+			listenError: null,
 			peers: [],
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
+			confirmNewDevices: false,
 		},
 		hosts,
+		forgotten: [],
 	};
 }
 

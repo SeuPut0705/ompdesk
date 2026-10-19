@@ -18,8 +18,11 @@ import type { BridgeMethods } from "./types";
 
 const timer = new IdleCompactionTimer<AgentSession>(async session => {
 	// Deferred like compaction-limits.ts: stock internals load only after `guard` checked the feature.
-	const { cfgCompaction } = await import("@oh-my-pi/pi-coding-agent/session/context-settings");
-	return cfgCompaction.get(session.settings);
+	const [{ cfgCompaction }, { getCacheWarmingDelayMs }] = await Promise.all([
+		import("@oh-my-pi/pi-coding-agent/session/context-settings"),
+		import("@oh-my-pi/pi-coding-agent/session/cache-warmer"),
+	]);
+	return { ...cfgCompaction.get(session.settings), cacheWarmingDelayMs: getCacheWarmingDelayMs };
 });
 const subscribed = new WeakSet<AgentSession>();
 let attached: AgentSession | undefined;

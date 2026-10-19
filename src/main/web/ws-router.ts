@@ -276,14 +276,6 @@ function assistantTokens(event: AgentSessionEvent): number {
 	return typeof total === "number" && Number.isFinite(total) && total > 0 ? total : 0;
 }
 
-/** The host's RemoteState without the pairing code a page must never read. */
-function withoutPairingCode(state: unknown): unknown {
-	if (typeof state !== "object" || state === null || !("host" in state)) return state;
-	const { host } = state;
-	if (typeof host !== "object" || host === null) return state;
-	return { ...state, host: { ...host, code: null, expiresAt: null } };
-}
-
 const SECRET_PREF_KEY = /token|secret|password|passphrase|credential|api[-_]?key/i;
 
 /** PREFS_GET's whole-store answer without keys that look like credentials. */
@@ -440,8 +432,7 @@ export class WsRouter {
 		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as IpcChannel] : undefined;
 		if (policy?.dir !== "push" || policy.mode === "client" || Object.hasOwn(DESKTOP_ONLY_PUSH, channel)) return;
 		this.#pushes.set(deviceId, (this.#pushes.get(deviceId) ?? 0) + 1);
-		const data = channel === IPC_EVENTS.REMOTE_STATE ? withoutPairingCode(payload) : payload;
-		for (const connection of this.#connections.get(deviceId) ?? []) connection.push(channel, data);
+		for (const connection of this.#connections.get(deviceId) ?? []) connection.push(channel, payload);
 	}
 
 	closeDevice(deviceId: string, code: number, reason: string): void {
@@ -594,13 +585,21 @@ export class WsConnection {
 		this.#queue = [];
 	}
 
-	#write(frame: WebServerFrame): void {
-		if (this.#closed) return;
+	/** False when `frame` cannot be serialized; a socket that just closed counts as sent (the page resyncs). */
+	#write(frame: WebServerFrame): boolean {
+		if (this.#closed) return true;
+		let text: string;
 		try {
-			this.#socket.send(JSON.stringify(frame));
+			text = JSON.stringify(frame);
 		} catch {
-			// A payload that cannot be serialized or a socket that just closed: the page re-reads state on reconnect.
+			return false;
 		}
+		try {
+			this.#socket.send(text);
+		} catch {
+			// The socket is closing; its close event ends this connection.
+		}
+		return true;
 	}
 
 	#sendHello(resumed: boolean): void {
@@ -672,7 +671,14 @@ export class WsConnection {
 	async #invoke(id: number, channel: string, args: readonly unknown[]): Promise<void> {
 		try {
 			const value = await this.#dispatch("invoke", channel, args);
-			this.#write({ t: "res", id, ok: true, v: value });
+			if (this.#write({ t: "res", id, ok: true, v: value })) return;
+			// A result JSON cannot carry: the call fails here instead of the page waiting for it forever.
+			this.#write({
+				t: "res",
+				id,
+				ok: false,
+				e: { message: `The computer's answer to ${channel} could not be sent to this page` },
+			});
 		} catch (error) {
 			this.#write({ t: "res", id, ok: false, e: webError(error) });
 		}
@@ -794,9 +800,8 @@ export class WsConnection {
 		return channel === IPC_COMMANDS.MODEL_SETUP_RUN ? 1 : 0;
 	}
 
-	/** What a page may see: no pairing code, no secret-looking preferences, no raw bytes or `omp-media://` address. */
+	/** What a page may see: no secret-looking preferences, no raw bytes or `omp-media://` address. */
 	#shape(channel: string, args: readonly unknown[], result: unknown): unknown {
-		if (channel === IPC_COMMANDS.REMOTE_GET_STATE) return withoutPairingCode(result);
 		if (channel === IPC_COMMANDS.PREFS_GET) {
 			const payload = args[0];
 			const keyed = typeof payload === "object" && payload !== null && "key" in payload && payload.key;
