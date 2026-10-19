@@ -253,8 +253,8 @@ pub enum ConclusionSource {
 /// One conclusion in a listing.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConclusionRecord {
-    /// Position in its stream: the observation row for native, the copy's row
-    /// for synced. Ascending, and never reused.
+    /// Position in its stream: the `native_conclusions` log number for native,
+    /// the copy's row for synced. Ascending, and never reused.
     pub seq: i64,
     /// Workspace name.
     pub workspace: String,
@@ -284,6 +284,11 @@ pub struct ConclusionPage {
     pub next: i64,
     /// Whether more rows follow `next`.
     pub more: bool,
+    /// The highest `seq` the stream holds now, 0 when it is empty.
+    pub last: i64,
+    /// Who this database is. A different value than a puller saved means its
+    /// cursors belong to another database (a fresh one restarts at 1).
+    pub store: String,
 }
 
 fn rfc3339(micros: i64) -> String {
@@ -351,10 +356,21 @@ pub(crate) fn list_conclusions(
     limit: usize,
 ) -> StoreResult<ConclusionPage> {
     let fetch = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
-    let mut conclusions = match source {
-        ConclusionSource::Native => list_native(conn, after, fetch)?,
-        ConclusionSource::Synced => list_synced(conn, after, fetch)?,
+    // One snapshot, so `last` is never behind the rows listed with it.
+    let tx = conn.unchecked_transaction()?;
+    let (mut conclusions, last_sql) = match source {
+        ConclusionSource::Native => (
+            list_native(&tx, after, fetch)?,
+            "SELECT COALESCE(MAX(seq), 0) FROM native_conclusions",
+        ),
+        ConclusionSource::Synced => (
+            list_synced(&tx, after, fetch)?,
+            "SELECT COALESCE(MAX(id), 0) FROM synced_conclusions",
+        ),
     };
+    let last: i64 = tx.query_row(last_sql, [], |row| row.get(0))?;
+    let store: String = tx.query_row("SELECT id FROM store_identity", [], |row| row.get(0))?;
+    tx.finish()?;
     let more = conclusions.len() > limit;
     conclusions.truncate(limit);
     let next = conclusions.last().map_or(after, |row| row.seq);
@@ -362,18 +378,21 @@ pub(crate) fn list_conclusions(
         conclusions,
         next,
         more,
+        last,
+        store,
     })
 }
 
 fn list_native(conn: &Connection, after: i64, fetch: i64) -> StoreResult<Vec<ConclusionRecord>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT o.rowid, w.name, p.name, o.id, o.session_id, o.workspace_id, o.project_id, \
+        "SELECT n.seq, w.name, p.name, o.id, o.session_id, o.workspace_id, o.project_id, \
                 o.body, o.created_at \
-         FROM observations o \
+         FROM native_conclusions n \
+         JOIN observations o ON o.id = n.observation_id \
          JOIN workspaces w ON w.id = o.workspace_id \
          JOIN projects p ON p.id = o.project_id \
-         WHERE o.rowid > ?1 AND o.kind = '{stop}' AND trim(o.body) <> '' \
-         ORDER BY o.rowid LIMIT ?2",
+         WHERE n.seq > ?1 AND o.kind = '{stop}' AND trim(o.body) <> '' \
+         ORDER BY n.seq LIMIT ?2",
         stop = ObservationKind::Stop.as_str(),
     ))?;
     let rows = stmt

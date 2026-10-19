@@ -753,6 +753,8 @@ describe("AiMemoryClient (Memory page)", () => {
 			],
 			next: 4,
 			more: true,
+			store: "db-1",
+			last: 9,
 		});
 		expect(await client.conclusions("native", 0, 200)).toEqual({
 			rows: [
@@ -768,6 +770,8 @@ describe("AiMemoryClient (Memory page)", () => {
 			],
 			next: 4,
 			more: true,
+			store: "db-1",
+			last: 9,
 		});
 		expect(sent.at(-1)?.method).toBe("GET");
 		routes["/admin/conclusions?source=synced&after=9&limit=5"] = json({
@@ -786,11 +790,28 @@ describe("AiMemoryClient (Memory page)", () => {
 			],
 			next: 10,
 			more: false,
+			store: "db-1",
+			last: 10,
 		});
 		const synced = await client.conclusions("synced", 9, 5);
 		expect(synced.rows[0]?.origin).toBe("win-1");
-		routes["/admin/conclusions?source=synced&after=10&limit=5"] = json({ conclusions: [], next: 10, more: false });
-		expect(await client.conclusions("synced", 10, 5)).toEqual({ rows: [], next: 10, more: false });
+		routes["/admin/conclusions?source=synced&after=10&limit=5"] = json({
+			conclusions: [],
+			next: 10,
+			more: false,
+			store: "db-2",
+			last: 3,
+		});
+		expect(await client.conclusions("synced", 10, 5)).toEqual({
+			rows: [],
+			next: 10,
+			more: false,
+			store: "db-2",
+			last: 3,
+		});
+		// A server that does not name its database or its last seq: no store, nothing ever above its end.
+		routes["/admin/conclusions?source=native&after=2&limit=5"] = json({ conclusions: [], next: 2, more: false });
+		expect(await client.conclusions("native", 2, 5)).toMatchObject({ store: "", last: 2 });
 		routes["/admin/conclusions?source=native&after=7&limit=5"] = json({ conclusions: [] });
 		expect((await client.conclusions("native", 7, 5)).next).toBe(7);
 		routes["/admin/conclusions?source=native&after=8&limit=5"] = json({ error: "not found" }, 404);

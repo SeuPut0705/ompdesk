@@ -47,7 +47,8 @@
  *   `same` or `skipped` (empty body). `memory_query {conclusions: true}` answers `conclusion_hits` from the native
  *   and synced rows of the named project: a row matches when it holds every whitespace-separated term of the query
  *   (case-insensitive substring of title or body), one hit per session, the snippet is the body with the terms in
- *   `<mark>`; `hits` is always empty.
+ *   `<mark>`; `hits` is always empty. `GET /admin/conclusions` also names this instance's database (`store`, a random
+ *   id, stable for the life of the process) and `last`, the highest seq in the stream asked for.
  */
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -467,6 +468,7 @@ interface FakeConclusion {
 }
 /** Stop observations captured here, then conclusions written by another computer (`origin_device`). */
 const NATIVE: FakeConclusion[] = [];
+const STORE_ID = crypto.randomUUID();
 const SYNCED: FakeConclusion[] = [];
 function capture(row: Record<string, unknown>): void {
 	NATIVE.push({
@@ -673,6 +675,8 @@ function serve(): void {
 					),
 					next: page.at(-1)?.seq ?? after,
 					more: rows.length > page.length,
+					store: STORE_ID,
+					last: (source === "native" ? NATIVE : SYNCED).at(-1)?.seq ?? 0,
 				});
 			}
 			if (url.pathname === "/admin/write-conclusions") {

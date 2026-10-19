@@ -69,6 +69,17 @@ const MAX_CONCLUSION_BATCHES = 40;
 /** A conclusion's title is cut to this many characters (the server's own cut). */
 const CONCLUSION_TITLE_CHARS = 500;
 
+/** One page of a conclusion stream. */
+export interface ConclusionPage {
+	rows: MemoryConclusionCopy[];
+	next: number;
+	more: boolean;
+	/** The database the seqs belong to. */
+	store: string;
+	/** The stream's highest seq now (0 when empty). */
+	last: number;
+}
+
 /** The memory server, as the sync reads and writes it (AiMemoryClient). */
 export interface MemoryStore {
 	projects(): Promise<AiMemoryProjectRef[]>;
@@ -79,12 +90,11 @@ export interface MemoryStore {
 	pageCopy(ref: AiMemoryProjectRef & { path: string }): Promise<MemoryPageCopy>;
 	/** Only over the version `expected` (a `pageCopy` id) or, with `null`, only where nothing is; false: it moved on. */
 	writePageCopy(copy: MemoryPageCopy, origin: string | undefined, expected: string | null): Promise<boolean>;
-	/** One conclusion stream after `after`, `seq` order (`AiMemoryClient.conclusions`). */
-	conclusions(
-		source: "native" | "synced",
-		after: number,
-		limit: number,
-	): Promise<{ rows: MemoryConclusionCopy[]; next: number; more: boolean }>;
+	/**
+	 * One conclusion stream after `after`, `seq` order (`AiMemoryClient.conclusions`): `store` names the database the
+	 * seqs belong to, `last` is the stream's highest seq now.
+	 */
+	conclusions(source: "native" | "synced", after: number, limit: number): Promise<ConclusionPage>;
 	/** Insert-if-absent under `origin`, a status per item in order (`AiMemoryClient.writeConclusions`). */
 	writeConclusions(
 		project: AiMemoryProjectRef,
@@ -335,6 +345,24 @@ export async function servePush(
 }
 
 /**
+ * A page of a conclusion stream from the cursor `after`, which was read from the database `known`. Seqs restart in a
+ * fresh database (delete all memory) and a restored backup rewinds them, so a cursor is good only for the store it
+ * came from and while it is not past the stream's end; otherwise the page is read from 0 (`after: 0`). Offering rows
+ * again is safe: a server answers `same` to a conclusion it holds.
+ */
+async function readConclusions(
+	store: MemoryStore,
+	source: "native" | "synced",
+	after: number,
+	known: string | undefined,
+	limit: number,
+): Promise<{ page: ConclusionPage; after: number }> {
+	const page = await store.conclusions(source, after, limit);
+	if (after === 0 || (page.store === known && after <= page.last)) return { page, after };
+	return { page: await store.conclusions(source, 0, limit), after: 0 };
+}
+
+/**
  * `host.memory.conclusions.pull`: this computer's own conclusions after `since.native`, then the ones it holds from
  * other computers after `since.synced`, at most 200 together, none that `peer` captured. Memory off: nothing read.
  */
@@ -351,15 +379,25 @@ export async function serveConclusionPull(
 		const wire = cleanConclusion(row, origin);
 		if (wire) conclusions.push(wire);
 	};
-	const next = { ...params.since };
-	const native = await deps.store.conclusions("native", params.since.native, CONCLUSION_BATCH);
+	const { page: native } = await readConclusions(
+		deps.store,
+		"native",
+		params.since.native,
+		params.since.store,
+		CONCLUSION_BATCH,
+	);
 	for (const row of native.rows) take(row, self);
-	next.native = native.next;
+	// Both streams live in one database: when it is not the one the cursor came from, neither position holds.
+	const next = {
+		native: native.next,
+		synced: native.store === params.since.store ? params.since.synced : 0,
+		store: native.store,
+	};
 	let more = native.more;
 	if (!more) {
 		const room = CONCLUSION_BATCH - conclusions.length;
 		if (room > 0) {
-			const synced = await deps.store.conclusions("synced", params.since.synced, room);
+			const { page: synced } = await readConclusions(deps.store, "synced", next.synced, native.store, room);
 			for (const row of synced.rows) take(row, row.origin);
 			next.synced = synced.next;
 			more = synced.more;
@@ -418,10 +456,14 @@ const HostState = z.object({
 	pending: z.array(z.string()),
 	/**
 	 * Where the next pull of this host's conclusions goes on, per stream (its own, then the ones it holds from
-	 * other computers). A sync.json written before conclusions existed has none: they start from the beginning.
+	 * other computers), and the host's database those positions belong to (the host restarts from 0 for another).
+	 * A sync.json written before conclusions existed has none: they start from the beginning.
 	 */
 	conclusions: MemoryConclusionCursor.default(() => ({ native: 0, synced: 0 })),
-	/** The last row of each of this computer's streams (its own, the ones it holds) the host has answered for. */
+	/**
+	 * The last row of each of this computer's streams (its own, the ones it holds) the host has answered for, and
+	 * this computer's database they were read from (another one, or a position past a stream's end, starts over).
+	 */
 	conclusionsSent: MemoryConclusionCursor.default(() => ({ native: 0, synced: 0 })),
 });
 type HostState = z.infer<typeof HostState>;
@@ -734,7 +776,19 @@ export class MemorySync {
 		const self = this.#deps.selfId();
 		for (const source of ["native", "synced"] as const) {
 			for (let batch = 0; batch < MAX_CONCLUSION_BATCHES; batch++) {
-				const page = await this.#deps.store.conclusions(source, state.conclusionsSent[source], CONCLUSION_BATCH);
+				const sent = state.conclusionsSent;
+				const { page, after } = await readConclusions(
+					this.#deps.store,
+					source,
+					sent[source],
+					sent.store,
+					CONCLUSION_BATCH,
+				);
+				if (page.store !== sent.store) {
+					sent.native = 0;
+					sent.synced = 0;
+					sent.store = page.store;
+				} else sent[source] = after;
 				// The host's own conclusions never go back to it, and a computer's neither (`origin`).
 				const entries = page.rows.map(row => {
 					const origin = source === "native" ? self : row.origin;
@@ -756,7 +810,7 @@ export class MemorySync {
 					report.conclusions.pushed += results.filter(result => result.status === "written").length;
 				}
 				let answered = 0;
-				let reached = state.conclusionsSent[source];
+				let reached = after;
 				let stalled = false;
 				for (const entry of entries) {
 					if (entry.wire) {

@@ -2356,7 +2356,7 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 			]),
 			pageCopy: vi.fn(async () => decision),
 			writePageCopy: vi.fn(async () => true),
-			conclusions: vi.fn(async () => ({ rows: [], next: 0, more: false })),
+			conclusions: vi.fn(async () => ({ rows: [], next: 0, more: false, store: "db-1", last: 0 })),
 			writeConclusions: vi.fn(async () => []),
 		};
 		const deps = { store, ready: () => ready, selfId: () => "this-host" };
@@ -2442,6 +2442,8 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 						: [],
 				next: source === "native" ? 4 : 0,
 				more: false,
+				store: "db-1",
+				last: source === "native" ? 4 : 0,
 			})),
 			writeConclusions: vi.fn(async (_project: unknown, _origin: string, items: unknown[]) =>
 				items.map(() => "written" as const),
@@ -2472,7 +2474,7 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 		expect(MemoryConclusionPullReply.parse(reply)).toEqual({
 			memory: true,
 			conclusions: [expect.objectContaining({ id: "obs-9", origin: "this-host", body: "Host answer." })],
-			next: { native: 4, synced: 0 },
+			next: { native: 4, synced: 0, store: "db-1" },
 			more: false,
 		});
 		await expect(services.call(x.peer, "host.memory.conclusions.push", { conclusions: [wire] }, x)).resolves.toEqual({

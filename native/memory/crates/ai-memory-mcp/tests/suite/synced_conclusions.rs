@@ -771,6 +771,152 @@ async fn a_conclusion_of_another_project_never_answers_this_one() {
 }
 
 #[tokio::test]
+async fn a_saved_native_cursor_still_sees_conclusions_captured_after_the_newest_session_is_purged()
+{
+    let h = harness().await;
+    let keep = native_session(&h, h.proj).await;
+    observe(
+        &h,
+        h.proj,
+        keep,
+        ObservationKind::Stop,
+        "stop",
+        "kept conclusion",
+    )
+    .await;
+    let newest = native_session(&h, h.proj).await;
+    observe(
+        &h,
+        h.proj,
+        newest,
+        ObservationKind::Stop,
+        "stop",
+        "newest conclusion",
+    )
+    .await;
+
+    let (_, first) = get(&h.admin, "/admin/conclusions?source=native").await;
+    assert_eq!(first["conclusions"].as_array().unwrap().len(), 2, "{first}");
+    let saved = first["next"].as_i64().unwrap();
+    assert_eq!(first["last"], saved);
+
+    // The newest session holds the highest observation rowid; once it is
+    // gone SQLite would hand that rowid out again.
+    h.store
+        .writer
+        .purge_session(
+            h.ws,
+            h.proj,
+            newest,
+            None,
+            ai_memory_store::Compaction::Skip,
+            ai_memory_store::PurgeMode::Commit,
+        )
+        .await
+        .expect("purge");
+    let (_, after_purge) = get(&h.admin, "/admin/conclusions?source=native").await;
+    let bodies: Vec<&str> = after_purge["conclusions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["body"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        bodies,
+        ["kept conclusion"],
+        "the purged turn left the stream"
+    );
+
+    let fresh = native_session(&h, h.proj).await;
+    observe(
+        &h,
+        h.proj,
+        fresh,
+        ObservationKind::Stop,
+        "stop",
+        "captured after the purge",
+    )
+    .await;
+    let (_, rest) = get(
+        &h.admin,
+        &format!("/admin/conclusions?source=native&after={saved}"),
+    )
+    .await;
+    let rows = rest["conclusions"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{rest}");
+    assert_eq!(rows[0]["body"], "captured after the purge");
+    assert!(rows[0]["seq"].as_i64().unwrap() > saved, "{rest}");
+    assert_eq!(rest["last"], rest["next"]);
+}
+
+#[tokio::test]
+async fn the_store_id_is_stable_per_database_and_last_is_reported_for_both_streams() {
+    let h = harness().await;
+    let (_, empty_native) = get(&h.admin, "/admin/conclusions?source=native").await;
+    let (_, empty_synced) = get(&h.admin, "/admin/conclusions?source=synced").await;
+    assert_eq!(empty_native["last"], 0, "{empty_native}");
+    assert_eq!(empty_synced["last"], 0, "{empty_synced}");
+    let store = empty_native["store"].as_str().expect("store id").to_owned();
+    assert_eq!(store.len(), 32, "{store}");
+    assert_eq!(empty_synced["store"], store.as_str());
+
+    let session = native_session(&h, h.proj).await;
+    observe(&h, h.proj, session, ObservationKind::Stop, "stop", "one").await;
+    let (status, reply) = write(
+        &h,
+        PROJ,
+        vec![
+            item("a", SessionId::new(), "A", "alpha", "2026-10-19T10:00:00Z"),
+            item("b", SessionId::new(), "B", "beta", "2026-10-19T10:01:00Z"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reply}");
+
+    let (_, native) = get(&h.admin, "/admin/conclusions?source=native").await;
+    let (_, synced) = get(&h.admin, "/admin/conclusions?source=synced&limit=1").await;
+    assert_eq!(native["store"], store.as_str());
+    assert_eq!(synced["store"], store.as_str());
+    assert_eq!(native["last"], native["next"], "{native}");
+    assert_eq!(synced["more"], true);
+    assert_eq!(synced["next"], 1);
+    assert_eq!(
+        synced["last"], 2,
+        "last is the stream's, not the page's: {synced}"
+    );
+
+    let other = harness().await;
+    let (_, theirs) = get(&other.admin, "/admin/conclusions?source=native").await;
+    assert_ne!(theirs["store"], store.as_str(), "two fresh stores differ");
+}
+
+#[tokio::test]
+async fn a_stop_that_gains_a_body_later_joins_the_native_stream_once() {
+    let h = harness().await;
+    let session = native_session(&h, h.proj).await;
+    observe(&h, h.proj, session, ObservationKind::Stop, "stop", "").await;
+    let (_, before) = get(&h.admin, "/admin/conclusions?source=native").await;
+    assert_eq!(before["conclusions"], json!([]), "{before}");
+
+    let db = rusqlite::Connection::open(h.store.db_path()).expect("db");
+    db.execute(
+        "UPDATE observations SET body = 'now with text' WHERE session_id = ?1",
+        [session.as_bytes().as_slice()],
+    )
+    .expect("update");
+    db.execute(
+        "UPDATE observations SET body = 'edited again' WHERE session_id = ?1",
+        [session.as_bytes().as_slice()],
+    )
+    .expect("update");
+    drop(db);
+
+    let (_, after) = get(&h.admin, "/admin/conclusions?source=native").await;
+    assert_eq!(after["conclusions"].as_array().unwrap().len(), 1, "{after}");
+    assert_eq!(after["conclusions"][0]["body"], "edited again");
+}
+
+#[tokio::test]
 async fn the_listing_refuses_a_bad_source_after_or_limit() {
     let h = harness().await;
     for uri in [

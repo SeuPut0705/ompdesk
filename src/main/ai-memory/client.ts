@@ -692,14 +692,17 @@ export class AiMemoryClient {
 	/**
 	 * One stream of session conclusions (Stop observations with a body) in `seq` order, for sync.ts: `native` is what
 	 * this server captured, `synced` what it holds from the person's other computers (each row names its origin).
-	 * `next` is the seq of the last row returned (`after` when none); `more`: rows are left after it.
+	 * `next` is the seq of the last row returned (`after` when none); `more`: rows are left after it. `store` names the
+	 * database the seqs belong to ("" from a server that does not say) and `last` is the highest seq in this stream now:
+	 * a cursor is good only for the same `store` and while it is not past `last`.
 	 */
 	async conclusions(
 		source: "native" | "synced",
 		after: number,
 		limit: number,
-	): Promise<{ rows: MemoryConclusionCopy[]; next: number; more: boolean }> {
+	): Promise<{ rows: MemoryConclusionCopy[]; next: number; more: boolean; store: string; last: number }> {
 		const body = record(await this.#get(`/admin/conclusions?source=${source}&after=${after}&limit=${limit}`));
+		const next = typeof body.next === "number" ? body.next : after;
 		return {
 			rows: rows(body.conclusions).map(row => ({
 				seq: num(row.seq),
@@ -712,8 +715,10 @@ export class AiMemoryClient {
 				at: str(row.created_at),
 				...(str(row.origin_device) ? { origin: str(row.origin_device) } : {}),
 			})),
-			next: typeof body.next === "number" ? body.next : after,
+			next,
 			more: body.more === true,
+			store: str(body.store),
+			last: typeof body.last === "number" ? body.last : next,
 		};
 	}
 

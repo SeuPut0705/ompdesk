@@ -49,6 +49,8 @@ class FakeServer {
 	readonly failConclusionOnce = new Set<string>();
 	/** An ai-memory without the conclusion routes (a plain 404). */
 	noConclusionRoutes = false;
+	/** The id of this server's database: a fresh database (delete all memory) names a new one and restarts its seqs. */
+	database = "db-1";
 	#version = 0;
 	constructor(
 		readonly now: () => string,
@@ -60,6 +62,13 @@ class FakeServer {
 	/** What a person or an agent writes here: no origin, a page of this computer's own. */
 	edit(path: string, body: string, project = "app", extra: Partial<MemoryPageCopy> = {}): void {
 		this.#put({ ...page(path, body, project), ...extra }, undefined);
+	}
+
+	/** Delete all memory, or a restored backup: another database, its conclusion streams empty again. */
+	replaceStore(id: string): void {
+		this.database = id;
+		this.native.length = 0;
+		this.synced.length = 0;
 	}
 
 	/** What omp's Stop excerpt leaves in this server: a conclusion of its own, with no origin. */
@@ -152,7 +161,13 @@ class FakeServer {
 			}));
 			const rows = all.filter(row => row.seq > after);
 			const page = rows.slice(0, limit);
-			return { rows: structuredClone(page), next: page.at(-1)?.seq ?? after, more: rows.length > page.length };
+			return {
+				rows: structuredClone(page),
+				next: page.at(-1)?.seq ?? after,
+				more: rows.length > page.length,
+				store: this.database,
+				last: all.length,
+			};
 		},
 		writeConclusions: async (project, origin, items) => {
 			if (this.noConclusionRoutes) throw new Error("Memory answered 404");
@@ -757,6 +772,86 @@ describe("memory sync between two computers", () => {
 			expect(mac.conclusionReads + win.conclusionReads).toBe(0);
 			expect(mac.conclusionCalls).toEqual([]);
 			expect(win.conclusionCalls).toEqual([]);
+		});
+
+		it("a conclusion captured after this computer's memory was deleted still reaches the host, once", async () => {
+			for (const id of ["m1", "m2", "m3"]) mac.capture(id, `Before the delete ${id}.`);
+			await sync.sync("win");
+			expect(win.synced).toHaveLength(3);
+
+			mac.replaceStore("db-2");
+			mac.capture("m4", "After the delete.");
+			expect((await sync.sync("win"))?.conclusions.pushed).toBe(1);
+			expect(win.synced.map(row => row.id)).toEqual(["m1", "m2", "m3", "m4"]);
+
+			mac.conclusionCalls = [];
+			win.conclusionCalls = [];
+			for (let round = 0; round < 3; round++) expect(await sync.sync("win")).toEqual(QUIET);
+			expect(win.conclusionCalls).toEqual([]);
+			expect(mac.conclusionCalls).toEqual([]);
+		});
+
+		it("a conclusion captured after the host's memory was deleted still reaches this computer, once", async () => {
+			for (const id of ["w1", "w2", "w3"]) win.capture(id, `Before the delete ${id}.`);
+			await sync.sync("win");
+			expect(mac.synced).toHaveLength(3);
+
+			win.replaceStore("db-2");
+			win.capture("w4", "After the delete.");
+			expect((await sync.sync("win"))?.conclusions.pulled).toBe(1);
+			expect(mac.synced.map(row => row.id)).toEqual(["w1", "w2", "w3", "w4"]);
+
+			mac.conclusionCalls = [];
+			win.conclusionCalls = [];
+			for (let round = 0; round < 3; round++) expect(await sync.sync("win")).toEqual(QUIET);
+			expect(mac.conclusionCalls).toEqual([]);
+			expect(win.conclusionCalls).toEqual([]);
+		});
+
+		it("a cursor past the end of its stream on the same database restarts that stream", async () => {
+			for (const id of ["m1", "m2", "m3"]) mac.capture(id, `Mac ${id}.`);
+			for (const id of ["w1", "w2", "w3"]) win.capture(id, `Host ${id}.`);
+			await sync.sync("win");
+
+			// A restored backup rewinds the streams (same database id, fewer rows).
+			mac.native.length = 0;
+			win.native.length = 0;
+			mac.capture("m4", "Mac again.");
+			win.capture("w4", "Host again.");
+			expect((await sync.sync("win"))?.conclusions).toEqual({ pulled: 1, pushed: 1 });
+			expect(win.synced.map(row => row.id)).toEqual(["m1", "m2", "m3", "m4"]);
+			expect(mac.synced.map(row => row.id)).toEqual(["w1", "w2", "w3", "w4"]);
+			expect(await sync.sync("win")).toEqual(QUIET);
+		});
+
+		it("answers a cursor of another database, or past the end, from the start, and names its own database", async () => {
+			win.capture("w1", "One.");
+			win.capture("w2", "Two.");
+			win.synced.push({
+				workspace: "default",
+				project: "app",
+				id: "t1",
+				sessionId: "s-t1",
+				title: "T",
+				body: "Tablet.",
+				at: "2026-10-19T00:00:01Z",
+				origin: "tab",
+			});
+			const ids = async (since: { native: number; synced: number; store?: string }) =>
+				(await serveConclusionPull(hostDeps(), "mac", { since })).conclusions.map(row => row.id);
+
+			expect(await ids({ native: 2, synced: 1, store: "db-1" })).toEqual([]);
+			expect(await ids({ native: 1, synced: 0, store: "db-1" })).toEqual(["w2", "t1"]);
+			expect(await ids({ native: 2, synced: 1, store: "db-0" })).toEqual(["w1", "w2", "t1"]);
+			expect(await ids({ native: 2, synced: 1 })).toEqual(["w1", "w2", "t1"]);
+			expect(await ids({ native: 5, synced: 0, store: "db-1" })).toEqual(["w1", "w2", "t1"]);
+			expect(await ids({ native: 2, synced: 7, store: "db-1" })).toEqual(["t1"]);
+			expect(
+				await serveConclusionPull(hostDeps(), "mac", { since: { native: 2, synced: 1, store: "db-0" } }),
+			).toMatchObject({
+				next: { native: 2, synced: 1, store: "db-1" },
+				more: false,
+			});
 		});
 
 		it("does not send again after a relaunch", async () => {

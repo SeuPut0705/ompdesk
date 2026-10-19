@@ -259,8 +259,16 @@ export const MemoryConclusionWire = z.object({
 	origin: z.string().min(1).max(128),
 });
 export type MemoryConclusionWire = z.infer<typeof MemoryConclusionWire>;
-/** Where a conclusion pull goes on: the host's own stream, then the stream it holds from other computers. */
-export const MemoryConclusionCursor = z.object({ native: z.number().int().min(0), synced: z.number().int().min(0) });
+/**
+ * Where a conclusion pull goes on: the host's own stream, then the stream it holds from other computers. `store` is the
+ * id of the database the two positions were read from; they mean nothing in another (delete all memory and a restored
+ * backup renumber the streams), so a cursor naming another store, or past the end of its stream, restarts from 0.
+ */
+export const MemoryConclusionCursor = z.object({
+	native: z.number().int().min(0),
+	synced: z.number().int().min(0),
+	store: z.string().max(64).optional(),
+});
 export type MemoryConclusionCursor = z.infer<typeof MemoryConclusionCursor>;
 export const MemoryConclusionPullParams = z.object({ since: MemoryConclusionCursor });
 export type MemoryConclusionPullParams = z.infer<typeof MemoryConclusionPullParams>;
