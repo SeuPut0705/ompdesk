@@ -721,6 +721,25 @@ describe("LocalHostServices", () => {
 		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
 	});
 
+	it("deletes only after every one of the device's duplicate omps on the file has exited, in any order", async () => {
+		const { services, sidecars, deleteSession } = setup();
+		const x = peer("device-x");
+		// Two leftovers of an older release on one file (revived markers make them without the open's guard).
+		services.reviveTab(x, { tab: "peer:device-x:a", cwd: workDir, kind: "agent", sessionPath: "/s/d.jsonl" });
+		services.reviveTab(x, { tab: "peer:device-x:b", cwd: workDir, kind: "agent", sessionPath: "/s/d.jsonl" });
+		expect(sidecars).toHaveLength(2);
+		const conn = new FakeConnection(x);
+		const deleting = services.call(x, "sessions.delete", { sessionPath: "/s/d.jsonl" }, conn);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecars.every(sidecar => sidecar.disposed)).toBe(true);
+		sidecars[1]?.exited.resolve();
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(deleteSession).not.toHaveBeenCalled();
+		sidecars[0]?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/d.jsonl");
+	});
+
 	it("refuses to delete a session another device's live host tab holds", async () => {
 		const { services, sidecars, deleteSession } = setup();
 		const x = new FakeConnection(peer("device-x"));

@@ -1121,9 +1121,12 @@ export class LocalHostServices implements HostServices {
 		tab.sidecar.dispose();
 		const { sessionFile } = tab;
 		if (sessionFile !== undefined) {
-			this.#exiting.set(sessionFile, exited);
-			void exited.finally(() => {
-				if (this.#exiting.get(sessionFile) === exited) this.#exiting.delete(sessionFile);
+			// Every omp closing on this file (duplicates included) must exit before a delete removes it.
+			const pending = this.#exiting.get(sessionFile);
+			const all = pending ? Promise.all([pending, exited]).then(() => undefined) : exited;
+			this.#exiting.set(sessionFile, all);
+			void all.finally(() => {
+				if (this.#exiting.get(sessionFile) === all) this.#exiting.delete(sessionFile);
 			});
 		}
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
