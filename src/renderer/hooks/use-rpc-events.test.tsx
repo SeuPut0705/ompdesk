@@ -2067,6 +2067,58 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 			status: "ready",
 		});
 	});
+
+	it("lands a ready status heard before any runtime exists in its own tab, even when another pane takes focus meanwhile", async () => {
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		const stateOf = (tabId: string) => ({
+			sessionId: `session-of-${tabId}`,
+			sessionName: null,
+			sessionFile: null,
+			cwd: `/cwd/${tabId}`,
+			isStreaming: false,
+			isCompacting: false,
+			contextUsage: null,
+			messageCount: 0,
+			queuedMessageCount: 0,
+			planModeEnabled: false,
+			todoPhases: [],
+		});
+		// The first get_state for t-first waits until the test answers it.
+		const held = Promise.withResolvers<void>();
+		let holding = true;
+		commandForTab.mockImplementation(async (tabId, command) => {
+			if (command.type === "get_state") {
+				if (tabId === "t-first" && holding) {
+					holding = false;
+					await held.promise;
+				}
+				return success(stateOf(tabId));
+			}
+			return success(command.type === "get_transcript_page" ? { messages: [], totalMessages: 0 } : {});
+		});
+		// `rpc.command` is main's active tab, still t-first.
+		Object.assign(window.omp.rpc, { command: (command: RpcCommand) => commandForTab("t-first", command) });
+		await mount(<RpcEventsProbe />);
+		await flush();
+
+		await act(async () => {
+			emitTabStatus({ status: "ready", cwd: "/cwd/t-first" } as IpcSidecarStatusPayload, "t-first");
+		});
+		// Another pane gets its runtime and the focus while that get_state is in flight.
+		ensureTabRuntime("t-other");
+		setFocusedSessionRuntime("t-other");
+		const other = sessionRuntimeStore<SessionStore>("t-other", "session")!;
+		other.setState({ sessionId: "session-of-t-other", cwd: "/cwd/t-other" });
+		held.resolve();
+		await flush();
+		await flush();
+
+		expect(other.getState()).toMatchObject({ sessionId: "session-of-t-other", cwd: "/cwd/t-other" });
+		expect(sessionRuntimeStore<SessionStore>("t-first", "session")?.getState()).toMatchObject({
+			sessionId: "session-of-t-first",
+			status: "ready",
+		});
+	});
 });
 
 describe("useRpcEvents background tabs", () => {
