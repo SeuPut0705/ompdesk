@@ -14,9 +14,7 @@
  * - default, plan, task: the role alone; a session without a match keeps the
  *   model it has (`interactive-mode.ts` plan mode, `resolveEffectiveAgentModelSelection`)
  * - every other built-in: `resolveRoleChain(role)` / `resolveModelRoleValue("@role")`
- * - a custom role: what an agent listing it lists (`roleSelectors`); with none
- *   of them matching, an agent runs on the session model (stock's
- *   `activeModelPattern` fallback)
+ * (custom `modelRoles.<id>` the user set outside OMPdesk are not listed, so not resolved here)
  *
  * An empty built-in role also reports `skipped`: the first candidate of stock's own chain over every model the role
  * accepts (`resolveRoleChain` over the whole catalog, credentials ignored) when the chain over the credentialed pool
@@ -26,7 +24,7 @@
  * compares these answers with the stock functions' own.
  */
 
-import { roleSelectors, type SkippedPreferred } from "./model-role-contracts";
+import type { SkippedPreferred } from "./model-role-contracts";
 
 interface ModelLike {
 	provider: string;
@@ -131,7 +129,7 @@ function skippedPreferred(stock: RoleStock, role: string): SkippedPreferred | un
 	};
 }
 
-function resolveEffective(stock: RoleStock, role: string, builtin: boolean): RoleEffective {
+function resolveEffective(stock: RoleStock, role: string): RoleEffective {
 	const configured = stock.configured(role) !== undefined;
 	if (role === "commit") {
 		const picked = stock.selectRole(role, ["commit", "smol", ...stock.chatRoleIds]);
@@ -145,7 +143,7 @@ function resolveEffective(stock: RoleStock, role: string, builtin: boolean): Rol
 		}
 		return { source: "none", ...(configured ? { unavailable: true } : {}) };
 	}
-	const selectors = SELECTORS[role] ?? (builtin ? [`@${role}`] : roleSelectors(role));
+	const selectors = SELECTORS[role] ?? [`@${role}`];
 	for (const [index, selector] of selectors.entries()) {
 		const resolved = stock.resolve(role, [selector]);
 		if (!resolved.model) continue;
@@ -158,15 +156,15 @@ function resolveEffective(stock: RoleStock, role: string, builtin: boolean): Rol
 	}
 	const running = stock.sessionModel();
 	const unavailable = configured ? { unavailable: true } : {};
-	if (running && (!builtin || SESSION_FALLBACK[role])) {
+	if (running && SESSION_FALLBACK[role]) {
 		return { ...shown(running, undefined, false), source: "session", ...unavailable };
 	}
 	return { source: "none", ...unavailable };
 }
 
-export function effectiveRole(stock: RoleStock, role: string, builtin: boolean): RoleEffective {
-	const effective = resolveEffective(stock, role, builtin);
-	if (!builtin || !effective.model || stock.configured(role) !== undefined) return effective;
+export function effectiveRole(stock: RoleStock, role: string): RoleEffective {
+	const effective = resolveEffective(stock, role);
+	if (!effective.model || stock.configured(role) !== undefined) return effective;
 	const skipped = skippedPreferred(stock, role);
 	return skipped ? { ...effective, skipped } : effective;
 }

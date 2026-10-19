@@ -1,23 +1,25 @@
 /**
- * Agents installed from a template before v0.30 carry the model line the
- * template had then (`@task`, `@slow, @task`, …). The current templates list
- * a preset custom role first (`@debug, @slow, @task`), so an old file never
- * runs on the role the user sets in Settings › Models & accounts. The
- * Definitions page offers, per agent, to replace that one line; the file is
- * never rewritten otherwise and never without the user confirming the diff.
+ * Agents installed from a template between v0.30 and the removal of custom
+ * roles carry the model line the template had then: a preset custom role
+ * first (`@debug, @slow, @task`). OMPdesk no longer has those roles (stock
+ * skips the unset `@debug` and the line still works), and the current
+ * templates list built-in roles only. The Definitions page offers, per agent,
+ * to replace that one line; the file is never rewritten otherwise and never
+ * without the user confirming the diff.
  */
 
 import { emptyAgentDraft, serializeAgentMarkdown } from "./agent-definition";
 import { AGENT_TEMPLATES, type AgentTemplate } from "./agent-templates";
 import type { AgentFileScope } from "./rpc-types";
 
-/** Model lines v0.29 wrote for the templates whose model changed in v0.30. */
+/** Model lines earlier releases wrote for the templates that ran on a preset custom role. */
 export const LEGACY_TEMPLATE_MODELS: Readonly<Record<string, readonly string[]>> = {
-	"test-writer": ["@task"],
-	debugger: ["@slow", "@task"],
-	"docs-writer": ["@smol", "@task"],
-	"code-reviewer": ["@slow", "@task"],
-	"ui-polisher": ["@task"],
+	"code-explorer": ["@explore", "@smol", "@task"],
+	"test-writer": ["@test", "@task"],
+	debugger: ["@debug", "@slow", "@task"],
+	"docs-writer": ["@docs", "@smol", "@task"],
+	"code-reviewer": ["@review", "@slow", "@task"],
+	"ui-polisher": ["@design", "@task"],
 };
 
 export interface TemplateModelOffer {

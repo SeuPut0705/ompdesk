@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { BUILTIN_ROLE_IDS, PRESET_ROLES, roleSelectors } from "../../resources/gui-bridge/model-role-contracts";
+import { BUILTIN_ROLE_IDS } from "../../resources/gui-bridge/model-role-contracts";
 import { AGENT_THINKING_LEVELS, agentNameError, serializeAgentMarkdown, splitFrontmatter } from "./agent-definition";
 import { AGENT_TEMPLATES, templateDraft } from "./agent-templates";
 
@@ -60,26 +60,10 @@ describe("AGENT_TEMPLATES", () => {
 		}
 	});
 
-	it("run on a preset custom role first and follow the roles it falls back to; every preset role has a consumer", () => {
-		for (const template of AGENT_TEMPLATES.filter(entry => entry.role)) {
-			expect(
-				PRESET_ROLES.map(role => role.id),
-				template.name,
-			).toContain(template.role);
-			expect(template.model, template.name).toEqual(roleSelectors(template.role ?? ""));
-			expect(template.model[0], template.name).toBe(`@${template.role}`);
+	it("name stock's built-in roles only, never a custom role", () => {
+		for (const template of AGENT_TEMPLATES) {
+			for (const selector of template.model) expect(BUILTIN_ROLE_IDS, template.name).toContain(selector.slice(1));
 		}
-		// A preset nothing consumes would be a role with no effect on any agent.
-		for (const role of PRESET_ROLES) {
-			const consumers = AGENT_TEMPLATES.filter(template => template.model.includes(`@${role.id}`));
-			expect(consumers.length, role.id).toBeGreaterThan(0);
-			for (const fallback of role.fallback) expect(BUILTIN_ROLE_IDS, `${role.id} → ${fallback}`).toContain(fallback);
-		}
-		// A template never names a custom role that is not in the preset.
-		const named = AGENT_TEMPLATES.flatMap(template => template.model).filter(
-			selector => !BUILTIN_ROLE_IDS.includes(selector.slice(1)),
-		);
-		for (const selector of named) expect(PRESET_ROLES.map(role => `@${role.id}`)).toContain(selector);
 	});
 
 	it("carry localized gallery copy and English model-facing text", () => {

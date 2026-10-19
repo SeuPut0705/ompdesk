@@ -9,7 +9,7 @@ function template(name: string) {
 	return found;
 }
 
-/** A file as v0.29 wrote it: the current template's frontmatter with the old model line. */
+/** A file as an earlier release wrote it: the current template's frontmatter with the preset-role model line. */
 function legacyFile(name: string): string {
 	const current = serializeAgentMarkdown(templateDraft(template(name)));
 	const old = LEGACY_TEMPLATE_MODELS[name];
@@ -20,9 +20,9 @@ function legacyFile(name: string): string {
 describe("templateModelOffer", () => {
 	const base = { scope: "user" as const, filePath: "/agents/debugger.md" };
 
-	it("offers a role-based model to a template agent whose model line is the pre-role one", () => {
-		const offer = templateModelOffer({ ...base, name: "debugger", model: ["@slow", "@task"] });
-		expect(offer).toMatchObject({ legacy: true, to: template("debugger").model });
+	it("offers the built-in-role model to a template agent whose model line names a removed preset role", () => {
+		const offer = templateModelOffer({ ...base, name: "debugger", model: ["@debug", "@slow", "@task"] });
+		expect(offer).toMatchObject({ legacy: true, to: ["@slow", "@task"] });
 	});
 
 	it("marks a model line the user wrote themselves as edited", () => {
@@ -43,7 +43,7 @@ describe("templateModelOffer", () => {
 		).toBeUndefined();
 	});
 
-	it("covers every template whose model line changed since v0.29", () => {
+	it("lists only model lines the current templates no longer write", () => {
 		for (const [name, old] of Object.entries(LEGACY_TEMPLATE_MODELS)) {
 			expect(old, name).not.toEqual(template(name).model);
 		}
@@ -54,7 +54,7 @@ describe("replaceModelLine", () => {
 	it("changes exactly the model line and nothing else", () => {
 		const before = legacyFile("debugger");
 		const edit = replaceModelLine(before, template("debugger").model);
-		expect(edit?.before).toBe('model: [ "@slow", "@task" ]');
+		expect(edit?.before).toBe('model: [ "@debug", "@slow", "@task" ]');
 		expect(edit?.after).toBe(
 			`model: [ ${template("debugger")
 				.model.map(item => `"${item}"`)

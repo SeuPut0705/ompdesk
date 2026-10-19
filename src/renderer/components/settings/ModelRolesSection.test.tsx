@@ -136,7 +136,7 @@ describe("ModelRolesSection", () => {
 		}
 	});
 
-	it("groups visible roles by purpose under the nested section's own title; Custom roles always offers adding one", async () => {
+	it("groups visible roles by purpose under the nested section's own title", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 
@@ -153,19 +153,11 @@ describe("ModelRolesSection", () => {
 			translate("settings.models.roles"),
 		]);
 		const headings = [...document.body.querySelectorAll("h5")].map(heading => heading.textContent);
-		expect(headings).toEqual(["Conversation", "Input & output", "Custom roles"]);
+		expect(headings).toEqual(["Conversation", "Input & output"]);
 	});
 
-	it("names stock's built-in roles in Korean on a Korean UI, and keeps a custom role's own name", async () => {
-		installRpc(async () => ({
-			success: true,
-			data: {
-				roles: [
-					...ROLES,
-					{ id: "reviewer", name: "Reviewer", section: "chat", source: "settings", candidates: [] },
-				],
-			},
-		}));
+	it("names stock's built-in roles in Korean on a Korean UI", async () => {
+		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 		const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 		Object.defineProperty(globalThis, "navigator", { configurable: true, value: { language: "ko-KR" } });
@@ -179,7 +171,7 @@ describe("ModelRolesSection", () => {
 		const pickers = [...document.body.querySelectorAll("button[aria-label]")].map(
 			button => button.getAttribute("aria-label") ?? "",
 		);
-		expect(pickers).toEqual(expect.arrayContaining(["기본 모델", "이미지 생성 모델", "Reviewer 모델"]));
+		expect(pickers).toEqual(expect.arrayContaining(["기본 모델", "이미지 생성 모델"]));
 		expect(document.body.textContent).not.toContain("Image generation");
 	});
 

@@ -143,8 +143,6 @@ export type RpcCommand =
 	| { id?: string; type: "get_plan_mode" }
 	| { id?: string; type: "get_model_roles" }
 	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
-	| { id?: string; type: "define_model_role"; roleId: string; name?: string; description?: string }
-	| { id?: string; type: "forget_model_role"; roleId: string }
 	| { id?: string; type: "get_model_role_metadata" }
 	| { id?: string; type: "get_compaction_points" }
 	| { id?: string; type: "compaction_limits"; values?: unknown; key?: string; input?: string }
@@ -2336,6 +2334,7 @@ export interface ModelRolesResult {
 	roles: ModelRoleEntry[];
 }
 
+/** One of stock's built-in model roles (get_model_role_metadata, get_model_roles); OMPdesk lists no custom role. */
 export interface ModelRoleMetadata {
 	id: string;
 	name: string;
@@ -2343,12 +2342,6 @@ export interface ModelRoleMetadata {
 	color?: string;
 	hidden?: boolean;
 	section: "chat" | "kind";
-	/** Stock's own built-in roles; every other id is a custom role (`modelRoles.<id>`). */
-	builtin?: boolean;
-	/** The display name stored in `modelTags.<id>`; absent while the role has none. */
-	label?: string;
-	/** OMPdesk's description of a custom role (`modelTags.<id>.description`). */
-	description?: string;
 }
 
 /** Where auto-compaction triggers for one model (stock `describeModelCompactionPoint`, omp 18.8.5+). */

@@ -12,26 +12,35 @@ import { realOmpProfile } from "./real-omp";
  * config and credentials (`e2e/real-omp.ts`). No model is ever called: it only
  * reads stock's resolution through the bridge.
  *
- * - `OMP_GUI_ROLES_REAL=1`: every role resolves through stock; each preset
- *   custom role's template agent runs on the role's model when it holds one and
- *   on the next role it lists when it is empty (stock's agent model resolution,
- *   `get_agent_definitions` → `effectiveResolved`); a custom role of the user's
- *   own is defined, assigned and forgotten in config.yml.
+ * - `OMP_GUI_ROLES_REAL=1`: stock's built-in roles, and only those, are listed,
+ *   each with an effective answer; every template agent runs on its first
+ *   built-in role's model (stock's agent model resolution,
+ *   `get_agent_definitions` → `effectiveResolved`); a custom `modelRoles.<id>`
+ *   set outside OMPdesk is not listed, yet stock still resolves an agent's
+ *   `@id` to it.
  * - `OMP_GUI_ROLES_CAPTURES=<dir>`: Settings › Models & accounts › Model roles
  *   in light/dark × en/ko, wide and narrow.
  */
 const REAL = process.env.OMP_GUI_ROLES_REAL === "1";
 const CAPTURES = process.env.OMP_GUI_ROLES_CAPTURES ?? "";
 
-/** The preset role each template agent runs on, and the built-in role it follows while the preset is empty. */
-const EMPTY_FOLLOWS: Record<string, string> = {
-	explore: "smol",
-	review: "slow",
-	debug: "slow",
-	docs: "smol",
-	test: "task",
-	design: "task",
-};
+const BUILTIN = [
+	"default",
+	"slow",
+	"smol",
+	"plan",
+	"task",
+	"advisor",
+	"commit",
+	"memory",
+	"tiny",
+	"vision",
+	"image",
+	"web",
+	"speech",
+	"dictation",
+	"judge",
+];
 
 async function command<T>(page: Page, tabId: string, body: Record<string, unknown>): Promise<T> {
 	const response = await page.evaluate(
@@ -77,7 +86,7 @@ const agentsOf = async (page: Page, tabId: string) =>
 		),
 	);
 
-test("real omp: every role resolves through stock and each template agent picks its preset role's model", async () => {
+test("real omp: only built-in roles are listed and each template agent runs on its first built-in role", async () => {
 	test.skip(!REAL, "Opt-in: runs the system omp on a private copy of the user's config");
 	test.setTimeout(240_000);
 	const { app, page, tabId, agent, profile } = await launchReal();
@@ -90,64 +99,33 @@ test("real omp: every role resolves through stock and each template agent picks 
 		const set = (role: string, model: string | null) =>
 			command(page, tabId, { type: "set_model_role", role, modelId: model });
 
-		// Stock's 15 built-ins and the six presets are all listed with an effective answer.
-		for (const id of [
-			"default",
-			"slow",
-			"smol",
-			"plan",
-			"task",
-			"advisor",
-			"commit",
-			"memory",
-			"tiny",
-			"vision",
-			"image",
-			"web",
-			"speech",
-			"dictation",
-			"judge",
-		]) {
-			expect(baseline[id]?.builtin, id).toBe(true);
-			expect(baseline[id]?.effective, id).toBeDefined();
-		}
-		for (const id of Object.keys(EMPTY_FOLLOWS)) expect(baseline[id]?.builtin, id).toBe(false);
+		for (const id of BUILTIN) expect(baseline[id]?.effective, id).toBeDefined();
 
-		// Fallback roles hold B, so an empty preset must land on B; the preset itself, set to A, must win.
-		for (const role of new Set(Object.values(EMPTY_FOLLOWS))) await set(role, second);
-		for (const [preset, follows] of Object.entries(EMPTY_FOLLOWS)) {
-			const template = AGENT_TEMPLATES.find(entry => entry.role === preset);
-			if (!template) throw new Error(`No template runs on @${preset}`);
-			await set(preset, null);
-			let roles = await rolesOf(page, tabId);
-			expect(roles[preset]?.effective, `${preset} empty`).toMatchObject({
-				model: second,
-				source: "fallback",
-				via: follows,
-			});
-			expect((await agentsOf(page, tabId))[template.name]?.effectiveResolved, `${template.name} empty`).toBe(second);
-
-			await set(preset, first);
-			roles = await rolesOf(page, tabId);
-			expect(roles[preset]?.effective, `${preset} set`).toMatchObject({ model: first, source: "configured" });
-			expect((await agentsOf(page, tabId))[template.name]?.effectiveResolved, `${template.name} set`).toBe(first);
-			await set(preset, null);
+		// Every template agent's first role is a built-in: set to A it wins, each role in turn.
+		const leads = new Set(AGENT_TEMPLATES.map(template => template.model[0]?.slice(1) ?? ""));
+		for (const role of leads) await set(role, second);
+		for (const lead of leads) {
+			await set(lead, first);
+			const agents = await agentsOf(page, tabId);
+			for (const template of AGENT_TEMPLATES) {
+				const expected = template.model[0] === `@${lead}` ? first : second;
+				expect(agents[template.name]?.effectiveResolved, `${template.name} with ${lead} = A`).toBe(expected);
+			}
+			await set(lead, second);
 		}
 
-		// A role of the user's own: defined, assigned, forgotten from config.yml.
-		await command(page, tabId, {
-			type: "define_model_role",
-			roleId: "release",
-			name: "Release",
-			description: "Ships it.",
-		});
+		// A custom role set outside OMPdesk: not listed, still in config.yml, still resolved by stock for an agent.
 		await set("release", first);
-		const mine = (await rolesOf(page, tabId)).release;
-		expect(mine).toMatchObject({ builtin: false, label: "Release", description: "Ships it.", model: first });
 		await expect.poll(() => fs.readFile(path.join(agent, "config.yml"), "utf8")).toContain("release:");
-		await command(page, tabId, { type: "forget_model_role", roleId: "release" });
 		expect((await rolesOf(page, tabId)).release).toBeUndefined();
-		expect(await fs.readFile(path.join(agent, "config.yml"), "utf8")).not.toMatch(/^\s+release:/m);
+		await command(page, tabId, {
+			type: "write_agent_file",
+			scope: "user",
+			name: "release-bot",
+			content: '---\nname: release-bot\ndescription: Ships it.\nmodel: [ "@release", "@task" ]\n---\n\nShip.\n',
+		});
+		await expect.poll(async () => (await agentsOf(page, tabId))["release-bot"]?.effectiveResolved).toBe(first);
+		await set("release", null);
 	} finally {
 		await exitApp(app);
 		// The profile holds a copy of the user's credentials database.
@@ -258,19 +236,9 @@ for (const language of ["en", "ko"] as const)
 		test(`model roles captures (${language} ${theme})`, async () => {
 			test.skip(!CAPTURES, "OMP_GUI_ROLES_CAPTURES=<dir> captures Settings › Model roles");
 			test.setTimeout(180_000);
-			const { app, page, tabId, profile } = await launchReal({ language, themeName: theme });
+			const { app, page, profile } = await launchReal({ language, themeName: theme });
 			try {
 				await fs.mkdir(CAPTURES, { recursive: true });
-				await command(page, tabId, { type: "install_agent_templates", scope: "user" });
-				await command(page, tabId, {
-					type: "define_model_role",
-					roleId: "release",
-					name: language === "ko" ? "릴리스" : "Release",
-					description:
-						language === "ko"
-							? "릴리스 에이전트가 빌드를 내보낼 때 써요."
-							: "For the release agent that ships builds.",
-				});
 				for (const [mode, width] of [
 					["wide", 1280],
 					["narrow", 820],
@@ -287,10 +255,7 @@ for (const language of ["en", "ko"] as const)
 					await settings.locator('[data-settings-section="models"]').click();
 					const roles = settings.locator("#settings-models-roles");
 					await expect(roles.locator("[data-setting-row]").first()).toBeVisible();
-					// Account state, quota and the agent lists arrive a moment after the rows.
-					await expect(roles.locator("#model-role-review")).toContainText(
-						/(Used by |사용하는 에이전트: )code-reviewer/,
-					);
+					// Account state and quota arrive a moment after the rows.
 					await expect(roles.locator("#model-role-default")).toContainText(
 						/Signed in|Not signed in|Provider off|로그인됨|로그인 안 됨|프로바이더 꺼짐/,
 						{ timeout: 30_000 },

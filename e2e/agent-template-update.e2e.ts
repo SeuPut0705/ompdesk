@@ -1,9 +1,10 @@
 /**
  * Agents › Definitions › "Update to role-based model", against the real system
  * omp (isolated profile, no credentials). Agents installed from a template
- * before v0.30 keep their old `model:` line; the page offers, per agent, to
- * replace that one line after showing the diff. Cancel writes nothing, Update
- * changes exactly that line (comments, key order, body stay), and an agent whose
+ * while templates named a preset custom role (`@debug, @slow, @task`) keep that
+ * `model:` line; the page offers, per agent, to replace it with the template's
+ * built-in roles after showing the diff. Cancel writes nothing, Update changes
+ * exactly that line (comments, key order, body stay), and an agent whose
  * model line the user wrote themselves is offered with a warning, never silently.
  *
  * Set OMP_GUI_AGENT_UPDATE_CAPTURES=<dir> for light/dark × en/ko screenshots.
@@ -43,8 +44,8 @@ function templateFile(name: string): string {
 	return serializeAgentMarkdown(templateDraft(template));
 }
 
-/** A v0.29 file: the template as it was, with a hand-written comment in the frontmatter. */
-function installedBeforeV030(name: string): string {
+/** A file from a preset-role release: the template as it was, with a hand-written comment in the frontmatter. */
+function installedWithPresetRole(name: string): string {
 	const legacy = LEGACY_TEMPLATE_MODELS[name];
 	if (!legacy) throw new Error(`no legacy model for ${name}`);
 	const edit = replaceModelLine(templateFile(name), legacy);
@@ -54,7 +55,7 @@ function installedBeforeV030(name: string): string {
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
-		test(`a template agent from before v0.30 is offered the role-based model line (${language} ${theme})`, async () => {
+		test(`a template agent on a removed preset role is offered the built-in role model line (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const text = TEXT[language];
 			const profile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-agent-update-")));
@@ -63,7 +64,7 @@ for (const language of variants(["en", "ko"] as const))
 			const agent = path.join(profile, "agent");
 			const userAgents = path.join(agent, "agents");
 			await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(userAgents, { recursive: true })]);
-			const stale = installedBeforeV030("debugger");
+			const stale = installedWithPresetRole("debugger");
 			const edited = replaceModelLine(templateFile("docs-writer"), ["anthropic/claude-sonnet-4-5"])?.content ?? "";
 			const current = templateFile("code-reviewer");
 			await fs.writeFile(path.join(userAgents, "debugger.md"), stale);
@@ -140,7 +141,7 @@ for (const language of variants(["en", "ko"] as const))
 				expect(afterLines).toHaveLength(staleLines.length);
 				const changed = staleLines.flatMap((line, index) => (line === afterLines[index] ? [] : [index]));
 				expect(changed).toHaveLength(1);
-				expect(afterLines[changed[0] ?? 0]).toBe('model: [ "@debug", "@slow", "@task" ]');
+				expect(afterLines[changed[0] ?? 0]).toBe('model: [ "@slow", "@task" ]');
 				expect(after).toContain("# mine: keep this comment");
 				await expect
 					.poll(async () =>
@@ -152,7 +153,7 @@ for (const language of variants(["en", "ko"] as const))
 							return data.agents.find(entry => entry.name === "debugger")?.model ?? [];
 						}),
 					)
-					.toEqual(["@debug", "@slow", "@task"]);
+					.toEqual(["@slow", "@task"]);
 				await expect(offers).toHaveCount(1);
 				expect(await fs.readFile(path.join(userAgents, "docs-writer.md"), "utf8")).toBe(edited);
 				await shot("4-after");

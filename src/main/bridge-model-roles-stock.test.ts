@@ -13,11 +13,10 @@ import { AGENT_TEMPLATES } from "../shared/agent-templates";
  * - every role's `effective` model equals what stock's own resolver returns
  *   for it (`resolveRoleChain`, `resolveAdvisorRoleSelection`, an empty role's
  *   inheritance), including what an empty role falls back to;
- * - a custom role (`modelRoles.<id>`, `@id`) resolves through stock, and an
- *   OMPdesk agent template picks that role's model, then the next role it lists
- *   while the role is empty — through stock's agent model resolution;
- * - defining, renaming and forgetting a custom role go through stock's
- *   `modelTags`, `modelRoles` and `cycleOrder` settings.
+ * - only stock's built-in roles are listed: a custom `modelRoles.<id>` set
+ *   outside OMPdesk stays in the settings and stock still resolves `@id`;
+ * - each OMPdesk agent template runs on its first built-in role's model,
+ *   through stock's agent model resolution.
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
@@ -31,7 +30,6 @@ import {
  resolveRoleChain,
 } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import { roleCandidatePool } from "@oh-my-pi/pi-coding-agent/config/model-roles";
-import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 export default function (pi) {
  pi.on("session_start", async () => {
   try {
@@ -55,8 +53,6 @@ export default function (pi) {
    const out = { A, B };
    const empty = await roles();
    out.ids = Object.keys(empty);
-   out.builtin = Object.values(empty).filter(role => role.builtin).map(role => role.id);
-   out.presetsListedEmpty = ["explore", "review", "debug", "docs", "test", "design"].map(id => [id, empty[id]?.effective?.source ?? null]);
 
    // Oracle: stock's own resolvers against each role's reported effective model.
    const oracle = async () => {
@@ -86,38 +82,15 @@ export default function (pi) {
    await set("task", A);
    const afterSlow = await roles();
    out.advisor = afterSlow.advisor.effective;
-   out.reviewEmpty = afterSlow.review.effective;
-   out.testEmpty = afterSlow.test.effective;
-   out.agentsEmpty = { review: agentModel("code-reviewer"), debug: agentModel("debugger"), test: agentModel("test-writer"), design: agentModel("ui-polisher") };
+   out.agentsBuiltin = Object.fromEntries(templates.map(template => [template.name, agentModel(template.name)]));
    out.oracleSlow = await oracle();
 
-   await set("review", A);
-   await set("test", B);
-   const afterOwn = await roles();
-   out.reviewOwn = afterOwn.review.effective;
-   out.testOwn = afterOwn.test.effective;
-   out.agentsOwn = { review: agentModel("code-reviewer"), test: agentModel("test-writer"), debug: agentModel("debugger") };
-
-   // Define, rename, forget a custom role of the user's own.
-   await methods.model_role_define({ id: "mine", name: "My role", description: "My own agents" }, env);
+   // A custom role of the user's own, set outside OMPdesk: not listed, still honoured by stock for an agent.
    await set("mine", B);
-   const mine = (await roles()).mine;
-   out.mine = { label: mine.label, name: mine.name, description: mine.description, builtin: mine.builtin, effective: mine.effective };
-   await methods.model_role_define({ id: "mine", name: "Renamed" }, env);
-   const renamed = (await roles()).mine;
-   out.renamed = { label: renamed.label, description: renamed.description ?? null };
-   const cycle = lookup("cycleOrder");
-   cycle.set(settings, ["smol", "mine", "slow"]);
-   await methods.model_role_forget({ id: "mine" }, env);
-   const after = await roles();
-   out.forgot = { listed: "mine" in after, role: settings.getModelRole("mine") ?? null, cycle: cycle.get(settings) };
-   let refused = null;
-   try { await methods.model_role_forget({ id: "smol" }, env); } catch (error) { refused = String(error.message); }
-   out.refusedBuiltin = refused;
-   await methods.model_role_define({ id: "design", name: "Look and feel", description: "x" }, env);
-   out.designTag = (await roles()).design.label;
-   await methods.model_role_define({ id: "design", name: "", description: "" }, env);
-   out.designReset = (await roles()).design.label ?? null;
+   out.mine = { listed: "mine" in (await roles()), role: settings.getModelRole("mine") ?? null };
+   const patterns = resolveAgentModelPatterns({ agentModel: ["@mine", "@task"], settings });
+   const mineModel = resolveModelOverride(patterns, session.modelRegistry, settings).model;
+   out.mineAgent = mineModel ? sel(mineModel) : null;
    console.error("ROLES_PROBE=" + JSON.stringify(out));
    process.exit(0);
   } catch (error) {
@@ -206,7 +179,7 @@ interface Effective {
 }
 
 describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
-	it("reports each role's effective model as stock resolves it and runs template agents on their preset role", () => {
+	it("reports each built-in role's effective model as stock resolves it and runs template agents on their first role", () => {
 		const probe = runProbe(PROBE, "ROLES_PROBE", {
 			ROLES_PROBE_TEMPLATES: JSON.stringify(
 				AGENT_TEMPLATES.map(template => ({ name: template.name, model: template.model })),
@@ -215,8 +188,8 @@ describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
 		const { A, B } = probe;
 		expect(A).not.toBe(B);
 
-		// Stock's 15 built-ins are flagged; the six presets are listed while empty.
-		expect((probe.builtin as string[]).sort()).toEqual(
+		// Stock's 15 built-ins, and nothing else, are listed.
+		expect((probe.ids as string[]).sort()).toEqual(
 			[
 				"advisor",
 				"commit",
@@ -235,8 +208,6 @@ describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
 				"web",
 			].sort(),
 		);
-		expect(probe.ids).toEqual(expect.arrayContaining(["explore", "review", "debug", "docs", "test", "design"]));
-		expect((probe.presetsListedEmpty as [string, string | null][]).every(([, source]) => source !== null)).toBe(true);
 
 		// Every chain role equals stock's own resolver, empty and as roles fill in.
 		expect(probe.oracleEmpty).toEqual([]);
@@ -252,29 +223,15 @@ describe.skipIf(!existsSync(omp))("model roles on stock's resolution", () => {
 		// Advisor follows the configured Thinking role.
 		expect(probe.advisor).toMatchObject({ model: B, source: "fallback" });
 
-		// An empty custom role follows the next role its agents list: review → slow (B), test → task (A).
-		expect(probe.reviewEmpty).toMatchObject({ model: B, source: "fallback", via: "slow" });
-		expect(probe.testEmpty).toMatchObject({ model: A, source: "fallback", via: "task" });
-		expect(probe.agentsEmpty).toEqual({ review: B, debug: B, test: A, design: A });
+		// Each template agent runs on its first built-in role: Fast and Subtask hold A, Thinking B.
+		const byRole: Record<string, string> = { "@smol": A, "@task": A, "@slow": B };
+		expect(probe.agentsBuiltin).toEqual(
+			Object.fromEntries(AGENT_TEMPLATES.map(template => [template.name, byRole[template.model[0] ?? ""]])),
+		);
 
-		// Assigned, the role is the agent's model.
-		expect(probe.reviewOwn).toMatchObject({ model: A, source: "configured" });
-		expect(probe.testOwn).toMatchObject({ model: B, source: "configured" });
-		expect(probe.agentsOwn).toEqual({ review: A, test: B, debug: B });
-
-		// A user's own role: defined, assigned, renamed (the description follows what is passed), forgotten everywhere.
-		expect(probe.mine).toMatchObject({
-			label: "My role",
-			name: "My role",
-			description: "My own agents",
-			builtin: false,
-			effective: { model: B, source: "configured" },
-		});
-		expect(probe.renamed).toEqual({ label: "Renamed", description: null });
-		expect(probe.forgot).toEqual({ listed: false, role: null, cycle: ["smol", "slow"] });
-		expect(probe.refusedBuiltin).toMatch(/cannot be a custom role id \(builtin\)/);
-		expect(probe.designTag).toBe("Look and feel");
-		expect(probe.designReset).toBeNull();
+		// A custom role set outside OMPdesk: kept in the settings, not listed, still an agent's model through stock.
+		expect(probe.mine).toEqual({ listed: false, role: B });
+		expect(probe.mineAgent).toBe(B);
 	}, 130_000);
 
 	it("reports the judge's stock-preferred native model when no provider holds credentials for it, and nothing once one does", () => {

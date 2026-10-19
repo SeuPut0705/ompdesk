@@ -5,15 +5,11 @@
  * Frontmatter text (description, instructions) is what the model reads, so
  * it stays in English; `title` / `summary` are the localized gallery copy.
  *
- * Model lists use role aliases only: an unset role expands to nothing, so the
- * next entry (and finally the parent's model) applies — no template names a
- * provider. A template that names a preset custom role (`role`, from
- * `resources/gui-bridge/model-role-contracts.ts`) lists `@role` first and the
- * built-in roles it follows while that role is empty after it, so the agent
- * type can run on its own model without anything being assigned.
+ * Model lists use stock's built-in role aliases only: an unset role expands
+ * to nothing, so the next entry (and finally the parent's model) applies — no
+ * template names a provider or a custom role.
  */
 
-import { roleSelectors } from "../../resources/gui-bridge/model-role-contracts";
 import { type AgentDraft, emptyAgentDraft, READ_ONLY_TOOLS } from "./agent-definition";
 
 export type TemplateLanguage = "en" | "ko";
@@ -27,8 +23,6 @@ export interface AgentTemplate {
 	description: string;
 	tools: readonly string[];
 	spawns?: readonly string[];
-	/** The preset custom role this agent type runs on (`model` starts with `@role`). */
-	role?: string;
 	model: readonly string[];
 	thinkingLevel: string;
 	readSummarize?: boolean;
@@ -71,8 +65,7 @@ export const AGENT_TEMPLATES: readonly AgentTemplate[] = [
 		description:
 			"Read-only codebase explorer: finds where behavior lives, traces call paths and data flow, and reports file:line evidence and the files a change would touch. Never edits.",
 		tools: READ_ONLY_TOOLS,
-		role: "explore",
-		model: roleSelectors("explore"),
+		model: ["@smol", "@task"],
 		thinkingLevel: "low",
 		instructions: `You explore codebases and report what you find. You never edit files or run commands that change anything.
 
@@ -143,8 +136,7 @@ ${SHARED_RULES}`,
 		description:
 			"Test specialist: writes focused unit/integration tests for specified behavior and edge cases, and stabilizes flaky tests. Does not change production code unless told to.",
 		tools: BUILD_TOOLS,
-		role: "test",
-		model: roleSelectors("test"),
+		model: ["@task"],
 		thinkingLevel: "medium",
 		instructions: `You write and repair automated tests.
 
@@ -193,8 +185,7 @@ ${SHARED_RULES}`,
 			"Debugging specialist: reproduces a reported failure, isolates the root cause with evidence, fixes it minimally and adds a regression test.",
 		tools: [...BUILD_TOOLS, "debug"],
 		spawns: ["scout"],
-		role: "debug",
-		model: roleSelectors("debug"),
+		model: ["@slow", "@task"],
 		thinkingLevel: "high",
 		instructions: `You diagnose and fix bugs.
 
@@ -219,8 +210,7 @@ ${SHARED_RULES}`,
 		description:
 			"Documentation specialist: writes and updates READMEs, guides, API docs, changelog entries and doc comments that are accurate to the current code.",
 		tools: ["read", "grep", "glob", "find", "lsp", "edit", "write", "bash", "web_search"],
-		role: "docs",
-		model: roleSelectors("docs"),
+		model: ["@smol", "@task"],
 		thinkingLevel: "low",
 		instructions: `You write developer documentation.
 
@@ -244,8 +234,7 @@ ${SHARED_RULES}`,
 			"Deep code review: checks a diff or branch for correctness bugs, unhandled edge cases, security issues, API/contract breaks, missing tests and maintainability. Read-only; reports prioritized findings with file:line evidence.",
 		tools: INSPECT_TOOLS,
 		spawns: ["scout"],
-		role: "review",
-		model: roleSelectors("review"),
+		model: ["@slow", "@task"],
 		thinkingLevel: "high",
 		instructions: `You review code changes. You never edit files.
 
@@ -314,8 +303,7 @@ ${SHARED_RULES}`,
 		description:
 			"UI/UX polish specialist: aligns screens with the project's design system — spacing, typography, color tokens, empty/loading/error states, copy, keyboard and screen-reader accessibility — without redesigning flows.",
 		tools: BUILD_TOOLS,
-		role: "design",
-		model: roleSelectors("design"),
+		model: ["@task"],
 		thinkingLevel: "medium",
 		instructions: `You polish existing interfaces.
 

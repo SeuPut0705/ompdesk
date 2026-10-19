@@ -294,14 +294,14 @@ describe("AgentsPage", () => {
 		expect(omp.getAgentDefinitions.mock.calls.length).toBeGreaterThan(loadsBefore);
 	});
 
-	it("offers a template agent the role-based model, shows the one-line diff, and writes only after Update", async () => {
+	it("offers a template agent on a removed preset role the built-in role model, shows the one-line diff, and writes only after Update", async () => {
 		const omp = installOmp();
 		const file = [
 			"---",
 			"# kept",
 			"name: debugger",
 			"description: mine",
-			'model: [ "@slow", "@task" ]',
+			'model: [ "@debug", "@slow", "@task" ]',
 			"tools: [read]",
 			"---",
 			"",
@@ -317,7 +317,7 @@ describe("AgentsPage", () => {
 						source: "user",
 						scope: "user",
 						filePath: "/u/agents/debugger.md",
-						model: ["@slow", "@task"],
+						model: ["@debug", "@slow", "@task"],
 					},
 					{
 						name: "docs-writer",
@@ -325,7 +325,7 @@ describe("AgentsPage", () => {
 						source: "user",
 						scope: "user",
 						filePath: "/u/agents/docs-writer.md",
-						model: ["@docs", "@smol", "@task"],
+						model: ["@smol", "@task"],
 					},
 					{
 						name: "mine",
@@ -343,7 +343,10 @@ describe("AgentsPage", () => {
 				filePath,
 				scope: "user",
 				content: file,
-				parsed: { fields: { name: "debugger", description: "mine", model: ["@slow", "@task"] }, body: "Body" },
+				parsed: {
+					fields: { name: "debugger", description: "mine", model: ["@debug", "@slow", "@task"] },
+					body: "Body",
+				},
 			}),
 		);
 		const writeAgentFile = vi.fn(async (params: { name: string }) =>
@@ -374,7 +377,7 @@ describe("AgentsPage", () => {
 		expect(writeAgentFile).toHaveBeenCalledWith({
 			scope: "user",
 			name: "debugger",
-			content: file.replace('model: [ "@slow", "@task" ]', 'model: [ "@debug", "@slow", "@task" ]'),
+			content: file.replace('model: [ "@debug", "@slow", "@task" ]', 'model: [ "@slow", "@task" ]'),
 			replacePath: "/u/agents/debugger.md",
 		});
 	});

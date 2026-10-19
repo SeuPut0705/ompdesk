@@ -20,7 +20,6 @@ const role = (id: string, name: string, model: string | undefined): ModelRoleEnt
 	id,
 	name,
 	section: "chat",
-	builtin: true,
 	model,
 	source: model ? "settings" : "default",
 	effective: model

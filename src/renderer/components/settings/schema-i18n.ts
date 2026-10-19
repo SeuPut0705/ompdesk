@@ -48,7 +48,7 @@ export function schemaOptionText(lang: Lang, text: string): string {
 }
 
 // Stock MODEL_ROLES (pi-coding-agent config/model-roles.ts) names its built-in
-// roles in English only; keyed by that name, so a custom role keeps its own.
+// roles in English only; keyed by that name, so a name it does not know stays as stock wrote it.
 const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
 	Default: "기본",
 	Fast: "빠른 모델",

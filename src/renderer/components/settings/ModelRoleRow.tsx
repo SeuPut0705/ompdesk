@@ -1,15 +1,14 @@
 /**
- * One model role in Settings › Models & accounts › Model roles: what it is
- * for, the model it really runs on (`effective`, resolved by stock in the
+ * One built-in model role in Settings › Models & accounts › Model roles: what
+ * it is for, the model it really runs on (`effective`, resolved by stock in the
  * bridge, an empty role's fallback included), that model's provider account
- * state with its live quota, the thinking level, the picker filtered by stock's
- * `accepts` (the entry's candidates) and, for a custom role, the agents that
- * use it with edit and remove.
+ * state with its live quota, the thinking level and the picker filtered by
+ * stock's `accepts` (the entry's candidates).
  */
 
-import { CircleDashed, Pencil, Trash2 } from "lucide-react";
+import { CircleDashed } from "lucide-react";
 import { useMemo } from "react";
-import { BUILTIN_ROLE_IDS, presetRole } from "../../../../resources/gui-bridge/model-role-contracts";
+import { BUILTIN_ROLE_IDS } from "../../../../resources/gui-bridge/model-role-contracts";
 import type {
 	CompactionPoint,
 	ModelRoleEffective,
@@ -22,7 +21,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
 import { inUseReport, tightestLimit } from "../../lib/usage-reports";
 import { useUiStore } from "../../stores/ui";
-import { Badge, IconButton, ProgressBar } from "../common";
+import { Badge, ProgressBar } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
@@ -41,12 +40,6 @@ const KIND_ORDER: readonly ModelRoleEntry["candidates"][number]["kind"][] = [
 ];
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
-
-/** The agents using a custom role: installed definitions, and the shipped templates not installed yet. */
-export interface RoleAgents {
-	installed: string[];
-	templates: string[];
-}
 
 function ProviderState({
 	provider,
@@ -234,13 +227,10 @@ export function ModelRoleRow({
 	roleName,
 	providers,
 	usage,
-	agents,
 	compaction,
 	busy,
 	sidecarReady,
 	onChange,
-	onEdit,
-	onRemove,
 }: {
 	entry: ModelRoleEntry;
 	/** The role's display name. */
@@ -249,19 +239,13 @@ export function ModelRoleRow({
 	roleName: (id: string) => string;
 	providers: readonly ProviderInfo[];
 	usage: readonly UsageReport[];
-	/** Set for a custom role. */
-	agents?: RoleAgents;
 	/** Where the role's resolved model compacts (omp 18.8.5+; absent before). */
 	compaction?: CompactionPoint;
 	busy: boolean;
 	sidecarReady: boolean;
 	onChange: (role: string, modelId: string | null) => void;
-	onEdit?: (entry: ModelRoleEntry) => void;
-	onRemove?: (entry: ModelRoleEntry) => void;
 }) {
 	const t = useT();
-	const preset = presetRole(entry.id);
-	const custom = agents !== undefined;
 	const candidates = entry.candidates ?? [];
 	// Candidates grouped by model kind; display name first, selector beside it.
 	const groups = useMemo<ModelValueGroup[]>(
@@ -281,57 +265,26 @@ export function ModelRoleRow({
 
 	// A built-in role of a newer omp has no text here yet: its row stays quiet instead of showing a raw key.
 	const known = BUILTIN_ROLE_IDS.includes(entry.id);
-	const use = custom
-		? (entry.description ?? (preset ? t(`modelRoles.use.${entry.id}`) : t("modelRoles.use.custom", { id: entry.id })))
-		: known
-			? t(`modelRoles.use.${entry.id}`)
-			: undefined;
-	// An empty role says what it follows.
-	const empty = entry.model === undefined;
-	let fallback: string | undefined;
-	if (empty && preset)
-		fallback = t("modelRoles.fallback.preset", { roles: preset.fallback.map(roleName).join(" → ") });
-	else if (empty && custom) fallback = t("modelRoles.fallback.custom");
-	else if (empty && known) fallback = t(`modelRoles.fallback.${entry.id}`);
-	const used = agents && (agents.installed.length > 0 || agents.templates.length > 0);
+	// An empty role says what it follows; that joins its use in the info tooltip.
+	const fallback = known && entry.model === undefined ? t(`modelRoles.fallback.${entry.id}`) : undefined;
+	const use = known ? t(`modelRoles.use.${entry.id}`) : undefined;
 
 	return (
 		<SettingsRow
-			// A role tag is a name, not a state: neutral like every other tag. What an empty role follows
-			// joins its use in the info tooltip.
-			badge={custom ? <Badge>@{entry.id}</Badge> : entry.tag ? <Badge>{entry.tag}</Badge> : undefined}
+			// A role tag is a name, not a state: neutral like every other tag.
+			badge={entry.tag ? <Badge>{entry.tag}</Badge> : undefined}
 			control={
-				<div className="flex items-center gap-1">
-					<ModelValueSelect
-						ariaLabel={t("modelRoles.select", { role: name })}
-						clearLabel={custom ? t("modelRoles.notSet") : t("modelRoles.default")}
-						disabled={busy || !sidecarReady}
-						groups={groups}
-						kind="model"
-						onCommit={next => onChange(entry.id, next === "" ? null : next)}
-						placeholder={custom ? t("modelRoles.notSet") : t("modelRoles.default")}
-						title={!sidecarReady ? t("modelRoles.notConnected") : undefined}
-						value={entry.model ?? ""}
-					/>
-					{custom && onEdit && (
-						<IconButton
-							disabled={!sidecarReady}
-							icon={<Pencil />}
-							label={t("modelRoles.edit", { role: name })}
-							onClick={() => onEdit(entry)}
-							size="sm"
-						/>
-					)}
-					{custom && !preset && onRemove && (
-						<IconButton
-							disabled={!sidecarReady}
-							icon={<Trash2 />}
-							label={t("modelRoles.remove", { role: name })}
-							onClick={() => onRemove(entry)}
-							size="sm"
-						/>
-					)}
-				</div>
+				<ModelValueSelect
+					ariaLabel={t("modelRoles.select", { role: name })}
+					clearLabel={t("modelRoles.default")}
+					disabled={busy || !sidecarReady}
+					groups={groups}
+					kind="model"
+					onCommit={next => onChange(entry.id, next === "" ? null : next)}
+					placeholder={t("modelRoles.default")}
+					title={!sidecarReady ? t("modelRoles.notConnected") : undefined}
+					value={entry.model ?? ""}
+				/>
 			}
 			description={[use, fallback].filter(Boolean).join(" ") || undefined}
 			icon={
@@ -365,17 +318,6 @@ export function ModelRoleRow({
 						>
 							{t("modelRoles.judgeSmallDecisions")}
 						</button>
-					</p>
-				)}
-				{agents && (
-					<p className="text-sc-xs text-(--sc-text-muted)">
-						{agents.installed.length > 0 && (
-							<span className="block">{t("modelRoles.usedBy", { agents: agents.installed.join(", ") })}</span>
-						)}
-						{agents.templates.length > 0 && (
-							<span className="block">{t("modelRoles.templates", { agents: agents.templates.join(", ") })}</span>
-						)}
-						{!used && <span className="block">{t("modelRoles.unused", { id: entry.id })}</span>}
 					</p>
 				)}
 				{entry.source === "project" && (
