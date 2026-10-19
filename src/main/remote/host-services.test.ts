@@ -800,11 +800,67 @@ describe("LocalHostServices", () => {
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(old)).toBe("unknown_tab");
 
-		// Another device's tab on the same path, or this connection's own, is never taken.
+		// Another device's open of that path, or this connection's own under a second rtab, is refused:
+		// never a second omp on the same file.
 		const other = new FakeConnection(peer("device-y"));
-		await services.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other);
-		await services.call(after.peer, "tab.open", { rtab: "again", cwd: workDir, sessionPath: "/s/one.jsonl" }, after);
-		expect(sidecars).toHaveLength(3);
+		const refusedOther = await services
+			.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refusedOther)).toBe("session_open_in_tab");
+		const refusedSame = await services
+			.call(after.peer, "tab.open", { rtab: "again", cwd: workDir, sessionPath: "/s/one.jsonl" }, after)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refusedSame)).toBe("session_open_in_tab");
+		expect(sidecars).toHaveLength(1);
+	});
+
+	it("starts one omp for concurrent opens of one session under two rtabs, on one connection or a reconnect", async () => {
+		const { services, sidecars } = setup();
+		const conn = new FakeConnection(peer("device-x"));
+		const opens = await Promise.allSettled([
+			services.call(conn.peer, "tab.open", { rtab: "a", cwd: workDir, sessionPath: "/s/one.jsonl" }, conn),
+			services.call(conn.peer, "tab.open", { rtab: "b", cwd: workDir, sessionPath: "/s/one.jsonl" }, conn),
+		]);
+		expect(opens.map(open => open.status)).toEqual(["fulfilled", "rejected"]);
+		expect(sidecars).toHaveLength(1);
+
+		// The link drops while the device reopens: the new connection's open takes the tab, never a second.
+		const later = new FakeConnection(peer("device-x"));
+		const raced = await Promise.allSettled([
+			services.call(later.peer, "tab.open", { rtab: "c", cwd: workDir, sessionPath: "/s/two.jsonl" }, later),
+			services.call(conn.peer, "tab.open", { rtab: "d", cwd: workDir, sessionPath: "/s/two.jsonl" }, conn),
+		]);
+		expect(raced.filter(open => open.status === "fulfilled").length).toBeGreaterThanOrEqual(1);
+		expect(sidecars).toHaveLength(2);
+	});
+
+	it("stops the second omp when a host tab moves onto a session another tab holds, keeping the one running a turn", async () => {
+		const { services, sidecars } = setup();
+		const conn = new FakeConnection(peer("device-x"));
+		for (const rtab of ["a", "b"]) {
+			await services.call(conn.peer, "tab.open", { rtab, cwd: workDir, fresh: true }, conn);
+			await services.call(conn.peer, "tab.start", { rtab }, conn);
+		}
+		sidecars[0]?.setStatus("ready");
+		sidecars[1]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s1", sessionFile: "/s/one.jsonl" });
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		sidecars[1]?.emit("session", { sessionId: "s1", sessionFile: "/s/one.jsonl" });
+		expect(sidecars[1]?.disposed).toBe(true);
+		expect(sidecars[0]?.disposed).toBe(false);
+		const gone = await services
+			.call(conn.peer, "tab.command", { rtab: "b", command: { type: "get_state" } }, conn)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+		expect(
+			conn
+				.tabEvents()
+				.filter(event => event.rtab === "b")
+				.at(-1),
+		).toMatchObject({
+			name: "status",
+			arg: { status: "exited", processAlive: false },
+		});
 	});
 
 	it("re-sends the asks its omp holds on every re-attach: none after that omp restarted, else the open ones", async () => {
