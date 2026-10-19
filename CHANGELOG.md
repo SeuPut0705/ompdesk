@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.43.0] - 2026-10-20
+
+같은 폴더에서 동시에 일하는 세션끼리 서로 알고 조율해서, 남의 작업을 커밋하거나 지우지 않아요.
+
+### 새로 생긴 것
+- 같은 작업 폴더나 같은 저장소에서 다른 세션이 일하고 있으면 에이전트가 그걸 알고, 그 세션과 메시지로 조율해요. 다른 세션이 있을 때만 전부 커밋, 경로 없는 커밋, 되돌리기, 초기화, 임시 보관, 브랜치 삭제, 남의 파일 덮어쓰기를 막고, 누구 때문인지와 물어볼 방법을 알려 줘요.
+- 세션 결론도 페어링한 컴퓨터끼리 나눠서, 다른 컴퓨터에서도 이전에 한 일을 떠올려요.
+- 승인 방식에 "묻고 기억하기"가 생겼고, 그 승인 카드의 기억 선택지를 그대로 보여 줘요. 에이전트와 오토파일럿은 항상 이번만 허용해요.
+- 끝나서 main에 들어간 작업 폴더를 앱이 알아서 정리해요(앱을 켤 때와 6시간마다, 브랜치는 남겨요).
+
+### 고친 것
+- 휴대폰·아이패드에서 병렬 세션이 세션 목록에 안 보이고, 위 세션의 작업중 불빛이 안 켜지던 문제를 고쳤어요.
+- 화면에 쓰지 않는 작업 위젯 때문에 모델 요청이 나가던 것을 막았어요.
+- 메모리가 관계없는 질문에 결론을 붙이는 일을 줄였어요.
+- omp 18.12.3의 새 설정에 한국어를 붙였어요. 필요한 omp 최소 버전은 18.12.3이에요.
+- 메모리 상태 확인이 겹쳐서 복구를 건너뛰던 문제를 고쳤어요.
+
+<!-- en -->
+
+Sessions working in the same folder at the same time know about each other and coordinate, so none commits or wipes another's work.
+
+### Added
+- When another session works in the same worktree or repository, the agent knows it and coordinates with it by message. Only while another session is there, it refuses commit -a, commits without paths, reverts, resets, stash, branch deletes and overwriting another session's file, and says whose work it is and how to ask.
+- Session conclusions are shared between paired computers, so the other computer recalls earlier work too.
+- A new tool approval mode, Ask and remember, with the approval card's remember choices shown as they are. Agents and Autopilot always approve once.
+- Agent worktrees whose work has landed are cleaned up automatically, at launch and every six hours; branches are kept.
+
+### Fixed
+- Parallel sessions missing from the session list on a phone or iPad, and the parent's working light staying off.
+- Model requests for job widgets the app never shows.
+- Memory attaching conclusions to unrelated prompts less often.
+- Korean text for omp 18.12.3's new settings. omp 18.12.3 is now the minimum.
+- Overlapping memory health checks that skipped a repair.
+
 ## [0.42.0] - 2026-10-20
 
 모델 역할을 몇 초 만에 자동으로 구성하고, 원격 컴퓨터 세션도 이 컴퓨터 세션과 똑같이 다룰 수 있어요.
