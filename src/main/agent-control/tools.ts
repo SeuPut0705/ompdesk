@@ -405,7 +405,11 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				folder: {
 					type: "string",
 					description:
-						"start: absolute project folder; default your own. It must be open in a local session of this window.",
+						"start: absolute project folder on that device; default your own. On this computer it must be open in a session of this window; on a paired device a session there is opened for it when none has it open.",
+				},
+				device: {
+					...DEVICE,
+					description: `${DEVICE.description} start: where the run works (its worktree, checks and shipping run on that computer). Default: the device your own session runs on.`,
 				},
 				guide: {
 					type: "string",
@@ -538,6 +542,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 ];
 
 const sessionArg = z.string().trim().min(1).max(200);
+const deviceArg = z.string().trim().min(1).max(200);
 const placement = z.enum(PLACEMENT);
 
 const positive = z.number().positive().finite();
@@ -575,6 +580,7 @@ const autopilotArgs = z.discriminatedUnion("action", [
 		.object({
 			action: z.literal("start"),
 			folder: z.string().trim().min(1).max(4096).optional(),
+			device: deviceArg.optional(),
 			guide: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),
 			ship: z.enum(["commit", "push", "release"]).optional(),
 			branch: autopilotBranch.optional(),
@@ -594,8 +600,6 @@ const worktreeArg = z.union([
 		})
 		.strict(),
 ]);
-
-const deviceArg = z.string().trim().min(1).max(200);
 
 const openFields = {
 	message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS).optional(),

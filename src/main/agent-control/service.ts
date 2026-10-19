@@ -2232,7 +2232,6 @@ export class AgentControl {
 	async #autopilot(caller: ControlTab, tabs: ControlTab[], args: AutopilotArgs): Promise<string> {
 		const source = this.#host.autopilot;
 		if (!source) fail("Autopilot is not available here.");
-		if (caller.deviceName) fail("Autopilot runs on this computer; a session on a paired host cannot start one.");
 		if (args.action === "start") return this.#autopilotStart(caller, tabs, source, args);
 		const target = this.#resolve(tabs, args.session, caller, args.action === "stop" ? "stop" : "read");
 		this.#refuseHidden(target, caller);
@@ -2286,13 +2285,51 @@ export class AgentControl {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		const folder = args.folder === undefined ? trimSeparators(caller.cwd) : trimSeparators(args.folder);
 		if (!(folder.startsWith("/") || /^[A-Za-z]:[\\/]/.test(folder))) fail("folder must be an absolute path.");
-		const sourceTab = [caller, ...tabs]
-			.filter(tab => !tab.deviceName && !tab.hidden && trimSeparators(tab.cwd) === folder)
+		let device = caller.device;
+		let deviceName = caller.deviceName;
+		if (args.device !== undefined) {
+			const found = this.#device(args.device);
+			if (found) this.#online(found);
+			device = found?.id;
+			deviceName = found?.name;
+		}
+		let sourceTab = [caller, ...tabs]
+			.filter(tab => tab.device === device && !tab.hidden && trimSeparators(tab.cwd) === folder)
 			.sort((a, b) => Number(b.status === "ready") - Number(a.status === "ready"))[0];
-		if (!sourceTab)
+		if (!sourceTab && device === undefined)
 			fail(
 				`${folder} is not open in a session of this window on this computer. Autopilot starts from a folder one of those sessions has open: open one there first (ompdesk_session_open with folder), or use your own folder.`,
 			);
+		// On a paired host nothing has the folder open: a session there to start from, closed again once the run started.
+		let sourceOpened: string | undefined;
+		try {
+			if (!sourceTab) {
+				sourceOpened = (await this.#host.spawn(caller.tabId, { folder, device })).tabId;
+				await this.#whenReady(sourceOpened, caller.tabId);
+				sourceTab =
+					this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === sourceOpened) ??
+					fail(`The session opened on ${deviceName ?? device} to start from is gone.`);
+			}
+			return await this.#autopilotFrom(caller, tabs, source, args, sourceTab, folder, deviceName);
+		} catch (error) {
+			if (error instanceof ToolError) throw error;
+			return fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			if (sourceOpened) this.#host.view(caller.tabId, { tabId: sourceOpened, how: "close" });
+		}
+	}
+
+	/** The card, then the coordinator's start from `sourceTab` (on whichever computer runs it). */
+	async #autopilotFrom(
+		caller: ControlTab,
+		tabs: ControlTab[],
+		source: AutopilotSource,
+		args: Extract<AutopilotArgs, { action: "start" }>,
+		sourceTab: ControlTab,
+		folder: string,
+		deviceName: string | undefined,
+	): Promise<string> {
+		const where = deviceName ? `${folder} on ${deviceName}` : folder;
 		const plan = await source.plan(sourceTab.tabId);
 		const ship = args.ship ?? plan.defaultShip;
 		const advanced = args.advanced ?? {};
@@ -2302,42 +2339,36 @@ export class AgentControl {
 			args.branch?.kind === "existing" &&
 			(args.branch.name === plan.defaultBranch || args.branch.name === "main" || args.branch.name === "master");
 		const opened = this.#openedBy(caller.tabId, tabs);
-		let started: AutopilotStatus & { tabId: string };
-		try {
-			if (!this.#host.fullEnabled() && (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch)) {
-				const branch =
-					args.branch?.kind === "existing"
-						? onDefaultBranch
-							? this.#host.text("autopilotBranchDefault", { name: args.branch.name })
-							: args.branch.name
-						: (args.branch?.name ?? this.#host.text("autopilotBranchNew", {}));
-				const approved = await this.#host.confirm(
-					caller.tabId,
-					this.#host.text("autopilotTitle", {}),
-					this.#host.text("autopilotMessage", {
-						caller: caller.title || "—",
-						folder,
-						ship: this.#host.text(
-							ship === "release"
-								? "autopilotShipRelease"
-								: ship === "push"
-									? "autopilotShipPush"
-									: "autopilotShipCommit",
-							{},
-						),
-						branch,
-					}),
-				);
-				if (!approved) return "The user declined Autopilot. Do not ask again unless they tell you to.";
-			}
-			started = await source.start(caller.tabId, sourceTab.tabId, startOptions(args, ship));
-		} catch (error) {
-			if (error instanceof ToolError) throw error;
-			fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
+		if (!this.#host.fullEnabled() && (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch)) {
+			const branch =
+				args.branch?.kind === "existing"
+					? onDefaultBranch
+						? this.#host.text("autopilotBranchDefault", { name: args.branch.name })
+						: args.branch.name
+					: (args.branch?.name ?? this.#host.text("autopilotBranchNew", {}));
+			const approved = await this.#host.confirm(
+				caller.tabId,
+				this.#host.text("autopilotTitle", {}),
+				this.#host.text("autopilotMessage", {
+					caller: caller.title || "—",
+					folder: where,
+					ship: this.#host.text(
+						ship === "release"
+							? "autopilotShipRelease"
+							: ship === "push"
+								? "autopilotShipPush"
+								: "autopilotShipCommit",
+						{},
+					),
+					branch,
+				}),
+			);
+			if (!approved) return "The user declined Autopilot. Do not ask again unless they tell you to.";
 		}
+		const started = await source.start(caller.tabId, sourceTab.tabId, startOptions(args, ship));
 		opened.add(started.tabId);
 		return [
-			`Started Autopilot in session ${started.tabId}.`,
+			`Started Autopilot in session ${started.tabId}${deviceName ? ` (it runs on ${deviceName}, in ${folder})` : ""}.`,
 			describeRun({ tabId: started.tabId, title: "" }, started),
 			`It works by itself: read it with ompdesk_autopilot {"action":"status","session":"${started.tabId}"}, end it with {"action":"stop","session":"${started.tabId}"}. Do not send it messages.`,
 		].join("\n");

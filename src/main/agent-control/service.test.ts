@@ -1509,10 +1509,10 @@ describe("ompdesk_autopilot", () => {
 		expect(bad.text).toMatch(/cadence goes with ship release/);
 	});
 
-	it("starts from another local tab that has the folder open, and refuses a folder nothing has open", async () => {
+	it("starts from another tab of the folder's own computer, and refuses a folder nothing there has open", async () => {
 		const { host, pilot, service } = setup(
 			{ tabId: "other002", cwd: "/other" },
-			{ tabId: "remote03", cwd: "/far", deviceName: "Mac" },
+			{ tabId: "remote03", cwd: "/far", device: "dev1", deviceName: "Mac" },
 		);
 		host.manage = true;
 		await service.run("main0001", T.autopilot, { action: "start", folder: "/other/" });
@@ -1520,11 +1520,40 @@ describe("ompdesk_autopilot", () => {
 		const none = await service.run("main0001", T.autopilot, { action: "start", folder: "/nowhere" });
 		expect(none.isError).toBe(true);
 		expect(none.text).toMatch(/not open in a session/);
+		// A paired host's folder is that computer's: without `device` it is not this computer's.
 		expect((await service.run("main0001", T.autopilot, { action: "start", folder: "/far" })).isError).toBe(true);
 		expect((await service.run("main0001", T.autopilot, { action: "start", folder: "relative" })).text).toMatch(
 			/absolute/,
 		);
 		expect(pilot.starts).toHaveLength(1);
+	});
+
+	it("starts on a paired device's folder from a tab there, or from a tab it opens there and closes again", async () => {
+		const { host, pilot, service } = setup({ tabId: "remote03", cwd: "/far", device: "dev1", deviceName: "Mac" });
+		host.manage = true;
+		host.deviceList = [{ id: "dev1", name: "Mac", state: "online" }];
+		const there = await service.run("main0001", T.autopilot, { action: "start", device: "Mac", folder: "/far" });
+		expect(there.isError, there.text).toBe(false);
+		expect(pilot.starts[0]?.source).toBe("remote03");
+		expect(host.spawned).toHaveLength(0);
+
+		const fresh = await service.run("main0001", T.autopilot, {
+			action: "start",
+			device: "dev1",
+			folder: "C:\\work\\app",
+		});
+		expect(fresh.isError, fresh.text).toBe(false);
+		expect(host.spawned).toEqual([{ folder: "C:\\work\\app", device: "dev1" }]);
+		const opened = pilot.starts[1]?.source as string;
+		expect(opened).not.toBe("remote03");
+		// The tab it opened only to start from closes; the run stays the caller's.
+		expect(host.views).toContainEqual({ tabId: opened, how: "close" });
+		expect(service.childrenOf("main0001")).toEqual(["apr10000", "apr20000"]);
+
+		host.deviceList = [{ id: "dev1", name: "Mac", state: "offline" }];
+		const away = await service.run("main0001", T.autopilot, { action: "start", device: "Mac", folder: "/far" });
+		expect(away.text).toMatch(/offline/);
+		expect(pilot.starts).toHaveLength(2);
 	});
 
 	it("starts as many agent runs as asked", async () => {
@@ -1548,11 +1577,12 @@ describe("ompdesk_autopilot", () => {
 		expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
 	});
 
-	it("refuses a caller on a paired host, and a run that is stopping", async () => {
-		const { host, service } = setup({ tabId: "paired04", deviceName: "Mac", cwd: "/repo" });
+	it("starts from a caller on a paired host in its own folder there, and refuses a run that is stopping", async () => {
+		const { host, pilot, service } = setup({ tabId: "paired04", device: "dev1", deviceName: "Mac", cwd: "/repo" });
+		host.manage = true;
 		const result = await service.run("paired04", T.autopilot, { action: "start" });
-		expect(result.isError).toBe(true);
-		expect(result.text).toMatch(/paired host/);
+		expect(result.isError, result.text).toBe(false);
+		expect(pilot.starts[0]?.source).toBe("paired04");
 		host.stopping.add("main0001");
 		expect((await service.run("main0001", T.autopilot, { action: "start" })).text).toMatch(/ending/);
 	});
