@@ -295,6 +295,9 @@ for (const engine of ENGINES) {
 						const moreBox = await boxOf(runChip(page));
 						const modelBox = await boxOf(modelChip(page));
 						const contextBox = await boxOf(contextChip(page));
+						// Thinking and Delegation are chips of the row too (it scrolls sideways when it does not fit).
+						await expect(page.locator(".omp-composer-box [data-chip=thinking]")).toBeAttached();
+						await expect(page.locator(".omp-composer-box [data-chip=delegation]")).toBeAttached();
 						const sendBox = await boxOf(sendSlot(page).locator("button").first());
 						const fieldBox = await boxOf(field(page));
 						// Always open: the field is a full-width row, the controls one row under it.
@@ -412,8 +415,8 @@ for (const engine of ENGINES) {
 						await page.locator("[data-approval-option='always-ask']").tap();
 						await expect.poll(() => unhandled(page)).toContain("rpc:set_setting");
 						await page.keyboard.press("Escape");
-						// Delegation: the Run chip, then one tap on a strength.
-						await openRun(page);
+						// Delegation: its own chip in the row, then one tap on a strength.
+						await page.locator(".omp-composer-box [data-chip=delegation]").tap();
 						await page.locator("[data-delegation-option='solo']").tap();
 						await expect.poll(() => called(page, "set_delegation")).toBe(true);
 						await page.keyboard.press("Escape");
@@ -555,6 +558,8 @@ for (const engine of ENGINES) {
 							runChip(page),
 							modelChip(page),
 						]) {
+							// The row scrolls sideways: a control past its edge is scrolled to first, as a finger would.
+							await locator.first().scrollIntoViewIfNeeded();
 							expect(await ownShare(locator)).toBe(1);
 						}
 					} finally {

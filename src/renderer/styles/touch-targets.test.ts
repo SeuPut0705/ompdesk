@@ -156,7 +156,7 @@ describe("the phone composer", () => {
 		const gap = rule('html[data-shell="phone"] :is(.omp-composer-toolbar, .omp-composer-send-cluster)');
 		expect(gap).toMatch(/--hit-gap-x:\s*18px/);
 		expect(gap).toMatch(/--hit-gap-y:\s*18px/);
-		expect(rule('html[data-shell="phone"] .omp-composer-send-cluster [data-send-mode]')).toMatch(/height:\s*28px/);
+		expect(rule('html[data-shell="phone"] .omp-composer-toolbar [data-send-mode]')).toMatch(/height:\s*28px/);
 	});
 
 	it("makes the touch gutter symmetric and the pickers' option rows 44 px", () => {

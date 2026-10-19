@@ -141,7 +141,7 @@ describe("phone toolbar", () => {
 		useSettingsStore.setState({ sttEnabled: true });
 		useSessionStore.setState({ isStreaming: true });
 		await render({ stoppable: true, sendDisabled: false });
-		expect(await cancelsMouseDown(q(".omp-composer-toolbar > :first-child, [aria-haspopup='menu']"))).toBe(true);
+		expect(await cancelsMouseDown(q(".omp-composer-scroll > :first-child, [aria-haspopup='menu']"))).toBe(true);
 		expect(await cancelsMouseDown(slot("send").querySelector("button"))).toBe(true);
 		expect(await cancelsMouseDown(slot("stop").querySelector("button"))).toBe(true);
 		expect(await cancelsMouseDown(q("[data-send-mode]"))).toBe(true);
@@ -171,6 +171,16 @@ describe("phone toolbar", () => {
 		expect(q("[data-model-chip]")).not.toBeNull();
 		expect(q("[data-chip=context]")?.closest(".omp-composer-send-cluster")).not.toBeNull();
 		expect(q("[data-run-more]")).toBeNull();
+	});
+
+	it("gives Delegation its own chip in the row, which opens its field and keeps the field's focus", async () => {
+		useSessionStore.setState({ status: "ready" });
+		await render();
+		const chip = q("[data-chip=delegation]");
+		expect(chip).not.toBeNull();
+		expect(await cancelsMouseDown(chip)).toBe(true);
+		await act(async () => chip?.click());
+		expect(document.querySelector("[data-composer-sheet] [data-delegation-option]")).not.toBeNull();
 	});
 
 	it("keeps the + sheet from taking focus (its overlay cancels mousedown too)", async () => {

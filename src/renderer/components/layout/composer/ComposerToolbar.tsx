@@ -8,8 +8,8 @@
  * window's.
  *
  * On a phone the composer is always open: the field is a full-width row and this toolbar is one compact row under it,
- * inside the box, with every control the tablet has (+, the Run chip for mode, thinking, approval and delegation, the
- * model chip, the context ring, Stop/Send), labels folded to icons by the toolbar's width and any overflow scrolling
+ * inside the box, with every control the tablet has (+, the Run chip for mode and approval, its own Thinking and
+ * Delegation chips (`PhoneRunChips`), the model chip, the context ring, Stop/Send), labels folded to icons by the toolbar's width and any overflow scrolling
  * sideways inside the row (mobile.css); nothing folds the composer away. The empty Send slot is the
  * mic while dictation is on. Touch controls keep focus in the field (`keepFocus`: a cancelled `mousedown`, never
  * `pointerdown`). Memoised: its props are scalars and stable callbacks, so a keystroke in the field re-renders it only
@@ -51,6 +51,7 @@ import { ComposerModeExtras } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
 import type { DictationPhase } from "./DictationOverlay";
 import { keepFocus } from "./keep-focus";
+import { PhoneDelegationChip, PhoneThinkingChip } from "./PhoneRunChips";
 import { RunChip } from "./RunChip";
 import { useThinkingName } from "./RunSettings";
 
@@ -154,14 +155,67 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	const micAtOldSpot = sttEnabled && (!phone || recording);
 	const micInSlot = phone && sttEnabled && !recording && sendDisabled && !editingQueued;
 
-	return (
-		<div
-			aria-busy={!routeReady}
-			aria-label={t("input.toolbar")}
-			className="omp-composer-toolbar flex min-h-11 flex-nowrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
-			inert={!routeReady}
-			role="toolbar"
-		>
+	/** Stop, Send and the queue pill. A phone keeps them outside the row's sideways scroller, so they never move or scroll away. */
+	const actions = (
+		<div className="omp-composer-actions ml-1 flex items-center gap-1.5">
+			{queueSlot}
+			<span className="omp-composer-slot" data-off={stoppable ? undefined : ""} data-slot="stop" inert={!stoppable}>
+				<IconButton
+					{...hold}
+					className="omp-composer-action"
+					disabled={!routeReady}
+					icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
+					label={t("input.abort")}
+					loading={stopping}
+					onClick={onStop}
+					shortcut="Esc"
+					variant={showSend ? "secondary" : "primary"}
+				/>
+			</span>
+			<span className="omp-composer-slot" data-slot="send">
+				{micInSlot ? (
+					<IconButton
+						{...hold}
+						className="omp-composer-action omp-composer-mic"
+						disabled={!routeReady}
+						icon={<Mic />}
+						label={t("voice.mic.start")}
+						onClick={onMic}
+						variant="secondary"
+					/>
+				) : dictationPhase === "recording" ? (
+					<IconButton
+						{...hold}
+						className="omp-composer-action"
+						data-dictation-send
+						disabled={!routeReady}
+						icon={<ArrowUp strokeWidth={2.25} />}
+						label={t("voice.dictation.stopAndSend")}
+						onClick={onStopAndSend}
+						variant="primary"
+					/>
+				) : (
+					<ComposerSend label={editingQueued ? t("composerQueue.editSave") : sendTip} shortcut={sendChord}>
+						<IconButton
+							{...hold}
+							className="omp-composer-action"
+							data-send-lane={isStreaming ? (followUp ? "followUp" : "steer") : undefined}
+							data-send-editing={editingQueued || undefined}
+							disabled={sendDisabled || !showSend}
+							icon={editingQueued ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />}
+							label={editingQueued ? t("composerQueue.editSave") : t("input.send")}
+							onClick={onSend}
+							tooltip={false}
+							variant={showSend ? "primary" : "secondary"}
+						/>
+					</ComposerSend>
+				)}
+			</span>
+		</div>
+	);
+	/** Everything before Stop/Send: the whole row on the desktop, the sideways scroller on a phone. */
+	const lead = (
+		<>
 			<MenuButton
 				keepFocus={touchInput}
 				icon={<Plus />}
@@ -235,6 +289,8 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 
 			<RunChip />
 			<ComposerModeExtras />
+			{phone && <PhoneThinkingChip />}
+			{phone && <PhoneDelegationChip />}
 
 			{composerMode && (
 				<Tooltip content={composerMode === "bash" ? t("input.mode.bash.title") : t("input.mode.python.title")}>
@@ -337,67 +393,27 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						</Button>
 					</Tooltip>
 				</span>
-				<div className="omp-composer-actions ml-1 flex items-center gap-1.5">
-					{queueSlot}
-					<span
-						className="omp-composer-slot"
-						data-off={stoppable ? undefined : ""}
-						data-slot="stop"
-						inert={!stoppable}
-					>
-						<IconButton
-							{...hold}
-							className="omp-composer-action"
-							disabled={!routeReady}
-							icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
-							label={t("input.abort")}
-							loading={stopping}
-							onClick={onStop}
-							shortcut="Esc"
-							variant={showSend ? "secondary" : "primary"}
-						/>
-					</span>
-					<span className="omp-composer-slot" data-slot="send">
-						{micInSlot ? (
-							<IconButton
-								{...hold}
-								className="omp-composer-action omp-composer-mic"
-								disabled={!routeReady}
-								icon={<Mic />}
-								label={t("voice.mic.start")}
-								onClick={onMic}
-								variant="secondary"
-							/>
-						) : dictationPhase === "recording" ? (
-							<IconButton
-								{...hold}
-								className="omp-composer-action"
-								data-dictation-send
-								disabled={!routeReady}
-								icon={<ArrowUp strokeWidth={2.25} />}
-								label={t("voice.dictation.stopAndSend")}
-								onClick={onStopAndSend}
-								variant="primary"
-							/>
-						) : (
-							<ComposerSend label={editingQueued ? t("composerQueue.editSave") : sendTip} shortcut={sendChord}>
-								<IconButton
-									{...hold}
-									className="omp-composer-action"
-									data-send-lane={isStreaming ? (followUp ? "followUp" : "steer") : undefined}
-									data-send-editing={editingQueued || undefined}
-									disabled={sendDisabled || !showSend}
-									icon={editingQueued ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />}
-									label={editingQueued ? t("composerQueue.editSave") : t("input.send")}
-									onClick={onSend}
-									tooltip={false}
-									variant={showSend ? "primary" : "secondary"}
-								/>
-							</ComposerSend>
-						)}
-					</span>
-				</div>
+				{!phone && actions}
 			</div>
+		</>
+	);
+
+	return (
+		<div
+			aria-busy={!routeReady}
+			aria-label={t("input.toolbar")}
+			className="omp-composer-toolbar flex min-h-11 flex-nowrap items-center gap-1 pr-2.5 pb-2.5 pl-2"
+			inert={!routeReady}
+			role="toolbar"
+		>
+			{phone ? (
+				<>
+					<div className="omp-composer-scroll">{lead}</div>
+					{actions}
+				</>
+			) : (
+				lead
+			)}
 		</div>
 	);
 });
