@@ -221,6 +221,8 @@ export class AiMemoryService {
 	#resolved: Resolved | null = null;
 	#downPolls = 0;
 	#lastRewire = 0;
+	/** The health check running now (`#check`), joined by any call while it runs. */
+	#checking: Promise<void> | null = null;
 	#statsAt = 0;
 	/** A wiring pass found no Bun: the setup's Bun arriving (`bunInstalled`) runs it again, once. */
 	#awaitingBun = false;
@@ -938,8 +940,20 @@ export class AiMemoryService {
 		});
 	}
 
-	/** Health, stats and the wiring files; heals by running `setup` again when the server stays down or a file went. */
-	async #check(heal: boolean): Promise<void> {
+	/**
+	 * Health, stats and the wiring files; heals by running `setup` again when the server stays down or a file went.
+	 * One check at a time: a check that started while another was reading would apply what it read after the newer
+	 * one, so a root seen gone could read back as present and ready with no heal (seen on Windows, where a poll's
+	 * file reads outlast the poll interval). A call while one runs joins it.
+	 */
+	#check(heal: boolean): Promise<void> {
+		this.#checking ??= this.#runCheck(heal).finally(() => {
+			this.#checking = null;
+		});
+		return this.#checking;
+	}
+
+	async #runCheck(heal: boolean): Promise<void> {
 		const [up, wiring] = await Promise.all([this.#client.healthy(), this.#wiring()]);
 		if (this.#state.phase === "starting") return;
 		this.#patch({ wiring });

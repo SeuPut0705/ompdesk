@@ -74,7 +74,8 @@ interface World {
 	calls: Call[];
 	commands: () => string[];
 	behavior: Behavior;
-	health: { up: boolean; healthCalls: number };
+	/** `gate` holds every /healthz answer until it settles; `maxInFlight` is the most answers ever held at once. */
+	health: { up: boolean; healthCalls: number; gate: Promise<void>; inFlight: number; maxInFlight: number };
 	/** The OS service: what `setup` installs and `remove` takes away. */
 	unit: { installed: boolean; ours: boolean; removed: number };
 	prefs: { enabled: boolean; terminal: boolean | undefined; owned: boolean | undefined };
@@ -116,7 +117,7 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		}),
 		gate: undefined,
 	};
-	const health = { up: true, healthCalls: 0 };
+	const health: World["health"] = { up: true, healthCalls: 0, gate: Promise.resolve(), inFlight: 0, maxInFlight: 0 };
 	const unit = { installed: false, ours: false, removed: 0 };
 	const prefs: World["prefs"] = { enabled: true, terminal: undefined, owned: undefined };
 
@@ -213,6 +214,10 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		fetch: async url => {
 			if (url.endsWith("/healthz")) {
 				health.healthCalls += 1;
+				health.inFlight += 1;
+				health.maxInFlight = Math.max(health.maxInFlight, health.inFlight);
+				await health.gate;
+				health.inFlight -= 1;
 				return new Response(health.up ? "ok" : "down", { status: health.up ? 200 : 503 });
 			}
 			if (url.endsWith("/admin/status")) {
@@ -1217,6 +1222,41 @@ describe("AiMemoryService", () => {
 			await healed.promise;
 			expect(commands().filter(command => command === SETUP)).toHaveLength(2);
 			expect(existsSync(join(rootDir, "index.ts"))).toBe(true);
+		});
+
+		it("runs one check at a time: a tick while a check still reads joins it instead of starting another", async () => {
+			vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+			// vi.waitFor polls with setInterval, which is faked here; let pending I/O and promises run instead.
+			const drain = async () => {
+				for (let turn = 0; turn < 20; turn++) {
+					const { promise, resolve } = Promise.withResolvers<void>();
+					setImmediate(resolve);
+					await promise;
+				}
+			};
+			try {
+				const { service, health } = await make();
+				await service.start();
+				const held = Promise.withResolvers<void>();
+				health.gate = held.promise;
+				health.maxInFlight = 0;
+				vi.advanceTimersByTime(10);
+				await drain();
+				expect(health.inFlight).toBe(1);
+				const calls = health.healthCalls;
+				for (let tick = 0; tick < 5; tick++) {
+					vi.advanceTimersByTime(10);
+					await drain();
+				}
+				// A second check would read while the first still reads, then apply its answer out of order.
+				expect(health.healthCalls).toBe(calls);
+				expect(health.maxInFlight).toBe(1);
+				held.resolve();
+				await drain();
+				expect(health.inFlight).toBe(0);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("polling stops while memory is off", async () => {
