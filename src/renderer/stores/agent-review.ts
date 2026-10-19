@@ -21,7 +21,10 @@ export const useAgentReviewStore = create<AgentReviewStore>()((set, get) => ({
 	byTab: {},
 	apply: event => set(state => ({ byTab: { ...state.byTab, [event.tabId]: event.items } })),
 	refresh: async tabId => {
-		const response = await window.omp?.rpc?.commandForTab?.(tabId, { type: "agent_control_review" });
+		// A read that fails (a paired host's link down, a tab starting) keeps what is known; main's next push replaces it.
+		const response = await window.omp?.rpc
+			?.commandForTab?.(tabId, { type: "agent_control_review" })
+			.catch(() => undefined);
 		if (response?.success) get().apply({ tabId, items: (response.data as AgentReviewResult).items });
 	},
 	reset: () => set({ byTab: {} }),

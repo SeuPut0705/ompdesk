@@ -1303,6 +1303,12 @@ export class SidecarPool {
 		return this.#byTabId.get(tabId)?.win ?? null;
 	}
 
+	/** The windows that show a tab: its owner, then its viewers (a paired phone's page viewing it). */
+	windowsShowingTab(tabId: string): ClientWindow[] {
+		const entry = this.#byTabId.get(tabId);
+		return entry ? [entry.win, ...[...entry.viewers.values()].map(viewer => viewer.win)] : [];
+	}
+
 	/** Every window that owns a live tab, in tab acquisition order (the control tools' app-wide session list). */
 	tabWindows(): ClientWindow[] {
 		return [...new Set([...this.#entries].map(entry => entry.win))];

@@ -4,6 +4,7 @@ import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { useT } from "../../../lib/i18n";
+import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
@@ -55,6 +56,13 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const opened = useOpenedChildren(runtimeTabId ?? activeTabId);
+	// The board asks for the opened sessions when it mounts; the strip mounts it only when expanded, so it asks itself
+	// (a phone viewing a desktop's session knows the children only from this list).
+	useEffect(() => {
+		const tabId = runtimeTabId ?? activeTabId;
+		ensureAgentReviewSubscription();
+		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
+	}, [runtimeTabId, activeTabId]);
 	const goal = useSessionStore(state => state.goal);
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);

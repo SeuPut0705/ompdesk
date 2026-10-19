@@ -135,6 +135,7 @@ export interface AgentControlHostDeps {
 		| "setTabOpener"
 		| "hasDraft"
 		| "windowOfTab"
+		| "windowsShowingTab"
 		| "tabWindows"
 		| "sessionOwner"
 	>;
@@ -341,16 +342,24 @@ export class AgentControlRuntime {
 
 	/** The work board's opened-session rows: the list of sessions this one opened (read-only; the agent lands them with tools). */
 	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
-		this.#windows.set(callerTabId, win);
+		// A window viewing the tab (a phone) asks too; the owner stays the one its tools answer through.
+		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
 		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [] };
 		return { items: await this.control.reviewItems(callerTabId) };
 	}
 
+	/**
+	 * To every window showing the opener: its owner and a phone viewing it. A viewer's tab list never holds the
+	 * children (they are tabs of the window that opened them), so these rows are all it knows of them: without
+	 * them its work strip said nothing while the children worked.
+	 */
 	#sendReview(callerTabId: string, items: AgentReviewItem[]): void {
 		this.#reviewSent.set(callerTabId, JSON.stringify(items));
-		const win = this.#win(callerTabId);
-		if (win && !win.isDestroyed())
-			win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);
+		const showing = this.#deps.pool.windowsShowingTab(callerTabId);
+		const own = this.#win(callerTabId);
+		for (const win of own && !showing.includes(own) ? [own, ...showing] : showing)
+			if (!win.isDestroyed())
+				win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);
 		this.#sendChildren(callerTabId, items);
 	}
 

@@ -102,6 +102,33 @@ export function openedChildRows(input: {
 			...(tab.device ? { device: deviceName?.(tab.device) ?? tab.device } : {}),
 		});
 	}
+	// Children this window holds no tab of: a phone viewing a session a desktop window holds lists only the tabs it
+	// has, while the children are tabs of the window that opened them. Main's review list (pushed to every window
+	// showing the parent) is then all this window knows of them.
+	const known = new Set(tabs.map(tab => tab.id));
+	for (const item of review.values()) {
+		if (known.has(item.tabId)) continue;
+		const unmerged =
+			item.branch !== undefined && item.state !== "running" && (item.commitsAhead > 0 || item.uncommitted > 0);
+		rows.push({
+			key: item.tabId,
+			tabId: item.tabId,
+			title: item.title,
+			status: openedChildStatus({
+				waiting: item.waiting === true,
+				running: item.state === "running",
+				finished: item.state !== "running",
+				failed: item.failed === true,
+				unmerged,
+			}),
+			...(item.step ? { step: item.step } : {}),
+			...(item.runningSince ? { since: item.runningSince } : {}),
+			...(item.branch ? { branch: item.branch } : {}),
+			...(item.baseBranch !== undefined ? { base: item.baseBranch } : {}),
+			...(unmerged ? { merge: "unmerged" as const } : {}),
+			...(item.report ? { report: item.report } : {}),
+		});
+	}
 	for (const child of closed) {
 		if (child.openedBySession !== parent.sessionPath || shown.has(child.path)) continue;
 		rows.push({

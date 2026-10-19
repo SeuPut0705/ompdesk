@@ -500,3 +500,33 @@ test("a host that never starts the session is named on the phone, logged, and th
 		await teardown(setup);
 	}
 });
+
+test("the phone's work strip shows a host session's running turn, its todos and its subagents", async () => {
+	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
+	test.setTimeout(180_000);
+	let stored = "";
+	let setup: Rig | undefined;
+	try {
+		setup = await rig({}, async (hostAgent, hostProfile) => {
+			stored = await seedSession(hostAgent, hostProfile.project, "remote-working", "Working on the host");
+		});
+		const { phone } = setup;
+		await (await hostRow(setup, stored)).click();
+		await expect(phone.getByText("Answer to Working on the host")).toBeVisible({ timeout: 30_000 });
+		const tabId = (await phone.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath === stored)?.tabId;
+		if (!tabId) throw new Error("no host tab");
+		const strip = phone.locator("[data-work-strip] [data-work-chip]");
+		await sendFromPhone(phone, "fixture steer work");
+		await expect(strip).toBeVisible({ timeout: 20_000 });
+		for (const command of ["fixture:todo", "fixture:subagents"])
+			await phone.evaluate(([id, line]) => window.omp.rpc.commandForTab(id, { type: "bash", command: line }), [
+				tabId,
+				command,
+			] as const);
+		await expect(strip).toContainText("0/6", { timeout: 20_000 });
+		await expect(strip.locator('[data-count="agents"]')).toBeVisible();
+		expect(setup.phoneErrors).toEqual([]);
+	} finally {
+		await teardown(setup);
+	}
+});

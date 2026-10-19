@@ -44,10 +44,12 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * lazy, 3.10 MB once each UI language became its own lazy chunk, 3.255 MB with the remembered sidebar state: the
  * fold stores and their saved-state parsing, 5 KB; 19 Oct 2026: 3.271 MB with the sidebar rows of the sessions
  * paired devices run on the host, 2.7 KB; 3.278 MB (3,278,281) with the family rows of the sessions this computer's
- * agents opened on a paired device, 3.4 KB): a build that grows past it fails, so the next eager import is a
- * decision, not an accident. The language chunk the entries load before rendering is not in it.
+ * agents opened on a paired device, 3.4 KB; 20 Oct 2026: 3.281 MB (3,281,057) with a phone's work strip counting the
+ * sessions a viewed session's agent opened, a notification click that waits for its tab and the touch session
+ * sheet's order, 2.3 KB): a build that grows past it fails, so the next eager import is a decision, not an
+ * accident. The language chunk the entries load before rendering is not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_280_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_285_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

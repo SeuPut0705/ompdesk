@@ -48,6 +48,8 @@ function setup(
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 		app?: AgentControlHostDeps["app"];
+		/** Windows viewing a tab (a paired phone's page), by tab id. */
+		viewers?: Record<string, ClientWindow[]>;
 	} = {},
 ) {
 	const win = window();
@@ -85,6 +87,14 @@ function setup(
 			hasDraft: () => false,
 			windowOfTab: tabId =>
 				otherTabs.some(tab => tab.tabId === tabId) ? win2 : tabs.some(tab => tab.tabId === tabId) ? win : null,
+			windowsShowingTab: tabId => {
+				const owner = otherTabs.some(tab => tab.tabId === tabId)
+					? win2
+					: tabs.some(tab => tab.tabId === tabId)
+						? win
+						: null;
+				return owner ? [owner, ...(options.viewers?.[tabId] ?? [])] : [];
+			},
 			tabWindows: () => (otherTabs.length ? [win, win2] : [win]),
 			sessionOwner: () => null,
 		},
@@ -258,6 +268,32 @@ describe("AgentControlRuntime", () => {
 			await vi.advanceTimersByTimeAsync(200);
 			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [] }));
 			expect(frames()).toHaveLength(before + 1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("sends the opened sessions' list to a phone viewing the opener too, not only to the window that owns it", async () => {
+		vi.useFakeTimers();
+		try {
+			const phone = window(-1);
+			const { runtime, win } = setup({
+				tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
+				sweepMs: 20,
+				viewers: { main0001: [phone] },
+			});
+			vi.spyOn(runtime.control, "reviewItems").mockImplementation(async () => [{ tabId: "new00003" }] as never);
+			const opening = runtime.run(win, "main0001", T.open, {});
+			await vi.advanceTimersByTimeAsync(2_000);
+			await opening;
+			const frames = (target: typeof win) =>
+				target.sent.filter(([channel]) => channel === AGENT_CONTROL_REVIEW).map(([, payload]) => payload);
+			expect(frames(win).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }] });
+			expect(frames(phone).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }] });
+			// The phone asking for the list does not make it the window the opener's tools answer through.
+			await runtime.review(phone, "main0001");
+			await runtime.run(win, "main0001", T.open, {});
+			await vi.advanceTimersByTimeAsync(2_000);
+			expect(frames(win).length).toBeGreaterThan(1);
 		} finally {
 			vi.useRealTimers();
 		}

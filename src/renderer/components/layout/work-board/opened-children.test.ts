@@ -71,6 +71,34 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		expect(rows.find(row => row.key === "here")?.device).toBeUndefined();
 	});
 
+	it("lists children this window holds no tab of from main's review list: a phone viewing a desktop's session", () => {
+		const rows = openedChildRows({
+			parent,
+			// The phone's own tab list: only the opener it views.
+			tabs: [tab("boss", { sessionPath: "/s/boss.jsonl" })],
+			review: new Map([
+				[
+					"kid1",
+					review("kid1", { title: "Fix the upload", state: "running", step: "running bash", runningSince: 5 }),
+				],
+				["kid2", review("kid2", { title: "Asks", state: "running", waiting: true })],
+				["kid3", review("kid3", { title: "Done" })],
+			]),
+			closed: [],
+		});
+		expect(rows.map(row => [row.key, row.status])).toEqual([
+			["kid2", "waiting"],
+			["kid1", "running"],
+			["kid3", "done"],
+		]);
+		expect(rows.find(row => row.key === "kid1")).toMatchObject({
+			title: "Fix the upload",
+			step: "running bash",
+			since: 5,
+		});
+		expect(openedChildCounts(rows)).toMatchObject({ total: 3, running: 1, waiting: 1 });
+	});
+
 	it("puts a child whose question waits on the opener first, with its last report", () => {
 		const rows = openedChildRows({
 			parent,
