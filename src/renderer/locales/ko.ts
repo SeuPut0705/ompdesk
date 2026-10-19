@@ -1659,6 +1659,7 @@ export const ko: Record<string, string> = {
 	"ipcError.session_starting": "세션이 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
 	"ipcError.session_owned_elsewhere": "이 세션은 이미 다른 탭에서 열려 있어요.",
 	"ipcError.session_deleted": "삭제된 세션이에요.",
+	"ipcError.worktree_removing": "그 워크트리를 지우는 중이에요. 잠시 뒤 다시 해 주세요.",
 	"ipcError.session_not_open": "이 세션은 탭으로 열려 있지 않아요.",
 	"ipcError.no_messages": "아직 저장할 내용이 없어요. 먼저 메시지를 보내 주세요.",
 	"ipcError.session_kind_mismatch": "에이전트 세션과 채팅 세션은 서로 전환할 수 없어요. 새 탭에서 열어 주세요.",

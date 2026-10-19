@@ -14,6 +14,7 @@ export const IPC_ERROR_CODES = [
 	"invalid_session_path",
 	"session_running",
 	"session_deleted",
+	"worktree_removing",
 	"session_delete_cancelled",
 	"session_name_empty",
 	"session_starting",

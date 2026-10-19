@@ -98,6 +98,7 @@ import {
 	statWorkspacePath,
 } from "../workspace-fs";
 import { searchWorkspace } from "../workspace-search";
+import { removalHolds } from "../worktree-removals";
 import {
 	BenchmarkOptionsSchema,
 	CustomProviderInputSchema,
@@ -1034,6 +1035,8 @@ export class LocalHostServices implements HostServices {
 		// finished while this one awaited: take that tab (or its refusal) instead of a second omp.
 		const raced = this.#tabs.get(key);
 		if (raced || (params.sessionPath && this.#holder(params.sessionPath))) return this.#open(peer, params, conn);
+		// A worktree being removed (worktree-orphans.ts) is not opened until git is done with it.
+		if (removalHolds(cwd)) throw codedError("worktree_removing", "That worktree is being removed");
 		const tab = this.#createTab(peer, params.rtab, cwd, kind, params.fresh === true, params.sessionPath, conn);
 		// The device's sign-in state may come from a tab of this rtab that is gone (closed after its grace, or
 		// this computer restarted mid-login): a new omp runs none.

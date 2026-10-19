@@ -1675,6 +1675,7 @@ export const en: Record<string, string> = {
 	"ipcError.session_starting": "The session is still starting. Try again in a moment.",
 	"ipcError.session_owned_elsewhere": "This session is already open in another tab.",
 	"ipcError.session_deleted": "This session was deleted.",
+	"ipcError.worktree_removing": "That worktree is being removed. Try again in a moment.",
 	"ipcError.session_not_open": "That session isn't open in a tab.",
 	"ipcError.no_messages": "There's nothing to save yet. Send a message first.",
 	"ipcError.session_kind_mismatch": "Agent and chat sessions can't switch into each other. Open it in a new tab.",

@@ -30,6 +30,7 @@ import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
+import { withRemovalClaim } from "../worktree-removals";
 import { decodeBinaryRead, OMP_UPDATE_EVENT, SCHEDULES_EVENT, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
@@ -343,6 +344,24 @@ describe("LocalHostServices", () => {
 		initDeletedSessions(null);
 		expect(ipcErrorCode(refused)).toBe("session_deleted");
 		expect(sidecars).toHaveLength(0);
+	});
+
+	it("opens no tab for a device in a worktree a removal holds until git is done with it", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		let release: () => void = () => undefined;
+		const removal = withRemovalClaim(
+			realpathSync.native(workDir),
+			() => [],
+			() => new Promise<void>(resolve => (release = resolve)),
+		);
+		const refused = await services
+			.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("worktree_removing");
+		expect(sidecars).toHaveLength(0);
+		release();
+		await removal;
 	});
 
 	it("forwards allowlisted sidecar events as tab.event and leaves host tool calls to the device", async () => {

@@ -12,6 +12,7 @@ import { SidecarPool, type TabActivity } from "./sidecar-pool";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
 import type { ClientWindow } from "./web/client-window";
+import { withRemovalClaim } from "./worktree-removals";
 
 /** Minimal SidecarManager stand-in: an EventEmitter with lifecycle recording. */
 class FakeSidecar extends EventEmitter {
@@ -229,6 +230,43 @@ describe.skipIf(process.platform === "win32")("SidecarPool cwd spelling", () => 
 			pool.acquire("/no/such/dir", fw.win, "tab-missing");
 
 			expect(pool.tabsForWindow(fw.win).map(tab => tab.cwd)).toEqual([real, real, "/no/such/dir"]);
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("SidecarPool and a worktree being removed", () => {
+	it("refuses a tab in a worktree a removal holds, and opens it once the removal ended", async () => {
+		const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-removal-")));
+		try {
+			const worktree = path.join(root, "gui-a");
+			fs.mkdirSync(path.join(worktree, "src"), { recursive: true });
+			const { pool } = fakePool();
+			const fw = fakeWindow(1);
+			let release: () => void = () => undefined;
+			// The removal checked the open sessions and claimed the folder; git is still deleting it.
+			const removal = withRemovalClaim(
+				worktree,
+				() => pool.workspaceDirs(),
+				() => new Promise<void>(resolve => (release = resolve)),
+			);
+			expect(pool.acquire(worktree, fw.win, "tab-in")).toBeNull();
+			expect(pool.acquire(path.join(worktree, "src"), fw.win, "tab-deep")).toBeNull();
+			expect(pool.acquire(root, fw.win, "tab-beside")).not.toBeNull();
+			release();
+			await removal;
+			expect(pool.acquire(worktree, fw.win, "tab-after")).not.toBeNull();
+			// The other order: a tab is open there, so a removal is refused before git runs.
+			await expect(
+				withRemovalClaim(
+					worktree,
+					() => pool.workspaceDirs(),
+					async () => "removed",
+				),
+			).rejects.toMatchObject({
+				code: "in_use",
+			});
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });
 		}

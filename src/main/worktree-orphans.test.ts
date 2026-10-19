@@ -237,7 +237,7 @@ describe("removeOrphanWorktree", () => {
 	);
 
 	it(
-		"refuses a worktree a session uses, one outside the root, one not made by OMPdesk, the primary checkout and unknown paths as not_orphan",
+		"refuses a worktree a session uses as in_use; one outside the root, one not made by OMPdesk, the primary checkout and unknown paths as not_orphan",
 		async () => {
 			const dirs = await scene();
 			open = [dirs.inUse];
@@ -253,10 +253,32 @@ describe("removeOrphanWorktree", () => {
 			for (const target of refused) {
 				const error = await removeOrphanWorktree(repo, target, deps).catch((reason: unknown) => reason);
 				expect(error, target).toBeInstanceOf(LocalCommandError);
-				expect((error as LocalCommandError).code, target).toBe("not_orphan");
+				expect((error as LocalCommandError).code, target).toBe(target === dirs.inUse ? "in_use" : "not_orphan");
 			}
 			for (const key of ["inUse", "outside", "notGui"]) await fs.stat(dirs[key] as string);
 			expect(gitSync(repo, "worktree", "list", "--porcelain")).toContain(dirs.outside);
+		},
+		SLOW,
+	);
+
+	it(
+		"keeps a worktree a tab opens on while the removal inspects it, and reports it in use",
+		async () => {
+			const dirs = await scene();
+			const target = dirs.landed as string;
+			let reads = 0;
+			// The tab opens between the removal's listing (its first look at the open sessions) and git's deletion.
+			const racing = {
+				bridge,
+				openFolders: () => {
+					const now = [...open];
+					if (++reads === 1) queueMicrotask(() => open.push(target));
+					return now;
+				},
+			};
+			await expect(removeOrphanWorktree(repo, target, racing)).rejects.toMatchObject({ code: "in_use" });
+			await fs.stat(target);
+			expect(gitSync(repo, "worktree", "list", "--porcelain")).toContain(target);
 		},
 		SLOW,
 	);

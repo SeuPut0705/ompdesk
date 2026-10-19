@@ -117,6 +117,7 @@ import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSIO
 import type { ResumeFact } from "./turn-resume";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
+import { removalHolds } from "./worktree-removals";
 
 /** `device` = paired host deviceId (absent = this machine); `tabId` names the tab on that host. */
 export type SidecarFactory = (
@@ -484,6 +485,8 @@ export class SidecarPool {
 	): SidecarLike | null {
 		// A session the user deleted never comes back as a tab, whoever asks (a layout, a marker, a reopen).
 		if (deletedSessions().has(sessionPath, device)) return null;
+		// A worktree being removed (worktree-orphans.ts) is not opened until git is done with it.
+		if (!device && removalHolds(cwd)) return null;
 		try {
 			// One spelling per directory: the sidecar reports its realpath'd cwd.
 			const sidecar = this.#factory(device ? cwd : canonicalCwd(cwd), kind, fresh, device, tabId);

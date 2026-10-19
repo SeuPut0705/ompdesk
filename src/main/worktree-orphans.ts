@@ -20,6 +20,7 @@ import { git, withRepoLock } from "./local/git/exec";
 import { isInside } from "./local/git/parse";
 import { stockWorktreeLocation } from "./local/git/worktree";
 import { type BridgeClient, LocalCommandError } from "./local/types";
+import { withRemovalClaim } from "./worktree-removals";
 
 export interface OrphanDeps {
 	bridge: Pick<BridgeClient, "request">;
@@ -120,6 +121,8 @@ interface Listing {
 	primary: string;
 	root: string;
 	worktrees: RpcOrphanWorktree[];
+	/** OMPdesk's worktrees an open session uses (left out of `worktrees`). */
+	inUse: string[];
 }
 
 async function realOrResolved(file: string): Promise<string> {
@@ -132,17 +135,21 @@ async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Li
 	const primary = await primaryRoot(cwd);
 	const location = await stockWorktreeLocation(deps.bridge, primary);
 	const root = await fs.realpath(location.root).catch(() => null);
-	if (!root) return { primary, root: location.root, worktrees: [] };
+	if (!root) return { primary, root: location.root, worktrees: [], inUse: [] };
 
 	const [, ...linked] = parseWorktreeList(await git(primary, ["worktree", "list", "--porcelain", "-z"]));
 	const open = await Promise.all(deps.openFolders().map(realOrResolved));
 	const candidates: { path: string; branch: string | null }[] = [];
+	const inUse: string[] = [];
 	for (const entry of linked) {
 		if (entry.locked) continue;
 		const real = await fs.realpath(entry.path).catch(() => null);
 		if (!real || !isInside(root, real) || !path.basename(real).startsWith("gui-")) continue;
 		if (only !== undefined && real !== only) continue;
-		if (open.some(folder => folder === real || isInside(real, folder))) continue;
+		if (open.some(folder => folder === real || isInside(real, folder))) {
+			inUse.push(real);
+			continue;
+		}
 		candidates.push({ path: real, branch: entry.branch });
 	}
 
@@ -160,7 +167,7 @@ async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Li
 	const worktrees = inspected
 		.filter((worktree): worktree is RpcOrphanWorktree => worktree !== null)
 		.sort((a, b) => b.modifiedAt - a.modifiedAt);
-	return { primary, root, worktrees };
+	return { primary, root, worktrees, inUse };
 }
 
 async function inspect(
@@ -214,9 +221,11 @@ export async function removeOrphanWorktree(
 	const primary = await primaryRoot(cwd);
 	return withRepoLock(primary, async () => {
 		const wanted = worktreePath ? await realOrResolved(worktreePath) : "";
-		const { worktrees } = await listing(cwd, deps, wanted);
+		const { worktrees, inUse } = await listing(cwd, deps, wanted);
 		const entry = wanted ? worktrees.find(worktree => worktree.path === wanted) : undefined;
 		if (!entry) {
+			if (wanted && inUse.includes(wanted))
+				throw new LocalCommandError(`${wanted} is in use by an open session; nothing was removed.`, "in_use");
 			throw new LocalCommandError(
 				`${worktreePath || "(no path)"} is not an orphaned worktree of this repository: it is in use, outside the worktree root, not made by OMPdesk, or already gone.`,
 				"not_orphan",
@@ -228,12 +237,15 @@ export async function removeOrphanWorktree(
 				"not_removable",
 			);
 		}
-		const removal =
+		// The listing above read the open sessions before its git awaits: a tab may have opened on this worktree since.
+		// Read them again and claim the folder in one step, so no tab starts in it until git is done.
+		const removal = await withRemovalClaim(entry.path, deps.openFolders, async () =>
 			entry.branch === null
 				? (await removeLinkedWorktree(primary, entry.path))
 					? ("removed" as const)
 					: null
-				: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary });
+				: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary }),
+		);
 		if (!removal) {
 			throw new LocalCommandError(
 				`${entry.path} changed or git refused to remove it; nothing was removed.`,
