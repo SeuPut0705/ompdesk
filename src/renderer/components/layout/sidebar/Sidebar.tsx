@@ -1670,7 +1670,9 @@ export function Sidebar() {
 
 	/** A session this computer's agent opened on a paired device: the same one-line child, from its tab, named by its device. */
 	const remoteFamilyChildFor = (tab: SessionTab): FamilyOpened => {
-		const key = `session:${tab.sessionPath ?? `tab:${tab.id}`}`;
+		// Two paired devices can keep a session at the same path: the row's identity names the device too.
+		const id = `device:${tab.device ?? ""}:${tab.sessionPath ?? `tab:${tab.id}`}`;
+		const key = `session:${id}`;
 		const review = reviewOf.get(tab.id);
 		const failed =
 			review?.failed === true ||
@@ -1702,7 +1704,7 @@ export function Sidebar() {
 							? t("tabs.done")
 							: t("sidebar.row.open");
 		return {
-			key: tab.sessionPath ?? `tab:${tab.id}`,
+			key: id,
 			kind: tab.worktree !== undefined ? "worktree" : "session",
 			status,
 			state: status ? CHILD_TOKEN[status] : null,

@@ -2030,6 +2030,52 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(other?.textContent ?? "").toContain("Other PC work");
 	});
 
+	it("nests two children at the same path on two devices as two rows, each with its own key", async () => {
+		const child = (id: string, device: string, task: string) => ({
+			id,
+			cwd: "C:\\work\\app",
+			status: "running",
+			kind: "agent",
+			unreadDone: false,
+			sessionPath: "C:\\s\\remote.jsonl",
+			device,
+			task,
+			openedBy: "t1",
+		});
+		mountFamily({
+			tabsExtra: [child("tw", "dev-studio", "Build on studio"), child("tx", "dev-other", "Build on other")],
+		});
+		useRemoteStore.getState().apply({
+			tailnet: "ready",
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				listenError: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+				confirmNewDevices: false,
+			},
+			hosts: [
+				{ deviceId: "dev-studio", name: "studio", state: "online" },
+				{ deviceId: "dev-other", name: "other", state: "online" },
+			],
+			forgotten: [],
+		});
+		await mount(<Sidebar />);
+
+		const remote = familyRows().filter(row => row.getAttribute("data-session-path") === "C:\\s\\remote.jsonl");
+		expect(remote.map(row => row.querySelector("[data-family-device]")?.textContent).toSorted()).toEqual([
+			"other",
+			"studio",
+		]);
+		const roving = remote.map(row => row.querySelector("button")?.getAttribute("data-roving-item"));
+		expect(new Set(roving).size).toBe(2);
+	});
+
 	it("opens an opened session in its own tab on click", async () => {
 		mountFamily();
 		const original = useTabsStore.getState().switchTab;
