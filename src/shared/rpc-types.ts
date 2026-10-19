@@ -609,9 +609,17 @@ export interface RpcAsyncJobItem {
 	previewTruncated?: boolean;
 }
 
-/** get_jobs result: running jobs first, then recent (TUI /jobs ordering). */
+/**
+ * One row of the jobs tree. A job row's `cancellable` is stock's rule (the session's agent owns the job); an agent
+ * row heads a subagent whose task job is no longer listed. `depth` 0 is the session's own level.
+ */
+export type RpcJobRow =
+	| { kind: "job"; job: RpcAsyncJobItem; depth: number; cancellable: boolean }
+	| { kind: "agent"; agentId: string; depth: number };
+
+/** get_jobs result: the session's jobs and its subagents' as stock's tree rows (`/jobs` order and nesting). */
 export interface RpcJobsResult {
-	jobs: RpcAsyncJobItem[];
+	rows: RpcJobRow[];
 }
 
 export type RpcResponse = RpcResponseSuccess | RpcResponseError;

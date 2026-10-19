@@ -10,10 +10,12 @@
  */
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
+import type { BridgeJobItem, BridgeJobRow } from "../../../resources/gui-bridge/jobs-contracts";
 import type {
 	RpcActiveTool,
 	RpcActiveToolsResult,
 	RpcAsyncJobItem,
+	RpcJobRow,
 	RpcJobsResult,
 	RpcReloadPluginsResult,
 	RpcSessionState,
@@ -42,19 +44,21 @@ interface StateExtras {
 	ultrafastEnabled: boolean;
 }
 
-/** One `AgentSession.getAsyncJobSnapshot` item as stock reports it. */
-interface StockJobItem {
-	id: string;
-	type: RpcAsyncJobItem["type"];
-	status: RpcAsyncJobItem["status"];
-	label: string;
-	startTime: number;
-	endTime?: number;
-	agentId?: string;
-	cancellationPending?: boolean;
-	resultPreview?: string;
-	errorPreview?: string;
-	previewTruncated?: boolean;
+/** Maps one bridge job (`composer.jobs`) onto the renderer's job shape. */
+function jobItem(item: BridgeJobItem): RpcAsyncJobItem {
+	return {
+		id: item.id,
+		type: item.type,
+		status: item.status,
+		label: item.label,
+		startTime: item.startTime,
+		...(item.endTime === undefined ? {} : { endedAt: item.endTime }),
+		...(item.agentId === undefined ? {} : { agentId: item.agentId }),
+		cancellationPending: item.cancellationPending,
+		resultPreview: item.resultPreview,
+		errorPreview: item.errorPreview,
+		previewTruncated: item.previewTruncated,
+	};
 }
 
 /** Bridge extras, or undefined when the bridge is down, fails or stalls. */
@@ -250,21 +254,14 @@ export const handlers: Record<string, LocalHandler> = {
 		ctx.bridge.request("context.entry", { id: z.string().min(1).parse(command.entryId) }),
 
 	get_jobs: async (_command, ctx) => {
-		const items = await ctx.bridge.request<StockJobItem[]>("composer.jobs");
+		const rows = await ctx.bridge.request<BridgeJobRow[]>("composer.jobs");
 		const result: RpcJobsResult = {
-			jobs: items.map(item => ({
-				id: item.id,
-				type: item.type,
-				status: item.status,
-				label: item.label,
-				startTime: item.startTime,
-				...(item.endTime === undefined ? {} : { endedAt: item.endTime }),
-				...(item.agentId === undefined ? {} : { agentId: item.agentId }),
-				cancellationPending: item.cancellationPending,
-				resultPreview: item.resultPreview,
-				errorPreview: item.errorPreview,
-				previewTruncated: item.previewTruncated,
-			})),
+			rows: rows.map(
+				(row): RpcJobRow =>
+					row.kind === "agent"
+						? row
+						: { kind: "job", job: jobItem(row.job), depth: row.depth, cancellable: row.cancellable },
+			),
 		};
 		return result;
 	},

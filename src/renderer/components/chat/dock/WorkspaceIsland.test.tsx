@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RpcAsyncJobItem, SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { RpcAsyncJobItem, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
@@ -20,8 +20,8 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
-let jobs: RpcAsyncJobItem[] = [];
-const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { jobs } }));
+let rows: RpcJobRow[] = [];
+const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows } }));
 Reflect.set(window, "omp", { rpc: { getJobs } });
 
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
@@ -35,8 +35,8 @@ function agent(id: string, status: string): SubagentSnapshot {
 	return { id, index: 0, agent: "task", status, lastUpdate: 0 };
 }
 
-function job(id: string, type: RpcAsyncJobItem["type"], status: RpcAsyncJobItem["status"]): RpcAsyncJobItem {
-	return { id, type, status, label: id, startTime: 0 };
+function job(id: string, type: RpcAsyncJobItem["type"], status: RpcAsyncJobItem["status"], depth = 0): RpcJobRow {
+	return { kind: "job", depth, cancellable: depth === 0, job: { id, type, status, label: id, startTime: 0 } };
 }
 
 async function mount(): Promise<void> {
@@ -66,7 +66,7 @@ function segment(name: string): HTMLButtonElement | null {
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
-	jobs = [];
+	rows = [];
 	getJobs.mockClear();
 	useSubagentsStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
@@ -77,7 +77,7 @@ afterEach(async () => {
 
 describe("WorkspaceIsland", () => {
 	it("stays out of the way with no agents and no running shells", async () => {
-		jobs = [job("j1", "bash", "completed"), job("j2", "task", "running")];
+		rows = [job("j1", "bash", "completed"), job("j2", "task", "running"), job("j3", "bash", "completed", 1)];
 		useSubagentsStore.getState().setSnapshots([agent("a1", "completed")]);
 		await mount();
 		expect(getJobs).toHaveBeenCalled();
@@ -129,11 +129,17 @@ describe("WorkspaceIsland", () => {
 		}
 	});
 
-	it("counts running background shells and opens Background tasks", async () => {
-		jobs = [job("j1", "bash", "running"), job("j2", "eval", "running"), job("j3", "task", "running")];
+	it("counts running background shells, a subagent's nested ones too, and opens Background tasks", async () => {
+		rows = [
+			job("j1", "bash", "running"),
+			job("j2", "eval", "running"),
+			job("j3", "task", "running"),
+			job("j4", "bash", "running", 1),
+			job("j5", "bash", "completed", 1),
+		];
 		await mount();
 		const shells = segment("shells");
-		expect(shells?.textContent).toBe("Shells 2 running");
+		expect(shells?.textContent).toBe("Shells 3 running");
 		expect(segment("agents")).toBeNull();
 		await act(async () => shells?.click());
 		expect(useUiStore.getState().panelTab).toBe("jobs");

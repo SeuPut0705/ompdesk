@@ -45,6 +45,7 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
+import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { memoryAnswer } from "./fixture-memory";
 import {
 	ACTIVE_TOOLS,
@@ -71,6 +72,8 @@ type Listener = (data: unknown) => void;
  * sign-in providers (ids as `omp /login` lists them), all signed out.
  */
 const FIRST_RUN = new URLSearchParams(location.search).get("firstrun") === "1";
+/** `?jobs=tree`: Background tasks lists subagents' jobs nested under them (./fixture-jobs.ts). */
+const JOBS_TREE = new URLSearchParams(location.search).get("jobs") === "tree";
 const FIRST_RUN_PROVIDERS = [
 	["anthropic", "Anthropic (Claude Pro/Max)"],
 	["cerebras", "Cerebras"],
@@ -252,9 +255,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_available_commands":
 				return respond(command, { commands: [] });
 			case "get_subagents":
-				return respond(command, { subagents: [] });
+				return respond(command, { subagents: JOBS_TREE ? JOB_TREE_SUBAGENTS : [] });
 			case "get_jobs":
-				return respond(command, { jobs: [] });
+				return respond(command, { rows: JOBS_TREE ? jobTreeRows() : [] });
 			case "get_queue":
 				return respond(command, { steering: [], followUp: [] });
 			case "agent_control_review":

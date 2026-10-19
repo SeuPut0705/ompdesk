@@ -32,7 +32,7 @@ const events = new Proxy({}, { get: () => vi.fn(() => () => {}) });
 const ok = (data: unknown) => ({ type: "response", command: "x", success: true, data });
 Reflect.set(window, "omp", {
 	rpc: {
-		getJobs: vi.fn(async () => ok({ jobs: [] })),
+		getJobs: vi.fn(async () => ok({ rows: [] })),
 		getSettings: vi.fn(async () => ok({ values: {} })),
 		getDelegation: vi.fn(async () => ok({ mode: "default" })),
 	},

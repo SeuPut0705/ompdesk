@@ -29,7 +29,7 @@ const setAutopilot = vi.fn(async (_action: AutopilotAction) => ok("set_autopilot
 const prefsSet = vi.fn(async () => {});
 Reflect.set(window, "omp", {
 	rpc: {
-		getJobs: vi.fn(async () => ok("get_jobs", { jobs: [] })),
+		getJobs: vi.fn(async () => ok("get_jobs", { rows: [] })),
 		getGoal: vi.fn(async () => ok("get_goal", { enabled: false })),
 		getUsage: vi.fn(async () => ok("get_usage", { reports: [] })),
 		setAutopilot,

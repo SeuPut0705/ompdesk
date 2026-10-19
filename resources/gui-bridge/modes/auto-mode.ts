@@ -70,7 +70,8 @@ function sessionWork(session: AgentSession): { work: AutoModeWork; previous?: st
 			now: Date.now(),
 			lastActivityAt,
 			openTodos,
-			runningJobs: session.getAsyncJobSnapshot()?.running.length ?? 0,
+			// The session's own jobs and every subagent's: a subagent's shell keeps the session busy too.
+			runningJobs: session.getAsyncJobTree()?.running.length ?? 0,
 		},
 		previous: previousExchange(user, assistant),
 	};

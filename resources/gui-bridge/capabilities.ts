@@ -143,7 +143,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"executeBash()",
 			"resetSessionContext()",
 			"getContextBreakdown()",
-			"getAsyncJobSnapshot()",
+			"getAsyncJobTree()",
 			"inspectAsyncJob()",
 			"cancelAsyncJob()",
 			"cycleModel()",
@@ -174,6 +174,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
 			"@oh-my-pi/pi-ai": ["serviceTierFamily()", "shouldSendServiceTier()"],
 			"@oh-my-pi/pi-tui/overlays/copy-targets": [
+			"@oh-my-pi/pi-tui/overlays/job-tree": ["buildJobTree()"],
 				"extractBlocks()",
 				"commandFromToolCall()",
 				"assistantText()",
@@ -902,7 +903,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/**
 	 * modes/next-prompt.ts: a cheap request on stock's `smol` role (`resolveRoleChain` over `roleCandidatePool`, the
 	 * session's credentials through `modelRegistry.resolver`, `completeSimple`); `runEphemeralTurn` cannot take another
-	 * model. Reads of the todo, plan and goal state, the running async jobs (`getAsyncJobSnapshot`), the usage ledger
+	 * model. Reads of the todo, plan and goal state, the running async jobs (`getAsyncJobTree`), the usage ledger
 	 * (`appendModelUsage`) and the loaded-extension list are feature-detected inside the module (they only enrich the
 	 * request).
 	 */
@@ -988,7 +989,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"isStreaming",
 			"messages",
 			"getTodoPhases()",
-			"getAsyncJobSnapshot()",
+			"getAsyncJobTree()",
 			"modelRegistry",
 			"agent.metadataForProvider()",
 			"agent.telemetry",

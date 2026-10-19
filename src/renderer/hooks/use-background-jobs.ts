@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { RpcAsyncJobItem, RpcJobsResult } from "../../shared/rpc-types";
+import type { RpcAsyncJobItem, RpcJobRow, RpcJobsResult } from "../../shared/rpc-types";
 import { type TabRpc, useTabRpc } from "../lib/tab-rpc";
 import { TabPoll, useTabPoll, useTabPollKey } from "./use-tab-poll";
 
@@ -9,11 +9,11 @@ const NO_JOBS: RpcAsyncJobItem[] = [];
 
 /** A tab's background jobs as every surface showing them sees them. */
 export interface JobsFeed {
-	/** Stock's last `get_jobs` snapshot, running first, then recent; `null` until the first read lands. */
-	jobs: RpcAsyncJobItem[] | null;
+	/** Stock's last `get_jobs` tree, rows in display order (the session's jobs, each subagent's nested under it); `null` until the first read lands. */
+	rows: RpcJobRow[] | null;
 	/**
-	 * The running shells and evals of `jobs` (`task` jobs are the subagents, which the subagent store carries):
-	 * the same array while their ids and labels hold.
+	 * The running shells and evals of `rows`, the subagents' own included (`task` jobs are the subagents, which the
+	 * subagent store carries): the same array while their ids and labels hold.
 	 */
 	running: RpcAsyncJobItem[];
 	/** When the last read landed. */
@@ -22,16 +22,19 @@ export interface JobsFeed {
 	error: string | null;
 }
 
-type JobsRead = { ok: true; jobs: RpcAsyncJobItem[]; running: RpcAsyncJobItem[] } | { ok: false; error: string };
+type JobsRead = { ok: true; rows: RpcJobRow[]; running: RpcAsyncJobItem[] } | { ok: false; error: string };
 
-const NO_FEED: JobsFeed = { jobs: null, running: NO_JOBS, updatedAt: null, error: null };
+const NO_FEED: JobsFeed = { rows: null, running: NO_JOBS, updatedAt: null, error: null };
 
 async function readJobs(rpc: TabRpc): Promise<JobsRead> {
 	try {
 		const response = await rpc.getJobs();
 		if (!response.success) return { ok: false, error: response.error };
-		const { jobs } = response.data as RpcJobsResult;
-		return { ok: true, jobs, running: jobs.filter(job => job.type !== "task" && job.status === "running") };
+		const { rows } = response.data as RpcJobsResult;
+		const running = rows.flatMap(row =>
+			row.kind === "job" && row.job.type !== "task" && row.job.status === "running" ? [row.job] : [],
+		);
+		return { ok: true, rows, running };
 	} catch (cause) {
 		return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
 	}
@@ -41,7 +44,7 @@ function shown(feed: JobsFeed, read: JobsRead): JobsFeed {
 	if (!read.ok) return read.error === feed.error ? feed : { ...feed, error: read.error };
 	const { running } = read;
 	return {
-		jobs: read.jobs,
+		rows: read.rows,
 		running: sameJobs(feed.running, running) ? feed.running : running.length === 0 ? NO_JOBS : running,
 		updatedAt: Date.now(),
 		error: null,

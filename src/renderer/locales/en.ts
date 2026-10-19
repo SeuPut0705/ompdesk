@@ -2653,6 +2653,7 @@ export const en: Record<string, string> = {
 	"jobs.type.task": "Subagent",
 	"jobs.status.running": "running",
 	"jobs.status.completed": "completed",
+	"jobs.subagentGroup": "Background tasks of subagent {name}",
 	"jobs.status.failed": "failed",
 	"jobs.status.cancelled": "cancelled",
 

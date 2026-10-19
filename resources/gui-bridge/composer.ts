@@ -13,6 +13,7 @@ import type { AgentMessage } from "../../src/shared/rpc-types";
 import { requireFn } from "./capabilities";
 import { buildCopyTargets } from "./copy-targets";
 import { guard } from "./health";
+import { jobRows } from "./jobs-core";
 import {
 	goalActiveAtExit,
 	interruptedJobs,
@@ -279,24 +280,22 @@ export const methods: BridgeMethods = {
 			};
 		},
 
-		/** `/jobs` parity: running, then the 5 most recent. */
+		/**
+		 * `/jobs` parity: the session's jobs and its subagents' as stock's tree rows (`pi-tui/overlays/job-tree`), with
+		 * stock's own recent limit (10, what `/jobs` and the jobs sheet show; the subagents share it, so 5 would leave
+		 * a busy tree one job each).
+		 */
 		"composer.jobs": async (_params, env) => {
 			const session = env.session() as Session;
-			requireFn(session, "getAsyncJobSnapshot", "composer");
+			requireFn(session, "getAsyncJobTree", "composer");
 			requireFn(session, "inspectAsyncJob", "composer");
-			const snapshot = session.getAsyncJobSnapshot({ recentLimit: 5 });
-			return snapshot
-				? [...snapshot.running, ...snapshot.recent].map(job => {
-						const inspection = session.inspectAsyncJob(job.id);
-						return {
-							...job,
-							resultPreview: inspection?.output,
-							previewTruncated: inspection?.artifactId !== undefined,
-						};
-					})
-				: [];
+			// A late import isolates a moved stock internal from the other composer adapters.
+			const { buildJobTree } = await import("@oh-my-pi/pi-tui/overlays/job-tree");
+			const tree = session.getAsyncJobTree();
+			return tree ? jobRows(tree, buildJobTree, id => session.inspectAsyncJob(id)) : [];
 		},
 
+		/** Stock's `cancelAsyncJob`: it stops only jobs the session's own agent owns; a subagent's job answers false. */
 		"composer.cancel_job": async (params, env) => {
 			const session = env.session() as Session;
 			requireFn(session, "cancelAsyncJob", "composer");

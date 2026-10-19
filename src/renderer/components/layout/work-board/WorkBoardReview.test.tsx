@@ -41,7 +41,7 @@ const commandForTab = vi.fn(async (_tab: string, _command: { type: string }) => 
 	success: true,
 	data: { items: listed },
 }));
-const getJobs = vi.fn(async () => ({ type: "response", success: true, data: { jobs: [] } }));
+const getJobs = vi.fn(async () => ({ type: "response", success: true, data: { rows: [] } }));
 const getGoal = vi.fn(async () => ({ type: "response", success: true, data: { enabled: false } }));
 const getUsage = vi.fn(async () => ({ type: "response", success: true, data: { reports: [] } }));
 Reflect.set(window, "omp", {

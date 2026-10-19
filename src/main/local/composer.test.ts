@@ -141,38 +141,81 @@ describe("stock composer authority", () => {
 });
 
 describe("composer actions", () => {
-	it("maps stock job items onto the renderer's job shape", async () => {
+	it("maps the bridge's job rows onto the renderer's rows, nesting and cancellability intact", async () => {
 		const ctx = fakeContext({
 			bridge: {
 				"composer.jobs": [
 					{
+						kind: "job",
+						depth: 0,
+						cancellable: true,
+						job: {
+							id: "j1",
+							type: "bash",
+							status: "running",
+							label: "sleep",
+							startTime: 1,
+							command: "sleep 9",
+							ownerId: "Main",
+							resultPreview: "live output",
+							cancellationPending: true,
+							previewTruncated: true,
+						},
+					},
+					{
+						kind: "job",
+						depth: 0,
+						cancellable: true,
+						job: {
+							id: "j2",
+							type: "task",
+							status: "completed",
+							label: "t",
+							startTime: 2,
+							endTime: 5,
+							agentId: "a",
+						},
+					},
+					{
+						kind: "job",
+						depth: 1,
+						cancellable: false,
+						job: { id: "j3", type: "bash", status: "running", label: "nested", startTime: 3, ownerId: "a" },
+					},
+					{ kind: "agent", agentId: "b", depth: 1 },
+				],
+			},
+		});
+		await expect(handlers.get_jobs({ type: "get_jobs" }, ctx)).resolves.toEqual({
+			rows: [
+				{
+					kind: "job",
+					depth: 0,
+					cancellable: true,
+					job: {
 						id: "j1",
 						type: "bash",
 						status: "running",
 						label: "sleep",
 						startTime: 1,
-						command: "sleep 9",
 						resultPreview: "live output",
 						cancellationPending: true,
 						previewTruncated: true,
 					},
-					{ id: "j2", type: "task", status: "completed", label: "t", startTime: 2, endTime: 5, agentId: "a" },
-				],
-			},
-		});
-		await expect(handlers.get_jobs({ type: "get_jobs" }, ctx)).resolves.toEqual({
-			jobs: [
-				{
-					id: "j1",
-					type: "bash",
-					status: "running",
-					label: "sleep",
-					startTime: 1,
-					resultPreview: "live output",
-					cancellationPending: true,
-					previewTruncated: true,
 				},
-				{ id: "j2", type: "task", status: "completed", label: "t", startTime: 2, endedAt: 5, agentId: "a" },
+				{
+					kind: "job",
+					depth: 0,
+					cancellable: true,
+					job: { id: "j2", type: "task", status: "completed", label: "t", startTime: 2, endedAt: 5, agentId: "a" },
+				},
+				{
+					kind: "job",
+					depth: 1,
+					cancellable: false,
+					job: { id: "j3", type: "bash", status: "running", label: "nested", startTime: 3 },
+				},
+				{ kind: "agent", agentId: "b", depth: 1 },
 			],
 		});
 	});

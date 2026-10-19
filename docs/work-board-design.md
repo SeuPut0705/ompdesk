@@ -56,7 +56,7 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 - Waiting on you first: questions, approvals and a pending plan review; the only live region (polite); `⌥B` (`board.focus`) jumps to its first row from anywhere.
 - Needs review: only the exceptions of finished sessions an agent opened (a merge conflict, a failed ending, commits nothing merged, uncommitted work), with Review, Approve (merge into this checkout, nothing is pushed) and Discard (a second click removes the worktree and branch).
 - This turn: the last four calls with their tool icon, target and duration; the live one's icon is tinted.
-- Running: subagents (state dot, task, elapsed, current step or tool, tokens, the provider mark of the model they run on) and background shells; a click opens the subagent in the side panel / Background tasks.
+- Running: subagents (state dot, task, elapsed, current step or tool, tokens, the provider mark of the model they run on) and background shells, the ones a subagent runs itself included (stock's jobs tree; the Background tasks view nests them under their subagent); a click opens the subagent in the side panel / Background tasks.
 - Opened sessions: one row per session the agent opened (status, current step, clock, branch state, its last `ompdesk_report`); sessions main closed after their work landed collapse into an "N closed" note.
 - Todos: finished tasks fold into "N done", the active row is emphasised, finished rows are struck through; a click scrolls the todo card in the conversation into view when it is there.
 - Goal: objective, status, and budget / time meters from `get_goal` (warning colour from 90 %).

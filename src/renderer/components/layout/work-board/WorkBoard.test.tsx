@@ -4,7 +4,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RpcAsyncJobItem, RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
@@ -31,9 +31,15 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
-let jobs: RpcAsyncJobItem[] = [];
+let rows: RpcJobRow[] = [];
 let goal: RpcGoalState = { enabled: false };
-const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { jobs } }));
+const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows } }));
+const jobRow = (job: RpcAsyncJobItem, depth = 0): RpcJobRow => ({
+	kind: "job",
+	depth,
+	cancellable: depth === 0,
+	job,
+});
 const getGoal = vi.fn(async () => ({ type: "response", command: "get_goal", success: true, data: goal }));
 let usageReports: unknown[] = [];
 const getUsage = vi.fn(async () => ({
@@ -132,7 +138,7 @@ beforeEach(() => {
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
-	jobs = [];
+	rows = [];
 	goal = { enabled: false };
 	getJobs.mockClear();
 	getGoal.mockClear();
@@ -268,13 +274,15 @@ describe("WorkBoard sections", () => {
 			agent("a2", "parked", 1, { description: "Wait for CI" }),
 			agent("a3", "completed", 2, { description: "Old" }),
 		]);
-		jobs = [
-			{ id: "j1", type: "bash", status: "running", label: "bun run dev", startTime: Date.now() - 65_000 },
-			{ id: "j2", type: "task", status: "running", label: "a task job", startTime: 0 },
-			{ id: "j3", type: "bash", status: "completed", label: "done", startTime: 0 },
+		rows = [
+			jobRow({ id: "j1", type: "bash", status: "running", label: "bun run dev", startTime: Date.now() - 65_000 }),
+			jobRow({ id: "j2", type: "task", status: "running", label: "a task job", startTime: 0, agentId: "a1" }),
+			jobRow({ id: "j4", type: "bash", status: "running", label: "nested watch", startTime: 0 }, 1),
+			jobRow({ id: "j3", type: "bash", status: "completed", label: "done", startTime: 0 }),
 		];
 		await mount();
-		expect(section("running")?.textContent).toContain("Running3");
+		expect(section("running")?.textContent).toContain("Running4");
+		expect(pane.querySelector('[data-board-job="j4"]')?.textContent).toContain("nested watch");
 		const first = pane.querySelector('[data-board-agent="a1"]');
 		expect(first?.textContent).toContain("Review the diff");
 		expect(first?.textContent).toContain("Reading the diff");
@@ -299,7 +307,7 @@ describe("WorkBoard sections", () => {
 	});
 
 	it("opens Background tasks from a job row", async () => {
-		jobs = [{ id: "j1", type: "bash", status: "running", label: "watch", startTime: Date.now() }];
+		rows = [jobRow({ id: "j1", type: "bash", status: "running", label: "watch", startTime: Date.now() })];
 		await mount();
 		await click('[data-board-job="j1"]');
 		expect(useUiStore.getState().panelTab).toBe("jobs");

@@ -247,7 +247,7 @@ describe("a finished turn", () => {
 		expect(prompt).toContain("goal: active — Ship login");
 	});
 
-	it("carries the session's running subagents and background jobs (stock getAsyncJobSnapshot)", async () => {
+	it("carries the session's running subagents and background jobs (stock getAsyncJobTree)", async () => {
 		world.session.messages.push(
 			{
 				role: "assistant",
@@ -271,17 +271,28 @@ describe("a finished turn", () => {
 			},
 		);
 		Object.assign(world.session, {
-			getAsyncJobSnapshot: () => ({
+			getAsyncJobTree: () => ({
 				running: [
 					{ id: "WorkBoard", type: "task", status: "running", label: "WorkBoard" },
 					{ id: "b1", type: "bash", status: "running", label: "gh run watch 7", command: "gh run watch 7" },
+					// A subagent's own shell: the tree lists it with the session's.
+					{
+						id: "b2",
+						type: "bash",
+						status: "running",
+						label: "bun test",
+						command: "bun test",
+						ownerId: "WorkBoard",
+					},
 				],
 				recent: [{ id: "old", type: "task", status: "completed", label: "Finished" }],
 			}),
 		});
 		await turnEnds();
 		const prompt = world.calls[0]?.context.messages[0]?.content ?? "";
-		expect(prompt).toContain("running-now: subagent WorkBoard (Wide-window work board); command `gh run watch 7`");
+		expect(prompt).toContain(
+			"running-now: subagent WorkBoard (Wide-window work board); command `gh run watch 7`; command `bun test`",
+		);
 		expect(prompt).not.toContain("Finished");
 	});
 
@@ -480,7 +491,7 @@ describe("cancelling", () => {
 
 	it("drops an answer made for running work that ended meanwhile, and asks again for the new moment", async () => {
 		let running = [{ id: "WorkBoard", type: "task", status: "running", label: "WorkBoard" }];
-		Object.assign(world.session, { getAsyncJobSnapshot: () => ({ running, recent: [] }) });
+		Object.assign(world.session, { getAsyncJobTree: () => ({ running, recent: [] }) });
 		const pending = hang(world);
 		await turnEnds();
 		expect(world.calls[0]?.context.messages[0]?.content).toContain("running-now: subagent WorkBoard");

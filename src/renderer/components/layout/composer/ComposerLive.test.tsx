@@ -3,7 +3,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RpcAsyncJobItem, SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { RpcAsyncJobItem, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
@@ -21,8 +21,8 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
-let jobs: RpcAsyncJobItem[] = [];
-const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { jobs } }));
+let rows: RpcJobRow[] = [];
+const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows } }));
 Reflect.set(window, "omp", { rpc: { getJobs } });
 
 const { createRoot } = await import("react-dom/client");
@@ -38,12 +38,11 @@ const agent = (id: string, status: string): SubagentSnapshot => ({
 	status,
 	lastUpdate: 0,
 });
-const job = (id: string, type: RpcAsyncJobItem["type"], status: RpcAsyncJobItem["status"]): RpcAsyncJobItem => ({
-	id,
-	type,
-	status,
-	label: id,
-	startTime: 0,
+const job = (id: string, type: RpcAsyncJobItem["type"], status: RpcAsyncJobItem["status"], depth = 0): RpcJobRow => ({
+	kind: "job",
+	depth,
+	cancellable: depth === 0,
+	job: { id, type, status, label: id, startTime: 0 },
 });
 
 async function mount(): Promise<void> {
@@ -74,7 +73,7 @@ const sendWrap = () => container.querySelector(".omp-composer-send-live");
 afterEach(async () => {
 	await act(async () => root?.unmount());
 	container?.remove();
-	jobs = [];
+	rows = [];
 	getJobs.mockClear();
 	useSubagentsStore.getState().reset();
 	useExtensionUiStore.getState().clearAll();
@@ -125,7 +124,7 @@ describe("ComposerLiveEdge", () => {
 	});
 
 	it("ignores a finished shell, a task job and a parked agent", async () => {
-		jobs = [job("j1", "bash", "completed"), job("j2", "task", "running")];
+		rows = [job("j1", "bash", "completed"), job("j2", "task", "running")];
 		useSubagentsStore.getState().setSnapshots([agent("p", "parked")]);
 		await mount();
 		expect(edge()).toBeNull();
@@ -133,7 +132,13 @@ describe("ComposerLiveEdge", () => {
 	});
 
 	it("shows `background` while a shell runs", async () => {
-		jobs = [job("j3", "bash", "running")];
+		rows = [job("j3", "bash", "running")];
+		await mount();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+	});
+
+	it("shows `background` while only a subagent's own shell runs", async () => {
+		rows = [job("j1", "task", "completed"), job("j4", "bash", "running", 1)];
 		await mount();
 		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
 	});

@@ -9,9 +9,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RpcAsyncJobItem, RpcResponse } from "../../../shared/rpc-types";
+import type { RpcAsyncJobItem, RpcJobRow, RpcResponse } from "../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../hooks/use-background-jobs";
 import { I18nProvider } from "../../lib/i18n";
+import { useSubagentsStore } from "../../stores/subagents";
 import { JobsPanel } from "./JobsPanel";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -37,12 +38,21 @@ interface TestElement {
 let container: TestElement;
 let root: Root;
 
-function installJobs(jobs: RpcAsyncJobItem[]) {
+function installRows(rows: RpcJobRow[]) {
 	const getJobs = vi.fn(
-		async (): Promise<RpcResponse> => ({ type: "response", command: "get_jobs", success: true, data: { jobs } }),
+		async (): Promise<RpcResponse> => ({ type: "response", command: "get_jobs", success: true, data: { rows } }),
 	);
 	Object.assign(window, { omp: { rpc: { getJobs } } });
 	return getJobs;
+}
+
+function jobRow(job: RpcAsyncJobItem, depth = 0, cancellable = depth === 0): RpcJobRow {
+	return { kind: "job", depth, cancellable, job };
+}
+
+/** Jobs at the session's own level, the way a session with no subagents lists them. */
+function installJobs(jobs: RpcAsyncJobItem[]) {
+	return installRows(jobs.map(job => jobRow(job)));
 }
 
 let dockJobs: RpcAsyncJobItem[] | undefined;
@@ -156,7 +166,7 @@ describe("JobsPanel", () => {
 				type: "response",
 				command: "get_jobs",
 				success: true,
-				data: { jobs: [{ ...job, cancellationPending: true }] },
+				data: { rows: [jobRow({ ...job, cancellationPending: true })] },
 			});
 		});
 		expect(container.textContent).toContain("Cancelling…");
@@ -192,6 +202,58 @@ describe("JobsPanel", () => {
 			expect(getJobs).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.useRealTimers();
+		}
+	});
+
+	it("nests a subagent's jobs under it, titles it from the roster, and offers Cancel only on the session's own jobs", async () => {
+		useSubagentsStore.getState().setSnapshots([
+			{ id: "Scout", index: 0, agent: "task", description: "Review the diff", status: "running", lastUpdate: 0 },
+			{ id: "Known", index: 1, agent: "task", description: "Read the logs", status: "completed", lastUpdate: 0 },
+		]);
+		const startTime = Date.now();
+		const job = (id: string, extra: Partial<RpcAsyncJobItem>): RpcAsyncJobItem => ({
+			id,
+			type: "bash",
+			status: "running",
+			label: id,
+			startTime,
+			...extra,
+		});
+		installRows([
+			jobRow(job("scout-task", { type: "task", agentId: "Scout" })),
+			jobRow(job("scout-shell", { resultPreview: "nested output" }), 1),
+			jobRow(job("scout-eval", { type: "eval", status: "completed", endedAt: startTime }), 1),
+			jobRow(job("watch", {})),
+			{ kind: "agent", agentId: "Known", depth: 0 },
+			jobRow(job("known-shell", { status: "failed", endedAt: startTime }), 1),
+			{ kind: "agent", agentId: "Gone", depth: 0 },
+			jobRow(job("gone-shell", { status: "completed", endedAt: startTime }), 1),
+		]);
+		try {
+			await mount();
+			expect(sectionJobIds(0)).toEqual(["scout-task", "scout-shell", "scout-eval", "watch"]);
+			expect(sectionJobIds(1)).toEqual(["known-shell", "gone-shell"]);
+			const depthOf = (id: string) =>
+				container.querySelectorAll(`[data-job-id="${id}"]`)[0]?.getAttribute("data-job-depth");
+			expect([depthOf("scout-task"), depthOf("scout-shell"), depthOf("watch"), depthOf("gone-shell")]).toEqual([
+				"0",
+				"1",
+				"0",
+				"1",
+			]);
+			const cancelIn = (id: string) =>
+				container.querySelectorAll(`[data-job-id="${id}"] button`).filter(button => button.textContent === "Cancel")
+					.length;
+			expect([cancelIn("scout-task"), cancelIn("scout-shell"), cancelIn("watch")]).toEqual([1, 0, 1]);
+			const text = (selector: string) => container.querySelectorAll(selector)[0]?.textContent;
+			expect(text('[data-job-id="scout-task"]')).toContain("Review the diff");
+			expect(text('[data-job-id="scout-shell"]')).toContain("nested output");
+			expect(text('[data-job-agent-id="Known"]')).toBe("Read the logs");
+			expect(text('[data-job-agent-id="Gone"]')).toBe("Gone");
+			const headings = Array.from(container.querySelectorAll("h3")).map(heading => heading.textContent);
+			expect(headings).toEqual(["Running4", "Recent2"]);
+		} finally {
+			useSubagentsStore.getState().reset();
 		}
 	});
 });

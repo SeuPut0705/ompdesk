@@ -25,7 +25,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 	Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
-const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { jobs: [] } }));
+const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows: [] } }));
 Reflect.set(window, "omp", { rpc: { getJobs }, prefs: { get: vi.fn(async () => undefined), set: vi.fn() } });
 
 const { createRoot } = await import("react-dom/client");

@@ -1492,21 +1492,109 @@ export function runRpcUi(): void {
 				messagesTokens: 61_530,
 			},
 		}),
-		"composer.jobs": () =>
-			[
+		"composer.jobs": () => {
+			type FixtureJob = { id: string } & Record<string, unknown>;
+			const row = (job: FixtureJob, depth = 0) => ({ kind: "job" as const, job, depth, cancellable: depth === 0 });
+			const now = Date.now();
+			return [
 				...(process.env.OMP_GUI_TEST_PANEL_PLAN
 					? [
-							{
+							row({
 								id: "watch",
 								type: "bash",
 								label: "Watching the delivery build",
 								status: "running",
-								startTime: Date.now() - 12_000,
+								startTime: now - 12_000,
 								resultPreview: "\u001b[32mCompiled renderer\u001b[0m\nWatching for file changes…",
-							},
+							}),
 						]
 					: []),
-				{
+				// `OMP_GUI_TEST_JOB_TREE=1`: stock's jobs tree with subagents (`fixture:subagents` roster: sa-explore,
+				// its nested sa-nested, sa-review) owning jobs of their own, which the session may not cancel.
+				...(process.env.OMP_GUI_TEST_JOB_TREE === "1"
+					? [
+							row({ id: "dev", type: "bash", label: "bun run dev", status: "running", startTime: now - 94_000 }),
+							row({
+								id: "sa-explore",
+								type: "task",
+								label: "sa-explore",
+								status: "running",
+								agentId: "sa-explore",
+								startTime: now - 61_000,
+							}),
+							row(
+								{
+									id: "sh-rg",
+									type: "bash",
+									label: "rg -n settings src",
+									status: "running",
+									ownerId: "sa-explore",
+									startTime: now - 33_000,
+									resultPreview: "src/settings.ts:12: export const settings\nsrc/lib/prefs.ts:4: settings",
+								},
+								1,
+							),
+							row(
+								{
+									id: "sa-nested",
+									type: "task",
+									label: "sa-nested",
+									status: "running",
+									agentId: "sa-nested",
+									ownerId: "sa-explore",
+									startTime: now - 27_000,
+								},
+								1,
+							),
+							row(
+								{
+									id: "sh-locales",
+									type: "bash",
+									label: "bun test locales",
+									status: "running",
+									ownerId: "sa-nested",
+									startTime: now - 9_000,
+								},
+								2,
+							),
+							row({
+								id: "sa-review",
+								type: "task",
+								label: "sa-review",
+								status: "completed",
+								agentId: "sa-review",
+								startTime: now - 120_000,
+								endTime: now - 70_000,
+							}),
+							row(
+								{
+									id: "sh-diff",
+									type: "eval",
+									label: "diff stat",
+									status: "completed",
+									ownerId: "sa-review",
+									startTime: now - 110_000,
+									endTime: now - 100_000,
+								},
+								1,
+							),
+							{ kind: "agent" as const, agentId: "sa-evicted", depth: 0 },
+							row(
+								{
+									id: "sh-lint",
+									type: "bash",
+									label: "biome check",
+									status: "failed",
+									ownerId: "sa-evicted",
+									startTime: now - 200_000,
+									endTime: now - 190_000,
+									resultPreview: "2 errors",
+								},
+								1,
+							),
+						]
+					: []),
+				row({
 					id: "done",
 					type: "bash",
 					label: "Completed local job",
@@ -1514,8 +1602,13 @@ export function runRpcUi(): void {
 					startTime: 1000,
 					endTime: 3000,
 					resultPreview: process.env.OMP_GUI_TEST_PANEL_PLAN ? "Build completed successfully." : undefined,
-				},
-			].map(job => (cancelledJobs.has(job.id) ? { ...job, status: "cancelled", endTime: Date.now() } : job)),
+				}),
+			].map(entry =>
+				entry.kind === "job" && cancelledJobs.has(entry.job.id)
+					? { ...entry, job: { ...entry.job, status: "cancelled", endTime: now } }
+					: entry,
+			);
+		},
 		"composer.cancel_job": params => {
 			cancelledJobs.add(String(params.id));
 			return { cancelled: true };

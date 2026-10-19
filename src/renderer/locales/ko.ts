@@ -2638,6 +2638,7 @@ export const ko: Record<string, string> = {
 	"jobs.type.task": "서브에이전트",
 	"jobs.status.running": "실행 중",
 	"jobs.status.completed": "완료",
+	"jobs.subagentGroup": "서브에이전트 {name}의 백그라운드 작업",
 	"jobs.status.failed": "실패",
 	"jobs.status.cancelled": "취소됨",
 

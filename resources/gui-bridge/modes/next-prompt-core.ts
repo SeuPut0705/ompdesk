@@ -449,7 +449,7 @@ export interface AppFacts {
 	todos?: { done: number; total: number; inProgress?: string; next?: string };
 	/** A question the agent asked this turn and the user's answer (the turn went on after it). */
 	answered?: { question?: string; answer: string };
-	/** Subagents and background jobs of the main agent running right now (stock `getAsyncJobSnapshot`). */
+	/** Subagents and background jobs of the main agent and its subagents running right now (stock `getAsyncJobTree`). */
 	running?: RunningWork[];
 	/** Sessions the main agent opened (`ompdesk_session_open`) that still run or wait for an answer. */
 	opened?: ReadonlyArray<{ title: string; waiting?: boolean }>;
@@ -598,7 +598,7 @@ export interface SessionExtras {
 	compacted?: boolean;
 	/** The judge's reading of the last reply ({@link awaitsDecision}); undefined: it did not decide. */
 	replyAsksUser?: boolean;
-	/** The main agent's running async jobs, as stock's `getAsyncJobSnapshot().running` lists them. */
+	/** The running async jobs of the main agent and its subagents, as stock's `getAsyncJobTree().running` lists them. */
 	runningJobs?: ReadonlyArray<{ type: string; label: string; command?: string }>;
 	/** Sessions it opened that still run or wait (main pushes them, `next_prompt_children`). */
 	openedSessions?: ReadonlyArray<{ title: string; waiting?: boolean }>;
