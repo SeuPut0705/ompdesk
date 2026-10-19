@@ -164,20 +164,22 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 		state.skipped.push({ path: rel, reason: "destination_outside" });
 		return;
 	}
+	// A file link on Windows is copied: a symlink there needs Developer Mode or admin. A folder link becomes a
+	// junction, which needs neither (pnpm's node_modules are junctions) and takes an absolute target.
+	const linkedFolder = stat.isSymbolicLink() && (await fs.stat(from).catch(() => null))?.isDirectory() === true;
 	if (stat.isSymbolicLink()) {
 		const real = await fs.realpath(from).catch(() => null);
 		if (!real || !isInside(state.root, real)) {
 			state.skipped.push({ path: rel, reason: "symlink_outside" });
 			return;
 		}
-		await fs.mkdir(path.dirname(to), { recursive: true });
-		const link = await fs.readlink(from);
-		// A directory link on Windows becomes a junction: a symlink there needs Developer Mode or admin, a junction
-		// needs neither (pnpm's node_modules are junctions). A junction takes an absolute target.
-		if (process.platform === "win32" && (await fs.stat(from)).isDirectory())
-			await fs.symlink(path.resolve(path.dirname(to), link), to, "junction");
-		else await fs.symlink(link, to);
-		return;
+		if (process.platform !== "win32" || linkedFolder) {
+			await fs.mkdir(path.dirname(to), { recursive: true });
+			const link = await fs.readlink(from);
+			if (process.platform === "win32") await fs.symlink(path.resolve(path.dirname(to), link), to, "junction");
+			else await fs.symlink(link, to);
+			return;
+		}
 	}
 	if (state.files + 1 > SEED_MAX_FILES || state.bytes + stat.size > SEED_MAX_BYTES) {
 		state.skipped.push({ path: rel, reason: "budget" });
