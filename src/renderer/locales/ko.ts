@@ -2821,7 +2821,7 @@ export const ko: Record<string, string> = {
 
 	// Busy-session switch dialog (new tab / new window vs abort-and-switch)
 	"sessionSwitch.title": "세션 실행 중",
-	"sessionSwitch.body": '현재 세션이 실행 중이에요. 여기서 "{name}"(으)로 전환하면 중단돼요.',
+	"sessionSwitch.body": '현재 세션이 실행 중이에요. 여기서 "{name}" 세션으로 전환하면 중단돼요.',
 	"sessionSwitch.openNewTab": "새 탭에서 열기",
 	"sessionSwitch.openNewWindow": "새 창에서 열기",
 	"sessionSwitch.switchAnyway": "중단하고 전환",

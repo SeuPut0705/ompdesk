@@ -168,7 +168,7 @@ for (const language of variants(["en", "ko"] as const)) {
 			// Backed off at launch: nothing installed on its own.
 			expect(await installs()).toEqual([]);
 			await expect(card).toContainText(
-				language === "en" ? "Signing in installs the GitHub CLI first" : "로그인하면 GitHub CLI를 먼저 설치하고",
+				language === "en" ? "Signing in installs the GitHub CLI first" : "로그인하면 GitHub CLI를 먼저 설치해요",
 			);
 			await shot("1-missing");
 
