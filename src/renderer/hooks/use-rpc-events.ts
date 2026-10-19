@@ -59,6 +59,7 @@ import { useQueueStore } from "../stores/queue";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import {
 	activeTabCommand,
+	focusedSessionRuntime,
 	sessionRuntime,
 	sessionRuntimeStore,
 	type TabCommand,
@@ -66,6 +67,7 @@ import {
 } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
 import { useSubagentsStore } from "../stores/subagents";
+import { ensureTabRuntime } from "../stores/tab-runtime";
 import { isTabClosed, useTabsStore, visibleTabIds } from "../stores/tabs";
 import { toastError, useToastStore } from "../stores/toast";
 import { useTodoStore } from "../stores/todo";
@@ -697,6 +699,11 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 
 		const handleStatus = (payload: IpcSidecarStatusPayload, statusTabId: string) => {
 			if (disposed || closedTabFrame(statusTabId)) return;
+			// A tab whose runtime does not exist yet (a page that just loaded still shows the last load's ghosts) gets its
+			// own here: `withSessionRuntime` falls back to the focused runtime, so its status, and the `get_state` main
+			// answers for its active tab, would land in the focused pane under another tab's session.
+			if (statusTabId !== "" && sessionRuntime(statusTabId) === null && focusedSessionRuntime() !== null)
+				ensureTabRuntime(statusTabId);
 			statusVersion++;
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
 			if (payload.status === "starting") {
