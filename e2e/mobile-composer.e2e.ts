@@ -367,7 +367,8 @@ for (const engine of ENGINES) {
 						const before = await layout(page);
 						await openRun(page);
 						expectSameLayout(before, await layout(page), "run settings open");
-						for (const row of await page.locator("[data-approval-option], [data-delegation-option]").all()) {
+						// One line per row: each segmented row (thinking, approval, delegation) is a 44 px target.
+						for (const row of await page.locator("[data-choice-row]").all()) {
 							expect((await boxOf(row)).height).toBeGreaterThanOrEqual(43.5);
 						}
 						await capture(page, "sheet-run", engine, theme, lang);
@@ -545,10 +546,11 @@ for (const engine of ENGINES) {
 								expect(size.hit.height, `${label} ${size.label} height`).toBeGreaterThanOrEqual(min);
 							}
 						};
-						await reach(plus(page), "+", 44);
+						// The Run chip sits 4 px from +: its reach stops at the midpoint, so + is 30 px wide.
+						await reach(plus(page), "+", 30);
 						await reach(sendSlot(page).locator("button"), "Send/mic", 44);
 						for (const locator of [runChip(page), modelChip(page), contextChip(page)]) {
-							await reach(locator, "row chip", 36);
+							await reach(locator, "row chip", 30);
 							for (const size of await hitSizes(locator)) expect(size.visual.height).toBeLessThanOrEqual(28.5);
 						}
 						for (const size of await hitSizes(plus(page))) expect(size.visual.width).toBeLessThanOrEqual(28.5);

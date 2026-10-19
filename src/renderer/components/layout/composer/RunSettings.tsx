@@ -1,7 +1,8 @@
 /**
  * The Run chip popover's run-behavior sections (design-spec §2.2 / §7 "실행 설정"): everything that tunes HOW the
- * next turns run — the speed switches (fast, ultrafast, slow) and the lower-frequency behavior toggles
- * (auto-compaction, auto-retry, prewalk, steering and interrupt policy) under "Advanced", then Model roles.
+ * next turns run — the speed switches (fast, slow, ultrafast) and the lower-frequency behavior toggles
+ * (auto-compaction, context, auto-retry, prewalk, steering and interrupt policy) under "Advanced", both as switch tiles
+ * two to a row (`SwitchTile`, one line each, the explanation behind an (i)), then Model roles.
  * Thinking level, tool approval, delegation and the session MODES are sections of their own
  * (`ThinkingControl`, `ApprovalControl`, `DelegationField`, `ComposerModes`); `RunChip` stacks them all.
  * `useRunSummary` is what the chip and the model chip say about the current run state.
@@ -10,7 +11,19 @@
  * then confirms in a Dialog (`RunChip`).
  */
 
-import { ArrowUpRight, ChevronRight, SlidersHorizontal } from "lucide-react";
+import {
+	ArrowUpRight,
+	ChevronRight,
+	Gauge,
+	Layers,
+	OctagonX,
+	Rocket,
+	RotateCw,
+	Shrink,
+	SlidersHorizontal,
+	Turtle,
+	Zap,
+} from "lucide-react";
 import { useState } from "react";
 import type { RpcResponse, RpcSessionState } from "../../../../shared/rpc-types";
 import { cx } from "../../../lib/format";
@@ -22,7 +35,7 @@ import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-ru
 import { type SettingsStore, useSettingsStore } from "../../../stores/settings";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Button, SwitchField } from "../../common";
+import { Button, SwitchTile } from "../../common";
 import { ContextSizeField } from "./ContextSizeField";
 import { useThinkingSelector } from "./ThinkingControl";
 
@@ -88,7 +101,10 @@ function useSessionToggle() {
 	return { pending, run };
 }
 
-/** Fast, Ultrafast and Slow mode switches (each only where the model offers the tier). */
+/**
+ * Fast, Slow and Ultrafast as switch tiles, two to a row (each only where the model offers the tier). The explanation
+ * of each is behind its (i); "not on this model" dims the glyph and joins the explanation instead of a badge.
+ */
 export function SpeedFields() {
 	const t = useT();
 	const fastEnabled = useModelStore(s => s.fastModeEnabled);
@@ -101,45 +117,44 @@ export function SpeedFields() {
 	const slowEnabled = useModelStore(s => s.slowModeEnabled);
 	const slowScope = useModelStore(s => s.slowModeScope);
 	const toggleSlowMode = useModelStore(s => s.toggleSlowMode);
+	const fastIdle = fastEnabled && !fastActive;
 	return (
-		<>
-			<SwitchField
-				badge={
-					fastEnabled && !fastActive ? <Badge variant="muted">{t("input.runSettings.fastInactive")}</Badge> : null
-				}
+		<div className="-mx-1.5 grid grid-cols-2 gap-x-1" data-switch-grid>
+			<SwitchTile
 				checked={fastEnabled}
-				className="-mx-2"
 				data-fast-mode
-				description={t("input.runSettings.fastDesc")}
+				description={
+					fastIdle
+						? `${t("input.runSettings.fastDesc")} ${t("input.runSettings.fastInactive")}`
+						: t("input.runSettings.fastDesc")
+				}
+				icon={<Zap className={cx(fastIdle && "opacity-50")} />}
 				label={t("input.runSettings.fast")}
 				onCheckedChange={() => void toggleFastMode()}
-				size="sm"
 			/>
-			{ultrafastSupported && (
-				<SwitchField
-					checked={ultrafastEnabled}
-					className="-mx-2"
-					data-ultrafast-mode
-					description={t("input.runSettings.ultrafastDesc")}
-					label={t("input.runSettings.ultrafast")}
-					onCheckedChange={() => void toggleUltrafastMode()}
-					size="sm"
-				/>
-			)}
 			{slowSupported && (
-				<SwitchField
+				<SwitchTile
 					checked={slowEnabled}
-					className="-mx-2"
 					data-slow-mode
 					description={t(
 						slowScope === "global" ? "input.runSettings.slowDescGlobal" : "input.runSettings.slowDescSession",
 					)}
+					icon={<Turtle />}
 					label={t("input.runSettings.slow")}
 					onCheckedChange={() => void toggleSlowMode()}
-					size="sm"
 				/>
 			)}
-		</>
+			{ultrafastSupported && (
+				<SwitchTile
+					checked={ultrafastEnabled}
+					data-ultrafast-mode
+					description={t("input.runSettings.ultrafastDesc")}
+					icon={<Gauge />}
+					label={t("input.runSettings.ultrafast")}
+					onCheckedChange={() => void toggleUltrafastMode()}
+				/>
+			)}
+		</div>
 	);
 }
 
@@ -159,9 +174,6 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 	const advancedChanged =
 		!autoCompaction || !autoRetry || prewalkArmed || steeringMode === "all" || interruptMode === "immediate";
 	const [advancedOpen, setAdvancedOpen] = useState(advancedChanged);
-
-	/** Advanced toggles are secondary: body-size, regular-weight labels. */
-	const advancedLabel = (key: string) => <span className="text-sc-sm font-normal">{t(key)}</span>;
 
 	return (
 		<>
@@ -185,43 +197,47 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 					{t("input.runSettings.advanced")}
 				</Button>
 				{advancedOpen && (
-					<div className="flex flex-col pb-1">
-						<SwitchField
+					<div className="grid grid-cols-2 gap-x-1 pb-1" data-switch-grid>
+						<SwitchTile
 							checked={autoCompaction}
+							description={t("input.more.autoCompactDesc")}
 							disabled={pending}
-							label={advancedLabel("input.more.autoCompact")}
+							icon={<Shrink />}
+							label={t("input.more.autoCompact")}
 							onCheckedChange={next => void run(() => rpc.setAutoCompaction(next))}
-							size="sm"
 						/>
 						<ContextSizeField />
-						<SwitchField
+						<SwitchTile
 							checked={autoRetry}
+							description={t("input.more.autoRetryDesc")}
 							disabled={pending}
-							label={advancedLabel("input.more.autoRetry")}
+							icon={<RotateCw />}
+							label={t("input.more.autoRetry")}
 							onCheckedChange={next => void run(() => rpc.setAutoRetry(next))}
-							size="sm"
 						/>
-						<SwitchField
+						<SwitchTile
 							checked={prewalkArmed}
 							description={t("cmd.prewalk.desc")}
 							disabled={pending}
-							label={advancedLabel("cmd.prewalk")}
+							icon={<Rocket />}
+							label={t("cmd.prewalk")}
 							onCheckedChange={next => void run(() => rpc.setPrewalk(next), "prewalk")}
-							size="sm"
 						/>
-						<SwitchField
+						<SwitchTile
 							checked={steeringMode === "all"}
+							description={t("input.more.steeringAllDesc")}
 							disabled={pending}
-							label={advancedLabel("input.more.steeringAll")}
+							icon={<Layers />}
+							label={t("input.more.steeringAll")}
 							onCheckedChange={next => void run(() => rpc.setSteeringMode(next ? "all" : "one-at-a-time"))}
-							size="sm"
 						/>
-						<SwitchField
+						<SwitchTile
 							checked={interruptMode === "immediate"}
+							description={t("input.more.interruptImmediateDesc")}
 							disabled={pending}
-							label={advancedLabel("input.more.interruptImmediate")}
+							icon={<OctagonX />}
+							label={t("input.more.interruptImmediate")}
 							onCheckedChange={next => void run(() => rpc.setInterruptMode(next ? "immediate" : "wait"))}
-							size="sm"
 						/>
 					</div>
 				)}

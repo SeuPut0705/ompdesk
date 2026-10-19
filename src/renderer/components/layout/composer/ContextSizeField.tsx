@@ -6,15 +6,18 @@
  * same map Settings › Agent › Compaction limits edits, validated by stock
  * through `compaction_limits`), and the switch is `extendedContext`. Writes
  * replace only the global layer, so a project config's entry stays where it
- * is and the row says so. The line under the select is stock's own resolved
- * "Compacts at" for the model (`useCompactionPoints`).
+ * is and the info text says so. Two cells of the Advanced tile grid: the Extended context tile and ONE line for the
+ * compaction point, its value (stock's resolved "Compacts at", `useCompactionPoints`) in the label, a compact select
+ * at the right.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { Maximize2, Scissors } from "lucide-react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { z } from "zod";
 import {
 	type CompactionLimit,
 	compactionLimitCommitSchema,
+	compactionPointValue,
 	MODEL_THRESHOLDS_PATH,
 	useCompactionPoints,
 } from "../../../lib/compaction-limits";
@@ -23,8 +26,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { toast, toastError } from "../../../stores/toast";
-import { Select, SwitchField } from "../../common";
-import { CompactsAt } from "../../settings/CompactsAt";
+import { Select, SettingInfo, SwitchTile } from "../../common";
 
 const EXTENDED_CONTEXT_PATH = "extendedContext";
 /** The percentages the select offers; any other stored value shows as its own option. */
@@ -55,6 +57,7 @@ export function ContextSizeField() {
 	const ready = useSessionStore(state => state.status) === "ready";
 	const points = useCompactionPoints(ready);
 	const selector = model ? `${model.provider}/${model.id}` : null;
+	const selectorId = useId();
 	const [loaded, setLoaded] = useState<Loaded | null>(null);
 	const [saving, setSaving] = useState(false);
 
@@ -79,6 +82,8 @@ export function ContextSizeField() {
 	}, [ready, selector, load]);
 
 	if (!selector || !loaded) return null;
+
+	const selectId = `${selectorId}-limit`;
 
 	const own = loaded.globalLayer[selector];
 	const ownValue = typeof own === "number" || typeof own === "string" ? own : undefined;
@@ -135,33 +140,59 @@ export function ContextSizeField() {
 		}
 	};
 
+	const pointValue = point ? compactionPointValue(point, { trimZero: true }) : null;
+	const limitLabel = t("input.runSettings.contextLimit");
+	const limitTip = [
+		t("input.runSettings.contextLimitDesc"),
+		point && pointValue === null ? t("compactionLimits.compactsOff") : null,
+		fromOtherLayer ? t("compactionLimits.otherLayer") : null,
+	]
+		.filter(Boolean)
+		.join(" ");
+
+	// Two cells of the Advanced grid: the Extended context tile, then the compaction point as one full-width line
+	// (its value in the label, a compact select at the right).
 	return (
-		<div className="flex flex-col gap-2 px-2 py-1.5" data-context-size="">
-			<Select
-				controlSize="sm"
-				disabled={saving || fromOtherLayer}
-				hint={
-					<>
-						{point && <CompactsAt className="block" point={point} />}
-						{fromOtherLayer && <span className="block">{t("compactionLimits.otherLayer")}</span>}
-					</>
-				}
-				label={<span className="text-sc-sm font-normal">{t("input.runSettings.contextLimit")}</span>}
-				onChange={event => void writeLimit(event.target.value)}
-				options={options}
-				value={current}
-			/>
+		<>
 			{loaded.extended !== undefined && (
-				<SwitchField
+				<SwitchTile
 					checked={loaded.extended}
-					className="-mx-2"
 					description={t("input.runSettings.extendedDesc")}
 					disabled={saving}
-					label={<span className="text-sc-sm font-normal">{t("input.runSettings.extended")}</span>}
+					icon={<Maximize2 />}
+					label={t("input.runSettings.extended")}
 					onCheckedChange={next => void writeExtended(next)}
-					size="sm"
 				/>
 			)}
-		</div>
+			<div
+				className="col-span-2 flex min-h-(--sc-control-md) min-w-0 items-center gap-1.5 px-2 py-0.5"
+				data-context-size=""
+			>
+				<span
+					aria-hidden
+					className="flex size-(--sc-icon-md) shrink-0 items-center justify-center text-(--sc-text-muted) [&>svg]:size-(--sc-icon-md)"
+					data-setting-icon
+				>
+					<Scissors />
+				</span>
+				<label
+					className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text) tabular-nums"
+					htmlFor={selectId}
+				>
+					{pointValue === null ? limitLabel : `${limitLabel} · ${pointValue}`}
+				</label>
+				<SettingInfo text={limitTip} />
+				<div className="w-28 shrink-0">
+					<Select
+						controlSize="sm"
+						disabled={saving || fromOtherLayer}
+						id={selectId}
+						onChange={event => void writeLimit(event.target.value)}
+						options={options}
+						value={current}
+					/>
+				</div>
+			</div>
+		</>
 	);
 }

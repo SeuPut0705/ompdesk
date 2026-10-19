@@ -183,6 +183,32 @@ describe("phone toolbar", () => {
 		expect(document.querySelector("[data-composer-sheet] [data-delegation-option]")).not.toBeNull();
 	});
 
+	it("is icon first: Thinking is the brain and the level's short name, Delegation the network and its subagent count, the model its provider mark", async () => {
+		useSessionStore.setState({ status: "ready" });
+		useModelStore.setState({
+			model: { provider: "acme", id: "m", name: "Model" } as never,
+			availableThinkingLevels: ["low", "medium", "high"],
+			thinkingLevel: "medium",
+			thinkingConfigured: "medium",
+		});
+		const omp = Reflect.get(window, "omp") as unknown as {
+			rpc: { getDelegation: { mockResolvedValue(value: unknown): void } };
+		};
+		omp.rpc.getDelegation.mockResolvedValue(ok({ mode: "assisted" }));
+		await render();
+		await act(async () => {});
+		const thinking = q("[data-chip=thinking]");
+		expect(thinking?.querySelector("[data-chip-badge]")?.textContent).toBe(translate("input.thinking.short.medium"));
+		// The full level is the accessible name, never a visible word.
+		expect(thinking?.getAttribute("aria-label")).toBe(
+			`${translate("input.runSettings.thinking")}: ${translate("input.thinking.name.medium")}`,
+		);
+		const delegation = q("[data-chip=delegation]");
+		expect(delegation?.textContent).toBe("2");
+		expect(delegation?.getAttribute("aria-label")).toContain(translate("input.delegation.mode.assisted"));
+		expect(q("[data-model-chip] [data-provider-mark]")).not.toBeNull();
+	});
+
 	it("keeps the + sheet from taking focus (its overlay cancels mousedown too)", async () => {
 		await render();
 		await act(async () => plus().click());

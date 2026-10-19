@@ -166,9 +166,12 @@ describe("the phone composer", () => {
 		);
 	});
 
-	it("gives the sheets' own rows the 44 px action height", () => {
-		expect(read("../components/layout/composer/ApprovalControl.tsx")).toContain("min-h-(--sc-row-action)");
-		expect(read("../components/layout/composer/DelegationField.tsx")).toContain("min-h-(--sc-row-action)");
+	it("gives the sheets' own rows their touch height", () => {
+		// The Run sheet's segmented rows (thinking, approval, delegation) and tiles are one dense line each.
+		expect(rule('html[data-input="touch"] [data-choice-row] [role="radio"]')).toMatch(
+			/min-height:\s*var\(--sc-row-touch\)/,
+		);
+		expect(rule('html[data-input="touch"] [data-switch-tile]')).toMatch(/min-height:\s*var\(--sc-row-touch\)/);
 		expect(read("../components/layout/composer/ContextUsagePopover.tsx")).toContain("min-h-(--sc-row-action)");
 	});
 });

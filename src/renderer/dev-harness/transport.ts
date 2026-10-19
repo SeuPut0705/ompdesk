@@ -221,7 +221,12 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, SETTINGS_SCHEMA);
 			case "get_settings":
 				return respond(command, {
-					values: Object.fromEntries(SETTINGS_SCHEMA.entries.map(entry => [entry.path, entry.value])),
+					values: {
+						...Object.fromEntries(SETTINGS_SCHEMA.entries.map(entry => [entry.path, entry.value])),
+						// The Run sheet's Context rows read these two (ContextSizeField).
+						extendedContext: false,
+						"compaction.modelThresholds": {},
+					},
 				});
 			case "get_model_roles":
 				return respond(command, MODEL_ROLES);

@@ -10,6 +10,7 @@
  * session that asked.
  */
 
+import { Brain } from "lucide-react";
 import { useId } from "react";
 import { type RpcThinkingLevelState, THINKING_LEVEL_VALUES, type ThinkingLevel } from "../../../../shared/rpc-types";
 import { cx } from "../../../lib/format";
@@ -20,7 +21,7 @@ import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
-import { Select } from "../../common";
+import { ChoiceRow } from "./ChoiceRow";
 
 export type ThinkingSelector = ThinkingLevel | "auto";
 
@@ -38,8 +39,8 @@ export function useThinkingSelector(): ThinkingSelector {
 	return configured ?? thinkingLevel ?? "off";
 }
 
-/** `select`: the labelled Select of the Run popover; `segmented`: one radio row (the model picker's effort row). */
-export function ThinkingLevelField({ variant = "select" }: { variant?: "select" | "segmented" }) {
+/** `row` (default): the Run sheet's one-line segmented row; `segmented`: the radio row with its label and caption (the model picker's effort row). */
+export function ThinkingLevelField({ variant = "row" }: { variant?: "row" | "segmented" }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -139,17 +140,19 @@ export function ThinkingLevelField({ variant = "select" }: { variant?: "select" 
 	}
 
 	return (
-		<Select
-			aria-describedby={hintId}
-			controlSize="sm"
-			data-thinking-level
-			hint={<span id={hintId}>{t(`input.thinking.level.${current}`)}</span>}
+		<ChoiceRow
+			icon={Brain}
+			info={t(`input.thinking.level.${current}`)}
 			label={t("input.runSettings.thinking")}
-			onChange={event => select(event.target.value as ThinkingSelector)}
+			onChange={select}
+			optionAttr="data-thinking-option"
 			options={options.map(option => ({
 				value: option,
-				label: t(`input.thinking.name.${option}`),
+				label: t(`input.thinking.short.${option}`),
+				name: t(`input.thinking.name.${option}`),
 			}))}
+			rowAttrs={{ "data-thinking-level": true }}
+			selectOnArrow
 			value={current}
 		/>
 	);

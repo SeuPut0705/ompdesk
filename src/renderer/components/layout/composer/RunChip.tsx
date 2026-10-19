@@ -11,9 +11,8 @@
  * Granting full access closes the popover first and then confirms in a Dialog.
  */
 
-import { ChevronDown, Network, Shield, ShieldAlert, ShieldCheck, SlidersHorizontal, Snail, Zap } from "lucide-react";
+import { ChevronDown, Network, SlidersHorizontal, Turtle, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useShellMode } from "../../../hooks/use-shell-mode";
 import { useT } from "../../../lib/i18n";
 import { actionKbd, formatShortcut } from "../../../lib/keymap";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -21,17 +20,13 @@ import { useSettingsStore } from "../../../stores/settings";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { Button, Popover, Tooltip } from "../../common";
-import { ApprovalModeField, FullAccessConfirmDialog } from "./ApprovalControl";
+import { APPROVAL_ICONS, ApprovalModeField, FullAccessConfirmDialog } from "./ApprovalControl";
 import { type ComposerModeId, MODE_ICONS, ModesSection, useComposerModes } from "./ComposerModes";
 import { DelegationField, useDelegation } from "./DelegationField";
 import { AdvancedAndRoles, SpeedFields, useSpeedState, useThinkingName } from "./RunSettings";
 import { ThinkingLevelField } from "./ThinkingControl";
 
-const APPROVAL_GLYPHS = { yolo: ShieldAlert, write: Shield, "always-ask": ShieldCheck } as const;
-
 export function RunChip() {
-	/** A phone takes the approval modes as one-tap 44 px rows (its Run settings open as a bottom sheet). */
-	const phone = useShellMode() === "phone";
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -64,7 +59,7 @@ export function RunChip() {
 
 	const first = modes.shown[0];
 	const title = t("input.runSettings.title");
-	const ApprovalGlyph = APPROVAL_GLYPHS[approvalMode];
+	const ApprovalGlyph = APPROVAL_ICONS[approvalMode];
 	const delegationName = delegation.mode === null ? null : t(`input.delegation.mode.${delegation.mode}`);
 	const full = [
 		modes.fullName,
@@ -99,6 +94,7 @@ export function RunChip() {
 					aria-label={`${title}: ${full}`}
 					className="omp-composer-chip omp-composer-fold-2"
 					data-active={modes.shown.length > 0 ? "" : undefined}
+					data-approval={approvalMode}
 					data-run-settings-trigger
 					icon={first ? MODE_ICONS[first] : <SlidersHorizontal aria-hidden />}
 					onClick={() => {
@@ -129,7 +125,7 @@ export function RunChip() {
 								fill={speed.ultrafast ? "currentColor" : "none"}
 							/>
 						)}
-						{speed.slow && <Snail aria-hidden data-speed="slow" />}
+						{speed.slow && <Turtle aria-hidden data-speed="slow" />}
 					</span>
 				</Button>
 			</Tooltip>
@@ -150,7 +146,6 @@ export function RunChip() {
 							close();
 							setConfirmFullAccess(true);
 						}}
-						variant={phone ? "radios" : "select"}
 					/>
 					{delegation.mode !== null && (
 						<DelegationField mode={delegation.mode} onPick={next => void delegation.pick(next)} />

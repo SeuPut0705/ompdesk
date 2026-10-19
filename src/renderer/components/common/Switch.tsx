@@ -7,6 +7,7 @@
  * - `SwitchField`: one dense row — label, a short description inline or a longer
  *   one behind an (i) tooltip (`SettingInfo`), and the switch at the right, the
  *   whole row clickable. Use it for every boolean setting row.
+ * - `SwitchTile`: the same switch as a half-width tile (glyph, short label, (i), switch) for a two-column grid.
  * Off = outlined track (≥3:1 border) with a muted knob; on = accent track
  * with an accent-foreground knob — the state never depends on color alone.
  * Use a checkbox instead when the choice is only applied on submit.
@@ -151,6 +152,56 @@ export function SwitchField({
 				htmlFor={switchId}
 			/>
 			<Switch aria-describedby={descriptionId} disabled={disabled} id={switchId} {...rest} />
+		</div>
+	);
+}
+
+export interface SwitchTileProps extends Omit<SwitchProps, "label" | "aria-labelledby" | "aria-describedby"> {
+	/** A decorative lucide glyph (16 px) before the label. */
+	icon: ReactNode;
+	/** The short name, one line: it truncates before it wraps. */
+	label: string;
+	/** The explanation: always behind the (i) glyph (the tile has no room for a clause, so no length rule applies). */
+	description?: string;
+}
+
+/**
+ * A switch as a tile: glyph, short label, (i), switch on ONE line, built to sit two to a row in a grid (`data-switch-grid`
+ * in the Run sheet) where a `SwitchField` row would waste the row's width. Same behaviour as `SwitchField`: the whole
+ * tile toggles, the glyph sits outside the label so the switch is named by the label alone.
+ */
+export function SwitchTile({ icon, label, description, id, className, disabled, ...rest }: SwitchTileProps) {
+	const autoId = useId();
+	const switchId = id ?? autoId;
+	return (
+		<div
+			className={cx(
+				"flex min-h-(--sc-control-md) min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-1.5 py-1 hover:bg-(--sc-hover)",
+				disabled && "opacity-60 hover:bg-transparent",
+				className,
+			)}
+			data-switch-tile
+		>
+			<label
+				className={cx(
+					"flex min-w-0 flex-1 items-center gap-1.5 self-stretch",
+					disabled ? "cursor-not-allowed" : "cursor-pointer",
+				)}
+				htmlFor={switchId}
+			>
+				<span
+					aria-hidden
+					className="flex size-(--sc-icon-md) shrink-0 items-center justify-center text-(--sc-text-muted) [&>svg]:size-(--sc-icon-md)"
+					data-setting-icon
+				>
+					{icon}
+				</span>
+				<span className="min-w-0 truncate text-sc-sm font-medium text-(--sc-text)" title={label}>
+					{label}
+				</span>
+			</label>
+			{description !== undefined && <SettingInfo text={description} />}
+			<Switch disabled={disabled} id={switchId} size="sm" {...rest} />
 		</div>
 	);
 }

@@ -1573,16 +1573,18 @@ describe("InputArea run settings and modes", () => {
 		await click(trigger);
 	}
 
-	/** Set a select's value and drive its React onChange contract. */
-	async function choose(selector: string, value: string): Promise<void> {
-		const select = document.querySelector(selector) as unknown as TestElement | null;
-		if (!select) throw new Error(`${selector} missing`);
-		const record = select as unknown as Record<string, unknown>;
-		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
-		const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
-		if (!props?.onChange) throw new Error("select onChange not found");
-		// linkedom's select.value is read-only; the handler reads the event target.
-		await act(async () => props.onChange?.({ target: { value }, currentTarget: { value } }));
+	/** Tap one segment of a Run sheet row (`data-<row>-option`). */
+	async function choose(row: "thinking" | "approval", value: string): Promise<void> {
+		const option = document.querySelector(`[data-${row}-option="${value}"]`) as unknown as TestElement | null;
+		if (!option) throw new Error(`${row} option ${value} missing`);
+		await click(option);
+	}
+
+	/** The chip's words: the provider mark's fallback letter is decoration. */
+	function modelChipText(chip: TestElement | null): string | undefined {
+		const element = chip as unknown as Element | null;
+		const mark = element?.querySelector("[data-provider-mark]")?.textContent ?? "";
+		return element?.textContent?.replace(mark, "");
 	}
 
 	it("keeps one calm toolbar at every width: the model and its effort, the Run chip", async () => {
@@ -1592,7 +1594,7 @@ describe("InputArea run settings and modes", () => {
 			await mount();
 			const model = document.querySelector("button[data-model-chip]") as unknown as TestElement | null;
 			// The chip shows the display name and the effort (`Model · Thinking`); the id stays in its tooltip.
-			expect(model?.textContent).toBe(`Acme Opus 5· ${translate("input.thinking.name.high")}`);
+			expect(modelChipText(model)).toBe(`Acme Opus 5· ${translate("input.thinking.name.high")}`);
 			expect(model?.getAttribute("aria-label" as never)).toContain(translate("input.thinking.name.high"));
 			expect(document.querySelectorAll("button[data-composer-modes-trigger]").length).toBe(0);
 			const runSettings = document.querySelector("button[data-run-settings-trigger]");
@@ -1634,7 +1636,7 @@ describe("InputArea run settings and modes", () => {
 	it("applies a thinking level picked inside the run settings popover", async () => {
 		await mount();
 		await openRunSettings();
-		await choose("select[data-thinking-level]", "max");
+		await choose("thinking", "max");
 		await flush();
 
 		expect(setThinkingLevel).toHaveBeenCalledWith("max");
@@ -1644,7 +1646,7 @@ describe("InputArea run settings and modes", () => {
 	it("persists a stricter tool approval picked inside the popover", async () => {
 		await mount();
 		await openRunSettings();
-		await choose("select[data-approval-mode]", "always-ask");
+		await choose("approval", "always-ask");
 
 		expect(setSetting).toHaveBeenCalledWith("tools.approvalMode", "always-ask");
 		expect(useSettingsStore.getState().approvalMode).toBe("always-ask");
@@ -1663,7 +1665,7 @@ describe("InputArea run settings and modes", () => {
 		expect(findTextarea().getAttribute("placeholder")).toBe(translate("input.placeholder.chat"));
 		expect(document.querySelector("button[data-run-settings-trigger]")).not.toBeNull();
 		await openRunSettings();
-		await choose("select[data-approval-mode]", "always-ask");
+		await choose("approval", "always-ask");
 		expect(setSetting).toHaveBeenCalledWith("tools.approvalMode", "always-ask");
 	});
 
