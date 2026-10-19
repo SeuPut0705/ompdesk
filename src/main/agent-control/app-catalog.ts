@@ -1072,9 +1072,10 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "autopilot.start",
 		area: "autopilot",
 		description:
-			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release) and its folder rules. ship defaults to the user's stored level.",
+			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release) and its folder rules. ship defaults to the user's stored level; device runs it on a paired device (default the device your session runs on).",
 		args: objectSchema({
 			folder: { type: "string", minLength: 1, maxLength: 4096 },
+			device: { type: "string", minLength: 1, maxLength: 200 },
 			ship: { type: "string", enum: ["commit", "push", "release"] },
 		}),
 		tier: "change",
@@ -1082,6 +1083,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			text: await ctx.autopilot({
 				action: "start",
 				...(args.folder === undefined ? {} : { folder: args.folder }),
+				...(args.device === undefined ? {} : { device: args.device }),
 				...(args.ship === undefined ? {} : { ship: args.ship }),
 			}),
 		}),

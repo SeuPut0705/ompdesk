@@ -498,13 +498,13 @@ describe("MCP install, pairing and Autopilot", () => {
 		const ports = new FakePorts();
 		const control = new AppControl(ports);
 		expect(await control.run(CALLER, "autopilot.status", { session: "abcd1234" })).toBe("autopilot reply");
-		expect(await control.run(CALLER, "autopilot.start", { ship: "push", folder: "/work/repo" })).toBe(
+		expect(await control.run(CALLER, "autopilot.start", { ship: "push", folder: "/work/repo", device: "PC-B" })).toBe(
 			"autopilot reply",
 		);
 		expect(await control.run(CALLER, "autopilot.stop", { session: "abcd1234", now: true })).toBe("autopilot reply");
 		expect(ports.autopilotCalls).toEqual([
 			{ action: "status", session: "abcd1234" },
-			{ action: "start", folder: "/work/repo", ship: "push" },
+			{ action: "start", folder: "/work/repo", device: "PC-B", ship: "push" },
 			{ action: "stop", session: "abcd1234", now: true },
 		]);
 		expect(ports.rpcs).toEqual([]);
