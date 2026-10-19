@@ -110,10 +110,10 @@ async function openRun(page: Page): Promise<Locator> {
 	return sheet;
 }
 
-/** Advanced opens by itself while a value is not the default; open it otherwise, so every row of the sheet is on screen. */
+/** Advanced always starts closed: open it, so every row of the sheet is on screen (a click: the desktop popover has no touch). */
 async function openAdvanced(page: Page): Promise<void> {
 	const advanced = sheetOf(page).locator("button[aria-expanded]", { hasText: /Advanced|고급/ });
-	if ((await advanced.getAttribute("aria-expanded")) === "false") await advanced.tap();
+	if ((await advanced.getAttribute("aria-expanded")) === "false") await advanced.click();
 	await expect(sheetOf(page).locator("[data-switch-tile]")).toHaveCount(9);
 }
 
