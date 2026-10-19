@@ -3485,11 +3485,26 @@ button.omp-file-chip-name:hover {
 
 /* Below this a reserved slot costs the row its Send (a pane split in four, a 200 % zoom): the slots that are off give
    their room back, and only there does the row move when a turn starts. The bash/python and queue badges go too
-   (wider up, they truncate): the draft's own `!`/`->` prefix still says it, and Stop and Send stay in the box. */
+   (wider up, they truncate): the draft's own `!`/`->` prefix still says it, and Stop and Send stay in the box.
+   A row still too narrow for its controls (a 200 % zoom beside the docked sidebar leaves ~110 px) wraps instead of
+   pushing Send past the window's edge: a row that fits is unchanged, and the send cluster keeps Send last, at the
+   right. */
 @container omp-toolbar (max-width: 440px) {
 	.omp-composer-slot[data-off],
 	.omp-composer-badge {
 		display: none;
+	}
+
+	/* The phone keeps its one sideways-scrolling row (mobile.css). */
+	:where(html:not([data-shell="phone"])) .omp-composer-toolbar,
+	:where(html:not([data-shell="phone"])) .omp-composer-send-cluster {
+		flex-wrap: wrap;
+		row-gap: 0.25rem;
+	}
+
+	:where(html:not([data-shell="phone"])) .omp-composer-send-cluster {
+		justify-content: flex-end;
+		margin-inline-start: auto;
 	}
 }
 
