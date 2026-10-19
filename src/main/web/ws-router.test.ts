@@ -250,6 +250,21 @@ describe("hello and calls", () => {
 		]);
 	});
 
+	it("answers a call whose result cannot be sent with an error, so the page never waits on it forever", async () => {
+		const { frame, settle, socket, invoke } = rig();
+		invoke.mockResolvedValueOnce({ size: 1n });
+		frame({ t: "inv", id: 3, ch: IPC_COMMANDS.SESSIONS_LIST, a: [{ scope: "global" }] });
+		await settle();
+		expect(socket.frames("res")).toEqual([
+			{
+				t: "res",
+				id: 3,
+				ok: false,
+				e: { message: expect.stringContaining("could not be sent") },
+			},
+		]);
+	});
+
 	it("reads a picture the page sent by upload back into the call before it runs, and the upload is gone", async () => {
 		const { frame, socket, callers, uploaded, uploads } = rig();
 		uploaded.set("/up/dev1/a/image.jpeg", Buffer.from("JPEG"));
