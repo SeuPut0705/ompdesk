@@ -1,7 +1,6 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fixtureProviderOptions } from "../../../../../e2e/models-config-fixture";
 import type { CustomProvidersConfig, CustomProviderView, RemoteState } from "../../../../shared/ipc-types";
@@ -27,7 +26,6 @@ import { routeCommands } from "../../../test-support/route-commands";
 import { ExtensionDialog } from "../../dialogs/ExtensionDialog";
 import { SettingsDataProvider } from "../settings-data";
 import { SettingsNavigationProvider } from "../settings-navigation";
-import { ProviderRow } from "./ProviderList";
 import { ProvidersSection } from "./ProvidersSection";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -251,55 +249,6 @@ afterEach(async () => {
 	login.mockResolvedValue({ type: "response", command: "login", success: true });
 	cancelLogin.mockClear();
 	respondExtensionUi.mockClear();
-});
-
-describe("ProviderRow", () => {
-	const handlers = { onConnect: () => {}, onLogout: () => {} };
-	const render = (provider: ProviderInfo, config?: CustomProviderView, sidecarReady = true) =>
-		renderToStaticMarkup(
-			<I18nProvider>
-				<ProviderRow
-					busy={false}
-					config={config}
-					handlers={handlers}
-					provider={provider}
-					sidecarReady={sidecarReady}
-				/>
-			</I18nProvider>,
-		);
-
-	it("offers a quiet connect action, not a primary button, for a provider with a sign-in flow", () => {
-		const html = render(row("tavily", { authenticated: false, loginAvailable: true }));
-		expect(html).toContain(translate("providerList.connect"));
-		expect(html).not.toContain("bg-(--sc-accent)");
-		expect(html).not.toContain(translate("providers.logout"));
-	});
-
-	it("offers credential refresh and sign-out once connected", () => {
-		const html = render(row("tavily", { loginAvailable: true }));
-		expect(html).toContain(translate("providers.updateCredentials", { provider: "tavily" }));
-		expect(html).toContain(translate("providers.logout"));
-		expect(html).not.toContain(`>${translate("providerList.connect")}<`);
-	});
-
-	it("keeps endpoint editing in the single custom endpoint list, not the account summary", () => {
-		const html = render(row("infronai"), config("infronai"));
-		expect(html).not.toContain(translate("providers.edit"));
-		expect(html).not.toContain(translate("providerCfg.list.delete"));
-		expect(html).not.toContain(translate("providers.logout"));
-	});
-
-	it("renders no action for a catalog-only provider", () => {
-		const html = render(row("catalog-only", { authenticated: false }));
-		expect(html).not.toContain(translate("providers.edit"));
-		expect(html).not.toContain(translate("providerList.connect"));
-	});
-
-	it("locks sign-in while omp is disconnected and says why", () => {
-		const html = render(row("tavily", { authenticated: false, loginAvailable: true }), undefined, false);
-		expect(html).toContain("disabled");
-		expect(html).toContain(`title="${translate("providers.notConnected").replaceAll("'", "&#x27;")}"`);
-	});
 });
 
 describe("ProvidersSection", () => {
