@@ -304,6 +304,12 @@ export class LocalHostServices implements HostServices {
 	 * before it deletes the session, and the delete waits for that omp to let go of the file.
 	 */
 	readonly #exiting = new Map<string, Promise<void>>();
+	/**
+	 * Tabs whose `tab.open` is still awaiting (folder, session kind), and those of them the device closed meanwhile:
+	 * that close found no tab, so the open must not make one, or it would hold its session with nobody to close it.
+	 */
+	readonly #opening = new Map<string, number>();
+	readonly #closedWhileOpening = new Set<string>();
 	readonly #runningListeners = new Set<() => void>();
 	readonly #hostedListeners = new Set<() => void>();
 	/** `hostedSessions` as last announced: a listener hears only a real change. */
@@ -528,9 +534,12 @@ export class LocalHostServices implements HostServices {
 				const { rtab, cwd } = parse(AdoptCwdParams, method, params);
 				return this.#tab(peer, rtab).sidecar.adoptCwd(cwd);
 			}
-			case "tab.close":
-				this.#closeTab(this.#key(peer.deviceId, parse(RtabParams, method, params).rtab));
+			case "tab.close": {
+				const key = this.#key(peer.deviceId, parse(RtabParams, method, params).rtab);
+				if (!this.#tabs.has(key) && this.#opening.has(key)) this.#closedWhileOpening.add(key);
+				this.#closeTab(key);
 				return null;
+			}
 			case "tab.command":
 				return this.#command(peer, parse(CommandParams, method, params));
 			case "tab.sideChannel": {
@@ -869,9 +878,19 @@ export class LocalHostServices implements HostServices {
 			return { cwd: view.cwd, kind: view.kind, attached: true, viewing: true };
 		}
 		if (!params.cwd) throw codedError("no_workspace", "No workspace");
-		const cwd = await directory(params.cwd);
-		const kind =
-			params.kind ?? (params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent");
+		this.#opening.set(key, (this.#opening.get(key) ?? 0) + 1);
+		let cwd: string;
+		let kind: "agent" | "chat";
+		try {
+			cwd = await directory(params.cwd);
+			kind =
+				params.kind ?? (params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent");
+		} finally {
+			const left = (this.#opening.get(key) ?? 1) - 1;
+			if (left > 0) this.#opening.set(key, left);
+			else this.#opening.delete(key);
+		}
+		if (this.#closedWhileOpening.delete(key)) throw codedError("unknown_tab", "The device closed this tab");
 		// A concurrent open for the same rtab, or for the same session under another rtab, may have
 		// finished while this one awaited: take that tab (or its refusal) instead of a second omp.
 		const raced = this.#tabs.get(key);

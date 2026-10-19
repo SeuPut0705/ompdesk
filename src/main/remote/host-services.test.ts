@@ -741,6 +741,28 @@ describe("LocalHostServices", () => {
 		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
 	});
 
+	it("a device's close that arrives while its tab is still opening leaves no tab holding the session", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		// The device closed the tab before the host had finished opening it (tab.open awaits the folder and
+		// the session's kind): the close found no tab, and the open then made one nothing ever closed.
+		const opening = services
+			.call(
+				x.peer,
+				"tab.open",
+				{ rtab: "t", cwd: workDir, fresh: false, sessionPath: "/s/closed-while-opening.jsonl" },
+				x,
+			)
+			.catch((error: unknown) => error);
+		await services.call(x.peer, "tab.close", { rtab: "t" }, x);
+		expect(ipcErrorCode(await opening)).toBe("unknown_tab");
+		expect(sidecars.every(sidecar => sidecar.disposed)).toBe(true);
+		expect(services.hostedSessions()).toEqual([]);
+		// The same rtab opens again afterwards.
+		await services.call(x.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, x);
+		expect(sidecars.at(-1)?.disposed).toBe(false);
+	});
+
 	it("deletes a session the device's own tabs still hold from an earlier connection or as a duplicate, never one running a turn", async () => {
 		const { services, sidecars, deleteSession } = setup();
 		const before = new FakeConnection(peer("device-x"));
