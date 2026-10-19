@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { ROLE_ORDER } from "../../resources/gui-bridge/model-role-contracts";
+import { OMPDESK_ROLE_IDS } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import { AGENT_THINKING_LEVELS, agentNameError, serializeAgentMarkdown, splitFrontmatter } from "./agent-definition";
 import { AGENT_TEMPLATES, templateDraft } from "./agent-templates";
 
@@ -60,9 +61,10 @@ describe("AGENT_TEMPLATES", () => {
 		}
 	});
 
-	it("name roles Settings lists, never a custom role", () => {
+	it("name roles Settings lists (stock's and OMPdesk's own), never another custom role", () => {
+		const known = [...ROLE_ORDER, ...OMPDESK_ROLE_IDS];
 		for (const template of AGENT_TEMPLATES) {
-			for (const selector of template.model) expect(ROLE_ORDER, template.name).toContain(selector.slice(1));
+			for (const selector of template.model) expect(known, template.name).toContain(selector.slice(1));
 		}
 	});
 

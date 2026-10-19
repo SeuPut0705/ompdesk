@@ -5,9 +5,9 @@
  * Frontmatter text (description, instructions) is what the model reads, so
  * it stays in English; `title` / `summary` are the localized gallery copy.
  *
- * Model lists use stock's built-in role aliases only: an unset role expands
- * to nothing, so the next entry (and finally the parent's model) applies — no
- * template names a provider or a custom role.
+ * Model lists name roles only (stock's built-ins and OMPdesk's own `@review`, held on every omp OMPdesk runs): an
+ * unset role expands to nothing, so the next entry (and finally the parent's model) applies — no template names a
+ * provider, and outside OMPdesk an unset `@review` just falls to the next entry.
  */
 
 import { type AgentDraft, emptyAgentDraft, READ_ONLY_TOOLS } from "./agent-definition";
@@ -234,7 +234,7 @@ ${SHARED_RULES}`,
 			"Deep code review: checks a diff or branch for correctness bugs, unhandled edge cases, security issues, API/contract breaks, missing tests and maintainability. Read-only; reports prioritized findings with file:line evidence.",
 		tools: INSPECT_TOOLS,
 		spawns: ["scout"],
-		model: ["@slow", "@task"],
+		model: ["@review", "@slow", "@task"],
 		thinkingLevel: "high",
 		instructions: `You review code changes. You never edit files.
 
