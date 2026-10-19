@@ -61,6 +61,8 @@ export interface LocalSidecarDeps {
 	accountRotationPref: () => unknown;
 	/** The even-rotation ledger file every omp on this machine shares. */
 	accountRotationLedger: string;
+	/** The OMPdesk model-role picks file every omp on this machine shares. */
+	ompdeskRolesFile?: string;
 	/** The stored per-workspace launch profiles (`launchProfiles`), read per spawn. */
 	launchProfilesPref: () => unknown;
 	/** Grace period a closed tab's omp gets to shut down by itself (ai-memory's session-end rides it); absent: none. */
@@ -160,6 +162,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			},
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
+			...(deps.ompdeskRolesFile ? { ompdeskRolesFile: deps.ompdeskRolesFile } : {}),
 			launchProfiles: deps.launchProfilesPref,
 			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),

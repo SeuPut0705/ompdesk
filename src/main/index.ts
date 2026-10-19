@@ -36,6 +36,7 @@ import {
 	nextPromptFromPrefs,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
+import { OMPDESK_ROLES_FILE } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { AGENT_CONTROL_PREF, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../shared/agent-control";
 import {
@@ -626,6 +627,7 @@ app.whenReady().then(() => {
 		delegationPref: () => prefsStore().get(DELEGATION_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
+		ompdeskRolesFile: join(app.getPath("userData"), OMPDESK_ROLES_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
 		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
 		gracefulStopMs: () => (aiMemoryService?.state().phase === "ready" ? 4_000 : 0),

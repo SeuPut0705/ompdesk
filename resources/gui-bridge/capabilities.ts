@@ -731,6 +731,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"settings.getModelRoleSource()",
 			"settings.setModelRole()",
 			"settings.flush()",
+			// OMPdesk's own roles and agent tiers (ompdesk-roles.ts), held in the runtime layer, never persisted.
+			"settings.overrideModelRoles()",
+			"settings.overlayLayers()",
+			"settings.getGlobalModelRole()",
+			"settings.getProjectModelRole()",
+			"settings.getGlobalSettings()",
+			"settings.getProjectSettings()",
+			"effectiveExtensionRoots",
 		],
 		modules: {
 			[`${AGENT}/config/model-roles`]: [
@@ -748,6 +756,14 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"rolePriorityDefaults()",
 			],
 			"@oh-my-pi/pi-catalog/types": ["modelKind()"],
+			[`${AGENT}/config/registry`]: [
+				"lookup()",
+				"Setting.prototype.override()",
+				"Setting.prototype.clearOverride()",
+			],
+			// The security reviewer's tier holds only while stock's bundled agent has no model line.
+			[`${AGENT}/task/agents`]: ["getBundledAgent()"],
+			[`${AGENT}/task/discovery`]: ["discoverAgents()", "getAgent()"],
 		},
 	},
 	modelSetupFacts: {

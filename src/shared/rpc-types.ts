@@ -2349,7 +2349,7 @@ export interface ModelRolesResult {
 	roles: ModelRoleEntry[];
 }
 
-/** One of the running omp's model roles (get_model_role_metadata, get_model_roles), with what stock knows of it; OMPdesk lists no custom role. */
+/** One of the running omp's model roles (get_model_role_metadata, get_model_roles), with what stock knows of it, then OMPdesk's own runtime roles; OMPdesk lists no other custom role. */
 export interface ModelRoleMetadata {
 	id: string;
 	name: string;
@@ -2359,8 +2359,10 @@ export interface ModelRoleMetadata {
 	section: "chat" | "kind";
 	/** Stock `modelKind`s of the catalog models the role's `accepts` takes (`chat`, `tiny`, `search`, …); absent from an older bridge. */
 	accepts?: string[];
-	/** Stock's built-in priority list for the role when it is empty (`rolePriorityDefaults`); absent from an older bridge. */
+	/** Stock's built-in priority list for the role when it is empty (`rolePriorityDefaults`), or an OMPdesk role's chain; absent from an older bridge. */
 	defaults?: string[];
+	/** `ompdesk`: held at runtime by OMPdesk (ompdesk-role-contracts.ts), never written to config.yml. */
+	origin?: "stock" | "ompdesk";
 }
 
 /** Where auto-compaction triggers for one model (stock `describeModelCompactionPoint`, omp 18.8.5+). */

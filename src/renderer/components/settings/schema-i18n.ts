@@ -65,6 +65,7 @@ const KO_ROLE_NAMES: Readonly<Record<string, string>> = {
 	Speech: "음성 합성",
 	Dictation: "받아쓰기",
 	Judge: "평가",
+	Review: "리뷰",
 };
 const ROLE_NAMES: Record<Lang, Readonly<Record<string, string>>> = { en: {}, ko: KO_ROLE_NAMES };
 

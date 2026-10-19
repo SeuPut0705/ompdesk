@@ -1437,6 +1437,8 @@ export const en: Record<string, string> = {
 	"modelRoles.use.speech": "Reads text aloud (text to speech).",
 	"modelRoles.use.dictation": "Turns what you say into text with the microphone.",
 	"modelRoles.use.judge": "Short judgments: picking the thinking level in auto mode and semantic find.",
+	"modelRoles.use.review":
+		"Code review: the code-reviewer and security-reviewer agents run on it. A model of another family than the one writing the code catches more.",
 	"modelRoles.fallback.default": "Empty: omp picks from the models you're signed in to.",
 	"modelRoles.fallback.slow": "Empty: follows Default, then omp's built-in thinking list.",
 	"modelRoles.fallback.smol": "Empty: follows Default, then omp's built-in fast list.",
@@ -1459,6 +1461,7 @@ export const en: Record<string, string> = {
 	"modelRoles.generic.fallback.pool": "Empty: omp picks from the models you're signed in to.",
 	"modelRoles.generic.fallback.session": "Empty: uses the session's model.",
 	"modelRoles.generic.fallback.none": "Empty: no model you're signed in to can run it yet.",
+	"modelRoles.fallback.review": "Empty: follows Advisor, then Thinking, then Subtask.",
 	"modelRoles.src.via": "from {role}",
 	"modelRoles.src.builtin": "built-in list",
 	"modelRoles.src.session": "session model",

@@ -21,6 +21,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import {
 	CHAT_MODEL_ROLE_IDS,
+	getKnownRoleIds,
 	getRoleInfo,
 	MODEL_ROLE_IDS,
 	roleCandidatePool,
@@ -38,9 +39,11 @@ import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
 import { idleSettingChanged } from "./idle-compaction";
 import { releaseDelegationForWrite } from "./modes/delegation";
+import { OMPDESK_ROLES } from "./ompdesk-role-contracts";
+import { type RoleSettings, readRolePicks, roleConfigured, settleOmpdeskRoles, writeRolePick } from "./ompdesk-roles";
 import { asRecord, requiredString } from "./params";
 import { type ResetPasses, shapeResetPasses } from "./reset-passes-core";
-import { effectiveRole, type RoleStock } from "./role-effective";
+import { effectiveOmpdeskRole, effectiveRole, type RoleStock } from "./role-effective";
 import { shownRoleValue, storedRoleValue } from "./role-values";
 import { recapSettingChanged } from "./session-recap";
 import { heldDefaultNotes, releaseThinkingDefaultFor, syncThinkingDefault } from "./thinking-default";
@@ -769,17 +772,34 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 /**
  * Every role of the running omp's `MODEL_ROLE_IDS`, with what stock knows of it: name, tag, section, `hidden`, the
  * model kinds its `accepts` takes in the catalog and its built-in priority list (`rolePriorityDefaults`), so a role
- * a newer omp adds is listed with no change to OMPdesk. A `modelRoles.<id>` the user set outside OMPdesk stays in
- * config.yml and stock still resolves it as `@id`, but OMPdesk neither lists nor offers it.
+ * a newer omp adds is listed with no change to OMPdesk; then OMPdesk's own runtime roles (ompdesk-role-contracts.ts),
+ * whose `defaults` is their chain. A `modelRoles.<id>` the user set outside OMPdesk stays in config.yml and stock
+ * still resolves it as `@id`, but OMPdesk neither lists nor offers it.
  */
 export function roleMetadata(session: AgentSession) {
+	settleOmpdeskRoles(session.settings as unknown as RoleSettings);
 	const catalog = session.modelRegistry.getAll("all");
-	return MODEL_ROLE_IDS.map(id => {
+	const describe = (id: string) => {
 		const info = getRoleInfo(id, session.settings);
 		const { name, tag, color, hidden, section } = info;
 		const accepts = [...new Set(catalog.filter(model => info.accepts(model)).map(model => modelKind(model)))];
-		return { id, name, tag, color, hidden, section, accepts, defaults: rolePriorityDefaults(id) };
-	});
+		return { name, tag, color, hidden, section, accepts };
+	};
+	const stock = MODEL_ROLE_IDS.map(id => ({
+		id,
+		...describe(id),
+		defaults: rolePriorityDefaults(id),
+		origin: "stock" as const,
+	}));
+	const known = getKnownRoleIds(session.settings);
+	const ompdesk = OMPDESK_ROLES.filter(role => known.includes(role.id)).map(role => ({
+		id: role.id,
+		...describe(role.id),
+		name: role.name,
+		defaults: [...role.chain],
+		origin: "ompdesk" as const,
+	}));
+	return [...stock, ...ompdesk];
 }
 
 /** Stock's resolution bound to this session; each role resolves over its own candidate pool, as its stock caller does. */
@@ -812,20 +832,30 @@ function roleStock(session: AgentSession): RoleStock {
 	};
 }
 
+/** An OMPdesk role's own value: the user's config.yml/project value, else OMPdesk's pick. */
+function ompdeskRolePick(session: AgentSession, id: string): string | undefined {
+	const settings = session.settings as unknown as RoleSettings;
+	return roleConfigured(settings, id) ? session.settings.getModelRole(id) : readRolePicks()[id];
+}
+
 function modelRoles(session: AgentSession) {
 	const stock = roleStock(session);
-	return roleMetadata(session).map(role => ({
-		...role,
-		model: shownRoleValue(role.id, session.settings.getModelRole(role.id)),
-		source: session.settings.getModelRoleSource(role.id),
-		effective: effectiveRole(stock, role.id),
-		candidates: roleCandidatePool(role.id, session.settings, session.modelRegistry).map(model => ({
-			provider: model.provider,
-			id: model.id,
-			name: model.name,
-			kind: modelKind(model),
-		})),
-	}));
+	return roleMetadata(session).map(role => {
+		const chain = role.origin === "ompdesk" ? OMPDESK_ROLES.find(entry => entry.id === role.id)?.chain : undefined;
+		const pick = chain ? ompdeskRolePick(session, role.id) : undefined;
+		return {
+			...role,
+			model: chain ? pick : shownRoleValue(role.id, session.settings.getModelRole(role.id)),
+			source: session.settings.getModelRoleSource(role.id),
+			effective: chain ? effectiveOmpdeskRole(stock, role.id, chain, pick) : effectiveRole(stock, role.id),
+			candidates: roleCandidatePool(role.id, session.settings, session.modelRegistry).map(model => ({
+				provider: model.provider,
+				id: model.id,
+				name: model.name,
+				kind: modelKind(model),
+			})),
+		};
+	});
 }
 
 // ============================================================================
@@ -888,18 +918,23 @@ export const methods: BridgeMethods = {
 			const session = env.session();
 			const role = requiredString(params, "role");
 			const modelId = asRecord(params).modelId;
-			session.settings.setModelRole(
-				role,
-				storedRoleValue(role, typeof modelId === "string" && modelId ? modelId : undefined, value =>
-					extractExplicitThinkingSelector(value, session.settings, {
-						isLiteralModelId: (provider, id) =>
-							session.modelRegistry
-								.getAll()
-								.some(model => (provider === undefined || model.provider === provider) && model.id === id),
-					}),
-				),
+			const value = storedRoleValue(role, typeof modelId === "string" && modelId ? modelId : undefined, value =>
+				extractExplicitThinkingSelector(value, session.settings, {
+					isLiteralModelId: (provider, id) =>
+						session.modelRegistry
+							.getAll()
+							.some(model => (provider === undefined || model.provider === provider) && model.id === id),
+				}),
 			);
-			await session.settings.flush();
+			const settings = session.settings as unknown as RoleSettings;
+			// An OMPdesk role is held at runtime, never written to config.yml, unless the user's config already owns it.
+			if (OMPDESK_ROLES.some(entry => entry.id === role) && !roleConfigured(settings, role)) {
+				writeRolePick(role, value);
+				settleOmpdeskRoles(settings);
+			} else {
+				session.settings.setModelRole(role, value);
+				await session.settings.flush();
+			}
 			env.emit({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 			return { role, modelId: typeof modelId === "string" ? modelId : null };
 		},

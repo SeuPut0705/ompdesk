@@ -13,6 +13,7 @@ import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation
 import { JUDGE_ASSIST_ENV, JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
+import { OMPDESK_ROLES_ENV } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { parseLaunchProfile, profileToFlags, stripDenylistedFlags } from "../shared/launch-profile";
@@ -281,6 +282,8 @@ export interface SidecarOptions {
 	accountRotation?: () => AccountRotationMode;
 	/** The even-rotation ledger every local omp shares (`OMP_GUI_ACCOUNT_ROTATION_STATE`). */
 	accountRotationLedger?: string;
+	/** The OMPdesk model-role picks every local omp shares (`OMP_GUI_OMPDESK_ROLES`, ompdesk-role-contracts.ts). */
+	ompdeskRolesFile?: string;
 	/**
 	 * The stored per-workspace launch profiles (prefs `launchProfiles`), read at
 	 * every spawn and mapped to the tab cwd's agent flags. Absent: no profile
@@ -528,7 +531,7 @@ export class SidecarManager extends EventEmitter {
 		const nextPrompt = this.#options.nextPrompt?.();
 		const delegation = this.#options.delegation?.();
 		const accountRotation = this.#options.accountRotation?.();
-		const accountRotationLedger = this.#options.accountRotationLedger;
+		const { accountRotationLedger, ompdeskRolesFile } = this.#options;
 
 		// Stock writes a new session's file at its first assistant message. A path learned before that (a restored
 		// tab, a first turn a restart cut off, an omp restart on a tab never used) opens nothing, and `--session` on
@@ -585,6 +588,7 @@ export class SidecarManager extends EventEmitter {
 					...(delegation && delegation !== "default" ? { OMP_GUI_DELEGATION: delegation } : {}),
 					...(accountRotation ? { OMP_GUI_ACCOUNT_ROTATION: accountRotation } : {}),
 					...(accountRotationLedger ? { OMP_GUI_ACCOUNT_ROTATION_STATE: accountRotationLedger } : {}),
+					...(ompdeskRolesFile ? { [OMPDESK_ROLES_ENV]: ompdeskRolesFile } : {}),
 					...(this.#builtinMcp.root ? { OMP_GUI_REA_ROOT: this.#builtinMcp.root } : {}),
 					...this.#builtinMcp.env,
 					PI_RPC_EMIT_TITLE: "1",

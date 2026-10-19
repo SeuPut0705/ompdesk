@@ -11,10 +11,11 @@ import { INSTALLED_OMP, runBridgeProbe } from "./test-bridge-probe";
  * - every role's `effective` model equals what stock's own resolver returns
  *   for it (`resolveRoleChain`, `resolveAdvisorRoleSelection`, an empty role's
  *   inheritance), including what an empty role falls back to;
- * - only stock's built-in roles are listed: a custom `modelRoles.<id>` set
- *   outside OMPdesk stays in the settings and stock still resolves `@id`;
- * - each OMPdesk agent template runs on its first built-in role's model,
- *   through stock's agent model resolution.
+ * - stock's built-in roles are listed, then OMPdesk's own: a custom
+ *   `modelRoles.<id>` set outside OMPdesk stays in the settings and stock
+ *   still resolves `@id`;
+ * - each OMPdesk agent template runs on its first role's model, through
+ *   stock's agent model resolution.
  */
 
 const PROBE = `
@@ -151,7 +152,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("model roles on stock's resolution",
 		const { A, B } = probe;
 		expect(A).not.toBe(B);
 
-		// Stock's 15 built-ins, and nothing else, are listed.
+		// Stock's 15 built-ins and OMPdesk's own review, and nothing else, are listed.
 		expect((probe.ids as string[]).sort()).toEqual(
 			[
 				"advisor",
@@ -162,6 +163,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("model roles on stock's resolution",
 				"judge",
 				"memory",
 				"plan",
+				"review",
 				"slow",
 				"smol",
 				"speech",
@@ -186,8 +188,9 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("model roles on stock's resolution",
 		// Advisor follows the configured Thinking role.
 		expect(probe.advisor).toMatchObject({ model: B, source: "fallback" });
 
-		// Each template agent runs on its first built-in role: Fast and Subtask hold A, Thinking B.
-		const byRole: Record<string, string> = { "@smol": A, "@task": A, "@slow": B };
+		// Each template agent runs on its first role: Fast and Subtask hold A, Thinking B, and Review follows the
+		// advisor, which follows Thinking.
+		const byRole: Record<string, string> = { "@smol": A, "@task": A, "@slow": B, "@review": B };
 		expect(probe.agentsBuiltin).toEqual(
 			Object.fromEntries(AGENT_TEMPLATES.map(template => [template.name, byRole[template.model[0] ?? ""]])),
 		);

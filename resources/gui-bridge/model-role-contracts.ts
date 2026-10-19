@@ -8,9 +8,9 @@
  * `config/model-resolver.ts`); the bridge reads every one of them at runtime
  * (`settings.ts` `roleMetadata`), so a role a newer omp adds is listed without a
  * change here. OMPdesk adds only an ordering preference that groups the roles by
- * purpose (stock only splits chat/kind) and the roles it hides, each with why.
- * OMPdesk lists and offers no custom role: a `modelRoles.<name>` the user set
- * elsewhere is left to stock, which still honours it as `@name`.
+ * purpose (stock only splits chat/kind), the roles it hides, each with why, and
+ * its own runtime roles (ompdesk-role-contracts.ts). A `modelRoles.<name>` the
+ * user set elsewhere is left to stock, which still honours it as `@name`.
  */
 
 export type RoleGroupId = "conversation" | "agent" | "io";

@@ -65,6 +65,18 @@ export const MODEL_ROLES = {
 		role("tiny", "Tiny", undefined),
 		role("vision", "Vision", undefined),
 		role("image", "Image generation", undefined, "kind"),
+		// OMPdesk's own role: empty, it follows the advisor (which follows Thinking here).
+		{
+			...role("review", "Review", undefined),
+			origin: "ompdesk",
+			defaults: ["@review", "@advisor", "@slow", "@task"],
+			effective: {
+				model: "anthropic/claude-sonnet-4-5",
+				name: catalogName("anthropic/claude-sonnet-4-5"),
+				source: "fallback",
+				via: "advisor",
+			},
+		},
 	],
 };
 

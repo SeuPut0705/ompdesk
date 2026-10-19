@@ -1421,6 +1421,8 @@ export const ko: Record<string, string> = {
 	"modelRoles.use.speech": "텍스트를 소리 내어 읽어 줘요.",
 	"modelRoles.use.dictation": "마이크로 말한 내용을 글로 바꿔요.",
 	"modelRoles.use.judge": "자동 사고 수준 선택과 의미 기반 찾기처럼 짧은 판정에 써요.",
+	"modelRoles.use.review":
+		"코드 리뷰에 써요. 코드 리뷰어와 보안 리뷰어 에이전트가 이 모델로 돌아요. 코드를 쓰는 모델과 다른 계열이면 더 많이 잡아요.",
 	"modelRoles.fallback.default": "비어 있으면 omp가 로그인된 모델 중에서 골라요.",
 	"modelRoles.fallback.slow": "비어 있으면 기본 모델을 따르고, 없으면 omp 내장 추론 모델 목록에서 골라요.",
 	"modelRoles.fallback.smol": "비어 있으면 기본 모델을 따르고, 없으면 omp 내장 빠른 모델 목록에서 골라요.",
@@ -1443,6 +1445,7 @@ export const ko: Record<string, string> = {
 	"modelRoles.generic.fallback.pool": "비어 있으면 omp가 로그인된 모델 중에서 골라요.",
 	"modelRoles.generic.fallback.session": "비어 있으면 세션 모델을 그대로 써요.",
 	"modelRoles.generic.fallback.none": "비어 있으면 아직 로그인된 모델 중에 이 역할을 돌릴 모델이 없어요.",
+	"modelRoles.fallback.review": "비어 있으면 어드바이저, 사고 모델, 하위 작업 순서로 따라가요.",
 	"modelRoles.src.via": "{role}에서 가져옴",
 	"modelRoles.src.builtin": "내장 목록",
 	"modelRoles.src.session": "세션 모델",

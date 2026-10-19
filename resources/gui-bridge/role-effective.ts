@@ -14,7 +14,7 @@
  * - default, plan, task: the role alone; a session without a match keeps the
  *   model it has (`interactive-mode.ts` plan mode, `resolveEffectiveAgentModelSelection`)
  * - every other built-in: `resolveRoleChain(role)` / `resolveModelRoleValue("@role")`
- * (custom `modelRoles.<id>` the user set outside OMPdesk are not listed, so not resolved here)
+ * - OMPdesk's own roles: `effectiveOmpdeskRole` (custom `modelRoles.<id>` the user set outside OMPdesk are not listed)
  *
  * An empty built-in role also reports `skipped`: the first candidate of stock's own chain over every model the role
  * accepts (`resolveRoleChain` over the whole catalog, credentials ignored) when the chain over the credentialed pool
@@ -167,4 +167,28 @@ export function effectiveRole(stock: RoleStock, role: string): RoleEffective {
 	if (!effective.model || stock.configured(role) !== undefined) return effective;
 	const skipped = skippedPreferred(stock, role);
 	return skipped ? { ...effective, skipped } : effective;
+}
+
+/**
+ * An OMPdesk role (ompdesk-role-contracts.ts): `@<id>` resolved through stock as every agent resolves it (its held
+ * value is the pick, then its chain), reported against the pick (`configured`) or the chain role that answered.
+ */
+export function effectiveOmpdeskRole(
+	stock: RoleStock,
+	role: string,
+	chain: readonly string[],
+	pick: string | undefined,
+): RoleEffective {
+	const resolved = stock.resolve(role, [`@${role}`]);
+	const unavailable = pick ? { unavailable: true } : {};
+	if (!resolved.model) return { source: "none", ...unavailable };
+	const model = resolved.model;
+	const answered = (selector: string) => {
+		const found = stock.resolve(role, [selector]).model;
+		return found !== undefined && same(found, model);
+	};
+	const out = shown(model, resolved.thinkingLevel, resolved.explicitThinkingLevel);
+	if (pick && answered(pick)) return { ...out, source: "configured" };
+	const via = chain.slice(1).find(answered);
+	return { ...out, source: "fallback", ...(via ? { via: via.replace(/^@/, "") } : {}), ...unavailable };
 }

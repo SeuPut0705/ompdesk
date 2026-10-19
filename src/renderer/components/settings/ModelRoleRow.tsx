@@ -1,5 +1,5 @@
 /**
- * One model role in Settings › Models & accounts › Model roles: what it is for
+ * One model role (stock's or OMPdesk's own) in Settings › Models & accounts › Model roles: what it is for
  * and what an empty one falls back to (`model-role-text.ts`, generic for a role
  * no locale knows), the model it really runs on (`effective`, resolved by stock
  * in the bridge, an empty role's fallback included), that model's provider
@@ -9,6 +9,7 @@
 
 import { CircleDashed } from "lucide-react";
 import { useMemo } from "react";
+
 import type {
 	CompactionPoint,
 	ModelRoleEffective,
