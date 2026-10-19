@@ -198,3 +198,59 @@ test("a worktree child's commit is compared and merged, and a schedule is create
 		await fs.rm(real.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+test("two sessions are judged against a criterion, and a closed one is read back and reopened", async () => {
+	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
+	test.setTimeout(600_000);
+	const { real, app, page, main } = await launch(
+		[
+			"Use your OMPdesk control tools, one step after the other:",
+			"1. ompdesk_session_open with sessions: [{message: 'Reply with the single word ALPHA.'}, {message: 'Reply with the single word BETA.'}].",
+			"2. ompdesk_session_result on both with wait: true.",
+			"3. ompdesk_compare on both with criteria: ['The answer is exactly the word ALPHA'].",
+			"4. ompdesk_session_stop on the BETA session with close: true.",
+			"5. ompdesk_sessions with scope stored and query BETA, then ompdesk_session_read on the id it lists.",
+			"6. ompdesk_session_open with reopen set to that id.",
+			"Then answer in one line: the compare's winner session id, and the word the read transcript shows.",
+		].join("\n"),
+	);
+	try {
+		await expect
+			.poll(
+				async () => {
+					const state = (await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_state" }), main))
+						.data as { isStreaming?: boolean } | undefined;
+					return state?.isStreaming === false && (await lastAnswer(page, main)).length > 0;
+				},
+				{ timeout: 540_000, intervals: [2_000] },
+			)
+			.toBe(true);
+		const summary = await lastAnswer(page, main);
+		const cost = await spentIn(real.agent);
+		const results_: string[] = [];
+		const calls: string[] = [];
+		const sessions = path.join(real.agent, "sessions");
+		for (const file of await fs.readdir(sessions, { recursive: true }).catch(() => [])) {
+			if (!file.endsWith(".jsonl")) continue;
+			for (const line of (await fs.readFile(path.join(sessions, file), "utf8")).split("\n")) {
+				if (line.includes('"role":"assistant"') && line.includes('"toolCall"'))
+					for (const match of line.matchAll(/ompdesk_[a-z_]+/g)) calls.push(match[0]);
+				if (
+					line.includes('"role":"toolResult"') &&
+					(line.includes("Verdict") || line.includes("(saved, not open)"))
+				)
+					results_.push(line.slice(0, 2000));
+			}
+		}
+		results.push({ case: "judge, saved read, reopen", calls, summary, cost, toolResults: results_ });
+		console.log(`[real-agent-control] judge+saved spent $${cost.usd.toFixed(4)}, ${cost.tokens} tokens`);
+		for (const tool of ["ompdesk_session_open", "ompdesk_compare", "ompdesk_sessions", "ompdesk_session_read"])
+			expect(calls).toContain(tool);
+		expect(results_.some(line => line.includes("Verdict") && line.includes("Winner:"))).toBe(true);
+		expect(results_.some(line => line.includes("(saved, not open)") && line.includes("BETA"))).toBe(true);
+		expect(summary).toMatch(/BETA/);
+	} finally {
+		await exitApp(app);
+		await fs.rm(real.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});

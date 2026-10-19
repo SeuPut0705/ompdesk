@@ -1627,10 +1627,19 @@ describe("ompdesk_sessions scopes", () => {
 			storedRow({}),
 			storedRow({ id: "22222222-bbbb", path: "/s/p/two.jsonl", title: "Secret", hidden: true }),
 			storedRow({ id: "33333333-cccc", path: "C:/s/three.jsonl", title: "PC refactor", device: desktop.id }),
+			storedRow({
+				id: "55555555-eeee",
+				path: "/s/p/five.jsonl",
+				title: "",
+				firstMessage: wrapAgentMessage("Title: Fix the importer\nTarget: src/import", "Boss"),
+			}),
 		];
 		const service = control(host);
 		const local = (await service.run("main0001", T.list, { scope: "stored" })).text;
-		expect(local).toContain("2 sessions saved on this computer");
+		expect(local).toContain("3 sessions saved on this computer");
+		// An untitled session an agent opened reads as its task, never as the raw agent-message wrapper.
+		expect(local).toContain('55555555-eeee "Fix the importer"');
+		expect(local).not.toContain("ompdesk-agent-message");
 		expect(local).toContain('11111111-aaaa "Old parser work"');
 		expect(local).toContain("22222222-bbbb (hidden from agents by the user)");
 		expect(local).not.toContain("Secret");

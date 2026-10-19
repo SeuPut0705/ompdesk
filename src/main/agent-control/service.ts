@@ -346,6 +346,11 @@ function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
 	return `todos ${done}/${tasks.length} done${current ? ` (now: ${oneLine(current.content, 80)})` : ""}`;
 }
 
+/** A saved session's name: its title, else the task an agent opened it for, else its first message. */
+function storedTitle(row: Pick<StoredSession, "title" | "firstMessage">): string {
+	return row.title || agentTaskTitle(row.firstMessage) || row.firstMessage || "(untitled)";
+}
+
 function label(tab: ControlTab): string {
 	if (tab.hidden) return `${tab.tabId} (hidden from agents)`;
 	const folder = tab.cwd.split(/[\\/]/).filter(Boolean).pop() ?? tab.cwd;
@@ -971,7 +976,7 @@ export class AgentControl {
 		for (const row of rows) this.#stored.set(row.id, row);
 		const lines = rows.slice(0, limit).map(row => {
 			if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
-			const title = row.title || oneLine(row.firstMessage, 80) || "(untitled)";
+			const title = storedTitle(row);
 			const open = row.tabId ? `; open in tab ${row.tabId}` : "";
 			const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
 			return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}; changed ${row.modified}${open}${hit}`;
@@ -1331,7 +1336,7 @@ export class AgentControl {
 		if (!Number.isInteger(end) || end < 0 || end > messages.length)
 			fail(`"${args.before}" is not a cursor of this session; use the one a previous page returned.`);
 		const start = Math.max(0, end - limit);
-		const title = `"${oneLine(row.title || row.firstMessage || "(untitled)", 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}${row.tabId ? `, open in tab ${row.tabId}` : ", not open"})`;
+		const title = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}${row.tabId ? `, open in tab ${row.tabId}` : ", not open"})`;
 		return renderPage(title, row.id, messages.slice(start, end), messages.length, start > 0 ? String(start) : null);
 	}
 
@@ -1483,9 +1488,7 @@ export class AgentControl {
 		if (open) this.#refuseHidden(target, caller);
 		else if (target.hidden) fail("The user hid a session you asked to compare from other agents.");
 		const id = open ? target.tabId : target.id;
-		const name = open
-			? label(target)
-			: `"${oneLine(target.title || target.firstMessage || "(untitled)", 80)}" (saved)`;
+		const name = open ? label(target) : `"${oneLine(storedTitle(target), 80)}" (saved)`;
 		let messages: readonly AgentMessage[] = [];
 		let state = "saved, not open";
 		let answer: string | null = null;
