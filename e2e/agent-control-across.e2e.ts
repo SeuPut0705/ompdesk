@@ -9,8 +9,8 @@ import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } fro
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
 // sessions read and reopened without a tab, a judged compare of two sessions, and sessions on a paired device: one
 // opened there whose prompt runs on that device's omp, whose saved transcript is read back (paged), reopened after its
-// tab closed and deleted by its saved id; and one that is shown, notifies and reports to its opener across the link.
-// The fake omp calls
+// tab closed and deleted by its saved id; one that is shown, notifies and reports to its opener across the link; and a
+// schedule created, listed and cancelled there, kept in that device's own schedules.json. The fake omp calls
 // a tool with `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets; its judge
 // (`agent_control.judge`) ranks the sessions in evidence order. The rules behind each answer are unit-tested in
 // src/main/agent-control/service.test.ts and host.test.ts.
@@ -261,5 +261,75 @@ test.describe("on a paired device", () => {
 		await expect(app.page.locator("[data-agent-mail='done']").filter({ hasText: "Finished on PC-B" })).toBeVisible({
 			timeout: 30_000,
 		});
+	});
+
+	test("creates, lists and cancels a schedule on a paired device, which keeps and runs it", async () => {
+		test.setTimeout(180_000);
+		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
+		const clientProfile = await makeRemoteProfile(parent, "client", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+			prefs: { batchNotifications: false },
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await connectHost(host.page, client.page, "PC-B");
+		await expect
+			.poll(async () => (await client?.page.evaluate(() => window.omp.remote.getState()))?.hosts[0]?.state, {
+				timeout: 30_000,
+			})
+			.toBe("online");
+		const call = await caller(client.page, clientProfile.record);
+		const hostSchedules = async (): Promise<unknown[]> => {
+			const saved: unknown = JSON.parse(
+				await fs.readFile(path.join(hostProfile.desktop, "schedules.json"), "utf8").catch(() => "{}"),
+			);
+			return typeof saved === "object" && saved !== null && "schedules" in saved && Array.isArray(saved.schedules)
+				? saved.schedules
+				: [];
+		};
+		// Settings › Schedules of a tab on the host hears the host's own changes: each push's count, in order.
+		await client.page.evaluate(id => {
+			window.omp.schedules.onHostState((from, state) => {
+				if (from !== id) return;
+				document.body.dataset.schedulePushes = `${document.body.dataset.schedulePushes ?? ""}${state.schedules.length}`;
+			});
+		}, deviceId);
+
+		const created = await call("ompdesk_schedule", {
+			action: "create",
+			device: "PC-B",
+			name: "nightly",
+			prompt: "Say OK.",
+			every_minutes: 60,
+			folder: hostProfile.project,
+		});
+		expect(created.isError, created.text).toBe(false);
+		expect(created.text).toContain("on PC-B");
+		const id = /; id (\S+);/.exec(created.text)?.[1] ?? "";
+		// The host keeps it in its own schedules.json and runs it; this computer has none.
+		await expect
+			.poll(hostSchedules)
+			.toEqual([
+				expect.objectContaining({ id, name: "[agent] nightly", cwd: hostProfile.project, autoApprove: false }),
+			]);
+		expect(
+			await fs.readFile(path.join(clientProfile.desktop, "schedules.json"), "utf8").catch(() => ""),
+		).not.toContain(id);
+
+		const listed = await call("ompdesk_schedule", { action: "list", device: "PC-B" });
+		expect(listed.text).toContain(`Scheduled runs on PC-B:\n- ${id} “[agent] nightly” every 60 min`);
+		// Settings reads the same list from the host through the device-routed channel.
+		const settings = await client.page.evaluate(
+			device => window.omp.schedules.command({ action: "get" }, device),
+			deviceId,
+		);
+		expect(settings.schedules.map(schedule => schedule.id)).toEqual([id]);
+
+		const cancelled = await call("ompdesk_schedule", { action: "cancel", id, device: "PC-B" });
+		expect(cancelled.text).toBe("Cancelled “[agent] nightly” on PC-B.");
+		await expect.poll(hostSchedules).toEqual([]);
+		await expect.poll(() => client?.page.evaluate(() => document.body.dataset.schedulePushes)).toMatch(/1.*0$/);
 	});
 });
