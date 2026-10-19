@@ -16,6 +16,10 @@
 - `agent_power.set` (`switch`, plus `on` or, for `tools.approvalMode`, `mode`): the switches that bound your own power (control tools, full control, manage, approve, approval mode, memory, engineering mode, computer use). Only under full control; refused otherwise, and then the user changes them in Settings (`ui.settings_open` opens the right section). Change one only when the user asked.
 - `never`: secrets and tokens, and answering a card, whatever the switches say. The list shows these with the reason.
 
+## Which computer
+
+A session that runs on a paired host acts on that host exactly as the Settings page does while that tab is focused. Stock settings, models, usage, plugins and MCP servers already go to the host's omp. `settings.rotation` and `settings.builtinRea` read and write the host's own value (`settings.get` shows it), and `sessions.saved`, `sessions.search`, `sessions.rename` and `sessions.delete` work on the host's saved sessions. `updates.status`, `updates.check` and `updates.apply` stay on this computer's OMPdesk unless you pass `host: true`, which asks the paired host's OMPdesk instead (`updates.apply` refuses while work runs there, yours included). Everything else is this device's own: its look, notifications, proxy, update switches, memory, Tailscale and phone-page sharing.
+
 ## Sign-in
 
 `accounts.github_sign_in` and `accounts.provider_sign_in` only start the existing flow. The user finishes it in the window; you never see a credential. Check `accounts.github_status` afterwards.
