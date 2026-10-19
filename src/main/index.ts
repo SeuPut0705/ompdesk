@@ -728,6 +728,8 @@ app.whenReady().then(() => {
 		machine,
 		localTabs: sidecarPool,
 		trashItem: abs => shell.trashItem(abs),
+		// Autopilot runs paired devices started here, charged to them until they end (remote/hosted-autopilot.ts).
+		runChargesFile: join(app.getPath("userData"), "autopilot-device-runs.json"),
 	});
 	let hostOmpVersion: string | null = null;
 	void systemOmp().then(resolution => {

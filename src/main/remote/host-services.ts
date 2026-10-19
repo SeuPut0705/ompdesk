@@ -123,6 +123,7 @@ import { HostedTabView, labelForHost } from "./hosted-view";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
+import { readJson, writeSecureJson } from "./secure-file";
 
 /** How long a disconnected device's tabs keep running, waiting for it to come back. */
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
@@ -167,6 +168,11 @@ export interface HostServicesDeps {
 	graceMs?: number;
 	/** Names a worktree a device's agent makes here (`host.git.worktreeCreate`); default the stock helper's. */
 	worktreeLocation?: Pick<BridgeClient, "request">;
+	/**
+	 * Where the Autopilot runs devices started here are kept (run worktree root → deviceId), so a run that resumes
+	 * after this computer restarts still spends its device's quota. Absent: kept in memory only.
+	 */
+	runChargesFile?: string;
 }
 
 /** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`), like a local tab's. */
@@ -217,6 +223,8 @@ interface HostTab extends RunTracking {
 export interface HostedAutopilotTarget {
 	/** The tab's resume id: the coordinator's tab id for a run started from it. */
 	tabId: string;
+	/** The device the tab runs for: a run started from it is charged to it. */
+	peer: string;
 	sidecar: SidecarLike;
 	/** The session file the tab is on, if any. */
 	sessionPath?: string;
@@ -303,6 +311,9 @@ const GitWorktreeCreateParams = z.object({
 	branchPrefix: z.string().max(200).optional(),
 	baseRef: z.enum(["HEAD", "default"]),
 });
+/** `runChargesFile`: Autopilot runs devices started here, by worktree root (the run's session, when known). */
+const RunChargesSchema = z.record(z.object({ device: z.string().min(1), session: z.string().optional() }).strict());
+type RunCharge = z.infer<typeof RunChargesSchema>[string];
 
 function parse<T extends z.ZodTypeAny>(schema: T, method: string, params: unknown): z.infer<T> {
 	const parsed = schema.safeParse(params ?? {});
@@ -355,6 +366,8 @@ export class LocalHostServices implements HostServices {
 	#quota: PeerQuota | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
+	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
+	#runCharges: Map<string, RunCharge> | null = null;
 
 	constructor(deps: HostServicesDeps) {
 		this.#deps = deps;
@@ -402,6 +415,51 @@ export class LocalHostServices implements HostServices {
 	/** A device tab's sidecar by its resume id (the coordinator reads a start's source tab through it). */
 	sidecarOf(id: string): SidecarLike | null {
 		return this.#byResumeId(id)?.sidecar ?? null;
+	}
+
+	#charges(): Map<string, RunCharge> {
+		if (this.#runCharges) return this.#runCharges;
+		const file = this.#deps.runChargesFile;
+		const stored = RunChargesSchema.safeParse(file ? readJson(file) : undefined);
+		this.#runCharges = new Map(stored.success ? Object.entries(stored.data) : []);
+		return this.#runCharges;
+	}
+
+	#saveCharges(): void {
+		const file = this.#deps.runChargesFile;
+		if (file) writeSecureJson(file, Object.fromEntries(this.#charges()));
+	}
+
+	/**
+	 * A device started an Autopilot run here (hosted-autopilot.ts). The run is a tab of this computer's window, not
+	 * the device's tab, so its turns would spend this computer's models outside the device's quota: until it ends,
+	 * every reply of the run and its children counts against the device (`runEvents`), whether or not the device
+	 * still shows it. A device tab viewing the run's session (`session`) counts nothing of it, so no reply counts twice.
+	 */
+	chargeRun(root: string, deviceId: string, session?: string): void {
+		this.#charges().set(root, { device: deviceId, ...(session ? { session } : {}) });
+		this.#saveCharges();
+	}
+
+	/** Events of a tab of the Autopilot run at `root` (the run or one of its children): its replies' tokens. */
+	runEvents(root: string, events: readonly AgentSessionEvent[]): void {
+		const charge = this.#charges().get(root);
+		if (!charge) return;
+		let tokens = 0;
+		for (const event of events) tokens += assistantTokens(event);
+		if (tokens > 0) this.#quota?.record(charge.device, { tokens });
+	}
+
+	/** The run at `root` ended: nothing of it counts any more. */
+	endRun(root: string): void {
+		if (this.#charges().delete(root)) this.#saveCharges();
+	}
+
+	/** A charged run's session: its replies count through `runEvents`, never through a device tab viewing it. */
+	#chargedSession(sessionPath: string | undefined): boolean {
+		if (!sessionPath) return false;
+		for (const charge of this.#charges().values()) if (charge.session === sessionPath) return true;
+		return false;
 	}
 
 	/** The resume rules' inputs for the tabs this computer runs for paired devices. */
@@ -1162,6 +1220,8 @@ export class LocalHostServices implements HostServices {
 				for (const event of events) if (trackRunEvent(tab, event) || event.type === "auto_retry_start") news = true;
 				return news;
 			});
+			// A device's view of an Autopilot run it started here counts nothing: the run itself is charged (`runEvents`).
+			if (tab.viewsWindow && this.#chargedSession(tab.sessionFile)) return;
 			let tokens = 0;
 			for (const event of events) tokens += assistantTokens(event);
 			if (tokens > 0) this.#quota?.record(tab.peerId, { tokens });
@@ -1311,6 +1371,7 @@ export class LocalHostServices implements HostServices {
 			return this.#autopilot(
 				{
 					tabId: tab.resumeId,
+					peer: tab.peerId,
 					sidecar: tab.sidecar,
 					...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
 					viewsWindow: tab.viewsWindow === true,

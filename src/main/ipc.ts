@@ -90,7 +90,7 @@ import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from 
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
-import type { RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
+import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type SchedulesRequest } from "../shared/schedules";
 import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
@@ -183,7 +183,14 @@ export interface IpcDeps {
 	 */
 	hostedTabs: Pick<
 		LocalHostServices,
-		"viewSession" | "hostedSessions" | "onHostedSessionsChange" | "sidecarOf" | "attachAutopilot"
+		| "viewSession"
+		| "hostedSessions"
+		| "onHostedSessionsChange"
+		| "sidecarOf"
+		| "attachAutopilot"
+		| "chargeRun"
+		| "runEvents"
+		| "endRun"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
@@ -898,6 +905,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			);
 		},
 		text: (key, params) => mainT(key, undefined, params),
+		// A run a paired device started stops counting against that device once it ends (hosted-autopilot.ts).
+		runEnded: root => deps.hostedTabs.endRun(root),
 		relaunchContinuation: deps.relaunchContinuation,
 	});
 	deps.autopilotRef.current = autopilot;
@@ -906,6 +915,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		hostedAutopilot({
 			pool: sidecarPool,
 			targetWindow: () => windowManager.getTargetWindow(),
+			charge: (root, peer, session) => deps.hostedTabs.chargeRun(root, peer, session),
 			handle: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
 		}),
 	);
@@ -918,6 +928,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sidecarPool.onAcquire = (tabId, sidecar) => {
 		autopilot.attachSidecar(tabId, sidecar);
 		desktopSlot.attachSidecar(tabId, sidecar);
+		// A run a paired device started here (or one of its children) spends that device's quota with every reply.
+		sidecar.on("events", (events: AgentSessionEvent[]) => {
+			const root = autopilot.runRootOf(tabId);
+			if (root) deps.hostedTabs.runEvents(root, events);
+		});
 	};
 	sidecarPool.observeTabs(activity => {
 		autopilot.observeActivity(activity);

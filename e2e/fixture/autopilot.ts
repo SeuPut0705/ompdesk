@@ -807,6 +807,8 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					process.env.OMP_GUI_README_SCENE
 						? `Cycle ${n} (${cs.title ?? "done"}): audited the area, fixed the top finding, tests green, committed.`
 						: `Autopilot cycle ${n}: ${cs.title ?? "done"}`,
+					// Stock's reply carries its usage: the cycle's tokens (a paired device's quota counts them).
+					{ usage: { totalTokens: cs.tokens ?? 1_200 } },
 				);
 			}
 			await sleep(Math.round(cycleMs * 0.3), ctl);

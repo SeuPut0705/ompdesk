@@ -251,7 +251,7 @@ const PROVIDER_VIEW: CustomProviderView = {
 	builtin: false,
 };
 
-function setup(graceMs = 60_000, worktreeLocation?: HostServicesDeps["worktreeLocation"]) {
+function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 	const sidecars: FakeHostSidecar[] = [];
 	const origins: PromptOriginEnv[] = [];
 	const machine = fakeMachine();
@@ -283,7 +283,7 @@ function setup(graceMs = 60_000, worktreeLocation?: HostServicesDeps["worktreeLo
 		localTabs: local.localTabs,
 		trashItem: async () => {},
 		graceMs,
-		worktreeLocation,
+		...extra,
 	});
 	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine };
 }
@@ -1774,6 +1774,79 @@ describe("LocalHostServices: Autopilot of a device's tab", () => {
 		);
 		expect(targets).toEqual([{ sessionPath: "/s/run.jsonl", viewsWindow: true }]);
 		expect(view.commands).toEqual([]);
+	});
+
+	it("charges an Autopilot run a device started here for its reply tokens until it ends, across a relaunch", async () => {
+		const file = join(workDir, "autopilot-device-runs.json");
+		const stored = new Map<string, PeerInfo>([["device-x", peer("device-x")]]);
+		const quota = () =>
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			);
+		const reply = (tokens: number) => [
+			{ type: "message_end", message: { role: "assistant", usage: { totalTokens: tokens } } },
+			{ type: "message_end", message: { role: "user" } },
+		];
+		const first = setup(60_000, { runChargesFile: file }).services;
+		first.attachQuota(quota());
+		first.chargeRun("/wt/run", "device-x");
+		first.runEvents("/wt/run", reply(500) as never);
+		first.runEvents("/wt/other", reply(9_000) as never);
+		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 500 });
+
+		// This computer restarted: the run resumes from its layout and is still the device's.
+		const second = setup(60_000, { runChargesFile: file }).services;
+		second.attachQuota(quota());
+		second.runEvents("/wt/run", reply(300) as never);
+		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 800 });
+		second.endRun("/wt/run");
+		second.runEvents("/wt/run", reply(300) as never);
+		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 800 });
+		const third = setup(60_000, { runChargesFile: file }).services;
+		third.attachQuota(quota());
+		third.runEvents("/wt/run", reply(300) as never);
+		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 800 });
+	});
+
+	it("counts a run's reply once while the device views it: through the run, not the device's view", async () => {
+		const context = setup();
+		const stored = new Map<string, PeerInfo>([["device-x", peer("device-x")]]);
+		context.services.attachQuota(
+			new PeerQuota(
+				{
+					get: id => stored.get(id),
+					update: (id, patch) => {
+						const current = stored.get(id);
+						if (!current) return undefined;
+						const next = { ...current, ...patch };
+						stored.set(id, next);
+						return next;
+					},
+				},
+				() => {},
+			),
+		);
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set("/s/run.jsonl", view);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/run.jsonl" }, x);
+		context.services.chargeRun("/wt/run", "device-x", "/s/run.jsonl");
+		const reply = [{ type: "message_end", message: { role: "assistant", usage: { totalTokens: 700 } } }];
+		// The window's omp streams one reply: the device's view hears it, and so does the run's own listener.
+		view.emit("events", reply);
+		context.services.runEvents("/wt/run", reply as never);
+		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 700 });
 	});
 });
 

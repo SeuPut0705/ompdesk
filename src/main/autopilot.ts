@@ -153,6 +153,8 @@ export interface AutopilotDeps {
 	/** An OS notification about a tab (batched by notification-batch.ts); the coordinator applies the user's mode. */
 	notify(tabId: string, notice: AutopilotNotice): void;
 	text(key: MainTextKey, params?: Record<string, string | number>): string;
+	/** A run ended (not paused): what it spent stops counting for whoever it is charged to (a paired device). */
+	runEnded?(root: string): void;
 	/** `gh run view <url> --json status,conclusion`; null when it cannot be read. Default: the installed gh. */
 	ghRun?(cwd: string, url: string): Promise<{ status: string; conclusion: string | null } | null>;
 	/** Default: the PR Center's own `prCreate` (gh). */
@@ -864,6 +866,11 @@ export class Autopilot {
 		return this.#runs.get(callerTabId)?.stopping === true;
 	}
 
+	/** The worktree of the run `tabId` is, or whose child it is; undefined for any other tab. */
+	runRootOf(tabId: string): string | undefined {
+		const parent = this.#childRuns.get(tabId)?.parentTab ?? tabId;
+		return this.#runs.get(parent)?.root;
+	}
 	async #resume(run: Run): Promise<void> {
 		run.stopping = false;
 		const status = await this.#fetchStatus(run);
@@ -1216,6 +1223,7 @@ export class Autopilot {
 		);
 		this.#notifyEnded(run, reason);
 		this.#runs.delete(run.tabId);
+		this.#deps.runEnded?.(run.root);
 	}
 
 	// ----------------------------------------------------------------------------------------

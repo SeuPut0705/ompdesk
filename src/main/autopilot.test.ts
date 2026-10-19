@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
+	AUTOPILOT_CHILD_TAG,
 	AUTOPILOT_OBJECTIVE,
 	type AutopilotArmParams,
 	type AutopilotBranchChoice,
@@ -175,6 +176,7 @@ let main = "";
 let remote = "";
 let world: World;
 let notices: AutopilotNotice[];
+let endedRoots: string[];
 let polls: Array<{ run: () => void; stopped: boolean }>;
 let afters: Array<() => void>;
 let releaseState: { status: string; conclusion: string | null } | null;
@@ -250,6 +252,9 @@ function build(
 			notices.push(notice);
 		},
 		text,
+		runEnded: root => {
+			endedRoots.push(root);
+		},
 		ghRun: async () => releaseState,
 		prCreate: async () => ({ url: "https://github.com/o/r/pull/1", number: 1 }),
 		relaunchContinuation: () => over.relaunch ?? "now",
@@ -325,6 +330,7 @@ beforeEach(async () => {
 	gitSync(main, "remote", "set-url", "origin", remote);
 	world = new World();
 	notices = [];
+	endedRoots = [];
 	polls = [];
 	afters = [];
 	releaseState = null;
@@ -907,6 +913,22 @@ describe("stop", () => {
 		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.disarm)).toHaveLength(1);
 		expect(notices).toEqual([expect.objectContaining({ kind: "completion", title: "Autopilot ended" })]);
 		expect(autopilot.isStopping("ap-1")).toBe(false);
+	});
+
+	it("names the run's worktree for its tab and its children's, and says when the run ends", async () => {
+		await start();
+		const root = (await autopilot.status(world.sidecars.get("ap-1") as unknown as SidecarLike, "ap-1")).root;
+		expect(root).toBeTruthy();
+		expect(autopilot.runRootOf("ap-1")).toBe(root);
+		expect(autopilot.runRootOf("parent")).toBeUndefined();
+		world.addTab("child-1", main);
+		await autopilot.beforeFirstPrompt({ tabId: "child-1", callerTabId: "ap-1", tag: AUTOPILOT_CHILD_TAG });
+		expect(autopilot.runRootOf("child-1")).toBe(root);
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		await autopilot.handleCommand(win, sidecar, "ap-1", { type: "set_autopilot", action: "stop" }, "2");
+		await autopilot.idle();
+		expect(endedRoots).toEqual([root]);
+		expect(autopilot.runRootOf("ap-1")).toBeUndefined();
 	});
 
 	it("a run mid-turn keeps going until the bridge says the last turn settled", async () => {

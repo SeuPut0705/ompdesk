@@ -110,6 +110,10 @@ test("runs Autopilot in a paired device's repository and changes that device's s
 	expect(git(repo, "branch", "--list", "autopilot/*")).toMatch(/autopilot\//);
 	expect(autopilotFrames(await readRecords(hostProfile.record))).toBeGreaterThan(0);
 	expect(autopilotFrames(await readRecords(clientProfile.record))).toBe(0);
+	// B counts the run's replies against A's daily quota (B's view of A: its peer record).
+	const peerTokens = async () =>
+		(await host?.page.evaluate(() => window.omp.remote.getState()))?.host.peers[0]?.usage.tokens ?? 0;
+	expect(await peerTokens()).toBeGreaterThan(0);
 
 	const stopped = await call("ompdesk_autopilot", { action: "stop", session: runId });
 	expect(stopped.isError, stopped.text).toBe(false);
@@ -119,6 +123,18 @@ test("runs Autopilot in a paired device's repository and changes that device's s
 			timeout: 90_000,
 		})
 		.toMatch(/: ended/);
+
+	// A's tab only shows a run: closing it leaves the run going on B, and its cycles still count against A.
+	const second = await call("ompdesk_autopilot", { action: "start", device: "PC-B", folder: repo, ship: "commit" });
+	expect(second.isError, second.text).toBe(false);
+	const viewId = /Started Autopilot in session (\w+)/.exec(second.text)?.[1] ?? "";
+	expect(viewId).not.toBe("");
+	await client.page.evaluate(id => window.omp.tabs.close(id), viewId);
+	await expect
+		.poll(async () => (await client?.page.evaluate(() => window.omp.tabs.list()))?.some(tab => tab.tabId === viewId))
+		.toBe(false);
+	const closedAt = await peerTokens();
+	await expect.poll(peerTokens, { timeout: 60_000 }).toBeGreaterThan(closedAt);
 
 	// A session of A's that runs on B: its agent's ompdesk_app reaches B's account rotation, not A's.
 	const before = await client.page.evaluate(() => window.omp.accountRotation.get());
