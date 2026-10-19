@@ -11,6 +11,10 @@
  *   LSP formatting on write, the ast_grep tool and the advisor.
  * - `title.icons` = `boring` (stock: `nf+emoji`): session titles are plain text,
  *   with no icon and code card and no extra title-model request for one.
+ * - `async.widgets` off (stock: on, omp ≥ 18.12.3): stock writes each background
+ *   job's live widget with a `widget`-role model call once anything views the job,
+ *   and the GUI's jobs poll (stock `inspectAsyncJob`, which always views) does, for
+ *   widgets the GUI never draws (bridge-job-widgets-stock.test.ts).
  *
  * All are runtime overrides on the omp process's Settings: never written to
  * config.yml, so the omp CLI outside OMPdesk keeps stock behavior.
@@ -47,6 +51,8 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"advisor.enabled": true,
 	// Plain session titles: no icon/code card, and no card request to the title model.
 	"title.icons": "boring",
+	// Stock's live job widgets cost a model call per job the GUI's jobs poll views; the GUI never draws them.
+	"async.widgets": false,
 };
 
 /** Settings stock soft-pins to their default for RPC hosts (`protocolDefault: ["rpc", "acp"]`). */

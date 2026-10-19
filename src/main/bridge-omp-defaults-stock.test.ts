@@ -30,6 +30,7 @@ const HELD: Readonly<Record<string, readonly [held: unknown, written: unknown]>>
 	"computer.enabled": [true, false],
 	"advisor.enabled": [true, false],
 	"title.icons": ["boring", "emoji"],
+	"async.widgets": [false, true],
 };
 const UNHELD = [
 	"telemetry.otlpExportEnabled",
