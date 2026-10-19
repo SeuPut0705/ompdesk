@@ -13458,7 +13458,9 @@ fn is_handoff_candidate(h: &Handoff, cwd_filter: Option<&str>, owner_filter: &Ow
 
 /// Whether an automatic handoff is eligible for a session starting in
 /// `cwd_filter`. Shared with the acceptance path so selection and supersession
-/// apply exactly the same path-boundary rule.
+/// apply exactly the same rule: the same folder (normalized), never a parent,
+/// a subfolder or another worktree of the project, whose session is other
+/// work.
 pub(crate) fn auto_handoff_matches_cwd(
     handoff_cwd: Option<&str>,
     cwd_filter: Option<&str>,
@@ -13468,8 +13470,9 @@ pub(crate) fn auto_handoff_matches_cwd(
         (None, _) => true,
         // No stored cwd: treat as project-wide.
         (_, None) => true,
-        // cwd-bearing auto handoffs match by path-boundary.
-        (Some(session_cwd), Some(handoff_cwd)) => cwd_within(handoff_cwd, session_cwd),
+        (Some(session_cwd), Some(handoff_cwd)) => {
+            normalize_cwd(handoff_cwd) == normalize_cwd(session_cwd)
+        }
     }
 }
 
@@ -14282,6 +14285,27 @@ mod tests {
             .map_or_else(|| "—".to_string(), |h| h.content.summary)
     }
 
+    /// An automatic handoff belongs to the folder its session ran in: a
+    /// session in a subfolder, a parent or another worktree of the same
+    /// project never claims it (the measured 12 of 14 wrong-topic batons
+    /// were project-wide claims).
+    #[test]
+    fn auto_handoff_matches_only_its_own_folder() {
+        use super::auto_handoff_matches_cwd as matches;
+        assert!(matches(Some("/repo"), Some("/repo")));
+        assert!(matches(Some("/repo/"), Some("/repo")));
+        assert!(matches(Some(r"C:\repo"), Some(r"c:\repo\")));
+        assert!(!matches(Some("/repo"), Some("/repo/api")));
+        assert!(!matches(Some("/repo/api"), Some("/repo")));
+        assert!(!matches(
+            Some("/repo"),
+            Some("/Users/me/.omp/wt/gui-agent-x-1234567")
+        ));
+        // No stored cwd, or a project-wide read: unchanged.
+        assert!(matches(None, Some("/repo")));
+        assert!(matches(Some("/repo"), None));
+    }
+
     #[test]
     fn cwd_within_respects_component_boundaries() {
         use super::cwd_within;
@@ -14339,9 +14363,9 @@ mod tests {
     }
 
     #[test]
-    fn handoff_auto_reaches_subdir() {
+    fn handoff_auto_stays_in_its_folder() {
         let c = vec![handoff("auto", Some("/repo"), false, 1)];
-        assert_eq!(pick(c, Some("/repo/api")), "auto");
+        assert_eq!(pick(c, Some("/repo/api")), "—");
     }
 
     #[test]
@@ -14418,21 +14442,12 @@ mod tests {
     }
 
     #[test]
-    fn handoff_newer_parent_beats_stale_specific_ancestor() {
-        let c = vec![
-            handoff("a", Some("/a"), false, 2),
-            handoff("ab", Some("/a/b"), false, 1),
-        ];
-        assert_eq!(pick(c, Some("/a/b/c")), "a");
-    }
-
-    #[test]
     fn handoff_legacy_trailing_slash_does_not_beat_newer_equivalent_auto() {
         let c = vec![
             handoff("old-slash", Some("/repo/"), false, 1),
             handoff("new-no-slash", Some("/repo"), false, 2),
         ];
-        assert_eq!(pick(c, Some("/repo/api")), "new-no-slash");
+        assert_eq!(pick(c, Some("/repo")), "new-no-slash");
     }
 
     #[test]
@@ -14442,8 +14457,9 @@ mod tests {
             handoff("underscore", Some("/repo/_x"), false, 3),
             handoff("repo", Some("/repo"), false, 1),
         ];
-        assert_eq!(pick(c.clone(), Some("/repo/abc")), "repo");
-        assert_eq!(pick(c, Some("/repo/ax")), "repo");
+        assert_eq!(pick(c.clone(), Some("/repo/%")), "percent");
+        assert_eq!(pick(c.clone(), Some("/repo/_x")), "underscore");
+        assert_eq!(pick(c, Some("/repo/ax")), "—");
     }
 
     #[test]
@@ -14531,7 +14547,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn accepting_newest_auto_expires_only_older_matching_autos() {
+    async fn accepting_an_auto_handoff_leaves_other_folders_open() {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = Store::open(tmp.path()).unwrap();
         let ws = store
@@ -14605,23 +14621,25 @@ mod tests {
             "a newer auto from the exact cwd must bound pre-accept accumulation"
         );
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        let newest_parent = insert_auto(&store, ws, proj, "/repo", "newest parent").await;
+        let parent = insert_auto(&store, ws, proj, "/repo", "newest parent").await;
         let sibling = insert_auto(&store, ws, proj, "/repo/web", "sibling").await;
 
+        // Only the receiving folder's own baton is eligible, however new the
+        // parent's or a sibling's is.
         let selected = store
             .reader
             .latest_open_handoff(
                 ws,
                 proj,
-                Some("/repo/api/src".into()),
+                Some("/repo/api/".into()),
                 ai_memory_core::OwnerFilter::Any,
             )
             .await
             .unwrap()
             .unwrap();
         assert_eq!(
-            selected.scope.id, newest_parent,
-            "newest eligible auto must win"
+            selected.scope.id, stale_specific,
+            "the folder's own auto wins"
         );
 
         // A manual handoff appearing between selection and acceptance must not
@@ -14653,7 +14671,7 @@ mod tests {
                 accepting_session: None,
                 accepting_user: None,
                 owner_filter: ai_memory_core::OwnerFilter::Any,
-                receiving_cwd: Some("/repo/api/src".into()),
+                receiving_cwd: Some("/repo/api/".into()),
             })
             .await
             .unwrap();
@@ -14667,20 +14685,9 @@ mod tests {
                 .unwrap()
                 .lifecycle
                 .state,
-            HandoffState::Expired
-        );
-        assert_eq!(
-            store
-                .reader
-                .handoff_by_id(newest_parent)
-                .await
-                .unwrap()
-                .unwrap()
-                .lifecycle
-                .state,
             HandoffState::Accepted
         );
-        for untouched in [sibling, manual] {
+        for untouched in [parent, sibling, manual] {
             assert_eq!(
                 store
                     .reader

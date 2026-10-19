@@ -96,6 +96,15 @@ fn router(fx: &Fixture, profile: ProfileSettings) -> axum::Router {
     })
 }
 
+/// A server that turned the profile on (`enabled = "auto"`); the shipped
+/// default is off.
+fn profile_on() -> ProfileSettings {
+    ProfileSettings {
+        enabled: ProfileEnabled::Auto,
+        ..ProfileSettings::default()
+    }
+}
+
 async fn call(
     router: axum::Router,
     method: &str,
@@ -129,7 +138,7 @@ async fn rebuild_converges_and_review_reports_entries_and_waiting_habits() {
     prompt(&fx, "alpha", "I prefer tabs over spaces.").await;
 
     let (status, report) = call(
-        router(&fx, ProfileSettings::default()),
+        router(&fx, profile_on()),
         "POST",
         "/admin/profile/rebuild",
         AuthLevel::Anonymous,
@@ -140,7 +149,7 @@ async fn rebuild_converges_and_review_reports_entries_and_waiting_habits() {
     assert_eq!(report["entries_written"], 1, "{report}");
 
     let (status, review) = call(
-        router(&fx, ProfileSettings::default()),
+        router(&fx, profile_on()),
         "GET",
         "/admin/profile/review",
         AuthLevel::Anonymous,
@@ -161,7 +170,7 @@ async fn rebuild_converges_and_review_reports_entries_and_waiting_habits() {
 
     // Repeating the rebuild is safe: nothing new, nothing rewritten.
     let (_, again) = call(
-        router(&fx, ProfileSettings::default()),
+        router(&fx, profile_on()),
         "POST",
         "/admin/profile/rebuild",
         AuthLevel::Anonymous,
@@ -229,7 +238,7 @@ async fn apply_lists_the_lines_for_a_project_and_honours_consume() {
     )
     .await;
     let (status, report) = call(
-        router(&fx, ProfileSettings::default()),
+        router(&fx, profile_on()),
         "POST",
         "/admin/profile/rebuild",
         AuthLevel::Anonymous,
@@ -238,7 +247,7 @@ async fn apply_lists_the_lines_for_a_project_and_honours_consume() {
     assert_eq!(status, StatusCode::OK, "{report}");
 
     let (status, body) = call(
-        router(&fx, ProfileSettings::default()),
+        router(&fx, profile_on()),
         "GET",
         "/admin/profile/apply?workspace=default&project=brand-new",
         AuthLevel::Anonymous,
@@ -258,7 +267,7 @@ async fn apply_lists_the_lines_for_a_project_and_honours_consume() {
 
     let capped = ProfileSettings {
         apply_max_lines: 1,
-        ..ProfileSettings::default()
+        ..profile_on()
     };
     let (_, body) = call(
         router(&fx, capped),
@@ -288,7 +297,7 @@ async fn apply_lists_the_lines_for_a_project_and_honours_consume() {
         .await
         .unwrap();
     let (_, body) = call(
-        router(&fx, ProfileSettings::default()),
+        router(&fx, profile_on()),
         "GET",
         "/admin/profile/apply?workspace=default&project=alpha",
         AuthLevel::Anonymous,

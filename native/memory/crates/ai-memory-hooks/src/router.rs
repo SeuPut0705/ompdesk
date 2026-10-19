@@ -6312,7 +6312,12 @@ pub(crate) mod tests {
             ingest_gates: IngestGates::default(),
             per_user_slots: false,
             mid_session_routing: MidSessionRouting::default(),
-            profile: ai_memory_core::profile::ProfileSettings::default(),
+            // The profile tests describe a server that turned the profile on;
+            // the shipped default is off (`the_default_config_injects_no_profile_block`).
+            profile: ai_memory_core::profile::ProfileSettings {
+                enabled: ai_memory_core::profile::ProfileEnabled::Auto,
+                ..ai_memory_core::profile::ProfileSettings::default()
+            },
             ingest_drop_list: crate::drop_list::IngestDropList::default(),
         }
     }
@@ -16106,7 +16111,7 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn session_start_passes_receiving_cwd_to_auto_handoff_cleanup() {
+    async fn session_start_claims_only_its_own_folders_handoff() {
         let tmp = TempDir::new().unwrap();
         let state = make_state(&tmp).await;
 
@@ -16151,9 +16156,9 @@ pub(crate) mod tests {
             id
         }
 
-        let stale = insert_auto(&state, "/repo/api", "STALE-SPECIFIC").await;
+        let own = insert_auto(&state, "/repo/api", "OWN-FOLDER").await;
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        let newest = insert_auto(&state, "/repo", "NEWEST-PARENT").await;
+        let parent = insert_auto(&state, "/repo", "NEWEST-PARENT").await;
         let rendered = fetch_and_accept_handoff(
             &state,
             HandoffQuery {
@@ -16161,7 +16166,7 @@ pub(crate) mod tests {
                 profile_consume: None,
                 profile_digest: None,
                 agent: Some("codex".into()),
-                cwd: Some("/repo/api/src".into()),
+                cwd: Some("/repo/api/".into()),
                 workspace: Some("default".into()),
                 project: Some("scratch".into()),
                 project_src: None,
@@ -16183,30 +16188,24 @@ pub(crate) mod tests {
         .unwrap()
         .unwrap();
 
-        assert!(rendered.contains("NEWEST-PARENT"));
-        assert!(!rendered.contains("STALE-SPECIFIC"));
-        assert_eq!(
-            state
-                .reader
-                .handoff_by_id(stale)
-                .await
-                .unwrap()
-                .unwrap()
-                .lifecycle
-                .state,
-            ai_memory_core::HandoffState::Expired
-        );
-        assert_eq!(
-            state
-                .reader
-                .handoff_by_id(newest)
-                .await
-                .unwrap()
-                .unwrap()
-                .lifecycle
-                .state,
-            ai_memory_core::HandoffState::Accepted
-        );
+        assert!(rendered.contains("OWN-FOLDER"));
+        assert!(!rendered.contains("NEWEST-PARENT"));
+        for (id, state_now) in [
+            (own, ai_memory_core::HandoffState::Accepted),
+            (parent, ai_memory_core::HandoffState::Open),
+        ] {
+            assert_eq!(
+                state
+                    .reader
+                    .handoff_by_id(id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .lifecycle
+                    .state,
+                state_now
+            );
+        }
     }
 
     #[tokio::test]
@@ -20946,6 +20945,18 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(
             session_start_text(&state, profile_query(cwd, "claude-code")).await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn the_default_config_injects_no_profile_block() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(&tmp).await;
+        state.profile = ai_memory_core::profile::ProfileSettings::default();
+        seed_global_profile(&state).await;
+        assert_eq!(
+            session_start_text(&state, profile_query("/home/u/app", "claude-code")).await,
             None
         );
     }

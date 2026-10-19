@@ -280,7 +280,7 @@ In `config.toml` (or `AI_MEMORY_PROFILE__<KEY>`, for example
 
 ```toml
 [profile]
-enabled = "auto"            # auto | true | false
+enabled = "auto"            # auto | true | false (default false in OMPdesk's build)
 share = "auto"              # auto | global | workspace | user | off
 min_projects = 2
 inject_on_session_start = true

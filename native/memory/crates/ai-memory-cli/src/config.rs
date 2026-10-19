@@ -614,10 +614,11 @@ pub struct Config {
     /// `[profile]` — the cross-project profile: how this user usually works,
     /// delivered to every project as defaults below the repository's rules
     /// file (`docs/design-cross-project-profile.md`,
-    /// `docs/cross-project-profile.md`). `enabled = "auto"` (the default)
-    /// turns it on for a single-operator server, shared across every
-    /// workspace, and leaves it off for a multi-user one. Settable via
-    /// `AI_MEMORY_PROFILE__<KEY>` (for example `AI_MEMORY_PROFILE__SHARE`).
+    /// `docs/cross-project-profile.md`). Off by default in OMPdesk's build;
+    /// `enabled = "auto"` turns it on for a single-operator server, shared
+    /// across every workspace, and leaves it off for a multi-user one.
+    /// Settable via `AI_MEMORY_PROFILE__<KEY>` (for example
+    /// `AI_MEMORY_PROFILE__SHARE`).
     pub profile: ai_memory_core::profile::ProfileSettings,
     /// Privacy-strip tuning. Built-in patterns always run; this section
     /// lets the operator extend or punch holes in them.
@@ -5394,17 +5395,26 @@ input_token_safety_margin = {margin}
     }
 
     #[test]
-    fn profile_defaults_are_auto_and_parse_from_file_and_env() {
+    fn profile_defaults_off_and_parses_from_file_and_env() {
         use ai_memory_core::profile::{EffectiveProfileShare, ProfileEnabled, ProfileShare};
+        // Off unless config.toml turns it on: its zero-LLM harvest filed a test
+        // description as "your usual choice" and injected it into every session.
         let defaults = Config::default().profile;
-        assert_eq!(defaults.enabled, ProfileEnabled::Auto);
+        assert_eq!(defaults.enabled, ProfileEnabled::Off);
         assert_eq!(defaults.share, ProfileShare::Auto);
-        assert!(defaults.inject_on_session_start);
+        assert_eq!(defaults.effective_share(false), None);
+        assert_eq!(defaults.effective_share(true), None);
         assert_eq!(
-            defaults.effective_share(false),
+            load_with_toml("").unwrap().profile.effective_share(false),
+            None
+        );
+        assert_eq!(
+            load_with_toml("[profile]\nenabled = \"auto\"\n")
+                .unwrap()
+                .profile
+                .effective_share(false),
             Some(EffectiveProfileShare::Global)
         );
-        assert_eq!(defaults.effective_share(true), None);
 
         let tmp = TempDir::new().unwrap();
         let cfg_path = tmp.path().join("config.toml");

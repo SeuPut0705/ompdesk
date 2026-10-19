@@ -16305,8 +16305,13 @@ mod tests {
             .await
             .unwrap();
         let wiki = Wiki::new(tmp.path(), store.writer.clone()).unwrap();
+        // A server that turned the profile on (the shipped default is off).
         let server = AiMemoryServer::new(store.reader.clone(), store.writer.clone(), ws, app)
-            .with_wiki(wiki);
+            .with_wiki(wiki)
+            .with_profile(ai_memory_core::profile::ProfileSettings {
+                enabled: ai_memory_core::profile::ProfileEnabled::Auto,
+                ..ai_memory_core::profile::ProfileSettings::default()
+            });
 
         server
             .memory_write_page(
@@ -16314,7 +16319,7 @@ mod tests {
                 OptionalParts(test_parts_default()),
             )
             .await
-            .expect("the default profile is on for a single operator");
+            .expect("a profile turned on is on for a single operator");
         let mut other = profile_entry("notes/standing.md", Some("global"));
         other.body = "# Standing\n\nprofileverify a global note".into();
         server
@@ -16395,7 +16400,11 @@ mod tests {
             .unwrap();
         let wiki = Wiki::new(tmp.path(), store.writer.clone()).unwrap();
         let server = AiMemoryServer::new(store.reader.clone(), store.writer.clone(), ws, app)
-            .with_wiki(wiki.clone());
+            .with_wiki(wiki.clone())
+            .with_profile(ai_memory_core::profile::ProfileSettings {
+                enabled: ai_memory_core::profile::ProfileEnabled::Auto,
+                ..ai_memory_core::profile::ProfileSettings::default()
+            });
         let with_fields = |applies_to: &[&str], enforced_by: Option<&str>| {
             let mut args = profile_entry("style/types.md", Some("profile"));
             args.metadata.applies_to = applies_to.iter().map(|t| (*t).to_owned()).collect();

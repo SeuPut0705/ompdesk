@@ -48,16 +48,18 @@ pub fn is_reserved_scope_project(name: &str) -> bool {
     name == crate::GLOBAL_SCOPE_PROJECT || is_profile_project(name)
 }
 
-/// `[profile] enabled`: `auto` (the default) turns the profile on for a
-/// single-operator server and off for a multi-user one.
+/// `[profile] enabled`: off by default (OMPdesk's build: the zero-LLM harvest
+/// filed a test description as the user's "usual choice" and every session got
+/// it); `auto` turns the profile on for a single-operator server and off for a
+/// multi-user one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ProfileEnabled {
     /// On when the deployment does not distinguish operators.
-    #[default]
     Auto,
     /// On for every deployment.
     On,
     /// Off for every deployment.
+    #[default]
     Off,
 }
 
@@ -271,7 +273,7 @@ pub struct ProfileSettings {
 impl Default for ProfileSettings {
     fn default() -> Self {
         Self {
-            enabled: ProfileEnabled::Auto,
+            enabled: ProfileEnabled::Off,
             share: ProfileShare::Auto,
             min_projects: DEFAULT_MIN_PROJECTS,
             inject_on_session_start: true,
