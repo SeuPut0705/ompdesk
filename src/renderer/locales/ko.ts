@@ -6097,7 +6097,8 @@ export const ko: Record<string, string> = {
 	"machineSetup.gitAslr.fixDetail":
 		"고치기는 이 Git의 MSYS 프로그램(usr 폴더)에만 이미지에 임의 지정 강제를 꺼요. Windows와 다른 앱은 그대로예요. Windows가 권한을 한 번 물어봐요.",
 	"machineSetup.gitAslr.applied":
-		"이 Git의 MSYS 프로그램에만 이미지에 임의 지정 강제가 꺼져 있어요(OMPdesk가 설정). 되돌리기를 누르면 시스템 설정을 다시 따라요.",
+		"이 Git의 MSYS 프로그램에만 이미지에 임의 지정 강제가 꺼져 있어요. 되돌리기는 OMPdesk가 바꾼 것만 그대로 되돌려요.",
+	"machineSetup.gitAslr.noRecord": "OMPdesk가 바꾼 내용을 기록하기 전에 설정된 거라 여기서 정확히 되돌릴 수 없어요.",
 	"machineSetup.gitAslr.failed": "변경이 적용되지 않았어요.",
 	"machineSetup.command": "명령",
 	"machineSetup.location": "설치 위치",

@@ -6122,7 +6122,9 @@ export const en: Record<string, string> = {
 	"machineSetup.gitAslr.fixDetail":
 		"Fix turns Force randomization off for this Git's own MSYS programs only (its usr folder), never for Windows or other apps. Windows asks for permission once.",
 	"machineSetup.gitAslr.applied":
-		"Force randomization is off for this Git's MSYS programs only (set by OMPdesk). Undo puts them back under the system setting.",
+		"Force randomization is off for this Git's MSYS programs only. Undo puts back exactly what OMPdesk changed.",
+	"machineSetup.gitAslr.noRecord":
+		"This was set before OMPdesk kept a record of what it changed, so it can't be undone exactly from here.",
 	"machineSetup.gitAslr.failed": "The change did not go through.",
 	"machineSetup.command": "Command",
 	"machineSetup.location": "Installs to",

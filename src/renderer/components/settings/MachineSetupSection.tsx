@@ -33,8 +33,9 @@ import { OmpUpdateRows } from "./OmpUpdateRows";
 import { SettingsSection } from "./SettingsLayout";
 
 /**
- * The Git item under Mandatory ASLR: the probe's finding with one Fix button, or, once Windows holds setup's
- * override, Undo. Each click is one elevated step (a UAC prompt) in main; detection runs again after it.
+ * The Git item under Mandatory ASLR: the probe's finding with one Fix button, or, once Windows holds the
+ * override, Undo when OMPdesk recorded what its Fix changed (`gitAslrUndoable`); an override without that record
+ * says so and offers nothing. Each click is one elevated step (a UAC prompt) in main; detection runs again after.
  */
 function GitAslrControl({ item }: { item: SetupItemState }) {
 	const t = useT();
@@ -54,21 +55,31 @@ function GitAslrControl({ item }: { item: SetupItemState }) {
 		if (!result.ok) setError(result.detail || t("machineSetup.gitAslr.failed"));
 	};
 	const action: GitAslrAction = blocked ? "fix" : "undo";
+	const offered = blocked || presence?.gitAslrUndoable === true;
 	return (
 		<InlineNotice
 			action={
-				<Button
-					data-testid={`setup-git-aslr-${action}`}
-					disabled={busy !== null}
-					icon={action === "fix" ? <ShieldCheck /> : <Undo2 />}
-					onClick={() => void run(action)}
-					size="sm"
-					variant={action === "fix" ? "primary" : "secondary"}
-				>
-					{t(action === "fix" ? "machineSetup.gitAslr.fix" : "machineSetup.gitAslr.undo")}
-				</Button>
+				offered && (
+					<Button
+						data-testid={`setup-git-aslr-${action}`}
+						disabled={busy !== null}
+						icon={action === "fix" ? <ShieldCheck /> : <Undo2 />}
+						onClick={() => void run(action)}
+						size="sm"
+						variant={action === "fix" ? "primary" : "secondary"}
+					>
+						{t(action === "fix" ? "machineSetup.gitAslr.fix" : "machineSetup.gitAslr.undo")}
+					</Button>
+				)
 			}
-			detail={error ?? (action === "fix" ? t("machineSetup.gitAslr.fixDetail") : undefined)}
+			detail={
+				error ??
+				(action === "fix"
+					? t("machineSetup.gitAslr.fixDetail")
+					: offered
+						? undefined
+						: t("machineSetup.gitAslr.noRecord"))
+			}
 			title={blocked ? t("machineSetup.presence.gitShellAslr") : t("machineSetup.gitAslr.applied")}
 			tone={error ? "danger" : blocked ? "warning" : "info"}
 		/>
