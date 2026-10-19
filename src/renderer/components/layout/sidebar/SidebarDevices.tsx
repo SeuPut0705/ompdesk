@@ -42,6 +42,7 @@ import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
 import { TabLiveEdge } from "../SessionLiveEdge";
+import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -70,11 +71,13 @@ function createdAt(session: SessionInfo): number {
 export function SidebarLocalHeader() {
 	const t = useT();
 	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
+	const handle = useDeviceHeaderHandle();
 	return (
 		<h2 className="m-0 text-sc-xs font-medium" data-sidebar-device-header="local">
 			<button
+				{...handle}
 				aria-expanded={!folded}
-				className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) px-2 text-left text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) px-2 text-left text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 				data-roving-item={`device:${LOCAL_DEVICE}`}
 				data-sidebar-device-toggle={LOCAL_DEVICE}
 				onClick={() => useSidebarFolds.getState().setDeviceFolded(LOCAL_DEVICE, !folded)}
@@ -107,6 +110,7 @@ export function SidebarDeviceSection({
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
+	const handle = useDeviceHeaderHandle();
 	const online = host.state === "online";
 	const stateLabel = t(`remote.state.${host.state}`);
 
@@ -116,16 +120,12 @@ export function SidebarDeviceSection({
 	};
 
 	return (
-		<section
-			aria-label={host.name}
-			className="mt-3"
-			data-device-state={host.state}
-			data-sidebar-device={host.deviceId}
-		>
+		<section aria-label={host.name} data-device-state={host.state} data-sidebar-device={host.deviceId}>
 			<div className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
 				<button
+					{...handle}
 					aria-expanded={!collapsed}
-					className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+					className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 					data-roving-item={`device:${host.deviceId}`}
 					data-sidebar-device-toggle={host.deviceId}
 					onClick={() => useSidebarFolds.getState().setDeviceFolded(host.deviceId, !collapsed)}

@@ -50,6 +50,8 @@ export interface SidebarFolds {
 	starterOpen: boolean;
 	/** The footer usage block is folded to its header. */
 	usageCollapsed: boolean;
+	/** Device section order the user set (`LOCAL_DEVICE` or a host's deviceId), top first; `lib/device-order.ts`. */
+	deviceOrder: string[];
 }
 
 export interface SidebarFamilies {
@@ -67,6 +69,7 @@ export const EMPTY_FOLDS: SidebarFolds = {
 	archivedOpen: false,
 	starterOpen: false,
 	usageCollapsed: false,
+	deviceOrder: [],
 };
 
 export function deviceGroupKey(deviceId: string, cwd: string): string {
@@ -100,7 +103,17 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
 		archivedOpen: record.archivedOpen === true,
 		starterOpen: record.starterOpen === true,
 		usageCollapsed: record.usageCollapsed === true,
+		deviceOrder: parseDeviceOrder(record.deviceOrder),
 	};
+}
+
+/** Distinct ids, malformed ones dropped, within the limit. */
+function parseDeviceOrder(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const ids = value.filter(
+		(id): id is string => typeof id === "string" && id.length > 0 && id.length <= KEY_MAX_CHARS,
+	);
+	return [...new Set(ids)].slice(0, FOLD_LIMIT);
 }
 
 /** A live tab's row key (`tab:<id>`) is not a session: it never outlives the tab, so it is never remembered. */

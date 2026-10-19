@@ -129,6 +129,7 @@ import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
 import { SessionLiveEdge } from "../SessionLiveEdge";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
+import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
@@ -2054,6 +2055,205 @@ export function Sidebar() {
 		);
 	};
 
+	// This device's own list; once a host is paired it is one of the device sections, under its own header.
+	const localList = (
+		<>
+			{!localFolded && (
+				<>
+					{listError &&
+						(allSessions.length > 0 ? (
+							<div
+								className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
+								role="alert"
+							>
+								<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
+									<AlertTriangle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
+									{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
+								</p>
+								<ErrorDetail error={listError} />
+								<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
+									{t("common.retry")}
+								</Button>
+							</div>
+						) : (
+							<EmptyState
+								actions={
+									<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="secondary">
+										{t("common.retry")}
+									</Button>
+								}
+								className="omp-sidebar-empty"
+								description={<ErrorDetail error={listError} />}
+								icon={<AlertTriangle />}
+								size="sm"
+								title={t("sidebar.loadFailed")}
+							/>
+						))}
+					{isLoading && !listError && allSessions.length === 0 && (
+						<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
+					)}
+					{!isLoading &&
+						!listError &&
+						totalCount === 0 &&
+						(query ? (
+							<EmptyState
+								actions={
+									<Button onClick={() => setFilter("")} size="sm" variant="ghost">
+										{t("sidebar.clearFilter")}
+									</Button>
+								}
+								className="omp-sidebar-empty"
+								icon={<SearchX />}
+								size="sm"
+								title={t("sidebar.noMatch")}
+							/>
+						) : mode === "code" ? (
+							<EmptyState
+								actions={
+									<>
+										<Button
+											icon={<FolderOpen />}
+											onClick={() => setWorkspaceDialog("new-session")}
+											size="sm"
+											variant="secondary"
+										>
+											{t("sidebar.project.open")}
+										</Button>
+										{otherModeCount > 0 && (
+											<Button
+												data-sidebar-other-mode
+												onClick={() => setMode("chat")}
+												size="sm"
+												variant="ghost"
+											>
+												{t("sidebar.otherMode.showChat")}
+											</Button>
+										)}
+									</>
+								}
+								className="omp-sidebar-empty"
+								description={
+									otherModeCount > 0 ? (
+										<>
+											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.chat", { count: otherModeCount })}
+										</>
+									) : (
+										t("sidebar.emptyCodeHint")
+									)
+								}
+								icon={<SquareTerminal />}
+								size="sm"
+								title={t("sidebar.emptyCode")}
+							/>
+						) : (
+							<EmptyState
+								actions={
+									<>
+										<Button icon={<MessageSquarePlus />} onClick={startChat} size="sm" variant="secondary">
+											{t("sidebar.menu.newChat")}
+										</Button>
+										{otherModeCount > 0 && (
+											<Button
+												data-sidebar-other-mode
+												onClick={() => setMode("code")}
+												size="sm"
+												variant="ghost"
+											>
+												{t("sidebar.otherMode.showCode")}
+											</Button>
+										)}
+									</>
+								}
+								className="omp-sidebar-empty"
+								description={
+									otherModeCount > 0 ? (
+										<>
+											{t("sidebar.emptyChatHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
+										</>
+									) : (
+										t("sidebar.emptyChatHint")
+									)
+								}
+								icon={<MessageCircle />}
+								size="sm"
+								title={t("sidebar.emptyChat")}
+							/>
+						))}
+					{mode === "chat" && chatLaneSessions.length > 0 && (
+						<div className="space-y-px" data-chat-lane>
+							{chatLaneSessions.map(session => renderSessionRow(session))}
+						</div>
+					)}
+					{visibleGroups.length > 0 && (
+						<DndContext collisionDetection={closestCenter} onDragEnd={onProjectDragEnd} sensors={projectSensors}>
+							<SortableContext
+								items={visibleGroups.map(group => group.cwd)}
+								strategy={verticalListSortingStrategy}
+							>
+								{visibleGroups.map(renderGroup)}
+							</SortableContext>
+						</DndContext>
+					)}
+					{archivedRows.length > 0 && (
+						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
+							<div
+								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
+							>
+								<button
+									aria-expanded={archivedOpen || query.length > 0}
+									className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+									data-roving-item="archived"
+									onClick={() => setArchivedOpen(!archivedOpen)}
+									onFocus={() => setFocusKey("archived")}
+									onKeyDown={event => {
+										if (opensMenu(event)) {
+											event.preventDefault();
+											setArchivedMenu(anchorBelow(event.currentTarget));
+										} else if (event.key === "ArrowRight" && !archivedOpen) {
+											event.preventDefault();
+											setArchivedOpen(true);
+										} else if (event.key === "ArrowLeft" && archivedOpen) {
+											event.preventDefault();
+											setArchivedOpen(false);
+										}
+									}}
+									tabIndex={-1}
+									type="button"
+								>
+									{archivedOpen || query ? (
+										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									) : (
+										<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									)}
+									<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									<span className="min-w-0 flex-1 truncate">
+										{t("sidebar.archived", { count: archivedRows.length })}
+									</span>
+								</button>
+								<span className="relative flex shrink-0 items-center pr-1">
+									<IconButton
+										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+										icon={<MoreHorizontal />}
+										label={t("sidebar.archivedMenu")}
+										onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
+										size="sm"
+										tabIndex={-1}
+									/>
+								</span>
+							</div>
+							{(archivedOpen || query.length > 0) && (
+								<div className="space-y-px" data-archived-list>
+									{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
+								</div>
+							)}
+						</section>
+					)}
+				</>
+			)}
+		</>
+	);
+
 	return (
 		<>
 			<aside
@@ -2145,228 +2345,38 @@ export function Sidebar() {
 					ref={listRef}
 					role="group"
 				>
-					{hosts.length > 0 && <SidebarLocalHeader />}
-					{!localFolded && (
-						<>
-							{listError &&
-								(allSessions.length > 0 ? (
+					{/* One tree whether or not a host is paired, so pairing (or the host list's first read at launch)
+					    never remounts this device's list. */}
+					<SidebarDeviceSections
+						sections={[
+							{
+								id: LOCAL_DEVICE,
+								label: t("remote.sidebar.thisDevice"),
+								node: (
 									<div
-										className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
-										role="alert"
+										aria-label={hosts.length > 0 ? t("remote.sidebar.thisDevice") : undefined}
+										data-sidebar-local-device
+										role={hosts.length > 0 ? "region" : undefined}
 									>
-										<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
-											<AlertTriangle
-												aria-hidden
-												className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)"
-											/>
-											{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
-										</p>
-										<ErrorDetail error={listError} />
-										<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
-											{t("common.retry")}
-										</Button>
+										{hosts.length > 0 && <SidebarLocalHeader />}
+										{localList}
 									</div>
-								) : (
-									<EmptyState
-										actions={
-											<Button
-												icon={<RefreshCw />}
-												onClick={() => refresh(true)}
-												size="sm"
-												variant="secondary"
-											>
-												{t("common.retry")}
-											</Button>
-										}
-										className="omp-sidebar-empty"
-										description={<ErrorDetail error={listError} />}
-										icon={<AlertTriangle />}
-										size="sm"
-										title={t("sidebar.loadFailed")}
+								),
+							},
+							...hosts.map(host => ({
+								id: host.deviceId,
+								label: host.name,
+								node: (
+									<SidebarDeviceSection
+										host={host}
+										mode={mode}
+										nested={nestedRemote.get(host.deviceId)}
+										query={query}
 									/>
-								))}
-							{isLoading && !listError && allSessions.length === 0 && (
-								<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
-							)}
-							{!isLoading &&
-								!listError &&
-								totalCount === 0 &&
-								(query ? (
-									<EmptyState
-										actions={
-											<Button onClick={() => setFilter("")} size="sm" variant="ghost">
-												{t("sidebar.clearFilter")}
-											</Button>
-										}
-										className="omp-sidebar-empty"
-										icon={<SearchX />}
-										size="sm"
-										title={t("sidebar.noMatch")}
-									/>
-								) : mode === "code" ? (
-									<EmptyState
-										actions={
-											<>
-												<Button
-													icon={<FolderOpen />}
-													onClick={() => setWorkspaceDialog("new-session")}
-													size="sm"
-													variant="secondary"
-												>
-													{t("sidebar.project.open")}
-												</Button>
-												{otherModeCount > 0 && (
-													<Button
-														data-sidebar-other-mode
-														onClick={() => setMode("chat")}
-														size="sm"
-														variant="ghost"
-													>
-														{t("sidebar.otherMode.showChat")}
-													</Button>
-												)}
-											</>
-										}
-										className="omp-sidebar-empty"
-										description={
-											otherModeCount > 0 ? (
-												<>
-													{t("sidebar.emptyCodeHint")}{" "}
-													{t("sidebar.otherMode.chat", { count: otherModeCount })}
-												</>
-											) : (
-												t("sidebar.emptyCodeHint")
-											)
-										}
-										icon={<SquareTerminal />}
-										size="sm"
-										title={t("sidebar.emptyCode")}
-									/>
-								) : (
-									<EmptyState
-										actions={
-											<>
-												<Button
-													icon={<MessageSquarePlus />}
-													onClick={startChat}
-													size="sm"
-													variant="secondary"
-												>
-													{t("sidebar.menu.newChat")}
-												</Button>
-												{otherModeCount > 0 && (
-													<Button
-														data-sidebar-other-mode
-														onClick={() => setMode("code")}
-														size="sm"
-														variant="ghost"
-													>
-														{t("sidebar.otherMode.showCode")}
-													</Button>
-												)}
-											</>
-										}
-										className="omp-sidebar-empty"
-										description={
-											otherModeCount > 0 ? (
-												<>
-													{t("sidebar.emptyChatHint")}{" "}
-													{t("sidebar.otherMode.code", { count: otherModeCount })}
-												</>
-											) : (
-												t("sidebar.emptyChatHint")
-											)
-										}
-										icon={<MessageCircle />}
-										size="sm"
-										title={t("sidebar.emptyChat")}
-									/>
-								))}
-							{mode === "chat" && chatLaneSessions.length > 0 && (
-								<div className="space-y-px" data-chat-lane>
-									{chatLaneSessions.map(session => renderSessionRow(session))}
-								</div>
-							)}
-							{visibleGroups.length > 0 && (
-								<DndContext
-									collisionDetection={closestCenter}
-									onDragEnd={onProjectDragEnd}
-									sensors={projectSensors}
-								>
-									<SortableContext
-										items={visibleGroups.map(group => group.cwd)}
-										strategy={verticalListSortingStrategy}
-									>
-										{visibleGroups.map(renderGroup)}
-									</SortableContext>
-								</DndContext>
-							)}
-							{archivedRows.length > 0 && (
-								<section className="mt-3" data-sidebar-archived ref={archivedRef}>
-									<div
-										className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
-										onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
-									>
-										<button
-											aria-expanded={archivedOpen || query.length > 0}
-											className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-											data-roving-item="archived"
-											onClick={() => setArchivedOpen(!archivedOpen)}
-											onFocus={() => setFocusKey("archived")}
-											onKeyDown={event => {
-												if (opensMenu(event)) {
-													event.preventDefault();
-													setArchivedMenu(anchorBelow(event.currentTarget));
-												} else if (event.key === "ArrowRight" && !archivedOpen) {
-													event.preventDefault();
-													setArchivedOpen(true);
-												} else if (event.key === "ArrowLeft" && archivedOpen) {
-													event.preventDefault();
-													setArchivedOpen(false);
-												}
-											}}
-											tabIndex={-1}
-											type="button"
-										>
-											{archivedOpen || query ? (
-												<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-											) : (
-												<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-											)}
-											<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-											<span className="min-w-0 flex-1 truncate">
-												{t("sidebar.archived", { count: archivedRows.length })}
-											</span>
-										</button>
-										<span className="relative flex shrink-0 items-center pr-1">
-											<IconButton
-												className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-												icon={<MoreHorizontal />}
-												label={t("sidebar.archivedMenu")}
-												onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
-												size="sm"
-												tabIndex={-1}
-											/>
-										</span>
-									</div>
-									{(archivedOpen || query.length > 0) && (
-										<div className="space-y-px" data-archived-list>
-											{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
-										</div>
-									)}
-								</section>
-							)}
-						</>
-					)}
-					{hosts.map(host => (
-						<SidebarDeviceSection
-							host={host}
-							key={host.deviceId}
-							mode={mode}
-							nested={nestedRemote.get(host.deviceId)}
-							query={query}
-						/>
-					))}
+								),
+							})),
+						]}
+					/>
 				</div>
 
 				<SidebarUpdateCard />

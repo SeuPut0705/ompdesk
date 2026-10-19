@@ -4550,6 +4550,13 @@ export const en: Record<string, string> = {
 	"sidebar.clearFilter": "Clear filter",
 	"sidebar.menu.moveUp": "Move up",
 	"sidebar.menu.moveDown": "Move down",
+	"sidebar.deviceOrder.menu": "{name} section",
+	"sidebar.deviceOrder.instructions":
+		"Press Alt+Up or Alt+Down to move this device section. Drag the header, or long-press it on touch, to move it.",
+	"sidebar.deviceOrder.picked": "Picked up {name}.",
+	"sidebar.deviceOrder.over": "Over {name}.",
+	"sidebar.deviceOrder.moved": "Moved {name}.",
+	"sidebar.deviceOrder.cancelled": "{name} stays where it was.",
 	"sidebar.reorderFailed": "Couldn't save the project order",
 	"titlebar.breadcrumb": "Project and session",
 	"titlebar.switchProject": "Switch project",

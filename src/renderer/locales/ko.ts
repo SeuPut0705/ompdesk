@@ -4541,6 +4541,13 @@ export const ko: Record<string, string> = {
 	"sidebar.clearFilter": "필터 지우기",
 	"sidebar.menu.moveUp": "위로 이동",
 	"sidebar.menu.moveDown": "아래로 이동",
+	"sidebar.deviceOrder.menu": "{name} 묶음",
+	"sidebar.deviceOrder.instructions":
+		"Alt+위쪽 또는 Alt+아래쪽 화살표로 이 기기 묶음을 옮겨요. 헤더를 끌거나, 터치에서는 길게 눌러 옮길 수도 있어요.",
+	"sidebar.deviceOrder.picked": "{name} 묶음을 집었어요.",
+	"sidebar.deviceOrder.over": "{name} 묶음 위에 있어요.",
+	"sidebar.deviceOrder.moved": "{name} 묶음을 옮겼어요.",
+	"sidebar.deviceOrder.cancelled": "{name} 묶음은 그대로예요.",
 	"sidebar.reorderFailed": "프로젝트 순서를 저장하지 못했어요",
 	"titlebar.breadcrumb": "프로젝트와 세션",
 	"titlebar.switchProject": "프로젝트 전환",

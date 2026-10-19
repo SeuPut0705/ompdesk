@@ -30,9 +30,11 @@ interface SidebarFoldsStore extends SidebarFolds {
 	setArchivedOpen: (open: boolean) => void;
 	setStarterOpen: (open: boolean) => void;
 	setUsageCollapsed: (collapsed: boolean) => void;
+	/** Remembers the device sections' order (top first). */
+	setDeviceOrder: (order: readonly string[]) => void;
 	/** Drops the folds of groups `exists` refuses. Call only once the folders are known (a live read answered). */
 	pruneGroups: (exists: (cwd: string) => boolean) => void;
-	/** Drops the folds of paired hosts not in `deviceIds` (this device always stays). */
+	/** Drops the folds and the order entries of paired hosts not in `deviceIds` (this device always stays). */
 	pruneDevices: (deviceIds: ReadonlySet<string>) => void;
 	/** Reads the saved pref once; the mirror painted the first frame, the pref wins when it differs. */
 	hydrate: () => Promise<void>;
@@ -48,6 +50,7 @@ function saved(state: SidebarFolds): SidebarFolds {
 		archivedOpen: state.archivedOpen,
 		starterOpen: state.starterOpen,
 		usageCollapsed: state.usageCollapsed,
+		deviceOrder: state.deviceOrder,
 	};
 }
 
@@ -76,6 +79,9 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 		setUsageCollapsed: collapsed => {
 			if (get().usageCollapsed !== collapsed) edit({ usageCollapsed: collapsed });
 		},
+		setDeviceOrder: order => {
+			if (order.join("\n") !== get().deviceOrder.join("\n")) edit({ deviceOrder: [...order] });
+		},
 		pruneGroups: exists => {
 			const { groups } = get();
 			const kept = Object.entries(groups).filter(([cwd]) => exists(cwd));
@@ -84,16 +90,22 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 			writeSidebarFolds(saved(get()));
 		},
 		pruneDevices: deviceIds => {
-			const { devices, deviceGroups } = get();
+			const { devices, deviceGroups, deviceOrder } = get();
 			const known = (deviceId: string) => deviceId === LOCAL_DEVICE || deviceIds.has(deviceId);
 			const keptDevices = Object.entries(devices).filter(([deviceId]) => known(deviceId));
 			const keptGroups = Object.entries(deviceGroups).filter(([key]) => known(key.slice(0, key.indexOf("\n"))));
+			const keptOrder = deviceOrder.filter(known);
 			if (
 				keptDevices.length === Object.keys(devices).length &&
-				keptGroups.length === Object.keys(deviceGroups).length
+				keptGroups.length === Object.keys(deviceGroups).length &&
+				keptOrder.length === deviceOrder.length
 			)
 				return;
-			set({ devices: Object.fromEntries(keptDevices), deviceGroups: Object.fromEntries(keptGroups) });
+			set({
+				devices: Object.fromEntries(keptDevices),
+				deviceGroups: Object.fromEntries(keptGroups),
+				deviceOrder: keptOrder,
+			});
 			writeSidebarFolds(saved(get()));
 		},
 		hydrate: async () => {

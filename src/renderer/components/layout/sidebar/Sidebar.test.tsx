@@ -20,6 +20,7 @@ import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mo
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
@@ -2505,6 +2506,102 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector("[data-device-session]")).toBeNull();
 		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
+	});
+
+	describe("order", () => {
+		function pairHosts(ids: readonly string[]): void {
+			pairHost("online");
+			const remote = useRemoteStore.getState().state;
+			if (!remote) throw new Error("no remote state");
+			useRemoteStore.getState().apply({
+				...remote,
+				hosts: ids.map(deviceId => ({ deviceId, name: deviceId.replace("dev-", ""), state: "offline" as const })),
+			});
+		}
+		const order = () =>
+			[...container.querySelectorAll("[data-device-slot]")].map(slot =>
+				(slot as unknown as Element).getAttribute("data-device-slot"),
+			);
+		const header = (id: string) => container.querySelector(`[data-device-drag-handle="${id}"]`);
+		async function altArrow(id: string, key: "ArrowUp" | "ArrowDown"): Promise<void> {
+			const element = header(id) as unknown as Record<string, unknown>;
+			const propsKey = Object.getOwnPropertyNames(element).find(name => name.startsWith("__reactProps$")) ?? "";
+			const props = element[propsKey] as { onKeyDown: (event: unknown) => void };
+			await act(async () =>
+				props.onKeyDown({ key, altKey: true, shiftKey: false, preventDefault() {}, stopPropagation() {} }),
+			);
+			await flush();
+		}
+
+		it("shows the saved order, with a device it does not name after the named ones", async () => {
+			installWithRemote();
+			seedStores();
+			useSidebarFolds.setState({ deviceOrder: ["dev-studio", LOCAL_DEVICE, "dev-unpaired"] });
+			pairHosts(["dev-office", "dev-studio"]);
+			await mount(<Sidebar />);
+
+			expect(order()).toEqual(["dev-studio", LOCAL_DEVICE, "dev-office"]);
+			// The unpaired device leaves the saved order once the host list says it is gone.
+			expect(useSidebarFolds.getState().deviceOrder).toEqual(["dev-studio", LOCAL_DEVICE]);
+		});
+
+		it("moves a section from its header menu and with Alt+arrows, and remembers it", async () => {
+			const omp = installWithRemote();
+			seedStores();
+			pairHosts(["dev-studio"]);
+			await mount(<Sidebar />);
+			expect(order()).toEqual([LOCAL_DEVICE, "dev-studio"]);
+
+			await fire(header("dev-studio"), "onContextMenu");
+			expect(menuItemLabels()).toEqual(["Move up", "Move down"]);
+			const moveUp = [...document.body.querySelectorAll('[role="menuitem"]')].find(item =>
+				(item.textContent ?? "").includes("Move up"),
+			);
+			await fire(moveUp as unknown as Element, "onClick");
+			expect(order()).toEqual(["dev-studio", LOCAL_DEVICE]);
+			expect(omp.prefs.set).toHaveBeenLastCalledWith(
+				"sidebarFolds",
+				expect.objectContaining({ deviceOrder: ["dev-studio", LOCAL_DEVICE] }),
+			);
+
+			await altArrow("dev-studio", "ArrowDown");
+			expect(order()).toEqual([LOCAL_DEVICE, "dev-studio"]);
+			// Past the edge nothing moves.
+			await altArrow("dev-studio", "ArrowDown");
+			expect(order()).toEqual([LOCAL_DEVICE, "dev-studio"]);
+			expect(useSidebarFolds.getState().deviceOrder).toEqual([LOCAL_DEVICE, "dev-studio"]);
+		});
+
+		it("keeps this device's rows mounted when the first host is paired", async () => {
+			installWithRemote();
+			seedStores();
+			await mount(<Sidebar />);
+			const row = container.querySelector("[data-session-path]");
+			expect(row).not.toBeNull();
+
+			pairHosts(["dev-studio"]);
+			await flush();
+			expect(order()).toEqual([LOCAL_DEVICE, "dev-studio"]);
+			// The same element, not a remount: focus, an open rename field and row state survive pairing.
+			expect(container.querySelector("[data-session-path]")).toBe(row);
+		});
+
+		it("keeps the order across a relaunch", async () => {
+			const omp = installWithRemote();
+			seedStores();
+			pairHosts(["dev-studio"]);
+			await mount(<Sidebar />);
+			await altArrow("dev-studio", "ArrowUp");
+			const saved = omp.prefs.set.mock.calls.findLast(([key]) => key === "sidebarFolds")?.[1];
+			expect(saved).toEqual(expect.objectContaining({ deviceOrder: ["dev-studio", LOCAL_DEVICE] }));
+
+			await act(async () => root.unmount());
+			container.remove();
+			useSidebarFolds.getState().reset();
+			omp.prefs.get.mockImplementation(async key => (key === "sidebarFolds" ? saved : null));
+			await mount(<Sidebar />);
+			expect(order()).toEqual(["dev-studio", LOCAL_DEVICE]);
+		});
 	});
 
 	it("marks a host's session that is a pane of the split on screen, and drags it into a split", async () => {
