@@ -22,7 +22,7 @@
  * handed to `deferClose` and sent when the link is back (`PendingTabCloses`).
  */
 import { EventEmitter } from "node:events";
-import { codedError } from "../../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
@@ -402,6 +402,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			if (this.#disposed) return;
 			if (this.#link.state !== "online") {
 				if (this.#link.state === "offline") this.#markOffline();
+				return;
+			}
+			// The host deleted this session while the tab was away: the pool closes the tab instead of an error tab.
+			if (ipcErrorCode(error) === "session_deleted") {
+				this.emit("sessionDeleted", this.#resume);
 				return;
 			}
 			this.#processAlive = false;

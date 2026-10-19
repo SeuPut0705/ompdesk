@@ -115,6 +115,19 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 					if (sessions !== state.sessions || state.isLoading || state.error !== null)
 						store.setState({ sessions, isLoading: false, error: null });
 					if (sessions !== state.sessions || !state.error) remember();
+					// The global list holds every session, so a row of the local list's last-known copy it lacks was deleted,
+					// possibly on another device: dropped now, before that list next paints it (a phone reload, a mount).
+					if (scope === "global") {
+						const live = new Set(list.map(session => session.path));
+						const cached = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey("local"))?.value;
+						if (Array.isArray(cached) && cached.some(session => !live.has(session.path)))
+							snapshots().write(
+								"sessions",
+								ns,
+								snapshotKey("local"),
+								cached.filter(session => live.has(session.path)),
+							);
+					}
 				},
 				(cause: unknown) => {
 					// A read that never answered is not a read that found nothing — the

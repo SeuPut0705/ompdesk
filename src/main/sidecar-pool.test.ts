@@ -1174,6 +1174,13 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 				"host-b",
 			),
 		).not.toBeNull();
+		// The host refuses that tab later (it deleted the session while the tab was away): the tab closes, its window
+		// drops it, and the session stays deleted for this device's next restore.
+		const hostTab = sidecars.at(-1);
+		hostTab?.emit("sessionDeleted", "/sessions/gone.jsonl");
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).not.toContain("tab-host");
+		expect(hostTab?.disposed).toBe(true);
+		expect(deletedSessions().has("/sessions/gone.jsonl", "host-b")).toBe(true);
 		initDeletedSessions(null);
 	});
 

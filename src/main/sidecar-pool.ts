@@ -549,6 +549,15 @@ export class SidecarPool {
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
 		});
+		// A paired host deleted this session while the tab was away (`session_deleted`): it closes here as a delete
+		// from this device would, and stays deleted for every later restore.
+		sidecar.on("sessionDeleted", (sessionPath: string | null) => {
+			if (sessionPath && entry.device) deletedSessions().add(sessionPath, entry.device);
+			if (!this.#byTabId.has(entry.tabId)) return;
+			this.#releaseEntry(entry);
+			this.#notifyWindowTabsChanged(entry.win);
+			this.#sendTabList(entry.win, [entry.tabId]);
+		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
 			if (typeof frame.sessionId === "string") {

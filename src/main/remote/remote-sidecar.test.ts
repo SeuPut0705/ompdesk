@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
@@ -201,6 +201,19 @@ describe("RemoteSidecar", () => {
 		await settle();
 		expect(seen.at(-1)).toEqual(["error", false]);
 		expect(sidecar.statusPayload).toMatchObject({ status: "error", message: "No workspace" });
+	});
+
+	it("hands a host's session_deleted refusal to the pool as a deleted session, never an error tab", async () => {
+		const { link, sidecar, statuses } = setup();
+		const deleted: Array<string | null> = [];
+		sidecar.on("sessionDeleted", (sessionPath: string | null) => deleted.push(sessionPath));
+		link.handlers["tab.open"] = () => {
+			throw codedError("session_deleted", "Session was deleted");
+		};
+		sidecar.restart(undefined, "/s/gone.jsonl");
+		await settle();
+		expect(deleted).toEqual(["/s/gone.jsonl"]);
+		expect(statuses.map(entry => entry.status)).not.toContain("error");
 	});
 
 	it("hands on the open asks the host re-sends with each re-attach, and ignores a malformed list", async () => {

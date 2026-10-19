@@ -106,11 +106,11 @@ describe("session list snapshot", () => {
 		snapshots().write("sessions", "local", "global", [row("/a"), row("/gone")]);
 		snapshots().write("sessions", "local", "local", [row("/gone"), row("/b")]);
 		const remove = vi.fn(async () => {});
-		install(async () => [row("/a")], remove);
+		install(async () => [row("/a"), row("/b")], remove);
 		const global = sessionListFeed("global");
 		await global.deleteSession("/gone");
 		expect(remove).toHaveBeenCalledWith("/gone");
-		expect(global.store.getState().sessions.map(s => s.path)).toEqual(["/a"]);
+		expect(global.store.getState().sessions.map(s => s.path)).not.toContain("/gone");
 		// The local list nobody showed paints without it on its next mount (a relaunch, a phone reload).
 		expect(
 			snapshots()
@@ -122,6 +122,26 @@ describe("session list snapshot", () => {
 				.read<SessionInfo[]>("sessions", "local", "global")
 				?.value?.map(s => s.path),
 		).toEqual(["/a"]);
+		expect(
+			sessionListFeed("local")
+				.store.getState()
+				.sessions.map(s => s.path),
+		).toEqual(["/b"]);
+	});
+
+	it("a session deleted on another device leaves the local list's copy once the global list is read (a phone reload)", async () => {
+		snapshots().write("sessions", "local", "local", [row("/gone"), row("/b")]);
+		install(async () => [row("/a"), row("/b")]);
+		const release = sessionListFeed("global").retain();
+		await vi.waitFor(() =>
+			expect(
+				snapshots()
+					.read<SessionInfo[]>("sessions", "local", "local")
+					?.value?.map(s => s.path),
+			).toEqual(["/b"]),
+		);
+		release();
+		resetSessionListFeeds();
 		expect(
 			sessionListFeed("local")
 				.store.getState()
