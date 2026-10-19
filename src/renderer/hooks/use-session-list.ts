@@ -6,6 +6,8 @@ import { type SessionListScope, sessionListFeed } from "../stores/session-list";
 interface SessionListResult {
 	sessions: SessionInfo[];
 	isLoading: boolean;
+	/** A live read has answered (the rows are what exists, not a last-known snapshot). */
+	live: boolean;
 	/** Set when the last read failed; an empty list must not claim "nothing here". */
 	error: string | null;
 	refresh: (showSpinner?: boolean) => void;
@@ -21,10 +23,11 @@ interface SessionListResult {
 export function useSessionList(scope: SessionListScope = "local", device?: string): SessionListResult {
 	const feed = sessionListFeed(scope, device);
 	useEffect(() => feed.retain(), [feed]);
-	const { sessions, isLoading, error } = useStore(feed.store);
+	const { sessions, isLoading, live, error } = useStore(feed.store);
 	return {
 		sessions,
 		isLoading,
+		live,
 		error,
 		refresh: feed.refresh,
 		deleteSession: feed.deleteSession,

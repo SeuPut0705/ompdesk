@@ -82,6 +82,7 @@ import { orderProjects, reorderProjects } from "../../../lib/project-order";
 import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -92,9 +93,10 @@ import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/cl
 import { useComposerStore } from "../../../stores/composer";
 import { useMessagesStore } from "../../../stores/messages";
 import { useQueueStore } from "../../../stores/queue";
-import { usePairedHosts } from "../../../stores/remote";
+import { usePairedHosts, useRemoteStore } from "../../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { useTabsStore } from "../../../stores/tabs";
@@ -441,7 +443,16 @@ export function Sidebar() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
-	const [mode, setMode] = useState<SidebarMode>("code");
+	// The lane last shown comes back; with none saved (or once the open session moves) the open session picks it.
+	const rememberedLane = useRef(useSidebarFolds.getState().lane);
+	const laneSettled = useRef(false);
+	const [mode, setMode] = useState<SidebarMode>(rememberedLane.current ?? "code");
+	const shownLane = useRef(mode);
+	useEffect(() => {
+		if (shownLane.current === mode) return;
+		shownLane.current = mode;
+		useSidebarFolds.getState().setLane(mode);
+	}, [mode]);
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
 	const [filter, setFilter] = useState("");
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
@@ -481,7 +492,7 @@ export function Sidebar() {
 		void window.omp.prefs.set("sidebarWidth", sidebarWidthRef.current).catch(() => {});
 	}, []);
 	const [deleting, setDeleting] = useState(false);
-	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+	const groupFolds = useSidebarFolds(s => s.groups);
 	// Deleting a session hard-deletes its transcript file, so the row and menu
 	// clicks only queue it: the dialog names the target and states the
 	// consequence before anything is removed.
@@ -503,7 +514,8 @@ export function Sidebar() {
 	// "Move to project…": the second menu listing the projects a stored session can go to.
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// The Archived section starts folded: archived sessions are out of the way by design.
-	const [archivedOpen, setArchivedOpen] = useState(false);
+	const archivedOpen = useSidebarFolds(s => s.archivedOpen);
+	const setArchivedOpen = useSidebarFolds.getState().setArchivedOpen;
 	const archivedRef = useRef<HTMLElement>(null);
 	// The section sits at the end of the list: opening it brings it to the top, or its rows stay below the fold.
 	useEffect(() => {
@@ -536,7 +548,15 @@ export function Sidebar() {
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	const grouping = useSidebarPrefs(s => s.grouping);
-	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
+	const {
+		sessions,
+		isLoading,
+		live: listLive,
+		error: listError,
+		refresh,
+		deleteSession,
+		renameSession,
+	} = useSessionList("global");
 	// Stock lists a fork under its parent's title and marks it (`fork`, "Forked from …"); a fork's
 	// `parentSessionPath` holds the parent's file path or, after a move, its id.
 	const sessionsByPathOrId = useMemo(() => {
@@ -565,7 +585,11 @@ export function Sidebar() {
 				setDefaultWorkspace(workspace);
 				const tabState = useTabsStore.getState();
 				const activeKind = tabState.tabs.find(tab => tab.id === tabState.activeTabId)?.kind;
-				if (activeKind === "chat" || useSessionStore.getState().cwd === workspace) setMode("chat");
+				if (
+					rememberedLane.current === null &&
+					(activeKind === "chat" || useSessionStore.getState().cwd === workspace)
+				)
+					setMode("chat");
 			})
 			.catch(() => {});
 	}, []);
@@ -573,6 +597,10 @@ export function Sidebar() {
 	// Opening a session from search or the palette keeps the lane honest.
 	useEffect(() => {
 		if (!defaultWorkspace || !cwd) return;
+		// The first open session at launch does not override the lane that was left.
+		const settled = laneSettled.current;
+		laneSettled.current = true;
+		if (!settled && rememberedLane.current !== null) return;
 		setMode(activeTabKind === "chat" || cwd === defaultWorkspace ? "chat" : "code");
 	}, [activeTabKind, cwd, defaultWorkspace]);
 
@@ -973,13 +1001,42 @@ export function Sidebar() {
 	const isCollapsed = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
 		// A filter shows every match.
 		if (query) return false;
-		if (group.cwd in collapsed) return collapsed[group.cwd];
+		if (group.cwd in groupFolds) return groupFolds[group.cwd];
 		// Default: the current project and projects with open tabs expanded, others collapsed.
 		return !group.members.some(member => member === cwd || openTabCwds.has(member));
 	};
 	const toggleGroup = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
-		setCollapsed(prev => ({ ...prev, [group.cwd]: !isCollapsed(group) }));
+		useSidebarFolds.getState().setGroupFolded(group.cwd, !isCollapsed(group));
 	};
+	// The folds and the open families as they were left: the mirror painted the first frame, the saved pref is read
+	// again here and wins when it differs.
+	useEffect(() => {
+		void useSidebarFolds.getState().hydrate();
+		void useSidebarSubagentsStore.getState().hydrate();
+	}, []);
+	// Forget the folds of folders, hosts and sessions that are gone. Only a live read (not the last-known snapshot,
+	// which holds the newest rows only) and a loaded host list say what still exists.
+	useEffect(() => {
+		if (!listLive) return;
+		const folders = new Set<string>();
+		for (const group of allGroups) {
+			folders.add(group.cwd);
+			folders.add(group.root);
+			folders.add(group.newCwd);
+			for (const member of group.members) folders.add(member);
+		}
+		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
+		useSidebarFolds.getState().pruneGroups(key => folders.has(key) || folders.has(key.replace(/#agent$/, "")));
+		const known = new Set(sessions.map(session => session.path));
+		useSidebarSubagentsStore.getState().pruneFamilies(key => !isRememberedSession(key) || known.has(key));
+	}, [listLive, allGroups, sessions, projectName]);
+	const hostsLoaded = useRemoteStore(s => s.state !== null);
+	useEffect(() => {
+		if (hostsLoaded) useSidebarFolds.getState().pruneDevices(new Set(hosts.map(host => host.deviceId)));
+	}, [hostsLoaded, hosts]);
+	// This device's own list folds under its header once a host is paired; a filter shows every match.
+	const localFoldedPref = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
+	const localFolded = localFoldedPref && hosts.length > 0 && query.length === 0;
 	// A drag arms only after 6px of movement, so clicking a project still toggles it.
 	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
@@ -2004,204 +2061,229 @@ export function Sidebar() {
 					role="group"
 				>
 					{hosts.length > 0 && <SidebarLocalHeader />}
-					{listError &&
-						(allSessions.length > 0 ? (
-							<div
-								className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
-								role="alert"
-							>
-								<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
-									<AlertTriangle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
-									{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
-								</p>
-								<ErrorDetail error={listError} />
-								<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
-									{t("common.retry")}
-								</Button>
-							</div>
-						) : (
-							<EmptyState
-								actions={
-									<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="secondary">
-										{t("common.retry")}
-									</Button>
-								}
-								className="omp-sidebar-empty"
-								description={<ErrorDetail error={listError} />}
-								icon={<AlertTriangle />}
-								size="sm"
-								title={t("sidebar.loadFailed")}
-							/>
-						))}
-					{isLoading && !listError && allSessions.length === 0 && (
-						<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
-					)}
-					{!isLoading &&
-						!listError &&
-						totalCount === 0 &&
-						(query ? (
-							<EmptyState
-								actions={
-									<Button onClick={() => setFilter("")} size="sm" variant="ghost">
-										{t("sidebar.clearFilter")}
-									</Button>
-								}
-								className="omp-sidebar-empty"
-								description={t("sidebar.noMatchHint")}
-								icon={<SearchX />}
-								size="sm"
-								title={t("sidebar.noMatch")}
-							/>
-						) : mode === "code" ? (
-							<EmptyState
-								actions={
-									<>
-										<Button
-											icon={<FolderOpen />}
-											onClick={() => setWorkspaceDialog("new-session")}
-											size="sm"
-											variant="secondary"
-										>
-											{t("sidebar.project.open")}
+					{!localFolded && (
+						<>
+							{listError &&
+								(allSessions.length > 0 ? (
+									<div
+										className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
+										role="alert"
+									>
+										<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
+											<AlertTriangle
+												aria-hidden
+												className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)"
+											/>
+											{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
+										</p>
+										<ErrorDetail error={listError} />
+										<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
+											{t("common.retry")}
 										</Button>
-										{otherModeCount > 0 && (
+									</div>
+								) : (
+									<EmptyState
+										actions={
 											<Button
-												data-sidebar-other-mode
-												onClick={() => setMode("chat")}
+												icon={<RefreshCw />}
+												onClick={() => refresh(true)}
 												size="sm"
-												variant="ghost"
+												variant="secondary"
 											>
-												{t("sidebar.otherMode.showChat")}
+												{t("common.retry")}
 											</Button>
-										)}
-									</>
-								}
-								className="omp-sidebar-empty"
-								description={
-									otherModeCount > 0 ? (
-										<>
-											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.chat", { count: otherModeCount })}
-										</>
-									) : (
-										t("sidebar.emptyCodeHint")
-									)
-								}
-								icon={<SquareTerminal />}
-								size="sm"
-								title={t("sidebar.emptyCode")}
-							/>
-						) : (
-							<EmptyState
-								actions={
-									<>
-										<Button icon={<MessageSquarePlus />} onClick={startChat} size="sm" variant="secondary">
-											{t("sidebar.menu.newChat")}
-										</Button>
-										{otherModeCount > 0 && (
-											<Button
-												data-sidebar-other-mode
-												onClick={() => setMode("code")}
-												size="sm"
-												variant="ghost"
-											>
-												{t("sidebar.otherMode.showCode")}
-											</Button>
-										)}
-									</>
-								}
-								className="omp-sidebar-empty"
-								description={
-									otherModeCount > 0 ? (
-										<>
-											{t("sidebar.emptyChatHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
-										</>
-									) : (
-										t("sidebar.emptyChatHint")
-									)
-								}
-								icon={<MessageCircle />}
-								size="sm"
-								title={t("sidebar.emptyChat")}
-							/>
-						))}
-					{mode === "chat" && chatLaneSessions.length > 0 && (
-						<div className="space-y-px" data-chat-lane>
-							{chatLaneSessions.map(session => renderSessionRow(session))}
-						</div>
-					)}
-					{visibleGroups.length > 0 && (
-						<DndContext collisionDetection={closestCenter} onDragEnd={onProjectDragEnd} sensors={projectSensors}>
-							<SortableContext
-								items={visibleGroups.map(group => group.cwd)}
-								strategy={verticalListSortingStrategy}
-							>
-								{visibleGroups.map(renderGroup)}
-							</SortableContext>
-						</DndContext>
-					)}
-					{mode === "code" && grouping === "recent" && recentCodeSessions.length + recentFolded.length > 0 && (
-						<div className="space-y-px" data-recent-lane>
-							{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
-							<SidebarDoneFold
-								foldKey="recent"
-								opened={recentFolded.map(child => familyChildFor(child, false))}
-							/>
-						</div>
-					)}
-					{archivedRows.length > 0 && (
-						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
-							<div
-								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
-								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
-							>
-								<button
-									aria-expanded={archivedOpen || query.length > 0}
-									className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-									data-roving-item="archived"
-									onClick={() => setArchivedOpen(open => !open)}
-									onFocus={() => setFocusKey("archived")}
-									onKeyDown={event => {
-										if (opensMenu(event)) {
-											event.preventDefault();
-											setArchivedMenu(anchorBelow(event.currentTarget));
-										} else if (event.key === "ArrowRight" && !archivedOpen) {
-											event.preventDefault();
-											setArchivedOpen(true);
-										} else if (event.key === "ArrowLeft" && archivedOpen) {
-											event.preventDefault();
-											setArchivedOpen(false);
 										}
-									}}
-									tabIndex={-1}
-									type="button"
-								>
-									{archivedOpen || query ? (
-										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									) : (
-										<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									)}
-									<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									<span className="min-w-0 flex-1 truncate">
-										{t("sidebar.archived", { count: archivedRows.length })}
-									</span>
-								</button>
-								<span className="relative flex shrink-0 items-center pr-1">
-									<IconButton
-										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-										icon={<MoreHorizontal />}
-										label={t("sidebar.archivedMenu")}
-										onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
+										className="omp-sidebar-empty"
+										description={<ErrorDetail error={listError} />}
+										icon={<AlertTriangle />}
 										size="sm"
-										tabIndex={-1}
+										title={t("sidebar.loadFailed")}
 									/>
-								</span>
-							</div>
-							{(archivedOpen || query.length > 0) && (
-								<div className="space-y-px" data-archived-list>
-									{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
+								))}
+							{isLoading && !listError && allSessions.length === 0 && (
+								<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
+							)}
+							{!isLoading &&
+								!listError &&
+								totalCount === 0 &&
+								(query ? (
+									<EmptyState
+										actions={
+											<Button onClick={() => setFilter("")} size="sm" variant="ghost">
+												{t("sidebar.clearFilter")}
+											</Button>
+										}
+										className="omp-sidebar-empty"
+										description={t("sidebar.noMatchHint")}
+										icon={<SearchX />}
+										size="sm"
+										title={t("sidebar.noMatch")}
+									/>
+								) : mode === "code" ? (
+									<EmptyState
+										actions={
+											<>
+												<Button
+													icon={<FolderOpen />}
+													onClick={() => setWorkspaceDialog("new-session")}
+													size="sm"
+													variant="secondary"
+												>
+													{t("sidebar.project.open")}
+												</Button>
+												{otherModeCount > 0 && (
+													<Button
+														data-sidebar-other-mode
+														onClick={() => setMode("chat")}
+														size="sm"
+														variant="ghost"
+													>
+														{t("sidebar.otherMode.showChat")}
+													</Button>
+												)}
+											</>
+										}
+										className="omp-sidebar-empty"
+										description={
+											otherModeCount > 0 ? (
+												<>
+													{t("sidebar.emptyCodeHint")}{" "}
+													{t("sidebar.otherMode.chat", { count: otherModeCount })}
+												</>
+											) : (
+												t("sidebar.emptyCodeHint")
+											)
+										}
+										icon={<SquareTerminal />}
+										size="sm"
+										title={t("sidebar.emptyCode")}
+									/>
+								) : (
+									<EmptyState
+										actions={
+											<>
+												<Button
+													icon={<MessageSquarePlus />}
+													onClick={startChat}
+													size="sm"
+													variant="secondary"
+												>
+													{t("sidebar.menu.newChat")}
+												</Button>
+												{otherModeCount > 0 && (
+													<Button
+														data-sidebar-other-mode
+														onClick={() => setMode("code")}
+														size="sm"
+														variant="ghost"
+													>
+														{t("sidebar.otherMode.showCode")}
+													</Button>
+												)}
+											</>
+										}
+										className="omp-sidebar-empty"
+										description={
+											otherModeCount > 0 ? (
+												<>
+													{t("sidebar.emptyChatHint")}{" "}
+													{t("sidebar.otherMode.code", { count: otherModeCount })}
+												</>
+											) : (
+												t("sidebar.emptyChatHint")
+											)
+										}
+										icon={<MessageCircle />}
+										size="sm"
+										title={t("sidebar.emptyChat")}
+									/>
+								))}
+							{mode === "chat" && chatLaneSessions.length > 0 && (
+								<div className="space-y-px" data-chat-lane>
+									{chatLaneSessions.map(session => renderSessionRow(session))}
 								</div>
 							)}
-						</section>
+							{visibleGroups.length > 0 && (
+								<DndContext
+									collisionDetection={closestCenter}
+									onDragEnd={onProjectDragEnd}
+									sensors={projectSensors}
+								>
+									<SortableContext
+										items={visibleGroups.map(group => group.cwd)}
+										strategy={verticalListSortingStrategy}
+									>
+										{visibleGroups.map(renderGroup)}
+									</SortableContext>
+								</DndContext>
+							)}
+							{mode === "code" &&
+								grouping === "recent" &&
+								recentCodeSessions.length + recentFolded.length > 0 && (
+									<div className="space-y-px" data-recent-lane>
+										{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
+										<SidebarDoneFold
+											foldKey="recent"
+											opened={recentFolded.map(child => familyChildFor(child, false))}
+										/>
+									</div>
+								)}
+							{archivedRows.length > 0 && (
+								<section className="mt-3" data-sidebar-archived ref={archivedRef}>
+									<div
+										className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+										onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
+									>
+										<button
+											aria-expanded={archivedOpen || query.length > 0}
+											className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+											data-roving-item="archived"
+											onClick={() => setArchivedOpen(!archivedOpen)}
+											onFocus={() => setFocusKey("archived")}
+											onKeyDown={event => {
+												if (opensMenu(event)) {
+													event.preventDefault();
+													setArchivedMenu(anchorBelow(event.currentTarget));
+												} else if (event.key === "ArrowRight" && !archivedOpen) {
+													event.preventDefault();
+													setArchivedOpen(true);
+												} else if (event.key === "ArrowLeft" && archivedOpen) {
+													event.preventDefault();
+													setArchivedOpen(false);
+												}
+											}}
+											tabIndex={-1}
+											type="button"
+										>
+											{archivedOpen || query ? (
+												<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+											) : (
+												<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+											)}
+											<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+											<span className="min-w-0 flex-1 truncate">
+												{t("sidebar.archived", { count: archivedRows.length })}
+											</span>
+										</button>
+										<span className="relative flex shrink-0 items-center pr-1">
+											<IconButton
+												className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												icon={<MoreHorizontal />}
+												label={t("sidebar.archivedMenu")}
+												onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
+												size="sm"
+												tabIndex={-1}
+											/>
+										</span>
+									</div>
+									{(archivedOpen || query.length > 0) && (
+										<div className="space-y-px" data-archived-list>
+											{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
+										</div>
+									)}
+								</section>
+							)}
+						</>
 					)}
 					{hosts.map(host => (
 						<SidebarDeviceSection host={host} key={host.deviceId} mode={mode} query={query} />

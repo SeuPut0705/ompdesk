@@ -527,9 +527,13 @@ function FamilyGroup({
 		return () => useSidebarSubagentsStore.getState().setPresent(sessionKey, false);
 	}, [sessionKey, total]);
 
-	// No child left: forget the expanded state so the next fan-out starts collapsed.
+	// No child left: forget the expanded state so the next fan-out starts collapsed. A remembered open family
+	// (restored from the saved pref) has no children until its tab's agents report: only a family seen with children
+	// can lose them.
+	const hadChildren = useRef(false);
 	useEffect(() => {
-		if (total === 0 && expanded) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
+		if (total > 0) hadChildren.current = true;
+		else if (hadChildren.current && expanded) useSidebarSubagentsStore.getState().setExpanded(sessionKey, false);
 	}, [total, expanded, sessionKey]);
 
 	// Reveal (dock chip): un-hide and expand first, then focus the first row once it renders.

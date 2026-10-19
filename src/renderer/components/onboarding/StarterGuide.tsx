@@ -15,6 +15,7 @@ import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
+import { useSidebarFolds } from "../../stores/sidebar-folds";
 import { STARTER_STEPS, type StarterStep, useStarterGuideStore } from "../../stores/starter-guide";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
@@ -42,7 +43,7 @@ export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolea
 	const prompted = useSessionStore(state => state.messageCount > 0) || promptSent;
 	const split = useTabsStore(state => state.split !== null);
 	const panel = useUiStore(state => state.panelVisible);
-	const [open, setOpen] = useState(false);
+	const open = useSidebarFolds(state => state.starterOpen);
 	const listId = useId();
 
 	useEffect(() => {
@@ -85,7 +86,7 @@ export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolea
 				aria-controls={listId}
 				aria-expanded={open}
 				className="flex min-h-(--sc-control-sm) w-full min-w-0 items-center gap-2 rounded-(--sc-radius-md) px-2.5 text-sc-sm text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
-				onClick={() => setOpen(value => !value)}
+				onClick={() => useSidebarFolds.getState().setStarterOpen(!open)}
 				type="button"
 			>
 				<span className="min-w-0 flex-1 truncate text-left">{next ? t("starter.title") : t("starter.allSet")}</span>

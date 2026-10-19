@@ -9,10 +9,12 @@
  * quotas, no polling of its own).
  */
 
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { useT } from "../../../lib/i18n";
 import { lastUsedAccounts } from "../../../lib/usage-reports";
 import { useModelStore } from "../../../stores/model";
+import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useUiStore } from "../../../stores/ui";
 import { UsageGauges, usageDescription, usageTooltip } from "../../common/UsageGauges";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
@@ -26,11 +28,24 @@ export function SidebarUsage() {
 	const provider = useModelStore(s => s.model?.provider ?? null);
 	const reports = useUsageReports();
 	const lines = reports ? lastUsedAccounts(reports, provider) : [];
+	// The block folds to its header; the fold is remembered (`stores/sidebar-folds.ts`).
+	const collapsed = useSidebarFolds(s => s.usageCollapsed);
 	if (lines.length === 0) return null;
-	const shown = lines.slice(0, USAGE_LINE_CAP);
-	const more = lines.length - shown.length;
+	const shown = collapsed ? [] : lines.slice(0, USAGE_LINE_CAP);
+	const more = collapsed ? 0 : lines.length - USAGE_LINE_CAP;
+	const Chevron = collapsed ? ChevronRight : ChevronDown;
 	return (
-		<div className="omp-sidebar-usage" data-rail-pin="usage">
+		<div className="omp-sidebar-usage" data-collapsed={collapsed || undefined} data-rail-pin="usage">
+			<button
+				aria-expanded={!collapsed}
+				className="flex h-6 w-full min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) outline-none hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				data-sidebar-usage-toggle
+				onClick={() => useSidebarFolds.getState().setUsageCollapsed(!collapsed)}
+				type="button"
+			>
+				<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.pin.usage")}</span>
+				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+			</button>
 			{shown.map(({ report, inUse }) => {
 				const label = report.account?.trim() || report.provider;
 				const email = shortAccountLabel(label);

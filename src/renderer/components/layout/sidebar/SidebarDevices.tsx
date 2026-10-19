@@ -27,8 +27,10 @@ import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
+import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -58,16 +60,29 @@ function createdAt(session: SessionInfo): number {
 	return Number.isNaN(time) ? 0 : time;
 }
 
-/** Local header over this device's own list, shown only once a host is paired. */
+/** The header over this device's own list, shown only once a host is paired; it folds the list like a host's header does. */
 export function SidebarLocalHeader() {
 	const t = useT();
+	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
 	return (
-		<h2
-			className="flex h-7 items-center gap-1.5 px-2 text-sc-xs font-medium text-(--sc-text-muted)"
-			data-sidebar-device-header="local"
-		>
-			<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-			<span className="truncate">{t("remote.sidebar.thisDevice")}</span>
+		<h2 className="m-0 text-sc-xs font-medium" data-sidebar-device-header="local">
+			<button
+				aria-expanded={!folded}
+				className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) px-2 text-left text-(--sc-text-muted) outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				data-roving-item={`device:${LOCAL_DEVICE}`}
+				data-sidebar-device-toggle={LOCAL_DEVICE}
+				onClick={() => useSidebarFolds.getState().setDeviceFolded(LOCAL_DEVICE, !folded)}
+				tabIndex={-1}
+				type="button"
+			>
+				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+				<span className="min-w-0 flex-1 truncate">{t("remote.sidebar.thisDevice")}</span>
+				{folded ? (
+					<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+				) : (
+					<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+				)}
+			</button>
 		</h2>
 	);
 }
@@ -82,7 +97,7 @@ export function SidebarDeviceSection({
 	query: string;
 }) {
 	const t = useT();
-	const [collapsed, setCollapsed] = useState(false);
+	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
 	const online = host.state === "online";
 	const stateLabel = t(`remote.state.${host.state}`);
 
@@ -104,7 +119,7 @@ export function SidebarDeviceSection({
 					className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 					data-roving-item={`device:${host.deviceId}`}
 					data-sidebar-device-toggle={host.deviceId}
-					onClick={() => setCollapsed(value => !value)}
+					onClick={() => useSidebarFolds.getState().setDeviceFolded(host.deviceId, !collapsed)}
 					tabIndex={-1}
 					type="button"
 				>
@@ -176,7 +191,7 @@ function DeviceSessions({
 	const destination = useUiStore(state => state.destination);
 	const split = useTabsStore(state => state.split);
 	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
-	const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+	const deviceGroupFolds = useSidebarFolds(s => s.deviceGroups);
 	const hostTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
 
 	const rows = useMemo<DeviceSession[]>(() => {
@@ -421,7 +436,7 @@ function DeviceSessions({
 		<div className="space-y-px">
 			{dialog}
 			{groups.map(group => {
-				const groupCollapsed = !query && collapsedGroups[group.cwd] === true;
+				const groupCollapsed = !query && deviceGroupFolds[deviceGroupKey(host.deviceId, group.cwd)] === true;
 				const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 				return (
 					<div data-device-group={group.cwd} key={group.cwd}>
@@ -430,7 +445,9 @@ function DeviceSessions({
 								aria-expanded={!groupCollapsed}
 								className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 								data-roving-item={`device-group:${host.deviceId}:${group.cwd}`}
-								onClick={() => setCollapsedGroups(prev => ({ ...prev, [group.cwd]: !groupCollapsed }))}
+								onClick={() =>
+									useSidebarFolds.getState().setDeviceGroupFolded(host.deviceId, group.cwd, !groupCollapsed)
+								}
 								tabIndex={-1}
 								title={group.cwd}
 								type="button"

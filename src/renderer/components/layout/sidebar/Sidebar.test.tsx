@@ -30,6 +30,7 @@ import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { resetSessionListFeeds } from "../../../stores/session-list";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import type { SubagentsStore } from "../../../stores/subagents";
@@ -269,6 +270,7 @@ afterEach(async () => {
 		reveal: null,
 	});
 	useSidebarPrefs.getState().reset();
+	useSidebarFolds.getState().reset();
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
@@ -2857,5 +2859,101 @@ describe("Sidebar on a touch screen", () => {
 		}
 		const head = container.querySelector(".omp-sidebar-project-menu");
 		expect(head?.getAttribute("class")).toContain("[@media(hover:none)]:opacity-100");
+	});
+});
+
+describe("Sidebar remembered folds", () => {
+	const savedFolds = (omp: MockOmp) => omp.prefs.set.mock.calls.findLast(call => call[0] === "sidebarFolds")?.[1];
+
+	it("saves a folded project, the Archived section and a host fold, and a relaunch reads them back", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useRemoteStore.getState().apply({
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				code: null,
+				expiresAt: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+		});
+		await mount(<Sidebar />);
+		expect(container.querySelector('[data-session-group="/work/alpha"]')).not.toBeNull();
+
+		await fire(groupToggle("/work/alpha"), "onClick");
+		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
+		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
+		expect(container.querySelector('[data-session-group="/work/alpha"]')).toBeNull();
+		const saved = savedFolds(omp);
+		expect(saved).toMatchObject({ groups: { "/work/alpha": true }, devices: { local: true, "dev-studio": true } });
+
+		// A relaunch: the window is gone, the stores start empty, and the saved pref is read back.
+		await act(async () => root.unmount());
+		container.remove();
+		useSidebarFolds.getState().reset();
+		omp.prefs.get.mockImplementation(async key => (key === "sidebarFolds" ? saved : null));
+		await mount(<Sidebar />);
+		expect(useSidebarFolds.getState().groups).toEqual({ "/work/alpha": true });
+		expect(container.querySelector("[data-sidebar-device-toggle='dev-studio']")?.getAttribute("aria-expanded")).toBe(
+			"false",
+		);
+		// This device's list is folded under its header: no project group is listed at all.
+		expect(container.querySelector("[data-workspace-group]")).toBeNull();
+		expect(container.querySelector("[data-sidebar-device-toggle='local']")?.getAttribute("aria-expanded")).toBe(
+			"false",
+		);
+	});
+
+	it("keeps the Code or Chat lane that was left, even with a code session open", async () => {
+		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
+		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
+		const omp = installMockOmp([chat, agent]);
+		seedStores();
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[role="tablist"] [data-tab-id="chat"]'), "onClick");
+		expect(omp.prefs.set).toHaveBeenCalledWith("sidebarFolds", expect.objectContaining({ lane: "chat" }));
+
+		// The window reopens on the open code session: the lane that was left is the one shown.
+		await act(async () => root.unmount());
+		container.remove();
+		await mount(<Sidebar />);
+		expect(container.querySelector("[data-chat-lane]")?.textContent).toContain("Session /work/alpha/chat");
+		expect(container.querySelector("[data-workspace-group]")).toBeNull();
+	});
+
+	it("prunes the folds of folders, hosts and sessions that no longer exist once a live read lands", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useRemoteStore.getState().apply({
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				code: null,
+				expiresAt: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [],
+		});
+		const folds = useSidebarFolds.getState();
+		folds.setGroupFolded("/work/alpha", false);
+		folds.setGroupFolded("/work/removed", true);
+		folds.setDeviceFolded("dev-unpaired", true);
+		useSidebarSubagentsStore.setState({ expanded: new Set([LIST[0]?.path ?? "", "/s/deleted.jsonl", "tab:t0"]) });
+		await mount(<Sidebar />);
+
+		expect(useSidebarFolds.getState().groups).toEqual({ "/work/alpha": false });
+		expect(useSidebarFolds.getState().devices).toEqual({});
+		expect([...useSidebarSubagentsStore.getState().expanded]).toEqual([LIST[0]?.path ?? "", "tab:t0"]);
 	});
 });
