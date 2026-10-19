@@ -28,6 +28,8 @@ export async function fixtureOmp(dir: string): Promise<string> {
 				"./session/session-loader": "./session-store.ts",
 				"./config/models-config-schema": "./models-config.ts",
 				"./utils/image-resize": "./image-convert.ts",
+				"./config/settings": "./worktree-location.ts",
+				"./task/settings": "./worktree-location.ts",
 			},
 		}),
 	);
@@ -60,6 +62,15 @@ export async function fixtureOmp(dir: string): Promise<string> {
 	);
 	await writeFile(path.join(tui, "transcript-entry.ts"), `export * from ${JSON.stringify(store)};\n`);
 	await writeFile(path.join(tui, "image-convert.ts"), `export * from ${JSON.stringify(images)};\n`);
+	const location = pathToFileURL(path.resolve("e2e/worktree-location-fixture.ts")).href;
+	await writeFile(path.join(root, "worktree-location.ts"), `export * from ${JSON.stringify(location)};\n`);
+	const utils = path.join(path.dirname(root), "pi-utils");
+	await mkdir(utils, { recursive: true });
+	await writeFile(
+		path.join(utils, "package.json"),
+		JSON.stringify({ name: "@oh-my-pi/pi-utils", type: "module", exports: { ".": "./worktree-location.ts" } }),
+	);
+	await writeFile(path.join(utils, "worktree-location.ts"), `export * from ${JSON.stringify(location)};\n`);
 	return bin;
 }
 

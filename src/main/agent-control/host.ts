@@ -63,7 +63,7 @@ import {
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
 import type { Schedule, SchedulesRequest, SchedulesState } from "../../shared/schedules";
-import { createWorktree, WORKTREE_COMMAND_BUDGETS_MS, worktreeBridge } from "../local/git/worktree";
+import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { describePreparation } from "../local/git/worktree-seed";
 import { GIT_METHODS, GIT_REQUEST_TIMEOUT_MS, SchedulesStateSchema, WorktreeCreateReply } from "../remote/app-protocol";
 import type { ScheduleService } from "../schedules";
@@ -122,7 +122,6 @@ export interface AgentControlHostDeps {
 		| "windowOfTab"
 		| "tabWindows"
 		| "sessionOwner"
-		| "allSidecars"
 	>;
 	/** This computer's session index (stored sessions the control tools list, search and read). */
 	sessions?: {
@@ -493,8 +492,7 @@ export class AgentControlRuntime {
 
 	/** A worktree on `device` (a paired host, or this computer when undefined) for a caller running elsewhere. */
 	async #worktreeOn(device: string | undefined, input: WorktreeInput): Promise<RpcWorktreeCreateResult> {
-		if (!device)
-			return createWorktree(input.baseCwd, input, worktreeBridge(this.#deps.pool.allSidecars(), input.baseCwd));
+		if (!device) return createWorktree(input.baseCwd, input, tablessWorktreeBridge);
 		const reply = await this.#remote().request<unknown>(
 			device,
 			GIT_METHODS.worktreeCreate,

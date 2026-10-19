@@ -64,7 +64,8 @@ import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions } from "../deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
-import { createWorktree, worktreeBridge } from "../local/git/worktree";
+import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
+import type { BridgeClient } from "../local/types";
 import type { MachineServices } from "../machine-services";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
@@ -164,6 +165,8 @@ export interface HostServicesDeps {
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
 	graceMs?: number;
+	/** Names a worktree a device's agent makes here (`host.git.worktreeCreate`); default the stock helper's. */
+	worktreeLocation?: Pick<BridgeClient, "request">;
 }
 
 /** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`), like a local tab's. */
@@ -750,11 +753,7 @@ export class LocalHostServices implements HostServices {
 			}
 			case GIT_METHODS.worktreeCreate: {
 				const input = parse(GitWorktreeCreateParams, method, params);
-				const running = [
-					...this.#deps.localTabs.allSidecars(),
-					...[...this.#tabs.values()].map(tab => tab.sidecar),
-				];
-				return createWorktree(input.baseCwd, input, worktreeBridge(running, input.baseCwd));
+				return createWorktree(input.baseCwd, input, this.#deps.worktreeLocation ?? tablessWorktreeBridge);
 			}
 			default:
 				throw codedError("unsupported", `Unknown method ${method}`);

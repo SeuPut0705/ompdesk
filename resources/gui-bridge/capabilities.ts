@@ -1096,17 +1096,20 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	worktreeLifecycle: {
 		// worktree-lifecycle.ts: the `worktree.onStart` / `worktree.onExit` settings and
-		// stock's start condition and creation for them.
+		// stock's start condition and creation for them. stock-helper/worktrees.ts reads the same worktree
+		// location without a session (`worktree.base` read-only, applied as stock's effect does) for a worktree
+		// a paired device's agent makes here.
 		session: ["settings", "sessionManager.getCwd()", "sessionManager.getSessionFile()"],
 		modules: {
-			[`${AGENT}/task/settings`]: ["cfgWorktreeOnStart.get()", "cfgWorktreeOnExit.get()"],
+			[`${AGENT}/task/settings`]: ["cfgWorktreeOnStart.get()", "cfgWorktreeOnExit.get()", "cfgWorktreeBase.get()"],
+			[`${AGENT}/config/settings`]: ["Settings.loadReadOnly()"],
 			[`${AGENT}/session/session-worktree`]: [
 				"canAutoCreateWorktree()",
 				"createSessionWorktree()",
 				"defaultSessionWorktreeBranch()",
 			],
 			[`${AGENT}/tools/gh-pr-checkout`]: ["checkoutPullRequest()"],
-			[UTILS]: ["getWorktreesDir()", "hashPath()"],
+			[UTILS]: ["getWorktreesDir()", "hashPath()", "setWorktreesDir()"],
 		},
 	},
 	resetPasses: {

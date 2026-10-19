@@ -368,6 +368,8 @@ test.describe("on a paired device", () => {
 		const tab = (await client.page.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === child);
 		const worktree = tab?.worktree;
 		expect(worktree?.baseCwd).toBe(repo);
+		// Named by the device's stock worktree location (its agent dir's `wt`, the fake omp's), not this computer's.
+		expect(worktree?.path.startsWith(path.join(hostProfile.root, "agent", "wt", "gui-"))).toBe(true);
 		expect(git(repo, "worktree", "list", "--porcelain")).toContain(`branch refs/heads/${worktree?.branch}`);
 		expect(
 			(await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 })).text,

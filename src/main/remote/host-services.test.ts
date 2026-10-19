@@ -249,7 +249,7 @@ const PROVIDER_VIEW: CustomProviderView = {
 	builtin: false,
 };
 
-function setup(graceMs = 60_000) {
+function setup(graceMs = 60_000, worktreeLocation?: HostServicesDeps["worktreeLocation"]) {
 	const sidecars: FakeHostSidecar[] = [];
 	const origins: PromptOriginEnv[] = [];
 	const machine = fakeMachine();
@@ -281,6 +281,7 @@ function setup(graceMs = 60_000) {
 		localTabs: local.localTabs,
 		trashItem: async () => {},
 		graceMs,
+		worktreeLocation,
 	});
 	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine };
 }
@@ -2069,25 +2070,27 @@ describe("LocalHostServices host.git.*: a device's agent working on a session th
 		);
 	});
 
-	it("makes a worktree with a running omp of this computer naming it, as worktree_create does", async () => {
-		const { services, local } = setup();
+	it("makes a worktree with no session running here, named by stock's location as worktree_create's is", async () => {
+		const root = join(workDir, "wt");
+		const asked: unknown[] = [];
+		const { services, local } = setup(undefined, {
+			request: async <T>(method: string, request?: unknown) => {
+				asked.push({ method, request });
+				return { root, hash: "abc1234" } as T;
+			},
+		});
+		// No omp runs on this computer: the location never comes from a session.
+		expect(local.tab.status).toBe("asleep");
 		const x = new FakeConnection(peer("device-x"));
 		const repo = join(workDir, "repo");
 		await initRepo(repo);
 		const params = { baseCwd: repo, name: "part-a", branchPrefix: "omp/agent/", baseRef: "HEAD" };
-		await expect(services.call(x.peer, "host.git.worktreeCreate", params, x)).rejects.toThrow(/No omp is running/);
-		const root = join(workDir, "wt");
-		const asked: unknown[] = [];
-		Object.assign(local.tab, {
-			bridgeRequest: async (method: string, request: unknown) => {
-				asked.push({ method, request });
-				return { root, hash: "abc1234" };
-			},
-		});
-		local.tab.setStatus("ready");
 		const made = await services.call(x.peer, "host.git.worktreeCreate", params, x);
 		expect(made).toMatchObject({ path: join(root, "gui-part-a-abc1234"), branch: "omp/agent/part-a", baseCwd: repo });
 		expect(asked).toEqual([{ method: "git.worktree_location", request: { primaryRoot: repo } }]);
 		expect(gitSync(join(root, "gui-part-a-abc1234"), "branch", "--show-current")).toBe("omp/agent/part-a");
+		await expect(
+			services.call(x.peer, "host.git.worktreeCreate", { ...params, name: "Bad Name!" }, x),
+		).rejects.toThrow(/Invalid worktree name/);
 	});
 });

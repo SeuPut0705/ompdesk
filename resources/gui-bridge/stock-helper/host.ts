@@ -15,6 +15,7 @@ import { methods as models } from "./models";
 import { methods as search } from "./search";
 import { methods as sessions } from "./sessions";
 import { disposeTerminals, methods as terminals } from "./terminals";
+import { methods as worktrees } from "./worktrees";
 
 const worker = process.argv[2];
 const terminalWorker = worker === "terminals";
@@ -22,7 +23,7 @@ const methods: HelperMethods = terminalWorker
 	? terminals
 	: worker === "extensions"
 		? (await import("./extensions")).methods
-		: { ...sessions, ...models, ...search, ...accounts, ...images };
+		: { ...sessions, ...models, ...search, ...accounts, ...images, ...worktrees };
 const input = createInterface({ input: process.stdin });
 if (terminalWorker) process.on("exit", disposeTerminals);
 input.on("close", () => {

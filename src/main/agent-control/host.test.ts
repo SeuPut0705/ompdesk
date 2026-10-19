@@ -84,7 +84,6 @@ function setup(
 				otherTabs.some(tab => tab.tabId === tabId) ? win2 : tabs.some(tab => tab.tabId === tabId) ? win : null,
 			tabWindows: () => (otherTabs.length ? [win, win2] : [win]),
 			sessionOwner: () => null,
-			allSidecars: () => [],
 		},
 		sessions: options.sessions,
 		remote: options.remote,
