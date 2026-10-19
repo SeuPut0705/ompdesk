@@ -80,6 +80,7 @@ import { CliUpdater, psCommands, registerCliUpdateIpc } from "./cli-tools/update
 import { ConnectivityMonitor } from "./connectivity";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
+import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
 import { registerDiagnosticsIpc } from "./diagnostics";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
@@ -610,6 +611,7 @@ app.whenReady().then(() => {
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 	});
+	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
 		if (!device) return createLocalSidecar(cwd, kind, fresh);

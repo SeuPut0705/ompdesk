@@ -11,6 +11,7 @@
  */
 import { codedError } from "../shared/ipc-error-codes";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
+import { deletedSessions } from "./deleted-sessions";
 import type { RpcClient } from "./rpc-client";
 import type { SidecarPool } from "./sidecar-pool";
 
@@ -28,6 +29,8 @@ export async function deleteSession(
 	if (!(await tabs.closeSessionTab(sessionPath, device)))
 		throw codedError("session_running", "Session is currently running");
 	await deleteStored();
+	// Gone for good: no layout, marker, device or index may bring it back (deleted-sessions.ts).
+	deletedSessions().add(sessionPath, device);
 }
 
 export interface RenameSessionOptions {

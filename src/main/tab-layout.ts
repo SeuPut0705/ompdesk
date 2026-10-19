@@ -8,6 +8,7 @@ import {
 	type SplitLayout,
 	splitTabIds,
 } from "../shared/split-layout";
+import { deletedSessions } from "./deleted-sessions";
 
 export const TAB_LAYOUT_VERSION = 1;
 /** A persisted title is display data only — bound it so prefs cannot grow. */
@@ -149,6 +150,9 @@ export function sanitizePersistedTabLayout(
 		if (!cwd || !kind || (!device && !paths.directoryExists(cwd))) continue;
 
 		const storedSessionPath = nonEmptyString(candidate.sessionPath);
+		// A deleted session's tab is gone with it: never a fresh tab in its folder, which is kept only for a file
+		// that is missing without having been deleted (a session never written).
+		if (storedSessionPath && deletedSessions().has(storedSessionPath, device)) continue;
 		const sessionPath =
 			storedSessionPath && (device || paths.fileExists(storedSessionPath)) ? storedSessionPath : undefined;
 		// The same path on two machines is two files (F-OWN keys device + path too).

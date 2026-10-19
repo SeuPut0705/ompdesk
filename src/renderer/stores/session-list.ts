@@ -165,7 +165,21 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 		refresh,
 		deleteSession: async path => {
 			await (device === undefined ? window.omp.sessions.delete(path) : window.omp.sessions.delete(path, device));
-			store.setState({ sessions: store.getState().sessions.filter(session => session.path !== path) });
+			// Every list of this device drops it now, held or not, and so does each one's last-known copy: a list nobody
+			// shows would otherwise paint the deleted row again on its next mount (or the next launch) until its read.
+			for (const each of ["local", "global"] as const) {
+				const target = feeds.get(device === undefined ? each : `${each}:${device}`)?.store;
+				if (target)
+					target.setState({ sessions: target.getState().sessions.filter(session => session.path !== path) });
+				const cached = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey(each))?.value;
+				if (Array.isArray(cached) && cached.some(session => session.path === path))
+					snapshots().write(
+						"sessions",
+						ns,
+						snapshotKey(each),
+						cached.filter(session => session.path !== path),
+					);
+			}
 			refresh();
 		},
 		renameSession: async (path, name) => {

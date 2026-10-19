@@ -1774,6 +1774,7 @@ export const en: Record<string, string> = {
 	"ipcError.session_name_empty": "Enter a session name.",
 	"ipcError.session_starting": "The session is still starting. Try again in a moment.",
 	"ipcError.session_owned_elsewhere": "This session is already open in another tab.",
+	"ipcError.session_deleted": "This session was deleted.",
 	"ipcError.session_kind_mismatch": "Agent and chat sessions can't switch into each other. Open it in a new tab.",
 	"ipcError.sidecar_not_connected": "omp isn't connected. Wait for it to start, then try again.",
 	"ipcError.sidecar_not_ready": "omp is still starting. Try again in a moment.",

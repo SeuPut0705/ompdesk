@@ -89,6 +89,7 @@ import {
 	splitTabIds,
 } from "../shared/split-layout";
 import { canonicalCwd } from "./canonical-cwd";
+import { deletedSessions } from "./deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "./extension-reload";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
@@ -446,6 +447,8 @@ export class SidecarPool {
 		title?: string,
 		device?: string,
 	): SidecarLike | null {
+		// A session the user deleted never comes back as a tab, whoever asks (a layout, a marker, a reopen).
+		if (deletedSessions().has(sessionPath, device)) return null;
 		try {
 			// One spelling per directory: the sidecar reports its realpath'd cwd.
 			const sidecar = this.#factory(device ? cwd : canonicalCwd(cwd), kind, fresh, device, tabId);

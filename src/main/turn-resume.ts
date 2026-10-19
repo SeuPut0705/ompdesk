@@ -18,6 +18,7 @@ import { dirname } from "node:path";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
 import { canonicalCwd } from "./canonical-cwd";
+import { deletedSessions } from "./deleted-sessions";
 import type { SidecarLike } from "./sidecar-types";
 
 export type ResumeReason =
@@ -829,7 +830,11 @@ export class TurnResume {
 	 * process left running. Markers keep their file until their turns start.
 	 */
 	launch(): void {
-		const markers = this.#deps.store.read();
+		const read = this.#deps.store.read();
+		// A session the user deleted is not continued, not even into a fresh tab in its folder; its marker goes. A
+		// never-written session (a first turn cut off before its file) has no tombstone and still continues below.
+		const markers = read.filter(marker => !deletedSessions().has(marker.sessionPath));
+		if (markers.length !== read.length) this.#deps.store.write(markers);
 		this.#launched = true;
 		this.#deps.log?.("launch", { markers: markers.length, enabled: this.#deps.enabled() });
 		if (!this.#deps.enabled()) {

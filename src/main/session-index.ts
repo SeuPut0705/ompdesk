@@ -8,6 +8,7 @@ import { join, resolve, sep } from "node:path";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
+import { deletedSessions } from "./deleted-sessions";
 import { OmpUnavailableError } from "./omp-availability";
 import { StampedLru } from "./session-cache";
 import { contentSnippet } from "./session-snippet";
@@ -144,7 +145,10 @@ export class SessionIndex {
 			throw error;
 		}
 		const localCwd = cwd !== undefined ? resolve(cwd) : this.#cwd;
+		const deleted = deletedSessions();
+		// A file a stray writer put back after its session was deleted is not that session coming back.
 		const infos = parsed.filter(info => {
+			if (deleted.has(info.path)) return false;
 			return scope === "global" || (info.cwd != null && resolve(info.cwd) === localCwd);
 		});
 		await Promise.all(

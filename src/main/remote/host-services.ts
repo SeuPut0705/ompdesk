@@ -49,6 +49,7 @@ import {
 import type { TerminalOperation } from "../../shared/terminal-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
+import { deletedSessions } from "../deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import type { MachineServices } from "../machine-services";
@@ -680,6 +681,8 @@ export class LocalHostServices implements HostServices {
 			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}
+		// A session deleted on this computer is never reopened for a device whose layout still names it.
+		if (deletedSessions().has(params.sessionPath)) throw codedError("session_deleted", "Session was deleted");
 		if (!params.cwd) throw codedError("no_workspace", "No workspace");
 		const cwd = await directory(params.cwd);
 		const kind =

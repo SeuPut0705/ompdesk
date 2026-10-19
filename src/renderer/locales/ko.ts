@@ -1755,6 +1755,7 @@ export const ko: Record<string, string> = {
 	"ipcError.session_name_empty": "세션 이름을 입력해 주세요.",
 	"ipcError.session_starting": "세션이 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
 	"ipcError.session_owned_elsewhere": "이 세션은 이미 다른 탭에서 열려 있어요.",
+	"ipcError.session_deleted": "삭제된 세션이에요.",
 	"ipcError.session_kind_mismatch": "에이전트 세션과 채팅 세션은 서로 전환할 수 없어요. 새 탭에서 열어 주세요.",
 	"ipcError.sidecar_not_connected": "omp에 연결되지 않았어요. 시작될 때까지 기다린 뒤 다시 시도해 보세요.",
 	"ipcError.sidecar_not_ready": "omp가 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
