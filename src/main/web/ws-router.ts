@@ -594,13 +594,21 @@ export class WsConnection {
 		this.#queue = [];
 	}
 
-	#write(frame: WebServerFrame): void {
-		if (this.#closed) return;
+	/** False when `frame` cannot be serialized; a socket that just closed counts as sent (the page resyncs). */
+	#write(frame: WebServerFrame): boolean {
+		if (this.#closed) return true;
+		let text: string;
 		try {
-			this.#socket.send(JSON.stringify(frame));
+			text = JSON.stringify(frame);
 		} catch {
-			// A payload that cannot be serialized or a socket that just closed: the page re-reads state on reconnect.
+			return false;
 		}
+		try {
+			this.#socket.send(text);
+		} catch {
+			// The socket is closing; its close event ends this connection.
+		}
+		return true;
 	}
 
 	#sendHello(resumed: boolean): void {
@@ -672,7 +680,14 @@ export class WsConnection {
 	async #invoke(id: number, channel: string, args: readonly unknown[]): Promise<void> {
 		try {
 			const value = await this.#dispatch("invoke", channel, args);
-			this.#write({ t: "res", id, ok: true, v: value });
+			if (this.#write({ t: "res", id, ok: true, v: value })) return;
+			// A result JSON cannot carry: the call fails here instead of the page waiting for it forever.
+			this.#write({
+				t: "res",
+				id,
+				ok: false,
+				e: { message: `The computer's answer to ${channel} could not be sent to this page` },
+			});
 		} catch (error) {
 			this.#write({ t: "res", id, ok: false, e: webError(error) });
 		}
