@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
+import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
@@ -1141,6 +1142,39 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		await after;
 		// A stored session nothing holds has nothing to wait for.
 		expect(await pool.closeSessionTab("/sessions/none.jsonl")).toBe(true);
+	});
+
+	it("never opens a tab on a session the user deleted, whoever asks (a reopen, a layout, a marker)", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		initDeletedSessions(null);
+		deletedSessions().add("/sessions/gone.jsonl");
+		expect(pool.acquire("/a", fw.win, "tab-gone", "/sessions/gone.jsonl")).toBeNull();
+		expect(
+			pool.restoreLayout(fw.win, {
+				version: 1,
+				activeIndex: 0,
+				tabs: [{ cwd: "/a", kind: "agent", sessionPath: "/sessions/gone.jsonl" }],
+			}),
+		).toBe(0);
+		expect(sidecars).toHaveLength(0);
+		// The same path on a paired host is another file.
+		expect(
+			pool.acquire(
+				"/a",
+				fw.win,
+				"tab-host",
+				"/sessions/gone.jsonl",
+				"agent",
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				"host-b",
+			),
+		).not.toBeNull();
+		initDeletedSessions(null);
 	});
 
 	it("a desktop window's restored layout skips a session another desktop window already holds (one session, one tab)", () => {

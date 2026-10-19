@@ -25,11 +25,11 @@ class Memory {
 const row = (path: string, title = path): SessionInfo =>
 	({ path, title, modified: 1, size: 1 }) as unknown as SessionInfo;
 
-function install(list: () => Promise<SessionInfo[]>) {
+function install(list: () => Promise<SessionInfo[]>, remove: (path: string) => Promise<void> = async () => {}) {
 	vi.stubGlobal("window", {
 		setTimeout,
 		clearTimeout,
-		omp: { sessions: { list }, events: { onSessionsChanged: () => () => {} } },
+		omp: { sessions: { list, delete: remove }, events: { onSessionsChanged: () => () => {} } },
 	});
 }
 
@@ -100,5 +100,32 @@ describe("session list snapshot", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("a delete drops the row from every list of the device and from each one's last-known copy, held or not", async () => {
+		snapshots().write("sessions", "local", "global", [row("/a"), row("/gone")]);
+		snapshots().write("sessions", "local", "local", [row("/gone"), row("/b")]);
+		const remove = vi.fn(async () => {});
+		install(async () => [row("/a")], remove);
+		const global = sessionListFeed("global");
+		await global.deleteSession("/gone");
+		expect(remove).toHaveBeenCalledWith("/gone");
+		expect(global.store.getState().sessions.map(s => s.path)).toEqual(["/a"]);
+		// The local list nobody showed paints without it on its next mount (a relaunch, a phone reload).
+		expect(
+			snapshots()
+				.read<SessionInfo[]>("sessions", "local", "local")
+				?.value?.map(s => s.path),
+		).toEqual(["/b"]);
+		expect(
+			snapshots()
+				.read<SessionInfo[]>("sessions", "local", "global")
+				?.value?.map(s => s.path),
+		).toEqual(["/a"]);
+		expect(
+			sessionListFeed("local")
+				.store.getState()
+				.sessions.map(s => s.path),
+		).toEqual(["/b"]);
 	});
 });

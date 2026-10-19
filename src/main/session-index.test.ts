@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
+import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
 
@@ -133,6 +134,16 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 		// A file already gone (a session never written, or a second delete) is deleted already.
 		await index.deleteSession(session);
 		await expect(index.deleteSession("/tmp/not-a-session")).rejects.toThrow("Invalid session path");
+	});
+
+	it("never lists a deleted session that a stray writer put back on disk", async () => {
+		const { index, dir } = await makeIndex();
+		const session = await writeSession(dir, "revenant");
+		initDeletedSessions(null);
+		deletedSessions().add(session);
+		const listed = await index.list("global");
+		initDeletedSessions(null);
+		expect(listed.map(info => info.path)).not.toContain(session);
 	});
 
 	it("exits on stdin EOF even without an app quit handler", async () => {

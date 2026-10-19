@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import {
 	MAX_PERSISTED_TITLE,
 	sanitizePersistedTabLayout,
@@ -206,7 +207,7 @@ describe("persisted tab layout", () => {
 		});
 	});
 
-	it("turns a deleted transcript into a fresh tab and removes duplicate session attachments", () => {
+	it("turns a missing (never written) transcript into a fresh tab and removes duplicate session attachments", () => {
 		const value = {
 			version: 1,
 			activeIndex: 0,
@@ -225,6 +226,27 @@ describe("persisted tab layout", () => {
 				{ cwd: "/b", kind: "agent", sessionPath: "/sessions/live.jsonl" },
 			],
 		});
+	});
+
+	it("drops the tab of a session the user deleted, here or on a paired host, instead of a fresh tab in its folder", () => {
+		initDeletedSessions(null);
+		deletedSessions().add("/sessions/deleted.jsonl");
+		deletedSessions().add("/host/gone.jsonl", "host-b");
+		const value = {
+			version: 1,
+			activeIndex: 0,
+			tabs: [
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/deleted.jsonl" },
+				{ cwd: "/h", kind: "agent", sessionPath: "/host/gone.jsonl", device: "host-b" },
+				{ cwd: "/h", kind: "agent", sessionPath: "/host/gone.jsonl", device: "host-c" },
+				{ cwd: "/b", kind: "agent", sessionPath: "/sessions/unwritten.jsonl" },
+			],
+		};
+		expect(sanitizePersistedTabLayout(value, pathChecks(["/a", "/b"], []))?.tabs).toEqual([
+			{ cwd: "/h", kind: "agent", sessionPath: "/host/gone.jsonl", device: "host-c" },
+			{ cwd: "/b", kind: "agent" },
+		]);
+		initDeletedSessions(null);
 	});
 
 	it("drops the disposable startup placeholder once an explicit tab exists", () => {

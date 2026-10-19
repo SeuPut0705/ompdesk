@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
+import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { SidecarLike } from "./sidecar-types";
 import {
 	deriveMarkers,
@@ -850,6 +851,24 @@ describe("TurnResume launch", () => {
 			{ type: "prompt", message: "list the fruits" },
 			{ type: "prompt", message: "list the vegetables" },
 		]);
+	});
+
+	it("never continues a session the user deleted (no fresh tab in its folder), while an unwritten one still continues", async () => {
+		h = setup({ answers: { restore_interrupted: restoreAnswer({}) } });
+		const deleted = join(h.dir, "deleted.jsonl");
+		initDeletedSessions(null);
+		deletedSessions().add(deleted);
+		h.facts.push(fact({ tabId: "restored", sessionFile: undefined }));
+		new InterruptedTurnStore(h.file).write([
+			marker({ tab: "old-del", sessionPath: deleted, prompt: "deleted work" }),
+			marker({ sessionPath: join(h.dir, "never-written.jsonl"), prompt: "list the fruits" }),
+		]);
+		h.resume.launch();
+		await settle();
+		initDeletedSessions(null);
+		expect(h.state.opened).toEqual([]);
+		expect(h.commands.filter(cmd => cmd.type === "prompt")).toEqual([{ type: "prompt", message: "list the fruits" }]);
+		expect(h.store.read().map(entry => entry.sessionPath)).not.toContain(deleted);
 	});
 
 	it("shows the calm continuing row from launch until the turn runs, never for a reopened card", async () => {

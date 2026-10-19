@@ -235,6 +235,30 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 			.toEqual([]);
 		await exitApp(app);
 		app = undefined;
+		// Stale state that still names deleted sessions, as another window, a paired phone's layout or a crash
+		// mid-turn leaves it: a saved tab and an interrupted-turn marker. Neither may bring a tab back.
+		const saved = JSON.parse(await fs.readFile(prefsPath, "utf8")) as Record<string, unknown>;
+		await fs.writeFile(
+			prefsPath,
+			JSON.stringify({
+				...saved,
+				tabLayouts: [{ version: 1, activeIndex: 0, tabs: [tab(background, "agent"), tab(chatAsleep, "chat")] }],
+			}),
+		);
+		await fs.writeFile(
+			path.join(desktop, "interrupted-turns.json"),
+			JSON.stringify([
+				{
+					window: 1,
+					tab: "stale",
+					sessionPath: active.file,
+					cwd: project,
+					kind: "agent",
+					startedAt: Date.now(),
+					reason: "running",
+				},
+			]),
+		);
 
 		const second = await launch(args, profile.env);
 		app = second.app;

@@ -23,6 +23,7 @@ import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
 import { canonicalCwd } from "../canonical-cwd";
+import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import type { MachineServices } from "../machine-services";
 import type { SidecarLike } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
@@ -297,6 +298,19 @@ describe("LocalHostServices", () => {
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "awaitingConnection", arg: false },
 		]);
+	});
+
+	it("never reopens a session deleted on this computer for a device whose layout still names it", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		initDeletedSessions(null);
+		deletedSessions().add(join(workDir, "gone.jsonl"));
+		const refused = await services
+			.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: join(workDir, "gone.jsonl") }, x)
+			.catch((error: unknown) => error);
+		initDeletedSessions(null);
+		expect(ipcErrorCode(refused)).toBe("session_deleted");
+		expect(sidecars).toHaveLength(0);
 	});
 
 	it("forwards allowlisted sidecar events as tab.event and leaves host tool calls to the device", async () => {
