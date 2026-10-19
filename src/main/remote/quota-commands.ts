@@ -105,6 +105,9 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"delete_agent_file",
 	"delete_plugin_setting",
 	"dequeue",
+	// Stock's `/dump` archive and its cleanup (bridge session-dump.ts): file work on this computer, no model.
+	"discard_session_archive",
+	"dump_session_archive",
 	"eval",
 	"export_html",
 	"fork",

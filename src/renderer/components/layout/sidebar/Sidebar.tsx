@@ -20,6 +20,7 @@ import {
 	ExternalLink,
 	Eye,
 	EyeOff,
+	FileArchive,
 	Folder,
 	FolderInput,
 	FolderOpen,
@@ -73,6 +74,7 @@ import { useSessionList } from "../../../hooks/use-session-list";
 import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { activeComposerInput } from "../../../lib/composer-focus";
+import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { copyText, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -2529,6 +2531,23 @@ export function Sidebar() {
 					const tabItems = viewItems.map((item, index) =>
 						index === 0 ? { ...item, separatorBefore: true } : item,
 					);
+					// Stock's `/dump` runs in the tab's own omp: a stored session without a tab has nothing to dump.
+					const bundleItems: ContextMenuItem[] = [false, true].map(anonymizedItem => ({
+						id: anonymizedItem ? "session-dump-bundle-anonymized" : "session-dump-bundle",
+						...(anonymizedItem ? {} : { separatorBefore: true }),
+						label: t(anonymizedItem ? "diagnosticBundle.saveAnonymized" : "diagnosticBundle.save"),
+						icon: FileArchive,
+						disabled: targetTab === undefined,
+						disabledReason: t("diagnosticBundle.needsOpenTab"),
+						onSelect: modifiers => {
+							setSessionMenu(null);
+							if (!targetTab) return;
+							void saveDiagnosticBundle(
+								{ tabId: targetTab.id, title: sessionDisplayTitle(sessionMenu.session, "") },
+								anonymizedItem || modifiers?.altKey === true,
+							);
+						},
+					}));
 					return (
 						<ContextMenu
 							ariaLabel={sessionDisplayTitle(sessionMenu.session, t("sidebar.untitled"))}
@@ -2603,6 +2622,7 @@ export function Sidebar() {
 											},
 										]
 									: []),
+								...bundleItems,
 								...(sessionMenu.session.liveTabId === undefined
 									? [
 											{

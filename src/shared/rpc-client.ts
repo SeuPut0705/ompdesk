@@ -293,6 +293,8 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	set_model: 30_000,
 	cycle_model: 30_000,
 	export_html: 120_000,
+	// Reads and anonymizes the whole transcript and every subagent's, then zips them.
+	dump_session_archive: 120_000,
 	handoff: 660_000,
 	reload_plugins: 120_000,
 	plan_approval: 660_000,

@@ -956,6 +956,8 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Open in split view",
 			"Open in new window",
 			"Hide from other agents",
+			"Save diagnostic bundle",
+			"Save diagnostic bundle (anonymized)",
 			"Rename session",
 			"Pin to top",
 			"Move to project…",
@@ -964,6 +966,9 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Show in folder",
 			"Delete",
 		]);
+		// Stock's /dump runs in a tab's own omp: a stored session no tab holds cannot be dumped.
+		expect(menuItem("Save diagnostic bundle").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Save diagnostic bundle (anonymized)").hasAttribute("disabled")).toBe(true);
 
 		const pinItem = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
 			(button.textContent ?? "").includes("Pin to top"),
@@ -2513,6 +2518,7 @@ describe("Sidebar archive, grouping and move", () => {
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 		expect(menuItem("Archive").hasAttribute("disabled")).toBe(true);
 		expect(menuItem("Move to project…").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Save diagnostic bundle").hasAttribute("disabled")).toBe(false);
 		expect(menuItemLabels().some(label => label.includes("Open in split view"))).toBe(false);
 	});
 

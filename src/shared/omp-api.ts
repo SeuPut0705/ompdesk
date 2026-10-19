@@ -32,6 +32,7 @@ import type {
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
+import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
 import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type {
@@ -512,6 +513,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope, device }) as Promise<SessionContentMatch[]>,
 			move: (sessionPath: string, cwd: string, device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_MOVE, { sessionPath, cwd, device }) as Promise<string>,
+			saveDiagnosticBundle: (request: DiagnosticBundleRequest) =>
+				transport.invoke(IPC_COMMANDS.SESSIONS_DUMP_BUNDLE, request) as Promise<DiagnosticBundleResult>,
 			openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 				transport.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 			consumePendingOpen: () => transport.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,

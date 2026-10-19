@@ -91,6 +91,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.SESSIONS_RENAME]: change("sessions.rename"),
 	[C.SESSIONS_SEARCH]: read("sessions.search"),
 	[C.SESSIONS_MOVE]: never(SESSION_TOOLS),
+	[C.SESSIONS_DUMP_BUNDLE]: change("sessions.dump_bundle"),
 	[C.SESSION_OPEN_NEW_WINDOW]: never(SESSION_TOOLS),
 	[C.SESSION_CONSUME_PENDING]: never(SESSION_TOOLS),
 	[C.SPAWN_TAB]: never(SESSION_TOOLS),

@@ -1,13 +1,15 @@
 /**
  * Settings › Updates & about › Copy diagnostics: the row shows no report until Preview opens it, the
  * preview holds the redacted text main built (read again on every open), Copy puts exactly that text
- * on the clipboard, and a failed build says so with a Retry.
+ * on the clipboard, and a failed build says so with a Retry. The download menu saves a diagnostic bundle of the
+ * focused tab, anonymized with Option/Alt or from its own item.
  */
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { DiagnosticsRow } from "./DiagnosticsRow";
 
@@ -23,7 +25,16 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 const diagnostics = vi.fn(async (): Promise<string> => "OMPdesk diagnostics\nOMPdesk: 0.35.1\nemail <email>");
-Object.assign(window as unknown as Record<string, unknown>, { omp: { runtime: { diagnostics } } });
+const saveDiagnosticBundle = vi.fn(async (_request: unknown) => ({
+	ok: true as const,
+	path: "/Users/me/bundle.zip",
+	files: ["session.md"],
+	subagentCount: 0,
+	anonymized: false,
+}));
+Object.assign(window as unknown as Record<string, unknown>, {
+	omp: { runtime: { diagnostics }, sessions: { saveDiagnosticBundle } },
+});
 const writeText = vi.fn(async (_text: string) => {});
 Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 
@@ -62,6 +73,8 @@ afterEach(async () => {
 	diagnostics.mockClear();
 	writeText.mockReset();
 	useToastStore.setState({ toasts: [] });
+	useTabsStore.setState({ tabs: [], activeTabId: null });
+	saveDiagnosticBundle.mockClear();
 });
 
 describe("DiagnosticsRow", () => {
@@ -123,5 +136,55 @@ describe("DiagnosticsRow", () => {
 		await settle();
 		expect(diagnostics).toHaveBeenCalledTimes(2);
 		expect(text()).toBe("OMPdesk diagnostics\nOMPdesk: 0.35.1\nemail <email>");
+	});
+
+	describe("save diagnostic bundle", () => {
+		const tab = { cwd: "/p", status: "ready" as const, kind: "agent" as const, unreadDone: false };
+
+		/** Opens the download menu and chooses an item the way a pointer does (React's own onClick, with the modifier). */
+		async function choose(label: string, altKey = false): Promise<void> {
+			const trigger = document.body.querySelector('button[aria-label="Save diagnostic bundle"]');
+			if (!trigger) throw new Error("no download menu");
+			(trigger as unknown as { getBoundingClientRect: () => object }).getBoundingClientRect = () => ({
+				left: 0,
+				right: 0,
+				top: 0,
+				bottom: 0,
+			});
+			await act(async () => {
+				trigger.dispatchEvent(new Event("click", { bubbles: true }));
+			});
+			const item = [...document.body.querySelectorAll('[role="menuitem"]')].find(
+				candidate => candidate.textContent === label,
+			) as unknown as Record<string, unknown> | undefined;
+			const propsKey = item && Object.getOwnPropertyNames(item).find(name => name.startsWith("__reactProps$"));
+			const props = item && propsKey ? (item[propsKey] as { onClick: (event: object) => void }) : undefined;
+			if (!props) throw new Error(`no menu item ${label}`);
+			await act(async () => props.onClick({ altKey, preventDefault: () => {} }));
+			await settle();
+		}
+
+		it("saves the full dump of the focused tab, and the anonymized one with Option/Alt or from its own item", async () => {
+			useTabsStore.setState({ tabs: [{ ...tab, id: "t1", title: "Fix login" }], activeTabId: "t1" });
+			await mount();
+
+			await choose("Save diagnostic bundle");
+			await choose("Save diagnostic bundle", true);
+			await choose("Save diagnostic bundle (anonymized)");
+
+			expect(saveDiagnosticBundle.mock.calls).toEqual([
+				[{ tabId: "t1", title: "Fix login", anonymized: false }],
+				[{ tabId: "t1", title: "Fix login", anonymized: true }],
+				[{ tabId: "t1", title: "Fix login", anonymized: true }],
+			]);
+			expect(useToastStore.getState().toasts.at(-1)?.message).toBe("/Users/me/bundle.zip");
+		});
+
+		it("asks for a session first when none is open", async () => {
+			await mount();
+			await choose("Save diagnostic bundle");
+			expect(saveDiagnosticBundle).not.toHaveBeenCalled();
+			expect(useToastStore.getState().toasts.map(toast => toast.variant)).toEqual(["warning"]);
+		});
 	});
 });

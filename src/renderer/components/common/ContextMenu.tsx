@@ -57,7 +57,12 @@ export interface ContextMenuItem {
 	disabledReason?: string;
 	/** Starts a new group: a divider renders above this item (ignored on the first). */
 	separatorBefore?: boolean;
-	onSelect: () => void;
+	/** `altKey`: Option/Alt was held while choosing (click or Enter); an item may read it as the variant of its action. */
+	onSelect: (modifiers?: MenuSelectModifiers) => void;
+}
+
+export interface MenuSelectModifiers {
+	altKey: boolean;
 }
 
 export type MenuAlign = "start" | "end";
@@ -262,9 +267,9 @@ export function ContextMenu({
 						className={menuItemClasses(item, index === activeIndex)}
 						data-menu-item
 						disabled={item.disabled}
-						onClick={() => {
+						onClick={event => {
 							if (item.disabled) return;
-							item.onSelect();
+							item.onSelect({ altKey: event.altKey });
 						}}
 						onMouseEnter={() => setActiveIndex(index)}
 						role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
@@ -288,7 +293,7 @@ export function ContextMenu({
 		} else if (event.key === "Enter") {
 			event.preventDefault();
 			const item = items[activeIndex];
-			if (item && !item.disabled) item.onSelect();
+			if (item && !item.disabled) item.onSelect({ altKey: event.altKey });
 		}
 	};
 
@@ -422,9 +427,9 @@ export function MenuButton({
 					side={side}
 					items={items.map(item => ({
 						...item,
-						onSelect: () => {
+						onSelect: modifiers => {
 							setAnchor(null);
-							item.onSelect();
+							item.onSelect(modifiers);
 						},
 					}))}
 					onClose={() => setAnchor(null)}

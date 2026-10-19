@@ -82,6 +82,7 @@ const AREAS: readonly Area[] = [
 	{ name: "agent-control", features: ["agentControl"], load: () => import("./agent-control") },
 	{ name: "modes/autopilot", features: ["autopilot"], load: () => import("./modes/autopilot") },
 	{ name: "desktop-slot", features: ["desktopSlot"], load: () => import("./desktop-slot") },
+	{ name: "session-dump", features: ["sessionDump"], load: () => import("./session-dump") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {

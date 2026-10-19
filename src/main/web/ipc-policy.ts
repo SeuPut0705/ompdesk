@@ -131,6 +131,12 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.SESSIONS_RENAME]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.SESSIONS_SEARCH]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.SESSIONS_MOVE]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.SESSIONS_DUMP_BUNDLE]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "The save sheet's folder browser picks where on the computer the zip goes; the computer writes it there",
+	},
 	[C.SESSION_OPEN_NEW_WINDOW]: {
 		dir: "invoke",
 		permission: "workspace",

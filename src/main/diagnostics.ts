@@ -119,13 +119,16 @@ export interface DiagnosticsDeps {
 	now?: () => Date;
 }
 
+/** The report as of now: what the preview shows and what the diagnostic bundle (diagnostic-bundle.ts) carries. */
+export async function currentDiagnosticsReport(deps: DiagnosticsDeps): Promise<string> {
+	return buildDiagnosticsReport({
+		generatedAt: (deps.now ?? (() => new Date()))(),
+		system: deps.system(),
+		setup: deps.setupState(),
+		logLines: await readDiagnosticsLog(deps.runtimeLogPath()),
+	});
+}
+
 export function registerDiagnosticsIpc(ipc: Pick<IpcRegistry, "handle">, deps: DiagnosticsDeps): void {
-	ipc.handle(IPC_COMMANDS.DIAGNOSTICS_BUILD, async () =>
-		buildDiagnosticsReport({
-			generatedAt: (deps.now ?? (() => new Date()))(),
-			system: deps.system(),
-			setup: deps.setupState(),
-			logLines: await readDiagnosticsLog(deps.runtimeLogPath()),
-		}),
-	);
+	ipc.handle(IPC_COMMANDS.DIAGNOSTICS_BUILD, () => currentDiagnosticsReport(deps));
 }

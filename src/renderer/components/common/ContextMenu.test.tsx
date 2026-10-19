@@ -48,7 +48,7 @@ async function mount(element: ReactElement): Promise<void> {
 }
 
 /** Drive the menu's own keydown and report what the handler claimed. */
-async function menuKeyDown(key: string): Promise<{ prevented: boolean; stopped: boolean }> {
+async function menuKeyDown(key: string, altKey = false): Promise<{ prevented: boolean; stopped: boolean }> {
 	const outcome = { prevented: false, stopped: false };
 	if (key === "Escape") {
 		const event = new Event("keydown", { bubbles: true, cancelable: true });
@@ -68,13 +68,21 @@ async function menuKeyDown(key: string): Promise<{ prevented: boolean; stopped: 
 	const propsKey = Object.getOwnPropertyNames(menu).find(name => name.startsWith("__reactProps$"));
 	const props = propsKey
 		? (menu[propsKey] as
-				| { onKeyDown?: (event: { key: string; preventDefault(): void; stopPropagation(): void }) => void }
+				| {
+						onKeyDown?: (event: {
+							key: string;
+							altKey: boolean;
+							preventDefault(): void;
+							stopPropagation(): void;
+						}) => void;
+				  }
 				| undefined)
 		: undefined;
 	if (!props?.onKeyDown) throw new Error("menu onKeyDown not found");
 	await act(async () =>
 		props.onKeyDown?.({
 			key,
+			altKey,
 			preventDefault: () => {
 				outcome.prevented = true;
 			},
@@ -87,15 +95,15 @@ async function menuKeyDown(key: string): Promise<{ prevented: boolean; stopped: 
 	return outcome;
 }
 
-async function clickItem(label: string): Promise<void> {
+async function clickItem(label: string, altKey = false): Promise<void> {
 	const button = [...document.body.querySelectorAll("button")].find(b => b.textContent?.includes(label));
 	const record = button as unknown as Record<string, unknown>;
 	const propsKey = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
 	const props = propsKey
-		? (record[propsKey] as { onClick?: (event: { preventDefault(): void }) => void } | undefined)
+		? (record[propsKey] as { onClick?: (event: { altKey: boolean; preventDefault(): void }) => void } | undefined)
 		: undefined;
 	if (!props?.onClick) throw new Error(`item onClick not found: ${label}`);
-	await act(async () => props.onClick?.({ preventDefault: () => {} }));
+	await act(async () => props.onClick?.({ altKey, preventDefault: () => {} }));
 	await flush();
 }
 
@@ -149,6 +157,25 @@ describe("ContextMenu", () => {
 		await menuKeyDown("ArrowUp");
 		await menuKeyDown("Enter");
 		expect(onA).toHaveBeenCalledTimes(1);
+	});
+
+	it("tells an item whether Option/Alt was held when it was chosen, by click or Enter", async () => {
+		const onSave = vi.fn();
+		await mount(
+			<ContextMenu items={[{ id: "a", label: "Save", onSelect: onSave }]} x={10} y={10} onClose={() => {}} />,
+		);
+
+		await clickItem("Save");
+		await clickItem("Save", true);
+		await menuKeyDown("Enter");
+		await menuKeyDown("Enter", true);
+
+		expect(onSave.mock.calls).toEqual([
+			[{ altKey: false }],
+			[{ altKey: true }],
+			[{ altKey: false }],
+			[{ altKey: true }],
+		]);
 	});
 
 	it("Escape closes without selecting, and is claimed so the dialog behind stays open", async () => {

@@ -2,14 +2,17 @@
  * Settings › Updates & about › Copy diagnostics: opens a preview of the redacted report main builds
  * (`window.omp.runtime.diagnostics()`: versions, machine setup, the last runtime-log lines, private
  * details hidden by `src/main/redactor.ts`) with a Copy button for the clipboard. The report is read
- * again every time the preview opens, so it holds what happened since. Nothing is uploaded.
+ * again every time the preview opens, so it holds what happened since. Nothing is uploaded. The download menu
+ * beside Preview saves a diagnostic bundle of the focused tab (lib/diagnostic-bundle.ts): stock's `/dump` zip
+ * plus this same text, anonymized with Option/Alt or its own item.
  */
-import { Check, ClipboardList, Copy } from "lucide-react";
+import { Check, ClipboardList, Copy, Download } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { saveFocusedDiagnosticBundle } from "../../lib/diagnostic-bundle";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
-import { Button, InlineNotice } from "../common";
+import { Button, InlineNotice, MenuButton } from "../common";
 import { SettingsRow } from "./SettingsLayout";
 
 /** How long the Copy button says "Copied". */
@@ -62,19 +65,42 @@ export function DiagnosticsRow() {
 	return (
 		<SettingsRow
 			control={
-				<Button
-					aria-controls={previewId}
-					aria-expanded={open}
-					data-diagnostics-toggle
-					onClick={() => {
-						setCopied(false);
-						setOpen(value => !value);
-					}}
-					size="sm"
-					variant="secondary"
-				>
-					{open ? t("about.diagnosticsHide") : t("about.diagnosticsShow")}
-				</Button>
+				<div className="flex items-center gap-1.5">
+					<Button
+						aria-controls={previewId}
+						aria-expanded={open}
+						data-diagnostics-toggle
+						onClick={() => {
+							setCopied(false);
+							setOpen(value => !value);
+						}}
+						size="sm"
+						variant="secondary"
+					>
+						{open ? t("about.diagnosticsHide") : t("about.diagnosticsShow")}
+					</Button>
+					<MenuButton
+						align="end"
+						icon={<Download />}
+						items={[
+							{
+								id: "save-bundle",
+								label: t("diagnosticBundle.save"),
+								icon: Download,
+								onSelect: modifiers => void saveFocusedDiagnosticBundle(modifiers?.altKey === true),
+							},
+							{
+								id: "save-bundle-anonymized",
+								label: t("diagnosticBundle.saveAnonymized"),
+								icon: Download,
+								onSelect: () => void saveFocusedDiagnosticBundle(true),
+							},
+						]}
+						label={t("diagnosticBundle.save")}
+						size="sm"
+						variant="secondary"
+					/>
+				</div>
 			}
 			description={t("about.diagnosticsDesc")}
 			tipOnly

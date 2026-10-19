@@ -244,6 +244,56 @@ describe("the web shim", () => {
 			await expect(web.api.system.showSaveDialog()).resolves.toBeNull();
 		});
 
+		it("saves a diagnostic bundle where the computer's save sheet points: the host writes it, nothing lands on the phone", async () => {
+			const saved = {
+				ok: true,
+				path: "/Users/me/out.zip",
+				files: ["session.md"],
+				subagentCount: 0,
+				anonymized: false,
+			};
+			const { web, invoked, log } = setup({ [C.SESSIONS_DUMP_BUNDLE]: saved });
+			const sheet: { defaultPath?: string; filters?: unknown } = {};
+			unregister = registerWebHostHooks({
+				showSaveDialog: async (defaultPath, filters) => {
+					sheet.defaultPath = defaultPath;
+					sheet.filters = filters;
+					return "/Users/me/out.zip";
+				},
+			});
+
+			await expect(
+				web.api.sessions.saveDiagnosticBundle({ tabId: "t1", anonymized: true, title: "Fix login" }),
+			).resolves.toEqual(saved);
+
+			expect(sheet.defaultPath).toMatch(/^omp-dump-Fix-login-\d{4}-\d{2}-\d{2}-anon\.zip$/);
+			expect(sheet.filters).toEqual([{ name: "Zip", extensions: ["zip"] }]);
+			expect(invoked).toEqual([
+				{
+					channel: C.SESSIONS_DUMP_BUNDLE,
+					args: [
+						{
+							tabId: "t1",
+							anonymized: true,
+							title: "Fix login",
+							destination: { kind: "path", path: "/Users/me/out.zip" },
+						},
+					],
+				},
+			]);
+			expect(log.saved).toEqual([]);
+		});
+
+		it("does not ask the host to dump when the sheet is cancelled", async () => {
+			const { web, invoked } = setup();
+			unregister = registerWebHostHooks({ showSaveDialog: async () => null });
+			await expect(web.api.sessions.saveDiagnosticBundle({ tabId: "t1", anonymized: false })).resolves.toEqual({
+				ok: false,
+				cancelled: true,
+			});
+			expect(invoked).toEqual([]);
+		});
+
 		it("saves an image on the phone", async () => {
 			const { web, log } = setup();
 			await expect(web.api.system.saveImage("shot.png", "image/png", bytes("png!"))).resolves.toEqual({

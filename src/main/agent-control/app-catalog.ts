@@ -9,6 +9,7 @@
 
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
+import type { DiagnosticBundleResult } from "../../shared/diagnostic-bundle";
 import { type HostView, IPC_COMMANDS, type RemoteState, type TailnetComputer } from "../../shared/ipc-types";
 import {
 	MOBILE_WEB_COMMAND,
@@ -477,6 +478,44 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			return {
 				text: "Deleted.",
 				change: { en: "Deleted a saved session", ko: "저장된 세션 삭제", value: String(args.sessionPath) },
+			};
+		},
+	},
+	{
+		id: "sessions.dump_bundle",
+		area: "sessions",
+		description:
+			"Save a diagnostic bundle as a zip file and return its path: stock's /dump archive of an open session plus OMPdesk's own diagnostics text. Anonymized by default (message contents redacted); pass anonymized:false only when the person asked for the raw transcript. Writes to path, else the Downloads folder. Needs the session open in a tab; defaults to this session.",
+		args: objectSchema({
+			session: {
+				...SESSION_PATH,
+				description:
+					"Session file path (.jsonl) of an open session, from sessions.saved. Default: this session. A session the person hid from agents is refused.",
+			},
+			anonymized: {
+				type: "boolean",
+				description: "Default true: stock's /dump anon. false: /dump all, the raw transcript.",
+			},
+			path: {
+				type: "string",
+				minLength: 1,
+				maxLength: 4096,
+				description:
+					"Absolute path of the zip to write (.zip is added when missing). Default: the Downloads folder.",
+			},
+		}),
+		tier: "change",
+		run: async (ctx, args) => {
+			const result = (await ctx.invoke(C.SESSIONS_DUMP_BUNDLE, {
+				...(typeof args.session === "string" ? { sessionPath: args.session } : { tabId: ctx.callerTabId }),
+				anonymized: args.anonymized !== false,
+				destination: typeof args.path === "string" ? { kind: "path", path: args.path } : { kind: "downloads" },
+				forAgent: true,
+			})) as DiagnosticBundleResult;
+			if (!result.ok) throw new AppRefusal(result.cancelled ? "The save was cancelled." : result.error);
+			return {
+				text: `Saved the ${result.anonymized ? "anonymized " : ""}diagnostic bundle (${result.files.join(", ")}) to ${result.path}.`,
+				change: { en: "Saved a diagnostic bundle", ko: "진단 묶음 저장", value: result.path },
 			};
 		},
 	},

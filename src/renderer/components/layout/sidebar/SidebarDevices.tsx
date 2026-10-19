@@ -10,6 +10,7 @@
 import {
 	ChevronDown,
 	ChevronRight,
+	FileArchive,
 	Folder,
 	FolderOpen,
 	FolderPlus,
@@ -25,6 +26,7 @@ import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -38,7 +40,7 @@ import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
+import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
 import { TabLiveEdge } from "../SessionLiveEdge";
 
 export type SidebarDeviceMode = "code" | "chat";
@@ -319,6 +321,19 @@ function DeviceSessions({
 		};
 		const menuItems: ContextMenuItem[] = [
 			...(tab ? [{ id: "close", label: t("sidebar.menu.closeSession"), icon: X, onSelect: closeSession }] : []),
+			// Stock's `/dump` runs in the omp the tab drives, on the host: a session no tab holds has nothing to dump.
+			...[false, true].map(anonymizedItem => ({
+				id: anonymizedItem ? "dump-bundle-anonymized" : "dump-bundle",
+				separatorBefore: !anonymizedItem,
+				label: t(anonymizedItem ? "diagnosticBundle.saveAnonymized" : "diagnosticBundle.save"),
+				icon: FileArchive,
+				disabled: tab === undefined,
+				disabledReason: t("diagnosticBundle.needsOpenTab"),
+				onSelect: (modifiers?: MenuSelectModifiers) => {
+					if (tab)
+						void saveDiagnosticBundle({ tabId: tab.id, title }, anonymizedItem || modifiers?.altKey === true);
+				},
+			})),
 			...(deletable
 				? [
 						{
@@ -373,7 +388,7 @@ function DeviceSessions({
 						</>
 					)
 				}
-				actionCount={touchInput ? Math.min(menuItems.length, 1) : menuItems.length}
+				actionCount={touchInput ? Math.min(menuItems.length, 1) : Number(tab !== undefined) + Number(deletable)}
 				actionsAtRest={touchInput}
 				actionsOnHover={!touchInput}
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
@@ -407,6 +422,10 @@ function DeviceSessions({
 					},
 					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
 					"data-device-session": session.path,
+					onContextMenu: event => {
+						const anchor = anchorFromEvent(event);
+						setRowMenu({ ...anchor, items: menuItems, label: title });
+					},
 					"data-active": active,
 					"data-current": current || undefined,
 					"data-pane-focus": (current && splitIds !== null) || undefined,
@@ -481,9 +500,9 @@ function DeviceSessions({
 					ariaLabel={rowMenu.label}
 					items={rowMenu.items.map(item => ({
 						...item,
-						onSelect: () => {
+						onSelect: modifiers => {
 							setRowMenu(null);
-							item.onSelect();
+							item.onSelect(modifiers);
 						},
 					}))}
 					onClose={() => setRowMenu(null)}

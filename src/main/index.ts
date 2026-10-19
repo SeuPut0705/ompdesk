@@ -10,6 +10,7 @@ import {
 	app,
 	BrowserWindow,
 	clipboard,
+	dialog,
 	globalShortcut,
 	ipcMain,
 	nativeImage,
@@ -87,7 +88,8 @@ import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
-import { registerDiagnosticsIpc } from "./diagnostics";
+import { poolTabFor, registerDiagnosticBundleIpc } from "./diagnostic-bundle";
+import { currentDiagnosticsReport, registerDiagnosticsIpc } from "./diagnostics";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
@@ -108,6 +110,7 @@ import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-r
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
 import { lastWindowCloseAction } from "./quit-guard";
+import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
@@ -887,7 +890,7 @@ app.whenReady().then(() => {
 	});
 	setupService = setup;
 	registerSetupIpc(ipc, setup);
-	registerDiagnosticsIpc(ipc, {
+	const diagnostics = {
 		system: () => ({
 			appVersion: appVersion(),
 			packaged: app.isPackaged,
@@ -902,6 +905,30 @@ app.whenReady().then(() => {
 		}),
 		setupState: () => setup.state(),
 		runtimeLogPath,
+	};
+	registerDiagnosticsIpc(ipc, diagnostics);
+	registerDiagnosticBundleIpc(ipc, {
+		tabFor: poolTabFor(sidecarPool),
+		agentHidden: () => agentHiddenPaths(prefs.get(AGENT_HIDDEN_PREFS_KEY)),
+		diagnosticsText: () => currentDiagnosticsReport(diagnostics),
+		readHostFile: async (tab, file) =>
+			decodeBinaryRead(
+				await devices.request(
+					tab.device,
+					"host.fs.readBinary",
+					{ path: file, rtab: tab.tabId, cwd: tab.sidecar.cwd },
+					HOST_FS_READ_BINARY_TIMEOUT_MS,
+				),
+			),
+		chooseFile: async (caller, defaultPath) => {
+			if (!caller.browserWindow) return null;
+			const chosen = await dialog.showSaveDialog(caller.browserWindow, {
+				defaultPath,
+				filters: [{ name: "Zip", extensions: ["zip"] }],
+			});
+			return chosen.canceled ? null : (chosen.filePath ?? null);
+		},
+		downloadsDir: () => app.getPath("downloads"),
 	});
 	// omp keeps itself current (src/main/omp-updater.ts): a packaged app checks on its own; a test
 	// launch only with a fake installer and OMP_GUI_TEST_OMP_UPDATES=1 (the fake omp's `update --check`

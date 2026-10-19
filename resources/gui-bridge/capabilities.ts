@@ -68,6 +68,7 @@ export const FEATURES = {
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 	phoneImages: "HEIC photos from a phone converted for the model",
 	pstack: "pstack engineering mode (always-on playbook section)",
+	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -173,8 +174,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
 			"@oh-my-pi/pi-ai": ["serviceTierFamily()", "shouldSendServiceTier()"],
-			"@oh-my-pi/pi-tui/overlays/copy-targets": [
 			"@oh-my-pi/pi-tui/overlays/job-tree": ["buildJobTree()"],
+			"@oh-my-pi/pi-tui/overlays/copy-targets": [
 				"extractBlocks()",
 				"commandFromToolCall()",
 				"assistantText()",
@@ -411,6 +412,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"@oh-my-pi/pi-ai/usage/registry": ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
 		},
+	},
+	/** session-dump.ts: the two session methods `/dump all` and `/dump anon` run, called directly for their zip. */
+	sessionDump: {
+		session: ["dumpSessionArchiveToTmpDir()", "dumpAnonymizedArchiveToTmpDir()"],
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits

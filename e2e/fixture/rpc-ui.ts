@@ -6,6 +6,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
+import JSZip from "jszip";
 import { hasMailEntry } from "../../resources/gui-bridge/agent-control-contracts";
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import {
@@ -2028,6 +2029,41 @@ export function runRpcUi(): void {
 		"judge_assist.preview_check": () => {
 			const problem = judgeAssistEnabled ? (judgeAssistScript.preview ?? null) : null;
 			return { problem, judged: problem !== null };
+		},
+		// gui-bridge session-dump.ts: a real zip with stock's members in os.tmpdir(); null while the session has no messages.
+		session_dump: (params, reply) => {
+			const messages = activeBranch().flatMap(entry =>
+				entry.type === "message" ? [entry.message as AgentMessage] : [],
+			);
+			if (messages.length === 0) return null;
+			const anonymized = params.anonymized === true;
+			const zip = new JSZip();
+			if (anonymized) {
+				zip.file(
+					"session.jsonl",
+					`${messages.map(message => JSON.stringify({ role: message.role })).join("\n")}\n`,
+				);
+			} else {
+				zip.file(
+					"session.md",
+					`${messages.map(message => `## ${message.role}\n\n${messageText(message, "\n")}`).join("\n\n")}\n`,
+				);
+				zip.file("llm-request.json", `${JSON.stringify({ messages: messages.length })}\n`);
+			}
+			const file = nodePath.join(
+				os.tmpdir(),
+				`omp-dump-${anonymized ? "anon-" : ""}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.zip`,
+			);
+			void zip.generateAsync({ type: "nodebuffer" }).then(bytes => {
+				fs.writeFileSync(file, bytes);
+				reply({
+					path: file,
+					files: anonymized ? ["session.jsonl"] : ["session.md", "llm-request.json"],
+					subagentCount: 0,
+					anonymized,
+				});
+			});
+			return undefined;
 		},
 		regenerate_title: (_params, reply) => {
 			if (autoTitleScript?.fail) throw new Error("title model unavailable");

@@ -518,3 +518,71 @@ describe("MCP install, pairing and Autopilot", () => {
 			expect(rpcTier({ type } as unknown as RpcCommand), type).toBe("never");
 	});
 });
+
+describe("sessions.dump_bundle", () => {
+	const saved = {
+		ok: true,
+		path: "/Users/me/Downloads/omp-dump-2026-10-19-anon.zip",
+		files: ["session.jsonl", "ompdesk-diagnostics.txt"],
+		subagentCount: 0,
+		anonymized: true,
+	};
+	const dumpPorts = (answer: unknown = saved) => {
+		const ports = new FakePorts();
+		ports.invoke = async (_tab, channel, args) => {
+			ports.invoked.push({ channel, args });
+			return answer;
+		};
+		return ports;
+	};
+
+	it("saves this session anonymized to the Downloads folder by default, with no card, and returns the path", async () => {
+		const ports = dumpPorts();
+		const text = await new AppControl(ports).run(CALLER, "sessions.dump_bundle", {});
+
+		expect(ports.invoked).toEqual([
+			{
+				channel: IPC_COMMANDS.SESSIONS_DUMP_BUNDLE,
+				args: [{ tabId: CALLER, anonymized: true, destination: { kind: "downloads" }, forAgent: true }],
+			},
+		]);
+		expect(text).toContain(saved.path);
+		expect(ports.cards).toEqual([]);
+		expect(ports.notes).toEqual([`Agent changed: Saved a diagnostic bundle → ${saved.path}`]);
+	});
+
+	it("takes the raw transcript only when the agent says so, and another session by its file", async () => {
+		const ports = dumpPorts({ ...saved, anonymized: false, path: "/tmp/mine.zip" });
+		const text = await new AppControl(ports).run(CALLER, "sessions.dump_bundle", {
+			session: "/s/other.jsonl",
+			anonymized: false,
+			path: "/tmp/mine.zip",
+		});
+
+		expect(ports.invoked[0]?.args).toEqual([
+			{
+				sessionPath: "/s/other.jsonl",
+				anonymized: false,
+				destination: { kind: "path", path: "/tmp/mine.zip" },
+				forAgent: true,
+			},
+		]);
+		expect(text).toContain("/tmp/mine.zip");
+		expect(text).not.toContain("anonymized");
+	});
+
+	it("turns a failed save into a refusal the agent reads", async () => {
+		const ports = dumpPorts({ ok: false, error: "There's nothing to save yet.", code: "no_messages" });
+		expect(await refusal(new AppControl(ports).run(CALLER, "sessions.dump_bundle", {}))).toBe(
+			"There's nothing to save yet.",
+		);
+	});
+
+	it("is a change: it never reaches the save dialog's channel or any other", async () => {
+		expect(ACTION_BY_ID["sessions.dump_bundle"]?.tier).toBe("change");
+		const ports = dumpPorts();
+		const control = new AppControl(ports);
+		await control.run(CALLER, "sessions.dump_bundle", {});
+		expect(ports.invoked.map(call => call.channel)).toEqual([IPC_COMMANDS.SESSIONS_DUMP_BUNDLE]);
+	});
+});

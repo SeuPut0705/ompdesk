@@ -12,6 +12,11 @@
  */
 
 import { isDeviceLocalPref, overlayDevicePrefs, readDevicePref } from "../../shared/device-prefs";
+import {
+	bundleFileName,
+	type DiagnosticBundleRequest,
+	type DiagnosticBundleResult,
+} from "../../shared/diagnostic-bundle";
 import { IPC_COMMANDS, IPC_EVENTS, type IpcFsReadBinaryResult, type OmpApi } from "../../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../../shared/omp-api";
 import { PREVIEW_SAVE_PDF, PREVIEW_STREAM_PDF } from "../../shared/preview";
@@ -143,6 +148,13 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	function hostPath(message: string, initial: string): string | null {
 		const answer = env.browser.prompt(message, initial)?.trim();
 		return answer ? answer : null;
+	}
+
+	/** The save dialog of a page: the host folder browser's save mode (or a typed path), answering a path on the computer. */
+	async function saveDialogOnComputer(defaultPath: string | undefined, filters: FileFilter[] | undefined) {
+		const pick = hooks().showSaveDialog;
+		if (pick) return pick(defaultPath, filters, host);
+		return hostPath(env.t("web.hostPath.save"), defaultPath ?? "");
 	}
 
 	async function saveImagePhone(name: string, mime: string, base64: string) {
@@ -282,11 +294,22 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 			const reveal = hooks().revealPath;
 			return reveal ? reveal(target, tab, host) : host.revealPathOnComputer(target, tab);
 		},
-		[C.SYSTEM_SAVE_DIALOG]: async (defaultPath: unknown, filters: unknown) => {
-			const initial = typeof defaultPath === "string" ? defaultPath : undefined;
-			const pick = hooks().showSaveDialog;
-			if (pick) return pick(initial, filters as FileFilter[] | undefined, host);
-			return hostPath(env.t("web.hostPath.save"), initial ?? "");
+		[C.SYSTEM_SAVE_DIALOG]: (defaultPath: unknown, filters: unknown) =>
+			saveDialogOnComputer(
+				typeof defaultPath === "string" ? defaultPath : undefined,
+				filters as FileFilter[] | undefined,
+			),
+		// The zip is written on the computer, so the page picks where there (the same save sheet) and the host saves it.
+		[C.SESSIONS_DUMP_BUNDLE]: async (request: unknown): Promise<DiagnosticBundleResult> => {
+			const asked = request as DiagnosticBundleRequest;
+			const chosen = await saveDialogOnComputer(bundleFileName(asked.title, new Date(), asked.anonymized), [
+				{ name: "Zip", extensions: ["zip"] },
+			]);
+			if (!chosen) return { ok: false, cancelled: true };
+			return transport.invoke<DiagnosticBundleResult>(C.SESSIONS_DUMP_BUNDLE, {
+				...asked,
+				destination: { kind: "path", path: chosen },
+			});
 		},
 		[C.SYSTEM_SAVE_IMAGE]: (name: unknown, mime: unknown, data: unknown) => {
 			const save = hooks().saveImage;

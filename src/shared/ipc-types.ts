@@ -24,6 +24,7 @@ import type {
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
+import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
 import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
@@ -202,6 +203,8 @@ export const IPC_COMMANDS = {
 	SESSIONS_SEARCH: "sessions:search",
 	/** Move a stored session (no tab holds it) to another project folder */
 	SESSIONS_MOVE: "sessions:move",
+	/** Save one open session's diagnostic bundle: stock's `/dump all|anon` zip plus OMPdesk's diagnostics text (`DiagnosticBundleRequest` → `DiagnosticBundleResult`) */
+	SESSIONS_DUMP_BUNDLE: "sessions:dump-bundle",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -1909,6 +1912,11 @@ export interface OmpApi {
 		search(query: string, scope: "local" | "global", device?: string): Promise<SessionContentMatch[]>;
 		/** Move a stored session to `cwd`; resolves with its new path. */
 		move(sessionPath: string, cwd: string, device?: string): Promise<string>;
+		/**
+		 * Save an open session's diagnostic bundle: the save dialog (on a paired web page, the computer's save sheet),
+		 * then stock's dump zip of the tab's omp plus `ompdesk-diagnostics.txt`. Failures resolve as results.
+		 */
+		saveDiagnosticBundle(request: DiagnosticBundleRequest): Promise<DiagnosticBundleResult>;
 		/**
 		 * Open a session (or a fresh project window) in a new parallel window.
 		 * False when its sidecar cannot be created. When `sessionPath` is already attached to a tab,
