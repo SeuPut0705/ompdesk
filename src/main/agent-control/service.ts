@@ -24,7 +24,6 @@ import type {
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
-	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
 	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
@@ -35,8 +34,6 @@ import {
 	agentTaskTitle,
 	type ClosedChild,
 	isApprovalSelect,
-	MAX_AGENT_SCHEDULES,
-	MAX_AGENT_SESSIONS,
 	parseAgentMessage,
 	parseWorkerResult,
 	AGENT_CONTROL_TOOLS as T,
@@ -60,7 +57,6 @@ import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import { type BranchFacts, type LandingFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
-import { AgentLimits, LimitError, PENDING_RUN } from "./limits";
 import {
 	type AnswerArgs,
 	ARGS,
@@ -216,8 +212,6 @@ export interface AgentControlHost {
 	approveEnabled(): boolean;
 	/** `agentControlManage`: an agent may stop, close or delete sessions it did not open without a card. */
 	manageEnabled(): boolean;
-	/** Counter of the caller's turns (a new one each time its run starts); resets the per-turn budgets. */
-	turn(callerTabId: string): number;
 	/** Every open tab of this app, the caller's window first (`here`); null when the calling tab is gone. */
 	tabs(callerTabId: string): ControlTab[] | null;
 	/** The paired hosts (Settings › Devices). */
@@ -620,7 +614,6 @@ type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] }
 
 export class AgentControl {
 	readonly #host: AgentControlHost;
-	readonly #limits: AgentLimits;
 	/** Tabs each calling tab opened, for the open limit and the "opened by you" marks. */
 	readonly #opened = new Map<string, Set<string>>();
 	/** Tabs whose stop or close is in flight. */
@@ -638,9 +631,8 @@ export class AgentControl {
 
 	readonly #app: AppControl | null;
 
-	constructor(host: AgentControlHost, limits: AgentLimits = new AgentLimits()) {
+	constructor(host: AgentControlHost) {
 		this.#host = host;
-		this.#limits = limits;
 		this.#app = host.appPorts
 			? new AppControl({ ...host.appPorts, autopilot: (tabId, args) => this.#appAutopilot(tabId, args) })
 			: null;
@@ -661,7 +653,6 @@ export class AgentControl {
 	/** A tab closed. */
 	released(tabId: string): void {
 		this.#app?.released(tabId);
-		this.#limits.forget(tabId);
 		this.#opened.delete(tabId);
 		this.#collected.delete(tabId);
 		this.#sweeping.delete(tabId);
@@ -687,7 +678,7 @@ export class AgentControl {
 			if (!tabs) fail("This session's tab is gone.");
 			return { text: await this.#dispatch(callerTabId, tabs, tool, args), isError: false };
 		} catch (error) {
-			if (error instanceof ToolError || error instanceof LimitError) return { text: error.message, isError: true };
+			if (error instanceof ToolError) return { text: error.message, isError: true };
 			return { text: `${tool} failed: ${error instanceof Error ? error.message : String(error)}`, isError: true };
 		}
 	}
@@ -1042,21 +1033,12 @@ export class AgentControl {
 	): Promise<OpenResult[]> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		const opened = this.#openedBy(caller.tabId, tabs);
-		const live = [...opened].length;
-		if (live + items.length > MAX_AGENT_SESSIONS)
-			fail(
-				`You have ${live} sessions open that you opened and asked for ${items.length} more (the limit is ${MAX_AGENT_SESSIONS} open at once). Collect their results and close some with ompdesk_session_stop, or reuse one with ompdesk_session_send.`,
-			);
-		const turn = this.#host.turn(caller.tabId);
-		this.#limits.reserveOpens(caller.tabId, turn, items.length);
-		// Reserved before the first await, so parallel opens cannot pass the limit together.
+		// Marked before the first await, so "opened by you" covers sessions still starting.
 		const reservations = items.map(() => `pending:${Math.random()}`);
 		for (const key of reservations) opened.add(key);
 		const outcomes = await Promise.allSettled(
 			items.map((item, index) => this.#openOne(caller, item, reservations[index] as string, opened, tag)),
 		);
-		const failed = outcomes.filter(outcome => outcome.status === "rejected").length;
-		if (failed > 0) this.#limits.refundOpens(caller.tabId, turn, failed);
 		const results: OpenResult[] = outcomes.map(outcome =>
 			outcome.status === "fulfilled"
 				? outcome.value
@@ -1162,8 +1144,6 @@ export class AgentControl {
 				...(tag ? { tag } : {}),
 			});
 			if (args.message) {
-				// Counts against the message budget and the relay chain like any agent message.
-				this.#limits.reserveMessage(caller.tabId, tabId, this.#host.turn(caller.tabId));
 				if (args.mode === "goal") {
 					// The goal command starts the objective turn itself.
 					responseData(
@@ -1226,8 +1206,7 @@ export class AgentControl {
 	): Promise<string> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		this.#refuseHidden(target, caller);
-		// A paired host's tab answers a refused quota or grant itself; the budgets here are the sender's.
-		this.#limits.reserveMessage(caller.tabId, target.tabId, this.#host.turn(caller.tabId));
+		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
 		await this.#ensureStarted(target, caller.tabId);
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
 		const steer = args.delivery === "steer";
@@ -1848,7 +1827,6 @@ export class AgentControl {
 		const source = this.#host.schedules();
 		if (!source) fail("Scheduled runs are not available here.");
 		const rows = source.list();
-		const mine = rows.filter(row => row.name.startsWith(AGENT_SCHEDULE_PREFIX));
 		if (args.action === "list") {
 			if (rows.length === 0) return "No scheduled runs.";
 			return rows
@@ -1871,16 +1849,10 @@ export class AgentControl {
 		}
 		if (caller.deviceName)
 			fail("Scheduled runs start on this computer; a session on a paired host cannot create one.");
-		if (mine.length >= MAX_AGENT_SCHEDULES)
-			fail(
-				`${mine.length} agent-made schedules already exist (the limit is ${MAX_AGENT_SCHEDULES}). Cancel one first, or ask the user.`,
-			);
 		const frequency: ScheduleFrequency =
 			args.every_minutes !== undefined
 				? { kind: "interval", minutes: args.every_minutes }
 				: { kind: "daily", time: args.daily_at ?? "09:00", days: [...new Set(args.days ?? [])].sort() };
-		if (frequency.kind === "interval" && frequency.minutes < AGENT_SCHEDULE_MIN_INTERVAL_MINUTES)
-			fail(`every_minutes must be at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}.`);
 		const cwd = args.folder ?? caller.cwd;
 		if (!(cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd))) fail("folder must be an absolute path.");
 		const name = `${AGENT_SCHEDULE_PREFIX}${args.name ?? ""}`;
@@ -1958,18 +1930,6 @@ export class AgentControl {
 		return status;
 	}
 
-	/** The tabs of agent-started runs whose run is over or no longer a run: they stop counting against the limit. */
-	async #endedRuns(source: AutopilotSource): Promise<Set<string>> {
-		const ended = new Set<string>();
-		await Promise.all(
-			this.#limits.runTabs().map(async tab => {
-				const status = await source.status(tab).catch(() => null);
-				if (status && (!status.active || status.state === "ended")) ended.add(tab);
-			}),
-		);
-		return ended;
-	}
-
 	async #autopilotStart(
 		caller: ControlTab,
 		tabs: ControlTab[],
@@ -1977,7 +1937,6 @@ export class AgentControl {
 		args: Extract<AutopilotArgs, { action: "start" }>,
 	): Promise<string> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
-		if (this.#limits.runTabs().includes(caller.tabId)) fail("An Autopilot run cannot start another run.");
 		const folder = args.folder === undefined ? trimSeparators(caller.cwd) : trimSeparators(args.folder);
 		if (!(folder.startsWith("/") || /^[A-Za-z]:[\\/]/.test(folder))) fail("folder must be an absolute path.");
 		const sourceTab = [caller, ...tabs]
@@ -1996,20 +1955,6 @@ export class AgentControl {
 			args.branch?.kind === "existing" &&
 			(args.branch.name === plan.defaultBranch || args.branch.name === "main" || args.branch.name === "master");
 		const opened = this.#openedBy(caller.tabId, tabs);
-		if (opened.size >= MAX_AGENT_SESSIONS)
-			fail(
-				`You have ${opened.size} sessions open that you opened (the limit is ${MAX_AGENT_SESSIONS} open at once). Close some with ompdesk_session_stop first.`,
-			);
-
-		const key = `${PENDING_RUN}${Math.random()}`;
-		const turn = this.#host.turn(caller.tabId);
-		this.#limits.reserveRun(key, await this.#endedRuns(source));
-		try {
-			this.#limits.reserveOpens(caller.tabId, turn, 1);
-		} catch (error) {
-			this.#limits.dropRun(key);
-			throw error;
-		}
 		let started: AutopilotStatus & { tabId: string };
 		try {
 			if (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch) {
@@ -2036,20 +1981,13 @@ export class AgentControl {
 						branch,
 					}),
 				);
-				if (!approved) {
-					this.#limits.dropRun(key);
-					this.#limits.refundOpens(caller.tabId, turn, 1);
-					return "The user declined Autopilot. Do not ask again unless they tell you to.";
-				}
+				if (!approved) return "The user declined Autopilot. Do not ask again unless they tell you to.";
 			}
 			started = await source.start(caller.tabId, sourceTab.tabId, startOptions(args, ship));
 		} catch (error) {
-			this.#limits.dropRun(key);
-			this.#limits.refundOpens(caller.tabId, turn, 1);
-			if (error instanceof ToolError || error instanceof LimitError) throw error;
+			if (error instanceof ToolError) throw error;
 			fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
 		}
-		this.#limits.settleRun(key, started.tabId);
 		opened.add(started.tabId);
 		return [
 			`Started Autopilot in session ${started.tabId}.`,

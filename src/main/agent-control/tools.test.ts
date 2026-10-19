@@ -40,7 +40,7 @@ describe("OMPdesk control tool definitions", () => {
 		).toBeTruthy();
 		expect(() => open.parse({ message: "a", sessions: [{ message: "b" }] })).toThrow();
 		expect(() => open.parse({ sessions: [] })).toThrow();
-		expect(() => open.parse({ sessions: Array.from({ length: 5 }, () => ({ message: "x" })) })).toThrow();
+		expect(open.parse({ sessions: Array.from({ length: 12 }, () => ({ message: "x" })) })).toBeTruthy();
 		const result = ARGS[AGENT_CONTROL_TOOLS.result];
 		expect(result.parse({ sessions: ["a1b2", "c3d4"], wait: true, until: "any" })).toBeTruthy();
 		expect(() => result.parse({ session: "a1b2", sessions: ["c3d4"] })).toThrow();

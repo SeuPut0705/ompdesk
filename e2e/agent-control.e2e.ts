@@ -6,7 +6,7 @@ import type { ElectronApplication, Page } from "playwright";
 import { exitApp, launchApp, readRecords } from "./harness";
 
 // OMPdesk control tools (src/main/agent-control): the main agent's host tools open a session, message it, wait for
-// it and read it back; refuse what needs the user without the confirmation card; and stop at their caps. The fake
+// it and read it back; and refuse what needs the user without the confirmation card. The fake
 // omp calls a tool with `fixture:host-tool:<name> <json>` (the way stock's agent would) and records the
 // `host_tool_result` it gets. Subagents never have the tools: stock registers host tools on the RPC session only
 // (checked against a real omp in real-agent-control.e2e.ts).

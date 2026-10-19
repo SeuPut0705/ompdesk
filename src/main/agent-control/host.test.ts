@@ -305,29 +305,6 @@ describe("AgentControlRuntime", () => {
 		expect(state.schedules).toEqual([]);
 	});
 
-	it("resets the per-turn open budget at each agent turn's end, even while background work keeps the run busy", async () => {
-		const { runtime, win, deps, tabs, activity } = setup({ prefs: { agentControlManage: true } });
-		let next = 0;
-		deps.spawnTab = async () => {
-			const tabId = `kid${String(++next).padStart(5, "0")}`;
-			tabs.push({ tabId, cwd: "/repo", status: "ready", kind: "agent" });
-			return { tabId };
-		};
-		const announce = (type: string) => {
-			for (const observer of activity) observer({ type, tabId: "main0001" });
-		};
-		announce("busy");
-		expect((await runtime.run(win, "main0001", T.open, { sessions: [{}, {}, {}, {}] })).isError).toBe(false);
-		const capped = await runtime.run(win, "main0001", T.open, {});
-		expect(capped.isError).toBe(true);
-		expect(capped.text).toMatch(/this turn/i);
-		for (const id of ["kid00001", "kid00002", "kid00003", "kid00004"])
-			await runtime.run(win, "main0001", T.stop, { session: id, close: true });
-		// The turn ended, but background work keeps the run busy: no idle → busy edge, only the turn's end.
-		announce("turnEnded");
-		expect((await runtime.run(win, "main0001", T.open, {})).isError).toBe(false);
-	});
-
 	it("lists and steers another window's sessions through that window", async () => {
 		const { runtime, win, win2, commands } = setup({
 			tabs: [{ tabId: "main0001", title: "Boss" }],

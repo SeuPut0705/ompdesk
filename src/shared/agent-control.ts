@@ -104,26 +104,6 @@ export function isAgentControlTool(name: string): name is AgentControlToolName {
 	return (Object.values(AGENT_CONTROL_TOOLS) as string[]).includes(name);
 }
 
-/** Sessions one session may hold open that it opened itself; a further open is refused until one closes. */
-export const MAX_AGENT_SESSIONS = 6;
-/** Sessions one session may open within one of its turns (a fan-out is one call of up to this many). */
-export const MAX_OPENS_PER_TURN = 4;
-/** Sessions one session may open within a rolling hour. */
-export const MAX_OPENS_PER_HOUR = 12;
-/** A message chain A→B→C… started by an agent's send may be at most this many hops deep; the next send is refused. */
-export const MAX_RELAY_HOPS = 3;
-/** Agent messages from one session to one other session within a minute. */
-export const MAX_PAIR_MESSAGES_PER_MINUTE = 6;
-/** Messages one session's agent may send within one of its turns, and within a rolling hour (opens count too). */
-export const MAX_MESSAGES_PER_TURN = 20;
-export const MAX_MESSAGES_PER_HOUR = 60;
-
-/** Scheduled runs an agent may have created and still live (`ompdesk_schedule`); each is named with the prefix below. */
-export const MAX_AGENT_SCHEDULES = 5;
-/** Autopilot runs agents started (`ompdesk_autopilot`) that may be live at once, across every session of the app. */
-export const MAX_AGENT_AUTOPILOT_RUNS = 2;
-/** The shortest repeat an agent may schedule, in minutes (the Schedules service itself allows 5). */
-export const AGENT_SCHEDULE_MIN_INTERVAL_MINUTES = 30;
 /** Schedules an agent creates start with this, so the person sees whose they are in Settings › Schedules and only these may be cancelled by an agent. */
 export const AGENT_SCHEDULE_PREFIX = "[agent] ";
 

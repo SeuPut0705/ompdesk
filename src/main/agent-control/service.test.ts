@@ -1,14 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import {
-	type ClosedChild,
-	MAX_AGENT_AUTOPILOT_RUNS,
-	MAX_AGENT_SCHEDULES,
-	MAX_AGENT_SESSIONS,
-	MAX_OPENS_PER_TURN,
-	AGENT_CONTROL_TOOLS as T,
-	wrapAgentMessage,
-} from "../../shared/agent-control";
+import { type ClosedChild, AGENT_CONTROL_TOOLS as T, wrapAgentMessage } from "../../shared/agent-control";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -18,7 +10,6 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
 import type { BranchFacts, LandingFacts, MergeOutcome, WorktreeRef } from "./branches";
-import { AgentLimits } from "./limits";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -57,7 +48,6 @@ class FakeHost implements AgentControlHost {
 	approve = false;
 	manage = false;
 	stopping = new Set<string>();
-	turnNo = 1;
 	spawned: SpawnRequest[] = [];
 	first: OpenedChild[] = [];
 	answers: { tabId: string; id: string; response: ExtensionUIResponse }[] = [];
@@ -94,7 +84,6 @@ class FakeHost implements AgentControlHost {
 	enabled = () => true;
 	approveEnabled = () => this.approve;
 	manageEnabled = () => this.manage;
-	turn = () => this.turnNo;
 	tabs = (): ControlTab[] => [...this.tabsById.values()];
 	isStopping = (callerTabId: string) => this.stopping.has(callerTabId);
 	beforeFirstPrompt = async (child: OpenedChild) => {
@@ -247,8 +236,8 @@ class FakeHost implements AgentControlHost {
 	};
 }
 
-function control(host: AgentControlHost, limits?: AgentLimits) {
-	return new AgentControl(host, limits ?? new AgentLimits());
+function control(host: AgentControlHost) {
+	return new AgentControl(host);
 }
 
 const select = (title: string, options: string[]): ControlAsk => ({
@@ -396,26 +385,13 @@ describe("ompdesk_session_open", () => {
 		expect(prompts(host, child)).toEqual([]);
 	});
 
-	it("holds the per-turn, per-hour and open-at-once caps", async () => {
+	it("opens as many sessions as asked, in one call and across calls", async () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		const service = control(host);
-		const many = Array.from({ length: MAX_OPENS_PER_TURN + 1 }, () => ({ message: "x" }));
-		expect((await service.run("main0001", T.open, { sessions: many })).isError).toBe(true);
-		expect((await service.run("main0001", T.open, { sessions: many.slice(0, MAX_OPENS_PER_TURN) })).isError).toBe(
-			false,
-		);
-		const again = await service.run("main0001", T.open, { message: "one more" });
-		expect(again.text).toMatch(/This turn/);
-		host.turnNo = 2;
-		expect((await service.run("main0001", T.open, { message: "next turn" })).isError).toBe(false);
-		host.turnNo = 3;
-		expect((await service.run("main0001", T.open, { message: "sixth" })).isError).toBe(false);
-		expect(host.tabsById.size - 1).toBe(MAX_AGENT_SESSIONS);
-		host.turnNo = 4;
-		const atOnce = await service.run("main0001", T.open, { message: "seventh" });
-		expect(atOnce.isError).toBe(true);
-		expect(atOnce.text).toMatch(/open at once/);
-		expect(host.tabsById.size - 1).toBe(MAX_AGENT_SESSIONS);
+		const many = Array.from({ length: 10 }, (_, index) => ({ message: `part ${index}` }));
+		expect((await service.run("main0001", T.open, { sessions: many })).isError).toBe(false);
+		expect((await service.run("main0001", T.open, { message: "one more" })).isError).toBe(false);
+		expect(host.tabsById.size - 1).toBe(11);
 	});
 
 	it("refuses to open or send while the caller is stopping", async () => {
@@ -480,7 +456,7 @@ describe("ompdesk_session_send", () => {
 		expect(prompts(host, "work0002")).toEqual([]);
 	});
 
-	it("cuts a relay chain and spends the message budget per turn", async () => {
+	it("passes messages along a chain of sessions with no cap", async () => {
 		const host = new FakeHost(
 			{ tabId: "aaaa0001" },
 			{ tabId: "bbbb0002" },
@@ -492,10 +468,8 @@ describe("ompdesk_session_send", () => {
 		expect((await service.run("aaaa0001", T.send, { session: "bbbb0002", message: "1" })).isError).toBe(false);
 		expect((await service.run("bbbb0002", T.send, { session: "cccc0003", message: "2" })).isError).toBe(false);
 		expect((await service.run("cccc0003", T.send, { session: "dddd0004", message: "3" })).isError).toBe(false);
-		const cut = await service.run("dddd0004", T.send, { session: "eeee0005", message: "4" });
-		expect(cut.isError).toBe(true);
-		expect(cut.text).toMatch(/hop/);
-		expect(prompts(host, "eeee0005")).toEqual([]);
+		expect((await service.run("dddd0004", T.send, { session: "eeee0005", message: "4" })).isError).toBe(false);
+		expect(prompts(host, "eeee0005")).toHaveLength(1);
 	});
 });
 
@@ -1086,12 +1060,12 @@ describe("ompdesk_schedule", () => {
 		});
 	});
 
-	it("holds the caps: interval, folder, number of agent schedules, remote callers, bad arguments", async () => {
+	it("checks the folder, remote callers and bad arguments, and caps nothing", async () => {
 		const host = new FakeHost({ tabId: "main0001" }, { tabId: "remo0002", deviceName: "Studio" });
 		host.manage = true;
 		const service = control(host);
 		const base = { action: "create", name: "n", prompt: "p" };
-		expect((await service.run("main0001", T.schedule, { ...base, every_minutes: 10 })).text).toMatch(/at least 30/);
+		// No count or interval cap of its own: the Schedules service's rules apply.
 		expect(
 			(await service.run("main0001", T.schedule, { ...base, every_minutes: 60, folder: "relative/dir" })).text,
 		).toMatch(/absolute/);
@@ -1102,13 +1076,10 @@ describe("ompdesk_schedule", () => {
 		expect(
 			(await service.run("main0001", T.schedule, { action: "create", name: "n", every_minutes: 60 })).text,
 		).toMatch(/needs prompt/);
-		for (let i = 0; i < MAX_AGENT_SCHEDULES; i++)
-			expect(
-				(await service.run("main0001", T.schedule, { ...base, name: `n${i}`, every_minutes: 60 })).isError,
-			).toBe(false);
-		const sixth = await service.run("main0001", T.schedule, { ...base, every_minutes: 60 });
-		expect(sixth.isError).toBe(true);
-		expect(sixth.text).toMatch(/limit is 5/);
+		for (let i = 0; i < 8; i++)
+			expect((await service.run("main0001", T.schedule, { ...base, name: `n${i}`, every_minutes: 5 })).isError).toBe(
+				false,
+			);
 	});
 
 	it("lists every schedule but cancels only the agent's own; the user's stay", async () => {
@@ -1236,10 +1207,9 @@ describe("ompdesk_autopilot", () => {
 		await service.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "trunk" } });
 		expect(host.cards).toHaveLength(1);
 		pilot.defaultBranch = "trunk";
-		const limited = control(host, new AgentLimits());
-		await limited.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "trunk" } });
+		await service.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "trunk" } });
 		expect(host.cards).toHaveLength(2);
-		await limited.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "main" } });
+		await service.run("main0001", T.autopilot, { action: "start", branch: { kind: "existing", name: "main" } });
 		expect(host.cards).toHaveLength(3);
 	});
 
@@ -1314,20 +1284,15 @@ describe("ompdesk_autopilot", () => {
 		expect(pilot.starts).toHaveLength(1);
 	});
 
-	it("keeps at most two agent-started runs live, counting a run again once it ended", async () => {
+	it("starts as many agent runs as asked", async () => {
 		const { host, pilot, service } = setup();
 		host.manage = true;
-		for (let i = 0; i < MAX_AGENT_AUTOPILOT_RUNS; i++)
+		for (let i = 0; i < 4; i++)
 			expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
-		const refused = await service.run("main0001", T.autopilot, { action: "start" });
-		expect(refused.isError).toBe(true);
-		expect(refused.text).toMatch(/limit is 2/);
-		pilot.statuses.set("apr10000", runStatus({ state: "ended" }));
-		expect((await service.run("main0001", T.autopilot, { action: "start" })).isError).toBe(false);
-		expect(pilot.starts).toHaveLength(3);
+		expect(pilot.starts).toHaveLength(4);
 	});
 
-	it("gives a failed start back its slot and reports the readable reason", async () => {
+	it("reports a failed start's readable reason, and a later start still goes", async () => {
 		const { host, pilot, service } = setup();
 		host.manage = true;
 		pilot.failStart = "This folder is not a git repository.";

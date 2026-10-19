@@ -144,8 +144,6 @@ function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): Suba
 export type TabActivity =
 	| { type: "busy"; tabId: string }
 	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
-	/** One agent turn ended (agent_end outside a retry saga), whether or not background work keeps the run busy. */
-	| { type: "turnEnded"; tabId: string }
 	| { type: "ask"; tabId: string; requestId: string; text: string }
 	| { type: "askClosed"; tabId: string; requestId: string }
 	| { type: "released"; tabId: string };
@@ -716,8 +714,6 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
-			// Every agent turn's end, even while background work keeps the run alive (agent-control's per-turn budget).
-			if (runEnded) this.#announce({ type: "turnEnded", tabId: entry.tabId });
 			if (busyChanged || entry.placeholder !== wasPlaceholder) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}

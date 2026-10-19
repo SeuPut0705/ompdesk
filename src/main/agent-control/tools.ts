@@ -10,15 +10,7 @@ import {
 	AUTOPILOT_NOTIFY_MODES,
 	MAX_PARALLEL_CHILDREN,
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import {
-	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
-	AGENT_SCHEDULE_PREFIX,
-	MAX_AGENT_AUTOPILOT_RUNS,
-	MAX_AGENT_SCHEDULES,
-	MAX_AGENT_SESSIONS,
-	MAX_OPENS_PER_TURN,
-	AGENT_CONTROL_TOOLS as T,
-} from "../../shared/agent-control";
+import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 
 /** `ompdesk_session_result` waits at most this long by default, and never longer than the maximum. */
@@ -127,7 +119,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.open,
 		label: "Open OMPdesk session",
-		description: `Open new sessions (tabs) so they work in parallel with you; returns their ids. Give one session's fields, or sessions: [...] to fan out (at most ${MAX_OPENS_PER_TURN} per turn, ${MAX_AGENT_SESSIONS} you opened open at once). See skill://ompdesk.`,
+		description: `Open new sessions (tabs) so they work in parallel with you; returns their ids. Give one session's fields, or sessions: [...] to fan out. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -312,7 +304,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.schedule,
 		label: "Schedule an OMPdesk run",
-		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes (at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}) or daily_at (HH:MM, optional days 0-6). The user confirms a new one unless they turned confirmations off. It never runs with auto-approve, at most ${MAX_AGENT_SCHEDULES} agent-made schedules exist, and you can cancel only those. See skill://ompdesk.`,
+		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). The user confirms a new one unless they turned confirmations off. It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -325,7 +317,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				folder: { type: "string", description: "create: absolute project folder; default your own." },
 				every_minutes: {
 					type: "integer",
-					description: `create: repeat every N minutes (at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}).`,
+					description: "create: repeat every N minutes.",
 				},
 				daily_at: { type: "string", description: "create: local time HH:MM, every day or on days." },
 				days: {
@@ -343,7 +335,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.autopilot,
 		label: "OMPdesk Autopilot",
-		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). The user confirms a start unless they turned confirmations off, and always for ship release or the repo's default branch. At most ${MAX_AGENT_AUTOPILOT_RUNS} agent-started runs live at once. See skill://ompdesk.`,
+		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). The user confirms a start unless they turned confirmations off, and always for ship release or the repo's default branch. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -583,7 +575,7 @@ export const ARGS = {
 	[T.open]: z
 		.object({
 			...openFields,
-			sessions: z.array(openOne).min(1).max(MAX_OPENS_PER_TURN).optional(),
+			sessions: z.array(openOne).min(1).optional(),
 			show: z.enum(["background", ...PLACEMENT]).optional(),
 		})
 		.strict()

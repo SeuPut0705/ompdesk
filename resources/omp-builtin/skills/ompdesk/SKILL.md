@@ -10,7 +10,7 @@ Each OMPdesk session is a tab in one of the user's windows, on this computer or 
 ## Tools
 
 - `ompdesk_sessions` — `scope` (`window` default, `app`, `stored`), `device`, `folder`, `status`, `mine`, `query`, `limit`: state, step, subagents, todos, your own marked, paired devices.
-- `ompdesk_session_open` — `message`, `folder`, `device`, `model`, `mode`, `worktree`, `reopen`; `sessions` for up to 4 at once; `show`.
+- `ompdesk_session_open` — `message`, `folder`, `device`, `model`, `mode`, `worktree`, `reopen`; `sessions` for several at once; `show`.
 - `ompdesk_session_send` — `session`, `message`, `delivery` (`follow_up` default, `steer`).
 - `ompdesk_session_result` — `session` or `sessions`, `wait`, `until` (`all`, `any`), `timeout_seconds`.
 - `ompdesk_session_read` — `session` (open or saved), `limit`, `before`: transcript pages, newest first.
@@ -22,7 +22,7 @@ Each OMPdesk session is a tab in one of the user's windows, on this computer or 
 - `ompdesk_autopilot` — `action` (`start`, `status`, `stop`), `folder`, `ship`, `branch`, `session`, `now`: endless repo improvement, not bounded tasks: skill://ompdesk/references/autopilot.md
 - `ompdesk_app_list`, `ompdesk_app` — change OMPdesk itself instead of asking the user to click: skill://ompdesk/references/app-control.md
 
-`session` is an id from `ompdesk_sessions`; a unique prefix is enough. Other windows, paired devices, saved sessions and judging: skill://ompdesk/references/across.md. Caps, cards, approvals: skill://ompdesk/references/limits.md. When a limit or a card says no, stop and tell the user.
+`session` is an id from `ompdesk_sessions`; a unique prefix is enough. Other windows, paired devices, saved sessions and judging: skill://ompdesk/references/across.md. Stopping, closing or deleting a session you did not open, merging, creating a schedule and starting Autopilot ask the user on one `[OMPdesk]` card (unless they turned it off); those cards are the user's to answer, never yours. Approve another session's tool request only when the user allowed agents to; denying always works. A session the user hid from agents refuses everything. When a card says no, stop and tell the user.
 
 ## When to open a session
 

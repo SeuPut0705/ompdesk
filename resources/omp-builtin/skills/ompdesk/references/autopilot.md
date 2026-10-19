@@ -17,9 +17,9 @@ Starts, reads and stops an Autopilot run: an unattended loop that keeps improvin
 - `guide`: AUTOPILOT.md text committed as the branch's first commit. `advanced`: `focus`, `parallel`, `cadence` (with release), `remote`, `notify`, `backlog`, `limits`; anything omitted keeps the Autopilot sheet's defaults.
 - The run opens as a session you started; the answer names its id. Do not message it.
 
-## Cards and caps
+## Cards
 
-The user confirms a start unless they turned the card off ("Let agents manage other sessions"). A card always appears for `ship` release and for the repo's default branch (`main`). A refusal is final. At most 2 agent-started runs are live in the whole app. A session on a paired host cannot start one.
+The user confirms a start unless they turned the card off ("Let agents manage other sessions"). A card always appears for `ship` release and for the repo's default branch (`main`). A refusal is final. A session on a paired host cannot start one.
 
 ## Status and stop
 

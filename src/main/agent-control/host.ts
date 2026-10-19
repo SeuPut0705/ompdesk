@@ -63,7 +63,6 @@ import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
 import { branchFacts, discardWorktree, landingFacts, mergeBranch, removeLandedWorktree } from "./branches";
-import { AgentLimits } from "./limits";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -174,7 +173,6 @@ export function splitBranch(branch: string | undefined, slug: string): { branchP
 export class AgentControlRuntime {
 	readonly #deps: AgentControlHostDeps;
 	readonly #windows = new Map<string, ClientWindow>();
-	readonly #turns = new Map<string, number>();
 	/** Who opened a tab and for what (Autopilot's tag). */
 	readonly #parents = new Map<string, { callerTabId: string; tag?: string }>();
 	readonly control: AgentControl;
@@ -189,14 +187,10 @@ export class AgentControlRuntime {
 	/** Debounce timers of the auto-close passes, per opener tab. */
 	readonly #sweepTimers = new Map<string, NodeJS.Timeout>();
 
-	constructor(deps: AgentControlHostDeps, limits: AgentLimits = new AgentLimits()) {
+	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
-		this.control = new AgentControl(this.#host(), limits);
+		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
-			// The per-turn budget is per agent turn: a turn's end opens the next one even while background work
-			// keeps the run busy (no idle → busy edge then), and a new run starts one too.
-			if (activity.type === "busy" || activity.type === "turnEnded")
-				this.#turns.set(activity.tabId, (this.#turns.get(activity.tabId) ?? 0) + 1);
 			if (activity.type === "busy") this.#busySince.set(activity.tabId, Date.now());
 			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#parents.get(activity.tabId)?.callerTabId;
@@ -204,7 +198,6 @@ export class AgentControlRuntime {
 			// A child finishing, or an opener going idle (it can no longer collect), may let a child close.
 			this.#sweepSoon(parent ?? activity.tabId);
 			if (activity.type === "released") {
-				this.#turns.delete(activity.tabId);
 				this.#windows.delete(activity.tabId);
 				this.#parents.delete(activity.tabId);
 				this.#busySince.delete(activity.tabId);
@@ -492,7 +485,6 @@ export class AgentControlRuntime {
 			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
 			approveEnabled: () => deps.prefs.get(AGENT_CONTROL_APPROVE_PREF) === true,
 			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
-			turn: callerTabId => this.#turns.get(callerTabId) ?? 0,
 			tabs: callerTabId => {
 				const own = this.#win(callerTabId);
 				if (!own || own.isDestroyed()) return null;
