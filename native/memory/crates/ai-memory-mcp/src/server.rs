@@ -707,6 +707,13 @@ struct QueryArgs {
     /// `minimal`, is byte-identical to today. An unknown value is rejected.
     #[serde(default)]
     reasoning: Option<ReasoningTier>,
+    /// Opt-in, off by default. When `true`, the response also carries
+    /// `conclusion_hits`: per session, its best-matching conclusion (a `Stop`
+    /// observation with a body) in the resolved project (each `scopes` entry
+    /// when given), best first, at most `limit`. Independent of page `hits`
+    /// and the raw fallback. Ignored on `global` and `as_of` queries.
+    #[serde(default)]
+    conclusions: Option<bool>,
 }
 
 /// Operator-facing reasoning-effort tier for the opt-in LLM synthesis paths
@@ -922,6 +929,12 @@ struct MemoryQueryResponse {
     /// measured at all without `explain`.
     #[serde(skip_serializing_if = "Option::is_none")]
     timings: Option<ai_memory_store::StreamTimings>,
+    /// Present only when `conclusions=true` matched: one row per session, its
+    /// best-matching conclusion (`Stop` observation with a body) in the
+    /// resolved project, best first, at most `limit`. Not affected by page
+    /// `hits`; omitted on `global` and `as_of` queries.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    conclusion_hits: Vec<ai_memory_store::ConclusionHit>,
 }
 
 /// Response for `memory_recent`. `hits` carries the current project's recent
@@ -2707,7 +2720,9 @@ impl AiMemoryServer {
         `global=true` to search EVERY \
         project at once (cross-project) when you don't know which project \
         holds the knowledge — each hit then carries its workspace + \
-        project name."
+        project name. Set `conclusions=true` to also get `conclusion_hits`: \
+        each session's best-matching final assistant message (`Stop` with a \
+        body) in the project, best first; ignored on `global` and `as_of`."
     )]
     async fn memory_query(
         &self,
@@ -2773,6 +2788,7 @@ impl AiMemoryServer {
                 raw_hits: Vec::new(),
                 global_hits,
                 global_scope_hits: Vec::new(),
+                conclusion_hits: Vec::new(),
                 streams_active: explain.then(|| vec!["fts"]),
                 timings,
             });
@@ -2843,6 +2859,7 @@ impl AiMemoryServer {
                 raw_hits: Vec::new(),
                 global_hits: Vec::new(),
                 global_scope_hits: Vec::new(),
+                conclusion_hits: Vec::new(),
                 streams_active: explain.then(|| vec!["entity", "fts"]),
                 // Time travel fuses inside one store call; no per-stream split.
                 timings: None,
@@ -3190,6 +3207,42 @@ impl AiMemoryServer {
         } else {
             (None, None)
         };
+        // Opt-in conclusion leg: runs against the same resolved project(s) as
+        // the page search, whether or not pages matched.
+        let conclusion_hits = if args.conclusions.unwrap_or(false) {
+            let targets = match &resolved_scopes {
+                Some(scopes) => scopes.clone(),
+                None => vec![
+                    self.effective_ids_for_read_args_with_actor(
+                        args.workspace.as_deref(),
+                        args.project.as_deref(),
+                        &aps_actor,
+                        Self::viewer_from_parts(Some(&parts)),
+                    )
+                    .await?,
+                ],
+            };
+            let mut rows = Vec::new();
+            for (ws, proj) in targets {
+                rows.extend(
+                    self.reader
+                        .search_conclusions_for_project_as(
+                            ws,
+                            proj,
+                            args.query.clone(),
+                            limit,
+                            owner_filter.clone(),
+                        )
+                        .await
+                        .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+                );
+            }
+            rows.sort_by(|a, b| a.rank.total_cmp(&b.rank));
+            rows.truncate(limit);
+            rows
+        } else {
+            Vec::new()
+        };
         let response = MemoryQueryResponse {
             hits,
             answer,
@@ -3197,6 +3250,7 @@ impl AiMemoryServer {
             raw_hits,
             global_hits: Vec::new(),
             global_scope_hits,
+            conclusion_hits,
             streams_active,
             timings,
         };
@@ -8181,6 +8235,7 @@ mod tests {
                         as_of: None,
                         answer: None,
                         reasoning: None,
+                        conclusions: None,
                     }),
                     test_optional_parts(),
                 )
@@ -8216,6 +8271,7 @@ mod tests {
                         as_of: None,
                         answer: None,
                         reasoning: None,
+                        conclusions: None,
                     }),
                     test_optional_parts(),
                 )
@@ -10471,6 +10527,7 @@ mod tests {
             as_of,
             answer: None,
             reasoning: None,
+            conclusions: None,
         };
 
         // Historical instant → the superseded version answers.
@@ -10513,6 +10570,7 @@ mod tests {
                     as_of: Some(jiff::Timestamp::now().to_string()),
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -10586,6 +10644,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -10616,6 +10675,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -10704,6 +10764,7 @@ mod tests {
                             as_of: None,
                             answer: None,
                             reasoning: None,
+                            conclusions: None,
                         }),
                         OptionalParts(test_parts_default()),
                     )
@@ -10804,6 +10865,7 @@ mod tests {
                         as_of: None,
                         answer: None,
                         reasoning: None,
+                        conclusions: None,
                     }),
                     OptionalParts(test_parts_default()),
                 )
@@ -10895,6 +10957,7 @@ mod tests {
             as_of: None,
             answer: None,
             reasoning: None,
+            conclusions: None,
         };
 
         let result = server
@@ -11051,6 +11114,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -11091,6 +11155,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -11229,6 +11294,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -11352,6 +11418,7 @@ mod tests {
                             as_of: None,
                             answer: None,
                             reasoning: None,
+                            conclusions: None,
                         }),
                         OptionalParts(parts),
                     )
@@ -11462,6 +11529,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 test_optional_parts(),
             )
@@ -11561,6 +11629,7 @@ mod tests {
                         as_of: None,
                         answer: None,
                         reasoning: None,
+                        conclusions: None,
                     }),
                     test_optional_parts(),
                 )
@@ -11631,6 +11700,7 @@ mod tests {
                         as_of: None,
                         answer: None,
                         reasoning: None,
+                        conclusions: None,
                     }),
                     test_optional_parts(),
                 )
@@ -11677,6 +11747,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 test_optional_parts(),
             )
@@ -11756,6 +11827,7 @@ mod tests {
                         as_of: None,
                         answer: None,
                         reasoning: None,
+                        conclusions: None,
                     }),
                     test_optional_parts(),
                 )
@@ -11826,6 +11898,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -13354,6 +13427,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -13467,6 +13541,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -13518,6 +13593,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -13602,6 +13678,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -13638,6 +13715,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -13678,6 +13756,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -14053,6 +14132,7 @@ mod tests {
                     as_of: None,
                     answer: Some(true),
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -15884,6 +15964,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(parts_as_user(joao)),
             )
@@ -15945,6 +16026,7 @@ mod tests {
             as_of: None,
             answer: None,
             reasoning: None,
+            conclusions: None,
         }
     }
 
@@ -16818,6 +16900,7 @@ mod tests {
                             include_expired: None,
                             explain: None,
                             as_of: None,
+                            conclusions: None,
                         }),
                         OptionalParts(as_user(user, authorized)),
                     )
@@ -17007,6 +17090,7 @@ mod tests {
                                 include_expired: None,
                                 explain: Some(true),
                                 as_of: None,
+                                conclusions: None,
                             }),
                             OptionalParts(as_user(user)),
                         )
@@ -20425,6 +20509,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
@@ -20463,6 +20548,7 @@ mod tests {
                     as_of: None,
                     answer: None,
                     reasoning: None,
+                    conclusions: None,
                 }),
                 OptionalParts(test_parts_default()),
             )
