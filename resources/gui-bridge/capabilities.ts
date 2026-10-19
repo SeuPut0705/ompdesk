@@ -587,12 +587,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/capability`]: ["loadCapability()", "reset()"],
 			[`${AGENT}/capability/context-file`]: ["contextFileCapability.id", "contextFileCapability.toExtensionId()"],
 			[`${AGENT}/capability/hook`]: ["hookCapability.id"],
-			[`${AGENT}/autolearn/managed-skills`]: [
-				"deleteManagedSkill()",
-				"MANAGED_SKILLS_PROVIDER_ID",
-				"sanitizeSkillName()",
-				"writeManagedSkill()",
-			],
+			[`${AGENT}/autolearn/managed-skills`]: ["MANAGED_SKILLS_PROVIDER_ID", "sanitizeSkillName()"],
+			// Writes go through stock's tool: the session's own per-skill mutation chain (see COPY_SAFE).
+			[`${AGENT}/tools/manage-skill`]: ["ManageSkillTool.prototype.execute()"],
 			[`${AGENT}/config/prompt-templates`]: ["templateUsesInlineArgPlaceholders()"],
 			[`${AGENT}/config/registry`]: [
 				"lookup()",
@@ -1150,7 +1147,7 @@ export const COPY_SAFE: Readonly<Record<string, string>> = {
 	"@oh-my-pi/pi-ai/auth/rank": "the usage-ranking comparator: pure, imports nothing",
 	"@oh-my-pi/pi-ai/auth/usage-report": "usage-window arithmetic: pure",
 	[`${AGENT}/autolearn/managed-skills`]:
-		"skill files on disk, no setting; its per-file write chain is the copy's own, so only the file system orders a GUI edit against the agent's",
+		"only the provider id and the name sanitizer (pure); writes go through stock's `manage_skill` tool, never the copy's own per-skill mutation chain",
 	[`${AGENT}/config`]:
 		"the `.omp` config dirs only: the copy's provider switches are unbound defaults and `.omp` is never a switchable foreign provider",
 	[`${AGENT}/sdk`]: "presence probe only: the stock helper loads it from omp's package in its own process",
@@ -1162,7 +1159,7 @@ export const COPY_SAFE: Readonly<Record<string, string>> = {
 	[`${AGENT}/tiny/text`]: "title text helpers: pure",
 	[`${AGENT}/tts/models`]: "the local voice and model tables: data",
 	[`${AGENT}/tts/tts-client`]:
-		"a worker client the bridge owns (its own worker process); as an uninitialised copy it takes the tiny-model device and dtype from the environment, not `providers.tinyModel*`",
+		"NOT harmless, kept for want of a route: omp's bundle has no `tts/*` at all and only stock's `tts` tool reaches its client, falling through to cloud voices the speech role lists (read-aloud stays local). The copy runs its own worker and, uninitialised, takes the tiny-model device and dtype from the environment instead of `providers.tinyModel*` (needs `tts/*` in omp's bundle upstream)",
 	[`${AGENT}/tts/wav`]: "the WAV encoder: pure",
 };
 

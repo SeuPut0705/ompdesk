@@ -30,7 +30,11 @@ interface ToolDetails {
 	cancelled?: boolean;
 }
 
-/** Operations this bridge started, per stock coordinator key (cwd + session): the tool has no listing. */
+/**
+ * Operations this bridge started, per stock coordinator key (cwd + session), until their scan's bundle names them.
+ * The tool has no listing, so the dashboard asks `status` for these and for every stored scan's operation: stock's
+ * `status` runs the coordinator's own recovery first, as `listOperations` does.
+ */
 const startedOperations = new Map<string, string[]>();
 
 function coordinatorKey(session: AgentSession): string {
@@ -64,17 +68,29 @@ function toolTarget(target: SecurityTargetRequest): SecurityScanParams {
 	} as SecurityScanParams;
 }
 
-async function listOperations(session: AgentSession): Promise<SecurityOperationSnapshot[]> {
-	const ids = startedOperations.get(coordinatorKey(session)) ?? [];
+/** Stock's `listOperations`, through the tool: each operation a stored scan or this bridge names, newest first. */
+async function listOperations(
+	session: AgentSession,
+	bundles: readonly SecurityScanBundle[],
+): Promise<SecurityOperationSnapshot[]> {
+	// Where stock's coordinator keeps a scan's operation (security/coordinator.ts `operationIdFromBundle`).
+	const stored = bundles.map(bundle => bundle.scan.provenance.metadata?.operationId);
+	const ids = new Set(
+		[...(startedOperations.get(coordinatorKey(session)) ?? []), ...stored].filter(
+			(id): id is string => typeof id === "string" && id.length > 0,
+		),
+	);
 	const snapshots = await Promise.all(
-		ids.map(id =>
+		[...ids].map(id =>
 			runSecurityTool(session, { action: "status", operation_id: id }).then(
 				details => details.operation,
 				() => undefined,
 			),
 		),
 	);
-	return snapshots.filter((operation): operation is SecurityOperationSnapshot => operation !== undefined);
+	return snapshots
+		.filter((operation): operation is SecurityOperationSnapshot => operation !== undefined)
+		.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 async function startOperation(session: AgentSession, target: SecurityTargetRequest) {
@@ -145,15 +161,15 @@ async function securityDashboard(session: AgentSession) {
 	const cwd = session.sessionManager.getCwd();
 	const store = await SecurityStore.openForCwd(cwd);
 	const repository = vcs.git(cwd);
-	const [summaries, operations, branch, sha] = await Promise.all([
+	const [summaries, branch, sha] = await Promise.all([
 		store.listScans(),
-		listOperations(session),
 		repository?.currentBranch() ?? null,
 		repository?.headSha() ?? null,
 	]);
 	const bundles = (await Promise.all(summaries.map(summary => store.getBundle(summary.id)))).filter(
 		(bundle): bundle is SecurityScanBundle => bundle !== null,
 	);
+	const operations = await listOperations(session, bundles);
 	const revision = [branch, sha?.slice(0, 7)].filter(Boolean).join(" · ");
 	const model = session.model;
 	return {

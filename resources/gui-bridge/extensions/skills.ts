@@ -3,13 +3,9 @@
  * pages. Ported from the omp-gui fork's rpc-domains / rpc-skills / rpc-actions.
  */
 
-import {
-	deleteManagedSkill,
-	MANAGED_SKILLS_PROVIDER_ID,
-	sanitizeSkillName,
-	writeManagedSkill,
-} from "@oh-my-pi/pi-coding-agent/autolearn/managed-skills";
+import { MANAGED_SKILLS_PROVIDER_ID, sanitizeSkillName } from "@oh-my-pi/pi-coding-agent/autolearn/managed-skills";
 import { loadCapability, reset as resetCapabilities } from "@oh-my-pi/pi-coding-agent/capability";
+import { ManageSkillTool } from "@oh-my-pi/pi-coding-agent/tools/manage-skill";
 import { type ContextFile, contextFileCapability } from "@oh-my-pi/pi-coding-agent/capability/context-file";
 import { type Hook, hookCapability } from "@oh-my-pi/pi-coding-agent/capability/hook";
 import type { Skill } from "@oh-my-pi/pi-coding-agent/capability/skill";
@@ -117,14 +113,17 @@ export const methods: BridgeMethods = guard("skills", {
 			if ((await listSkills(session)).some(skill => skill.name === name)) {
 				throw new Error(`Skill "${name}" already exists. Choose a different name.`);
 			}
-			await writeManagedSkill({ action, name, description, body });
 		} else {
 			const existing = await findSkill(session, name);
 			if (!existing.managed) {
 				throw new Error(`Skill "${name}" is managed by ${existing.providerName} and is read-only here.`);
 			}
-			if (action === "delete") await deleteManagedSkill(name);
-			else await writeManagedSkill({ action, name, description, body });
+		}
+		// Stock's own tool, so the write joins the session's per-skill mutation chain (`autolearn/managed-skills`
+		// is not in omp's bundle: a direct import is a copy with a chain of its own, racing the agent's writes).
+		const result = await new ManageSkillTool().execute("ompdesk-skills", { action, name, description, body });
+		if (result.isError) {
+			throw new Error(result.content.map(part => (part.type === "text" ? part.text : "")).join(" "));
 		}
 		await session.refreshSkills();
 		return { action, name };
