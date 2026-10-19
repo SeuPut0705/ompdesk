@@ -880,6 +880,64 @@ async fn api_pages_returns_latest_pages_only() {
     assert_eq!(json[0]["title"], "Second");
 }
 
+/// The page list hides an expired page; `include_expired=true` lists it too
+/// (OMPdesk's sync between a person's computers must see a retired page to
+/// carry it, never miss it and re-create it live).
+#[tokio::test]
+async fn api_pages_lists_expired_pages_only_when_asked() {
+    let (_tmp, store, wiki) = setup().await;
+    let ws = store
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let proj = store
+        .writer
+        .get_or_create_project(ws, "scratch", None)
+        .await
+        .unwrap();
+    let mut retired = wiki_req(ws, proj, "decisions/old.md", "# Old\n\nRetired.");
+    retired.frontmatter = serde_json::json!({"kind": "decision", "expires_at": "2000-01-01"});
+    wiki.write_page(retired).await.unwrap();
+    wiki.write_page(wiki_req(ws, proj, "decisions/new.md", "# New\n\nLive."))
+        .await
+        .unwrap();
+
+    let app = api_router(store.reader.clone(), wiki.clone());
+    let paths = |uri: &'static str| {
+        let app = app.clone();
+        async move {
+            let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+            let resp = app.oneshot(req).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let json: Value = serde_json::from_slice(&body).unwrap();
+            let mut paths: Vec<String> = json
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|page| page["path"].as_str().unwrap().to_owned())
+                .collect();
+            paths.sort();
+            paths
+        }
+    };
+    assert_eq!(
+        paths("/workspaces/default/projects/scratch/pages").await,
+        ["decisions/new.md"]
+    );
+    assert_eq!(
+        paths("/workspaces/default/projects/scratch/pages?include_expired=false").await,
+        ["decisions/new.md"]
+    );
+    assert_eq!(
+        paths("/workspaces/default/projects/scratch/pages?include_expired=true").await,
+        ["decisions/new.md", "decisions/old.md"]
+    );
+}
+
 #[tokio::test]
 async fn api_pages_derives_kind_from_path_when_frontmatter_absent() {
     let (_tmp, store, wiki) = setup().await;

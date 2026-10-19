@@ -8218,6 +8218,12 @@ struct WritePageAdminRequest {
     /// characters, no control characters.
     #[serde(default)]
     origin_device: Option<String>,
+    /// TTL, as `memory_write_page` takes it (RFC3339 or `YYYY-MM-DD`): stored
+    /// as frontmatter `expires_at`; once past, listings and `memory_query`
+    /// hide the page. OMPdesk carries a retired page's expiry to the copy on
+    /// another of the person's computers.
+    #[serde(default)]
+    expires_at: Option<String>,
 }
 
 const MAX_ORIGIN_DEVICE_LEN: usize = 200;
@@ -8268,6 +8274,22 @@ async fn handle_write_page(
         }
         Some(origin) => Some(origin.to_string()),
     };
+    let expires_at = req
+        .expires_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(value) = &expires_at
+        && ai_memory_core::parse_expires_at_instant(value).is_none()
+    {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": format!("invalid expires_at (want RFC3339 or YYYY-MM-DD): {value}")
+            })),
+        ));
+    }
     let tier: Tier = req.tier.parse().map_err(|_| {
         (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -8331,6 +8353,9 @@ async fn handle_write_page(
     }
     if let Some(origin) = origin_device {
         fm.insert("origin_device".into(), serde_json::Value::String(origin));
+    }
+    if let Some(value) = expires_at {
+        fm.insert("expires_at".into(), serde_json::Value::String(value));
     }
     let frontmatter = if fm.is_empty() {
         serde_json::Value::Null

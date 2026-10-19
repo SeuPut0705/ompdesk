@@ -523,6 +523,48 @@ async fn write_page_origin_device_marks_a_copy_until_the_next_write() {
     );
 }
 
+/// A copy of a page another computer retired keeps its expiry, so it leaves
+/// recall here too (the listings and `memory_query` hide an expired page).
+#[tokio::test]
+async fn write_page_expires_at_is_kept_and_hides_the_page() {
+    let tmp = TempDir::new().unwrap();
+    let state = make_state(&tmp).await;
+    let mut request = json!({
+        "workspace": "default", "project": "scratch", "path": "decisions/old.md",
+        "body": "# Old\n\nRetired.", "kind": "decision",
+        "expires_at": "2000-01-01T00:00:00Z"
+    });
+    let resp = post_json(state.clone(), "/admin/write-page", request.clone()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let ws = state
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let proj = state
+        .writer
+        .get_or_create_project(ws, "scratch", None)
+        .await
+        .unwrap();
+    let path = ai_memory_core::PagePath::new("decisions/old.md").unwrap();
+    let md = state.wiki.read_page(ws, proj, &path).unwrap();
+    assert_eq!(md.frontmatter["expires_at"], "2000-01-01T00:00:00Z");
+    let listed = state
+        .reader
+        .list_unexpired_pages("default", "scratch")
+        .await
+        .unwrap();
+    assert!(listed.iter().all(|page| page.path != "decisions/old.md"));
+
+    request["expires_at"] = json!("next tuesday");
+    assert_eq!(
+        post_json(state.clone(), "/admin/write-page", request)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
 #[tokio::test]
 async fn write_page_metadata_admin_legacy_kind_matches_base() {
     let tmp = TempDir::new().unwrap();

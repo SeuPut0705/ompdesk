@@ -167,17 +167,31 @@ async fn projects_handler(
     ))
 }
 
+/// `GET …/pages?include_expired=true` also lists pages whose `expires_at`
+/// TTL has passed (OMPdesk's sync between computers carries a retired page;
+/// every reader-facing list keeps hiding them).
+#[derive(serde::Deserialize, Default)]
+struct PagesQuery {
+    #[serde(default)]
+    include_expired: bool,
+}
+
 async fn pages_handler(
     State(state): State<Arc<WebState>>,
     viewer: Option<axum::Extension<ai_memory_core::AuthorizedViewer>>,
     Path((workspace, project)): Path<(String, String)>,
+    axum::extract::Query(query): axum::extract::Query<PagesQuery>,
 ) -> Result<Response, Response> {
     let _ = lookup_project(&state, &workspace, &project, viewer_of(viewer)).await?;
-    let pages = state
-        .reader
-        .list_unexpired_pages(&workspace, &project)
-        .await
-        .map_err(internal_error)?;
+    let pages = if query.include_expired {
+        state.reader.list_pages(&workspace, &project).await
+    } else {
+        state
+            .reader
+            .list_unexpired_pages(&workspace, &project)
+            .await
+    }
+    .map_err(internal_error)?;
     Ok(with_cache(
         Json(pages).into_response(),
         PAGES_LIST_CACHE_MAX_AGE,
