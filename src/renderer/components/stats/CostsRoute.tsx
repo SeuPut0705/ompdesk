@@ -4,11 +4,11 @@
 
 import { useMemo } from "react";
 import { Line } from "react-chartjs-2";
-import { baseChartOptions, bucketLabels, chartColors, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
+import { baseChartOptions, bucketLabels, chartColors, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
 import type { CostsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
-import { uiLocale } from "../../lib/format";
+import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
 

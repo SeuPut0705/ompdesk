@@ -5,11 +5,11 @@
 
 import { useMemo } from "react";
 import { Bar } from "react-chartjs-2";
-import { baseChartOptions, chartColors, compact, formatUsd, useChartThemeKey, withAlpha } from "../../lib/chart";
+import { baseChartOptions, chartColors, compact, useChartThemeKey, withAlpha } from "../../lib/chart";
 import "../../lib/chart";
 import type { ToolRow, ToolsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
-import { uiLocale } from "../../lib/format";
+import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";

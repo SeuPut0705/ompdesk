@@ -10,14 +10,13 @@ import {
 	chartColors,
 	compact,
 	formatMs,
-	formatUsd,
 	useChartThemeKey,
 	withAlpha,
 } from "../../lib/chart";
 import "../../lib/chart";
 import type { ModelRow, ModelsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
-import { uiLocale } from "../../lib/format";
+import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 

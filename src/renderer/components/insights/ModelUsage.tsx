@@ -6,8 +6,7 @@
  */
 
 import type { SessionStats } from "../../../shared/rpc-types";
-import { formatUsd } from "../../lib/chart";
-import { formatTokens } from "../../lib/format";
+import { formatTokens, formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { modelSelector, usageByModel } from "../../lib/model-usage";
 import { useModelStore } from "../../stores/model";

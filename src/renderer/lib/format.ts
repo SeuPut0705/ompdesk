@@ -259,6 +259,14 @@ export function formatCost(n: number | null | undefined, decimals = 4): string {
 	return `$${n.toFixed(decimals)}`;
 }
 
+export function formatUsd(value: number): string {
+	if (value === 0) return "$0";
+	// Past a thousand the figure is grouped ($2,888.15), like the counts beside it.
+	if (Math.abs(value) >= 1000)
+		return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+	return formatCost(value, Math.abs(value) < 0.01 ? 4 : 2);
+}
+
 /** Format percentage with safe fallback for NaN/null/undefined. */
 export function formatPercent(n: number | null | undefined, decimals = 1): string {
 	return n != null && Number.isFinite(n) ? `${n.toFixed(decimals)}%` : "—";

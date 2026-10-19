@@ -23,7 +23,6 @@ import {
 	Tooltip,
 } from "chart.js";
 import { useSyncExternalStore } from "react";
-import { formatCost } from "./format";
 
 Chart.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
@@ -269,14 +268,6 @@ export function compact(value: number): string {
 	if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
 	if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}k`;
 	return `${Math.round(value * 10) / 10}`;
-}
-
-export function formatUsd(value: number): string {
-	if (value === 0) return "$0";
-	// Past a thousand the figure is grouped ($2,888.15), like the counts beside it.
-	if (Math.abs(value) >= 1000)
-		return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-	return formatCost(value, Math.abs(value) < 0.01 ? 4 : 2);
 }
 
 export function formatMs(value: number | null): string {

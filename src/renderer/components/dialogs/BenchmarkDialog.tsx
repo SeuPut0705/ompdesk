@@ -1,9 +1,8 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { IpcBenchmarkModelReport, IpcBenchmarkProfile, IpcBenchmarkRunResult } from "../../../shared/ipc-types";
-import { formatUsd } from "../../lib/chart";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
-import { cx } from "../../lib/format";
+import { cx, formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";

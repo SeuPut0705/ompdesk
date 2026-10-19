@@ -9,7 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
 import type { RequestPage, RequestRow } from "../../../shared/stats-types";
-import { formatUsd } from "../../lib/chart";
+import { formatUsd } from "../../lib/format";
 import { I18nProvider } from "../../lib/i18n";
 import { projectLabel } from "./ProjectsRoute";
 import { RequestsRoute } from "./RequestsRoute";

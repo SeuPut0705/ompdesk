@@ -5,7 +5,8 @@
 import { useMemo } from "react";
 import type { FolderRow } from "../../../shared/stats-types";
 import { useStatsList } from "../../hooks/use-stats";
-import { compact, formatUsd } from "../../lib/chart";
+import { compact } from "../../lib/chart";
+import { formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ProgressBar } from "../common";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
