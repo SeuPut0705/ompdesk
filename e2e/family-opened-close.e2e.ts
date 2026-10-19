@@ -104,7 +104,7 @@ async function children(): Promise<{ tabId: string; path: string; branch: string
 		.map(tab => ({ tabId: tab.tabId, path: tab.worktree?.path ?? "", branch: tab.worktree?.branch ?? "" }));
 }
 
-test("finished opened sessions fold into one done row and their tabs close; unmerged work stays a visible row", async () => {
+test("finished opened sessions are not listed and their tabs close; unmerged work stays a visible row", async () => {
 	test.setTimeout(240_000);
 	const opened = await call("ompdesk_session_open", {
 		sessions: [
@@ -156,14 +156,13 @@ test("finished opened sessions fold into one done row and their tabs close; unme
 	await fs.stat(c.path);
 	expect(git(project, "branch", "--list", c.branch)).toContain(c.branch);
 
-	// The family: two done behind one row (the closed sessions), the unmerged one a visible row with the failed mark.
+	// The family: the two closed sessions (done, landed) are not listed at all; the unmerged one is a visible row with
+	// the failed mark.
 	await page.locator("[data-sidebar-subagents-toggle]").first().click();
-	await expect(page.locator("[data-family-done]")).toContainText("2 done", { timeout: 30_000 });
 	const row = page.locator('[data-sidebar-opened-session][data-child-status="problem"]');
-	await expect(row).toHaveCount(1);
+	await expect(row).toHaveCount(1, { timeout: 30_000 });
 	await expect(row.locator('[data-family-status="failed"]')).toHaveCount(1);
-	await page.locator("[data-family-done]").click();
-	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(3);
+	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(1);
 	await expect.poll(async () => page.locator("body").innerText()).not.toContain("(untitled)");
 	expect(git(project, "status", "--porcelain")).toBe("");
 });

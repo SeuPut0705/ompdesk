@@ -131,14 +131,14 @@ import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
 	type FamilyOpened,
-	SidebarDoneFold,
+	SidebarLooseChildren,
 	SidebarSubagents,
 	SidebarSubagentsToggle,
 	sidebarSubagentCount,
 } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
-import { CHILD_TOKEN, openedChildStatus, openerOfSessions } from "./sidebar-family";
+import { CHILD_TOKEN, isShownOpened, openedChildStatus, openerOfSessions } from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
 /**
@@ -167,7 +167,7 @@ interface WorkspaceGroup {
 	/** A worktree group shown right under its project's group. */
 	attached?: boolean;
 	sessions: SidebarSession[];
-	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): one "n done" fold at the end of the project's group. */
+	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): listed only while they need a look. */
 	folded: SidebarSession[];
 }
 
@@ -944,7 +944,7 @@ export function Sidebar() {
 		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
 	// Recent grouping: the Code lane as one list by last activity, project shown per row. A session another one
-	// opened is in that one's family, not a row of its own; one no opener holds folds into the lane's "n done" row.
+	// opened is in that one's family, not a row of its own; one no opener holds is listed only while it needs a look.
 	const recentCodeSessions = useMemo(
 		() =>
 			grouping === "recent"
@@ -1813,6 +1813,10 @@ export function Sidebar() {
 				session => isSessionBusy(session) || (familyChildrenOf.get(session.path) ?? []).some(isSessionBusy),
 			);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
+		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a project
+		// with nothing else to show has no group at all.
+		const loose = group.folded.map(child => familyChildFor(child, false)).filter(isShownOpened);
+		if (group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
 				{dragHandle => (
@@ -1950,10 +1954,7 @@ export function Sidebar() {
 						{!groupCollapsed && (
 							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
 								{group.sessions.map(session => renderSessionRow(session, true))}
-								<SidebarDoneFold
-									foldKey={`group:${group.cwd}`}
-									opened={group.folded.map(child => familyChildFor(child, false))}
-								/>
+								<SidebarLooseChildren foldKey={`group:${group.cwd}`} opened={loose} />
 							</div>
 						)}
 					</>
@@ -2223,7 +2224,7 @@ export function Sidebar() {
 								recentCodeSessions.length + recentFolded.length > 0 && (
 									<div className="space-y-px" data-recent-lane>
 										{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
-										<SidebarDoneFold
+										<SidebarLooseChildren
 											foldKey="recent"
 											opened={recentFolded.map(child => familyChildFor(child, false))}
 										/>

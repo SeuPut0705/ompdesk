@@ -71,11 +71,19 @@ export function subagentFamilyState(status: string): FamilyState {
 }
 
 /**
- * Finished and uneventful: these fold into the group's "n done" row. A failed or stale agent stays a row of its own,
- * because someone has to look at it.
+ * Finished and uneventful: the family never lists these (they stay in the session's own Subagent panel and work board).
+ * A failed or stale agent stays a row, because someone has to look at it.
  */
 export function isFoldedSubagent(status: string): boolean {
 	return status === "completed" || status === "aborted" || status === "cancelled";
+}
+
+/**
+ * Whether an opened session shows in its opener's family: everything but a finished one that landed clean. Running,
+ * waiting, failed and unmerged/dirty ones (status `problem`) show, and so does one that has not run yet (no status).
+ */
+export function isShownOpened(child: { status: ChildStatus | null }): boolean {
+	return child.status !== "done";
 }
 
 export interface SubagentRowModel {
@@ -85,28 +93,21 @@ export interface SubagentRowModel {
 }
 
 export interface SubagentFamilyRows {
-	/** Live, failed and stale agents as a pre-order spawn tree in spawn order. */
+	/** Live, failed and stale agents as a pre-order spawn tree in spawn order. Finished agents are not listed. */
 	rows: SubagentRowModel[];
-	/** Finished agents (see `isFoldedSubagent`), in spawn order, behind the "n done" row. */
-	done: SubagentSnapshot[];
 }
 
 /**
- * Split a roster into the rows that show and the finished ones that fold. Parent of a row: the explicit wire link, else
- * the agent whose transcript owns the spawning `task` call; a parent that is not shown, unresolved or cyclic makes the
- * agent a top-level spawn of the session.
+ * The rows of a roster: finished agents (see `isFoldedSubagent`) are left out. Parent of a row: the explicit wire link,
+ * else the agent whose transcript owns the spawning `task` call; a parent that is not shown, unresolved or cyclic makes
+ * the agent a top-level spawn of the session.
  */
 export function buildSubagentFamilyRows(
 	subagents: ReadonlyMap<string, SubagentSnapshot>,
 	toolCallOwners: ReadonlyMap<string, string>,
 ): SubagentFamilyRows {
 	const shown = new Map<string, SubagentSnapshot>();
-	const done: SubagentSnapshot[] = [];
-	for (const agent of subagents.values()) {
-		if (isFoldedSubagent(agent.status)) done.push(agent);
-		else shown.set(agent.id, agent);
-	}
-	done.sort((a, b) => a.index - b.index);
+	for (const agent of subagents.values()) if (!isFoldedSubagent(agent.status)) shown.set(agent.id, agent);
 	const agents = [...shown.values()].sort((a, b) => a.index - b.index);
 	const children = new Map<string, SubagentSnapshot[]>();
 	const roots: SubagentSnapshot[] = [];
@@ -139,13 +140,13 @@ export function buildSubagentFamilyRows(
 	for (const root of roots) visit(root, 0);
 	// A parent cycle leaves members unreached from any root: show them flat.
 	for (const agent of agents) visit(agent, 0);
-	return { rows, done };
+	return { rows };
 }
 
 export interface FamilyCounts {
-	/** Subagents of the session (finished ones included). */
+	/** Subagents of the session that show (finished ones are not listed, so not counted). */
 	agents: number;
-	/** Sessions its agent opened. */
+	/** Sessions its agent opened that show. */
 	sessions: number;
 	/** Children at work right now. */
 	running: number;
@@ -153,7 +154,10 @@ export interface FamilyCounts {
 	waiting: number;
 }
 
-/** The summary the chip shows and the open/closed rule reads, for a roster and the opened sessions. */
+/**
+ * The summary the chip shows, for a roster and the opened sessions that show (`isShownOpened` already applied). Only
+ * subagents that show count: a finished one is not listed anywhere in the family, so it is not in the chip either.
+ */
 export function familyCounts(
 	subagents: Iterable<SubagentSnapshot>,
 	opened: readonly { state: FamilyState }[],
@@ -166,6 +170,7 @@ export function familyCounts(
 	};
 	if (includeAgents)
 		for (const agent of subagents) {
+			if (isFoldedSubagent(agent.status)) continue;
 			counts.agents++;
 			tally(subagentFamilyState(agent.status));
 		}

@@ -42,7 +42,7 @@ async function mobileWebReady(page: Page): Promise<void> {
 		.toBe("ready");
 }
 
-/** What the phone's drawer lists in the Code lane, every group, family and "n done" fold unfolded. */
+/** What the phone's drawer lists in the Code lane, every group and family unfolded. */
 interface Rows {
 	/** `data-session-path` → how many rows show it. */
 	perPath: Record<string, number>;
@@ -71,11 +71,10 @@ async function closeDrawer(phone: Page): Promise<void> {
 
 async function readRows(phone: Page): Promise<Rows> {
 	const sidebar = phone.locator("[data-drawer] .omp-session-sidebar");
-	// Projects first, then the families they show, then a family's folded finished sessions.
+	// Projects first, then the families they show (finished children are not listed at all).
 	for (const folds of [
 		'[data-workspace-group] button[aria-expanded="false"]',
 		'[data-sidebar-subagents-toggle][aria-expanded="false"]',
-		'[data-family-done][aria-expanded="false"]',
 	])
 		for (const fold of await sidebar.locator(folds).all()) await fold.click().catch(() => undefined);
 	return sidebar.evaluate(element => {

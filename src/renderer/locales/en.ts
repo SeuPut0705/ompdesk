@@ -896,7 +896,6 @@ export const en: Record<string, string> = {
 	"sidebar.family.sessions": "Opened sessions {count}",
 	"sidebar.family.running": "Running {count}",
 	"sidebar.family.waiting": "Waiting for you {count}",
-	"sidebar.family.done": "{count} done",
 	"sidebar.family.unmerged": "Unmerged work",
 	"sidebar.family.kind.subagent": "Subagent",
 	"sidebar.family.kind.worktree": "Worktree session",

@@ -8,15 +8,16 @@
  * for the person). The group is folded until the person opens it and never opens or folds by itself, whatever the
  * children do; the toggle is remembered per session (`stores/sidebar-subagents`). The one exception is a child that
  * waits for an answer or approval: a folded group shows that child alone as a row under the parent, the rest stays
- * folded. Finished subagents fold into one "n done" row at the
- * end. Rows share one look (`SidebarFamilyRow`), are part of the sidebar's roving list (arrow keys) and a subagent
+ * folded. Finished subagents and finished opened sessions are not listed at all (the Subagent panel and the session
+ * picker keep them); only what is live, waits, failed or has work left to review shows. Rows share one look
+ * (`SidebarFamilyRow`), are part of the sidebar's roving list (arrow keys) and a subagent
  * opens its live transcript against the owning tab — not a second sidecar, since the parent's omp is still writing
  * that session file. A subagent row dragged onto a session pane (`omp:subagent-drag`, SplitWorkspace) or "Open in
  * side panel" shows that transcript in the side panel instead. Right-click (or the menu key) offers Stop.
  * Each group subscribes to its own tab's stores, so a progress frame re-renders that group — never the whole sidebar.
  */
 
-import { Bot, ChevronRight, GitBranch } from "lucide-react";
+import { Bot, GitBranch } from "lucide-react";
 import {
 	memo,
 	type DragEvent as ReactDragEvent,
@@ -63,6 +64,7 @@ import {
 	type FamilyCounts,
 	type FamilyState,
 	familyCounts,
+	isShownOpened,
 	subagentFamilyState,
 } from "./sidebar-family";
 
@@ -72,7 +74,7 @@ export interface FamilyOpened {
 	key: string;
 	/** A session in a worktree of its own, or a plain one. */
 	kind: "worktree" | "session";
-	/** What the session is (`openedChildStatus`): "done" folds into the "n done" row; null while it has not run. */
+	/** What the session is (`openedChildStatus`): a "done" one is not listed; null while it has not run. */
 	status: ChildStatus | null;
 	/** The status as the token the row shows. */
 	state: FamilyState | null;
@@ -250,60 +252,25 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	);
 });
 
-/** The "n done" row: the finished subagents behind it, one click away. */
-function DoneFold({
-	sessionKey,
-	count,
-	open,
-	nested,
-	onToggle,
-}: {
-	sessionKey: string;
-	count: number;
-	open: boolean;
-	nested: boolean;
-	onToggle: () => void;
-}) {
-	const t = useT();
-	return (
-		<button
-			aria-expanded={open}
-			className={cx(
-				"omp-family-row flex w-full items-center gap-1.5 rounded-(--sc-radius-md) pr-2.5 text-left text-sc-xs text-(--sc-text-subtle) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
-				INDENT[nested ? "nested" : "top"][0],
-			)}
-			data-family-done={sessionKey}
-			data-roving-item={`family-done:${sessionKey}`}
-			onClick={onToggle}
-			tabIndex={-1}
-			type="button"
-		>
-			<ChevronRight
-				aria-hidden
-				className={cx("size-(--sc-icon-md) shrink-0 transition-transform", open && "rotate-90")}
-			/>
-			<span className="truncate">{t("sidebar.family.done", { count })}</span>
-		</button>
-	);
-}
-
-/** The family's counts as the chip and the open/closed rule read them. */
+/** The family's shown opened sessions and counts, as the chip and the open/closed rule read them. */
 function useFamilyCounts(
 	sessionKey: string,
 	slice: AgentSlice,
 	opened: readonly FamilyOpened[],
-): { counts: FamilyCounts; hidden: boolean } {
+): { counts: FamilyCounts; hidden: boolean; kids: readonly FamilyOpened[] } {
 	const hidden = useSidebarSubagentsStore(s => s.hidden.has(sessionKey));
+	// A finished opened session that landed clean is not part of the family (see `isShownOpened`).
+	const kids = useMemo(() => opened.filter(isShownOpened), [opened]);
 	const counts = useMemo(
 		() =>
 			familyCounts(
 				slice.subagents.values(),
-				opened.map(child => ({ state: child.state ?? "idle" })),
+				kids.map(child => ({ state: child.state ?? "idle" })),
 				!hidden,
 			),
-		[slice.subagents, opened, hidden],
+		[slice.subagents, kids, hidden],
 	);
-	return { counts, hidden };
+	return { counts, hidden, kids };
 }
 
 /**
@@ -484,11 +451,10 @@ function FamilyGroup({
 	const t = useT();
 	const { subagents, owners, ready, rpc } = slice;
 	const model = useMemo(() => buildSubagentFamilyRows(subagents, owners), [subagents, owners]);
-	const { hidden } = useFamilyCounts(sessionKey, slice, opened);
+	const { hidden, kids } = useFamilyCounts(sessionKey, slice, opened);
 	const reveal = useSidebarSubagentsStore(s => s.reveal);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const [viewingId, setViewingId] = useState<string | null>(null);
-	const [doneOpen, setDoneOpen] = useState(false);
 	// The side panel's Subagent view showing one of this tab's agents marks its row selected.
 	const panelId = useUiStore(s =>
 		s.panelVisible && s.panelTab === "subagent" && s.panelSubagent?.tabId === tabId ? s.panelSubagent.agentId : null,
@@ -496,21 +462,14 @@ function FamilyGroup({
 	const [menu, setMenu] = useState<{ id: string; anchor: ContextMenuAnchor } | null>(null);
 	const groupRef = useRef<HTMLDivElement>(null);
 	const rows = hidden ? [] : model.rows;
-	const done = hidden ? [] : model.done;
-	const total = rows.length + done.length + opened.length;
+	const total = rows.length + kids.length;
 	// A folded family surfaces only what waits for the person, flat, under the parent.
 	const shownRows = expanded
 		? rows
 		: rows
 				.filter(row => subagentFamilyState(row.agent.status) === "waiting")
 				.map(row => ({ ...row, depth: 0 as const }));
-	// A finished opened session folds with the finished subagents; a problem stays a row (see `openedChildStatus`).
-	const doneOpened = expanded ? opened.filter(child => child.status === "done") : [];
-	const shownOpened = expanded
-		? opened.filter(child => child.status !== "done")
-		: opened.filter(child => child.status === "waiting");
-	const shownDone = expanded ? done : [];
-	const doneCount = shownDone.length + doneOpened.length;
+	const shownOpened = expanded ? kids : kids.filter(child => child.status === "waiting");
 	const surfaced = !expanded && shownRows.length + shownOpened.length > 0;
 
 	// The transcript stays open when its agent finishes;
@@ -588,19 +547,6 @@ function FamilyGroup({
 					<Connector depth={0} nested={nested} />
 					{shownRows.map(row => agentRow(row.agent, row.depth))}
 					{shownOpened.map(openedRow)}
-					{doneCount > 0 && (
-						<>
-							<DoneFold
-								count={doneCount}
-								nested={nested}
-								onToggle={() => setDoneOpen(open => !open)}
-								open={doneOpen}
-								sessionKey={sessionKey}
-							/>
-							{doneOpen && shownDone.map(agent => agentRow(agent, 0))}
-							{doneOpen && doneOpened.map(openedRow)}
-						</>
-					)}
 				</div>
 			)}
 			{rpc && <SubagentTranscriptSheet agent={viewing} onClose={() => setViewingId(null)} />}
@@ -712,23 +658,24 @@ export const SidebarSubagentsToggle = memo(function SidebarSubagentsToggle({
 });
 
 /**
- * The "n done" row closing a project's group (or the recent list): the sessions an agent opened that no opener row
- * holds. It is a fold like a family's, never rows of their own, and never opens by itself.
+ * The sessions an agent opened that no opener row holds (closed, from before provenance, opener gone), closing a
+ * project's group (or the recent list). Finished ones that landed clean are not listed at all (they stay in the session
+ * picker); the ones that need a look (failed, unmerged work) are plain rows.
  */
-export function SidebarDoneFold({ foldKey, opened }: { foldKey: string; opened: readonly FamilyOpened[] }) {
+export function SidebarLooseChildren({ foldKey, opened }: { foldKey: string; opened: readonly FamilyOpened[] }) {
 	const t = useT();
-	const [open, setOpen] = useState(false);
-	if (opened.length === 0) return null;
+	const shown = opened.filter(isShownOpened);
+	if (shown.length === 0) return null;
 	return (
-		<div aria-label={t("sidebar.family.group")} className="space-y-px" data-sidebar-done-fold={foldKey} role="group">
-			<DoneFold
-				count={opened.length}
-				nested={false}
-				onToggle={() => setOpen(value => !value)}
-				open={open}
-				sessionKey={foldKey}
-			/>
-			{open && opened.map(child => <OpenedRow child={child} key={child.key} nested={false} />)}
+		<div
+			aria-label={t("sidebar.family.group")}
+			className="space-y-px"
+			data-sidebar-loose-children={foldKey}
+			role="group"
+		>
+			{shown.map(child => (
+				<OpenedRow child={child} key={child.key} nested={false} />
+			))}
 		</div>
 	);
 }

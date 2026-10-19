@@ -1,4 +1,4 @@
-/** The family rules: which session an opened session nests under, how a roster splits into rows and "n done". */
+/** The family rules: which session an opened session nests under, how a roster becomes rows (finished ones are not listed). */
 import { describe, expect, it } from "vitest";
 import {
 	assignmentHeadline,
@@ -14,6 +14,7 @@ import {
 	type FamilyTab,
 	familyCounts,
 	isFoldedSubagent,
+	isShownOpened,
 	openedChildStatus,
 	openerOfSessions,
 	subagentFamilyState,
@@ -89,7 +90,7 @@ describe("openerOfSessions: an opened session nests under its opener", () => {
 });
 
 describe("buildSubagentFamilyRows", () => {
-	it("folds finished agents, keeps failed and stale ones as rows, and nests by spawn parent", () => {
+	it("leaves finished agents out, keeps failed and stale ones as rows, and nests by spawn parent", () => {
 		const roster = new Map(
 			[
 				agent("a", 1, "running"),
@@ -101,16 +102,17 @@ describe("buildSubagentFamilyRows", () => {
 				agent("g", 7, "running", { parentSubagentId: "b" }),
 			].map(entry => [entry.id, entry]),
 		);
-		const { rows, done } = buildSubagentFamilyRows(roster, new Map());
+		const { rows } = buildSubagentFamilyRows(roster, new Map());
 		expect(rows.map(row => [row.agent.id, row.depth])).toEqual([
 			["a", 0],
 			["d", 1],
 			["c", 0],
 			["f", 0],
-			// Its parent is folded away: a top-level spawn.
+			// Its parent is finished and not listed: a top-level spawn.
 			["g", 0],
 		]);
-		expect(done.map(entry => entry.id)).toEqual(["b", "e"]);
+		// Finished agents (b, e) are not rows.
+		expect(rows.some(row => ["b", "e"].includes(row.agent.id))).toBe(false);
 	});
 
 	it("reads each status as one token, and folds only what finished quietly", () => {
@@ -134,16 +136,18 @@ describe("buildSubagentFamilyRows", () => {
 });
 
 describe("familyCounts", () => {
-	it("counts subagents, opened sessions, the running ones and the ones waiting for the person", () => {
+	it("counts the subagents and opened sessions that show, the running ones and the ones waiting for the person", () => {
 		const roster = [
 			agent("a", 1, "running"),
 			agent("b", 2, "parked"),
 			agent("c", 3, "completed"),
 			agent("d", 4, "stale"),
+			agent("e", 5, "aborted"),
 		];
-		expect(familyCounts(roster, [{ state: "running" }, { state: "waiting" }, { state: "done" }])).toEqual({
-			agents: 4,
-			sessions: 3,
+		// Finished subagents are not listed, so they are not counted either.
+		expect(familyCounts(roster, [{ state: "running" }, { state: "waiting" }])).toEqual({
+			agents: 3,
+			sessions: 2,
 			running: 2,
 			waiting: 2,
 		});
@@ -154,6 +158,23 @@ describe("familyCounts", () => {
 			running: 0,
 			waiting: 0,
 		});
+		// A roster of finished agents only is no family.
+		expect(familyCounts([agent("x", 1, "completed")], [])).toEqual({
+			agents: 0,
+			sessions: 0,
+			running: 0,
+			waiting: 0,
+		});
+	});
+});
+
+describe("isShownOpened", () => {
+	it("hides only a finished session that landed clean", () => {
+		expect(isShownOpened({ status: "done" })).toBe(false);
+		expect(isShownOpened({ status: "running" })).toBe(true);
+		expect(isShownOpened({ status: "waiting" })).toBe(true);
+		expect(isShownOpened({ status: "problem" })).toBe(true);
+		expect(isShownOpened({ status: null })).toBe(true);
 	});
 });
 
