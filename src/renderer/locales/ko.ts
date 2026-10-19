@@ -865,7 +865,7 @@ export const ko: Record<string, string> = {
 	"sidebar.pin.usageMore": "+{count}개 더 보기",
 	"sidebar.pinned": "고정됨",
 	"sidebar.pinSyncFailed": "OMPdesk에는 고정했지만 omp 재개 목록과 동기화하지 못했어요.",
-	"sidebar.kindMismatch": "에이전트 세션과 채팅 세션은 그 자리에서 전환할 수 없어요. 새 탭에서 세션을 여세요.",
+	"sidebar.kindMismatch": "에이전트와 채팅 세션은 바로 바꿀 수 없어요. 새 탭에서 열어 주세요.",
 	"sidebar.openedInNewTab": "에이전트 세션과 채팅 세션은 분리되어 있어 새 탭에서 열었어요.",
 	"sidebar.deleteGroupStreaming": "프로젝트 세션을 삭제하기 전에 진행 중인 턴을 중단하세요.",
 	"sidebar.signal.running": "실행 중",
@@ -2887,8 +2887,7 @@ export const ko: Record<string, string> = {
 	"stats.unavailable": "통계를 불러오지 못했어요",
 	"stats.serverDown": "통계 서버가 응답하지 않아요",
 	"stats.stopped.title": "지금은 모든 세션 통계를 볼 수 없어요",
-	"stats.stopped.desc":
-		"세션 기록을 모으는 통계 서버가 꺼져 있어요. 다시 시도하거나, 계속되면 OMPdesk를 다시 시작해 주세요.",
+	"stats.stopped.desc": "통계 서버가 꺼져 있어요. 다시 시도하거나 OMPdesk를 다시 시작해 주세요.",
 	"stats.emptyRange": "이 기간에는 데이터가 없어요",
 	"stats.syncDetail": "파일 {files}개에서 메시지 {messages}개",
 	"stats.syncBackground": "백그라운드에서 동기화가 계속 진행 중이에요. 완료되는 대로 페이지가 업데이트돼요.",
@@ -3097,8 +3096,6 @@ export const ko: Record<string, string> = {
 	"chat.navigator.imagePrompt": "이미지 프롬프트",
 	"chat.navigator.hint": "클릭해서 이동",
 	"chat.empty.title": "무엇을 만들어 볼까요?",
-	"chat.empty.subtitle":
-		"질문하거나 바꾸고 싶은 점을 알려 주세요. omp가 프로젝트를 살펴보고, 파일을 고치고, 실행까지 해요.",
 	"chat.starter.understand.title": "프로젝트 이해하기",
 	"chat.starter.understand.prompt": "이 코드베이스와 아키텍처를 설명해 줘.",
 	"chat.starter.fix.title": "문제 고치기",
@@ -3108,7 +3105,6 @@ export const ko: Record<string, string> = {
 	"chat.starter.review.title": "변경 사항 리뷰",
 	"chat.starter.review.prompt": "현재 변경 사항의 정확성과 품질을 리뷰해 줘.",
 	"chat.empty.title.chat": "무엇이 궁금한가요?",
-	"chat.empty.subtitle.chat": "무엇이든 물어보세요. 프로젝트가 없어도 omp는 세션과 똑같이 모든 도구를 써요.",
 	"chat.starter.explain.title": "개념 설명",
 	"chat.starter.explain.prompt": "프로그래밍 개념 하나를 쉬운 말로 짧은 예제와 함께 설명해 줘.",
 	"chat.starter.draft.title": "초안 작성",
@@ -3814,7 +3810,6 @@ export const ko: Record<string, string> = {
 
 	// Agent hub window (definitions control center + multi-agent table)
 	"agents.title": "에이전트",
-	"agents.description": "이 세션의 서브에이전트를 확인하고, 에이전트 정의와 모델을 관리하고, 풀 리퀘스트를 검토해요.",
 	"agents.tabs.live": "실시간",
 	"agents.tabs.definitions": "정의",
 	"agents.tabs.prs": "풀 리퀘스트",
@@ -4081,7 +4076,6 @@ export const ko: Record<string, string> = {
 	"agentStudio.gallery.exists": "설치됨 · {source}",
 	"agentStudio.gallery.toolCount": "도구 {count}개",
 	"insights.title": "통계",
-	"insights.description": "이 세션 또는 모든 세션의 사용량, 비용, 활동을 확인해요.",
 	"insights.tabs.stats": "활동",
 	"insights.tabs.usage": "사용량",
 	"insights.scope.label": "범위",

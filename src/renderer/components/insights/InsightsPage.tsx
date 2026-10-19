@@ -38,7 +38,6 @@ export function InsightsPage() {
 
 	return (
 		<PageLayout
-			description={t("insights.description")}
 			panelLabel={t(TAB_LABEL_KEY[tab])}
 			tabs={
 				<Tabs

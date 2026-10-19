@@ -880,7 +880,7 @@ export const en: Record<string, string> = {
 	"sidebar.pin.usageMore": "+{count} more",
 	"sidebar.pinned": "Pinned",
 	"sidebar.pinSyncFailed": "Pinned in OMPdesk, but couldn't sync omp's resume list.",
-	"sidebar.kindMismatch": "Agent and chat sessions can't be switched in place. Open the session in a new tab instead.",
+	"sidebar.kindMismatch": "Can't switch between agent and chat in place. Open it in a new tab.",
 	"sidebar.openedInNewTab": "Opened in a new tab, since agent and chat sessions stay separate.",
 	"sidebar.deleteGroupStreaming": "Stop the current turn before deleting project sessions.",
 	"sidebar.signal.running": "Running",
@@ -2911,8 +2911,7 @@ export const en: Record<string, string> = {
 	"stats.unavailable": "Couldn't load stats",
 	"stats.serverDown": "The stats server isn't answering",
 	"stats.stopped.title": "All-sessions stats are off right now",
-	"stats.stopped.desc":
-		"The stats server that indexes your session history isn't running. Try again, or restart OMPdesk if it keeps happening.",
+	"stats.stopped.desc": "The stats server isn't running. Try again or restart OMPdesk.",
 	"stats.emptyRange": "No data in this range",
 	"stats.syncDetail": "{messages} messages from {files} files",
 	"stats.syncBackground": "Sync is still running in the background; pages update as it lands.",
@@ -3120,8 +3119,6 @@ export const en: Record<string, string> = {
 	"chat.navigator.imagePrompt": "Image prompt",
 	"chat.navigator.hint": "Click to jump",
 	"chat.empty.title": "What should we build?",
-	"chat.empty.subtitle":
-		"Ask a question or describe a change. omp can explore the project, edit files, and run the result.",
 	"chat.starter.understand.title": "Understand the project",
 	"chat.starter.understand.prompt": "Explain this codebase and its architecture.",
 	"chat.starter.fix.title": "Fix something",
@@ -3131,7 +3128,6 @@ export const en: Record<string, string> = {
 	"chat.starter.review.title": "Review changes",
 	"chat.starter.review.prompt": "Review the current changes for correctness and quality.",
 	"chat.empty.title.chat": "What's on your mind?",
-	"chat.empty.subtitle.chat": "Ask anything. No project needed: omp still has every tool it uses in a session.",
 	"chat.starter.explain.title": "Explain a concept",
 	"chat.starter.explain.prompt": "Explain a programming concept in plain language, with a short example.",
 	"chat.starter.draft.title": "Draft something",
@@ -3835,8 +3831,6 @@ export const en: Record<string, string> = {
 
 	// Agent hub window (definitions control center + multi-agent table)
 	"agents.title": "Agents",
-	"agents.description":
-		"Watch this session's subagents, manage agent definitions and models, and review pull requests.",
 	"agents.tabs.live": "Live",
 	"agents.tabs.definitions": "Definitions",
 	"agents.tabs.prs": "Pull requests",
@@ -4103,7 +4097,6 @@ export const en: Record<string, string> = {
 	"agentStudio.gallery.exists": "Installed · {source}",
 	"agentStudio.gallery.toolCount": "{count} tools",
 	"insights.title": "Stats",
-	"insights.description": "Usage, cost and activity — for this session or across every session.",
 	"insights.tabs.stats": "Activity",
 	"insights.tabs.usage": "Usage",
 	"insights.scope.label": "Scope",

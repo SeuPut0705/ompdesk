@@ -37,7 +37,6 @@ export function AgentsPage() {
 	return (
 		<PageLayout
 			body={tab === "prs" || tab === "github" ? "fill" : "scroll"}
-			description={t("agents.description")}
 			panelLabel={t(TAB_LABEL_KEY[tab])}
 			tabs={
 				<Tabs
