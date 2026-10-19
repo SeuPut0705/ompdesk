@@ -17,6 +17,7 @@ import {
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessagesPage } from "../../../shared/rpc-types";
 import { hydrateTabSession, loadOlderTranscript } from "../../hooks/session-hydration";
+import { currentShellMode } from "../../hooks/use-shell-mode";
 import { compactionActionKey } from "../../lib/compaction-action";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { cx, formatClock } from "../../lib/format";
@@ -75,6 +76,7 @@ import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
+import { estimateRowSize, RowSizeLearner, rowSizeKey } from "./transcript-row-estimate";
 import { StepGroups, useMountedCount } from "./work/StepGroups";
 import { messageTimestampMs } from "./work/work-turn";
 
@@ -313,6 +315,14 @@ function SessionTranscript() {
 	);
 
 	const followedSizeRef = useRef(0);
+	// A web page's transcript column on a phone or tablet (its width, kept by the resize observer below; null in a
+	// desktop window) and what its rows measured by kind: the row estimates' inputs (transcript-row-estimate.ts).
+	const columnWidthRef = useRef<number | null>(null);
+	const shellMode = currentShellMode();
+	const columnRef = useRef<{ width: number; phone: boolean } | null>(null);
+	columnRef.current =
+		shellMode === null ? null : { width: columnWidthRef.current ?? window.innerWidth, phone: shellMode === "phone" };
+	const rowSizesRef = useRef(new RowSizeLearner());
 	const placeRowsPendingRef = useRef(false);
 	const handleVirtualizerChange = useCallback(
 		(instance: Virtualizer<HTMLDivElement, Element>) => {
@@ -452,26 +462,23 @@ function SessionTranscript() {
 		// reading it here laid out every row the commit mounted inside the commit,
 		// adding the frame's layout to the task that rendered them.
 		measureElement: (element, entry, instance) => {
-			if (entry) return Math.ceil(entry.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height);
+			if (entry) {
+				const size = Math.ceil(entry.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height);
+				const row = rows[instance.indexFromElement(element)];
+				if (row && columnRef.current !== null) rowSizesRef.current.add(rowSizeKey(row), size);
+				return size;
+			}
 			const size = instance.measurementsCache[instance.indexFromElement(element)]?.size;
 			return size !== undefined && typeof ResizeObserver !== "undefined"
 				? size
 				: Math.ceil(element.getBoundingClientRect().height);
 		},
-		// Estimates sit just under what rows usually measure (a finished work card is
-		// rarely under 136px, an assistant reply under 145px, a user turn is about 63px):
-		// a row's range is read at estimates first, and an estimate a quarter of the size
-		// mounted four times the rows a screen needs. That is the page commit's own cost
-		// when an older page refolds the rows on screen into an earlier card.
-		estimateSize: i => {
-			const row = rows[i];
-			if (row?.kind === "streaming") return 80;
-			if (row?.kind === "pending") return 56;
-			if (row?.kind === "process") return 136;
-			if (row?.kind === "expander" || row?.kind === "todoSnapshot") return 48;
-			if (row?.kind === "message") return row.message.role === "user" ? 64 : 144;
-			return 160;
-		},
+		// Estimates sit just under what rows usually measure (a finished work card is rarely under 136px, an assistant
+		// reply under 145px, a user turn is about 63px): a row's range is read at estimates first, and an estimate a
+		// quarter of the size mounted four times the rows a screen needs. That is the page commit's own cost when an
+		// older page refolds the rows on screen into an earlier card. A phone or tablet page guesses from the text and
+		// what the transcript measured (transcript-row-estimate.ts): the desktop's guesses missed there by 164 px a turn.
+		estimateSize: i => estimateRowSize(rows[i], columnRef.current, key => rowSizesRef.current.mean(key)),
 		overscan: 8,
 		rangeExtractor,
 		onChange: handleVirtualizerChange,
@@ -658,9 +665,11 @@ function SessionTranscript() {
 		const canvas = canvasRef.current;
 		if (!el || !canvas || typeof ResizeObserver === "undefined") return;
 		let viewportHeight = el.clientHeight;
+		columnWidthRef.current = el.clientWidth;
 		const observer = new ResizeObserver(() => {
 			const previousHeight = viewportHeight;
 			viewportHeight = el.clientHeight;
+			columnWidthRef.current = el.clientWidth;
 			if (userScrollIntentRef.current) return;
 			// Nothing to follow: the first-run setup and the empty canvas open at the top.
 			if (emptyRef.current) return;

@@ -564,6 +564,10 @@ async function runDay(browser: Browser, rig: Rig, device: DeviceSpec): Promise<S
 				return samples.join(" ");
 			}, settled.key);
 		if (settled) notes.idleDrift = Math.round(((await rowTop(p, settled.key)) ?? settled.top) - settled.top);
+		// The view stays where the fling left it: the virtualizer's guesses for the rows the fling mounted matched what
+		// they measured, so nothing is corrected after momentum (164 px on iPhone, 264-324 on Pixel, 100 on iPad before
+		// the web page's row estimates, transcript-row-estimate.ts).
+		expect(Math.abs(Number(notes.idleDrift ?? 0))).toBeLessThanOrEqual(24);
 		const anchor = await topRow(p);
 		// While read back, a new reply arrives: the row under the thumb must stay put.
 		await fixture(p, "fixture:finish");
