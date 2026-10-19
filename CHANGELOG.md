@@ -1,5 +1,7 @@
 # Changelog
 
+<!-- Next release (v0.42.0), move into its section: 라이선스가 MIT에서 Apache License 2.0으로 바뀌었어요(NOTICE 파일 추가). v0.41.0까지의 버전은 MIT 그대로예요. / OMPdesk is now licensed under the Apache License 2.0, with a NOTICE file; versions up to v0.41.0 stay MIT. -->
+
 ## [0.41.0] - 2026-10-19
 
 컴퓨터끼리 공유가 Tailscale 계정만으로 페어링 코드 없이 이어지고, 컴퓨터를 다시 켜도 끊기지 않아요.

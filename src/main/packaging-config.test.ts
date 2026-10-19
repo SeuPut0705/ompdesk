@@ -217,19 +217,16 @@ describe("mac bundle configs", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
 			expect(config.extraResources, file).toContainEqual({ from: "LICENSES", to: "LICENSES" });
-			// No NOTICE file: the attribution of vendored code lives in THIRD_PARTY_NOTICES.txt.
-			expect(config.extraResources, file).not.toContainEqual({ from: "NOTICE", to: "NOTICE" });
 		}
-		expect(fs.existsSync(path.join(PACKAGE_ROOT, "NOTICE"))).toBe(false);
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/Apache-2.0.txt"))).toBe(true);
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "LICENSES/MIT-lobe-icons.txt"))).toBe(true);
 		expect(fs.readdirSync(path.join(PACKAGE_ROOT, "src/renderer/assets/provider-marks")).length).toBeGreaterThan(0);
 	});
 
-	it("ships OMPdesk's MIT LICENSE and the generated third-party notices on both platforms", () => {
+	it("ships OMPdesk's Apache-2.0 LICENSE, its NOTICE and the generated third-party notices on both platforms", () => {
 		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
 			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
-			for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.txt"]) {
+			for (const name of ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"]) {
 				expect(config.extraResources, file).toContainEqual({ from: name, to: name });
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, name)), `${file}: ${name} is missing`).toBe(true);
 			}
@@ -245,14 +242,19 @@ describe("mac bundle configs", () => {
 		const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")) as {
 			license?: string;
 		};
-		expect(manifest.license).toBe("MIT");
-		expect(fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSE"), "utf8")).toMatch(
-			/^MIT License\n\nCopyright \(c\) 2026 SeuPut\n/,
-		);
+		expect(manifest.license).toBe("Apache-2.0");
+		const license = fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSE"), "utf8");
+		expect(license).toMatch(/^\s+Apache License\n\s+Version 2\.0, January 2004\n/);
+		expect(license).toContain("\nCopyright 2026 SeuPut\n");
+		// Apache-2.0 §4(d): a NOTICE is carried along with every redistribution, so it names
+		// the holder and where the vendored code's notices are.
+		const notice = fs.readFileSync(path.join(PACKAGE_ROOT, "NOTICE"), "utf8");
+		expect(notice).toMatch(/^OMPdesk\nCopyright 2026 SeuPut\n/);
+		expect(notice).toContain("THIRD_PARTY_NOTICES.txt");
 		const notices = fs.readFileSync(path.join(PACKAGE_ROOT, "THIRD_PARTY_NOTICES.txt"), "utf8");
 		expect(notices).toContain("electron ");
 		expect(notices).toContain("LICENSES.chromium.html");
-		// The vendored code is credited here now that there is no NOTICE file.
+		// The vendored code is credited here, not in NOTICE.
 		expect(notices).toContain("Mixdog (https://github.com/tribgames/mixdog)");
 		expect(notices).toContain("LICENSES/Apache-2.0.txt");
 		expect(notices).toContain("@lobehub/icons");

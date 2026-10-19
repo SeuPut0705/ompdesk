@@ -14,7 +14,7 @@
 
 [![최신 릴리스](https://img.shields.io/github/v/release/SeuPut0705/ompdesk?style=flat-square&color=5B5BD6)](https://github.com/SeuPut0705/ompdesk/releases/latest)
 ![macOS와 Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square)
-[![MIT 라이선스](https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square)](LICENSE)
+[![Apache-2.0 라이선스](https://img.shields.io/badge/license-Apache--2.0-5B5BD6?style=flat-square)](LICENSE)
 
 <sub>[omp](https://github.com/can1357/oh-my-pi)의 비공식 앱이에요. omp 제작자와 관계가 없어요. 앱 화면은 한국어와 영어를 지원해요.</sub>
 
@@ -74,7 +74,7 @@ OMPdesk, omp, 연결한 계정의 도구 CLI, omp의 플러그인·스킬·MCP �
 ## 자주 묻는 질문
 
 - **omp 공식 앱인가요?** 아니에요. 설치된 omp를 구동하는 비공식 앱이고, omp 자체는 고치지 않아요.
-- **비용이 드나요?** 아니요. MIT 라이선스이고 계정이 필요 없어요. 모델 비용은 터미널에서처럼 프로바이더가 청구해요.
+- **비용이 드나요?** 아니요. Apache License 2.0 오픈소스이고 계정이 필요 없어요. 모델 비용은 터미널에서처럼 프로바이더가 청구해요.
 - **에이전트가 내 컴퓨터를 조작하나요?** 컴퓨터 사용은 기본으로 켜져 있고, 한 번에 한 세션만 화면을 써요. macOS에서는 OMPdesk에 화면 기록과 손쉬운 사용 권한을 줘야 동작해요. omp 기본 도구 승인에서는 묻지 않고 조작하니, 설정 › 권한 및 보안의 **도구 승인**을 "항상 묻기"로 바꾸거나 `/computer off`로 끄세요.
 - **창을 닫았는데 앱이 꺼지지 않아요.** 의도한 동작이에요. 종료(⌘Q, 트레이 메뉴)하기 전까지 작업은 계속돼요.
 - **다른 문제가 생겼어요.** [문제 해결](docs/troubleshooting.ko.md)을 보거나 [이슈](https://github.com/SeuPut0705/ompdesk/issues)를 남겨 주세요.
@@ -109,6 +109,8 @@ bun run dev
 
 ## 기여 · 보안 · 라이선스
 
-[기여하기](CONTRIBUTING.md) · [보안](SECURITY.md) · [MIT 라이선스](LICENSE) · [서드파티 고지](THIRD_PARTY_NOTICES.txt)
+[기여하기](CONTRIBUTING.md) · [보안](SECURITY.md) · [Apache License 2.0](LICENSE) · [고지(NOTICE)](NOTICE) · [서드파티 고지](THIRD_PARTY_NOTICES.txt)
+
+<sub>v0.41.0까지의 버전은 MIT 라이선스로 배포됐어요.</sub>
 
 만든 사람: [@SeuPut0705](https://github.com/SeuPut0705)

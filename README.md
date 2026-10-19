@@ -14,7 +14,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/SeuPut0705/ompdesk?style=flat-square&color=5B5BD6)](https://github.com/SeuPut0705/ompdesk/releases/latest)
 ![macOS and Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-5B5BD6?style=flat-square)
-[![MIT license](https://img.shields.io/badge/license-MIT-5B5BD6?style=flat-square)](LICENSE)
+[![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-5B5BD6?style=flat-square)](LICENSE)
 
 <sub>An unofficial app for [omp](https://github.com/can1357/oh-my-pi), not affiliated with its authors. The UI is in English and Korean.</sub>
 
@@ -74,7 +74,7 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 ## FAQ
 
 - **Is it the official omp app?** No. It is an unofficial app that drives the omp you have installed; omp itself is never modified.
-- **Does it cost anything?** No. It is MIT licensed and needs no account. Your model providers bill you as they do in the terminal.
+- **Does it cost anything?** No. It is open source under the Apache License 2.0 and needs no account. Your model providers bill you as they do in the terminal.
 - **Can the agent control my computer?** Computer use is on by default, and only one session drives the desktop at a time. On macOS it needs Screen Recording and Accessibility granted to OMPdesk. With omp's default tool approval the agent acts without asking: set **Tool approval** to always ask in Settings › Permissions & security, or turn it off with `/computer off`.
 - **I closed the window and the app is still running.** By design: tasks continue until you quit (⌘Q or the tray menu).
 - **Something else broke.** See [Troubleshooting](docs/troubleshooting.md), or open an [issue](https://github.com/SeuPut0705/ompdesk/issues).
@@ -109,6 +109,8 @@ Development, checks and release rules are in [AGENTS.md](AGENTS.md); changes per
 
 ## Contributing · Security · License
 
-[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [MIT License](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.txt)
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Apache License 2.0](LICENSE) · [Notice](NOTICE) · [Third-party notices](THIRD_PARTY_NOTICES.txt)
+
+<sub>Versions up to v0.41.0 were released under the MIT License.</sub>
 
 Made by [@SeuPut0705](https://github.com/SeuPut0705)

@@ -26,9 +26,9 @@ Issues are welcome.
 - Do not add AI-attribution trailers to commit messages.
 - The maintainer commits locally and batches releases, so a PR may be merged by rebase or squash rather than as-is.
 
-Contributions are submitted under the [MIT License](LICENSE) (inbound = outbound), the same license as the project. There is no CLA.
+Contributions are submitted under the [Apache License 2.0](LICENSE) (inbound = outbound, as its section 5 says), the same license as the project. There is no CLA.
 
-New source files may start with `// SPDX-License-Identifier: MIT`. It is optional, and please do not mass-edit existing headers.
+New source files may start with `// SPDX-License-Identifier: Apache-2.0`. It is optional, and please do not mass-edit existing headers.
 
 ## Development rules
 

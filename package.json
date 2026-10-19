@@ -6,7 +6,7 @@
   "type": "module",
   "description": "ompdesk: an unofficial desktop app for the omp coding agent, running on the system-installed omp",
   "repository": "github:SeuPut0705/ompdesk",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "bun scripts/ensure-electron.ts",
