@@ -166,6 +166,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"getToolByName()",
 			"sessionManager.getBranch()",
 			"promptCustomMessage()",
+			"sessionManager.appendMessage()",
+			"isStreaming",
 			"getGoalModeState()",
 		],
 		modules: {
@@ -179,6 +181,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
 			[`${AGENT}/task/restore`]: ["restoreSession()"],
+			[`${AGENT}/session/exit-diagnostics`]: ["createInterruptedTurnAbortMessage()"],
 			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()", "resolveLocalUrlToPath()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: ["buildMcpArgumentCompletions()"],
 			[`${AGENT}/slash-commands/builtin-registry`]: ["BUILTIN_SLASH_COMMANDS"],

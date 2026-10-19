@@ -17,6 +17,8 @@ import {
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
+	journalEnd,
+	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
 } from "./restart-core";
@@ -313,30 +315,52 @@ export const methods: BridgeMethods = {
 		/**
 		 * What `omp --restore` runs (stock's own continue path, TUI-only as a flag): the turn the
 		 * last process was cut off in plus the subagents it ran. `turn` is false with nothing left
-		 * unfinished, while a turn runs, or without a model. Stock leaves the agent unaware of some of
+		 * unfinished, while a turn runs, or without a model. The host calls it only for a turn it saw
+		 * running at the cut, so a turn stock's journal shows ended between a message and the model's
+		 * answer (`requestCutAtExit`: a clean exit record and no reply after it) is closed first with
+		 * stock's own interrupted-turn record, which stock's restore then continues (`cutBeforeRequest`).
+		 * Stock leaves the agent unaware of some of
 		 * what the restart did; one follow-up tells it (displayed, shown in the transcript as muted lines
 		 * and never as a message, so it carries on without narrating the restart; `followUp` says it went):
 		 * `jobs`, the background bash jobs that process started and never finished (stock restores no bash
 		 * job), and, when the session's own turn does not go on, the subagents the restore revived (their
 		 * results arrive only when they finish, maybe hours later, and until then the session would sit
 		 * silent). `goalPausedByExit` is a goal that was active until that process ended and that stock
-		 * paused at startup (the host resumes it after the restore).
+		 * paused at startup (the host resumes it after the restore). `journal` names the journal's end the
+		 * restore judged, for the host's log when nothing went on.
 		 */
 		"composer.restore_interrupted": async (_params, env) => {
 			const session = env.session() as Session;
 			requireFn(session, "restoreInterruptedTurn", "composer");
 			requireFn(session, "sessionManager.getBranch", "composer");
+			requireFn(session, "sessionManager.appendMessage", "composer");
 			requireFn(session, "promptCustomMessage", "composer");
 			requireFn(session, "getToolByName", "composer");
 			requireFn(session, "getGoalModeState", "composer");
 			const restore = await import("@oh-my-pi/pi-coding-agent/task/restore");
 			requireFn(restore, "restoreSession", "composer", "task/restore");
-			const branch = session.sessionManager.getBranch() as readonly JournalEntry[];
+			const diagnostics = await import("@oh-my-pi/pi-coding-agent/session/exit-diagnostics");
+			requireFn(diagnostics, "createInterruptedTurnAbortMessage", "composer", "session/exit-diagnostics");
+			const entries = session.sessionManager.getBranch();
+			const branch = entries as readonly JournalEntry[];
 			// This process's start: the entries before it are the lives of the processes the relaunch replaced.
 			const startedAt = performance.timeOrigin;
 			const cutOff = interruptedJobs(branch, startedAt);
 			const goalPausedByExit =
 				goalActiveAtExit(branch, startedAt) && session.getGoalModeState()?.goal.status === "paused";
+			// Stock's record for a turn whose process exit it did not see as clean: read past that exit record
+			// (as for a crash, which records none), so stock builds it from the cut-off tail and model.
+			const exit = requestCutAtExit(branch, startedAt);
+			const model = session.model;
+			const abort =
+				exit && model && !session.isStreaming
+					? diagnostics.createInterruptedTurnAbortMessage(
+							entries.filter(entry => entry !== exit),
+							{ api: model.api, provider: model.provider, model: model.id },
+							{ assumeExit: true },
+						)
+					: undefined;
+			if (abort) session.sessionManager.appendMessage(abort);
 			// The buses a live `task` run reports its subagents on (the task tool's stock `ToolSession`), as
 			// `omp --restore` passes main.ts's own: without them a revived subagent runs unseen, since omp's RPC
 			// subagent registry (`get_subagents`, the `subagent_*` frames) listens on `subagentEventBus` only.
@@ -360,7 +384,14 @@ export const methods: BridgeMethods = {
 						}),
 					);
 			}
-			return { ...outcome, jobs: cutOff.map(job => job.id), goalPausedByExit, followUp: followUp !== undefined };
+			return {
+				...outcome,
+				jobs: cutOff.map(job => job.id),
+				goalPausedByExit,
+				followUp: followUp !== undefined,
+				cutBeforeRequest: abort !== undefined,
+				journal: journalEnd(branch),
+			};
 		},
 
 		"composer.skill_count": async (_params, env) => ({ skills: (env.session() as Session).skills?.length ?? 0 }),

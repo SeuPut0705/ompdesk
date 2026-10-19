@@ -118,6 +118,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-coding-agent/security/store": () => import("@oh-my-pi/pi-coding-agent/security/store"),
 	"@oh-my-pi/pi-coding-agent/session/blob-store": () => import("@oh-my-pi/pi-coding-agent/session/blob-store"),
 	"@oh-my-pi/pi-coding-agent/session/credential-pin": () => import("@oh-my-pi/pi-coding-agent/session/credential-pin"),
+	"@oh-my-pi/pi-coding-agent/session/exit-diagnostics": () =>
+		import("@oh-my-pi/pi-coding-agent/session/exit-diagnostics"),
 	"@oh-my-pi/pi-coding-agent/session/foreign-session-import": () =>
 		import("@oh-my-pi/pi-coding-agent/session/foreign-session-import"),
 	"@oh-my-pi/pi-coding-agent/session/history-storage": () =>

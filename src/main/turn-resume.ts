@@ -765,6 +765,10 @@ export class TurnResume {
 			goal: goalResumed,
 			started,
 			...(restored?.followUp === true ? { followUp: true } : {}),
+			// The bridge closed a turn stock's journal showed ended before its model call (restart-core `requestCutAtExit`).
+			...(restored?.cutBeforeRequest === true ? { cutBeforeRequest: true } : {}),
+			// What the restore judged when nothing went on: the journal's last message and exit record.
+			...(!started && typeof restored?.journal === "string" ? { journal: restored.journal } : {}),
 			...(opened > 0 ? { opened } : {}),
 			...failures,
 			...(cancelled() ? { cancelled: true } : {}),

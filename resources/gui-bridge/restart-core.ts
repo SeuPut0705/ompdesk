@@ -15,9 +15,11 @@ export interface JournalEntry {
 	details?: unknown;
 	/** A `custom_message` entry's content. */
 	content?: unknown;
+	/** A `custom` entry's data (a `session_exit`'s `{kind, pendingToolCalls}`). */
+	data?: unknown;
 	/** ISO time the entry was journaled (stock `SessionEntry.timestamp`). */
 	timestamp?: string;
-	message?: { role?: string; content?: unknown; toolCallId?: string; details?: unknown };
+	message?: { role?: string; content?: unknown; toolCallId?: string; details?: unknown; stopReason?: string };
 }
 
 /** Stock's journal record of a process ending (exit-diagnostics.ts `SESSION_EXIT_CUSTOM_TYPE`). */
@@ -130,6 +132,51 @@ export function goalActiveAtExit(branch: readonly JournalEntry[], startedAt: num
 function journaledBefore(entry: JournalEntry, at: number): boolean {
 	const time = entry.timestamp === undefined ? Number.NaN : Date.parse(entry.timestamp);
 	return Number.isFinite(time) && time < at;
+}
+
+/**
+ * The exit record of a turn its last process ended between a message and the model's answer to it, which stock's own
+ * restore reads as finished; undefined for anything else.
+ *
+ * Stock records `session_exit` as `normal` when it disposes the session on stdin EOF (how OMPdesk stops an omp at a
+ * quit), with `pendingToolCalls` only while a tool runs. Its `findUnfinishedTurn` (session/exit-diagnostics.ts) reads
+ * a normal exit with nothing pending as a turn that ended, trusting the abort record the dying turn writes after the
+ * exit, which `/retry` then replays. That record never reaches the journal when the turn is cut before its model call
+ * (the agent loop stops there without a message) or the process ends first (stdout EPIPE as the app goes: stock's
+ * graceful quit). v0.41.0's update restart left exactly that: a bash result, then the exit record, nothing after.
+ *
+ * The caller (a relaunch the host makes for a turn it saw running) closes the turn with stock's own interrupted-turn
+ * record, as stock does for an exit it knows was abnormal, so stock's restore continues it. The tail is a prompt or a
+ * tool result nothing answered; a tool result that closes a failed or aborted reply ended its turn (stock's rule).
+ * Only an exit of the processes this one replaced (journaled before `startedAt`) with no message after it counts.
+ */
+export function requestCutAtExit(branch: readonly JournalEntry[], startedAt: number): JournalEntry | undefined {
+	const exitAt = branch.findLastIndex(isExit);
+	const exit = branch[exitAt];
+	if (!exit || !journaledBefore(exit, startedAt) || !isObject(exit.data)) return undefined;
+	const { kind, pendingToolCalls } = exit.data;
+	if (kind !== "normal" || (Array.isArray(pendingToolCalls) && pendingToolCalls.length > 0)) return undefined;
+	if (branch.slice(exitAt + 1).some(entry => entry.type === "message")) return undefined;
+	const messages = branch.slice(0, exitAt).filter(entry => entry.type === "message");
+	const tail = messages.at(-1)?.message?.role;
+	if (tail === "user") return exit;
+	if (tail !== "toolResult") return undefined;
+	const reply = messages.findLast(entry => entry.message?.role === "assistant")?.message?.stopReason;
+	return reply === "error" || reply === "aborted" ? undefined : exit;
+}
+
+/**
+ * The journal's end a restore judged, for the host's log (`restored: nothing` says why): the last message's role and
+ * stop reason, and the last process exit after it (`exit normal`, `+pending` with tool calls in flight) or `no exit`.
+ */
+export function journalEnd(branch: readonly JournalEntry[]): string {
+	const tailAt = branch.findLastIndex(entry => entry.type === "message");
+	const tail = branch[tailAt]?.message;
+	const exit = branch.slice(tailAt + 1).findLast(isExit)?.data;
+	const kind = isObject(exit) && typeof exit.kind === "string" ? exit.kind : undefined;
+	const pending = isObject(exit) && Array.isArray(exit.pendingToolCalls) && exit.pendingToolCalls.length > 0;
+	const message = tail ? [tail.role, tail.stopReason].filter(Boolean).join("/") : "no message";
+	return `${message}, ${kind ? `exit ${kind}${pending ? "+pending" : ""}` : "no exit"}`;
 }
 
 /** A subagent stock `restoreSession` revived: its id and what it was asked to do. */

@@ -2,15 +2,18 @@
  * What a relaunch's restore reads from the journal beyond stock `restoreSession`
  * (resources/gui-bridge/restart-core.ts): background bash jobs the last process
  * started and never finished, the subagents it revived for a session whose own turn
- * stays idle, and a goal that was still active when it ended.
+ * stays idle, a goal that was still active when it ended, and a turn its exit record
+ * calls finished although the model never answered its last message.
  */
 import { describe, expect, it } from "vitest";
 import {
 	goalActiveAtExit,
 	interruptedJobs,
 	type JournalEntry,
+	journalEnd,
 	RESTART_JOBS_MESSAGE,
 	RESTART_SUBAGENTS_MESSAGE,
+	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
 } from "../../resources/gui-bridge/restart-core";
@@ -239,5 +242,89 @@ describe("goalActiveAtExit", () => {
 		);
 		expect(goalActiveAtExit([mode("goal_paused", "09:59:50"), aborted], startedAt)).toBe(false);
 		expect(goalActiveAtExit([mode("goal", "10:00:02")], startedAt)).toBe(false);
+	});
+});
+
+describe("requestCutAtExit", () => {
+	/** This process started at 10:00:00; entries stamped before it were journaled by the process it replaced. */
+	const startedAt = Date.parse("2026-10-19T11:04:33.000Z");
+	const at = (time: string) => `2026-10-19T${time}Z`;
+	const user: JournalEntry = { type: "message", timestamp: at("11:03:21.851"), message: { role: "user" } };
+	const call: JournalEntry = {
+		type: "message",
+		timestamp: at("11:04:29.649"),
+		message: { role: "assistant", stopReason: "toolUse" },
+	};
+	const result: JournalEntry = { type: "message", timestamp: at("11:04:30.737"), message: { role: "toolResult" } };
+	const cleanExit = (pendingToolCalls?: unknown[], time = "11:04:30.877"): JournalEntry => ({
+		type: "custom",
+		customType: "session_exit",
+		timestamp: at(time),
+		data: { reason: "dispose", kind: "normal", ...(pendingToolCalls ? { pendingToolCalls } : {}) },
+	});
+
+	it("finds the v0.41.0 update restart's journal: a bash result, a clean exit record, nothing after", () => {
+		const exitRecord = cleanExit();
+		expect(requestCutAtExit([user, call, result, exitRecord], startedAt)).toBe(exitRecord);
+		// What this process journals at startup (a prompt origin, a model change) is no answer.
+		const digest: JournalEntry = {
+			type: "custom",
+			customType: "system-prompt-digest",
+			timestamp: at("11:05:23.000"),
+		};
+		expect(requestCutAtExit([user, call, result, exitRecord, digest], startedAt)).toBe(exitRecord);
+	});
+
+	it("finds a prompt the model never answered before a clean exit record", () => {
+		const exitRecord = cleanExit();
+		expect(requestCutAtExit([user, exitRecord], startedAt)).toBe(exitRecord);
+	});
+
+	it("leaves to stock what stock's own restore or retry already continues", () => {
+		// A tool still running: stock records it and reruns it.
+		expect(requestCutAtExit([user, call, cleanExit([{ toolName: "bash" }])], startedAt)).toBeUndefined();
+		// Its abort record reached the journal after the exit: stock's retry replays it.
+		const aborted: JournalEntry = {
+			type: "message",
+			timestamp: at("11:04:30.980"),
+			message: { role: "assistant", stopReason: "aborted" },
+		};
+		expect(requestCutAtExit([user, call, result, cleanExit(), aborted], startedAt)).toBeUndefined();
+		// A prompt journaled as its process ended, after the exit record: stock's restore sees it.
+		expect(requestCutAtExit([call, result, cleanExit(), user], startedAt)).toBeUndefined();
+		// A signal or crash exit: stock reads it as abnormal itself.
+		const signal: JournalEntry = { ...cleanExit(), data: { reason: "SIGTERM", kind: "signal" } };
+		expect(requestCutAtExit([user, call, result, signal], startedAt)).toBeUndefined();
+		// No exit record at all (SIGKILL): stock assumes one.
+		expect(requestCutAtExit([user, call, result], startedAt)).toBeUndefined();
+	});
+
+	it("leaves a turn that really ended alone", () => {
+		const answered: JournalEntry = {
+			type: "message",
+			timestamp: at("11:04:30.800"),
+			message: { role: "assistant", stopReason: "stop" },
+		};
+		expect(requestCutAtExit([user, call, result, answered, cleanExit()], startedAt)).toBeUndefined();
+		// Tool results that close a failed or stopped reply end its turn (stock's rule).
+		const failed: JournalEntry = { ...call, message: { role: "assistant", stopReason: "aborted" } };
+		expect(requestCutAtExit([user, failed, result, cleanExit()], startedAt)).toBeUndefined();
+	});
+
+	it("counts only an exit of the process this one replaced", () => {
+		expect(requestCutAtExit([user, call, result, cleanExit(undefined, "11:04:40.000")], startedAt)).toBeUndefined();
+	});
+});
+
+describe("journalEnd", () => {
+	it("names the last message and the exit record after it", () => {
+		const exitRecord: JournalEntry = { type: "custom", customType: "session_exit", data: { kind: "normal" } };
+		const pending: JournalEntry = { ...exitRecord, data: { kind: "normal", pendingToolCalls: [{}] } };
+		const answer: JournalEntry = { type: "message", message: { role: "assistant", stopReason: "stop" } };
+		const result: JournalEntry = { type: "message", message: { role: "toolResult" } };
+		expect(journalEnd([result, exitRecord])).toBe("toolResult, exit normal");
+		expect(journalEnd([result, pending])).toBe("toolResult, exit normal+pending");
+		expect(journalEnd([exitRecord, answer])).toBe("assistant/stop, no exit");
+		expect(journalEnd([])).toBe("no message, no exit");
 	});
 });

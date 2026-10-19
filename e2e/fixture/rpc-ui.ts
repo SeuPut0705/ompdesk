@@ -33,7 +33,9 @@ import {
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import {
 	interruptedJobs,
+	journalEnd,
 	type JournalEntry as RestartJournalEntry,
+	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
 } from "../../resources/gui-bridge/restart-core";
@@ -1527,16 +1529,19 @@ export function runRpcUi(): void {
 			const autopilotRestore = autopilot.restore();
 			if (autopilotRestore) return autopilotRestore;
 			// Like stock's hasRestorableTurn: custom entries after it (a prompt origin) are not the turn, and a clean exit
-			// record after it with nothing pending (`recordSessionExit`) reads as a turn that ended.
+			// record after it with nothing pending (`recordSessionExit`) reads as a turn that ended, unless the bridge
+			// closes it first as one cut before its model call (restart-core `requestCutAtExit`).
+			const journal = entries as readonly RestartJournalEntry[];
 			const last = [...entries].reverse().find(entry => entry.type === "message");
 			const lastRole = last?.type === "message" ? (last.message as AgentMessage | undefined)?.role : undefined;
 			const lastAt = last ? entries.lastIndexOf(last) : -1;
 			const exitAfter = entries.slice(lastAt + 1).findLast(entry => entry.customType === "session_exit");
 			const exitData = exitAfter?.data as { kind?: string; pendingToolCalls?: unknown[] } | undefined;
 			const endedCleanly = exitData?.kind === "normal" && !exitData.pendingToolCalls?.length;
-			const cutOff = (lastRole === "user" || lastRole === "toolResult") && !isStreaming && !endedCleanly;
+			const cutBeforeRequest = requestCutAtExit(journal, performance.timeOrigin) !== undefined && !isStreaming;
+			const cutOff =
+				((lastRole === "user" || lastRole === "toolResult") && !isStreaming && !endedCleanly) || cutBeforeRequest;
 			// The bridge's `jobs`: background bash jobs the replaced process left unsettled (restart-core's rule).
-			const journal = entries as readonly RestartJournalEntry[];
 			const stopped = interruptedJobs(journal, performance.timeOrigin);
 			const jobs = stopped.map(job => job.id);
 			const subagents = journal.flatMap(entry => {
@@ -1560,7 +1565,8 @@ export function runRpcUi(): void {
 				write({ type: "message_start", message: notice });
 				write({ type: "message_end", message: notice });
 			}
-			if (!cutOff && !followUp) return { turn: false, subagents, jobs, followUp: false };
+			if (!cutOff && !followUp)
+				return { turn: false, subagents, jobs, followUp: false, cutBeforeRequest, journal: journalEnd(journal) };
 			// A model that is slow to start (the relaunch's spawn and first request): the tab's "continuing" row stays
 			// up for the whole wait, so a spec observes it instead of racing a resume that finishes in a frame.
 			setTimeout(
@@ -1594,7 +1600,7 @@ export function runRpcUi(): void {
 				},
 				followUp ? 1500 : 0,
 			);
-			return { turn: cutOff, subagents, jobs, followUp: followUp !== undefined };
+			return { turn: cutOff, subagents, jobs, followUp: followUp !== undefined, cutBeforeRequest };
 		},
 		"composer.share_preview": () => ({
 			snapshotId: "fixture",
