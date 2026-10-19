@@ -75,7 +75,7 @@ describe("AgentControlRow", () => {
 		expect(toggle().getAttribute("aria-checked")).toBe("false");
 	});
 
-	it("has two more switches that lift a human gate: approvals and managing sessions, both off by default", async () => {
+	it("has two more switches for the human gates: approving off and managing sessions on while nothing is stored", async () => {
 		stored = undefined;
 		await mount();
 		const approve = document.querySelector(
@@ -86,12 +86,17 @@ describe("AgentControlRow", () => {
 		) as HTMLButtonElement | null;
 		expect(document.body.textContent).toContain("Let agents approve for other sessions");
 		expect(document.body.textContent).toContain("Let agents manage other sessions");
+		// The long descriptions sit behind info tooltips (the text stays in the DOM): approve says why it stays off,
+		// manage says deleting still asks.
+		expect(document.body.textContent).toContain("would bypass your approval policy");
+		expect(document.body.textContent).toContain("Deleting a saved session they did not open still asks");
 		expect(approve?.getAttribute("aria-checked")).toBe("false");
-		expect(manage?.getAttribute("aria-checked")).toBe("false");
+		expect(manage?.getAttribute("aria-checked")).toBe("true");
 		await act(async () => approve?.click());
 		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_APPROVE_PREF, true);
 		await act(async () => manage?.click());
-		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_MANAGE_PREF, true);
+		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_MANAGE_PREF, false);
+		expect(manage?.getAttribute("aria-checked")).toBe("false");
 	});
 
 	it("hides under a search that does not match it", async () => {

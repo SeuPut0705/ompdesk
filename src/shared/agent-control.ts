@@ -25,10 +25,18 @@ export function agentHiddenPaths(sidebarBlob: unknown): Set<string> {
 	return new Set(Array.isArray(list) ? list.filter((entry): entry is string => typeof entry === "string") : []);
 }
 
-/** Prefs key, default OFF: an orchestrating agent may approve another session's pending tool approval. */
+/**
+ * Prefs key, default OFF: an orchestrating agent may approve another session's pending tool approval. Off because
+ * it bypasses the user's own approval policy; it stays the user's explicit choice.
+ */
 export const AGENT_CONTROL_APPROVE_PREF = "agentControlApprove";
 
-/** Prefs key, default OFF: an orchestrating agent may stop, close or delete sessions it did not open (else one confirmation card each). */
+/**
+ * Prefs key, default ON (unset counts as on; only a stored `false` is off): an orchestrating agent may stop or close
+ * sessions it did not open, merge a session's branch, create or cancel a schedule and start Autopilot without a
+ * confirmation card. Permanently deleting a saved session it did not open (and every app action that deletes user
+ * data) asks regardless.
+ */
 export const AGENT_CONTROL_MANAGE_PREF = "agentControlManage";
 
 /** Title prefix of every confirmation card the control tools raise; `ompdesk_session_answer` never answers one. */
@@ -51,6 +59,16 @@ export function isApprovalSelect(request: { method: string; title?: unknown; opt
 
 export function agentControlEnabled(value: unknown): boolean {
 	return value !== false;
+}
+
+/** `agentControlManage` as stored: unset is on. */
+export function agentControlManageEnabled(value: unknown): boolean {
+	return value !== false;
+}
+
+/** `agentControlApprove` as stored: unset is off. */
+export function agentControlApproveEnabled(value: unknown): boolean {
+	return value === true;
 }
 
 /** Tool names (stock mounts each as `xd://<name>`). */

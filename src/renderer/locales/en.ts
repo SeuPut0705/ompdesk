@@ -5697,10 +5697,10 @@ export const en: Record<string, string> = {
 		"Let an agent see your other sessions, message them, read their results, answer their questions and show them to you",
 	"settings.gui.agentControlApprove": "Let agents approve for other sessions",
 	"settings.gui.agentControlApproveDesc":
-		"Off: when another session asks you to approve a tool, only you can. Agents may still deny or answer other questions.",
+		"Off by default: only you approve a tool another session asks about, since an agent approving would bypass your approval policy. Agents may still deny or answer other questions.",
 	"settings.gui.agentControlManage": "Let agents manage other sessions",
 	"settings.gui.agentControlManageDesc":
-		"Off: stopping, closing or deleting a session an agent did not open, merging a session's branch and creating a scheduled run ask you first. Sessions it opened itself can be stopped or closed without a question.",
+		"On by default: agents may stop or close sessions they did not open, merge a session's branch, schedule runs and start Autopilot (not a release or main) without asking. Deleting a saved session they did not open still asks. Off: all of these ask first.",
 	"settings.gui.batchNotifications": "Batch notifications",
 	"settings.gui.batchNotificationsDesc": "Several finished tasks become one notification",
 	"settings.gui.nextPromptSuggestions": "Suggest my next message",

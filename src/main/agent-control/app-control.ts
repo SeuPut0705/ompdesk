@@ -3,7 +3,8 @@
  *
  *   1. the action must be in the registry (`app-catalog.ts`); anything else is unknown, nothing falls through;
  *   2. `never` refuses; arguments are validated against the action's schema;
- *   3. `sensitive` raises the `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on;
+ *   3. `sensitive` raises the `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on (default
+ *      on); an action that deletes user data (`deletes`) asks whatever that switch says;
  *   4. the action runs with an `ActionContext` whose every primitive re-checks the tier the preference, setting,
  *      command or channel needs (`app-guard.ts`, `app-channels.ts`), so a nested route is refused like a direct one;
  *   5. a change is journaled in the caller's session, shown as a quiet toast and, with a previous value, undoable.
@@ -115,7 +116,7 @@ export class AppControl {
 		args: Record<string, unknown> | null,
 		what?: string,
 	): Promise<void> {
-		if (tier !== "sensitive" || this.#ports.manageEnabled()) return;
+		if (tier !== "sensitive" || (this.#ports.manageEnabled() && !action?.deletes)) return;
 		const summary = what ?? this.#summary(action, args);
 		const approved = await this.#ports.confirm(
 			callerTabId,

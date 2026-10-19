@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentAppEvent } from "../../shared/agent-control";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
-import type { AppAction } from "./app-catalog";
+import { ACTION_BY_ID, type AppAction } from "./app-catalog";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { prefTier, rpcTier, settingTier } from "./app-guard";
 import { NO_ARGS } from "./app-schema";
@@ -118,6 +118,37 @@ describe("ompdesk_app tiers", () => {
 		await new AppControl(open).run(CALLER, "updates.apply", {});
 		expect(open.invoked).toEqual([{ channel: IPC_COMMANDS.UPDATER_APPLY, args: [] }]);
 		expect(open.cards).toEqual([]);
+	});
+
+	it("asks for an action that deletes user data even while agentControlManage is on, and a refusal deletes nothing", async () => {
+		const ports = new FakePorts();
+		ports.manage = true;
+		ports.approve = false;
+		const control = new AppControl(ports);
+		const deleting: [string, Record<string, unknown>][] = [
+			["sessions.delete", { sessionPath: "/s/a.jsonl" }],
+			["memory.purge", {}],
+			["memory.delete_page", { workspace: "w", project: "p", path: "notes/a.md" }],
+			["memory.sweep", { workspace: "w", project: "p" }],
+		];
+		for (const [id, args] of deleting) {
+			ports.cards = [];
+			expect(await refusal(control.run(CALLER, id, args)), id).toContain("declined");
+			expect(ports.cards, id).toHaveLength(1);
+		}
+		expect(ports.invoked).toEqual([]);
+		ports.approve = true;
+		await control.run(CALLER, "sessions.delete", { sessionPath: "/s/a.jsonl" });
+		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.SESSIONS_DELETE, args: [{ sessionPath: "/s/a.jsonl" }] }]);
+	});
+
+	it("marks every action that erases data, so none escapes the card", () => {
+		const marked = Object.values(ACTION_BY_ID)
+			.filter(action => action.deletes)
+			.map(action => action.id)
+			.sort();
+		expect(marked).toEqual(["memory.delete_page", "memory.purge", "memory.sweep", "sessions.delete"]);
+		for (const id of marked) expect(ACTION_BY_ID[id]?.tier, id).toBe("sensitive");
 	});
 
 	it("refuses a never action whatever the switch says", async () => {

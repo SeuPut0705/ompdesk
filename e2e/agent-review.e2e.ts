@@ -161,17 +161,11 @@ test("fan out into worktrees, compare, merge one from the board and one through 
 	await expect(reviewSection().locator("[data-review-child]")).toHaveCount(2);
 	await expect(page.getByText("Merged the work of").first()).toBeVisible();
 
-	// The tool asks the user first; a refusal merges nothing, an approval merges.
+	// The tool needs no card by default ("Let agents manage other sessions" is on unless stored off; the decline
+	// path with the switch off is unit-tested in service.test.ts): it merges at once.
 	const second = made[1] as { tabId: string; path: string; branch: string };
-	const declined = call("ompdesk_merge", { session: second.tabId });
-	await expect(page.locator("[data-prompt-card]").getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
-	await page.locator("[data-prompt-card] [data-choice='deny']").click();
-	expect((await declined).text).toContain("The user declined the merge");
-	await expect(fs.stat(path.join(project, "part-b.txt"))).rejects.toThrow();
-	const merged = call("ompdesk_merge", { session: second.tabId });
-	await expect(page.locator("[data-prompt-card]").getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
-	await page.locator("[data-prompt-card] [data-choice='approve']").click();
-	const mergedResult = await merged;
+	const mergedResult = await call("ompdesk_merge", { session: second.tabId });
+	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
 	expect(mergedResult.isError).toBe(false);
 	expect(mergedResult.text).toContain("Nothing was pushed");
 	expect(await fs.readFile(path.join(project, "part-b.txt"), "utf8")).toContain("work of b");

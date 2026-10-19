@@ -343,7 +343,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.merge,
 		label: "Merge an OMPdesk session's branch",
 		description:
-			"Merge a worktree session's branch into the parent checkout's current branch (a merge commit, local only, never pushed). The user confirms first unless they turned confirmations off. A conflict aborts the merge and lists the files. Refuses when the session or the parent has uncommitted changes. See skill://ompdesk.",
+			"Merge a worktree session's branch into the parent checkout's current branch (a merge commit, local only, never pushed). No card by default; the user confirms first only if they turned off \"Let agents manage other sessions\". A conflict aborts the merge and lists the files. Refuses when the session or the parent has uncommitted changes. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: { session: SESSION },
@@ -354,7 +354,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.schedule,
 		label: "Schedule an OMPdesk run",
-		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). The user confirms a new one unless they turned confirmations off. It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
+		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -385,7 +385,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.autopilot,
 		label: "OMPdesk Autopilot",
-		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). The user confirms a start unless they turned confirmations off, and always for ship release or the repo's default branch. See skill://ompdesk.`,
+		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). No card by default; the user confirms a start only if they turned off "Let agents manage other sessions", and always for ship release or the repo's default branch. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -474,7 +474,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
-			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session. Sessions you opened: no question asked. Other sessions: the user confirms first (a refusal is final) unless they turned that off.",
+			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session. Sessions you opened: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
 		parameters: {
 			type: "object",
 			properties: {
@@ -504,7 +504,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.app,
 		label: "OMPdesk app action",
 		description:
-			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; sensitive actions ask the user first; some are never available. See skill://ompdesk/references/app-control.md.",
+			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; sensitive actions need no card by default (the user may turn that off), but an action that erases data (a saved session, memory) always asks first; some are never available. See skill://ompdesk/references/app-control.md.",
 		parameters: {
 			type: "object",
 			properties: {

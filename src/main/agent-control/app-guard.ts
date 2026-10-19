@@ -7,7 +7,8 @@
  *
  *   read       free
  *   change     free, journaled in the caller's session, shown as a toast, undoable when a previous value exists
- *   sensitive  one `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on
+ *   sensitive  one `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on (default on); an
+ *              action marked `deletes` (erases user data) asks even then
  *   never      refused, whatever the switches: what gates the agent's own power, secrets, the cards
  */
 import type { RpcCommand } from "../../shared/rpc-types";

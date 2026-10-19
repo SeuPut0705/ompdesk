@@ -12,7 +12,7 @@
 
 - `read`: free.
 - `change`: free. The user sees a quiet toast ("Agent changed: Theme → Nord") with Undo, and the change is noted in your session. `app.undo` puts back your last change when it had a previous value.
-- `sensitive`: accounts and sign-in starts, approval-adjacent and network settings (proxy), mobile web, installing plugins or MCP servers (the card shows the exact command or url), starting pairing (`remote.pair` only opens the place where the user completes it; you never give or read a code), erasing memory or saved sessions, updates, restart and quit. The user gets a confirmation card first; a refusal is final: do not retry or look for another route, say what you wanted and why. If the user turned on "let agents manage", the card is skipped.
+- `sensitive`: accounts and sign-in starts, approval-adjacent and network settings (proxy), mobile web, installing plugins or MCP servers (the card shows the exact command or url), starting pairing (`remote.pair` only opens the place where the user completes it; you never give or read a code), erasing memory or saved sessions, updates, restart and quit. "Let agents manage other sessions" is on unless the user turned it off, so by default these run without a card. With it off the user gets a confirmation card first; a refusal is final: do not retry or look for another route, say what you wanted and why. **Whatever the switch says, an action that erases data always asks** (`sessions.delete`, `memory.purge`, `memory.delete_page`, `memory.sweep`): it cannot be undone. Deleting a saved session another session opened, with `ompdesk_session_stop` and `delete`, asks the same way.
 - `never`: what bounds your own power (the control tools switch, approval mode, who may approve, memory and computer-use switches), secrets, tokens and pairing codes, answering a card. The list shows these with the reason. Tell the user to do them in Settings; `ui.settings_open` opens the right section for them.
 
 ## Sign-in
@@ -27,4 +27,4 @@
 
 ## Autopilot
 
-`autopilot.start`, `autopilot.status` and `autopilot.stop` are `ompdesk_autopilot` itself: its confirmation card (commit, push or release) and its folder rules apply, and the app actions have no other route to Autopilot. See skill://ompdesk/references/autopilot.md.
+`autopilot.start`, `autopilot.status` and `autopilot.stop` are `ompdesk_autopilot` itself: its confirmation card (always for ship release or the default branch; for commit and push on another branch only when the manage switch is off) and its folder rules apply, and the app actions have no other route to Autopilot. See skill://ompdesk/references/autopilot.md.

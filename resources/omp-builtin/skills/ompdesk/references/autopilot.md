@@ -19,7 +19,7 @@ Starts, reads and stops an Autopilot run: an unattended loop that keeps improvin
 
 ## Cards
 
-The user confirms a start unless they turned the card off ("Let agents manage other sessions"). A card always appears for `ship` release and for the repo's default branch (`main`). A refusal is final. A session on a paired host cannot start one.
+A start needs no card by default ("Let agents manage other sessions" is on unless the user turned it off; with it off the user confirms every start). A card always appears for `ship` release and for the repo's default branch (`main`), whatever the switch says. A refusal is final. A session on a paired host cannot start one.
 
 ## Status and stop
 

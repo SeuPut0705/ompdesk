@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
 	AGENT_CARD_PREFIX,
 	AGENT_MESSAGE_TAG,
+	agentControlApproveEnabled,
 	agentControlEnabled,
+	agentControlManageEnabled,
 	agentHiddenPaths,
 	agentMessageSender,
 	agentTaskTitle,
@@ -56,6 +58,16 @@ describe("control tool prefs", () => {
 		expect(agentControlEnabled(undefined)).toBe(true);
 		expect(agentControlEnabled(true)).toBe(true);
 		expect(agentControlEnabled(false)).toBe(false);
+	});
+
+	it("lets agents manage other sessions unless stored false, and approve for them only when stored true", () => {
+		// Unset is the shipped default: manage on, approve off. Only a stored boolean changes either.
+		expect(agentControlManageEnabled(undefined)).toBe(true);
+		expect(agentControlManageEnabled(true)).toBe(true);
+		expect(agentControlManageEnabled(false)).toBe(false);
+		expect(agentControlApproveEnabled(undefined)).toBe(false);
+		expect(agentControlApproveEnabled(false)).toBe(false);
+		expect(agentControlApproveEnabled(true)).toBe(true);
 	});
 
 	it("reads the hidden session files from the sidebar blob and ignores anything malformed", () => {

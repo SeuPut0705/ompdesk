@@ -141,15 +141,50 @@ describe("AgentControlRuntime", () => {
 		expect(outcome.text).toContain(`remo0004 "Remote"`);
 	});
 
-	it("follows the Settings switches live: off refuses, approve and manage default off", async () => {
-		const { runtime, win, prefs, deps } = setup();
+	it("resolves the Settings switches from the stored prefs: off refuses, manage is on and approve is off while unset", async () => {
+		const request: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "r1",
+			method: "select",
+			title: "Allow tool: bash",
+			options: ["Approve", "Deny"],
+		};
+		const { runtime, win, prefs, commands, deps } = setup({
+			tabs: [
+				{ tabId: "main0001", title: "Boss" },
+				{ tabId: "busy0002", title: "Busy" },
+			],
+			requests: [{ tabId: "busy0002", request }],
+		});
+		const cards = () => commands.filter(entry => entry.command.type === "agent_control_confirm").length;
+		const answers = () => vi.mocked(deps.pool.routeSideChannel).mock.calls.length;
 		expect((await runtime.run(win, "main0001", T.list, {})).isError).toBe(false);
 		prefs[AGENT_CONTROL_PREF] = false;
 		expect((await runtime.run(win, "main0001", T.list, {})).text).toMatch(/turned off/);
-		const host = (runtime as unknown as { control: { run: unknown } }).control;
-		expect(host).toBeDefined();
-		expect(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)).toBeUndefined();
-		expect(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)).toBeUndefined();
+		delete prefs[AGENT_CONTROL_PREF];
+
+		// Nothing stored: stopping another session needs no card; approving its tool request is refused.
+		expect(prefs[AGENT_CONTROL_MANAGE_PREF]).toBeUndefined();
+		expect(prefs[AGENT_CONTROL_APPROVE_PREF]).toBeUndefined();
+		expect((await runtime.run(win, "main0001", T.stop, { session: "busy0002" })).isError).toBe(false);
+		expect(cards()).toBe(0);
+		const refused = await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" });
+		expect(refused.isError).toBe(true);
+		expect(refused.text).toContain("사용자 승인이 필요해요");
+		expect(answers()).toBe(0);
+
+		// Stored false turns manage off (one card); stored true turns approve on.
+		prefs[AGENT_CONTROL_MANAGE_PREF] = false;
+		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
+		expect(cards()).toBe(1);
+		prefs[AGENT_CONTROL_MANAGE_PREF] = true;
+		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
+		expect(cards()).toBe(1);
+		prefs[AGENT_CONTROL_APPROVE_PREF] = true;
+		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
+			false,
+		);
+		expect(answers()).toBe(1);
 	});
 
 	it("opens a session in a worktree through worktree_create with the omp/agent/ prefix and binds the tab to it", async () => {

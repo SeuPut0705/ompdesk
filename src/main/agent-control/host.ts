@@ -30,7 +30,9 @@ import {
 	type AgentReviewEvent,
 	type AgentReviewItem,
 	type AgentReviewResult,
+	agentControlApproveEnabled,
 	agentControlEnabled,
+	agentControlManageEnabled,
 	agentHiddenPaths,
 	type ClosedChild,
 	MAX_CLOSED_CHILDREN,
@@ -483,8 +485,8 @@ export class AgentControlRuntime {
 		const deps = this.#deps;
 		return {
 			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
-			approveEnabled: () => deps.prefs.get(AGENT_CONTROL_APPROVE_PREF) === true,
-			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
+			approveEnabled: () => agentControlApproveEnabled(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)),
+			manageEnabled: () => agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
 			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
 			// after a relaunch) the tab now holding the opener's session file.
 			parentOf: tabId => {
@@ -709,7 +711,7 @@ export class AgentControlRuntime {
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_APP, event);
 			},
 			confirm: (tabId, title, message) => this.#confirm(tabId, title, message),
-			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
+			manageEnabled: () => agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
 			note: async (tabId, text) => {
 				await this.#hostCommand(tabId, { type: "agent_control_note", text });
 			},

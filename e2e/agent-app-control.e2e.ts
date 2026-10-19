@@ -6,8 +6,10 @@ import type { ElectronApplication, Page } from "playwright";
 import { exitApp, launchApp, readRecords } from "./harness";
 
 // `ompdesk_app_list` / `ompdesk_app` (src/main/agent-control/app-*.ts): the main agent changes OMPdesk itself.
-// The fake omp calls a host tool with `fixture:host-tool:<name> <json>` and records the result it gets. The card
-// path uses a sensitive action (an auto-update switch); the pstack and every agent-power switch are `never`.
+// The fake omp calls a host tool with `fixture:host-tool:<name> <json>` and records the result it gets. "Let agents
+// manage other sessions" is on unless stored `false`, so a sensitive action (an auto-update switch) runs without a
+// card by default and asks only with the switch stored off; an action that erases data (a saved session) asks either
+// way; the pstack and every agent-power switch are `never`.
 
 let app: ElectronApplication;
 let page: Page;
@@ -17,7 +19,8 @@ let record: string;
 let errors: string[];
 let main: string;
 
-test.beforeEach(async () => {
+/** Launch a fresh profile; `prefs` seeds `prefs.json` (a pref left out is unset, which is the shipped default). */
+async function start(prefs: Record<string, unknown> = {}): Promise<void> {
 	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-agent-app-"));
 	const project = path.join(profile, "project");
 	desktop = path.join(profile, "desktop");
@@ -26,7 +29,7 @@ test.beforeEach(async () => {
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, batchNotifications: false }),
+		JSON.stringify({ language: "en", firstRunComplete: true, batchNotifications: false, ...prefs }),
 	);
 	app = await launchApp({
 		project,
@@ -42,7 +45,7 @@ test.beforeEach(async () => {
 	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
 	main = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
 	expect(main).not.toBe("");
-});
+}
 
 test.afterEach(async () => {
 	if (app) await exitApp(app);
@@ -78,6 +81,7 @@ const storedPref = (key: string) => page.evaluate(k => window.omp.prefs.get(k), 
 
 test("the agent lists actions, changes the theme with a toast and undo, opens the preview panel and reads usage", async () => {
 	test.setTimeout(150_000);
+	await start();
 	const listed = await call("ompdesk_app_list", { area: "ui" });
 	expect(listed.isError).toBe(false);
 	expect(listed.text).toContain("ui.panel [change]");
@@ -110,8 +114,9 @@ test("the agent lists actions, changes the theme with a toast and undo, opens th
 	await expect(page.getByText("Agent changed: Theme → nord").first()).toBeVisible();
 });
 
-test("a sensitive action asks with the card and runs only when approved; agent-power switches are never reachable", async () => {
+test("with the switch stored off a sensitive action asks with the card and runs only when approved; agent-power switches are never reachable", async () => {
 	test.setTimeout(150_000);
+	await start({ agentControlManage: false });
 	const denied = app_("settings.cliAutoUpdate", { value: false });
 	await page
 		.getByRole("button", { name: /Needs input/ })
@@ -146,5 +151,31 @@ test("a sensitive action asks with the card and runs only when approved; agent-p
 		const result = await app_(action, { value: true });
 		expect(result.isError, action).toBe(true);
 	}
+	// The agent never flipped the switch the test seeded.
+	expect(await storedPref("agentControlManage")).toBe(false);
+});
+
+test("by default a sensitive action runs without a card, a deleting action still asks, and the switch is never written", async () => {
+	test.setTimeout(150_000);
+	await start();
+	// Nothing stored: "Let agents manage other sessions" is on, so this needs no card.
+	const changed = await app_("settings.cliAutoUpdate", { value: false });
+	expect(changed.isError).toBe(false);
+	await expect.poll(() => storedPref("cliAutoUpdate")).toBe(false);
+	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
+
+	// Erasing a saved session asks whatever the switch says; a refusal runs nothing.
+	const erased = app_("sessions.delete", { sessionPath: path.join(profile, "agent", "never-saved.jsonl") });
+	await page
+		.getByRole("button", { name: /Needs input/ })
+		.first()
+		.click({ timeout: 30_000 });
+	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
+	await page.getByRole("button", { name: /^Deny/ }).first().click();
+	const refused = await erased;
+	expect(refused.isError).toBe(true);
+	expect(refused.text).toContain("The user declined");
+
 	expect(await storedPref("agentControlManage")).toBeUndefined();
+	expect(await storedPref("agentControlApprove")).toBeUndefined();
 });

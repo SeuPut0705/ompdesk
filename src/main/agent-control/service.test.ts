@@ -800,11 +800,45 @@ describe("ompdesk_session_stop", () => {
 		expect(host.cards.at(-1)?.message).toBe("deleteMessage:Boss:Theirs");
 	});
 
-	it("skips the card when the user turned it off", async () => {
+	it("skips the card for a stop and a close of a session it did not open while agents may manage", async () => {
 		const host = new FakeHost({ tabId: "main0001" }, { tabId: "work0002", busy: true });
 		host.manage = true;
-		expect((await control(host).run("main0001", T.stop, { session: "work0002" })).text).toMatch(/Stopped/);
+		const service = control(host);
+		expect((await service.run("main0001", T.stop, { session: "work0002" })).text).toMatch(/Stopped/);
+		expect((await service.run("main0001", T.stop, { session: "work0002", close: true })).text).toMatch(/Closed/);
 		expect(host.cards).toHaveLength(0);
+	});
+
+	it("still asks to delete a saved session it did not open while agents may manage, and a refusal deletes nothing", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "work0002", title: "Theirs", busy: true },
+		);
+		host.manage = true;
+		host.cardAnswer = false;
+		const service = control(host);
+		const declined = await service.run("main0001", T.stop, { session: "work0002", delete: true });
+		expect(declined.text).toMatch(/declined/);
+		expect(host.cards).toEqual([{ title: "stopTitle:Boss:Theirs", message: "deleteMessage:Boss:Theirs" }]);
+		expect(host.deleted).toEqual([]);
+		expect(host.sent.some(entry => entry.command.type === "abort")).toBe(false);
+		host.cardAnswer = true;
+		expect((await service.run("main0001", T.stop, { session: "work0002", delete: true })).text).toMatch(/deleted/);
+		expect(host.cards).toHaveLength(2);
+		expect(host.deleted).toEqual(["work0002"]);
+	});
+
+	it("deletes a session it opened without a card, whatever the manage switch says", async () => {
+		for (const manage of [true, false]) {
+			const host = new FakeHost({ tabId: "main0001" });
+			host.manage = manage;
+			const service = control(host);
+			await service.run("main0001", T.open, { message: "work" });
+			const child = [...host.tabsById.keys()].find(id => id !== "main0001") as string;
+			expect((await service.run("main0001", T.stop, { session: child, delete: true })).isError).toBe(false);
+			expect(host.cards, `manage ${manage}`).toHaveLength(0);
+			expect(host.deleted).toEqual([child]);
+		}
 	});
 });
 

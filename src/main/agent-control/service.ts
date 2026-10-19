@@ -10,10 +10,13 @@
  * Permission levels (Settings › Tools & extensions › OMPdesk control tools):
  *   always  list, read, send, wait, answer a question, show, notify, open sessions, stop/close/delete the sessions
  *           the caller opened.
- *   card    stopping, closing or deleting a session the caller did not open, creating a schedule, starting an Autopilot
- *           run (always for ship release or the default branch), stopping a run the caller did not start: one card each.
- *   pref    `agentControlManage` lifts that card; `agentControlApprove` lets an agent approve another session's
- *           tool approval (without it the answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
+ *   card    stopping or closing a session the caller did not open (only while "Let agents manage other sessions" is
+ *           off), deleting a saved session it did not open (always: a delete cannot be undone), stopping a run it did
+ *           not start (off), creating a schedule (off), starting an Autopilot run (off; always for ship release or the
+ *           default branch): one card each.
+ *   pref    `agentControlManage` (default on; only a stored `false` is off) lifts the cards marked off above;
+ *           `agentControlApprove` (default off) lets an agent approve another session's tool approval (without it the
+ *           answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
  *   never   accounts, settings, permissions.
  */
 import { createHash } from "node:crypto";
@@ -212,7 +215,7 @@ export interface AgentControlHost {
 	enabled(): boolean;
 	/** `agentControlApprove`: an agent may approve another session's tool approval. */
 	approveEnabled(): boolean;
-	/** `agentControlManage`: an agent may stop, close or delete sessions it did not open without a card. */
+	/** `agentControlManage` (default on): an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open always asks. */
 	manageEnabled(): boolean;
 	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
 	parentOf(tabId: string): string | undefined;
@@ -1625,7 +1628,10 @@ export class AgentControl {
 		return `Answered ${label(target)}: ${summary}. It continues now.`;
 	}
 
-	/** Own children: free. Others: one confirmation card unless the user turned the card off. */
+	/**
+	 * Own children: free. Others: one confirmation card unless the user let agents manage other sessions (default
+	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone.
+	 */
 	async #stop(
 		caller: ControlTab,
 		tabs: ControlTab[],
@@ -1641,7 +1647,7 @@ export class AgentControl {
 		const harmless = args.close === true && !args.delete && resting;
 		if (args.close && !args.delete && (target.looked || target.userTouched))
 			fail(`${label(target)} is in the user's view or they typed into it; leave it open, or ask the user.`);
-		if (!own && !harmless && !this.#host.manageEnabled()) {
+		if (!own && !harmless && (args.delete === true || !this.#host.manageEnabled())) {
 			const approved = await this.#host.confirm(
 				caller.tabId,
 				this.#host.text("stopTitle", params),

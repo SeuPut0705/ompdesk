@@ -3,9 +3,12 @@
  * session's agent see and steer the other sessions: open them, message them, read their transcripts, answer their
  * questions, stop them, show them and notify the user. One switch turns everything on or off (on unless stored
  * `false`; main watches the pref itself and (un)registers the tools on this computer's sessions) and two more
- * lift a human gate (both default off):
- *  - approve: an agent may approve another session's tool approval (otherwise only the user does);
- *  - manage: an agent may stop, close or delete sessions it did not open without a confirmation card.
+ * tune a human gate:
+ *  - approve (default off): an agent may approve another session's tool approval (otherwise only the user does;
+ *    an agent approving would bypass the user's own approval policy);
+ *  - manage (default on, like the main switch an unset pref is on): an agent may stop or close sessions it did not
+ *    open, merge, schedule and start Autopilot without a confirmation card; deleting a saved session it did not open
+ *    still asks.
  */
 
 import { AppWindow, ShieldCheck, ShieldQuestion } from "lucide-react";
@@ -25,7 +28,7 @@ export function AgentControlRow({ query = "" }: { query?: string }) {
 	const t = useT();
 	const [on, setOn] = useMainPreference(AGENT_CONTROL_PREF, true);
 	const [approve, setApprove] = useMainPreference(AGENT_CONTROL_APPROVE_PREF, false);
-	const [manage, setManage] = useMainPreference(AGENT_CONTROL_MANAGE_PREF, false);
+	const [manage, setManage] = useMainPreference(AGENT_CONTROL_MANAGE_PREF, true);
 	const label = t("settings.gui.agentControl");
 	if (query && !`${label} ${SEARCH}`.toLowerCase().includes(query.toLowerCase())) return null;
 	return (

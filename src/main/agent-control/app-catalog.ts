@@ -62,6 +62,8 @@ export interface AppAction {
 	tier: Tier;
 	/** Why a `never` action exists: shown to the agent so it does not try another route. */
 	neverReason?: string;
+	/** The action erases user data for good: it asks for its card even while `agentControlManage` is on. */
+	deletes?: true;
 	/** What the confirmation card says is about to happen, in full (exact command, url, arguments). */
 	describe?: (args: Record<string, unknown>) => string;
 	/** Absent for a `never` action. */
@@ -377,6 +379,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Delete a saved session file for good.",
 		args: objectSchema({ sessionPath: SESSION_PATH }, ["sessionPath"]),
 		tier: "sensitive",
+		deletes: true,
 		run: async (ctx, args) => {
 			await ctx.invoke(C.SESSIONS_DELETE, { sessionPath: String(args.sessionPath) });
 			return {
@@ -529,6 +532,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Erase the user's memory for good: every page, handoff and recorded session.",
 		args: NO_ARGS,
 		tier: "sensitive",
+		deletes: true,
 		run: async ctx => {
 			await ctx.invoke(C.AI_MEMORY_PURGE);
 			return { text: "Memory erased.", change: { en: "Memory", ko: "메모리", value: "erased" } };
@@ -547,6 +551,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["workspace", "project", "path"],
 		),
 		tier: "sensitive",
+		deletes: true,
 		describe: args =>
 			`Delete the memory page ${String(args.path)} of ${String(args.workspace)}/${String(args.project)}`,
 		run: async (ctx, args) => {
@@ -573,6 +578,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["workspace", "project"],
 		),
 		tier: "sensitive",
+		deletes: true,
 		run: async (ctx, args) => {
 			const result = await ctx.invoke(
 				C.AI_MEMORY_SWEEP,
