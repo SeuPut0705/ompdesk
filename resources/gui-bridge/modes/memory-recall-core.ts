@@ -211,6 +211,30 @@ function text(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
+// ---------------------------------------------------------------------------------------------
+// Scope
+// ---------------------------------------------------------------------------------------------
+
+/** The project a recall searches, always named in `memory_query`. */
+export interface RecallScope {
+	workspace: string;
+	project: string;
+}
+
+/**
+ * The project `memory_status` resolved for this session, only when the server matched the session itself
+ * (`resolved_by: "session"`: the active project its hooks published under this omp's session id). Every other way
+ * (`default`, `default_after_mismatch`, `shared_slot`, `startup_seed`) names a project the session may not be in:
+ * its keyed pointer expired (one idle hour), its first hook has not landed yet, or the server restarted.
+ */
+export function sessionScope(status: unknown): RecallScope | undefined {
+	const scope = field(status, "scope");
+	if (field(scope, "resolved_by") !== "session") return undefined;
+	const workspace = text(field(scope, "workspace"));
+	const project = text(field(scope, "project"));
+	return workspace && project ? { workspace, project } : undefined;
+}
+
 /** A page's kind from its wiki folder. */
 const FOLDER_KINDS: Record<string, MemoryRecallKind> = {
 	decisions: "decision",

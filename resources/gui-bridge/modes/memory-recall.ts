@@ -5,10 +5,14 @@
  * (judge-assist-engine.ts `recallRelevance`; the code rule when it does not decide), and returns at most three as one
  * custom message: the model reads them as marked history, the transcript shows one quiet line.
  *
- * Scope: the server resolves the project as it does for the session's own hooks. The request names this omp's
- * session (`x-memory-actor-session-id`, the coordinate ai-memory's hooks publish their active project under), so the
- * project rules (markers, git-remote identity, home routes, aliases) stay the server's and the generated extension's,
- * never re-derived here; `_global` preferences come along as for any single-project query.
+ * Scope, fail closed: the project is never re-derived here (markers, git-remote identity, home routes and aliases
+ * are the server's and the generated extension's). `memory_status` is asked first under this omp's session
+ * (`x-memory-actor-session-id`, the coordinate ai-memory's hooks publish their active project under) and recall goes
+ * on only when the server matched the session itself (`resolved_by: "session"`); `memory_query` then names that
+ * workspace and project. A keyed pointer expires after an idle hour and the first hook may not have landed yet: the
+ * server then answers with its default project, which may be another one, so recall uses the project it matched
+ * earlier for this session in this folder, or nothing. `_global` preferences come along as for any single-project
+ * query.
  *
  * Quiet on every failure: memory off (no state file), no token yet, the server down or slower than
  * {@link RECALL_TIMEOUT_MS}, an older server, nothing relevant. The prompt goes on unchanged and only a debug line says
@@ -29,13 +33,18 @@ import {
 import {
 	field,
 	type RecallCandidate,
+	type RecallScope,
 	recallCandidates,
 	recallDetails,
 	recallQuery,
 	recallText,
 	selectRecall,
+	sessionScope,
 	shouldRecall,
 } from "./memory-recall-core";
+
+/** Remembered session scopes (`<session id>\n<cwd>`), newest last; one omp holds one session, a switch adds one. */
+const REMEMBERED_MAX = 8;
 
 /**
  * The slice of omp's ExtensionAPI this module uses. No omp imports (not even types), like prompt-sections.ts: the
@@ -47,6 +56,7 @@ interface RecallHost {
 		handler: (
 			event: { prompt: string },
 			ctx: {
+				cwd: string;
 				agent: { kind: string };
 				sessionManager: { getSessionId(): string; getBranch(): readonly JournalEntry[] };
 			},
@@ -59,10 +69,10 @@ interface RecallHost {
 	};
 }
 
-/** The `memory_query` answer: the JSON in the MCP result's text parts. Throws on a JSON-RPC or tool error. */
-function toolAnswer(body: unknown): unknown {
+/** A tool's answer: the JSON in the MCP result's text parts. Throws on a JSON-RPC or tool error. */
+function toolAnswer(name: string, body: unknown): unknown {
 	const error = field(body, "error");
-	if (error !== undefined) throw new Error(String(field(error, "message") ?? "memory_query failed"));
+	if (error !== undefined) throw new Error(String(field(error, "message") ?? `${name} failed`));
 	const result = field(body, "result");
 	const content = field(result, "content");
 	const text = (Array.isArray(content) ? content : [])
@@ -71,39 +81,33 @@ function toolAnswer(body: unknown): unknown {
 			return typeof value === "string" ? value : "";
 		})
 		.join("");
-	if (field(result, "isError") === true) throw new Error(text || "memory_query failed");
+	if (field(result, "isError") === true) throw new Error(text || `${name} failed`);
 	return JSON.parse(text);
 }
 
-async function queryMemory(env: MemoryEnv, sessionId: string | undefined, query: string): Promise<unknown> {
-	const signal = AbortSignal.timeout(RECALL_TIMEOUT_MS);
-	const token = (await readFile(join(env.dataDir, "auth-tokens", "default"), "utf8").catch(() => "")).trim();
-	const headers: Record<string, string> = {
-		"content-type": "application/json",
-		accept: "application/json, text/event-stream",
-	};
-	if (token) headers.authorization = `Bearer ${token}`;
-	if (sessionId) headers["x-memory-actor-session-id"] = sessionId;
+/** One stateless MCP `tools/call` on the memory server, under this omp's session. */
+async function callTool(
+	env: MemoryEnv,
+	headers: Record<string, string>,
+	signal: AbortSignal,
+	name: string,
+	args: Record<string, unknown>,
+): Promise<unknown> {
 	const response = await fetch(`${env.url}/mcp`, {
 		method: "POST",
 		headers,
 		signal,
-		body: JSON.stringify({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "tools/call",
-			// `conclusions` is ignored by a server without it (its arguments take unknown keys): page hits only then.
-			params: { name: "memory_query", arguments: { query, limit: RECALL_QUERY_LIMIT, conclusions: true } },
-		}),
+		body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
 	});
 	if (!response.ok) throw new Error(`memory answered ${response.status}`);
-	return toolAnswer(await response.json());
+	return toolAnswer(name, await response.json());
 }
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: RecallHost): void {
 	const stateFile = process.env[MEMORY_ENV];
 	if (!stateFile) return;
+	const remembered = new Map<string, RecallScope>();
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!shouldRecall(event.prompt, ctx.agent.kind)) return undefined;
 		const started = Date.now();
@@ -114,7 +118,37 @@ export function install(pi: RecallHost): void {
 			if (run && run.state !== "ended") return undefined;
 			const query = recallQuery(event.prompt);
 			if (!query) return undefined;
-			const candidates = recallCandidates(await queryMemory(env, ctx.sessionManager.getSessionId(), query));
+			const signal = AbortSignal.timeout(RECALL_TIMEOUT_MS);
+			const token = (await readFile(join(env.dataDir, "auth-tokens", "default"), "utf8").catch(() => "")).trim();
+			const sessionId = ctx.sessionManager.getSessionId();
+			const headers: Record<string, string> = {
+				"content-type": "application/json",
+				accept: "application/json, text/event-stream",
+				"x-memory-actor-session-id": sessionId,
+			};
+			if (token) headers.authorization = `Bearer ${token}`;
+			const key = `${sessionId}\n${ctx.cwd}`;
+			const matched = sessionScope(await callTool(env, headers, signal, "memory_status", {}));
+			if (matched) {
+				remembered.delete(key);
+				remembered.set(key, matched);
+				if (remembered.size > REMEMBERED_MAX) remembered.delete(remembered.keys().next().value ?? key);
+			}
+			const scope = matched ?? remembered.get(key);
+			if (!scope) {
+				pi.logger.debug("gui-bridge: memory recall skipped", { reason: "scope not matched to this session" });
+				return undefined;
+			}
+			const candidates = recallCandidates(
+				// `conclusions` is ignored by a server without it (its arguments take unknown keys): page hits only then.
+				await callTool(env, headers, signal, "memory_query", {
+					query,
+					workspace: scope.workspace,
+					project: scope.project,
+					limit: RECALL_QUERY_LIMIT,
+					conclusions: true,
+				}),
+			);
 			const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;
 			const judge = session
 				? (prompt: string, list: readonly RecallCandidate[]) => recallRelevance(session, prompt, list)

@@ -22,6 +22,7 @@ import {
 	recallQuery,
 	recallText,
 	selectRecall,
+	sessionScope,
 	shouldRecall,
 } from "../../resources/gui-bridge/modes/memory-recall-core";
 
@@ -229,6 +230,25 @@ describe("what the model and the transcript get", () => {
 		});
 		expect(memoryRecallDetails(details)).toEqual(details);
 		expect(memoryRecallDetails({ v: 2, items: details.items })).toBeUndefined();
+	});
+});
+
+describe("the project searched", () => {
+	const status = (resolvedBy: unknown, extra: object = {}) => ({
+		counts: {},
+		scope: { workspace: "default", project: "ompdesk", resolved_by: resolvedBy, ...extra },
+	});
+
+	it("is the one the server matched to this session", () => {
+		expect(sessionScope(status("session"))).toEqual({ workspace: "default", project: "ompdesk" });
+	});
+
+	it("is none when the server fell back: an expired or missing pointer, a restart, another session's slot", () => {
+		for (const way of ["default", "default_after_mismatch", "shared_slot", "startup_seed", "explicit", undefined]) {
+			expect(sessionScope(status(way)), String(way)).toBeUndefined();
+		}
+		expect(sessionScope(status("session", { project: "" }))).toBeUndefined();
+		expect(sessionScope({ counts: {} })).toBeUndefined();
 	});
 });
 

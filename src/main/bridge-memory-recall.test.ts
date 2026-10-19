@@ -38,16 +38,34 @@ let server: Server;
 let url: string;
 let requests: { headers: IncomingMessage["headers"]; body: unknown }[];
 let reply: (body: unknown) => { status: number; body: unknown; delayMs?: number };
+/** How the fake server resolved `memory_status` for the session (ai-memory's `resolved_by`). */
+let resolvedBy: string;
+
+const toolResult = (value: unknown) => ({
+	status: 200,
+	body: { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify(value) }] } },
+});
+
+const toolName = (body: unknown): unknown =>
+	body && typeof body === "object" && "params" in body && body.params && typeof body.params === "object"
+		? Reflect.get(body.params, "name")
+		: undefined;
+
+/** The server's answer per tool: `memory_status` names the project and how it was resolved, `memory_query` the hits. */
+const answers = (body: unknown) =>
+	toolName(body) === "memory_status"
+		? toolResult({ counts: {}, scope: { workspace: "default", project: "ompdesk", resolved_by: resolvedBy } })
+		: toolResult(ANSWER);
+
+const queries = () => requests.filter(request => toolName(request.body) === "memory_query");
 
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "memory-recall-"));
 	await mkdir(join(dir, "data", "auth-tokens"), { recursive: true });
 	await writeFile(join(dir, "data", "auth-tokens", "default"), "root-token\n");
 	requests = [];
-	reply = () => ({
-		status: 200,
-		body: { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify(ANSWER) }] } },
-	});
+	resolvedBy = "session";
+	reply = answers;
 	server = createServer((req, res) => {
 		let raw = "";
 		req.on("data", chunk => {
@@ -100,27 +118,33 @@ function hook(): Hook {
 	return registered;
 }
 
-function ctx(kind = "main", branch: unknown[] = []) {
-	return { agent: { kind }, sessionManager: { getSessionId: () => "omp-session-1", getBranch: () => branch } };
+function ctx(kind = "main", branch: unknown[] = [], cwd = "/work/ompdesk") {
+	return { cwd, agent: { kind }, sessionManager: { getSessionId: () => "omp-session-1", getBranch: () => branch } };
 }
 
 const PROMPT = "기기연결은 테일스케일로만 하고 페어링코드는 삭제했잖아?";
 
 describe("memory recall hook", () => {
-	it("asks memory_query for the session's project and returns one quiet message", async () => {
+	it("asks which project the server matched to this session, then queries that project by name", async () => {
 		const result = await hook()({ prompt: PROMPT }, ctx());
-		expect(requests).toHaveLength(1);
-		const [request] = requests;
-		expect(request.headers.authorization).toBe("Bearer root-token");
-		expect(request.headers["x-memory-actor-session-id"]).toBe("omp-session-1");
-		expect(request.body).toMatchObject({
+		expect(requests.map(request => toolName(request.body))).toEqual(["memory_status", "memory_query"]);
+		for (const request of requests) {
+			expect(request.headers.authorization).toBe("Bearer root-token");
+			expect(request.headers["x-memory-actor-session-id"]).toBe("omp-session-1");
+		}
+		expect(queries()[0].body).toMatchObject({
 			method: "tools/call",
 			params: {
 				name: "memory_query",
-				arguments: { limit: 8, conclusions: true, query: expect.stringContaining("테일스케일") },
+				arguments: {
+					workspace: "default",
+					project: "ompdesk",
+					limit: 8,
+					conclusions: true,
+					query: expect.stringContaining("테일스케일"),
+				},
 			},
 		});
-		expect(request.body).not.toHaveProperty("params.arguments.workspace");
 		expect(result).toMatchObject({
 			message: {
 				customType: MEMORY_RECALL_MESSAGE_TYPE,
@@ -130,6 +154,27 @@ describe("memory recall hook", () => {
 				details: { v: 1, judged: false, items: [{ kind: "decision", path: "decisions/remote-sharing.md" }] },
 			},
 		});
+	});
+
+	it("fails closed when the server did not match the session: an expired or missing pointer means its default project", async () => {
+		for (const way of ["default_after_mismatch", "default", "shared_slot", "startup_seed"]) {
+			resolvedBy = way;
+			requests = [];
+			expect(await hook()({ prompt: PROMPT }, ctx()), way).toBeUndefined();
+			expect(queries(), way).toEqual([]);
+		}
+	});
+
+	it("keeps the project it matched for this session and folder once the pointer expired, never for another folder", async () => {
+		const run = hook();
+		expect(await run({ prompt: PROMPT }, ctx())).toBeDefined();
+		resolvedBy = "default_after_mismatch";
+		requests = [];
+		expect(await run({ prompt: PROMPT }, ctx())).toBeDefined();
+		expect(queries()[0].body).toMatchObject({ params: { arguments: { workspace: "default", project: "ompdesk" } } });
+		requests = [];
+		expect(await run({ prompt: PROMPT }, ctx("main", [], "/work/other"))).toBeUndefined();
+		expect(queries()).toEqual([]);
 	});
 
 	it("asks nothing for a subagent, another agent's message, a greeting or an Autopilot run", async () => {
@@ -164,11 +209,7 @@ describe("memory recall hook", () => {
 			body: { jsonrpc: "2.0", id: 1, result: { isError: true, content: [{ type: "text", text: "bad" }] } },
 		});
 		expect(await run({ prompt: PROMPT }, ctx())).toBeUndefined();
-		reply = () => ({
-			status: 200,
-			body: { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: JSON.stringify(ANSWER) }] } },
-			delayMs: RECALL_TIMEOUT_MS + 200,
-		});
+		reply = body => ({ ...answers(body), delayMs: RECALL_TIMEOUT_MS + 200 });
 		const started = Date.now();
 		expect(await run({ prompt: PROMPT }, ctx())).toBeUndefined();
 		expect(Date.now() - started).toBeLessThan(RECALL_TIMEOUT_MS + 150);
@@ -176,6 +217,6 @@ describe("memory recall hook", () => {
 
 	it("returns no message when nothing found bears on the prompt", async () => {
 		expect(await hook()({ prompt: "로그인 화면 버튼 색을 파랗게 바꿔줘" }, ctx())).toBeUndefined();
-		expect(requests).toHaveLength(1);
+		expect(queries()).toHaveLength(1);
 	});
 });
