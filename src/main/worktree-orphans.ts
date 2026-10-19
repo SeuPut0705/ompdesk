@@ -20,7 +20,7 @@ import { git, withRepoLock } from "./local/git/exec";
 import { isInside } from "./local/git/parse";
 import { stockWorktreeLocation } from "./local/git/worktree";
 import { type BridgeClient, LocalCommandError } from "./local/types";
-import { withRemovalClaim } from "./worktree-removals";
+import { realFolder, withRemovalClaim } from "./worktree-removals";
 
 export interface OrphanDeps {
 	bridge: Pick<BridgeClient, "request">;
@@ -125,10 +125,6 @@ interface Listing {
 	inUse: string[];
 }
 
-async function realOrResolved(file: string): Promise<string> {
-	return fs.realpath(file).catch(() => path.resolve(file));
-}
-
 /** `only`: the real path of the one worktree to read (a removal re-reads just that one). */
 async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Listing> {
 	if (!(await repoRoot(cwd))) throw new LocalCommandError(`Not a git repository: ${cwd}`, "not_a_repo");
@@ -138,7 +134,7 @@ async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Li
 	if (!root) return { primary, root: location.root, worktrees: [], inUse: [] };
 
 	const [, ...linked] = parseWorktreeList(await git(primary, ["worktree", "list", "--porcelain", "-z"]));
-	const open = await Promise.all(deps.openFolders().map(realOrResolved));
+	const open = deps.openFolders().map(realFolder);
 	const candidates: { path: string; branch: string | null }[] = [];
 	const inUse: string[] = [];
 	for (const entry of linked) {
@@ -220,7 +216,7 @@ export async function removeOrphanWorktree(
 	if (!(await repoRoot(cwd))) throw new LocalCommandError(`Not a git repository: ${cwd}`, "not_a_repo");
 	const primary = await primaryRoot(cwd);
 	return withRepoLock(primary, async () => {
-		const wanted = worktreePath ? await realOrResolved(worktreePath) : "";
+		const wanted = worktreePath ? realFolder(worktreePath) : "";
 		const { worktrees, inUse } = await listing(cwd, deps, wanted);
 		const entry = wanted ? worktrees.find(worktree => worktree.path === wanted) : undefined;
 		if (!entry) {

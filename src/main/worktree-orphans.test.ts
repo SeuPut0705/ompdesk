@@ -13,6 +13,7 @@ import {
 	sessionOpenFolders,
 	setOpenFoldersSource,
 } from "./worktree-orphans";
+import { realFolder } from "./worktree-removals";
 
 const SLOW = 120_000;
 const HASH = "abcdef1";
@@ -92,6 +93,14 @@ async function scene(): Promise<Record<string, string>> {
 	return Object.fromEntries(
 		await Promise.all(Object.entries(dirs).map(async ([key, dir]) => [key, await fs.realpath(dir)])),
 	);
+}
+
+/** The worktrees git lists, as the real folders the product compares (git prints `C:/…` on Windows). */
+function listedWorktrees(): string[] {
+	return gitSync(repo, "worktree", "list", "--porcelain")
+		.split("\n")
+		.filter(line => line.startsWith("worktree "))
+		.map(line => realFolder(line.slice("worktree ".length)));
 }
 
 function byBranch(worktrees: RpcOrphanWorktree[], name: string): RpcOrphanWorktree | undefined {
@@ -256,7 +265,7 @@ describe("removeOrphanWorktree", () => {
 				expect((error as LocalCommandError).code, target).toBe(target === dirs.inUse ? "in_use" : "not_orphan");
 			}
 			for (const key of ["inUse", "outside", "notGui"]) await fs.stat(dirs[key] as string);
-			expect(gitSync(repo, "worktree", "list", "--porcelain")).toContain(dirs.outside);
+			expect(listedWorktrees()).toContain(realFolder(dirs.outside as string));
 		},
 		SLOW,
 	);
@@ -278,7 +287,7 @@ describe("removeOrphanWorktree", () => {
 			};
 			await expect(removeOrphanWorktree(repo, target, racing)).rejects.toMatchObject({ code: "in_use" });
 			await fs.stat(target);
-			expect(gitSync(repo, "worktree", "list", "--porcelain")).toContain(target);
+			expect(listedWorktrees()).toContain(realFolder(target));
 		},
 		SLOW,
 	);
