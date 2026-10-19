@@ -2416,6 +2416,7 @@ export const en: Record<string, string> = {
 	"approval.waitedFor": "Waiting {time}",
 	"approval.deny": "Deny",
 	"approval.approve": "Approve",
+	"approval.approveSession": "Approve {subject} for this session",
 	"approval.unknownTool": "unknown tool",
 
 	// Extension UI dialogs

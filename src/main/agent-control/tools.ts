@@ -292,7 +292,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				choice: {
 					type: "string",
 					description:
-						"The option to pick (select questions, Approve or Deny). A plan approval: execute (default, fresh context), compact or keep_context.",
+						'The option to pick (select questions; a tool approval: Approve, Deny, or stock\'s "Approve <tool> for this session" when offered, which grants later like calls too). A plan approval: execute (default, fresh context), compact or keep_context.',
 				},
 				approve: {
 					type: "boolean",

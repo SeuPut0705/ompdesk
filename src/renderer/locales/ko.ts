@@ -2399,6 +2399,7 @@ export const ko: Record<string, string> = {
 	"approval.waitedFor": "{time}째 기다리는 중",
 	"approval.deny": "거부",
 	"approval.approve": "승인",
+	"approval.approveSession": "이 세션 동안 {subject} 승인",
 	"approval.unknownTool": "알 수 없는 도구",
 
 	// Extension UI dialogs

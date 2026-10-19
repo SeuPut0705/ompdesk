@@ -108,6 +108,14 @@ describe("AutopilotApprover", () => {
 		]);
 	});
 
+	it("answers stock's card with the session option for this call only, so every later call is checked again", async () => {
+		const { approver, answers } = harness({ ap: run() });
+		const card = { ...approval("bash\nls"), options: ["Approve", "Approve bash for this session", "Deny"] };
+		expect(approver.handle("ap", card as ExtensionUIRequest)).toBe(true);
+		await approver.idle();
+		expect(answers[0]?.response).toEqual({ type: "extension_ui_response", id: "r1", value: "Approve" });
+	});
+
 	it("denies a violating card", async () => {
 		const { approver, answers } = harness({ ap: run() });
 		approver.handle("ap", approval("bash\ngit push --force origin x"));

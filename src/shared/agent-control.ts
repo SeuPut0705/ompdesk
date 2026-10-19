@@ -51,21 +51,6 @@ export const AGENT_CONTROL_FULL_PREF = "agentControlFull";
 /** Title prefix of every confirmation card the control tools raise; `ompdesk_session_answer` never answers one. */
 export const AGENT_CARD_PREFIX = "[OMPdesk] ";
 
-/** Stock's tool approval: a `select` titled "Allow tool: …" with exactly Approve and Deny (mirrors the renderer's `isApprovalRequest`). */
-export const APPROVAL_TITLE_PREFIX = "Allow tool: ";
-
-export function isApprovalSelect(request: { method: string; title?: unknown; options?: unknown }): boolean {
-	return (
-		request.method === "select" &&
-		typeof request.title === "string" &&
-		request.title.startsWith(APPROVAL_TITLE_PREFIX) &&
-		Array.isArray(request.options) &&
-		request.options.length === 2 &&
-		request.options[0] === "Approve" &&
-		request.options[1] === "Deny"
-	);
-}
-
 export function agentControlEnabled(value: unknown): boolean {
 	return value !== false;
 }

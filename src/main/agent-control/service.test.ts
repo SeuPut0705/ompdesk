@@ -663,6 +663,34 @@ describe("ompdesk_session_answer", () => {
 		expect(allowed.answers[0]?.response).toMatchObject({ value: "Approve" });
 	});
 
+	it("treats stock's approval with the session option the same way, and approving for the session needs leave too", async () => {
+		const options = ["Approve", "Approve bash for this session", "Deny"];
+		const host = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "work0002", asks: [select("Allow tool: bash\nrm -rf x", options)] },
+		);
+		const service = control(host);
+		for (const args of [{ approve: true }, { choice: "Approve bash for this session" }]) {
+			const refused = await service.run("main0001", T.answer, { session: "work0002", ...args });
+			expect(refused.text).toContain("사용자 승인이 필요해요");
+		}
+		expect(host.answers).toHaveLength(0);
+		expect((await service.run("main0001", T.answer, { session: "work0002", approve: false })).isError).toBe(false);
+		expect(host.answers[0]?.response).toMatchObject({ value: "Deny" });
+
+		const allowed = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "work0002", asks: [select("Allow tool: bash\nls", options)] },
+		);
+		allowed.approve = true;
+		const session = await control(allowed).run("main0001", T.answer, {
+			session: "work0002",
+			choice: "Approve bash for this session",
+		});
+		expect(session.isError).toBe(false);
+		expect(allowed.answers[0]?.response).toMatchObject({ value: "Approve bash for this session" });
+	});
+
 	it("never answers an OMPdesk confirmation card, a hidden session or itself", async () => {
 		const card: ControlAsk = {
 			id: "c1",
