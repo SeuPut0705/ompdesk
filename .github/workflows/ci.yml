@@ -304,14 +304,31 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+      # The memory binary, built or restored from its cache and checked, as in release.yml's win job.
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: native/memory
-      - name: Build the memory binary
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        name: Build the memory binary
         run: bun run build:memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        name: Check the cached memory binary
+        run: bun run build:memory -- --check
       - name: Package
         run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
       - name: Stage the setup under its release name and the assisted-installer release
@@ -369,14 +386,31 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+      # The memory binary, built or restored from its cache and checked, as in release.yml's win job.
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: native/memory
-      - name: Build the memory binary
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        name: Build the memory binary
         run: bun run build:memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        name: Check the cached memory binary
+        run: bun run build:memory -- --check
       # e2e/first-launch-window.e2e.ts launches dist/win-unpacked/OMPdesk.exe, the packaged app whose memory sets its
       # real ai-memory service up (an unpacked dev run only reports), as release.yml's win job does after packaging.
       - name: Package (unpacked)
@@ -419,6 +453,8 @@ jobs:
   # OMPdesk's own memory source (native/memory, the vendored ai-memory) is built only when it changed in the push or
   # the pull request: the same `bun run build:memory` release.yml's mac and win jobs run, on the same runner type as mac,
   # then the binary's own check (`--version`, which build:memory runs) and the unit tests that read its build record.
+  # It saves the binary under release.yml's cache key, so a release after a main push that changed the source finds it
+  # built; a hit (that source was built before) only runs `--check`.
   memory:
     if: "github.event_name != 'workflow_dispatch' && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
     runs-on: macos-latest
@@ -448,20 +484,34 @@ jobs:
         with:
           bun-version: 1.4.2
       - if: steps.changed.outputs.changed == 'true'
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
-        with:
-          toolchain: "1.95"
-      - if: steps.changed.outputs.changed == 'true'
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: native/memory
-      - if: steps.changed.outputs.changed == 'true'
         run: bun install --frozen-lockfile
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - if: steps.changed.outputs.changed == 'true'
+        id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
         name: Build the memory binary
         run: bun run build:memory
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.changed.outputs.changed == 'true' && steps.memory-cache.outputs.cache-hit == 'true'
+        name: Check the cached memory binary
+        run: bun run build:memory -- --check
       - if: steps.changed.outputs.changed == 'true'
         name: Licenses list matches native/memory/Cargo.lock
         run: bun run licenses:check

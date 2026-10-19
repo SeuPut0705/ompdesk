@@ -271,14 +271,34 @@ jobs:
       # The memory binary is built from native/memory (OMPdesk's own source) right here, while the build job
       # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
       # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+      # Both are cached by everything that decides their bytes (native/memory with its Cargo.lock and rust-toolchain.toml,
+      # scripts/build-memory.ts) per OS and arch: a hit skips the 7-9 min build, `--check` then recomputes the binary's
+      # SHA-256 against the record and runs its --version, and after-pack checks the packaged bytes again. Saved right
+      # after the build, so a later failing step still keeps it.
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: native/memory
-      - name: Build the memory binary
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        name: Build the memory binary
         run: bun run build:memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        name: Check the cached memory binary
+        run: bun run build:memory -- --check
       # Package build's out/ (the same bytes `win` uses), not
       # a second build: `needs: build` would start this job only after build's
       # run is over, and `bun run package:mac` would build again (a downloaded
@@ -488,17 +508,31 @@ jobs:
       # (`ELECTRON_SKIP_BINARY_DOWNLOAD` fails here: gpu-fallback and sidecar
       # tests import electron, whose index.js throws without the binary.)
       - run: bun install --frozen-lockfile
-      # The memory binary is built from native/memory (OMPdesk's own source) right here, while the build job
-      # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
-      # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+      # The memory binary, built or restored from its cache and checked, as in the mac job.
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: native/memory
-      - name: Build the memory binary
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        name: Build the memory binary
         run: bun run build:memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        name: Check the cached memory binary
+        run: bun run build:memory -- --check
       # `build` uploads out/ about when this install ends; `needs: build`
       # would instead start this job only once the build job is done too.
       - name: Wait for out/ from the build job
