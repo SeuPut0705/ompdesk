@@ -7,7 +7,9 @@
  *
  * This is the agent's policy, not `IPC_POLICY`'s: that table says what a paired web device may do.
  */
+import { ACCOUNT_ROTATION_PREF } from "../../shared/account-rotation";
 import { AGENT_CONTROL_APP, AGENT_CONTROL_REVIEW, AGENT_CONTROL_VIEW } from "../../shared/agent-control";
+import { REA_PREF } from "../../shared/builtin-mcp";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import {
 	MOBILE_WEB_COMMAND,
@@ -70,8 +72,12 @@ const DENY = "no agent action for this channel; refused by default";
 const C = IPC_COMMANDS;
 const E = IPC_EVENTS;
 
-/** Settings writes ride `PREFS_SET` (and the rotation and REA setters it delegates to). */
+/** Settings writes ride `PREFS_SET`. */
 const SETTINGS_WRITE: ChannelRisk = change(...SETTINGS.map(setting => settingActionId(setting.id)));
+
+/** The row of a pref a caller tab on a paired host reads and writes through the host's own device channel (`HOST_PREFS`). */
+const hostPrefRow = (key: string): string =>
+	settingActionId(SETTINGS.find(setting => setting.kind === "pref" && setting.key === key)?.id ?? key);
 
 export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.RUNTIME_ERROR_REPORT]: never(DENY),
@@ -136,10 +142,10 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.MODELS_PROVIDER_DELETE]: never(OPERATOR),
 	[C.MODELS_OVERRIDE_SET]: never(OPERATOR),
 	[C.MODELS_CONFIG_OPEN]: never(OPERATOR),
-	[C.ACCOUNT_ROTATION_GET]: never(DENY),
-	[C.ACCOUNT_ROTATION_SET]: SETTINGS_WRITE,
-	[C.BUILTIN_REA_GET]: never(DENY),
-	[C.BUILTIN_REA_SET]: SETTINGS_WRITE,
+	[C.ACCOUNT_ROTATION_GET]: read("settings.get", hostPrefRow(ACCOUNT_ROTATION_PREF)),
+	[C.ACCOUNT_ROTATION_SET]: sensitive("app.undo", hostPrefRow(ACCOUNT_ROTATION_PREF)),
+	[C.BUILTIN_REA_GET]: read("settings.get", hostPrefRow(REA_PREF)),
+	[C.BUILTIN_REA_SET]: sensitive("app.undo", hostPrefRow(REA_PREF)),
 	[C.SIDECAR_RESTART]: never(DENY),
 	[C.SIDECAR_STATUS_GET]: never(DENY),
 	[C.SIDECAR_SELECT_PROJECT]: never(DENY),
@@ -185,8 +191,8 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.OMP_UPDATE_NOW]: never(OPERATOR),
 	[C.HOST_OMP_UPDATE_GET]: never(DENY),
 	[C.HOST_OMP_UPDATE_NOW]: never(OPERATOR),
-	[C.HOST_DESKTOP_GET]: never(DENY),
-	[C.HOST_DESKTOP_UPDATE]: never(OPERATOR),
+	[C.HOST_DESKTOP_GET]: read("updates.status"),
+	[C.HOST_DESKTOP_UPDATE]: sensitive("updates.check", "updates.apply"),
 	[C.CLI_UPDATE_GET_STATE]: never(DENY),
 	[C.CLI_UPDATE_NOW]: never(OPERATOR),
 	[C.EXTENSION_UPDATE_GET_STATE]: never(DENY),

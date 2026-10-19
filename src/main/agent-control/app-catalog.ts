@@ -24,7 +24,7 @@ import {
 import type { RpcCommand } from "../../shared/rpc-types";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
-import { type ManageRule, type PrefSetting, SETTINGS, type Setting, settingActionId } from "./app-settings";
+import { type ManageRule, SETTINGS, type Setting, settingActionId } from "./app-settings";
 
 /** What an action returns: text for the agent, and, when it changed something, what to journal and toast. */
 export interface ActionResult {
@@ -48,8 +48,14 @@ export interface AppChange {
  */
 export interface ActionContext {
 	readonly callerTabId: string;
-	getPref(key: string): unknown;
-	/** Write a stored preference through the same handler Settings uses, then tell the window to apply it. */
+	/**
+	 * The paired host the calling session's tab runs on; undefined = this computer. The Settings UI acts on that
+	 * host for its `host` sections (`SECTION_SCOPE`), so an action that has a host route takes it from here.
+	 */
+	readonly device: string | undefined;
+	/** A preference's value: this computer's, or the paired host's for a row its Settings control sends there. */
+	getPref(key: string): Promise<unknown>;
+	/** Write a stored preference through the same handler Settings uses (the host's own for a `HOST_PREFS` row), then tell the window to apply it. */
 	setPref(key: string, value: unknown): Promise<void>;
 	/** Send an RPC command to the calling session; resolves with the response data and throws on failure. */
 	rpc(command: RpcCommand): Promise<unknown>;
@@ -132,7 +138,7 @@ async function writeSetting(ctx: ActionContext, row: Setting, value: unknown): P
 			},
 		};
 	}
-	const previous = row.redact ? undefined : ctx.getPref(row.key);
+	const previous = row.redact ? undefined : await ctx.getPref(row.key);
 	const stored = value === "" ? null : value;
 	await ctx.setPref(row.key, stored);
 	for (const [key, derive] of Object.entries(row.mirror ?? {})) await ctx.setPref(key, derive(value));
@@ -269,7 +275,7 @@ async function setPowerSwitch(ctx: ActionContext, args: Record<string, unknown>)
 		entry.kind === "stock"
 			? await readStock(ctx, entry.path)
 			: entry.kind === "pref"
-				? ctx.getPref(entry.key)
+				? await ctx.getPref(entry.key)
 				: undefined;
 	if (entry.kind === "pref") await ctx.setPref(entry.key, value);
 	else if (entry.kind === "stock") await ctx.rpc({ type: "set_setting", path: entry.path, value });
@@ -285,6 +291,25 @@ async function setPowerSwitch(ctx: ActionContext, args: Record<string, unknown>)
 		change: { en: entry.en, ko: entry.ko, value: shown(value), ...(undo ? { undo } : {}) },
 	};
 }
+
+const HOST_ARGS = objectSchema({
+	host: {
+		type: "boolean",
+		description:
+			"true: the paired host this session runs on, not this computer. Refused for a session on this computer.",
+	},
+});
+
+/** The paired host a `host: true` call acts on, as the Settings › Updates host rows do; a session on this computer has none. */
+function updateHost(ctx: ActionContext, args: Record<string, unknown>): string | undefined {
+	if (args.host !== true) return undefined;
+	if (!ctx.device) throw new AppRefusal("This session runs on this computer, not on a paired host: leave host out.");
+	return ctx.device;
+}
+
+/** The caller's paired host goes into a `sessions:*` payload the way the sidebar's does; a session on this computer sends none. */
+const onCallerDevice = (ctx: ActionContext): { device?: string } => (ctx.device ? { device: ctx.device } : {});
+
 const SCOPE = {
 	type: "string",
 	enum: ["local", "global"],
@@ -310,13 +335,20 @@ export const APP_ACTIONS: readonly AppAction[] = [
 				stockRows.length > 0
 					? await ctx.rpc({ type: "get_settings", paths: stockRows.map(row => row.id) }).catch(() => undefined)
 					: undefined;
-			const out = rows.map(row => {
-				const value =
-					row.kind === "stock" ? stockValue(stockData, row.path) : ctx.getPref((row as PrefSetting).key);
-				const redact = row.kind === "pref" && row.redact === true;
-				const display = redact ? (value ? "(set)" : "(unset)") : value === undefined ? "(default)" : shown(value);
-				return `- ${row.id}: ${display}${row.tier === "sensitive" ? " [asks the user]" : ""}`;
-			});
+			const out = await Promise.all(
+				rows.map(async row => {
+					const redact = row.kind === "pref" && row.redact === true;
+					let display: string;
+					try {
+						const value = row.kind === "stock" ? stockValue(stockData, row.path) : await ctx.getPref(row.key);
+						display = redact ? (value ? "(set)" : "(unset)") : value === undefined ? "(default)" : shown(value);
+					} catch {
+						// A row the host holds fails to read while the host is offline; the other rows still answer.
+						display = "(unreachable)";
+					}
+					return `- ${row.id}: ${display}${row.tier === "sensitive" ? " [asks the user]" : ""}`;
+				}),
+			);
 			return { text: out.length > 0 ? out.join("\n") : "No settings row matches." };
 		},
 	},
@@ -421,11 +453,15 @@ export const APP_ACTIONS: readonly AppAction[] = [
 	{
 		id: "sessions.saved",
 		area: "sessions",
-		description: "Saved sessions on this computer (title, folder, last change, path).",
+		description:
+			"Saved sessions on the computer this session runs on (a paired host's own when it runs there): title, folder, last change, path.",
 		args: objectSchema({ scope: SCOPE }),
 		tier: "read",
 		run: async (ctx, args) => {
-			const sessions = await ctx.invoke(C.SESSIONS_LIST, { scope: args.scope === "local" ? "local" : "global" });
+			const sessions = await ctx.invoke(C.SESSIONS_LIST, {
+				scope: args.scope === "local" ? "local" : "global",
+				...onCallerDevice(ctx),
+			});
 			const rows = Array.isArray(sessions) ? sessions.slice(0, 50) : [];
 			return {
 				text: lines(
@@ -447,6 +483,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			const hits = await ctx.invoke(C.SESSIONS_SEARCH, {
 				query: String(args.query),
 				scope: args.scope === "local" ? "local" : "global",
+				...onCallerDevice(ctx),
 			});
 			const rows = Array.isArray(hits) ? hits.slice(0, 30) : [];
 			return { text: lines(rows, row => `- ${text(row.path)}: ${text(row.snippet)}`, "No matches.") };
@@ -462,7 +499,11 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		]),
 		tier: "change",
 		run: async (ctx, args) => {
-			await ctx.invoke(C.SESSIONS_RENAME, { sessionPath: String(args.sessionPath), name: String(args.name) });
+			await ctx.invoke(C.SESSIONS_RENAME, {
+				sessionPath: String(args.sessionPath),
+				name: String(args.name),
+				...onCallerDevice(ctx),
+			});
 			return { text: "Renamed.", change: { en: "Session name", ko: "세션 이름", value: String(args.name) } };
 		},
 	},
@@ -474,7 +515,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		tier: "sensitive",
 		manage: { always: "deleting a saved session is irreversible" },
 		run: async (ctx, args) => {
-			await ctx.invoke(C.SESSIONS_DELETE, { sessionPath: String(args.sessionPath) });
+			await ctx.invoke(C.SESSIONS_DELETE, { sessionPath: String(args.sessionPath), ...onCallerDevice(ctx) });
 			return {
 				text: "Deleted.",
 				change: { en: "Deleted a saved session", ko: "저장된 세션 삭제", value: String(args.sessionPath) },
@@ -522,41 +563,59 @@ export const APP_ACTIONS: readonly AppAction[] = [
 	{
 		id: "updates.status",
 		area: "updates",
-		description: "The state of OMPdesk's own update (idle, available, downloaded, ...).",
-		args: NO_ARGS,
+		description:
+			"The state of OMPdesk's own update (idle, available, downloaded, ...). host: true reads the paired host this session runs on instead of this computer.",
+		args: HOST_ARGS,
 		tier: "read",
-		run: async ctx => {
-			const status = await ctx.invoke(C.UPDATER_GET_STATUS);
+		run: async (ctx, args) => {
+			const device = updateHost(ctx, args);
+			const answer = device ? await ctx.invoke(C.HOST_DESKTOP_GET, device) : await ctx.invoke(C.UPDATER_GET_STATUS);
+			const host = device && answer && typeof answer === "object" ? (answer as Record<string, unknown>) : null;
+			const status = host ? host.update : answer;
 			const state = status && typeof status === "object" && "state" in status ? String(status.state) : "unknown";
 			const version =
 				status && typeof status === "object" && "version" in status ? ` ${String(status.version)}` : "";
-			return { text: `Update state: ${state}${version}.` };
+			return {
+				text: `${host ? `The paired host runs OMPdesk ${text(host.version, "?")}. ` : ""}Update state: ${state}${version}.`,
+			};
 		},
 	},
 	{
 		id: "updates.check",
 		area: "updates",
-		description: "Check for a new OMPdesk version now (contacts the release server).",
-		args: NO_ARGS,
+		description:
+			"Check for a new OMPdesk version now (contacts the release server). host: true asks the paired host this session runs on to check its own.",
+		args: HOST_ARGS,
 		tier: "sensitive",
 		manage: {
 			lifts: "only contacts the release server; nothing is downloaded into use or applied (updates.apply asks)",
 		},
-		run: async ctx => {
-			await ctx.invoke(C.UPDATER_CHECK);
-			return { text: "Update check started; read updates.status for the result." };
+		run: async (ctx, args) => {
+			const device = updateHost(ctx, args);
+			if (device) await ctx.invoke(C.HOST_DESKTOP_UPDATE, "check", device);
+			else await ctx.invoke(C.UPDATER_CHECK);
+			return {
+				text: `Update check ${device ? "ran on the paired host" : "started"}; read updates.status${device ? " with host: true" : ""} for the result.`,
+			};
 		},
 	},
 	{
 		id: "updates.apply",
 		area: "updates",
-		description: "Install the downloaded OMPdesk update and restart the app (every running turn ends).",
-		args: NO_ARGS,
+		description:
+			"Install the downloaded OMPdesk update and restart the app (every running turn ends). host: true asks the paired host this session runs on to install and restart its own; it refuses while work runs there.",
+		args: HOST_ARGS,
 		tier: "sensitive",
 		manage: { always: "installs new code and restarts, ending every running turn" },
-		run: async ctx => {
-			await ctx.invoke(C.UPDATER_APPLY);
-			return { text: "Applying the update; OMPdesk restarts." };
+		describe: args =>
+			args.host === true
+				? "Install the downloaded OMPdesk update on the paired host this session runs on and restart that computer's app (its running turns end)"
+				: "Install the downloaded OMPdesk update and restart the app (every running turn ends).",
+		run: async (ctx, args) => {
+			const device = updateHost(ctx, args);
+			if (device) await ctx.invoke(C.HOST_DESKTOP_UPDATE, "install", device);
+			else await ctx.invoke(C.UPDATER_APPLY);
+			return { text: `Applying the update; ${device ? "the paired host's " : ""}OMPdesk restarts.` };
 		},
 	},
 	{

@@ -22,7 +22,12 @@ class FakePorts implements AppPorts {
 	events: AgentAppEvent[] = [];
 	notes: string[] = [];
 	stock: Record<string, unknown> = { "advisor.enabled": false };
+	/** The paired host each caller tab runs on; a tab not listed runs on this computer. */
+	devices: Record<string, string> = {};
+	/** What a paired host's own machine services hold: the Settings UI reads and writes these through its device routes. */
+	host = { rotation: "quota", rea: true, desktopState: "idle" };
 
+	device = (tab: string): string | undefined => this.devices[tab];
 	getPref = (key: string): unknown => this.prefs[key];
 	setPref = async (_tab: string, key: string, value: unknown): Promise<void> => {
 		this.prefs[key] = value;
@@ -38,6 +43,18 @@ class FakePorts implements AppPorts {
 	invoke = async (_tab: string, channel: string, args: readonly unknown[]): Promise<unknown> => {
 		this.invoked.push({ channel, args });
 		if (channel === WEB_BLOCKS_LIST) return [{ id: "node:nHOST", scope: "node", name: "Studio" }];
+		if (channel === IPC_COMMANDS.ACCOUNT_ROTATION_GET) return { mode: this.host.rotation, evenSupported: true };
+		if (channel === IPC_COMMANDS.ACCOUNT_ROTATION_SET) {
+			this.host.rotation = String(args[0]);
+			return { mode: this.host.rotation, evenSupported: true };
+		}
+		if (channel === IPC_COMMANDS.BUILTIN_REA_GET) return { enabled: this.host.rea, available: true };
+		if (channel === IPC_COMMANDS.BUILTIN_REA_SET) {
+			this.host.rea = args[0] === true;
+			return { enabled: this.host.rea, available: true };
+		}
+		if (channel === IPC_COMMANDS.HOST_DESKTOP_GET || channel === IPC_COMMANDS.HOST_DESKTOP_UPDATE)
+			return { version: "9.9.9", update: { state: this.host.desktopState } };
 		return [];
 	};
 	fire = (_tab: string, channel: string, args: readonly unknown[]): void => {
@@ -584,5 +601,135 @@ describe("sessions.dump_bundle", () => {
 		const control = new AppControl(ports);
 		await control.run(CALLER, "sessions.dump_bundle", {});
 		expect(ports.invoked.map(call => call.channel)).toEqual([IPC_COMMANDS.SESSIONS_DUMP_BUNDLE]);
+describe("a caller tab on a paired host", () => {
+	const HOSTED = "hosted01";
+	const STUDIO = "dev-studio";
+	const onStudio = (): FakePorts => {
+		const ports = new FakePorts();
+		ports.devices[HOSTED] = STUDIO;
+		ports.manage = true;
+		return ports;
+	};
+	const only = (ports: FakePorts, ...channels: string[]) =>
+		ports.invoked.filter(call => channels.includes(call.channel));
+
+	it("sets, reads back and undoes account rotation on that host, never in this computer's prefs", async () => {
+		const ports = onStudio();
+		ports.prefs.accountRotation = "even";
+		const control = new AppControl(ports);
+
+		expect(await control.run(HOSTED, "settings.get", { ids: ["rotation"] })).toContain("rotation: quota");
+		await control.run(HOSTED, "settings.rotation", { value: "even" });
+		expect(ports.host.rotation).toBe("even");
+		expect(only(ports, IPC_COMMANDS.ACCOUNT_ROTATION_SET)).toEqual([
+			{ channel: IPC_COMMANDS.ACCOUNT_ROTATION_SET, args: ["even", STUDIO] },
+		]);
+		expect(await control.run(HOSTED, "settings.get", { ids: ["rotation"] })).toContain("rotation: even");
+
+		await control.run(HOSTED, "app.undo", {});
+		expect(ports.host.rotation).toBe("quota");
+		expect(only(ports, IPC_COMMANDS.ACCOUNT_ROTATION_SET).at(-1)).toEqual({
+			channel: IPC_COMMANDS.ACCOUNT_ROTATION_SET,
+			args: ["quota", STUDIO],
+		});
+		expect(ports.writes).toEqual([]);
+		expect(ports.prefs.accountRotation).toBe("even");
+		expect(ports.events.filter(event => event.kind === "pref")).toEqual([]);
+	});
+
+	it("turns the built-in REA tools on and off on that host", async () => {
+		const ports = onStudio();
+		const control = new AppControl(ports);
+		await control.run(HOSTED, "settings.builtinRea", { value: false });
+		expect(ports.host.rea).toBe(false);
+		expect(only(ports, IPC_COMMANDS.BUILTIN_REA_SET)).toEqual([
+			{ channel: IPC_COMMANDS.BUILTIN_REA_SET, args: [false, STUDIO] },
+		]);
+		expect(await control.run(HOSTED, "settings.get", { ids: ["builtinRea"] })).toContain("builtinRea: off");
+		await control.run(HOSTED, "app.undo", {});
+		expect(ports.host.rea).toBe(true);
+		expect(ports.writes).toEqual([]);
+	});
+
+	it("still writes a local caller's rotation and REA to this computer's prefs", async () => {
+		const ports = onStudio();
+		const control = new AppControl(ports);
+		await control.run(CALLER, "settings.rotation", { value: "even" });
+		await control.run(CALLER, "settings.builtinRea", { value: false });
+		expect(ports.writes).toEqual([
+			{ key: "accountRotation", value: "even" },
+			{ key: "builtinMcp.rea", value: false },
+		]);
+		expect(ports.invoked).toEqual([]);
+	});
+
+	it("keeps the card for a sensitive row on a host when agentControlManage is off", async () => {
+		const ports = onStudio();
+		ports.manage = false;
+		ports.approve = false;
+		await refusal(new AppControl(ports).run(HOSTED, "settings.rotation", { value: "even" }));
+		expect(ports.cards).toHaveLength(1);
+		expect(ports.invoked).toEqual([]);
+	});
+
+	it("lists, searches, renames and deletes saved sessions on the computer the session runs on", async () => {
+		const ports = onStudio();
+		const control = new AppControl(ports);
+		await control.run(HOSTED, "sessions.saved", { scope: "local" });
+		await control.run(HOSTED, "sessions.search", { query: "retry" });
+		await control.run(HOSTED, "sessions.rename", { sessionPath: "/h/a.jsonl", name: "Retry" });
+		ports.manage = true;
+		ports.approve = true;
+		await control.run(HOSTED, "sessions.delete", { sessionPath: "/h/a.jsonl" });
+		expect(ports.invoked).toEqual([
+			{ channel: IPC_COMMANDS.SESSIONS_LIST, args: [{ scope: "local", device: STUDIO }] },
+			{ channel: IPC_COMMANDS.SESSIONS_SEARCH, args: [{ query: "retry", scope: "global", device: STUDIO }] },
+			{
+				channel: IPC_COMMANDS.SESSIONS_RENAME,
+				args: [{ sessionPath: "/h/a.jsonl", name: "Retry", device: STUDIO }],
+			},
+			{ channel: IPC_COMMANDS.SESSIONS_DELETE, args: [{ sessionPath: "/h/a.jsonl", device: STUDIO }] },
+		]);
+		expect(ports.cards).toHaveLength(1);
+
+		const local = new FakePorts();
+		await new AppControl(local).run(CALLER, "sessions.saved", {});
+		expect(local.invoked).toEqual([{ channel: IPC_COMMANDS.SESSIONS_LIST, args: [{ scope: "global" }] }]);
+	});
+
+	it("reads, checks and installs the host's OMPdesk update only when asked, and asks the card to install", async () => {
+		const ports = onStudio();
+		const control = new AppControl(ports);
+		expect(await control.run(HOSTED, "updates.status", { host: true })).toBe(
+			"The paired host runs OMPdesk 9.9.9. Update state: idle.",
+		);
+		await control.run(HOSTED, "updates.check", { host: true });
+		await control.run(HOSTED, "updates.status", {});
+		await control.run(HOSTED, "updates.check", {});
+		expect(ports.invoked).toEqual([
+			{ channel: IPC_COMMANDS.HOST_DESKTOP_GET, args: [STUDIO] },
+			{ channel: IPC_COMMANDS.HOST_DESKTOP_UPDATE, args: ["check", STUDIO] },
+			{ channel: IPC_COMMANDS.UPDATER_GET_STATUS, args: [] },
+			{ channel: IPC_COMMANDS.UPDATER_CHECK, args: [] },
+		]);
+
+		ports.invoked.length = 0;
+		await control.run(HOSTED, "updates.apply", { host: true });
+		expect(ports.cards).toHaveLength(1);
+		expect(ports.cards[0]?.message).toContain("paired host");
+		expect(ports.invoked).toEqual([{ channel: IPC_COMMANDS.HOST_DESKTOP_UPDATE, args: ["install", STUDIO] }]);
+
+		ports.approve = false;
+		ports.invoked.length = 0;
+		await refusal(control.run(HOSTED, "updates.apply", { host: true }));
+		expect(ports.invoked).toEqual([]);
+	});
+
+	it("refuses a host update from a session that runs on this computer", async () => {
+		const ports = new FakePorts();
+		const control = new AppControl(ports);
+		for (const id of ["updates.status", "updates.check", "updates.apply"])
+			expect(await refusal(control.run(CALLER, id, { host: true })), id).toContain("paired host");
+		expect(ports.invoked).toEqual([]);
 	});
 });

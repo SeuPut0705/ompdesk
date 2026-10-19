@@ -821,6 +821,7 @@ export class AgentControlRuntime {
 		};
 		return {
 			getPref: key => deps.prefs.get(key),
+			device: tabId => deps.pool.sidecarOf(tabId)?.device,
 			setPref: async (tabId, key, value) => {
 				await app.invoke(window(tabId), IPC_COMMANDS.PREFS_SET, [{ key, value }]);
 			},

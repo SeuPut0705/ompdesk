@@ -45,6 +45,7 @@ function setup(
 		sweepMs?: number;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
+		app?: AgentControlHostDeps["app"];
 	} = {},
 ) {
 	const win = window();
@@ -87,6 +88,7 @@ function setup(
 		},
 		sessions: options.sessions,
 		remote: options.remote,
+		app: options.app,
 		dispatch: async (target, _sidecar, tabId, command) => {
 			commands.push({ tabId, command, win: target });
 			if (command.type === "worktree_create")
@@ -582,5 +584,24 @@ describe("AgentControlRuntime", () => {
 		);
 		expect((await runtime.run(win, "main0001", T.read, { session: "bbbb2222-y" })).text).toContain("from the PC");
 		expect(request).toHaveBeenCalledWith("dev-1", "sessions.messages", { sessionPath: "C:/s/b.jsonl" });
+	});
+
+	it("sends an app action of a session on a paired host to that host's route, and of a local session to this computer's", async () => {
+		const invoke = vi.fn(async (_win: ClientWindow, _channel: string, _args: readonly unknown[]) => ({
+			mode: "quota",
+		}));
+		const { runtime, win, sidecars } = setup({
+			tabs: [{ tabId: "main0001" }, { tabId: "remo0004", device: "dev-1" }],
+			app: { invoke, fire: vi.fn(), localize: en => en },
+		});
+		sidecars.set("remo0004", { cwd: "/h/repo", device: "dev-1" });
+		await runtime.run(win, "remo0004", T.app, { action: "settings.rotation", args: { value: "even" } });
+		expect(invoke).toHaveBeenCalledWith(win, "account-rotation:set", ["even", "dev-1"]);
+		expect(invoke).not.toHaveBeenCalledWith(win, "prefs:set", expect.anything());
+
+		invoke.mockClear();
+		await runtime.run(win, "main0001", T.app, { action: "settings.rotation", args: { value: "even" } });
+		expect(invoke).toHaveBeenCalledWith(win, "prefs:set", [{ key: "accountRotation", value: "even" }]);
+		expect(invoke).not.toHaveBeenCalledWith(win, "account-rotation:set", expect.anything());
 	});
 });

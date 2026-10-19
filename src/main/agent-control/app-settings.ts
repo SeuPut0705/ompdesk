@@ -28,6 +28,7 @@ import {
 	WORKTREE_AUTO_CLEAN_PREF,
 } from "../../shared/desktop-prefs";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../../shared/extension-update";
+import { IPC_COMMANDS } from "../../shared/ipc-types";
 import { OMP_AUTO_UPDATE_PREF } from "../../shared/omp-update";
 import { REPLY_LANGUAGE_PREF } from "../../shared/reply-language";
 import { THEME_NAMES } from "../../shared/theme-names";
@@ -328,6 +329,40 @@ export const SETTING_BY_ID: Readonly<Record<string, Setting>> = Object.fromEntri
 );
 
 export const settingActionId = (id: string): string => `settings.${id}`;
+
+/**
+ * Rows whose Settings control acts on the paired host the focused tab runs on, not on this computer: Models &
+ * accounts and Tools & extensions are `host` sections (`SECTION_SCOPE`), and these two read and write the host's
+ * own machine services through a channel that takes the device (`machine-services.ts`). For a caller tab on a
+ * host the row goes the same way, keyed by its preference key; every other pref row is this device's own value in
+ * the Settings UI too (a paired host's tab follows the host's own pref there), so it stays here.
+ */
+export interface HostPref {
+	/** Channel `(device)` answering the host's state. */
+	get: string;
+	/** Channel `(value, device)` storing it on the host. */
+	set: string;
+	/** The row's value inside the state `get` answers. */
+	read: (state: unknown) => unknown;
+}
+
+const field =
+	(name: string) =>
+	(state: unknown): unknown =>
+		state && typeof state === "object" ? (state as Record<string, unknown>)[name] : undefined;
+
+export const HOST_PREFS: Readonly<Record<string, HostPref>> = {
+	[ACCOUNT_ROTATION_PREF]: {
+		get: IPC_COMMANDS.ACCOUNT_ROTATION_GET,
+		set: IPC_COMMANDS.ACCOUNT_ROTATION_SET,
+		read: field("mode"),
+	},
+	[REA_PREF]: {
+		get: IPC_COMMANDS.BUILTIN_REA_GET,
+		set: IPC_COMMANDS.BUILTIN_REA_SET,
+		read: field("enabled"),
+	},
+};
 
 /** Rows another action covers (`covered`) or an agent never writes (`never`), each with the reason. */
 export type RowDecision = { covered: string } | { never: string };

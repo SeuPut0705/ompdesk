@@ -18,13 +18,15 @@ import { ACTION_BY_ID, type ActionContext, type ActionResult, type AppAction, ty
 import { AGENT_CHANNELS } from "./app-channels";
 import { AppRefusal, covers, type GrantedTier, prefTier, rpcTier, settingTier, type Tier } from "./app-guard";
 import { validateArgs } from "./app-schema";
-import { SETTING_BY_ID, SETTINGS, settingActionId } from "./app-settings";
+import { HOST_PREFS, SETTING_BY_ID, SETTINGS, settingActionId } from "./app-settings";
 
 export { AppRefusal };
 
 /** What `ompdesk_app` needs from the app; `host.ts` builds it. */
 export interface AppPorts {
 	getPref(key: string): unknown;
+	/** The paired host the calling session's tab runs on (its `device`); undefined = this computer. */
+	device(callerTabId: string): string | undefined;
 	/** Write a preference through `PREFS_SET` (its validation and side effects included). */
 	setPref(callerTabId: string, key: string, value: unknown): Promise<void>;
 	rpc(callerTabId: string, command: RpcCommand): Promise<RpcResponse>;
@@ -160,15 +162,26 @@ export class AppControl {
 	/** The primitives one call may use; each checks the tier it needs against `granted`. */
 	#context(callerTabId: string, actionId: string, granted: GrantedTier): ActionContext {
 		const ports = this.#ports;
+		const device = ports.device(callerTabId);
+		/** A row the Settings control sends to the host while the caller's tab runs on one (`HOST_PREFS`). */
+		const hostPref = (key: string) => (device && Object.hasOwn(HOST_PREFS, key) ? HOST_PREFS[key] : undefined);
 		const ctx: ActionContext = {
 			callerTabId,
-			getPref: key => {
+			device,
+			getPref: async key => {
 				if (prefTier(key, ports.fullEnabled()) === "never") refuse(`Reading "${key}"`, "never");
-				return ports.getPref(key);
+				const route = hostPref(key);
+				if (!device || !route) return ports.getPref(key);
+				return route.read(await ports.invoke(callerTabId, this.#channel(route.get, actionId, granted), [device]));
 			},
 			setPref: async (key, value) => {
 				const needed = prefTier(key, ports.fullEnabled());
 				if (!covers(granted, needed)) refuse(`Writing the preference "${key}"`, needed);
+				const route = hostPref(key);
+				if (device && route) {
+					await ports.invoke(callerTabId, this.#channel(route.set, actionId, granted), [value, device]);
+					return;
+				}
 				await ports.setPref(callerTabId, key, value);
 				ports.send(callerTabId, { kind: "pref", key, value });
 			},
