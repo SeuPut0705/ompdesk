@@ -95,10 +95,15 @@ async function openPhone(options: PhoneOptions = {}): Promise<Page> {
 const runChip = (page: Page): Locator => page.locator(".omp-composer-box [data-run-settings-trigger]");
 const sheetOf = (page: Page): Locator => page.getByRole("dialog", { name: /Run settings|실행 설정/ });
 
+/** Opens the Run sheet and waits for its slide-in to end: measuring mid-animation finds every control below the screen. */
 async function openRun(page: Page): Promise<Locator> {
 	await runChip(page).tap();
 	await expect(page.locator("[data-approval-mode]").first()).toBeVisible();
-	return sheetOf(page);
+	const sheet = sheetOf(page);
+	await sheet.evaluate(node =>
+		Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished)),
+	);
+	return sheet;
 }
 
 /** Advanced opens by itself while a value is not the default; open it otherwise, so every row of the sheet is on screen. */
@@ -321,7 +326,7 @@ for (const lang of ["ko", "en"] as const) {
  */
 async function sheetScrollers(page: Page): Promise<{ scrolling: string[]; trackWidths: number[] }> {
 	return page.evaluate(() => {
-		const sheet = document.querySelector("[data-action-sheet]");
+		const sheet = document.querySelector('[data-action-sheet], [data-sheet-placement], [data-presentation="sheet"]');
 		if (!sheet) return { scrolling: ["no sheet"], trackWidths: [] };
 		const scrollers = [sheet, ...Array.from(sheet.querySelectorAll("*"))].filter(
 			node => node instanceof HTMLElement && /auto|scroll/.test(getComputedStyle(node).overflowY),
@@ -343,6 +348,9 @@ async function sheetScrollers(page: Page): Promise<{ scrolling: string[]; trackW
 	});
 }
 
+/** A composer bottom sheet: an action sheet (`Popover`, `MenuButton`, `ComposerSheet` on a phone) or a dialog sheet. */
+const SHEET = '[data-action-sheet], [data-sheet-placement], [data-presentation="sheet"]';
+
 for (const engine of ["pixel8", "webkit"] as const) {
 	test(`every composer sheet scrolls in one container with no drawn track · ${engine}`, async () => {
 		const page = await openPhone({ engine });
@@ -357,7 +365,7 @@ for (const engine of ["pixel8", "webkit"] as const) {
 				"no scrollbar track takes width on touch",
 			).toBe(true);
 			await page.keyboard.press("Escape");
-			await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+			await expect(page.locator(SHEET)).toHaveCount(0);
 			for (const chip of [
 				"[data-chip=thinking]",
 				"[data-chip=delegation]",
@@ -368,7 +376,7 @@ for (const engine of ["pixel8", "webkit"] as const) {
 				const trigger = page.locator(`.omp-composer-box ${chip}`).first();
 				await expect(trigger, `${chip} is in the composer`).toBeVisible();
 				await trigger.tap();
-				await expect(page.locator("[data-action-sheet]")).toHaveCount(1);
+				await expect(page.locator(SHEET), `${chip} opens a sheet`).toHaveCount(1);
 				await page.waitForTimeout(300);
 				const sheet = await sheetScrollers(page);
 				expect(
@@ -380,8 +388,30 @@ for (const engine of ["pixel8", "webkit"] as const) {
 					`${chip} sheet draws no track`,
 				).toBe(true);
 				await page.keyboard.press("Escape");
-				await expect(page.locator("[data-action-sheet]")).toHaveCount(0);
+				await expect(page.locator(SHEET)).toHaveCount(0);
 			}
+			// A long queue: its list (capped at 18 rem on the desktop) is part of the sheet's one scroll on a phone.
+			await page.evaluate(() => {
+				const items = Array.from({ length: 28 }, (_, index) => ({
+					id: `q${index}`,
+					text: `대기 중인 메시지 ${index}`,
+				}));
+				window.__stores?.session.setState({ isStreaming: true });
+				window.__stores?.queue.setState({
+					steering: items.slice(0, 14),
+					followUp: items.slice(14),
+					refresh: async () => {},
+				});
+			});
+			await page.locator("[data-queue-pill]").tap();
+			await expect(page.locator(SHEET), "the queue pill opens a sheet").toHaveCount(1);
+			await page.waitForTimeout(300);
+			const queue = await sheetScrollers(page);
+			expect(queue.scrolling, "the queue sheet has exactly one scroller").toHaveLength(1);
+			expect(
+				queue.trackWidths.every(width => width === 0),
+				"the queue sheet draws no track",
+			).toBe(true);
 		} finally {
 			await page.context().close();
 		}

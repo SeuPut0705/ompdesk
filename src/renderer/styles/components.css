@@ -2900,16 +2900,17 @@ button.omp-file-chip-name:hover {
 		linear-gradient(to left, var(--omp-scroll-shade), transparent) right center / 0.75rem 100% no-repeat scroll;
 }
 
-.omp-transcript-editorial .markdown-body :is(.katex-display, table)::-webkit-scrollbar {
+/* Mouse and trackpad only (see global.css Scrollbars): touch keeps the overlay bar. */
+:where(html:not([data-input="touch"])) .omp-transcript-editorial .markdown-body :is(.katex-display, table)::-webkit-scrollbar {
 	height: 5px;
 }
 
-.omp-transcript-editorial .markdown-body :is(.katex-display, table)::-webkit-scrollbar-thumb {
+:where(html:not([data-input="touch"])) .omp-transcript-editorial .markdown-body :is(.katex-display, table)::-webkit-scrollbar-thumb {
 	border: 0;
 	background-color: transparent;
 }
 
-.omp-transcript-editorial .markdown-body :is(.katex-display, table):hover::-webkit-scrollbar-thumb {
+:where(html:not([data-input="touch"])) .omp-transcript-editorial .markdown-body :is(.katex-display, table):hover::-webkit-scrollbar-thumb {
 	background-color: var(--omp-scrollbar-thumb);
 }
 
