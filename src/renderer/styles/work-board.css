@@ -325,6 +325,16 @@ button.omp-work-board-row:hover {
 	background: color-mix(in srgb, var(--sc-warning) 18%, transparent);
 }
 
+/* An opened session that waits on the user: only its own row wears the wash, the list stays plain. */
+button.omp-work-board-row[data-board-opened][data-status="waiting"] {
+	background: var(--sc-warning-soft);
+	color: var(--sc-text);
+}
+
+button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
+	background: color-mix(in srgb, var(--sc-warning) 18%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.omp-work-board-pulse {
 		animation: none;

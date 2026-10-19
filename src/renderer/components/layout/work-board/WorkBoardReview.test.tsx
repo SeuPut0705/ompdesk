@@ -188,7 +188,8 @@ describe("work board opened sessions", () => {
 			["c-run", "running"],
 			["c-done", "done"],
 		]);
-		expect(opened()?.getAttribute("data-tone")).toBe("warning");
+		// Only the waiting child is marked; the list itself never takes the warning tone (it tinted every row).
+		expect(opened()?.hasAttribute("data-tone")).toBe(false);
 		expect(rows[2]?.textContent).toContain("Run the suite");
 		expect(rows[2]?.textContent).toContain("running bash (vitest)");
 		expect(rows[1]?.textContent).toContain("omp/agent/m → main");
