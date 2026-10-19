@@ -117,10 +117,15 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	const statusLabel = status ? t(`workBoard.opened.status.${status}`) : t("workBoard.opened.status.open");
 	const branch = row.branch ? t("workBoard.review.branch", { branch: row.branch, base: row.base ?? "—" }) : null;
 	const mergeNote = row.merge ? t(`workBoard.opened.merge.${row.merge}`) : null;
+	const report = row.report
+		? t("workBoard.opened.report", { kind: t(`chat.custom.mail.kind.${row.report.kind}`), text: row.report.text })
+		: null;
 	const note =
-		status === "running" && row.step
+		status === "running" && row.step && !row.report
 			? row.step
-			: [status === "running" ? null : statusLabel, mergeNote].filter(Boolean).join(" · ");
+			: report && status !== "done"
+				? report
+				: [status === "running" ? null : statusLabel, mergeNote].filter(Boolean).join(" · ");
 	const open = () => {
 		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
 		else if (row.sessionPath)
@@ -128,7 +133,11 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	};
 	return (
 		<BoardRow
-			data={{ "data-board-opened": row.key, "data-status": status ?? "open" }}
+			data={{
+				"data-board-opened": row.key,
+				"data-status": status ?? "open",
+				...(row.report ? { "data-board-report": row.report.kind } : {}),
+			}}
 			label={title}
 			lead={
 				status === "done" ? (

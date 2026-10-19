@@ -485,6 +485,29 @@ export class AgentControlRuntime {
 			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
 			approveEnabled: () => deps.prefs.get(AGENT_CONTROL_APPROVE_PREF) === true,
 			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
+			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
+			// after a relaunch) the tab now holding the opener's session file.
+			parentOf: tabId => {
+				const known = this.#parents.get(tabId)?.callerTabId;
+				if (known) return known;
+				const win = this.#win(tabId);
+				const info = win ? deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
+				if (info?.openedBy && deps.pool.sidecarOf(info.openedBy)) return info.openedBy;
+				return info?.openedBySession
+					? (deps.pool.sessionOwner(info.openedBySession)?.tabId ?? undefined)
+					: undefined;
+			},
+			mail: async (tabId, content, details, delivery) => {
+				const response = await this.#hostCommand(tabId, {
+					type: "agent_control_mail",
+					content,
+					details,
+					triggerTurn: delivery.triggerTurn,
+					...(delivery.deliverAs ? { deliverAs: delivery.deliverAs } : {}),
+				});
+				if (!response.success) throw new Error(response.error ?? "The report could not be delivered.");
+			},
+			reviewChanged: parentTabId => this.#pushReview(parentTabId),
 			tabs: callerTabId => {
 				const own = this.#win(callerTabId);
 				if (!own || own.isDestroyed()) return null;

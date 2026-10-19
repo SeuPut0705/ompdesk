@@ -10,6 +10,7 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
 import type { BranchFacts, LandingFacts, MergeOutcome, WorktreeRef } from "./branches";
+import type { MailDelivery } from "./mail";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -191,7 +192,15 @@ class FakeHost implements AgentControlHost {
 	judged: string[] = [];
 	judgeReply = "";
 
-	spawn = async (_caller: string, request: SpawnRequest) => {
+	parents = new Map<string, string>();
+	parentOf = (tabId: string) => this.parents.get(tabId);
+	mails: { to: string; content: string; details: Record<string, unknown>; delivery: MailDelivery }[] = [];
+	mail = async (to: string, content: string, details: Record<string, unknown>, delivery: MailDelivery) => {
+		this.mails.push({ to, content, details, delivery });
+	};
+	reviewChanged = vi.fn();
+
+	spawn = async (caller: string, request: SpawnRequest) => {
 		this.spawned.push(request);
 		const tab = this.add({
 			title: "",
@@ -202,6 +211,7 @@ class FakeHost implements AgentControlHost {
 				? { worktree: { name: "w", branch: "omp/agent/w", baseCwd: "/repo", path: "/wt/w" } }
 				: {}),
 		});
+		this.parents.set(tab.tabId, caller);
 		return { tabId: tab.tabId, ...(tab.worktree ? { worktree: tab.worktree } : {}) };
 	};
 
@@ -236,8 +246,8 @@ class FakeHost implements AgentControlHost {
 	};
 }
 
-function control(host: AgentControlHost) {
-	return new AgentControl(host);
+function control(host: AgentControlHost, timers?: ConstructorParameters<typeof AgentControl>[1]) {
+	return new AgentControl(host, timers);
 }
 
 const select = (title: string, options: string[]): ControlAsk => ({
@@ -318,7 +328,9 @@ describe("ompdesk_session_open", () => {
 		const [one, two] = [...host.tabsById.keys()].filter(id => id !== "main0001");
 		expect(result.text).toContain(`Opened session ${one}`);
 		expect(result.text).toContain(`"sessions":["${one}","${two}"]`);
-		expect(prompts(host, one as string)[0]).toBe(wrapAgentMessage("part one", "Boss"));
+		expect(prompts(host, one as string)[0]).toBe(
+			wrapAgentMessage('part one\n\n[ompdesk dispatch d1: report with ompdesk_report, dispatch "d1"]', "Boss"),
+		);
 		expect(host.sent.some(entry => entry.tabId === two && entry.command.type === "set_plan_mode")).toBe(true);
 		expect(host.sent.some(entry => entry.tabId === two && entry.command.type === "set_model")).toBe(true);
 		// Each child, never the caller, is marked a worker before its first prompt (its bridge adds the contract).
@@ -420,7 +432,7 @@ describe("ompdesk_session_send", () => {
 	it("marks the message as sent by an agent with the sender's title and starts an idle session", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
 		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
-		expect(result.text).toContain("it was idle and started on it");
+		expect(result.text).toContain("it was idle and starts on it");
 		expect(prompts(host, "work0002")).toEqual([wrapAgentMessage("please review", "Boss")]);
 	});
 
@@ -1694,7 +1706,12 @@ describe("ompdesk_session_open on a device and reopen", () => {
 		expect(host.spawned[0]).toMatchObject({ sessionPath: "C:/s/one.jsonl", device: desktop.id });
 		expect(host.sent.some(entry => entry.command.type === "agent_control_worker")).toBe(false);
 		const child = [...host.tabsById.keys()].find(id => id !== "main0001") as string;
-		expect(prompts(host, child)).toEqual([wrapAgentMessage("continue please", "Boss")]);
+		expect(prompts(host, child)).toEqual([
+			wrapAgentMessage(
+				'continue please\n\n[ompdesk dispatch d1: report with ompdesk_report, dispatch "d1"]',
+				"Boss",
+			),
+		]);
 		expect(host.tasks.size).toBe(0);
 	});
 
@@ -1834,5 +1851,188 @@ describe("checksRun and parseVerdict", () => {
 		});
 		expect(parseVerdict('{"ranking":[{"session":"a","score":500}]}')).toBeNull();
 		expect(parseVerdict("no json")).toBeNull();
+	});
+});
+
+describe("ompdesk_report: sessions tell their opener", () => {
+	async function family() {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
+		const service = control(host, {
+			setTimer: (fn, ms) => {
+				const timer = { fn, ms, cleared: false };
+				timers.push(timer);
+				return timer;
+			},
+			clearTimer: timer => {
+				(timer as { cleared: boolean }).cleared = true;
+			},
+		});
+		const opened = await service.run("boss0001", T.open, {
+			sessions: [{ message: "Title: part A\nDo A" }, { message: "Title: part B\nDo B" }],
+		});
+		const [a, b] = [...opened.text.matchAll(/Opened session (\w+)/g)].map(match => match[1] as string);
+		const fire = () => {
+			for (const timer of timers.splice(0)) if (!timer.cleared) timer.fn();
+		};
+		return { host, service, a: a as string, b: b as string, fire };
+	}
+
+	it("names the dispatch in the child's task, and a done report wakes the opener after its turn", async () => {
+		const { host, service, a } = await family();
+		expect(prompts(host, a)[0]).toContain('[ompdesk dispatch d1: report with ompdesk_report, dispatch "d1"]');
+		const result = await service.run(a, T.report, {
+			kind: "done",
+			text: "A is finished",
+			files: ["src/a.ts"],
+			checks: [{ command: "bun test", passed: true }],
+			dispatch: "d1",
+		});
+		expect(result.text).toBe("Delivered.");
+		expect(host.mails).toHaveLength(1);
+		const mail = host.mails[0];
+		expect(mail?.to).toBe("boss0001");
+		expect(mail?.delivery).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+		expect(mail?.content).toContain(`<ompdesk-mail from="${a}"`);
+		expect(mail?.content).toContain("changed files: src/a.ts");
+		expect(mail?.content).toContain("checks: bun test passed");
+		expect(mail?.details).toMatchObject({ kind: "done", text: "A is finished", dispatch: "d1" });
+		expect(host.reviewChanged).toHaveBeenCalledWith("boss0001");
+		const items = await service.reviewItems("boss0001");
+		expect(items.find(item => item.tabId === a)?.report).toMatchObject({ kind: "done", text: "A is finished" });
+	});
+
+	it("routes a question between the opener's steps and keeps it waiting until the opener answers", async () => {
+		const { host, service, a } = await family();
+		expect((await service.run(a, T.report, { kind: "question", text: "Keep the old API?" })).text).toMatch(
+			/Wait for the answer/,
+		);
+		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
+		expect(host.mails[0]?.content).toMatch(/waits on you/);
+		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBe(true);
+		// Nothing answers it but the opener (or the user through it): a send to the child does.
+		await service.run("boss0001", T.send, { session: a, message: "Keep it." });
+		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBeUndefined();
+		expect(prompts(host, a).at(-1)).toContain("dispatch d2");
+	});
+
+	it("ignores a report for a superseded dispatch and delivers a repeated report id once", async () => {
+		const { host, service, a } = await family();
+		await service.run("boss0001", T.send, { session: a, message: "New plan" });
+		const stale = await service.run(a, T.report, { kind: "done", text: "old work", dispatch: "d1" });
+		expect(stale.text).toMatch(/Ignored: dispatch d1 is no longer current .* dispatch d2/);
+		expect(host.mails).toHaveLength(0);
+		await service.run(a, T.report, { kind: "done", text: "new work", dispatch: "d2", id: "r1" });
+		const again = await service.run(a, T.report, { kind: "done", text: "new work", dispatch: "d2", id: "r1" });
+		expect(again.text).toMatch(/already delivered/);
+		expect(host.mails).toHaveLength(1);
+	});
+
+	it("coalesces progress into its latest report, without a turn, and a done supersedes the pending progress", async () => {
+		const { host, service, a, fire } = await family();
+		await service.run(a, T.report, { kind: "progress", text: "step 1" });
+		await service.run(a, T.report, { kind: "progress", text: "step 2" });
+		expect(host.mails).toHaveLength(0);
+		fire();
+		await Promise.resolve();
+		expect(host.mails).toHaveLength(1);
+		expect(host.mails[0]?.details).toMatchObject({ text: "step 2", merged: 1 });
+		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
+		await service.run(a, T.report, { kind: "progress", text: "step 3" });
+		await service.run(a, T.report, { kind: "done", text: "finished" });
+		fire();
+		await Promise.resolve();
+		expect(host.mails.map(mail => mail.details.text)).toEqual(["step 2", "finished"]);
+	});
+
+	it("holds progress for a busy opener's next turn", async () => {
+		const { host, service, a, fire } = await family();
+		const boss = host.tabsById.get("boss0001");
+		if (boss) boss.busy = true;
+		await service.run(a, T.report, { kind: "progress", text: "halfway" });
+		fire();
+		await Promise.resolve();
+		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false, deliverAs: "nextTurn" });
+	});
+
+	it("lets a child write to a sibling as a note, never to an outsider, and refuses a session nobody opened", async () => {
+		const { host, service, a, b } = await family();
+		host.add({ tabId: "else0009", title: "Other" });
+		await service.run(a, T.report, { kind: "done", to: b, text: "I changed X, rebase" });
+		expect(host.mails[0]).toMatchObject({ to: b, details: { kind: "note" } });
+		expect((await service.run(a, T.report, { kind: "note", to: "else0009", text: "hi" })).text).toMatch(
+			/only to the session that opened you or to a sibling/,
+		);
+		expect((await service.run("boss0001", T.report, { kind: "done", text: "x" })).text).toMatch(/nobody opened/);
+	});
+
+	it("sends with a request id once and returns the first receipt on a repeat", async () => {
+		const { host, service, a } = await family();
+		const first = await service.run("boss0001", T.send, { session: a, message: "go", request_id: "q1" });
+		const again = await service.run("boss0001", T.send, { session: a, message: "go", request_id: "q1" });
+		expect(first.text).toMatch(/accepted/);
+		expect(again.text).toMatch(/already delivered; nothing sent again/);
+		expect(prompts(host, a).filter(prompt => prompt.includes("go"))).toHaveLength(1);
+	});
+});
+
+describe("mail across failures and relaunches", () => {
+	it("keeps a report whose delivery failed undelivered, so the sender's retry with the same id goes through", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		const service = control(host);
+		const opened = await service.run("boss0001", T.open, { message: "Do A" });
+		const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		const original = host.mail;
+		host.mail = async () => {
+			throw new Error("link down");
+		};
+		const failed = await service.run(child, T.report, { kind: "done", text: "A finished", id: "r1" });
+		expect(failed.isError).toBe(true);
+		host.mail = original;
+		expect((await service.run(child, T.report, { kind: "done", text: "A finished", id: "r1" })).text).toBe(
+			"Delivered.",
+		);
+		expect(host.mails).toHaveLength(1);
+	});
+
+	it("gives the same report the same id without one, so a re-run call is recognized", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		const service = control(host);
+		const opened = await service.run("boss0001", T.open, { message: "Do A" });
+		const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		await service.run(child, T.report, { kind: "done", text: "A finished" });
+		await service.run(child, T.report, { kind: "done", text: "A finished" });
+		expect(host.mails).toHaveLength(1);
+		const rerun = control(host);
+		await rerun.run(child, T.report, { kind: "done", text: "A finished" });
+		// A relaunched main delivers again; the receiver's bridge drops it by the same id (bridge-agent-mail.test.ts).
+		expect(host.mails.map(mail => mail.details.id)).toEqual([host.mails[0]?.details.id, host.mails[0]?.details.id]);
+	});
+
+	it("after a relaunch reads the child's dispatch and the request ids back from its journal", async () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{
+				tabId: "kid00002",
+				messages: [
+					{
+						role: "user",
+						content: wrapAgentMessage(
+							'Do A\n\n[ompdesk dispatch d2: report with ompdesk_report, dispatch "d2"]\n[ompdesk request q7]',
+							"Boss",
+						),
+					} as AgentMessage,
+				],
+			},
+		);
+		host.parents.set("kid00002", "boss0001");
+		const relaunched = control(host);
+		const stale = await relaunched.run("kid00002", T.report, { kind: "done", text: "old", dispatch: "d1" });
+		expect(stale.text).toMatch(/Ignored: dispatch d1/);
+		const again = await relaunched.run("boss0001", T.send, { session: "kid00002", message: "x", request_id: "q7" });
+		expect(again.text).toMatch(/request q7 was already delivered/);
+		expect(prompts(host, "kid00002")).toEqual([]);
+		await relaunched.run("boss0001", T.send, { session: "kid00002", message: "next" });
+		expect(prompts(host, "kid00002")[0]).toContain("dispatch d3");
 	});
 });

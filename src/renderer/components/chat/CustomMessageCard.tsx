@@ -737,3 +737,42 @@ export function RecapCard({ message }: { message: AgentMessage }) {
 		</div>
 	);
 }
+
+/**
+ * A report another session sent this one (`ompdesk_report`, custom type `ompdesk.mail`): one quiet muted line, the
+ * sender, the kind and the text; files and checks in the tooltip. Never a card: the work board carries the state.
+ */
+export function MailNote({ message }: { message: AgentMessage }) {
+	const t = useT();
+	const details = resultDetails(message);
+	const text = str(details?.text) ?? "";
+	if (!text) return null;
+	const kind = str(details?.kind) ?? "note";
+	const from = str(details?.fromTitle) || str(details?.from) || "?";
+	const files = Array.isArray(details?.files) ? details.files.filter(item => typeof item === "string") : [];
+	const checks = Array.isArray(details?.checks)
+		? details.checks.flatMap(item =>
+				item && typeof item === "object" && typeof item.command === "string"
+					? [`${item.command} ${item.passed === true ? "✓" : "✕"}`]
+					: [],
+			)
+		: [];
+	const extra = [...files, ...checks].join("\n");
+	return (
+		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-1.5">
+			<p
+				className="omp-transcript-content flex min-w-0 items-start gap-1.5 text-sc-sm text-(--sc-text-muted)"
+				data-agent-mail={kind}
+				title={extra || undefined}
+			>
+				<span className="min-w-0">
+					<span className="font-medium">{t("chat.custom.mail", { from })}</span>{" "}
+					<span className={kind === "question" || kind === "blocked" ? "text-(--sc-warning)" : undefined}>
+						{t(`chat.custom.mail.kind.${kind}`)}
+					</span>
+					: {text}
+				</span>
+			</p>
+		</div>
+	);
+}

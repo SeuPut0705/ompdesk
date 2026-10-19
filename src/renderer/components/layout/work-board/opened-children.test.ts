@@ -55,6 +55,22 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		expect(running).toMatchObject({ title: "Running", step: "running bash (vitest)", since: 1000 });
 	});
 
+	it("puts a child whose question waits on the opener first, with its last report", () => {
+		const rows = openedChildRows({
+			parent,
+			tabs: [
+				tab("boss"),
+				tab("busy", { openedBy: "boss", status: "running", task: "Busy" }),
+				tab("asks", { openedBy: "boss", lastRun: stop, task: "Asks" }),
+			],
+			review: new Map([
+				["asks", review("asks", { waiting: true, report: { kind: "question", text: "Keep it?", at: 5 } })],
+			]),
+			closed: [],
+		});
+		expect(rows[0]).toMatchObject({ key: "asks", status: "waiting", report: { kind: "question", text: "Keep it?" } });
+	});
+
 	it("reads a branch's merge state: unmerged commits are a problem, a settled review is merged", () => {
 		const worktree = { name: "w", branch: "omp/agent/w", baseCwd: "/w", path: "/wt/w" };
 		const rows = openedChildRows({

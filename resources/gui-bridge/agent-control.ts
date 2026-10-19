@@ -14,6 +14,7 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
+import { hasMailEntry, MAIL_CUSTOM_TYPE } from "./agent-control-contracts";
 import { completeOnSmol } from "./modes/next-prompt-engine";
 import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
 
@@ -48,6 +49,7 @@ Another agent opened this session and handed you its first message; the person s
 - Done means the observable acceptance in the message holds, checked by you, and any requested commit is on your branch.
 - Your final answer is what the other agent reads: what changed (files, commits), how you checked it with the actual result, and anything left undone.
 - End your final answer with one last line: \`Result: ok\` when the acceptance holds and every check you ran passed, else \`Result: problem — <reason>\` (a failed or skipped check, work left undone). The other agent reads that line, not your prose.
+- Tell the other agent instead of waiting to be asked, with ompdesk_report: kind done when the work is finished (summary, files you changed, the checks you ran and whether each passed), question or blocked when you need its decision (then wait for its answer; never guess an approval), progress only at real milestones. Pass the dispatch id its message names. To a sibling it opened, kind note with to set to that session.
 - Keep replying to the person in their language when they write to you.
 </ompdesk-worker>`;
 
@@ -61,14 +63,61 @@ export function isWorkerSession(ctx: PromptSectionContext): boolean {
 	return ctx.sessionManager.getBranch().some(entry => entry.customType === WORKER_ENTRY);
 }
 
-export function install(pi: PromptSectionHost): void {
+/** Stock's `pi.sendMessage` (a custom message, journaled and shown per its delivery). */
+interface MailHost {
+	sendMessage(
+		message: { customType: string; content: string; display: boolean; details?: unknown },
+		options?: { triggerTurn?: boolean; deliverAs?: "followUp" | "nextTurn" | "aside" },
+	): void;
+}
+
+/** The main session's `pi` (the first install; a subagent's rebinding never replaces it). */
+let mailHost: MailHost | undefined;
+
+export function install(pi: PromptSectionHost & Partial<MailHost>): void {
+	if (!mailHost && typeof pi.sendMessage === "function") mailHost = pi as MailHost;
 	// The main agent only: its own subagents are briefed by it, not by this contract.
 	registerPromptSection(pi, "ompdesk-worker", ctx =>
 		ctx.agent.kind === "main" && isWorkerSession(ctx) ? WORKER_CONTRACT : undefined,
 	);
 }
 
+/** Report ids this process handed to stock (a queued one is journaled only once delivered). */
+const queuedMail = new Set<string>();
+
+/** Whether the session's journal already holds the report `id` (stock's `custom_message` entry). */
+function hasMail(env: ControlEnv, id: string): boolean {
+	return hasMailEntry(env.session().sessionManager.getBranch(), id);
+}
+
 export const methods: BridgeMethods = {
+	/**
+	 * `{content, details, triggerTurn, deliverAs?}` → `{}`: a report from another session (`ompdesk_report`), as one
+	 * stock custom message: journaled with the session (a relaunch neither loses nor repeats it), shown as a quiet line,
+	 * and delivered by stock's own rules (`aside` between steps, `followUp`, `nextTurn`; `triggerTurn` wakes an idle
+	 * session).
+	 */
+	"agent_control.mail": async (params, env) => {
+		const record = (params ?? {}) as Record<string, unknown>;
+		const content = typeof record.content === "string" ? record.content : "";
+		if (!content.trim()) throw new Error("agent_control.mail needs content");
+		if (!mailHost) throw new Error("This omp cannot receive reports (no extension sendMessage).");
+		const details = (record.details ?? {}) as Record<string, unknown>;
+		const id = typeof details.id === "string" ? details.id : undefined;
+		// Idempotent across restarts of either side: the journal is the record of what arrived (and, until stock
+		// journals a queued one, this process remembers it).
+		if (id && (queuedMail.has(id) || hasMail(env, id))) return { duplicate: true };
+		if (id) queuedMail.add(id);
+		const deliverAs = record.deliverAs;
+		mailHost.sendMessage(
+			{ customType: MAIL_CUSTOM_TYPE, content, display: true, details },
+			{
+				triggerTurn: record.triggerTurn === true,
+				...(deliverAs === "followUp" || deliverAs === "nextTurn" || deliverAs === "aside" ? { deliverAs } : {}),
+			},
+		);
+		return {};
+	},
 	/** `{title, message}` → `{approved}`: a dismissed or cancelled card is a refusal. */
 	"agent_control.confirm": async (params, env) => {
 		const record = (params ?? {}) as Record<string, unknown>;

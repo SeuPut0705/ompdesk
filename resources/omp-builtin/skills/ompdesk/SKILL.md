@@ -11,11 +11,11 @@ Each OMPdesk session is a tab in one of the user's windows, on this computer or 
 
 - `ompdesk_sessions` — `scope` (`window` default, `app`, `stored`), `device`, `folder`, `status`, `mine`, `query`, `limit`: state, step, subagents, todos, your own marked, paired devices.
 - `ompdesk_session_open` — `message`, `folder`, `device`, `model`, `mode`, `worktree`, `reopen`; `sessions` for several at once; `show`.
-- `ompdesk_session_send` — `session`, `message`, `delivery` (`follow_up` default, `steer`).
+- `ompdesk_session_send` — `session`, `message`, `delivery` (`follow_up` default, `steer`), `request_id`.
 - `ompdesk_session_result` — `session` or `sessions`, `wait`, `until` (`all`, `any`), `timeout_seconds`.
 - `ompdesk_session_read` — `session` (open or saved), `limit`, `before`: transcript pages, newest first.
 - `ompdesk_session_answer` — `session`, `request`, `choice` / `approve` / `text` / `answers`.
-- `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`.
+- `ompdesk_tab_focus` — `session`, `how`. `ompdesk_notify` — `title`, `body`. `ompdesk_report` (as a child) — `kind` (`progress`, `done`, `blocked`, `question`, `review`, `note`), `text`, `files`, `checks`, `to`, `dispatch`, `id`.
 - `ompdesk_session_stop` — `session`, `close`, `delete`.
 - `ompdesk_compare` — `sessions`, `criteria`: evidence and a ranked verdict; `ompdesk_merge`: skill://ompdesk/references/worktrees-review.md
 - `ompdesk_schedule` — skill://ompdesk/references/schedules.md
@@ -48,11 +48,11 @@ End your final answer with a short summary of what changed and anything left und
 
 Children that write files get `worktree: true` or disjoint Ownership. Full flow: skill://ompdesk/references/orchestration.md
 
-## Handoff or supervise
+## The loop: dispatch, hear back, judge, merge
 
-- Handoff: the child owns the outcome; you collect its answer once (`ompdesk_session_result` with `wait`).
-- Supervise: you check in between steps; read with `ompdesk_session_read`, steer only to correct.
-- Reuse a finished child that already has the context (`ompdesk_session_send`) instead of opening a new one.
+- Children report to you with `ompdesk_report`: a `done` or `review` arrives after your turn (or wakes you when idle), a `question` or `blocked` between your steps; `progress` and `note` arrive quietly. Do not poll: end your turn and you are woken. `ompdesk_session_result` with `wait` only when you must block now.
+- Answer a question with `ompdesk_session_send` (`request_id` makes a retry safe); a decision only the user can make goes to the user, never guessed. A report naming an older dispatch is ignored for you.
+- Judge `done` reports with `ompdesk_compare` (`criteria`), merge, close. Reuse a finished child (`ompdesk_session_send`) instead of opening a new one.
 
 Silence is a checkpoint, not failure: a quiet child is usually working. Do not stop, restart or duplicate it without positive evidence (it ended without an answer, or it waits for an answer). A sent message is queued, not read.
 

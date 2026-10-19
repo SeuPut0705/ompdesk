@@ -11,6 +11,12 @@ const confirmCommand = z.object({ title: z.string().min(1).max(200), message: z.
 const noteCommand = z.object({ text: z.string().min(1).max(500) });
 const workerCommand = z.object({ from: z.string().min(1).max(200) });
 const judgeCommand = z.object({ system: z.string().min(1).max(20_000), user: z.string().min(1).max(200_000) });
+const mailCommand = z.object({
+	content: z.string().min(1).max(200_000),
+	details: z.record(z.string(), z.unknown()),
+	triggerTurn: z.boolean(),
+	deliverAs: z.enum(["followUp", "nextTurn", "aside"]).optional(),
+});
 
 export const handlers: Record<string, LocalHandler> = {
 	agent_control_confirm: async (command, ctx) => {
@@ -33,5 +39,11 @@ export const handlers: Record<string, LocalHandler> = {
 	agent_control_judge: async (command, ctx) => {
 		const { system, user } = judgeCommand.parse(command);
 		return ctx.bridge.request("agent_control.judge", { system, user });
+	},
+	/** A report another session sent this one (`ompdesk_report`): its bridge hands it to stock `sendMessage`. */
+	agent_control_mail: async (command, ctx) => {
+		const mail = mailCommand.parse(command);
+		await ctx.bridge.request("agent_control.mail", mail);
+		return {};
 	},
 };

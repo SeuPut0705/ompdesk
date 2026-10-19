@@ -6,6 +6,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
+import { hasMailEntry } from "../../resources/gui-bridge/agent-control-contracts";
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import {
 	type AutoTitleSettings,
@@ -1132,6 +1133,47 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		// gui-bridge agent-control.ts `agent_control.mail` → stock `sendMessage`: the report becomes a displayed custom
+		// message in the journal; with `triggerTurn` an idle session takes a turn on it (the parent reacts by itself),
+		// a running one reads it with its next step. The woken turn's reply names the report it read.
+		"agent_control.mail": params => {
+			const details = (params.details ?? {}) as Record<string, unknown>;
+			// As the bridge: a report whose id the journal holds (delivered before a relaunch) is not repeated. The
+			// fixture journals custom messages as `message` entries; the bridge's rule reads stock's `custom_message`
+			// shape, so the entries are viewed in that shape.
+			const asStock = entries.map(entry =>
+				entry.type === "message" ? { ...(entry.message as AgentMessage), type: "custom_message" } : entry,
+			);
+			if (typeof details.id === "string" && hasMailEntry(asStock, details.id)) return { duplicate: true };
+			const mail = {
+				role: "custom",
+				customType: "ompdesk.mail",
+				content: String(params.content ?? ""),
+				display: true,
+				details,
+				timestamp: Date.now(),
+			} as unknown as AgentMessage;
+			appendMessage(mail);
+			write({ type: "message_end", message: mail });
+			if (params.triggerTurn === true && !isStreaming) {
+				isStreaming = true;
+				write({ type: "agent_start" });
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [
+						{ type: "text", text: `Read the ${String(details.kind)} report from ${String(details.from)}.` },
+					],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_end", message: answer });
+				endTurn([answer]);
+			}
+			return {};
+		},
 		// `ompdesk_compare` with criteria: the judge ranks the sessions in the order the evidence names them and
 		// picks the first, so a spec can tell the verdict reached the agent.
 		"agent_control.judge": params => {

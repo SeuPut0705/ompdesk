@@ -102,6 +102,14 @@ export type RpcCommand =
 	| { id?: string; type: "agent_control_note"; text: string }
 	| { id?: string; type: "agent_control_worker"; from: string }
 	| { id?: string; type: "agent_control_judge"; system: string; user: string }
+	| {
+			id?: string;
+			type: "agent_control_mail";
+			content: string;
+			details: Record<string, unknown>;
+			triggerTurn: boolean;
+			deliverAs?: "followUp" | "nextTurn" | "aside";
+	  }
 	// The work board's review queue (main/agent-control/host.ts): answered in main, never reaches omp
 	| { id?: string; type: "agent_control_review"; action: "list" | "approve" | "discard" | "dismiss"; child?: string }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }

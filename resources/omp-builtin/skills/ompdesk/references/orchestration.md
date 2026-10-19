@@ -16,7 +16,9 @@ ompdesk_session_open
 
 ## Collect
 
-One `ompdesk_session_result` with `sessions: [ids]` and `wait: true`; `until: "any"` returns at the first finish. Do not poll `ompdesk_sessions` in a loop.
+Children tell you: each one's `done`, `review`, `question` or `blocked` report (`ompdesk_report`) lands in your session as a quiet line and wakes you when you are idle, so end your turn after dispatching instead of polling. To block on them now, one `ompdesk_session_result` with `sessions: [ids]` and `wait: true`; `until: "any"` returns at the first finish. Never poll `ompdesk_sessions` in a loop.
+
+- a `question` or `blocked` report: answer with `ompdesk_session_send` (the child waits for it); a choice only the user can make goes to the user. It shows on the user's work board as waiting until you answer.
 
 - finished: use the answer; `ompdesk_session_read` (`limit`, `before` cursor) when the summary is thin.
 - waiting for an answer: `ompdesk_session_answer` only when the answer is a detail you know; a preference, a secret or the user's own choice goes to the user (`ompdesk_tab_focus`, `ompdesk_notify`).

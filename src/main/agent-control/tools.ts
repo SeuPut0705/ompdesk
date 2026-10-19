@@ -12,6 +12,17 @@ import {
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
+import { MAIL_KINDS } from "./mail";
+
+export type ReportArgs = {
+	kind: (typeof MAIL_KINDS)[number];
+	text: string;
+	files?: string[];
+	checks?: { command: string; passed: boolean }[];
+	to?: string;
+	dispatch?: string;
+	id?: string;
+};
 
 /** `ompdesk_session_result` waits at most this long by default, and never longer than the maximum. */
 export const RESULT_WAIT_DEFAULT_SECONDS = 600;
@@ -154,8 +165,51 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					enum: ["follow_up", "steer"],
 					description: "For a running session; default follow_up.",
 				},
+				request_id: {
+					type: "string",
+					description:
+						"Your id for this message; sending again with the same id never delivers it twice (returns the first receipt).",
+				},
 			},
 			required: ["session", "message"],
+			additionalProperties: false,
+		},
+	},
+	{
+		name: T.report,
+		label: "Report to OMPdesk opener",
+		description:
+			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked. kind: progress (a short status; coalesced), done (the work is finished: summary, changed files, checks you ran), question or blocked (you need its decision; it arrives between its steps and wakes it; do not guess meanwhile), review (ready for its review), note (to a sibling: e.g. 'I changed X, rebase'). Only for a session another session opened. See skill://ompdesk.",
+		parameters: {
+			type: "object",
+			properties: {
+				kind: { type: "string", enum: ["progress", "done", "blocked", "question", "review", "note"] },
+				text: { type: "string", description: "What to tell; for done, the summary." },
+				files: { type: "array", items: { type: "string" }, description: "done: files you changed." },
+				checks: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: { command: { type: "string" }, passed: { type: "boolean" } },
+						required: ["command", "passed"],
+						additionalProperties: false,
+					},
+					description: "done: the checks you ran and whether each passed.",
+				},
+				to: {
+					type: "string",
+					description: "A sibling's session id (opened by the same session); default the session that opened you.",
+				},
+				dispatch: {
+					type: "string",
+					description: "The dispatch id your task message named; a report for an older dispatch is ignored.",
+				},
+				id: {
+					type: "string",
+					description: "Your id for this report; a repeat with the same id is delivered once.",
+				},
+			},
+			required: ["kind", "text"],
 			additionalProperties: false,
 		},
 	},
@@ -592,6 +646,20 @@ export const ARGS = {
 			session: sessionArg,
 			message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS),
 			delivery: z.enum(["follow_up", "steer"]).optional(),
+			request_id: z.string().trim().min(1).max(200).optional(),
+		})
+		.strict(),
+	[T.report]: z
+		.object({
+			kind: z.enum(MAIL_KINDS),
+			text: z.string().trim().min(1).max(MESSAGE_MAX_CHARS),
+			files: z.array(z.string().trim().min(1).max(1000)).optional(),
+			checks: z
+				.array(z.object({ command: z.string().trim().min(1).max(1000), passed: z.boolean() }).strict())
+				.optional(),
+			to: sessionArg.optional(),
+			dispatch: z.string().trim().min(1).max(100).optional(),
+			id: z.string().trim().min(1).max(200).optional(),
 		})
 		.strict(),
 	[T.result]: z

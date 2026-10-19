@@ -16,6 +16,7 @@
  *           tool approval (without it the answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
  *   never   accounts, settings, permissions.
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
 	AutopilotShipPreset,
@@ -57,6 +58,7 @@ import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import { type BranchFacts, type LandingFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
+import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import {
 	type AnswerArgs,
 	ARGS,
@@ -69,6 +71,7 @@ import {
 	RESULT_MAX_CHARS,
 	RESULT_TABLE_ANSWER_CHARS,
 	RESULT_WAIT_DEFAULT_SECONDS,
+	type ReportArgs,
 	type ScheduleArgs,
 } from "./tools";
 
@@ -212,6 +215,12 @@ export interface AgentControlHost {
 	approveEnabled(): boolean;
 	/** `agentControlManage`: an agent may stop, close or delete sessions it did not open without a card. */
 	manageEnabled(): boolean;
+	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
+	parentOf(tabId: string): string | undefined;
+	/** Put one report into a session as a stock custom message (`ompdesk.mail`), delivered per `delivery`. */
+	mail(tabId: string, content: string, details: Record<string, unknown>, delivery: MailDelivery): Promise<void>;
+	/** A child's report changed what its opener's work board shows. */
+	reviewChanged?(parentTabId: string): void;
 	/** Every open tab of this app, the caller's window first (`here`); null when the calling tab is gone. */
 	tabs(callerTabId: string): ControlTab[] | null;
 	/** The paired hosts (Settings › Devices). */
@@ -311,6 +320,38 @@ const MESSAGE_CHARS = 1_500;
 /** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
 const AUTO_CLOSE_WAIT_MS = 2_000;
 const LIST_DEFAULT_ROWS = 30;
+/** A sent message's receipt waits this long to see the target's turn start. */
+const TURN_START_WAIT_MS = 1_500;
+
+const DEFAULT_TIMERS: Pick<MailboxDeps, "setTimer" | "clearTimer"> = {
+	setTimer: (fn, ms) => setTimeout(fn, ms),
+	clearTimer: timer => clearTimeout(timer as NodeJS.Timeout),
+};
+
+/** The task text with the dispatch id its report names (a report for an older dispatch is ignored). */
+function withDispatch(message: string, dispatch: string | undefined, requestId?: string): string {
+	const marks = [
+		dispatch ? `[ompdesk dispatch ${dispatch}: report with ompdesk_report, dispatch "${dispatch}"]` : null,
+		requestId ? `[ompdesk request ${requestId}]` : null,
+	].filter(Boolean);
+	return marks.length ? `${message}\n\n${marks.join("\n")}` : message;
+}
+
+const DISPATCH_MARK = /\[ompdesk dispatch d(\d+):/g;
+const REQUEST_MARK = /\[ompdesk request ([^\]]+)\]/g;
+
+/** The dispatch number and request ids a session's journal holds (the markers its opener's messages carried). */
+export function journalMarks(messages: readonly AgentMessage[]): { dispatch: number; requests: Set<string> } {
+	let dispatch = 0;
+	const requests = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "user") continue;
+		const text = contentText(message.content);
+		for (const match of text.matchAll(DISPATCH_MARK)) dispatch = Math.max(dispatch, Number(match[1]));
+		for (const match of text.matchAll(REQUEST_MARK)) if (match[1]) requests.add(match[1]);
+	}
+	return { dispatch, requests };
+}
 
 class ToolError extends Error {}
 
@@ -628,14 +669,32 @@ export class AgentControl {
 	readonly #sweeping = new Set<string>();
 	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
 	readonly #stored = new Map<string, StoredSession>();
+	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
+	readonly #mailbox: Mailbox;
+	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
+	readonly #receipts = new Map<string, string>();
 
 	readonly #app: AppControl | null;
 
-	constructor(host: AgentControlHost) {
+	constructor(host: AgentControlHost, timers: Pick<MailboxDeps, "setTimer" | "clearTimer"> = DEFAULT_TIMERS) {
 		this.#host = host;
 		this.#app = host.appPorts
 			? new AppControl({ ...host.appPorts, autopilot: (tabId, args) => this.#appAutopilot(tabId, args) })
 			: null;
+		this.#mailbox = new Mailbox({
+			now: Date.now,
+			...timers,
+			deliver: async mail => {
+				const receiver = this.#host.tabs(mail.to)?.find(tab => tab.tabId === mail.to);
+				await this.#host.mail(
+					mail.to,
+					mailText(mail),
+					mailDetails(mail),
+					deliveryFor(mail.kind, receiver?.busy === true),
+				);
+				this.#host.reviewChanged?.(mail.to);
+			},
+		});
 	}
 
 	/** Live tabs `callerTabId` opened. */
@@ -659,6 +718,7 @@ export class AgentControl {
 		this.#closing.delete(tabId);
 		this.#reviewed.delete(tabId);
 		this.#conflicts.delete(tabId);
+		this.#mailbox.forget(tabId);
 	}
 
 	/** Programmatic open (Autopilot): the same path as the tool, with a tag the tool never sets. */
@@ -743,6 +803,8 @@ export class AgentControl {
 				const args = ARGS[T.compare].parse(raw ?? {});
 				return this.#compare(caller, tabs, args.sessions, args.criteria);
 			}
+			case T.report:
+				return this.#report(caller, tabs, ARGS[T.report].parse(raw));
 			case T.merge: {
 				const args = ARGS[T.merge].parse(raw);
 				return this.#merge(caller, this.#resolve(tabs, args.session, caller, "merge"));
@@ -1157,7 +1219,10 @@ export class AgentControl {
 							tabId,
 							{
 								type: "prompt",
-								message: wrapAgentMessage(args.message, caller.title),
+								message: wrapAgentMessage(
+									withDispatch(args.message, this.#mailbox.dispatch(tabId)),
+									caller.title,
+								),
 								streamingBehavior: "followUp",
 							},
 							30_000,
@@ -1187,7 +1252,9 @@ export class AgentControl {
 		);
 		const ids = results.filter(result => result.tabId).map(result => result.tabId);
 		if (ids.length > 0 && results.some(result => result.started))
-			lines.push(`Collect: ompdesk_session_result {"sessions":${JSON.stringify(ids)},"wait":true}.`);
+			lines.push(
+				`They report back to you with ompdesk_report (done, question): end your turn and you are woken. To block now instead: ompdesk_session_result {"sessions":${JSON.stringify(ids)},"wait":true}.`,
+			);
 		return lines.join("\n");
 	}
 
@@ -1202,20 +1269,35 @@ export class AgentControl {
 	async #send(
 		caller: ControlTab,
 		target: ControlTab,
-		args: { message: string; delivery?: "follow_up" | "steer" },
+		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
 	): Promise<string> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		this.#refuseHidden(target, caller);
 		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
+		// Idempotent: a retried call (a flaky link, a paired device) gets the first receipt, never a second delivery.
+		const receiptKey = args.request_id ? `${caller.tabId}|${target.tabId}|${args.request_id}` : undefined;
+		const known = receiptKey ? this.#receipts.get(receiptKey) : undefined;
+		if (known) return `${known} (request ${args.request_id} was already delivered; nothing sent again)`;
 		await this.#ensureStarted(target, caller.tabId);
+		// The target's journal is the durable record: a relaunch (or a retry whose first receipt was lost) finds the
+		// request already there, and the last dispatch it was given.
+		const marks = await this.#journalMarks(target.tabId);
+		if (args.request_id && marks.requests.has(args.request_id))
+			return `Sent to ${label(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
 		const steer = args.delivery === "steer";
+		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
+		const ownChild =
+			this.#host.parentOf(target.tabId) === caller.tabId ||
+			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
+		if (ownChild) this.#mailbox.seed(target.tabId, marks.dispatch);
+		const dispatch = ownChild ? this.#mailbox.dispatch(target.tabId) : undefined;
 		responseData(
 			await this.#host.command(
 				target.tabId,
 				{
 					type: "prompt",
-					message: wrapAgentMessage(args.message, caller.title),
+					message: wrapAgentMessage(withDispatch(args.message, dispatch, args.request_id), caller.title),
 					streamingBehavior: steer ? "steer" : "followUp",
 				},
 				30_000,
@@ -1223,11 +1305,100 @@ export class AgentControl {
 			"Sending the message",
 		);
 		const how = !running
-			? "it was idle and started on it"
+			? "it was idle and starts on it"
 			: steer
 				? "delivered as steer (it reads it between steps)"
 				: "queued as a follow-up (it runs when the current turn ends)";
-		return `Sent to ${label(target)}: ${how}.`;
+		const started = !running && (await this.#turnStarts(caller.tabId, target.tabId));
+		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
+		if (receiptKey) this.#receipts.set(receiptKey, receipt);
+		return receipt;
+	}
+
+	/** `journalMarks` of a session's recent transcript; nothing when it cannot be read (not started, gone). */
+	async #journalMarks(tabId: string): Promise<{ dispatch: number; requests: Set<string> }> {
+		const page = await this.#host
+			.command(tabId, { type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES }, STATE_TIMEOUT_MS)
+			.then(response => (response.success ? transcriptPage(response.data) : null))
+			.catch(() => null);
+		return journalMarks(page?.messages ?? []);
+	}
+
+	/** Receipt stage "turn started": the target is seen running within a few seconds of an accepted message. */
+	async #turnStarts(callerTabId: string, tabId: string): Promise<boolean> {
+		const deadline = Date.now() + TURN_START_WAIT_MS;
+		for (;;) {
+			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
+			if (tab?.busy) return true;
+			if (!tab || Date.now() >= deadline) return false;
+			await this.#nextChange(Math.min(250, deadline - Date.now()));
+		}
+	}
+
+	/** The work board's view of a child's mail: its last report, and whether its question waits. */
+	#reportFields(tabId: string): Pick<AgentReviewItem, "report" | "waiting"> {
+		const state = this.#mailbox.state(tabId);
+		if (!state) return {};
+		return {
+			report: { kind: state.last.kind, text: oneLine(state.last.text, 240), at: state.last.at },
+			...(state.waiting ? { waiting: true as const } : {}),
+		};
+	}
+
+	/** `ompdesk_report`: an opened session tells its opener (or a sibling) about its work. */
+	async #report(caller: ControlTab, tabs: ControlTab[], args: ReportArgs): Promise<string> {
+		const parent = this.#host.parentOf(caller.tabId);
+		if (!parent)
+			fail(
+				"ompdesk_report is for a session another session opened; nobody opened this one. Use ompdesk_session_send to write to a session.",
+			);
+		const to = args.to ? this.#resolve(tabs, args.to, caller, "report to").tabId : parent;
+		if (to !== parent && this.#host.parentOf(to) !== parent)
+			fail("You can report only to the session that opened you or to a sibling it opened.");
+		const mail: Mail = {
+			// The same report from the same session file is the same id, so a call stock re-runs after a relaunch
+			// (its result lost in the crash) is recognized by the receiver's journal instead of arriving twice.
+			id:
+				args.id ??
+				createHash("sha256")
+					.update(
+						[
+							caller.sessionPath ?? caller.tabId,
+							// The receiver by its session file too: tab ids are new after a relaunch.
+							tabs.find(tab => tab.tabId === to)?.sessionPath ?? to,
+							args.kind,
+							args.dispatch ?? "",
+							args.text,
+						].join("\u0000"),
+					)
+					.digest("hex")
+					.slice(0, 24),
+			from: caller.tabId,
+			fromTitle: caller.title,
+			to,
+			kind: to === parent ? args.kind : "note",
+			text: args.text,
+			...(args.files ? { files: args.files } : {}),
+			...(args.checks ? { checks: args.checks } : {}),
+			...(args.dispatch ? { dispatch: args.dispatch } : {}),
+			at: Date.now(),
+		};
+		if (!this.#mailbox.knows(caller.tabId))
+			this.#mailbox.seed(caller.tabId, (await this.#journalMarks(caller.tabId)).dispatch);
+		const outcome = await this.#mailbox.post(mail);
+		this.#host.reviewChanged?.(parent);
+		switch (outcome) {
+			case "duplicate":
+				return `Report ${mail.id} was already delivered; nothing sent again.`;
+			case "stale":
+				return `Ignored: dispatch ${args.dispatch} is no longer current (the session that opened you has since sent dispatch ${this.#mailbox.current(caller.tabId)}). Work on its latest message.`;
+			case "queued":
+				return "Progress noted; it reaches the session shortly (several progress reports arrive as the latest one).";
+			default:
+				return mail.kind === "question" || mail.kind === "blocked"
+					? "Delivered. Wait for the answer: it comes as a message; do not guess the decision meanwhile."
+					: "Delivered.";
+		}
 	}
 
 	async #sessionSummary(
@@ -1668,6 +1839,7 @@ export class AgentControl {
 				? { failed: true as const }
 				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
+			...this.#reportFields(tab.tabId),
 		};
 		if (!tab.worktree || tab.deviceName) return item;
 		try {

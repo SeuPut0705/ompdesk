@@ -27,6 +27,8 @@ export interface OpenedChildRow {
 	base?: string | null;
 	/** `unmerged`: commits or edits nothing merged; `merged`: its review is settled (merged, accepted); absent: no branch. */
 	merge?: "unmerged" | "merged";
+	/** Its last report to this session (`ompdesk_report`). */
+	report?: { kind: string; text: string; at: number };
 }
 
 export interface OpenedChildCounts {
@@ -73,7 +75,8 @@ export function openedChildRows(input: {
 			item.state !== "running" &&
 			(item.commitsAhead > 0 || item.uncommitted > 0);
 		const status = openedChildStatus({
-			waiting: tab.awaitingInput !== undefined,
+			// A question or blocker its report raised waits on this session (never answered by itself).
+			waiting: tab.awaitingInput !== undefined || item?.waiting === true,
 			running: tab.status === "running" || tab.compacting === true,
 			finished: tab.lastRun !== undefined,
 			failed,
@@ -91,6 +94,7 @@ export function openedChildRows(input: {
 			...((item?.branch ?? tab.worktree?.branch) ? { branch: item?.branch ?? tab.worktree?.branch } : {}),
 			...(item?.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : tab.worktree && !item ? { merge: "merged" as const } : {}),
+			...(item?.report ? { report: item.report } : {}),
 		});
 	}
 	for (const child of closed) {

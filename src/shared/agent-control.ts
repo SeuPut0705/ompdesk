@@ -70,6 +70,7 @@ export const AGENT_CONTROL_TOOLS = {
 	autopilot: "ompdesk_autopilot",
 	appList: "ompdesk_app_list",
 	app: "ompdesk_app",
+	report: "ompdesk_report",
 } as const;
 
 /** main → window (`AGENT_CONTROL_APP`): what `ompdesk_app` changed, for the window to show or apply. */
@@ -192,6 +193,10 @@ export interface AgentReviewItem {
 	/** Its last turn ended in an error or was stopped. */
 	failed?: true;
 	note?: string;
+	/** Its last report to its opener (`ompdesk_report`): kind, text and when. */
+	report?: { kind: string; text: string; at: number };
+	/** Its last report is a question or a blocker its opener has not answered yet. */
+	waiting?: true;
 }
 
 export interface AgentReviewEvent {
