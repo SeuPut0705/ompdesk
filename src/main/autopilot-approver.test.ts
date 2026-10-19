@@ -25,6 +25,24 @@ describe("decideApproval", () => {
 		expect(decideApproval(approval("edit\nsrc/a.ts"), run()).answer).toBe("Approve");
 	});
 
+	it("approves an Ask and remember card for this call only, never remembering a folder or file", () => {
+		const remembering: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "r2",
+			method: "select",
+			title: "Allow tool: read\n/wt/autopilot-1/src/a.ts",
+			options: [
+				"Approve Directory: /wt/autopilot-1/src",
+				"Approve File",
+				"Always Approve Directory: /wt/autopilot-1/src",
+				"Always Approve File",
+				"Approve Once",
+				"Deny",
+			],
+		};
+		expect(decideApproval(remembering, run())).toEqual({ answer: "Approve Once" });
+	});
+
 	it("denies a card whose command breaks a hard limit, with the reason", () => {
 		for (const command of [
 			"git push --force origin main",

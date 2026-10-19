@@ -58,7 +58,7 @@ import type {
 	TodoPhase,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
-import { APPROVE_DENY, APPROVE_ONCE, isApprovalSelect } from "../../shared/tool-approval";
+import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import {
@@ -1697,12 +1697,14 @@ export class AgentControl {
 		let response: ExtensionUIResponse;
 		let summary: string;
 		if (request.method === "select") {
-			const approval = isApprovalSelect(request);
+			const approval = approvalChoices(request);
 			const choice = pickOption(
 				request.options,
-				args.choice ?? (args.approve === undefined ? undefined : args.approve ? APPROVE_ONCE : APPROVE_DENY),
+				args.choice ??
+					(args.approve === undefined ? undefined : args.approve ? (approval?.once ?? "Approve") : APPROVE_DENY),
 			);
-			// Approving for this session grants more than "Approve", so both need the user's leave; Deny never does.
+			// Every approving answer (this call, for the session, a remembered folder or file) needs the user's leave;
+			// Deny never does.
 			if (approval && choice !== APPROVE_DENY && !this.#host.approveEnabled())
 				fail(
 					"사용자 승인이 필요해요: this is a tool approval in another session and the user has not let agents approve for them (Settings › Tools & extensions). Tell the user, or show the session with ompdesk_tab_focus. Deny is allowed.",

@@ -481,9 +481,13 @@ export const ko: Record<string, string> = {
 	"input.approval.write.desc": "파일 편집은 자동 승인하고 나머지는 물어봐요",
 	"input.approval.always-ask": "항상 묻기",
 	"input.approval.always-ask.desc": "도구를 실행하기 전에 항상 물어봐요",
+	"input.approval.always-ask-cached": "묻고 기억하기",
+	"input.approval.always-ask-cached.desc":
+		"파일을 읽고 쓰기 전에도 물어보고, 답을 그 파일이나 폴더에 대해 이 세션 또는 모든 세션 동안 기억해 둘 수 있어요",
 	"input.approval.short.yolo": "전체",
 	"input.approval.short.write": "편집",
 	"input.approval.short.always-ask": "묻기",
+	"input.approval.short.always-ask-cached": "기억",
 	"input.goal.label": "목표",
 	"input.modes.title": "세션 모드",
 	"input.modes.activeTitle": "세션 모드: {modes}",
@@ -2399,6 +2403,13 @@ export const ko: Record<string, string> = {
 	"approval.deny": "거부",
 	"approval.approve": "승인",
 	"approval.approveSession": "이 세션 동안 {subject} 승인",
+	"approval.approveOnce": "이번만 승인",
+	"approval.grant.folder": "이 세션 동안 {folder} 폴더 승인",
+	"approval.grant.folderAlways": "{folder} 폴더 항상 승인",
+	"approval.grant.file": "이 세션 동안 이 파일 승인",
+	"approval.grant.fileAlways": "이 파일 항상 승인",
+	"approval.grant.target": "이 세션 동안 이 대상 승인",
+	"approval.grant.targetAlways": "이 대상 항상 승인",
 	"approval.unknownTool": "알 수 없는 도구",
 
 	// Extension UI dialogs

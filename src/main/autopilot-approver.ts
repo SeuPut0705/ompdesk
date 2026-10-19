@@ -11,7 +11,7 @@ import type { AutopilotShipPolicy } from "../../resources/gui-bridge/modes/autop
 import { findBanViolation } from "../../resources/gui-bridge/modes/autopilot-guard-core";
 import { AGENT_CARD_PREFIX } from "../shared/agent-control";
 import type { ExtensionUIRequest, ExtensionUIResponse } from "../shared/rpc-types";
-import { isApprovalSelect } from "../shared/tool-approval";
+import { APPROVE_DENY, approvalChoices } from "../shared/tool-approval";
 
 /** What the approver needs to know about an autopilot tab. */
 export interface ApproverRun {
@@ -24,7 +24,8 @@ export interface ApproverRun {
 }
 
 export interface ApprovalDecision {
-	answer: "Approve" | "Deny";
+	/** Stock's "this call only" option ("Approve", or "Approve Once" beside remembering grants), or "Deny". */
+	answer: string;
 	reason?: string;
 }
 
@@ -39,9 +40,13 @@ function cardText(request: Extract<ExtensionUIRequest, { method: "select" }>): s
 	return [request.title.replace(/^Allow tool:\s*/, ""), ...details].join("\n");
 }
 
-/** Approve unless the card's text breaks a hard limit under the run's ship level. */
+/**
+ * Approve this call only unless the card's text breaks a hard limit under the run's ship level: never a remembering
+ * answer, so every later call still meets the guard.
+ */
 export function decideApproval(request: ExtensionUIRequest, run: ApproverRun): ApprovalDecision {
-	if (request.method !== "select") return { answer: "Deny", reason: "not an approval card" };
+	const choices = approvalChoices(request);
+	if (request.method !== "select" || !choices) return { answer: APPROVE_DENY, reason: "not an approval card" };
 	const reason = findBanViolation(cardText(request), {
 		root: run.root,
 		shipLevel: shipLevel(run.ship),
@@ -51,7 +56,7 @@ export function decideApproval(request: ExtensionUIRequest, run: ApproverRun): A
 		remote: run.ship.remote,
 		defaultBranch: run.defaultBranch,
 	});
-	return reason ? { answer: "Deny", reason } : { answer: "Approve" };
+	return reason ? { answer: APPROVE_DENY, reason } : { answer: choices.once };
 }
 
 /** A remaining question: the recommended option of every `ask` question, otherwise declined. */
@@ -89,7 +94,7 @@ export class AutopilotApprover {
 		const run = this.#deps.runOf(tabId);
 		if (!run) return false;
 		let response: ExtensionUIResponse;
-		if (request.method === "select" && isApprovalSelect(request)) {
+		if (request.method === "select" && approvalChoices(request)) {
 			const decision = decideApproval(request, run);
 			if (decision.reason) this.#deps.denied?.(tabId, decision.reason);
 			response = { type: "extension_ui_response", id: request.id, value: decision.answer };

@@ -3,8 +3,10 @@
  * `isApprovalRequest`). It renders as the docked prompt card above the
  * composer (like the Claude app's permission prompt): tool name, capability
  * tier badge, a monospace args preview, then numbered choices in stock's
- * order: Approve, "Approve <subject> for this session" when stock offers it,
- * Deny. Focus lands on the card, never on Approve; Deny (or Escape) answers "Deny".
+ * order (`approvalChoices`): under "Ask and remember" the folder or target to
+ * remember for this session, then for every session; this call only; "Approve
+ * <subject> for this session" when stock offers it; Deny. Focus lands on the
+ * card, never on an approval; Deny (or Escape) answers "Deny".
  */
 
 import { ShieldAlert } from "lucide-react";
@@ -12,8 +14,8 @@ import { useMemo } from "react";
 import {
 	APPROVAL_TITLE_PREFIX,
 	APPROVE_DENY,
-	APPROVE_ONCE,
-	sessionApprovalOption,
+	type ApprovalGrantChoice,
+	approvalChoices,
 	sessionApprovalSubject,
 } from "../../../shared/tool-approval";
 import { formatElapsed } from "../../lib/format";
@@ -73,6 +75,20 @@ function WaitedFor({ since }: { since: number }) {
 	);
 }
 
+/** The card's words for each remembering answer, by what it covers and for how long. */
+const GRANT_LABELS: Record<`${ApprovalGrantChoice["kind"]}:${"session" | "always"}`, string> = {
+	"folder:session": "approval.grant.folder",
+	"folder:always": "approval.grant.folderAlways",
+	"file:session": "approval.grant.file",
+	"file:always": "approval.grant.fileAlways",
+	"target:session": "approval.grant.target",
+	"target:always": "approval.grant.targetAlways",
+};
+
+function grantKey(grant: ApprovalGrantChoice): keyof typeof GRANT_LABELS {
+	return `${grant.kind}:${grant.always ? "always" : "session"}`;
+}
+
 export function ApprovalDialog({
 	request,
 	onRespond,
@@ -96,9 +112,17 @@ export function ApprovalDialog({
 
 	const tier = tierFor(toolName);
 	const deny = () => onRespond({ value: APPROVE_DENY });
-	const session = sessionApprovalOption(request);
+	const offered = approvalChoices(request);
+	const session = offered?.session;
 	const choices = [
-		{ key: APPROVE_ONCE, label: t("approval.approve") },
+		...(offered?.grants ?? []).map(grant => ({
+			key: grant.option,
+			label: t(GRANT_LABELS[grantKey(grant)], { folder: grant.folder ?? "" }),
+		})),
+		{
+			key: offered?.once ?? "Approve",
+			label: t(offered?.grants.length ? "approval.approveOnce" : "approval.approve"),
+		},
 		...(session
 			? [{ key: session, label: t("approval.approveSession", { subject: sessionApprovalSubject(session) }) }]
 			: []),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isApprovalSelect, sessionApprovalOption } from "./tool-approval";
+import { approvalChoices, isApprovalSelect } from "./tool-approval";
 
 // Stock's own shapes are pinned by src/main/tool-approval-stock.test.ts; these are the selects that only look alike.
 describe("tool approval select", () => {
@@ -12,6 +12,17 @@ describe("tool approval select", () => {
 		expect(isApprovalSelect({ ...approval, options: ["Deny", "Approve"] })).toBe(false);
 		expect(isApprovalSelect({ ...approval, title: "Pick one" })).toBe(false);
 		expect(isApprovalSelect({ ...approval, method: "confirm" })).toBe(false);
-		expect(sessionApprovalOption({ ...approval, title: "Pick one" })).toBeUndefined();
+		expect(approvalChoices({ ...approval, title: "Pick one" })).toBeUndefined();
+		// A grant list stock never builds: an "Always" label with no grant of its own, or a grant without its always.
+		expect(
+			isApprovalSelect({
+				...approval,
+				options: ["Approve File", "Always Approve Directory: ~/x", "Approve Once", "Deny"],
+			}),
+		).toBe(false);
+		expect(isApprovalSelect({ ...approval, options: ["Approve File", "Approve Once", "Deny"] })).toBe(false);
+		expect(
+			isApprovalSelect({ ...approval, options: ["Approve File", "Always Approve File", "Approve", "Deny"] }),
+		).toBe(false);
 	});
 });

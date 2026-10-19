@@ -489,9 +489,13 @@ export const en: Record<string, string> = {
 	"input.approval.write.desc": "Auto-approve file edits, ask for the rest",
 	"input.approval.always-ask": "Ask every time",
 	"input.approval.always-ask.desc": "Prompt before any tool runs",
+	"input.approval.always-ask-cached": "Ask and remember",
+	"input.approval.always-ask-cached.desc":
+		"Ask before file reads and writes too; an answer can remember the file or its folder for this session or every session",
 	"input.approval.short.yolo": "Full",
 	"input.approval.short.write": "Edit",
 	"input.approval.short.always-ask": "Ask",
+	"input.approval.short.always-ask-cached": "Remember",
 	"input.goal.label": "Goal",
 	"input.modes.title": "Session mode",
 	"input.modes.activeTitle": "Session mode: {modes}",
@@ -2414,6 +2418,13 @@ export const en: Record<string, string> = {
 	"approval.deny": "Deny",
 	"approval.approve": "Approve",
 	"approval.approveSession": "Approve {subject} for this session",
+	"approval.approveOnce": "Approve once",
+	"approval.grant.folder": "Approve folder {folder} for this session",
+	"approval.grant.folderAlways": "Always approve folder {folder}",
+	"approval.grant.file": "Approve this file for this session",
+	"approval.grant.fileAlways": "Always approve this file",
+	"approval.grant.target": "Approve this for this session",
+	"approval.grant.targetAlways": "Always approve this",
 	"approval.unknownTool": "unknown tool",
 
 	// Extension UI dialogs
