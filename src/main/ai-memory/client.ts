@@ -609,4 +609,82 @@ export class AiMemoryClient {
 			throw error;
 		}
 	}
+
+	/** One page whole, as a copy on another of the person's computers needs it (sync.ts). */
+	async pageCopy(ref: AiMemoryProjectRef & { path: string }): Promise<MemoryPageCopy> {
+		const path = ref.path.split("/").map(encodeURIComponent).join("/");
+		const row = record(await this.#get(`${this.#projectPath(ref)}/pages/${path}`));
+		const frontmatter = record(row.frontmatter);
+		const metadata: MemoryPageMetadata = {};
+		const entities = strings(frontmatter.entities);
+		if (entities.length) metadata.entities = entities;
+		if (str(frontmatter.abstract)) metadata.abstract = str(frontmatter.abstract);
+		const relations: Record<string, string[]> = {};
+		for (const [relation, targets] of Object.entries(record(frontmatter.relations))) {
+			if (strings(targets).length) relations[relation] = strings(targets);
+		}
+		if (Object.keys(relations).length) metadata.relations = relations;
+		const appliesTo = strings(frontmatter.applies_to);
+		if (appliesTo.length) metadata.applies_to = appliesTo;
+		if (str(frontmatter.enforced_by)) metadata.enforced_by = str(frontmatter.enforced_by);
+		const kind = str(row.kind) || str(frontmatter.kind);
+		const origin = str(frontmatter.origin_device).trim();
+		return {
+			...projectOf(ref),
+			path: ref.path,
+			title: str(row.title) || ref.path,
+			...(kind ? { kind } : {}),
+			tier: str(row.tier) || "semantic",
+			body: str(row.body_markdown),
+			tags: strings(frontmatter.tags),
+			pinned: row.pinned === true,
+			metadata,
+			...(origin ? { origin } : {}),
+			updatedAt: str(row.updated_at) || null,
+		};
+	}
+
+	/**
+	 * Writes a copy of a page another computer holds, through the server's write path: a new version here with the
+	 * same title, kind, tier, tags, pin and metadata, marked `origin_device` with the computer it came from (omitted:
+	 * the page is this computer's own).
+	 */
+	async writePageCopy(copy: MemoryPageCopy, origin: string | undefined): Promise<void> {
+		await this.#post("/admin/write-page", {
+			...projectOf(copy),
+			path: copy.path,
+			body: copy.body,
+			title: copy.title,
+			...(copy.kind ? { kind: copy.kind } : {}),
+			tier: copy.tier,
+			tags: copy.tags,
+			pinned: copy.pinned,
+			...copy.metadata,
+			...(origin ? { origin_device: origin } : {}),
+		});
+	}
+}
+
+/** The write path's own frontmatter fields (beside kind, title, tags and pin), as a page stores them. */
+export interface MemoryPageMetadata {
+	entities?: string[];
+	abstract?: string;
+	relations?: Record<string, string[]>;
+	applies_to?: string[];
+	enforced_by?: string;
+}
+
+/** A page as `pageCopy` reads it and `writePageCopy` writes it. */
+export interface MemoryPageCopy extends AiMemoryProjectRef {
+	path: string;
+	title: string;
+	kind?: string;
+	tier: string;
+	body: string;
+	tags: string[];
+	pinned: boolean;
+	metadata: MemoryPageMetadata;
+	/** The computer (OMPdesk device id) this copy came from; absent on a page made or edited here. */
+	origin?: string;
+	updatedAt: string | null;
 }

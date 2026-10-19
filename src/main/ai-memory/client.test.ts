@@ -654,4 +654,59 @@ describe("AiMemoryClient (Memory page)", () => {
 		routes["/mcp"] = json({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "precondition failed for x" } });
 		expect(await client.createPage(page)).toBe(false);
 	});
+
+	it("a page copy carries what the write path takes, and its origin only when given one", async () => {
+		routes[`${BASE}/pages/decisions/sharing%20plan.md`] = json({
+			title: "Sharing",
+			kind: "decision",
+			tier: "semantic",
+			pinned: true,
+			updated_at: "2026-10-19T10:00:00Z",
+			body_markdown: "# Sharing\n\nTailscale identity only.",
+			frontmatter: {
+				tags: ["remote"],
+				entities: ["tailscale"],
+				abstract: "Who may connect.",
+				relations: { supersedes: ["decisions/codes.md"], fixes: [] },
+				origin_device: "mac-1",
+				last_modified_by: "someone",
+			},
+		});
+		const copy = await client.pageCopy({ ...PROJECT, path: "decisions/sharing plan.md" });
+		expect(copy).toEqual({
+			...PROJECT,
+			path: "decisions/sharing plan.md",
+			title: "Sharing",
+			kind: "decision",
+			tier: "semantic",
+			body: "# Sharing\n\nTailscale identity only.",
+			tags: ["remote"],
+			pinned: true,
+			metadata: {
+				entities: ["tailscale"],
+				abstract: "Who may connect.",
+				relations: { supersedes: ["decisions/codes.md"] },
+			},
+			origin: "mac-1",
+			updatedAt: "2026-10-19T10:00:00Z",
+		});
+		routes["/admin/write-page"] = json({ page_id: "id" });
+		await client.writePageCopy(copy, "mac-1");
+		expect(sent.at(-1)?.body).toEqual({
+			...PROJECT,
+			path: "decisions/sharing plan.md",
+			body: "# Sharing\n\nTailscale identity only.",
+			title: "Sharing",
+			kind: "decision",
+			tier: "semantic",
+			tags: ["remote"],
+			pinned: true,
+			entities: ["tailscale"],
+			abstract: "Who may connect.",
+			relations: { supersedes: ["decisions/codes.md"] },
+			origin_device: "mac-1",
+		});
+		await client.writePageCopy(copy, undefined);
+		expect(sent.at(-1)?.body).not.toHaveProperty("origin_device");
+	});
 });
