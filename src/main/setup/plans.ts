@@ -3,7 +3,7 @@
  * the exact process that runs. Everything here is fixed by main; the renderer
  * can name an item, never a command.
  */
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { SetupItemId, SetupMethod, SetupPlatform, SetupPresence } from "../../shared/setup";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { managedGitRoot } from "./paths";
@@ -156,8 +156,9 @@ export function psQuote(value: string): string {
 	return `'${value.replace(/'/g, "''")}'`;
 }
 
+/** A Windows path whatever host builds the plan (the plan only runs on Windows; tests build it on any OS). */
 function powershell(ctx: Pick<PlanContext, "systemRoot">): string {
-	return join(ctx.systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+	return win32.join(ctx.systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 }
 
 /** `-EncodedCommand` (UTF-16LE base64): the script reaches PowerShell without any command-line quoting. */

@@ -96,7 +96,7 @@ describe("buildPlan", () => {
 		expect(posix?.command).toBe("curl -fsSL https://bun.sh/install | bash");
 		expect(posix?.location).toBe("/home/u/.bun");
 		const windows = buildPlan("bun", "bun-script", win);
-		expect(windows?.spawn.file).toBe(join("C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"));
+		expect(windows?.spawn.file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
 		expect(windows?.spawn.args).toEqual([
 			"-NoProfile",
 			"-ExecutionPolicy",
