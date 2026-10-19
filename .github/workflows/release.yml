@@ -251,7 +251,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: read
       actions: read # lists this run's artifacts and jobs while `build` runs; the failure report reads the jobs
@@ -268,6 +268,17 @@ jobs:
       # bun it unzips; a no-op once installed.
       - name: Ensure the Electron binary
         run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      # The memory binary is built from native/memory (OMPdesk's own source) right here, while the build job
+      # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
+      # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - name: Build the memory binary
+        run: bun run build:memory
       # Package build's out/ (the same bytes `win` uses), not
       # a second build: `needs: build` would start this job only after build's
       # run is over, and `bun run package:mac` would build again (a downloaded
@@ -276,11 +287,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci-fetch-out.sh
-      # ai-memory's release binary (the app's built-in memory), checked against the
-      # pin and put in the gitignored resources/ai-memory-bin/; after-pack fails the
-      # package without it.
-      - name: Sync the ai-memory binary
-        run: bun run sync:ai-memory
       # The legacy feed also needs the ZIP (and the latest-mac.yml listing it).
       # A release must be signed with the pinned certificate: an ad-hoc
       # fallback would make macOS ask every user for its privacy permissions
@@ -327,7 +333,7 @@ jobs:
             codesign --verify --strict -R "=identifier \"ai-memory\" and certificate root = H\"$SHA1\"" "$AIM"
           fi
           AIM_HOME=$(mktemp -d)
-          HOME="$AIM_HOME" "$AIM" --version | grep -F "$(jq -r .version resources/omp-builtin/ai-memory/ai-memory.json)"
+          HOME="$AIM_HOME" "$AIM" --version | grep -F "$(jq -r .version native/memory/ompdesk.json)"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
         run: |
@@ -460,7 +466,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     permissions:
       contents: read
       actions: read # lists this run's artifacts and jobs while `build` runs; the failure report reads the jobs
@@ -482,6 +488,17 @@ jobs:
       # (`ELECTRON_SKIP_BINARY_DOWNLOAD` fails here: gpu-fallback and sidecar
       # tests import electron, whose index.js throws without the binary.)
       - run: bun install --frozen-lockfile
+      # The memory binary is built from native/memory (OMPdesk's own source) right here, while the build job
+      # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
+      # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - name: Build the memory binary
+        run: bun run build:memory
       # `build` uploads out/ about when this install ends; `needs: build`
       # would instead start this job only once the build job is done too.
       - name: Wait for out/ from the build job
@@ -494,8 +511,6 @@ jobs:
       # LZMA2 pass took 61 s of this job on 2 cores. Level 4 takes about 27 s
       # for a setup about a quarter larger (the 7z of v0.32.1's app: 80 MB at
       # 9, 100 MB at 4; level 5-7 cost as much time as 9).
-      - name: Sync the ai-memory binary
-        run: bun run sync:ai-memory
       - name: Package
         env:
           ELECTRON_BUILDER_COMPRESSION_LEVEL: "4"
@@ -507,7 +522,7 @@ jobs:
           test -f dist/win-unpacked/resources/gui-bridge/index.ts
           AIM=dist/win-unpacked/resources/ai-memory-bin/ai-memory.exe
           test -f "$AIM"
-          "$AIM" --version | grep -F "$(jq -r .version resources/omp-builtin/ai-memory/ai-memory.json)"
+          "$AIM" --version | grep -F "$(jq -r .version native/memory/ompdesk.json)"
       - name: Playwright browsers
         run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"

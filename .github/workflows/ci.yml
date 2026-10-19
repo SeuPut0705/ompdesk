@@ -304,8 +304,14 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - name: Sync the ai-memory binary
-        run: bun run sync:ai-memory
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - name: Build the memory binary
+        run: bun run build:memory
       - name: Package
         run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
       - name: Stage the setup under its release name and the assisted-installer release
@@ -363,8 +369,14 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - name: Sync the ai-memory binary
-        run: bun run sync:ai-memory
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - name: Build the memory binary
+        run: bun run build:memory
       # e2e/first-launch-window.e2e.ts launches dist/win-unpacked/OMPdesk.exe, the packaged app whose memory sets its
       # real ai-memory service up (an unpacked dev run only reports), as release.yml's win job does after packaging.
       - name: Package (unpacked)
@@ -403,3 +415,53 @@ jobs:
             playwright-report/
           if-no-files-found: ignore
           retention-days: 7
+
+  # OMPdesk's own memory source (native/memory, the vendored ai-memory) is built only when it changed in the push or
+  # the pull request: the same `bun run build:memory` release.yml's mac and win jobs run, on the same runner type as mac,
+  # then the binary's own check (`--version`, which build:memory runs) and the unit tests that read its build record.
+  memory:
+    if: "github.event_name != 'workflow_dispatch' && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
+    runs-on: macos-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Did native/memory change?
+        id: changed
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE" ] || [ "$BASE" = 0000000000000000000000000000000000000000 ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE" HEAD -- native/memory scripts/build-memory.ts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::native/memory did not change: not built."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.changed == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - if: steps.changed.outputs.changed == 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - if: steps.changed.outputs.changed == 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - if: steps.changed.outputs.changed == 'true'
+        run: bun install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - if: steps.changed.outputs.changed == 'true'
+        name: Build the memory binary
+        run: bun run build:memory
+      - if: steps.changed.outputs.changed == 'true'
+        name: Licenses list matches native/memory/Cargo.lock
+        run: bun run licenses:check
