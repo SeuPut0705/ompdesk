@@ -31,9 +31,17 @@ export function setupItemAutomatic(item: SetupItemId): boolean {
 
 export type SetupPlatform = "darwin" | "win32" | "other";
 
+/**
+ * Git for Windows is installed and `git` runs, but its `sh` cannot start a child process (setup's real probe:
+ * `sh -c /usr/bin/true`). Git hooks, `rebase -i` editors and pushes to a local folder go through that `sh`.
+ * `mandatory-aslr`: the 0xC0000142 fork failure of Windows' Mandatory ASLR (Exploit protection's "Force
+ * randomization for images"), which no Git install avoids; `spawn-failed`: anything else, with its output.
+ */
+export type GitShellProblem = { kind: "mandatory-aslr" } | { kind: "spawn-failed"; detail: string };
+
 /** What detection found. `path` is the executable (or install root) it found. */
 export type SetupPresence =
-	| { kind: "present"; version: string | null; path: string | null }
+	| { kind: "present"; version: string | null; path: string | null; gitShell?: GitShellProblem }
 	| { kind: "missing" }
 	| { kind: "outdated"; version: string; minimum: string; path: string | null }
 	| { kind: "broken"; detail: string; path: string | null };

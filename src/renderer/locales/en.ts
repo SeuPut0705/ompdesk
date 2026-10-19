@@ -6125,6 +6125,9 @@ export const en: Record<string, string> = {
 	"machineSetup.phase.idle": "Not installed",
 	"machineSetup.presence.outdated": "{version} is older than the required {minimum}",
 	"machineSetup.presence.broken": "Found, but it doesn't run: {detail}",
+	"machineSetup.presence.gitShellAslr":
+		"Git Bash can't start other programs (Windows error 0xC0000142): Mandatory ASLR is on in Windows Security › App & browser control › Exploit protection › System settings › Force randomization for images. Git hooks, interactive rebase and pushes to a local folder fail; the agent's shell commands still run.",
+	"machineSetup.presence.gitShellFailed": "Git Bash can't start other programs: {detail}",
 	"machineSetup.command": "Command",
 	"machineSetup.location": "Installs to",
 	"machineSetup.prompt.uac": "Windows will ask for permission to make changes. Choose Yes to continue.",

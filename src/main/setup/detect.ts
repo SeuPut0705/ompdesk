@@ -7,9 +7,10 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { REA_NODE_REQUIREMENT } from "../../shared/builtin-mcp";
-import type { SetupItemId, SetupPlatform, SetupPresence } from "../../shared/setup";
+import type { GitShellProblem, SetupItemId, SetupPlatform, SetupPresence } from "../../shared/setup";
 import { builtinReaState, resetReaRuntimeCache } from "../builtin-mcp";
 import { parseOmpVersion, refreshSystemOmp, systemOmp } from "../omp-runtime";
+import { writeRuntimeLog } from "../runtime-log";
 import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { execFileExecutor } from "../tailscale/cli";
@@ -78,15 +79,52 @@ async function detectOmp(): Promise<{ presence: SetupPresence; bin: string | nul
 			return { presence: { kind: "missing" }, bin: null };
 	}
 }
+/** The sh probe's outcome as a problem, or null when sh started its child. 0xC0000142 is Mandatory ASLR's signature. */
+export function gitShellProblem(result: { code: number | null; output: string }): GitShellProblem | null {
+	if (result.code === 0) return null;
+	if (/0xC0000142/i.test(result.output)) return { kind: "mandatory-aslr" };
+	return { kind: "spawn-failed", detail: result.output.trim().split("\n").at(-1) || `exit ${result.code}` };
+}
+
+/**
+ * Runs `<root>\usr\bin\sh.exe -c "/usr/bin/true; exit"`: two commands, so sh must fork a child as hooks and
+ * editors do (a lone command is exec'd in place, and under Mandatory ASLR that fails silently with 127).
+ */
+export function probeGitShell(root: string, env: NodeJS.ProcessEnv): Promise<GitShellProblem | null> {
+	const { promise, resolve } = Promise.withResolvers<GitShellProblem | null>();
+	execFile(
+		join(root, "usr", "bin", "sh.exe"),
+		["-c", "/usr/bin/true; exit"],
+		{ env, timeout: 30_000, windowsHide: true },
+		(error, stdout, stderr) => {
+			const code = error ? (typeof error.code === "number" ? error.code : null) : 0;
+			resolve(gitShellProblem({ code, output: `${stdout}${stderr}` || (error?.message ?? "") }));
+		},
+	);
+	return promise;
+}
 
 async function detectGit(platform: SetupPlatform, pathEnv: string, env: NodeJS.ProcessEnv): Promise<SetupPresence> {
 	if (platform === "win32") {
 		const bash = findGitBash({ ...env, PATH: pathEnv });
 		if (!bash) return { kind: "missing" };
-		const git = join(dirname(dirname(bash)), "cmd", "git.exe");
-		if (!existsSync(git)) return { kind: "present", version: null, path: dirname(dirname(bash)) };
-		const found = await versionOf(git, env, platform);
-		return found.kind === "present" ? { ...found, path: dirname(dirname(bash)) } : found;
+		const root = dirname(dirname(bash));
+		const git = join(root, "cmd", "git.exe");
+		const [found, gitShell] = await Promise.all([
+			existsSync(git)
+				? versionOf(git, env, platform)
+				: Promise.resolve<SetupPresence>({ kind: "present", version: null, path: root }),
+			existsSync(join(root, "usr", "bin", "sh.exe")) ? probeGitShell(root, env) : Promise.resolve(null),
+		]);
+		if (found.kind !== "present") return found;
+		if (!gitShell) return { ...found, path: root };
+		writeRuntimeLog({
+			level: "warn",
+			source: "setup",
+			message: "Git's sh cannot start a child process",
+			details: { root, ...gitShell },
+		});
+		return { ...found, path: root, gitShell };
 	}
 	// /usr/bin/git is a stub until the Command Line Tools exist; running it then
 	// opens Apple's install dialog, so ask xcode-select before touching it.

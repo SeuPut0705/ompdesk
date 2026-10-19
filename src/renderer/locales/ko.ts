@@ -6100,6 +6100,9 @@ export const ko: Record<string, string> = {
 	"machineSetup.phase.idle": "설치되지 않음",
 	"machineSetup.presence.outdated": "필요한 {minimum}보다 오래된 버전이에요 · 설치된 버전 {version}",
 	"machineSetup.presence.broken": "찾았지만 실행되지 않아요: {detail}",
+	"machineSetup.presence.gitShellAslr":
+		"Git Bash가 다른 프로그램을 실행하지 못해요(Windows 오류 0xC0000142). Windows 보안 › 앱 및 브라우저 컨트롤 › Exploit protection › 시스템 설정 › 이미지에 임의 지정 강제(필수 ASLR)가 켜져 있어요. Git 훅, 대화형 rebase, 로컬 폴더로의 push가 실패하고, 에이전트의 셸 명령은 그대로 실행돼요.",
+	"machineSetup.presence.gitShellFailed": "Git Bash가 다른 프로그램을 실행하지 못해요: {detail}",
 	"machineSetup.command": "명령",
 	"machineSetup.location": "설치 위치",
 	"machineSetup.prompt.uac": "Windows가 변경 권한을 물어볼 거예요. 계속하려면 예를 선택해 주세요.",
