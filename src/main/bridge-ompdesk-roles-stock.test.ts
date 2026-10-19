@@ -214,7 +214,12 @@ function runProbe(config: string): Probe {
 	}
 }
 
-/** The bridge's hooks installed as index.ts does, a review pick, then `/modelpreset` over stock's own RPC input path. */
+/**
+ * The bridge's hooks installed as index.ts does, a review pick, then `/modelpreset` over stock's own RPC input path.
+ * `__DELAY__` is how long a later extension's `input` handler holds a `/modelpreset` command before stock runs it
+ * (stock awaits input handlers one after another). It is real time on purpose: the case proves no guard expires on
+ * the wall clock, which fake timers in this test process cannot reach inside the omp child.
+ */
 const PRESET_PROBE = `
 import { methods } from "./settings";
 import { install } from "./ompdesk-roles";
@@ -225,6 +230,11 @@ export default function (pi) {
  const session = () => pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
  const sel = model => model.provider + "/" + model.id;
  pi.on("input", async event => {
+  if (event.text.startsWith("/modelpreset")) {
+   const { promise, resolve } = Promise.withResolvers();
+   setTimeout(resolve, __DELAY__);
+   await promise;
+  }
   if (event.text !== "PROBE_AFTER") return undefined;
   const { model } = resolveModelOverride(["@review"], session().modelRegistry, session().settings);
   await session().settings.flush();
@@ -242,8 +252,13 @@ export default function (pi) {
 `;
 
 /** Runs PRESET_PROBE, sends `/modelpreset save mine`, then `switch mine`, then reads the probe and config.yml. */
-async function runPresetSession(): Promise<{ A: string; review: string | null; config: Record<string, unknown> }> {
-	const { isolated, extension } = isolatedBridge(PRESET_PROBE, "ompdesk-roles-preset-probe.ts");
+async function runPresetSession(
+	delayMs = 0,
+): Promise<{ A: string; review: string | null; config: Record<string, unknown> }> {
+	const { isolated, extension } = isolatedBridge(
+		PRESET_PROBE.replaceAll("__DELAY__", String(delayMs)),
+		"ompdesk-roles-preset-probe.ts",
+	);
 	const child = spawn(omp, [...RPC_ARGS, extension], { env: isolatedEnv(isolated), cwd: isolated });
 	let stderr = "";
 	let stdout = "";
@@ -377,6 +392,15 @@ describe.skipIf(!existsSync(omp))("OMPdesk roles on stock omp", () => {
 		expect(Object.keys(presets?.mine?.modelRoles ?? {})).not.toContain("review");
 		expect(Object.keys((config.modelRoles as Record<string, string> | undefined) ?? {})).not.toContain("review");
 		// The held pick is back once the commands are done.
+		expect(review).toBe(A);
+	}, 130_000);
+
+	it("keeps review out of the preset however long another extension's input handler holds the command", async () => {
+		const { A, review, config } = await runPresetSession(2_600);
+		const presets = config.modelPresets as Record<string, { modelRoles?: Record<string, string> }> | undefined;
+		expect(presets?.mine, JSON.stringify(config)).toBeDefined();
+		expect(Object.keys(presets?.mine?.modelRoles ?? {})).not.toContain("review");
+		expect(Object.keys((config.modelRoles as Record<string, string> | undefined) ?? {})).not.toContain("review");
 		expect(review).toBe(A);
 	}, 130_000);
 });

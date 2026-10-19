@@ -760,7 +760,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"lookup()",
 				"Setting.prototype.override()",
 				"Setting.prototype.clearOverride()",
-				// `modelPresets` changes end a `/modelpreset save` step-aside (ompdesk-roles.ts).
+				// The `modelPresets` handle's writes drop the roles OMPdesk holds (ompdesk-roles.ts).
+				"Setting.prototype.setEntry()",
+				// A `/modelpreset switch` clears held roles; a `modelRoles` change re-holds them (ompdesk-roles.ts).
 				"Setting.prototype.listen()",
 			],
 			// The security reviewer's tier holds only while stock's bundled agent has no model line.

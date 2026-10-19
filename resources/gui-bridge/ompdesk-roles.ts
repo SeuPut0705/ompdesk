@@ -18,10 +18,12 @@
  *   (`OMP_GUI_OMPDESK_ROLES`); `settleOmpdeskRoles` re-reads it before every
  *   turn and around the Settings reads and writes.
  * - Stock's `/modelpreset save` snapshots `getModelRoles()` (runtime layer
- *   included) into config.yml and `switch` rewrites every role it lists, so
- *   the held roles step aside for those two commands (the `input` hook runs
- *   before stock's builtin slash commands over RPC) and come back once the
- *   preset is saved, at the next input or turn, or after `PRESET_GRACE_MS`.
+ *   included) and writes it with the `modelPresets` handle's `setEntry`, so
+ *   that handle's `setEntry` drops every role OMPdesk holds in that Settings
+ *   (same id, same value) from the entry it persists. The guard sits on the
+ *   write itself: however long the command takes and whatever path saves a
+ *   preset (RPC, TUI, ACP), a held role never reaches config.yml. A role the
+ *   user set (config, project, `--config`) is not held, so it is saved as is.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -101,27 +103,19 @@ function dropRuntimeEntry(settings: RoleSettings, id: string, segments: readonly
 	else handle.clearOverride(settings);
 }
 
-/** Settings whose held roles stepped aside for a `/modelpreset save` or `switch` that has not finished yet. */
-const steppedAside = new WeakSet<object>();
-/** The longest a `/modelpreset` command keeps the held roles away (it runs within milliseconds of its input). */
-const PRESET_GRACE_MS = 2000;
-const PRESET_COMMAND = /^\s*\/modelpreset\s+(save|switch)\b/;
+/** The `modelPresets` handles whose writes are guarded (one wrapper per handle, whatever the rebinds). */
+const guarded = new WeakSet<object>();
 
-/** Take the held roles out of the runtime layer, so a preset neither saves nor clears them. */
-function stepAside(settings: RoleSettings): void {
-	const mine = heldIn(settings);
-	for (const role of OMPDESK_ROLES) {
-		if (mine.delete(`role:${role.id}`)) dropRuntimeEntry(settings, "modelRoles", ["modelRoles"], role.id);
-	}
-	steppedAside.add(settings);
-}
-
-function stepBack(settings: RoleSettings): void {
-	if (steppedAside.delete(settings)) settleOmpdeskRoles(settings);
+/** `entry` without the roles OMPdesk holds in `scope` (same id and value), so a saved preset never carries them. */
+export function withoutHeldRoles(scope: object, entry: unknown): unknown {
+	const mine = held.get(scope);
+	const roles = record(record(entry).modelRoles);
+	if (!mine || Object.keys(roles).length === 0) return entry;
+	const kept = Object.fromEntries(Object.entries(roles).filter(([id, value]) => mine.get(`role:${id}`) !== value));
+	return { ...record(entry), modelRoles: kept };
 }
 
 function settleRoles(settings: RoleSettings, mine: Map<string, string>): void {
-	if (steppedAside.has(settings)) return;
 	const picks = readRolePicks();
 	const runtime = record(record(settings.overlayLayers().overrides).modelRoles);
 	for (const role of OMPDESK_ROLES) {
@@ -183,31 +177,30 @@ export function settleOmpdeskRoles(settings: RoleSettings): void {
 	settleAgentTiers(settings, mine);
 }
 
-/** Settings whose `modelPresets` changes are watched (one listener per instance, whatever the rebinds). */
+/** Settings whose `modelRoles` changes are watched (one listener per instance, whatever the rebinds). */
 const watched = new WeakSet<object>();
 
 export function install(pi: ExtensionAPI): void {
 	const settings = (): RoleSettings => pi.pi.Settings.instance as unknown as RoleSettings;
-	const scope = settings();
-	if (!watched.has(scope)) {
-		watched.add(scope);
-		// A saved preset is the save command done: the held roles come back right after it.
-		const presets = lookup("modelPresets") as { listen?(scope: object, onChange: () => void): unknown } | undefined;
-		presets?.listen?.(scope, () => stepBack(scope));
+	const presets = lookup("modelPresets") as
+		| { setEntry?(scope: object, key: string, value: unknown): void }
+		| undefined;
+	if (presets?.setEntry && !guarded.has(presets)) {
+		guarded.add(presets);
+		const write = presets.setEntry.bind(presets);
+		presets.setEntry = (scope, key, value) =>
+			write(scope, key, value === undefined ? value : withoutHeldRoles(scope, value));
 	}
-	pi.on("input", event => {
-		const current = settings();
-		if (PRESET_COMMAND.test(event.text)) {
-			stepAside(current);
-			setTimeout(() => stepBack(current), PRESET_GRACE_MS).unref?.();
-		} else {
-			stepBack(current);
-		}
-		return undefined;
-	});
+	const scope = settings();
+	const roles = lookup("modelRoles") as { listen?(scope: object, onChange: () => void): unknown } | undefined;
+	if (!watched.has(scope) && roles?.listen) {
+		watched.add(scope);
+		// `/modelpreset switch` clears every runtime role its preset does not list (stock `writePresetRoles`); a
+		// preset never lists a held role, so it comes back once that write is done. Holding is runtime-only.
+		roles.listen(scope, () => queueMicrotask(() => settleOmpdeskRoles(scope)));
+	}
 	// A pick made on another tab, or a config.yml edit, applies from this session's next turn.
 	pi.on("before_agent_start", () => {
-		steppedAside.delete(settings());
 		settleOmpdeskRoles(settings());
 		return undefined;
 	});
