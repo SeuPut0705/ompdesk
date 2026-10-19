@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { HIDDEN_ROLES } from "../../resources/gui-bridge/model-role-contracts";
+import { OMPDESK_ROLES } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import { I18nProvider, setLanguageOverride } from "../renderer/lib/i18n";
 import { en } from "../renderer/locales/en";
 import { ko } from "../renderer/locales/ko";
@@ -144,6 +145,19 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("every stock model role reaches Sett
 			if (id in HIDDEN_ROLES) expect(HIDDEN_ROLES[id]?.length, `${id} hidden without a reason`).toBeGreaterThan(20);
 		}
 		expect(shown(probe.roles).length).toBeGreaterThan(0);
+	});
+
+	it("lists OMPdesk's own roles after stock's, with their chain as defaults", () => {
+		const ids = probe.roles.map(role => role.id);
+		for (const own of OMPDESK_ROLES) {
+			expect(probe.roles.find(role => role.id === own.id)).toMatchObject({
+				origin: "ompdesk",
+				name: own.name,
+				defaults: [...own.chain],
+			});
+			expect(probe.roles.find(role => role.id === own.id)?.accepts?.length, own.id).toBeGreaterThan(0);
+			for (const stock of probe.ids) expect(ids.indexOf(own.id), own.id).toBeGreaterThan(ids.indexOf(stock));
+		}
 	});
 
 	for (const lang of ["en", "ko"] as const) {
