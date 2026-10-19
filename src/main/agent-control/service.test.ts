@@ -780,7 +780,7 @@ describe("ompdesk_session_stop", () => {
 		const child = [...host.tabsById.keys()].find(id => id !== "main0001") as string;
 		const stopped = await service.run("main0001", T.stop, { session: child, close: true });
 		expect(stopped.isError).toBe(false);
-		expect(stopped.text).toContain("Stopped and closed");
+		expect(stopped.text).toContain("Closed");
 		expect(host.cards).toHaveLength(0);
 	});
 
@@ -2034,5 +2034,74 @@ describe("mail across failures and relaunches", () => {
 		expect(prompts(host, "kid00002")).toEqual([]);
 		await relaunched.run("boss0001", T.send, { session: "kid00002", message: "next" });
 		expect(prompts(host, "kid00002")[0]).toContain("dispatch d3");
+	});
+});
+
+describe("closing and stopping: ownership after a relaunch, cards by risk", () => {
+	it("a relaunch keeps ownership: the caller closes and stops its own child with no card", async () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{ tabId: "kid00002", title: "Phone input", busy: true },
+		);
+		// What the pool kept across the relaunch: the child's opener (main's memory of the open is gone).
+		host.parents.set("kid00002", "boss0001");
+		const relaunched = control(host);
+		const stopped = await relaunched.run("boss0001", T.stop, { session: "kid00002", close: true });
+		expect(stopped.isError, stopped.text).toBe(false);
+		expect(host.cards).toHaveLength(0);
+		expect(host.views).toContainEqual({ tabId: "kid00002", how: "close" });
+	});
+
+	it("closes an idle session it did not open with no card, and says so in both sessions", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "else0002", title: "Done work" });
+		const result = await control(host).run("boss0001", T.stop, { session: "else0002", close: true });
+		expect(result.text).toContain("Closed");
+		expect(host.cards).toHaveLength(0);
+		expect(host.sent.some(entry => entry.command.type === "abort")).toBe(false);
+		expect(host.mails.map(mail => mail.to).sort()).toEqual(["boss0001", "else0002"]);
+		expect(host.mails.every(mail => mail.delivery.triggerTurn === false)).toBe(true);
+	});
+
+	it("still asks before stopping a running session it did not open, and before deleting one", async () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{ tabId: "busy0002", title: "Busy", busy: true },
+			{ tabId: "idle0003", title: "Idle", sessionPath: "/s/i.jsonl" },
+		);
+		host.cardAnswer = false;
+		const service = control(host);
+		expect((await service.run("boss0001", T.stop, { session: "busy0002", close: true })).text).toMatch(/declined/);
+		expect((await service.run("boss0001", T.stop, { session: "idle0003", delete: true })).text).toMatch(/declined/);
+		expect(host.cards).toHaveLength(2);
+		expect(host.views).toEqual([]);
+	});
+
+	it("never closes a session the user looks at or typed into, its own child included", async () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{ tabId: "seen0002", looked: true },
+			{ tabId: "typed003", userTouched: true },
+		);
+		host.parents.set("seen0002", "boss0001");
+		const service = control(host);
+		for (const session of ["seen0002", "typed003"]) {
+			const refused = await service.run("boss0001", T.stop, { session, close: true });
+			expect(refused.isError).toBe(true);
+			expect(refused.text).toMatch(/user's view or they typed/);
+		}
+		expect(host.views).toEqual([]);
+	});
+
+	it("joins two same-request sends arriving together into one delivery", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "kid00002" });
+		const service = control(host);
+		const args = { session: "kid00002", message: "go", request_id: "q1" };
+		const [one, two] = await Promise.all([
+			service.run("boss0001", T.send, args),
+			service.run("boss0001", T.send, args),
+		]);
+		expect([one.isError, two.isError]).toEqual([false, false]);
+		expect(prompts(host, "kid00002")).toHaveLength(1);
+		expect([one.text, two.text].some(text => text.includes("nothing sent again"))).toBe(true);
 	});
 });

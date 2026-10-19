@@ -121,7 +121,7 @@ test("create a session, send it a message, wait for it and read its result", asy
 	await expect(page.getByText("ompdesk-agent-message")).toHaveCount(0);
 });
 
-test("a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
+test("deleting a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
 	test.setTimeout(150_000);
 	// A second tab the user opened (⌘T): not the agent's.
 	const before = (await tabs()).map(tab => tab.tabId);
@@ -131,7 +131,7 @@ test("a session the agent did not open needs the user's confirmation card; a ref
 	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
 	// The main agent asks; its card waits on the main tab, which the sidebar marks "Needs input".
 
-	const pending = call("ompdesk_session_stop", { session: theirs, close: true });
+	const pending = call("ompdesk_session_stop", { session: theirs, delete: true });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -142,7 +142,7 @@ test("a session the agent did not open needs the user's confirmation card; a ref
 	expect(declined.text).toContain("The user declined");
 	expect((await tabs()).map(tab => tab.tabId)).toContain(theirs);
 
-	const approved = call("ompdesk_session_stop", { session: theirs, close: true });
+	const approved = call("ompdesk_session_stop", { session: theirs, delete: true });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -152,6 +152,6 @@ test("a session the agent did not open needs the user's confirmation card; a ref
 		.getByRole("button", { name: /^Approve/ })
 		.first()
 		.click();
-	expect((await approved).text).toContain("Stopped and closed");
-	await expect.poll(async () => (await tabs()).map(tab => tab.tabId)).not.toContain(theirs);
+	// Approved, the delete runs (a ⌘T tab has no saved file yet, so main says closing is enough).
+	expect((await approved).text).toMatch(/Stopped, closed and deleted|no saved file yet/);
 });

@@ -673,6 +673,8 @@ export class AgentControl {
 	readonly #mailbox: Mailbox;
 	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
 	readonly #receipts = new Map<string, string>();
+	/** Sends with a request id still on their way: a same-id repeat joins one instead of sending twice. */
+	readonly #inflight = new Map<string, Promise<string>>();
 
 	readonly #app: AppControl | null;
 
@@ -860,10 +862,16 @@ export class AgentControl {
 			);
 	}
 
+	/**
+	 * Tabs `callerTabId` opened: those this launch saw it open, and those whose opener the pool kept across a relaunch
+	 * (`host.parentOf`: the opener's tab, or the tab now holding the opener's session file), so ownership survives one.
+	 */
 	#openedBy(callerTabId: string, tabs: ControlTab[]): Set<string> {
 		const set = this.#opened.get(callerTabId) ?? new Set<string>();
 		const live = new Set(tabs.map(tab => tab.tabId));
 		for (const id of set) if (!id.startsWith("pending:") && !live.has(id)) set.delete(id);
+		for (const tab of tabs)
+			if (tab.tabId !== callerTabId && this.#host.parentOf(tab.tabId) === callerTabId) set.add(tab.tabId);
 		this.#opened.set(callerTabId, set);
 		return set;
 	}
@@ -1275,9 +1283,30 @@ export class AgentControl {
 		this.#refuseHidden(target, caller);
 		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
 		// Idempotent: a retried call (a flaky link, a paired device) gets the first receipt, never a second delivery.
-		const receiptKey = args.request_id ? `${caller.tabId}|${target.tabId}|${args.request_id}` : undefined;
+		const receiptKey = args.request_id
+			? `${caller.sessionPath ?? caller.tabId}|${target.sessionPath ?? target.tabId}|${args.request_id}`
+			: undefined;
 		const known = receiptKey ? this.#receipts.get(receiptKey) : undefined;
 		if (known) return `${known} (request ${args.request_id} was already delivered; nothing sent again)`;
+		// A same-id call arriving while the first is still on its way joins it instead of sending again.
+		const pending = receiptKey ? this.#inflight.get(receiptKey) : undefined;
+		if (pending) return `${await pending} (request ${args.request_id} was already delivered; nothing sent again)`;
+		if (!receiptKey) return this.#deliverSend(caller, target, args, undefined);
+		const delivery = this.#deliverSend(caller, target, args, receiptKey);
+		this.#inflight.set(receiptKey, delivery);
+		try {
+			return await delivery;
+		} finally {
+			this.#inflight.delete(receiptKey);
+		}
+	}
+
+	async #deliverSend(
+		caller: ControlTab,
+		target: ControlTab,
+		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
+		receiptKey: string | undefined,
+	): Promise<string> {
 		await this.#ensureStarted(target, caller.tabId);
 		// The target's journal is the durable record: a relaunch (or a retry whose first receipt was lost) finds the
 		// request already there, and the last dispatch it was given.
@@ -1607,7 +1636,13 @@ export class AgentControl {
 		this.#refuseHidden(target, caller);
 		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
 		const params = { caller: caller.title || "—", target: target.title || target.tabId };
-		if (!own && !this.#host.manageEnabled()) {
+		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
+		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
+		const resting = !target.busy && target.asks.length === 0 && !target.looked && !target.userTouched;
+		const harmless = args.close === true && !args.delete && resting;
+		if (args.close && !args.delete && (target.looked || target.userTouched))
+			fail(`${label(target)} is in the user's view or they typed into it; leave it open, or ask the user.`);
+		if (!own && !harmless && !this.#host.manageEnabled()) {
 			const approved = await this.#host.confirm(
 				caller.tabId,
 				this.#host.text("stopTitle", params),
@@ -1618,18 +1653,53 @@ export class AgentControl {
 		}
 		this.#closing.add(target.tabId);
 		try {
-			if (target.status === "ready" || target.status === "running") {
+			if (target.busy && (target.status === "ready" || target.status === "running")) {
 				responseData(await this.#host.command(target.tabId, { type: "abort" }), "Stopping the session");
 			}
+			if (args.close || args.delete) await this.#journalClose(caller, target, args.delete === true);
 			if (args.delete) await this.#host.deleteSession(caller.tabId, target.tabId);
-			else if (args.close) this.#host.view(caller.tabId, { tabId: target.tabId, how: "close" });
+			else if (args.close) {
+				// The card and the lines took time: the person may have opened it meanwhile.
+				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
+				if (now && (now.looked || now.userTouched))
+					fail(`${label(target)} came into the user's view meanwhile; it stays open.`);
+				this.#host.view(caller.tabId, { tabId: target.tabId, how: "close" });
+			}
 		} finally {
 			this.#closing.delete(target.tabId);
 		}
 		if (args.delete) return `Stopped, closed and deleted ${label(target)}.`;
-		return args.close
-			? `Stopped and closed ${label(target)} (its session stays saved).`
-			: `Stopped ${label(target)}.`;
+		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
+		return target.busy ? `Stopped ${label(target)}.` : `${label(target)} was not running; nothing to stop.`;
+	}
+
+	/** A close is journaled as one quiet line in both sessions (best effort: a line never blocks the close). */
+	async #journalClose(caller: ControlTab, target: ControlTab, deleted: boolean): Promise<void> {
+		const at = Date.now();
+		const line = (from: ControlTab, text: string) => ({
+			id: `close:${target.sessionPath ?? target.tabId}:${at}:${from.tabId}`,
+			from: from.tabId,
+			fromTitle: from.title,
+			kind: "note",
+			label: "note",
+			text,
+		});
+		const quiet: MailDelivery = { triggerTurn: false };
+		const closed = `${deleted ? "Deleted" : "Closed"} ${label(target)}${deleted ? "" : " (its session stays saved)"}.`;
+		await Promise.allSettled([
+			this.#host.mail(
+				caller.tabId,
+				closed,
+				line(caller, closed),
+				caller.busy ? { triggerTurn: false, deliverAs: "nextTurn" } : quiet,
+			),
+			this.#host.mail(
+				target.tabId,
+				`${caller.title || "Another session"} closed this session's tab.`,
+				line(caller, `closed this tab`),
+				quiet,
+			),
+		]);
 	}
 
 	/** What a compare reads from one session: its final answer, the checks it ran and its worktree's diff. */

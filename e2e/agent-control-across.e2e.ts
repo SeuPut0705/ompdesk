@@ -127,9 +127,9 @@ test.describe("on this computer", () => {
 				},
 				{ timeout: 30_000 },
 			)
-			.toMatch(/1 session saved on this computer matching "Second attempt"/);
-		expect(stored).not.toContain("open in tab");
-		const id = /\n- (\S+) "/.exec(stored)?.[1] ?? "";
+			// The closed session's own row (the caller's journal now also mentions it: "Closed …").
+			.toMatch(/\n- \S+ "Second attempt at the task"\n[^\n]*changed [^\n;]*\n/);
+		const id = /\n- (\S+) "Second attempt at the task"/.exec(stored)?.[1] ?? "";
 		expect(id).not.toBe("");
 		const read = await call("ompdesk_session_read", { session: id });
 		expect(read.isError, read.text).toBe(false);
