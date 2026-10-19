@@ -214,19 +214,29 @@ export interface RunResult {
 	output: string;
 }
 
+/** One argument for a cmd.exe command line: quoted when it holds a space or a metacharacter. */
+export function quoteForCmd(arg: string): string {
+	if (arg !== "" && !/[\s"&|<>^()%!]/.test(arg)) return arg;
+	return `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+}
+
 /**
  * Run `command` in its own process group. `capture` buffers stdout and stderr
  * together instead of streaming them, for steps that run side by side.
  */
 export function run(command: string[], options: { capture?: boolean } = {}): Promise<RunResult> {
 	const started = performance.now();
-	const [file, ...args] = command;
+	const [file, ...rest] = command;
 	if (!file) throw new Error("No command");
+	// Windows needs cmd.exe to start `bunx`/`npx` shims (.cmd), and cmd.exe gets one joined line, so an
+	// argument with a space or a cmd metacharacter (a Playwright `-g` title, a path) must be quoted.
+	const win = process.platform === "win32";
+	const args = win ? rest.map(quoteForCmd) : rest;
 	const child = spawn(file, args, {
 		// stdin stays closed: a child in its own process group reading the terminal would stop on SIGTTIN.
 		stdio: ["ignore", options.capture ? "pipe" : "inherit", options.capture ? "pipe" : "inherit"],
-		detached: process.platform !== "win32",
-		shell: process.platform === "win32",
+		detached: !win,
+		shell: win,
 	});
 	children.add(child);
 	const chunks: Buffer[] = [];

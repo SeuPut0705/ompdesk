@@ -3,7 +3,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { quoteForCmd } from "./build-lock";
 import { type LockLogEntry, readLockLog } from "./lock-log";
+
+describe("quoteForCmd", () => {
+	it("keeps plain arguments and quotes the ones cmd.exe would split or expand", () => {
+		expect(quoteForCmd("e2e/smoke.e2e.ts")).toBe("e2e/smoke.e2e.ts");
+		expect(quoteForCmd("responsive 390P-light-en$")).toBe('"responsive 390P-light-en$"');
+		expect(quoteForCmd("a&b")).toBe('"a&b"');
+		expect(quoteForCmd("")).toBe('""');
+		expect(quoteForCmd('say "hi"')).toBe('"say \\"hi\\""');
+		expect(quoteForCmd("C:\\My Dir\\")).toBe('"C:\\My Dir\\\\"');
+	});
+});
 
 const LOCK = path.join(import.meta.dirname, "build-lock.ts");
 let dir: string;
