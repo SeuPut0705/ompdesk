@@ -88,8 +88,18 @@ function Probe({ text, filePaths, commands }: { text: string; filePaths: string[
 	);
 }
 
+/** Unmount the probe on screen: a probe left mounted keeps its timers (a slash command's 120 ms argument lookup) and writes `latest` later. */
+async function unmount(): Promise<void> {
+	if (!root) return;
+	await act(async () => {
+		root?.unmount();
+	});
+	root = undefined;
+}
+
 /** Derive the menu for a draft (caret at its end) once the effects and async steps have settled. */
 async function derive(text: string, filePaths: string[] = [], commands = COMMANDS): Promise<Derived> {
+	await unmount();
 	latest = { menu: null, hint: "" };
 	const container = document.createElement("div");
 	document.body.appendChild(container);
@@ -114,12 +124,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	if (root) {
-		await act(async () => {
-			root?.unmount();
-		});
-		root = undefined;
-	}
+	await unmount();
 	document.body.innerHTML = "";
 	clearMentionFiles();
 	useModelStore.getState().reset();
