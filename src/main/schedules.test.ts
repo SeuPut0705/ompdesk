@@ -193,6 +193,9 @@ describe("ScheduleService", () => {
 		const saved = await service.command({ action: "save", draft: draft(dir) }, "dev-a");
 		const id = saved.schedules[0]?.id ?? "";
 		expect(saved.schedules[0]?.device).toBe("dev-a");
+		// The create route (an agent's `ompdesk_schedule` over the link) makes it the device's the same way.
+		const made = await service.create(draft(dir, { name: "Made", enabled: false }), "dev-a");
+		expect(made.state.schedules.find(schedule => schedule.id === made.id)?.device).toBe("dev-a");
 
 		await vi.advanceTimersByTimeAsync(60 * 60_000);
 		await launched(1);
@@ -246,6 +249,24 @@ describe("ScheduleService", () => {
 		expect(launch).not.toHaveBeenCalled();
 		expect(service.state().runs).toEqual([]);
 		await expect(service.command({ action: "save", draft: draft("relative") })).rejects.toThrow("cwd");
+		service.dispose();
+	});
+
+	it("tells each of two concurrent creates the schedule its own save made", async () => {
+		fakeClock();
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const { service } = harness(dir, launch);
+		await service.start();
+		const [alpha, beta] = await Promise.all([
+			service.create(draft(dir, { name: "alpha" })),
+			service.create(draft(dir, { name: "beta" })),
+		]);
+		expect(alpha.id).not.toBe(beta.id);
+		expect(beta.state.schedules.map(schedule => schedule.name)).toEqual(["alpha", "beta"]);
+		expect(beta.state.schedules.find(schedule => schedule.id === alpha.id)?.name).toBe("alpha");
+		expect(beta.state.schedules.find(schedule => schedule.id === beta.id)?.name).toBe("beta");
+		await expect(service.create(draft("relative"))).rejects.toThrow("cwd");
 		service.dispose();
 	});
 

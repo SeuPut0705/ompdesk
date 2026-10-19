@@ -13,9 +13,11 @@ import {
 } from "../../shared/agent-control";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
-import type { SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
+import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
+import type { ScheduleService } from "../schedules";
 import type { ClientWindow } from "../web/client-window";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
 
@@ -409,22 +411,37 @@ describe("AgentControlRuntime", () => {
 		expect((await runtime.run(win, "main0001", T.list, {})).isError).toBe(false);
 	});
 
-	it("creates an agent's schedule through the Schedules service, lists it and cancels it", async () => {
-		let state: SchedulesState = { paused: false, schedules: [], runs: [], nextRuns: {} };
-		const requests: SchedulesRequest[] = [];
-		const service = {
-			state: () => state,
-			command: vi.fn(async (request: SchedulesRequest) => {
-				requests.push(request);
-				if (request.action === "save") {
-					const made = { ...request.draft, id: "sched-1", createdAt: "2026-10-18T00:00:00Z" };
-					state = { ...state, schedules: [...state.schedules, made], nextRuns: { "sched-1": "10:30" } };
-				}
-				if (request.action === "delete")
-					state = { ...state, schedules: state.schedules.filter(schedule => schedule.id !== request.id) };
-				return state;
-			}),
+	/** A Schedules service: `create` names the id it made; `holdCreates` keeps each answer until that many were saved. */
+	function fakeSchedules(holdCreates = 0) {
+		const fake: { state: SchedulesState; requests: SchedulesRequest[]; drafts: ScheduleDraft[] } = {
+			state: { paused: false, schedules: [], runs: [], nextRuns: {} },
+			requests: [],
+			drafts: [],
 		};
+		const { promise: allSaved, resolve: releaseCreates } = Promise.withResolvers<void>();
+		const command = vi.fn(async (request: SchedulesRequest) => {
+			fake.requests.push(request);
+			if (request.action === "delete")
+				fake.state = { ...fake.state, schedules: fake.state.schedules.filter(item => item.id !== request.id) };
+			return fake.state;
+		});
+		const create = vi.fn(async (draft: ScheduleDraft): Promise<ScheduleCreated> => {
+			fake.drafts.push(draft);
+			const id = `sched-${fake.drafts.length}`;
+			fake.state = {
+				...fake.state,
+				schedules: [...fake.state.schedules, { ...draft, id, createdAt: "2026-10-19T00:00:00Z" }],
+				nextRuns: { ...fake.state.nextRuns, [id]: "10:30" },
+			};
+			if (fake.drafts.length >= holdCreates) releaseCreates();
+			await allSaved;
+			return { id, state: fake.state };
+		});
+		return { fake, service: { command, create } };
+	}
+
+	it("creates an agent's schedule through the Schedules service, lists it and cancels it", async () => {
+		const { fake, service } = fakeSchedules();
 		const { runtime, win } = setup({ schedules: () => service });
 		const created = await runtime.run(win, "main0001", T.schedule, {
 			action: "create",
@@ -434,37 +451,35 @@ describe("AgentControlRuntime", () => {
 		});
 		expect(created.isError, created.text).toBe(false);
 		expect(created.text).toContain("id sched-1; next run 10:30");
-		expect(requests.find(request => request.action === "save")).toMatchObject({
-			action: "save",
-			draft: { prompt: "run the checks", cwd: "/repo", autoApprove: false, enabled: true },
+		expect(fake.drafts[0]).toMatchObject({
+			prompt: "run the checks",
+			cwd: "/repo",
+			autoApprove: false,
+			enabled: true,
 		});
 		const listed = await runtime.run(win, "main0001", T.schedule, { action: "list" });
 		expect(listed.text).toContain("[made by an agent: you can cancel it]");
 		const cancelled = await runtime.run(win, "main0001", T.schedule, { action: "cancel", id: "sched-1" });
 		expect(cancelled.isError).toBe(false);
-		expect(requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
-		expect(state.schedules).toEqual([]);
+		expect(fake.requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
+		expect(fake.state.schedules).toEqual([]);
 	});
 
+	/** A paired host "dev-1" (Studio) serving `host.schedules.*` from `service`, recording each call. */
+	function pairedHost(service: Pick<ScheduleService, "command" | "create">) {
+		const request = vi.fn(async (_device: string, method: string, params: unknown) =>
+			method === "host.schedules.create"
+				? service.create(SchedulesCreateParams.parse(params).draft)
+				: service.command(SchedulesCommandParams.parse(params).request),
+		);
+		return { hosts: () => [{ deviceId: "dev-1", name: "Studio", state: "online" as const }], request };
+	}
+
 	it("sends a paired host's schedules to that host's own service over the link", async () => {
-		let state: SchedulesState = { paused: false, schedules: [], runs: [], nextRuns: {} };
-		const request = vi.fn(async (_device: string, _method: string, params: unknown) => {
-			const { request: command } = params as { request: SchedulesRequest };
-			if (command.action === "save")
-				state = {
-					...state,
-					schedules: [...state.schedules, { ...command.draft, id: "host-s1", createdAt: "2026-10-19T00:00:00Z" }],
-					nextRuns: { "host-s1": "11:00" },
-				};
-			if (command.action === "delete")
-				state = { ...state, schedules: state.schedules.filter(schedule => schedule.id !== command.id) };
-			return state;
-		});
-		const local = { command: vi.fn() };
-		const { runtime, win } = setup({
-			schedules: () => local,
-			remote: { hosts: () => [{ deviceId: "dev-1", name: "Studio", state: "online" }], request: request as never },
-		});
+		const { fake, service } = fakeSchedules();
+		const remote = pairedHost(service);
+		const local = fakeSchedules().service;
+		const { runtime, win } = setup({ schedules: () => local, remote: remote as never });
 		const created = await runtime.run(win, "main0001", T.schedule, {
 			action: "create",
 			name: "Nightly",
@@ -474,25 +489,44 @@ describe("AgentControlRuntime", () => {
 			folder: "/srv/app",
 		});
 		expect(created.isError, created.text).toBe(false);
-		expect(created.text).toContain("in /srv/app on Studio; id host-s1");
-		expect(request).toHaveBeenCalledWith("dev-1", "host.schedules.command", {
-			request: expect.objectContaining({
-				action: "save",
-				draft: expect.objectContaining({ name: "[agent] Nightly", cwd: "/srv/app", autoApprove: false }),
-			}),
+		expect(created.text).toContain("in /srv/app on Studio; id sched-1");
+		expect(remote.request).toHaveBeenCalledWith("dev-1", "host.schedules.create", {
+			draft: expect.objectContaining({ name: "[agent] Nightly", cwd: "/srv/app", autoApprove: false }),
 		});
 		expect((await runtime.run(win, "main0001", T.schedule, { action: "list", device: "Studio" })).text).toContain(
-			"host-s1 “[agent] Nightly” every 60 min in /srv/app",
+			"sched-1 “[agent] Nightly” every 60 min in /srv/app",
 		);
-		await runtime.run(win, "main0001", T.schedule, { action: "cancel", id: "host-s1", device: "Studio" });
-		expect(request).toHaveBeenLastCalledWith("dev-1", "host.schedules.command", {
-			request: { action: "delete", id: "host-s1" },
+		await runtime.run(win, "main0001", T.schedule, { action: "cancel", id: "sched-1", device: "Studio" });
+		expect(remote.request).toHaveBeenLastCalledWith("dev-1", "host.schedules.command", {
+			request: { action: "delete", id: "sched-1" },
 		});
-		expect(state.schedules).toEqual([]);
-		expect(
-			request.mock.calls.every(([device, method]) => device === "dev-1" && method === "host.schedules.command"),
-		).toBe(true);
+		expect(fake.state.schedules).toEqual([]);
+		expect(remote.request.mock.calls.every(([device]) => device === "dev-1")).toBe(true);
 		expect(local.command).not.toHaveBeenCalled();
+		expect(local.create).not.toHaveBeenCalled();
+	});
+
+	it("gives two concurrent creates each its own schedule, even when both answers list both", async () => {
+		const { fake, service } = fakeSchedules(2);
+		const { runtime, win } = setup({ remote: pairedHost(service) as never });
+		const create = (name: string) =>
+			runtime.run(win, "main0001", T.schedule, {
+				action: "create",
+				name,
+				prompt: "p",
+				every_minutes: 60,
+				device: "Studio",
+				folder: "/srv/app",
+			});
+		const [first, second] = await Promise.all([create("alpha"), create("beta")]);
+		const idOf = (text: string) => /; id (\S+);/.exec(text)?.[1];
+		const made = new Map(fake.state.schedules.map(schedule => [schedule.name, schedule.id]));
+		expect(made.size).toBe(2);
+		expect(first.text).toContain("“[agent] alpha”");
+		expect(idOf(first.text)).toBe(made.get("[agent] alpha"));
+		expect(second.text).toContain("“[agent] beta”");
+		expect(idOf(second.text)).toBe(made.get("[agent] beta"));
+		expect(idOf(first.text)).not.toBe(idOf(second.text));
 	});
 
 	it("lists and steers another window's sessions through that window", async () => {

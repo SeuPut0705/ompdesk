@@ -30,7 +30,7 @@ import type {
 } from "../shared/ipc-types";
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import type { OmpUpdateState } from "../shared/omp-update";
-import type { SchedulesRequest, SchedulesState } from "../shared/schedules";
+import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../shared/schedules";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { builtinReaState } from "./builtin-mcp";
 import { ModelSetupRunner } from "./model-setup-runner";
@@ -46,6 +46,7 @@ import {
 	LINK_SLACK_MS,
 	ModelSetupStatusSchema,
 	OmpUpdateStateSchema,
+	ScheduleCreatedSchema,
 	SchedulesStateSchema,
 } from "./remote/app-protocol";
 import type { Revive } from "./restart-policy";
@@ -92,6 +93,11 @@ export interface MachineServices {
 	schedules(request: SchedulesRequest, origin?: string): Promise<SchedulesState>;
 	/** A run's captured output on that machine, tail-capped. */
 	scheduleLog(runId: string): Promise<string>;
+	/**
+	 * Save a new schedule there; the id is the one this save made, so concurrent creates never swap ids. `origin` as
+	 * in `schedules`.
+	 */
+	createSchedule(draft: ScheduleDraft, origin?: string): Promise<ScheduleCreated>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -147,7 +153,7 @@ export interface LocalMachineDeps {
 	/** This computer's omp updater (`omp-updater.ts`); it exists once startup has built it. */
 	ompUpdater: () => Pick<OmpUpdater, "state" | "updateNow">;
 	/** This computer's ScheduleService; it exists once startup has built it. */
-	schedules: () => Pick<ScheduleService, "command" | "readLog"> | null;
+	schedules: () => Pick<ScheduleService, "command" | "create" | "readLog"> | null;
 }
 
 export interface AccountRotationDeps {
@@ -355,7 +361,11 @@ export class LocalMachine implements MachineServices {
 		return this.#scheduleService().readLog(runId);
 	}
 
-	#scheduleService(): Pick<ScheduleService, "command" | "readLog"> {
+	async createSchedule(draft: ScheduleDraft, origin?: string): Promise<ScheduleCreated> {
+		return this.#scheduleService().create(draft, origin);
+	}
+
+	#scheduleService(): Pick<ScheduleService, "command" | "create" | "readLog"> {
 		const service = this.#deps.schedules();
 		if (!service) throw new Error("Scheduled runs are not available yet");
 		return service;
@@ -484,6 +494,10 @@ export class RemoteMachine implements MachineServices {
 
 	async scheduleLog(runId: string): Promise<string> {
 		return z.string().parse(await this.#request<unknown>("host.schedules.log", { runId }));
+	}
+
+	async createSchedule(draft: ScheduleDraft): Promise<ScheduleCreated> {
+		return ScheduleCreatedSchema.parse(await this.#request<unknown>("host.schedules.create", { draft }));
 	}
 }
 

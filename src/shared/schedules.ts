@@ -75,6 +75,12 @@ export type SchedulesRequest =
 	| { action: "runNow"; id: string }
 	| { action: "stop"; runId: string };
 
+/** A new schedule's id as the save that made it reported it, with the state after it. */
+export interface ScheduleCreated {
+	id: string;
+	state: SchedulesState;
+}
+
 /** `device`: a paired host by id (Settings follows the focused tab); absent = this computer. */
 export interface SchedulesApi {
 	command(request: SchedulesRequest, device?: string): Promise<SchedulesState>;

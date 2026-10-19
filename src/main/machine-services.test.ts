@@ -6,6 +6,7 @@ import type { AccountRotationMode } from "../shared/account-rotation";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import type { CustomProviderInput, IpcBenchmarkRunOptions } from "../shared/ipc-types";
 import type { OmpUpdateState } from "../shared/omp-update";
+import type { ScheduleDraft, SchedulesState } from "../shared/schedules";
 import { BENCHMARK_TIMEOUT_MS } from "./benchmark-runner";
 import { resetReaRuntimeCache } from "./builtin-mcp";
 import {
@@ -223,28 +224,28 @@ describe("machineFor", () => {
 	});
 
 	it("sends Settings › Schedules to a paired host's own service and checks its state", async () => {
-		const state = {
+		const draft: ScheduleDraft = {
+			name: "Nightly",
+			prompt: "p",
+			cwd: "C:\\work",
+			frequency: { kind: "daily", time: "09:00", days: [1] },
+			model: null,
+			autoApprove: false,
+			enabled: true,
+		};
+		const state: SchedulesState = {
 			paused: false,
-			schedules: [
-				{
-					id: "s1",
-					createdAt: "2026-10-19T00:00:00Z",
-					name: "Nightly",
-					prompt: "p",
-					cwd: "C:\\work",
-					frequency: { kind: "daily", time: "09:00", days: [1] },
-					model: null,
-					autoApprove: false,
-					enabled: true,
-				},
-			],
+			schedules: [{ ...draft, id: "s1", createdAt: "2026-10-19T00:00:00Z" }],
 			runs: [],
 			nextRuns: { s1: null },
 		};
-		const host = fakeHost(method => (method === "host.schedules.log" ? "tail" : state));
+		const host = fakeHost(method =>
+			method === "host.schedules.log" ? "tail" : method === "host.schedules.create" ? { id: "s1", state } : state,
+		);
 		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
 		await expect(remote.schedules({ action: "setEnabled", id: "s1", enabled: false })).resolves.toEqual(state);
 		await expect(remote.scheduleLog("r1")).resolves.toBe("tail");
+		await expect(remote.createSchedule(draft)).resolves.toEqual({ id: "s1", state });
 		expect(host.calls.map(({ device, method, params }) => ({ device, method, params }))).toEqual([
 			{
 				device: "host-b",
@@ -252,6 +253,7 @@ describe("machineFor", () => {
 				params: { request: { action: "setEnabled", id: "s1", enabled: false } },
 			},
 			{ device: "host-b", method: "host.schedules.log", params: { runId: "r1" } },
+			{ device: "host-b", method: "host.schedules.create", params: { draft } },
 		]);
 		const garbled = new RemoteMachine({
 			request: fakeHost(() => ({ paused: "no" })).request,
@@ -260,6 +262,13 @@ describe("machineFor", () => {
 		});
 		await expect(garbled.schedules({ action: "get" })).rejects.toThrow();
 		await expect(localMachine(0).schedules({ action: "get" })).rejects.toThrow(/not available yet/);
+		await expect(
+			new RemoteMachine({
+				request: fakeHost(() => ({ id: 1, state })).request,
+				device: "host-b",
+				statsText,
+			}).createSchedule(draft),
+		).rejects.toThrow();
 	});
 
 	it("reads a paired host's omp update state, starts its update there and checks the replies", async () => {

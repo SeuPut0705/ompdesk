@@ -207,7 +207,7 @@ export interface IpcDeps {
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
-	schedules?: () => Pick<ScheduleService, "state" | "command"> | null;
+	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
 	/**
 	 * Who typed a prompt, for the tabs several windows show (bridge prompt-origin.ts): `of` is the paired
 	 * device a window belongs to (null for a desktop window, whose prompts are the host's own), `hostName`

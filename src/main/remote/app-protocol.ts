@@ -30,7 +30,9 @@
  *   background and answers at once); the host pushes every state change as the `host.ompUpdate.changed` event
  * - The host's scheduled runs (schedules.ts): `host.schedules.command {request: SchedulesRequest}` →
  *   SchedulesState (the host's own ScheduleService validates every draft and runs them there),
- *   `host.schedules.log {runId}` → string; the host pushes every change as the `host.schedules.changed` event
+ *   `host.schedules.log {runId}` → string, `host.schedules.create {draft}` → ScheduleCreated (the new
+ *   schedule's id from the save that made it, so concurrent creates never swap ids); the host pushes every
+ *   change as the `host.schedules.changed` event
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.landing {worktree}` → LandingFacts, `host.git.merge {worktree, label}` → MergeOutcome
@@ -60,7 +62,7 @@ import type {
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
-import type { ScheduleFrequency, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { ScheduleCreated, ScheduleFrequency, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 
 /**
  * Events a host sends for a remote tab: the SidecarManager events it forwards (everything else
@@ -386,6 +388,7 @@ export const SchedulesCommandParams: z.ZodType<{ request: SchedulesRequest }> = 
 });
 
 export const SchedulesLogParams = z.object({ runId: ScheduleId });
+export const SchedulesCreateParams = z.object({ draft: ScheduleDraftSchema });
 
 /** `host.schedules.command` reply and `host.schedules.changed` event: the host's schedules, runs and next starts. */
 export const SchedulesStateSchema: z.ZodType<SchedulesState> = z.object({
@@ -406,6 +409,12 @@ export const SchedulesStateSchema: z.ZodType<SchedulesState> = z.object({
 		}),
 	),
 	nextRuns: z.record(z.string(), z.string().nullable()),
+});
+
+/** `host.schedules.create` reply: the id this save made and the state after it. */
+export const ScheduleCreatedSchema: z.ZodType<ScheduleCreated> = z.object({
+	id: z.string(),
+	state: SchedulesStateSchema,
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

@@ -107,6 +107,7 @@ import {
 	OMP_UPDATE_EVENT,
 	SCHEDULES_EVENT,
 	SchedulesCommandParams,
+	SchedulesCreateParams,
 	SchedulesLogParams,
 	SESSIONS_CHANGED_EVENT,
 	TAB_EVENT,
@@ -834,6 +835,8 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.schedules(parse(SchedulesCommandParams, method, params).request, peer.deviceId);
 			case "host.schedules.log":
 				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
+			case "host.schedules.create":
+				return this.#deps.machine.createSchedule(parse(SchedulesCreateParams, method, params).draft, peer.deviceId);
 			// Agent control of a session this computer runs for the device: the git it would run on its own checkout.
 			case GIT_METHODS.facts:
 				return branchFacts(parse(GitWorktreeParams, method, params).worktree);

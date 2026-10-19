@@ -23,6 +23,7 @@ import {
 	nextRunAt,
 	SCHEDULE_RUNS_KEPT,
 	type Schedule,
+	type ScheduleCreated,
 	type ScheduleDraft,
 	type ScheduleRun,
 	type SchedulesRequest,
@@ -175,6 +176,16 @@ export class ScheduleService {
 		return this.state();
 	}
 
+	/**
+	 * Save a new schedule and say which one it is: the id comes from this save, never from a diff a concurrent save
+	 * could share. `origin`: the paired device it is made for (its runs count against that device), as in `command`.
+	 */
+	async create(draft: ScheduleDraft, origin?: string): Promise<ScheduleCreated> {
+		const id = this.#save(draft, undefined, origin);
+		this.#changed();
+		return { id, state: this.state() };
+	}
+
 	/** The run's captured output, from its end when long. */
 	async readLog(runId: string): Promise<string> {
 		if (!this.#runs.some(run => run.id === runId)) throw new Error("Run not found");
@@ -224,7 +235,8 @@ export class ScheduleService {
 		return schedule;
 	}
 
-	#save(draft: ScheduleDraft, id: string | undefined, origin: string | undefined): void {
+	/** Returns the id of the schedule saved. */
+	#save(draft: ScheduleDraft, id: string | undefined, origin: string | undefined): string {
 		const clean: ScheduleDraft = {
 			name: String(draft.name ?? "").trim(),
 			prompt: String(draft.prompt ?? ""),
@@ -249,7 +261,7 @@ export class ScheduleService {
 			if (origin === undefined) delete schedule.device;
 			else schedule.device = origin;
 			this.#reschedule(schedule);
-			return;
+			return schedule.id;
 		}
 		const schedule: Schedule = {
 			...clean,
@@ -259,6 +271,7 @@ export class ScheduleService {
 		};
 		this.#schedules.push(schedule);
 		this.#reschedule(schedule);
+		return schedule.id;
 	}
 
 	#lastStart(scheduleId: string): Date | null {

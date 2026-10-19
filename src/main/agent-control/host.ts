@@ -63,10 +63,22 @@ import {
 	type RpcResponse,
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
-import type { Schedule, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type {
+	Schedule,
+	ScheduleCreated,
+	ScheduleDraft,
+	SchedulesRequest,
+	SchedulesState,
+} from "../../shared/schedules";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { describePreparation } from "../local/git/worktree-seed";
-import { GIT_METHODS, GIT_REQUEST_TIMEOUT_MS, SchedulesStateSchema, WorktreeCreateReply } from "../remote/app-protocol";
+import {
+	GIT_METHODS,
+	GIT_REQUEST_TIMEOUT_MS,
+	ScheduleCreatedSchema,
+	SchedulesStateSchema,
+	WorktreeCreateReply,
+} from "../remote/app-protocol";
 import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
@@ -169,7 +181,7 @@ export interface AgentControlHostDeps {
 		defaultBranch: (cwd: string, remote: string) => Promise<string | null>;
 	};
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
-	schedules?: () => Pick<ScheduleService, "command"> | null;
+	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
 	/** The app's own handlers `ompdesk_app` goes through (src/main/ipc.ts): the `IpcRegistry` for the window, `PREFS_SET`, the language. */
 	app?: {
 		invoke: (win: ClientWindow, channel: string, args: readonly unknown[]) => Promise<unknown>;
@@ -794,9 +806,10 @@ export class AgentControlRuntime {
 				),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: device => {
-				// One Settings › Schedules command on the machine that runs the schedules: this computer's service,
-				// or a paired host's own over the link (`host.schedules.command`), which checks the draft the same way.
+				// The machine that runs the schedules: this computer's service, or a paired host's own over the link
+				// (`host.schedules.*`), which checks the draft the same way.
 				let command: (request: SchedulesRequest) => Promise<SchedulesState>;
+				let create: (draft: ScheduleDraft) => Promise<ScheduleCreated>;
 				if (device) {
 					const remote = deps.remote;
 					if (!remote) return null;
@@ -804,10 +817,15 @@ export class AgentControlRuntime {
 						SchedulesStateSchema.parse(
 							await remote.request<unknown>(device, "host.schedules.command", { request }),
 						);
+					create = async draft =>
+						ScheduleCreatedSchema.parse(
+							await remote.request<unknown>(device, "host.schedules.create", { draft }),
+						);
 				} else {
 					const service = deps.schedules?.();
 					if (!service) return null;
 					command = request => service.command(request);
+					create = draft => service.create(draft);
 				}
 				const rowOf = (state: SchedulesState, schedule: Schedule): ScheduleRow => ({
 					id: schedule.id,
@@ -824,9 +842,10 @@ export class AgentControlRuntime {
 						return state.schedules.map(schedule => rowOf(state, schedule));
 					},
 					save: async draft => {
-						const before = new Set((await command({ action: "get" })).schedules.map(schedule => schedule.id));
-						const state = await command({ action: "save", draft });
-						const made = state.schedules.find(schedule => !before.has(schedule.id));
+						// The id comes from the save itself: a diff against an earlier read would hand a concurrent
+						// create's schedule to this caller.
+						const { id, state } = await create(draft);
+						const made = state.schedules.find(schedule => schedule.id === id);
 						if (!made) throw new Error("The schedule was not saved.");
 						return rowOf(state, made);
 					},

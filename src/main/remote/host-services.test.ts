@@ -22,7 +22,7 @@ import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-set
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
-import type { ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
@@ -239,6 +239,12 @@ function fakeMachine() {
 			async (_request: SchedulesRequest, _origin?: string): Promise<SchedulesState> => SCHEDULES_EMPTY,
 		),
 		scheduleLog: vi.fn(async (runId: string) => `log of ${runId}`),
+		createSchedule: vi.fn(
+			async (_draft: ScheduleDraft, _origin?: string): Promise<ScheduleCreated> => ({
+				id: "made-1",
+				state: SCHEDULES_EMPTY,
+			}),
+		),
 	} satisfies MachineServices;
 }
 
@@ -2104,6 +2110,17 @@ describe("LocalHostServices host.* calls", () => {
 			[{ action: "delete", id: "s1" }, "device-x"],
 		]);
 		await expect(services.call(y.peer, "host.schedules.log", { runId: "r1" }, y)).resolves.toBe("log of r1");
+		// A create answers the id its own save made.
+		await expect(services.call(x.peer, "host.schedules.create", { draft }, x)).resolves.toEqual({
+			id: "made-1",
+			state: SCHEDULES_EMPTY,
+		});
+		// Made for the device: its runs count against that device's daily model limit here.
+		expect(machine.createSchedule).toHaveBeenCalledWith(draft, "device-x");
+		await expect(
+			services.call(x.peer, "host.schedules.create", { draft: { ...draft, enabled: "yes" } }, x),
+		).rejects.toThrow(/Invalid host.schedules.create/);
+		expect(machine.createSchedule).toHaveBeenCalledTimes(1);
 
 		// Only Settings › Schedules' own actions with a whole draft reach the service.
 		for (const bad of [
