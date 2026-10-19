@@ -58,6 +58,7 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 		import("@oh-my-pi/pi-coding-agent/config/compaction-threshold"),
 	"@oh-my-pi/pi-coding-agent/config/model-resolver": () => import("@oh-my-pi/pi-coding-agent/config/model-resolver"),
 	"@oh-my-pi/pi-coding-agent/config/model-roles": () => import("@oh-my-pi/pi-coding-agent/config/model-roles"),
+	"@oh-my-pi/pi-coding-agent/config/models-config": () => import("@oh-my-pi/pi-coding-agent/config/models-config"),
 	"@oh-my-pi/pi-coding-agent/config/prompt-templates": () =>
 		import("@oh-my-pi/pi-coding-agent/config/prompt-templates"),
 	"@oh-my-pi/pi-coding-agent/cli/npm-registry": () => import("@oh-my-pi/pi-coding-agent/cli/npm-registry"),

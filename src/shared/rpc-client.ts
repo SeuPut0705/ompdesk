@@ -159,6 +159,8 @@ export interface SessionRpcClient {
 	getModelRoles(): Promise<RpcResponse>;
 	setModelRole(role: string, modelId: string | null): Promise<RpcResponse>;
 	getModelRoleMetadata(): Promise<RpcResponse>;
+	/** Billing class per provider and the model facts the model setup plans from (`ModelSetupFacts`). */
+	getModelSetupFacts(): Promise<RpcResponse>;
 	/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
 	getCompactionPoints(): Promise<RpcResponse>;
 	compactionLimits(params: { values?: unknown; key?: string; input?: string }): Promise<RpcResponse>;
@@ -532,6 +534,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
 		setModelRole: (role, modelId) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
+		getModelSetupFacts: () => rpcCommand({ type: "get_model_setup_facts" }),
 		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),
 		getRecentModels: () => rpcCommand({ type: "get_recent_models" }),
 		compactionLimits: params => rpcCommand({ type: "compaction_limits", ...params }),

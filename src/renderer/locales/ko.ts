@@ -4207,6 +4207,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.models": "모델 카탈로그",
 	"bridgeHealth.feature.providers": "프로바이더 및 로그아웃",
 	"bridgeHealth.feature.modelRoles": "모델 역할",
+	"bridgeHealth.feature.modelSetupFacts": "모델 자동 구성(요금 구분·모델 정보)",
 	"bridgeHealth.feature.usage": "사용량",
 	"bridgeHealth.feature.security": "보안 스캔",
 	"bridgeHealth.feature.ssh": "SSH 호스트",

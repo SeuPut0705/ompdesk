@@ -45,6 +45,7 @@ const AREAS: readonly Area[] = [
 		features: ["settings", "models", "providers", "usage", "modelRoles"],
 		load: () => import("./settings"),
 	},
+	{ name: "model-setup-facts", features: ["modelSetupFacts"], load: () => import("./model-setup-facts") },
 	{ name: "voice", features: ["voice"], load: () => import("./voice") },
 	{ name: "debug", features: ["debug"], load: () => import("./debug") },
 	{ name: "security", features: ["security"], load: () => import("./security") },

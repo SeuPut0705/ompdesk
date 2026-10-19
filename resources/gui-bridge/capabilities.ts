@@ -43,6 +43,7 @@ export const FEATURES = {
 	models: "Model catalog",
 	providers: "Providers & logout",
 	modelRoles: "Model roles",
+	modelSetupFacts: "Model setup (billing and model facts)",
 	usage: "Usage",
 	security: "Security scans",
 	ssh: "SSH hosts",
@@ -746,6 +747,32 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"rolePriorityDefaults()",
 			],
 			"@oh-my-pi/pi-catalog/types": ["modelKind()"],
+		},
+	},
+	modelSetupFacts: {
+		// model_setup_facts (model-setup-facts.ts): billing from stock's auth data, the models of every role's pool,
+		// what config.yml persists per role (`getGlobalModelRole`: its absence would let full auto overwrite a hand-set
+		// role, so it is required, not feature-detected) and stock's judge defaults.
+		session: [
+			"settings.getGlobalModelRole()",
+			"modelRegistry",
+			"modelRegistry.getAll()",
+			"modelRegistry.getDiscoverableProviders()",
+			"modelRegistry.authStorage.credentials.list()",
+			"modelRegistry.authStorage.keys.source()",
+			"modelRegistry.authStorage.keys.keyless()",
+		],
+		modules: {
+			"@oh-my-pi/pi-ai": ["getEnvApiKey()", "getProviderDefinition()"],
+			"@oh-my-pi/pi-catalog/types": ["modelKind()"],
+			[`${AGENT}/config/model-resolver`]: ["resolveModelOverride()", "rolePriorityDefaults()"],
+			[`${AGENT}/config/model-roles`]: [
+				"getKnownRoleIds()",
+				"getRoleInfo()",
+				"roleCandidatePool()",
+				"MODEL_ROLE_IDS",
+			],
+			[`${AGENT}/config/models-config`]: ["ModelsConfigFile.relocate()"],
 		},
 	},
 	usage: {

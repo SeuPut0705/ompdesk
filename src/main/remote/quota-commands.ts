@@ -156,6 +156,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_mcp_servers",
 	"get_model_role_metadata",
 	"get_model_roles",
+	"get_model_setup_facts",
 	"get_next_prompt",
 	"get_omp_update",
 	"get_plan_mode",

@@ -4219,6 +4219,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.models": "Model catalog",
 	"bridgeHealth.feature.providers": "Providers & sign-out",
 	"bridgeHealth.feature.modelRoles": "Model roles",
+	"bridgeHealth.feature.modelSetupFacts": "Model setup (billing and model facts)",
 	"bridgeHealth.feature.usage": "Usage",
 	"bridgeHealth.feature.security": "Security scans",
 	"bridgeHealth.feature.ssh": "SSH hosts",

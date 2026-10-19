@@ -164,6 +164,7 @@ export const handlers: Record<string, LocalHandler> = {
 	set_model_role: (command, ctx) =>
 		ctx.bridge.request("model_role_set", { role: command.role, modelId: command.modelId ?? null }),
 	get_model_role_metadata: (_command, ctx) => ctx.bridge.request("model_role_metadata"),
+	get_model_setup_facts: (_command, ctx) => ctx.bridge.request("model_setup_facts"),
 	get_compaction_points: (_command, ctx) => ctx.bridge.request("compaction_points"),
 	compaction_limits: (command, ctx) => ctx.bridge.request("compaction_limits", command),
 	get_recent_models: (_command, ctx) => ctx.bridge.request("recent_models"),

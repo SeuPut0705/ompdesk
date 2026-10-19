@@ -9,6 +9,7 @@ import { createInterface } from "node:readline";
 import JSZip from "jszip";
 import { hasMailEntry } from "../../resources/gui-bridge/agent-control-contracts";
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
+import type { ModelSetupFacts } from "../../resources/gui-bridge/model-setup-contracts";
 import {
 	type AutoTitleSettings,
 	evolveEffective,
@@ -2232,6 +2233,43 @@ export function runRpcUi(): void {
 				source: "default",
 				candidates: [{ provider: "fixture", id: "local-fixture", name: "Local fixture", kind: "chat" }],
 			})),
+		}),
+		// gui-bridge model-setup-facts.ts: billing per provider from stock's auth data, the facts of every model in
+		// the roles' pools. Signed in: Anthropic and OpenAI Codex are subscriptions; OpenRouter (API key) is metered;
+		// Apple's on-device runtime is free. The fixture's own local model is keyless and local.
+		model_setup_facts: (): ModelSetupFacts => ({
+			providers: {
+				anthropic: { billing: "subscription", basis: "oauth" },
+				"openai-codex": { billing: "subscription", basis: "oauth" },
+				openrouter: { billing: "metered", basis: "api-key" },
+				apple: { billing: "free", basis: "local-keyless" },
+				fixture: { billing: "free", basis: "local-keyless" },
+			},
+			models: Object.fromEntries(
+				catalogModels().map(entry => {
+					const anthropic = entry.provider === "anthropic";
+					const opus = entry.id.includes("opus");
+					return [
+						`${entry.provider}/${entry.id}`,
+						{
+							provider: entry.provider,
+							id: entry.id,
+							name: entry.name,
+							kind: "chat",
+							family: anthropic ? "anthropic" : "unknown",
+							...(anthropic ? { int: opus ? 62 : 55, tps: opus ? 38 : 70 } : {}),
+							contextWindow: entry.contextWindow,
+							inputPrice: anthropic ? (opus ? 15 : 3) : 0,
+							outputPrice: anthropic ? (opus ? 75 : 15) : 0,
+							image: anthropic,
+						},
+					];
+				}),
+			),
+			roles: Object.fromEntries(
+				ROLE_META.map(meta => [meta.id, modelRoles[meta.id] ? { persisted: modelRoles[meta.id] } : {}]),
+			),
+			judgePins: [],
 		}),
 		// Stock `fetchUsageReports` for the fixture provider: limited only after `fixture usage limit`.
 		usage: () => ({

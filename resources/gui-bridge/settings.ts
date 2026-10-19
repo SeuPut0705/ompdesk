@@ -772,7 +772,7 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
  * a newer omp adds is listed with no change to OMPdesk. A `modelRoles.<id>` the user set outside OMPdesk stays in
  * config.yml and stock still resolves it as `@id`, but OMPdesk neither lists nor offers it.
  */
-function roleMetadata(session: AgentSession) {
+export function roleMetadata(session: AgentSession) {
 	const catalog = session.modelRegistry.getAll("all");
 	return MODEL_ROLE_IDS.map(id => {
 		const info = getRoleInfo(id, session.settings);
