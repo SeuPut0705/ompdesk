@@ -4,6 +4,7 @@
  * Pure rules here; the rows and the disclosure are `SidebarSubagents.tsx`, the look `styles/sidebar.css`.
  */
 
+import { agentMessageSender } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
@@ -193,14 +194,47 @@ export interface FamilySession {
 	path: string;
 	id: string;
 	liveTabId?: string;
+	/** What its row reads: the sender title of an agent's brief names it. */
+	title?: string;
+	/** The indexed first prompt: an `<ompdesk-agent-message>` brief marks a session an agent opened. */
+	firstMessage?: string;
+	/** Stock's `created`: an opener is older than what it opened. */
+	created?: string;
+}
+
+/**
+ * The session a legacy child (opened before provenance was kept: no tab link, no closed record) names as its sender in
+ * the brief its first message holds: the newest session titled so that existed when the child was made. Null for a
+ * person's own prompt, a brief without a sender, or a sender nobody here is titled as.
+ */
+function briefOpenerOf(child: FamilySession, sessions: readonly FamilySession[]): FamilySession | null {
+	const from = (agentMessageSender(child.firstMessage ?? "") ?? "").replaceAll(/\s+/g, " ").trim();
+	if (!from) return null;
+	const born = Date.parse(child.created ?? "");
+	let best: FamilySession | null = null;
+	let bestMade = Number.NEGATIVE_INFINITY;
+	for (const candidate of sessions) {
+		if (candidate.path === child.path || (candidate.title ?? "").replaceAll(/\s+/g, " ").trim() !== from) continue;
+		const made = Date.parse(candidate.created ?? "");
+		if (made > born) continue;
+		const rank = Number.isNaN(made) ? Number.NEGATIVE_INFINITY : made;
+		if (!best || rank > bestMade) {
+			best = candidate;
+			bestMade = rank;
+		}
+	}
+	return best;
 }
 
 /**
  * Which session each opened session nests under: child session path → the path of the session that started the chain.
  * A tab names its opener by tab id while both live, and by the opener's session file after a relaunch (every tab id is
- * new then). Whatever its folder or worktree, an opened session goes under its opener; one opened by an opened session
- * goes under the first of them, so the family is one level deep. A session whose opener is not in the list (closed, or
- * in another lane) is not nested, and a cycle nests nothing.
+ * new then, and the opener needs no tab: its stored session is enough). A session without a tab (main closed it after
+ * its work landed, or the person closed it) is found by the record naming the opener's file, else, for one opened
+ * before either was kept, by the sender its first message's agent brief names. Whatever its folder or worktree, an
+ * opened session goes under its opener; one opened by an opened session goes under the first of them, so the family
+ * is one level deep. A session whose opener is not in the list (deleted, or in another lane) is not nested, and a
+ * cycle nests nothing.
  */
 export function openerOfSessions(
 	tabs: readonly FamilyTab[],
@@ -216,6 +250,7 @@ export function openerOfSessions(
 		const tab = tabOf(session);
 		if (tab && !sessionOf.has(tab.id)) sessionOf.set(tab.id, session);
 	}
+	const known = new Set(sessions.map(session => session.path));
 	const direct = new Map<string, string>();
 	for (const tab of tabs) {
 		const child = sessionOf.get(tab.id);
@@ -223,16 +258,19 @@ export function openerOfSessions(
 		const opener =
 			(tab.openedBy ? tabs.find(entry => entry.id === tab.openedBy) : undefined) ??
 			(tab.openedBySession ? tabs.find(entry => entry.sessionPath === tab.openedBySession) : undefined);
-		const parent = opener && opener.id !== tab.id ? sessionOf.get(opener.id) : undefined;
-		if (parent && parent.path !== child.path) direct.set(child.path, parent.path);
+		const parent = opener && opener.id !== tab.id ? sessionOf.get(opener.id)?.path : undefined;
+		const path = parent ?? (tab.openedBySession && known.has(tab.openedBySession) ? tab.openedBySession : undefined);
+		if (path && path !== child.path) direct.set(child.path, path);
 	}
-	// A session main closed after its work landed has no tab (or a new one, opened by the person from the "done" row):
-	// the record names the opener's file.
-	const known = new Set(sessions.map(session => session.path));
 	for (const session of sessions) {
+		if (direct.has(session.path)) continue;
 		const opener = closedOpeners.get(session.path);
-		if (opener && opener !== session.path && !direct.has(session.path) && known.has(opener))
+		if (opener && opener !== session.path && known.has(opener)) {
 			direct.set(session.path, opener);
+			continue;
+		}
+		const sender = briefOpenerOf(session, sessions);
+		if (sender) direct.set(session.path, sender.path);
 	}
 	const roots = new Map<string, string>();
 	for (const child of direct.keys()) {

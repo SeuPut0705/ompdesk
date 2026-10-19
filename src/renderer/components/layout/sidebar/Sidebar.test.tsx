@@ -1973,6 +1973,98 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(closed?.querySelector('[data-family-status="done"]')).not.toBeNull();
 	});
 
+	/** A relaunch: the tabs that came back, and no tab for anything the boss opened. */
+	function relaunchedWith(...ids: string[]) {
+		useTabsStore.setState(state => ({ tabs: state.tabs.filter(tab => ids.includes(tab.id)) }));
+	}
+	const openFamily = () =>
+		fire(rowFor("Session /work/alpha/two").querySelector("[data-sidebar-subagents-toggle]"), "onClick");
+	const doneFold = (key: string) => container.querySelector(`[data-family-done="${key}"]`);
+	const openedPaths = (scope: string) =>
+		[...container.querySelectorAll(`${scope} [data-sidebar-opened-session]`)].map(row =>
+			row.getAttribute("data-session-path"),
+		);
+
+	it("keeps a closed session under its opener's done fold after a relaunch, never in a parallel-work group", async () => {
+		mountFamily();
+		relaunchedWith("t0", "t1");
+		await mount(<Sidebar />);
+		// The store reads the pref once on mount: the record is what main wrote.
+		act(() => {
+			useClosedChildrenStore.setState({
+				rows: [
+					{ path: "/wt/b.jsonl", openedBySession: BOSS, title: "Landed task", cwd: "/work/alpha", closedAt: 1 },
+				],
+			});
+		});
+		await flush();
+
+		expect(container.querySelector("[data-worktree-group]")).toBeNull();
+		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
+		await openFamily();
+		expect(doneFold(BOSS)?.textContent).toContain(translate("sidebar.family.done", { count: 1 }));
+		await fire(doneFold(BOSS), "onClick");
+		expect(openedPaths(`[data-sidebar-family="${BOSS}"]`)).toEqual(["/wt/b.jsonl"]);
+	});
+
+	it("keeps a closed session under its opener when the opener has no tab either", async () => {
+		mountFamily();
+		relaunchedWith("t0");
+		await mount(<Sidebar />);
+		// The store reads the pref once on mount: the record is what main wrote.
+		act(() => {
+			useClosedChildrenStore.setState({
+				rows: [
+					{ path: "/wt/b.jsonl", openedBySession: BOSS, title: "Landed task", cwd: "/work/alpha", closedAt: 1 },
+				],
+			});
+		});
+		await flush();
+
+		expect(container.querySelector("[data-worktree-group]")).toBeNull();
+		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-sessions]")?.textContent).toBe("1");
+		await fire(doneFold(BOSS), "onClick");
+		expect(openedPaths(`[data-sidebar-family="${BOSS}"]`)).toEqual(["/wt/b.jsonl"]);
+	});
+
+	it("folds a session opened before provenance was kept under the opener its agent brief names", async () => {
+		mountFamily({
+			sessionsExtra: [
+				session("/work/alpha/legacy.jsonl", "/work/alpha", {
+					title: null,
+					firstMessage: wrapAgentMessage("Title: Legacy job\nDetails.", "Session /work/alpha/two.jsonl"),
+					created: "2026-02-05T00:00:00Z",
+					modified: "2026-02-05T00:00:00Z",
+				}),
+			],
+		});
+		relaunchedWith("t0", "t1");
+		await mount(<Sidebar />);
+
+		const rows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
+		expect(rows.some(row => (row.textContent ?? "").includes("Legacy job"))).toBe(false);
+		await openFamily();
+		await fire(doneFold(BOSS), "onClick");
+		expect(openedPaths(`[data-sidebar-family="${BOSS}"]`)).toEqual(["/work/alpha/legacy.jsonl"]);
+	});
+
+	it("folds a closed session no opener row holds into its project's done fold, not a parallel-work group", async () => {
+		mountFamily();
+		relaunchedWith("t0", "t1");
+		await mount(<Sidebar />);
+
+		// /wt/a names a sender nobody here is titled as; /wt/b has no brief and only its `omp/agent/…` branch.
+		expect(container.querySelector("[data-worktree-group]")).toBeNull();
+		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
+		expect(doneFold(BOSS)).toBeNull();
+		const fold = doneFold("group:/work/alpha");
+		expect(fold?.textContent).toContain(translate("sidebar.family.done", { count: 2 }));
+		const sessionRows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
+		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
+		await fire(fold, "onClick");
+		expect(openedPaths('[data-sidebar-done-fold="group:/work/alpha"]')).toEqual(["/wt/a.jsonl", "/wt/b.jsonl"]);
+	});
+
 	it("reads an opened session as its task while the index lists it without a first message", async () => {
 		mountFamily({
 			sessionsExtra: [
@@ -2516,8 +2608,15 @@ describe("Sidebar worktree groups", () => {
 		return get;
 	}
 
+	const openTab = (id: string, cwd: string, sessionPath: string) =>
+		useTabsStore.setState(state => ({
+			tabs: [...state.tabs, { id, cwd, status: "ready", kind: "agent", unreadDone: false, sessionPath }] as never,
+		}));
+
 	it("sits a worktree right under its project, labelled by what it is for", async () => {
 		mountWithWorktrees();
+		// A parallel child no opener row holds keeps its group while a tab holds it.
+		openTab("tch", CHILD, "/wt/child.jsonl");
 		await mount(<Sidebar />);
 
 		const order = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
@@ -2563,11 +2662,12 @@ describe("Sidebar worktree groups", () => {
 			),
 		};
 		seedStores();
+		openTab("ta", CHILD, "/wt/a.jsonl");
+		openTab("tb", CHILD_B, "/wt/b.jsonl");
 		await mount(<Sidebar />);
 		const groups = [...container.querySelectorAll("[data-worktree-group]")];
 		expect(groups).toHaveLength(1);
 		expect(groups[0]?.textContent?.trim()).toBe("Parallel work");
-		await fire(groups[0]?.querySelector("button[aria-expanded]") ?? null, "onClick");
 		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
 		expect(rows.some(text => text.includes("Approach A"))).toBe(true);
 		expect(rows.some(text => text.includes("Approach B"))).toBe(true);

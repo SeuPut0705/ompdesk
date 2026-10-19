@@ -64,6 +64,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
+import { agentMessageSender } from "../../../../shared/agent-control";
 import type { SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -126,7 +127,13 @@ import { ForkParent } from "../ForkParent";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
-import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle, sidebarSubagentCount } from "./SidebarSubagents";
+import {
+	type FamilyOpened,
+	SidebarDoneFold,
+	SidebarSubagents,
+	SidebarSubagentsToggle,
+	sidebarSubagentCount,
+} from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import { CHILD_TOKEN, openedChildStatus, openerOfSessions } from "./sidebar-family";
@@ -158,6 +165,8 @@ interface WorkspaceGroup {
 	/** A worktree group shown right under its project's group. */
 	attached?: boolean;
 	sessions: SidebarSession[];
+	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): one "n done" fold at the end of the project's group. */
+	folded: SidebarSession[];
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
@@ -732,10 +741,45 @@ export function Sidebar() {
 		ensureClosedChildren();
 		ensureAgentReviewSubscription();
 	}, []);
-	const familyRootOf = useMemo(
-		() => openerOfSessions(localTabs, codeSessions, closedOpeners),
-		[localTabs, codeSessions, closedOpeners],
-	);
+	const familyRootOf = useMemo(() => {
+		const roots = openerOfSessions(
+			localTabs,
+			codeSessions.map(session => ({
+				path: session.path,
+				id: session.id,
+				liveTabId: session.liveTabId,
+				title: sessionDisplayTitle(session, ""),
+				firstMessage: session.firstMessage,
+				created: session.created,
+			})),
+			closedOpeners,
+		);
+		// An Autopilot child keeps its run's row, whoever its brief names.
+		for (const path of runParentOf.keys()) roots.delete(path);
+		return roots;
+	}, [localTabs, codeSessions, closedOpeners, runParentOf]);
+	// A closed session an agent opened, whose opener row is not in the list, still is no row of its own and no
+	// "parallel work" group: it folds into its project's group. Session path → that project's main checkout. The agent
+	// brief and the record are what tell; an `omp/agent/…` worktree is the last resort for a file with neither.
+	const foldedRootOf = useMemo(() => {
+		const roots = new Map<string, string>();
+		for (const session of codeSessions) {
+			if (familyRootOf.has(session.path) || runParentOf.has(session.path)) continue;
+			if (session.liveTabId !== undefined || heldByTab.has(session.path) || heldByTab.has(session.id)) continue;
+			const recorded = closedCwdOf.get(session.path);
+			const gone = projectName(session.cwd).gone;
+			// A discarded worktree's stored sessions go with it, unless main recorded the work as landed.
+			if (gone && recorded === undefined) continue;
+			const origin = projectName(gone && recorded !== undefined ? recorded : session.cwd);
+			if (
+				closedOpeners.has(session.path) ||
+				agentMessageSender(session.firstMessage) !== null ||
+				origin.worktree?.worktree?.kind === "agent"
+			)
+				roots.set(session.path, origin.root);
+		}
+		return roots;
+	}, [codeSessions, familyRootOf, runParentOf, heldByTab, closedCwdOf, closedOpeners, projectName]);
 	// The opener's path → what it opened, in the order it opened them.
 	const familyChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SidebarSession[]>();
@@ -774,6 +818,8 @@ export function Sidebar() {
 			if (projectName(session.cwd).gone && session.liveTabId === undefined) continue;
 			// A session another session's agent opened lives in that session's family, whatever its folder.
 			if (familyRootOf.has(session.path)) continue;
+			// One no opener holds folds into its project's group, below.
+			if (foldedRootOf.has(session.path)) continue;
 			const runCwd = runParentOf.get(session.path);
 			const shown = projectName(runCwd ?? session.cwd);
 			// The parallel children of one project share ONE group; a run of Autopilot keeps its own, children included.
@@ -781,11 +827,21 @@ export function Sidebar() {
 			const key = runCwd ?? (merged ? `${shown.root}#agent` : session.cwd);
 			let entry = byKey.get(key);
 			if (!entry) {
-				entry = { cwd: key, members: [], newCwd: merged ? shown.root : key, sessions: [], shown };
+				entry = { cwd: key, members: [], newCwd: merged ? shown.root : key, sessions: [], folded: [], shown };
 				byKey.set(key, entry);
 			}
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
 			entry.sessions.push(session);
+		}
+		for (const session of codeSessions) {
+			const root = foldedRootOf.get(session.path);
+			if (root === undefined) continue;
+			let entry = byKey.get(root);
+			if (!entry) {
+				entry = { cwd: root, members: [root], newCwd: root, sessions: [], folded: [], shown: projectName(root) };
+				byKey.set(root, entry);
+			}
+			entry.folded.push(session);
 		}
 		// A linked worktree reads as its project + what it is for; the folder name (`gui-<name>-<hash>`) never shows.
 		const result: WorkspaceGroup[] = [...byKey.values()].map(({ shown, ...entry }) => ({
@@ -798,11 +854,12 @@ export function Sidebar() {
 			sessions: entry.sessions.toSorted(
 				(a, b) => Number(runParentOf.has(a.path)) - Number(runParentOf.has(b.path)) || byPinThenRecency(a, b),
 			),
+			folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
 		}));
 		const ordered = orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
-			recency: group => Math.max(...group.sessions.map(createdAt)),
+			recency: group => Math.max(...[...group.sessions, ...group.folded].map(createdAt)),
 		});
 		// A worktree's group sits right under its project's group when that one is listed.
 		const mainRoots = new Set(ordered.filter(group => !group.worktree).map(group => group.root));
@@ -834,6 +891,7 @@ export function Sidebar() {
 		kindLabels,
 		runParentOf,
 		familyRootOf,
+		foldedRootOf,
 	]);
 	// A session matches when it does or when something it opened does: its family shows with it.
 	const matchesFamilyFilter = useCallback(
@@ -845,26 +903,42 @@ export function Sidebar() {
 		() =>
 			query
 				? allGroups
-						.map(group => ({
-							...group,
-							sessions: group.name.toLocaleLowerCase().includes(query)
-								? group.sessions
-								: group.sessions.filter(matchesFamilyFilter),
-						}))
-						.filter(group => group.sessions.length > 0)
+						.map(group => {
+							const named = group.name.toLocaleLowerCase().includes(query);
+							return {
+								...group,
+								sessions: named ? group.sessions : group.sessions.filter(matchesFamilyFilter),
+								folded: named ? group.folded : group.folded.filter(matchesFilter),
+							};
+						})
+						.filter(group => group.sessions.length + group.folded.length > 0)
 				: allGroups,
-		[allGroups, matchesFamilyFilter, query],
+		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
 	// Recent grouping: the Code lane as one list by last activity, project shown per row. A session another one
-	// opened is in that one's family, not a row of its own.
+	// opened is in that one's family, not a row of its own; one no opener holds folds into the lane's "n done" row.
 	const recentCodeSessions = useMemo(
 		() =>
 			grouping === "recent"
 				? codeSessions
-						.filter(session => !familyRootOf.has(session.path) && matchesFamilyFilter(session))
+						.filter(
+							session =>
+								!familyRootOf.has(session.path) &&
+								!foldedRootOf.has(session.path) &&
+								matchesFamilyFilter(session),
+						)
 						.toSorted(byPinThenRecency)
 				: [],
-		[grouping, codeSessions, familyRootOf, matchesFamilyFilter, byPinThenRecency],
+		[grouping, codeSessions, familyRootOf, foldedRootOf, matchesFamilyFilter, byPinThenRecency],
+	);
+	const recentFolded = useMemo(
+		() =>
+			grouping === "recent"
+				? codeSessions
+						.filter(session => foldedRootOf.has(session.path) && matchesFilter(session))
+						.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1))
+				: [],
+		[grouping, codeSessions, foldedRootOf, matchesFilter],
 	);
 	// Archived sessions of this lane that no tab holds, newest first.
 	const archivedRows = sessions
@@ -880,7 +954,11 @@ export function Sidebar() {
 		.filter(matchesFilter)
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
 	const totalCount =
-		mode === "chat" ? chatLaneSessions.length : grouping === "recent" ? recentCodeSessions.length : groups.length;
+		mode === "chat"
+			? chatLaneSessions.length
+			: grouping === "recent"
+				? recentCodeSessions.length + recentFolded.length
+				: groups.length;
 	// An empty lane must not read as "no sessions at all" while the other lane
 	// holds some (e.g. the open code session while 채팅 is selected).
 	const codeTotal = codeSessions.length;
@@ -1367,7 +1445,8 @@ export function Sidebar() {
 			finished:
 				lastRun !== undefined ||
 				closedTitleOf.has(child.path) ||
-				(row.tab !== undefined && !row.busy && child.messageCount >= 2),
+				row.tab === undefined ||
+				(!row.busy && child.messageCount >= 2),
 			failed,
 			unmerged:
 				review?.branch !== undefined &&
@@ -1580,8 +1659,7 @@ export function Sidebar() {
 								setPendingDelete({ kind: "session", session });
 							} else if (
 								(event.key === "ArrowRight" || event.key === "ArrowLeft") &&
-								openTabId &&
-								sidebarSubagentCount(openTabId) + opened.length > 0
+								sidebarSubagentCount(openTabId ?? "") + opened.length > 0
 							) {
 								const open = event.key === "ArrowRight";
 								const subagents = useSidebarSubagentsStore.getState();
@@ -1652,13 +1730,13 @@ export function Sidebar() {
 					}
 					titleText={[title, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
 					trailing={
-						openTabId ? (
-							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId} />
+						openTabId || opened.length > 0 ? (
+							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
 						) : undefined
 					}
 				/>
-				{openTabId && (
-					<SidebarSubagents nested={nested} opened={opened} sessionKey={session.path} tabId={openTabId} />
+				{(openTabId || opened.length > 0) && (
+					<SidebarSubagents nested={nested} opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
 				)}
 			</Fragment>
 		);
@@ -1814,6 +1892,10 @@ export function Sidebar() {
 						{!groupCollapsed && (
 							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
 								{group.sessions.map(session => renderSessionRow(session, true))}
+								<SidebarDoneFold
+									foldKey={`group:${group.cwd}`}
+									opened={group.folded.map(child => familyChildFor(child, false))}
+								/>
 							</div>
 						)}
 					</>
@@ -2057,9 +2139,13 @@ export function Sidebar() {
 							</SortableContext>
 						</DndContext>
 					)}
-					{mode === "code" && grouping === "recent" && recentCodeSessions.length > 0 && (
+					{mode === "code" && grouping === "recent" && recentCodeSessions.length + recentFolded.length > 0 && (
 						<div className="space-y-px" data-recent-lane>
 							{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
+							<SidebarDoneFold
+								foldKey="recent"
+								opened={recentFolded.map(child => familyChildFor(child, false))}
+							/>
 						</div>
 					)}
 					{archivedRows.length > 0 && (

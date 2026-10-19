@@ -446,6 +446,28 @@ function FamilyChip({
 	);
 }
 
+/** One session an agent opened, as a one-line child. */
+function OpenedRow({ child, nested }: { child: FamilyOpened; nested: boolean }) {
+	const t = useT();
+	if (child.renaming) return <div>{child.renaming}</div>;
+	return (
+		<FamilyRow
+			age={child.age}
+			buttonProps={child.buttonProps}
+			indent={INDENT[nested ? "nested" : "top"][0]}
+			kind={child.kind}
+			kindLabel={t(child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session")}
+			onOpen={child.onOpen}
+			rowProps={child.rowProps}
+			selected={child.selected}
+			state={child.state}
+			stateLabel={child.stateLabel}
+			title={child.title}
+			tooltip={child.tooltip}
+		/>
+	);
+}
+
 function FamilyGroup({
 	tabId,
 	sessionKey,
@@ -545,26 +567,7 @@ function FamilyGroup({
 			tabId={tabId}
 		/>
 	);
-	const openedRow = (child: FamilyOpened) =>
-		child.renaming ? (
-			<div key={child.key}>{child.renaming}</div>
-		) : (
-			<FamilyRow
-				age={child.age}
-				buttonProps={child.buttonProps}
-				indent={INDENT[nested ? "nested" : "top"][0]}
-				key={child.key}
-				kind={child.kind}
-				kindLabel={t(child.kind === "worktree" ? "sidebar.family.kind.worktree" : "sidebar.family.kind.session")}
-				onOpen={child.onOpen}
-				rowProps={child.rowProps}
-				selected={child.selected}
-				state={child.state}
-				stateLabel={child.stateLabel}
-				title={child.title}
-				tooltip={child.tooltip}
-			/>
-		);
+	const openedRow = (child: FamilyOpened) => <OpenedRow child={child} key={child.key} nested={nested} />;
 
 	return (
 		<>
@@ -664,17 +667,20 @@ export const SidebarSubagents = memo(function SidebarSubagents({
 	nested = false,
 	opened = NO_OPENED,
 }: {
-	tabId: string;
+	tabId: string | null;
 	sessionKey: string;
 	nested?: boolean;
 	opened?: readonly FamilyOpened[];
 }) {
 	const runtime = useTabSessionRuntime(tabId);
+	// A stored opener (no tab) still holds the sessions it opened: no roster, no runtime, `""` names no tab.
 	if (!runtime)
-		return <FamilyGroup nested={nested} opened={opened} sessionKey={sessionKey} slice={DETACHED} tabId={tabId} />;
+		return (
+			<FamilyGroup nested={nested} opened={opened} sessionKey={sessionKey} slice={DETACHED} tabId={tabId ?? ""} />
+		);
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
-			<AttachedGroup nested={nested} opened={opened} sessionKey={sessionKey} tabId={tabId} />
+			<AttachedGroup nested={nested} opened={opened} sessionKey={sessionKey} tabId={tabId ?? ""} />
 		</SessionRuntimeProvider>
 	);
 });
@@ -688,7 +694,7 @@ export const SidebarSubagentsToggle = memo(function SidebarSubagentsToggle({
 	sessionKey,
 	opened = NO_OPENED,
 }: {
-	tabId: string;
+	tabId: string | null;
 	sessionKey: string;
 	opened?: readonly FamilyOpened[];
 }) {
@@ -700,3 +706,25 @@ export const SidebarSubagentsToggle = memo(function SidebarSubagentsToggle({
 		</SessionRuntimeProvider>
 	);
 });
+
+/**
+ * The "n done" row closing a project's group (or the recent list): the sessions an agent opened that no opener row
+ * holds. It is a fold like a family's, never rows of their own, and never opens by itself.
+ */
+export function SidebarDoneFold({ foldKey, opened }: { foldKey: string; opened: readonly FamilyOpened[] }) {
+	const t = useT();
+	const [open, setOpen] = useState(false);
+	if (opened.length === 0) return null;
+	return (
+		<div aria-label={t("sidebar.family.group")} className="space-y-px" data-sidebar-done-fold={foldKey} role="group">
+			<DoneFold
+				count={opened.length}
+				nested={false}
+				onToggle={() => setOpen(value => !value)}
+				open={open}
+				sessionKey={foldKey}
+			/>
+			{open && opened.map(child => <OpenedRow child={child} key={child.key} nested={false} />)}
+		</div>
+	);
+}

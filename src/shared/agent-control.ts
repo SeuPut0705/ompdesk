@@ -263,19 +263,28 @@ export interface AgentMessage {
 	body: string;
 }
 
+/** The sender title an attribute carries, with the entities `wrapAgentMessage` wrote. */
+function unescapeAttribute(value: string): string {
+	return value.replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
 /** The parts of a wrapped message; null for anything else (a person's own prompt). */
 export function parseAgentMessage(text: string): AgentMessage | null {
 	const match = WRAPPED.exec(text);
 	if (!match) return null;
-	const from = (match[1] ?? "")
-		.replaceAll("&quot;", '"')
-		.replaceAll("&lt;", "<")
-		.replaceAll("&gt;", ">")
-		.replaceAll("&amp;", "&");
-	return { from, body: match[2] ?? "" };
+	return { from: unescapeAttribute(match[1] ?? ""), body: match[2] ?? "" };
 }
 
-const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="[^"]*">\\n`);
+/**
+ * The sender of a prompt that is (the start of) a wrapped message, `""` when it had no title; null for a person's own
+ * prompt. Reads a message cut short, as a session listing's first-prompt prefix is.
+ */
+export function agentMessageSender(text: string): string | null {
+	const match = WRAPPED_START.exec(text.trimStart());
+	return match ? unescapeAttribute(match[1] ?? "") : null;
+}
+
+const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="([^"]*)">\\n`);
 const WRAPPED_END = new RegExp(`\\n</${AGENT_MESSAGE_TAG}>$`);
 /** What a worker's final answer says about its own work: its last line, `Result: ok` or `Result: problem — <reason>`. */
 export type WorkerResult = { kind: "ok" } | { kind: "problem"; reason: string };
