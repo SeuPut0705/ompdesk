@@ -115,9 +115,10 @@ export function SetupTakeoverHost() {
 	useLayoutEffect(() => {
 		useMachineSetupStore.getState().setTakeover(needed);
 		if (!needed) return;
-		const ui = useUiStore.getState();
-		ui.closeCommandPalette();
-		ui.closeDestination();
+		useUiStore.getState().closeCommandPalette();
+		// No cross-fade (`closeDestination`): the page goes under an opaque screen, and while a view transition runs
+		// every click lands on the document root, so the takeover's first clicks would drop focus out of the dialog.
+		useUiStore.setState({ destination: "session" });
 		return () => useMachineSetupStore.getState().setTakeover(false);
 	}, [needed]);
 	return <SetupTakeover open={needed} />;
