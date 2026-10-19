@@ -2611,6 +2611,25 @@ describe("tabs of the last run (the tab snapshot)", () => {
 		expect(sessionRuntime("old-b")).toBeNull();
 	});
 
+	it("lets main's restored active tab win over a stale snapshot's selection", async () => {
+		// The snapshot is written after a quiet moment: a quit right after a pick leaves the one before it.
+		useTabsStore.setState({
+			tabs: [
+				ghost("old-b", { sessionPath: "/s/b.jsonl", title: "Beta" }),
+				ghost("old-g", { sessionPath: "/s/g.jsonl", title: "Gamma" }),
+			],
+			activeTabId: "old-b",
+		});
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("new-b", "/p"), sessionPath: "/s/b.jsonl" },
+			{ ...tabInfo("new-g", "/p"), sessionPath: "/s/g.jsonl", active: true },
+		]);
+
+		await useTabsStore.getState().reconcileTabs();
+
+		expect(useTabsStore.getState().activeTabId).toBe("new-g");
+	});
+
 	it("takes the next blank ghost for a tab with no session yet, and falls back to main's active tab", async () => {
 		useTabsStore.setState({ tabs: [ghost("old-blank")], activeTabId: "old-blank" });
 		omp.tabs.list.mockResolvedValue([{ ...tabInfo("new-1", "/p"), active: true }]);

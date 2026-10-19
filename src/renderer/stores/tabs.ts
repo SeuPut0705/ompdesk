@@ -602,7 +602,13 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			// survive appended at the end.
 			const tabs = dropUnlisted ? merged : [...merged, ...leftovers.values()];
 			const mainActiveTabId = list.find(info => info.active)?.tabId;
-			const wantedActive = (state.activeTabId && adopted.get(state.activeTabId)) || state.activeTabId;
+			// A ghost's selection is the snapshot's, written after a quiet moment (a quit right after a pick leaves the
+			// one before it): main's restored layout wins; it holds only when main names no active tab.
+			const ghostSelected = state.tabs.find(tab => tab.id === state.activeTabId)?.ghost === true;
+			const wantedActive =
+				ghostSelected && mainActiveTabId
+					? mainActiveTabId
+					: (state.activeTabId && adopted.get(state.activeTabId)) || state.activeTabId;
 			const activeTabId =
 				wantedActive && tabs.some(tab => tab.id === wantedActive)
 					? wantedActive
