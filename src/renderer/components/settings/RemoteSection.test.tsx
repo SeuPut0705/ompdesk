@@ -68,6 +68,8 @@ const remote = {
 	revokePeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
 	setPeerLimits: vi.fn(async (_deviceId: string, _limits: PeerLimits): Promise<RemoteState> => hostOn()),
 	removeHost: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn()),
+	renameHost: vi.fn(async (_deviceId: string, _name: string): Promise<RemoteState> => hostOn()),
+	renamePeer: vi.fn(async (_deviceId: string, _name: string): Promise<RemoteState> => hostOn()),
 	discover: vi.fn(async () => []),
 	onDiscovered: vi.fn(() => () => {}),
 	onState: vi.fn(() => () => {}),
@@ -113,6 +115,14 @@ function keepAwakeRow(): Element | null {
 	return document.body.querySelector("#settings-remote-keep-awake");
 }
 
+/** Call a React handler prop of a DOM node directly (linkedom fires none of React's synthetic events). */
+function reactProp(node: Element, name: string, event: object): void {
+	const record = node as unknown as Record<string, unknown>;
+	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+	const props = propsKey ? (record[propsKey] as Record<string, ((event: object) => void) | undefined>) : {};
+	props[name]?.(event);
+}
+
 beforeEach(() => {
 	remote.getState.mockImplementation(async () => hostOn());
 });
@@ -131,6 +141,38 @@ afterEach(async () => {
 });
 
 describe("RemoteSection", () => {
+	it("keeps this computer's name editable while sharing is off", async () => {
+		remote.getState.mockImplementation(async () => hostOn({ enabled: false, peers: [] }));
+		await mount();
+		const label = Array.from(document.body.querySelectorAll("label")).find(
+			node => node.textContent === translate("remote.host.name"),
+		);
+		expect(label).toBeDefined();
+	});
+
+	it("renames a paired host inline: the host is asked through renameHost; offline rows cannot", async () => {
+		remote.getState.mockImplementation(async () => ({
+			...hostOn({ peers: [{ ...LAPTOP, online: false }] }),
+			hosts: [{ deviceId: "host-studio", name: "DESKTOP-91ID999", state: "online" }],
+		}));
+		await mount();
+		const offline = buttonLabeled(translate("remote.renameOffline", { name: "laptop" }));
+		expect(offline?.disabled).toBe(true);
+
+		const rename = buttonLabeled(translate("remote.rename", { name: "DESKTOP-91ID999" }));
+		await act(async () => rename?.click());
+		const input = document.body.querySelector("[data-device-rename]") as HTMLInputElement;
+		expect(input.value).toBe("DESKTOP-91ID999");
+		await act(async () => {
+			setInputValue(input, "  Office desk ");
+		});
+		await act(async () => {
+			reactProp(input, "onBlur", { currentTarget: input, target: input });
+		});
+		expect(remote.renameHost).toHaveBeenCalledWith("host-studio", "Office desk");
+		expect(document.body.querySelector("[data-device-rename]")).toBeNull();
+	});
+
 	it("shows the addresses and the pairing code, each selectable and copyable, with a countdown", async () => {
 		await mount();
 

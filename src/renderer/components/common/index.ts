@@ -36,6 +36,7 @@ export {
 export { Kbd, type KbdProps } from "./Kbd";
 export { LangSwitcher, type LangSwitcherProps } from "./LangSwitcher";
 export { ListRow, type ListRowProps } from "./ListRow";
+export { LiveEdge, type LiveEdgeState, useWindowVisible } from "./LiveEdge";
 export {
 	MasterDetail,
 	MasterDetailBack,
@@ -52,7 +53,15 @@ export { INLINE_DESCRIPTION_MAX, SettingInfo, splitDescription } from "./Setting
 export { Sheet, type SheetPlacement, type SheetProps, type SheetSize } from "./Sheet";
 export { Skeleton, SkeletonRows } from "./Skeleton";
 export { Spinner, type SpinnerProps, type SpinnerSize } from "./Spinner";
-export { Switch, SwitchField, type SwitchFieldProps, type SwitchProps, type SwitchSize } from "./Switch";
+export {
+	Switch,
+	SwitchField,
+	type SwitchFieldProps,
+	type SwitchProps,
+	type SwitchSize,
+	SwitchTile,
+	type SwitchTileProps,
+} from "./Switch";
 export { type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";
 export { TextEditor, type TextEditorLanguage, type TextEditorProps } from "./TextEditor";
 export { ToastStack } from "./Toast";

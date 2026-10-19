@@ -8,7 +8,7 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
 2. Install [Git for Windows](https://git-scm.com/download/win). Its Git Bash is the supported shell for anything written in POSIX shell.
 3. Install stock omp: `bun install -g @oh-my-pi/pi-coding-agent` (or let the app's machine setup do it).
 4. Clone, then `bun install`. `.gitattributes` forces LF on checkout (`* text=auto eol=lf`), which biome needs; do not override it with `core.autocrlf`.
-5. Turn on **Developer Mode** (Settings › System › For developers). About 20 test files create file symlinks (`fs.symlinkSync` without `"junction"`: `open-path`, `server`, `models-config`, `cli-tools/detect`, `ext-update/mcp-owner`, `visuals`, `host-actions`, …), and Windows refuses them with `EPERM` otherwise. CI runners run as admin, so CI does not catch this. App code (worktree seeding) makes directory junctions and needs no privilege.
+5. Turn on **Developer Mode** (Settings › System › For developers). About 15 test files create file symlinks (`fs.symlinkSync` without `"junction"`: `open-path`, `server`, `models-config`, `cli-tools/detect`, `ext-update/mcp-owner`, `visuals`, `host-actions`, …), and Windows refuses them with `EPERM` otherwise. CI runners run as admin, so CI does not catch this. App code (worktree seeding) makes directory junctions and needs no privilege.
 
 ## Shells
 
@@ -20,12 +20,12 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
 
 | Script | Windows behaviour |
 |---|---|
-| `bun run locked`, `gate`, `check:changed` | Lock root is `%TEMP%\ompdesk-locks`, log `%TEMP%\ompdesk-build.log`. Commands run through cmd.exe (so `bunx`/`npx` shims start) with arguments quoted (`quoteForCmd`); interrupting kills the tree with `taskkill /T /F`. |
+| `bun run locked`, `gate`, `check:changed` | Lock root is `%TEMP%\ompdesk-locks`, log `%TEMP%\ompdesk-build.log`. Commands run through cmd.exe where needed (so `bunx`/`npx` shims start) with arguments quoted by `spawnArgs` (`src/main/spawn.ts`); interrupting kills the tree with `taskkill /T /F`. |
 | `bun run build` | The `out-<hash>/` snapshot is a plain copy (no APFS clone), about 17 MB per build; old ones are deleted 30 min after last use. |
 | `bun run gen:icons` | Skips `icon.icns` and `dmg-background.tiff` (`iconutil`/`tiffutil` are macOS only). Commit only the files it changed. |
 | `bun run sync:rea-skill` | Needs `npm` and `tar` (`tar.exe` ships with Windows 10 1803+). |
 | `bun run package:win` | Builds the NSIS setup locally. `package:mac` cannot run. |
-| `.ompdesk/worktree-setup.cmd` | The Windows form of the worktree setup hook (none is checked in). |
+| `.ompdesk/worktree-setup.cmd` | The Windows form of the worktree setup hook, checked in beside the POSIX `.ompdesk/worktree-setup`: `bun install --frozen-lockfile`, then `bun scripts/ensure-electron.ts`. |
 
 ## Tests
 

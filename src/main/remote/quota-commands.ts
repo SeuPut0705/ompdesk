@@ -50,6 +50,8 @@ export const MODEL_COMMAND_TYPES = [
 	"auto_mode_decide",
 	// `ompdesk_compare` with criteria (bridge agent-control.ts): one judge request on the `slow` role model.
 	"agent_control_judge",
+	// A report from another session (bridge agent-control.ts): `triggerTurn` wakes the receiver for a turn.
+	"agent_control_mail",
 ] as const satisfies readonly RpcType[];
 
 /** Commands that call a model only for some arguments; `commandUsesModel` decides. */
@@ -257,6 +259,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"set_interrupt_mode",
 	"set_model",
 	"set_model_role",
+	"set_next_prompt_children",
 	"set_next_prompt_draft",
 	"set_output_style",
 	"set_plan_mode",

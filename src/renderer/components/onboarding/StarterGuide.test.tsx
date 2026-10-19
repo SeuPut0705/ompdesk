@@ -14,6 +14,7 @@ import type { ModelInfo, ProviderInfo } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useFirstRunStore } from "../../stores/first-run";
 import { useModelStore } from "../../stores/model";
+import { useSidebarFolds } from "../../stores/sidebar-folds";
 import { STARTER_GUIDE_PREF, useStarterGuideStore } from "../../stores/starter-guide";
 import { useUiStore } from "../../stores/ui";
 import { StarterGuide } from "./StarterGuide";
@@ -82,6 +83,7 @@ afterEach(async () => {
 	root = undefined;
 	document.body.innerHTML = "";
 	useStarterGuideStore.getState().reset();
+	useSidebarFolds.getState().reset();
 	useModelStore.getState().reset();
 	useFirstRunStore.getState().reset();
 	useUiStore.setState({ panelVisible: false });

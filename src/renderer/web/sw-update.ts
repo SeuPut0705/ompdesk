@@ -167,18 +167,21 @@ export interface CacheStorageApi {
 export class UpdateWatcher {
 	readonly #registration: RegistrationLike;
 	readonly #reload: () => void;
-	readonly #purge: () => void;
+	readonly #purge: () => void | Promise<boolean>;
 	readonly #listeners = new Set<() => void>();
 	#available: boolean;
 	#outdated = false;
 	#applying = false;
 
-	/** `purge`: unregister the worker and clear the caches, then load from the network (the `outdated` path). */
+	/**
+	 * `purge`: unregister the worker and clear the caches, then load from the network (the `outdated` path). It
+	 * resolves false when it left the reload for a later safe moment.
+	 */
 	constructor(
 		registration: RegistrationLike,
 		container: WorkerContainerLike,
 		reload: () => void,
-		purge: () => void = reload,
+		purge: () => void | Promise<boolean> = reload,
 	) {
 		this.#registration = registration;
 		this.#reload = reload;
@@ -217,8 +220,13 @@ export class UpdateWatcher {
 	resume(moment: SafeMoment): boolean {
 		if (this.#applying || !this.pending || !safeToReload(moment)) return false;
 		this.#applying = true;
-		if (this.#outdated) this.#purge();
-		else this.apply();
+		if (this.#outdated) {
+			// The cleanup is async and the page may stop being safe meanwhile: a purge that did not reload leaves the
+			// navigation for the next safe moment (its repeat finds the workers and caches gone and only reloads).
+			void Promise.resolve(this.#purge()).then(reloaded => {
+				if (reloaded === false) this.#applying = false;
+			});
+		} else this.apply();
 		return true;
 	}
 
@@ -265,8 +273,9 @@ export async function purgeAndReload(
 	container: Pick<WorkerContainerLike, "getRegistrations"> | undefined,
 	cacheStorage: CacheStorageApi | undefined,
 	reload: () => void,
+	safe: () => boolean = () => true,
 	cleanupMs = PURGE_CLEANUP_MS,
-): Promise<void> {
+): Promise<boolean> {
 	const cleanup = (async () => {
 		const registrations = (await container?.getRegistrations?.()) ?? [];
 		await Promise.all(registrations.map(registration => registration.unregister()));
@@ -275,5 +284,7 @@ export async function purgeAndReload(
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	await Promise.race([cleanup, new Promise<void>(resolve => (timer = setTimeout(resolve, cleanupMs)))]);
 	clearTimeout(timer);
+	if (!safe()) return false;
 	reload();
+	return true;
 }

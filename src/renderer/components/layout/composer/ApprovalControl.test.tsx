@@ -71,20 +71,20 @@ async function mountControl(mode: "yolo" | "write" | "always-ask"): Promise<void
 	});
 }
 
-function approvalField(): HTMLSelectElement | null {
-	return document.body.querySelector("select[data-approval-mode]") as HTMLSelectElement | null;
+function approvalField(): HTMLElement | null {
+	return document.body.querySelector("[data-approval-mode]") as HTMLElement | null;
 }
 
-/** Pick a mode and drive the select's React onChange contract. */
+/** The held mode: the one segment that is checked. */
+function heldMode(): string | null | undefined {
+	return approvalField()?.querySelector("[aria-checked=true]")?.getAttribute("data-approval-option");
+}
+
+/** Tap one segment of the row. */
 async function chooseMode(mode: "yolo" | "write" | "always-ask"): Promise<void> {
-	const select = approvalField();
-	if (!select) throw new Error("approval field missing");
-	const record = select as unknown as Record<string, unknown>;
-	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
-	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
-	if (!props?.onChange) throw new Error("select onChange not found");
-	// linkedom's select.value is read-only; the handler reads the event target.
-	await act(async () => props.onChange?.({ target: { value: mode }, currentTarget: { value: mode } }));
+	const option = approvalField()?.querySelector(`[data-approval-option="${mode}"]`) as HTMLButtonElement | null;
+	if (!option) throw new Error("approval option missing");
+	await act(async () => option.click());
 }
 
 function buttonWithLabel(label: string): HTMLButtonElement | undefined {
@@ -111,7 +111,7 @@ afterEach(async () => {
 describe("Run settings tool approval", () => {
 	it("confirms before granting full access, closing the popover first", async () => {
 		await mountControl("write");
-		expect(approvalField()?.value).toBe("write");
+		expect(heldMode()).toBe("write");
 
 		await chooseMode("yolo");
 

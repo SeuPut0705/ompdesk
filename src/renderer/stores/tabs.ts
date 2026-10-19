@@ -73,6 +73,7 @@ import type { MessagesStore } from "./messages";
 import { useNextPromptStore } from "./next-prompt";
 import {
 	type PendingPlanProposal,
+	type PlanApprovalSnapshot,
 	type PlanApprovalStore,
 	type PlanApprovalSubmitState,
 	usePlanApprovalStore,
@@ -1402,7 +1403,9 @@ export function restoreTabComposer(
 /** Finish a plan-approval request in the tab that issued it. The response may
  * arrive after the user switched elsewhere, so both the proposal UI and the
  * plan-mode flag are updated in that tab's parked bundle instead of whichever
- * session happens to be visible. */
+ * session happens to be visible. A failed answer (`submitting: null`) to a
+ * proposal resolved elsewhere meanwhile closes the card; returns true then, so
+ * the caller shows no failure. */
 export function settleTabPlanApproval(
 	tabId: string | null,
 	sessionId: string,
@@ -1413,36 +1416,41 @@ export function settleTabPlanApproval(
 		submitting?: PlanApprovalSubmitState | null;
 		exitPlanMode?: boolean;
 	},
-): void {
+): boolean {
 	const resolvedTabId = tabId ?? useTabsStore.getState().activeTabId;
 	const session = sessionRuntimeStore<SessionStore>(resolvedTabId, "session");
 	const planStore = sessionRuntimeStore<PlanApprovalStore>(resolvedTabId, "planApproval");
+	const settle = (plan: PlanApprovalSnapshot): Partial<PlanApprovalSnapshot> & { lost: boolean } => {
+		const lost = !result.clear && result.submitting === null && plan.resolved;
+		const clear = result.clear || lost;
+		return {
+			lost,
+			pending: clear ? null : target,
+			feedback: clear ? "" : plan.feedback,
+			notice: clear ? null : result.notice === undefined ? plan.notice : result.notice,
+			submitting: clear ? null : result.submitting === undefined ? plan.submitting : result.submitting,
+			...(clear ? { resolved: false } : {}),
+		};
+	};
 	if (!session || !planStore) {
 		if (
 			useTabsStore.getState().activeTabId !== resolvedTabId ||
 			useSessionStore.getState().sessionId !== sessionId ||
 			usePlanApprovalStore.getState().pending !== target
 		)
-			return;
-		usePlanApprovalStore.setState(state => ({
-			pending: result.clear ? null : target,
-			feedback: result.clear ? "" : state.feedback,
-			notice: result.clear ? null : result.notice === undefined ? state.notice : result.notice,
-			submitting: result.clear ? null : result.submitting === undefined ? state.submitting : result.submitting,
-		}));
+			return false;
+		const { lost, ...next } = settle(usePlanApprovalStore.getState());
+		usePlanApprovalStore.setState(next);
 		if (result.exitPlanMode) useSessionStore.setState({ planModeEnabled: false });
-		return;
+		return lost;
 	}
-	if (session.getState().sessionId !== sessionId) return;
+	if (session.getState().sessionId !== sessionId) return false;
 	const plan = planStore.getState();
-	if (plan.pending !== target) return;
-	planStore.setState({
-		pending: result.clear ? null : target,
-		feedback: result.clear ? "" : plan.feedback,
-		notice: result.clear ? null : result.notice === undefined ? plan.notice : result.notice,
-		submitting: result.clear ? null : result.submitting === undefined ? plan.submitting : result.submitting,
-	});
+	if (plan.pending !== target) return false;
+	const { lost, ...next } = settle(plan);
+	planStore.setState(next);
 	if (result.exitPlanMode) session.setState({ planModeEnabled: false });
+	return lost;
 }
 
 /**

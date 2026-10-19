@@ -38,9 +38,11 @@ async function startFakeBridge(): Promise<string> {
 					const reply =
 						request.method === "echo"
 							? { id: request.id, ok: true, result: request.params }
-							: request.method === "old"
-								? { id: request.id, ok: false, error: "Plan mode is unavailable", code: "unsupported_omp" }
-								: { id: request.id, ok: false, error: `bad ${request.method}` };
+							: request.method === "timed"
+								? { id: request.id, ok: true, result: 1, timing: { receivedAt: 5, loadMs: 40, ms: 7 } }
+								: request.method === "old"
+									? { id: request.id, ok: false, error: "Plan mode is unavailable", code: "unsupported_omp" }
+									: { id: request.id, ok: false, error: `bad ${request.method}` };
 					socket.write(`${JSON.stringify(reply)}\n`);
 				}
 				newline = buffer.indexOf("\n");
@@ -65,6 +67,24 @@ function pauseSocketConnection(): () => net.Socket {
 }
 
 describe("GuiBridgeClient", () => {
+	it("hands a request's timing out when it is sent and, with the bridge's part, when it settles", async () => {
+		const client = new GuiBridgeClient(await startFakeBridge());
+		await client.connect();
+		const seen: unknown[] = [];
+		await client.request("timed", undefined, timing => seen.push({ ...timing }));
+		expect(seen).toHaveLength(2);
+		expect(seen[0]).toEqual({ connectWaitMs: expect.any(Number), sentAt: expect.any(Number) });
+		expect(seen[1]).toMatchObject({ receivedAt: 5, loadMs: 40, bridgeMs: 7, answeredAt: expect.any(Number) });
+		// An older bridge sends no timing: the settled call still reports what main measured.
+		await client.request("echo", 1, timing => seen.push({ ...timing }));
+		expect(seen[3]).toEqual({
+			connectWaitMs: expect.any(Number),
+			sentAt: expect.any(Number),
+			answeredAt: expect.any(Number),
+		});
+		client.close();
+	});
+
 	it("correlates requests, surfaces bridge errors, and delivers pushed events", async () => {
 		const client = new GuiBridgeClient(await startFakeBridge());
 		const events: unknown[] = [];

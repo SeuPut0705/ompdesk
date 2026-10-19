@@ -164,8 +164,8 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 					data-leaving={!open || undefined}
 					data-work-strip-panel=""
 					id={PANEL_ID}
-					// A tap on a row acts (its own handler runs first) and collapses; the fold toggles and a review's
-					// approve/discard keep the panel open.
+					// A tap on a row acts (its own handler runs first) and collapses; the fold toggles keep the panel
+					// open.
 					onClick={event => {
 						if (event.target instanceof Element && event.target.closest("button.omp-work-board-row")) close();
 					}}

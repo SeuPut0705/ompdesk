@@ -138,6 +138,7 @@ const [
 	hostUi,
 	updater,
 	settings,
+	model,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -156,6 +157,7 @@ const [
 	import("../web/host-ui/host-ui-store").then(module => module.useHostUiStore),
 	import("../stores/updater").then(module => module.useUpdaterStore),
 	import("../stores/settings").then(module => module.useSettingsStore),
+	import("../stores/model").then(module => module.useModelStore),
 ]);
 window.__stores = {
 	ui,
@@ -175,6 +177,7 @@ window.__stores = {
 	hostUi,
 	updater,
 	settings,
+	model,
 };
 
 declare global {

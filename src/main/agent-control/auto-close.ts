@@ -3,7 +3,8 @@
  * gathers the facts (tab state, git, what the person is doing) and applies the decision.
  *
  * A tab closes only once its work has landed and nobody is using it; the session file always stays. A finished child
- * that needs a look (it ended in an error or was stopped, its branch holds commits nothing merged) stays a row.
+ * that needs a look (it ended in an error or was stopped, its branch holds commits nothing merged, its worktree holds
+ * uncommitted or untracked files) stays a row.
  */
 
 /** What git says about the child's branch; null for a session without a worktree. */
@@ -51,11 +52,12 @@ export type KeepReason =
 	| "looked-at"
 	| "not-collected"
 	| "nothing-landed"
-	| "unmerged";
+	| "unmerged"
+	| "uncommitted";
 
 export type AutoCloseDecision =
 	| { action: "keep"; reason: KeepReason }
-	/** Close the tab; `removeWorktree`: the branch is merged and the worktree clean, so it goes too. */
+	/** Close the tab; `removeWorktree`: its branch landed and the worktree is clean, so it goes too. */
 	| { action: "close"; removeWorktree: boolean };
 
 /** The first rule that holds decides; the order is the rules' priority. */
@@ -74,5 +76,7 @@ export function autoCloseDecision(facts: AutoCloseFacts): AutoCloseDecision {
 	if (!branch) return { action: "close", removeWorktree: false };
 	if (!branch.hasWork) return { action: "keep", reason: "nothing-landed" };
 	if (!branch.landed) return { action: "keep", reason: "unmerged" };
-	return { action: "close", removeWorktree: branch.clean };
+	// Landed commits with work left beside them are not landed work: the leftovers wait for the person.
+	if (!branch.clean) return { action: "keep", reason: "uncommitted" };
+	return { action: "close", removeWorktree: true };
 }

@@ -68,7 +68,7 @@ async function mount(): Promise<void> {
 	await act(async () => {});
 }
 
-const edge = () => container.querySelector(".omp-composer-live");
+const edge = () => container.querySelector(".omp-live-edge");
 const sendWrap = () => container.querySelector(".omp-composer-send-live");
 
 afterEach(async () => {
@@ -113,14 +113,14 @@ describe("ComposerLiveEdge", () => {
 		await mount();
 		expect(edge()).toBeNull();
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		expect(edge()?.getAttribute("data-composer-live")).toBe("turn");
+		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
 		expect(sendWrap()?.hasAttribute("data-composer-live")).toBe(false);
 	});
 
 	it("shows `background` between turns for a working subagent, and rings Send", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running"), agent("a2", "running")]);
 		await mount();
-		expect(edge()?.getAttribute("data-composer-live")).toBe("background");
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
 		expect(sendWrap()?.getAttribute("data-composer-live")).toBe("background");
 	});
 
@@ -135,13 +135,13 @@ describe("ComposerLiveEdge", () => {
 	it("shows `background` while a shell runs", async () => {
 		jobs = [job("j3", "bash", "running")];
 		await mount();
-		expect(edge()?.getAttribute("data-composer-live")).toBe("background");
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
 	});
 
 	it("stays off while a question waits on the user, whatever else runs", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
 		await mount();
-		expect(edge()?.getAttribute("data-composer-live")).toBe("background");
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
 		await act(async () =>
 			useExtensionUiStore.getState().pushRequest({
 				type: "extension_ui_request",
@@ -176,16 +176,16 @@ describe("the cue beside a draft", () => {
 
 	it("quiets to a faint trace beside a draft, focused or not, and steps the Send ring out of the way", () => {
 		// AGENTS.md: the cue steps back while the field holds a draft (DR-19: not gone: a faint trace stays).
-		expect(rule(".omp-composer-box[data-composer-draft] .omp-composer-live")).toMatch(/opacity: 0\.2\d?;/);
+		expect(rule(".omp-composer-box[data-composer-draft] .omp-live-edge")).toMatch(/opacity: 0\.2\d?;/);
 		const ring = rule(".omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after");
 		expect(ring).toContain("opacity: 0");
 		expect(ring).toContain("animation: none");
 	});
 
 	it("takes a still 1px line at ~40% under reduced motion, not a permanent ring", () => {
-		const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-composer-live {"));
+		const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-edge {"));
 		const reduced = block.slice(0, block.indexOf("\n}\n"));
-		expect(reduced).toMatch(/\.omp-composer-live \{\s*opacity: 0\.4;/);
+		expect(reduced).toMatch(/\.omp-live-edge \{\s*opacity: 0\.4;/);
 		expect(reduced).toContain("height: 1px");
 		expect(reduced).toContain("inset: 0 0 auto 0");
 		expect(reduced).toContain("animation: none");

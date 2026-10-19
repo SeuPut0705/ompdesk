@@ -35,11 +35,19 @@ export function applyGpuFallbackIfNeeded(): boolean {
 	} else if (app.commandLine.hasSwitch("disable-gpu")) {
 		disabled = true;
 	} else {
+		let marker: string | undefined;
 		try {
-			readFileSync(markerPath(), "utf8");
-			disabled = true;
+			marker = readFileSync(markerPath(), "utf8");
 		} catch {
 			// No marker → normal hardware-accelerated path.
+		}
+		if (marker !== undefined && markerForcesSoftware(marker)) disabled = true;
+		else if (marker !== undefined) {
+			try {
+				rmSync(markerPath(), { force: true });
+			} catch {
+				// A marker left in place is ignored on the next launch too.
+			}
 		}
 	}
 	if (disabled) {
@@ -80,9 +88,23 @@ let softwareCompositingResult: Promise<boolean> | undefined;
 
 let relaunchedForGpu = false;
 
-/** GPU-process exits that mean compositing is dead — clean-exit is lifecycle. */
+/**
+ * GPU-process exits that mean compositing is dead. clean-exit is lifecycle; killed is an outside
+ * termination (Windows logoff, shutdown or an installer ends the whole tree with DBG_TERMINATE_PROCESS),
+ * never a GPU failure.
+ */
 export function isGpuProcessCrash(details: { type: string; reason: string }): boolean {
-	return details.type === "GPU" && details.reason !== "clean-exit";
+	return details.type === "GPU" && details.reason !== "clean-exit" && details.reason !== "killed";
+}
+
+/** A marker an older build wrote for a non-crash exit (killed) is stale; an unreadable one still counts. */
+export function markerForcesSoftware(marker: string): boolean {
+	try {
+		const reason: unknown = JSON.parse(marker)?.reason;
+		return typeof reason !== "string" || isGpuProcessCrash({ type: "GPU", reason });
+	} catch {
+		return true;
+	}
 }
 
 /**

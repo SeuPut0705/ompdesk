@@ -9,7 +9,7 @@ import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } f
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
-import type { SidecarLike } from "./sidecar-types";
+import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
 import type { ClientWindow } from "./web/client-window";
 
@@ -2572,29 +2572,24 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(seen).toEqual([
 			{ type: "busy", tabId: "tab-a" },
 			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "stop", reply: "All done." } },
-			{ type: "turnEnded", tabId: "tab-a" },
 		]);
 	});
 
 	it("announces a fast turn that starts and ends inside one batch as idle", () => {
 		const { a, seen } = observed();
 		a.emitEvents([{ type: "agent_start" }, reply("error", { errorMessage: "boom", content: [] })]);
-		expect(seen).toEqual([
-			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "boom" } },
-			{ type: "turnEnded", tabId: "tab-a" },
-		]);
+		expect(seen).toEqual([{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "boom" } }]);
 	});
 
-	it("waits for background work: idle comes at session_settled, the agent turn's end at agent_end", () => {
+	it("waits for background work: idle comes at session_settled, not at agent_end", () => {
 		const { a, seen } = observed();
 		a.emitEvents([{ type: "agent_start" }]);
 		a.emit("promptResult", { type: "prompt_result", sessionSettled: false });
 		a.emitEvents([reply("stop")]);
-		// The run stays busy, yet the agent's turn is over (the control tools' per-turn budget resets on it).
-		expect(seen.map(activity => activity.type)).toEqual(["busy", "turnEnded"]);
+		expect(seen.map(activity => activity.type)).toEqual(["busy"]);
 		a.emit("sessionSettled", { type: "session_settled" });
-		expect(seen.map(activity => activity.type)).toEqual(["busy", "turnEnded", "idle"]);
-		expect(seen[2]).toMatchObject({ outcome: { stopReason: "stop" } });
+		expect(seen.map(activity => activity.type)).toEqual(["busy", "idle"]);
+		expect(seen[1]).toMatchObject({ outcome: { stopReason: "stop" } });
 	});
 
 	it("does not announce the middle of an auto-retry saga as settled", () => {
@@ -2604,10 +2599,11 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		a.emitEvents([reply("error", { errorMessage: "529", content: [] })]);
 		expect(seen.map(activity => activity.type)).toEqual(["busy"]);
 		a.emitEvents([{ type: "auto_retry_end", success: false, attempt: 3, finalError: "overloaded" }]);
-		expect(seen.slice(-2)).toEqual([
-			{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "overloaded" } },
-			{ type: "turnEnded", tabId: "tab-a" },
-		]);
+		expect(seen.at(-1)).toEqual({
+			type: "idle",
+			tabId: "tab-a",
+			outcome: { stopReason: "error", errorMessage: "overloaded" },
+		});
 	});
 
 	it("announces an ask when it is raised and when it is answered", async () => {
@@ -2699,5 +2695,151 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		pool.releaseTab("tab-a");
 		expect(pool.tabFacts("tab-a")).toBeNull();
 		expect(pool.tabFacts("nope")).toBeNull();
+	});
+
+	it("holds a tab's plan proposal from its frame until it resolves or the omp goes away", () => {
+		const { pool, a } = observed();
+		const frame = {
+			type: "plan_proposal",
+			planFilePath: "local://PLAN.md",
+			title: "Plan",
+			planContent: "x",
+			options: [],
+		};
+		a.emitEvents([frame]);
+		expect(pool.pendingPlan("tab-a")).toEqual({ title: "Plan", planFilePath: "local://PLAN.md" });
+		a.emitEvents([{ type: "plan_proposal_resolved", planFilePath: "local://other.md" }]);
+		expect(pool.pendingPlan("tab-a")).not.toBeNull();
+		a.emitEvents([{ type: "plan_proposal_resolved", planFilePath: "local://PLAN.md" }]);
+		expect(pool.pendingPlan("tab-a")).toBeNull();
+		a.emitEvents([frame]);
+		a.emit("status", { status: "restarting" });
+		expect(pool.pendingPlan("tab-a")).toBeNull();
+	});
+});
+
+describe("SidecarPool hosted views (a window here showing a paired device's tab on this computer)", () => {
+	function hostedView() {
+		const { pool } = fakePool();
+		const desktop = fakeWindow(1);
+		const view = Object.assign(new FakeSidecar("/work"), { kind: "agent" as const });
+		view.currentStatus = "ready";
+		expect(pool.acquireHostedView(desktop.win, "tab-h", view as unknown as SidecarLike, "/s/x.jsonl")).toBe(true);
+		return { pool, desktop, view };
+	}
+
+	it("lists the view as a shared tab of its window and owns the session here, yet runs and restarts nothing", () => {
+		const { pool, desktop, view } = hostedView();
+		expect(pool.tabsForWindow(desktop.win)).toMatchObject([
+			{ tabId: "tab-h", shared: true, status: "ready", sessionPath: "/s/x.jsonl", active: true },
+		]);
+		expect(pool.sessionOwner("/s/x.jsonl")).toEqual({ tabId: "tab-h", winId: 1 });
+		expect(pool.isHostedView("tab-h")).toBe(true);
+		expect(view.started).toBe(false);
+		view.emitAgentEvents(["agent_start"]);
+		expect(desktop.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ tabId: "tab-h", status: "running" });
+		// The device's tab is the resume coordinator's, the quit guard's and the updaters': a view is none of theirs,
+		// and a relaunch never reopens it as this computer's own omp.
+		expect(pool.resumeFacts()).toEqual([]);
+		expect(pool.tabInventory()).toEqual([]);
+		expect(pool.tabLayoutForWindow(desktop.win)).toBeNull();
+		expect(pool.workspaceDirs()).toEqual([]);
+		view.emitAgentEvents(["agent_end"]);
+		pool.restartOnNewOmp();
+		pool.applyExtensionUpdate({ reload: false, restart: true, reconnect: [] });
+		expect(view.restartArgs).toEqual([]);
+	});
+
+	it("closes the view without an error status when the device's tab ends, and the window's list drops it", () => {
+		const { pool, desktop, view } = hostedView();
+		desktop.sent.length = 0;
+		view.emit(VIEW_ENDED_EVENT);
+		expect(view.disposed).toBe(true);
+		expect(pool.sessionOwner("/s/x.jsonl")).toBeNull();
+		expect(pool.isHostedView("tab-h")).toBe(false);
+		expect(desktop.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toEqual({ tabs: [] });
+		expect(desktop.sentTo(IPC_EVENTS.TAB_STATUS)).toEqual([]);
+	});
+
+	it("marks the cancel of an ask the device answered first as answered elsewhere, never omp's own withdrawal", () => {
+		const { desktop, view } = hostedView();
+		view.emitExtensionUi("ask-1");
+		view.emitUiRequest({ id: "answered:ask-1", method: "cancel", targetId: "ask-1" });
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({
+			request: { method: "cancel", targetId: "ask-1" },
+			answeredElsewhere: true,
+		});
+		view.emitExtensionUi("ask-2");
+		view.emitUiRequest({ id: "c", method: "cancel", targetId: "ask-2" });
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).not.toHaveProperty("answeredElsewhere");
+	});
+});
+
+describe("SidecarPool device views (a paired device viewing a tab of a window here)", () => {
+	const MAC = { deviceId: "mac", name: "Mac" };
+	function viewed() {
+		const { pool, sidecars } = fakePool();
+		const desktop = fakeWindow(1);
+		pool.acquire("/a", desktop.win, "tab-a", "/s/a.jsonl");
+		const [sidecar] = sidecars;
+		if (!sidecar) throw new Error("no sidecar");
+		sidecar.emitStatus("ready");
+		const view = pool.viewForDevice("/s/a.jsonl", MAC, "Host B");
+		if (!view) throw new Error("no view");
+		desktop.sent.length = 0;
+		return { pool, sidecar, desktop, view };
+	}
+
+	it("hands the device the tab's omp: its stream but never its host tool calls, the tab counts it as a viewer", async () => {
+		const { pool, sidecar, desktop, view } = viewed();
+		expect(pool.viewForDevice("/s/none.jsonl", MAC, "Host B")).toBeNull();
+		const seen: string[] = [];
+		for (const name of ["events", "hostToolCall", "hostUriRequest"]) view.on(name, () => seen.push(name));
+		sidecar.emitAgentEvents(["agent_start"]);
+		sidecar.emitHostToolCall("h1");
+		sidecar.emitHostUriRequest("u1");
+		expect(seen).toEqual(["events"]);
+		expect(pool.tabsForWindow(desktop.win)[0]).toMatchObject({ tabId: "tab-a", viewerCount: 1 });
+		expect(pool.deviceViewing("/s/a.jsonl")).toBe(true);
+		await view.rpcClient?.command({ type: "prompt", message: "hi" });
+		expect(sidecar.rpcCommands).toEqual([
+			{ type: "prompt_origin_set", origin: MAC, text: "hi" },
+			{ type: "prompt", message: "hi" },
+		]);
+		// The device leaving takes only its listeners.
+		view.removeAllListeners();
+		view.dispose();
+		expect(sidecar.disposed).toBe(false);
+		expect(pool.deviceViewing("/s/a.jsonl")).toBe(false);
+	});
+
+	it("takes the first answer to an ask from the device or a window, and refuses the other's", async () => {
+		const { pool, sidecar, desktop, view } = viewed();
+		sidecar.emitExtensionUi("req-1");
+		const yes = { type: "extension_ui_response", id: "req-1", confirmed: true };
+		await view.sendSideChannel(yes);
+		expect(sidecar.sentFrames).toEqual([yes]);
+		expect(desktop.sentTo(IPC_EVENTS.EXTENSION_UI).at(-1)?.data).toMatchObject({ answeredElsewhere: true });
+		await expect(
+			pool.routeSideChannel("req-1", { ...yes, confirmed: false }, undefined, desktop.win),
+		).rejects.toThrow("[already_answered]");
+
+		const ui: Array<{ id?: string }> = [];
+		view.on("extensionUi", (request: { id?: string }) => ui.push(request));
+		sidecar.emitExtensionUi("req-2");
+		const no = { type: "extension_ui_response", id: "req-2", confirmed: false };
+		expect(await pool.routeSideChannel("req-2", no, undefined, desktop.win)).toBe(true);
+		expect(ui.at(-1)).toMatchObject({ id: "answered:req-2", method: "cancel", targetId: "req-2" });
+		expect(() => view.sendSideChannel({ ...no, confirmed: true })).toThrow("[already_answered]");
+		expect(sidecar.sentFrames).toEqual([yes, no]);
+	});
+
+	it("ends the device's view when the window closes the tab, before its omp goes", () => {
+		const { pool, sidecar, view } = viewed();
+		const ended = vi.fn(() => expect(sidecar.disposed).toBe(false));
+		view.on(VIEW_ENDED_EVENT, ended);
+		pool.releaseTab("tab-a");
+		expect(ended).toHaveBeenCalledTimes(1);
+		expect(sidecar.disposed).toBe(true);
 	});
 });

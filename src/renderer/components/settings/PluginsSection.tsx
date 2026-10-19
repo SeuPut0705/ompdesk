@@ -334,7 +334,7 @@ function PluginsTab({
 	return (
 		<TabPanel
 			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: plugins.length, total }) : undefined}
-			footer={t("invPanel.footer.plugins")}
+			footer={undefined}
 			label={t("invPanel.tabs.plugins")}
 			resource={resource}
 			visible={visible}
@@ -349,7 +349,6 @@ function PluginsTab({
 										{t("invPanel.plugins.browseMarketplaces")}
 									</Button>
 								}
-								description={t("invPanel.plugins.emptyHint")}
 								icon={<PackageOpen />}
 								size="sm"
 								title={t("invPanel.plugins.empty")}
@@ -569,7 +568,6 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 
 	return (
 		<div className="flex flex-col gap-4">
-			<p className="max-w-2xl text-sc-xs text-(--sc-text-muted)">{t("settings.resources.description")}</p>
 			{/* A narrow column wraps the tab row instead of widening the page. */}
 			<Tabs
 				activeId={tab}

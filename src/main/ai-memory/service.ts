@@ -28,13 +28,22 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
 	AI_MEMORY_BINARIES,
 	AI_MEMORY_VERSION,
+	type AiMemoryDeleted,
+	type AiMemoryFeedback,
 	type AiMemoryHandoff,
+	type AiMemoryLintFinding,
+	type AiMemoryObservations,
+	type AiMemoryOverview,
 	type AiMemoryPage,
 	type AiMemoryPageRef,
+	type AiMemoryProfile,
 	type AiMemoryProject,
 	type AiMemoryProjectRef,
+	type AiMemorySession,
 	type AiMemoryState,
 	type AiMemoryStep,
+	type AiMemorySweep,
+	type AiMemoryWriteInput,
 } from "../../shared/ai-memory";
 import type { SetupPlatform } from "../../shared/setup";
 import { SetupRunner } from "../setup/runner";
@@ -408,6 +417,54 @@ export class AiMemoryService {
 
 	async readPage(ref: AiMemoryProjectRef & { path: string }): Promise<AiMemoryPage> {
 		return this.#client.page(ref);
+	}
+
+	pages(project: AiMemoryProjectRef): Promise<AiMemoryPageRef[]> {
+		return this.#client.pages(project);
+	}
+
+	overview(project: AiMemoryProjectRef): Promise<AiMemoryOverview> {
+		return this.#client.overview(project);
+	}
+
+	sessions(project: AiMemoryProjectRef): Promise<AiMemorySession[]> {
+		return this.#client.sessions(project);
+	}
+
+	observations(project: AiMemoryProjectRef, sessionId: string, offset?: number): Promise<AiMemoryObservations> {
+		return this.#client.observations(project, sessionId, offset);
+	}
+
+	profile(): Promise<AiMemoryProfile> {
+		return this.#client.profile();
+	}
+
+	lint(project: AiMemoryProjectRef): Promise<AiMemoryLintFinding[]> {
+		return this.#client.lint(project);
+	}
+
+	sweep(project: AiMemoryProjectRef, dryRun: boolean): Promise<AiMemorySweep> {
+		return this.#client.sweep(project, dryRun);
+	}
+
+	writePage(input: AiMemoryWriteInput): Promise<void> {
+		return this.#client.writePage(input);
+	}
+
+	deletePage(ref: AiMemoryProjectRef & { path: string; title?: string }): Promise<AiMemoryDeleted> {
+		return this.#client.deletePage(ref);
+	}
+
+	restorePage(ref: AiMemoryProjectRef & { path: string }, rev: string): Promise<void> {
+		return this.#client.restorePage(ref, rev);
+	}
+
+	feedback(ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback): Promise<void> {
+		return this.#client.feedback(ref, signal);
+	}
+
+	cancelHandoff(project: AiMemoryProjectRef, id: string): Promise<void> {
+		return this.#client.cancelHandoff(project, id);
 	}
 
 	/** The /web console's password: the root token (any username works). */
@@ -790,7 +847,7 @@ export class AiMemoryService {
 				() => false,
 			))
 		) {
-			throw new StepError("ai-memory's data directory is not known, so nothing was deleted.");
+			throw new StepError("The data folder is not known, so nothing was deleted.");
 		}
 		// The server must be gone: a second server (Docker, a foreground `serve`) would still hold the database.
 		await sleep(HEALTH_STEP_MS);

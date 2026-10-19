@@ -181,8 +181,11 @@ async function expectTakeover(page: Page): Promise<void> {
 	await expect(takeover).toHaveAccessibleName(/.+/);
 	await expect(takeover.locator("h1")).toBeVisible();
 	const box = await takeover.boundingBox();
-	const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
-	expect(box).toMatchObject({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+	// innerWidth/innerHeight round to whole pixels; at 125 % display scaling the viewport is e.g. 861.6 px high.
+	const viewport = await page.evaluate(() => ({ width: visualViewport!.width, height: visualViewport!.height }));
+	expect(box).toMatchObject({ x: 0, y: 0 });
+	expect(box!.width).toBeCloseTo(viewport.width, 1);
+	expect(box!.height).toBeCloseTo(viewport.height, 1);
 	// The sidebar and the titlebar sit under the screen, inert.
 	const covered = page.locator("[data-sidebar-destinations]");
 	expect(await covered.evaluate(element => element.closest("[inert]") !== null)).toBe(true);

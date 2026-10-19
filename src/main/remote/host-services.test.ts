@@ -25,11 +25,12 @@ import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-ty
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import type { MachineServices } from "../machine-services";
-import type { SidecarLike } from "../sidecar-types";
+import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { decodeBinaryRead, OMP_UPDATE_EVENT, type TabEventMessage } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
+import type { HostedTabView } from "./hosted-view";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 
@@ -145,6 +146,9 @@ function fakeLocalTabs() {
 	const tab = new FakeHostSidecar("/local", "agent");
 	const owned = new Map<string, { tabId: string; winId: number }>();
 	const closed: string[] = [];
+	/** Views of a window's tab a device may get, by session file, and who asked. */
+	const views = new Map<string, FakeHostSidecar>();
+	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
@@ -156,8 +160,14 @@ function fakeLocalTabs() {
 			return true;
 		},
 		allSidecars: () => [tab as unknown as SidecarLike],
+		viewForDevice: (path, origin, hostName) => {
+			const view = views.get(path);
+			if (!view) return null;
+			viewed.push({ origin, hostName });
+			return view as unknown as HostedTabView;
+		},
 	};
-	return { tab, owned, closed, localTabs };
+	return { tab, owned, closed, views, viewed, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -647,19 +657,22 @@ describe("LocalHostServices", () => {
 		expect(local.tab.accountRotationSyncs).toBe(0);
 	});
 
-	it("renames a session through this machine's own live tab, and a delete closes that tab, then deletes the file", async () => {
+	it("renames a session through this machine's own live tab, and refuses a delete while that tab runs it", async () => {
 		const { services, local, deleteSession, renameStoredSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		local.owned.set("/s/local.jsonl", { tabId: "local-1", winId: 1 });
 		local.tab.setStatus("ready");
 
 		await services.call(x.peer, "sessions.rename", { sessionPath: "/s/local.jsonl", name: " New " }, x);
-		await services.call(x.peer, "sessions.delete", { sessionPath: "/s/local.jsonl" }, x);
-		// No replacement session: the tab closes and the stored file goes.
+		const refused = await services
+			.call(x.peer, "sessions.delete", { sessionPath: "/s/local.jsonl" }, x)
+			.catch((error: unknown) => error);
+		// The person at this computer works in it: the device cannot take it away.
+		expect(ipcErrorCode(refused)).toBe("session_running");
 		expect(local.tab.commands).toEqual([{ type: "set_session_name", name: "New", sessionPath: "/s/local.jsonl" }]);
 		expect(renameStoredSession).not.toHaveBeenCalled();
-		expect(local.closed).toEqual(["local-1"]);
-		expect(deleteSession).toHaveBeenCalledWith("/s/local.jsonl");
+		expect(local.closed).toEqual([]);
+		expect(deleteSession).not.toHaveBeenCalled();
 	});
 
 	it("falls back to the stored file when no live tab holds the session, closing a sleeping tab", async () => {
@@ -691,6 +704,53 @@ describe("LocalHostServices", () => {
 		sidecars[0]?.exited.resolve();
 		await deleting;
 		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
+	});
+
+	it("deletes a session the device's own tabs still hold from an earlier connection or as a duplicate, never one running a turn", async () => {
+		const { services, sidecars, deleteSession } = setup();
+		const before = new FakeConnection(peer("device-x"));
+		await services.call(before.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: false }, before);
+		await services.call(before.peer, "tab.start", { rtab: "old" }, before);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		services.disconnected(before.peer, before);
+
+		// The relaunched device never showed that tab, so it closes nothing first: a running turn refuses.
+		const after = new FakeConnection(peer("device-x"));
+		const refused = await services
+			.call(after.peer, "sessions.delete", { sessionPath: "/s/x.jsonl" }, after)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_running");
+		expect(sidecars[0]?.disposed).toBe(false);
+
+		// Idle, the device's own leftover tab is released and the file goes.
+		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
+		const deleting = services.call(after.peer, "sessions.delete", { sessionPath: "/s/x.jsonl" }, after);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecars[0]?.disposed).toBe(true);
+		sidecars[0]?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/x.jsonl");
+	});
+
+	it("deletes only after every one of the device's duplicate omps on the file has exited, in any order", async () => {
+		const { services, sidecars, deleteSession } = setup();
+		const x = peer("device-x");
+		// Two leftovers of an older release on one file (revived markers make them without the open's guard).
+		services.reviveTab(x, { tab: "peer:device-x:a", cwd: workDir, kind: "agent", sessionPath: "/s/d.jsonl" });
+		services.reviveTab(x, { tab: "peer:device-x:b", cwd: workDir, kind: "agent", sessionPath: "/s/d.jsonl" });
+		expect(sidecars).toHaveLength(2);
+		const conn = new FakeConnection(x);
+		const deleting = services.call(x, "sessions.delete", { sessionPath: "/s/d.jsonl" }, conn);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecars.every(sidecar => sidecar.disposed)).toBe(true);
+		sidecars[1]?.exited.resolve();
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(deleteSession).not.toHaveBeenCalled();
+		sidecars[0]?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/d.jsonl");
 	});
 
 	it("refuses to delete a session another device's live host tab holds", async () => {
@@ -1317,6 +1377,278 @@ describe("LocalHostServices", () => {
 		await expect(services.call(x.peer, "terminal.request", { rtab: "t1" }, x)).rejects.toThrow(
 			/Invalid terminal.request/,
 		);
+	});
+});
+
+describe("LocalHostServices for this computer's own windows", () => {
+	const SESSION = "/s/x.jsonl";
+	const ask = (id: string) => ({ type: "extension_ui_request", id, method: "confirm", title: "Deploy?", message: "" });
+	/** Throws synchronously or rejects: the pool awaits either. */
+	async function sideChannelError(send: () => Promise<void> | void): Promise<unknown> {
+		try {
+			await send();
+		} catch (error) {
+			return error;
+		}
+		return undefined;
+	}
+
+	/** A device's agent opened a session here (`ompdesk_session_open {device}`) and its omp reported the file. */
+	async function hosted(graceMs?: number) {
+		const context = setup(graceMs);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("session", { sessionId: "s1", sessionFile: SESSION, sessionName: "Fix login" });
+		return { ...context, x, sidecar };
+	}
+
+	function viewOf(services: LocalHostServices, sessionPath = SESSION): SidecarLike {
+		const view = services.viewSession(sessionPath);
+		if (!view) throw new Error("expected a view");
+		return view;
+	}
+
+	it("lists the sessions its hosted tabs run with their live state, and says when that changes", async () => {
+		const { services, sidecar, x } = await hosted();
+		const changed = vi.fn();
+		services.onHostedSessionsChange(changed);
+		expect(services.hostedSessions()).toEqual([
+			{
+				sessionPath: SESSION,
+				sessionId: "s1",
+				title: "Fix login",
+				cwd: workDir,
+				kind: "agent",
+				status: "ready",
+				device: "device-x",
+			},
+		]);
+
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		expect(services.hostedSessions()[0]?.status).toBe("running");
+		sidecar.emit("extensionUi", ask("ask-1"));
+		expect(services.hostedSessions()[0]?.awaitingInput).toBe(true);
+		expect(changed).toHaveBeenCalled();
+
+		changed.mockClear();
+		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
+		expect(services.hostedSessions()).toEqual([]);
+		expect(changed).toHaveBeenCalled();
+	});
+
+	it("shows a hosted tab in a window here: its stream and commands, never its host tool calls, and leaving stops nothing", async () => {
+		const { services, sidecar, x } = await hosted();
+		expect(services.viewSession("/s/other.jsonl")).toBeNull();
+		const view = viewOf(services);
+		expect(view).toMatchObject({ status: "ready", cwd: workDir, kind: "agent", processAlive: true });
+		expect(view.device).toBeUndefined();
+		const seen: string[] = [];
+		for (const name of ["status", "events", "hostToolCall", "hostUriRequest"]) view.on(name, () => seen.push(name));
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		// The device answers the omp's tool calls and URI reads: a second answer from this computer would race it.
+		sidecar.emit("hostToolCall", { id: "ht-1", toolName: "gui_open_url", arguments: { url: "https://x" } });
+		sidecar.emit("hostUriRequest", { type: "host_uri_request", id: "u-1", operation: "read", url: "x://y" });
+		expect(seen).toEqual(["events"]);
+
+		// One omp: a prompt typed here reaches it, journaled as this computer's own.
+		await view.rpcClient?.command({ type: "prompt", message: "hi" });
+		expect(sidecar.commands).toEqual([
+			{ type: "prompt_origin_set", origin: { deviceId: "host", name: "Host B" }, text: "hi" },
+			{ type: "prompt", message: "hi" },
+		]);
+		// A paired web page viewing this window's tab named its own device first: that origin stands.
+		sidecar.commands.length = 0;
+		const phone = { deviceId: "phone", name: "Phone" };
+		await view.rpcClient?.command({ type: "prompt_origin_set", origin: phone, text: "yo" } as RpcCommand);
+		await view.rpcClient?.command({ type: "steer", message: "yo" });
+		expect(sidecar.commands).toEqual([
+			{ type: "prompt_origin_set", origin: phone, text: "yo" },
+			{ type: "steer", message: "yo" },
+		]);
+
+		// Leaving takes only the window's listeners: the device's tab and its stream go on.
+		const before = x.tabEvents().length;
+		view.removeAllListeners();
+		view.dispose();
+		sidecar.emit("events", [{ type: "agent_end" }]);
+		expect(seen).toEqual(["events"]);
+		expect(sidecar.disposed).toBe(false);
+		expect(x.tabEvents().length).toBe(before + 1);
+		expect(services.hostedSessions()).toHaveLength(1);
+	});
+
+	it("labels a transcript page for this computer: its own prompts plain, the device's named", async () => {
+		const { services, sidecar } = await hosted();
+		const view = viewOf(services);
+		// The omp labels for the device it serves: the host's prompts carry the host's name, the device's none.
+		vi.spyOn(sidecar.rpcClient, "command").mockResolvedValueOnce({
+			type: "response",
+			command: "get_transcript_page",
+			success: true,
+			data: {
+				messages: [
+					{ role: "user", content: "from the device", timestamp: 1 },
+					{ role: "user", content: "typed here", timestamp: 2, promptFrom: "Host B" },
+					{ role: "assistant", content: [], timestamp: 3 },
+				],
+			},
+		});
+		const page = await view.rpcClient?.command({ type: "get_transcript_page" } as RpcCommand);
+		expect(page?.data).toEqual({
+			messages: [
+				{ role: "user", content: "from the device", timestamp: 1, promptFrom: "device-x" },
+				{ role: "user", content: "typed here", timestamp: 2 },
+				{ role: "assistant", content: [], timestamp: 3 },
+			],
+		});
+	});
+
+	it("hands a window that joins the asks already open", async () => {
+		const { services, sidecar } = await hosted();
+		sidecar.emit("extensionUi", ask("ask-1"));
+		const view = viewOf(services);
+		const replayed = vi.fn();
+		view.on("openAsks", replayed);
+		await Promise.resolve();
+		expect(replayed).toHaveBeenCalledWith([ask("ask-1")]);
+	});
+
+	it("takes the first answer to an ask from the device or a window here, and refuses the other's", async () => {
+		const { services, sidecar, x } = await hosted();
+		const view = viewOf(services);
+		const ui: unknown[] = [];
+		view.on("extensionUi", request => ui.push(request));
+
+		// The window answers first: the device's card closes as answered elsewhere, its late answer is refused.
+		sidecar.emit("extensionUi", ask("ask-1"));
+		const yes = { type: "extension_ui_response", id: "ask-1", confirmed: true };
+		await view.sendSideChannel(yes);
+		expect(sidecar.sideFrames).toEqual([yes]);
+		expect(x.tabEvents().at(-1)).toEqual({
+			rtab: "t1",
+			name: "extensionUi",
+			arg: { type: "extension_ui_request", id: "answered:ask-1", method: "cancel", targetId: "ask-1" },
+		});
+		const late = await services
+			.call(x.peer, "tab.sideChannel", { rtab: "t1", frame: { ...yes, confirmed: false } }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(late)).toBe("already_answered");
+		expect(sidecar.sideFrames).toEqual([yes]);
+
+		// The device answers first: the window's card closes the same way and its answer is refused.
+		sidecar.emit("extensionUi", ask("ask-2"));
+		const no = { type: "extension_ui_response", id: "ask-2", confirmed: false };
+		await services.call(x.peer, "tab.sideChannel", { rtab: "t1", frame: no }, x);
+		expect(ui.at(-1)).toEqual({
+			type: "extension_ui_request",
+			id: "answered:ask-2",
+			method: "cancel",
+			targetId: "ask-2",
+		});
+		const refused = await sideChannelError(() => view.sendSideChannel({ ...no, confirmed: true }));
+		expect(ipcErrorCode(refused)).toBe("already_answered");
+		expect(sidecar.sideFrames).toEqual([yes, no]);
+		expect(services.hostedSessions()[0]?.awaitingInput).toBeUndefined();
+	});
+
+	it("ends a window's view when the device closes its tab, before that omp goes", async () => {
+		const { services, sidecar, x } = await hosted();
+		const view = viewOf(services);
+		const ended = vi.fn(() => expect(sidecar.disposed).toBe(false));
+		view.on(VIEW_ENDED_EVENT, ended);
+		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
+		expect(ended).toHaveBeenCalledTimes(1);
+		expect(sidecar.disposed).toBe(true);
+		expect(services.viewSession(SESSION)).toBeNull();
+	});
+
+	it("ends a window's view when the device deletes the session, then deletes the file", async () => {
+		const { services, sidecar, x, deleteSession } = await hosted();
+		const view = viewOf(services);
+		const ended = vi.fn();
+		view.on(VIEW_ENDED_EVENT, ended);
+		const deleting = services.call(x.peer, "sessions.delete", { sessionPath: SESSION }, x);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(ended).toHaveBeenCalledTimes(1);
+		sidecar.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith(SESSION);
+	});
+
+	it("keeps a tab a window here shows past the device's grace period, and lets it go once the window leaves", async () => {
+		vi.useFakeTimers();
+		const { services, sidecar, x } = await hosted(1_000);
+		const view = viewOf(services);
+		services.disconnected(x.peer, x);
+		vi.advanceTimersByTime(5_000);
+		expect(sidecar.disposed).toBe(false);
+		view.removeAllListeners();
+		view.dispose();
+		vi.advanceTimersByTime(1_000);
+		expect(sidecar.disposed).toBe(true);
+	});
+});
+
+describe("LocalHostServices: a device opening a session a window of this computer runs", () => {
+	const SESSION = "/s/local.jsonl";
+
+	async function viewing() {
+		const context = setup();
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set(SESSION, view);
+		const x = new FakeConnection(peer("device-x"));
+		const opened = await context.services.call(
+			x.peer,
+			"tab.open",
+			{ rtab: "t1", cwd: workDir, sessionPath: SESSION },
+			x,
+		);
+		return { ...context, view, x, opened };
+	}
+
+	it("attaches the device to that window's omp: no second omp, prompts named after the device", async () => {
+		const { services, sidecars, local, view, x, opened } = await viewing();
+		expect(opened).toEqual({ cwd: workDir, kind: "agent", attached: true, viewing: true });
+		expect(sidecars).toHaveLength(0);
+		expect(local.viewed).toEqual([{ origin: { deviceId: "device-x", name: "device-x" }, hostName: "Host B" }]);
+		// Attached: the device starts nothing and gets the live status at once.
+		expect(x.tabEvents().find(event => event.name === "status")?.arg).toMatchObject({ status: "ready" });
+		view.emit("events", [{ type: "agent_start" }]);
+		expect(x.tabEvents().at(-1)).toMatchObject({ name: "events" });
+		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x);
+		expect(view.commands).toEqual([{ type: "get_state" }]);
+		// The window's tab is the computer's own: never listed as a device's, never resumed or restarted as one.
+		expect(services.hostedSessions()).toEqual([]);
+		expect(services.resumeFacts()).toEqual([]);
+		services.restartOnNewOmp();
+		expect(view.started).toEqual([]);
+	});
+
+	it("the device's close only leaves; the window's close ends the device's tab quietly", async () => {
+		const first = await viewing();
+		await first.services.call(first.x.peer, "tab.close", { rtab: "t1" }, first.x);
+		expect(first.view.disposed).toBe(true);
+
+		const { services, view, x } = await viewing();
+		view.emit(VIEW_ENDED_EVENT);
+		expect(x.tabEvents().at(-1)).toMatchObject({ rtab: "t1", name: "viewEnded" });
+		expect(view.disposed).toBe(true);
+		const gone = await services
+			.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+	});
+
+	it("hands the device the asks the window's omp has open when it attaches", async () => {
+		const { view, x } = await viewing();
+		const ask = { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "?", message: "" };
+		view.emit("openAsks", [ask]);
+		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "openAsks", arg: [ask] });
 	});
 });
 

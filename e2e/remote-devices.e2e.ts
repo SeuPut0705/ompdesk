@@ -39,7 +39,7 @@ async function launch(profile: string, name: string, discoveryPort: number, cust
 	const natives =
 		process.env.OMP_GUI_TEST_NATIVES ||
 		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
-	await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
+	await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
 	const app = await launchApp({
 		project,
 		desktop,
@@ -197,7 +197,7 @@ test("@smoke pairs two devices, runs a prompt on the host, and shows the link dr
 		// Providers to connect sit behind "Add a provider" once one (the fixture) is connected.
 		await settings.getByRole("button", { name: "Add a provider" }).click();
 		const anthropic = settings.locator("[data-login-panel]");
-		await settings.getByRole("button", { name: "Connect Anthropic", exact: true }).click();
+		await settings.locator('button[data-provider-connect="anthropic"]').click();
 		await expect(anthropic.locator("[data-remote-login-hint]")).toContainText("the sign-in finishes on Host B");
 		await anthropic.getByRole("button", { name: "Sign in with browser" }).click();
 		await expect

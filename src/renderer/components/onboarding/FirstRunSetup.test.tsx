@@ -143,9 +143,9 @@ describe("FirstRunGate", () => {
 		);
 		expect(useFirstRunStore.getState().phase).toBe("connect");
 		expect(text()).toContain(translate("setup.title"));
-		expect(text()).toContain("Anthropic (Claude Pro/Max)");
-		// The same compact, mark-first picker as Settings › Models & providers.
-		expect(document.querySelector("[data-provider-picker] [data-provider-mark]")).not.toBeNull();
+		expect(text()).toContain("Claude (Pro/Max)");
+		// The popular providers sit on top as their own mark-first group.
+		expect(document.querySelector("[data-featured-providers] [data-provider-mark]")).not.toBeNull();
 		expect(document.querySelector('[data-provider-connect="anthropic"]')).not.toBeNull();
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 
@@ -199,7 +199,7 @@ describe("FirstRunGate", () => {
 		await act(async () => useSessionStore.getState().setStatus("ready", "/tmp/project"));
 		await act(async () => delay(0));
 		expect(useFirstRunStore.getState()).toMatchObject({ phase: "connect", provisional: false });
-		expect(text()).toContain("Anthropic (Claude Pro/Max)");
+		expect(text()).toContain("Claude (Pro/Max)");
 		expect(document.querySelector('[data-provider-connect="openai-codex"]')).toBeNull();
 	});
 

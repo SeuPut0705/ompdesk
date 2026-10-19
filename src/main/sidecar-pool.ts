@@ -45,6 +45,11 @@
  * sidecar, which never saw the request).
  */
 
+import {
+	localizePromptOrigins,
+	type PromptOrigin,
+	type PromptOriginLabel,
+} from "../../resources/gui-bridge/prompt-origin-contracts";
 import { codedError } from "../shared/ipc-error-codes";
 import {
 	IPC_EVENTS,
@@ -94,9 +99,10 @@ import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
+import { HostedTabView } from "./remote/hosted-view";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { idleRun, type RunState, type RunTracking, runBusy, settleRun, trackRunEvent } from "./sidecar-run-state";
-import type { SidecarLike } from "./sidecar-types";
+import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
 import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
@@ -144,8 +150,6 @@ function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): Suba
 export type TabActivity =
 	| { type: "busy"; tabId: string }
 	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
-	/** One agent turn ended (agent_end outside a retry saga), whether or not background work keeps the run busy. */
-	| { type: "turnEnded"; tabId: string }
 	| { type: "ask"; tabId: string; requestId: string; text: string }
 	| { type: "askClosed"; tabId: string; requestId: string }
 	| { type: "released"; tabId: string };
@@ -159,6 +163,12 @@ export interface TabFacts {
 	retrying: boolean;
 	/** TurnResume armed a retry of the failed turn (`scheduledRetry` pref): the failure is not final either. */
 	scheduledRetry?: boolean;
+}
+
+/** A plan proposal awaiting approval: its title and plan file. */
+export interface PendingPlan {
+	title: string;
+	planFilePath: string;
 }
 
 /** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
@@ -205,6 +215,14 @@ interface PoolEntry extends RunTracking {
 	winId: number;
 	/** Windows besides the owner that show the tab, by window id (multi-viewer). Never the owner. */
 	viewers: Map<number, TabViewer>;
+	/**
+	 * The owner window shows a tab this computer runs for a paired device (`acquireHostedView`; the sidecar is a
+	 * HostedTabView): the omp, its resume, its updates and its layout are the device tab's, so this entry only
+	 * shows it, and lists as shared (the host decides steer/follow-up, closing it only leaves).
+	 */
+	hostedView?: true;
+	/** Paired devices that view this tab through their own tab on this host (`viewForDevice`). */
+	deviceViews?: Set<HostedTabView>;
 	/** Session kind: "agent" (default) or "chat" (no project, default workspace). Immutable; set at acquire. */
 	kind: "agent" | "chat";
 	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
@@ -247,6 +265,8 @@ interface PoolEntry extends RunTracking {
 	sessionFile?: string;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
+	planProposal?: PendingPlan;
 	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
 	resuming?: boolean;
 	/** The run's prompt while stock has not written the new session's file yet (it does at the first assistant message). */
@@ -389,6 +409,11 @@ export class SidecarPool {
 		};
 	}
 
+	/** The plan proposal `tabId`'s session waits on (approve or reject), if any. */
+	pendingPlan(tabId: string): PendingPlan | null {
+		return this.#byTabId.get(tabId)?.planProposal ?? null;
+	}
+
 	#announce(activity: TabActivity): void {
 		for (const observer of this.#activityObservers) {
 			try {
@@ -509,6 +534,134 @@ export class SidecarPool {
 	}
 
 	/**
+	 * Show in `win` the tab this computer runs for a paired device on `sessionPath` (`sidecar` is its
+	 * HostedTabView from LocalHostServices): an entry like a tab of the window's own, but one that only
+	 * shows that omp (`PoolEntry.hostedView`). It owns the session here (F-OWN), so another window's open
+	 * goes to it, and a window with no tab yet makes it active. False when the session was deleted.
+	 */
+	acquireHostedView(win: ClientWindow, tabId: string, sidecar: SidecarLike, sessionPath: string): boolean {
+		if (deletedSessions().has(sessionPath)) return false;
+		const entry: PoolEntry = {
+			sidecar,
+			tabId,
+			win,
+			winId: win.webContents.id,
+			hostedView: true,
+			kind: sidecar.kind,
+			placeholder: false,
+			status: sidecar.status,
+			run: idleRun(),
+			onWindowClosed: () => {
+				this.#releaseEntry(entry);
+			},
+			viewers: new Map(),
+			full: null,
+		};
+		this.#wireLight(entry);
+		this.#entries.add(entry);
+		this.#byTabId.set(tabId, entry);
+		this.#registerSessionFile(entry, sessionPath);
+		if (!this.#activeByWindow.has(entry.winId)) {
+			this.#activeByWindow.set(entry.winId, tabId);
+			this.#visibleByWindow.set(entry.winId, new Set([tabId]));
+			this.#syncFullWiring(entry.winId);
+		}
+		win.once("closed", entry.onWindowClosed);
+		this.#ensureStarted(entry);
+		this.#notifyWindowTabsChanged(win);
+		return true;
+	}
+
+	/** Whether the tab is a window's view of a tab this computer runs for a paired device (`acquireHostedView`). */
+	isHostedView(tabId: string): boolean {
+		return this.#byTabId.get(tabId)?.hostedView === true;
+	}
+
+	/**
+	 * A paired device opens `sessionPath`, which a window of this computer has open: that tab's omp as the device's
+	 * tab's sidecar (a HostedTabView), so one omp serves both. The device's prompts are journaled as `origin`'s and a
+	 * transcript page is labelled for it; the first answer to an ask, the device's or a window's, wins; the window's
+	 * close ends the view (`VIEW_ENDED_EVENT`). Null when no window's own tab here holds the session.
+	 */
+	viewForDevice(sessionPath: string, origin: PromptOrigin, hostName: string): HostedTabView | null {
+		const owner = this.#sessionOwners.get(sessionPath);
+		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
+		if (!entry || entry.hostedView || entry.device !== undefined) return null;
+		const view: HostedTabView = new HostedTabView({
+			sidecar: entry.sidecar,
+			promptOrigin: origin,
+			labelTranscript: data => {
+				const page = data as { messages?: PromptOriginLabel[] } | undefined;
+				if (!page?.messages?.some(message => message.promptFromId !== undefined)) return data;
+				return { ...page, messages: localizePromptOrigins(page.messages, origin.deviceId, hostName) };
+			},
+			start: () => this.#ensureStarted(entry),
+			answer: frame => this.#answerFromDevice(entry, frame, view),
+			stopped: () => this.noteStopped(entry.tabId),
+			cancelWait: () => {},
+			snapshot: () => ({
+				asks: [...this.#requestOwners].flatMap(([id, owner]) => {
+					const body = owner === entry ? this.#requestBodies.get(id) : undefined;
+					return body ? [body] : [];
+				}),
+				...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
+				...(entry.title ? { title: entry.title } : {}),
+				...(entry.awaitingConnection ? { awaitingConnection: true } : {}),
+			}),
+			leave: left => {
+				entry.deviceViews?.delete(left);
+				if (this.#entries.has(entry)) this.#sendTabLists(entry);
+			},
+		});
+		entry.deviceViews ??= new Set();
+		entry.deviceViews.add(view);
+		this.#sendTabLists(entry);
+		return view;
+	}
+
+	/** Whether a paired device views the tab this computer's window has on `sessionPath` (a delete here is refused). */
+	deviceViewing(sessionPath: string): boolean {
+		const owner = this.#sessionOwners.get(sessionPath);
+		return (this.#byTabId.get(owner?.tabId ?? "")?.deviceViews?.size ?? 0) > 0;
+	}
+
+	/**
+	 * A device's side-channel frame for a window's tab it views. The first answer to an ask wins: the windows' cards
+	 * close as answered elsewhere, and their later answer is refused, as the device's is once a window answered.
+	 */
+	#answerFromDevice(entry: PoolEntry, frame: { type?: unknown; id?: unknown }, from: HostedTabView): void {
+		const id = frame.type === "extension_ui_response" && typeof frame.id === "string" ? frame.id : undefined;
+		if (id !== undefined && this.#answered.get(id)?.entry === entry)
+			throw codedError("already_answered", "Another window already answered this request");
+		void entry.sidecar.sendSideChannel(frame);
+		if (id === undefined || this.#requestOwners.get(id) !== entry) return;
+		this.#requestOwners.delete(id);
+		this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: id });
+		this.onRunningChange?.();
+		// No window answered it: every window's later answer is refused.
+		this.#answered.set(id, { entry, winId: Number.NaN });
+		const oldest = this.#answered.keys().next().value;
+		if (this.#answered.size > ANSWERED_KEPT && oldest !== undefined) this.#answered.delete(oldest);
+		this.#sendAnsweredElsewhere(entry, id, undefined, from);
+	}
+
+	/** The synthetic `cancel` of an ask answered first by `responder` (a window) or `from` (a device's view). */
+	#sendAnsweredElsewhere(entry: PoolEntry, id: string, responder: number | undefined, from?: HostedTabView): void {
+		const request: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: `answered:${id}`,
+			method: "cancel",
+			targetId: id,
+		};
+		const cancel = { tabId: entry.tabId, request, answeredElsewhere: true } satisfies IpcExtensionUiPayload;
+		if (entry.winId !== responder) forwardToWindow(entry.win, IPC_EVENTS.EXTENSION_UI, cancel);
+		for (const [winId, viewer] of entry.viewers) {
+			if (winId !== responder) forwardToWindow(viewer.win, IPC_EVENTS.EXTENSION_UI, cancel);
+		}
+		for (const view of entry.deviceViews ?? []) if (view !== from) view.emit("extensionUi", request);
+	}
+
+	/**
 	 * Spawn a tab's sidecar unless one is already under way or it has already
 	 * run. A fresh sidecar with a session to resume goes through restart():
 	 * kill() is a no-op on a not-yet-spawned manager, so this is a plain
@@ -544,6 +697,7 @@ export class SidecarPool {
 					const hostSignIn = entry.hostSignIns?.at(-1);
 					entry.hostSignIns = undefined;
 					if (hostSignIn !== undefined) this.#signInEnded(entry, hostSignIn);
+					delete entry.planProposal;
 				}
 			}
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
@@ -557,6 +711,16 @@ export class SidecarPool {
 			this.#releaseEntry(entry);
 			this.#notifyWindowTabsChanged(entry.win);
 			this.#sendTabList(entry.win, [entry.tabId]);
+		});
+		// A paired host told this tab it views a window of that host (RemoteSidecar `shared`): the lists say so.
+		sidecar.on("shared", () => this.#sendTabLists(entry));
+		// The paired device's tab a hosted view shows ended (closed, deleted, revoked): the window's tab goes as a
+		// viewer's does when its owner closes it, never as an exited omp (its list no longer names the shared tab).
+		sidecar.on(VIEW_ENDED_EVENT, () => {
+			if (!this.#byTabId.has(entry.tabId)) return;
+			this.#releaseEntry(entry);
+			this.#notifyWindowTabsChanged(entry.win);
+			this.#sendTabList(entry.win);
 		});
 		sidecar.on("sessionInfoUpdate", (frame: SessionInfoUpdateFrame) => {
 			if (frame.title !== undefined) entry.title = frame.title;
@@ -697,7 +861,10 @@ export class SidecarPool {
 				if (trackRunEvent(entry, event)) runEnded = true;
 				if (event.type === "agent_start") entry.placeholder = false;
 				else if (event.type === "auto_retry_start") retryStarted = true;
-				else if (event.type === "plan_proposal") {
+				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
+					if (event.type === "plan_proposal")
+						entry.planProposal = { title: event.title ?? "", planFilePath: event.planFilePath };
+					else if (entry.planProposal?.planFilePath === event.planFilePath) delete entry.planProposal;
 					hiddenProposals ??= [];
 					hiddenProposals.push(event);
 				} else if (event.type === "message_end") {
@@ -716,8 +883,6 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
-			// Every agent turn's end, even while background work keeps the run alive (agent-control's per-turn budget).
-			if (runEnded) this.#announce({ type: "turnEnded", tabId: entry.tabId });
 			if (busyChanged || entry.placeholder !== wasPlaceholder) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
@@ -862,6 +1027,8 @@ export class SidecarPool {
 		this.#announce({ type: "released", tabId: entry.tabId });
 		// A destroyed window already dropped its one-shot "closed" listener.
 		if (!entry.win.isDestroyed()) entry.win.removeListener("closed", entry.onWindowClosed);
+		// The devices viewing it hear the tab is gone while its omp still runs.
+		for (const view of [...(entry.deviceViews ?? [])]) view.end();
 		entry.sidecar.removeAllListeners();
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = entry.sidecar.whenExited?.() ?? Promise.resolve();
@@ -1060,6 +1227,23 @@ export class SidecarPool {
 		}
 	}
 
+	/**
+	 * Main renamed a live session (stock `set_session_name` answers without the `session_info_update` a rename
+	 * from inside omp sends): the tab entry, its strip and every window's session title learn the name now.
+	 */
+	noteSessionName(tabId: string, title: string): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return;
+		entry.title = title;
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		for (const target of entry.full?.windows.values() ?? []) {
+			forwardToWindow(target.win, IPC_EVENTS.SESSION_INFO_UPDATE, {
+				tabId: entry.tabId,
+				payload: { type: "session_info_update", title },
+			});
+		}
+	}
+
 	/** A viewer left: the level it asked for no longer counts, and the omp drops to what the rest need. */
 	#forgetSubagentLevel(entry: PoolEntry, winId: number): void {
 		const levels = entry.subagentLevels;
@@ -1112,12 +1296,12 @@ export class SidecarPool {
 	/**
 	 * omp on this computer was updated: every local tab moves to it (omp-restart.ts).
 	 * Idle tabs restart now on their session file; a tab in a turn restarts when it ends.
-	 * Returns how many tabs still wait. Tabs on paired hosts are the host's.
+	 * Returns how many tabs still wait. Tabs on paired hosts are the host's; a hosted view's omp is the device tab's.
 	 */
 	restartOnNewOmp(): number {
 		let waiting = 0;
 		for (const entry of this.#entries) {
-			if (entry.device !== undefined) continue;
+			if (entry.device !== undefined || entry.hostedView) continue;
 			const decision = ompRestartDecision({ status: entry.sidecar.status, busy: runBusy(entry.run) });
 			if (decision === "skip") continue;
 			if (decision === "wait") {
@@ -1145,23 +1329,27 @@ export class SidecarPool {
 		});
 	}
 
-	/** Every local tab's working directory, distinct, in order (asleep tabs included: they load plugins on wake). */
+	/**
+	 * Every local tab's working directory, distinct, in order (asleep tabs included: they load plugins on wake).
+	 * A hosted view's folder is LocalHostServices' to list.
+	 */
 	workspaceDirs(): string[] {
 		const dirs = new Set<string>();
 		for (const entry of this.#entries) {
-			if (entry.device === undefined) dirs.add(entry.sidecar.cwd);
+			if (entry.device === undefined && !entry.hostedView) dirs.add(entry.sidecar.cwd);
 		}
 		return [...dirs];
 	}
 
 	/**
 	 * An extension update landed on this computer (extension-reload.ts). Idle ready tabs apply it now,
-	 * a tab in a turn when it ends. Returns how many tabs still wait. Tabs on paired hosts are the host's.
+	 * a tab in a turn when it ends. Returns how many tabs still wait. Tabs on paired hosts are the host's, and a
+	 * hosted view's omp gets it as the device's tab (LocalHostServices).
 	 */
 	applyExtensionUpdate(plan: ExtensionApplyPlan): number {
 		let waiting = 0;
 		for (const entry of this.#entries) {
-			if (entry.device !== undefined) continue;
+			if (entry.device !== undefined || entry.hostedView) continue;
 			const decision = extensionApplyDecision({ status: entry.sidecar.status, busy: runBusy(entry.run) });
 			if (decision === "skip") continue;
 			if (decision === "wait") {
@@ -1450,7 +1638,8 @@ export class SidecarPool {
 		if (answered?.entry === entry && answered.winId !== responderId) {
 			throw codedError("already_answered", "Another window already answered this request");
 		}
-		const shared = responderId !== undefined && entry.viewers.size > 0 && this.#requestOwners.get(id) === entry;
+		const viewed = entry.viewers.size > 0 || (entry.deviceViews?.size ?? 0) > 0;
+		const shared = responderId !== undefined && viewed && this.#requestOwners.get(id) === entry;
 		if (shared) {
 			this.#answered.set(id, { entry, winId: responderId });
 			const oldest = this.#answered.keys().next().value;
@@ -1471,17 +1660,7 @@ export class SidecarPool {
 			this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: id });
 			this.onRunningChange?.();
 		}
-		if (shared) {
-			const cancel = {
-				tabId: entry.tabId,
-				request: { type: "extension_ui_request", id: `answered:${id}`, method: "cancel", targetId: id },
-				answeredElsewhere: true,
-			} satisfies IpcExtensionUiPayload;
-			if (entry.winId !== responderId) forwardToWindow(entry.win, IPC_EVENTS.EXTENSION_UI, cancel);
-			for (const [winId, viewer] of entry.viewers) {
-				if (winId !== responderId) forwardToWindow(viewer.win, IPC_EVENTS.EXTENSION_UI, cancel);
-			}
-		}
+		if (shared) this.#sendAnsweredElsewhere(entry, id, responderId);
 		return true;
 	}
 
@@ -1528,10 +1707,20 @@ export class SidecarPool {
 		};
 	}
 
-	/** The `EXTENSION_UI` event for a request: carries the sign-in mark (`#signInMark`). */
+	/**
+	 * The `EXTENSION_UI` event for a request: carries the sign-in mark (`#signInMark`). A sidecar's `cancel`
+	 * named `answered:<id>` is the one LocalHostServices sends when the other side of a hosted tab (the paired
+	 * device, or a window of the host) answered first: it closes the card as answered elsewhere.
+	 */
 	#uiFrame(entry: PoolEntry, request: ExtensionUIRequest): IpcExtensionUiPayload {
 		const signIn = this.#signInMark(entry, request);
-		return { tabId: entry.tabId, request, ...(signIn ? { signIn } : {}) };
+		const elsewhere = request.method === "cancel" && request.id.startsWith("answered:");
+		return {
+			tabId: entry.tabId,
+			request,
+			...(signIn ? { signIn } : {}),
+			...(elsewhere ? { answeredElsewhere: true } : {}),
+		};
 	}
 
 	/** Register sessionFile → owner, moving the entry off any previous file. */
@@ -1588,8 +1777,9 @@ export class SidecarPool {
 			if (split && visibleTabIds?.has(entry.tabId)) tab.split = split;
 			const home = rememberedSplitOf(remembered, entry.tabId);
 			if (home && splitTabIds(home)[0] === entry.tabId) tab.rememberedSplit = home;
-			if (entry.win !== win) tab.shared = true;
-			if (entry.viewers.size > 0) tab.viewerCount = entry.viewers.size;
+			if (entry.win !== win || entry.hostedView || entry.sidecar.shared) tab.shared = true;
+			const viewerCount = entry.viewers.size + (entry.deviceViews?.size ?? 0);
+			if (viewerCount > 0) tab.viewerCount = viewerCount;
 			tabs.push(tab);
 		}
 		return tabs;
@@ -1613,10 +1803,14 @@ export class SidecarPool {
 		return true;
 	}
 
-	/** The inputs of the resume rules (turn-resume.ts): what each tab is doing and why it may continue. */
+	/**
+	 * The inputs of the resume rules (turn-resume.ts): what each tab is doing and why it may continue.
+	 * A hosted view's turn is the device tab's, which LocalHostServices reports.
+	 */
 	resumeFacts(): ResumeFact[] {
 		const asking = new Set(this.#requestOwners.values());
-		return [...this.#entries].map(entry => {
+		return [...this.#entries].flatMap(entry => {
+			if (entry.hostedView) return [];
 			const fact: ResumeFact = {
 				tabId: entry.tabId,
 				winId: entry.winId,
@@ -1635,7 +1829,7 @@ export class SidecarPool {
 			if (entry.unsavedPrompt !== undefined) fact.unsavedPrompt = entry.unsavedPrompt;
 			if (entry.openedBy) fact.openedBy = entry.openedBy;
 			if (entry.openedBySession) fact.openedBySession = entry.openedBySession;
-			return fact;
+			return [fact];
 		});
 	}
 
@@ -1765,13 +1959,11 @@ export class SidecarPool {
 		return this.sessionOwner(sessionPath)?.tabId ?? null;
 	}
 
-	/** What every live tab is doing right now — the ⌘Q guard's inventory. */
+	/** What every live tab is doing right now — the ⌘Q guard's inventory (a hosted view's turn is the host role's). */
 	tabInventory(): WindowTabFact[] {
-		return [...this.#entries].map(entry => ({
-			windowId: entry.winId,
-			tabId: entry.tabId,
-			inFlight: runBusy(entry.run),
-		}));
+		return [...this.#entries].flatMap(entry =>
+			entry.hostedView ? [] : [{ windowId: entry.winId, tabId: entry.tabId, inFlight: runBusy(entry.run) }],
+		);
 	}
 
 	/**
@@ -1782,7 +1974,9 @@ export class SidecarPool {
 		const winId = win.webContents.id;
 		const web = isWebWindow(winId);
 		const entries = [...this.#entries].filter(
-			entry => entry.win === win || (web && entry.sessionFile !== undefined && windowOf(entry, winId) === win),
+			entry =>
+				(entry.win === win && !entry.hostedView) ||
+				(web && entry.sessionFile !== undefined && windowOf(entry, winId) === win),
 		);
 		if (entries.length === 0) return null;
 		const activeTabId = this.#activeByWindow.get(win.webContents.id);

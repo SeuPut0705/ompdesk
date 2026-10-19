@@ -215,13 +215,13 @@ describe("nativized action wiring", () => {
 		expect(openSettings).toHaveBeenCalledWith(route);
 	});
 
-	it("memory opens the side panel's Memory view", () => {
+	it("memory opens the Memory page in Settings, not the side panel", () => {
 		useUiStore.setState({ panelTab: "diff", panelVisible: false });
 		const affordance = wired("memory");
 		if (affordance.kind !== "window") throw new Error("expected window");
 		affordance.open();
-		expect(useUiStore.getState()).toMatchObject({ panelTab: "memory", panelVisible: true });
-		expect(openSettings).not.toHaveBeenCalled();
+		expect(openSettings).toHaveBeenCalledWith("memory");
+		expect(useUiStore.getState()).toMatchObject({ panelTab: "diff", panelVisible: false });
 	});
 
 	afterEach(() => {

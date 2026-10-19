@@ -173,7 +173,9 @@ describe("model chip", () => {
 		});
 		await render();
 		const chip = container.querySelector("button[data-model-chip]") as unknown as HTMLElement;
-		expect(chip.textContent).toBe(`Sonnet 5.5· ${translate("input.thinking.name.auto")}`);
+		// The provider mark's fallback letter is decoration; the words are the model and the effort.
+		const mark = chip.querySelector("[data-provider-mark]")?.textContent ?? "";
+		expect(chip.textContent?.replace(mark, "")).toBe(`Sonnet 5.5· ${translate("input.thinking.name.auto")}`);
 		expect(chip.getAttribute("aria-label")).toBe(
 			translate("input.modelLabelThinking", { model: "Sonnet 5.5", level: translate("input.thinking.name.auto") }),
 		);

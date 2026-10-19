@@ -111,20 +111,16 @@ export interface AutopilotSettings {
 	focus: AutopilotArea[];
 	ship: AutopilotShipPolicy;
 	limits: AutopilotLimits;
-	/** Child sessions per cycle (0-{@link MAX_PARALLEL_CHILDREN}). */
-	maxParallel: number;
+	/** Child sessions per cycle: `null` = the agent decides, with no cap (default); a number caps it, 0 = no fan-out. */
+	maxParallel: number | null;
 	notify: AutopilotNotifyMode;
 }
-
-export const MAX_PARALLEL_CHILDREN = 4;
-/** The agent decides how many children a cycle needs, up to {@link MAX_PARALLEL_CHILDREN}. */
-export const DEFAULT_PARALLEL_CHILDREN = MAX_PARALLEL_CHILDREN;
 
 export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
 	focus: [],
 	ship: DEFAULT_SHIP_POLICY,
 	limits: NO_LIMITS,
-	maxParallel: DEFAULT_PARALLEL_CHILDREN,
+	maxParallel: null,
 	notify: "stops",
 };
 
@@ -602,7 +598,6 @@ export function isAutopilotArea(value: unknown): value is AutopilotArea {
 /** The prefs keys (main prefs store, written through `prefs.set`). */
 export const AUTOPILOT_SHIP_PREF = "autopilotShip";
 export const AUTOPILOT_NOTIFY_PREF = "autopilotNotify";
-export const AUTOPILOT_LIMITS_PREF = "autopilotLimits";
 /**
  * The last branch choice per repository, `{ [repo top level]: AutopilotBranchChoice }`. Not part of `autopilotShip`:
  * the branch is per run, this only prefills the next sheet.

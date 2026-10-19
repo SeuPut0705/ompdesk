@@ -3,7 +3,10 @@
  *
  *   1. the action must be in the registry (`app-catalog.ts`); anything else is unknown, nothing falls through;
  *   2. `never` refuses; arguments are validated against the action's schema;
- *   3. `sensitive` raises the `[OMPdesk]` confirmation card unless the person turned `agentControlManage` on;
+ *   3. `sensitive` raises the `[OMPdesk]` confirmation card unless the person gave agents full control
+ *      (`agentControlFull`, default on: no card at all) or turned `agentControlManage` on (default on); with only
+ *      the latter, an action whose `manage` rule is `always` (erases data, runs code, credentials, network exposure,
+ *      ends running work) still asks; an action marked `fullOnly` runs only under full control;
  *   4. the action runs with an `ActionContext` whose every primitive re-checks the tier the preference, setting,
  *      command or channel needs (`app-guard.ts`, `app-channels.ts`), so a nested route is refused like a direct one;
  *   5. a change is journaled in the caller's session, shown as a quiet toast and, with a previous value, undoable.
@@ -15,7 +18,7 @@ import { ACTION_BY_ID, type ActionContext, type ActionResult, type AppAction, ty
 import { AGENT_CHANNELS } from "./app-channels";
 import { AppRefusal, covers, type GrantedTier, prefTier, rpcTier, settingTier, type Tier } from "./app-guard";
 import { validateArgs } from "./app-schema";
-import { SETTING_BY_ID, SETTINGS } from "./app-settings";
+import { SETTING_BY_ID, SETTINGS, settingActionId } from "./app-settings";
 
 export { AppRefusal };
 
@@ -30,13 +33,15 @@ export interface AppPorts {
 	send(callerTabId: string, event: AgentAppEvent): void;
 	confirm(callerTabId: string, title: string, message: string): Promise<boolean>;
 	manageEnabled(): boolean;
+	/** `agentControlFull`: no card at all, and the agent-power switches become writable. */
+	fullEnabled(): boolean;
 	/** Journal a line in the caller's session. Best effort. */
 	note(callerTabId: string, text: string): Promise<void>;
 	text(key: "appTitle" | "appMessage" | "appChanged", params: Record<string, string>): string;
 	/** The English or the Korean text, by the app's language. */
 	localize(en: string, ko: string): string;
 	callerTitle(callerTabId: string): string;
-	/** `ompdesk_autopilot` itself (its card, folder rules and run cap); the app actions go through it, never around it. */
+	/** `ompdesk_autopilot` itself (its card and folder rules); the app actions go through it, never around it. */
 	autopilot(callerTabId: string, args: unknown): Promise<string>;
 }
 
@@ -85,9 +90,20 @@ export class AppControl {
 		});
 		if (found.length === 0) return "No action matches. Call ompdesk_app_list with no filter to see every area.";
 		const withSchema = found.length <= SCHEMA_LIST_MAX;
+		const full = this.#ports.fullEnabled();
 		const rows = found.map(action => {
-			const head = `- ${action.id} [${action.tier}] ${action.description}`;
+			const rule = action.manage;
+			const card =
+				rule === undefined || full
+					? ""
+					: "lifts" in rule
+						? ", card unless the user lets agents manage"
+						: rule.when
+							? ", always a card for some arguments"
+							: ", always a card";
+			const head = `- ${action.id} [${action.tier}${card}] ${action.description}`;
 			if (action.tier === "never") return `${head} Refused: ${action.neverReason}`;
+			if (action.fullOnly && !full) return `${head} Refused: ${action.fullOnly}`;
 			return withSchema ? `${head}\n  args: ${JSON.stringify(action.args)}` : head;
 		});
 		const note = withSchema ? "" : `\n(${found.length} actions; narrow with area or query to see argument schemas.)`;
@@ -100,6 +116,8 @@ export class AppControl {
 		if (!action)
 			throw new AppRefusal(`Unknown action ${JSON.stringify(actionId)}. Call ompdesk_app_list to see the actions.`);
 		if (action.tier === "never" || !action.run) refuse(`"${action.id}"`, "never");
+		if (action.fullOnly && !this.#ports.fullEnabled())
+			throw new AppRefusal(`"${action.id}" is never available to an agent: ${action.fullOnly}`);
 		const checked = validateArgs(action.args, raw);
 		if (!checked.ok) throw new AppRefusal(`Invalid args for ${action.id}: ${checked.error}`);
 		await this.#confirmed(callerTabId, action.tier, action, checked.value);
@@ -115,7 +133,9 @@ export class AppControl {
 		args: Record<string, unknown> | null,
 		what?: string,
 	): Promise<void> {
-		if (tier !== "sensitive" || this.#ports.manageEnabled()) return;
+		const rule = action?.manage;
+		const forced = rule !== undefined && "always" in rule && (rule.when?.(args ?? {}) ?? true);
+		if (tier !== "sensitive" || this.#ports.fullEnabled() || (this.#ports.manageEnabled() && !forced)) return;
 		const summary = what ?? this.#summary(action, args);
 		const approved = await this.#ports.confirm(
 			callerTabId,
@@ -143,17 +163,17 @@ export class AppControl {
 		const ctx: ActionContext = {
 			callerTabId,
 			getPref: key => {
-				if (prefTier(key) === "never") refuse(`Reading "${key}"`, "never");
+				if (prefTier(key, ports.fullEnabled()) === "never") refuse(`Reading "${key}"`, "never");
 				return ports.getPref(key);
 			},
 			setPref: async (key, value) => {
-				const needed = prefTier(key);
+				const needed = prefTier(key, ports.fullEnabled());
 				if (!covers(granted, needed)) refuse(`Writing the preference "${key}"`, needed);
 				await ports.setPref(callerTabId, key, value);
 				ports.send(callerTabId, { kind: "pref", key, value });
 			},
 			rpc: async command => {
-				const needed = rpcTier(command);
+				const needed = rpcTier(command, ports.fullEnabled());
 				if (!covers(granted, needed)) refuse(`The command "${command.type}"`, needed);
 				const response = await ports.rpc(callerTabId, command);
 				if (!response.success) throw new AppRefusal(response.error ?? `${command.type} failed.`);
@@ -190,9 +210,16 @@ export class AppControl {
 	async #undo(callerTabId: string): Promise<ActionResult> {
 		const last = this.#last.get(callerTabId);
 		if (!last) throw new AppRefusal("Nothing to undo: your last change had no previous value, or you made none.");
-		const needed = last.undo.kind === "pref" ? prefTier(last.undo.key) : settingTier(last.undo.path);
+		const full = this.#ports.fullEnabled();
+		const needed = last.undo.kind === "pref" ? prefTier(last.undo.key, full) : settingTier(last.undo.path, full);
 		if (needed === "never") refuse("Undoing that change", "never");
-		await this.#confirmed(callerTabId, needed, null, null, `undo "${last.en}"`);
+		const undo = last.undo;
+		const row =
+			undo.kind === "pref"
+				? SETTINGS.find(setting => setting.kind === "pref" && setting.key === undo.key)
+				: SETTING_BY_ID[undo.path];
+		const undone = row ? (this.#registry[settingActionId(row.id)] ?? null) : null;
+		await this.#confirmed(callerTabId, needed, undone, null, `undo "${last.en}"`);
 		const ctx = this.#context(callerTabId, "app.undo", needed === "sensitive" ? "sensitive" : "change");
 		if (last.undo.kind === "pref") {
 			const { key, value: restored } = last.undo;

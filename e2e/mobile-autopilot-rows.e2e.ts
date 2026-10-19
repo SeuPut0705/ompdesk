@@ -42,7 +42,7 @@ async function mobileWebReady(page: Page): Promise<void> {
 		.toBe("ready");
 }
 
-/** What the phone's drawer lists in the Code lane, every group, family and "n done" fold unfolded. */
+/** What the phone's drawer lists in the Code lane, every group and family unfolded. */
 interface Rows {
 	/** `data-session-path` → how many rows show it. */
 	perPath: Record<string, number>;
@@ -71,11 +71,10 @@ async function closeDrawer(phone: Page): Promise<void> {
 
 async function readRows(phone: Page): Promise<Rows> {
 	const sidebar = phone.locator("[data-drawer] .omp-session-sidebar");
-	// Projects first, then the families they show, then a family's folded finished sessions.
+	// Projects first, then the families they show (finished children are not listed at all).
 	for (const folds of [
 		'[data-workspace-group] button[aria-expanded="false"]',
 		'[data-sidebar-subagents-toggle][aria-expanded="false"]',
-		'[data-family-done][aria-expanded="false"]',
 	])
 		for (const fold of await sidebar.locator(folds).all()) await fold.click().catch(() => undefined);
 	return sidebar.evaluate(element => {
@@ -160,8 +159,15 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.locator("[data-run-settings-trigger]").click();
 		await phone.getByRole("tab", { name: "Autopilot" }).click();
 		await phone.locator("[data-autopilot-start]").click();
-		// The run's panel opens by itself as a sheet over everything; close it to reach the drawer.
-		await expect(phone.locator("[data-autopilot-panel]")).toBeVisible({ timeout: 60_000 });
+		// The screen does not open by itself here: the running Run settings offer it, so open it from there
+		// (a screen that did open is the sheet over everything, as before); close it to reach the drawer.
+		const screen = phone.locator("[data-autopilot-panel]");
+		if (!(await screen.isVisible())) {
+			if (!(await phone.locator("[data-autopilot-open-screen]").isVisible()))
+				await phone.locator("[data-run-settings-trigger]").click();
+			await phone.locator("[data-autopilot-open-screen]").click();
+		}
+		await expect(screen).toBeVisible({ timeout: 60_000 });
 		await phone.getByRole("button", { name: "Close side panel" }).first().click();
 		await expect(phone.locator("[data-autopilot-panel]")).toHaveCount(0);
 

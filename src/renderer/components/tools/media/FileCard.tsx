@@ -1,13 +1,13 @@
 /**
- * A card for a file the conversation names: a draft's `@path` attachment
- * (composer) or a document a reply refers to (Word, Excel, PowerPoint, CSV,
- * other Office files). It reads the file the way the Files viewer does, for
- * the tab it belongs to (a paired host's tab reads on that host), and only
- * once it nears the screen: a picture's thumbnail, a PDF's first page, a
- * spreadsheet's or CSV's first rows, a presentation's first slide title, a
- * text file's first lines; then "type · pages/slides/rows/lines · size". A
- * file that is gone reads "Deleted" (or the caller's word); a click opens it
- * in the Files viewer, a folder in the Files tree.
+ * A file the conversation names, two ways. A document a reply refers to (Word,
+ * Excel, PowerPoint, CSV, other Office files; ReplyFiles and markdown.tsx) is
+ * a card: read the way the Files viewer does, for the tab it belongs to (a
+ * paired host's tab reads on that host), and only once it nears the screen —
+ * a spreadsheet's or CSV's first rows, a presentation's first slide title —
+ * then "type · rows/slides · size". A draft's `@path` mention (composer,
+ * `compact`) is a one-line chip with the file's name that reads no preview.
+ * A file that is gone reads "Deleted"; a click opens it in the Files viewer,
+ * a folder in the Files tree.
  */
 
 import {
@@ -85,24 +85,16 @@ const ICONS: Record<FileCardKind, LucideIcon> = {
 
 /** Files past this stay a card without a preview (the chat's PDF thumbnail ceiling). */
 const PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
-/** Text read for a text or CSV preview and its line count (the Files viewer's first read). */
+/** Text read for a CSV preview and its row count (the Files viewer's first read). */
 const TEXT_PREVIEW_BYTES = 200_000;
 const PREVIEW_ROWS = 4;
 const PREVIEW_COLUMNS = 4;
-const PREVIEW_LINES = 6;
-/** CSS width of the first-page canvas. */
-const PAGE_WIDTH = 176;
 
-type Preview =
-	| { type: "image"; src: string }
-	| { type: "pdf" }
-	| { type: "table"; rows: string[][] }
-	| { type: "lines"; lines: string[] }
-	| { type: "title"; text: string };
+type Preview = { type: "table"; rows: string[][] } | { type: "title"; text: string };
 
 /** What the meta line counts: `count` of `unit` (`+` when the file holds more than was read). */
 interface Count {
-	unit: "pages" | "slides" | "rows" | "lines" | "sheets";
+	unit: "slides" | "rows" | "sheets";
 	count: number;
 	more?: boolean;
 }
@@ -120,37 +112,26 @@ function lineCount(text: string): number {
 
 export interface FileCardProps {
 	path: string;
-	/** Word shown when the file is gone; "Deleted" by default. */
-	missingLabel?: string;
 	/** Hide the card while the path does not exist (a draft's `@word` that names no file). */
 	hideMissing?: boolean;
-	/** Composer: remove the attachment. */
-	onRemove?: () => void;
 	/** A one-line chip with the file's name and no preview (a draft's mention: the composer's strip stays small). */
 	compact?: boolean;
+	/** Compact chip: remove the mention. */
+	onRemove?: () => void;
 	/** Told once whether the path names a file (a draft's chip strip counts the chips that show). */
 	onResolved?: (exists: boolean) => void;
 }
 
-export function FileCard({
-	path,
-	missingLabel,
-	hideMissing = false,
-	onRemove,
-	compact = false,
-	onResolved,
-}: FileCardProps) {
+export function FileCard({ path, hideMissing = false, compact = false, onRemove, onResolved }: FileCardProps) {
 	const t = useT();
 	const tabId = useRuntimeTabId() ?? undefined;
 	const ref = useRef<HTMLDivElement>(null);
-	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const near = useNearViewport(ref);
 	const [state, setState] = useState<CardState>({ status: "idle" });
 
 	useEffect(() => {
 		if (!near) return;
 		let live = true;
-		let destroy: (() => Promise<void>) | undefined;
 		setState({ status: "loading" });
 		void (async () => {
 			try {
@@ -172,32 +153,6 @@ export function FileCard({
 					return file.data;
 				};
 				switch (kind) {
-					case "image": {
-						const image = tabId
-							? await window.omp.fs.readImage(path, tabId)
-							: await window.omp.fs.readImage(path);
-						return ready(image.ok && image.dataUrl ? { type: "image", src: image.dataUrl } : undefined);
-					}
-					case "pdf": {
-						const data = await readBinary();
-						// Lazy chunk: pdf.js loads only when a PDF card is on screen, like the Files viewer's.
-						const { getDocument } = await import("../../panels/viewers/pdf-runtime");
-						if (!live) return;
-						const task = getDocument({ data });
-						destroy = () => task.destroy();
-						const doc = await task.promise;
-						const page = await doc.getPage(1);
-						const canvas = canvasRef.current;
-						if (!live || !canvas) return;
-						const natural = page.getViewport({ scale: 1 });
-						const viewport = page.getViewport({
-							scale: (PAGE_WIDTH / natural.width) * (window.devicePixelRatio || 1),
-						});
-						canvas.width = Math.floor(viewport.width);
-						canvas.height = Math.floor(viewport.height);
-						await page.render({ canvas, viewport }).promise;
-						return ready({ type: "pdf" }, { unit: "pages", count: doc.numPages });
-					}
 					case "spreadsheet": {
 						const data = await readBinary();
 						// Lazy like OfficeViews' loadWorkbook: the OOXML reader loads with the first workbook.
@@ -225,17 +180,12 @@ export function FileCard({
 							count: slides.length,
 						});
 					}
-					case "csv":
-					case "text": {
+					case "csv": {
 						const file = tabId
 							? await window.omp.fs.read(path, TEXT_PREVIEW_BYTES, tabId)
 							: await window.omp.fs.read(path, TEXT_PREVIEW_BYTES);
 						if (!file.ok || file.binary) return ready();
 						const count = file.truncated ? undefined : lineCount(file.content);
-						if (kind === "text") {
-							const lines = file.content.split("\n").slice(0, PREVIEW_LINES);
-							return ready({ type: "lines", lines }, count === undefined ? undefined : { unit: "lines", count });
-						}
 						const table = parseDelimited(file.content, fileExtension(path) === "tsv" ? "\t" : ",", PREVIEW_ROWS);
 						const rows = table.rows.map(row => row.slice(0, PREVIEW_COLUMNS));
 						return ready({ type: "table", rows }, count === undefined ? undefined : { unit: "rows", count });
@@ -249,7 +199,6 @@ export function FileCard({
 		})();
 		return () => {
 			live = false;
-			void destroy?.();
 		};
 	}, [near, path, tabId, compact]);
 
@@ -264,7 +213,7 @@ export function FileCard({
 	const Icon = ICONS[kind];
 	const meta =
 		state.status === "missing"
-			? (missingLabel ?? t("fileCard.deleted"))
+			? t("fileCard.deleted")
 			: state.status === "ready"
 				? [
 						t(`fileCard.kind.${state.kind}`),
@@ -339,18 +288,7 @@ export function FileCard({
 				onClick={open}
 				type="button"
 			>
-				{kind === "pdf" && (
-					// Mounted from the start: the first page paints into it before the card turns ready.
-					<canvas
-						aria-hidden
-						className="block w-full self-start bg-white"
-						hidden={preview?.type !== "pdf"}
-						ref={canvasRef}
-					/>
-				)}
-				{preview?.type === "pdf" ? null : preview?.type === "image" ? (
-					<img alt="" className="h-full w-full object-cover" decoding="async" src={preview.src} />
-				) : preview?.type === "table" ? (
+				{preview?.type === "table" ? (
 					<table aria-hidden className="w-full self-start table-fixed text-sc-2xs text-(--sc-text-secondary)">
 						<tbody>
 							{preview.rows.map((row, rowIndex) => (
@@ -364,13 +302,6 @@ export function FileCard({
 							))}
 						</tbody>
 					</table>
-				) : preview?.type === "lines" ? (
-					<pre
-						aria-hidden
-						className="h-full w-full overflow-hidden px-2 py-1 font-mono text-omp-xxs leading-tight text-(--sc-text-muted)"
-					>
-						{preview.lines.join("\n")}
-					</pre>
 				) : preview?.type === "title" ? (
 					<span className="line-clamp-3 px-3 text-center text-sc-xs font-medium text-(--sc-text-secondary)">
 						{preview.text}
@@ -391,16 +322,6 @@ export function FileCard({
 					{meta}
 				</span>
 			</div>
-			{onRemove && (
-				<IconButton
-					className="omp-composer-attachment-remove absolute top-1 right-1"
-					icon={<X />}
-					label={t("fileCard.remove", { name })}
-					onClick={onRemove}
-					size="sm"
-					variant="secondary"
-				/>
-			)}
 		</div>
 	);
 }

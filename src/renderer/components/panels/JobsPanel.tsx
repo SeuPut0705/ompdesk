@@ -166,15 +166,7 @@ export function JobsPanel() {
 			{loading ? (
 				<SkeletonRows className="px-1 py-2" label={t("jobs.loading")} widths={JOB_SKELETON_WIDTHS} />
 			) : jobs.length === 0 ? (
-				!error && (
-					<EmptyState
-						className="flex-1"
-						description={t("jobs.emptyHint")}
-						icon={<Hourglass />}
-						size="sm"
-						title={t("jobs.empty")}
-					/>
-				)
+				!error && <EmptyState className="flex-1" icon={<Hourglass />} size="sm" title={t("jobs.empty")} />
 			) : (
 				<>
 					{updatedAt && (

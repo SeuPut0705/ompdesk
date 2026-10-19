@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
+import { readSidebarVisible, writeSidebarVisible } from "../lib/sidebar-memory";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 import { transitionView } from "../lib/view-transition";
 
@@ -416,7 +417,7 @@ function editKeymap(edit: KeymapEdit): void {
 
 export const useUiStore = create<UiStore>()((set, get) => ({
 	displayPreferences: {},
-	sidebarVisible: true,
+	sidebarVisible: readSidebarVisible(),
 	panelVisible: false,
 	panelTab: "diff",
 	panelSubagent: null,
@@ -735,3 +736,25 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	},
 	resetKeymapOverrides: () => editKeymap(() => ({})),
 }));
+
+/**
+ * The docked sidebar's shown/hidden state is remembered (device-local pref `sidebarVisible`, mirrored for the boot
+ * shell: `lib/sidebar-memory.ts`). A phone's or portrait tablet's drawer uses the same flag as its open state and
+ * always starts closed, so while the shell is in drawer mode (`AppShell`'s `useDrawerSidebarSync`) nothing is saved:
+ * the docked state comes back, and is saved again, when the window is wide enough to dock.
+ */
+let sidebarDrawerMode = false;
+
+export function setSidebarDrawerMode(drawer: boolean): void {
+	sidebarDrawerMode = drawer;
+}
+
+/** Whether the sidebar is a drawer right now (a saved docked state must not open it). */
+export function isSidebarDrawerMode(): boolean {
+	return sidebarDrawerMode;
+}
+
+useUiStore.subscribe((state, previous) => {
+	if (state.sidebarVisible !== previous.sidebarVisible && !sidebarDrawerMode)
+		writeSidebarVisible(state.sidebarVisible);
+});

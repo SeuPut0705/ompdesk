@@ -46,6 +46,7 @@ import { useSessionStore } from "../../../stores/session";
 import { useSettingsStore } from "../../../stores/settings";
 import { useUiStore } from "../../../stores/ui";
 import { Badge, Button, IconButton, MenuButton, Tooltip } from "../../common";
+import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { ComposerSend } from "./ComposerLive";
 import { ComposerModeExtras } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
@@ -336,7 +337,16 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						}
 						className="omp-composer-chip omp-composer-fold-4 min-w-0 max-w-64"
 						data-model-chip
-						icon={<Cpu aria-hidden />}
+						icon={
+							model && !settingUp ? (
+								<ProviderMark
+									className="size-(--sc-icon-md)"
+									provider={{ id: model.provider, name: model.provider }}
+								/>
+							) : (
+								<Cpu aria-hidden />
+							)
+						}
 						onClick={() => openModelPicker()}
 						size="sm"
 						trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}

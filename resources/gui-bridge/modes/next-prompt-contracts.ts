@@ -82,6 +82,19 @@ export type NextPromptTrigger = "turn" | "compaction" | "bash" | "switch" | "ref
 export const NEXT_PROMPT_REFRESH_REASONS = ["bash", "switch", "refresh"] as const;
 export type NextPromptRefreshReason = (typeof NEXT_PROMPT_REFRESH_REASONS)[number];
 
+/**
+ * A session the main agent opened with OMPdesk's control tools (`ompdesk_session_open`) that still runs or waits for
+ * an answer. Main pushes the list (`set_next_prompt_children` → bridge `next_prompt_children`) whenever the work
+ * board's review list changes: those sessions run in their own tabs, so stock's async jobs never list them.
+ */
+export interface NextPromptChild {
+	title: string;
+	/** It asked its opener a question (or is blocked) and waits for the answer. */
+	waiting?: boolean;
+}
+/** At most this many children are pushed; the prompt shows fewer. */
+export const MAX_NEXT_PROMPT_CHILDREN = 20;
+
 /** At most this many candidates: the best (placeholder) plus the chips. */
 export const MAX_CANDIDATES = 3;
 /**

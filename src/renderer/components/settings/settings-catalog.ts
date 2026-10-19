@@ -51,7 +51,7 @@ export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> 
 	workspace: "host",
 	// Runs this computer's omp: a paired host's tab never moves them.
 	schedules: "app",
-	// ai-memory runs on this computer for every omp OMPdesk starts here: a paired host's tab never moves it.
+	// Memory runs on this computer for every omp OMPdesk starts here: a paired host's tab never moves it.
 	memory: "app",
 	connections: "mixed",
 	updates: "mixed",
@@ -227,13 +227,6 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		section: "agent",
 		labelKey: "settings.gui.autopilotNotify",
 		aliases: "autopilot notify notification stops cycles off overnight 오토파일럿 알림 정지 사이클 끄기 무인",
-	},
-	{
-		id: "autopilotLimits",
-		section: "agent",
-		labelKey: "settings.gui.autopilotLimits",
-		aliases:
-			"autopilot ceiling limit budget tokens minutes cycles cost dollars off default 오토파일럿 상한 예산 토큰 분 사이클 비용 달러 기본 꺼짐",
 	},
 	{
 		id: "nextPromptSuggestions",

@@ -2,7 +2,7 @@
 
 ## Open
 
-`ompdesk_session_open` takes one session's fields or `sessions: [ … ]` (up to 4 per turn). Each: `message`, `folder`, `model` (`provider/id`), `mode` (`plan` or `goal`; `goal` needs a `message`, which becomes the goal), `worktree` (`true`, or `{branch, base}` with `base` `HEAD` or `default`). Shared: `show` (`background` default, `focus`, `split-right`, `split-down`). It returns the ids. On a paired host's tab it opens on that host.
+`ompdesk_session_open` takes one session's fields or `sessions: [ … ]` for several at once. Each: `message`, `folder`, `model` (`provider/id`), `mode` (`plan` or `goal`; `goal` needs a `message`, which becomes the goal), `worktree` (`true`, or `{branch, base}` with `base` `HEAD` or `default`). Shared: `show` (`background` default, `focus`, `split-right`, `split-down`). It returns the ids. On a paired host's tab it opens on that host.
 
 Before you open: say which parts you will run. Write each first message with the brief template in SKILL.md. When the child writes files, give it `worktree: true` or Ownership no other child shares, so two sessions never edit one file.
 
@@ -16,10 +16,13 @@ ompdesk_session_open
 
 ## Collect
 
-One `ompdesk_session_result` with `sessions: [ids]` and `wait: true`; `until: "any"` returns at the first finish. Do not poll `ompdesk_sessions` in a loop.
+Children tell you: each one's `done`, `review`, `question` or `blocked` report (`ompdesk_report`) lands in your session as a quiet line and wakes you when you are idle, so end your turn after dispatching instead of polling. To block on them now, one `ompdesk_session_result` with `sessions: [ids]` and `wait: true`; `until: "any"` returns at the first finish. Never poll `ompdesk_sessions` in a loop.
+
+- a `question` or `blocked` report: answer with `ompdesk_session_send` (the child waits for it); a choice only the user can make goes to the user. It shows on the user's work board as waiting until you answer.
 
 - finished: use the answer; `ompdesk_session_read` (`limit`, `before` cursor) when the summary is thin.
 - waiting for an answer: `ompdesk_session_answer` only when the answer is a detail you know; a preference, a secret or the user's own choice goes to the user (`ompdesk_tab_focus`, `ompdesk_notify`).
+- waiting for plan approval (a plan-mode session proposed its plan): read the plan file the listing names, then `ompdesk_session_answer` with `approve: true` and `choice` `execute` (fresh context, default), `compact` or `keep_context`, or `approve: false` with `text` as feedback (it revises). A plain `ompdesk_session_send` also counts as feedback and closes the card. Approving needs the user's approve permission unless full control is on; feedback always works.
 - timeout: still running. Wait again or report progress; silence alone is no reason to stop it.
 
 ## Paths in a child's answer
@@ -34,7 +37,7 @@ With sessions you did not open: look first (`ompdesk_sessions`, then `ompdesk_se
 
 ## Finish
 
-Synthesize per session: what it found or changed, conflicts and overlaps, what is left. Close the sessions you opened when done (`ompdesk_session_stop` with `close`). Children finishing reach the user through OMPdesk's batched notifications; use `ompdesk_notify` (`title`, `body`) only for what those do not say.
+Synthesize per session: what it found or changed, conflicts and overlaps, what is left. Close the sessions you opened when done (`ompdesk_session_stop` with `close`); one you collected that ended well, that nobody is using and whose work landed has closed itself already, and its saved session stays readable (skill://ompdesk/references/worktrees-review.md). Children finishing reach the user through OMPdesk's batched notifications; use `ompdesk_notify` (`title`, `body`) only for what those do not say.
 
 ## Another folder, model and mode, shown beside
 

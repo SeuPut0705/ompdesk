@@ -14,12 +14,21 @@ import {
 	type AgentReviewEvent,
 } from "./agent-control";
 import type {
+	AiMemoryDeleted,
+	AiMemoryFeedback,
 	AiMemoryHandoff,
+	AiMemoryLintFinding,
+	AiMemoryObservations,
+	AiMemoryOverview,
 	AiMemoryPage,
 	AiMemoryPageRef,
+	AiMemoryProfile,
 	AiMemoryProject,
 	AiMemoryProjectRef,
+	AiMemorySession,
 	AiMemoryState,
+	AiMemorySweep,
+	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
@@ -43,6 +52,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcHostedSession,
 	IpcHostOmpUpdate,
 	IpcModelSetupRunResult,
 	IpcNotifyKind,
@@ -142,7 +152,7 @@ import type {
 	SubagentFrame,
 } from "./rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "./schedules";
-import type { SetupItemId, SetupState } from "./setup";
+import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -308,6 +318,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 			onSessionsChanged: (callback: () => void) =>
 				subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
+			onHostedSessionsChanged: (callback: (sessions: IpcHostedSession[]) => void) =>
+				subscribe<IpcHostedSession[]>(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, callback),
 			onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),
 			onTabBatch: (callback: (events: AgentSessionEvent[], tabId: string) => void) =>
 				subscribeTab<AgentSessionEvent[]>(IPC_EVENTS.EVENTS_BATCH, callback),
@@ -376,6 +388,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			getState: () => transport.invoke(IPC_COMMANDS.SETUP_GET_STATE) as Promise<SetupState>,
 			retry: (item: SetupItemId) => transport.invoke(IPC_COMMANDS.SETUP_RETRY, item) as Promise<void>,
 			cancel: () => transport.invoke(IPC_COMMANDS.SETUP_CANCEL) as Promise<boolean>,
+			gitAslr: (action: GitAslrAction) =>
+				transport.invoke(IPC_COMMANDS.SETUP_GIT_ASLR, action) as Promise<GitAslrResult>,
 			onState: (callback: (state: SetupState) => void) => subscribe<SetupState>(IPC_EVENTS.SETUP_STATE, callback),
 		},
 
@@ -406,6 +420,34 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.AI_MEMORY_HANDOFFS, project) as Promise<AiMemoryHandoff[]>,
 			readPage: (ref: AiMemoryProjectRef & { path: string }) =>
 				transport.invoke(IPC_COMMANDS.AI_MEMORY_READ_PAGE, ref) as Promise<AiMemoryPage>,
+			overview: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_OVERVIEW, project) as Promise<AiMemoryOverview>,
+			pages: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_PAGES, project) as Promise<AiMemoryPageRef[]>,
+			sessions: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_SESSIONS, project) as Promise<AiMemorySession[]>,
+			observations: (project: AiMemoryProjectRef, sessionId: string, offset?: number) =>
+				transport.invoke(
+					IPC_COMMANDS.AI_MEMORY_OBSERVATIONS,
+					project,
+					sessionId,
+					offset,
+				) as Promise<AiMemoryObservations>,
+			profile: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_PROFILE) as Promise<AiMemoryProfile>,
+			lint: (project: AiMemoryProjectRef) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_LINT, project) as Promise<AiMemoryLintFinding[]>,
+			sweep: (project: AiMemoryProjectRef, dryRun: boolean) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_SWEEP, project, dryRun) as Promise<AiMemorySweep>,
+			writePage: (input: AiMemoryWriteInput) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_WRITE_PAGE, input) as Promise<void>,
+			deletePage: (ref: AiMemoryProjectRef & { path: string; title?: string }) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_DELETE_PAGE, ref) as Promise<AiMemoryDeleted>,
+			restorePage: (ref: AiMemoryProjectRef & { path: string }, rev: string) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_RESTORE_PAGE, ref, rev) as Promise<void>,
+			feedback: (ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_FEEDBACK, ref, signal) as Promise<void>,
+			cancelHandoff: (project: AiMemoryProjectRef, id: string) =>
+				transport.invoke(IPC_COMMANDS.AI_MEMORY_CANCEL_HANDOFF, project, id) as Promise<void>,
 			onState: (callback: (state: AiMemoryState) => void) =>
 				subscribe<AiMemoryState>(IPC_EVENTS.AI_MEMORY_STATE, callback),
 		},
@@ -469,6 +511,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 				transport.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 			consumePendingOpen: () => transport.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
+			hosted: () => transport.invoke(IPC_COMMANDS.HOSTED_SESSIONS) as Promise<IpcHostedSession[]>,
 		},
 
 		tabs: {
@@ -517,6 +560,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
 			setPeerLimits: (deviceId: string, limits: PeerLimits) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, { deviceId, limits }) as Promise<RemoteState>,
+			renameHost: (deviceId: string, name: string) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_RENAME_HOST, { deviceId, name }) as Promise<RemoteState>,
+			renamePeer: (deviceId: string, name: string) =>
+				transport.invoke(IPC_COMMANDS.REMOTE_RENAME_PEER, { deviceId, name }) as Promise<RemoteState>,
 			discover: (action: "start" | "stop") =>
 				transport.invoke(IPC_COMMANDS.REMOTE_DISCOVER, action) as Promise<RemoteDiscoveredDevice[]>,
 			pair: (payload: IpcRemotePairPayload) =>

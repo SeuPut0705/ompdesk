@@ -51,6 +51,7 @@ export function WorktreeBranchPrefixRow() {
 		});
 	};
 	const examplePrefix = valid && trimmed ? trimmed : GUI_WORKTREE_BRANCH_PREFIX;
+	const example = t("settings.worktreeBranchPrefix.example", { branch: `${examplePrefix}fix-login` });
 	return (
 		<SettingsRow
 			control={
@@ -72,13 +73,11 @@ export function WorktreeBranchPrefixRow() {
 					value={draft}
 				/>
 			}
-			description={
-				<>
-					{t("settings.worktreeBranchPrefix.desc")}{" "}
-					<span id={`${id}-example`}>
-						{t("settings.worktreeBranchPrefix.example", { branch: `${examplePrefix}fix-login` })}
-					</span>
-				</>
+			description={`${t("settings.worktreeBranchPrefix.desc")} ${example}`}
+			footer={
+				<span className="sr-only" id={`${id}-example`}>
+					{example}
+				</span>
 			}
 			htmlFor={id}
 			id="setting-gui-worktreeBranchPrefix"

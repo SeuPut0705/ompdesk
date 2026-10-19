@@ -5,21 +5,20 @@
  * lists every host tool in the session's xd:// device notice.
  */
 import { z } from "zod";
-import {
-	AUTOPILOT_AREAS,
-	AUTOPILOT_NOTIFY_MODES,
-	MAX_PARALLEL_CHILDREN,
-} from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import {
-	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
-	AGENT_SCHEDULE_PREFIX,
-	MAX_AGENT_AUTOPILOT_RUNS,
-	MAX_AGENT_SCHEDULES,
-	MAX_AGENT_SESSIONS,
-	MAX_OPENS_PER_TURN,
-	AGENT_CONTROL_TOOLS as T,
-} from "../../shared/agent-control";
+import { AUTOPILOT_AREAS, AUTOPILOT_NOTIFY_MODES } from "../../../resources/gui-bridge/modes/autopilot-contracts";
+import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
+import { MAIL_KINDS } from "./mail";
+
+export type ReportArgs = {
+	kind: (typeof MAIL_KINDS)[number];
+	text: string;
+	files?: string[];
+	checks?: { command: string; passed: boolean }[];
+	to?: string;
+	dispatch?: string;
+	id?: string;
+};
 
 /** `ompdesk_session_result` waits at most this long by default, and never longer than the maximum. */
 export const RESULT_WAIT_DEFAULT_SECONDS = 600;
@@ -34,10 +33,6 @@ export const READ_DEFAULT_MESSAGES = 12;
 export const READ_MAX_MESSAGES = 40;
 /** A message another session receives is at most this long. */
 export const MESSAGE_MAX_CHARS = 50_000;
-/** Sessions one `ompdesk_session_result` call may wait on. */
-export const RESULT_MAX_SESSIONS = 8;
-/** `ompdesk_compare` judges against at most this many criteria. */
-export const JUDGE_MAX_CRITERIA = 12;
 
 const SESSION = {
 	type: "string",
@@ -127,7 +122,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.open,
 		label: "Open OMPdesk session",
-		description: `Open new sessions (tabs) so they work in parallel with you; returns their ids. Give one session's fields, or sessions: [...] to fan out (at most ${MAX_OPENS_PER_TURN} per turn, ${MAX_AGENT_SESSIONS} you opened open at once). See skill://ompdesk.`,
+		description: `Open new sessions (tabs) so they work in parallel with you; returns their ids. Give one session's fields, or sessions: [...] to fan out. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -162,8 +157,51 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					enum: ["follow_up", "steer"],
 					description: "For a running session; default follow_up.",
 				},
+				request_id: {
+					type: "string",
+					description:
+						"Your id for this message; sending again with the same id never delivers it twice (returns the first receipt).",
+				},
 			},
 			required: ["session", "message"],
+			additionalProperties: false,
+		},
+	},
+	{
+		name: T.report,
+		label: "Report to OMPdesk opener",
+		description:
+			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked. kind: progress (a short status; coalesced), done (the work is finished: summary, changed files, checks you ran), question or blocked (you need its decision; it arrives between its steps and wakes it; do not guess meanwhile), review (ready for its review), note (to a sibling: e.g. 'I changed X, rebase'). Only for a session another session opened. See skill://ompdesk.",
+		parameters: {
+			type: "object",
+			properties: {
+				kind: { type: "string", enum: ["progress", "done", "blocked", "question", "review", "note"] },
+				text: { type: "string", description: "What to tell; for done, the summary." },
+				files: { type: "array", items: { type: "string" }, description: "done: files you changed." },
+				checks: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: { command: { type: "string" }, passed: { type: "boolean" } },
+						required: ["command", "passed"],
+						additionalProperties: false,
+					},
+					description: "done: the checks you ran and whether each passed.",
+				},
+				to: {
+					type: "string",
+					description: "A sibling's session id (opened by the same session); default the session that opened you.",
+				},
+				dispatch: {
+					type: "string",
+					description: "The dispatch id your task message named; a report for an older dispatch is ignored.",
+				},
+				id: {
+					type: "string",
+					description: "Your id for this report; a repeat with the same id is delivered once.",
+				},
+			},
+			required: ["kind", "text"],
 			additionalProperties: false,
 		},
 	},
@@ -179,7 +217,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				sessions: {
 					type: "array",
 					items: { type: "string" },
-					description: `Several session ids (at most ${RESULT_MAX_SESSIONS}); instead of session.`,
+					description: `Several session ids; instead of session.`,
 				},
 				wait: { type: "boolean", description: "Wait for the state change first; default false." },
 				until: {
@@ -245,18 +283,26 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.answer,
 		label: "Answer OMPdesk session question",
 		description:
-			"Answer the question another session is waiting on (shown by ompdesk_sessions as waiting for the user's answer). The answer is marked as given by an agent. A tool approval is approved only if the user allowed agents to (Settings), else the user must; deny always works. See skill://ompdesk.",
+			"Answer the question another session is waiting on (shown by ompdesk_sessions as waiting for the user's answer or for plan approval). The answer is marked as given by an agent. A tool approval or a plan approval is approved only if the user allowed agents to (Settings), else the user must; deny and plan feedback always work. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
 				session: SESSION,
 				request: { type: "string", description: "Request id when several wait; default the oldest." },
-				choice: { type: "string", description: "The option to pick (select questions, Approve or Deny)." },
+				choice: {
+					type: "string",
+					description:
+						"The option to pick (select questions, Approve or Deny). A plan approval: execute (default, fresh context), compact or keep_context.",
+				},
 				approve: {
 					type: "boolean",
-					description: "Yes/no for a confirmation, or Approve/Deny for a tool approval.",
+					description:
+						"Yes/no for a confirmation, Approve/Deny for a tool approval, approve/reject for a plan (reject with text sends it as feedback).",
 				},
-				text: { type: "string", description: "Typed answer (input and editor prompts)." },
+				text: {
+					type: "string",
+					description: "Typed answer (input and editor prompts), or a rejected plan's feedback.",
+				},
 				answers: {
 					type: "array",
 					description: "For a multi-question ask: one entry per question.",
@@ -286,12 +332,12 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				sessions: {
 					type: "array",
 					items: { type: "string" },
-					description: `Session ids, open or stored (at most ${RESULT_MAX_SESSIONS}); default every worktree session you opened.`,
+					description: `Session ids, open or stored; default every worktree session you opened.`,
 				},
 				criteria: {
 					type: "array",
 					items: { type: "string" },
-					description: `Acceptance criteria to judge against (at most ${JUDGE_MAX_CRITERIA}); without them nothing is judged.`,
+					description: `Acceptance criteria to judge against; without them nothing is judged.`,
 				},
 			},
 			additionalProperties: false,
@@ -301,7 +347,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.merge,
 		label: "Merge an OMPdesk session's branch",
 		description:
-			"Merge a worktree session's branch into the parent checkout's current branch (a merge commit, local only, never pushed). The user confirms first unless they turned confirmations off. A conflict aborts the merge and lists the files. Refuses when the session or the parent has uncommitted changes. See skill://ompdesk.",
+			"Merge a worktree session's branch into the parent checkout's current branch (a merge commit, local only, never pushed). No card by default; the user confirms first only if they turned off \"Let agents manage other sessions\". A conflict aborts the merge and lists the files. Refuses when the session or the parent has uncommitted changes. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: { session: SESSION },
@@ -312,7 +358,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.schedule,
 		label: "Schedule an OMPdesk run",
-		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes (at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}) or daily_at (HH:MM, optional days 0-6). The user confirms a new one unless they turned confirmations off. It never runs with auto-approve, at most ${MAX_AGENT_SCHEDULES} agent-made schedules exist, and you can cancel only those. See skill://ompdesk.`,
+		description: `Create, list or cancel a scheduled run: a prompt that OMPdesk runs on a timer as a fresh print-mode session in a folder, only while the app is open (Settings › Schedules shows it, marked ${AGENT_SCHEDULE_PREFIX.trim()}). create needs name, prompt and either every_minutes or daily_at (HH:MM, optional days 0-6). No card by default; the user confirms a new one only if they turned off "Let agents manage other sessions". It never runs with auto-approve, and you can cancel only agent-made schedules. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -325,7 +371,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				folder: { type: "string", description: "create: absolute project folder; default your own." },
 				every_minutes: {
 					type: "integer",
-					description: `create: repeat every N minutes (at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}).`,
+					description: "create: repeat every N minutes.",
 				},
 				daily_at: { type: "string", description: "create: local time HH:MM, every day or on days." },
 				days: {
@@ -343,7 +389,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 	{
 		name: T.autopilot,
 		label: "OMPdesk Autopilot",
-		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). The user confirms a start unless they turned confirmations off, and always for ship release or the repo's default branch. At most ${MAX_AGENT_AUTOPILOT_RUNS} agent-started runs live at once. See skill://ompdesk.`,
+		description: `Start, inspect or stop an Autopilot run: an unattended loop that keeps improving a git repo in its own worktree (cycles of audit, change, check, commit; it can push and release when the ship level allows). start opens the run as a new session of yours and returns its id; status reads its cycle, current item, red streak, last commit/push/release and why it paused or ended; stop ends it after the cycle in flight (now: true aborts the turn at once and pauses it). No card by default; the user confirms a start only if they turned off "Let agents manage other sessions", and always for ship release or the repo's default branch. See skill://ompdesk.`,
 		parameters: {
 			type: "object",
 			properties: {
@@ -383,7 +429,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 						},
 						parallel: {
 							type: "integer",
-							description: `Child sessions per cycle, 0-${MAX_PARALLEL_CHILDREN}.`,
+							description: "Most child sessions per cycle (0 = none); default the agent decides, no cap.",
 						},
 						cadence: {
 							type: "integer",
@@ -432,7 +478,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.stop,
 		label: "Stop OMPdesk session",
 		description:
-			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session. Sessions you opened: no question asked. Other sessions: the user confirms first (a refusal is final) unless they turned that off.",
+			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session. Sessions you opened: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
 		parameters: {
 			type: "object",
 			properties: {
@@ -462,7 +508,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.app,
 		label: "OMPdesk app action",
 		description:
-			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; sensitive actions ask the user first; some are never available. See skill://ompdesk/references/app-control.md.",
+			"Do one OMPdesk app action from ompdesk_app_list: change a setting, open a panel, read usage, and so on. Changes are shown to the user with an undo; some actions ask the user first whatever their settings say (they erase data, install code, start a sign-in, change the proxy, expose the computer or end running work); some are never available. See skill://ompdesk/references/app-control.md.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -492,14 +538,14 @@ const autopilotBranch = z.discriminatedUnion("kind", [
 const autopilotAdvanced = z
 	.object({
 		focus: z.array(z.enum(AUTOPILOT_AREAS)).max(AUTOPILOT_AREAS.length).optional(),
-		parallel: z.number().int().min(0).max(MAX_PARALLEL_CHILDREN).optional(),
+		parallel: z.number().int().min(0).optional(),
 		cadence: z.number().int().min(1).max(100).optional(),
 		remote: z
 			.string()
 			.regex(/^[^\s-][^\s]{0,99}$/, "remote is a git remote name")
 			.optional(),
 		notify: z.enum(AUTOPILOT_NOTIFY_MODES).optional(),
-		backlog: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+		backlog: z.array(z.string().trim().min(1).max(500)).optional(),
 		limits: z
 			.object({
 				tokens: positive.optional(),
@@ -583,7 +629,7 @@ export const ARGS = {
 	[T.open]: z
 		.object({
 			...openFields,
-			sessions: z.array(openOne).min(1).max(MAX_OPENS_PER_TURN).optional(),
+			sessions: z.array(openOne).min(1).optional(),
 			show: z.enum(["background", ...PLACEMENT]).optional(),
 		})
 		.strict()
@@ -600,12 +646,26 @@ export const ARGS = {
 			session: sessionArg,
 			message: z.string().trim().min(1).max(MESSAGE_MAX_CHARS),
 			delivery: z.enum(["follow_up", "steer"]).optional(),
+			request_id: z.string().trim().min(1).max(200).optional(),
+		})
+		.strict(),
+	[T.report]: z
+		.object({
+			kind: z.enum(MAIL_KINDS),
+			text: z.string().trim().min(1).max(MESSAGE_MAX_CHARS),
+			files: z.array(z.string().trim().min(1).max(1000)).optional(),
+			checks: z
+				.array(z.object({ command: z.string().trim().min(1).max(1000), passed: z.boolean() }).strict())
+				.optional(),
+			to: sessionArg.optional(),
+			dispatch: z.string().trim().min(1).max(100).optional(),
+			id: z.string().trim().min(1).max(200).optional(),
 		})
 		.strict(),
 	[T.result]: z
 		.object({
 			session: sessionArg.optional(),
-			sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional(),
+			sessions: z.array(sessionArg).min(1).optional(),
 			wait: z.boolean().optional(),
 			until: z.enum(["all", "any"]).optional(),
 			timeout_seconds: z.number().int().min(1).max(RESULT_WAIT_MAX_SECONDS).optional(),
@@ -633,12 +693,11 @@ export const ARGS = {
 					z
 						.object({
 							id: z.string().min(1).max(200).optional(),
-							selected: z.array(z.string().max(500)).max(20).optional(),
+							selected: z.array(z.string().max(500)).optional(),
 							text: z.string().max(20_000).optional(),
 						})
 						.strict(),
 				)
-				.max(20)
 				.optional(),
 		})
 		.strict(),
@@ -647,8 +706,8 @@ export const ARGS = {
 	[T.stop]: z.object({ session: sessionArg, close: z.boolean().optional(), delete: z.boolean().optional() }).strict(),
 	[T.compare]: z
 		.object({
-			sessions: z.array(sessionArg).min(1).max(RESULT_MAX_SESSIONS).optional(),
-			criteria: z.array(z.string().trim().min(1).max(1000)).min(1).max(JUDGE_MAX_CRITERIA).optional(),
+			sessions: z.array(sessionArg).min(1).optional(),
+			criteria: z.array(z.string().trim().min(1).max(1000)).min(1).optional(),
 		})
 		.strict(),
 	[T.merge]: z.object({ session: sessionArg }).strict(),

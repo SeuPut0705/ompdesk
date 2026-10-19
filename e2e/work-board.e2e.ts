@@ -244,13 +244,13 @@ for (const language of variants(["en", "ko"] as const))
 					await expect(page.locator("[data-rail-pin='usage'] [data-in-use]")).toHaveCount(1);
 					await expect(lines.first()).toHaveAttribute("data-in-use", "true");
 					await expect(lines.first()).toHaveAttribute("data-rail-account", /^fixture:/);
-					// A straight 2px edge, not an inset shadow that bends round the line's corners into a "(".
+					// No edge or shadow marks the line in use (32bcf114); the tooltip names the in-use account.
 					expect(
 						await lines.first().evaluate(line => {
 							const edge = getComputedStyle(line, "::before");
-							return { shadow: getComputedStyle(line).boxShadow, width: edge.width, content: edge.content };
+							return { shadow: getComputedStyle(line).boxShadow, content: edge.content };
 						}),
-					).toEqual({ shadow: "none", width: "2px", content: '""' });
+					).toEqual({ shadow: "none", content: "none" });
 					await expect(lines.first()).toHaveAttribute(
 						"title",
 						/^me@example\.com\n5H 15% · ↻ (2h \d+m|3h)\n7D 39% · ↻ 3d 23h/,

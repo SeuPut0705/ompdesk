@@ -7,11 +7,11 @@ export function aiMemoryStatusText(
 ): string {
 	const parts = [
 		state.phase === "starting" && state.step
-			? t("aiMemory.phase.startingStep", { step: t(`aiMemory.step.${state.step}`) })
-			: t(`aiMemory.phase.${state.phase}`),
+			? t("memory.phase.startingStep", { step: t(`memory.step.${state.step}`) })
+			: t(`memory.phase.${state.phase}`),
 	];
 	if (state.version) parts.push(`v${state.version}`);
 	if (state.version && state.phase !== "off" && state.phase !== "unsupported")
-		parts.push(t(`aiMemory.source.${state.source}`));
+		parts.push(t(`memory.source.${state.source}`));
 	return parts.join(" · ");
 }

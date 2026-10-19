@@ -9,12 +9,18 @@
 
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
-import { IPC_COMMANDS } from "../../shared/ipc-types";
-import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE } from "../../shared/mobile-web";
+import { IPC_COMMANDS, type RemoteState } from "../../shared/ipc-types";
+import {
+	MOBILE_WEB_COMMAND,
+	MOBILE_WEB_GET_STATE,
+	WEB_DEVICES_LIST,
+	WEB_DEVICES_RENAME,
+	type WebDeviceInfo,
+} from "../../shared/mobile-web";
 import type { RpcCommand } from "../../shared/rpc-types";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
-import { type PrefSetting, SETTINGS, type Setting, settingActionId } from "./app-settings";
+import { type ManageRule, type PrefSetting, SETTINGS, type Setting, settingActionId } from "./app-settings";
 
 /** What an action returns: text for the agent, and, when it changed something, what to journal and toast. */
 export interface ActionResult {
@@ -48,7 +54,7 @@ export interface ActionContext {
 	/** Call a fire-and-forget channel's handler. */
 	fire(channel: string, ...args: unknown[]): void;
 	ui(event: AgentAppEvent): void;
-	/** Run `ompdesk_autopilot` with these arguments: its confirmation card, folder rules and run limit apply. */
+	/** Run `ompdesk_autopilot` with these arguments: its confirmation card and folder rules apply. */
 	autopilot(args: Record<string, unknown>): Promise<string>;
 	/** Restore the last change this session's agent made (asks again when that change needed a card). */
 	undoLast(): Promise<ActionResult>;
@@ -62,6 +68,10 @@ export interface AppAction {
 	tier: Tier;
 	/** Why a `never` action exists: shown to the agent so it does not try another route. */
 	neverReason?: string;
+	/** Required on a `sensitive` action: whether `agentControlManage` lifts its card, or it always asks, and why. */
+	manage?: ManageRule;
+	/** Present on an action that runs only while the person gave agents full control (`agentControlFull`); why it is refused otherwise. */
+	fullOnly?: string;
 	/** What the confirmation card says is about to happen, in full (exact command, url, arguments). */
 	describe?: (args: Record<string, unknown>) => string;
 	/** Absent for a `never` action. */
@@ -148,6 +158,7 @@ function settingAction(row: Setting): AppAction {
 		description: `Set "${row.en}".${hint}`,
 		args: objectSchema({ value: row.schema }, ["value"]),
 		tier: row.tier,
+		...(row.manage ? { manage: row.manage } : {}),
 		run: (ctx, args) => writeSetting(ctx, row, args.value),
 	};
 }
@@ -190,6 +201,86 @@ const SESSION_PATH = {
 	maxLength: 4096,
 	description: "Session file path (.jsonl) from sessions.saved.",
 } as const;
+
+/**
+ * What `agent_power.set` can switch under full control: the switches that bound an agent's own power. A pref goes
+ * through `PREFS_SET`, a stock setting through `set_setting`, and the two memory switches through ai-memory's own
+ * channel (they start or stop its service, which a bare pref write would not).
+ */
+const POWER_SWITCHES: Record<
+	string,
+	{ en: string; ko: string } & (
+		| { kind: "pref"; key: string }
+		| { kind: "stock"; path: string }
+		| { kind: "channel"; channel: string; key: string }
+	)
+> = {
+	agentControl: { en: "OMPdesk control tools", ko: "OMPdesk 제어 도구", kind: "pref", key: "agentControl" },
+	agentControlFull: {
+		en: "Give agents full control of OMPdesk",
+		ko: "에이전트에게 OMPdesk 모든 권한",
+		kind: "pref",
+		key: "agentControlFull",
+	},
+	agentControlManage: {
+		en: "Let agents manage other sessions",
+		ko: "에이전트가 다른 세션 관리하기",
+		kind: "pref",
+		key: "agentControlManage",
+	},
+	agentControlApprove: {
+		en: "Let agents approve for other sessions",
+		ko: "에이전트가 다른 세션 승인 대신하기",
+		kind: "pref",
+		key: "agentControlApprove",
+	},
+	pstack: { en: "Engineering mode (pstack)", ko: "엔지니어링 모드 (pstack)", kind: "pref", key: "pstack" },
+	aiMemoryLearn: { en: "Learn from conversations", ko: "대화에서 배우기", kind: "pref", key: "aiMemoryLearn" },
+	aiMemory: {
+		en: "Memory",
+		ko: "메모리",
+		kind: "channel",
+		channel: IPC_COMMANDS.AI_MEMORY_SET_ENABLED,
+		key: "aiMemory",
+	},
+	aiMemoryTerminal: {
+		en: "Memory in the terminal omp",
+		ko: "터미널 omp에서도 메모리 쓰기",
+		kind: "channel",
+		channel: IPC_COMMANDS.AI_MEMORY_SET_TERMINAL,
+		key: "aiMemoryTerminal",
+	},
+	"computer.enabled": { en: "Computer use", ko: "컴퓨터 사용", kind: "stock", path: "computer.enabled" },
+	"tools.approvalMode": { en: "Tool approval", ko: "도구 승인", kind: "stock", path: "tools.approvalMode" },
+};
+
+async function setPowerSwitch(ctx: ActionContext, args: Record<string, unknown>): Promise<ActionResult> {
+	const name = String(args.switch);
+	const entry = POWER_SWITCHES[name];
+	if (!entry) throw new AppRefusal(`Unknown switch ${name}.`);
+	const value = name === "tools.approvalMode" ? args.mode : args.on;
+	if (name === "tools.approvalMode" ? typeof value !== "string" : typeof value !== "boolean")
+		throw new AppRefusal(name === "tools.approvalMode" ? "tools.approvalMode needs mode." : `${name} needs on.`);
+	const previous =
+		entry.kind === "stock"
+			? await readStock(ctx, entry.path)
+			: entry.kind === "pref"
+				? ctx.getPref(entry.key)
+				: undefined;
+	if (entry.kind === "pref") await ctx.setPref(entry.key, value);
+	else if (entry.kind === "stock") await ctx.rpc({ type: "set_setting", path: entry.path, value });
+	else await ctx.invoke(entry.channel, value);
+	const undo =
+		previous === undefined || previous === null || entry.kind === "channel"
+			? undefined
+			: entry.kind === "pref"
+				? ({ kind: "pref", key: entry.key, value: previous } as const)
+				: ({ kind: "setting", path: entry.path, value: previous } as const);
+	return {
+		text: `${entry.en} is now ${shown(value)}.`,
+		change: { en: entry.en, ko: entry.ko, value: shown(value), ...(undo ? { undo } : {}) },
+	};
+}
 const SCOPE = {
 	type: "string",
 	enum: ["local", "global"],
@@ -377,6 +468,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Delete a saved session file for good.",
 		args: objectSchema({ sessionPath: SESSION_PATH }, ["sessionPath"]),
 		tier: "sensitive",
+		manage: { always: "deleting a saved session is irreversible" },
 		run: async (ctx, args) => {
 			await ctx.invoke(C.SESSIONS_DELETE, { sessionPath: String(args.sessionPath) });
 			return {
@@ -405,6 +497,9 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Check for a new OMPdesk version now (contacts the release server).",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: {
+			lifts: "only contacts the release server; nothing is downloaded into use or applied (updates.apply asks)",
+		},
 		run: async ctx => {
 			await ctx.invoke(C.UPDATER_CHECK);
 			return { text: "Update check started; read updates.status for the result." };
@@ -416,6 +511,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Install the downloaded OMPdesk update and restart the app (every running turn ends).",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "installs new code and restarts, ending every running turn" },
 		run: async ctx => {
 			await ctx.invoke(C.UPDATER_APPLY);
 			return { text: "Applying the update; OMPdesk restarts." };
@@ -427,6 +523,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Quit OMPdesk (every running turn ends).",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "quitting ends every running turn" },
 		run: async ctx => {
 			ctx.fire(C.APP_QUIT);
 			return { text: "Quitting OMPdesk." };
@@ -456,6 +553,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: `Start GitHub sign-in. ${SIGN_IN_NOTE}`,
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "signing in connects the person's account (a credential)" },
 		run: async ctx => {
 			await ctx.invoke(C.GITHUB_AUTH_LOGIN_START);
 			return { text: "GitHub sign-in started: the person finishes it in the window." };
@@ -467,6 +565,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: `Start sign-in for a model provider. ${SIGN_IN_NOTE}`,
 		args: objectSchema({ providerId: { type: "string", minLength: 1, maxLength: 100 } }, ["providerId"]),
 		tier: "sensitive",
+		manage: { always: "signing in connects the person's account (a credential)" },
 		run: async (ctx, args) => {
 			await ctx.rpc({ type: "login", providerId: String(args.providerId) });
 			return { text: `Sign-in for ${String(args.providerId)} started: the person finishes it in the window.` };
@@ -490,6 +589,10 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		description: "Turn the phone page on or off (it exposes this computer's sessions to the person's tailnet).",
 		args: objectSchema({ enabled: { type: "boolean" } }, ["enabled"]),
 		tier: "sensitive",
+		manage: {
+			always: "turning it on exposes this computer's sessions on the network (turning it off exposes nothing)",
+			when: args => args.enabled === true,
+		},
 		run: async (ctx, args) => {
 			await ctx.invoke(MOBILE_WEB_COMMAND, { action: args.enabled === true ? "enable" : "disable" });
 			return {
@@ -510,6 +613,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["marketplace", "plugin"],
 		),
 		tier: "sensitive",
+		manage: { always: "a plugin is arbitrary code that runs in every session" },
 		run: async (ctx, args) => {
 			await ctx.rpc({
 				type: "marketplace_action",
@@ -526,12 +630,67 @@ export const APP_ACTIONS: readonly AppAction[] = [
 	{
 		id: "memory.purge",
 		area: "memory",
-		description: "Erase the user's ai-memory for good.",
+		description: "Erase the user's memory for good: every page, handoff and recorded session.",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "erasing the memory is irreversible" },
 		run: async ctx => {
 			await ctx.invoke(C.AI_MEMORY_PURGE);
 			return { text: "Memory erased.", change: { en: "Memory", ko: "메모리", value: "erased" } };
+		},
+	},
+	{
+		id: "memory.delete_page",
+		area: "memory",
+		description: "Delete one memory page (the Memory page's Restore can bring it back).",
+		args: objectSchema(
+			{
+				workspace: { type: "string", minLength: 1, maxLength: 200 },
+				project: { type: "string", minLength: 1, maxLength: 200 },
+				path: { type: "string", minLength: 1, maxLength: 500 },
+			},
+			["workspace", "project", "path"],
+		),
+		tier: "sensitive",
+		manage: { always: "deleting a memory page erases the person's data" },
+		describe: args =>
+			`Delete the memory page ${String(args.path)} of ${String(args.workspace)}/${String(args.project)}`,
+		run: async (ctx, args) => {
+			await ctx.invoke(C.AI_MEMORY_DELETE_PAGE, {
+				workspace: String(args.workspace),
+				project: String(args.project),
+				path: String(args.path),
+			});
+			return {
+				text: `Deleted ${String(args.path)}.`,
+				change: { en: "Memory page", ko: "메모리 페이지", value: `deleted ${String(args.path)}` },
+			};
+		},
+	},
+	{
+		id: "memory.sweep",
+		area: "memory",
+		description: "Run the memory retention sweep for one project (evicts pages the aging rules let go).",
+		args: objectSchema(
+			{
+				workspace: { type: "string", minLength: 1, maxLength: 200 },
+				project: { type: "string", minLength: 1, maxLength: 200 },
+			},
+			["workspace", "project"],
+		),
+		tier: "sensitive",
+		manage: { always: "the sweep evicts memory pages: it erases the person's data" },
+		run: async (ctx, args) => {
+			const result = await ctx.invoke(
+				C.AI_MEMORY_SWEEP,
+				{ workspace: String(args.workspace), project: String(args.project) },
+				false,
+			);
+			const evicted = result && typeof result === "object" ? (result as { evicted?: unknown }).evicted : 0;
+			return {
+				text: `Memory sweep done: ${typeof evicted === "number" ? evicted : 0} evicted.`,
+				change: { en: "Memory", ko: "메모리", value: "swept" },
+			};
 		},
 	},
 	{
@@ -542,12 +701,25 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		tier: "change",
 		run: ctx => ctx.undoLast(),
 	},
-	never(
-		"agent_power.set",
-		"permissions",
-		"Change what agents may do: control tools, approval mode, who may approve, memory or computer-use switches.",
-		"These switches bound the agent's own power. Only the person changes them, in Settings.",
-	),
+	{
+		id: "agent_power.set",
+		area: "permissions",
+		description:
+			"Change what agents may do: OMPdesk control tools, full control, managing or approving for other sessions, tool approval mode, memory, engineering mode or computer use. Booleans take on; tools.approvalMode takes mode.",
+		args: objectSchema(
+			{
+				switch: { type: "string", enum: Object.keys(POWER_SWITCHES) },
+				on: { type: "boolean" },
+				mode: { type: "string", enum: ["yolo", "write", "always-ask"] },
+			},
+			["switch"],
+		),
+		tier: "sensitive",
+		fullOnly:
+			"These switches bound the agent's own power. Only the person changes them, in Settings, unless they give agents full control of OMPdesk.",
+		manage: { always: "these switches bound what every agent may do; only full control lets an agent change them" },
+		run: setPowerSwitch,
+	},
 	never(
 		"cards.answer",
 		"permissions",
@@ -577,6 +749,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			["name", "transport"],
 		),
 		tier: "sensitive",
+		manage: { always: "an MCP server is arbitrary code (stdio) or a network reach (http/sse) for every session" },
 		describe: args => {
 			const where =
 				args.transport === "stdio"
@@ -615,12 +788,101 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			"Start pairing another computer: opens Settings › Devices & connections, where this computer's pairing code is shown and the person types the other one's. You never give or read a pairing code.",
 		args: NO_ARGS,
 		tier: "sensitive",
+		manage: { always: "pairing gives another computer access to this one's sessions" },
 		describe: () => "start pairing another computer (opens Devices & connections; the person completes it there)",
 		run: async ctx => {
 			ctx.ui({ kind: "settings", section: "connections", sub: "remote" });
 			return {
 				text: "Pairing started: Settings › Devices & connections is open; the person completes it. You cannot see or enter the code.",
 			};
+		},
+	},
+	{
+		id: "remote.devices",
+		area: "connections",
+		description:
+			"List this computer's device name, the paired computers it connects to (hosts) and the devices that use it (peers), with ids and online state.",
+		args: NO_ARGS,
+		tier: "read",
+		run: async ctx => {
+			const state = (await ctx.invoke(C.REMOTE_GET_STATE)) as RemoteState;
+			return {
+				text: [
+					`This computer: ${state.host.name}`,
+					...state.hosts.map(host => `host ${host.deviceId}: ${host.name} (${host.state})`),
+					...state.host.peers.map(
+						peer => `device ${peer.deviceId}: ${peer.name} (${peer.online ? "online" : "offline"})`,
+					),
+				].join("\n"),
+			};
+		},
+	},
+	{
+		id: "remote.rename_this_computer",
+		area: "connections",
+		description: "Change this computer's device name; every paired computer and device sees it at once.",
+		args: objectSchema({ name: { type: "string", minLength: 1, maxLength: 64 } }, ["name"]),
+		tier: "change",
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_SET_DEVICE_NAME, String(args.name));
+			return { text: "Renamed.", change: { en: "Device name", ko: "기기 이름", value: String(args.name) } };
+		},
+	},
+	{
+		id: "remote.rename_host",
+		area: "connections",
+		description:
+			"Rename a paired computer this one connects to (deviceId from remote.devices): it changes its own device name. It must be online.",
+		args: objectSchema(
+			{
+				deviceId: { type: "string", minLength: 1, maxLength: 64 },
+				name: { type: "string", minLength: 1, maxLength: 64 },
+			},
+			["deviceId", "name"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_RENAME_HOST, { deviceId: String(args.deviceId), name: String(args.name) });
+			return { text: "Renamed.", change: { en: "Computer name", ko: "컴퓨터 이름", value: String(args.name) } };
+		},
+	},
+	{
+		id: "remote.rename_device",
+		area: "connections",
+		description:
+			"Rename a device that uses this computer (deviceId from remote.devices): it is asked to rename itself, so it must be connected.",
+		args: objectSchema(
+			{
+				deviceId: { type: "string", minLength: 1, maxLength: 64 },
+				name: { type: "string", minLength: 1, maxLength: 64 },
+			},
+			["deviceId", "name"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			await ctx.invoke(C.REMOTE_RENAME_PEER, { deviceId: String(args.deviceId), name: String(args.name) });
+			return { text: "Renamed.", change: { en: "Device name", ko: "기기 이름", value: String(args.name) } };
+		},
+	},
+	{
+		id: "mobile_web.rename_device",
+		area: "mobile_web",
+		description: "Rename a phone or tablet that uses the phone page, by its current name or id.",
+		args: objectSchema(
+			{
+				device: { type: "string", minLength: 1, maxLength: 128 },
+				name: { type: "string", minLength: 1, maxLength: 64 },
+			},
+			["device", "name"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			const devices = (await ctx.invoke(WEB_DEVICES_LIST)) as WebDeviceInfo[];
+			const wanted = String(args.device);
+			const device = devices.find(entry => entry.id === wanted) ?? devices.find(entry => entry.name === wanted);
+			if (!device) throw new AppRefusal(`No phone-page device named ${wanted}.`);
+			await ctx.invoke(WEB_DEVICES_RENAME, device.id, String(args.name));
+			return { text: "Renamed.", change: { en: "Device name", ko: "기기 이름", value: String(args.name) } };
 		},
 	},
 	{
@@ -635,7 +897,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "autopilot.start",
 		area: "autopilot",
 		description:
-			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release), its folder rules and its two-run cap. ship defaults to the user's stored level.",
+			"Start an Autopilot run: ompdesk_autopilot start, with its own confirmation card (commit, push or release) and its folder rules. ship defaults to the user's stored level.",
 		args: objectSchema({
 			folder: { type: "string", minLength: 1, maxLength: 4096 },
 			ship: { type: "string", enum: ["commit", "push", "release"] },

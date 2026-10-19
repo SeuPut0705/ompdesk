@@ -584,7 +584,6 @@ export function AgentDefinitions() {
 
 	return (
 		<div className="flex flex-col gap-4">
-			<p className="text-sc-sm text-(--sc-text-muted)">{t("agentHub.defs.footerNote")}</p>
 			<div className="flex flex-wrap items-center gap-3">
 				<SearchField
 					className="min-w-0 flex-1 basis-48"

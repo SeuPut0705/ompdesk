@@ -6,7 +6,7 @@ import type { ElectronApplication, Page } from "playwright";
 import { exitApp, launchApp, readRecords } from "./harness";
 
 // OMPdesk control tools (src/main/agent-control): the main agent's host tools open a session, message it, wait for
-// it and read it back; refuse what needs the user without the confirmation card; and stop at their caps. The fake
+// it and read it back; and refuse what needs the user without the confirmation card. The fake
 // omp calls a tool with `fixture:host-tool:<name> <json>` (the way stock's agent would) and records the
 // `host_tool_result` it gets. Subagents never have the tools: stock registers host tools on the RPC session only
 // (checked against a real omp in real-agent-control.e2e.ts).
@@ -121,8 +121,10 @@ test("create a session, send it a message, wait for it and read its result", asy
 	await expect(page.getByText("ompdesk-agent-message")).toHaveCount(0);
 });
 
-test("a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
+test("with full control off, deleting a session the agent did not open needs the user's confirmation card; a refusal stops nothing", async () => {
 	test.setTimeout(150_000);
+	// Settings › Tools & extensions › "Give agents full control of OMPdesk" off, as the person would store it.
+	await page.evaluate(() => window.omp.prefs.set("agentControlFull", false));
 	// A second tab the user opened (⌘T): not the agent's.
 	const before = (await tabs()).map(tab => tab.tabId);
 	await page.keyboard.press("ControlOrMeta+t");
@@ -131,7 +133,7 @@ test("a session the agent did not open needs the user's confirmation card; a ref
 	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
 	// The main agent asks; its card waits on the main tab, which the sidebar marks "Needs input".
 
-	const pending = call("ompdesk_session_stop", { session: theirs, close: true });
+	const pending = call("ompdesk_session_stop", { session: theirs, delete: true });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -142,7 +144,7 @@ test("a session the agent did not open needs the user's confirmation card; a ref
 	expect(declined.text).toContain("The user declined");
 	expect((await tabs()).map(tab => tab.tabId)).toContain(theirs);
 
-	const approved = call("ompdesk_session_stop", { session: theirs, close: true });
+	const approved = call("ompdesk_session_stop", { session: theirs, delete: true });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -152,6 +154,55 @@ test("a session the agent did not open needs the user's confirmation card; a ref
 		.getByRole("button", { name: /^Approve/ })
 		.first()
 		.click();
-	expect((await approved).text).toContain("Stopped and closed");
-	await expect.poll(async () => (await tabs()).map(tab => tab.tabId)).not.toContain(theirs);
+	// Approved, the delete runs (a ⌘T tab has no saved file yet, so main says closing is enough).
+	expect((await approved).text).toMatch(/Stopped, closed and deleted|no saved file yet/);
+});
+
+test("by default (full control) the agent deletes a session it did not open with no card", async () => {
+	test.setTimeout(150_000);
+	const before = (await tabs()).map(tab => tab.tabId);
+	await page.keyboard.press("ControlOrMeta+t");
+	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
+	const theirs = (await tabs()).find(tab => !before.includes(tab.tabId))?.tabId ?? "";
+	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
+	const result = await call("ompdesk_session_stop", { session: theirs, delete: true });
+	expect(result.text).toMatch(/Stopped, closed and deleted|no saved file yet/);
+	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
+});
+
+/** A plan-mode child that proposed its plan, shown so its card is on screen. */
+async function proposingChild(): Promise<string> {
+	const opened = await call("ompdesk_session_open", { message: "Plan the rollout", mode: "plan", show: "background" });
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] ?? "";
+	expect(child).not.toBe("");
+	await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+	await fixtureCommand(child, "fixture:plan");
+	await call("ompdesk_tab_focus", { session: child });
+	await expect(page.getByText("Fixture rollout plan").first()).toBeVisible({ timeout: 30_000 });
+	const listed = await call("ompdesk_sessions", { status: "waiting" });
+	expect(listed.text).toContain(child);
+	expect(listed.text).toContain('waiting for plan approval: "Fixture rollout plan"');
+	return child;
+}
+
+test("the main agent approves a child's plan: the card closes and the child leaves plan mode", async () => {
+	test.setTimeout(150_000);
+	const child = await proposingChild();
+	const answered = await call("ompdesk_session_answer", { session: child, approve: true, choice: "keep_context" });
+	expect(answered.isError).toBe(false);
+	expect(answered.text).toContain("approved plan");
+	await expect(page.getByText("Fixture rollout plan")).toHaveCount(0, { timeout: 30_000 });
+	const state = await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_state" }), child);
+	expect(state).toMatchObject({ data: { planModeEnabled: false } });
+	expect((await call("ompdesk_sessions", { status: "waiting" })).text).not.toContain(child);
+});
+
+test("a plain message to a child whose plan waits replies to it and closes the card", async () => {
+	test.setTimeout(150_000);
+	const child = await proposingChild();
+	expect((await call("ompdesk_session_send", { session: child, message: "Split step 2 in two" })).text).toContain(
+		"Sent to",
+	);
+	await expect(page.getByText("Fixture rollout plan")).toHaveCount(0, { timeout: 30_000 });
+	expect((await call("ompdesk_sessions", { status: "waiting" })).text).not.toContain(child);
 });

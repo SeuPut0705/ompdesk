@@ -466,7 +466,6 @@ export function SkillsTab({ query }: { query: string }) {
 	const nothingInstalled = !error && !loading && skills.length === 0 && !editor;
 	return (
 		<div className="flex flex-col gap-4">
-			<p className="max-w-2xl text-sc-xs text-(--sc-text-muted)">{t("settings.skills.description")}</p>
 			<div className="flex flex-wrap items-center gap-2">
 				{nothingInstalled ? null : (
 					<>
@@ -511,7 +510,6 @@ export function SkillsTab({ query }: { query: string }) {
 						</Button>
 					}
 					className="rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"
-					description={t("settings.skills.noneDesc")}
 					icon={<BookOpen />}
 					title={t("settings.skills.none")}
 				/>

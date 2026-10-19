@@ -129,8 +129,10 @@ export function CliUpdateRows() {
 	return (
 		<>
 			<SettingsSwitchRow
+				icon={<Terminal />}
 				checked={state?.enabled ?? true}
 				description={t("cliUpdate.autoDesc")}
+				tipOnly
 				disabled={state === null}
 				id="setting-gui-cliAutoUpdate"
 				label={t("cliUpdate.auto")}

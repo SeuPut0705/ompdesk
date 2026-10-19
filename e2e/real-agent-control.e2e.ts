@@ -11,8 +11,8 @@ import { field, realOmpProfile, spentIn } from "./real-omp";
 //  1. "세션 2개 만들어서 각각 시키고 결과 정리": the main agent opens two sessions, hands each a task, waits and
 //     summarizes them (the user's exact request).
 //  2. A subagent (stock's `task`) has no control tools: host tools live on the RPC session only.
-//  3. Worktree review and schedules: one worktree child commits a file, the main agent compares and merges it (the
-//     `[OMPdesk]` card approved by the test) and creates and lists a schedule; the spend is recorded.
+//  3. Worktree review and schedules: one worktree child commits a file, the main agent compares and merges it (no
+//     `[OMPdesk]` card by default; the test would approve one) and creates and lists a schedule; the spend is recorded.
 const RESULT_FILE = "/tmp/real-agent-control.json";
 const results: Record<string, unknown>[] = [];
 
@@ -140,7 +140,8 @@ test("a worktree child's commit is compared and merged, and a schedule is create
 		},
 	);
 	try {
-		// Approve each `[OMPdesk]` card (the merge, the schedule) as the person would, until the turn ends.
+		// Approve an `[OMPdesk]` card if one shows (none by default: "Let agents manage other sessions" is on) as the
+		// person would, until the turn ends.
 		await expect
 			.poll(
 				async () => {

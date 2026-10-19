@@ -22,8 +22,8 @@ export function FamilyStatus({ state }: { state: FamilyState }) {
 			data-family-status={state}
 		>
 			{state === "running" ? (
-				// The pulse sits on an HTML element: Chromium runs no SVG element's animation on the compositor.
-				<span className="omp-pulse-dot size-2 rounded-(--sc-radius-full) bg-(--sc-accent)" />
+				// A still dot: a child is a plain row; only a top-level session's card wears the running light.
+				<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-accent)" />
 			) : state === "waiting" ? (
 				<TriangleAlert className="size-(--sc-icon-sm) text-(--sc-warning)" />
 			) : state === "done" ? (

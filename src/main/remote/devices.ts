@@ -29,6 +29,11 @@ import {
 import type { OmpUpdateState } from "../../shared/omp-update";
 import type { ResumeMarker } from "../turn-resume";
 import {
+	DEVICE_RENAME_EVENT,
+	DeviceNameSchema,
+	HOST_NAME_EVENT,
+	NAME_METHODS,
+	NameParams,
 	OMP_UPDATE_EVENT,
 	OmpUpdateStateSchema,
 	SESSIONS_CHANGED_EVENT,
@@ -50,7 +55,7 @@ import { PendingTabCloses, RemoteSidecar } from "./remote-sidecar";
 const STARTUP_DISCOVERY_MS = 10_000;
 /** A discovered host that stopped beaconing (2 s cadence) leaves the list after this. */
 const DISCOVERY_STALE_MS = 8_000;
-const MAX_DEVICE_NAME = 64;
+const RenamePayload = z.object({ deviceId: z.string().min(1), name: z.string() });
 /** Usage counters reach the Settings view at most this often. */
 const QUOTA_BROADCAST_MS = 1_000;
 const Limit = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional();
@@ -186,11 +191,42 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
+	/**
+	 * This computer's one device name: saved, announced to every device connected to it (`host.name`) and
+	 * to every host it is connected to (`peer.name`). Offline ones learn it from the next hello.
+	 */
 	setDeviceName(name: unknown): RemoteState {
-		const trimmed = typeof name === "string" ? name.trim() : "";
-		if (!trimmed || trimmed.length > MAX_DEVICE_NAME) throw codedError("invalid_name", "Invalid device name");
-		this.#deps.prefs.set(DEVICE_NAME_KEY, trimmed);
+		const parsed = DeviceNameSchema.safeParse(name);
+		if (!parsed.success) throw codedError("invalid_name", "Invalid device name");
+		const next = parsed.data;
+		if (next !== this.deviceName()) {
+			this.#deps.prefs.set(DEVICE_NAME_KEY, next);
+			this.#host?.announceName();
+			for (const link of this.#links.values()) {
+				if (link.client.state === "online") {
+					link.client.request(NAME_METHODS.peerName, { name: next }).catch(() => {});
+				}
+			}
+		}
 		return this.#broadcastState();
+	}
+
+	/** Rename a paired host: it sets its own name (`host.rename`) and announces it back. */
+	async renameHost(payload: unknown): Promise<RemoteState> {
+		const { deviceId, name } = parseRename(payload);
+		await this.request(deviceId, NAME_METHODS.hostRename, { name });
+		this.#links.get(deviceId)?.client.hostRenamed(name);
+		return this.#broadcastState();
+	}
+
+	/** Rename a device that uses this computer: it is asked to rename itself, so it must be connected. */
+	renamePeer(payload: unknown): RemoteState {
+		const { deviceId, name } = parseRename(payload);
+		if (!this.#peers.get(deviceId)) throw codedError("remote_unknown_device", "Unknown device");
+		if (!this.#host?.askPeerRename(deviceId, name)) {
+			throw codedError("remote_offline", "The device must be connected to rename it");
+		}
+		return this.state();
 	}
 
 	setKeepAwake(enabled: boolean): RemoteState {
@@ -400,6 +436,10 @@ export class RemoteDevices {
 				name: () => this.deviceName(),
 				appVersion: this.#deps.appVersion,
 				hello: this.#deps.machineInfo,
+				renameSelf: (name, by) => {
+					console.info(`[remote] ${by.name} (${by.deviceId}) renamed this computer to "${name}"`);
+					this.setDeviceName(name);
+				},
 			});
 			for (const event of ["peersChanged", "connectionsChanged", "codeChanged"] as const) {
 				host.on(event, () => this.#broadcastState());
@@ -451,6 +491,18 @@ export class RemoteDevices {
 					const update: IpcHostOmpUpdate = { device: deviceId, state: state.data };
 					this.#deps.broadcast(IPC_EVENTS.HOST_OMP_UPDATE_STATE, update);
 				}
+				return;
+			}
+			if (event === HOST_NAME_EVENT || event === DEVICE_RENAME_EVENT) {
+				const named = NameParams.safeParse(data);
+				if (!named.success) return;
+				if (event === DEVICE_RENAME_EVENT) {
+					console.info(`[remote] ${client.host.name} renamed this computer to "${named.data.name}"`);
+					this.setDeviceName(named.data.name);
+					return;
+				}
+				client.hostRenamed(named.data.name);
+				this.#broadcastState();
 				return;
 			}
 			if (event !== TAB_EVENT) return;
@@ -567,4 +619,12 @@ export class RemoteDevices {
 
 function toHostView(deviceId: string, name: string, state: HostView["state"] = "offline"): HostView {
 	return { deviceId, name, state };
+}
+
+function parseRename(payload: unknown): { deviceId: string; name: string } {
+	const parsed = RenamePayload.safeParse(payload);
+	if (!parsed.success) throw codedError("remote_unknown_device", "Invalid rename");
+	const name = DeviceNameSchema.safeParse(parsed.data.name);
+	if (!name.success) throw codedError("invalid_name", "Invalid device name");
+	return { deviceId: parsed.data.deviceId, name: name.data };
 }

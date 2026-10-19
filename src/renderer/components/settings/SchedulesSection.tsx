@@ -162,17 +162,12 @@ export function SchedulesSection() {
 					checked={!state.paused}
 					data-schedules-master
 					description={t("schedules.masterDesc")}
+					infoOnly
 					label={t("schedules.master")}
 					onCheckedChange={checked => void send({ action: "setPaused", paused: !checked })}
 				/>
 				{state.schedules.length === 0 ? (
-					<EmptyState
-						actions={newButton}
-						description={t("schedules.emptyDesc")}
-						icon={<CalendarClock />}
-						size="sm"
-						title={t("schedules.empty")}
-					/>
+					<EmptyState actions={newButton} icon={<CalendarClock />} size="sm" title={t("schedules.empty")} />
 				) : (
 					<ul className="flex flex-col divide-y divide-(--sc-divider)" data-schedule-list>
 						{state.schedules.map(schedule => {

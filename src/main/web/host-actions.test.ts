@@ -101,7 +101,7 @@ describe("host disk browser", () => {
 	it("filters by name, follows symlinks to folders, and expands ~", async () => {
 		mkdirSync(join(home, "Projects"));
 		mkdirSync(join(home, "target"));
-		symlinkSync(join(home, "target"), join(home, "link"));
+		symlinkSync(join(home, "target"), join(home, "link"), "junction");
 		const { call } = rig();
 		const found = await call<WebHostListing>(WEB_HOST_CHANNELS.LIST_DIRS, { path: "~", query: "PROJ" });
 		expect(found.entries.map(entry => entry.name)).toEqual(["Projects"]);

@@ -1,15 +1,13 @@
 /**
- * Settings › Agent behavior › Smart automation: the Autopilot defaults the start sheet opens with. The sheet reads them
- * (prefs `autopilotShip`, `autopilotNotify`, `autopilotLimits`) and sends its own values, so a change here only moves
- * what the next start proposes; a run keeps the settings it began with (its screen changes them while it runs).
- * Only the 내보내기 default and the notifications show; the ceilings (everything off) are under Advanced.
- * Everything defaults to the cautious side: local only, every ceiling off, notifications on stops.
+ * Settings › Agent behavior › Smart automation: the two Autopilot defaults (prefs `autopilotShip`, `autopilotNotify`).
+ * A change only moves what the next start does; a run keeps the settings it began with.
+ * Shipping defaults to Automatic (no stored pref): main pushes the run's own branch when the repository has a remote,
+ * never a release. Notifications default to stops.
  */
 
-import { BellRing, Gauge, Rocket } from "lucide-react";
+import { BellRing, Rocket } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import {
-	AUTOPILOT_LIMITS_PREF,
 	AUTOPILOT_NOTIFY_MODES,
 	AUTOPILOT_NOTIFY_PREF,
 	AUTOPILOT_SHIP_PREF,
@@ -18,16 +16,15 @@ import {
 	type AutopilotShipPolicy,
 	type AutopilotShipPreset,
 	DEFAULT_AUTOPILOT_SETTINGS,
-	NO_LIMITS,
 	shipPolicyForPreset,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
-import { Input, Select } from "../common";
-import { limitsFromText, presetOfPolicy } from "../panels/autopilot/autopilot-view";
-import { SettingsAdvanced, SettingsRow } from "./SettingsLayout";
+import { Select } from "../common";
+import { presetOfPolicy } from "../panels/autopilot/autopilot-view";
+import { SettingsRow } from "./SettingsLayout";
 
-/** A stored pref read once; `undefined` until it lands. */
+/** A stored pref read once; `undefined` until it lands, `null` when nothing is stored. */
 function useStoredPref(key: string): unknown {
 	const [value, setValue] = useState<unknown>(undefined);
 	useEffect(() => {
@@ -42,8 +39,8 @@ function useStoredPref(key: string): unknown {
 	return value;
 }
 
-function asPolicy(value: unknown): AutopilotShipPolicy {
-	if (typeof value !== "object" || value === null) return DEFAULT_AUTOPILOT_SETTINGS.ship;
+function asPolicy(value: unknown): AutopilotShipPolicy | null {
+	if (typeof value !== "object" || value === null) return null;
 	const candidate = value as Partial<AutopilotShipPolicy>;
 	return {
 		autoPush: candidate.autoPush === true,
@@ -55,22 +52,25 @@ function asPolicy(value: unknown): AutopilotShipPolicy {
 	};
 }
 
+const AUTO = "auto";
+type ShipChoice = AutopilotShipPreset | typeof AUTO;
+
 export function AutopilotShipRow() {
 	const t = useT();
 	const id = useId();
 	const stored = useStoredPref(AUTOPILOT_SHIP_PREF);
-	const [preset, setPreset] = useState<AutopilotShipPreset>("local");
+	const [choice, setChoice] = useState<ShipChoice>(AUTO);
 	useEffect(() => {
-		if (stored !== undefined) setPreset(presetOfPolicy(asPolicy(stored)));
+		if (stored === undefined) return;
+		const policy = asPolicy(stored);
+		setChoice(policy ? presetOfPolicy(policy) : AUTO);
 	}, [stored]);
-	const change = (next: AutopilotShipPreset) => {
-		const current = asPolicy(stored);
-		const policy = shipPolicyForPreset(next, current.remote);
-		void saveGuiPreference(
-			AUTOPILOT_SHIP_PREF,
-			{ ...policy, autoRelease: { ...policy.autoRelease, cadence: current.autoRelease.cadence } },
-			() => setPreset(next),
-		);
+	const change = (next: ShipChoice) => {
+		const value =
+			next === AUTO
+				? undefined
+				: shipPolicyForPreset(next, asPolicy(stored)?.remote ?? DEFAULT_AUTOPILOT_SETTINGS.ship.remote);
+		void saveGuiPreference(AUTOPILOT_SHIP_PREF, value, () => setChoice(next));
 	};
 	return (
 		<SettingsRow
@@ -79,10 +79,14 @@ export function AutopilotShipRow() {
 					id={id}
 					onChange={event => {
 						const next = event.target.value;
-						if ((AUTOPILOT_SHIP_PRESETS as readonly string[]).includes(next)) change(next as AutopilotShipPreset);
+						if (next === AUTO || (AUTOPILOT_SHIP_PRESETS as readonly string[]).includes(next))
+							change(next as ShipChoice);
 					}}
-					options={AUTOPILOT_SHIP_PRESETS.map(value => ({ value, label: t(`autopilot.ship.preset.${value}`) }))}
-					value={preset}
+					options={[AUTO, ...AUTOPILOT_SHIP_PRESETS].map(value => ({
+						value,
+						label: t(`autopilot.ship.preset.${value}`),
+					}))}
+					value={choice}
 				/>
 			}
 			description={t("settings.gui.autopilotShipDesc")}
@@ -124,61 +128,12 @@ export function AutopilotNotifyRow() {
 	);
 }
 
-const LIMIT_KEYS = ["tokens", "minutes", "cycles", "usd"] as const;
-
-export function AutopilotLimitsRow() {
-	const t = useT();
-	const stored = useStoredPref(AUTOPILOT_LIMITS_PREF);
-	const [text, setText] = useState({ tokens: "", minutes: "", cycles: "", usd: "" });
-	useEffect(() => {
-		if (typeof stored !== "object" || stored === null) return;
-		const record = stored as Record<string, unknown>;
-		const field = (key: string) => (typeof record[key] === "number" ? String(record[key]) : "");
-		setText({ tokens: field("tokens"), minutes: field("minutes"), cycles: field("cycles"), usd: field("usd") });
-	}, [stored]);
-	const save = (next: typeof text) => {
-		const limits = limitsFromText(next);
-		const allOff = LIMIT_KEYS.every(key => limits[key] === NO_LIMITS[key]);
-		void saveGuiPreference(AUTOPILOT_LIMITS_PREF, allOff ? undefined : limits, () => {});
-	};
-	return (
-		<SettingsRow
-			description={t("settings.gui.autopilotLimitsDesc")}
-			icon={<Gauge />}
-			id="setting-gui-autopilotLimits"
-			label={t("settings.gui.autopilotLimits")}
-		>
-			<div className="grid grid-cols-2 gap-2 pt-1.5 sm:grid-cols-4">
-				{LIMIT_KEYS.map(key => (
-					<Input
-						controlSize="sm"
-						key={key}
-						label={t(`autopilot.limit.${key}`)}
-						min={0}
-						onBlur={() => save(text)}
-						onChange={event => setText(current => ({ ...current, [key]: event.target.value }))}
-						placeholder={t("autopilot.limit.off")}
-						type="number"
-						value={text[key]}
-					/>
-				))}
-			</div>
-		</SettingsRow>
-	);
-}
-
-/**
- * The Autopilot rows of Smart automation: the 내보내기 default and the notifications are the whole visible part; the
- * ceilings (off by default) sit under the section's one Advanced disclosure.
- */
+/** The Autopilot rows of Smart automation: shipping and notifications, nothing else. */
 export function AutopilotSettingsRows() {
 	return (
 		<>
 			<AutopilotShipRow />
 			<AutopilotNotifyRow />
-			<SettingsAdvanced>
-				<AutopilotLimitsRow />
-			</SettingsAdvanced>
 		</>
 	);
 }

@@ -3,7 +3,7 @@
  * one compact line each under the session row. One summary chip on the row (subagents · opened sessions, the running
  * count highlighted, a warning tint while a child waits); the group is folded until the person opens it and never opens
  * or folds by itself, whatever the children do, except that a child waiting for the person shows alone as one row;
- * finished subagents fold into one "n done" row; clicking a subagent opens
+ * finished subagents and finished opened sessions are not listed at all; clicking a subagent opens
  * the live transcript against the owning tab; reveal expands the rows and focuses the first one.
  */
 import { parseHTML } from "linkedom";
@@ -221,12 +221,16 @@ describe("a session's family: the summary chip", () => {
 		const children = [
 			opened({ key: "/wt/a.jsonl", state: "running", stateLabel: "Running" }),
 			opened({ key: "/wt/b.jsonl", kind: "session", state: "done", stateLabel: "Run completed" }),
+			opened({ key: "/wt/c.jsonl", kind: "session", state: "waiting", stateLabel: "Waiting" }),
 		];
 		await mount(<Session kids={children} />);
 
 		const chip = toggle();
-		expect(chip?.querySelector("[data-family-agents]")?.textContent).toBe("3");
-		expect(chip?.querySelector("[data-family-sessions]")?.textContent).toBe("2");
+		// The finished subagent and the finished session are not counted.
+		// Something runs: the count shows once, as the filled pill with both kind glyphs (the label keeps the totals).
+		expect(chip?.querySelector("[data-family-agents]")).toBeNull();
+		expect(chip?.querySelector("[data-family-sessions]")).toBeNull();
+		expect(chip?.querySelectorAll("[data-family-running] svg").length).toBe(2);
 		// r1 and the first opened session run: the running count is the highlighted pill.
 		const pill = chip?.querySelector("[data-family-running]");
 		expect(pill?.textContent).toBe("2");
@@ -234,20 +238,26 @@ describe("a session's family: the summary chip", () => {
 		expect(chip?.getAttribute("aria-label")).toBe(
 			translate("sidebar.family.hide", {
 				summary: [
-					translate("sidebar.family.agents", { count: 3 }),
+					translate("sidebar.family.agents", { count: 2 }),
 					translate("sidebar.family.sessions", { count: 2 }),
 					translate("sidebar.family.running", { count: 2 }),
+					translate("sidebar.family.waiting", { count: 1 }),
 				].join(", "),
 			}),
 		);
 	});
 
-	it("shows only what exists: no pill with nothing running, nothing at all without a family", async () => {
-		seed([snap({ id: "r1", status: "completed" })]);
+	it("shows only what exists: no pill with nothing running, nothing at all without a shown child", async () => {
+		seed([snap({ id: "r1", status: "parked" })]);
 		await mount(<Session />);
 		expect(toggle()?.querySelector("[data-family-agents]")?.textContent).toBe("1");
 		expect(toggle()?.querySelector("[data-family-sessions]")).toBeNull();
 		expect(toggle()?.querySelector("[data-family-running]")).toBeNull();
+
+		// It finished: no child shows, so there is no chip.
+		seed([snap({ id: "r1", status: "completed" })]);
+		await flush();
+		expect(toggle()).toBeNull();
 
 		seed([]);
 		await flush();
@@ -294,21 +304,27 @@ describe("a session's family: open and closed", () => {
 		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
 	});
 
-	it("does not fold an open family when its children finish, nor reopen it when the next fan-out starts", async () => {
-		seed([snap({ id: "r1", index: 1, status: "running" })]);
+	it("keeps an open family open as its children finish, and drops it with the last one", async () => {
+		seed([snap({ id: "r1", index: 1, status: "running" }), snap({ id: "r2", index: 2, status: "running" })]);
 		await mount(<Session />);
 		await click(toggle());
-		expect(rowIds()).toEqual(["r1"]);
-
-		seed([snap({ id: "r1", index: 1, status: "completed" })]);
-		await flush();
-		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
-		expect(doneFold()).not.toBeNull();
+		expect(rowIds()).toEqual(["r1", "r2"]);
 
 		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "running" })]);
 		await flush();
+		// The finished one leaves the list, the chip counts what is left, the family stays as the person left it.
 		expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
 		expect(rowIds()).toEqual(["r2"]);
+		expect(doneFold()).toBeNull();
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).not.toBeNull();
+
+		// Nothing left to show: no chip, no group, and the remembered open state is dropped.
+		seed([snap({ id: "r1", index: 1, status: "completed" }), snap({ id: "r2", index: 2, status: "completed" })]);
+		await flush();
+		expect(toggle()).toBeNull();
+		expect(document.querySelector("[data-sidebar-family]")).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.size).toBe(0);
 	});
 
 	it("tints the chip and surfaces only the child that waits, leaving the rest folded", async () => {
@@ -323,7 +339,7 @@ describe("a session's family: open and closed", () => {
 		expect(toggle()?.getAttribute("data-family-waiting")).toBe("1");
 		expect(toggle()?.className).toContain("text-(--sc-warning)");
 		expect(toggle()?.getAttribute("aria-label")).toContain(translate("sidebar.family.waiting", { count: 1 }));
-		// One row under the folded parent: no running sibling, no "n done" row, not the expanded group.
+		// One row under the folded parent: no running sibling, no finished one, not the expanded group.
 		expect(rowIds()).toEqual(["w1"]);
 		expect(document.querySelector("[data-sidebar-surfaced]")).not.toBeNull();
 		expect(document.querySelector("[data-sidebar-subagents]")).toBeNull();
@@ -386,7 +402,7 @@ describe("a session's family: open and closed", () => {
 	});
 
 	it("the chip's menu expands, collapses, hides and shows groups", async () => {
-		seed([snap({ id: "r1", index: 1, status: "completed", progress: { tokens: 128_400, toolCount: 48 } as never })]);
+		seed([snap({ id: "r1", index: 1, status: "parked", progress: { tokens: 128_400, toolCount: 48 } as never })]);
 		await mount(<Session />);
 		const pick = async (label: string) => {
 			await fire(toggle(), "contextmenu");
@@ -396,7 +412,6 @@ describe("a session's family: open and closed", () => {
 			await click(item ?? null);
 		};
 		await pick("Expand all");
-		await click(doneFold());
 		expect(rowIds()).toEqual(["r1"]);
 		expect(row("r1").querySelector("button")?.getAttribute("title")).toContain("128.4k tokens · 48 tool calls");
 		await pick("Collapse all");
@@ -481,6 +496,10 @@ describe("a session's family: one-line rows", () => {
 		expect(row("r2").querySelector('[data-family-status="idle"]')).not.toBeNull();
 		expect(row("r1").getAttribute("data-signal")).toBe("running");
 		expect(row("r2").getAttribute("data-signal")).toBeNull();
+		// A child is a plain row with a still dot: no light, no pulse; only a top-level session's card wears the light.
+		expect(first.querySelector(".omp-live-edge")).toBeNull();
+		expect(first.querySelector('[data-family-status="running"] .omp-pulse-dot')).toBeNull();
+		expect(row("r2").querySelector(".omp-live-edge")).toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(first.querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
 		// One age format across the sidebar: the session rows' own formatter.
@@ -514,7 +533,7 @@ describe("a session's family: one-line rows", () => {
 	});
 
 	it("keeps the whole chip at a width with room, and with nothing running", async () => {
-		seed([snap({ id: "r1", index: 1, status: "completed" })]);
+		seed([snap({ id: "r1", index: 1, status: "parked" })]);
 		const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
 			this: HTMLElement,
 		) {
@@ -586,7 +605,7 @@ describe("a session's family: one-line rows", () => {
 		expect(openedRow("/wt/a.jsonl").querySelector("button")?.getAttribute("aria-current")).toBe("true");
 	});
 
-	it("lists subagents, then the opened sessions, then the 'n done' row, in one group", async () => {
+	it("lists subagents, then the opened sessions, in one group, without finished ones", async () => {
 		seed([
 			snap({ id: "r1", index: 1, status: "running" }),
 			snap({ id: "d1", index: 2, status: "completed" }),
@@ -595,11 +614,8 @@ describe("a session's family: one-line rows", () => {
 		await mount(<Session kids={[opened({ key: "/wt/a.jsonl", title: "Check the build" })]} />);
 		expect(document.querySelectorAll("[data-sidebar-family]").length).toBe(1);
 		expect(rowIds()).toEqual(["r1"]);
-		const text = groupText();
-		expect(text.indexOf("Check the build")).toBeGreaterThan(-1);
-		expect(text.indexOf("Check the build")).toBeLessThan(
-			text.indexOf(translate("sidebar.family.done", { count: 2 })),
-		);
+		expect(groupText()).toContain("Check the build");
+		expect(doneFold()).toBeNull();
 	});
 
 	it("nests sub-subagents one more step and keeps the tree connectors", async () => {
@@ -630,7 +646,7 @@ describe("a session's family: one-line rows", () => {
 });
 
 describe("a session's family: finished subagents", () => {
-	it("folds finished ones into 'n done' at the end; failed and waiting ones stay rows", async () => {
+	it("lists no finished subagent; failed, stale, running and parked ones stay rows", async () => {
 		// The main turn is still running: that must not keep finished agents listed.
 		act(() => sessionRuntimeStore<SessionStore>(TAB, "session")!.setState({ isStreaming: true }));
 		seed([
@@ -646,25 +662,19 @@ describe("a session's family: finished subagents", () => {
 		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4"]);
 		expect(row("r1").querySelector('[data-family-status="failed"]')).not.toBeNull();
 		expect(row("r4").querySelector('[data-family-status="waiting"]')).not.toBeNull();
-		expect(doneFold()?.textContent).toBe(translate("sidebar.family.done", { count: 3 }));
-		expect(doneFold()?.getAttribute("aria-expanded")).toBe("false");
-
-		await click(doneFold());
-		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4", "d1", "d2", "d3"]);
-		expect(row("d1").querySelector('[data-family-status="done"]')).not.toBeNull();
-		expect(doneFold()?.getAttribute("aria-expanded")).toBe("true");
-		await click(doneFold());
-		expect(rowIds()).toEqual(["r1", "r2", "r3", "r4"]);
+		expect(doneFold()).toBeNull();
+		// The chip counts the four that show, not the three finished ones.
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).not.toBeNull();
 	});
 
-	it("folds finished opened sessions into the same 'n done' row as finished subagents; running, waiting and problem ones stay rows", async () => {
+	it("lists no finished opened session; running, waiting, problem and not-yet-run ones stay rows", async () => {
 		seed([snap({ id: "d1", index: 1, status: "completed" }), snap({ id: "r1", index: 2, status: "running" })]);
-		const onOpen = vi.fn();
 		const children = [
 			opened({ key: "/wt/run.jsonl", title: "Running one", state: "running" }),
 			opened({ key: "/wt/wait.jsonl", title: "Waiting one", state: "waiting" }),
 			opened({ key: "/wt/bad.jsonl", title: "Problem one", state: "failed" }),
-			opened({ key: "/wt/done1.jsonl", title: "Done one", state: "done", onOpen }),
+			opened({ key: "/wt/done1.jsonl", title: "Done one", state: "done" }),
 			opened({ key: "/wt/done2.jsonl", kind: "session", title: "Done two", state: "done" }),
 			opened({ key: "/wt/idle.jsonl", title: "Not started", state: null }),
 		];
@@ -675,15 +685,29 @@ describe("a session's family: finished subagents", () => {
 			);
 		expect(visible()).toEqual(["/wt/run.jsonl", "/wt/wait.jsonl", "/wt/bad.jsonl", "/wt/idle.jsonl"]);
 		expect(openedRow("/wt/bad.jsonl").querySelector('[data-family-status="failed"]')).not.toBeNull();
-		// One subagent and two sessions finished: one row, one count.
-		expect(doneFold()?.textContent).toBe(translate("sidebar.family.done", { count: 3 }));
+		expect(rowIds()).toEqual(["r1"]);
+		expect(doneFold()).toBeNull();
+		expect(groupText()).not.toContain("Done one");
+		// The chip counts only what shows: one subagent, four sessions.
+		// Something runs: the count shows once, as the running pill.
+		expect(toggle()?.querySelector("[data-family-agents]")).toBeNull();
+		expect(toggle()?.querySelector("[data-family-running]")).not.toBeNull();
+		expect(toggle()?.querySelector("[data-family-sessions]")).toBeNull();
+	});
 
-		await click(doneFold());
-		expect(rowIds()).toEqual(["r1", "d1"]);
-		expect(visible().slice(-2)).toEqual(["/wt/done1.jsonl", "/wt/done2.jsonl"]);
-		expect(openedRow("/wt/done1.jsonl").querySelector('[data-family-status="done"]')).not.toBeNull();
-		await click(openedRow("/wt/done1.jsonl").querySelector("button"));
-		expect(onOpen).toHaveBeenCalledTimes(1);
+	it("shows no chip and no group when every child finished", async () => {
+		seed([snap({ id: "d1", index: 1, status: "completed" })]);
+		await mount(
+			<Session
+				kids={[
+					opened({ key: "/wt/done1.jsonl", state: "done" }),
+					opened({ key: "/wt/done2.jsonl", state: "done" }),
+				]}
+			/>,
+		);
+		expect(toggle()).toBeNull();
+		expect(document.querySelector("[data-sidebar-family]")).toBeNull();
+		expect(doneFold()).toBeNull();
 	});
 
 	it("keeps the transcript sheet of an opened subagent when it finishes", async () => {
@@ -694,9 +718,9 @@ describe("a session's family: finished subagents", () => {
 
 		seed([snap({ id: "r1", description: "map the repo", sessionFile: "/tmp/r1.jsonl", status: "completed" })]);
 		await flush();
-		// Folded behind "1 done" (the family stays open: nothing moves by itself), the sheet is still open.
+		// A finished subagent is not listed at all (no "n done" row either); the sheet is still open.
 		expect(rowIds()).toEqual([]);
-		expect(doneFold()?.textContent).toBe(translate("sidebar.family.done", { count: 1 }));
+		expect(doneFold()).toBeNull();
 		expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
 	});
 

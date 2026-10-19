@@ -408,7 +408,7 @@ describe("settings merge", () => {
 			autoRelease: { on: true, cadence: { kind: "every", n: 7 } },
 		});
 		expect(next.limits).toEqual({ tokens: 5000, minutes: null, cycles: null, usd: null });
-		expect(next.maxParallel).toBe(4);
+		expect(next.maxParallel).toBe(99);
 		expect(next.notify).toBe("cycles");
 	});
 	it("null clears a limit, an absent key keeps it, bad values keep the old one", () => {
@@ -429,6 +429,8 @@ describe("settings merge", () => {
 		expect(mergeSettings(base, { notify: "loud" as never }).notify).toBe("stops");
 		expect(mergeSettings(base, { maxParallel: -3 }).maxParallel).toBe(0);
 		expect(mergeSettings(base, { maxParallel: "x" as never }).maxParallel).toBe(base.maxParallel);
+		expect(mergeSettings({ ...base, maxParallel: 2 }, { maxParallel: null }).maxParallel).toBeNull();
+		expect(base.maxParallel).toBeNull();
 	});
 	it("does not mutate its input", () => {
 		const frozen = structuredClone(base);

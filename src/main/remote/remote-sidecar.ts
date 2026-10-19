@@ -120,6 +120,8 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#detail: StatusDetail = {};
 	#statusFromLink = true;
 	#processAlive = false;
+	/** The host's last open said this tab views a tab one of its windows owns. */
+	#viewing = false;
 	/** start()/restart() was called: the tab should run whenever the link is up. */
 	#wanted = false;
 	/** Session the host resumes when it has no live sidecar for this tab. */
@@ -185,6 +187,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	get processAlive(): boolean {
 		return this.#processAlive;
+	}
+
+	/** The host gave this tab a view of a tab one of its windows owns (`TabOpenResult.viewing`): one omp, shared. */
+	get shared(): boolean {
+		return this.#viewing;
 	}
 
 	start(): void {
@@ -434,6 +441,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			.then(raw => {
 				const result = TabOpenResult.parse(raw);
 				if (result.cwd) this.#cwd = result.cwd;
+				const viewing = result.viewing === true;
+				if (viewing !== this.#viewing) {
+					this.#viewing = viewing;
+					this.emit("shared");
+				}
 				// A new omp never made the calls the old one was waiting on.
 				if (result.attached) this.#replayReplies();
 				else this.#queuedReplies = [];

@@ -20,6 +20,7 @@ import { useT } from "../../../lib/i18n";
 import { useHostView } from "../../../stores/remote";
 import { toastError } from "../../../stores/toast";
 import { Spinner } from "../../common";
+import { SettingInfo } from "../../common/SettingInfo";
 
 const LABEL_KEY: Record<AccountRotationMode, string> = {
 	quota: "providers.rotation.quota",
@@ -104,6 +105,7 @@ export function RotationModeControl({ device }: { device?: string }) {
 				<span className="text-sc-md font-medium text-(--sc-text)" id={labelId}>
 					{t("providers.rotation.label")}
 				</span>
+				{mode && <SettingInfo text={`${t(DESCRIPTION_KEY[mode])} ${t("providers.rotation.hint")}`} />}
 				<div
 					aria-busy={saving || mode === null}
 					aria-labelledby={labelId}
@@ -138,11 +140,11 @@ export function RotationModeControl({ device }: { device?: string }) {
 				</div>
 				{(saving || mode === null) && <Spinner size="sm" spin />}
 			</div>
-			{mode && <p className="text-sc-sm text-(--sc-text-secondary)">{t(DESCRIPTION_KEY[mode])}</p>}
-			<p className="text-sc-xs text-(--sc-text-muted)">
-				{t("providers.rotation.hint")}
-				{device && ` ${t("providers.rotation.host", { name: hostName ?? t("remote.tab.unknownDevice") })}`}
-			</p>
+			{device && (
+				<p className="text-sc-xs text-(--sc-text-muted)">
+					{t("providers.rotation.host", { name: hostName ?? t("remote.tab.unknownDevice") })}
+				</p>
+			)}
 			{evenSupported === false && (
 				<p className="text-sc-xs text-(--sc-warning)" data-rotation-unavailable="true">
 					{t("providers.rotation.evenUnavailable")}

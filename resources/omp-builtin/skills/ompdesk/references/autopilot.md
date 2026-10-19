@@ -17,14 +17,14 @@ Starts, reads and stops an Autopilot run: an unattended loop that keeps improvin
 - `guide`: AUTOPILOT.md text committed as the branch's first commit. `advanced`: `focus`, `parallel`, `cadence` (with release), `remote`, `notify`, `backlog`, `limits`; anything omitted keeps the Autopilot sheet's defaults.
 - The run opens as a session you started; the answer names its id. Do not message it.
 
-## Cards and caps
+## Cards
 
-The user confirms a start unless they turned the card off ("Let agents manage other sessions"). A card always appears for `ship` release and for the repo's default branch (`main`). A refusal is final. At most 2 agent-started runs are live in the whole app. A session on a paired host cannot start one.
+A start needs no card by default (the user gives agents full control of OMPdesk unless they turned it off; then "Let agents manage other sessions", on unless turned off, lifts the card, and a card always appears for `ship` release and for the repo's default branch (`main`)). A refusal is final. A session on a paired host cannot start one. Git safety holds either way: no force push, and destructive git stays banned in the run.
 
 ## Status and stop
 
 - `action: "status"` with `session`: state, cycle, current item, red streak, last commit, push and release, and why it paused or ended. Read it between your own steps; a quiet run is working.
 - `action: "stop"` with `session`: ends the run after the cycle in flight. `now: true` aborts the turn at once and pauses it; the user resumes it on the Autopilot screen.
-- Runs you started need no card to read or stop; other runs need the user's manage setting (stopping one asks the user first without it).
+- Runs you started need no card to read or stop; other runs need full control or the user's manage setting (stopping one asks the user first without them).
 
 Treat the run's commits as work to report, not to merge: it ships by its own ship level. Tell the user the branch and what it did.

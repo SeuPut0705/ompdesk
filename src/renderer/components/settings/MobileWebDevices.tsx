@@ -7,7 +7,7 @@
  * blocks) or state (users).
  */
 import { Ban, Pencil, Smartphone } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import type { PeerView } from "../../../shared/ipc-types";
 import {
 	type MobileWebState,
@@ -21,9 +21,9 @@ import { WEB_PERMISSIONS, type WebPermission } from "../../../shared/web-protoco
 import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { onEscape } from "../../lib/keymap";
 import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../../stores/mobile-web";
 import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, Select, Switch } from "../common";
+import { DeviceNameField } from "./DeviceNameField";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsSection } from "./SettingsLayout";
 
@@ -42,44 +42,6 @@ function asPeer(device: WebDeviceInfo): PeerView {
 		limits: device.limits,
 		usage: device.usage,
 	};
-}
-
-function DeviceName({ device, onDone }: { device: WebDeviceInfo; onDone: () => void }) {
-	const t = useT();
-	const [draft, setDraft] = useState(device.name);
-	/** Escape leaves the field without saving; the blur that follows must not. */
-	const cancelled = useRef(false);
-	const commit = (value: string) => {
-		if (cancelled.current) return;
-		const next = value.trim();
-		if (!next || next === device.name) return;
-		void mobileWebDeviceAction(
-			() => window.omp.mobileWeb.devices.rename(device.id, next),
-			t("mobileWeb.devices.renameFailed"),
-		);
-	};
-	return (
-		<Input
-			aria-label={t("remote.host.name")}
-			autoFocus
-			controlSize="sm"
-			maxLength={64}
-			onBlur={event => {
-				commit(event.currentTarget.value);
-				onDone();
-			}}
-			onChange={event => setDraft(event.target.value)}
-			onKeyDown={event => {
-				if (isImeKeyEvent(event)) return;
-				if (event.key === "Enter") event.currentTarget.blur();
-				onEscape(event, () => {
-					cancelled.current = true;
-					onDone();
-				});
-			}}
-			value={draft}
-		/>
-	);
 }
 
 /** One paired device: its row, its access tier and its permissions. */
@@ -139,7 +101,22 @@ function DeviceRow({
 						<Badge variant={tier === "full" ? "default" : "info"}>{t(`mobileWeb.tier.${tier}`)}</Badge>
 					</span>
 				}
-				title={renaming ? <DeviceName device={device} onDone={() => setRenaming(false)} /> : device.name}
+				title={
+					renaming ? (
+						<DeviceNameField
+							name={device.name}
+							onDone={() => setRenaming(false)}
+							onSave={next =>
+								void mobileWebDeviceAction(
+									() => window.omp.mobileWeb.devices.rename(device.id, next),
+									t("mobileWeb.devices.renameFailed"),
+								)
+							}
+						/>
+					) : (
+						device.name
+					)
+				}
 				titleText={device.name}
 				trailing={
 					<div className="flex items-center gap-1">
@@ -215,7 +192,7 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 	const [revoking, setRevoking] = useState<WebDeviceInfo | null>(null);
 	const limited = devices.find(device => device.id === limitsFor);
 	return (
-		<SettingsSection description={t("mobileWeb.devices.desc")} title={t("mobileWeb.devices.title")}>
+		<SettingsSection title={t("mobileWeb.devices.title")}>
 			{devices.length > 0 ? (
 				<div className="flex flex-col gap-px py-2" data-mobile-web-devices>
 					{devices.map(device => (
@@ -273,7 +250,7 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 export function MobileWebBlocked({ blocked }: { blocked: WebBlockedInfo[] }) {
 	const t = useT();
 	return (
-		<SettingsSection description={t("mobileWeb.blocked.desc")} title={t("mobileWeb.blocked.title")}>
+		<SettingsSection title={t("mobileWeb.blocked.title")}>
 			<div className="flex flex-col gap-px py-2" data-mobile-web-blocked>
 				{blocked.map(entry => {
 					const user = entry.tailscaleLogin ?? "";

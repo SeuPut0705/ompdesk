@@ -15,7 +15,7 @@ import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, 
 import { type PanelSubagent, useUiStore } from "../../stores/ui";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
-import { IconButton, Spinner } from "../common";
+import { IconButton, LiveEdge, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./composer/InputArea";
@@ -145,11 +145,17 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	);
 	const kindLabels = useWorktreeKindLabels();
 	const shown = tab.kind === "chat" || !tab.cwd ? null : projectNameOf(tab.cwd);
-	const busy =
-		tab.status === "running" || tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
+	// A running session lights the header's border (the composer's light); a waiting one keeps its warning look
+	// elsewhere (the question card), so it never shows the light. Compacting and (re)starting keep the spinner.
+	const running = tab.status === "running" && tab.awaitingInput === undefined;
+	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
 	const failed = tab.status === "error" || tab.status === "exited";
 	return (
-		<header className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm">
+		<header
+			className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm"
+			data-pane-running={running || undefined}
+		>
+			{running && <LiveEdge inside />}
 			{busy ? (
 				<span aria-hidden className="inline-flex">
 					<Spinner size="sm" />

@@ -31,9 +31,36 @@ export function setupItemAutomatic(item: SetupItemId): boolean {
 
 export type SetupPlatform = "darwin" | "win32" | "other";
 
-/** What detection found. `path` is the executable (or install root) it found. */
+/**
+ * Git for Windows is installed and `git` runs, but its `sh` cannot start a child process (setup's real probe:
+ * `sh -c /usr/bin/true`). Git hooks, `rebase -i` editors and pushes to a local folder go through that `sh`.
+ * `mandatory-aslr`: the 0xC0000142 fork failure of Windows' Mandatory ASLR (Exploit protection's "Force
+ * randomization for images"), which no Git install avoids; `spawn-failed`: anything else, with its output.
+ */
+export type GitShellProblem = { kind: "mandatory-aslr" } | { kind: "spawn-failed"; detail: string };
+
+/** Setup's Git Mandatory ASLR override (src/main/setup/git-aslr.ts): set it, or remove it again. */
+export type GitAslrAction = "fix" | "undo";
+export type GitAslrResult = { ok: true; images: number } | { ok: false; detail: string };
+
+export function isGitAslrAction(value: unknown): value is GitAslrAction {
+	return value === "fix" || value === "undo";
+}
+
+/**
+ * What detection found. `path` is the executable (or install root) it found. `gitAslrOverride`: Windows holds a
+ * Mandatory ASLR override for this Git's sh.exe. `gitAslrUndoable`: OMPdesk recorded what its Fix changed there
+ * (each image's prior state), so Undo can put back exactly that; an override without a record is not undone.
+ */
 export type SetupPresence =
-	| { kind: "present"; version: string | null; path: string | null }
+	| {
+			kind: "present";
+			version: string | null;
+			path: string | null;
+			gitShell?: GitShellProblem;
+			gitAslrOverride?: boolean;
+			gitAslrUndoable?: boolean;
+	  }
 	| { kind: "missing" }
 	| { kind: "outdated"; version: string; minimum: string; path: string | null }
 	| { kind: "broken"; detail: string; path: string | null };

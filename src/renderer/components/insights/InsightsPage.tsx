@@ -38,7 +38,6 @@ export function InsightsPage() {
 
 	return (
 		<PageLayout
-			description={t("insights.description")}
 			panelLabel={t(TAB_LABEL_KEY[tab])}
 			tabs={
 				<Tabs
@@ -71,13 +70,6 @@ export function InsightsPage() {
 								}))}
 								variant="segmented"
 							/>
-							<p className="text-sc-sm text-(--sc-text-muted)">
-								{scope === "session"
-									? t("insights.scope.sessionHint")
-									: host
-										? t("insights.scope.allHintHost", { name: host.name ?? t("remote.tab.unknownDevice") })
-										: t("insights.scope.allHint")}
-							</p>
 						</div>
 						{/* Another machine is another stats server: start its page over. */}
 						{scope === "session" ? <SessionInsights /> : <AllSessionsStats key={host?.deviceId ?? ""} />}

@@ -383,17 +383,6 @@ button.omp-work-board-row:hover {
 	cursor: pointer;
 }
 
-.omp-work-board-account[data-in-use]::before {
-	content: "";
-	position: absolute;
-	inset-block: 4px;
-	inset-inline-start: 0;
-	width: 2px;
-	border-radius: var(--sc-radius-full);
-	background: var(--sc-text-subtle);
-	pointer-events: none;
-}
-
 .omp-work-board-account:hover {
 	background: var(--sc-hover);
 }

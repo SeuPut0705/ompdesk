@@ -21,7 +21,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
 	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_BRIDGE_METHODS,
@@ -48,7 +48,6 @@ import {
 	type AutopilotStopRequest,
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DEFAULT_SHIP_POLICY,
-	MAX_PARALLEL_CHILDREN,
 	NO_LIMITS,
 	type ShipQueueItem,
 	shipPolicyForPreset,
@@ -122,6 +121,8 @@ export interface AutopilotPool {
 	} | null;
 	releaseTabWhenExited(tabId: string): Promise<void>;
 	noteStopped(tabId: string): void;
+	/** Main renamed the tab's live session: the windows learn the name (stock sends no update for an RPC rename). */
+	noteSessionName(tabId: string, title: string): void;
 	routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean>;
 }
 
@@ -223,6 +224,8 @@ interface Run {
 	/** The cycle-end pipeline of one run is sequential. */
 	chain: Promise<unknown>;
 	refreshing: boolean;
+	/** The title this run gave its session (`runSessionTitle`), and whether it already names the first cycle's item. */
+	title?: { name: string; item: boolean };
 	refreshAgain: boolean;
 	stopPolling: (() => void) | null;
 	releaseItem?: string;
@@ -265,6 +268,18 @@ export function localDate(date: Date): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+const TITLE_ITEM_MAX = 40;
+
+/**
+ * The run's session title, `<prefix> · <what>`: the repository's folder name from the moment the run starts, then its
+ * first cycle's picked item. Stock's auto title names a session from the user's first message, and a run has none, so
+ * without this the run's row read "Untitled".
+ */
+export function runSessionTitle(prefix: string, what: string): string {
+	const text = what.replace(/\s+/g, " ").trim();
+	return `${prefix} · ${text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text}`;
+}
+
 /** The settings of a start: defaults, then the stored prefs the sheet prefilled, then what the start sent. */
 export function startSettings(options: AutopilotStartOptions, stored: Partial<AutopilotSettings>): AutopilotSettings {
 	const remote = options.ship?.remote ?? stored.ship?.remote ?? DEFAULT_SHIP_POLICY.remote;
@@ -276,10 +291,11 @@ export function startSettings(options: AutopilotStartOptions, stored: Partial<Au
 		autoRelease: options.ship?.autoRelease ?? preset.autoRelease,
 		remote,
 	};
-	const maxParallel = Math.min(
-		MAX_PARALLEL_CHILDREN,
-		Math.max(0, Math.floor(options.maxParallel ?? DEFAULT_AUTOPILOT_SETTINGS.maxParallel)),
-	);
+	const asked = options.maxParallel;
+	const maxParallel =
+		typeof asked === "number" && Number.isFinite(asked)
+			? Math.max(0, Math.floor(asked))
+			: DEFAULT_AUTOPILOT_SETTINGS.maxParallel;
 	return {
 		focus: options.focus ?? stored.focus ?? [],
 		ship,
@@ -309,18 +325,12 @@ export async function ghRunStatus(
 	}
 }
 
-/** Whether `value` may be stored under one of the autopilot prefs (`autopilotShip`, `autopilotNotify`, `autopilotLimits`). */
+/** Whether `value` may be stored under one of the autopilot prefs (`autopilotShip`, `autopilotNotify`, `autopilotBranch`). */
 export function validAutopilotPref(key: string, value: unknown): boolean {
 	if (value === undefined) return true;
 	if (key === "autopilotNotify") return value === "stops" || value === "cycles" || value === "off";
 	const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 	if (!record) return false;
-	if (key === "autopilotLimits") {
-		return ["tokens", "minutes", "cycles", "usd"].every(name => {
-			const limit = record[name];
-			return limit === null || (typeof limit === "number" && Number.isFinite(limit) && limit > 0);
-		});
-	}
 	if (key === AUTOPILOT_BRANCH_PREF) return validBranchPref(value);
 	if (key !== "autopilotShip") return false;
 	const release = record.autoRelease as { on?: unknown; cadence?: { kind?: unknown; n?: unknown } } | null | undefined;
@@ -440,7 +450,15 @@ export class Autopilot {
 		if (!run || !status?.active) return frame;
 		run.status = status;
 		if (status.settings) run.settings = status.settings;
+		this.#titleByItem(run, status.now?.n === 1 ? status.now.title : undefined);
 		return { ...frame, status: this.#overlaid(run, status) };
+	}
+
+	/** The run's title names its first cycle's item once: from `pick` while cycle 1 runs, else from cycle 1's record. */
+	#titleByItem(run: Run, item: string | undefined): void {
+		if (!item || !run.title || run.title.item) return;
+		run.title = { ...run.title, item: true };
+		void this.#retitle(run, item);
 	}
 
 	/** The bridge's cycle end, stop request and settled frames. */
@@ -451,6 +469,7 @@ export class Autopilot {
 		if (frame.type === "autopilot_cycle_end") {
 			const record = frame.record as AutopilotCycleRecord;
 			const receivedAt = this.#now();
+			if (record.n === 1) this.#titleByItem(run, record.title);
 			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt));
 		} else if (frame.type === "autopilot_nudge") {
 			const reason = frame.reason as AutopilotNudgeReason;
@@ -582,7 +601,12 @@ export class Autopilot {
 		}
 		const stored = this.#storedSettings();
 		const remoteChosen = options.ship?.remote ?? stored.ship?.remote ?? (await this.#detectRemote(cwd));
-		const settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } }, stored);
+		const shipUndecided =
+			options.preset === undefined &&
+			options.ship?.autoPush === undefined &&
+			options.ship?.autoRelease === undefined &&
+			stored.ship === undefined;
+		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } }, stored);
 		const release = await this.#releaseFor(toplevel);
 		if ((settings.ship.autoRelease.on || options.preset === "release") && !release.procedure) {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
@@ -598,6 +622,14 @@ export class Autopilot {
 		const { entries, defaultBranch } = await readBranchEntries(cwd, settings.ship.remote);
 		this.#refuseBranch(choice, entries);
 		const target = viaWorkBranch(choice, entries);
+		// Nobody chose a level: push the run's own branch when the repository has a remote, unless that branch is the
+		// default branch (only an explicit choice pushes there). Never a release. Pushing is ShipRunner's fast-forward of a
+		// branch the run owns, so it is safe on a protected main and with or without CI.
+		if (shipUndecided) {
+			const pushes = target ?? (choice.kind === "existing" ? choice.name : null);
+			const hasRemote = (await this.#gitText(cwd, ["remote"])).trim() !== "";
+			settings = { ...settings, ship: { ...settings.ship, autoPush: hasRemote && pushes !== defaultBranch } };
+		}
 		const mode = worktreeModeFor(choice, entries);
 		const taken = new Set(entries.map(entry => entry.name));
 		// A target another worktree holds (main in the user's folder): work on a branch of our own cut from it.
@@ -653,6 +685,7 @@ export class Autopilot {
 		run.starting = true;
 		try {
 			await this.#ready(newTab);
+			await this.#retitle(run, basename(toplevel));
 			const arm: AutopilotArmParams = {
 				role: "parent",
 				root: made.path,
@@ -1202,7 +1235,7 @@ export class Autopilot {
 		const run = this.#runs.get(child.callerTabId);
 		if (!run) throw new Error("Autopilot is not running in the session that opened this one.");
 		if (run.stopping) throw new Error("Autopilot is ending: start nothing new.");
-		if (run.children.size >= run.settings.maxParallel) {
+		if (run.settings.maxParallel !== null && run.children.size >= run.settings.maxParallel) {
 			throw new Error(`Autopilot allows at most ${run.settings.maxParallel} parallel sessions per cycle.`);
 		}
 		const root = child.worktree?.path ?? this.#deps.pool.sidecarOf(child.tabId)?.cwd ?? run.root;
@@ -1498,6 +1531,22 @@ export class Autopilot {
 		return response.data as T;
 	}
 
+	/** Names the run's session (`runSessionTitle`); a later rename only replaces the run's own title, never the user's. */
+	async #retitle(run: Run, what: string): Promise<void> {
+		const name = runSessionTitle(this.#deps.text("autopilot.sessionTitle"), what);
+		try {
+			if (run.title) {
+				const state = await this.#stock<{ sessionName?: string | null }>(run.tabId, { type: "get_state" });
+				if ((state.sessionName ?? "") !== run.title.name) return;
+			}
+			await this.#stock(run.tabId, { type: "set_session_name", name });
+			this.#deps.pool.noteSessionName(run.tabId, name);
+			run.title = { name, item: run.title?.item ?? false };
+		} catch (error) {
+			this.#log(`naming the run's session failed: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
 	async #ready(tabId: string): Promise<SidecarLike> {
 		const sidecar = this.#deps.pool.sidecarOf(tabId);
 		if (!sidecar) throw new Error("The Autopilot tab is gone.");
@@ -1646,17 +1695,14 @@ export class Autopilot {
 		return this.#storedSettings().ship ?? DEFAULT_SHIP_POLICY;
 	}
 
-	/** The prefs the start sheet prefilled (`autopilotShip`, `autopilotNotify`, `autopilotLimits`), trusted only in shape. */
+	/** The prefs Settings stores (`autopilotShip`, `autopilotNotify`), trusted only in shape. */
 	#storedSettings(): Partial<AutopilotSettings> {
 		const ship = this.#deps.prefs.get("autopilotShip");
 		const notify = this.#deps.prefs.get("autopilotNotify");
-		const limits = this.#deps.prefs.get("autopilotLimits");
 		const out: Partial<AutopilotSettings> = {};
 		if (ship && typeof ship === "object")
 			out.ship = { ...DEFAULT_SHIP_POLICY, ...(ship as Partial<AutopilotShipPolicy>) };
 		if (notify === "stops" || notify === "cycles" || notify === "off") out.notify = notify;
-		if (limits && typeof limits === "object")
-			out.limits = { ...NO_LIMITS, ...(limits as Partial<AutopilotSettings["limits"]>) };
 		return out;
 	}
 

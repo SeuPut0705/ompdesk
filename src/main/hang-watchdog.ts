@@ -15,6 +15,7 @@ import {
 	HANG_HEARTBEAT_INTERVAL_MS,
 	HANG_TIMEOUT_MS,
 	type HangWorkerData,
+	type MainPhase,
 	type MainToHangWorkerMessage,
 } from "./hang-watchdog-core";
 import { writeRuntimeLog } from "./runtime-log";
@@ -37,8 +38,21 @@ export function reportPreviousHang(): void {
 			selfRecovered: marker.selfRecovered,
 			detectedAt: new Date(marker.detectedAt).toISOString(),
 			previousPid: marker.pid,
+			phase: marker.phase ?? null,
+			steps: marker.steps ?? [],
 		},
 	});
+}
+
+let postStep: ((message: MainToHangWorkerMessage) => void) | null = null;
+
+/**
+ * Main is about to run `step` of `phase`: the watchdog's marker names the last few steps, so a stall reads as
+ * the step that never returned. Call it before a step that could block (sync fs, a native call, a teardown).
+ * A no-op where the watchdog is off.
+ */
+export function markMainStep(phase: MainPhase, step: string): void {
+	postStep?.({ type: "step", phase, step });
 }
 
 /**
@@ -74,12 +88,14 @@ export function installHangWatchdog(): void {
 			// The worker already exited.
 		}
 	};
+	postStep = post;
 	const timer = setInterval(() => post({ type: "heartbeat" }), HANG_HEARTBEAT_INTERVAL_MS);
 	timer.unref();
 	const onResume = (): void => post({ type: "resume" });
 	const stop = (): void => {
 		if (stopped) return;
 		stopped = true;
+		postStep = null;
 		clearInterval(timer);
 		powerMonitor.off("resume", onResume);
 		post({ type: "shutdown" });

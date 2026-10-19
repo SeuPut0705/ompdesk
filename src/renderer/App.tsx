@@ -68,6 +68,7 @@ import { subscribeOmpUpdated } from "./lib/omp-update";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { useProjectNames } from "./lib/project-origin";
+import { writeSidebarVisible } from "./lib/sidebar-memory";
 import { closeActiveTab } from "./lib/tab-close";
 import { followActivationFocus } from "./lib/tab-focus";
 import { installTabHistory, navigateHistory } from "./lib/tab-history";
@@ -91,6 +92,7 @@ import { selectFocusedTabProject } from "./lib/workspace-dirs";
 import { hydrateDesktopSlot } from "./stores/desktop-slot";
 import { useExtensionUiStore } from "./stores/extension-ui";
 import { openHandoffDialog } from "./stores/fork-handoff";
+import { useHostedSessionsSync } from "./stores/hosted-sessions";
 import { useMachineSetupStore } from "./stores/machine-setup";
 import { useModelStore } from "./stores/model";
 import { usePreviewVisualEvents } from "./stores/preview-visuals";
@@ -99,7 +101,7 @@ import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
 import { useActiveTabKind, useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
-import { migrateDefaultPanelTab, useUiStore } from "./stores/ui";
+import { isSidebarDrawerMode, migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
 import { WebHostUi } from "./web/host-ui/WebHostUi";
 
@@ -227,6 +229,8 @@ export function App() {
 	useSessionTabs();
 	// Remote devices: the RemoteState snapshot + `remote:state` pushes.
 	useRemoteStateSync();
+	// The sessions paired devices' tabs run on this computer: sidebar rows with their live state.
+	useHostedSessionsSync();
 	// The agent's visuals (gui_visualize) bring the Preview forward for their tab.
 	usePreviewVisualEvents();
 	const theme = useUiStore(s => s.theme);
@@ -273,6 +277,7 @@ export function App() {
 				"workBoard",
 				"transcriptDetail",
 				"panelTab",
+				"sidebarVisible",
 			] as const) {
 				if (next[key] !== previous[key]) changedPreferences.add(key);
 			}
@@ -335,6 +340,11 @@ export function App() {
 				// Restore the default workspace panel tab (written by Settings → GUI).
 				if (!changedPreferences.has("panelTab") && prefs.defaultPanelTab !== undefined) {
 					useUiStore.setState({ panelTab: migrateDefaultPanelTab(prefs.defaultPanelTab) });
+				}
+				// The sidebar as it was left (the localStorage mirror painted the first frame; a drawer never opens by it).
+				if (typeof prefs.sidebarVisible === "boolean" && !changedPreferences.has("sidebarVisible")) {
+					if (isSidebarDrawerMode()) writeSidebarVisible(prefs.sidebarVisible);
+					else useUiStore.setState({ sidebarVisible: prefs.sidebarVisible });
 				}
 			})
 			.catch(() => {})

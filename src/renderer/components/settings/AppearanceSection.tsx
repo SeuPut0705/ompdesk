@@ -36,7 +36,7 @@ import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { webRuntime } from "../../web/runtime";
 import { Button, Input, Select, SettingInfo } from "../common";
-import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
 import { ThemePicker } from "./ThemePicker";
 
 const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20] as const;
@@ -192,28 +192,28 @@ export function AppearanceSection() {
 							))}
 						</Select>
 					}
-					description={t("settings.gui.fontSizeDesc")}
 					htmlFor={fontSizeId}
 					icon={<Type />}
 					id="setting-gui-fontSize"
 					label={t("settings.gui.fontSize")}
 				/>
-				<SettingsSwitchRow
-					checked={compactDensity}
-					description={t("settings.gui.compactDensityDesc")}
-					icon={<Rows3 />}
-					id="setting-gui-compactDensity"
-					label={t("settings.gui.compactDensity")}
-					onCheckedChange={value => applyStorePreference("compactDensity", value)}
-				/>
-				<SettingsSwitchRow
-					checked={colorBlindMode}
-					description={t("settings.gui.colorBlindModeDesc")}
-					icon={<Eye />}
-					id="setting-gui-colorBlindMode"
-					label={t("settings.gui.colorBlindMode")}
-					onCheckedChange={value => applyStorePreference("colorBlindMode", value)}
-				/>
+				<SettingsTiles>
+					<SettingsSwitchRow
+						checked={compactDensity}
+						description={t("settings.gui.compactDensityDesc")}
+						icon={<Rows3 />}
+						id="setting-gui-compactDensity"
+						label={t("settings.gui.compactDensity")}
+						onCheckedChange={value => applyStorePreference("compactDensity", value)}
+					/>
+					<SettingsSwitchRow
+						checked={colorBlindMode}
+						icon={<Eye />}
+						id="setting-gui-colorBlindMode"
+						label={t("settings.gui.colorBlindMode")}
+						onCheckedChange={value => applyStorePreference("colorBlindMode", value)}
+					/>
+				</SettingsTiles>
 			</SettingsSection>
 
 			<SettingsSection description={t("settings.display.scope")} title={t("settings.display.title")}>
@@ -244,56 +244,59 @@ export function AppearanceSection() {
 					id="setting-gui-transcriptDetail"
 					label={t("settings.gui.transcriptDetail")}
 				/>
-				<SettingsSwitchRow
-					checked={thinkingExpanded}
-					description={t("settings.gui.thinkingExpandedDesc")}
-					icon={<Brain />}
-					id="setting-gui-thinkingExpanded"
-					label={t("settings.gui.thinkingExpanded")}
-					onCheckedChange={next =>
-						void saveGuiPreference("thinkingExpanded", next, () =>
-							useUiStore.getState().setThinkingExpanded(next),
-						)
-					}
-				/>
-				<SettingsSwitchRow
-					checked={workBoard}
-					description={t("settings.gui.workBoardDesc")}
-					icon={<PanelRight />}
-					id="setting-gui-workBoard"
-					label={t("settings.gui.workBoard")}
-					onCheckedChange={next =>
-						void saveGuiPreference("workBoard", next, () => useUiStore.getState().setWorkBoard(next))
-					}
-				/>
-				<SettingsSwitchRow
-					checked={codeLineNumbers}
-					description={t("codeblock.lineNumbersDesc")}
-					icon={<ListOrdered />}
-					id="setting-gui-lineNumbers"
-					label={t("codeblock.lineNumbers")}
-					onCheckedChange={next =>
-						void setCodeLineNumbersPref(next).then(ok => {
-							if (ok) setCodeLineNumbers(next);
-						})
-					}
-				/>
-				{GUI_DISPLAY_BOOL_FIELDS.filter(
-					field => field !== "titleState" && field !== "showProgress" && field !== "emojiAutocomplete",
-				).map(field => (
-					<DisplayPreferenceRow field={field} key={field} />
-				))}
+				<SettingsTiles>
+					<SettingsSwitchRow
+						checked={thinkingExpanded}
+						description={t("settings.gui.thinkingExpandedDesc")}
+						icon={<Brain />}
+						id="setting-gui-thinkingExpanded"
+						label={t("settings.gui.thinkingExpanded")}
+						onCheckedChange={next =>
+							void saveGuiPreference("thinkingExpanded", next, () =>
+								useUiStore.getState().setThinkingExpanded(next),
+							)
+						}
+					/>
+					<SettingsSwitchRow
+						checked={workBoard}
+						description={t("settings.gui.workBoardDesc")}
+						icon={<PanelRight />}
+						id="setting-gui-workBoard"
+						label={t("settings.gui.workBoard")}
+						onCheckedChange={next =>
+							void saveGuiPreference("workBoard", next, () => useUiStore.getState().setWorkBoard(next))
+						}
+					/>
+					<SettingsSwitchRow
+						checked={codeLineNumbers}
+						icon={<ListOrdered />}
+						id="setting-gui-lineNumbers"
+						label={t("codeblock.lineNumbers")}
+						onCheckedChange={next =>
+							void setCodeLineNumbersPref(next).then(ok => {
+								if (ok) setCodeLineNumbers(next);
+							})
+						}
+					/>
+					{GUI_DISPLAY_BOOL_FIELDS.filter(
+						field => field !== "titleState" && field !== "showProgress" && field !== "emojiAutocomplete",
+					).map(field => (
+						<DisplayPreferenceRow field={field} key={field} />
+					))}
+				</SettingsTiles>
 			</SettingsSection>
 			<SettingsSection title={t("settings.appearance.input")}>
-				<DisplayPreferenceRow field="emojiAutocomplete" />
-				<SettingsSwitchRow
-					checked={mobileEnterSends}
-					description={t("settings.display.mobileEnterSends.desc")}
-					icon={<CornerDownLeft />}
-					id="setting-gui-mobileEnterSends"
-					label={t("settings.display.mobileEnterSends")}
-					onCheckedChange={next => void setDisplayPreference("mobileEnterSends", next)}
-				/>
+				<SettingsTiles>
+					<DisplayPreferenceRow field="emojiAutocomplete" />
+					<SettingsSwitchRow
+						checked={mobileEnterSends}
+						description={t("settings.display.mobileEnterSends.desc")}
+						icon={<CornerDownLeft />}
+						id="setting-gui-mobileEnterSends"
+						label={t("settings.display.mobileEnterSends")}
+						onCheckedChange={next => void setDisplayPreference("mobileEnterSends", next)}
+					/>
+				</SettingsTiles>
 				<SettingsRow
 					control={
 						<Input

@@ -1,22 +1,24 @@
 /**
  * Settings › Devices & connections, OMPdesk sharing. Two roles on one page:
  *
+ * - This computer's device name (editable at any time, also while sharing is off: a device that only
+ *   connects to others is known by it too). Saving announces it live to every paired computer and device.
  * - This computer (B, host): "Let other devices use this computer". While on,
  *   it shows "Keep this computer awake while a device is using it" (on by
  *   default; its description says whether sleep is blocked now and for whom),
- *   the device name (editable), the LAN addresses and a single-use pairing
+ *   the LAN addresses and a single-use pairing
  *   code with its countdown — both selectable and copyable — and the paired
  *   devices with an online dot, today's model use against the daily limits
- *   this computer sets for each (Limits), and Remove (revoke). An expired code
- *   is replaced on its own.
+ *   this computer sets for each (Limits), Rename (asks a connected device to rename itself) and Remove
+ *   (revoke). An expired code is replaced on its own.
  * - Other devices (A, client): the hosts this computer can run sessions on,
- *   with their link state and Remove, plus "Connect to a device".
+ *   with their link state, Rename (the host renames itself; needs the link) and Remove, plus "Connect to a device".
  *
  * Either Remove asks first: the pair only comes back with a new code.
  *
  * Main owns the state; every action answers with the whole new RemoteState.
  */
-import { Monitor, Plus, RefreshCw } from "lucide-react";
+import { Coffee, Monitor, MonitorSmartphone, Palette, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RemoteHostState, RemoteState } from "../../../shared/ipc-types";
 import { useHostAppearanceStore } from "../../hooks/use-host-appearance";
@@ -34,6 +36,7 @@ import {
 	ConfirmDialog,
 	CopyButton,
 	ErrorDetail,
+	IconButton,
 	Input,
 	ListRow,
 	SkeletonRows,
@@ -41,6 +44,7 @@ import {
 } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
 import { RemoteConnectDialog } from "../remote/RemoteConnectDialog";
+import { DeviceNameField } from "./DeviceNameField";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 
@@ -102,7 +106,12 @@ function PairingCode({ code, expiresAt }: { code: string | null; expiresAt: numb
 	});
 
 	return (
-		<SettingsRow description={t("remote.host.codeDesc")} id="settings-remote-code" label={t("remote.host.code")}>
+		<SettingsRow
+			description={t("remote.host.codeDesc")}
+			tipOnly
+			id="settings-remote-code"
+			label={t("remote.host.code")}
+		>
 			<div className="flex flex-wrap items-center gap-3" data-remote-code>
 				{code ? <CopyableValue large value={code} /> : <Spinner size="sm" />}
 				{expiresAt !== null && (
@@ -163,7 +172,6 @@ function DeviceNameRow({ name }: { name: string }) {
 					value={draft}
 				/>
 			}
-			description={t("remote.host.nameDesc")}
 			htmlFor={inputId}
 			label={t("remote.host.name")}
 		/>
@@ -183,6 +191,7 @@ function KeepAwakeRow({ host }: { host: RemoteHostState }) {
 	}
 	return (
 		<SettingsSwitchRow
+			icon={<Coffee />}
 			checked={host.keepAwake}
 			description={<span data-remote-keep-awake-state>{description}</span>}
 			disabled={saving}
@@ -198,6 +207,21 @@ function KeepAwakeRow({ host }: { host: RemoteHostState }) {
 	);
 }
 
+/** A row's Rename; the other device renames itself, so it needs the link (the tooltip says why). */
+function RenameButton({ name, offline, onClick }: { name: string; offline: boolean; onClick: () => void }) {
+	const t = useT();
+	return (
+		<IconButton
+			data-device-rename-button
+			disabled={offline}
+			icon={<Pencil />}
+			label={offline ? t("remote.renameOffline", { name }) : t("remote.rename", { name })}
+			onClick={onClick}
+			size="sm"
+		/>
+	);
+}
+
 /** B16: show a paired host's theme and language while one of its tabs is focused (never saved here). */
 function HostAppearanceRow() {
 	const t = useT();
@@ -205,8 +229,10 @@ function HostAppearanceRow() {
 	const setEnabled = useHostAppearanceStore(state => state.setEnabled);
 	return (
 		<SettingsSwitchRow
+			icon={<Palette />}
 			checked={enabled}
 			description={t("remote.hosts.useHostAppearanceDesc")}
+			tipOnly
 			id="setting-remote-host-appearance"
 			label={t("remote.hosts.useHostAppearance")}
 			onCheckedChange={next => void setEnabled(next)}
@@ -228,6 +254,8 @@ export function RemoteSection() {
 	} | null>(null);
 	/** The paired device whose Limits dialog is open. */
 	const [limitsFor, setLimitsFor] = useState<string | null>(null);
+	/** The row whose name is being edited: `peer:<id>` or `host:<id>`. */
+	const [renaming, setRenaming] = useState<string | null>(null);
 
 	const confirmRemove = () => {
 		const target = pendingRemove;
@@ -270,8 +298,10 @@ export function RemoteSection() {
 		<div className="flex flex-col gap-8" data-remote-section>
 			<SettingsSection title={t("remote.host.title")}>
 				<SettingsSwitchRow
+					icon={<MonitorSmartphone />}
 					checked={host.enabled}
 					description={t("remote.host.toggleDesc")}
+					tipOnly
 					disabled={toggling}
 					id="settings-remote-host"
 					label={t("remote.host.toggle")}
@@ -282,11 +312,11 @@ export function RemoteSection() {
 						);
 					}}
 				/>
+				<DeviceNameRow name={host.name} />
 				{host.enabled && (
 					<>
 						<KeepAwakeRow host={host} />
-						<DeviceNameRow name={host.name} />
-						<SettingsRow description={t("remote.host.addressesDesc")} label={t("remote.host.addresses")}>
+						<SettingsRow description={t("remote.host.addressesDesc")} tipOnly label={t("remote.host.addresses")}>
 							{host.addresses.length > 0 ? (
 								<ul className="flex flex-col gap-1" data-remote-addresses>
 									{host.addresses.map(address => (
@@ -314,6 +344,13 @@ export function RemoteSection() {
 										const line = usage ? `${seen} · ${usage}` : seen;
 										return (
 											<ListRow
+												actions={
+													<RenameButton
+														name={peer.name}
+														offline={!peer.online}
+														onClick={() => setRenaming(`peer:${peer.deviceId}`)}
+													/>
+												}
 												// A narrow window truncates both lines; hover names them in full.
 												description={
 													<span data-peer-usage title={line}>
@@ -328,7 +365,22 @@ export function RemoteSection() {
 													</Badge>
 												}
 												rowProps={{ "data-remote-peer": peer.deviceId }}
-												title={peer.name}
+												title={
+													renaming === `peer:${peer.deviceId}` ? (
+														<DeviceNameField
+															name={peer.name}
+															onDone={() => setRenaming(null)}
+															onSave={next =>
+																void mutate(
+																	() => window.omp.remote.renamePeer(peer.deviceId, next),
+																	t("remote.renameFailed"),
+																)
+															}
+														/>
+													) : (
+														peer.name
+													)
+												}
 												titleText={peer.name}
 												trailing={
 													<div className="flex items-center gap-1">
@@ -380,13 +432,19 @@ export function RemoteSection() {
 						{t("remote.hosts.connect")}
 					</Button>
 				}
-				description={t("remote.hosts.desc")}
 				title={t("remote.hosts.title")}
 			>
 				{hosts.length > 0 ? (
 					<div className="flex flex-col gap-px py-2" data-remote-hosts>
 						{hosts.map(entry => (
 							<ListRow
+								actions={
+									<RenameButton
+										name={entry.name}
+										offline={entry.state !== "online"}
+										onClick={() => setRenaming(`host:${entry.deviceId}`)}
+									/>
+								}
 								description={
 									entry.home ? (
 										// The row truncates the host's folder; hover names it in full.
@@ -403,7 +461,22 @@ export function RemoteSection() {
 									</Badge>
 								}
 								rowProps={{ "data-remote-host": entry.deviceId }}
-								title={entry.name}
+								title={
+									renaming === `host:${entry.deviceId}` ? (
+										<DeviceNameField
+											name={entry.name}
+											onDone={() => setRenaming(null)}
+											onSave={next =>
+												void mutate(
+													() => window.omp.remote.renameHost(entry.deviceId, next),
+													t("remote.renameFailed"),
+												)
+											}
+										/>
+									) : (
+										entry.name
+									)
+								}
 								titleText={entry.name}
 								trailing={
 									<Button

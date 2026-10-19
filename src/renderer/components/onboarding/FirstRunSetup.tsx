@@ -236,7 +236,12 @@ function ConnectStep() {
 				</Banner>
 			)}
 			{catalog.configError && <Banner variant="warning">{t("setup.configReadFailed")}</Banner>}
-			<ProviderPicker catalog={catalog} login={login} onAddCustom={() => setCustomForm(true)} />
+			<ProviderPicker
+				catalog={catalog}
+				login={login}
+				onAddCustom={() => setCustomForm(true)}
+				showConnectedFeatured
+			/>
 			{login.state.providerId !== null && (
 				<div data-login-panel>
 					<ProviderLoginPanel
@@ -257,8 +262,7 @@ function ConnectStep() {
 					{t("providerList.addCustom")}
 				</Button>
 			</div>
-			<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-(--sc-divider) pt-4">
-				<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-muted)">{t("setup.laterHint")}</p>
+			<div className="mt-4 flex justify-end border-t border-(--sc-divider) pt-4">
 				<Button onClick={() => setPhase("idle")} variant="ghost">
 					{t("setup.later")}
 				</Button>

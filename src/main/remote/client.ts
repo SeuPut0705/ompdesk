@@ -191,6 +191,14 @@ export class RemoteClient {
 		return { ...this.#host, addresses: [...this.#host.addresses] };
 	}
 
+	/** The host announced a new name (`host.name`): show and remember it. */
+	hostRenamed(name: string): void {
+		this.#host.name = name;
+		if (this.#hello) this.#hello = { ...this.#hello, name };
+		const hosts = this.#opts.hosts;
+		if (hosts && hosts.get(this.deviceId)?.name !== name) hosts.update(this.deviceId, { name });
+	}
+
 	/** Start (or keep) the link; while waiting out a backoff, retry now. */
 	connect(): void {
 		this.#running = true;

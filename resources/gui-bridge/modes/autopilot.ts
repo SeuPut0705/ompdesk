@@ -65,6 +65,7 @@ import {
 	classifyStall,
 	cycleRecords,
 	decideAfterCycle,
+	docsPickRefusal,
 	dueForRelease,
 	type EndReport,
 	finalizeCycle,
@@ -86,6 +87,7 @@ import {
 	usageDelta,
 	userMessagesSinceLastCycle,
 	verifyShipQuote,
+	writeOffNote,
 } from "./autopilot-core";
 import { evaluateToolCall } from "./autopilot-guard-core";
 import { draftGuide, fileIo, type GuideIo, readGuide, readGuideInfo } from "./autopilot-guide";
@@ -650,6 +652,12 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 					note: "This title repeats a recent cycle: pick a different item.",
 				});
 			}
+			const docsRefusal = docsPickRefusal(
+				records,
+				area,
+				typeof params.reason === "string" ? params.reason : undefined,
+			);
+			if (docsRefusal) return toolText({ picked: false, docsAgain: true, note: docsRefusal });
 			current.area = area as AutopilotCycleArea;
 			current.title = title;
 			publish(session);
@@ -691,6 +699,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				...(duplicate
 					? { duplicate: true, note: "This title repeats a recent cycle: pick a different item next cycle." }
 					: {}),
+				...(writeOffNote(report) ? { writeOff: writeOffNote(report) } : {}),
 				...(seen.verdict.note
 					? {
 							verify: seen.verdict.verify,
@@ -776,6 +785,7 @@ function registerTool(pi: ExtensionAPI): void {
 					"pick, end: design | performance | features | refactoring | tests | bugs | docs | user | release",
 				),
 			title: z.string().optional().describe("pick, end: the item, one line (used to avoid repeats)"),
+			reason: z.string().optional().describe("pick: why a docs item again right after a docs-only cycle"),
 			summary: z.string().optional().describe("end: what you did, assumptions you made"),
 			verify: z.enum(["green", "red", "skipped"]).optional().describe("end: the repo's own check result"),
 			commit: z.string().optional().describe("end: commit hash"),

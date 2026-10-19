@@ -13,6 +13,10 @@
  * an owned session is not refused: the caller's window views the owner's tab
  * (`attached`). Between Electron windows the owner keeps it and is focused.
  *
+ * A session a paired device's tab runs on THIS computer (LocalHostServices,
+ * `hosted`) is viewed too: the window gets that tab's omp as a hosted view
+ * (`attached`), never a second omp on the file.
+ *
  * A payload `device` opens the tab on a paired host: the session file, its
  * kind and the cwd are the host's, so they are looked up there, and the cwd
  * is left for the host to canonicalize.
@@ -26,6 +30,7 @@ import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shar
 import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
 import type { SidecarPool } from "./sidecar-pool";
+import type { SidecarLike } from "./sidecar-types";
 import { nextSnowflake } from "./snowflake";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 
@@ -36,7 +41,7 @@ export interface SpawnTabRemote {
 }
 
 export type SpawnTabDeps = {
-	sidecarPool: Pick<SidecarPool, "sessionOwner" | "acquire" | "attachViewer">;
+	sidecarPool: Pick<SidecarPool, "sessionOwner" | "acquire" | "attachViewer" | "acquireHostedView">;
 	sessionIndex: Pick<SessionIndex, "kindFor">;
 	/**
 	 * The caller's cwd when its tab runs on `device` (undefined = this
@@ -53,6 +58,8 @@ export type SpawnTabDeps = {
 	 * session another window holds. It lets the two-window e2e run on Electron windows.
 	 */
 	anyWindowViews?: boolean;
+	/** The tabs this computer runs for paired devices: a view of the one holding a session, else null. */
+	hosted?: { viewSession(sessionPath: string): SidecarLike | null };
 };
 
 export async function spawnTabForWindow(
@@ -74,6 +81,18 @@ export async function spawnTabForWindow(
 				(deps.anyWindowViews === true || isWebWindow(callerId) || isWebWindow(owner.winId));
 			if (shared && deps.sidecarPool.attachViewer(win, owner.tabId)) return { tabId: owner.tabId, attached: true };
 			return { tabId: null, ownerTabId: owner.tabId, ownerWinId: owner.winId, refusal: "owned" };
+		}
+		const view = device ? null : (deps.hosted?.viewSession(sessionPath) ?? null);
+		if (view) {
+			// Agent and chat sessions never convert, here either.
+			if (payload?.kind !== undefined && payload.kind !== view.kind) {
+				view.dispose();
+				return { tabId: null, refusal: "kind-mismatch" };
+			}
+			const tabId = nextSnowflake();
+			if (deps.sidecarPool.acquireHostedView(win, tabId, view, sessionPath)) return { tabId, attached: true };
+			view.dispose();
+			return null;
 		}
 		// F-KIND: the file's stamped kind is authoritative. Refuse a mismatched
 		// explicit request; defer to the file when the payload omits kind.

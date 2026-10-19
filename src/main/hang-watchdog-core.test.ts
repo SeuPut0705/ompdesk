@@ -2,7 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { consumeHangMarker, createHangDetector, type HangMarker, writeHangMarker } from "./hang-watchdog-core";
+import {
+	consumeHangMarker,
+	createHangDetector,
+	createStepRing,
+	HANG_STEP_HISTORY,
+	type HangMarker,
+	writeHangMarker,
+} from "./hang-watchdog-core";
 
 const CHECK = 1_000;
 const TIMEOUT = 5_000;
@@ -127,5 +134,50 @@ describe("hang marker", () => {
 		expect(consumeHangMarker(file)).toBeNull();
 		writeFileSync(file, JSON.stringify({ detectedAt: 1, pid: -3, unresponsiveMs: 5 }));
 		expect(consumeHangMarker(file)).toBeNull();
+	});
+});
+
+describe("main step ring", () => {
+	it("names the phase and the last steps, newest last, with a bounded history", () => {
+		const ring = createStepRing();
+		expect(ring.snapshot()).toEqual({ phase: "startup", steps: [] });
+		for (let i = 0; i < HANG_STEP_HISTORY + 3; i++) ring.enter("startup", `step-${i}`);
+		ring.enter("quit", "teardown:sidecars");
+		const { phase, steps } = ring.snapshot();
+		expect(phase).toBe("quit");
+		expect(steps).toHaveLength(HANG_STEP_HISTORY);
+		expect(steps.at(-1)).toBe("quit:teardown:sidecars");
+		expect(steps[0]).toBe(`startup:step-${4}`);
+	});
+
+	it("keeps the snapshot taken at the hang, whatever ran after it", () => {
+		const ring = createStepRing();
+		ring.enter("update", "quit-and-install");
+		const atHang = ring.snapshot();
+		ring.enter("quit", "will-quit");
+		expect(atHang).toEqual({ phase: "update", steps: ["update:quit-and-install"] });
+	});
+
+	it("carries phase and steps through the marker, and reads an older marker without them", () => {
+		const dir = mkdtempSync(join(tmpdir(), "hang-steps-"));
+		try {
+			const file = join(dir, "m.json");
+			const withSteps: HangMarker = {
+				detectedAt: 1,
+				pid: 7,
+				unresponsiveMs: 5_300,
+				selfRecovered: true,
+				phase: "quit",
+				steps: ["update:quit-and-install", "quit:teardown:sidecars"],
+			};
+			writeHangMarker(file, withSteps);
+			expect(consumeHangMarker(file)).toEqual(withSteps);
+			writeFileSync(file, JSON.stringify({ detectedAt: 1, pid: 7, unresponsiveMs: 5_300, selfRecovered: true }));
+			expect(consumeHangMarker(file)).toEqual({ detectedAt: 1, pid: 7, unresponsiveMs: 5_300, selfRecovered: true });
+			writeFileSync(file, JSON.stringify({ ...withSteps, phase: "nonsense", steps: [1, 2] }));
+			expect(consumeHangMarker(file)).toEqual({ detectedAt: 1, pid: 7, unresponsiveMs: 5_300, selfRecovered: true });
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

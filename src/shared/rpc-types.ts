@@ -10,6 +10,7 @@ import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridg
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type {
 	InlineCompletion,
+	NextPromptChild,
 	NextPromptConfigFrame,
 	NextPromptRefreshReason,
 	NextPromptState,
@@ -102,8 +103,16 @@ export type RpcCommand =
 	| { id?: string; type: "agent_control_note"; text: string }
 	| { id?: string; type: "agent_control_worker"; from: string }
 	| { id?: string; type: "agent_control_judge"; system: string; user: string }
-	// The work board's review queue (main/agent-control/host.ts): answered in main, never reaches omp
-	| { id?: string; type: "agent_control_review"; action: "list" | "approve" | "discard" | "dismiss"; child?: string }
+	| {
+			id?: string;
+			type: "agent_control_mail";
+			content: string;
+			details: Record<string, unknown>;
+			triggerTurn: boolean;
+			deliverAs?: "followUp" | "nextTurn" | "aside";
+	  }
+	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp
+	| { id?: string; type: "agent_control_review" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }
@@ -254,6 +263,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_next_prompt" }
 	| { id?: string; type: "set_next_prompt_draft"; empty: boolean }
 	| { id?: string; type: "refresh_next_prompt"; reason: NextPromptRefreshReason }
+	| { id?: string; type: "set_next_prompt_children"; children: NextPromptChild[] }
 	| { id?: string; type: "cancel_next_prompt"; scope: "suggest" | "inline" | "all" }
 	| { id?: string; type: "complete_inline"; draft: string; requestId: string }
 	// Which device typed the next prompt of a tab several windows show: gui-bridge prompt-origin.ts (main only)
@@ -2603,6 +2613,8 @@ export type AgentSessionEvent =
 			planContent: string;
 			options: string[];
 	  }
+	// The proposal stopped waiting (answered in any window or by an agent, or a prompt replied to it).
+	| { type: "plan_proposal_resolved"; planFilePath: string }
 	| NextPromptUpdate
 	| NextPromptConfigFrame
 	// Bridge modes/goal.ts paused the goal at its OMPdesk time limit.

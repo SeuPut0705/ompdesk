@@ -472,9 +472,7 @@ export function SecuritySection() {
 						{findings.length === 0 ? (
 							<div role="status">
 								<EmptyState
-									description={t(
-										emptyState === "clear" ? "security.empty.description" : "security.empty.notVerified",
-									)}
+									description={emptyState === "clear" ? t("security.empty.description") : undefined}
 									icon={
 										emptyState === "clear" ? (
 											<ShieldCheck className="text-(--sc-success)" />
@@ -663,7 +661,7 @@ export function SecuritySection() {
 	}
 
 	return (
-		<SettingsSection description={t("security.subtitle")} title={t("security.title")}>
+		<SettingsSection title={t("security.title")}>
 			{body}
 			<ConfirmDialog
 				busy={running}

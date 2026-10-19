@@ -6,6 +6,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import { createInterface } from "node:readline";
+import { hasMailEntry } from "../../resources/gui-bridge/agent-control-contracts";
 import { DESKTOP_SLOT_STALE_NOTICE } from "../../resources/gui-bridge/desktop-slot-contracts";
 import {
 	type AutoTitleSettings,
@@ -422,6 +423,13 @@ export function runRpcUi(): void {
 	let subagentSubscription = "progress";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
+	/** The bridge's `settlePending`: the proposal stops waiting and every window hears `plan_proposal_resolved`. */
+	const resolvePlan = () => {
+		if (!planProposal) return;
+		const frame = `${JSON.stringify({ event: { type: "plan_proposal_resolved", planFilePath: planProposal.planFilePath } })}\n`;
+		planProposal = undefined;
+		for (const socket of bridgeClients) socket.write(frame);
+	};
 	/** Stock's agent writes the plan before proposing it; the fixture's proposal leaves the same file behind. */
 	const writeProposedPlan = (proposal: Record<string, unknown>) => {
 		if (typeof proposal.planFilePath !== "string" || typeof proposal.planContent !== "string") return;
@@ -552,7 +560,11 @@ export function runRpcUi(): void {
 	const replayFrames = process.env.OMP_GUI_TEST_REPLAY_FRAMES === "1";
 	let pendingReplay = "";
 	const write = (frame: object) => {
-		if ("type" in frame && frame.type === "agent_start") cancelRecap();
+		if ("type" in frame && frame.type === "agent_start") {
+			cancelRecap();
+			// A turn that starts while the plan waits replies to it (bridge modes/plan.ts `settlePending`).
+			resolvePlan();
+		}
 		if ("type" in frame && frame.type === "subagent_event" && subagentSubscription !== "events") return;
 		const json = JSON.stringify(frame);
 		const bytes = Buffer.from(json, "utf8");
@@ -876,6 +888,18 @@ export function runRpcUi(): void {
 		{ ...model, id: "claude-opus-4-1", name: "Claude Opus 4.1", provider: "anthropic", contextWindow: 200000 },
 		{ ...model, id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", provider: "anthropic", contextWindow: 1000000 },
 	];
+	/** `OMP_GUI_TEST_FEATURED=1` (with OMP_GUI_TEST_LOGIN): the catalog's sign-in rows beside Anthropic, signed out, as stock lists them (Grok has both its SuperGrok `xai-oauth` and API-key `xai` logins). */
+	const FEATURED_PAGE_PROVIDERS = [
+		...MODELS_PAGE_PROVIDERS,
+		{
+			id: "xai-oauth",
+			name: "xAI Grok OAuth (SuperGrok or X Premium+)",
+			authenticated: false,
+			loginAvailable: true,
+			disabled: false,
+			modelCount: 0,
+		},
+	];
 	const catalogModels = () => (modelsData && anthropicSignedIn ? [model, ...claudeModels] : [model]);
 	const accountQuota: Record<
 		number,
@@ -1132,6 +1156,47 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		// gui-bridge agent-control.ts `agent_control.mail` → stock `sendMessage`: the report becomes a displayed custom
+		// message in the journal; with `triggerTurn` an idle session takes a turn on it (the parent reacts by itself),
+		// a running one reads it with its next step. The woken turn's reply names the report it read.
+		"agent_control.mail": params => {
+			const details = (params.details ?? {}) as Record<string, unknown>;
+			// As the bridge: a report whose id the journal holds (delivered before a relaunch) is not repeated. The
+			// fixture journals custom messages as `message` entries; the bridge's rule reads stock's `custom_message`
+			// shape, so the entries are viewed in that shape.
+			const asStock = entries.map(entry =>
+				entry.type === "message" ? { ...(entry.message as AgentMessage), type: "custom_message" } : entry,
+			);
+			if (typeof details.id === "string" && hasMailEntry(asStock, details.id)) return { duplicate: true };
+			const mail = {
+				role: "custom",
+				customType: "ompdesk.mail",
+				content: String(params.content ?? ""),
+				display: true,
+				details,
+				timestamp: Date.now(),
+			} as unknown as AgentMessage;
+			appendMessage(mail);
+			write({ type: "message_end", message: mail });
+			if (params.triggerTurn === true && !isStreaming) {
+				isStreaming = true;
+				write({ type: "agent_start" });
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [
+						{ type: "text", text: `Read the ${String(details.kind)} report from ${String(details.from)}.` },
+					],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_end", message: answer });
+				endTurn([answer]);
+			}
+			return {};
+		},
 		// `ompdesk_compare` with criteria: the judge ranks the sessions in the order the evidence names them and
 		// picks the first, so a spec can tell the verdict reached the agent.
 		"agent_control.judge": params => {
@@ -1591,7 +1656,9 @@ export function runRpcUi(): void {
 								? MODELS_PAGE_PROVIDERS.map(row =>
 										apiKeyProviders.has(row.id) ? { ...row, authenticated: true, authKind: "apikey" } : row,
 									)
-								: []),
+								: process.env.OMP_GUI_TEST_FEATURED === "1"
+									? FEATURED_PAGE_PROVIDERS
+									: []),
 						]
 					: []),
 			],
@@ -1868,7 +1935,7 @@ export function runRpcUi(): void {
 		// execution turn (a `fixture flow` run, driven like any other).
 		"modes.plan_approval": params => {
 			if (!planProposal) throw new Error("No plan is awaiting approval");
-			planProposal = undefined;
+			resolvePlan();
 			if (params.approved !== true) {
 				// Feedback re-plans; a plain rejection ends a plan the automatic choice used for one request (plan.ts).
 				if (typeof params.feedback === "string" && params.feedback.trim()) {

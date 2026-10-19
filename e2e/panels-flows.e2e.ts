@@ -47,7 +47,7 @@ async function fixtureOmpWithNatives(root: string): Promise<string> {
 		process.env.OMP_GUI_TEST_NATIVES ||
 		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
 	const link = path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives");
-	if (!(await fs.lstat(link).catch(() => null))) await fs.symlink(natives, link, "dir");
+	if (!(await fs.lstat(link).catch(() => null))) await fs.symlink(natives, link, "junction");
 	return bin;
 }
 
@@ -369,7 +369,7 @@ test("provider and account flows", async () => {
 		await settings.getByRole("searchbox", { name: "Search providers" }).fill("DeepSeek");
 		const deepseekLogin = settings.locator("[data-login-panel]");
 		await rec.shoot("picker-search");
-		await settings.getByRole("button", { name: "Connect DeepSeek", exact: true }).click();
+		await settings.locator('button[data-provider-connect="deepseek"]').click();
 		const key = deepseekLogin.locator('input[type="password"]');
 		await expect(key).toBeVisible();
 		await expect(deepseekLogin.getByRole("button", { name: "Open key page" })).toBeVisible();

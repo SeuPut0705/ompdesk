@@ -21,6 +21,16 @@ describe("OMPdesk control tool definitions", () => {
 		expect(isAgentControlTool("gui_terminal_read")).toBe(false);
 	});
 
+	it("takes any number of sessions, criteria and answers in one call", () => {
+		const ids = Array.from({ length: 50 }, (_, index) => `sess${index}`);
+		expect(ARGS[AGENT_CONTROL_TOOLS.result].parse({ sessions: ids }).sessions).toHaveLength(50);
+		const criteria = Array.from({ length: 40 }, (_, index) => `criterion ${index}`);
+		expect(ARGS[AGENT_CONTROL_TOOLS.compare].parse({ sessions: ids, criteria }).criteria).toHaveLength(40);
+		expect(
+			ARGS[AGENT_CONTROL_TOOLS.open].parse({ sessions: ids.map(() => ({ message: "go" })) }).sessions,
+		).toHaveLength(50);
+	});
+
 	it("keeps destructive actions behind named arguments of the stop tool, never their own tool", () => {
 		const names = Object.values(AGENT_CONTROL_TOOLS);
 		expect(names.filter(name => /delete|remove|close|kill/.test(name))).toEqual([]);
@@ -40,7 +50,7 @@ describe("OMPdesk control tool definitions", () => {
 		).toBeTruthy();
 		expect(() => open.parse({ message: "a", sessions: [{ message: "b" }] })).toThrow();
 		expect(() => open.parse({ sessions: [] })).toThrow();
-		expect(() => open.parse({ sessions: Array.from({ length: 5 }, () => ({ message: "x" })) })).toThrow();
+		expect(open.parse({ sessions: Array.from({ length: 12 }, () => ({ message: "x" })) })).toBeTruthy();
 		const result = ARGS[AGENT_CONTROL_TOOLS.result];
 		expect(result.parse({ sessions: ["a1b2", "c3d4"], wait: true, until: "any" })).toBeTruthy();
 		expect(() => result.parse({ session: "a1b2", sessions: ["c3d4"] })).toThrow();
@@ -66,7 +76,8 @@ describe("ompdesk_autopilot arguments", () => {
 		expect(() => args.parse({ action: "start", session: "abcd" })).toThrow();
 		expect(() => args.parse({ action: "start", ship: "force" })).toThrow();
 		expect(() => args.parse({ action: "start", branch: { kind: "existing" } })).toThrow();
-		expect(() => args.parse({ action: "start", advanced: { parallel: 9 } })).toThrow();
+		expect(() => args.parse({ action: "start", advanced: { parallel: -1 } })).toThrow();
+		expect(args.parse({ action: "start", advanced: { parallel: 9 } })).toMatchObject({ advanced: { parallel: 9 } });
 		expect(() => args.parse({ action: "start", advanced: { limits: { usd: -1 } } })).toThrow();
 	});
 });

@@ -22,7 +22,7 @@ If you hit GitHub's rate limit often, you can **optionally** give the app a toke
 
 ## omp
 
-omp updates itself. While OMPdesk is open it checks npm's latest `@oh-my-pi/pi-coding-agent` at launch and every few hours, and runs `omp update` in the background when there is something newer.
+omp updates itself. While OMPdesk is open it checks npm's latest `@oh-my-pi/pi-coding-agent` at launch and every 4 hours, and runs `omp update` in the background when there is something newer.
 
 - **Your work is not interrupted.** A running omp keeps the code it already loaded. Idle tabs restart on the new omp right away; busy tabs restart after their task finishes. Session history and drafts stay.
 - **A quiet notice.** One "omp updated" notification when it finishes. If the new omp lacks a feature OMPdesk uses, a warning names the feature.
@@ -30,6 +30,15 @@ omp updates itself. While OMPdesk is open it checks npm's latest `@oh-my-pi/pi-c
 - **To turn it off or run it by hand,** use the **Update omp automatically** switch (on by default) and the **Update now** button in the same place, or run `omp update` in a terminal.
 - **Remote devices update themselves.** A connected computer's omp is updated by that computer's OMPdesk, never by this one.
 - Development and test runs never update automatically.
+
+## Tool CLIs
+
+The command-line tools of your connected accounts (Claude Code, Codex CLI, Gemini CLI, Cursor Agent, GitHub Copilot CLI, the GitHub CLI) and the Node.js OMPdesk installed also stay current: at launch and every 4 hours.
+
+- **Only what is installed.** OMPdesk never installs one, never uses administrator rights, and leaves a copy the operating system owns, another app ships inside its bundle, or an administrator-only folder owns. A copy installed some other way (a version manager, one you placed yourself) is listed with the reason it is left alone.
+- **Updated by what owns it:** its own updater, npm or Bun, Homebrew, winget, or OMPdesk's tools folder. A tool that is running updates at the next check after it quits.
+- **To turn it off or run it by hand,** use the **Update tool CLIs automatically** switch (on by default) and the per-tool **Update now** buttons in **Settings › Updates & about › This computer**. Failures are listed there and retried at the next check.
+- **Remote devices update themselves.**
 
 ## Plugins, marketplaces, skills and MCP servers
 

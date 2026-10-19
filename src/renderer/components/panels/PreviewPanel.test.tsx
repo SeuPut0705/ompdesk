@@ -35,7 +35,6 @@ describe("browser preview", () => {
 		);
 		expect(html).toContain('aria-label="Preview URL"');
 		expect(html).toContain('aria-label="Back"');
-		expect(html).toContain("Start a local development server");
 		expect(html).toContain("Enter URL");
 		expect(html).toContain('inputMode="url"');
 		expect(html).toContain("data-preview-surface");

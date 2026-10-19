@@ -10,7 +10,7 @@
  * confirm step. Main owns the state (`window.omp.mobileWeb`, stores/mobile-web.ts); this page tells main it is
  * open (`watch`) so Tailscale is polled every 2 s meanwhile.
  */
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ShieldCheck, Smartphone } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../../lib/i18n";
 import { loadMobileWeb, mobileWebCommand, useMobileWebStore, useMobileWebSync } from "../../stores/mobile-web";
@@ -65,8 +65,10 @@ function MobileWebHostSection() {
 		<div className="flex flex-col gap-8" data-mobile-web-section data-mobile-web-state={state.phase}>
 			<SettingsSection>
 				<SettingsSwitchRow
+					icon={<Smartphone />}
 					checked={state.enabled}
 					description={t("mobileWeb.toggleDesc")}
+					tipOnly
 					disabled={toggling}
 					footer={<MobileWebPhasePanel state={state} />}
 					id="settings-mobile-web-toggle"
@@ -81,8 +83,10 @@ function MobileWebHostSection() {
 				/>
 				{state.enabled && (
 					<SettingsSwitchRow
+						icon={<ShieldCheck />}
 						checked={state.confirmNewDevices}
 						description={t("mobileWeb.confirmNewDesc")}
+						tipOnly
 						id="settings-mobile-web-confirm"
 						label={t("mobileWeb.confirmNew")}
 						onCheckedChange={on =>

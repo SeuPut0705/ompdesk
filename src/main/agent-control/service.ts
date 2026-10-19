@@ -10,12 +10,18 @@
  * Permission levels (Settings › Tools & extensions › OMPdesk control tools):
  *   always  list, read, send, wait, answer a question, show, notify, open sessions, stop/close/delete the sessions
  *           the caller opened.
- *   card    stopping, closing or deleting a session the caller did not open, creating a schedule, starting an Autopilot
- *           run (always for ship release or the default branch), stopping a run the caller did not start: one card each.
- *   pref    `agentControlManage` lifts that card; `agentControlApprove` lets an agent approve another session's
- *           tool approval (without it the answer is "사용자 승인이 필요해요"); a session the user hid from agents refuses all.
- *   never   accounts, settings, permissions.
+ *   card    stopping or closing a session the caller did not open (only while "Let agents manage other sessions" is
+ *           off), deleting a saved session it did not open (always: a delete cannot be undone), stopping a run it did
+ *           not start (off), creating a schedule (off), starting an Autopilot run (off; always for ship release or the
+ *           default branch): one card each.
+ *   pref    `agentControlFull` ("Give agents full control of OMPdesk", default on; only a stored `false` is off)
+ *           raises no card at all and lets an agent approve another session's tool approval. Off:
+ *           `agentControlManage` (default on) lifts the cards marked off above; `agentControlApprove` (default off)
+ *           lets an agent approve another session's tool approval (without it the answer is "사용자 승인이 필요해요").
+ *           A session the user hid from agents refuses all, whatever the switches.
+ *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
 	AutopilotShipPreset,
@@ -24,19 +30,13 @@ import type {
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	AGENT_CARD_PREFIX,
-	AGENT_SCHEDULE_MIN_INTERVAL_MINUTES,
 	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
-	type AgentReviewAction,
 	type AgentReviewItem,
-	type AgentReviewOutcome,
-	type AgentReviewResult,
 	agentTaskTitle,
 	type ClosedChild,
 	isApprovalSelect,
-	MAX_AGENT_SCHEDULES,
-	MAX_AGENT_SESSIONS,
 	parseAgentMessage,
 	parseWorkerResult,
 	AGENT_CONTROL_TOOLS as T,
@@ -59,13 +59,19 @@ import type {
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
-import { type BranchFacts, type LandingFacts, type MergeOutcome, mergeProblem, type WorktreeRef } from "./branches";
-import { AgentLimits, LimitError, PENDING_RUN } from "./limits";
+import {
+	type BranchFacts,
+	type LandingFacts,
+	type MergeOutcome,
+	mergeProblem,
+	type WorktreeRef,
+	type WorktreeRemoval,
+} from "./branches";
+import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import {
 	type AnswerArgs,
 	ARGS,
 	type AutopilotArgs,
-	JUDGE_MAX_CRITERIA,
 	type ListArgs,
 	type OpenOne,
 	READ_DEFAULT_MESSAGES,
@@ -73,6 +79,7 @@ import {
 	RESULT_MAX_CHARS,
 	RESULT_TABLE_ANSWER_CHARS,
 	RESULT_WAIT_DEFAULT_SECONDS,
+	type ReportArgs,
 	type ScheduleArgs,
 } from "./tools";
 
@@ -96,6 +103,8 @@ export interface ControlTab {
 	busy: boolean;
 	/** Open asks and approvals that wait for the person. */
 	asks: ControlAsk[];
+	/** A plan proposal that waits for approval (plan mode); answered like an ask with `ompdesk_session_answer`. */
+	plan?: { title: string; planFilePath: string };
 	/** The user hid this session from agents (Sidebar › Hide from other agents). */
 	hidden: boolean;
 	/** In the calling session's window (the default list); other windows' tabs are listed with scope app. */
@@ -212,12 +221,18 @@ export interface AutopilotSource {
 export interface AgentControlHost {
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
-	/** `agentControlApprove`: an agent may approve another session's tool approval. */
+	/** `agentControlFull` (default on): no card at all; implies `approveEnabled` and `manageEnabled`. */
+	fullEnabled(): boolean;
+	/** `agentControlApprove`, or full control: an agent may approve another session's tool approval. */
 	approveEnabled(): boolean;
-	/** `agentControlManage`: an agent may stop, close or delete sessions it did not open without a card. */
+	/** `agentControlManage` (default on) or full control: an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open asks unless full control is on. */
 	manageEnabled(): boolean;
-	/** Counter of the caller's turns (a new one each time its run starts); resets the per-turn budgets. */
-	turn(callerTabId: string): number;
+	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
+	parentOf(tabId: string): string | undefined;
+	/** Put one report into a session as a stock custom message (`ompdesk.mail`), delivered per `delivery`. */
+	mail(tabId: string, content: string, details: Record<string, unknown>, delivery: MailDelivery): Promise<void>;
+	/** A child's report changed what its opener's work board shows. */
+	reviewChanged?(parentTabId: string): void;
 	/** Every open tab of this app, the caller's window first (`here`); null when the calling tab is gone. */
 	tabs(callerTabId: string): ControlTab[] | null;
 	/** The paired hosts (Settings › Devices). */
@@ -254,12 +269,10 @@ export interface AgentControlHost {
 	branchFacts(worktree: WorktreeRef): Promise<BranchFacts>;
 	/** Merge the worktree's branch into its parent checkout (local, never pushed). */
 	mergeBranch(worktree: WorktreeRef, label: string): Promise<MergeOutcome>;
-	/** Remove a closed session's worktree and branch. */
-	discardWorktree(worktree: WorktreeRef): Promise<void>;
 	/** What git says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
 	landing(worktree: WorktreeRef): Promise<LandingFacts>;
-	/** Remove a landed, clean worktree and its branch (never forced); false when anything held it back. */
-	removeLandedWorktree(worktree: WorktreeRef): Promise<boolean>;
+	/** Remove a clean worktree whose branch tip is in the parent's HEAD or upstream, and its branch (never forced). */
+	removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval>;
 	/** Remember a session closed after its work landed, so its opener's family still lists it. */
 	recordClosed(child: ClosedChild): void;
 	/** The Schedules service (Settings › Schedules), or null where there is none. */
@@ -317,6 +330,38 @@ const MESSAGE_CHARS = 1_500;
 /** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
 const AUTO_CLOSE_WAIT_MS = 2_000;
 const LIST_DEFAULT_ROWS = 30;
+/** A sent message's receipt waits this long to see the target's turn start. */
+const TURN_START_WAIT_MS = 1_500;
+
+const DEFAULT_TIMERS: Pick<MailboxDeps, "setTimer" | "clearTimer"> = {
+	setTimer: (fn, ms) => setTimeout(fn, ms),
+	clearTimer: timer => clearTimeout(timer as NodeJS.Timeout),
+};
+
+/** The task text with the dispatch id its report names (a report for an older dispatch is ignored). */
+function withDispatch(message: string, dispatch: string | undefined, requestId?: string): string {
+	const marks = [
+		dispatch ? `[ompdesk dispatch ${dispatch}: report with ompdesk_report, dispatch "${dispatch}"]` : null,
+		requestId ? `[ompdesk request ${requestId}]` : null,
+	].filter(Boolean);
+	return marks.length ? `${message}\n\n${marks.join("\n")}` : message;
+}
+
+const DISPATCH_MARK = /\[ompdesk dispatch d(\d+):/g;
+const REQUEST_MARK = /\[ompdesk request ([^\]]+)\]/g;
+
+/** The dispatch number and request ids a session's journal holds (the markers its opener's messages carried). */
+export function journalMarks(messages: readonly AgentMessage[]): { dispatch: number; requests: Set<string> } {
+	let dispatch = 0;
+	const requests = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "user") continue;
+		const text = contentText(message.content);
+		for (const match of text.matchAll(DISPATCH_MARK)) dispatch = Math.max(dispatch, Number(match[1]));
+		for (const match of text.matchAll(REQUEST_MARK)) if (match[1]) requests.add(match[1]);
+	}
+	return { dispatch, requests };
+}
 
 class ToolError extends Error {}
 
@@ -344,6 +389,11 @@ function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
 	const done = tasks.filter(task => task.status === "completed" || task.status === "abandoned").length;
 	const current = tasks.find(task => task.status === "in_progress");
 	return `todos ${done}/${tasks.length} done${current ? ` (now: ${oneLine(current.content, 80)})` : ""}`;
+}
+
+/** The session waits on someone: an open ask or approval, or a plan proposal awaiting approval. */
+function waits(tab: ControlTab): boolean {
+	return tab.asks.length > 0 || tab.plan !== undefined;
 }
 
 /** A saved session's name: its title, else the task an agent opened it for, else its first message. */
@@ -620,8 +670,7 @@ type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] }
 
 export class AgentControl {
 	readonly #host: AgentControlHost;
-	readonly #limits: AgentLimits;
-	/** Tabs each calling tab opened, for the open limit and the "opened by you" marks. */
+	/** Tabs each calling tab opened, for the "opened by you" marks. */
 	readonly #opened = new Map<string, Set<string>>();
 	/** Tabs whose stop or close is in flight. */
 	readonly #closing = new Set<string>();
@@ -635,15 +684,34 @@ export class AgentControl {
 	readonly #sweeping = new Set<string>();
 	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
 	readonly #stored = new Map<string, StoredSession>();
+	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
+	readonly #mailbox: Mailbox;
+	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
+	readonly #receipts = new Map<string, string>();
+	/** Sends with a request id still on their way: a same-id repeat joins one instead of sending twice. */
+	readonly #inflight = new Map<string, Promise<string>>();
 
 	readonly #app: AppControl | null;
 
-	constructor(host: AgentControlHost, limits: AgentLimits = new AgentLimits()) {
+	constructor(host: AgentControlHost, timers: Pick<MailboxDeps, "setTimer" | "clearTimer"> = DEFAULT_TIMERS) {
 		this.#host = host;
-		this.#limits = limits;
 		this.#app = host.appPorts
 			? new AppControl({ ...host.appPorts, autopilot: (tabId, args) => this.#appAutopilot(tabId, args) })
 			: null;
+		this.#mailbox = new Mailbox({
+			now: Date.now,
+			...timers,
+			deliver: async mail => {
+				const receiver = this.#host.tabs(mail.to)?.find(tab => tab.tabId === mail.to);
+				await this.#host.mail(
+					mail.to,
+					mailText(mail),
+					mailDetails(mail),
+					deliveryFor(mail.kind, receiver?.busy === true),
+				);
+				this.#host.reviewChanged?.(mail.to);
+			},
+		});
 	}
 
 	/** Live tabs `callerTabId` opened. */
@@ -661,13 +729,13 @@ export class AgentControl {
 	/** A tab closed. */
 	released(tabId: string): void {
 		this.#app?.released(tabId);
-		this.#limits.forget(tabId);
 		this.#opened.delete(tabId);
 		this.#collected.delete(tabId);
 		this.#sweeping.delete(tabId);
 		this.#closing.delete(tabId);
 		this.#reviewed.delete(tabId);
 		this.#conflicts.delete(tabId);
+		this.#mailbox.forget(tabId);
 	}
 
 	/** Programmatic open (Autopilot): the same path as the tool, with a tag the tool never sets. */
@@ -687,7 +755,7 @@ export class AgentControl {
 			if (!tabs) fail("This session's tab is gone.");
 			return { text: await this.#dispatch(callerTabId, tabs, tool, args), isError: false };
 		} catch (error) {
-			if (error instanceof ToolError || error instanceof LimitError) return { text: error.message, isError: true };
+			if (error instanceof ToolError) return { text: error.message, isError: true };
 			return { text: `${tool} failed: ${error instanceof Error ? error.message : String(error)}`, isError: true };
 		}
 	}
@@ -752,6 +820,8 @@ export class AgentControl {
 				const args = ARGS[T.compare].parse(raw ?? {});
 				return this.#compare(caller, tabs, args.sessions, args.criteria);
 			}
+			case T.report:
+				return this.#report(caller, tabs, ARGS[T.report].parse(raw));
 			case T.merge: {
 				const args = ARGS[T.merge].parse(raw);
 				return this.#merge(caller, this.#resolve(tabs, args.session, caller, "merge"));
@@ -774,7 +844,7 @@ export class AgentControl {
 		}
 	}
 
-	/** The app action's way into `ompdesk_autopilot`: same parse, same card, same run cap. */
+	/** The app action's way into `ompdesk_autopilot`: same parse, same card. */
 	async #appAutopilot(callerTabId: string, raw: unknown): Promise<string> {
 		const tabs = this.#host.tabs(callerTabId);
 		const caller = tabs?.find(tab => tab.tabId === callerTabId);
@@ -807,10 +877,16 @@ export class AgentControl {
 			);
 	}
 
+	/**
+	 * Tabs `callerTabId` opened: those this launch saw it open, and those whose opener the pool kept across a relaunch
+	 * (`host.parentOf`: the opener's tab, or the tab now holding the opener's session file), so ownership survives one.
+	 */
 	#openedBy(callerTabId: string, tabs: ControlTab[]): Set<string> {
 		const set = this.#opened.get(callerTabId) ?? new Set<string>();
 		const live = new Set(tabs.map(tab => tab.tabId));
 		for (const id of set) if (!id.startsWith("pending:") && !live.has(id)) set.delete(id);
+		for (const tab of tabs)
+			if (tab.tabId !== callerTabId && this.#host.parentOf(tab.tabId) === callerTabId) set.add(tab.tabId);
 		this.#opened.set(callerTabId, set);
 		return set;
 	}
@@ -843,6 +919,8 @@ export class AgentControl {
 		const { state, step } = session;
 		const ask = tab.asks[0];
 		if (ask) return `waiting for the user's answer: "${oneLine(askTitle(ask.request), 120)}"`;
+		if (tab.plan)
+			return `waiting for plan approval: "${oneLine(tab.plan.title || "plan", 120)}" (${tab.plan.planFilePath})`;
 		switch (tab.status) {
 			case "asleep":
 				return "not started (it starts when shown or messaged)";
@@ -930,7 +1008,7 @@ export class AgentControl {
 				if (todos) parts.push(todos);
 				const head = `- ${tab.tabId} ${label(tab)}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
-				const kind = tab.asks.length
+				const kind = waits(tab)
 					? "waiting"
 					: line.startsWith("running") || line === "starting"
 						? "running"
@@ -1042,21 +1120,12 @@ export class AgentControl {
 	): Promise<OpenResult[]> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		const opened = this.#openedBy(caller.tabId, tabs);
-		const live = [...opened].length;
-		if (live + items.length > MAX_AGENT_SESSIONS)
-			fail(
-				`You have ${live} sessions open that you opened and asked for ${items.length} more (the limit is ${MAX_AGENT_SESSIONS} open at once). Collect their results and close some with ompdesk_session_stop, or reuse one with ompdesk_session_send.`,
-			);
-		const turn = this.#host.turn(caller.tabId);
-		this.#limits.reserveOpens(caller.tabId, turn, items.length);
-		// Reserved before the first await, so parallel opens cannot pass the limit together.
+		// Marked before the first await, so "opened by you" covers sessions still starting.
 		const reservations = items.map(() => `pending:${Math.random()}`);
 		for (const key of reservations) opened.add(key);
 		const outcomes = await Promise.allSettled(
 			items.map((item, index) => this.#openOne(caller, item, reservations[index] as string, opened, tag)),
 		);
-		const failed = outcomes.filter(outcome => outcome.status === "rejected").length;
-		if (failed > 0) this.#limits.refundOpens(caller.tabId, turn, failed);
 		const results: OpenResult[] = outcomes.map(outcome =>
 			outcome.status === "fulfilled"
 				? outcome.value
@@ -1162,8 +1231,6 @@ export class AgentControl {
 				...(tag ? { tag } : {}),
 			});
 			if (args.message) {
-				// Counts against the message budget and the relay chain like any agent message.
-				this.#limits.reserveMessage(caller.tabId, tabId, this.#host.turn(caller.tabId));
 				if (args.mode === "goal") {
 					// The goal command starts the objective turn itself.
 					responseData(
@@ -1177,7 +1244,10 @@ export class AgentControl {
 							tabId,
 							{
 								type: "prompt",
-								message: wrapAgentMessage(args.message, caller.title),
+								message: wrapAgentMessage(
+									withDispatch(args.message, this.#mailbox.dispatch(tabId)),
+									caller.title,
+								),
 								streamingBehavior: "followUp",
 							},
 							30_000,
@@ -1207,7 +1277,9 @@ export class AgentControl {
 		);
 		const ids = results.filter(result => result.tabId).map(result => result.tabId);
 		if (ids.length > 0 && results.some(result => result.started))
-			lines.push(`Collect: ompdesk_session_result {"sessions":${JSON.stringify(ids)},"wait":true}.`);
+			lines.push(
+				`They report back to you with ompdesk_report (done, question): end your turn and you are woken. To block now instead: ompdesk_session_result {"sessions":${JSON.stringify(ids)},"wait":true}.`,
+			);
 		return lines.join("\n");
 	}
 
@@ -1222,21 +1294,56 @@ export class AgentControl {
 	async #send(
 		caller: ControlTab,
 		target: ControlTab,
-		args: { message: string; delivery?: "follow_up" | "steer" },
+		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
 	): Promise<string> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		this.#refuseHidden(target, caller);
-		// A paired host's tab answers a refused quota or grant itself; the budgets here are the sender's.
-		this.#limits.reserveMessage(caller.tabId, target.tabId, this.#host.turn(caller.tabId));
+		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
+		// Idempotent: a retried call (a flaky link, a paired device) gets the first receipt, never a second delivery.
+		const receiptKey = args.request_id
+			? `${caller.sessionPath ?? caller.tabId}|${target.sessionPath ?? target.tabId}|${args.request_id}`
+			: undefined;
+		const known = receiptKey ? this.#receipts.get(receiptKey) : undefined;
+		if (known) return `${known} (request ${args.request_id} was already delivered; nothing sent again)`;
+		// A same-id call arriving while the first is still on its way joins it instead of sending again.
+		const pending = receiptKey ? this.#inflight.get(receiptKey) : undefined;
+		if (pending) return `${await pending} (request ${args.request_id} was already delivered; nothing sent again)`;
+		if (!receiptKey) return this.#deliverSend(caller, target, args, undefined);
+		const delivery = this.#deliverSend(caller, target, args, receiptKey);
+		this.#inflight.set(receiptKey, delivery);
+		try {
+			return await delivery;
+		} finally {
+			this.#inflight.delete(receiptKey);
+		}
+	}
+
+	async #deliverSend(
+		caller: ControlTab,
+		target: ControlTab,
+		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
+		receiptKey: string | undefined,
+	): Promise<string> {
 		await this.#ensureStarted(target, caller.tabId);
+		// The target's journal is the durable record: a relaunch (or a retry whose first receipt was lost) finds the
+		// request already there, and the last dispatch it was given.
+		const marks = await this.#journalMarks(target.tabId);
+		if (args.request_id && marks.requests.has(args.request_id))
+			return `Sent to ${label(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
 		const steer = args.delivery === "steer";
+		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
+		const ownChild =
+			this.#host.parentOf(target.tabId) === caller.tabId ||
+			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
+		if (ownChild) this.#mailbox.seed(target.tabId, marks.dispatch);
+		const dispatch = ownChild ? this.#mailbox.dispatch(target.tabId) : undefined;
 		responseData(
 			await this.#host.command(
 				target.tabId,
 				{
 					type: "prompt",
-					message: wrapAgentMessage(args.message, caller.title),
+					message: wrapAgentMessage(withDispatch(args.message, dispatch, args.request_id), caller.title),
 					streamingBehavior: steer ? "steer" : "followUp",
 				},
 				30_000,
@@ -1244,11 +1351,100 @@ export class AgentControl {
 			"Sending the message",
 		);
 		const how = !running
-			? "it was idle and started on it"
+			? "it was idle and starts on it"
 			: steer
 				? "delivered as steer (it reads it between steps)"
 				: "queued as a follow-up (it runs when the current turn ends)";
-		return `Sent to ${label(target)}: ${how}.`;
+		const started = !running && (await this.#turnStarts(caller.tabId, target.tabId));
+		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
+		if (receiptKey) this.#receipts.set(receiptKey, receipt);
+		return receipt;
+	}
+
+	/** `journalMarks` of a session's recent transcript; nothing when it cannot be read (not started, gone). */
+	async #journalMarks(tabId: string): Promise<{ dispatch: number; requests: Set<string> }> {
+		const page = await this.#host
+			.command(tabId, { type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES }, STATE_TIMEOUT_MS)
+			.then(response => (response.success ? transcriptPage(response.data) : null))
+			.catch(() => null);
+		return journalMarks(page?.messages ?? []);
+	}
+
+	/** Receipt stage "turn started": the target is seen running within a few seconds of an accepted message. */
+	async #turnStarts(callerTabId: string, tabId: string): Promise<boolean> {
+		const deadline = Date.now() + TURN_START_WAIT_MS;
+		for (;;) {
+			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
+			if (tab?.busy) return true;
+			if (!tab || Date.now() >= deadline) return false;
+			await this.#nextChange(Math.min(250, deadline - Date.now()));
+		}
+	}
+
+	/** The work board's view of a child's mail: its last report, and whether its question waits. */
+	#reportFields(tabId: string): Pick<AgentReviewItem, "report" | "waiting"> {
+		const state = this.#mailbox.state(tabId);
+		if (!state) return {};
+		return {
+			report: { kind: state.last.kind, text: oneLine(state.last.text, 240), at: state.last.at },
+			...(state.waiting ? { waiting: true as const } : {}),
+		};
+	}
+
+	/** `ompdesk_report`: an opened session tells its opener (or a sibling) about its work. */
+	async #report(caller: ControlTab, tabs: ControlTab[], args: ReportArgs): Promise<string> {
+		const parent = this.#host.parentOf(caller.tabId);
+		if (!parent)
+			fail(
+				"ompdesk_report is for a session another session opened; nobody opened this one. Use ompdesk_session_send to write to a session.",
+			);
+		const to = args.to ? this.#resolve(tabs, args.to, caller, "report to").tabId : parent;
+		if (to !== parent && this.#host.parentOf(to) !== parent)
+			fail("You can report only to the session that opened you or to a sibling it opened.");
+		const mail: Mail = {
+			// The same report from the same session file is the same id, so a call stock re-runs after a relaunch
+			// (its result lost in the crash) is recognized by the receiver's journal instead of arriving twice.
+			id:
+				args.id ??
+				createHash("sha256")
+					.update(
+						[
+							caller.sessionPath ?? caller.tabId,
+							// The receiver by its session file too: tab ids are new after a relaunch.
+							tabs.find(tab => tab.tabId === to)?.sessionPath ?? to,
+							args.kind,
+							args.dispatch ?? "",
+							args.text,
+						].join("\u0000"),
+					)
+					.digest("hex")
+					.slice(0, 24),
+			from: caller.tabId,
+			fromTitle: caller.title,
+			to,
+			kind: to === parent ? args.kind : "note",
+			text: args.text,
+			...(args.files ? { files: args.files } : {}),
+			...(args.checks ? { checks: args.checks } : {}),
+			...(args.dispatch ? { dispatch: args.dispatch } : {}),
+			at: Date.now(),
+		};
+		if (!this.#mailbox.knows(caller.tabId))
+			this.#mailbox.seed(caller.tabId, (await this.#journalMarks(caller.tabId)).dispatch);
+		const outcome = await this.#mailbox.post(mail);
+		this.#host.reviewChanged?.(parent);
+		switch (outcome) {
+			case "duplicate":
+				return `Report ${mail.id} was already delivered; nothing sent again.`;
+			case "stale":
+				return `Ignored: dispatch ${args.dispatch} is no longer current (the session that opened you has since sent dispatch ${this.#mailbox.current(caller.tabId)}). Work on its latest message.`;
+			case "queued":
+				return "Progress noted; it reaches the session shortly (several progress reports arrive as the latest one).";
+			default:
+				return mail.kind === "question" || mail.kind === "blocked"
+					? "Delivered. Wait for the answer: it comes as a message; do not guess the decision meanwhile."
+					: "Delivered.";
+		}
 	}
 
 	async #sessionSummary(
@@ -1261,10 +1457,10 @@ export class AgentControl {
 		const line = this.#stateLine(tab, session);
 		const settled = line === "idle" || line.startsWith("stopped") || line.startsWith("not started");
 		const todos = todoProgress(session.state?.todoPhases);
-		const hint = tab.asks.length > 0 ? " It needs an answer: ompdesk_session_answer, or tell the user." : "";
+		const hint = waits(tab) ? " It needs an answer: ompdesk_session_answer, or tell the user." : "";
 		const body = session.last ? cut(session.last, perAnswer) : "(no answer yet)";
 		return {
-			settled: settled || tab.asks.length > 0,
+			settled: settled || waits(tab),
 			text: `${label(tab)} [${tab.tabId}]: ${line}.${todos ? ` ${todos}.` : ""}${hint}\nLast answer:\n${body}`,
 		};
 	}
@@ -1391,6 +1587,7 @@ export class AgentControl {
 	async #answer(caller: ControlTab, target: ControlTab, args: AnswerArgs): Promise<string> {
 		this.#refuseHidden(target, caller);
 		const asks = target.asks.filter(ask => !askTitle(ask.request).startsWith(AGENT_CARD_PREFIX));
+		if (asks.length === 0 && target.plan) return this.#answerPlan(caller, target, target.plan, args);
 		if (asks.length === 0)
 			fail(
 				target.asks.length > 0
@@ -1447,7 +1644,46 @@ export class AgentControl {
 		return `Answered ${label(target)}: ${summary}. It continues now.`;
 	}
 
-	/** Own children: free. Others: one confirmation card unless the user turned the card off. */
+	/**
+	 * A plan proposal, through the same `plan_approval` command the plan card sends: approve with an option, or
+	 * reject (with `text`, stock's feedback turn). Approving follows the tool-approval rule; rejecting always works.
+	 */
+	async #answerPlan(
+		caller: ControlTab,
+		target: ControlTab,
+		plan: { title: string; planFilePath: string },
+		args: AnswerArgs,
+	): Promise<string> {
+		const approve = args.approve ?? (args.choice === undefined ? undefined : !/^(reject|deny|no)/i.test(args.choice));
+		if (approve === undefined)
+			fail("Give approve: true (choice execute, compact or keep_context) or approve: false (text = feedback).");
+		const name = `"${oneLine(plan.title || "plan", 100)}"`;
+		let command: RpcCommand;
+		let summary: string;
+		if (approve) {
+			const option = args.choice === undefined || args.choice === "Approve" ? "execute" : args.choice;
+			if (option !== "execute" && option !== "compact" && option !== "keep_context")
+				fail(`Plan option "${option}": use execute, compact or keep_context.`);
+			if (!this.#host.approveEnabled())
+				fail(
+					"사용자 승인이 필요해요: approving another session's plan needs the user's permission for agents to approve (Settings › Tools & extensions). Tell the user, or show the session with ompdesk_tab_focus. Rejecting with feedback is allowed.",
+				);
+			command = { type: "plan_approval", approved: true, option };
+			summary = `approved plan ${name} (${option})`;
+		} else {
+			const feedback = args.text?.trim();
+			command = { type: "plan_approval", approved: false, ...(feedback ? { feedback } : {}) };
+			summary = feedback ? `rejected plan ${name} with feedback` : `rejected plan ${name}`;
+		}
+		responseData(await this.#host.command(target.tabId, command), "Answering the plan");
+		await this.#host.markAnswered(target.tabId, caller.title || caller.tabId).catch(() => undefined);
+		return `Answered ${label(target)}: ${summary}.${approve || args.text?.trim() ? " It continues now." : ""}`;
+	}
+
+	/**
+	 * Own children: free. Others: one confirmation card unless the user let agents manage other sessions (default
+	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone.
+	 */
 	async #stop(
 		caller: ControlTab,
 		tabs: ControlTab[],
@@ -1457,7 +1693,13 @@ export class AgentControl {
 		this.#refuseHidden(target, caller);
 		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
 		const params = { caller: caller.title || "—", target: target.title || target.tabId };
-		if (!own && !this.#host.manageEnabled()) {
+		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
+		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
+		const resting = !target.busy && !waits(target) && !target.looked && !target.userTouched;
+		const harmless = args.close === true && !args.delete && resting;
+		if (args.close && !args.delete && (target.looked || target.userTouched))
+			fail(`${label(target)} is in the user's view or they typed into it; leave it open, or ask the user.`);
+		if (!own && !harmless && !this.#host.fullEnabled() && (args.delete === true || !this.#host.manageEnabled())) {
 			const approved = await this.#host.confirm(
 				caller.tabId,
 				this.#host.text("stopTitle", params),
@@ -1468,18 +1710,78 @@ export class AgentControl {
 		}
 		this.#closing.add(target.tabId);
 		try {
-			if (target.status === "ready" || target.status === "running") {
+			if (target.busy && (target.status === "ready" || target.status === "running")) {
 				responseData(await this.#host.command(target.tabId, { type: "abort" }), "Stopping the session");
 			}
+			if (args.close || args.delete) await this.#journalClose(caller, target, args.delete === true);
 			if (args.delete) await this.#host.deleteSession(caller.tabId, target.tabId);
-			else if (args.close) this.#host.view(caller.tabId, { tabId: target.tabId, how: "close" });
+			else if (args.close) {
+				// The card and the lines took time: the person may have opened it meanwhile.
+				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
+				if (now && (now.looked || now.userTouched))
+					fail(`${label(target)} came into the user's view meanwhile; it stays open.`);
+				this.#host.view(caller.tabId, { tabId: target.tabId, how: "close" });
+			}
 		} finally {
 			this.#closing.delete(target.tabId);
 		}
-		if (args.delete) return `Stopped, closed and deleted ${label(target)}.`;
-		return args.close
-			? `Stopped and closed ${label(target)} (its session stays saved).`
-			: `Stopped ${label(target)}.`;
+		if (args.delete) {
+			const done = `Stopped, closed and deleted ${label(target)}.`;
+			return own && target.worktree && !target.deviceName
+				? `${done} ${await this.#dropWorktree(target.worktree)}`
+				: done;
+		}
+		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
+		return target.busy ? `Stopped ${label(target)}.` : `${label(target)} was not running; nothing to stop.`;
+	}
+
+	/**
+	 * A deleted child's worktree and branch go only when nothing would be lost (clean tree, untracked files included,
+	 * branch tip in the parent's HEAD or upstream); otherwise both stay and the answer says what is unlanded.
+	 */
+	async #dropWorktree(worktree: WorktreeRef): Promise<string> {
+		const removal = await this.#host.removeSafeWorktree(worktree).catch(() => null);
+		if (removal === "removed") return `Removed its worktree ${worktree.path} and branch ${worktree.branch}.`;
+		if (removal === "branch-kept")
+			return `Removed its worktree ${worktree.path}; git kept branch ${worktree.branch} (not merged into the parent checkout's HEAD).`;
+		const facts = await this.#host.branchFacts(worktree).catch(() => null);
+		const unlanded = facts
+			? [
+					facts.merged ? null : `${facts.commitsAhead} commit(s) not in the base or its upstream`,
+					facts.uncommitted ? `${facts.uncommitted} uncommitted file(s)` : null,
+					facts.untracked ? `${facts.untracked} untracked file(s)` : null,
+				].filter(Boolean)
+			: [];
+		return `Kept its worktree ${worktree.path} and branch ${worktree.branch}${unlanded.length ? `: ${unlanded.join(", ")}` : ""}. Land it with git there, or remove it yourself if the work is not wanted.`;
+	}
+
+	/** A close is journaled as one quiet line in both sessions (best effort: a line never blocks the close). */
+	async #journalClose(caller: ControlTab, target: ControlTab, deleted: boolean): Promise<void> {
+		const at = Date.now();
+		const line = (from: ControlTab, text: string) => ({
+			id: `close:${target.sessionPath ?? target.tabId}:${at}:${from.tabId}`,
+			from: from.tabId,
+			fromTitle: from.title,
+			kind: "note",
+			label: "note",
+			text,
+		});
+		const quiet: MailDelivery = { triggerTurn: false };
+		const closed = `${deleted ? "Deleted" : "Closed"} ${label(target)}${deleted ? "" : " (its session stays saved)"}.`;
+		await Promise.allSettled([
+			this.#host.mail(
+				caller.tabId,
+				closed,
+				line(caller, closed),
+				caller.busy ? { triggerTurn: false, deliverAs: "nextTurn" } : quiet,
+			),
+			this.#host.mail(
+				target.tabId,
+				`${caller.title || "Another session"} closed this session's tab.`,
+				line(caller, `closed this tab`),
+				quiet,
+			),
+		]);
 	}
 
 	/** What a compare reads from one session: its final answer, the checks it ran and its worktree's diff. */
@@ -1580,7 +1882,7 @@ export class AgentControl {
 		const per = Math.floor(JUDGE_EVIDENCE_CHARS / evidence.length);
 		const user = [
 			"Acceptance criteria:",
-			...criteria.slice(0, JUDGE_MAX_CRITERIA).map((criterion, index) => `${index + 1}. ${criterion}`),
+			...criteria.map((criterion, index) => `${index + 1}. ${criterion}`),
 			"",
 			...evidence.map(entry =>
 				[
@@ -1647,8 +1949,7 @@ export class AgentControl {
 			fail(`${label(target)} has no worktree branch to merge (open sessions with worktree: true).`);
 		if (target.deviceName)
 			fail(`${label(target)} runs on ${target.deviceName}; merging works on this computer's sessions only.`);
-		if (target.busy || target.asks.length > 0)
-			fail(`${label(target)} is still working or waiting; collect its result first.`);
+		if (target.busy || waits(target)) fail(`${label(target)} is still working or waiting; collect its result first.`);
 		return target.worktree;
 	}
 
@@ -1666,9 +1967,14 @@ export class AgentControl {
 		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.`;
 	}
 
-	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem> {
+	/**
+	 * A child's review item, or null when nothing is left to review: an idle child whose branch landed (its tip is in the
+	 * parent's branch or the upstream it tracks) with no uncommitted or untracked file, which ended well and waits on
+	 * no answer. A landed child with files left over lists only those files.
+	 */
+	async #reviewItem(tab: ControlTab): Promise<AgentReviewItem | null> {
 		const session = await this.#state(tab);
-		const running = tab.busy || tab.asks.length > 0 || (tab.status !== "ready" && tab.status !== "running");
+		const running = tab.busy || waits(tab) || (tab.status !== "ready" && tab.status !== "running");
 		const conflict = this.#conflicts.get(tab.tabId);
 		const item: AgentReviewItem = {
 			tabId: tab.tabId,
@@ -1689,10 +1995,18 @@ export class AgentControl {
 				? { failed: true as const }
 				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
+			...this.#reportFields(tab.tabId),
+			// Its plan waits for approval: the opener (or the person) answers it, nothing is left to review.
+			...(tab.plan ? { waiting: true as const } : {}),
 		};
 		if (!tab.worktree || tab.deviceName) return item;
 		try {
 			const facts = await this.#host.branchFacts(tab.worktree);
+			const clean = facts.uncommitted === 0 && facts.untracked === 0;
+			if (facts.merged && clean && !running && !item.failed && !item.waiting) {
+				this.#conflicts.delete(tab.tabId);
+				return null;
+			}
 			return {
 				...item,
 				branch: facts.branch,
@@ -1701,7 +2015,8 @@ export class AgentControl {
 				files: facts.files.length,
 				added: facts.files.reduce((sum, file) => sum + file.added, 0),
 				removed: facts.files.reduce((sum, file) => sum + file.removed, 0),
-				uncommitted: facts.uncommitted,
+				// Untracked files are work the branch does not hold yet either.
+				uncommitted: facts.uncommitted + facts.untracked,
 			};
 		} catch {
 			return { ...item, branch: tab.worktree.branch };
@@ -1714,54 +2029,8 @@ export class AgentControl {
 		if (!tabs) return [];
 		const own = this.#openedBy(callerTabId, tabs);
 		const children = tabs.filter(tab => own.has(tab.tabId) && !this.#reviewed.has(tab.tabId) && !tab.hidden);
-		return Promise.all(children.map(tab => this.#reviewItem(tab)));
-	}
-
-	/**
-	 * The board's buttons: Approve merges a worktree session's branch into the parent checkout (the person's click is
-	 * the confirmation) and accepts a session without one; Discard stops and closes the session and removes its
-	 * worktree and branch; Dismiss only hides the item. Only sessions this one opened. Throws a readable message.
-	 */
-	async review(callerTabId: string, action: AgentReviewAction, child?: string): Promise<AgentReviewResult> {
-		if (action === "list") return { items: await this.reviewItems(callerTabId) };
-		const tabs = this.#host.tabs(callerTabId);
-		const caller = tabs?.find(tab => tab.tabId === callerTabId);
-		const target = tabs?.find(tab => tab.tabId === child);
-		if (!tabs || !caller || !target || !this.#openedBy(callerTabId, tabs).has(target.tabId))
-			throw new Error("That session is not one this session opened.");
-		let message: string | undefined;
-		let outcome: AgentReviewOutcome = action === "discard" ? "discarded" : "dismissed";
-		if (action === "approve") {
-			if (target.worktree) {
-				const worktree = this.#mergeable(caller, target);
-				const problem = mergeProblem(worktree, await this.#host.branchFacts(worktree));
-				if (problem) throw new Error(problem);
-				try {
-					message = await this.#runMerge(target, worktree);
-					outcome = "merged";
-				} catch (error) {
-					if (error instanceof ToolError)
-						return { items: await this.reviewItems(callerTabId), outcome: "conflict", message: error.message };
-					throw error;
-				}
-			} else {
-				this.#reviewed.add(target.tabId);
-				outcome = "accepted";
-			}
-		} else if (action === "discard") {
-			this.#closing.add(target.tabId);
-			try {
-				if (target.status === "ready" || target.status === "running")
-					await this.#host.command(target.tabId, { type: "abort" }).catch(() => undefined);
-				this.#host.view(callerTabId, { tabId: target.tabId, how: "close" });
-				await this.#whenGone(callerTabId, target.tabId);
-				if (target.worktree && !target.deviceName) await this.#host.discardWorktree(target.worktree);
-			} finally {
-				this.#closing.delete(target.tabId);
-			}
-			this.#reviewed.add(target.tabId);
-		} else this.#reviewed.add(target.tabId);
-		return { items: await this.reviewItems(callerTabId), outcome, ...(message ? { message } : {}) };
+		const items = await Promise.all(children.map(tab => this.#reviewItem(tab)));
+		return items.filter(item => item !== null);
 	}
 
 	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
@@ -1784,10 +2053,10 @@ export class AgentControl {
 		if (!tabs || !caller?.sessionPath) return;
 		this.#sweeping.add(callerTabId);
 		try {
-			const openerIdle = !caller.busy && caller.asks.length === 0;
+			const openerIdle = !caller.busy && !waits(caller);
 			for (const tab of tabs) {
 				if (!this.#openedBy(callerTabId, tabs).has(tab.tabId) || this.#closing.has(tab.tabId)) continue;
-				if (tab.busy || tab.asks.length > 0) {
+				if (tab.busy || waits(tab)) {
 					this.#collected.delete(tab.tabId);
 					continue;
 				}
@@ -1829,7 +2098,7 @@ export class AgentControl {
 			if (this.#host.tabs(caller.tabId)?.some(entry => entry.tabId === tab.tabId)) return;
 			const removed =
 				removeWorktree && tab.worktree
-					? await this.#host.removeLandedWorktree(tab.worktree).catch(() => false)
+					? (await this.#host.removeSafeWorktree(tab.worktree).catch(() => null)) !== null
 					: false;
 			this.#host.recordClosed({
 				path: tab.sessionPath as string,
@@ -1848,7 +2117,6 @@ export class AgentControl {
 		const source = this.#host.schedules();
 		if (!source) fail("Scheduled runs are not available here.");
 		const rows = source.list();
-		const mine = rows.filter(row => row.name.startsWith(AGENT_SCHEDULE_PREFIX));
 		if (args.action === "list") {
 			if (rows.length === 0) return "No scheduled runs.";
 			return rows
@@ -1871,16 +2139,10 @@ export class AgentControl {
 		}
 		if (caller.deviceName)
 			fail("Scheduled runs start on this computer; a session on a paired host cannot create one.");
-		if (mine.length >= MAX_AGENT_SCHEDULES)
-			fail(
-				`${mine.length} agent-made schedules already exist (the limit is ${MAX_AGENT_SCHEDULES}). Cancel one first, or ask the user.`,
-			);
 		const frequency: ScheduleFrequency =
 			args.every_minutes !== undefined
 				? { kind: "interval", minutes: args.every_minutes }
 				: { kind: "daily", time: args.daily_at ?? "09:00", days: [...new Set(args.days ?? [])].sort() };
-		if (frequency.kind === "interval" && frequency.minutes < AGENT_SCHEDULE_MIN_INTERVAL_MINUTES)
-			fail(`every_minutes must be at least ${AGENT_SCHEDULE_MIN_INTERVAL_MINUTES}.`);
 		const cwd = args.folder ?? caller.cwd;
 		if (!(cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd))) fail("folder must be an absolute path.");
 		const name = `${AGENT_SCHEDULE_PREFIX}${args.name ?? ""}`;
@@ -1958,18 +2220,6 @@ export class AgentControl {
 		return status;
 	}
 
-	/** The tabs of agent-started runs whose run is over or no longer a run: they stop counting against the limit. */
-	async #endedRuns(source: AutopilotSource): Promise<Set<string>> {
-		const ended = new Set<string>();
-		await Promise.all(
-			this.#limits.runTabs().map(async tab => {
-				const status = await source.status(tab).catch(() => null);
-				if (status && (!status.active || status.state === "ended")) ended.add(tab);
-			}),
-		);
-		return ended;
-	}
-
 	async #autopilotStart(
 		caller: ControlTab,
 		tabs: ControlTab[],
@@ -1977,7 +2227,6 @@ export class AgentControl {
 		args: Extract<AutopilotArgs, { action: "start" }>,
 	): Promise<string> {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
-		if (this.#limits.runTabs().includes(caller.tabId)) fail("An Autopilot run cannot start another run.");
 		const folder = args.folder === undefined ? trimSeparators(caller.cwd) : trimSeparators(args.folder);
 		if (!(folder.startsWith("/") || /^[A-Za-z]:[\\/]/.test(folder))) fail("folder must be an absolute path.");
 		const sourceTab = [caller, ...tabs]
@@ -1996,23 +2245,9 @@ export class AgentControl {
 			args.branch?.kind === "existing" &&
 			(args.branch.name === plan.defaultBranch || args.branch.name === "main" || args.branch.name === "master");
 		const opened = this.#openedBy(caller.tabId, tabs);
-		if (opened.size >= MAX_AGENT_SESSIONS)
-			fail(
-				`You have ${opened.size} sessions open that you opened (the limit is ${MAX_AGENT_SESSIONS} open at once). Close some with ompdesk_session_stop first.`,
-			);
-
-		const key = `${PENDING_RUN}${Math.random()}`;
-		const turn = this.#host.turn(caller.tabId);
-		this.#limits.reserveRun(key, await this.#endedRuns(source));
-		try {
-			this.#limits.reserveOpens(caller.tabId, turn, 1);
-		} catch (error) {
-			this.#limits.dropRun(key);
-			throw error;
-		}
 		let started: AutopilotStatus & { tabId: string };
 		try {
-			if (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch) {
+			if (!this.#host.fullEnabled() && (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch)) {
 				const branch =
 					args.branch?.kind === "existing"
 						? onDefaultBranch
@@ -2036,20 +2271,13 @@ export class AgentControl {
 						branch,
 					}),
 				);
-				if (!approved) {
-					this.#limits.dropRun(key);
-					this.#limits.refundOpens(caller.tabId, turn, 1);
-					return "The user declined Autopilot. Do not ask again unless they tell you to.";
-				}
+				if (!approved) return "The user declined Autopilot. Do not ask again unless they tell you to.";
 			}
 			started = await source.start(caller.tabId, sourceTab.tabId, startOptions(args, ship));
 		} catch (error) {
-			this.#limits.dropRun(key);
-			this.#limits.refundOpens(caller.tabId, turn, 1);
-			if (error instanceof ToolError || error instanceof LimitError) throw error;
+			if (error instanceof ToolError) throw error;
 			fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
 		}
-		this.#limits.settleRun(key, started.tabId);
 		opened.add(started.tabId);
 		return [
 			`Started Autopilot in session ${started.tabId}.`,

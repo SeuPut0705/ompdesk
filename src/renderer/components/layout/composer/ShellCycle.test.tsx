@@ -11,7 +11,6 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
-import { ko } from "../../../locales/ko";
 import { useSessionStore } from "../../../stores/session";
 import { useUiStore } from "../../../stores/ui";
 import { CommandPalette } from "../../dialogs/CommandPalette";
@@ -185,11 +184,5 @@ describe("picker search fields", () => {
 		const picker = readFileSync(new URL("../../dialogs/ModelPicker.tsx", import.meta.url), "utf8");
 		expect(picker).toMatch(/title=\{t\("modelPicker\.defaultHint"\)\}/);
 		expect(picker).not.toMatch(/<span[^>]*>\s*\{t\("modelPicker\.defaultHint"\)/);
-	});
-});
-
-describe("first-run copy", () => {
-	it("the Korean later hint does not open with the Set up later button's own words", () => {
-		expect(ko["setup.laterHint"].startsWith(ko["setup.later"])).toBe(false);
 	});
 });

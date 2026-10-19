@@ -7,7 +7,11 @@ export interface TabSignalPresentation {
 	running: boolean;
 }
 
-export function tabSignalPresentation(tab: SessionTab, activeRuntime = false): TabSignalPresentation {
+/** A tab's signal; any tab-shaped state works (the sidebar's row of a paired device's tab on this computer too). */
+export function tabSignalPresentation(
+	tab: Pick<SessionTab, "status" | "compacting" | "awaitingInput" | "unreadDone">,
+	activeRuntime = false,
+): TabSignalPresentation {
 	const running = tab.status === "running" || tab.compacting === true || activeRuntime;
 	// A session blocked on the user outranks "running": it needs the user, not just time.
 	if (tab.awaitingInput) {

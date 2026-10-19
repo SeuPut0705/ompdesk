@@ -93,7 +93,7 @@ afterEach(async () => {
 });
 
 describe("Delegation in the Run popover", () => {
-	it("shows the tab's held strength and lists every strength with what it does", async () => {
+	it("shows the tab's held strength as one segmented line, the full name and effect behind (i)", async () => {
 		held = "collaborative";
 		useSessionStore.setState({ sessionId: "s1", status: "ready" });
 		await mount();
@@ -105,9 +105,15 @@ describe("Delegation in the Run popover", () => {
 		await act(async () => trigger()?.click());
 		expect(section()).not.toBeNull();
 		for (const mode of DELEGATION_MODES) {
-			expect(option(mode).textContent).toContain(translate(`input.delegation.mode.${mode}`));
-			expect(option(mode).textContent).toContain(translate(`input.delegation.desc.${mode}`));
+			expect(option(mode).textContent).toBe(translate(`input.delegation.short.${mode}`));
+			expect(option(mode).getAttribute("aria-label")).toBe(translate(`input.delegation.mode.${mode}`));
 		}
+		// One line: no paragraph under the row; what the held strength does (and that it applies from the next turn)
+		// is the (i) glyph's text.
+		expect(section()?.querySelector("[data-setting-info]")).not.toBeNull();
+		expect(section()?.textContent).toContain(translate("input.delegation.desc.collaborative"));
+		expect(section()?.textContent).toContain(translate("input.delegation.note"));
+		expect(section()?.querySelector("p")).toBeNull();
 		expect(option("collaborative").getAttribute("aria-checked")).toBe("true");
 		expect(option("swarm").getAttribute("aria-checked")).toBe("false");
 	});

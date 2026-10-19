@@ -26,6 +26,8 @@ export type SessionListScope = "local" | "global";
 export interface SessionListState {
 	sessions: SessionInfo[];
 	isLoading: boolean;
+	/** A live read of the index has answered since this app started: the rows are what exists, not a last-known snapshot. */
+	live: boolean;
 	/** Set when the last read failed; an empty list must not claim "nothing here". */
 	error: string | null;
 }
@@ -41,7 +43,7 @@ export interface SessionListFeed {
 
 const REFRESH_DEBOUNCE_MS = 350;
 
-const INITIAL_STATE: SessionListState = { sessions: [], isLoading: true, error: null };
+const INITIAL_STATE: SessionListState = { sessions: [], isLoading: true, live: false, error: null };
 /** The index is the newest rows only: the sidebar groups and pages what it shows, and the live read brings the rest. */
 const SNAPSHOT_ROWS = 150;
 const SNAPSHOT_DELAY_MS = 1500;
@@ -77,7 +79,9 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 	const ns = snapshotNs(device);
 	const seeded = snapshots().read<SessionInfo[]>("sessions", ns, snapshotKey(scope))?.value;
 	const store = createStore<SessionListState>()(() =>
-		Array.isArray(seeded) && seeded.length > 0 ? { sessions: seeded, isLoading: false, error: null } : INITIAL_STATE,
+		Array.isArray(seeded) && seeded.length > 0
+			? { sessions: seeded, isLoading: false, live: false, error: null }
+			: INITIAL_STATE,
 	);
 	let saveTimer: number | undefined;
 	const remember = () => {
@@ -112,8 +116,8 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 					loaded = true;
 					const state = store.getState();
 					const sessions = reconcile(state.sessions, list);
-					if (sessions !== state.sessions || state.isLoading || state.error !== null)
-						store.setState({ sessions, isLoading: false, error: null });
+					if (sessions !== state.sessions || state.isLoading || !state.live || state.error !== null)
+						store.setState({ sessions, isLoading: false, live: true, error: null });
 					if (sessions !== state.sessions || !state.error) remember();
 					// The global list holds every session, so a row of the local list's last-known copy it lacks was deleted,
 					// possibly on another device: dropped now, before that list next paints it (a phone reload, a mount).

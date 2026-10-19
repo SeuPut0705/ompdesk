@@ -77,7 +77,8 @@ test("'push now' in chat pushes the autopilot branch at the end of the turn; a f
 	const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
 	const { app, page } = await launchAp(profile);
 	try {
-		const tabId = await startRun(page, await mainTab(page));
+		// Local level on purpose: only the user's "push now" may push here (the default would push every green cycle).
+		const tabId = await startRun(page, await mainTab(page), { preset: "local" });
 		// Cycle 1 is running: the user's own words reach it as a steer.
 		await waitForStatus(page, tabId, s => s.now?.n === 1, "cycle 1 is running");
 		const steer = await command(page, tabId, { type: "steer", message: "push now" });
@@ -260,6 +261,8 @@ for (const language of ["en", "ko"] as const)
 			await page.locator("[data-run-settings-trigger]").click();
 			await page.getByRole("tab", { name: text.tab }).click();
 			await expect(page.locator("[data-autopilot-sheet]")).toBeVisible();
+			// The Branch row sits in the sheet's one Advanced disclosure.
+			await page.locator("[data-autopilot-sheet] [data-settings-advanced] summary").click();
 		};
 		try {
 			await openSheet();

@@ -133,13 +133,19 @@ export function SetupProgressLine({ item, className }: { item: SetupItemState; c
 	);
 }
 
-/** What detection found beyond the phase: an old version or a broken install. */
+/** What detection found beyond the phase: an old version, a broken install, or Git Bash that cannot start programs. */
 export function setupPresenceNote(t: Translate, item: SetupItemState): string | null {
 	const presence = item.presence;
 	if (presence?.kind === "outdated") {
 		return t("machineSetup.presence.outdated", { version: presence.version, minimum: presence.minimum });
 	}
 	if (presence?.kind === "broken") return t("machineSetup.presence.broken", { detail: presence.detail });
+	if (presence?.kind === "present" && presence.gitShell?.kind === "mandatory-aslr") {
+		return t("machineSetup.presence.gitShellAslr");
+	}
+	if (presence?.kind === "present" && presence.gitShell?.kind === "spawn-failed") {
+		return t("machineSetup.presence.gitShellFailed", { detail: presence.gitShell.detail });
+	}
 	return null;
 }
 

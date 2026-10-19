@@ -953,9 +953,6 @@ function SessionTranscript() {
 							<h1 className="font-display text-sc-3xl font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">
 								{isChat ? t("chat.empty.title.chat") : t("chat.empty.title")}
 							</h1>
-							<p className="mt-2 max-w-xl text-sc-lg text-pretty text-(--sc-text-muted)">
-								{isChat ? t("chat.empty.subtitle.chat") : t("chat.empty.subtitle")}
-							</p>
 							<div className="omp-starter-grid mt-8 grid auto-rows-fr grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
 								{starters.map(({ icon: Icon, title, prompt }) => (
 									<button

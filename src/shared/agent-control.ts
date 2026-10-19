@@ -25,11 +25,28 @@ export function agentHiddenPaths(sidebarBlob: unknown): Set<string> {
 	return new Set(Array.isArray(list) ? list.filter((entry): entry is string => typeof entry === "string") : []);
 }
 
-/** Prefs key, default OFF: an orchestrating agent may approve another session's pending tool approval. */
+/**
+ * Prefs key, default OFF: an orchestrating agent may approve another session's pending tool approval. Off because
+ * it bypasses the user's own approval policy; it stays the user's explicit choice.
+ */
 export const AGENT_CONTROL_APPROVE_PREF = "agentControlApprove";
 
-/** Prefs key, default OFF: an orchestrating agent may stop, close or delete sessions it did not open (else one confirmation card each). */
+/**
+ * Prefs key, default ON (unset counts as on; only a stored `false` is off): an orchestrating agent may stop or close
+ * sessions it did not open, merge a session's branch, create or cancel a schedule and start Autopilot without a
+ * confirmation card. Permanently deleting a saved session it did not open (and every app action that deletes user
+ * data) asks regardless.
+ */
 export const AGENT_CONTROL_MANAGE_PREF = "agentControlManage";
+
+/**
+ * Prefs key, default ON (unset counts as on; only a stored `false` is off): "Give agents full control of OMPdesk".
+ * While on, no control tool or app action raises an `[OMPdesk]` card (the `always` set, a foreign delete and
+ * Autopilot release or main included), an agent may approve another session's tool approval, and it may change the
+ * agent-power switches themselves. Secrets stay unreadable and cards stay unanswerable whatever it says. Off: the
+ * manage, approve and `always` rules apply as before.
+ */
+export const AGENT_CONTROL_FULL_PREF = "agentControlFull";
 
 /** Title prefix of every confirmation card the control tools raise; `ompdesk_session_answer` never answers one. */
 export const AGENT_CARD_PREFIX = "[OMPdesk] ";
@@ -53,6 +70,21 @@ export function agentControlEnabled(value: unknown): boolean {
 	return value !== false;
 }
 
+/** `agentControlFull` as stored: unset is on. */
+export function agentControlFullEnabled(value: unknown): boolean {
+	return value !== false;
+}
+
+/** `agentControlManage` as stored: unset is on. */
+export function agentControlManageEnabled(value: unknown): boolean {
+	return value !== false;
+}
+
+/** `agentControlApprove` as stored: unset is off. */
+export function agentControlApproveEnabled(value: unknown): boolean {
+	return value === true;
+}
+
 /** Tool names (stock mounts each as `xd://<name>`). */
 export const AGENT_CONTROL_TOOLS = {
 	list: "ompdesk_sessions",
@@ -70,6 +102,7 @@ export const AGENT_CONTROL_TOOLS = {
 	autopilot: "ompdesk_autopilot",
 	appList: "ompdesk_app_list",
 	app: "ompdesk_app",
+	report: "ompdesk_report",
 } as const;
 
 /** main → window (`AGENT_CONTROL_APP`): what `ompdesk_app` changed, for the window to show or apply. */
@@ -104,26 +137,6 @@ export function isAgentControlTool(name: string): name is AgentControlToolName {
 	return (Object.values(AGENT_CONTROL_TOOLS) as string[]).includes(name);
 }
 
-/** Sessions one session may hold open that it opened itself; a further open is refused until one closes. */
-export const MAX_AGENT_SESSIONS = 6;
-/** Sessions one session may open within one of its turns (a fan-out is one call of up to this many). */
-export const MAX_OPENS_PER_TURN = 4;
-/** Sessions one session may open within a rolling hour. */
-export const MAX_OPENS_PER_HOUR = 12;
-/** A message chain A→B→C… started by an agent's send may be at most this many hops deep; the next send is refused. */
-export const MAX_RELAY_HOPS = 3;
-/** Agent messages from one session to one other session within a minute. */
-export const MAX_PAIR_MESSAGES_PER_MINUTE = 6;
-/** Messages one session's agent may send within one of its turns, and within a rolling hour (opens count too). */
-export const MAX_MESSAGES_PER_TURN = 20;
-export const MAX_MESSAGES_PER_HOUR = 60;
-
-/** Scheduled runs an agent may have created and still live (`ompdesk_schedule`); each is named with the prefix below. */
-export const MAX_AGENT_SCHEDULES = 5;
-/** Autopilot runs agents started (`ompdesk_autopilot`) that may be live at once, across every session of the app. */
-export const MAX_AGENT_AUTOPILOT_RUNS = 2;
-/** The shortest repeat an agent may schedule, in minutes (the Schedules service itself allows 5). */
-export const AGENT_SCHEDULE_MIN_INTERVAL_MINUTES = 30;
 /** Schedules an agent creates start with this, so the person sees whose they are in Settings › Schedules and only these may be cancelled by an agent. */
 export const AGENT_SCHEDULE_PREFIX = "[agent] ";
 
@@ -182,11 +195,10 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 }
 
 /**
- * The review queue (work board): the sessions an agent opened, once they have finished, wait for the person with their
- * diff stat and an Approve (merge the worktree branch into the parent checkout; a session without a branch is
- * accepted) and a Discard (close the session and remove its worktree and branch). Main pushes the whole list for a
- * parent session on every change (`AGENT_CONTROL_REVIEW`); the renderer asks and acts through the
- * `agent_control_review` command.
+ * The opened-session list (work board rows): the sessions an agent opened, with their status, step, clock, report and
+ * diff stat. Nobody approves or discards them on the board: the opener's agent reviews and lands them with
+ * `ompdesk_compare` / `ompdesk_merge` / `ompdesk_session_stop`. Main pushes the whole list for a parent session on
+ * every change (`AGENT_CONTROL_REVIEW`); the renderer asks once on mount through the `agent_control_review` command.
  */
 export const AGENT_CONTROL_REVIEW = "agent-control:review";
 
@@ -202,6 +214,7 @@ export interface AgentReviewItem {
 	files: number;
 	added: number;
 	removed: number;
+	/** Files the branch does not hold yet: tracked edits plus untracked files in the worktree. */
 	uncommitted: number;
 	/** The start of its last answer. */
 	answer: string;
@@ -212,6 +225,10 @@ export interface AgentReviewItem {
 	/** Its last turn ended in an error or was stopped. */
 	failed?: true;
 	note?: string;
+	/** Its last report to its opener (`ompdesk_report`): kind, text and when. */
+	report?: { kind: string; text: string; at: number };
+	/** Its last report is a question or a blocker its opener has not answered yet. */
+	waiting?: true;
 }
 
 export interface AgentReviewEvent {
@@ -220,16 +237,9 @@ export interface AgentReviewEvent {
 	items: AgentReviewItem[];
 }
 
-export type AgentReviewAction = "list" | "approve" | "discard" | "dismiss";
-
-export type AgentReviewOutcome = "merged" | "accepted" | "discarded" | "dismissed" | "conflict";
-
-/** What the `agent_control_review` command answers: the list after the action, what the action did, and any detail. */
+/** What the `agent_control_review` command answers: the opened sessions' list. */
 export interface AgentReviewResult {
 	items: AgentReviewItem[];
-	outcome?: AgentReviewOutcome;
-	/** English detail for the person to read (a conflict's files, a refusal). */
-	message?: string;
 }
 
 /**

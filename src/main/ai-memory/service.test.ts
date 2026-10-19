@@ -735,7 +735,7 @@ describe("AiMemoryService", () => {
 			const { service, commands, prefs } = await make();
 			prefs.enabled = false;
 			await service.start();
-			await expect(service.purge()).rejects.toThrow("data directory is not known");
+			await expect(service.purge()).rejects.toThrow("data folder is not known");
 			expect(commands()).toEqual([]);
 		});
 	});

@@ -15,10 +15,15 @@ import type {
 	AutopilotStatus,
 } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
+	MAX_NEXT_PROMPT_CHILDREN,
+	type NextPromptChild,
+} from "../../../resources/gui-bridge/modes/next-prompt-contracts";
+import {
 	AGENT_CARD_PREFIX,
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APP,
 	AGENT_CONTROL_APPROVE_PREF,
+	AGENT_CONTROL_FULL_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
@@ -26,11 +31,13 @@ import {
 	AGENT_HIDDEN_PREFS_KEY,
 	type AgentControlToolName,
 	type AgentControlViewEvent,
-	type AgentReviewAction,
 	type AgentReviewEvent,
 	type AgentReviewItem,
 	type AgentReviewResult,
+	agentControlApproveEnabled,
 	agentControlEnabled,
+	agentControlFullEnabled,
+	agentControlManageEnabled,
 	agentHiddenPaths,
 	type ClosedChild,
 	MAX_CLOSED_CHILDREN,
@@ -62,8 +69,7 @@ import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
 import type { AppPorts } from "./app-control";
-import { branchFacts, discardWorktree, landingFacts, mergeBranch, removeLandedWorktree } from "./branches";
-import { AgentLimits } from "./limits";
+import { branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "./branches";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -92,6 +98,7 @@ export interface AgentControlHostDeps {
 		SidecarPool,
 		| "tabsForWindow"
 		| "tabFacts"
+		| "pendingPlan"
 		| "observeTabs"
 		| "openRequests"
 		| "routeSideChannel"
@@ -174,12 +181,15 @@ export function splitBranch(branch: string | undefined, slug: string): { branchP
 export class AgentControlRuntime {
 	readonly #deps: AgentControlHostDeps;
 	readonly #windows = new Map<string, ClientWindow>();
-	readonly #turns = new Map<string, number>();
 	/** Who opened a tab and for what (Autopilot's tag). */
 	readonly #parents = new Map<string, { callerTabId: string; tag?: string }>();
 	readonly control: AgentControl;
 	/** Debounce timers of the review pushes, per parent tab. */
 	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
+	/** The review list last sent per parent tab (JSON), so the timer pushes only what changed. */
+	readonly #reviewSent = new Map<string, string>();
+	/** The running or waiting children last told to each parent's prompt suggestions (JSON). */
+	readonly #childrenSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
 	readonly #userPrompted = new Set<string>();
 	/** When each tab's current turn started. */
@@ -189,14 +199,10 @@ export class AgentControlRuntime {
 	/** Debounce timers of the auto-close passes, per opener tab. */
 	readonly #sweepTimers = new Map<string, NodeJS.Timeout>();
 
-	constructor(deps: AgentControlHostDeps, limits: AgentLimits = new AgentLimits()) {
+	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
-		this.control = new AgentControl(this.#host(), limits);
+		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
-			// The per-turn budget is per agent turn: a turn's end opens the next one even while background work
-			// keeps the run busy (no idle → busy edge then), and a new run starts one too.
-			if (activity.type === "busy" || activity.type === "turnEnded")
-				this.#turns.set(activity.tabId, (this.#turns.get(activity.tabId) ?? 0) + 1);
 			if (activity.type === "busy") this.#busySince.set(activity.tabId, Date.now());
 			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#parents.get(activity.tabId)?.callerTabId;
@@ -204,10 +210,11 @@ export class AgentControlRuntime {
 			// A child finishing, or an opener going idle (it can no longer collect), may let a child close.
 			this.#sweepSoon(parent ?? activity.tabId);
 			if (activity.type === "released") {
-				this.#turns.delete(activity.tabId);
 				this.#windows.delete(activity.tabId);
 				this.#parents.delete(activity.tabId);
 				this.#busySince.delete(activity.tabId);
+				this.#reviewSent.delete(activity.tabId);
+				this.#childrenSent.delete(activity.tabId);
 				this.#userPrompted.delete(activity.tabId);
 				this.#autopilotRuns.delete(activity.tabId);
 				this.control.released(activity.tabId);
@@ -244,11 +251,23 @@ export class AgentControlRuntime {
 		this.#sweepTimers.set(tabId, timer);
 	}
 
-	/** Every opener with children, on the timer: a merge or push outside the app is no tab activity. */
+	/**
+	 * Every opener with children, on the timer: a merge, push or commit outside the app is no tab activity, so
+	 * neither the auto-close pass nor the work board's review list would otherwise notice that a child's work landed
+	 * (it leaves the queue) or appeared (it joins).
+	 */
 	#sweepAll(): void {
 		const openers = new Set<string>();
 		for (const [childId, parent] of this.#parents) if (this.#autoClosable(childId)) openers.add(parent.callerTabId);
-		for (const opener of openers) this.#sweepSoon(opener);
+		for (const opener of openers) {
+			this.#sweepSoon(opener);
+			void this.control.reviewItems(opener).then(
+				items => {
+					if (JSON.stringify(items) !== (this.#reviewSent.get(opener) ?? "[]")) this.#sendReview(opener, items);
+				},
+				() => undefined,
+			);
+		}
 	}
 
 	/** The closed-children list main keeps (`ClosedChild`), newest last; the child's own record is replaced. */
@@ -277,27 +296,35 @@ export class AgentControlRuntime {
 		return outcome;
 	}
 
-	/** The work board's review queue: list, or Approve / Discard / Dismiss one session this one opened. */
-	async review(
-		win: ClientWindow,
-		callerTabId: string,
-		action: AgentReviewAction,
-		child?: string,
-	): Promise<AgentReviewResult> {
+	/** The work board's opened-session rows: the list of sessions this one opened (read-only; the agent lands them with tools). */
+	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
 		this.#windows.set(callerTabId, win);
 		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [] };
-		const result = await this.control.review(callerTabId, action, child);
-		if (action !== "list") {
-			this.#sendReview(callerTabId, result.items);
-			this.#sweepSoon(callerTabId);
-		}
-		return result;
+		return { items: await this.control.reviewItems(callerTabId) };
 	}
 
 	#sendReview(callerTabId: string, items: AgentReviewItem[]): void {
+		this.#reviewSent.set(callerTabId, JSON.stringify(items));
 		const win = this.#win(callerTabId);
 		if (win && !win.isDestroyed())
 			win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, items } satisfies AgentReviewEvent);
+		this.#sendChildren(callerTabId, items);
+	}
+
+	/**
+	 * The opener's prompt suggestions learn which sessions it opened still run or wait (bridge next-prompt): those run
+	 * in their own tabs, so the opener's omp lists none of them as running work, and a suggestion once told the user
+	 * to approve work a child was already doing.
+	 */
+	#sendChildren(callerTabId: string, items: AgentReviewItem[]): void {
+		const children: NextPromptChild[] = items
+			.filter(item => item.state === "running" || item.waiting)
+			.slice(0, MAX_NEXT_PROMPT_CHILDREN)
+			.map(item => ({ title: item.title.slice(0, 200), ...(item.waiting ? { waiting: true } : {}) }));
+		const json = JSON.stringify(children);
+		if (json === (this.#childrenSent.get(callerTabId) ?? "[]")) return;
+		this.#childrenSent.set(callerTabId, json);
+		void this.#hostCommand(callerTabId, { type: "set_next_prompt_children", children });
 	}
 
 	/** The parent's review list changed (a child started, finished or closed): push it after a short settle. */
@@ -330,6 +357,7 @@ export class AgentControlRuntime {
 	}
 
 	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
+		const plan = this.#deps.pool.pendingPlan(info.tabId);
 		return {
 			tabId: info.tabId,
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
@@ -339,6 +367,7 @@ export class AgentControlRuntime {
 			status: info.status,
 			busy: this.#deps.pool.tabFacts(info.tabId)?.busy === true,
 			asks,
+			...(plan ? { plan } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
 			here,
 			...(info.worktree ? { worktree: info.worktree } : {}),
@@ -490,9 +519,36 @@ export class AgentControlRuntime {
 		const deps = this.#deps;
 		return {
 			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
-			approveEnabled: () => deps.prefs.get(AGENT_CONTROL_APPROVE_PREF) === true,
-			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
-			turn: callerTabId => this.#turns.get(callerTabId) ?? 0,
+			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
+			approveEnabled: () =>
+				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
+				agentControlApproveEnabled(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)),
+			manageEnabled: () =>
+				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
+				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
+			// after a relaunch) the tab now holding the opener's session file.
+			parentOf: tabId => {
+				const known = this.#parents.get(tabId)?.callerTabId;
+				if (known) return known;
+				const win = this.#win(tabId);
+				const info = win ? deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
+				if (info?.openedBy && deps.pool.sidecarOf(info.openedBy)) return info.openedBy;
+				return info?.openedBySession
+					? (deps.pool.sessionOwner(info.openedBySession)?.tabId ?? undefined)
+					: undefined;
+			},
+			mail: async (tabId, content, details, delivery) => {
+				const response = await this.#hostCommand(tabId, {
+					type: "agent_control_mail",
+					content,
+					details,
+					triggerTurn: delivery.triggerTurn,
+					...(delivery.deliverAs ? { deliverAs: delivery.deliverAs } : {}),
+				});
+				if (!response.success) throw new Error(response.error ?? "The report could not be delivered.");
+			},
+			reviewChanged: parentTabId => this.#pushReview(parentTabId),
 			tabs: callerTabId => {
 				const own = this.#win(callerTabId);
 				if (!own || own.isDestroyed()) return null;
@@ -624,9 +680,8 @@ export class AgentControlRuntime {
 			},
 			branchFacts: worktree => branchFacts(worktree),
 			mergeBranch: (worktree, label) => mergeBranch(worktree, label),
-			discardWorktree: worktree => discardWorktree(worktree),
 			landing: worktree => landingFacts(worktree),
-			removeLandedWorktree: worktree => removeLandedWorktree(worktree),
+			removeSafeWorktree: worktree => removeSafeWorktree(worktree),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: () => {
 				const service = deps.schedules?.();
@@ -694,7 +749,8 @@ export class AgentControlRuntime {
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_APP, event);
 			},
 			confirm: (tabId, title, message) => this.#confirm(tabId, title, message),
-			manageEnabled: () => deps.prefs.get(AGENT_CONTROL_MANAGE_PREF) === true,
+			manageEnabled: () => agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
+			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			note: async (tabId, text) => {
 				await this.#hostCommand(tabId, { type: "agent_control_note", text });
 			},

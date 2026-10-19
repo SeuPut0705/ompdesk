@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
-import { CustomMessageCard, RecapCard, workNoteSummary } from "./CustomMessageCard";
+import { CustomMessageCard, MailNote, RecapCard, workNoteSummary } from "./CustomMessageCard";
 import { WorkNotes } from "./work/WorkNotes";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -164,5 +164,48 @@ describe("recap card", () => {
 			</I18nProvider>,
 		);
 		expect(markup).toBe("");
+	});
+});
+
+describe("session report line", () => {
+	const mail = (details: Record<string, unknown>): AgentMessage => ({
+		role: "custom",
+		customType: "ompdesk.mail",
+		content: "<ompdesk-mail …>",
+		display: true,
+		details,
+		timestamp: 1,
+	});
+
+	it("is one quiet line naming the sender and the kind, never the model-facing envelope", () => {
+		const markup = renderToStaticMarkup(
+			<I18nProvider>
+				<MailNote
+					message={mail({
+						kind: "done",
+						from: "abc",
+						fromTitle: "Part A",
+						text: "A finished",
+						files: ["src/a.ts"],
+						checks: [{ command: "bun test", passed: true }],
+					})}
+				/>
+			</I18nProvider>,
+		);
+		expect(markup).toContain('data-agent-mail="done"');
+		expect(markup).toContain("Session report · Part A");
+		expect(markup).toContain("A finished");
+		expect(markup).toContain("src/a.ts");
+		expect(markup).not.toContain("ompdesk-mail");
+		expect(markup).not.toContain("border");
+	});
+
+	it("tints a question that waits on this session", () => {
+		const markup = renderToStaticMarkup(
+			<I18nProvider>
+				<MailNote message={mail({ kind: "question", from: "abc", text: "Keep it?" })} />
+			</I18nProvider>,
+		);
+		expect(markup).toContain("--sc-warning");
 	});
 });

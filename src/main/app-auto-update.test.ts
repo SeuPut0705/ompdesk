@@ -23,7 +23,11 @@ function setup(initial: Partial<AutoInstallFacts> = {}) {
 		...initial,
 	};
 	const calls: string[] = [];
+	/** Each logged transition: `event` plus its details as `key=value`, in order. */
+	const logs: string[] = [];
 	const scheduler = new AutoInstallScheduler({
+		log: (event, details = {}) =>
+			logs.push([event, ...Object.entries(details).map(([key, value]) => `${key}=${value}`)].join(" ")),
 		now: () => time,
 		facts: () => facts,
 		effects: {
@@ -35,6 +39,7 @@ function setup(initial: Partial<AutoInstallFacts> = {}) {
 	return {
 		facts,
 		calls,
+		logs,
 		scheduler,
 		advance(ms: number) {
 			time += ms;
@@ -174,5 +179,116 @@ describe("AutoInstallScheduler", () => {
 		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "withdraw"]);
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
 		expect(t.calls).toHaveLength(2);
+	});
+});
+
+describe("AutoInstallScheduler decision log", () => {
+	it("writes each transition once, from busy through quiet and countdown to the install", () => {
+		const t = setup({ focused: false, busy: true });
+		t.advance(0);
+		// Ten minutes of the same busy turn, one tick a second: still the one line.
+		for (let second = 0; second < 600; second++) t.advance(1000);
+		expect(t.logs).toEqual(["waiting reason=busy turn waitedMs=0"]);
+		t.facts.busy = false;
+		t.advance(1000);
+		expect(t.logs).toEqual([
+			"waiting reason=busy turn waitedMs=0",
+			`quiet waitedMs=${601 * 1000} idleMs=0 focused=false`,
+			expect.stringMatching(/^countdown restartAt=\d+$/),
+		]);
+		for (let second = 0; second < 59; second++) t.advance(1000);
+		expect(t.logs).toHaveLength(3);
+		t.advance(1000);
+		expect(t.logs.slice(3)).toEqual(["install trigger=auto"]);
+		expect(t.calls.at(-1)).toBe("install");
+	});
+
+	it("logs a changed wait reason, and the quiet moment, but never the same reason twice", () => {
+		const t = setup({ focused: true, busy: false, idleMs: 0 });
+		t.advance(0);
+		t.advance(1000);
+		t.facts.busy = true;
+		t.advance(1000);
+		t.facts.asking = true;
+		t.advance(1000);
+		t.advance(1000);
+		t.facts.asking = false;
+		t.facts.busy = false;
+		t.facts.idleMs = AUTO_INSTALL_IDLE_MS;
+		t.advance(1000);
+		expect(t.logs).toEqual([
+			"waiting reason=focused+active input waitedMs=0",
+			"waiting reason=busy turn waitedMs=2000",
+			"waiting reason=open ask waitedMs=3000",
+			"quiet waitedMs=5000 idleMs=120000 focused=true",
+			"countdown restartAt=1065000",
+		]);
+	});
+
+	it("logs the forced install after 30 minutes with the resume setting", () => {
+		const t = setup({ busy: true, focused: true, resumes: true });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS - 1);
+		expect(t.logs).toEqual(["waiting reason=busy turn waitedMs=0"]);
+		t.advance(1);
+		expect(t.logs.slice(1)).toEqual([
+			`forced waitedMs=${AUTO_INSTALL_MAX_WAIT_MS} maxWaitMs=${AUTO_INSTALL_MAX_WAIT_MS} resume=true reason=busy turn`,
+			expect.stringMatching(/^countdown restartAt=\d+$/),
+		]);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		expect(t.logs.at(-1)).toBe("install trigger=auto");
+	});
+
+	it("never logs a forced install with resume off", () => {
+		const t = setup({ busy: true, focused: true, resumes: false });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS * 2);
+		expect(t.logs).toEqual(["waiting reason=busy turn waitedMs=0"]);
+	});
+
+	it("logs the user's Later, and waits again for a reason afterwards", () => {
+		const t = setup({ focused: false });
+		t.advance(0);
+		t.scheduler.postpone();
+		t.scheduler.postpone();
+		t.facts.focused = true;
+		t.advance(1000);
+		t.advance(1000);
+		expect(t.logs.map(line => line.split(" ")[0])).toEqual(["quiet", "countdown", "postponed", "waiting"]);
+		expect(t.logs[2]).toBe("postponed by=user");
+	});
+
+	it("logs a withdrawal with its reason: work during a resume-off countdown, pref off, update gone", () => {
+		const t = setup({ focused: false, resumes: false });
+		t.advance(0);
+		t.facts.busy = true;
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.facts.busy = false;
+		t.advance(1000);
+		t.facts.enabled = false;
+		t.advance(1000);
+		t.advance(1000);
+		t.facts.enabled = true;
+		t.facts.installable = false;
+		t.advance(1000);
+		t.facts.installable = true;
+		t.advance(1000);
+		t.facts.installable = false;
+		t.advance(1000);
+		const withdrawn = t.logs.filter(line => line.startsWith("withdrawn"));
+		expect(withdrawn).toEqual([
+			"withdrawn reason=work started, resume off",
+			"withdrawn reason=pref off",
+			"withdrawn reason=update not ready",
+		]);
+	});
+
+	it("writes nothing with the pref off or no update ready", () => {
+		const off = setup({ enabled: false });
+		off.advance(0);
+		off.advance(AUTO_INSTALL_MAX_WAIT_MS);
+		const none = setup({ installable: false });
+		none.advance(0);
+		expect([...off.logs, ...none.logs]).toEqual([]);
 	});
 });

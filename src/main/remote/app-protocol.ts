@@ -82,6 +82,8 @@ export const TAB_EVENT_NAMES = [
 	"awaitingConnection",
 	"openAsks",
 	"signIn",
+	// The tab views a window of the host (`TabOpenResult.viewing`) and that window closed it: the device's tab goes quietly.
+	"viewEnded",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
@@ -90,6 +92,16 @@ export const TAB_EVENT = "tab.event";
 export const SESSIONS_CHANGED_EVENT = "sessions.changed";
 /** The host's omp update changed (data: OmpUpdateState); sent to every connected device. */
 export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
+/** This computer's device name changed (data: `{name}`); sent to every connected device. */
+export const HOST_NAME_EVENT = "host.name";
+/** The host asks this connected device to rename itself (data: `{name}`). */
+export const DEVICE_RENAME_EVENT = "device.rename";
+/** Device-name requests the host serves itself: the device names itself, or renames the host. */
+export const NAME_METHODS = { peerName: "peer.name", hostRename: "host.rename" } as const;
+export const MAX_DEVICE_NAME = 64;
+/** A device name on the link: trimmed, 1–64 characters. */
+export const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME);
+export const NameParams = z.object({ name: DeviceNameSchema });
 
 const SessionKind = z.enum(["agent", "chat"]);
 
@@ -171,6 +183,8 @@ export const TabOpenResult = z.object({
 	 * re-sent `status` and `openAsks`, and the sidecar keeps running — no `tab.start` needed.
 	 */
 	attached: z.boolean(),
+	/** The device views a tab a window of the host owns (one omp, shared): closing it only leaves. */
+	viewing: z.boolean().optional(),
 });
 export type TabOpenResult = z.infer<typeof TabOpenResult>;
 

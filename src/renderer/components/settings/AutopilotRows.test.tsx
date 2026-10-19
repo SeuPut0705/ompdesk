@@ -1,6 +1,6 @@
 /**
- * Settings › Agent behavior › Smart automation › Autopilot rows: the defaults the start sheet opens with
- * (prefs `autopilotShip`, `autopilotNotify`, `autopilotLimits`). Everything starts on the cautious side.
+ * Settings › Agent behavior › Smart automation › Autopilot rows: shipping (Automatic unless a level is stored) and
+ * notifications (`autopilotShip`, `autopilotNotify`). No ceilings: a run has none unless an agent's start sets them.
  */
 
 import { parseHTML } from "linkedom";
@@ -8,7 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { AutopilotLimitsRow, AutopilotNotifyRow, AutopilotSettingsRows, AutopilotShipRow } from "./AutopilotRows";
+import { AutopilotNotifyRow, AutopilotSettingsRows, AutopilotShipRow } from "./AutopilotRows";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -32,14 +32,10 @@ Object.assign(window as unknown as Record<string, unknown>, { omp: { prefs } });
 
 let root: Root | undefined;
 
-async function mount(row: "ship" | "notify" | "limits"): Promise<void> {
+async function mount(row: "ship" | "notify"): Promise<void> {
 	root = createRoot(document.body as unknown as globalThis.Element);
 	await act(async () => {
-		root?.render(
-			<I18nProvider>
-				{row === "ship" ? <AutopilotShipRow /> : row === "notify" ? <AutopilotNotifyRow /> : <AutopilotLimitsRow />}
-			</I18nProvider>,
-		);
+		root?.render(<I18nProvider>{row === "ship" ? <AutopilotShipRow /> : <AutopilotNotifyRow />}</I18nProvider>);
 	});
 	await act(async () => {});
 }
@@ -74,9 +70,9 @@ afterEach(async () => {
 });
 
 describe("Autopilot settings rows", () => {
-	it("shipping starts at local only and writes a whole policy for the chosen preset", async () => {
+	it("shipping starts at Automatic, writes a whole policy for a chosen level and clears it for Automatic", async () => {
 		await mount("ship");
-		expect((selectIn("setting-gui-autopilotShip") as unknown as HTMLSelectElement).value).toBe("local");
+		expect((selectIn("setting-gui-autopilotShip") as unknown as HTMLSelectElement).value).toBe("auto");
 		await choose(selectIn("setting-gui-autopilotShip"), "release");
 		expect(prefs.set).toHaveBeenCalledWith(
 			"autopilotShip",
@@ -86,6 +82,8 @@ describe("Autopilot settings rows", () => {
 				remote: "origin",
 			}),
 		);
+		await choose(selectIn("setting-gui-autopilotShip"), "auto");
+		expect(prefs.set).toHaveBeenLastCalledWith("autopilotShip", undefined);
 	});
 
 	it("shows a stored push policy as the push preset", async () => {
@@ -108,29 +106,7 @@ describe("Autopilot settings rows", () => {
 		expect(prefs.set).toHaveBeenCalledWith("autopilotNotify", "cycles");
 	});
 
-	it("ceilings are all empty by default and save only the ones set; clearing them stores nothing", async () => {
-		await mount("limits");
-		const inputs = Array.from(document.querySelectorAll("input")) as unknown as HTMLInputElement[];
-		expect(inputs.map(input => input.value)).toEqual(["", "", "", ""]);
-
-		const tokens = inputs[0] as HTMLInputElement;
-		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tokens), "value")?.set?.call(tokens, "2000000");
-		await act(async () => reactProps(tokens).onChange?.({ target: tokens, currentTarget: tokens }));
-		await act(async () => reactProps(tokens).onBlur?.());
-		expect(prefs.set).toHaveBeenLastCalledWith("autopilotLimits", {
-			tokens: 2_000_000,
-			minutes: null,
-			cycles: null,
-			usd: null,
-		});
-
-		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tokens), "value")?.set?.call(tokens, "");
-		await act(async () => reactProps(tokens).onChange?.({ target: tokens, currentTarget: tokens }));
-		await act(async () => reactProps(tokens).onBlur?.());
-		expect(prefs.set).toHaveBeenLastCalledWith("autopilotLimits", undefined);
-	});
-
-	it("shows only the export default and the notifications; the ceilings sit in one closed Advanced", async () => {
+	it("shows only shipping and notifications, with no Advanced disclosure", async () => {
 		root = createRoot(document.body as unknown as globalThis.Element);
 		await act(async () =>
 			root?.render(
@@ -140,12 +116,8 @@ describe("Autopilot settings rows", () => {
 			),
 		);
 		await act(async () => {});
-		const advanced = document.querySelectorAll("[data-settings-advanced]");
-		expect(advanced).toHaveLength(1);
-		expect(advanced[0]?.getAttribute("open")).toBeNull();
+		expect(document.querySelectorAll("[data-settings-advanced]")).toHaveLength(0);
 		const rows = Array.from(document.querySelectorAll("[data-setting-row]")) as unknown as Element[];
-		const visible = rows.filter(row => !row.closest("[data-settings-advanced]")).map(row => row.id);
-		expect(visible).toEqual(["setting-gui-autopilotShip", "setting-gui-autopilotNotify"]);
-		expect(advanced[0]?.querySelector("#setting-gui-autopilotLimits")).not.toBeNull();
+		expect(rows.map(row => row.id)).toEqual(["setting-gui-autopilotShip", "setting-gui-autopilotNotify"]);
 	});
 });

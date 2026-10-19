@@ -11,11 +11,7 @@ import { SettingsSection } from "./SettingsLayout";
 export function GithubAccountSection() {
 	const t = useT();
 	return (
-		<SettingsSection
-			description={t("githubAuth.settings.description")}
-			id="setting-github-account"
-			title={t("githubAuth.settings.title")}
-		>
+		<SettingsSection id="setting-github-account" title={t("githubAuth.settings.title")}>
 			<div className="settings-row min-w-0 py-2">
 				<GithubSignIn framed={false} />
 			</div>

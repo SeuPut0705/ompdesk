@@ -146,6 +146,8 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	next_prompt_update: true,
 	next_prompt_config: true,
 	plan_proposal: true,
+	// The proposal no longer waits (answered anywhere, or a prompt replied to it): every window drops its card.
+	plan_proposal_resolved: true,
 	queue_update: true,
 	token_rate: true,
 	read_group_metadata: true,
@@ -416,6 +418,8 @@ export class SidecarManager extends EventEmitter {
 	#noModelBoot: string | null = null;
 	/** Last session identity `get_state` reported; null when a session change made it unknown. */
 	#session: SidecarSessionIdentity | null = null;
+	/** When the current omp child was spawned (epoch ms): a slow command's breakdown names the sidecar's age. */
+	#spawnedAt = 0;
 	/**
 	 * An `agent_end` waiting for its entry ids, and every frame that arrived behind
 	 * it, responses included. Holding the tail keeps the renderer's frame order
@@ -496,6 +500,7 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	#spawn(): void {
+		this.#spawnedAt = Date.now();
 		// One live child per manager. `#child` is only ever set here, so anything
 		// still attached means a previous spawn was never retired — kill it through
 		// the normal teardown instead of letting it run parser-less and unkillable.
@@ -687,6 +692,7 @@ export class SidecarManager extends EventEmitter {
 	/** Context for one GUI-side command; learns the session identity first when a session change left it unknown. */
 	async #localContext(client: RpcClient, runtime: OmpRuntime, bridge: GuiBridgeClient): Promise<LocalCommandContext> {
 		const send = stockSender(client, LOCAL_SEND_TIMEOUT_MS);
+		const started = Date.now();
 		if (!this.#session) await client.stock({ type: "get_state" }).catch(() => undefined);
 		return {
 			cwd: this.#options.cwd,
@@ -694,6 +700,7 @@ export class SidecarManager extends EventEmitter {
 			omp: runtime,
 			send,
 			bridge,
+			sidecar: { spawnedAt: this.#spawnedAt, contextWaitMs: Date.now() - started },
 		};
 	}
 

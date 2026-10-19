@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	AGENT_CONTROL_APPROVE_PREF,
+	AGENT_CONTROL_FULL_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
+	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
@@ -34,6 +36,8 @@ function setup(
 		requests?: IpcOpenExtensionRequest[];
 		schedules?: AgentControlHostDeps["schedules"];
 		autopilot?: AgentControlHostDeps["autopilot"];
+		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
+		sweepMs?: number;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 	} = {},
@@ -59,6 +63,7 @@ function setup(
 		pool: {
 			tabsForWindow: target => (target === win2 ? otherTabs : tabs),
 			tabFacts: tabId => ({ title: "", busy: tabId === "busy0002", awaitingConnection: false, retrying: false }),
+			pendingPlan: () => null,
 			observeTabs: observer => {
 				activity.push(observer as never);
 				return () => undefined;
@@ -95,6 +100,7 @@ function setup(
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
 		autopilot: options.autopilot,
+		sweepMs: options.sweepMs,
 	};
 	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
@@ -141,15 +147,63 @@ describe("AgentControlRuntime", () => {
 		expect(outcome.text).toContain(`remo0004 "Remote"`);
 	});
 
-	it("follows the Settings switches live: off refuses, approve and manage default off", async () => {
-		const { runtime, win, prefs, deps } = setup();
+	it("resolves the Settings switches from the stored prefs: off refuses, manage is on and approve is off while unset", async () => {
+		const request: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "r1",
+			method: "select",
+			title: "Allow tool: bash",
+			options: ["Approve", "Deny"],
+		};
+		const { runtime, win, prefs, commands, deps } = setup({
+			tabs: [
+				{ tabId: "main0001", title: "Boss" },
+				{ tabId: "busy0002", title: "Busy" },
+			],
+			requests: [{ tabId: "busy0002", request }],
+		});
+		const cards = () => commands.filter(entry => entry.command.type === "agent_control_confirm").length;
+		const answers = () => vi.mocked(deps.pool.routeSideChannel).mock.calls.length;
 		expect((await runtime.run(win, "main0001", T.list, {})).isError).toBe(false);
 		prefs[AGENT_CONTROL_PREF] = false;
 		expect((await runtime.run(win, "main0001", T.list, {})).text).toMatch(/turned off/);
-		const host = (runtime as unknown as { control: { run: unknown } }).control;
-		expect(host).toBeDefined();
-		expect(deps.prefs.get(AGENT_CONTROL_APPROVE_PREF)).toBeUndefined();
-		expect(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)).toBeUndefined();
+		delete prefs[AGENT_CONTROL_PREF];
+
+		// Full control off: the older gates decide. Nothing else stored: stopping another session needs no card;
+		// approving its tool request is refused.
+		prefs[AGENT_CONTROL_FULL_PREF] = false;
+		expect(prefs[AGENT_CONTROL_MANAGE_PREF]).toBeUndefined();
+		expect(prefs[AGENT_CONTROL_APPROVE_PREF]).toBeUndefined();
+		expect((await runtime.run(win, "main0001", T.stop, { session: "busy0002" })).isError).toBe(false);
+		expect(cards()).toBe(0);
+		const refused = await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" });
+		expect(refused.isError).toBe(true);
+		expect(refused.text).toContain("사용자 승인이 필요해요");
+		expect(answers()).toBe(0);
+
+		// Stored false turns manage off (one card); stored true turns approve on.
+		prefs[AGENT_CONTROL_MANAGE_PREF] = false;
+		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
+		expect(cards()).toBe(1);
+		prefs[AGENT_CONTROL_MANAGE_PREF] = true;
+		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
+		expect(cards()).toBe(1);
+		prefs[AGENT_CONTROL_APPROVE_PREF] = true;
+		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
+			false,
+		);
+		expect(answers()).toBe(1);
+
+		// Full control (unset is on) covers both gates: manage off and approve off still run with no card.
+		delete prefs[AGENT_CONTROL_FULL_PREF];
+		prefs[AGENT_CONTROL_MANAGE_PREF] = false;
+		prefs[AGENT_CONTROL_APPROVE_PREF] = false;
+		await runtime.run(win, "main0001", T.stop, { session: "busy0002" });
+		expect(cards()).toBe(1);
+		expect((await runtime.run(win, "main0001", T.answer, { session: "busy0002", choice: "Approve" })).isError).toBe(
+			false,
+		);
+		expect(answers()).toBe(2);
 	});
 
 	it("opens a session in a worktree through worktree_create with the omp/agent/ prefix and binds the tab to it", async () => {
@@ -171,6 +225,34 @@ describe("AgentControlRuntime", () => {
 		expect(openers).toHaveBeenCalledWith("new00003", "main0001");
 	});
 
+	it("brings a change nobody announced onto the work board: the sweep timer pushes the review list when it differs", async () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime, win } = setup({ tabs: [{ tabId: "main0001" }, { tabId: "new00003" }], sweepMs: 20 });
+			const opening = runtime.run(win, "main0001", T.open, {});
+			await vi.advanceTimersByTimeAsync(60_000);
+			await opening;
+			let current: unknown[] = [{ tabId: "new00003" }];
+			vi.spyOn(runtime.control, "reviewItems").mockImplementation(async () => current as never);
+			const frames = () =>
+				win.sent
+					.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
+					.map(([, payload]) => JSON.stringify(payload));
+			await vi.advanceTimersByTimeAsync(200);
+			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [{ tabId: "new00003" }] }));
+			// Unchanged: the timer sends nothing more than it did.
+			const before = frames().length;
+			await vi.advanceTimersByTimeAsync(200);
+			expect(frames()).toHaveLength(before);
+			// A commit or push outside the app changed the list: the next sweep sends it.
+			current = [];
+			await vi.advanceTimersByTimeAsync(200);
+			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [] }));
+			expect(frames()).toHaveLength(before + 1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it("starts Autopilot through the coordinator and records the run as the caller's child", async () => {
 		const sent: { tabId: string; command: unknown }[] = [];
 		const { runtime, win, openers, prefs } = setup({
@@ -219,6 +301,7 @@ describe("AgentControlRuntime", () => {
 		});
 		prefs.autopilotShip = { autoPush: true, autoRelease: { on: true }, remote: "up" };
 		prefs.agentControlManage = true;
+		prefs.agentControlFull = false;
 		await runtime.run(win, "main0001", T.autopilot, { action: "start" });
 		const cards = commands.filter(entry => entry.command.type === "agent_control_confirm");
 		expect(cards).toHaveLength(1);
@@ -242,12 +325,13 @@ describe("AgentControlRuntime", () => {
 	});
 
 	it("raises confirmation cards titled for the user only, on the calling tab", async () => {
-		const { runtime, win, commands } = setup({
+		const { runtime, win, commands, prefs } = setup({
 			tabs: [
 				{ tabId: "main0001", title: "Boss" },
 				{ tabId: "other002", title: "Other", sessionPath: "/s/o.jsonl" },
 			],
 		});
+		prefs.agentControlFull = false;
 		const outcome = await runtime.run(win, "main0001", T.stop, { session: "other002", delete: true });
 		expect(outcome.isError).toBe(false);
 		const card = commands.find(entry => entry.command.type === "agent_control_confirm");
@@ -303,29 +387,6 @@ describe("AgentControlRuntime", () => {
 		expect(cancelled.isError).toBe(false);
 		expect(requests.at(-1)).toEqual({ action: "delete", id: "sched-1" });
 		expect(state.schedules).toEqual([]);
-	});
-
-	it("resets the per-turn open budget at each agent turn's end, even while background work keeps the run busy", async () => {
-		const { runtime, win, deps, tabs, activity } = setup({ prefs: { agentControlManage: true } });
-		let next = 0;
-		deps.spawnTab = async () => {
-			const tabId = `kid${String(++next).padStart(5, "0")}`;
-			tabs.push({ tabId, cwd: "/repo", status: "ready", kind: "agent" });
-			return { tabId };
-		};
-		const announce = (type: string) => {
-			for (const observer of activity) observer({ type, tabId: "main0001" });
-		};
-		announce("busy");
-		expect((await runtime.run(win, "main0001", T.open, { sessions: [{}, {}, {}, {}] })).isError).toBe(false);
-		const capped = await runtime.run(win, "main0001", T.open, {});
-		expect(capped.isError).toBe(true);
-		expect(capped.text).toMatch(/this turn/i);
-		for (const id of ["kid00001", "kid00002", "kid00003", "kid00004"])
-			await runtime.run(win, "main0001", T.stop, { session: id, close: true });
-		// The turn ended, but background work keeps the run busy: no idle → busy edge, only the turn's end.
-		announce("turnEnded");
-		expect((await runtime.run(win, "main0001", T.open, {})).isError).toBe(false);
 	});
 
 	it("lists and steers another window's sessions through that window", async () => {

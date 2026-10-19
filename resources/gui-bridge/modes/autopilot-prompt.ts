@@ -6,10 +6,14 @@
  */
 
 /** The parent's protocol. `maxParallel` is fixed when the run starts and never changes during it. */
-export function autopilotSection(maxParallel: number): string {
+export function autopilotSection(maxParallel: number | null): string {
+	const cap =
+		maxParallel === null
+			? "Open as many sessions as the independent items warrant (no fixed cap)"
+			: `At most ${maxParallel} sessions per cycle`;
 	const fanOut =
-		maxParallel > 0
-			? `Fan-out (optional; only for >=2 independent items in different areas, each worth a session): follow skill://ompdesk. At most ${maxParallel} sessions per cycle; each via ompdesk_session_open with its own worktree on branch autopilot/<run>-c<N>-<area>, show:"background", a self-contained first message (goal, constraints, the repo's check command and its heavy-check lock, "end with summary + commit hash + verify result"). Collect EVERY child with ompdesk_session_result wait:true (<=1800 s per wait) before \`end\`: a cycle never outlives its children. Integrate finished branches one at a time (merge --no-ff or cherry-pick), verify after each, undo a bad integration with \`git merge --abort\` / \`git revert\`. If a child asks you a question, answer it with ompdesk_session_answer from this protocol. If ompdesk_session_open refuses (limits), do the item yourself. Never close or stop sessions: the runtime does.`
+		maxParallel === null || maxParallel > 0
+			? `Fan-out (optional; only for >=2 independent items in different areas, each worth a session): follow skill://ompdesk. ${cap}; each via ompdesk_session_open with its own worktree on branch autopilot/<run>-c<N>-<area>, show:"background", a self-contained first message (goal, constraints, the repo's check command and its heavy-check lock, "end with summary + commit hash + verify result"). Collect EVERY child with ompdesk_session_result wait:true (<=1800 s per wait) before \`end\`: a cycle never outlives its children. Integrate finished branches one at a time (merge --no-ff or cherry-pick), verify after each, undo a bad integration with \`git merge --abort\` / \`git revert\`. If a child asks you a question, answer it with ompdesk_session_answer from this protocol. If ompdesk_session_open refuses, do the item yourself. Never close or stop sessions: the runtime does.`
 			: "Fan-out is off: do every item yourself, in this session. Open no child sessions.";
 	return `<autopilot>
 You are in OMPdesk autopilot: an unattended, endless development loop in your own git worktree. Each turn is ONE cycle. The user ends it; you never do: never call goal complete.

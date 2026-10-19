@@ -127,7 +127,7 @@ export function TurnErrorNotice({
 			}
 			if (!response.success) throw new Error(response.error);
 			await (tabId && sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateSession());
-			toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });
+			toast({ variant: "success", message: t("command.compactedTitle") });
 		} catch (cause) {
 			toastError({
 				title: t(action === "retry" ? "turnError.retryFailed" : "modelPicker.compactFailed"),

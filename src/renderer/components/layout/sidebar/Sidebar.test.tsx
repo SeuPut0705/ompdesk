@@ -23,6 +23,7 @@ import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
+import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
@@ -30,6 +31,7 @@ import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { resetSessionListFeeds } from "../../../stores/session-list";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import type { SubagentsStore } from "../../../stores/subagents";
@@ -269,10 +271,12 @@ afterEach(async () => {
 		reveal: null,
 	});
 	useSidebarPrefs.getState().reset();
+	useSidebarFolds.getState().reset();
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
+	useHostedSessionsStore.setState({ sessions: [], revision: 0 });
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -736,12 +740,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		const activeRow = () => container.querySelector('[data-active="true"]') as unknown as Element;
 		expect(activeRow().textContent).not.toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBeNull();
+		expect(activeRow().querySelector(".omp-live-edge")).toBeNull();
 
 		await act(async () => {
 			useTabsStore.setState({ tabs: [{ ...useTabsStore.getState().tabs[0]!, status: "running" }] });
 		});
 		expect(activeRow().textContent).toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBe("running");
+		expect(activeRow().querySelector(".omp-live-edge")).not.toBeNull();
 		expect(activeRow().querySelector('[aria-label="Delete session"]')).toBeNull();
 	});
 
@@ -769,8 +775,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		const row = rowFor("Session /work/beta/three");
 		expect(row.textContent).toContain("Running");
 		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
-		// The state is the row's edge bar, not a spinner; the word stays for screen readers.
+		// The state is the composer's travelling light on the row's border (`LiveEdge`), not a spinner or a bar;
+		// the word stays for screen readers.
 		expect(row.getAttribute("data-signal")).toBe("running");
+		expect(row.querySelector(".omp-live-edge[data-live-edge='turn'][data-live-edge-inside]")).not.toBeNull();
 		expect(row.querySelector('[role="status"], .omp-spinner')).toBeNull();
 		expect(row.querySelector("button")?.getAttribute("title")).toContain("Running");
 	});
@@ -809,8 +817,63 @@ describe("Sidebar menus and pinned ordering", () => {
 		const failed = rowFor("Session /work/alpha/one");
 		expect(failed.getAttribute("data-signal")).toBe("error");
 		expect(failed.textContent).toContain("Failed");
-		// Idle rows carry no edge state.
+		// Idle rows carry no edge state; a waiting or failed one keeps its bar and never wears the light.
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
+		for (const row of [waiting, failed, rowFor("Session /work/alpha/two")])
+			expect(row.querySelector(".omp-live-edge")).toBeNull();
+	});
+
+	it("keeps a session a paired device's tab runs on this computer in its project group, with that tab's live state", async () => {
+		// A paired device's agent opened it here (`ompdesk_session_open {device}`): its brief names a session on the
+		// device, which this computer never lists, and no tab of this window holds it.
+		const opened = session("/work/beta/opened.jsonl", "/work/beta", {
+			title: "Fix login",
+			firstMessage: wrapAgentMessage("Title: Fix login\nDetails.", "Mac session"),
+			created: "2026-01-04T00:00:00Z",
+			modified: "2026-01-04T00:00:00Z",
+		});
+		installMockOmp([...LIST, opened]);
+		seedStores();
+		const hosted = { sessionPath: opened.path, cwd: "/work/beta", kind: "agent" as const, device: "Mac" };
+		useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running" }] });
+		await mount(<Sidebar />);
+
+		const rows = () =>
+			[...container.querySelectorAll(".omp-sidebar-session-row")].filter(row =>
+				(row.textContent ?? "").includes("Fix login"),
+			);
+		expect(rows()).toHaveLength(1);
+		expect(rowFor("Fix login").closest('[data-session-group="/work/beta"]')).not.toBeNull();
+		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("running");
+
+		act(() => useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running", awaitingInput: true }] }));
+		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("waiting");
+		expect(rowFor("Fix login").textContent).toContain("Needs input");
+
+		// Before it was known as a hosted session, the brief folded it away as a finished helper of nobody listed.
+		act(() => useHostedSessionsStore.setState({ sessions: [] }));
+		expect(rows()).toHaveLength(0);
+	});
+
+	it("lists a hosted session the index does not have yet, once, under its project", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useHostedSessionsStore.setState({
+			sessions: [
+				{
+					sessionPath: "/work/beta/new.jsonl",
+					sessionId: "new-id",
+					title: "Brand new",
+					cwd: "/work/beta",
+					kind: "agent",
+					status: "running",
+					device: "Mac",
+				},
+			],
+		});
+		await mount(<Sidebar />);
+		expect(rowFor("Brand new").closest('[data-session-group="/work/beta"]')).not.toBeNull();
+		expect(rowFor("Brand new").getAttribute("data-signal")).toBe("running");
 	});
 
 	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
@@ -1553,8 +1616,10 @@ describe("Sidebar subagents", () => {
 		// The running subagent does not open the family; the chip counts both and says one runs.
 		const toggle = disclosure();
 		expect(rowFor("Session /work/alpha/two").contains(toggle as unknown as Node)).toBe(true);
-		expect(toggle?.querySelector("[data-family-agents]")?.textContent).toBe("2");
+		// One count: the running pill with the kind glyph, not "1" twice.
+		expect(toggle?.querySelector("[data-family-agents]")).toBeNull();
 		expect(toggle?.querySelector("[data-family-running]")?.textContent).toBe("1");
+		expect(toggle?.querySelector("[data-family-running] svg")).not.toBeNull();
 		expect(toggle?.getAttribute("aria-expanded")).toBe("false");
 		expect(subagentGroup()).toBeNull();
 		expect(container.querySelectorAll("[data-sidebar-subagents-toggle]").length).toBe(1);
@@ -1568,7 +1633,7 @@ describe("Sidebar subagents", () => {
 		expect(next?.getAttribute("data-sidebar-subagents")).toBe(TWO);
 		expect(next?.textContent).toContain("map the repo");
 		expect(next?.textContent).not.toContain("already finished");
-		expect(next?.textContent).toContain(translate("sidebar.family.done", { count: 1 }));
+		expect(container.querySelector(`[data-family-done="${TWO}"]`)).toBeNull();
 		// A tree connector hangs the rows off the session.
 		expect(next?.querySelector("[data-sidebar-subagents-connector]")).not.toBeNull();
 		// The child row joins the sidebar's roving (arrow-key) list right after its session.
@@ -1611,16 +1676,18 @@ describe("Sidebar subagents", () => {
 		expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
 	});
 
-	it("leaves the family as the person left it when the last subagent is done and on the next fan-out", async () => {
+	it("drops the family when its last subagent is done, and the next fan-out starts folded", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
 		await mount(<Sidebar />);
 		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 
+		// Everything finished: nothing to list, so no chip and no group, and no "n done" row.
 		setSubagentStatus("aborted");
 		await flush();
 		expect(subagentGroup()).toBeNull();
-		expect(disclosure()?.querySelector("[data-family-running]")).toBeNull();
+		expect(disclosure()).toBeNull();
+		expect(container.querySelector(`[data-family-done="${TWO}"]`)).toBeNull();
 		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 
 		setSubagentStatus("running");
@@ -1630,9 +1697,12 @@ describe("Sidebar subagents", () => {
 
 		await fire(disclosure(), "onClick");
 		expect(subagentGroup()).not.toBeNull();
+		// The last live one finishes: the open family goes with it and its remembered state is dropped.
 		setSubagentStatus("aborted");
 		await flush();
-		expect(subagentGroup()).not.toBeNull();
+		expect(subagentGroup()).toBeNull();
+		expect(disclosure()).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 	});
 });
 
@@ -1775,18 +1845,17 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
 
 		const boss = rowFor("Session /work/alpha/two");
-		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
-		// Two of them work: the highlighted count.
+		// Two of them work: the one highlighted count (no second, plain one beside it).
+		expect(boss.querySelector("[data-family-sessions]")).toBeNull();
 		expect(boss.querySelector("[data-family-running]")?.textContent).toBe("2");
 		// The family is open (the person opened it), right under the boss's row.
 		const group = boss.nextElementSibling;
 		expect(group?.getAttribute("data-sidebar-family")).toBe(BOSS);
 
-		// The two at work are rows; the finished ones fold into one "n done" row, like finished subagents.
+		// The two at work are rows; the finished ones are not listed, and no "n done" row says they exist.
 		const rows = familyRows();
 		expect(rows.length).toBe(2);
-		const fold = container.querySelector(`[data-family-done="${BOSS}"]`);
-		expect(fold?.textContent).toContain(translate("sidebar.family.done", { count: 2 }));
+		expect(container.querySelector(`[data-family-done="${BOSS}"]`)).toBeNull();
 		const titleOf = (row: { querySelector: Element["querySelector"] }) =>
 			row.querySelector("button")?.firstChild?.textContent;
 		// Oldest first: the stored worktree session, then the live tab the index has not listed.
@@ -1807,23 +1876,8 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		const bossAt = roving.indexOf(`session:${BOSS}`);
 		expect(roving[bossAt + 1]).toBe("session:/wt/a.jsonl");
 
-		// The fold opens onto the finished ones, each with its done mark.
-		await fire(fold, "onClick");
-		const all = familyRows();
-		expect(all.map(titleOf)).toEqual([
-			"OMPdesk 사이드바 정리",
-			"Fix the flaky upload test",
-			"검토 대상 확인",
-			"Plain helper",
-		]);
-		expect(all.map(row => row.querySelector("[data-family-glyph]")?.getAttribute("data-family-glyph"))).toEqual([
-			"worktree",
-			"worktree",
-			"worktree",
-			"session",
-		]);
-		expect(all[2]?.querySelector('[data-family-status="done"]')).not.toBeNull();
-		expect(all[3]?.querySelector('[data-family-status="done"]')).not.toBeNull();
+		expect(container.textContent).not.toContain("검토 대상 확인");
+		expect(container.textContent).not.toContain("Plain helper");
 	});
 
 	it("opens an opened session in its own tab on click", async () => {
@@ -1863,7 +1917,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(betaRows[0]?.textContent).toContain("Session /work/beta/three");
 	});
 
-	it("starts folded, whatever runs, and stays as the person left it when everything it opened is done", async () => {
+	it("starts folded, whatever runs, and drops the family when everything it opened is done", async () => {
 		mountFamily({ open: false });
 		await mount(<Sidebar />);
 		const boss = rowFor("Session /work/alpha/two");
@@ -1883,14 +1937,12 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			}));
 		});
 		await flush();
-		expect(boss.querySelector("[data-family-sessions]")?.textContent).toBe("4");
-		expect(boss.querySelector("[data-family-running]")).toBeNull();
-		// Everything it opened is finished: all four fold into the "n done" row, and the family stays open as the person left it.
+		// Everything it opened is finished: nothing is listed, no fold and no chip say so.
 		expect(familyRows().length).toBe(0);
-		expect(container.querySelector(`[data-family-done="${BOSS}"]`)?.textContent).toContain(
-			translate("sidebar.family.done", { count: 4 }),
-		);
-		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).not.toBeNull();
+		expect(boss.querySelector("[data-sidebar-subagents-toggle]")).toBeNull();
+		expect(doneFold(BOSS)).toBeNull();
+		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
+		expect(useSidebarSubagentsStore.getState().expanded.has(BOSS)).toBe(false);
 	});
 
 	it("keeps a finished session that failed as a row with the failed mark, never in the done row", async () => {
@@ -1949,7 +2001,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(familyRows().some(entry => entry.getAttribute("data-session-path") === "/wt/a.jsonl")).toBe(false);
 	});
 
-	it("lists a session main closed after its work landed in the done row, and opens it as a stored session", async () => {
+	it("lists no session main closed after its work landed, and no finished helper either", async () => {
 		mountFamily();
 		await mount(<Sidebar />);
 		act(() => {
@@ -1961,32 +2013,28 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			});
 		});
 		await flush();
-		const fold = container.querySelector(`[data-family-done="${BOSS}"]`);
-		// The closed session and the plain helper (finished, stored) sit behind the fold.
-		expect(fold?.textContent).toContain(translate("sidebar.family.done", { count: 2 }));
-		expect(container.querySelector('[data-session-group="/work/alpha"]')?.textContent).not.toContain(
-			"검토 대상 확인",
-		);
-		await fire(fold, "onClick");
-		const closed = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/b.jsonl");
-		expect(closed?.querySelector("button")?.firstChild?.textContent).toBe("검토 대상 확인");
-		expect(closed?.querySelector('[data-family-status="done"]')).not.toBeNull();
+		// Only the two at work are listed; the closed session and the finished plain helper are not, and no fold says so.
+		expect(doneFold(BOSS)).toBeNull();
+		expect(familyRows().length).toBe(2);
+		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-running]")?.textContent).toBe("2");
+		expect(container.textContent).not.toContain("검토 대상 확인");
+		expect(container.textContent).not.toContain("Landed task");
+		expect(container.textContent).not.toContain("Plain helper");
 	});
 
 	/** A relaunch: the tabs that came back, and no tab for anything the boss opened. */
 	function relaunchedWith(...ids: string[]) {
 		useTabsStore.setState(state => ({ tabs: state.tabs.filter(tab => ids.includes(tab.id)) }));
 	}
-	const openFamily = () =>
-		fire(rowFor("Session /work/alpha/two").querySelector("[data-sidebar-subagents-toggle]"), "onClick");
 	const doneFold = (key: string) => container.querySelector(`[data-family-done="${key}"]`);
 	const openedPaths = (scope: string) =>
 		[...container.querySelectorAll(`${scope} [data-sidebar-opened-session]`)].map(row =>
 			row.getAttribute("data-session-path"),
 		);
 
-	it("keeps a closed session under its opener's done fold after a relaunch, never in a parallel-work group", async () => {
-		mountFamily();
+	it("lists no closed session after a relaunch, in no parallel-work group either", async () => {
+		// A family left open stays open across a relaunch (remembered): this one was folded.
+		mountFamily({ open: false });
 		relaunchedWith("t0", "t1");
 		await mount(<Sidebar />);
 		// The store reads the pref once on mount: the record is what main wrote.
@@ -2001,13 +2049,12 @@ describe("Sidebar families: the sessions an agent opened", () => {
 
 		expect(container.querySelector("[data-worktree-group]")).toBeNull();
 		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
-		await openFamily();
-		expect(doneFold(BOSS)?.textContent).toContain(translate("sidebar.family.done", { count: 1 }));
-		await fire(doneFold(BOSS), "onClick");
-		expect(openedPaths(`[data-sidebar-family="${BOSS}"]`)).toEqual(["/wt/b.jsonl"]);
+		expect(doneFold(BOSS)).toBeNull();
+		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
+		expect(container.textContent).not.toContain("Landed task");
 	});
 
-	it("keeps a closed session under its opener when the opener has no tab either", async () => {
+	it("lists no closed session whose work landed, though its opener has no tab either", async () => {
 		mountFamily();
 		relaunchedWith("t0");
 		await mount(<Sidebar />);
@@ -2022,13 +2069,16 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		await flush();
 
 		expect(container.querySelector("[data-worktree-group]")).toBeNull();
-		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-sessions]")?.textContent).toBe("1");
-		await fire(doneFold(BOSS), "onClick");
-		expect(openedPaths(`[data-sidebar-family="${BOSS}"]`)).toEqual(["/wt/b.jsonl"]);
+		expect(rowFor("Session /work/alpha/two").querySelector("[data-sidebar-subagents-toggle]")).toBeNull();
+		expect(doneFold(BOSS)).toBeNull();
+		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
+		expect(container.textContent).not.toContain("Landed task");
 	});
 
-	it("folds a session opened before provenance was kept under the opener its agent brief names", async () => {
+	it("lists no session opened before provenance was kept once it finished, though its agent brief names the opener", async () => {
+		// A family left open stays open across a relaunch (remembered): this one was folded.
 		mountFamily({
+			open: false,
 			sessionsExtra: [
 				session("/work/alpha/legacy.jsonl", "/work/alpha", {
 					title: null,
@@ -2043,12 +2093,12 @@ describe("Sidebar families: the sessions an agent opened", () => {
 
 		const rows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
 		expect(rows.some(row => (row.textContent ?? "").includes("Legacy job"))).toBe(false);
-		await openFamily();
-		await fire(doneFold(BOSS), "onClick");
-		expect(openedPaths(`[data-sidebar-family="${BOSS}"]`)).toEqual(["/work/alpha/legacy.jsonl"]);
+		expect(container.textContent).not.toContain("Legacy job");
+		expect(doneFold(BOSS)).toBeNull();
+		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-sessions]")).toBeNull();
 	});
 
-	it("folds a closed session no opener row holds into its project's done fold, not a parallel-work group", async () => {
+	it("lists no finished closed session that no opener row holds: no done fold, no parallel-work group", async () => {
 		mountFamily();
 		relaunchedWith("t0", "t1");
 		await mount(<Sidebar />);
@@ -2057,12 +2107,29 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(container.querySelector("[data-worktree-group]")).toBeNull();
 		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
-		const fold = doneFold("group:/work/alpha");
-		expect(fold?.textContent).toContain(translate("sidebar.family.done", { count: 2 }));
+		expect(doneFold("group:/work/alpha")).toBeNull();
+		expect(container.querySelector("[data-sidebar-loose-children]")).toBeNull();
 		const sessionRows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
-		await fire(fold, "onClick");
-		expect(openedPaths('[data-sidebar-done-fold="group:/work/alpha"]')).toEqual(["/wt/a.jsonl", "/wt/b.jsonl"]);
+		expect(container.textContent).not.toContain("OMPdesk 사이드바 정리");
+	});
+
+	it("still lists a closed session no opener row holds when it failed, as a plain row without a fold", async () => {
+		mountFamily({
+			sessionsExtra: [
+				session("/work/alpha/broken.jsonl", "/work/alpha", {
+					title: "Broken helper",
+					firstMessage: wrapAgentMessage("Title: Broken helper\nDetails.", "Nobody listed"),
+					status: "error",
+					created: "2026-02-06T00:00:00Z",
+					modified: "2026-02-06T00:00:00Z",
+				}),
+			],
+		});
+		relaunchedWith("t0", "t1");
+		await mount(<Sidebar />);
+		expect(doneFold("group:/work/alpha")).toBeNull();
+		expect(openedPaths('[data-sidebar-loose-children="group:/work/alpha"]')).toEqual(["/work/alpha/broken.jsonl"]);
 	});
 
 	it("reads an opened session as its task while the index lists it without a first message", async () => {
@@ -2194,7 +2261,9 @@ describe("Sidebar device sections", () => {
 
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(section?.getAttribute("data-device-state")).toBe("offline");
-		expect(section?.querySelector("[data-device-offline]")?.textContent).toBe(translate("remote.sidebar.offline"));
+		const badge = section?.querySelector("[data-device-offline]");
+		expect(badge?.textContent).toBe(translate("remote.state.offline"));
+		expect(badge?.getAttribute("title")).toBe(translate("remote.sidebar.offline"));
 		expect(section?.querySelector("[data-device-session]")).toBeNull();
 		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
@@ -2248,6 +2317,42 @@ describe("Sidebar device sections", () => {
 		await act(async () => useTabsStore.setState({ activeTabId: "tr" }));
 		expect(row()?.getAttribute("data-pane-focus")).toBe("true");
 		expect(row()?.getAttribute("draggable")).toBe("false");
+	});
+
+	it("closes and deletes a host's session from its row, naming the host and deleting it there", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		const remotePath = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "tr",
+					cwd: "/Users/kim/code/app",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					device: "dev-studio",
+					sessionPath: remotePath,
+				},
+			],
+			activeTabId: "t0",
+		});
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`);
+		expect(row()?.querySelector("[data-device-session-close]")).not.toBeNull();
+		await fire(row()?.querySelector("[data-device-session-delete]") ?? null, "onClick");
+		const dialog = document.body.querySelector('[role="dialog"]');
+		expect(dialog?.textContent).toContain("Remote fix on studio");
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		const confirm = [...document.body.querySelectorAll('[role="dialog"] button')].find(
+			b => (b.textContent ?? "").trim() === "Delete",
+		) as unknown as Element;
+		await fire(confirm, "onClick");
+		expect(omp.sessions.delete).toHaveBeenCalledWith(remotePath, "dev-studio");
+		expect(useTabsStore.getState().tabs.some(tab => tab.id === "tr")).toBe(false);
 	});
 });
 
@@ -2821,5 +2926,101 @@ describe("Sidebar on a touch screen", () => {
 		}
 		const head = container.querySelector(".omp-sidebar-project-menu");
 		expect(head?.getAttribute("class")).toContain("[@media(hover:none)]:opacity-100");
+	});
+});
+
+describe("Sidebar remembered folds", () => {
+	const savedFolds = (omp: MockOmp) => omp.prefs.set.mock.calls.findLast(call => call[0] === "sidebarFolds")?.[1];
+
+	it("saves a folded project, the Archived section and a host fold, and a relaunch reads them back", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useRemoteStore.getState().apply({
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				code: null,
+				expiresAt: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+		});
+		await mount(<Sidebar />);
+		expect(container.querySelector('[data-session-group="/work/alpha"]')).not.toBeNull();
+
+		await fire(groupToggle("/work/alpha"), "onClick");
+		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
+		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
+		expect(container.querySelector('[data-session-group="/work/alpha"]')).toBeNull();
+		const saved = savedFolds(omp);
+		expect(saved).toMatchObject({ groups: { "/work/alpha": true }, devices: { local: true, "dev-studio": true } });
+
+		// A relaunch: the window is gone, the stores start empty, and the saved pref is read back.
+		await act(async () => root.unmount());
+		container.remove();
+		useSidebarFolds.getState().reset();
+		omp.prefs.get.mockImplementation(async key => (key === "sidebarFolds" ? saved : null));
+		await mount(<Sidebar />);
+		expect(useSidebarFolds.getState().groups).toEqual({ "/work/alpha": true });
+		expect(container.querySelector("[data-sidebar-device-toggle='dev-studio']")?.getAttribute("aria-expanded")).toBe(
+			"false",
+		);
+		// This device's list is folded under its header: no project group is listed at all.
+		expect(container.querySelector("[data-workspace-group]")).toBeNull();
+		expect(container.querySelector("[data-sidebar-device-toggle='local']")?.getAttribute("aria-expanded")).toBe(
+			"false",
+		);
+	});
+
+	it("keeps the Code or Chat lane that was left, even with a code session open", async () => {
+		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
+		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
+		const omp = installMockOmp([chat, agent]);
+		seedStores();
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[role="tablist"] [data-tab-id="chat"]'), "onClick");
+		expect(omp.prefs.set).toHaveBeenCalledWith("sidebarFolds", expect.objectContaining({ lane: "chat" }));
+
+		// The window reopens on the open code session: the lane that was left is the one shown.
+		await act(async () => root.unmount());
+		container.remove();
+		await mount(<Sidebar />);
+		expect(container.querySelector("[data-chat-lane]")?.textContent).toContain("Session /work/alpha/chat");
+		expect(container.querySelector("[data-workspace-group]")).toBeNull();
+	});
+
+	it("prunes the folds of folders, hosts and sessions that no longer exist once a live read lands", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		useRemoteStore.getState().apply({
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				code: null,
+				expiresAt: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [],
+		});
+		const folds = useSidebarFolds.getState();
+		folds.setGroupFolded("/work/alpha", false);
+		folds.setGroupFolded("/work/removed", true);
+		folds.setDeviceFolded("dev-unpaired", true);
+		useSidebarSubagentsStore.setState({ expanded: new Set([LIST[0]?.path ?? "", "/s/deleted.jsonl", "tab:t0"]) });
+		await mount(<Sidebar />);
+
+		expect(useSidebarFolds.getState().groups).toEqual({ "/work/alpha": false });
+		expect(useSidebarFolds.getState().devices).toEqual({});
+		expect([...useSidebarSubagentsStore.getState().expanded]).toEqual([LIST[0]?.path ?? "", "tab:t0"]);
 	});
 });

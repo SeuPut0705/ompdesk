@@ -27,6 +27,9 @@ export const DEVICE_LOCAL_PREF_KEYS: readonly string[] = [
 	"workBoard",
 	// Layout.
 	"sidebarWidth",
+	"sidebarVisible",
+	"sidebarFolds",
+	"sidebarFamilies",
 	"gui.panelWidth",
 	"panelSide",
 	"defaultPanelTab",

@@ -175,7 +175,7 @@ describe("locate / read / delete", () => {
 		const real = path.join(root, "dotfiles", "agents");
 		await mkdir(real, { recursive: true });
 		await mkdir(path.dirname(dirs.user), { recursive: true });
-		await symlink(real, dirs.user);
+		await symlink(real, dirs.user, "junction");
 		await writeFile(path.join(real, "a.md"), agent("a"));
 		const file = await readAgentFile(dirs, path.join(real, "a.md"));
 		expect(file.scope).toBe("user");

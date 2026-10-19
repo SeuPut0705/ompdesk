@@ -62,10 +62,9 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	useSyncExternalStore,
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
-import type { SessionInfo } from "../../../../shared/ipc-types";
+import type { IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
@@ -82,6 +81,7 @@ import { orderProjects, reorderProjects } from "../../../lib/project-order";
 import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -90,11 +90,13 @@ import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
+import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useQueueStore } from "../../../stores/queue";
-import { usePairedHosts } from "../../../stores/remote";
+import { usePairedHosts, useRemoteStore } from "../../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { useTabsStore } from "../../../stores/tabs";
@@ -129,14 +131,14 @@ import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
 	type FamilyOpened,
-	SidebarDoneFold,
+	SidebarLooseChildren,
 	SidebarSubagents,
 	SidebarSubagentsToggle,
 	sidebarSubagentCount,
 } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
-import { CHILD_TOKEN, openedChildStatus, openerOfSessions } from "./sidebar-family";
+import { CHILD_TOKEN, isShownOpened, openedChildStatus, openerOfSessions } from "./sidebar-family";
 import "../../../styles/sidebar.css";
 
 /**
@@ -165,7 +167,7 @@ interface WorkspaceGroup {
 	/** A worktree group shown right under its project's group. */
 	attached?: boolean;
 	sessions: SidebarSession[];
-	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): one "n done" fold at the end of the project's group. */
+	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): listed only while they need a look. */
 	folded: SidebarSession[];
 }
 
@@ -426,11 +428,6 @@ function focusRovingItem(item: HTMLElement) {
 	(item.closest(".omp-sidebar-session-row") ?? item).scrollIntoView?.({ block: "nearest" });
 }
 
-function subscribeVisibility(listener: () => void): () => void {
-	document.addEventListener("visibilitychange", listener);
-	return () => document.removeEventListener("visibilitychange", listener);
-}
-
 /**
  * Sessions-first sidebar (design-spec §2.1) and the app's only session
  * navigator: Code/Work lanes, New session, a filter, sessions grouped by
@@ -441,7 +438,16 @@ export function Sidebar() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
-	const [mode, setMode] = useState<SidebarMode>("code");
+	// The lane last shown comes back; with none saved (or once the open session moves) the open session picks it.
+	const rememberedLane = useRef(useSidebarFolds.getState().lane);
+	const laneSettled = useRef(false);
+	const [mode, setMode] = useState<SidebarMode>(rememberedLane.current ?? "code");
+	const shownLane = useRef(mode);
+	useEffect(() => {
+		if (shownLane.current === mode) return;
+		shownLane.current = mode;
+		useSidebarFolds.getState().setLane(mode);
+	}, [mode]);
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
 	const [filter, setFilter] = useState("");
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
@@ -481,7 +487,7 @@ export function Sidebar() {
 		void window.omp.prefs.set("sidebarWidth", sidebarWidthRef.current).catch(() => {});
 	}, []);
 	const [deleting, setDeleting] = useState(false);
-	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+	const groupFolds = useSidebarFolds(s => s.groups);
 	// Deleting a session hard-deletes its transcript file, so the row and menu
 	// clicks only queue it: the dialog names the target and states the
 	// consequence before anything is removed.
@@ -494,16 +500,12 @@ export function Sidebar() {
 	// Under touch there is no hover to reveal a row's actions, so the open row would always show its rename,
 	// archive and delete buttons and the title would lose their width: one ⋯ opens the row's action sheet instead.
 	const touchInput = useShellInput() === "touch";
-	// Hidden window: the running rows' edge light rests (sidebar.css `[data-paused]`).
-	const windowVisible = useSyncExternalStore(
-		subscribeVisibility,
-		() => document.visibilityState !== "hidden",
-		() => true,
-	);
+
 	// "Move to project…": the second menu listing the projects a stored session can go to.
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
 	// The Archived section starts folded: archived sessions are out of the way by design.
-	const [archivedOpen, setArchivedOpen] = useState(false);
+	const archivedOpen = useSidebarFolds(s => s.archivedOpen);
+	const setArchivedOpen = useSidebarFolds.getState().setArchivedOpen;
 	const archivedRef = useRef<HTMLElement>(null);
 	// The section sits at the end of the list: opening it brings it to the top, or its rows stay below the fold.
 	useEffect(() => {
@@ -528,6 +530,16 @@ export function Sidebar() {
 	// Remote tabs (a paired host's sessions) live in their device sections; this list is this device's.
 	const localTabs = useMemo(() => tabs.filter(tab => tab.device === undefined), [tabs]);
 	const activeTabRemote = activeTab?.device !== undefined;
+	// Sessions paired devices' tabs run on this computer: rows of this device's list with that tab's live state.
+	const hostedSessions = useHostedSessionsStore(s => s.sessions);
+	const hostedByKey = useMemo(() => {
+		const index = new Map<string, IpcHostedSession>();
+		for (const hosted of hostedSessions) {
+			index.set(hosted.sessionPath, hosted);
+			if (hosted.sessionId) index.set(hosted.sessionId, hosted);
+		}
+		return index;
+	}, [hostedSessions]);
 	const hosts = usePairedHosts();
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
@@ -536,7 +548,15 @@ export function Sidebar() {
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	const grouping = useSidebarPrefs(s => s.grouping);
-	const { sessions, isLoading, error: listError, refresh, deleteSession, renameSession } = useSessionList("global");
+	const {
+		sessions,
+		isLoading,
+		live: listLive,
+		error: listError,
+		refresh,
+		deleteSession,
+		renameSession,
+	} = useSessionList("global");
 	// Stock lists a fork under its parent's title and marks it (`fork`, "Forked from …"); a fork's
 	// `parentSessionPath` holds the parent's file path or, after a move, its id.
 	const sessionsByPathOrId = useMemo(() => {
@@ -565,7 +585,11 @@ export function Sidebar() {
 				setDefaultWorkspace(workspace);
 				const tabState = useTabsStore.getState();
 				const activeKind = tabState.tabs.find(tab => tab.id === tabState.activeTabId)?.kind;
-				if (activeKind === "chat" || useSessionStore.getState().cwd === workspace) setMode("chat");
+				if (
+					rememberedLane.current === null &&
+					(activeKind === "chat" || useSessionStore.getState().cwd === workspace)
+				)
+					setMode("chat");
 			})
 			.catch(() => {});
 	}, []);
@@ -573,6 +597,10 @@ export function Sidebar() {
 	// Opening a session from search or the palette keeps the lane honest.
 	useEffect(() => {
 		if (!defaultWorkspace || !cwd) return;
+		// The first open session at launch does not override the lane that was left.
+		const settled = laneSettled.current;
+		laneSettled.current = true;
+		if (!settled && rememberedLane.current !== null) return;
 		setMode(activeTabKind === "chat" || cwd === defaultWorkspace ? "chat" : "code");
 	}, [activeTabKind, cwd, defaultWorkspace]);
 
@@ -610,12 +638,14 @@ export function Sidebar() {
 			if (tab.sessionPath) held.add(tab.sessionPath);
 			if (tab.sessionId) held.add(tab.sessionId);
 		}
+		// A paired device's tab here holds its session as an open tab does: never folded away or archived out.
+		for (const key of hostedByKey.keys()) held.add(key);
 		if (!activeTabRemote) {
 			if (sessionFile) held.add(sessionFile);
 			if (sessionId) held.add(sessionId);
 		}
 		return held;
-	}, [localTabs, activeTabRemote, sessionFile, sessionId]);
+	}, [localTabs, hostedByKey, activeTabRemote, sessionFile, sessionId]);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
 	const listedSessions = useMemo(
 		() =>
@@ -640,7 +670,10 @@ export function Sidebar() {
 		const listedIds = new Set(listedSessions.map(session => session.id));
 		const listedPaths = new Set(listedSessions.map(session => session.path));
 		const since = liveSince.current;
-		const open = new Set(localTabs.map(tab => tab.id));
+		const open = new Set([
+			...localTabs.map(tab => tab.id),
+			...hostedSessions.map(hosted => `hosted:${hosted.sessionPath}`),
+		]);
 		for (const id of since.keys()) if (!open.has(id)) since.delete(id);
 		let stamp = Date.now();
 		const rows: SidebarSession[] = [];
@@ -671,8 +704,33 @@ export function Sidebar() {
 				liveTabId: tab.id,
 			});
 		}
+		// A paired device's tab here keeps its row too, before the index lists its session.
+		for (const hosted of hostedSessions) {
+			if (listedPaths.has(hosted.sessionPath) || (hosted.sessionId && listedIds.has(hosted.sessionId))) continue;
+			if (localTabs.some(tab => tab.sessionPath === hosted.sessionPath)) continue;
+			const key = `hosted:${hosted.sessionPath}`;
+			let created = since.get(key);
+			if (!created) {
+				created = new Date(stamp++).toISOString();
+				since.set(key, created);
+			}
+			rows.push({
+				path: hosted.sessionPath,
+				id: hosted.sessionId || key,
+				title: hosted.title || null,
+				cwd: hosted.cwd,
+				created,
+				modified: created,
+				messageCount: 0,
+				size: 0,
+				status: "unknown",
+				...(hosted.kind === "chat" ? { kind: "chat" as const } : {}),
+				firstMessage: "",
+				liveTabId: key,
+			});
+		}
 		return rows;
-	}, [listedSessions, localTabs, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	}, [listedSessions, localTabs, hostedSessions, activeTabId, sessionId, sessionFile, sessionName, cwd]);
 	const allSessions = useMemo<SidebarSession[]>(
 		() => (liveSessions.length === 0 ? listedSessions : [...listedSessions, ...liveSessions]),
 		[listedSessions, liveSessions],
@@ -916,7 +974,7 @@ export function Sidebar() {
 		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
 	// Recent grouping: the Code lane as one list by last activity, project shown per row. A session another one
-	// opened is in that one's family, not a row of its own; one no opener holds folds into the lane's "n done" row.
+	// opened is in that one's family, not a row of its own; one no opener holds is listed only while it needs a look.
 	const recentCodeSessions = useMemo(
 		() =>
 			grouping === "recent"
@@ -964,22 +1022,57 @@ export function Sidebar() {
 	const codeTotal = codeSessions.length;
 	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
 	const visibleGroups = mode === "code" && grouping === "projects" ? groups : [];
-	// Projects with an open tab start expanded so every open session is in view.
+	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
+	// in view.
 	const openTabCwds = useMemo(
-		() => new Set(localTabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd)),
-		[localTabs],
+		() =>
+			new Set([
+				...localTabs.filter(tab => tab.kind !== "chat").map(tab => tab.cwd),
+				...hostedSessions.filter(hosted => hosted.kind !== "chat").map(hosted => hosted.cwd),
+			]),
+		[localTabs, hostedSessions],
 	);
 
 	const isCollapsed = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
 		// A filter shows every match.
 		if (query) return false;
-		if (group.cwd in collapsed) return collapsed[group.cwd];
+		if (group.cwd in groupFolds) return groupFolds[group.cwd];
 		// Default: the current project and projects with open tabs expanded, others collapsed.
 		return !group.members.some(member => member === cwd || openTabCwds.has(member));
 	};
 	const toggleGroup = (group: Pick<WorkspaceGroup, "cwd" | "members">) => {
-		setCollapsed(prev => ({ ...prev, [group.cwd]: !isCollapsed(group) }));
+		useSidebarFolds.getState().setGroupFolded(group.cwd, !isCollapsed(group));
 	};
+	// The folds and the open families as they were left: the mirror painted the first frame, the saved pref is read
+	// again here and wins when it differs.
+	useEffect(() => {
+		void useSidebarFolds.getState().hydrate();
+		void useSidebarSubagentsStore.getState().hydrate();
+	}, []);
+	// Forget the folds of folders, hosts and sessions that are gone. Only a live read (not the last-known snapshot,
+	// which holds the newest rows only) and a loaded host list say what still exists.
+	useEffect(() => {
+		if (!listLive) return;
+		const folders = new Set<string>();
+		for (const group of allGroups) {
+			folders.add(group.cwd);
+			folders.add(group.root);
+			folders.add(group.newCwd);
+			for (const member of group.members) folders.add(member);
+		}
+		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
+		useSidebarFolds.getState().pruneGroups(key => folders.has(key) || folders.has(key.replace(/#agent$/, "")));
+		// A session an open tab holds stays known even before the index lists its file.
+		const known = new Set([...sessions.map(session => session.path), ...heldByTab]);
+		useSidebarSubagentsStore.getState().pruneFamilies(key => !isRememberedSession(key) || known.has(key));
+	}, [listLive, allGroups, sessions, heldByTab, projectName]);
+	const hostsLoaded = useRemoteStore(s => s.state !== null);
+	useEffect(() => {
+		if (hostsLoaded) useSidebarFolds.getState().pruneDevices(new Set(hosts.map(host => host.deviceId)));
+	}, [hostsLoaded, hosts]);
+	// This device's own list folds under its header once a host is paired; a filter shows every match.
+	const localFoldedPref = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
+	const localFolded = localFoldedPref && hosts.length > 0 && query.length === 0;
 	// A drag arms only after 6px of movement, so clicking a project still toggles it.
 	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
@@ -1006,9 +1099,19 @@ export function Sidebar() {
 		localTabs.find(tab => tab.sessionPath === session.path) ??
 		localTabs.find(tab => tab.sessionId === session.id) ??
 		(isCurrentSession(session) ? activeTab : undefined);
+	/** The paired device's tab on this computer that runs the session (its live state when no tab here shows it). */
+	const hostedFor = (session: SidebarSession) => hostedByKey.get(session.path) ?? hostedByKey.get(session.id);
 	const sessionTabSignal = (session: SidebarSession) => {
 		const tab = tabForSession(session);
-		return tab ? tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting)) : null;
+		if (tab) return tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting));
+		const hosted = hostedFor(session);
+		return hosted
+			? tabSignalPresentation({
+					status: hosted.status,
+					awaitingInput: hosted.awaitingInput ? "input" : undefined,
+					unreadDone: false,
+				})
+			: null;
 	};
 	const isSessionBusy = (session: SidebarSession) => {
 		if (isCurrentSession(session) && awaitedInput) return true;
@@ -1358,8 +1461,11 @@ export function Sidebar() {
 		const active = (isCurrent || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const tabSignal = sessionTabSignal(session);
-		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag.
-		const waiting = (isCurrent ? awaitedInput : null) ?? tab?.awaitingInput;
+		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag. A paired device's
+		// tab here that no tab of this window shows says it through its hosted state.
+		const hosted = tab === undefined ? hostedFor(session) : undefined;
+		const waiting =
+			(isCurrent ? awaitedInput : null) ?? tab?.awaitingInput ?? (hosted?.awaitingInput ? "input" : undefined);
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		const failed =
 			!waiting &&
@@ -1385,6 +1491,7 @@ export function Sidebar() {
 		return {
 			isCurrent,
 			tab,
+			hosted,
 			active,
 			indexed,
 			waiting,
@@ -1445,7 +1552,7 @@ export function Sidebar() {
 			finished:
 				lastRun !== undefined ||
 				closedTitleOf.has(child.path) ||
-				row.tab === undefined ||
+				(row.tab === undefined && row.hosted === undefined) ||
 				(!row.busy && child.messageCount >= 2),
 			failed,
 			unmerged:
@@ -1699,6 +1806,7 @@ export function Sidebar() {
 							toggleSidebarSubagents(session.path);
 						openSession(session);
 					}}
+					live={signal === "running"}
 					rowProps={{
 						draggable: openTabId !== undefined && !isCurrent,
 						onDragStart: event => {
@@ -1755,6 +1863,10 @@ export function Sidebar() {
 				session => isSessionBusy(session) || (familyChildrenOf.get(session.path) ?? []).some(isSessionBusy),
 			);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
+		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a project
+		// with nothing else to show has no group at all.
+		const loose = group.folded.map(child => familyChildFor(child, false)).filter(isShownOpened);
+		if (group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
 				{dragHandle => (
@@ -1892,10 +2004,7 @@ export function Sidebar() {
 						{!groupCollapsed && (
 							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
 								{group.sessions.map(session => renderSessionRow(session, true))}
-								<SidebarDoneFold
-									foldKey={`group:${group.cwd}`}
-									opened={group.folded.map(child => familyChildFor(child, false))}
-								/>
+								<SidebarLooseChildren foldKey={`group:${group.cwd}`} opened={loose} />
 							</div>
 						)}
 					</>
@@ -1909,7 +2018,6 @@ export function Sidebar() {
 			<aside
 				aria-label={t("sidebar.label")}
 				className="omp-session-sidebar relative flex h-full min-h-0 shrink-0 flex-col border-r border-(--sc-border-subtle) bg-(--sc-surface-1)"
-				data-paused={windowVisible ? undefined : ""}
 				style={{ width: sidebarWidth }}
 			>
 				{/* Traffic-light safe (global.css): on macOS the brand yields its
@@ -2004,204 +2112,228 @@ export function Sidebar() {
 					role="group"
 				>
 					{hosts.length > 0 && <SidebarLocalHeader />}
-					{listError &&
-						(allSessions.length > 0 ? (
-							<div
-								className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
-								role="alert"
-							>
-								<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
-									<AlertTriangle aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)" />
-									{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
-								</p>
-								<ErrorDetail error={listError} />
-								<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
-									{t("common.retry")}
-								</Button>
-							</div>
-						) : (
-							<EmptyState
-								actions={
-									<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="secondary">
-										{t("common.retry")}
-									</Button>
-								}
-								className="omp-sidebar-empty"
-								description={<ErrorDetail error={listError} />}
-								icon={<AlertTriangle />}
-								size="sm"
-								title={t("sidebar.loadFailed")}
-							/>
-						))}
-					{isLoading && !listError && allSessions.length === 0 && (
-						<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
-					)}
-					{!isLoading &&
-						!listError &&
-						totalCount === 0 &&
-						(query ? (
-							<EmptyState
-								actions={
-									<Button onClick={() => setFilter("")} size="sm" variant="ghost">
-										{t("sidebar.clearFilter")}
-									</Button>
-								}
-								className="omp-sidebar-empty"
-								description={t("sidebar.noMatchHint")}
-								icon={<SearchX />}
-								size="sm"
-								title={t("sidebar.noMatch")}
-							/>
-						) : mode === "code" ? (
-							<EmptyState
-								actions={
-									<>
-										<Button
-											icon={<FolderOpen />}
-											onClick={() => setWorkspaceDialog("new-session")}
-											size="sm"
-											variant="secondary"
-										>
-											{t("sidebar.project.open")}
+					{!localFolded && (
+						<>
+							{listError &&
+								(allSessions.length > 0 ? (
+									<div
+										className="mx-1 mb-2 flex flex-col items-start gap-1.5 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-2.5 py-2 text-sc-xs"
+										role="alert"
+									>
+										<p className="flex items-center gap-1.5 font-medium text-(--sc-text)">
+											<AlertTriangle
+												aria-hidden
+												className="size-(--sc-icon-sm) shrink-0 text-(--sc-danger)"
+											/>
+											{sessions.length > 0 ? t("sidebar.stale") : t("sidebar.loadFailed")}
+										</p>
+										<ErrorDetail error={listError} />
+										<Button icon={<RefreshCw />} onClick={() => refresh(true)} size="sm" variant="ghost">
+											{t("common.retry")}
 										</Button>
-										{otherModeCount > 0 && (
+									</div>
+								) : (
+									<EmptyState
+										actions={
 											<Button
-												data-sidebar-other-mode
-												onClick={() => setMode("chat")}
+												icon={<RefreshCw />}
+												onClick={() => refresh(true)}
 												size="sm"
-												variant="ghost"
+												variant="secondary"
 											>
-												{t("sidebar.otherMode.showChat")}
+												{t("common.retry")}
 											</Button>
-										)}
-									</>
-								}
-								className="omp-sidebar-empty"
-								description={
-									otherModeCount > 0 ? (
-										<>
-											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.chat", { count: otherModeCount })}
-										</>
-									) : (
-										t("sidebar.emptyCodeHint")
-									)
-								}
-								icon={<SquareTerminal />}
-								size="sm"
-								title={t("sidebar.emptyCode")}
-							/>
-						) : (
-							<EmptyState
-								actions={
-									<>
-										<Button icon={<MessageSquarePlus />} onClick={startChat} size="sm" variant="secondary">
-											{t("sidebar.menu.newChat")}
-										</Button>
-										{otherModeCount > 0 && (
-											<Button
-												data-sidebar-other-mode
-												onClick={() => setMode("code")}
-												size="sm"
-												variant="ghost"
-											>
-												{t("sidebar.otherMode.showCode")}
-											</Button>
-										)}
-									</>
-								}
-								className="omp-sidebar-empty"
-								description={
-									otherModeCount > 0 ? (
-										<>
-											{t("sidebar.emptyChatHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
-										</>
-									) : (
-										t("sidebar.emptyChatHint")
-									)
-								}
-								icon={<MessageCircle />}
-								size="sm"
-								title={t("sidebar.emptyChat")}
-							/>
-						))}
-					{mode === "chat" && chatLaneSessions.length > 0 && (
-						<div className="space-y-px" data-chat-lane>
-							{chatLaneSessions.map(session => renderSessionRow(session))}
-						</div>
-					)}
-					{visibleGroups.length > 0 && (
-						<DndContext collisionDetection={closestCenter} onDragEnd={onProjectDragEnd} sensors={projectSensors}>
-							<SortableContext
-								items={visibleGroups.map(group => group.cwd)}
-								strategy={verticalListSortingStrategy}
-							>
-								{visibleGroups.map(renderGroup)}
-							</SortableContext>
-						</DndContext>
-					)}
-					{mode === "code" && grouping === "recent" && recentCodeSessions.length + recentFolded.length > 0 && (
-						<div className="space-y-px" data-recent-lane>
-							{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
-							<SidebarDoneFold
-								foldKey="recent"
-								opened={recentFolded.map(child => familyChildFor(child, false))}
-							/>
-						</div>
-					)}
-					{archivedRows.length > 0 && (
-						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
-							<div
-								className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
-								onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
-							>
-								<button
-									aria-expanded={archivedOpen || query.length > 0}
-									className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-									data-roving-item="archived"
-									onClick={() => setArchivedOpen(open => !open)}
-									onFocus={() => setFocusKey("archived")}
-									onKeyDown={event => {
-										if (opensMenu(event)) {
-											event.preventDefault();
-											setArchivedMenu(anchorBelow(event.currentTarget));
-										} else if (event.key === "ArrowRight" && !archivedOpen) {
-											event.preventDefault();
-											setArchivedOpen(true);
-										} else if (event.key === "ArrowLeft" && archivedOpen) {
-											event.preventDefault();
-											setArchivedOpen(false);
 										}
-									}}
-									tabIndex={-1}
-									type="button"
-								>
-									{archivedOpen || query ? (
-										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									) : (
-										<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									)}
-									<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									<span className="min-w-0 flex-1 truncate">
-										{t("sidebar.archived", { count: archivedRows.length })}
-									</span>
-								</button>
-								<span className="relative flex shrink-0 items-center pr-1">
-									<IconButton
-										className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-										icon={<MoreHorizontal />}
-										label={t("sidebar.archivedMenu")}
-										onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
+										className="omp-sidebar-empty"
+										description={<ErrorDetail error={listError} />}
+										icon={<AlertTriangle />}
 										size="sm"
-										tabIndex={-1}
+										title={t("sidebar.loadFailed")}
 									/>
-								</span>
-							</div>
-							{(archivedOpen || query.length > 0) && (
-								<div className="space-y-px" data-archived-list>
-									{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
+								))}
+							{isLoading && !listError && allSessions.length === 0 && (
+								<SkeletonRows label={t("sidebar.loading")} widths={[72, 54, 64, 46]} />
+							)}
+							{!isLoading &&
+								!listError &&
+								totalCount === 0 &&
+								(query ? (
+									<EmptyState
+										actions={
+											<Button onClick={() => setFilter("")} size="sm" variant="ghost">
+												{t("sidebar.clearFilter")}
+											</Button>
+										}
+										className="omp-sidebar-empty"
+										icon={<SearchX />}
+										size="sm"
+										title={t("sidebar.noMatch")}
+									/>
+								) : mode === "code" ? (
+									<EmptyState
+										actions={
+											<>
+												<Button
+													icon={<FolderOpen />}
+													onClick={() => setWorkspaceDialog("new-session")}
+													size="sm"
+													variant="secondary"
+												>
+													{t("sidebar.project.open")}
+												</Button>
+												{otherModeCount > 0 && (
+													<Button
+														data-sidebar-other-mode
+														onClick={() => setMode("chat")}
+														size="sm"
+														variant="ghost"
+													>
+														{t("sidebar.otherMode.showChat")}
+													</Button>
+												)}
+											</>
+										}
+										className="omp-sidebar-empty"
+										description={
+											otherModeCount > 0 ? (
+												<>
+													{t("sidebar.emptyCodeHint")}{" "}
+													{t("sidebar.otherMode.chat", { count: otherModeCount })}
+												</>
+											) : (
+												t("sidebar.emptyCodeHint")
+											)
+										}
+										icon={<SquareTerminal />}
+										size="sm"
+										title={t("sidebar.emptyCode")}
+									/>
+								) : (
+									<EmptyState
+										actions={
+											<>
+												<Button
+													icon={<MessageSquarePlus />}
+													onClick={startChat}
+													size="sm"
+													variant="secondary"
+												>
+													{t("sidebar.menu.newChat")}
+												</Button>
+												{otherModeCount > 0 && (
+													<Button
+														data-sidebar-other-mode
+														onClick={() => setMode("code")}
+														size="sm"
+														variant="ghost"
+													>
+														{t("sidebar.otherMode.showCode")}
+													</Button>
+												)}
+											</>
+										}
+										className="omp-sidebar-empty"
+										description={
+											otherModeCount > 0 ? (
+												<>
+													{t("sidebar.emptyChatHint")}{" "}
+													{t("sidebar.otherMode.code", { count: otherModeCount })}
+												</>
+											) : (
+												t("sidebar.emptyChatHint")
+											)
+										}
+										icon={<MessageCircle />}
+										size="sm"
+										title={t("sidebar.emptyChat")}
+									/>
+								))}
+							{mode === "chat" && chatLaneSessions.length > 0 && (
+								<div className="space-y-px" data-chat-lane>
+									{chatLaneSessions.map(session => renderSessionRow(session))}
 								</div>
 							)}
-						</section>
+							{visibleGroups.length > 0 && (
+								<DndContext
+									collisionDetection={closestCenter}
+									onDragEnd={onProjectDragEnd}
+									sensors={projectSensors}
+								>
+									<SortableContext
+										items={visibleGroups.map(group => group.cwd)}
+										strategy={verticalListSortingStrategy}
+									>
+										{visibleGroups.map(renderGroup)}
+									</SortableContext>
+								</DndContext>
+							)}
+							{mode === "code" &&
+								grouping === "recent" &&
+								recentCodeSessions.length + recentFolded.length > 0 && (
+									<div className="space-y-px" data-recent-lane>
+										{recentCodeSessions.map(session => renderSessionRow(session, false, "recent"))}
+										<SidebarLooseChildren
+											foldKey="recent"
+											opened={recentFolded.map(child => familyChildFor(child, false))}
+										/>
+									</div>
+								)}
+							{archivedRows.length > 0 && (
+								<section className="mt-3" data-sidebar-archived ref={archivedRef}>
+									<div
+										className="group/head relative flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+										onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
+									>
+										<button
+											aria-expanded={archivedOpen || query.length > 0}
+											className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+											data-roving-item="archived"
+											onClick={() => setArchivedOpen(!archivedOpen)}
+											onFocus={() => setFocusKey("archived")}
+											onKeyDown={event => {
+												if (opensMenu(event)) {
+													event.preventDefault();
+													setArchivedMenu(anchorBelow(event.currentTarget));
+												} else if (event.key === "ArrowRight" && !archivedOpen) {
+													event.preventDefault();
+													setArchivedOpen(true);
+												} else if (event.key === "ArrowLeft" && archivedOpen) {
+													event.preventDefault();
+													setArchivedOpen(false);
+												}
+											}}
+											tabIndex={-1}
+											type="button"
+										>
+											{archivedOpen || query ? (
+												<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+											) : (
+												<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+											)}
+											<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+											<span className="min-w-0 flex-1 truncate">
+												{t("sidebar.archived", { count: archivedRows.length })}
+											</span>
+										</button>
+										<span className="relative flex shrink-0 items-center pr-1">
+											<IconButton
+												className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												icon={<MoreHorizontal />}
+												label={t("sidebar.archivedMenu")}
+												onClick={event => setArchivedMenu(anchorBelow(event.currentTarget))}
+												size="sm"
+												tabIndex={-1}
+											/>
+										</span>
+									</div>
+									{(archivedOpen || query.length > 0) && (
+										<div className="space-y-px" data-archived-list>
+											{archivedRows.map(session => renderSessionRow(session, true, "archived"))}
+										</div>
+									)}
+								</section>
+							)}
+						</>
 					)}
 					{hosts.map(host => (
 						<SidebarDeviceSection host={host} key={host.deviceId} mode={mode} query={query} />

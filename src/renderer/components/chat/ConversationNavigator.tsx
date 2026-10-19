@@ -81,7 +81,6 @@ export function ConversationNavigator({ activeIndex, anchors, onNavigate }: Conv
 										{clock ? <time>{clock}</time> : null}
 									</div>
 									<p>{preview}</p>
-									<span className="omp-conversation-nav-preview-hint">{t("chat.navigator.hint")}</span>
 								</div>
 							) : null}
 						</div>

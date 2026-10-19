@@ -5,8 +5,9 @@
  * item runs and Retry after a failure, a cancel or a backoff.
  */
 
-import { ExternalLink, RefreshCw } from "lucide-react";
-import type { SetupItemState } from "../../../shared/setup";
+import { ExternalLink, RefreshCw, ShieldCheck, Undo2 } from "lucide-react";
+import { useState } from "react";
+import type { GitAslrAction, SetupItemState } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { Badge, Button, InlineNotice, SettingInfo } from "../common";
@@ -27,15 +28,73 @@ import {
 } from "../onboarding/MachineSetupView";
 import { CliUpdateRows } from "./CliUpdateRows";
 import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
+import { MemoryComponentRow } from "./memory/MemoryComponentRow";
 import { OmpUpdateRows } from "./OmpUpdateRows";
 import { SettingsSection } from "./SettingsLayout";
 
+/**
+ * The Git item under Mandatory ASLR: the probe's finding with one Fix button, or, once Windows holds the
+ * override, Undo when OMPdesk recorded what its Fix changed (`gitAslrUndoable`); an override without that record
+ * says so and offers nothing. Each click is one elevated step (a UAC prompt) in main; detection runs again after.
+ */
+function GitAslrControl({ item }: { item: SetupItemState }) {
+	const t = useT();
+	const [busy, setBusy] = useState<GitAslrAction | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const presence = item.presence?.kind === "present" ? item.presence : null;
+	const blocked = presence?.gitShell?.kind === "mandatory-aslr";
+	if (!blocked && !presence?.gitAslrOverride) return null;
+	const run = async (action: GitAslrAction) => {
+		setBusy(action);
+		setError(null);
+		const result = await window.omp.setup.gitAslr(action).catch((cause: unknown) => ({
+			ok: false as const,
+			detail: cause instanceof Error ? cause.message : String(cause),
+		}));
+		setBusy(null);
+		if (!result.ok) setError(result.detail || t("machineSetup.gitAslr.failed"));
+	};
+	const action: GitAslrAction = blocked ? "fix" : "undo";
+	const offered = blocked || presence?.gitAslrUndoable === true;
+	return (
+		<InlineNotice
+			action={
+				offered && (
+					<Button
+						data-testid={`setup-git-aslr-${action}`}
+						disabled={busy !== null}
+						icon={action === "fix" ? <ShieldCheck /> : <Undo2 />}
+						onClick={() => void run(action)}
+						size="sm"
+						variant={action === "fix" ? "primary" : "secondary"}
+					>
+						{t(action === "fix" ? "machineSetup.gitAslr.fix" : "machineSetup.gitAslr.undo")}
+					</Button>
+				)
+			}
+			detail={
+				error ??
+				(action === "fix"
+					? t("machineSetup.gitAslr.fixDetail")
+					: offered
+						? undefined
+						: t("machineSetup.gitAslr.noRecord"))
+			}
+			title={blocked ? t("machineSetup.presence.gitShellAslr") : t("machineSetup.gitAslr.applied")}
+			tone={error ? "danger" : blocked ? "warning" : "info"}
+		/>
+	);
+}
 function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolean }) {
 	const t = useT();
 	const retry = useMachineSetupStore(store => store.retry);
 	const cancel = useMachineSetupStore(store => store.cancel);
 	const name = SETUP_ITEM_NAMES[item.id];
-	const note = setupPresenceNote(t, item);
+	// The Mandatory ASLR finding is its own notice with the Fix button below; the status line stays short.
+	const note =
+		item.presence?.kind === "present" && item.presence.gitShell?.kind === "mandatory-aslr"
+			? null
+			: setupPresenceNote(t, item);
 	const path = setupPresencePath(item);
 	const purpose = item.id === "git" && windows ? "gitWindows" : item.id;
 	return (
@@ -85,6 +144,7 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 					</div>
 				)}
 			</div>
+			{item.id === "git" && windows && <GitAslrControl item={item} />}
 			{item.phase === "unavailable" && (
 				<InlineNotice
 					action={
@@ -136,7 +196,6 @@ export function MachineSetupSection() {
 	if (state?.platform === "other") return null;
 	return (
 		<SettingsSection
-			description={t("machineSetup.settings.description")}
 			id="setting-machine-setup"
 			// Settings › Updates & about holds this computer's tools beside the host's omp.
 			scope="app"
@@ -161,6 +220,7 @@ export function MachineSetupSection() {
 			)}
 			{state && <CliUpdateRows />}
 			{state && <ExtensionUpdateRows />}
+			{state && <MemoryComponentRow />}
 		</SettingsSection>
 	);
 }

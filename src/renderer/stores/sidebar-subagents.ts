@@ -5,10 +5,21 @@
  *
  * A family is folded until the person opens it and NEVER opens or folds by itself: not when a child starts, runs or
  * finishes (in a long orchestration every follow-up message is a new run). The person's own toggle is remembered per
- * session. The only thing a folded family shows unasked is a child waiting for an answer (one row, see
- * `SidebarSubagents`), which does not touch this state. In-memory UI state: nothing survives a restart.
+ * session and remembered across relaunches (device-local pref `sidebarFamilies`, mirrored in localStorage:
+ * `lib/sidebar-memory.ts`; the sidebar prunes the entries of sessions that no longer exist, `pruneFamilies`). The only
+ * thing a folded family shows unasked is a child waiting for an answer (one row, see `SidebarSubagents`), which does
+ * not touch this state.
  */
 import { create } from "zustand";
+import {
+	FOLD_LIMIT,
+	isRememberedSession,
+	parseSidebarFamilies,
+	readSavedPref,
+	readSidebarFamilies,
+	SIDEBAR_FAMILIES_PREF,
+	writeSidebarFamilies,
+} from "../lib/sidebar-memory";
 import { useUiStore } from "./ui";
 
 interface SidebarSubagentsStore {
@@ -27,6 +38,10 @@ interface SidebarSubagentsStore {
 	expandAll: () => void;
 	collapseAll: () => void;
 	showAll: () => void;
+	/** Forget the entries of sessions `exists` refuses. Call only once the sessions are known (a live read answered). */
+	pruneFamilies: (exists: (sessionKey: string) => boolean) => void;
+	/** Read the saved pref once; the mirror painted the first frame, the pref wins when it differs. */
+	hydrate: () => Promise<void>;
 	/** Clear a handled reveal (no-op when a newer one already replaced it). */
 	consumeReveal: (seq: number) => void;
 }
@@ -39,9 +54,11 @@ function toggled(set: ReadonlySet<string>, key: string, on: boolean): ReadonlySe
 	return next;
 }
 
+const saved = readSidebarFamilies();
+
 export const useSidebarSubagentsStore = create<SidebarSubagentsStore>()((set, get) => ({
-	expanded: new Set(),
-	hidden: new Set(),
+	expanded: new Set(saved.expanded),
+	hidden: new Set(saved.hidden),
 	present: new Set(),
 	reveal: null,
 	setExpanded: (sessionKey, open) => {
@@ -59,10 +76,40 @@ export const useSidebarSubagentsStore = create<SidebarSubagentsStore>()((set, ge
 	expandAll: () => set(state => ({ expanded: new Set(state.present) })),
 	collapseAll: () => set({ expanded: new Set() }),
 	showAll: () => set({ hidden: new Set() }),
+	pruneFamilies: exists => {
+		const { expanded, hidden } = get();
+		const keptExpanded = [...expanded].filter(exists);
+		const keptHidden = [...hidden].filter(exists);
+		if (keptExpanded.length === expanded.size && keptHidden.length === hidden.size) return;
+		applyingSaved = true;
+		set({ expanded: new Set(keptExpanded), hidden: new Set(keptHidden) });
+		applyingSaved = false;
+	},
+	hydrate: async () => {
+		const value = await readSavedPref(SIDEBAR_FAMILIES_PREF);
+		if (value === null || touched) return;
+		const families = parseSidebarFamilies(value);
+		applyingSaved = true;
+		set({ expanded: new Set(families.expanded), hidden: new Set(families.hidden) });
+		applyingSaved = false;
+	},
 	consumeReveal: seq => {
 		if (get().reveal?.seq === seq) set({ reveal: null });
 	},
 }));
+
+/** An edit landed before the saved pref was read: the read must not replace it. */
+let touched = false;
+let applyingSaved = false;
+
+useSidebarSubagentsStore.subscribe((state, previous) => {
+	if (state.expanded === previous.expanded && state.hidden === previous.hidden) return;
+	if (!applyingSaved) touched = true;
+	writeSidebarFamilies({
+		expanded: [...state.expanded].filter(isRememberedSession).slice(-FOLD_LIMIT),
+		hidden: [...state.hidden].filter(isRememberedSession).slice(-FOLD_LIMIT),
+	});
+});
 
 /** Flip a session's family rows between expanded and collapsed. */
 export function toggleSidebarSubagents(sessionKey: string): void {

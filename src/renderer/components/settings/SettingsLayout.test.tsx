@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { INLINE_DESCRIPTION_MAX } from "../common";
-import { SettingsRow, SettingsScopeProvider, SettingsSection } from "./SettingsLayout";
+import { SettingsRow, SettingsScopeProvider, SettingsSection, SettingsTipOnly } from "./SettingsLayout";
 import { schemaGroupTitle } from "./schema-i18n";
 
 describe("settings group presentation", () => {
@@ -77,6 +77,23 @@ describe("settings group presentation", () => {
 				const c = document.getElementById("c");
 				expect(c?.querySelector("[data-setting-info]")).toBeNull();
 				expect(c?.textContent).toContain("Costs a request.");
+			},
+		);
+	});
+
+	it("puts even a short description behind the info glyph inside a tip-only section, warnings stay visible", async () => {
+		await mounted(
+			<SettingsTipOnly value>
+				<SettingsSection description="Group note." title="Group">
+					<SettingsRow description="Short." id="a" label="Alpha" />
+					<SettingsRow description={<span>Costs a request.</span>} id="c" label="Gamma" />
+				</SettingsSection>
+			</SettingsTipOnly>,
+			document => {
+				expect(document.querySelector("[data-setting-desc]")).toBeNull();
+				expect(document.getElementById("a")?.querySelector(".sr-only")?.textContent).toBe("Short.");
+				expect(document.querySelectorAll("[data-setting-info]").length).toBe(2);
+				expect(document.getElementById("c")?.textContent).toContain("Costs a request.");
 			},
 		);
 	});

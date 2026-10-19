@@ -37,6 +37,7 @@ import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
 import { AGENT_CONTROL_PREF, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../shared/agent-control";
 import {
+	AI_MEMORY_LEARN_PREF,
 	AI_MEMORY_PREF,
 	AI_MEMORY_SERVICE_OWNED_PREF,
 	AI_MEMORY_TERMINAL_PREF,
@@ -69,9 +70,12 @@ import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/wor
 import { accountRotationDeps } from "./account-rotation";
 import { agentDir } from "./agent-paths";
 import { AgentWorktreeAutoClean } from "./agent-worktrees";
+import { AiMemoryClient } from "./ai-memory/client";
+import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { AiMemoryService } from "./ai-memory/service";
 import { pidFileControl } from "./ai-memory/unit";
+import { MemoryUpkeep } from "./ai-memory/upkeep";
 import { appIconPath, appNotification } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
@@ -88,7 +92,7 @@ import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
 import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
-import { installHangWatchdog, reportPreviousHang } from "./hang-watchdog";
+import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { registerIpcHandlers } from "./ipc";
@@ -390,6 +394,7 @@ let mobileWebService = null as MobileWebService | null;
 let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
 let aiMemoryService: AiMemoryService | null = null;
+let aiMemoryUpkeep: MemoryUpkeep | null = null;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
@@ -409,6 +414,14 @@ function errorMessage(value: unknown): { message: string; stack?: string } {
 }
 
 function installMainRuntimeLogging(): void {
+	// A console line to a stdout/stderr whose reader is gone (the terminal or test runner that started this copy
+	// closed) fails with EPIPE on the stream; with no listener that is an uncaught exception and a crash dialog.
+	// Losing the line is fine: the runtime log keeps what matters.
+	for (const stream of [process.stdout, process.stderr]) {
+		stream.on("error", error => {
+			if ((error as NodeJS.ErrnoException).code !== "EPIPE") throw error;
+		});
+	}
 	process.on("uncaughtExceptionMonitor", (error, origin) => {
 		writeRuntimeLog({ source: "main-uncaught", ...errorMessage(error), details: { origin } });
 	});
@@ -670,7 +683,7 @@ app.whenReady().then(() => {
 				check: checkForUpdate,
 				download: downloadUpdate,
 				restartable: restartableUpdate,
-				restart: restartIntoUpdate,
+				restart: () => restartIntoUpdate("user click"),
 			},
 			appearance: () => ({ themeName: prefsStore().get("themeName"), language: prefsStore().get("language") }),
 			// Device tabs this computer hosts count too; their own quit prompt never reaches anyone.
@@ -995,10 +1008,29 @@ app.whenReady().then(() => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.AI_MEMORY_STATE, state);
 			}
+			// The repair and the learning run only while the server answers.
+			if (state.phase === "ready") aiMemoryUpkeep?.ready();
+			else aiMemoryUpkeep?.pause();
 		},
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
 	aiMemoryService = aiMemory;
+	// Memory's own quality upkeep (src/main/ai-memory/upkeep.ts): repairs old titles and child handoffs once per launch,
+	// and learns decisions/rules/gotchas from a person's paused conversations on the user's cheap model (`aiMemoryLearn`).
+	aiMemoryUpkeep = new MemoryUpkeep({
+		client: new AiMemoryClient({
+			url: () => aiMemory.state().serverUrl,
+			dataDir: () => aiMemory.state().dataDir,
+		}),
+		learn: () => prefs.get(AI_MEMORY_LEARN_PREF) !== false,
+		model: async message => {
+			const omp = await systemOmp();
+			if (!omp.ok) throw new Error(omp.error);
+			return runSmol(omp.runtime, message, join(app.getPath("temp"), "ompdesk-memory-upkeep"));
+		},
+		stateFile: join(app.getPath("userData"), "ai-memory", "upkeep.json"),
+		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message: `upkeep-${message}`, details }),
+	});
 	registerAiMemoryIpc(ipc, aiMemory, {
 		openExternal: url => shell.openExternal(url),
 		openPath: path => shell.openPath(path),
@@ -1203,6 +1235,7 @@ app.whenReady().then(() => {
 		logWatcher,
 		windowManager,
 		remoteDevices: devices,
+		hostedTabs: hostServices,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
@@ -1389,6 +1422,7 @@ app.whenReady().then(() => {
 		busy: () =>
 			sidecarPool.tabInventory().some(tab => tab.inFlight) ||
 			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.running || fact.awaitingUi),
+		asking: () => [...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.awaitingUi),
 	});
 });
 
@@ -1421,23 +1455,32 @@ app.on("window-all-closed", () => {
 installQuitGuard(
 	() => (sidecarPool ? sidecarPool.tabInventory() : []),
 	() => {
-		void statsServer?.kill();
-		ompUpdater?.dispose();
-		cliUpdater?.dispose();
-		extensionUpdater?.dispose();
-		setupService?.dispose();
-		aiMemoryService?.dispose();
-		githubAuthService?.dispose();
-		scheduleService?.dispose();
-		workAwakePolicy?.dispose();
-		worktreeAutoClean?.stop();
-		sidecarPool?.disposeAll();
-		void remoteDevices?.dispose();
-		mobileWebService?.dispose();
-		void webHost?.stop();
-		sessionIndex?.stop();
-		logWatcher?.stop();
-		destroyTray();
+		// Each step is named to the hang watchdog first: a stalled quit then names the step that never returned.
+		const steps: Array<[string, () => void]> = [
+			["stats-server", () => void statsServer?.kill()],
+			["omp-updater", () => ompUpdater?.dispose()],
+			["cli-updater", () => cliUpdater?.dispose()],
+			["extension-updater", () => extensionUpdater?.dispose()],
+			["setup", () => setupService?.dispose()],
+			["ai-memory-upkeep", () => aiMemoryUpkeep?.dispose()],
+			["ai-memory", () => aiMemoryService?.dispose()],
+			["github-auth", () => githubAuthService?.dispose()],
+			["schedules", () => scheduleService?.dispose()],
+			["work-awake", () => workAwakePolicy?.dispose()],
+			["worktree-auto-clean", () => worktreeAutoClean?.stop()],
+			["sidecars", () => sidecarPool?.disposeAll()],
+			["remote-devices", () => void remoteDevices?.dispose()],
+			["mobile-web", () => mobileWebService?.dispose()],
+			["web-host", () => void webHost?.stop()],
+			["session-index", () => sessionIndex?.stop()],
+			["log-watcher", () => logWatcher?.stop()],
+			["tray", () => destroyTray()],
+		];
+		for (const [name, run] of steps) {
+			markMainStep("quit", `teardown:${name}`);
+			run();
+		}
+		markMainStep("quit", "teardown:done");
 	},
 	async () => {
 		const lifecycle = worktreeLifecycle;

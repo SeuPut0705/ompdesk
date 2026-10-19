@@ -463,11 +463,11 @@ export function PreviewPanel() {
 				<div className="flex items-start gap-2 pb-2">
 					<div className="min-w-0 flex-1">
 						<div className="text-sc-md font-semibold text-(--sc-text)">{t("panel.preview.problemsTitle")}</div>
-						<p className="text-sc-xs text-(--sc-text-muted)">
-							{t("panel.preview.problemsHint")}
-							{state.problems.length >= PREVIEW_PROBLEM_LIMIT &&
-								` ${t("panel.preview.problemsCapped", { count: PREVIEW_PROBLEM_LIMIT })}`}
-						</p>
+						{state.problems.length >= PREVIEW_PROBLEM_LIMIT && (
+							<p className="text-sc-xs text-(--sc-text-muted)">
+								{t("panel.preview.problemsCapped", { count: PREVIEW_PROBLEM_LIMIT })}
+							</p>
+						)}
 					</div>
 					<CopyButton label={t("panel.preview.problemsCopy")} size="sm" text={problemsText} />
 					<Button

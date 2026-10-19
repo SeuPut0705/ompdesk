@@ -17,6 +17,7 @@ import {
 	parseNextPromptEnv,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import {
+	awaitsDecision,
 	buildAppState,
 	buildInlineRequest,
 	buildSuggestionRequest,
@@ -38,6 +39,7 @@ import {
 	InlineScheduler,
 	inlineDraftEligibility,
 	inlineDraftWindow,
+	isApprovalOnly,
 	isAssistantVoice,
 	isOutputCapRefusal,
 	isTestCommand,
@@ -871,6 +873,100 @@ describe("work already underway (reported: a suggestion asking for work just del
 		expect(SUGGEST_INSTRUCTIONS).toContain("nothing the latest reply says it did, will do or is doing");
 		expect(SUGGEST_INSTRUCTIONS).toMatch(/running-now .* Never ask for it again/);
 		expect(SUGGEST_INSTRUCTIONS).toContain("Follow up on the latest assistant reply");
+	});
+});
+
+/**
+ * Reported: the assistant had steered a session it opened onto the user's correction and said so ("방향을 고쳤어요");
+ * the suggestion offered "좋아 그 방향으로 가". Nothing waited for a yes, and the opened session ran in its own tab,
+ * so `<app-state>` showed no work underway.
+ */
+describe("nothing to approve (reported: '좋아 그 방향으로 가' for work already underway)", () => {
+	const reported = [
+		{ role: "user", content: "진짜 이름을 바꿀수있게 하는게 맞지 않음?" },
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "s1",
+					name: "write",
+					arguments: { path: "xd://ompdesk_session_send", content: "{}" },
+				},
+			],
+		},
+		{ role: "toolResult", toolCallId: "s1", toolName: "write", content: "accepted; delivered as steer" },
+		{
+			role: "assistant",
+			stopReason: "stop",
+			content:
+				"맞아요. 별명이 아니라 **기기의 실제 이름**을 바꾸도록 방향을 고쳤어요.\n\n**바뀌는 동작**\n1. 그 컴퓨터에서 직접 바꿀 수 있어요.\n2. 다시 연결해도 유지돼요.",
+		},
+	];
+	const approvals = [
+		"좋아 그 방향으로 가",
+		"그렇게 해",
+		"진행해",
+		"ㅇㅋ 고",
+		"go ahead",
+		"sounds good, proceed",
+		"좋아!",
+	];
+
+	it("tells a reply that reports work from one that asks the user to decide", () => {
+		expect(awaitsDecision(reported)).toBe(false);
+		const asking = (text: string) => [
+			{ role: "user", content: "고쳐줘" },
+			{ role: "assistant", content: text },
+		];
+		for (const text of [
+			"두 가지 방법이 있어요.\n\n1. 별명\n2. 실제 이름\n\n어느 쪽으로 할까요?",
+			"Fixed the parser.\n\nShould I also update the docs?",
+			"A or B — which do you prefer",
+			"원하는 방식을 골라 주세요.",
+		])
+			expect(awaitsDecision(asking(text)), text).toBe(true);
+		// A question earlier in the reply, then a report at its end, asks nothing now.
+		expect(awaitsDecision(asking("왜 실패했을까요?\n\n원인을 찾아서 고쳤어요."))).toBe(false);
+		const openAsk = [
+			{ role: "user", content: "바꿔줘" },
+			{ role: "assistant", content: [{ type: "toolCall", id: "a1", name: "ask", arguments: { questions: [] } }] },
+		];
+		expect(awaitsDecision(openAsk)).toBe(true);
+		expect(
+			awaitsDecision([...openAsk, { role: "toolResult", toolCallId: "a1", toolName: "ask", content: "B" }]),
+		).toBe(false);
+	});
+
+	it("drops pure approvals when nothing waits for a decision and keeps them when something does", () => {
+		for (const line of approvals) expect(isApprovalOnly(line), line).toBe(true);
+		for (const line of [
+			"진행 상황 알려줘",
+			"go check the logs",
+			"그 세션 결과 보여줘",
+			"끝나면 배포해",
+			"그대로 두고 테스트만 돌려",
+		])
+			expect(isApprovalOnly(line), line).toBe(false);
+		const reply = [...approvals, "진행 상황 알려줘"].join("\n");
+		expect(cleanCandidates(reply, { decisionPending: false })).toEqual(["진행 상황 알려줘"]);
+		expect(cleanCandidates(reply, { decisionPending: true })).toEqual(approvals.slice(0, 3));
+		expect(cleanCandidates(reply)).toEqual(approvals.slice(0, 3));
+	});
+
+	it("shows the sessions the assistant opened and whether the last reply asks anything", () => {
+		const facts = extractFacts(reported, {
+			openedSessions: [
+				{ title: "원격 기기 이름을 언제든 바꿀 수 있게" },
+				{ title: "메모리 통합 빌드", waiting: true },
+			],
+		});
+		const state = buildAppState(facts);
+		expect(state).toContain('sessions-working-now: "원격 기기 이름을 언제든 바꿀 수 있게"');
+		expect(state).toContain('sessions-waiting-for-an-answer: "메모리 통합 빌드"');
+		expect(state).toContain("last-reply: reports work done or underway; it asks the user nothing");
+		expect(buildAppState(extractFacts(reported))).not.toContain("sessions-");
+		expect(SUGGEST_INSTRUCTIONS).toMatch(/when it reports work done or underway, never approve/);
 	});
 });
 

@@ -6,8 +6,9 @@
 import { EventEmitter } from "node:events";
 import { type AddressInfo, createServer, type Server, type Socket } from "node:net";
 import { networkInterfaces } from "node:os";
-import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { formatAddress, remotePort } from "./address";
+import { DEVICE_RENAME_EVENT, HOST_NAME_EVENT, NAME_METHODS, NameParams } from "./app-protocol";
 import { authKeys, dh, formatCode, generateCode, generateKeyPair, macEquals, pairKey, pairMac } from "./crypto";
 import { BeaconBroadcaster } from "./discovery";
 import type { Identity } from "./identity";
@@ -81,6 +82,11 @@ export interface RemoteHostOptions {
 	discoveryPort?: number;
 	appVersion: string;
 	hello: () => HostMachineInfo;
+	/**
+	 * A paired device asked to rename this computer (`host.rename`). Applies and announces the name, or
+	 * throws a coded error the device shows.
+	 */
+	renameSelf?: (name: string, by: PeerInfo) => void;
 	/** Clock for code expiry (tests). */
 	now?: () => number;
 }
@@ -370,7 +376,48 @@ export class RemoteHost {
 	#onMessage(conn: PeerConnection, message: WireMessage): void {
 		// Unknown message types are ignored so a newer client can add some.
 		const request = WireRequest.safeParse(message);
-		if (request.success) void this.#serve(conn, request.data.id, request.data.method, request.data.params);
+		if (!request.success) return;
+		const { id, method, params } = request.data;
+		if (method === NAME_METHODS.peerName || method === NAME_METHODS.hostRename) {
+			this.#serveName(conn, id, method, params);
+			return;
+		}
+		void this.#serve(conn, id, method, params);
+	}
+
+	/** The device names itself (`peer.name`), or renames this computer (`host.rename`). */
+	#serveName(conn: PeerConnection, id: number, method: string, params: unknown): void {
+		let reply: object;
+		try {
+			const parsed = NameParams.safeParse(params);
+			if (!parsed.success) throw codedError("invalid_name", "Invalid device name");
+			const { name } = parsed.data;
+			if (method === NAME_METHODS.peerName) {
+				const updated = this.#opts.peers.update(conn.peer.deviceId, { name });
+				if (updated) conn.peer = updated;
+				this.#emitter.emit("peersChanged");
+			} else {
+				if (!this.#opts.renameSelf) throw codedError("invalid_name", "Renaming is not supported");
+				this.#opts.renameSelf(name, conn.peer);
+			}
+			reply = { t: "res", id, ok: true, result: null };
+		} catch (error) {
+			reply = { t: "res", id, ok: false, error: errorPayload(error) };
+		}
+		conn.link.send(reply);
+	}
+
+	/** Tell every connected device this computer's current name (`host.name`). */
+	announceName(): void {
+		const name = this.#opts.name();
+		for (const conn of this.#connections) conn.emit(HOST_NAME_EVENT, { name });
+	}
+
+	/** Ask a connected device to rename itself (`device.rename`); false while it is not connected. */
+	askPeerRename(deviceId: string, name: string): boolean {
+		const conns = [...this.#connections].filter(conn => conn.peer.deviceId === deviceId);
+		for (const conn of conns) conn.emit(DEVICE_RENAME_EVENT, { name });
+		return conns.length > 0;
 	}
 
 	async #serve(conn: PeerConnection, id: number, method: string, params: unknown): Promise<void> {

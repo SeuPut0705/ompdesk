@@ -159,6 +159,35 @@ describe("spawnTabForWindow refusal contracts", () => {
 		expect(attachViewer).not.toHaveBeenCalled();
 	});
 
+	it("views a session a paired device's tab runs on this computer instead of spawning a second omp", async () => {
+		const { deps, acquire, kindFor } = harness();
+		const view = { kind: "agent", dispose: vi.fn() } as unknown as SidecarLike;
+		const viewSession = vi.fn((path: string) => (path === "/s/hosted.jsonl" ? view : null));
+		const acquireHostedView = vi.fn(() => true);
+		const hostedDeps: SpawnTabDeps = {
+			...deps,
+			sidecarPool: { ...deps.sidecarPool, acquireHostedView } as unknown as SpawnTabDeps["sidecarPool"],
+			hosted: { viewSession },
+		};
+		const win = fakeWindow(3);
+		const result = await spawnTabForWindow(hostedDeps, win, { sessionPath: "/s/hosted.jsonl" });
+		expect(result).toEqual({ tabId: expect.any(String), attached: true });
+		expect(acquireHostedView).toHaveBeenCalledWith(win, result?.tabId, view, "/s/hosted.jsonl");
+		expect(acquire).not.toHaveBeenCalled();
+		expect(kindFor).not.toHaveBeenCalled();
+
+		// Agent and chat never convert: a mismatched request leaves the device's tab alone.
+		expect(await spawnTabForWindow(hostedDeps, win, { sessionPath: "/s/hosted.jsonl", kind: "chat" })).toEqual({
+			tabId: null,
+			refusal: "kind-mismatch",
+		});
+		expect(view.dispose).toHaveBeenCalledTimes(1);
+
+		// A remote tab's session is never this computer's hosted one.
+		await spawnTabForWindow(hostedDeps, win, { sessionPath: "/s/hosted.jsonl", device: "host-b" });
+		expect(viewSession).toHaveBeenCalledTimes(2);
+	});
+
 	it("fresh tabs bypass auto-resume, spawn agent by default, and never consult kindFor", async () => {
 		const { deps, acquire, kindFor } = harness();
 		const result = await spawnTabForWindow(deps, fakeWindow(), { cwd: "/work" });

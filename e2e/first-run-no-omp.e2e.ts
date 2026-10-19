@@ -123,7 +123,7 @@ async function launch(
 						.filter(key => /_API_KEY$|_TOKEN$/.test(key))
 						.map(key => [key, undefined] as const),
 				])
-			: { OMP_GUI_OMP: omp, OMP_GUI_TEST_LOGIN: "1", OMP_GUI_TEST_SIGNED_OUT: "1" };
+			: { OMP_GUI_OMP: omp, OMP_GUI_TEST_LOGIN: "1", OMP_GUI_TEST_FEATURED: "1", OMP_GUI_TEST_SIGNED_OUT: "1" };
 	let download: DownloadServer | null = null;
 	if (installing) {
 		await fs.rename(omp, `${omp}.staged`);
@@ -269,7 +269,13 @@ for (const language of variants(["en", "ko"] as const)) {
 				const step = page.locator('[data-first-run-step="connect"]');
 				await expect(step).toBeVisible({ timeout: 30_000 });
 				await expect(takeover).toHaveCount(0);
-				await expect(step.locator("[data-provider-picker]")).toBeVisible();
+				await expect(step.locator("[data-featured-providers]")).toBeVisible();
+				// The popular providers lead as their own group, in this order, one tap each (stock's login ids).
+				const featured = step.locator("[data-featured-provider]");
+				expect(
+					await featured.evaluateAll(items => items.map(item => item.getAttribute("data-featured-provider"))),
+				).toEqual(["openai-codex", "anthropic", "openrouter", "google-gemini-cli", "xai-oauth"]);
+				await expect(step.locator("[data-featured-provider] > button:first-child").first()).toBeEnabled();
 				// Late toasts (bridge health, usage) would land in this window.
 				await page.waitForTimeout(2_000);
 				await capture(page, `provider-step-${language}-${theme}`);
@@ -297,7 +303,7 @@ test("first-run: wizard timing on the real omp (fresh agent dir)", async () => {
 	const launched = await launch("real", "en", "dark", "real");
 	try {
 		await expect(launched.page.locator('[data-first-run-step="connect"]')).toBeVisible({ timeout: 60_000 });
-		await expect(launched.page.locator("[data-provider-picker]")).toBeVisible({ timeout: 60_000 });
+		await expect(launched.page.locator("[data-featured-providers]")).toBeVisible({ timeout: 60_000 });
 		await expect
 			.poll(async () => (await startupMarks(launched))["sidecar-ready"], { timeout: 60_000 })
 			.toBeGreaterThan(0);

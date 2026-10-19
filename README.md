@@ -43,7 +43,7 @@
 </tr>
 <tr>
 <td width="50%" valign="top"><b>Split view and work board</b><br>Up to four sessions side by side. Each shows its subagents, todos and waiting questions on a live board.<br><a href="docs/media/split-board.webp"><img src="docs/media/split-board.webp" alt="One running session with its work board, then two more sessions dragged in to make a three-pane split" width="100%"></a></td>
-<td width="50%" valign="top"><b>Mobile web (beta, off by default)</b><br>Steer a running task from your phone over your own Tailscale network: copy the link and open it on a device signed in to the same Tailscale account. No code, no QR to scan, with opt-in push notifications. <a href="docs/mobile-web.md">Set it up</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="A 390-pixel-wide phone view: a steering message sent to a running session, then the notification opt-in in Settings" width="45%"></a></td>
+<td width="50%" valign="top"><b>Mobile web (beta, off by default)</b><br>Steer a running task from your phone over your own Tailscale network: copy the link and open it on a device signed in to the same Tailscale account. No pairing code to type, with opt-in push notifications. <a href="docs/mobile-web.md">Set it up</a>.<br><a href="docs/media/phone.webp"><img src="docs/media/phone.webp" alt="A 390-pixel-wide phone view: a steering message sent to a running session, then the notification opt-in in Settings" width="45%"></a></td>
 </tr>
 <tr>
 <td width="50%" valign="top"><b>Resume after restart</b><br>Quit, crash or update in the middle of a task and the next launch continues it where it stopped.<br><a href="docs/media/resume.webp"><img src="docs/media/resume.webp" alt="OMPdesk quits during a running task and, on relaunch, continues it with a notice" width="100%"></a></td>
@@ -84,6 +84,15 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 - **Local.** Settings, sessions and accounts stay on the computer that runs omp. Model calls go to your own providers.
 - **No telemetry.** OMPdesk collects no usage statistics and switches omp's OTLP export off.
 - **Mobile web stays on your tailnet.** It is off by default and reachable only through your own Tailscale network.
+
+## Docs
+
+- [Mobile web](docs/mobile-web.md): steer a running task from your phone over Tailscale.
+- [Remote devices](docs/remote-devices.md): run tabs on another computer.
+- [Updates](docs/updates.md): what updates itself, and how to turn it off.
+- [Troubleshooting](docs/troubleshooting.md): common problems and installing by hand.
+- [Developing on Windows](docs/windows-dev.md): setup and limits for contributors.
+- Design records: [work board](docs/work-board-design.md), [work card](docs/work-card-design.md).
 
 ## Build from source
 

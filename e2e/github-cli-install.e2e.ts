@@ -103,7 +103,7 @@ for (const language of variants(["en", "ko"] as const)) {
 		const natives =
 			process.env.OMP_GUI_TEST_NATIVES ||
 			path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
-		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "dir");
+		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
 		const PATH = pathWithoutGh();
 		// The login-shell probe would add /opt/homebrew/bin (path_helper); this one reports PATH as it is.
 		const shell = path.join(root, "login-shell");
@@ -168,7 +168,7 @@ for (const language of variants(["en", "ko"] as const)) {
 			// Backed off at launch: nothing installed on its own.
 			expect(await installs()).toEqual([]);
 			await expect(card).toContainText(
-				language === "en" ? "Signing in installs the GitHub CLI first" : "로그인하면 GitHub CLI를 먼저 설치하고",
+				language === "en" ? "Signing in installs the GitHub CLI first" : "로그인하면 GitHub CLI를 먼저 설치해요",
 			);
 			await shot("1-missing");
 

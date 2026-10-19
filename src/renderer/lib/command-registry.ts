@@ -902,7 +902,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				}
 				if (!res.success) throw new Error(res.error);
 				await ctx.hydrateSession();
-				toast({ variant: "success", title: t("command.compactedTitle"), message: t("command.compactedMessage") });
+				toast({ variant: "success", message: t("command.compactedTitle") });
 			},
 		},
 		guard: "destructive",
@@ -1246,8 +1246,8 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.memory"),
 		description: t("cmd.memory.desc"),
 		category: "extensions",
-		// ai-memory's panel; stock's `/memory` subcommands (they mutate stock's own backends) are not offered.
-		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("memory") },
+		// The Memory page (Settings › Memory); stock's `/memory` subcommands (they mutate stock's own backends) are not offered.
+		affordance: { kind: "window", open: () => ctx.openSettings("memory") },
 	});
 	add({
 		name: "security",

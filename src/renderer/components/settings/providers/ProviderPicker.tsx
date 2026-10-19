@@ -7,13 +7,14 @@
  */
 
 import { useState } from "react";
+import type { ProviderInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Button, EmptyState, SearchField, SkeletonRows, Spinner } from "../../common";
+import { Badge, Button, EmptyState, SearchField, SkeletonRows, Spinner } from "../../common";
 import type { ProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
 import { ProviderMark } from "./ProviderMark";
-import { providerMatches } from "./provider-catalog";
+import { FEATURED_PROVIDERS, providerMatches } from "./provider-catalog";
 import { sortProvidersByCompany } from "./provider-marks";
 
 export function ProviderPicker({
@@ -22,6 +23,7 @@ export function ProviderPicker({
 	busyProvider = null,
 	onAddCustom,
 	autoFocusSearch = false,
+	showConnectedFeatured = false,
 }: {
 	catalog: ProviderCatalog;
 	login: ProviderLogin;
@@ -29,16 +31,25 @@ export function ProviderPicker({
 	/** Offered when a search finds nothing. */
 	onAddCustom?: () => void;
 	autoFocusSearch?: boolean;
+	/** First run lists a connected featured provider as connected; Settings already lists those above. */
+	showConnectedFeatured?: boolean;
 }) {
 	const t = useT();
 	const [query, setQuery] = useState("");
 	const { providers, loading, sidecarReady } = catalog;
 	const searching = query.trim().length > 0;
+	const featured = searching ? [] : featuredCards(providers, showConnectedFeatured);
+	const featuredIds = new Set(featured.flatMap(card => [card.def.id, card.def.apiKeyId ?? ""]));
 	const available = sortProvidersByCompany(
 		providers.filter(
-			provider => !provider.authenticated && provider.loginAvailable && providerMatches(provider, query),
+			provider =>
+				!provider.authenticated &&
+				provider.loginAvailable &&
+				!featuredIds.has(provider.id) &&
+				providerMatches(provider, query),
 		),
 	);
+	const busyId = (id: string) => busyProvider === id || (login.state.running && login.state.providerId === id);
 	return (
 		<div className="flex flex-col gap-1">
 			<SearchField
@@ -56,7 +67,7 @@ export function ProviderPicker({
 			/>
 			{loading && providers.length === 0 ? (
 				<SkeletonRows className="py-2" label={t("providerList.loading")} widths={[60, 44, 70, 52]} />
-			) : available.length === 0 ? (
+			) : available.length === 0 && featured.length === 0 ? (
 				<EmptyState
 					actions={
 						onAddCustom && (
@@ -71,34 +82,170 @@ export function ProviderPicker({
 					title={searching ? t("providerList.noMatch", { query: query.trim() }) : t("providers.picker.none")}
 				/>
 			) : (
-				<ul
-					aria-label={t("providers.add")}
-					className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-x-1 gap-y-0.5"
-					data-provider-picker
-				>
-					{available.map(provider => {
-						const busy =
-							busyProvider === provider.id || (login.state.running && login.state.providerId === provider.id);
-						return (
-							<li key={provider.id}>
-								<button
-									aria-label={t("providers.picker.connect", { provider: provider.name })}
-									className="flex h-8 w-full items-center gap-2 rounded-(--sc-radius-md) px-2 text-left text-sc-md text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
-									data-provider-connect={provider.id}
-									disabled={!sidecarReady || busy}
-									onClick={() => void login.start(provider.id)}
-									title={sidecarReady ? undefined : t("providers.notConnected")}
-									type="button"
-								>
-									<ProviderMark provider={provider} />
-									<span className="min-w-0 flex-1 truncate">{provider.name}</span>
-									{busy && <Spinner size="sm" spin />}
-								</button>
-							</li>
-						);
-					})}
-				</ul>
+				<>
+					{featured.length > 0 && (
+						<section
+							aria-label={t("providers.featured.title")}
+							className="mb-2 flex flex-col gap-1.5"
+							data-featured-providers
+						>
+							<h3 className="px-2 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
+								{t("providers.featured.title")}
+							</h3>
+							<ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2">
+								{featured.map(card => (
+									<FeaturedCard
+										busyId={busyId}
+										card={card}
+										key={card.def.id}
+										login={login}
+										sidecarReady={sidecarReady}
+									/>
+								))}
+							</ul>
+						</section>
+					)}
+					{available.length > 0 && !searching && featured.length > 0 && (
+						<h3 className="px-2 pt-1 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
+							{t("providers.other.title")}
+						</h3>
+					)}
+					{available.length > 0 && (
+						<ul
+							aria-label={t("providers.add")}
+							className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-x-1 gap-y-0.5"
+							data-provider-picker
+						>
+							{available.map(provider => {
+								const busy =
+									busyProvider === provider.id ||
+									(login.state.running && login.state.providerId === provider.id);
+								return (
+									<li key={provider.id}>
+										<button
+											aria-label={t("providers.picker.connect", { provider: provider.name })}
+											className="flex h-8 w-full items-center gap-2 rounded-(--sc-radius-md) px-2 text-left text-sc-md text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+											data-provider-connect={provider.id}
+											disabled={!sidecarReady || busy}
+											onClick={() => void login.start(provider.id)}
+											title={sidecarReady ? undefined : t("providers.notConnected")}
+											type="button"
+										>
+											<ProviderMark provider={provider} />
+											<span className="min-w-0 flex-1 truncate">{provider.name}</span>
+											{busy && <Spinner size="sm" spin />}
+										</button>
+									</li>
+								);
+							})}
+						</ul>
+					)}
+				</>
 			)}
 		</div>
+	);
+}
+
+interface FeaturedCardData {
+	def: (typeof FEATURED_PROVIDERS)[number];
+	/** The stock login the card's main action runs. */
+	startId: string;
+	/** The stock API-key login offered as the second action, when the card has both. */
+	apiKeyId: string | null;
+	connected: boolean;
+	mark: ProviderInfo;
+}
+
+/** The featured providers this catalog can sign in to (or already has), in the featured order. */
+function featuredCards(providers: readonly ProviderInfo[], showConnected: boolean): FeaturedCardData[] {
+	const byId = new Map(providers.map(provider => [provider.id, provider]));
+	const cards: FeaturedCardData[] = [];
+	for (const def of FEATURED_PROVIDERS) {
+		const primary = byId.get(def.id);
+		const secondary = def.apiKeyId ? byId.get(def.apiKeyId) : undefined;
+		const connected = primary?.authenticated === true || secondary?.authenticated === true;
+		if (connected ? !showConnected : false) continue;
+		const startable = primary?.loginAvailable ? primary : secondary?.loginAvailable ? secondary : undefined;
+		if (!connected && !startable) continue;
+		const mark = primary ?? secondary;
+		if (!mark) continue;
+		cards.push({
+			def,
+			startId: startable?.id ?? mark.id,
+			apiKeyId: startable === primary && secondary?.loginAvailable ? secondary.id : null,
+			connected,
+			mark,
+		});
+	}
+	return cards;
+}
+
+function FeaturedCard({
+	card,
+	login,
+	busyId,
+	sidecarReady,
+}: {
+	card: FeaturedCardData;
+	login: ProviderLogin;
+	busyId: (id: string) => boolean;
+	sidecarReady: boolean;
+}) {
+	const t = useT();
+	const { def, startId, apiKeyId, connected, mark } = card;
+	const subscription = def.kind === "subscription" && startId === def.id;
+	const busy = busyId(startId);
+	const frame = "flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left";
+	return (
+		<li
+			className="flex flex-col rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
+			data-featured-provider={def.id}
+		>
+			{connected ? (
+				<div className={frame} data-provider-connected={def.id}>
+					<ProviderMark provider={mark} />
+					<span className="min-w-0 flex-1 truncate text-sc-md font-medium text-(--sc-text)">{def.label}</span>
+					<Badge dot variant="success">
+						{t("providerList.connected")}
+					</Badge>
+				</div>
+			) : (
+				<button
+					aria-label={t("providers.picker.connect", { provider: def.label })}
+					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
+					data-provider-connect={startId}
+					disabled={!sidecarReady || busy}
+					onClick={() => void login.start(startId)}
+					title={sidecarReady ? undefined : t("providers.notConnected")}
+					type="button"
+				>
+					<ProviderMark provider={mark} />
+					<span className="flex min-w-0 flex-1 flex-col">
+						<span className="truncate text-sc-md font-medium">{def.label}</span>
+						<span className="truncate text-sc-sm text-(--sc-text-muted)">
+							{subscription ? t("providers.featured.subscription") : t("providers.featured.apiKey")}
+						</span>
+					</span>
+					{busy ? (
+						<Spinner size="sm" spin />
+					) : (
+						<span className="shrink-0 text-sc-sm font-medium text-(--sc-accent)">
+							{subscription ? t("providers.featured.signIn") : t("providers.featured.connect")}
+						</span>
+					)}
+				</button>
+			)}
+			{!connected && apiKeyId && (
+				<button
+					className="mt-auto flex min-h-11 w-full items-center rounded-b-(--sc-radius-lg) border-t border-(--sc-border-subtle) py-1 pr-3 pl-11 text-left text-sc-sm text-(--sc-text-muted) underline-offset-2 outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+					data-provider-connect={apiKeyId}
+					disabled={!sidecarReady || busyId(apiKeyId)}
+					onClick={() => void login.start(apiKeyId)}
+					type="button"
+				>
+					{t("providers.featured.apiKeyAction")}
+				</button>
+			)}
+		</li>
 	);
 }

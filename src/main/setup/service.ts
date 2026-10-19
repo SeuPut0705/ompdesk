@@ -11,10 +11,12 @@
  */
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { OmpUpdateFailure } from "../../shared/omp-update";
 import {
+	type GitAslrAction,
+	type GitAslrResult,
 	isSetupItemId,
 	SETUP_ITEMS,
 	SETUP_OUTPUT_TAIL,
@@ -28,10 +30,23 @@ import {
 } from "../../shared/setup";
 import { isNewer } from "../../shared/version";
 import { ompUpdateEnv, parseUpdateCheck } from "../omp-runtime";
+import { writeRuntimeLog } from "../runtime-log";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type FetchText, fetchText, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
 import { type Detection, detectMachine } from "./detect";
 import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
+import {
+	GIT_ASLR_RECORD,
+	gitAslrSpawn,
+	parseFixOutput,
+	parseUndoOutput,
+	readGitAslrRecord,
+	recordedImages,
+	undoInput,
+	withFixed,
+	withRestored,
+	writeGitAslrRecord,
+} from "./git-aslr";
 import { refreshPath } from "./paths";
 import {
 	type ArchiveRelease,
@@ -418,6 +433,71 @@ export class SetupService {
 		return this.#runner.cancel();
 	}
 
+	/**
+	 * The Git item's Mandatory ASLR override (git-aslr.ts), only ever on the user's click: one elevated step for
+	 * the MSYS executables of the Git setup detected, then a fresh detection that shows the probe's new result.
+	 * Fix adds what it changed (with each image's prior state) to `git-aslr.json`; Undo puts back only those and
+	 * drops them from it. Without a record Undo is refused (the UI does not offer it).
+	 */
+	gitAslr(action: GitAslrAction): Promise<GitAslrResult> {
+		const { promise, resolve } = Promise.withResolvers<GitAslrResult>();
+		void this.#enqueue(async () => {
+			const git = this.#items.git.presence;
+			const root = git?.kind === "present" ? git.path : null;
+			if (this.#deps.platform !== "win32" || !root) {
+				resolve({ ok: false, detail: "Git for Windows was not found" });
+				return;
+			}
+			const dir = dirname(this.#deps.statePath);
+			const recordFile = join(dir, GIT_ASLR_RECORD);
+			const files = { input: join(dir, "git-aslr-in.json"), output: join(dir, "git-aslr-out.json") };
+			const recorded = recordedImages(await readGitAslrRecord(recordFile), root);
+			if (action === "undo") {
+				if (recorded.length === 0) {
+					resolve({ ok: false, detail: "No record of what Fix changed, so there is nothing to undo exactly" });
+					return;
+				}
+				await writeFile(files.input, undoInput(recorded), { mode: 0o600 });
+			}
+			await rm(files.output, { force: true });
+			let output = "";
+			const outcome = await this.#runner.run(
+				gitAslrSpawn(this.#deps.systemRoot, root, action, files),
+				await this.#deps.spawnEnv(),
+				chunk => {
+					output = (output + chunk).slice(-SETUP_OUTPUT_TAIL);
+				},
+			);
+			// Read even after a failure: the step writes its output after every image it changed.
+			const written = await readFile(files.output, "utf8").catch(() => "");
+			await Promise.all([rm(files.output, { force: true }), rm(files.input, { force: true })]);
+			const fixed = action === "fix" ? parseFixOutput(written) : [];
+			const restored = action === "undo" ? parseUndoOutput(written) : [];
+			const record = await readGitAslrRecord(recordFile);
+			await writeGitAslrRecord(
+				recordFile,
+				action === "fix" ? withFixed(record, root, fixed) : withRestored(record, root, restored),
+			);
+			const images = action === "fix" ? fixed.map(image => image.path) : restored;
+			writeRuntimeLog({
+				level: outcome.kind === "succeeded" ? "info" : "warn",
+				source: "setup",
+				message: `Git Mandatory ASLR override ${action}: ${outcome.kind}`,
+				details: { root, action, outcome: outcome.kind, images, output: updateDetail(output) ?? null },
+			});
+			await this.#detect();
+			resolve(
+				outcome.kind === "succeeded"
+					? { ok: true, images: images.length }
+					: {
+							ok: false,
+							detail: updateDetail(output) ?? (outcome.kind === "failed" ? (outcome.detail ?? "") : ""),
+						},
+			);
+		}).catch(error => resolve({ ok: false, detail: error instanceof Error ? error.message : String(error) }));
+		return promise;
+	}
+
 	/** App quit: stop the running download or installer tree and start nothing new. */
 	dispose(): void {
 		this.#disposed = true;
@@ -460,6 +540,11 @@ export class SetupService {
 
 	async #detect(): Promise<void> {
 		const detection = await (this.#deps.detect ?? detectMachine)(this.#deps.platform, this.#deps.bunInstall);
+		const git = detection.presence.git;
+		if (git.kind === "present" && git.gitAslrOverride && git.path) {
+			const record = await readGitAslrRecord(join(dirname(this.#deps.statePath), GIT_ASLR_RECORD));
+			if (recordedImages(record, git.path).length > 0) detection.presence.git = { ...git, gitAslrUndoable: true };
+		}
 		this.#detection = detection;
 		for (const id of SETUP_ITEMS) {
 			const item = this.#items[id];

@@ -75,24 +75,28 @@ async function mount(element: ReactElement): Promise<void> {
 	await flush();
 }
 
-function field(): TestElement | null {
-	return document.querySelector("select[data-thinking-level]") as unknown as TestElement | null;
+function field(): Element | null {
+	return document.querySelector("[data-thinking-level] [role=radiogroup]") as unknown as Element | null;
 }
 
 function options(): string[] {
-	return Array.from(field()?.querySelectorAll("option") ?? []).map(option => option.value);
+	return Array.from(field()?.querySelectorAll("[data-thinking-option]") ?? []).map(
+		option => option.getAttribute("data-thinking-option") ?? "",
+	);
 }
 
-/** Pick a value and drive the select's React onChange contract. */
+/** The held option's value (the one radio that is checked). */
+function held(): string | null | undefined {
+	return field()?.querySelector("[aria-checked=true]")?.getAttribute("data-thinking-option");
+}
+
+/** Tap one segment of the row. */
 async function choose(value: string): Promise<void> {
-	const select = field();
-	if (!select) throw new Error("thinking level field missing");
-	const record = select as unknown as Record<string, unknown>;
-	const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
-	const props = propsKey ? (record[propsKey] as { onChange?: (event: object) => void }) : undefined;
-	if (!props?.onChange) throw new Error("select onChange not found");
-	// linkedom's select.value is read-only; the handler reads the event target.
-	await act(async () => props.onChange?.({ target: { value }, currentTarget: { value } }));
+	const option = field()?.querySelector(`[data-thinking-option="${value}"]`) as unknown as {
+		click(): void;
+	} | null;
+	if (!option) throw new Error("thinking level field missing");
+	await act(async () => option.click());
 }
 
 afterEach(async () => {
@@ -119,9 +123,14 @@ describe("ThinkingLevelField", () => {
 		await mount(<ThinkingLevelField />);
 
 		expect(options()).toEqual(["off", "auto", "low", "medium", "high", "xhigh", "max"]);
-		expect(field()?.value).toBe("medium");
-		// Localized names, and the chosen level's description as the hint.
-		expect(container.textContent).toContain(translate("input.thinking.name.xhigh"));
+		expect(held()).toBe("medium");
+		// One line: short labels in the segments (the full name is each one's accessible name), and the chosen level's
+		// description behind the (i) glyph.
+		expect(container.textContent).toContain(translate("input.thinking.short.xhigh"));
+		expect(field()?.querySelector("[data-thinking-option=xhigh]")?.getAttribute("aria-label")).toBe(
+			translate("input.thinking.name.xhigh"),
+		);
+		expect(document.querySelector("[data-setting-info]")).not.toBeNull();
 		expect(container.textContent).toContain(translate("input.thinking.level.medium"));
 	});
 

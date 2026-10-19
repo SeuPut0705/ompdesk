@@ -8,7 +8,6 @@ import {
 	AUTOPILOT_AREAS,
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
-	type AutopilotLimits,
 	type AutopilotPauseReason,
 	type AutopilotShipPolicy,
 	type AutopilotShipPreset,
@@ -182,27 +181,6 @@ export function autopilotChip(status: AutopilotStatus, reservation: number | und
 export function presetOfPolicy(policy: AutopilotShipPolicy): AutopilotShipPreset {
 	if (policy.autoRelease.on) return "release";
 	return policy.autoPush ? "push" : "local";
-}
-
-function positive(text: string, whole: boolean): number | null {
-	const value = Number(text);
-	if (text.trim() === "" || !Number.isFinite(value) || value <= 0) return null;
-	return whole ? Math.floor(value) : value;
-}
-
-/** The ceilings fields of the start sheet: a positive number, else off (null). */
-export function limitsFromText(text: {
-	tokens: string;
-	minutes: string;
-	cycles: string;
-	usd: string;
-}): AutopilotLimits {
-	return {
-		tokens: positive(text.tokens, true),
-		minutes: positive(text.minutes, true),
-		cycles: positive(text.cycles, true),
-		usd: positive(text.usd, false),
-	};
 }
 
 export type StartBlock = "remote" | "notRepo" | "plan" | "goal";

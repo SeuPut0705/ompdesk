@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { itWithFileSymlinks } from "../test-symlinks";
 import { runVisualizeTool, VISUALIZE_DEFINITION, type VisualChoice, type VisualPages, VisualStore } from "./visuals";
 
 let root: string;
@@ -60,18 +61,21 @@ describe("VisualStore", () => {
 		expect(await store.resolve(`omp-visual://v2-${id}/site/assets/app.css`)).toMatchObject({ type: "text/css" });
 	});
 
-	it("never serves hidden files, unknown types, paths outside the folder or symlinks out of it", async () => {
-		const { record } = await store.open("tab", project, { target: "site/index.html" });
-		const at = (relative: string) => store.resolve(`omp-visual://v1-${record.id}/${relative}`);
-		expect(await at(".env")).toBeNull();
-		expect(await at("notes.bin")).toBeNull();
-		expect(await at("../outside.css")).toBeNull();
-		expect(await at("%2E%2E/outside.css")).toBeNull();
-		await fs.symlink(path.join(root, "outside.css"), path.join(project, "site", "link.css"));
-		expect(await at("site/link.css")).toBeNull();
-		expect(await store.resolve("omp-visual://v1-0000000000000000/site/index.html")).toBeNull();
-		expect(await store.resolve("https://example.com/")).toBeNull();
-	});
+	itWithFileSymlinks(
+		"never serves hidden files, unknown types, paths outside the folder or symlinks out of it",
+		async () => {
+			const { record } = await store.open("tab", project, { target: "site/index.html" });
+			const at = (relative: string) => store.resolve(`omp-visual://v1-${record.id}/${relative}`);
+			expect(await at(".env")).toBeNull();
+			expect(await at("notes.bin")).toBeNull();
+			expect(await at("../outside.css")).toBeNull();
+			expect(await at("%2E%2E/outside.css")).toBeNull();
+			await fs.symlink(path.join(root, "outside.css"), path.join(project, "site", "link.css"));
+			expect(await at("site/link.css")).toBeNull();
+			expect(await store.resolve("omp-visual://v1-0000000000000000/site/index.html")).toBeNull();
+			expect(await store.resolve("https://example.com/")).toBeNull();
+		},
+	);
 
 	it("serves assets only from the entry file's folder, or the whole folder when the entry sits at its root", async () => {
 		await fs.mkdir(path.join(project, "config"), { recursive: true });

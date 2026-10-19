@@ -6,12 +6,21 @@
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
+	AiMemoryDeleted,
+	AiMemoryFeedback,
 	AiMemoryHandoff,
+	AiMemoryLintFinding,
+	AiMemoryObservations,
+	AiMemoryOverview,
 	AiMemoryPage,
 	AiMemoryPageRef,
+	AiMemoryProfile,
 	AiMemoryProject,
 	AiMemoryProjectRef,
+	AiMemorySession,
 	AiMemoryState,
+	AiMemorySweep,
+	AiMemoryWriteInput,
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
@@ -45,7 +54,7 @@ import type {
 	SubagentFrame,
 } from "./rpc-types";
 import type { SchedulesApi } from "./schedules";
-import type { SetupItemId, SetupState } from "./setup";
+import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
 import type { StartupMark } from "./startup-timing";
@@ -100,6 +109,8 @@ export const IPC_EVENTS = {
 	MODEL_CATALOG_UPDATE: "model-catalog:update",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
+	/** The sessions paired devices' tabs run on this computer changed (`IpcHostedSession[]`) */
+	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
 	/** Log line appended */
 	LOG_LINE: "log:line",
 	/** Native application menu action */
@@ -173,6 +184,8 @@ export const IPC_COMMANDS = {
 	EXTENSION_UI_OPEN: "extension-ui:open",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
+	/** The sessions paired devices' tabs run on this computer, for its own sidebar (`IpcHostedSession[]`) */
+	HOSTED_SESSIONS: "sessions:hosted",
 	/** Delete a session file */
 	SESSIONS_DELETE: "sessions:delete",
 	/** Rename a saved session without switching the active tab */
@@ -318,6 +331,8 @@ export const IPC_COMMANDS = {
 	SETUP_RETRY: "setup:retry",
 	/** Cancel the running setup install (kills its process tree) */
 	SETUP_CANCEL: "setup:cancel",
+	/** Git for Windows' Mandatory ASLR override for its MSYS executables ("fix" | "undo"; anything else is refused). Elevated: a UAC prompt. */
+	SETUP_GIT_ASLR: "setup:git-aslr",
 	/** omp's automatic update (src/main/omp-updater.ts): whole OmpUpdateState snapshot */
 	OMP_UPDATE_GET_STATE: "omp-update:get-state",
 	/** Check npm and update omp now, whatever the pref says (runs in the background) */
@@ -344,6 +359,18 @@ export const IPC_COMMANDS = {
 	AI_MEMORY_RECENT: "ai-memory:recent",
 	AI_MEMORY_HANDOFFS: "ai-memory:handoffs",
 	AI_MEMORY_READ_PAGE: "ai-memory:read-page",
+	AI_MEMORY_OVERVIEW: "ai-memory:overview",
+	AI_MEMORY_PAGES: "ai-memory:pages",
+	AI_MEMORY_SESSIONS: "ai-memory:sessions",
+	AI_MEMORY_OBSERVATIONS: "ai-memory:observations",
+	AI_MEMORY_PROFILE: "ai-memory:profile",
+	AI_MEMORY_LINT: "ai-memory:lint",
+	AI_MEMORY_SWEEP: "ai-memory:sweep",
+	AI_MEMORY_WRITE_PAGE: "ai-memory:write-page",
+	AI_MEMORY_DELETE_PAGE: "ai-memory:delete-page",
+	AI_MEMORY_RESTORE_PAGE: "ai-memory:restore-page",
+	AI_MEMORY_FEEDBACK: "ai-memory:feedback",
+	AI_MEMORY_CANCEL_HANDOFF: "ai-memory:cancel-handoff",
 	/** The extensions' automatic updates (src/main/ext-update/): whole ExtensionUpdateState snapshot */
 	EXTENSION_UPDATE_GET_STATE: "extension-update:get-state",
 	/** Check and update one row (an ExtensionRow key) or all now, whatever the pref says (runs in the background) */
@@ -375,6 +402,10 @@ export const IPC_COMMANDS = {
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
 	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
 	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
+	/** Rename a paired host ({deviceId, name}): the host sets its own device name */
+	REMOTE_RENAME_HOST: "remote:rename-host",
+	/** Rename a connected device that uses this computer ({deviceId, name}): it renames itself */
+	REMOTE_RENAME_PEER: "remote:rename-peer",
 	/** Start or stop LAN discovery (pushes REMOTE_DISCOVERED) */
 	REMOTE_DISCOVER: "remote:discover",
 	/** Pair with a host by address and code */
@@ -414,6 +445,11 @@ export type RuntimeErrorSource =
 	| "startup-timing"
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
+	/**
+	 * An app update's decisions (src/main/updater.ts, `AutoInstallScheduler`; info level, `details.level: "info"`):
+	 * `message` is check, download, scheduler or swap and `details.event` the step (never a token or a URL).
+	 */
+	| "app-update"
 	/** ai-memory's service (src/main/ai-memory/service.ts `log`): `message` is launch, binary, phase or failed. */
 	| "ai-memory"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
@@ -1374,6 +1410,30 @@ export interface IpcSessionOwner {
 	tabId: string;
 	/** Owner window's webContents.id. */
 	winId: number;
+	/**
+	 * A paired device's tab on this computer runs the session (no window here owns it; `tabId` is that tab's
+	 * resume id, `winId` 0): opening it here (`tabs.spawn`) views that tab instead of switching onto the file.
+	 */
+	hosted?: true;
+}
+
+/**
+ * A session a paired device's tab runs on this computer (LocalHostServices), for this computer's own
+ * sidebar: its row stays in its project group with the tab's live state, and opening it views that tab.
+ * Listed once the tab's omp reported its file.
+ */
+export interface IpcHostedSession {
+	sessionPath: string;
+	sessionId?: string;
+	title?: string;
+	cwd: string;
+	kind: SessionKind;
+	/** The tab's status, `running` while a turn runs. */
+	status: TabStatus;
+	/** An ask or approval of the omp waits for an answer (from the device or a window here). */
+	awaitingInput?: true;
+	/** The paired device's name. */
+	device: string;
 }
 
 export interface IpcSpawnTabResult {
@@ -1644,6 +1704,8 @@ export interface OmpApi {
 		onTabSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void): () => void;
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
 		onSessionsChanged(callback: () => void): () => void;
+		/** The sessions paired devices' tabs run on this computer changed (the whole list). */
+		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;
 		onMenuAction(callback: (action: MenuAction, payload?: MenuActionPayload) => void): () => void;
 		onDeepLink(callback: (link: DeepLinkPayload) => void): () => void;
@@ -1695,6 +1757,8 @@ export interface OmpApi {
 		retry(item: SetupItemId): Promise<void>;
 		/** Cancel the running install; false when nothing runs. */
 		cancel(): Promise<boolean>;
+		/** Set ("fix") or remove ("undo") the Git item's Mandatory ASLR override, then detect again; one UAC prompt. */
+		gitAslr(action: GitAslrAction): Promise<GitAslrResult>;
 		onState(callback: (state: SetupState) => void): () => void;
 	};
 	/** omp's automatic update on this computer (a paired host updates its own omp under its own pref). */
@@ -1746,6 +1810,24 @@ export interface OmpApi {
 		recent(project?: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
 		handoffs(project?: AiMemoryProjectRef): Promise<AiMemoryHandoff[]>;
 		readPage(ref: AiMemoryProjectRef & { path: string }): Promise<AiMemoryPage>;
+		overview(project: AiMemoryProjectRef): Promise<AiMemoryOverview>;
+		pages(project: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
+		sessions(project: AiMemoryProjectRef): Promise<AiMemorySession[]>;
+		/** One session's raw observations, read-only, 50 from `offset`. */
+		observations(project: AiMemoryProjectRef, sessionId: string, offset?: number): Promise<AiMemoryObservations>;
+		/** The cross-project profile every session starts with. */
+		profile(): Promise<AiMemoryProfile>;
+		/** Rule-based audit of a project; writes no report page. */
+		lint(project: AiMemoryProjectRef): Promise<AiMemoryLintFinding[]>;
+		/** The retention sweep; \`dryRun\` changes nothing. */
+		sweep(project: AiMemoryProjectRef, dryRun: boolean): Promise<AiMemorySweep>;
+		/** Saves a page through the server's write path (a new version). */
+		writePage(input: AiMemoryWriteInput): Promise<void>;
+		/** Deletes a page; the result is what \`restorePage\` needs. */
+		deletePage(ref: AiMemoryProjectRef & { path: string; title?: string }): Promise<AiMemoryDeleted>;
+		restorePage(ref: AiMemoryProjectRef & { path: string }, rev: string): Promise<void>;
+		feedback(ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback): Promise<void>;
+		cancelHandoff(project: AiMemoryProjectRef, id: string): Promise<void>;
 		onState(callback: (state: AiMemoryState) => void): () => void;
 	};
 	/** This computer's marketplaces, plugins, skills and MCP servers, kept current by its own updater. */
@@ -1790,6 +1872,8 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
+		/** The sessions paired devices' tabs run on this computer, with their live state (`IpcHostedSession`). */
+		hosted(): Promise<IpcHostedSession[]>;
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */
@@ -1825,6 +1909,10 @@ export interface OmpApi {
 		revokePeer(deviceId: string): Promise<RemoteState>;
 		/** Daily model-use limits for a paired device; `{}` removes them. */
 		setPeerLimits(deviceId: string, limits: PeerLimits): Promise<RemoteState>;
+		/** Rename a paired host (it sets its own name). Throws `remote_offline` while it is unreachable. */
+		renameHost(deviceId: string, name: string): Promise<RemoteState>;
+		/** Ask a connected device that uses this computer to rename itself. Throws `remote_offline` when not connected. */
+		renamePeer(deviceId: string, name: string): Promise<RemoteState>;
 		/** Start or stop LAN discovery; resolves with the devices seen so far (empty on stop). */
 		discover(action: "start" | "stop"): Promise<RemoteDiscoveredDevice[]>;
 		/** Throws IpcError `remote_wrong_code|remote_expired|remote_locked|remote_unreachable|remote_protocol`. */

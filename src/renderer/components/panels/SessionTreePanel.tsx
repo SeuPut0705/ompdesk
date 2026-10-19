@@ -44,7 +44,18 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Badge, Button, EmptyState, IconButton, InlineNotice, Input, Select, Sheet, Spinner } from "../common";
+import {
+	Badge,
+	Button,
+	EmptyState,
+	IconButton,
+	InlineNotice,
+	Input,
+	Select,
+	SettingInfo,
+	Sheet,
+	Spinner,
+} from "../common";
 import { PanelToolbar } from "./PanelChrome";
 import { RoleGlyph, roleMeta, SessionRootNode, SessionTreeNodeCard } from "./SessionTreeNodeCard";
 import {
@@ -1107,10 +1118,9 @@ function SessionTreeView({
 						</div>
 					</div>
 				) : (
-					<p className="shrink-0 border-t border-(--sc-divider) px-3 py-1.5 text-sc-xs text-(--sc-text-muted)">
-						{t("sessionTree.footerTree")}
-						{t("sessionTree.footerHint")}
-						{t("sessionTree.footerKeys")}
+					<p className="flex shrink-0 items-center gap-1 border-t border-(--sc-divider) px-3 py-1 text-sc-xs text-(--sc-text-muted)">
+						<span className="min-w-0 truncate">{t("sessionTree.footerKeys")}</span>
+						<SettingInfo text={`${t("sessionTree.footerTree")} ${t("sessionTree.footerHint")}`} />
 					</p>
 				)
 			) : null}

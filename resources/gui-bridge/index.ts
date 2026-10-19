@@ -213,16 +213,33 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 	};
 	bindEnv(env);
 
-	const respond = async (method: unknown, params: unknown): Promise<unknown> => {
+	/** Main reads these to say where a slow request spent its time (bridge-client.ts `BridgeTiming`). */
+	interface ReplyTiming {
+		/** When this omp's event loop got to the request (epoch ms, the same machine's clock as main's). */
+		receivedAt: number;
+		/** Waiting for the bridge's area modules to load (stock imports at startup). */
+		loadMs: number;
+		/** The method itself. */
+		ms: number;
+	}
+
+	const respond = async (method: unknown, params: unknown, timing: ReplyTiming): Promise<unknown> => {
 		const { table, failures } = await loading;
-		const fn = typeof method === "string" && Object.hasOwn(table, method) ? table[method] : undefined;
-		if (fn) return fn(params, env);
-		// Most likely served by a module this omp could not load.
-		if (failures.length > 0) throw new UnsupportedOmpError(mergeAreaFailures([], failures), pi.pi.VERSION);
-		throw new Error(`Unknown bridge method: ${String(method)}`);
+		const loaded = Date.now();
+		timing.loadMs = loaded - timing.receivedAt;
+		try {
+			const fn = typeof method === "string" && Object.hasOwn(table, method) ? table[method] : undefined;
+			if (fn) return await fn(params, env);
+			// Most likely served by a module this omp could not load.
+			if (failures.length > 0) throw new UnsupportedOmpError(mergeAreaFailures([], failures), pi.pi.VERSION);
+			throw new Error(`Unknown bridge method: ${String(method)}`);
+		} finally {
+			timing.ms = Date.now() - loaded;
+		}
 	};
 
 	const handle = async (socket: net.Socket, line: string) => {
+		const timing: ReplyTiming = { receivedAt: Date.now(), loadMs: 0, ms: 0 };
 		let request: unknown;
 		try {
 			request = JSON.parse(line);
@@ -232,10 +249,17 @@ export default async function guiBridge(pi: ExtensionAPI): Promise<void> {
 		if (!isRequest(request)) return;
 		const { id, method, params } = request;
 		try {
-			write(socket, { id, ok: true, result: await respond(method, params) });
+			const result = await respond(method, params, timing);
+			write(socket, { id, ok: true, result, timing });
 		} catch (err) {
 			const error = err instanceof Error ? err.message : String(err);
-			write(socket, { id, ok: false, error, ...(err instanceof UnsupportedOmpError ? { code: err.code } : {}) });
+			write(socket, {
+				id,
+				ok: false,
+				error,
+				timing,
+				...(err instanceof UnsupportedOmpError ? { code: err.code } : {}),
+			});
 		}
 	};
 

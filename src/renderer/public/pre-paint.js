@@ -47,6 +47,12 @@
 	} catch (e) {
 		/* the default width stands */
 	}
+	// A sidebar left collapsed (mirrored by lib/sidebar-memory.ts): the boot shell paints without it.
+	try {
+		if (localStorage.getItem("omp.sidebarVisible") === "0") document.documentElement.dataset.bootSidebar = "hidden";
+	} catch (e) {
+		/* the sidebar shows */
+	}
 	try {
 		if (navigator.userAgent.indexOf("Electron/") >= 0) {
 			var platform = navigator.platform.toLowerCase();

@@ -34,7 +34,10 @@ export interface BranchFacts {
 	untracked: number;
 	/** Tracked files with uncommitted edits in the parent checkout. */
 	baseUncommitted: number;
-	/** The branch's commits are already in the parent's branch. */
+	/**
+	 * The branch's commits are already in the parent's branch or in the upstream it tracks (merged here, pushed or
+	 * merged there): it has landed, and only uncommitted or untracked work could be left to review.
+	 */
 	merged: boolean;
 }
 
@@ -72,92 +75,139 @@ function parseNumstat(output: string): FileChange[] {
 	return rows;
 }
 
+/** Whether `commit` is in the history of `ref` (both read in `cwd`'s repository). */
+async function contains(cwd: string, ref: string, commit: string): Promise<boolean> {
+	return (await gitRaw(cwd, ["merge-base", "--is-ancestor", commit, ref])).code === 0;
+}
+
+/** The commit `rev` names in `cwd`'s repository, or null when it names none. */
+async function resolve(cwd: string, rev: string): Promise<string | null> {
+	const result = await gitRaw(cwd, ["rev-parse", "--verify", "-q", `${rev}^{commit}`]);
+	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
+}
+
+/** What a child's work lands in: the parent checkout's branch and HEAD, and the upstream that branch tracks. */
+interface Base {
+	/** The parent checkout's current branch; null while its HEAD is detached. */
+	branch: string | null;
+	head: string;
+	/**
+	 * The tip of the parent branch's `@{upstream}`, else of `origin`'s default branch (`refs/remotes/origin/HEAD`) as
+	 * last fetched; null without either. Agents push there (`git push origin HEAD:main`) while the parent's own
+	 * checkout stays where it was, so only this ref knows their work landed.
+	 */
+	upstream: string | null;
+}
+
+/** Reads the parent's base refs; never fetches or moves anything. */
+async function readBase(baseCwd: string): Promise<Base> {
+	const branchResult = await gitRaw(baseCwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
+	const branch = branchResult.code === 0 ? branchResult.stdout.toString("utf8").trim() || null : null;
+	const [head, tracked, remote] = await Promise.all([
+		text(baseCwd, ["rev-parse", "HEAD"]),
+		// `<branch>@{upstream}` wants the short name: `refs/heads/<branch>@{upstream}` names nothing.
+		branch ? resolve(baseCwd, `${branch}@{upstream}`) : null,
+		resolve(baseCwd, "refs/remotes/origin/HEAD"),
+	]);
+	return { branch, head, upstream: tracked ?? remote };
+}
+
+/**
+ * Where the child's own work starts: the base that already holds its tip when it landed (so only uncommitted work is
+ * left), else the upstream when it holds the parent's HEAD (a stale local branch never lends the child the upstream's
+ * newer commits), else the parent's HEAD.
+ */
+async function landing(cwd: string, base: Base, tip: string): Promise<{ landed: boolean; diffBase: string }> {
+	const { head, upstream } = base;
+	const [inUpstream, inHead, headInUpstream] = await Promise.all([
+		upstream ? contains(cwd, upstream, tip) : false,
+		contains(cwd, head, tip),
+		upstream ? contains(cwd, upstream, head) : false,
+	]);
+	if (upstream && inUpstream) return { landed: true, diffBase: upstream };
+	if (inHead) return { landed: true, diffBase: head };
+	return { landed: false, diffBase: upstream && headInUpstream ? upstream : head };
+}
+
 export async function branchFacts(worktree: WorktreeRef): Promise<BranchFacts> {
-	const baseBranchResult = await gitRaw(worktree.baseCwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
-	const baseBranch = baseBranchResult.code === 0 ? baseBranchResult.stdout.toString("utf8").trim() || null : null;
-	const baseHead = await text(worktree.baseCwd, ["rev-parse", "HEAD"]);
-	const mergeBase = await text(worktree.path, ["merge-base", "HEAD", baseHead]);
-	const [ahead, numstat, own, base, ancestor] = await Promise.all([
-		text(worktree.path, ["rev-list", "--count", `${mergeBase}..HEAD`]),
+	const [base, tip] = await Promise.all([readBase(worktree.baseCwd), text(worktree.path, ["rev-parse", "HEAD"])]);
+	const { landed, diffBase } = await landing(worktree.path, base, tip);
+	const mergeBase = await text(worktree.path, ["merge-base", tip, diffBase]);
+	const [ahead, numstat, own, parent] = await Promise.all([
+		text(worktree.path, ["rev-list", "--count", `${mergeBase}..${tip}`]),
 		text(worktree.path, ["diff", "--numstat", "--no-renames", mergeBase]),
 		dirtiness(worktree.path),
 		dirtiness(worktree.baseCwd),
-		gitRaw(worktree.baseCwd, ["merge-base", "--is-ancestor", worktree.branch, "HEAD"]),
 	]);
 	const files = parseNumstat(numstat);
 	return {
 		branch: worktree.branch,
-		baseBranch,
+		baseBranch: base.branch,
 		commitsAhead: Number(ahead) || 0,
 		files: files.slice(0, MAX_FILES),
 		filesTruncated: files.length > MAX_FILES,
 		uncommitted: own.tracked,
 		untracked: own.untracked,
-		baseUncommitted: base.tracked,
-		merged: ancestor.code === 0,
+		baseUncommitted: parent.tracked,
+		merged: landed,
 	};
 }
 
 export interface LandingFacts {
 	/** The branch has a commit of its own (its tip is not where it was created); an untouched branch has nothing to land. */
 	hasWork: boolean;
-	/** Its tip is in the parent checkout's HEAD or in the remote's default branch (merged here, pushed or merged there). */
+	/** Its tip is in the parent checkout's HEAD or in the upstream its branch tracks (merged here, pushed or merged there). */
 	landed: boolean;
 	/** No uncommitted or untracked file in the worktree: removing it loses nothing. */
 	clean: boolean;
 }
 
-/** The remote's default branch as last fetched (`refs/remotes/origin/HEAD`), or null without a remote. */
-async function remoteDefault(cwd: string): Promise<string | null> {
-	const result = await gitRaw(cwd, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
-	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
-}
-
 /**
  * Whether a child's work has landed: its branch tip is an ancestor of the parent's HEAD (a local merge, a
- * fast-forward, a rebase that kept the tip) or of `origin`'s default branch (pushed to main, or merged there), and
- * whether the worktree is clean. An untouched branch is trivially an ancestor, so `hasWork` compares the tip with the
- * commit the branch was created at (its oldest reflog entry); without a reflog nothing counts as work.
+ * fast-forward, a rebase that kept the tip) or of the upstream the parent's branch tracks, else `origin`'s default
+ * branch (pushed to main, or merged there), and whether the worktree is clean. An untouched branch is trivially an
+ * ancestor, so `hasWork` compares the tip with the commit the branch was created at (its oldest reflog entry); without
+ * a reflog nothing counts as work.
  */
 export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts> {
-	const tipResult = await gitRaw(worktree.baseCwd, ["rev-parse", "--verify", "-q", `refs/heads/${worktree.branch}`]);
-	if (tipResult.code !== 0) return { hasWork: false, landed: false, clean: false };
-	const tip = tipResult.stdout.toString("utf8").trim();
-	const upstream = await remoteDefault(worktree.baseCwd);
-	const [head, remote, reflog, own] = await Promise.all([
-		gitRaw(worktree.baseCwd, ["merge-base", "--is-ancestor", tip, "HEAD"]),
-		upstream ? gitRaw(worktree.baseCwd, ["merge-base", "--is-ancestor", tip, upstream]) : null,
+	const tip = await resolve(worktree.baseCwd, `refs/heads/${worktree.branch}`);
+	if (!tip) return { hasWork: false, landed: false, clean: false };
+	const [base, reflog, own] = await Promise.all([
+		readBase(worktree.baseCwd),
 		gitRaw(worktree.baseCwd, ["reflog", "show", "--format=%H", `refs/heads/${worktree.branch}`]),
 		dirtiness(worktree.path).catch(() => null),
 	]);
 	const created = reflog.stdout.toString("utf8").split("\n").filter(Boolean).at(-1);
 	return {
 		hasWork: created !== undefined && created !== tip,
-		landed: head.code === 0 || remote?.code === 0,
+		landed: (await landing(worktree.baseCwd, base, tip)).landed,
 		clean: own !== null && own.tracked === 0 && own.untracked === 0,
 	};
 }
 
+/** What a safe removal did: worktree and branch gone, the worktree gone but `branch -d` kept the branch, or nothing. */
+export type WorktreeRemoval = "removed" | "branch-kept" | null;
+
 /**
- * Remove the worktree of a session whose work landed, and its branch, losing nothing: only a registered linked
- * worktree whose branch is landed and whose files are clean goes (`worktree remove` without `--force` refuses a
- * dirty one too), and the branch only with `branch -d`, which refuses an unmerged one. A branch `-d` keeps is left alone.
- * Returns false when anything held it back.
+ * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
+ * uncommitted or untracked file whose branch tip is in the parent's HEAD or upstream (an untouched branch is) goes
+ * (`worktree remove` without `--force` refuses a dirty one too), and the branch only with `branch -d`, which refuses
+ * an unmerged one. Null when anything held it back.
  */
-export async function removeLandedWorktree(worktree: WorktreeRef): Promise<boolean> {
+export async function removeSafeWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
 	const facts = await landingFacts(worktree);
-	if (!facts.hasWork || !facts.landed || !facts.clean) return false;
+	if (!facts.landed || !facts.clean) return null;
 	const listed = (await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]))
 		.split("\n")
 		.filter(line => line.startsWith("worktree "))
 		.map(line => line.slice("worktree ".length));
 	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
 	const wanted = await realpath(worktree.path).catch(() => worktree.path);
-	if (!linked.includes(wanted)) return false;
+	if (!linked.includes(wanted)) return null;
 	const removed = await gitRaw(primary ?? worktree.baseCwd, ["worktree", "remove", wanted], { timeoutMs: TIMEOUT_MS });
-	if (removed.code !== 0) return false;
-	await gitRaw(primary ?? worktree.baseCwd, ["branch", "-d", worktree.branch]);
-	return true;
+	if (removed.code !== 0) return null;
+	const branch = await gitRaw(primary ?? worktree.baseCwd, ["branch", "-d", worktree.branch]);
+	return branch.code === 0 ? "removed" : "branch-kept";
 }
 
 /** Why a merge of this branch cannot go ahead (what it would lose or tangle), or null. */
@@ -195,18 +245,4 @@ export async function mergeBranch(worktree: WorktreeRef, label: string): Promise
 	const sha = await text(worktree.baseCwd, ["rev-parse", "--short", "HEAD"]);
 	const summary = await text(worktree.baseCwd, ["diff", "--shortstat", "HEAD~1", "HEAD"]);
 	return { merged: true, sha, summary };
-}
-
-/** Remove the worktree and its branch once its session is closed; only a registered linked worktree goes. */
-export async function discardWorktree(worktree: WorktreeRef): Promise<void> {
-	const listed = (await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]))
-		.split("\n")
-		.filter(line => line.startsWith("worktree "))
-		.map(line => line.slice("worktree ".length));
-	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
-	const wanted = await realpath(worktree.path).catch(() => worktree.path);
-	if (!linked.includes(wanted))
-		throw new BranchError(`${worktree.path} is not a linked worktree of ${worktree.baseCwd}; nothing was removed.`);
-	await git(primary ?? worktree.baseCwd, ["worktree", "remove", "--force", wanted], { timeoutMs: TIMEOUT_MS });
-	await gitRaw(primary ?? worktree.baseCwd, ["branch", "-D", worktree.branch]);
 }

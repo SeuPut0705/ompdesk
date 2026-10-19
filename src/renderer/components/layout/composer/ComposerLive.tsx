@@ -6,10 +6,10 @@
  * waiting on the user wins: the warning card owns the attention and the cue stays off.
  *
  * Everything is read from the stores the work board and the dock read (the run state, the subagent
- * store, the shared jobs poll); nothing here polls. The animation is a transform on one layer
- * (components.css `.omp-composer-live`), paused while the window is hidden.
+ * store, the shared jobs poll); nothing here polls. The light itself is the shared `common/LiveEdge`
+ * (components.css `.omp-live-edge`), the same one a running session's sidebar row and pane header wear.
  */
-import { type ComponentProps, type ReactElement, type ReactNode, useSyncExternalStore } from "react";
+import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { useT } from "../../../lib/i18n";
@@ -18,14 +18,8 @@ import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
-import { Tooltip } from "../../common";
+import { LiveEdge, Tooltip } from "../../common";
 import { type ComposerLiveState, composerLiveState, workingAgentCount } from "./composer-live";
-
-function subscribeVisibility(listener: () => void): () => void {
-	document.addEventListener("visibilitychange", listener);
-	return () => document.removeEventListener("visibilitychange", listener);
-}
-const documentVisible = () => document.visibilityState !== "hidden";
 
 /** The cue this tab's composer shows, and how many agents and shells stand behind a background one. */
 export function useComposerLive(): { state: ComposerLiveState | null; background: number } {
@@ -48,16 +42,7 @@ export function useComposerLive(): { state: ComposerLiveState | null; background
 /** The light along the composer box's border; mount it first inside `.omp-composer-box`. */
 export function ComposerLiveEdge(): ReactElement | null {
 	const { state } = useComposerLive();
-	const visible = useSyncExternalStore(subscribeVisibility, documentVisible, () => true);
-	if (!state) return null;
-	return (
-		<span
-			aria-hidden
-			className="omp-composer-live"
-			data-composer-live={state}
-			data-paused={visible ? undefined : ""}
-		/>
-	);
+	return state ? <LiveEdge state={state} /> : null;
 }
 
 /** Wraps the Send button: its tooltip and ring tell that background work runs and a send starts at once. */

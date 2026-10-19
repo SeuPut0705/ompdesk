@@ -10,17 +10,27 @@ const CALLER: IpcCaller = { win: null, browserWindow: null, sender: { id: 1, onc
 function registered() {
 	const channels: string[] = [];
 	const ipc = new IpcRegistry({ handle: channel => channels.push(channel), on: () => {} });
-	const service = { state: vi.fn(() => STATE), retry: vi.fn(async (_item: unknown) => {}), cancel: vi.fn(() => true) };
+	const service = {
+		state: vi.fn(() => STATE),
+		retry: vi.fn(async (_item: unknown) => {}),
+		cancel: vi.fn(() => true),
+		gitAslr: vi.fn(async () => ({ ok: true as const, images: 3 })),
+	};
 	registerSetupIpc(ipc, service);
 	const call = (channel: string, ...args: unknown[]) => ipc.invoke(channel, CALLER, args);
 	return { service, call, channels };
 }
 
 describe("setup IPC", () => {
-	it("serves exactly the state, retry and cancel channels", async () => {
+	it("serves exactly the state, retry, cancel and Git ASLR channels", async () => {
 		const { channels, call, service } = registered();
 		expect(channels.sort()).toEqual(
-			[IPC_COMMANDS.SETUP_CANCEL, IPC_COMMANDS.SETUP_GET_STATE, IPC_COMMANDS.SETUP_RETRY].sort(),
+			[
+				IPC_COMMANDS.SETUP_CANCEL,
+				IPC_COMMANDS.SETUP_GET_STATE,
+				IPC_COMMANDS.SETUP_GIT_ASLR,
+				IPC_COMMANDS.SETUP_RETRY,
+			].sort(),
 		);
 		expect(await call(IPC_COMMANDS.SETUP_GET_STATE)).toBe(STATE);
 		expect(await call(IPC_COMMANDS.SETUP_CANCEL)).toBe(true);
@@ -47,5 +57,14 @@ describe("setup IPC", () => {
 			await expect(call(IPC_COMMANDS.SETUP_RETRY, value)).rejects.toThrow(/Unknown setup item/);
 		}
 		expect(service.retry).not.toHaveBeenCalled();
+	});
+
+	it("passes only fix or undo to the Git ASLR step", async () => {
+		const { call, service } = registered();
+		expect(await call(IPC_COMMANDS.SETUP_GIT_ASLR, "undo")).toEqual({ ok: true, images: 3 });
+		for (const value of ["Fix", "system", { action: "fix" }, undefined]) {
+			await expect(call(IPC_COMMANDS.SETUP_GIT_ASLR, value)).rejects.toThrow(/Unknown Git ASLR action/);
+		}
+		expect(service.gitAslr.mock.calls).toEqual([["undo"]]);
 	});
 });

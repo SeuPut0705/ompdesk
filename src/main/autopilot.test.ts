@@ -73,6 +73,10 @@ class World {
 	failGoalResume = false;
 	/** What the bridge answers `modes.autopilot_guide` with. */
 	guide: unknown = { exists: false, text: "" };
+	/** Stock's session name per tab (`set_session_name` / `get_state`). */
+	sessionNames = new Map<string, string>();
+	/** What the windows were told the session is called (`noteSessionName`). */
+	shownNames = new Map<string, string>();
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -87,6 +91,8 @@ class World {
 		if (type === "get_plan_mode") return ok({ enabled: this.plan });
 		if (type === "get_goal") return ok(this.goal);
 		if (type === "get_session_stats") return ok(this.stats.get(tab) ?? { tokens: { total: 0 }, cost: 0 });
+		if (type === "set_session_name") this.sessionNames.set(tab, String(rest.name));
+		if (type === "get_state") return ok({ sessionName: this.sessionNames.get(tab) ?? null });
 		if (type === "set_goal" && rest.objective && this.failGoalCreate) return fail("goal refused");
 		if (type === "set_goal" && rest.action === "resume" && this.failGoalResume)
 			return fail("No paused goal to resume.");
@@ -196,6 +202,9 @@ function build(
 		},
 		noteStopped: tab => {
 			world.stopped.push(tab);
+		},
+		noteSessionName: (tab, title) => {
+			world.shownNames.set(tab, title);
 		},
 		routeSideChannel: async (id, response, tab) => {
 			world.answers.push({ id, tab: tab ?? "", response });
@@ -341,8 +350,9 @@ describe("pure helpers", () => {
 			autoRelease: { on: true },
 		});
 		expect(startSettings({ ship: { remote: "up" } }, {}).ship.remote).toBe("up");
-		expect(startSettings({ maxParallel: 9 }, {}).maxParallel).toBe(4);
+		expect(startSettings({ maxParallel: 9 }, {}).maxParallel).toBe(9);
 		expect(startSettings({ maxParallel: -2 }, {}).maxParallel).toBe(0);
+		expect(startSettings({}, {}).maxParallel).toBeNull();
 		expect(startSettings({}, { notify: "cycles" }).notify).toBe("cycles");
 		expect(startSettings({ notify: "off" }, { notify: "cycles" }).notify).toBe("off");
 		expect(
@@ -374,9 +384,6 @@ describe("pure helpers", () => {
 			}),
 		).toBe(true);
 		expect(validAutopilotPref("autopilotShip", "origin")).toBe(false);
-		expect(validAutopilotPref("autopilotLimits", { tokens: null, minutes: 30, cycles: null, usd: 5 })).toBe(true);
-		expect(validAutopilotPref("autopilotLimits", { tokens: -1, minutes: null, cycles: null, usd: null })).toBe(false);
-		expect(validAutopilotPref("autopilotLimits", undefined)).toBe(true);
 	});
 });
 
@@ -400,6 +407,51 @@ describe("start", () => {
 			settings: { focus: ["tests"], ship: { autoPush: true } },
 		});
 		expect(await fs.stat(path.join(tmp, "wt-2026-10-17"))).toBeTruthy();
+	});
+
+	it("titles the run's session from the start, then by its first cycle's item, never over the user's own name", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		expect(world.sessionNames.get("ap-1")).toBe(`Autopilot · ${path.basename(main)}`);
+		const base = world.statuses.get("ap-1") as AutopilotStatus;
+		const picked = { ...base, now: { n: 1, startedAt: 1, area: "bugs" as const, title: "Fix slugify spaces" } };
+		autopilot.overlay(sidecar, { type: "autopilot_update", status: picked });
+		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces"));
+		// Stock sends no update for an RPC rename: the windows are told by main.
+		expect(world.shownNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces");
+		// The user renames it; a later cycle-1 frame changes nothing.
+		world.sessionNames.set("ap-1", "mine");
+		autopilot.overlay(sidecar, {
+			type: "autopilot_update",
+			status: { ...picked, now: { ...picked.now, title: "x" } },
+		});
+		await autopilot.idle();
+		expect(world.sessionNames.get("ap-1")).toBe("mine");
+	});
+
+	describe("the ship level nobody chose", () => {
+		const armedPolicy = () => {
+			const arm = world.calls.find(call => call.tab === "ap-1" && call.name === AUTOPILOT_BRIDGE_METHODS.arm);
+			const settings = arm?.params?.settings;
+			return settings && typeof settings === "object" && "ship" in settings ? settings.ship : undefined;
+		};
+		it("stays local in a repository without a remote", async () => {
+			gitSync(main, "remote", "remove", "origin");
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
+		});
+		it("pushes the run's own new branch when the repository has a remote, never releases", async () => {
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: false }, remote: "origin" });
+		});
+		it("stays local when the run would push the default branch", async () => {
+			await start({ type: "set_autopilot", action: "start", branch: { kind: "existing", name: "main" } });
+			expect(armedPolicy()).toMatchObject({ autoPush: false });
+		});
+		it("an explicit level wins", async () => {
+			await start({ type: "set_autopilot", action: "start", preset: "local" });
+			expect(armedPolicy()).toMatchObject({ autoPush: false });
+		});
 	});
 
 	it("pins the sheet's backlog items once the run is armed and before the goal exists", async () => {
@@ -1086,7 +1138,7 @@ describe("a cycle's end", () => {
 		await autopilot.idle();
 		expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
 		build();
-		await start();
+		await start({ type: "set_autopilot", action: "start", preset: "local" });
 		await commit(path.join(tmp, "wt-2026-10-17-2"), "b.txt").catch(() => undefined);
 		autopilot.frame(world.sidecars.get("ap-2") as unknown as SidecarLike, {
 			type: "autopilot_cycle_end",

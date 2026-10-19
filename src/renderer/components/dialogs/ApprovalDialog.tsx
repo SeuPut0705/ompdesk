@@ -93,7 +93,7 @@ export function ApprovalDialog({
 		<PromptCard
 			footer={
 				<>
-					<span className="text-sc-xs text-(--sc-text-muted)">{t("approval.waiting")}</span>
+					<span />
 					<span className="flex items-center gap-3">
 						{arrivedAt !== undefined && <WaitedFor since={arrivedAt} />}
 						<TimeoutFooter remaining={remaining} />

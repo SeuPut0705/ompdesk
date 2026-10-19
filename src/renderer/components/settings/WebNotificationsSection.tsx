@@ -52,7 +52,7 @@ function InstallSection({ pwa }: { pwa: WebPwa }) {
 	if (guidance === "none") return null;
 	const steps = installStepKeys(guidance);
 	return (
-		<SettingsSection description={t("web.install.desc")} title={t("web.install.title")}>
+		<SettingsSection title={t("web.install.title")}>
 			<div data-web-install={guidance}>
 				{guidance === "installed" && <SettingsRow id="settings-web-install" label={t("web.install.installed")} />}
 				{guidance === "ios-share" && (
@@ -153,7 +153,7 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 	}
 	const denied = view.permission === "denied";
 	return (
-		<SettingsSection description={t("web.push.desc")} title={t("web.push.title")}>
+		<SettingsSection title={t("web.push.title")}>
 			<div data-web-push-state={view.subscribed ? "on" : denied ? "denied" : "off"}>
 				{denied && (
 					<Banner variant="warning">
@@ -194,6 +194,7 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 						<SettingsSwitchRow
 							checked={view.hideContent}
 							description={t("web.push.hideContentDesc")}
+							tipOnly
 							disabled={busy}
 							id="settings-web-push-hide"
 							label={t("web.push.hideContent")}

@@ -30,6 +30,7 @@ import { WEB_HOST_CHANNELS, type WebBlobOpenResult } from "../../shared/web-host
 import type { WebServerFrame } from "../../shared/web-protocol";
 import type { WebPushStateResponse } from "../../shared/web-push";
 import type { TailnetPeer } from "../tailscale/whois";
+import { itWithFileSymlinks } from "../test-symlinks";
 import type { ClientWindow } from "./client-window";
 import type { IpcCaller } from "./ipc-registry";
 import { WebHost, type WebHostDeps } from "./web-host";
@@ -333,7 +334,7 @@ describe("static files", () => {
 		}
 	});
 
-	it("does not follow a symlink out of the built folder", async () => {
+	itWithFileSymlinks("does not follow a symlink out of the built folder", async () => {
 		symlinkSync(join(staticRoot, "secret.txt"), join(staticRoot, "assets", "link.js"));
 		const outside = mkdtempSync(join(tmpdir(), "web-outside-"));
 		writeFileSync(join(outside, "x.js"), "outside");
@@ -357,6 +358,13 @@ describe("static files", () => {
 		expect((await raw("/assets/app-def.js")).body).toBe("next");
 		expect((await raw("/assets/missing.js")).status).toBe(404);
 		expect((await raw("/assets/../web-assets/builds.json")).status).not.toBe(200);
+	});
+
+	// Windows CI (release run 39191568825): the teardown's rmSync of userData hit ENOTEMPTY because the start's copy
+	// of the build into web-assets/ was still writing after stop() returned.
+	it("stop() returns only once the start's background work in userData is done", async () => {
+		await host.stop();
+		expect(existsSync(join(userData, "web-assets", "builds.json"))).toBe(true);
 	});
 });
 

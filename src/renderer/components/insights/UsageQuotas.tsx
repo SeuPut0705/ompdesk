@@ -194,8 +194,7 @@ export function UsageQuotas() {
 
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="flex flex-wrap items-center gap-3">
-				<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-muted)">{t("usage.providerQuotasHint")}</p>
+			<div className="flex flex-wrap items-center justify-end gap-3">
 				<Button
 					disabled={!ready}
 					icon={<RefreshCw />}

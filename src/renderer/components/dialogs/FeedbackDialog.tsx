@@ -12,6 +12,7 @@ import type { SystemInfo } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
 import { Button, Input, Modal, TextArea } from "../common";
+import { SettingInfo } from "../common/SettingInfo";
 
 const LOG_TAIL_LINES = 20;
 
@@ -84,7 +85,6 @@ export function FeedbackDialog() {
 			open={open}
 			size="lg"
 			title={t("feedback.title")}
-			description={t("feedback.intro")}
 			footer={
 				<>
 					<Button onClick={close} size="sm" variant="secondary">
@@ -164,15 +164,18 @@ export function FeedbackDialog() {
 						</span>
 					</label>
 					<div>
-						<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
-							<input
-								type="checkbox"
-								checked={includeErrors}
-								onChange={event => setIncludeErrors(event.target.checked)}
-								className="mt-0.5 accent-(--sc-accent)"
-							/>
-							<span>{t("feedback.includeErrors")}</span>
-						</label>
+						<div className="flex items-center gap-1.5">
+							<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
+								<input
+									type="checkbox"
+									checked={includeErrors}
+									onChange={event => setIncludeErrors(event.target.checked)}
+									className="mt-0.5 accent-(--sc-accent)"
+								/>
+								<span>{t("feedback.includeErrors")}</span>
+							</label>
+							<SettingInfo text={t("feedback.includeErrorsInfo")} />
+						</div>
 						{/* Kept outside the label: clicking the preview to read/select text must not toggle the box. */}
 						{includeErrors && (
 							<details className="mt-1 ml-6">

@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { capture, exitApp, launchApp, recordsOfType } from "./harness";
+import { capture, captureTo, exitApp, launchApp, recordsOfType } from "./harness";
 
 // What a tab does while another one is in front (v0.8.0): its blocking dialogs and
 // run-end notifications must still reach the user, and its sidebar row shows the run.
@@ -183,15 +183,17 @@ test("a background run finishing notifies under that tab's name", async () => {
 
 // The rows' states, subagent disclosure and order are component-tested (Sidebar, SidebarSubagents); this keeps the
 // real layout and the captures.
-test("a running row shows its run on the edge and keeps the whole title, at rest and on hover", async () => {
+test("a running row wears the composer's light on its border and keeps the whole title, at rest and on hover", async () => {
 	const owner = await activeTab();
 	await nameTab(owner, "Fan-out tab");
 	await startRun("fixture running");
-	// The run shows on the row's left edge, not as a spinner, and the title keeps the whole row: no padding is
-	// reserved for actions at rest or on hover, so the title grows past the room the old layout kept (3.5rem+).
+	// The run shows as the travelling light on the row's border (the composer's, `LiveEdge`), not as a spinner or a
+	// bar, and the title keeps the whole row: no padding is reserved for actions at rest or on hover, so the title
+	// grows past the room the old layout kept (3.5rem+).
 	const ownerRow = sidebarRow(owner);
 	const titleBox = ownerRow.locator("button[data-roving-item]").locator("xpath=..");
 	await expect(ownerRow).toHaveAttribute("data-signal", "running");
+	await expect(ownerRow.locator(".omp-live-edge[data-live-edge-inside]")).toHaveCount(1);
 	await expect(ownerRow.locator(".omp-spinner, [role='status']")).toHaveCount(0);
 	await expect(titleBox).toHaveCSS("padding-right", "0px");
 	const restWidth = (await titleBox.boundingBox())?.width ?? 0;
@@ -205,13 +207,17 @@ test("a running row shows its run on the edge and keeps the whole title, at rest
 		await page.emulateMedia({ colorScheme: scheme });
 		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
 		await capture(page, `sidebar-running-${scheme}`);
+		await captureTo(process.env.OMP_GUI_ROW_GLOW, page, `desktop-running-${scheme}`);
 	}
 	await fixtureCommand(owner, "fixture:confirm");
 	await expect(ownerRow).toHaveAttribute("data-signal", "waiting");
+	// Waiting keeps its warning bar and never wears the light.
+	await expect(ownerRow.locator(".omp-live-edge")).toHaveCount(0);
 	for (const scheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme: scheme });
 		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
 		await capture(page, `sidebar-waiting-${scheme}`);
+		await captureTo(process.env.OMP_GUI_ROW_GLOW, page, `desktop-waiting-${scheme}`);
 	}
 	await page.emulateMedia({ colorScheme: "light" });
 	await fixtureCommand(owner, "fixture:confirm:cancel");

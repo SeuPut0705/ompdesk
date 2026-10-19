@@ -10,7 +10,7 @@
 | "omp not found" | Open the setup screen or **Settings › Updates & about › This computer**, read the reason, and press **Try again**. If you installed omp yourself, check `omp --version` in a terminal. If it lives somewhere unusual, set the `OMP_GUI_OMP` environment variable to the executable's path. |
 | "omp is too old" | OMPdesk runs `omp update` by itself. If that failed, run `omp update` in a terminal and press **Restart**. omp 18.11.0 or newer is required. |
 | The app update fails with "rate limit exceeded" | Try again in a minute. An optional GitHub token raises the limit: `GH_TOKEN`, `gh auth login`, or the **GitHub token (optional)** field in **Settings › Updates & about**. See [Updates](updates.md). |
-| Pull request features don't work | Open a Git repository and check that `gh auth status` shows you signed in. |
+| Pull request features don't work | Open a Git repository, then sign in under **Settings › General › GitHub account** (or check that `gh auth status` shows you signed in). |
 | A task stopped after the computer slept or the network dropped | OMPdesk waits for the connection and retries by itself. Press **Cancel** to stop waiting. |
 | Computer use asked for permission on macOS | Computer use is on by default. Grant **Screen Recording** and **Accessibility** to OMPdesk in System Settings. Turn it off for a session with `/computer off`. |
 

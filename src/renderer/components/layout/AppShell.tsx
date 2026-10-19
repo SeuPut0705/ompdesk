@@ -25,7 +25,7 @@ import { actionShortcut } from "../../lib/keymap";
 import { markChromePlatform, syncWindowControls } from "../../lib/window-chrome";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
-import { type PageDestination, useUiStore } from "../../stores/ui";
+import { type PageDestination, setSidebarDrawerMode, useUiStore } from "../../stores/ui";
 import { Button, IconButton, Skeleton, Tooltip } from "../common";
 import { PanelContainer, preloadPanelViews } from "./PanelContainer";
 import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
@@ -265,6 +265,7 @@ function useDrawerSidebarSync(drawer: boolean): boolean {
 	const docked = useRef<boolean | null>(null);
 	const [syncedFor, setSyncedFor] = useState<boolean | null>(null);
 	useLayoutEffect(() => {
+		setSidebarDrawerMode(drawer);
 		if (drawer) {
 			if (docked.current === null) docked.current = useUiStore.getState().sidebarVisible;
 			useUiStore.setState({ sidebarVisible: false });

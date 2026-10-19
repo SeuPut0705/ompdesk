@@ -8,7 +8,8 @@
  */
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 
-const DEFAULT_TIMEOUT_MS = 8_000;
+/** How long a command may take before the caller gets `RPC timeout`. */
+export const DEFAULT_TIMEOUT_MS = 8_000;
 
 interface PendingRequest {
 	command: RpcCommand;

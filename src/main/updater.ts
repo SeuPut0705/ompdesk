@@ -44,8 +44,10 @@ import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../s
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler } from "./app-auto-update";
 import { confirmQuit, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
+import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
+import { writeRuntimeLog } from "./runtime-log";
 import {
 	checkRepoAccess,
 	clearUpdateToken,
@@ -54,6 +56,16 @@ import {
 	storeUpdateToken,
 	updateAuthInfo,
 } from "./update-auth";
+import {
+	type InstallHelperMode,
+	lastSwapEntry,
+	type PendingInstall,
+	parsePendingInstall,
+	previousInstallDetails,
+	type SwapLogEntry,
+	scrubUpdateText,
+	type UpdateLogDetails,
+} from "./update-log-core";
 import { releaseUpdateProvider } from "./update-provider";
 import { type PlatformRelease, UPDATE_METADATA_ERROR, UPDATE_PLATFORM_ERROR } from "./update-release";
 import {
@@ -140,6 +152,80 @@ export interface AutoInstallProbe {
 	resumes: () => boolean;
 	/** A tab runs a turn or compacts, or an ask is open (this computer's tabs and the ones it hosts). */
 	busy: () => boolean;
+	/** An ask is open (a subset of `busy`; the log names it as the reason). */
+	asking: () => boolean;
+}
+
+/** Who started the install: the scheduler, a click on "Restart & install" (or a paired device's), or a plain quit. */
+type InstallTrigger = "auto" | "user click" | "quit";
+/** The trigger of the install in progress; unset until one starts, so an approved quit with an update staged counts as `quit`. */
+let installTrigger: InstallTrigger | undefined;
+/** When electron-updater's own (Windows NSIS) download started; unset outside one. */
+let nsisDownloadStartedAt: number | undefined;
+
+/**
+ * One decision line in `gui-runtime.jsonl` (source `app-update`, info level). The caller never passes a token or
+ * a URL: raw error text goes through `failureReason`.
+ */
+function logUpdate(message: "check" | "download" | "scheduler" | "swap", details: UpdateLogDetails): void {
+	writeRuntimeLog({ source: "app-update", message, details: { level: "info", ...details } });
+}
+
+/** A failure's raw text for the log: without the update token or any URL (a signed asset URL carries credentials). */
+function failureReason(error: unknown): string {
+	return scrubUpdateText(error instanceof Error ? error.message : String(error), [updateToken]);
+}
+
+/** What the next launch reports an install from: the version before and after, written when the helper starts. */
+function pendingInstallPath(): string {
+	return path.join(app.getPath("userData"), "update-install.json");
+}
+
+/** The install's helper starts (macOS swap script or Windows NSIS installer): one line, and the marker the next launch reads. */
+function noteInstallHelper(mode: InstallHelperMode, trigger: InstallTrigger, extra: UpdateLogDetails = {}): void {
+	const pending: PendingInstall = {
+		from: appVersion(),
+		to: current.state === "downloaded" ? current.version : "unknown",
+		mode,
+		trigger,
+		at: Date.now(),
+	};
+	try {
+		fs.writeFileSync(pendingInstallPath(), JSON.stringify(pending));
+	} catch {}
+	logUpdate("swap", { event: "helper", mode, from: pending.from, to: pending.to, trigger, ...extra });
+}
+
+/** An install starts: remember who asked. The scheduler logs its own `auto` decision; the other two are logged here. */
+function beginInstall(trigger: InstallTrigger): void {
+	installTrigger = trigger;
+	if (trigger !== "auto") logUpdate("scheduler", { event: "install", trigger });
+}
+
+/** An approved quit with an update staged installs it, though nothing asked: the quit is the trigger. */
+function quitInstallTrigger(): InstallTrigger {
+	if (installTrigger === undefined) beginInstall("quit");
+	return installTrigger ?? "quit";
+}
+
+/** The first launch after an install says how it ended: the version before and after (macOS adds `swap.log`'s last entry). */
+function reportPreviousInstall(): void {
+	let raw: string;
+	try {
+		raw = fs.readFileSync(pendingInstallPath(), "utf8");
+		fs.rmSync(pendingInstallPath(), { force: true });
+	} catch {
+		return;
+	}
+	const pending = parsePendingInstall(raw);
+	if (!pending) return;
+	let swap: SwapLogEntry | undefined;
+	if (pending.mode === "relaunch") {
+		try {
+			swap = lastSwapEntry(fs.readFileSync(path.join(updatesDirectory(), "swap.log"), "utf8").slice(-16 * 1024));
+		} catch {}
+	}
+	logUpdate("swap", previousInstallDetails(pending, appVersion(), swap));
 }
 
 function isWritable(target: string): boolean {
@@ -212,7 +298,7 @@ async function stageBundle(dmgPath: string, version: string): Promise<string> {
 }
 
 /** Hand the swap to a detached helper that outlives this process (never launchd). */
-function launchSwap(staged: string, destination: string, relaunch: boolean): void {
+function launchSwap(staged: string, destination: string, relaunch: boolean, trigger: InstallTrigger): void {
 	const log = path.join(updatesDirectory(), "swap.log");
 	const child = spawn(
 		"/bin/bash",
@@ -230,6 +316,7 @@ function launchSwap(staged: string, destination: string, relaunch: boolean): voi
 		{ detached: true, stdio: "ignore" },
 	);
 	child.unref();
+	noteInstallHelper("relaunch", trigger, { relaunch });
 }
 
 function availableDownloadPath(fileName: string): string {
@@ -418,9 +505,18 @@ function startMacDownload(
 	token: string | undefined,
 	mode: "manual" | "relaunch",
 ): Promise<void> {
-	return macTransfer.start(() => {
+	return macTransfer.start(async () => {
 		broadcast({ state: "downloading", version, mode, percent: 0 });
-		return downloadMacAsset(version, asset, token, mode);
+		const startedAt = Date.now();
+		logUpdate("download", { event: "started", version, mode, bytes: asset.size });
+		try {
+			await downloadMacAsset(version, asset, token, mode);
+		} catch (error) {
+			logUpdate("download", { event: "failed", version, mode, reason: failureReason(error) });
+			throw error;
+		}
+		// The SHA-512 matched and, for the relaunch mode, the bundle is staged and verified.
+		logUpdate("download", { event: "verified", version, mode, bytes: asset.size, ms: Date.now() - startedAt });
 	});
 }
 
@@ -472,6 +568,7 @@ function notesOf(info: { releaseNotes?: unknown }): string | undefined {
  */
 async function runCheck(manual: boolean): Promise<void> {
 	let token = (await resolveUpdateToken())?.token;
+	const configuredToken = token;
 	let rejected = false;
 	checkInFlight = true;
 	try {
@@ -488,7 +585,10 @@ async function runCheck(manual: boolean): Promise<void> {
 		}
 		if (!failure) {
 			const settled = settleIncompleteUpdateCheck(current, manual, mainT("updates.noResult"));
-			if (settled !== current) broadcast(settled);
+			if (settled !== current) {
+				logUpdate("check", { event: "error", kind: "no-result", manual });
+				broadcast(settled);
+			}
 			return;
 		}
 		const error = failure.error;
@@ -505,7 +605,19 @@ async function runCheck(manual: boolean): Promise<void> {
 				: code === UPDATE_PLATFORM_ERROR
 					? mainT("updates.installerMissing")
 					: mainT("updates.checkFailed");
-		broadcast(settleFailedUpdateCheck(access, code, message, appVersion(), manual, detail));
+		const settled = settleFailedUpdateCheck(access, code, message, appVersion(), manual, detail);
+		// A repo with no release yet is the same answer as "no update"; the rest is an error with its kind.
+		if (settled.state === "not-available") {
+			logUpdate("check", { event: "no-update", current: appVersion(), manual, note: "no release published" });
+		} else {
+			logUpdate("check", {
+				event: "error",
+				kind: settled.state === "auth-required" ? `auth-required:${settled.reason}` : (code ?? "check-failed"),
+				manual,
+				reason: scrubUpdateText(detail, [configuredToken, updateToken]),
+			});
+		}
+		broadcast(settled);
 	} finally {
 		checkInFlight = false;
 	}
@@ -591,20 +703,27 @@ export function restartableUpdate(): boolean {
  * automatic: electron-updater's installer). Callers have already confirmed
  * the quit; it stops every tab this computer runs.
  */
-export function restartIntoUpdate(): void {
+export function restartIntoUpdate(trigger: InstallTrigger): void {
 	if (current.state !== "downloaded") return;
 	if (current.mode === "relaunch") {
 		if (!stagedApp || !ownBundle) {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
 			return;
 		}
+		markMainStep("update", "relaunch-swap: quit");
+		beginInstall(trigger);
 		relaunchAfterSwap = true;
 		requestQuit();
 		return;
 	}
 	// Once approved, quitAndInstall() emits before-quit-for-update and the
 	// quit guard runs ⌘Q's teardown.
-	if (current.mode === "automatic") autoUpdater.quitAndInstall();
+	if (current.mode === "automatic") {
+		markMainStep("update", "quit-and-install");
+		beginInstall(trigger);
+		noteInstallHelper("nsis", trigger);
+		autoUpdater.quitAndInstall();
+	}
 }
 
 /** Which install path this copy runs; Settings explains why the automatic switch is unavailable in `manual`. */
@@ -619,6 +738,7 @@ export function appAutoUpdatePrefChanged(): void {
 
 export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	installMode = detectInstallMode();
+	reportPreviousInstall();
 	autoInstall = new AutoInstallScheduler({
 		now: Date.now,
 		facts: () => ({
@@ -626,17 +746,19 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			installable: restartableUpdate(),
 			resumes: probe.resumes(),
 			busy: probe.busy(),
+			asking: probe.asking(),
 			focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
 			idleMs: powerMonitor.getSystemIdleTime() * 1000,
 		}),
 		countdownMs: Number(process.env.OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS) || undefined,
+		log: (event, details) => logUpdate("scheduler", { event, ...details }),
 		effects: {
 			announce: () => broadcast(current),
 			withdraw: () => {
 				if (current.state === "downloaded")
 					broadcast({ state: "downloaded", version: current.version, mode: current.mode });
 			},
-			install: restartIntoUpdate,
+			install: () => restartIntoUpdate("auto"),
 		},
 	});
 	setInterval(() => autoInstall?.tick(), AUTO_INSTALL_TICK_MS).unref();
@@ -660,14 +782,22 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 		const launchStagedSwap = (): void => {
 			if (swapLaunched || !stagedApp || !ownBundle) return;
 			swapLaunched = true;
-			launchSwap(stagedApp, ownBundle, relaunchAfterSwap);
+			launchSwap(stagedApp, ownBundle, relaunchAfterSwap, quitInstallTrigger());
 		};
 		app.on("will-quit", launchStagedSwap);
 		onQuitForcedExit(launchStagedSwap);
 	}
+	// Windows: electron-updater installs a downloaded update by itself on an approved quit (`autoInstallOnAppQuit`).
+	if (installMode === "automatic") {
+		app.on("will-quit", () => {
+			if (installTrigger === undefined && current.state === "downloaded")
+				noteInstallHelper("nsis", quitInstallTrigger());
+		});
+	}
 
 	autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
 	autoUpdater.on("update-available", info => {
+		logUpdate("check", { event: "found", version: info.version, current: appVersion(), mode: installMode });
 		// The transfer in flight keeps its asset and version; restarting it would
 		// append a second stream to the same partial.
 		if (macTransfer.running) return;
@@ -699,9 +829,17 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			};
 		}
 		broadcast({ state: "available", version: info.version, notes: notesOf(info), mode: installMode });
+		if (installMode === "automatic") {
+			// autoDownload: electron-updater fetches the installer right now.
+			nsisDownloadStartedAt = Date.now();
+			logUpdate("download", { event: "started", version: info.version, mode: "nsis" });
+		}
 		if (installMode === "relaunch") void prepareRelaunchUpdate(info.version);
 	});
-	autoUpdater.on("update-not-available", () => broadcast({ state: "not-available", version: appVersion() }));
+	autoUpdater.on("update-not-available", () => {
+		logUpdate("check", { event: "no-update", current: appVersion() });
+		broadcast({ state: "not-available", version: appVersion() });
+	});
 	autoUpdater.on("download-progress", progress => {
 		if (installMode !== "automatic") return;
 		broadcast({
@@ -711,13 +849,26 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			percent: Math.round(progress.percent),
 		});
 	});
-	autoUpdater.on("update-downloaded", info =>
-		broadcast({ state: "downloaded", version: info.version, mode: "automatic" }),
-	);
+	autoUpdater.on("update-downloaded", info => {
+		logUpdate("download", {
+			event: "verified",
+			version: info.version,
+			mode: "nsis",
+			bytes: info.files[0]?.size ?? 0,
+			ms: nsisDownloadStartedAt === undefined ? 0 : Date.now() - nsisDownloadStartedAt,
+		});
+		nsisDownloadStartedAt = undefined;
+		broadcast({ state: "downloaded", version: info.version, mode: "automatic" });
+	});
 	autoUpdater.on("error", error => {
 		// A quitAndInstall() that failed natively leaves the app running: the committed quit is off.
 		disarmQuitWatchdog("update");
 		if (checkInFlight) return;
+		installTrigger = undefined;
+		if (nsisDownloadStartedAt !== undefined) {
+			nsisDownloadStartedAt = undefined;
+			logUpdate("download", { event: "failed", mode: "nsis", reason: failureReason(error) });
+		}
 		// Passive failures remain unobtrusive. Explicit IPC actions catch and
 		// rebroadcast the same failure as user-visible.
 		broadcast(failureStatus(error, "updates.failed", false));
@@ -745,7 +896,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 		}
 		// ⌘Q's rule: running work continues after the restart (turn-resume.ts), so this asks only with that setting off.
 		if (!(await confirmQuit())) return;
-		restartIntoUpdate();
+		restartIntoUpdate("user click");
 	});
 	ipc.handle(IPC_COMMANDS.UPDATER_POSTPONE, () => autoInstall?.postpone());
 	ipc.handle(IPC_COMMANDS.UPDATER_INSTALL_MODE, () => installMode);

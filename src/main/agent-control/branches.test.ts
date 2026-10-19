@@ -3,15 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gitSync, initRepo } from "../local/git/test-repos";
-import {
-	BranchError,
-	branchFacts,
-	discardWorktree,
-	landingFacts,
-	mergeBranch,
-	removeLandedWorktree,
-	type WorktreeRef,
-} from "./branches";
+import { BranchError, branchFacts, landingFacts, mergeBranch, removeSafeWorktree, type WorktreeRef } from "./branches";
 
 let root: string;
 let repo: string;
@@ -41,6 +33,34 @@ async function commitIn(dir: string, file: string, content: string): Promise<voi
 	await fs.writeFile(path.join(dir, file), content);
 	gitSync(dir, "add", file);
 	gitSync(dir, "commit", "-q", "-m", `edit ${file}`);
+}
+
+/**
+ * The parent tracks a bare remote (`main` → `origin/main`, no `origin/HEAD`), and another clone pushed three commits
+ * there that the parent fetched but never pulled: its local main is stale, as a checkout agents push past is.
+ */
+async function staleParentMain(): Promise<void> {
+	const remote = path.join(root, "remote.git");
+	gitSync(root, "init", "-q", "--bare", "-b", "main", remote);
+	gitSync(repo, "remote", "add", "origin", remote);
+	gitSync(repo, "push", "-q", "-u", "origin", "main");
+	const other = path.join(root, "other");
+	gitSync(root, "clone", "-q", remote, other);
+	gitSync(other, "config", "user.email", "other@example.com");
+	gitSync(other, "config", "user.name", "Other");
+	for (const name of ["x.ts", "y.ts", "z.ts"]) await commitIn(other, name, `${name}\n`);
+	gitSync(other, "push", "-q", "origin", "main");
+	gitSync(repo, "fetch", "-q", "origin");
+	// Newer git records `origin/HEAD` on fetch; drop it so only `main@{upstream}` can name the remote's main.
+	gitSync(repo, "update-ref", "--no-deref", "-d", "refs/remotes/origin/HEAD");
+}
+
+/** A child cut from the parent's stale HEAD that rebased onto the remote's main (`git fetch && git rebase origin/main`). */
+async function childOnRemoteMain(name: string): Promise<WorktreeRef> {
+	const wt = await agentWorktree(name);
+	gitSync(wt.path, "rebase", "-q", "origin/main");
+	await commitIn(wt.path, "own.ts", "own\n");
+	return wt;
 }
 
 describe("branchFacts", () => {
@@ -73,6 +93,58 @@ describe("branchFacts", () => {
 		expect((await branchFacts(wt)).merged).toBe(true);
 		await fs.writeFile(path.join(repo, "README.md"), "changed\n");
 		expect((await branchFacts(wt)).baseUncommitted).toBe(1);
+	});
+});
+
+describe("branchFacts against a stale parent checkout", () => {
+	it("counts a child that pushed its work to the remote's main as landed, with nothing to review", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("pushed");
+		gitSync(wt.path, "push", "-q", "origin", "HEAD:main");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 0,
+			files: [],
+			uncommitted: 0,
+			untracked: 0,
+			merged: true,
+		});
+		expect(await landingFacts(wt)).toEqual({ hasWork: true, landed: true, clean: true });
+		// The parent checkout was only read: its local main still sits where it was.
+		expect(gitSync(repo, "rev-list", "--count", "main..origin/main")).toBe("4");
+	});
+
+	it("measures an unpushed commit against the remote's main: one commit, its own file only", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("unpushed");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 1,
+			files: [{ path: "own.ts", added: 1, removed: 0 }],
+			merged: false,
+		});
+		expect((await landingFacts(wt)).landed).toBe(false);
+	});
+
+	it("shows only the uncommitted or untracked work a landed child left behind", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("leftover");
+		gitSync(wt.path, "push", "-q", "origin", "HEAD:main");
+		await fs.writeFile(path.join(wt.path, "own.ts"), "own\nmore\n");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 0,
+			files: [{ path: "own.ts", added: 1, removed: 0 }],
+			uncommitted: 1,
+			untracked: 0,
+			merged: true,
+		});
+		gitSync(wt.path, "checkout", "-q", "--", "own.ts");
+		await fs.writeFile(path.join(wt.path, "scratch.txt"), "x");
+		expect(await branchFacts(wt)).toMatchObject({
+			commitsAhead: 0,
+			files: [],
+			uncommitted: 0,
+			untracked: 1,
+			merged: true,
+		});
 	});
 });
 
@@ -120,18 +192,6 @@ describe("mergeBranch", () => {
 	});
 });
 
-describe("discardWorktree", () => {
-	it("removes a linked worktree and its branch, and refuses anything else", async () => {
-		const wt = await agentWorktree("f");
-		await fs.writeFile(path.join(wt.path, "wip.txt"), "unsaved");
-		await discardWorktree(wt);
-		await expect(fs.stat(wt.path)).rejects.toThrow();
-		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
-		await expect(discardWorktree({ path: repo, branch: "main", baseCwd: repo })).rejects.toBeInstanceOf(BranchError);
-		expect(gitSync(repo, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
-	});
-});
-
 describe("landingFacts", () => {
 	it("says an untouched branch has no work to land, however trivially it sits in the parent", async () => {
 		const wt = await agentWorktree("g");
@@ -167,33 +227,35 @@ describe("landingFacts", () => {
 	});
 });
 
-describe("removeLandedWorktree", () => {
-	it("removes the worktree and deletes the merged branch without forcing", async () => {
+describe("removeSafeWorktree", () => {
+	it("removes a merged worktree and its branch without forcing, and an untouched one too", async () => {
 		const wt = await agentWorktree("j");
 		await commitIn(wt.path, "a.ts", "a\n");
 		await mergeBranch(wt, "Worker");
-		expect(await removeLandedWorktree(wt)).toBe(true);
+		expect(await removeSafeWorktree(wt)).toBe("removed");
 		await expect(fs.stat(wt.path)).rejects.toThrow();
 		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
+
+		// Nothing was ever done there: removing it loses nothing.
+		const untouched = await agentWorktree("m");
+		expect(await removeSafeWorktree(untouched)).toBe("removed");
+		await expect(fs.stat(untouched.path)).rejects.toThrow();
 	});
 
-	it("keeps everything for unmerged commits, uncommitted or untracked files, an untouched branch and a main checkout", async () => {
+	it("keeps everything for unmerged commits, uncommitted or untracked files and a main checkout", async () => {
 		const unmerged = await agentWorktree("k");
 		await commitIn(unmerged.path, "a.ts", "a\n");
-		expect(await removeLandedWorktree(unmerged)).toBe(false);
+		expect(await removeSafeWorktree(unmerged)).toBeNull();
+		await fs.stat(unmerged.path);
 
 		const dirty = await agentWorktree("l");
 		await commitIn(dirty.path, "b.ts", "b\n");
 		await mergeBranch(dirty, "Worker");
 		await fs.writeFile(path.join(dirty.path, "scratch.txt"), "unsaved");
-		expect(await removeLandedWorktree(dirty)).toBe(false);
+		expect(await removeSafeWorktree(dirty)).toBeNull();
 		expect(await fs.readFile(path.join(dirty.path, "scratch.txt"), "utf8")).toBe("unsaved");
 		expect(gitSync(repo, "branch", "--list", dirty.branch)).toContain(dirty.branch);
 
-		const untouched = await agentWorktree("m");
-		expect(await removeLandedWorktree(untouched)).toBe(false);
-		await fs.stat(untouched.path);
-
-		expect(await removeLandedWorktree({ path: repo, branch: "main", baseCwd: repo })).toBe(false);
+		expect(await removeSafeWorktree({ path: repo, branch: "main", baseCwd: repo })).toBeNull();
 	});
 });

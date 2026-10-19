@@ -16,7 +16,6 @@ import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import {
 	AUTOPILOT_BRANCH_PREF,
-	AUTOPILOT_LIMITS_PREF,
 	AUTOPILOT_NOTIFY_PREF,
 	AUTOPILOT_SHIP_PREF,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
@@ -68,6 +67,7 @@ import type {
 	IpcRpcCommandForTabPayload,
 	IpcRpcCommandPayload,
 	IpcSessionOpenNewWindowPayload,
+	IpcSessionOwner,
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
 	IpcSessionsMovePayload,
@@ -117,6 +117,7 @@ import { registerPreviewHost } from "./preview/host";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
+import type { LocalHostServices } from "./remote/host-services";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { tailLogLines } from "./runtime-log-core";
 import type { ScheduleService } from "./schedules";
@@ -171,6 +172,11 @@ export interface IpcDeps {
 	windowManager: WindowManager;
 	/** Both remote roles: the paired hosts tabs may run on, and this computer as a host. */
 	remoteDevices: RemoteDevices;
+	/**
+	 * The tabs this computer runs for paired devices (LocalHostServices): this computer's windows list their
+	 * sessions (`HOSTED_SESSIONS`) and open one as a view of that tab, never as a second omp on its file.
+	 */
+	hostedTabs: Pick<LocalHostServices, "viewSession" | "hostedSessions" | "onHostedSessionsChange">;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
 	/** Where to start when the caller has no cwd. Never the volume root: a
@@ -371,6 +377,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const { sidecarPool, sessionIndex, logWatcher, windowManager, remoteDevices } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
 	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
+	/**
+	 * Delete a stored session (the sidebar, `/delete`, the control tools): the tab holding it closes. One a paired
+	 * device's tab on this computer runs is refused, as the host refuses a device the other's live tab.
+	 */
+	const deleteStoredSession = async (sessionPath: string, device: string | undefined): Promise<void> => {
+		const usedByDevice =
+			deps.hostedTabs.hostedSessions().some(session => session.sessionPath === sessionPath) ||
+			sidecarPool.deviceViewing(sessionPath);
+		if (!device && usedByDevice) throw codedError("session_running", "A paired device is using this session");
+		await deleteSession(sidecarPool, sessionPath, device, () =>
+			device
+				? remoteDevices.request(device, "sessions.delete", { sessionPath })
+				: sessionIndex.deleteSession(sessionPath),
+		);
+	};
 
 	/**
 	 * The machine a Settings/Usage/Stats call acts on: `device` is the paired
@@ -468,6 +489,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, undefined);
 		remoteDevices.hostSessionsChanged();
 	};
+	// The sessions this computer runs for paired devices are every window's sidebar rows too.
+	deps.hostedTabs.onHostedSessionsChange(() =>
+		broadcast(windowManager, IPC_EVENTS.HOSTED_SESSIONS_CHANGED, deps.hostedTabs.hostedSessions()),
+	);
 
 	// Host-level lookups on a paired host, shared by spawn/open/switch paths.
 	const remoteKindFor = (device: string, sessionPath: string) =>
@@ -634,7 +659,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			parseAgentMessage(cmd.message) === null
 		)
 			agentControl.noteUserPrompt(issuerTabId);
-		// The work board's review queue (src/main/agent-control): answered here, never sent to omp.
+		// The work board's opened-session list (src/main/agent-control): answered here, never sent to omp.
 		if (cmd.type === "agent_control_review") {
 			if (!issuerTabId)
 				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
@@ -644,7 +669,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					type: "response",
 					command: cmd.type,
 					success: true,
-					data: await agentControl.review(win, issuerTabId, cmd.action, cmd.child),
+					data: await agentControl.review(win, issuerTabId),
 				};
 			} catch (err) {
 				return {
@@ -677,6 +702,21 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// to the owner; this catches the race.
 		if (cmd.type === "switch_session") {
 			const blocker = sidecarPool.foreignSessionOwner(issuerTabId, cmd.sessionPath);
+			// A paired device's tab here runs it: the window opens a view of that tab instead (`tabs.spawn`).
+			if (
+				!blocker &&
+				!sidecar.device &&
+				deps.hostedTabs.hostedSessions().some(s => s.sessionPath === cmd.sessionPath)
+			)
+				return {
+					id: _id,
+					type: "response",
+					command: "switch_session",
+					success: false,
+					error: "A paired device's tab runs this session",
+					code: "session_owned_elsewhere",
+					data: { hosted: true },
+				};
 			if (blocker) {
 				return {
 					id: _id,
@@ -811,6 +851,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					initialCwd: deps.initialCwd,
 					defaultWorkspace: ensureDefaultWorkspace,
 					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+					hosted: deps.hostedTabs,
 				},
 				win,
 				payload,
@@ -879,6 +920,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					initialCwd: deps.initialCwd,
 					defaultWorkspace: ensureDefaultWorkspace,
 					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+					hosted: deps.hostedTabs,
 				},
 				win,
 				payload,
@@ -902,12 +944,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		notify: (win, tabId, title, body) => {
 			showNotification(win.webContents.id, { title, body, tabId });
 		},
-		deleteSession: (sessionPath, device) =>
-			deleteSession(sidecarPool, sessionPath, device, () =>
-				device
-					? remoteDevices.request(device, "sessions.delete", { sessionPath })
-					: sessionIndex.deleteSession(sessionPath),
-			),
+		deleteSession: deleteStoredSession,
 		text: (key, params) => mainT(`agentControl.${key}` as MainTextKey, undefined, params),
 		// `ompdesk_app` runs the app's own handlers as the calling session's window would.
 		app: {
@@ -983,12 +1020,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
 			throw codedError("invalid_session_path", "Invalid session path");
 		}
-		const device = deviceOf(payload.device);
-		await deleteSession(sidecarPool, payload.sessionPath, device, () =>
-			device
-				? remoteDevices.request(device, "sessions.delete", { sessionPath: payload.sessionPath })
-				: sessionIndex.deleteSession(payload.sessionPath),
-		);
+		await deleteStoredSession(payload.sessionPath, deviceOf(payload.device));
 	});
 
 	ipc.handle(IPC_COMMANDS.SESSIONS_RENAME, async (_caller, payload: IpcSessionsRenamePayload) => {
@@ -1100,6 +1132,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				initialCwd: deps.initialCwd,
 				defaultWorkspace: ensureDefaultWorkspace,
 				remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+				hosted: deps.hostedTabs,
 				anyWindowViews: process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1",
 			},
 			win,
@@ -1119,6 +1152,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!sidecar) return false;
 		// A window viewing another window's tab only leaves it; the owner's close releases it for all.
 		if (deps.sidecarPool.detachViewer(win, payload.tabId)) return true;
+		// A view of a paired device's tab here only leaves it: the omp and its worktree are the device's.
+		if (deps.sidecarPool.isHostedView(payload.tabId)) {
+			closeTabTerminals(caller.sender.id, payload.tabId);
+			return deps.sidecarPool.releaseTab(payload.tabId);
+		}
 		await deps.worktreeLifecycle.refreshExitPolicy(payload.tabId, () => readLiveLifecycleSettings(sidecar));
 		closeTabTerminals(caller.sender.id, payload.tabId);
 		return deps.sidecarPool.releaseTab(payload.tabId);
@@ -1183,10 +1221,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// belt-guards (open tab / open-in-new-window rows) consult this before
 	// attempting an attach.
 	ipc.handle(IPC_COMMANDS.GET_SESSION_OWNER, (_caller, payload: IpcGetSessionOwnerPayload) => {
-		return typeof payload?.sessionPath === "string"
-			? deps.sidecarPool.sessionOwner(payload.sessionPath, deviceOf(payload.device))
-			: null;
+		if (typeof payload?.sessionPath !== "string") return null;
+		const device = deviceOf(payload.device);
+		const owner = deps.sidecarPool.sessionOwner(payload.sessionPath, device);
+		if (owner || device) return owner;
+		const held = deps.hostedTabs.hostedSessions().some(session => session.sessionPath === payload.sessionPath);
+		return held ? ({ tabId: "", winId: 0, hosted: true } satisfies IpcSessionOwner) : null;
 	});
+	ipc.handle(IPC_COMMANDS.HOSTED_SESSIONS, () => deps.hostedTabs.hostedSessions());
 
 	// Full-content search over session files (raw JSONL grep on the machine
 	// holding them, scoped to the same candidate set the list view would show).
@@ -1434,8 +1476,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (
 			(payload.key === AUTOPILOT_SHIP_PREF ||
 				payload.key === AUTOPILOT_NOTIFY_PREF ||
-				payload.key === AUTOPILOT_BRANCH_PREF ||
-				payload.key === AUTOPILOT_LIMITS_PREF) &&
+				payload.key === AUTOPILOT_BRANCH_PREF) &&
 			!validAutopilotPref(payload.key, payload.value)
 		) {
 			throw codedError("invalid_preference_key", "Invalid autopilot preference");
@@ -1897,6 +1938,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.REMOTE_ROTATE_CODE, () => remoteDevices.rotateCode());
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
+	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_HOST, (_caller, payload: unknown) => remoteDevices.renameHost(payload));
+	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_PEER, (_caller, payload: unknown) => remoteDevices.renamePeer(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_DISCOVER, (_caller, action: unknown) => remoteDevices.discover(action));
 	ipc.handle(IPC_COMMANDS.REMOTE_PAIR, (_caller, payload: unknown) => remoteDevices.pair(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_REMOVE_HOST, (_caller, deviceId: unknown) => remoteDevices.removeHost(deviceId));

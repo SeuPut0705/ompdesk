@@ -109,7 +109,8 @@ export function PlanApprovalDialog() {
 						? await tabRpc.planApproval(false, undefined, trimmed)
 						: await tabRpc.planApproval(false);
 			if (!response.success) {
-				settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null });
+				// Answered first in another window, a device or by an agent: the card just closes.
+				if (settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null })) return;
 				toastError({ title: t("planApproval.failed"), error: response });
 				return;
 			}
@@ -162,7 +163,7 @@ export function PlanApprovalDialog() {
 							: t("planApproval.dismissed"),
 			});
 		} catch (cause) {
-			settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null });
+			if (settleTabPlanApproval(originTabId, originSessionId, target, { submitting: null })) return;
 			toastError({ title: t("planApproval.failed"), error: cause });
 		}
 	};

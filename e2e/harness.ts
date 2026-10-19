@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 
 /**
@@ -101,13 +102,9 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 	for (const [key, value] of Object.entries(env)) {
 		if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE") launchEnv[key] = value;
 	}
+	const entry = assertAppBuilt();
 	return electron.launch({
-		args: [
-			path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"),
-			options.project,
-			`--user-data-dir=${options.desktop}`,
-			...(options.args ?? []),
-		],
+		args: [entry, options.project, `--user-data-dir=${options.desktop}`, ...(options.args ?? [])],
 		env: launchEnv,
 	});
 }
@@ -146,6 +143,39 @@ export async function readRecords(file: string): Promise<Record<string, unknown>
 /** The records of `file` whose `type` is `type`. */
 export async function recordsOfType(file: string, type: string): Promise<Record<string, unknown>[]> {
 	return (await readRecords(file)).filter(record => record.type === type);
+}
+
+/**
+ * The main agent of `page`'s focused tab calls an OMPdesk control tool (the fake omp runs
+ * `fixture:host-tool:<name> <json>` and records the `host_tool_result` it gets in `record`);
+ * resolves with the result the agent gets back.
+ */
+export async function controlToolCaller(page: Page, record: string) {
+	const tabs = await page.evaluate(() => window.omp.tabs.list());
+	const main = tabs.find(tab => tab.active)?.tabId ?? "";
+	expect(main).not.toBe("");
+	const results = async () =>
+		(await readRecords(record))
+			.filter(frame => frame.type === "host_tool_result" && frame.recordedBy !== undefined)
+			.map(frame => {
+				const result = frame.result as { content?: { text?: string }[] } | undefined;
+				return { text: result?.content?.[0]?.text ?? "", isError: frame.isError === true };
+			});
+	return async (name: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> => {
+		const before = (await results()).length;
+		const response = await page.evaluate(
+			([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }),
+			[main, `fixture:host-tool:${name} ${JSON.stringify(args)}`] as const,
+		);
+		expect(response).toMatchObject({ success: true });
+		await expect.poll(async () => (await results()).length, { timeout: 90_000 }).toBe(before + 1);
+		return (await results())[before] as { text: string; isError: boolean };
+	};
+}
+
+/** The session ids an `ompdesk_session_open` result names. */
+export function openedSessions(text: string): string[] {
+	return [...text.matchAll(/Opened session (\w+)/g)].map(match => match[1] ?? "");
 }
 
 /**

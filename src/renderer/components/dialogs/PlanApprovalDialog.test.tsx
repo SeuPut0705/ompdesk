@@ -212,6 +212,35 @@ describe("PlanApprovalDialog", () => {
 		expect(document.body.textContent).toContain("Do the thing.");
 	});
 
+	it("closes when the proposal is resolved elsewhere, and only for its own plan", async () => {
+		installMockOmp(vi.fn<PlanApprovalFn>(async () => success({ approved: true, dispatched: true })));
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+		await emit([{ type: "plan_proposal_resolved", planFilePath: "/session/plans/other.md" }]);
+		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
+		await emit([{ type: "plan_proposal_resolved", planFilePath: "/session/plans/2026-08-03-auth-refactor.md" }]);
+		expect(document.querySelector("[data-prompt-card]")).toBeNull();
+		expect(usePlanApprovalStore.getState().pending).toBeNull();
+	});
+
+	it("closes the card when another viewer answered first while this window's answer was in flight", async () => {
+		const path = "/session/plans/2026-08-03-auth-refactor.md";
+		installMockOmp(
+			vi.fn<PlanApprovalFn>(async () => {
+				// The other viewer wins: its resolution reaches this window before this answer fails.
+				batchListener?.([{ type: "plan_proposal_resolved", planFilePath: path }], "");
+				return failure("No plan is awaiting approval");
+			}),
+		);
+		await mount(<PlanApprovalDialog />);
+		await emit([proposal("# Plan")]);
+		const execute = buttonWithText("Approve and execute");
+		if (!execute) throw new Error("missing execute button");
+		await act(async () => click(execute));
+		await vi.waitFor(() => expect(document.querySelector("[data-prompt-card]")).toBeNull());
+		expect(usePlanApprovalStore.getState()).toMatchObject({ pending: null, submitting: null, resolved: false });
+	});
+
 	it("shows one button per advertised option and approves with the matching option", async () => {
 		const planApproval = vi.fn<PlanApprovalFn>(async () => success({ approved: true, dispatched: true }));
 		installMockOmp(planApproval);

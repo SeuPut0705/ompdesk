@@ -14,6 +14,14 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+export interface FakeRequest {
+	path: string;
+	authorized: boolean;
+	method?: string;
+	tool?: string;
+	body?: Record<string, unknown>;
+}
+
 export interface FixtureAiMemory {
 	/** The fake binary (`OMP_GUI_AI_MEMORY_BIN`). */
 	bin: string;
@@ -22,8 +30,8 @@ export interface FixtureAiMemory {
 	env: Record<string, string>;
 	/** Every call's arguments as one string, in order (`setup --yes --agent omp`). */
 	invocations(): Promise<string[]>;
-	/** The server's requests (`{path, authorized}`), in order. */
-	requests(): Promise<{ path: string; authorized: boolean }[]>;
+	/** The server's requests in order (a POST also has its `body`, an `/mcp` call its `tool`). */
+	requests(): Promise<FakeRequest[]>;
 }
 
 async function readLines(file: string): Promise<Record<string, unknown>[]> {
@@ -63,6 +71,6 @@ export async function fixtureAiMemory(dir: string): Promise<FixtureAiMemory> {
 		logPath,
 		env: { OMP_GUI_AI_MEMORY_BIN: bin, FAKE_AI_MEMORY_BIN: bin, FAKE_AI_MEMORY_LOG: logPath },
 		invocations: async () => (await readLines(logPath)).map(call => (call.argv as string[]).join(" ")),
-		requests: async () => (await readLines(`${logPath}.requests`)) as { path: string; authorized: boolean }[],
+		requests: async () => (await readLines(`${logPath}.requests`)) as unknown as FakeRequest[],
 	};
 }

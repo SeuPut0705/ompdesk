@@ -107,9 +107,9 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 	// Every tool surface an agent session has.
 	await expect(page.locator("[data-run-settings-trigger]")).toBeVisible();
 	await page.locator("[data-run-settings-trigger]").click();
-	await expect(page.locator("select[data-approval-mode]")).toBeVisible();
+	await expect(page.locator("[data-approval-mode]")).toBeVisible();
 	await page.keyboard.press("Escape");
-	await expect(page.locator("select[data-approval-mode]")).toHaveCount(0);
+	await expect(page.locator("[data-approval-mode]")).toHaveCount(0);
 
 	const todo = await page.evaluate(
 		id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:todo" }),

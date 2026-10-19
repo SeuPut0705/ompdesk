@@ -7,25 +7,33 @@
  * restarted tabs. An omp that cannot report a strength gets no section (`useDelegation` reports `null`).
  */
 
-import { Check } from "lucide-react";
+import { Network } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
 	DELEGATION_MODES,
 	DELEGATION_PREF,
+	DELEGATION_PRESETS,
 	type DelegationMode,
 	isDelegationMode,
 } from "../../../../../resources/gui-bridge/modes/delegation-contracts";
 import { saveGuiPreference } from "../../../lib/display-preferences";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useSessionStore } from "../../../stores/session";
 import { toastError } from "../../../stores/toast";
+import { ChoiceRow } from "./ChoiceRow";
 
 /** The mode a `get_delegation` / `set_delegation` reply carries, if it carries one. */
 function replyMode(data: unknown): DelegationMode | null {
 	if (typeof data !== "object" || data === null || !("mode" in data)) return null;
 	return isDelegationMode(data.mode) ? data.mode : null;
+}
+
+/** The phone chip's badge: how many subagents run at a time ("0" for Solo); nothing for "your settings". */
+export function delegationCount(mode: DelegationMode): string | null {
+	if (mode === "default") return null;
+	if (mode === "solo") return "0";
+	return String(DELEGATION_PRESETS[mode]["task.maxConcurrency"]);
 }
 
 export interface DelegationState {
@@ -82,59 +90,27 @@ export function useDelegation(open: boolean): DelegationState {
 	return { mode, pending, pick };
 }
 
-/** The strengths as a radio group (one tab stop: the held one; arrows move between the rest) with each one's effect. */
+/**
+ * The strengths as one line: the network glyph and a segmented row of short names (the full name is each segment's
+ * tooltip and accessible name). What the held strength does, and that it applies from the next turn, sit behind (i).
+ */
 export function DelegationField({ mode, onPick }: { mode: DelegationMode; onPick: (next: DelegationMode) => void }) {
 	const t = useT();
 	return (
-		<section
-			aria-label={t("input.delegation.title")}
-			className="flex flex-col gap-1 break-keep"
-			data-delegation-section
-		>
-			<h3 className="text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
-				{t("input.delegation.title")}
-			</h3>
-			<div
-				aria-label={t("input.delegation.title")}
-				className="flex flex-col gap-0.5"
-				onKeyDown={event => {
-					if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-					const options = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[role=radio]"));
-					const index = options.indexOf(event.target as HTMLElement);
-					if (index < 0) return;
-					event.preventDefault();
-					const step = event.key === "ArrowDown" ? 1 : -1;
-					options[(index + step + options.length) % options.length]?.focus();
-				}}
-				role="radiogroup"
-			>
-				{DELEGATION_MODES.map(option => (
-					<button
-						aria-checked={option === mode}
-						className={cx(
-							"flex min-h-(--sc-row-action) w-full items-start gap-2 rounded-(--sc-radius-md) px-2 py-1 text-left hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover)",
-							option === mode && "bg-(--sc-selected)",
-						)}
-						data-delegation-option={option}
-						key={option}
-						onClick={() => onPick(option)}
-						role="radio"
-						tabIndex={option === mode ? 0 : -1}
-						type="button"
-					>
-						<span className="flex min-w-0 flex-1 flex-col">
-							<span className="text-sc-sm font-medium text-(--sc-text)">
-								{t(`input.delegation.mode.${option}`)}
-							</span>
-							<span className="text-sc-xs break-keep text-(--sc-text-muted)">
-								{t(`input.delegation.desc.${option}`)}
-							</span>
-						</span>
-						{option === mode && <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-(--sc-accent)" />}
-					</button>
-				))}
-			</div>
-			<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)">{t("input.delegation.note")}</p>
+		<section aria-label={t("input.delegation.title")} className="break-keep" data-delegation-section>
+			<ChoiceRow
+				icon={Network}
+				info={`${t(`input.delegation.desc.${mode}`)} ${t("input.delegation.note")}`}
+				label={t("input.delegation.title")}
+				onChange={onPick}
+				optionAttr="data-delegation-option"
+				options={DELEGATION_MODES.map(option => ({
+					value: option,
+					label: t(`input.delegation.short.${option}`),
+					name: t(`input.delegation.mode.${option}`),
+				}))}
+				value={mode}
+			/>
 		</section>
 	);
 }

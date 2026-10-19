@@ -478,6 +478,36 @@ for (const { engine, device } of variants(
 			await page.context().close();
 		});
 
+		test("first run: the popular providers lead as one column of 44 px cards, the rest below", async () => {
+			const page = await openHarness(browser, device, LIGHT_EN, "&firstrun=1");
+			const step = page.locator('[data-first-run-step="connect"]');
+			await expect(step).toBeVisible({ timeout: 30_000 });
+			const cards = step.locator("[data-featured-provider] > button:first-child");
+			await expect(cards).toHaveCount(5);
+			expect(
+				await step
+					.locator("[data-featured-provider]")
+					.evaluateAll(items => items.map(item => item.getAttribute("data-featured-provider"))),
+			).toEqual(["openai-codex", "anthropic", "openrouter", "google-gemini-cli", "xai-oauth"]);
+			const boxes = await cards.evaluateAll(items =>
+				items.map(item => {
+					const box = item.getBoundingClientRect();
+					return { x: Math.round(box.x), width: Math.round(box.width), height: Math.round(box.height) };
+				}),
+			);
+			if (device.phone) {
+				// One column: every card starts at the same x and spans the same width, and none is under 44 px.
+				expect(new Set(boxes.map(box => box.x)).size).toBe(1);
+				expect(new Set(boxes.map(box => box.width)).size).toBe(1);
+			}
+			for (const box of boxes) expect(box.height).toBeGreaterThanOrEqual(44);
+			await expect(step.getByRole("heading", { name: "Other providers" })).toBeVisible();
+			expect(await overflow(page, '[data-first-run-step="connect"]')).toEqual({ document: 0, offenders: [] });
+			expect(await smallTargets(page, '[data-first-run-step="connect"]')).toEqual([]);
+			await capture(page, "first-run-providers", tagOf(engine.name, device, LIGHT_EN));
+			await page.context().close();
+		});
+
 		// Registered only with OMP_GUI_MOBILE_PAGES=<dir>: a capture asserts nothing the tests above do not.
 		for (const theme of captures ? (["light", "dark"] as const) : []) {
 			for (const lang of ["en", "ko"] as const) {
@@ -486,6 +516,15 @@ for (const { engine, device } of variants(
 					const tag = tagOf(engine.name, device, look);
 					// A pushed settings page replaces the menu button with a back button, so each page starts fresh.
 					const fresh = async (extra = "") => openHarness(browser, device, look, extra);
+					const firstRun = await fresh("&firstrun=1");
+					await expect(firstRun.locator("[data-featured-providers]")).toBeVisible({ timeout: 30_000 });
+					// Grok's card holds the API-key action: scroll its whole card above the composer.
+					await firstRun.locator('[data-featured-provider="xai-oauth"]').scrollIntoViewIfNeeded();
+					await firstRun.evaluate(() =>
+						document.querySelector("[data-featured-providers]")?.scrollIntoView({ block: "start" }),
+					);
+					await capture(firstRun, "first-run-providers", tag);
+					await firstRun.context().close();
 					const settings = await fresh();
 					await openDestination(settings, "settings");
 					await capture(settings, "settings", tag);

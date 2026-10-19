@@ -53,7 +53,6 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped, ThisDeviceTag } from "../remote/HostScope";
 import { AgentSection } from "./AgentSection";
 import { AgentWorktreesRows } from "./AgentWorktreesRow";
-import { AiMemorySection } from "./AiMemorySection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ExtensionsSection } from "./ExtensionsSection";
 import { GeneralSection } from "./GeneralSection";
@@ -62,13 +61,14 @@ import { LaunchProfileSection } from "./LaunchSettings";
 import { MachineSetupSection } from "./MachineSetupSection";
 import { MobileWebSection } from "./MobileWebSection";
 import { ModelsSection } from "./ModelsSection";
+import { MemorySection } from "./memory/MemorySection";
 import { OtherExtensionIds } from "./OtherExtensionIds";
 import { AdvancedSchemaSettings, OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
 import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
 import { SchedulesSection } from "./SchedulesSection";
-import { SettingsScopeProvider, SettingsSection } from "./SettingsLayout";
+import { SettingsScopeProvider, SettingsSection, SettingsTipOnly } from "./SettingsLayout";
 import { SshSection } from "./SshSection";
 import { schemaSettingText } from "./schema-i18n";
 import {
@@ -89,6 +89,11 @@ import { searchSettings } from "./settings-search";
 import { UpdatesSection } from "./UpdatesSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { WorktreeBranchPrefixRow } from "./WorktreeBranchPrefixRow";
+
+/** The App and Agent groups read icon + label + control: no intro, every row description behind its info glyph. */
+const isTerse = (section: SettingsSectionId): boolean =>
+	section !== "memory" &&
+	SETTINGS_NAV.some(group => (group.id === "app" || group.id === "agent") && group.items.includes(section));
 
 const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	general: SlidersHorizontal,
@@ -351,7 +356,7 @@ export function SettingsPage() {
 					</>
 				);
 			case "memory":
-				return <AiMemorySection />;
+				return <MemorySection sub={sub} />;
 			case "schedules":
 				return <SchedulesSection />;
 			case "connections":
@@ -505,11 +510,12 @@ export function SettingsPage() {
 										>
 											{results ? t("settings.search.title") : sectionTitle}
 										</h2>
-										<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
-											{results
-												? t("settings.search.count", { count: results.length })
-												: t(`settings.section.${section}.desc`)}
-										</p>
+										{/* Section intros (`settings.section.*.desc`) only feed the nav search's keywords. */}
+										{results && (
+											<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)">
+												{t("settings.search.count", { count: results.length })}
+											</p>
+										)}
 										{/* Whose settings these are only matters while the focused tab runs on a paired host. */}
 										{!results && host && (
 											<p
@@ -569,14 +575,16 @@ export function SettingsPage() {
 												</div>
 											)}
 											<SettingsScopeProvider value={SECTION_SCOPE[section]}>
-												{/* A section that fails on bad data shows its own error here, never takes the page down. */}
-												<PanelErrorBoundary key={section}>
-													{SECTION_SCOPE[section] === "host" ? (
-														<HostScoped>{renderSection()}</HostScoped>
-													) : (
-														renderSection()
-													)}
-												</PanelErrorBoundary>
+												<SettingsTipOnly value={isTerse(section)}>
+													{/* A section that fails on bad data shows its own error here, never takes the page down. */}
+													<PanelErrorBoundary key={section}>
+														{SECTION_SCOPE[section] === "host" ? (
+															<HostScoped>{renderSection()}</HostScoped>
+														) : (
+															renderSection()
+														)}
+													</PanelErrorBoundary>
+												</SettingsTipOnly>
 											</SettingsScopeProvider>
 										</div>
 									)}

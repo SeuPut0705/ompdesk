@@ -207,7 +207,6 @@ describe("InsightsPage", () => {
 
 		await click(tab("All sessions")!);
 		expect(useUiStore.getState().insightsStatsScope).toBe("all");
-		expect(document.body.textContent).toContain("Every project and session on this computer.");
 		expect(document.body.textContent).toContain("Overview");
 		// One name per concept: the page tab is not named after the dashboard's first section.
 		expect(tab("Activity")?.getAttribute("aria-selected")).toBe("true");

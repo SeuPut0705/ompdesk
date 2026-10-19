@@ -162,8 +162,10 @@ export function ExtensionUpdateRows() {
 				{t("extensionUpdate.group")}
 			</h4>
 			<SettingsSwitchRow
+				icon={<Puzzle />}
 				checked={state?.enabled ?? true}
 				description={t("extensionUpdate.autoDesc")}
+				tipOnly
 				disabled={state === null}
 				id="setting-gui-extensionAutoUpdate"
 				label={t("extensionUpdate.auto")}

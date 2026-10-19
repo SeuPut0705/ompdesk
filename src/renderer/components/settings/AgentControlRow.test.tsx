@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	AGENT_CONTROL_APPROVE_PREF,
+	AGENT_CONTROL_FULL_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
 	AGENT_CONTROL_PREF,
 } from "../../../shared/agent-control";
@@ -21,11 +22,11 @@ Object.assign(globalThis as Record<string, unknown>, {
 	IS_REACT_ACT_ENVIRONMENT: true,
 });
 
-let stored: unknown;
+let stored: Record<string, unknown> = {};
 const prefs = {
-	get: vi.fn(async (_key: string) => stored),
-	set: vi.fn(async (_key: string, value: unknown) => {
-		stored = value;
+	get: vi.fn(async (key: string) => stored[key]),
+	set: vi.fn(async (key: string, value: unknown) => {
+		stored[key] = value;
 	}),
 };
 Object.assign(window as unknown as Record<string, unknown>, { omp: { prefs } });
@@ -41,15 +42,15 @@ async function mount(query = "") {
 		);
 	});
 }
-function toggle(): HTMLButtonElement {
-	const button = document.querySelector('[role="switch"]') as HTMLButtonElement | null;
-	if (!button) throw new Error("control tools switch missing");
+function toggle(id = "setting-gui-agentControl"): HTMLButtonElement {
+	const button = document.querySelector(`#${id} [role="switch"]`) as HTMLButtonElement | null;
+	if (!button) throw new Error(`${id} switch missing`);
 	return button;
 }
 
 afterEach(async () => {
 	await act(async () => root?.unmount());
-	stored = undefined;
+	stored = {};
 	vi.clearAllMocks();
 });
 
@@ -70,28 +71,46 @@ describe("AgentControlRow", () => {
 	});
 
 	it("shows off when the stored pref is false", async () => {
-		stored = false;
+		stored = { [AGENT_CONTROL_PREF]: false };
 		await mount();
 		expect(toggle().getAttribute("aria-checked")).toBe("false");
 	});
 
-	it("has two more switches that lift a human gate: approvals and managing sessions, both off by default", async () => {
-		stored = undefined;
+	it("puts full control first, on while unset, and shows the two older gates as covered while it is on", async () => {
 		await mount();
-		const approve = document.querySelector(
-			'#setting-gui-agentControlApprove [role="switch"]',
-		) as HTMLButtonElement | null;
-		const manage = document.querySelector(
-			'#setting-gui-agentControlManage [role="switch"]',
-		) as HTMLButtonElement | null;
+		const first = document.querySelector('[role="switch"]');
+		expect(first).toBe(toggle("setting-gui-agentControlFull"));
+		expect(document.body.textContent).toContain("Give agents full control of OMPdesk");
+		// The risk sits in the row's tooltip text.
+		expect(document.body.textContent).toContain("prompt-injected");
+		expect(toggle("setting-gui-agentControlFull").getAttribute("aria-checked")).toBe("true");
+		for (const id of ["setting-gui-agentControlApprove", "setting-gui-agentControlManage"]) {
+			expect(toggle(id).getAttribute("aria-checked"), id).toBe("true");
+			expect(toggle(id).hasAttribute("disabled"), id).toBe(true);
+		}
+		expect(document.body.textContent).toContain("Covered by full control while it is on");
+		await act(async () => toggle("setting-gui-agentControlFull").click());
+		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_FULL_PREF, false);
+	});
+
+	it("has two more switches for the human gates once full control is off: approving off and managing on while unset", async () => {
+		stored = { [AGENT_CONTROL_FULL_PREF]: false };
+		await mount();
+		const approve = toggle("setting-gui-agentControlApprove");
+		const manage = toggle("setting-gui-agentControlManage");
 		expect(document.body.textContent).toContain("Let agents approve for other sessions");
 		expect(document.body.textContent).toContain("Let agents manage other sessions");
-		expect(approve?.getAttribute("aria-checked")).toBe("false");
-		expect(manage?.getAttribute("aria-checked")).toBe("false");
-		await act(async () => approve?.click());
+		// The long descriptions sit behind info tooltips (the text stays in the DOM): approve says why it stays off,
+		// manage says deleting still asks.
+		expect(document.body.textContent).toContain("would bypass your approval policy");
+		expect(document.body.textContent).toContain("Deleting a saved session they did not open still asks");
+		expect(approve.getAttribute("aria-checked")).toBe("false");
+		expect(manage.getAttribute("aria-checked")).toBe("true");
+		await act(async () => approve.click());
 		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_APPROVE_PREF, true);
-		await act(async () => manage?.click());
-		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_MANAGE_PREF, true);
+		await act(async () => manage.click());
+		expect(prefs.set).toHaveBeenLastCalledWith(AGENT_CONTROL_MANAGE_PREF, false);
+		expect(manage.getAttribute("aria-checked")).toBe("false");
 	});
 
 	it("hides under a search that does not match it", async () => {

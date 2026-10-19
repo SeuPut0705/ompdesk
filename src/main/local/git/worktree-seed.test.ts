@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { itWithFileSymlinks } from "../../test-symlinks";
 import type { BridgeClient } from "../types";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 import { createWorktree } from "./worktree";
@@ -100,7 +101,7 @@ describe("seedWorktree", () => {
 		expect(await pathExists(path.join(target, "b.bin"))).toBe(false);
 	});
 
-	it("refuses symlinks that lead outside the main checkout", async () => {
+	itWithFileSymlinks("refuses symlinks that lead outside the main checkout", async () => {
 		const secret = path.join(scratch, "outside-secret");
 		await fs.writeFile(secret, "nope\n");
 		await fs.mkdir(path.join(scratch, "outside-dir"));
@@ -135,6 +136,27 @@ describe("seedWorktree", () => {
 		expect((await fs.lstat(path.join(target, "modules"))).isSymbolicLink()).toBe(true);
 		expect(await fs.readFile(path.join(target, "modules", "pkg.js"), "utf8")).toBe("x\n");
 	});
+	itWithFileSymlinks(
+		"copies an ignored file link on Windows, where making a file symlink needs Developer Mode",
+		async () => {
+			await fs.writeFile(path.join(repo, "real.env"), "A=1\n");
+			await fs.writeFile(path.join(repo, ".gitignore"), "*.env\n");
+			gitSync(repo, "commit", "-qam", "ignore");
+			await fs.symlink(path.join(repo, "real.env"), path.join(repo, "link.env"));
+			await fs.writeFile(path.join(repo, ".worktreeinclude"), "link.env\n");
+			const target = await freshWorktree("filelink");
+			const platform = Object.getOwnPropertyDescriptor(process, "platform");
+			Object.defineProperty(process, "platform", { value: "win32" });
+			try {
+				const report = await seedWorktree(repo, target);
+				expect(report?.skipped).toEqual([]);
+			} finally {
+				if (platform) Object.defineProperty(process, "platform", platform);
+			}
+			expect((await fs.lstat(path.join(target, "link.env"))).isSymbolicLink()).toBe(false);
+			expect(await fs.readFile(path.join(target, "link.env"), "utf8")).toBe("A=1\n");
+		},
+	);
 	it("leaves a force-added tracked file inside an ignored folder out, even when the target branch lacks it", async () => {
 		await fs.writeFile(path.join(repo, ".gitignore"), "cache/\n");
 		await fs.mkdir(path.join(repo, "cache"));
@@ -154,26 +176,29 @@ describe("seedWorktree", () => {
 		expect(report?.skipped).toContainEqual({ path: path.join("cache", "pinned.txt"), reason: "not_ignored" });
 	});
 
-	it("never writes through a target-branch folder symlink that leads outside the worktree", async () => {
-		const elsewhere = path.join(scratch, "elsewhere");
-		await fs.mkdir(elsewhere);
-		await fs.writeFile(path.join(repo, ".gitignore"), "conf/.env\n");
-		gitSync(repo, "add", ".gitignore");
-		gitSync(repo, "commit", "-q", "-m", "ignore");
-		const target = await freshWorktree("trap");
-		await fs.symlink(elsewhere, path.join(target, "conf"));
-		gitSync(target, "add", "conf");
-		gitSync(target, "commit", "-q", "-m", "conf is a link");
-		await fs.mkdir(path.join(repo, "conf"));
-		await fs.writeFile(path.join(repo, "conf", ".env"), "SECRET=1\n");
-		await fs.writeFile(path.join(repo, ".worktreeinclude"), "conf/.env\n");
+	itWithFileSymlinks(
+		"never writes through a target-branch folder symlink that leads outside the worktree",
+		async () => {
+			const elsewhere = path.join(scratch, "elsewhere");
+			await fs.mkdir(elsewhere);
+			await fs.writeFile(path.join(repo, ".gitignore"), "conf/.env\n");
+			gitSync(repo, "add", ".gitignore");
+			gitSync(repo, "commit", "-q", "-m", "ignore");
+			const target = await freshWorktree("trap");
+			await fs.symlink(elsewhere, path.join(target, "conf"));
+			gitSync(target, "add", "conf");
+			gitSync(target, "commit", "-q", "-m", "conf is a link");
+			await fs.mkdir(path.join(repo, "conf"));
+			await fs.writeFile(path.join(repo, "conf", ".env"), "SECRET=1\n");
+			await fs.writeFile(path.join(repo, ".worktreeinclude"), "conf/.env\n");
 
-		const report = await seedWorktree(repo, target);
+			const report = await seedWorktree(repo, target);
 
-		expect(await fs.readdir(elsewhere)).toEqual([]);
-		expect(report?.copied).toBe(0);
-		expect(report?.skipped).toContainEqual({ path: "conf/.env", reason: "destination_outside" });
-	});
+			expect(await fs.readdir(elsewhere)).toEqual([]);
+			expect(report?.copied).toBe(0);
+			expect(report?.skipped).toContainEqual({ path: "conf/.env", reason: "destination_outside" });
+		},
+	);
 });
 
 describe.skipIf(process.platform === "win32")("worktree setup hook", () => {

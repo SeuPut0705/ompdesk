@@ -112,7 +112,7 @@ for (const language of variants(["en", "ko"] as const))
 			try {
 				const errors: string[] = [];
 				page.on("pageerror", error => errors.push(error.message));
-				const live = page.locator(".omp-composer-box > .omp-composer-live");
+				const live = page.locator(".omp-composer-box > .omp-live-edge");
 				const ring = page.locator(".omp-composer-send-live[data-composer-live]");
 
 				// Idle: nothing moves.
@@ -122,7 +122,7 @@ for (const language of variants(["en", "ko"] as const))
 				// State 1: a turn runs, Stop is the action, the light turns.
 				await send(page, "fixture stream");
 				await expect(page.getByRole("button", { name: text.stop })).toBeVisible();
-				await expect(live).toHaveAttribute("data-composer-live", "turn");
+				await expect(live).toHaveAttribute("data-live-edge", "turn");
 				await expect(ring).toHaveCount(0);
 				await page.waitForTimeout(700);
 				await capture("turn");
@@ -135,7 +135,8 @@ for (const language of variants(["en", "ko"] as const))
 						.filter(
 							animation =>
 								animation instanceof CSSAnimation &&
-								animation.animationName.startsWith("omp-composer-live-turn"),
+								animation.animationName.startsWith("omp-live-edge-turn") &&
+								(animation.effect as KeyframeEffect).target?.closest(".omp-composer-box") != null,
 						)
 						.map(animation => ({
 							pseudo: (animation.effect as KeyframeEffect).pseudoElement,
@@ -165,7 +166,7 @@ for (const language of variants(["en", "ko"] as const))
 
 				// State 2: idle, but a subagent still runs. Send stays Send, fainter light, a ring with the hint.
 				await fixture(page, "fixture:subagents");
-				await expect(live).toHaveAttribute("data-composer-live", "background");
+				await expect(live).toHaveAttribute("data-live-edge", "background");
 				await expect(ring).toHaveCount(1);
 				await expect(page.getByRole("button", { name: text.send })).toBeVisible();
 				const turnOpacity = 0.9;
@@ -192,14 +193,14 @@ for (const language of variants(["en", "ko"] as const))
 					await page.waitForTimeout(1000);
 					on = await cpu(app, 4000);
 					await page.evaluate(() =>
-						document.querySelector(".omp-composer-live")?.setAttribute("data-composer-live", "turn"),
+						document.querySelector(".omp-composer-box > .omp-live-edge")?.setAttribute("data-live-edge", "turn"),
 					);
 					strong = await cpu(app, 4000);
 					bare = strong;
 					if (software) {
 						// Hidden, not removed: React still owns the node and unmounts it later.
 						await page.evaluate(() => {
-							const cue = document.querySelector<HTMLElement>(".omp-composer-live");
+							const cue = document.querySelector<HTMLElement>(".omp-composer-box > .omp-live-edge");
 							if (cue) cue.style.display = "none";
 						});
 						bare = await cpu(app, 4000);
@@ -250,8 +251,8 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 	try {
 		await page.emulateMedia({ reducedMotion: "reduce" });
 		await send(page, "fixture stream");
-		const live = page.locator(".omp-composer-box > .omp-composer-live");
-		await expect(live).toHaveAttribute("data-composer-live", "turn");
+		const live = page.locator(".omp-composer-box > .omp-live-edge");
+		await expect(live).toHaveAttribute("data-live-edge", "turn");
 		const running = await page.evaluate(
 			() =>
 				document
@@ -260,7 +261,7 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 						animation =>
 							animation.playState === "running" &&
 							animation instanceof CSSAnimation &&
-							animation.animationName.startsWith("omp-composer-live"),
+							animation.animationName.startsWith("omp-live-edge"),
 					).length,
 		);
 		expect(running).toBe(0);
@@ -270,7 +271,7 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 		const software = await softwareMarked(app, page);
 		await expect
 			.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationName))
-			.toBe(software ? "none" : "omp-composer-live-turn");
+			.toBe(software ? "none" : "omp-live-edge-turn");
 		await page.evaluate(() => {
 			Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
 			document.dispatchEvent(new Event("visibilitychange"));
@@ -298,8 +299,8 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 		expect(status.startsWith("enabled")).toBe(false);
 		await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
 		await send(page, "fixture stream");
-		const live = page.locator(".omp-composer-box > .omp-composer-live");
-		await expect(live).toHaveAttribute("data-composer-live", "turn");
+		const live = page.locator(".omp-composer-box > .omp-live-edge");
+		await expect(live).toHaveAttribute("data-live-edge", "turn");
 		const running = await page.evaluate(
 			() =>
 				document
@@ -308,7 +309,7 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 						animation =>
 							animation.playState === "running" &&
 							animation instanceof CSSAnimation &&
-							animation.animationName.startsWith("omp-composer-live"),
+							animation.animationName.startsWith("omp-live-edge"),
 					).length,
 		);
 		expect(running).toBe(0);
@@ -318,7 +319,7 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 		if (process.env.OMP_GUI_PERFORMANCE === "1") {
 			await page.waitForTimeout(1000);
 			const withCue = await cpu(app, 4000);
-			await page.evaluate(() => document.querySelector(".omp-composer-live")?.remove());
+			await page.evaluate(() => document.querySelector(".omp-composer-box > .omp-live-edge")?.remove());
 			await page.waitForTimeout(1000);
 			const without = await cpu(app, 4000);
 			console.log(`composer-live software cpu ${JSON.stringify({ withCue, without })}`);

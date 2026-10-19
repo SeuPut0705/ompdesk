@@ -25,7 +25,6 @@ Object.assign(globalThis as Record<string, unknown>, {
 const files: Record<string, { stat: IpcFsStatResult; content?: string }> = {
 	"data/rows.csv": { stat: { ok: true, mtimeMs: 1, size: 2_048 }, content: "name,qty\nbolt,3\nnut,9\n" },
 	"notes.md": { stat: { ok: true, mtimeMs: 1, size: 40 }, content: "# Notes\nline two\nline three\n" },
-	src: { stat: { ok: true, mtimeMs: 1, size: 96, directory: true } },
 };
 const missing: IpcFsStatResult = { ok: false, mtimeMs: 0, size: 0, error: "gone", code: "file_not_found" };
 const stat = vi.fn(async (path: string): Promise<IpcFsStatResult> => files[path]?.stat ?? missing);
@@ -80,17 +79,6 @@ describe("FileCard", () => {
 		expect(meta()).toEqual(["CSV · 3 rows · 2.0 KB"]);
 		expect(container.querySelector("table")?.textContent).toContain("bolt");
 		expect(container.querySelector("[data-file-card]")?.getAttribute("data-file-card")).toBe("csv");
-	});
-
-	it("counts a text file's lines, and a folder is a folder without a size", async () => {
-		await render(
-			<>
-				<FileCard path="notes.md" />
-				<FileCard path="src" />
-			</>,
-		);
-		expect(meta()).toEqual(["Text · 3 lines · 40 B", "Folder"]);
-		expect(container.querySelector("pre")?.textContent).toContain("# Notes");
 	});
 
 	it("reads Deleted once the file is gone, or hides when the caller asks", async () => {
