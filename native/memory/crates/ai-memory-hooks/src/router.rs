@@ -4295,11 +4295,12 @@ async fn process_authorized(
         // baton lands in a bucket the operator's actorless transport cannot
         // read.
         let handoff_owner = owner_stamp_for_event(state, session_owner.as_ref()).await;
-        // An OpenCode child session has its own id and forwards its parent as
-        // `agent_id`; its end must not hand the next session a sub-task baton.
-        // Other harnesses are not gated: Claude Code also sets `agent_type` on
-        // a top-level `--agent` session, which still owns its baton.
-        let child_session = env.agent == AgentKind::OpenCode && body_is_subagent(&env.raw);
+        // An OpenCode or omp child session (a subagent, or a session another agent opened) has its own id
+        // and marks its events with `subagentType`/`agent_id`; its end must not hand the next session a
+        // sub-task baton. Other harnesses are not gated: Claude Code also sets `agent_type` on a top-level
+        // `--agent` session, which still owns its baton.
+        let child_session =
+            matches!(env.agent, AgentKind::OpenCode | AgentKind::Omp) && body_is_subagent(&env.raw);
         // The opt-out covers both automatic batons: a session's end and an
         // OpenCode root-turn checkpoint, which is OpenCode's only baton since
         // a plugin unload no longer ends its sessions. The checkpoint still
@@ -12845,6 +12846,118 @@ pub(crate) mod tests {
                 .await
                 .unwrap(),
             Some(session)
+        );
+    }
+
+    /// The events omp's generated extension posts for one session. `marker` is what its `childMarker` adds to a
+    /// subagent's or an agent-opened session's payloads; `prompt_title` is its `promptTitle`.
+    fn omp_session_event(
+        session: &str,
+        event: &str,
+        prompt: &str,
+        prompt_title: Option<&str>,
+        marker: Option<serde_json::Value>,
+    ) -> HookEnvelope {
+        let mut raw = serde_json::json!({
+            "sessionID": session,
+            "prompt": prompt,
+        });
+        if let Some(title) = prompt_title {
+            raw["promptTitle"] = serde_json::json!(title);
+        }
+        if let Some(marker) = marker {
+            for (key, value) in marker.as_object().unwrap() {
+                raw[key] = value.clone();
+            }
+        }
+        HookEnvelope::from_query_and_body(
+            HookQuery {
+                event: event.into(),
+                agent: Some("omp".into()),
+                ..Default::default()
+            },
+            raw,
+        )
+    }
+
+    #[tokio::test]
+    async fn omp_child_session_end_closes_and_summarizes_without_baton() {
+        for marker in [
+            serde_json::json!({ "subagentType": "explore", "agent_id": "Main" }),
+            serde_json::json!({ "subagentType": "agent-opened" }),
+        ] {
+            let tmp = TempDir::new().unwrap();
+            let state = make_state(&tmp).await;
+            let session = SessionId::new();
+            for event in ["user-prompt", "stop", "session-end"] {
+                let env = omp_session_event(
+                    &session.to_string(),
+                    event,
+                    "Complete assignment thoroughly:\n\nTitle: 맥 자동업데이트 확인",
+                    Some("맥 자동업데이트 확인"),
+                    Some(marker.clone()),
+                );
+                process(&state, env, None, Vec::new()).await.unwrap();
+            }
+            assert!(
+                !session_pages(&state).await.is_empty(),
+                "a child's session page is still written"
+            );
+            assert!(
+                !open_handoff_exists(&state).await,
+                "a child must not leave a baton for the next session: {marker}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn omp_main_session_end_still_creates_a_baton() {
+        let tmp = TempDir::new().unwrap();
+        let state = make_state(&tmp).await;
+        let session = SessionId::new();
+        for event in ["user-prompt", "stop", "session-end"] {
+            let env = omp_session_event(
+                &session.to_string(),
+                event,
+                "이제 업데이트 완료했어",
+                None,
+                None,
+            );
+            process(&state, env, None, Vec::new()).await.unwrap();
+        }
+        assert!(open_handoff_exists(&state).await);
+    }
+
+    #[tokio::test]
+    async fn omp_prompt_title_names_the_session_page_not_the_protocol_line() {
+        let tmp = TempDir::new().unwrap();
+        let state = make_state(&tmp).await;
+        let session = SessionId::new();
+        let prompt = "<ompdesk-agent-message from=\"병렬 세션\">\nTitle: 맥 자동업데이트 확인\n\nbody\n</ompdesk-agent-message>";
+        for event in ["user-prompt", "session-end"] {
+            let env = omp_session_event(
+                &session.to_string(),
+                event,
+                prompt,
+                Some("맥 자동업데이트 확인"),
+                None,
+            );
+            process(&state, env, None, Vec::new()).await.unwrap();
+        }
+        let pages = session_pages(&state).await;
+        assert_eq!(pages.len(), 1);
+        let body = state
+            .wiki
+            .read_page(
+                state.workspace_id,
+                state.project_id,
+                &ai_memory_core::PagePath::new(pages[0].clone()).unwrap(),
+            )
+            .unwrap()
+            .body;
+        assert!(
+            body.starts_with("# 맥 자동업데이트 확인\n"),
+            "the page is titled by the prompt's title: {body}"
         );
     }
 

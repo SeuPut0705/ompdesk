@@ -1086,6 +1086,15 @@ fn best_title_hint(event: HookEvent, raw: &serde_json::Value) -> Option<String> 
     match event {
         HookEvent::SessionStart => extract_string(raw, &["model", "title"]).and_then(first_line),
         HookEvent::UserPrompt => {
+            // omp's extension names what the prompt is about (`promptTitle`: the wrapper, the subagent
+            // prefix and the label stripped) so a page is not titled by protocol text; no other harness
+            // sends it, and a prompt without it is titled by its own first line as before.
+            if let Some(title) = extract_string(raw, &["promptTitle"])
+                .and_then(first_line)
+                .filter(|title| !title.trim().is_empty())
+            {
+                return Some(title);
+            }
             // Kimi Code sends `prompt` as content blocks
             // (`[{"type":"text","text":...}]`); `extract_content` flattens
             // them and returns identical values for plain-string agents.
@@ -2779,6 +2788,36 @@ mod tests {
         let title = env.title_hint.unwrap();
         assert_eq!(title.chars().count(), 200);
         assert!(!title.contains('…'));
+    }
+
+    #[test]
+    fn user_prompt_prompt_title_wins_over_the_prompts_first_line() {
+        let q = HookQuery {
+            event: "user-prompt".into(),
+            agent: Some("omp".into()),
+            ..Default::default()
+        };
+        let wrapped = "<ompdesk-agent-message from=\"부모\">\nTitle: 맥 자동업데이트 확인\n\nbody\n</ompdesk-agent-message>";
+        let env = HookEnvelope::from_query_and_body(
+            q.clone(),
+            serde_json::json!({ "prompt": wrapped, "promptTitle": "맥 자동업데이트 확인\nignored second line" }),
+        );
+        assert_eq!(env.title_hint.as_deref(), Some("맥 자동업데이트 확인"));
+
+        // Without it (every other harness, an older extension) the prompt's own first line titles the event.
+        let env =
+            HookEnvelope::from_query_and_body(q.clone(), serde_json::json!({ "prompt": wrapped }));
+        assert_eq!(
+            env.title_hint.as_deref(),
+            Some("<ompdesk-agent-message from=\"부모\">")
+        );
+
+        // An empty one is no title: the prompt's first line stands.
+        let env = HookEnvelope::from_query_and_body(
+            q,
+            serde_json::json!({ "prompt": "hello there", "promptTitle": "  \n" }),
+        );
+        assert_eq!(env.title_hint.as_deref(), Some("hello there"));
     }
 
     #[test]
