@@ -4303,6 +4303,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.phoneImages": "휴대폰 사진(HEIC) 모델용 변환",
 	"bridgeHealth.feature.pstack": "pstack 엔지니어링 모드",
 	"bridgeHealth.feature.backgroundChecks": "긴 검사 백그라운드 실행",
+	"bridgeHealth.feature.checkoutPeers": "같은 체크아웃을 쓰는 세션",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "압축 한도",

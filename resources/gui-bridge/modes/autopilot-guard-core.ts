@@ -331,6 +331,15 @@ interface Scope {
 	defaultBranch: string;
 	/** Paths cannot be judged (an approver card has no worktree). */
 	paths: boolean;
+	/** Read-only walk (`gitInvocations`): every git invocation is handed here instead of judged, and nothing stops the walk. */
+	collect?: (git: GitInvocation) => void;
+}
+
+/** One `git` run a command line makes: where it runs (after `cd` and `-C`), its subcommand and the rest. */
+export interface GitInvocation {
+	cwd: string;
+	sub: string;
+	args: string[];
 }
 
 const RESERVED = new Set([
@@ -939,7 +948,12 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 		if (hit) return hit;
 	}
 	if (name === "ssh" || name === "scp" || name === "sftp") return `${name} reaches outside the worktree`;
-	if (name === "git") return gitCommand(argv, scope, state.cwd);
+	if (name === "git") {
+		if (!scope.collect) return gitCommand(argv, scope, state.cwd);
+		const git = parseGit(argv, state.cwd);
+		scope.collect({ cwd: git.cwd ?? state.cwd, sub: git.sub, args: git.args });
+		return undefined;
+	}
 	if (name === "gh") return ghCommand(argv, scope);
 	const pkg = packageCommand(name, argv);
 	if (pkg) return pkg;
@@ -965,7 +979,7 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 function analyzeScript(src: string, scope: Scope, state: { cwd: string }, depth: number): string | undefined {
 	for (const cmd of parseShell(src, depth)) {
 		const reason = analyzeSimple(cmd, scope, state, depth);
-		if (reason) return reason;
+		if (reason && !scope.collect) return reason;
 	}
 	return undefined;
 }
@@ -1033,6 +1047,16 @@ export function bashViolation(command: string, options: BanScanOptions & { cwd?:
 }
 
 /**
+ * Every `git` run in a shell command line, read with the guard's own parser (quotes, `cd`, `sh -c`, `eval`, wrappers
+ * such as `env`/`xargs`/`timeout`, `find -exec`). A `cd` it cannot resolve leaves `cwd` as "\u0000unresolvable".
+ */
+export function gitInvocations(command: string, cwd: string): GitInvocation[] {
+	const found: GitInvocation[] = [];
+	analyzeScript(command, { ...scopeFrom({}), collect: git => found.push(git) }, { cwd: normalizePath(cwd, "/") }, 0);
+	return found;
+}
+
+/**
  * The first hard-limit violation in free text (an approval card's title and body, a command preview),
  * or undefined. Reads every line and every quoted string as a shell command line, and scans the whole
  * text for banned phrases. Without `options.root` path rules are skipped.
@@ -1093,6 +1117,11 @@ function collectPaths(input: unknown): string[] {
 		for (const match of value.matchAll(/^MV\s+(\S+)\s*$/gm)) found.push(match[1].replace(/^["']|["']$/g, ""));
 	}
 	return found;
+}
+
+/** The paths a file-writing tool call (`write`, `edit`, `ast_edit`, `notebook`, `lsp`) names, as written; none for any other tool. */
+export function fileToolPaths(toolName: string, input: unknown): string[] {
+	return FILE_TOOLS.has(toolName) ? collectPaths(input) : [];
 }
 
 function globBase(pattern: string): string {

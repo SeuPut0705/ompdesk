@@ -71,6 +71,7 @@ export const FEATURES = {
 	phoneImages: "HEIC photos from a phone converted for the model",
 	pstack: "pstack engineering mode (always-on playbook section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
+	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 } as const;
@@ -371,6 +372,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/output-style.ts: the same public hook as the reply language. */
 	outputStyle: {},
+	/** modes/checkout-peers.ts: public hooks only (`before_agent_start`, `tool_call`). */
+	checkoutPeers: {},
 	/** modes/pstack.ts: the always-on pstack section reads the main session's plan mode and tool set. */
 	pstack: {
 		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
