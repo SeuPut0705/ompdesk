@@ -24,10 +24,14 @@ import {
 	PREVIEW_QUESTIONS,
 	PREVIEW_STATE,
 	previewProblemFrom,
+	type RecallSnippet,
+	recallRelevanceFrom,
+	recallRequest,
 	TITLE_TURNS,
 	type TitleTurn,
 	titleFitRequest,
 } from "./judge-assist-core";
+import { MEMORY_RECALL_PURPOSE } from "./memory-recall-contracts";
 import { messageText } from "./next-prompt-core";
 
 /** The slice of stock's `AgentSession` a judgment reads (the live session; engines pass their own slice of it). */
@@ -243,6 +247,22 @@ export async function newTitleFits(
 		await ask(session, "ompdesk-title-check", () =>
 			titleFitRequest(current, next, typeof turns === "function" ? turns() : turns),
 		),
+	);
+}
+
+/**
+ * Memory recall: the probability per snippet that it holds what `prompt` needs, in order (one judgment, one question
+ * per snippet). Undefined: the judge did not decide, and memory-recall-core.ts' code rule chooses.
+ */
+export async function recallRelevance(
+	session: JudgeSession,
+	prompt: string,
+	snippets: readonly RecallSnippet[],
+): Promise<(number | undefined)[] | undefined> {
+	if (!snippets.length) return undefined;
+	return recallRelevanceFrom(
+		await ask(session, MEMORY_RECALL_PURPOSE, () => recallRequest(prompt, snippets)),
+		snippets.length,
 	);
 }
 

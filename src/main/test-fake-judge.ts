@@ -67,3 +67,7 @@ export const previewAnswer = (error: number, empty: number) => ({
 	error: { type: "noul", noul: error },
 	empty: { type: "noul", noul: empty },
 });
+
+/** The answers to memory recall's questions (judge-assist-core.ts `recallRequest`), one probability per snippet. */
+export const recallAnswer = (...probabilities: number[]) =>
+	Object.fromEntries(probabilities.map((p, index) => [`s${index}`, { type: "noul", noul: p }]));

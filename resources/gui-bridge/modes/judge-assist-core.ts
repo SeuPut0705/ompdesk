@@ -107,3 +107,44 @@ export function previewProblemFrom(answers: unknown): PreviewProblem | null | un
 	if (error >= PREVIEW_ERROR_MIN) return "error";
 	return empty >= PREVIEW_BLANK_MIN ? "blank" : null;
 }
+
+/** Memory recall: the prompt and each snippet are clipped so one judgment stays a few hundred tokens. */
+const RECALL_PROMPT_CHARS = 1500;
+const RECALL_SNIPPET_CHARS = 600;
+
+export interface RecallSnippet {
+	title: string;
+	kind: string;
+	text: string;
+}
+
+function recallQuestion(id: string) {
+	return {
+		type: "noul",
+		instructions: `Snippet ${id} in state.snippets comes from this person's earlier work with a coding assistant. Does it hold a prior decision, result or fact the assistant needs to answer state.prompt well? A snippet that only shares words with the prompt, or is about other work, does not count.`,
+		criteria: { true: "The assistant needs this snippet for the prompt", false: "Not needed for this prompt" },
+	} as const;
+}
+
+/** One judgment for all candidates of a prompt: one `noul` question per snippet, keyed `s0`, `s1`, …. */
+export function recallRequest(prompt: string, snippets: readonly RecallSnippet[]) {
+	const ids = snippets.map((_, index) => `s${index}`);
+	return {
+		state: {
+			prompt: prompt.trim().slice(0, RECALL_PROMPT_CHARS),
+			snippets: Object.fromEntries(
+				snippets.map((snippet, index) => [
+					ids[index],
+					{ title: snippet.title, kind: snippet.kind, text: snippet.text.slice(0, RECALL_SNIPPET_CHARS) },
+				]),
+			),
+		},
+		questions: Object.fromEntries(ids.map(id => [id, recallQuestion(id)])),
+	};
+}
+
+/** The probability per snippet, in order; undefined when the judge answered none of them. */
+export function recallRelevanceFrom(answers: unknown, count: number): (number | undefined)[] | undefined {
+	const probabilities = Array.from({ length: count }, (_, index) => noul(field(answers, `s${index}`)));
+	return probabilities.some(p => p !== undefined) ? probabilities : undefined;
+}
