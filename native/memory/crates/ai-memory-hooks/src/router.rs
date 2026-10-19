@@ -10753,6 +10753,96 @@ pub(crate) mod tests {
         );
     }
 
+    /// A hook's cwd is probed on disk (git discovery) before its project is
+    /// known. On macOS such a probe can wait indefinitely inside `open()` (a
+    /// launchd-run server reaching into a TCC-protected folder whose prompt is
+    /// unanswered), and a live server once stopped answering everything,
+    /// `/healthz` included, because every runtime worker sat in one. A FIFO
+    /// `.git/config` blocks the same `open()` here: other tasks must still run.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn a_cwd_probe_blocked_in_open_does_not_starve_the_runtime() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Duration;
+
+        /// Lets every probe waiting on the FIFO finish, whatever the asserts
+        /// said, so the runtime can shut down: the FIFO moves aside, a plain
+        /// file takes its name, and one writer opening and closing the FIFO
+        /// hands each waiting reader an empty config.
+        struct Release(std::path::PathBuf);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                let aside = self.0.with_extension("fifo");
+                if std::fs::rename(&self.0, &aside).is_err() {
+                    return;
+                }
+                let _ = std::fs::write(&self.0, "");
+                std::thread::spawn(move || {
+                    if let Ok(writer) = std::fs::OpenOptions::new().write(true).open(&aside) {
+                        std::thread::sleep(Duration::from_millis(100));
+                        drop(writer);
+                    }
+                });
+            }
+        }
+
+        let tmp = TempDir::new().unwrap();
+        let state = make_state(&tmp).await;
+        let repo = tmp.path().join("trap");
+        let git = repo.join(".git");
+        std::fs::create_dir_all(git.join("objects")).unwrap();
+        std::fs::create_dir_all(git.join("refs").join("heads")).unwrap();
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let fifo = git.join("config");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let _release = Release(fifo);
+
+        // One worker, so the first probe to reach `open()` decides it; with
+        // two, a worker the spawns had not woken yet sometimes ran the task.
+        let finished = Arc::new(AtomicUsize::new(0));
+        for i in 0..4 {
+            let cwd = repo.join(format!("sub{i}"));
+            std::fs::create_dir_all(&cwd).unwrap();
+            let state = state.clone();
+            let finished = Arc::clone(&finished);
+            tokio::spawn(async move {
+                let _ = resolve_project_ids(
+                    &state,
+                    Some(cwd.to_str().unwrap()),
+                    None,
+                    None,
+                    ProjectStrategy::Basename,
+                    &ai_memory_core::ActorKey::default(),
+                )
+                .await;
+                finished.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+        // The test body is not a runtime worker: block it while the workers
+        // pick the probes up.
+        std::thread::sleep(Duration::from_millis(500));
+        let (tx, rx) = std::sync::mpsc::channel();
+        tokio::spawn(async move {
+            let _ = tx.send(());
+        });
+        let ran = rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        assert_eq!(
+            finished.load(Ordering::SeqCst),
+            0,
+            "the probes must still be waiting on the FIFO, or this proves nothing"
+        );
+        assert!(
+            ran,
+            "a task spawned while cwd probes wait in open() never ran: the probes hold every runtime worker"
+        );
+    }
+
     /// Regression for the explicit project override path of #103: a marker or
     /// query override in a non-git ancestor must not persist that ancestor as a
     /// catch-all `repo_path`.
