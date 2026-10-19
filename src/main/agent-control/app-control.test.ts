@@ -601,6 +601,9 @@ describe("sessions.dump_bundle", () => {
 		const control = new AppControl(ports);
 		await control.run(CALLER, "sessions.dump_bundle", {});
 		expect(ports.invoked.map(call => call.channel)).toEqual([IPC_COMMANDS.SESSIONS_DUMP_BUNDLE]);
+	});
+});
+
 describe("a caller tab on a paired host", () => {
 	const HOSTED = "hosted01";
 	const STUDIO = "dev-studio";
