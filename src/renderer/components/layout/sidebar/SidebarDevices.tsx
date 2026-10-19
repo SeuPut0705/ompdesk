@@ -20,7 +20,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -39,6 +39,7 @@ import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "../../common/ContextMenu";
+import { TabLiveEdge } from "../SessionLiveEdge";
 
 export type SidebarDeviceMode = "code" | "chat";
 
@@ -293,7 +294,7 @@ function DeviceSessions({
 		}
 	};
 
-	const renderRow = (session: DeviceSession, nested: boolean) => {
+	const renderRow = (session: DeviceSession) => {
 		const tab = tabFor(session);
 		const signal = tab ? tabSignalPresentation(tab) : null;
 		const current = tab !== undefined && tab.id === activeTabId;
@@ -302,16 +303,15 @@ function DeviceSessions({
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
 		const title = sessionDisplayTitle(session, indexed ? t("sidebar.untitled") : t("sidebar.newSession"));
-		const leading: ReactNode =
-			session.kind === "chat" ? (
-				<MessageCircle aria-hidden />
-			) : (
-				<span aria-hidden className="flex size-(--sc-icon-md) items-center justify-center">
-					{tab && !current && !inVisibleSplit && (
-						<span className="size-1.5 rounded-(--sc-radius-full) bg-(--sc-text-subtle)" />
-					)}
-				</span>
-			);
+		// No leading slot (the local rows' rule, Sidebar.tsx): the title starts at the group's content edge, a chat's
+		// glyph sits at the end before the age, and a tab open elsewhere is said in words only.
+		const openElsewhere = tab !== undefined && !current && !inVisibleSplit;
+		const chat = session.kind === "chat" ? <MessageCircle aria-hidden className="size-(--sc-icon-sm)" /> : null;
+		const age = indexed ? (
+			<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
+				{formatTimeAgo(session.modified)}
+			</time>
+		) : null;
 		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
 		const deletable = !session.path.startsWith("tab:") && !signal?.running;
 		const closeSession = () => {
@@ -377,15 +377,22 @@ function DeviceSessions({
 				actionsAtRest={touchInput}
 				actionsOnHover={!touchInput}
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
-				className={cx("omp-sidebar-session-row", nested && "omp-sidebar-session-nested")}
+				className="omp-sidebar-session-row"
 				key={session.path}
-				leading={leading}
-				live={signal?.running === true && tab?.awaitingInput === undefined}
+				live={
+					<TabLiveEdge
+						running={signal?.running === true && tab?.awaitingInput === undefined}
+						settling={tab?.settling === true}
+						tabId={tab?.id ?? null}
+						waiting={tab?.awaitingInput !== undefined}
+					/>
+				}
 				meta={
-					indexed ? (
-						<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
-							{formatTimeAgo(session.modified)}
-						</time>
+					chat || age ? (
+						<span className="inline-flex items-center gap-1.5">
+							{chat}
+							{age}
+						</span>
 					) : undefined
 				}
 				onClick={() => openSession(session)}
@@ -410,9 +417,12 @@ function DeviceSessions({
 					<>
 						{title}
 						{signal?.running && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
+						{openElsewhere && !signal?.running && <span className="sr-only">, {t("sidebar.row.open")}</span>}
 					</>
 				}
-				titleText={title}
+				titleText={[title, openElsewhere && !signal?.running ? t("sidebar.row.open") : null]
+					.filter(Boolean)
+					.join("\n")}
 			/>
 		);
 	};
@@ -486,7 +496,7 @@ function DeviceSessions({
 	if (mode === "chat") {
 		return (
 			<div className="space-y-px">
-				{rows.map(session => renderRow(session, false))}
+				{rows.map(session => renderRow(session))}
 				{dialog}
 			</div>
 		);
@@ -530,7 +540,7 @@ function DeviceSessions({
 							/>
 						</div>
 						{!groupCollapsed && (
-							<div className="space-y-px">{group.sessions.map(session => renderRow(session, true))}</div>
+							<div className="space-y-px">{group.sessions.map(session => renderRow(session))}</div>
 						)}
 					</div>
 				);

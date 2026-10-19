@@ -12,6 +12,8 @@ export interface RunState {
 	running: boolean;
 	/** The prompt yielded while background work can still wake the session. */
 	awaitingSettled: boolean;
+	/** A turn runs in front: agent_start seen, its last attempt not yet ended (`running` also covers settling). */
+	turn: boolean;
 	/** Inside an auto-retry saga: its coalesced agent_end is not the end of the run. */
 	retrying: boolean;
 	/** The saga's coalesced agent_end arrived while the retry was still outstanding. */
@@ -22,17 +24,26 @@ export interface RunState {
 
 /** A fresh spawn's state, and what a restart or crash leaves: the run dies with the process. */
 export function idleRun(): RunState {
-	return { running: false, awaitingSettled: false, retrying: false, endedWhileRetrying: false };
+	return { running: false, awaitingSettled: false, turn: false, retrying: false, endedWhileRetrying: false };
 }
 
 export function runBusy(run: RunState): boolean {
 	return run.running || run.compacting === true;
 }
 
+/**
+ * The run is still on only because stock reports background work (subagents, async jobs, a queued wake) that can
+ * wake the session: its turn ended. Tab info's `settling`; the session cards draw it as `background`.
+ */
+export function runSettling(run: RunState): boolean {
+	return run.running && !run.turn;
+}
+
 /** `prompt_result.sessionSettled` / `session_settled`: background work keeps the run alive until settled. */
 export function settleRun(run: RunState, settled: boolean): void {
 	run.awaitingSettled = !settled;
 	run.running = !settled;
+	if (settled) run.turn = false;
 }
 
 /**
@@ -44,6 +55,7 @@ export function applyRunEvent(run: RunState, event: AgentSessionEvent): boolean 
 	switch (event.type) {
 		case "agent_start":
 			run.running = true;
+			run.turn = true;
 			return false;
 		case "agent_end":
 			// The saga's coalesced agent_end can arrive before its auto_retry_end;
@@ -52,6 +64,7 @@ export function applyRunEvent(run: RunState, event: AgentSessionEvent): boolean 
 				run.endedWhileRetrying = true;
 				return false;
 			}
+			run.turn = false;
 			if (!run.awaitingSettled) run.running = false;
 			return true;
 		case "auto_retry_start":
@@ -61,6 +74,7 @@ export function applyRunEvent(run: RunState, event: AgentSessionEvent): boolean 
 			const failedAfterEnd = !event.success && run.endedWhileRetrying;
 			run.retrying = false;
 			run.endedWhileRetrying = false;
+			if (failedAfterEnd) run.turn = false;
 			if (failedAfterEnd && !run.awaitingSettled) run.running = false;
 			return failedAfterEnd;
 		}

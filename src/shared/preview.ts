@@ -54,7 +54,12 @@ export type PreviewNotice =
 	 */
 	| { kind: "link"; url: string }
 	/** The page has stopped responding to input. */
-	| { kind: "unresponsive" };
+	| { kind: "unresponsive" }
+	/**
+	 * The judge model (main/preview/preview-check.ts, only while a native judge answers) looked at the page an agent
+	 * visual just loaded and saw an error message or nothing. A quiet line; the page shows as usual.
+	 */
+	| { kind: "check"; problem: "error" | "blank" };
 /** Responsive frame sizes (CSS px); `fill` uses the whole panel. */
 export const PREVIEW_VIEWPORTS = {
 	fill: null,

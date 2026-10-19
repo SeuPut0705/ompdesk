@@ -209,6 +209,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"retry again later temporary transient error server overloaded 503 timeout connection backoff automatic smart automation 재시도 다시 시도 일시 오류 서버 과부하 시간 초과 연결 자동 스마트 자동화",
 	},
 	{
+		id: "judgeAssist",
+		section: "agent",
+		labelKey: "settings.gui.judgeAssist",
+		aliases:
+			"judge model jev decision small question notification needs you title fits preview error blank smart automation 판단 모델 작은 판단 질문 알림 제목 미리보기 오류 빈 페이지 스마트 자동화",
+	},
+	{
 		id: "autoMode",
 		section: "agent",
 		labelKey: "settings.gui.autoMode",

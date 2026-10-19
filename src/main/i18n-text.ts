@@ -284,6 +284,8 @@ export const MAIN_TEXT = {
 	"batch.needsYou.one": { en: "{count} needs you", ko: "{count}개 확인 필요" },
 	"batch.needsYou.other": { en: "{count} need you", ko: "{count}개 확인 필요" },
 	"batch.more": { en: "{list} +{count} more", ko: "{list} 외 {count}개" },
+	// A finished turn whose last reply waits for the person (notify-triage.ts); {title} is the tab's title.
+	"notify.needsYou": { en: "Needs you · {title}", ko: "확인이 필요해요 · {title}" },
 	// Web Push to a paired phone (web/web-push-notifier.ts). The body reads like the desktop banner's; a device that
 	// hides content gets only the title, and the batch summary above.
 	"push.complete": { en: "Complete", ko: "완료" },

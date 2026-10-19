@@ -3977,6 +3977,18 @@ button.omp-file-chip-name:hover {
 	animation-direction: reverse;
 }
 
+/* A card's `background` (its turn idle, its subagents, shells or opened sessions still working): the same light,
+   fainter and slower, drawn by colour and duration only so the card keeps no opacity group. */
+.omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
+	border-color: color-mix(in srgb, var(--sc-accent) 15%, transparent);
+}
+
+.omp-live-edge[data-live-edge-inside][data-live-edge="background"]::before,
+.omp-live-edge[data-live-edge-inside][data-live-edge="background"]::after {
+	background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--sc-accent) 55%, transparent), transparent);
+	animation-duration: 16s; /* motion-ok: working signal */
+}
+
 /* Hidden window: the light rests (nothing animates for nobody). */
 .omp-live-edge[data-paused]::before,
 .omp-live-edge[data-paused]::after {
@@ -4063,6 +4075,11 @@ button.omp-file-chip-name:hover {
 		border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
 	}
 
+	.omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
+		opacity: 1;
+		border-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
+	}
+
 	.omp-live-edge[data-live-edge-inside]::before,
 	.omp-live-edge[data-live-edge-inside]::after {
 		display: none;
@@ -4097,6 +4114,10 @@ html[data-gpu="software"] .omp-live-edge::before {
 html[data-gpu="software"] .omp-live-edge[data-live-edge-inside] {
 	opacity: 1;
 	border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
+}
+
+html[data-gpu="software"] .omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
+	border-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
 }
 
 html[data-gpu="software"] .omp-live-edge[data-live-edge-inside]::before,

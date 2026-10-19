@@ -12,17 +12,19 @@
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { useTabPollKey } from "../../../hooks/use-tab-poll";
 import { useT } from "../../../lib/i18n";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
-import { LiveEdge, Tooltip } from "../../common";
-import { type ComposerLiveState, composerLiveState, workingAgentCount } from "./composer-live";
+import { useTabsStore } from "../../../stores/tabs";
+import { LiveEdge, type LiveEdgeState, Tooltip } from "../../common";
+import { liveWorkState, workingAgentCount } from "../live-work";
 
 /** The cue this tab's composer shows, and how many agents and shells stand behind a background one. */
-export function useComposerLive(): { state: ComposerLiveState | null; background: number } {
+export function useComposerLive(): { state: LiveEdgeState | null; background: number } {
 	const streaming = useSessionStore(s => s.isStreaming);
 	const agents = useSubagentsStore(s => workingAgentCount(s.subagents.values()));
 	const shells = useBackgroundJobs().length;
@@ -32,9 +34,13 @@ export function useComposerLive(): { state: ComposerLiveState | null; background
 	const proposal = usePlanApprovalStore(s => s.pending !== null);
 	const tabId = useRuntimeTabId();
 	const sessions = useOpenedChildren(tabId).counts.running;
-	const background = agents + shells + sessions;
+	// Stock's own word that background work keeps the session unsettled (main's `settling`): at least one thing runs,
+	// even when the jobs poll has not read it yet or it is something the poll does not list. Same tab as that poll.
+	const pollTab = useTabPollKey();
+	const settling = useTabsStore(s => s.tabs.some(tab => tab.id === pollTab && tab.settling === true));
+	const background = Math.max(agents + shells + sessions, settling ? 1 : 0);
 	return {
-		state: composerLiveState({ streaming, waiting: blocking + (proposal ? 1 : 0), background }),
+		state: liveWorkState({ streaming, waiting: blocking + (proposal ? 1 : 0), background }),
 		background,
 	};
 }

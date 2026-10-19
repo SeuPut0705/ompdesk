@@ -28,6 +28,8 @@ const pages = (overrides: Partial<VisualPages> = {}): VisualPages => ({
 	close: () => {},
 	inspect: () => null,
 	choose: async () => "none",
+	capture: async () => null,
+	flag: () => {},
 	...overrides,
 });
 

@@ -2,9 +2,10 @@
  * The running state's light on the sidebar's session rows and the phone drawer's, on the dev harness (the renderer
  * in a browser over a fixture transport, `vite.harness.config.ts`; desktop and an iPhone 15, light and dark):
  * a running row wears the shared light (`LiveEdge`, two bars running its top and bottom edge, transform only), an
- * idle one and one that waits for an answer wear none, the family chip's count and a running child's dot hold
- * still, and under reduced motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>`
- * also writes the captures (three frames of the light on the desktop, the phone drawer).
+ * idle one and one that waits for an answer wear none, a session whose turn ended while its subagents still work
+ * wears the fainter, slower form, the family chip's count and a running child's dot hold still, and under reduced
+ * motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>` also writes the captures
+ * (three frames of the light on the desktop, the phone drawer, the waiting and background states).
  */
 import * as fs from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -193,8 +194,74 @@ for (const surface of SURFACES)
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-edge')).toHaveCount(1);
 			if (CAPTURES)
 				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-waiting.png`) });
+
+			// The open session's turn ends while its two subagents still work: its row keeps the light, fainter and
+			// half as fast, and says nothing is running in front.
+			await page.evaluate(() => {
+				const tabs = window.__stores?.tabs as unknown as {
+					getState(): { tabs: { id: string; status: string }[] };
+					setState(partial: unknown): void;
+				};
+				tabs.setState({
+					tabs: tabs.getState().tabs.map(tab => (tab.id === "tab-1" ? { ...tab, status: "ready" } : tab)),
+				});
+			});
+			const background = sidebar.locator('.omp-sidebar-session-row > .omp-live-edge[data-live-edge="background"]');
+			await expect(background).toHaveCount(1);
+			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"]')).toHaveCount(0);
+			const durations = await background.evaluate(element =>
+				element
+					.getAnimations({ subtree: true })
+					.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
+			);
+			expect(durations).toEqual([16_000, 16_000]);
+			// Fainter by colour, never by an opacity group (the card stays one cheap layer).
+			await expect(background).toHaveCSS("opacity", "1");
+			if (CAPTURES)
+				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-background.png`) });
 			await page.context().close();
 		});
+
+for (const surface of SURFACES)
+	test(`a session title starts at its group's content edge; a child sits one step in (${surface.name})`, async () => {
+		test.setTimeout(120_000);
+		const page = await openHarness(surface, "light", false);
+		await seedRunning(page);
+		const sidebar = page.locator(".omp-session-sidebar").first();
+		const geometry = await sidebar.evaluate(root => {
+			const contentLeft = (element: Element) =>
+				element.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(element).paddingLeft);
+			const headerOf = (row: Element) => {
+				const device = row.closest("[data-device-group]");
+				if (device) return device.querySelector(":scope > div:first-child button");
+				return row.closest("[data-session-group]")?.previousElementSibling?.querySelector("button") ?? null;
+			};
+			const rows = [...root.querySelectorAll(".omp-sidebar-session-row")].map(row => {
+				const header = headerOf(row);
+				return {
+					text: (row.textContent ?? "").slice(0, 20),
+					title: Math.round((row.querySelector("button") as Element).getBoundingClientRect().left),
+					group: header ? Math.round(contentLeft(header)) : null,
+				};
+			});
+			const parent = root.querySelector(".omp-sidebar-session-row[data-signal='running'] button");
+			const child = root.querySelector("[data-sidebar-subagent] [data-family-glyph]");
+			return {
+				rows,
+				parentTitle: parent ? Math.round(parent.getBoundingClientRect().left) : null,
+				childGlyph: child ? Math.round(child.getBoundingClientRect().left) : null,
+			};
+		});
+		// Local rows and a paired host's rows alike: nothing leads a title.
+		expect(geometry.rows.length).toBeGreaterThan(3);
+		for (const row of geometry.rows) expect(row, row.text).toMatchObject({ title: row.group });
+		// A family child's glyph starts 6 px past its parent's title (its own title one step further in).
+		expect(geometry.childGlyph).toBe((geometry.parentTitle ?? 0) + 6);
+		// The unseen-finish mark, when a row has one, sits at its end.
+		for (const mark of await sidebar.locator("[data-sidebar-done]").all())
+			await expect(mark.locator("xpath=ancestor::*[@data-sidebar-row-end]")).toHaveCount(1);
+		await page.context().close();
+	});
 
 for (const surface of SURFACES)
 	test(`reduced motion: nothing moves and the edge stays a still line (${surface.name})`, async () => {

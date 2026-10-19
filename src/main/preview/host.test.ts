@@ -8,7 +8,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_COMMAND, type PreviewState, VISUAL_SCHEME } from "../../shared/preview";
 import { IpcRegistry } from "../web/ipc-registry";
 import { registerPreviewHost } from "./host";
+import type { CapturedImage } from "./preview-check";
 import { parseVisualUrl } from "./visual-navigation";
+import type { VisualPages } from "./visuals";
 
 type VisualHandler = (request: { url: string }) => Promise<Response>;
 type CommandHandler = (event: { sender: FakeContents }, request: unknown) => Promise<PreviewState>;
@@ -92,6 +94,7 @@ class FakeContents extends EventEmitter {
 		return 1;
 	}
 	setZoomFactor(): void {}
+	readonly capturePage = vi.fn(async () => pngCapture());
 	close(): void {
 		this.closed = true;
 	}
@@ -103,6 +106,7 @@ class FakeView {
 		this.webContents.session = options?.webPreferences?.session ?? null;
 	}
 	setVisible(): void {}
+	setBounds(): void {}
 }
 
 class FakeWindow extends EventEmitter {
@@ -125,6 +129,18 @@ class FakeWindow extends EventEmitter {
 		return [1000, 800];
 	}
 }
+
+/** A capture as Electron's `NativeImage` gives it: `PNG` bytes, empty when nothing was painted. */
+function pngCapture(empty = false): CapturedImage {
+	return {
+		isEmpty: () => empty,
+		getSize: () => ({ width: 800, height: 600 }),
+		resize: () => pngCapture(),
+		toPNG: () => Buffer.from("png"),
+	};
+}
+
+let visualPages: VisualPages | undefined;
 
 // The factory only builds lookups; the fakes above are used when the host calls them.
 vi.mock("electron", () => ({
@@ -160,20 +176,25 @@ const sessionOf = (name: string) => electron.partitions.get(name) as FakeSession
 
 const VISUAL = "0123456789abcdef";
 const OTHER = "fedcba9876543210";
+/** An http(s) visual: its page is in the session the person browses. */
+const WEB_VISUAL = "aaaaaaaaaaaaaaaa";
+const WEB_URL = "https://example.com/";
 
 function register(serve = vi.fn(async () => new Response("served"))) {
-	// Only the slice of the store the host reads: one file visual, `VISUAL`, with versions 1 and 2.
+	// Only the slice of the store the host reads: one file visual, `VISUAL`, with versions 1 and 2, and one web visual.
 	const visuals = {
 		parse: parseVisualUrl,
-		view: (id: string, version?: number) => (id === VISUAL ? { version: version ?? 2 } : null),
-		url: (id: string, version = 2) => (id === VISUAL ? `${VISUAL_SCHEME}://v${version}-${id}/index.html` : null),
+		view: (id: string, version?: number) =>
+			id === VISUAL ? { version: version ?? 2 } : id === WEB_VISUAL ? { version: 1 } : null,
+		url: (id: string, version = 2) =>
+			id === VISUAL ? `${VISUAL_SCHEME}://v${version}-${id}/index.html` : id === WEB_VISUAL ? WEB_URL : null,
 		serve,
 		list: async () => [],
-		forTab: () => [VISUAL],
+		forTab: () => [VISUAL, WEB_VISUAL],
 		addToTab: async () => true,
 	};
 	const ipc = new IpcRegistry({ handle: (channel, handler) => electron.handlers.set(channel, handler), on: () => {} });
-	registerPreviewHost(ipc, () => false, visuals as never);
+	visualPages = registerPreviewHost(ipc, () => false, visuals as never);
 	return serve;
 }
 
@@ -372,5 +393,132 @@ describe("preview host", () => {
 		await expect(
 			ask({ action: "agentStart", tabId: "tab", url: "ws://127.0.0.1:1/extension", token: "x".repeat(32) }),
 		).rejects.toThrow("Agent browsing is for web pages, not visuals");
+	});
+
+	describe("Preview check", () => {
+		const BOUNDS = { x: 0, y: 0, width: 600, height: 400 };
+		/** The visual's page, laid out on screen and done loading. */
+		async function loadedVisual() {
+			const shown = await showVisual();
+			await shown.ask({ action: "layout", bounds: BOUNDS, visible: true });
+			shown.page.emit("did-stop-loading");
+			return shown;
+		}
+
+		it("captures only the visual's own page once it is on screen and loaded, as a PNG", async () => {
+			const { page } = await loadedVisual();
+			const image = await visualPages?.capture(VISUAL, 2, 2000);
+			expect(image).toEqual({ data: Buffer.from("png").toString("base64"), mimeType: "image/png" });
+			expect(page.capturePage).toHaveBeenCalledTimes(1);
+		});
+
+		it.each([
+			["a page that is not on screen", false, true, VISUAL, 2],
+			["a page still loading", true, false, VISUAL, 2],
+			["a version the page does not show", true, true, VISUAL, 1],
+			["a visual no page shows", true, true, OTHER, 2],
+		])("captures nothing for %s", async (_name, onScreen, loaded, visualId, version) => {
+			const { page, ask } = await showVisual();
+			if (onScreen) await ask({ action: "layout", bounds: BOUNDS, visible: true });
+			if (loaded) page.emit("did-stop-loading");
+			expect(await visualPages?.capture(visualId, version, 150)).toBeNull();
+			expect(page.capturePage).not.toHaveBeenCalled();
+		});
+
+		it("gives up at once when no window shows the visual's page, without spending the capture budget", async () => {
+			vi.useFakeTimers();
+			try {
+				// The page exists but its panel is not on screen (no layout): nobody is going to show it now.
+				const { page } = await showVisual();
+				page.emit("did-stop-loading");
+				let answer: unknown = "pending";
+				void visualPages?.capture(VISUAL, 2, 2000).then(image => {
+					answer = image;
+				});
+				await vi.advanceTimersByTimeAsync(399);
+				expect(answer).toBe("pending");
+				await vi.advanceTimersByTimeAsync(100);
+				expect(answer).toBeNull();
+				expect(page.capturePage).not.toHaveBeenCalled();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("still waits for a page that appears on screen a moment after the tool opened it", async () => {
+			vi.useFakeTimers();
+			try {
+				const { page, ask } = await showVisual();
+				let answer: unknown = "pending";
+				void visualPages?.capture(VISUAL, 2, 2000).then(image => {
+					answer = image;
+				});
+				await vi.advanceTimersByTimeAsync(200);
+				await ask({ action: "layout", bounds: BOUNDS, visible: true });
+				page.emit("did-stop-loading");
+				await vi.advanceTimersByTimeAsync(400);
+				expect(answer).toEqual({ data: Buffer.from("png").toString("base64"), mimeType: "image/png" });
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("never captures a web visual's page, which may show a site the person moved to; a visual-session page is captured", async () => {
+			register();
+			const { ask, pages } = openWindow();
+			await ask({ action: "showVisual", tabId: "tab", visualId: WEB_VISUAL });
+			const [web] = pages();
+			if (!web) throw new Error("no page");
+			await ask({ action: "layout", bounds: BOUNDS, visible: true });
+			web.emit("did-stop-loading");
+			expect(web.loaded).toEqual([WEB_URL]);
+			expect(await visualPages?.capture(WEB_VISUAL, 1, 600)).toBeNull();
+			expect(web.capturePage).not.toHaveBeenCalled();
+			// Nor does a notice land on it.
+			visualPages?.flag(WEB_VISUAL, 1, "error");
+			expect((await ask({ action: "clearProblems" })).notice).toBeNull();
+
+			// The person browsing on away from it changes nothing: the page keeps its visual, still never captured.
+			web.emit("did-navigate", {}, "https://bank.example/account");
+			expect(await visualPages?.capture(WEB_VISUAL, 1, 600)).toBeNull();
+			expect(web.capturePage).not.toHaveBeenCalled();
+
+			// A file visual in the visual session beside it is.
+			await ask({ action: "showVisual", tabId: "tab", visualId: VISUAL });
+			const visual = pages().find(contents => contents !== web);
+			if (!visual) throw new Error("no visual page");
+			visual.emit("did-stop-loading");
+			expect(await visualPages?.capture(VISUAL, 2, 2000)).not.toBeNull();
+			expect(visual.capturePage).toHaveBeenCalledTimes(1);
+		});
+
+		it("treats a capture with no pixels as no capture", async () => {
+			const { page } = await loadedVisual();
+			page.capturePage.mockResolvedValueOnce(pngCapture(true));
+			expect(await visualPages?.capture(VISUAL, 2, 2000)).toBeNull();
+		});
+
+		it("shows the judge's notice on that page, never over another notice, and drops it when the page reloads", async () => {
+			const { page, ask } = await loadedVisual();
+			visualPages?.flag(VISUAL, 2, "blank");
+			expect((await ask({ action: "clearProblems" })).notice).toEqual({ kind: "check", problem: "blank" });
+			await ask({ action: "dismissNotice" });
+			expect((await ask({ action: "clearProblems" })).notice).toBeNull();
+
+			visualPages?.flag(VISUAL, 2, "error");
+			expect((await ask({ action: "clearProblems" })).notice).toEqual({ kind: "check", problem: "error" });
+			page.emit("did-start-loading");
+			expect((await ask({ action: "clearProblems" })).notice).toBeNull();
+
+			page.emit("unresponsive");
+			visualPages?.flag(VISUAL, 2, "error");
+			expect((await ask({ action: "clearProblems" })).notice).toEqual({ kind: "unresponsive" });
+		});
+
+		it("flags only the version the page shows", async () => {
+			const { ask } = await loadedVisual();
+			visualPages?.flag(VISUAL, 1, "error");
+			expect((await ask({ action: "clearProblems" })).notice).toBeNull();
+		});
 	});
 });

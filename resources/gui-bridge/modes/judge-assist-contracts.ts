@@ -57,3 +57,12 @@ export interface PreviewCheckResult {
 	problem: PreviewProblem | null;
 	judged: boolean;
 }
+
+/**
+ * `judge_assist.available`: would a picture be judged right now (switch on, stock loaded, native judge role whose
+ * primary model takes images natively)? Asked only by the Preview check. No model call.
+ */
+export const JUDGE_ASSIST_AVAILABLE = "judge_assist.available";
+export interface JudgeAvailableResult {
+	available: boolean;
+}

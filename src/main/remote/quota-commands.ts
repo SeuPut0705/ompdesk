@@ -49,7 +49,6 @@ export const MODEL_COMMAND_TYPES = [
 	// The automatic mode choice (bridge modes/auto-mode.ts): one cheap judge request on the host per typed prompt.
 	"auto_mode_decide",
 	// Judge-model assists (bridge modes/judge-assist.ts): one judge request when a native judge resolves, else none.
-	"judge_needs_user",
 	"judge_preview_check",
 	// `ompdesk_compare` with criteria (bridge agent-control.ts): one judge request on the `slow` role model.
 	"agent_control_judge",
@@ -71,6 +70,8 @@ export const CONDITIONAL_MODEL_COMMAND_TYPES = [
 
 /** Commands that never call a model: reads, settings, git, files, queue edits, session moves. */
 export const QUOTA_FREE_COMMAND_TYPES = [
+	// Judge-model assists: whether a native judge would answer (bridge modes/judge-assist.ts, stock `hasNativeJudge`); no model call.
+	"judge_available",
 	// The chip's undo and the end of the request an automatic mode was used for: leave the mode; no model.
 	"auto_mode_undo",
 	"auto_mode_end",

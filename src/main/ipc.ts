@@ -20,6 +20,7 @@ import {
 	AUTOPILOT_SHIP_PREF,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
+import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { isUserProfile, USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import {
@@ -111,9 +112,11 @@ import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { NotificationBatcher, type ShownNotice } from "./notification-batch";
+import { createNotifyHandler } from "./notify-triage";
 import { systemOmp } from "./omp-runtime";
 import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
+import { createTabCheck } from "./preview/preview-check";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
@@ -293,9 +296,6 @@ interface PrefsSchema {
 	[key: string]: unknown;
 }
 
-// Dedupe state for SYSTEM_NOTIFY across multiple windows (see the handler).
-let lastNotifyKey = "";
-let lastNotifyAt = 0;
 /** The first-run credential check is only worth it while it beats omp's boot; past this it says "cannot tell". */
 const SIGNED_IN_TIMEOUT_MS = 10_000;
 /** Shown notifications that switch to a tab on click, kept alive until then. */
@@ -469,6 +469,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					if (!tab.win.isDestroyed())
 						tab.win.webContents.send(PREVIEW_VISUAL, { tabId: tab.tabId, visualId } satisfies PreviewVisualEvent);
 				},
+				// The Preview check judges the page through this tab's own omp, only while the judgeAssist pref is on.
+				check: createTabCheck({
+					enabled: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
+					pages: visualPages,
+					rpc: sidecar.rpcClient,
+				}),
 			};
 			void runVisualizeTool(context, request.arguments).then(result => reply(result.text, result.isError));
 			return;
@@ -1397,21 +1403,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	);
 
-	ipc.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (caller, payload: IpcNotifyPayload) => {
-		if (typeof payload.title === "string") {
-			// Dedupe within a window (a turn can emit the same notification from
-			// several renderers), but NOT across windows — two parallel sessions
-			// finishing in different windows are distinct events the user wants.
-			// A tab several windows show is one event, whichever of them reports it.
-			const win = caller.win;
-			const winId = win?.webContents.id ?? 0;
-			const tabId = typeof payload.tabId === "string" ? payload.tabId : undefined;
-			const scope = tabId && sidecarPool.isShared(tabId) ? `tab:${tabId}` : winId;
-			const key = `${scope}${payload.title}${payload.body ?? ""}`;
-			const now = Date.now();
-			if (key === lastNotifyKey && now - lastNotifyAt < 1500) return;
-			lastNotifyKey = key;
-			lastNotifyAt = now;
+	// Repeat filter and the judge triage of a completion (notify-triage.ts); main hands the notice on.
+	const notifyHandler = createNotifyHandler({
+		now: Date.now,
+		isShared: tabId => sidecarPool.isShared(tabId),
+		judgeEnabled: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
+		bridgeFor: (win, tabId) => {
+			const target = sidecarPool.tabTarget(win, tabId);
+			return target && target.device === undefined ? target.sidecar.bridgeRequest?.bind(target.sidecar) : undefined;
+		},
+		needsYouTitle: title => mainT("notify.needsYou", undefined, { title }),
+		deliver: (win, winId, notice) => {
 			if (win && !notifyBatchedWindows.has(winId)) {
 				notifyBatchedWindows.add(winId);
 				win.once("closed", () => {
@@ -1422,16 +1424,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Bursts fold into one summary unless the pref is off (notification-batch.ts).
 			notificationBatcher.notify(
 				winId,
-				{
-					title: payload.title,
-					body: payload.body,
-					tabId,
-					kind: payload.kind,
-				},
+				{ title: notice.title, body: notice.body, tabId: notice.tabId, kind: notice.kind },
 				prefsStore.get(BATCH_NOTIFICATIONS_PREF) !== false,
 			);
-		}
+		},
 	});
+	ipc.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (caller, payload: IpcNotifyPayload) => notifyHandler(caller, payload));
 
 	// Preferences
 	ipc.handle(IPC_COMMANDS.PREFS_GET, (_caller, payload: IpcPrefsGetPayload) => {
@@ -1469,6 +1467,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const autoTitle = payload.key === AUTO_TITLE_PREF || payload.key === AUTO_TITLE_EVOLVE_PREF;
 		if (autoTitle && typeof payload.value !== "boolean") {
 			throw codedError("invalid_preference_key", "Invalid automatic title preference");
+		}
+		if (payload.key === JUDGE_ASSIST_PREF && typeof payload.value !== "boolean") {
+			throw codedError("invalid_preference_key", "Invalid judge assist preference");
 		}
 		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid delegation strength");
@@ -1521,6 +1522,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// Every open local session follows now; a paired host's tab follows the host's own setting.
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncAutoTitle();
 			remoteDevices.hostAutoTitleChanged();
+		}
+		if (payload.key === JUDGE_ASSIST_PREF) {
+			// Same fan-out as the automatic-title switches: every open local session now, a paired host's tab follows the host.
+			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncJudgeAssist();
+			remoteDevices.hostJudgeAssistChanged();
 		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
 			createMenu(windowManager, deps.spawnWindow);

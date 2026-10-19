@@ -1394,6 +1394,7 @@ export const en: Record<string, string> = {
 	"modelRoles.default": "Default (catalog)",
 	"modelRoles.notSet": "Not set",
 	"modelRoles.sourceProject": "Set for this project",
+	"modelRoles.judgeSmallDecisions": "Small decisions it makes",
 	"modelRoles.notConnected": "omp isn't connected",
 	"modelRoles.notConnectedHint": "Model roles load once omp connects.",
 	"modelRoles.set": 'Role "{role}" set to {model}',
@@ -4497,6 +4498,8 @@ export const en: Record<string, string> = {
 	"panel.preview.link": "This visual tried to open {url}. Visuals never leave their page on their own.",
 	"panel.preview.linkOpen": "Open in new tab",
 	"panel.preview.unresponsive": "This page isn't responding.",
+	"panel.preview.check.error": "This page shows an error",
+	"panel.preview.check.blank": "This page looks blank",
 	"panel.preview.problemsCopy": "Copy problems",
 	"panel.preview.problemError": "Error:",
 	"panel.preview.problemWarning": "Warning:",
@@ -5689,6 +5692,9 @@ export const en: Record<string, string> = {
 	"settings.agent.automation": "Smart automation",
 	"settings.gui.scheduledRetry": "Retry after temporary errors",
 	"settings.gui.scheduledRetryDesc": "Waits 30 s, then 2 min, then 10 min (3 tries)",
+	"settings.gui.judgeAssist": "Use the judge model for small decisions",
+	"settings.gui.judgeAssistDesc":
+		"When the judge model is a native decision model, OMPdesk asks it a few one-word questions: whether a finished turn needs you, whether a new session title fits, whether a page the agent opened shows an error. About $0.00004 a question, under half a second; with any other judge model nothing changes.",
 	"settings.gui.pstack": "pstack engineering mode",
 	"settings.gui.pstackDesc":
 		"Engineering playbooks and principles (pstack by Lauren Tan, MIT) in every conversation. Trivial questions still get a plain answer. Off: no pstack skills or rules.",

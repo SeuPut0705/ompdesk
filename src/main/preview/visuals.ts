@@ -24,6 +24,7 @@ import {
 	VISUAL_SCHEME,
 } from "../../shared/preview";
 import type { HostToolDefinition } from "../../shared/rpc-types";
+import { type PreviewImage, type PreviewVerdict, previewHint } from "./preview-check";
 import { parseVisualUrl } from "./visual-navigation";
 
 export const VISUALIZE_TOOL = "gui_visualize";
@@ -461,6 +462,13 @@ export interface VisualPages {
 	 * (`none` = no page shows it, `agent` = the agent's browser drives that page).
 	 */
 	choose(visualId: string, timeoutMs: number): Promise<VisualChoice>;
+	/**
+	 * The PNG of the one page showing `version` of the visual (the page only, never the window), once it is on screen,
+	 * loaded and settled; null when none is within `budgetMs` (preview-check.ts).
+	 */
+	capture(visualId: string, version: number, budgetMs: number): Promise<PreviewImage | null>;
+	/** A quiet notice on the page showing `version` of the visual: what the judge saw. */
+	flag(visualId: string, version: number, problem: PreviewVerdict): void;
 }
 
 export interface VisualizeContext {
@@ -470,6 +478,11 @@ export interface VisualizeContext {
 	pages: VisualPages;
 	/** Ask the tab's window to show the visual (it opens when the tab is in front, or when the user goes there). */
 	reveal(visualId: string): void;
+	/**
+	 * The Preview check of the page just opened (preview-check.ts): what the judge model saw on it, or null. Never
+	 * rejects and answers within a few seconds. Unset (a test) = no check and no hint.
+	 */
+	check?(visualId: string, version: number): Promise<PreviewVerdict | null>;
 }
 
 /** Run one `gui_visualize` call: the text the agent reads, and whether it failed. */
@@ -485,10 +498,12 @@ export async function runVisualizeTool(
 			const { record, version, added } = await context.store.open(context.tabId, context.cwd, request);
 			context.reveal(record.id);
 			const versionText = record.kind === "url" ? "" : `, version ${version}${added ? "" : " (unchanged)"}`;
+			const problem = (await context.check?.(record.id, version)) ?? null;
 			return {
 				text:
 					`Showing "${record.label}" in the user's Preview panel (visual ${record.id}${versionText}). ` +
-					"The user may comment on it; their comments come as a message.",
+					"The user may comment on it; their comments come as a message." +
+					(problem ? `\n${previewHint(problem)}` : ""),
 				isError: false,
 			};
 		}

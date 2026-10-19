@@ -53,6 +53,7 @@ import {
 	titleIsAuto,
 	titleShorterLine,
 } from "./auto-title-core";
+import { newTitleFits, recentTitleTurns } from "./judge-assist-engine";
 import { currentReplyLanguage, onReplyLanguageChange } from "./reply-language";
 
 /** A frame the engine pushes to the GUI (it reaches the renderer as if omp had written it). */
@@ -121,6 +122,8 @@ export interface TitleSession {
 	/** The title prompt override every title path uses (stock's TITLE_SYSTEM.md slot); undefined = stock's own. */
 	readonly titleSystemPrompt: string | undefined;
 	setTitleSystemPrompt(prompt: string | undefined): void;
+	/** The live transcript (the judge's title check reads the recent turns); absent in a test double. */
+	readonly messages?: readonly unknown[];
 }
 
 /** Stock functions the engine calls (loaded by modes/auto-title.ts behind the compatibility guard). */
@@ -383,7 +386,12 @@ async function contextTitle(session: TitleSession): Promise<void> {
 	await writeTitle(session, title);
 }
 
-/** An automatic title after the work moved: a fresh one unless it only rewords the current. */
+/**
+ * An automatic title after the work moved: a fresh one unless it only rewords the current, and, while the judge model
+ * is native (judge-assist-engine.ts), only when the judge picks it over the current one for the recent turns. Measured
+ * on 25 evolving retitles: wrong ones 9 → 2, at the price of 4 of 16 good ones waiting for the next window. A judge
+ * that did not decide writes the title as before.
+ */
 async function evolveTitle(session: TitleSession): Promise<void> {
 	const manager = session.sessionManager;
 	const sessionId = manager.getSessionId();
@@ -392,6 +400,10 @@ async function evolveTitle(session: TitleSession): Promise<void> {
 	const { title, revision } = await retitle(session);
 	if (!title || !unchanged(session, sessionId, name, revision)) return;
 	if (!titleIsAuto(name, manager.titleSource, manager.getEntries()) || isRewordedTitle(name, title)) return;
+	// The turns are read from the live transcript's tail only once the judge gate says a judgment will be asked.
+	const fits = await newTitleFits(session, name, title, () => recentTitleTurns(session.messages ?? []));
+	// A name typed while the judge answered still wins.
+	if (fits === false || !unchanged(session, sessionId, name, revision)) return;
 	await writeTitle(session, title);
 }
 

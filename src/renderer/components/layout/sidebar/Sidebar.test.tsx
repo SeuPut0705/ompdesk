@@ -876,7 +876,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rowFor("Brand new").getAttribute("data-signal")).toBe("running");
 	});
 
-	it("aligns workspace and session titles with folder, chat, and reserved icon slots", async () => {
+	it("leads no session row with a slot: a chat's glyph sits at the end, before the age", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -884,8 +884,13 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(container.querySelectorAll("[data-sidebar-workspace-icon]").length).toBeGreaterThan(0);
 		const chatRow = container.querySelector('[data-session-kind="chat"]');
 		const groupedAgentRow = container.querySelector('[data-session-group="/work/alpha"] [data-session-kind="agent"]');
-		expect(chatRow?.querySelector("svg[data-sidebar-session-icon]")).not.toBeNull();
-		expect(groupedAgentRow?.querySelector("span[data-sidebar-session-icon]")).not.toBeNull();
+		expect(chatRow?.querySelector("[data-sidebar-row-end] svg[data-sidebar-session-icon]")).not.toBeNull();
+		expect(groupedAgentRow?.querySelector("[data-sidebar-session-icon]")).toBeNull();
+		// The title is the row's first content: nothing (but the light) comes before it.
+		const firstContent = [...((groupedAgentRow as unknown as Element | null)?.children ?? [])].find(
+			child => !child.classList.contains("omp-live-edge"),
+		);
+		expect(firstContent?.querySelector("button")).not.toBeNull();
 	});
 
 	it("right-click on a workspace header opens the agent-only group menu with move actions", async () => {
@@ -1704,6 +1709,47 @@ describe("Sidebar subagents", () => {
 		expect(disclosure()).toBeNull();
 		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 	});
+
+	it("keeps a faint light on the row while its turn is idle and a subagent still works, and none once it is done", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
+		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-edge");
+		await mount(<Sidebar />);
+		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+
+		// The turn ends; the subagent it started runs on: the same light, the background form.
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "ready" } : tab)),
+			}));
+		});
+		await flush();
+		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.hasAttribute("data-live-edge-inside")).toBe(true);
+
+		setSubagentStatus("aborted");
+		await flush();
+		expect(edge()).toBeNull();
+	});
+
+	it("draws a running tab whose turn ended but whose background work keeps it unsettled in the background form", async () => {
+		installMockOmp(LIST);
+		seedSubagentTab(false);
+		// No roster entry runs: main's `settling` (stock's background work, shells included) is the only fact.
+		setSubagentStatus("aborted");
+		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-edge");
+		await mount(<Sidebar />);
+		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, settling: true as const } : tab)),
+			}));
+		});
+		await flush();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+	});
 });
 
 describe("Sidebar families: the sessions an agent opened", () => {
@@ -2176,6 +2222,35 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(rows.some(text => text.includes("Session /work/alpha/two"))).toBe(true);
 		expect(familyRows().length).toBe(2);
 	});
+
+	it("lights the idle boss's row faintly while a session it opened runs; a waiting one keeps its warning look", async () => {
+		mountFamily();
+		await mount(<Sidebar />);
+		const boss = () => rowFor("Session /work/alpha/two");
+		const edge = () => boss().querySelector(".omp-live-edge");
+		const setTab = async (id: string, change: Record<string, unknown>) => {
+			await act(async () => {
+				useTabsStore.setState(state => ({
+					tabs: state.tabs.map(tab => (tab.id === id ? { ...tab, ...change } : tab)),
+				}));
+			});
+			await flush();
+		};
+		// The boss's own turn is idle; two sessions it opened run.
+		expect(boss().getAttribute("data-signal")).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+
+		// One now waits for the person: its row keeps the warning look and no light; the other still runs.
+		await setTab("ta", { awaitingInput: "input" });
+		const waiting = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
+		expect(waiting?.getAttribute("data-signal")).toBe("waiting");
+		expect(waiting?.querySelector(".omp-live-edge")).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+
+		// Nothing runs behind the idle boss any more (one waits, the other finished): no light.
+		await setTab("tc", { status: "ready" });
+		expect(edge()).toBeNull();
+	});
 });
 
 describe("Sidebar device sections", () => {
@@ -2629,9 +2704,12 @@ describe("Sidebar with a split on screen", () => {
 		expect(rowFor("Pane B").getAttribute("data-pane-focus")).toBe("true");
 		expect(rowFor("Pane A").getAttribute("data-pane-focus")).toBeNull();
 		expect(rowFor("Pane C").getAttribute("data-pane-focus")).toBeNull();
-		// A pane is not "open elsewhere": it is on screen.
-		expect(rowFor("Pane A").querySelector("[data-sidebar-open-tab]")).toBeNull();
-		expect(rowFor("Outside D").querySelector("[data-sidebar-open-tab]")).not.toBeNull();
+		// A pane is not "open elsewhere": it is on screen. The open tab elsewhere is said in words only (tooltip,
+		// screen-reader text): no dot leads a row.
+		const open = translate("sidebar.row.open");
+		expect(rowFor("Pane A").textContent).not.toContain(open);
+		expect(rowFor("Outside D").textContent).toContain(open);
+		expect(rowFor("Outside D").querySelector("[data-sidebar-session-icon], [data-sidebar-row-end] svg")).toBeNull();
 	});
 
 	it("shows no pane cue while a session is alone", async () => {

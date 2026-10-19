@@ -15,6 +15,7 @@ import {
 	parseAutoTitleEnv,
 	titleEffective,
 } from "../../resources/gui-bridge/modes/auto-title-contracts";
+import { parseJudgeAssistEnv } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import {
 	type NextPromptModelUsed,
 	type NextPromptSettings,
@@ -46,7 +47,7 @@ import type {
 } from "../../src/shared/rpc-types";
 import { tinyPdf } from "../tiny-pdf";
 import { createAutopilotFake } from "./autopilot";
-import { FIXTURE_OMP_VERSION } from "./version";
+import { FIXTURE_MIN_OMP_VERSION, FIXTURE_OMP_VERSION } from "./version";
 
 /** `e2e/`: the recordings, media and `../resources` the fixture reads sit beside the specs, not in `fixture/`. */
 const E2E_DIR = nodePath.dirname(import.meta.dir);
@@ -808,6 +809,23 @@ export function runRpcUi(): void {
 			if (titleIsAuto) nameAuto("evolve");
 		}, autoTitleLatency);
 	};
+	/**
+	 * Judge-model assists (gui-bridge modes/judge-assist.ts). `OMP_GUI_TEST_JUDGE_ASSIST` is JSON that makes the fake
+	 * judge decide: `{"needsUser": true|false}` answers `judge_assist.needs_user`, `{"preview": "error"|"blank"}`
+	 * answers `judge_assist.preview_check` with that problem (`judged: true`). `{"available": true}`, or any `preview`
+	 * value, makes `judge_assist.available` answer true (a native judge that takes images); otherwise it is false, as
+	 * with no native judge, and the callers skip their extra work. Unset: nothing is decided. The switch
+	 * (`OMP_GUI_JUDGE_ASSIST`, `judge_assist_set`) turns the fake judge off like the real one, and
+	 * `judge_assist_set` refuses a non-boolean `enabled` like the real bridge.
+	 */
+	const judgeAssistScript: { needsUser?: boolean; preview?: "error" | "blank"; available?: boolean } = (() => {
+		try {
+			return process.env.OMP_GUI_TEST_JUDGE_ASSIST ? JSON.parse(process.env.OMP_GUI_TEST_JUDGE_ASSIST) : {};
+		} catch {
+			return {};
+		}
+	})();
+	let judgeAssistEnabled = parseJudgeAssistEnv(process.env.OMP_GUI_JUDGE_ASSIST);
 	/** The session identity as get_state reports it: what the renderer keys the memory by. */
 	const nextPromptSession = () => {
 		const current = state();
@@ -1224,7 +1242,7 @@ export function runRpcUi(): void {
 		capabilities: () => ({
 			ompVersion: FIXTURE_OMP_VERSION,
 			unavailable:
-				FIXTURE_OMP_VERSION !== "18.11.0" && process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE
+				FIXTURE_OMP_VERSION !== FIXTURE_MIN_OMP_VERSION && process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE
 					? [{ feature: process.env.OMP_GUI_TEST_UNAVAILABLE_AFTER_UPDATE, missing: ["fixture"] }]
 					: [],
 		}),
@@ -1851,6 +1869,26 @@ export function runRpcUi(): void {
 		auto_title_set: params => {
 			autoTitleSettings = normalizeAutoTitle(params);
 			return { ...autoTitleSettings, requests: { ...autoTitleRequests } };
+		},
+		// gui-bridge modes/judge-assist.ts (contracts in resources/gui-bridge/modes/judge-assist-contracts.ts).
+		// Without `OMP_GUI_TEST_JUDGE_ASSIST` the judge never decides (`needsUser: null`, `judged: false`,
+		// `available: false`), as with no native judge model.
+		judge_assist_set: params => {
+			if (typeof params.enabled !== "boolean") throw new Error("judge_assist_set needs a boolean `enabled`");
+			judgeAssistEnabled = params.enabled;
+			return { enabled: judgeAssistEnabled, requests: 0 };
+		},
+		"judge_assist.available": () => ({
+			available:
+				judgeAssistEnabled && (judgeAssistScript.available === true || judgeAssistScript.preview !== undefined),
+		}),
+		"judge_assist.needs_user": () => ({
+			needsUser:
+				judgeAssistEnabled && typeof judgeAssistScript.needsUser === "boolean" ? judgeAssistScript.needsUser : null,
+		}),
+		"judge_assist.preview_check": () => {
+			const problem = judgeAssistEnabled ? (judgeAssistScript.preview ?? null) : null;
+			return { problem, judged: problem !== null };
 		},
 		regenerate_title: (_params, reply) => {
 			if (autoTitleScript?.fail) throw new Error("title model unavailable");

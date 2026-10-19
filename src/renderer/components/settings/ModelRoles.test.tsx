@@ -370,6 +370,22 @@ describe("Model roles grouped by purpose", () => {
 		expect(defineModelRole).toHaveBeenCalledWith("release", { name: "Release", description: "Ships the build." });
 	});
 
+	describe("the judge role's link to the small decisions it makes", () => {
+		it("opens Smart automation's judge row from the judge role only", async () => {
+			installRpc({}, [...ROLES, role("judge", "Judge", { section: "kind" })]);
+			await mount();
+
+			expect(row("judge")?.querySelectorAll("[data-judge-assist-link]")).toHaveLength(1);
+			expect(document.body.querySelectorAll("[data-judge-assist-link]")).toHaveLength(1);
+			expect(rowText("judge")).toContain(translate("modelRoles.judgeSmallDecisions"));
+			expect(row("image")?.querySelector("[data-judge-assist-link]")).toBeNull();
+
+			await act(async () => row("judge")?.querySelector<HTMLElement>("[data-judge-assist-link]")?.click());
+			expect(useUiStore.getState().destination).toBe("settings");
+			expect(useUiStore.getState().settingsTab).toBe("agent:setting-gui-judgeAssist");
+		});
+	});
+
 	describe("a stock-preferred model the role cannot use for want of a key", () => {
 		const SKIPPED = {
 			name: "Jev 1.14",

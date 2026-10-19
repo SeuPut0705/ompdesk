@@ -58,6 +58,10 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	syncNextPrompt(): void;
 	/** Push this machine's automatic-title switches to the live session (the omp's own machine decides). */
 	syncAutoTitle(): void;
+	/** Push this machine's judge-assist switch to the live session (the omp's own machine decides). */
+	syncJudgeAssist(): void;
+	/** Local sidecars only: a direct request to the omp's own bridge (no RPC dispatch). Absent for a remote or hosted tab. */
+	bridgeRequest?(method: string, params?: unknown): Promise<unknown>;
 	/** Re-register the GUI-executed host tools (the OMPdesk control tools follow their Settings switch). */
 	syncHostTools(): void;
 	/** Push this machine's account-rotation setting to the live omp (the omp's own machine decides). */

@@ -176,8 +176,12 @@ const ASKS_USER: readonly RegExp[] = [
  * Whether the assistant's last reply waits for the user to decide something: an `ask` still open, or its final
  * paragraph puts a question or a choice to them. A reply that reports work done or underway asks nothing, and then an
  * approval ("좋아 그 방향으로 가") is a message with nothing to approve.
+ *
+ * `judged` is the judge model's reading of the reply's text (judge-assist-engine.ts `replyNeedsUser`): when it
+ * decided, it replaces the final-paragraph patterns (measured on 60 real final replies, 17 waiting: patterns 80 %,
+ * judge 95 %); an open `ask` still counts. `undefined` keeps the patterns, byte for byte.
  */
-export function awaitsDecision(messages: readonly unknown[]): boolean {
+export function awaitsDecision(messages: readonly unknown[], judged?: boolean): boolean {
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];
 		if (!isRec(message)) continue;
@@ -185,9 +189,10 @@ export function awaitsDecision(messages: readonly unknown[]): boolean {
 		if (message.role !== "assistant") continue;
 		const blocks = Array.isArray(message.content) ? message.content : [];
 		if (blocks.some(block => isRec(block) && block.type === "toolCall" && block.name === "ask"))
-			return !messages.slice(index + 1).some(next => isRec(next) && next.role === "toolResult");
+			return !messages.slice(index + 1).some(next => isRec(next) && next.role === "toolResult") || judged === true;
 		const text = messageText(message).trim();
 		if (!text) continue;
+		if (judged !== undefined) return judged;
 		const paragraphs = text.split(/\n\s*\n/).filter(part => part.trim() !== "");
 		const tail = (paragraphs.at(-1) ?? "").split("\n").filter(line => line.trim() !== "");
 		return tail.some(line => ASKS_USER.some(pattern => pattern.test(line.trim())));
@@ -591,6 +596,8 @@ export interface SessionExtras {
 	todoPhases?: ReadonlyArray<{ tasks: ReadonlyArray<{ content: string; status: string }> }>;
 	goal?: { objective: string; status?: string; enabled?: boolean };
 	compacted?: boolean;
+	/** The judge's reading of the last reply ({@link awaitsDecision}); undefined: it did not decide. */
+	replyAsksUser?: boolean;
 	/** The main agent's running async jobs, as stock's `getAsyncJobSnapshot().running` lists them. */
 	runningJobs?: ReadonlyArray<{ type: string; label: string; command?: string }>;
 	/** Sessions it opened that still run or wait (main pushes them, `next_prompt_children`). */
@@ -740,7 +747,7 @@ export function extractFacts(messages: readonly unknown[], extras: SessionExtras
 		});
 	}
 	if (extras.openedSessions && extras.openedSessions.length > 0) facts.opened = extras.openedSessions;
-	if (lastAssistant) facts.lastReply = awaitsDecision(messages) ? "decision" : "none";
+	if (lastAssistant) facts.lastReply = awaitsDecision(messages, extras.replyAsksUser) ? "decision" : "none";
 	return facts;
 }
 

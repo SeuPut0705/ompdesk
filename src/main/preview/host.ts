@@ -50,6 +50,7 @@ import { type OsrPage, PageStream, POLL_MAX_WAIT_MS } from "../web/preview-strea
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
+import { judgeImage, PREVIEW_CHECK_SETTLE_MS, withDeadline } from "./preview-check";
 import { visualMayNavigate } from "./visual-navigation";
 import type { VisualPages, VisualStore } from "./visuals";
 
@@ -61,6 +62,14 @@ const PROBLEM_TEXT_MAX = 2000;
 const GESTURE_WINDOW_MS = 1000;
 /** Widest region screenshot sent to the agent, in pixels. */
 const REGION_MAX_WIDTH = 1600;
+/** The Preview check looks for its page this often, and gives `capturePage` at least this long. */
+const CAPTURE_POLL_MS = 50;
+const CAPTURE_MIN_MS = 500;
+/**
+ * `reveal` reaches the renderer, which then asks for the page: a visual that no window shows within this long after
+ * the tool opened it is not going to be shown now (panel hidden, tab not in front), so the check gives up.
+ */
+const CAPTURE_APPEAR_MS = 400;
 /** A viewer's poll for a page that does not exist yet (the panel asks before its first layout) is answered after this. */
 const NO_PAGE_RETRY_MS = 500;
 /** The most selected text, and the largest PDF, a viewer is sent. */
@@ -76,6 +85,13 @@ const dialogAnswerSchema = z.object({
 	accept: z.boolean(),
 	text: z.string().max(2000).nullish(),
 });
+
+/** A timer the tests' fake clock drives (`node:timers/promises` is not faked). */
+function pause(ms: number): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	setTimeout(resolve, ms);
+	return promise;
+}
 
 /** A page's title as a file name: no separators or control characters, at most 100 characters. */
 function pdfName(title: string): string {
@@ -521,7 +537,10 @@ export function registerPreviewHost(
 		contents.on("input-event", (_event, input) => {
 			if (input.type === "mouseUp" || input.type === "keyUp") page.lastInput = Date.now();
 		});
-		contents.on("did-start-loading", () => update({ error: null, crashed: false }));
+		// A notice from the Preview check described the document that is now being replaced.
+		contents.on("did-start-loading", () =>
+			update({ error: null, crashed: false, ...(page.state.notice?.kind === "check" ? { notice: null } : {}) }),
+		);
 		contents.on("did-stop-loading", () => update());
 		contents.on("did-navigate", (_event, url) => {
 			// A visual's page that leaves its own address (for an empty document) no longer shows it; a web visual
@@ -992,6 +1011,37 @@ export function registerPreviewHost(
 		}
 		return null;
 	};
+	/**
+	 * The preview page of the visual session showing `version` of `visualId`. A web visual (an http(s) address) is
+	 * never one: it lives in the session the person browses, keeps `page.visual` after they navigate elsewhere and a
+	 * re-open of the same version does not reload it, so its pixels may be a site they moved to.
+	 */
+	const visualSessionPage = (visualId: string, version: number) => {
+		for (const host of hosts.values()) {
+			const page = host.pages.find(
+				candidate =>
+					candidate.visual?.id === visualId &&
+					candidate.visual.version === version &&
+					candidate.state.session === "visual" &&
+					!candidate.contents.isDestroyed(),
+			);
+			if (page) return { host, page };
+		}
+		return null;
+	};
+	/** The visual-session page showing `version` of `visualId` that is on screen, whether or not it finished loading. */
+	const onScreenVisualPage = (visualId: string, version: number) => {
+		const found = visualSessionPage(visualId, version);
+		// A page that is not on screen captures as nothing or as a stale frame; it is never judged.
+		return found && found.host.active === found.page && found.host.layout?.visible ? found : null;
+	};
+	/** The on-screen page that also finished loading. */
+	const shownVisualPage = (visualId: string, version: number) => {
+		const found = onScreenVisualPage(visualId, version);
+		if (!found) return null;
+		const { state } = found.page;
+		return state.url && !state.loading && !state.error && !state.crashed ? found : null;
+	};
 	return {
 		close(visualId) {
 			for (const host of [...hosts.values()])
@@ -1046,6 +1096,35 @@ export function registerPreviewHost(
 				if (Date.now() - page.lastInput > GESTURE_WINDOW_MS) continue;
 				return picked as { value: string; text: string };
 			}
+		},
+		async capture(visualId, version, budgetMs) {
+			const started = Date.now();
+			const deadline = started + budgetMs;
+			for (;;) {
+				const shown = shownVisualPage(visualId, version);
+				if (shown) {
+					await pause(PREVIEW_CHECK_SETTLE_MS);
+					// A reload, a newer version or a tab switch during the settle starts the wait again.
+					if (shownVisualPage(visualId, version)?.page === shown.page) {
+						// Only this page's own pixels: the app window and the user's other windows are never captured.
+						const picture = await withDeadline(
+							shown.page.contents.capturePage().catch(() => null),
+							Math.max(CAPTURE_MIN_MS, deadline - Date.now()),
+						);
+						return picture ? judgeImage(picture) : null;
+					}
+				} else if (!onScreenVisualPage(visualId, version) && Date.now() - started >= CAPTURE_APPEAR_MS) {
+					// Nobody shows it (the panel is hidden, another tab is in front): waiting longer would only delay the tool.
+					return null;
+				}
+				if (Date.now() + CAPTURE_POLL_MS >= deadline) return null;
+				await pause(CAPTURE_POLL_MS);
+			}
+		},
+		flag(visualId, version, problem) {
+			const shown = shownVisualPage(visualId, version);
+			// Another notice (a refused download or link, an unresponsive page) is the more urgent one and stays.
+			if (shown && !shown.page.state.notice) publish(shown.host, shown.page, { notice: { kind: "check", problem } });
 		},
 	};
 }

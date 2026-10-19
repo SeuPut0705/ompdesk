@@ -52,6 +52,8 @@ export interface LocalSidecarDeps {
 	nextPromptPrefs: () => NextPromptSettings;
 	/** The automatic-title switches (`autoTitle`, `autoTitleEvolve`; both default on), read per use. */
 	autoTitlePrefs: () => AutoTitleSettings;
+	/** The judge-assist switch (`judgeAssist`; default on), read per use. */
+	judgeAssistPref: () => boolean;
 	/** The composer delegation chip's last choice (`delegationMode`), read per spawn. */
 	delegationPref: () => unknown;
 	/** The stored Settings › Models & providers account-rotation pref (`accountRotation`), read per use. */
@@ -142,6 +144,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
 			nextPrompt: deps.nextPromptPrefs,
 			autoTitle: deps.autoTitlePrefs,
+			judgeAssist: deps.judgeAssistPref,
 			delegation: () => {
 				const stored = deps.delegationPref();
 				return isDelegationMode(stored) ? stored : "default";

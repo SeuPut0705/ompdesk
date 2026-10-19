@@ -18,14 +18,19 @@
 	contain-intrinsic-size: auto calc(var(--sc-control-lg) - 2 * var(--sc-space-1));
 }
 
-.omp-session-sidebar .omp-sidebar-session-nested,
+/* No leading slot: a session row's title starts where its group header's content does (the header button's `pl-2`),
+   nested in a project group or not, so the list reads as one left edge under the project's chevron. */
+.omp-session-sidebar .omp-sidebar-session-row {
+	padding-left: var(--sc-space-2);
+}
+
 .omp-sidebar-session-rename-nested {
 	padding-left: var(--sc-space-3);
 }
 
 /* An Autopilot run's child session, under the run's row: one icon step further in. */
-.omp-session-sidebar .omp-sidebar-session-nested.omp-sidebar-session-run-child {
-	padding-left: calc(var(--sc-space-3) + var(--sc-icon-md));
+.omp-session-sidebar .omp-sidebar-session-row.omp-sidebar-session-run-child {
+	padding-left: calc(var(--sc-space-2) + var(--sc-icon-md));
 }
 
 .omp-session-sidebar [data-workspace-group],

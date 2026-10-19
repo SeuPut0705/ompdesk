@@ -60,6 +60,7 @@ import {
 	Popover,
 	Spinner,
 } from "../common";
+import { PreviewCheckNotice } from "./PreviewCheckNotice";
 import { AllVisualsDialog, PreviewFeedbackBar, usePreviewFeedback } from "./PreviewFeedback";
 import { PreviewStreamView } from "./PreviewStreamView";
 
@@ -649,6 +650,11 @@ export function PreviewPanel() {
 								{t("panel.preview.link", { url: state.notice.url })}
 							</span>
 						</Banner>
+					) : state.notice.kind === "check" ? (
+						<PreviewCheckNotice
+							problem={state.notice.problem}
+							onDismiss={() => command({ action: "dismissNotice" })}
+						/>
 					) : (
 						<Banner
 							live

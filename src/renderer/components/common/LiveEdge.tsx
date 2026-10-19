@@ -1,7 +1,8 @@
 /**
  * The "work is going on" light: one slow accent light travelling the border of the card it sits in. The composer
- * box wears it while its turn runs, and so does every card that shows a running session (a sidebar row, a split
- * pane's header). One look, one implementation (components.css `.omp-live-edge`): the card only needs to be
+ * box wears it while its turn runs, and so does every card that shows a working session (a sidebar row, a split
+ * pane's header; `layout/SessionLiveEdge`); `background` (fainter, slower) while the turn is idle and work it started
+ * still runs. One look, one implementation (components.css `.omp-live-edge`): the card only needs to be
  * `position: relative`, rounded by its own `border-radius`; the light is drawn on its border and takes no
  * pointer events. The composer's box (one per window) gets a conic light in a masked ring; a contained card
  * (`inside`; a dozen can be in view) gets the cheap form of the same light, two short bars running its top and
@@ -9,7 +10,7 @@
  *
  * Cost rules: only a transform animates; it rests while the window is hidden (`data-paused`), and reduced motion
  * and software compositing (`html[data-gpu="software"]`) draw the still edge. Callers mount it only for a card
- * that is running, and never beside a waiting question (that card keeps its warning look).
+ * whose session works (`layout/live-work.ts`), and never beside a waiting question (that card keeps its warning look).
  */
 import { type ReactElement, useSyncExternalStore } from "react";
 

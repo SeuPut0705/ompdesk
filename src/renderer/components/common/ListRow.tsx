@@ -17,7 +17,6 @@
 
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../lib/format";
-import { LiveEdge } from "./LiveEdge";
 
 type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
 
@@ -49,8 +48,11 @@ export interface ListRowProps {
 	/** Native tooltip for truncated titles. */
 	titleText?: string;
 	className?: string;
-	/** The row's session is working: the card wears the shared `LiveEdge` light (the running state's look). */
-	live?: boolean;
+	/**
+	 * The light the row's card wears while its session works: a `<LiveEdge inside />`, or a component drawing one
+	 * (the sidebar's `SessionLiveEdge`); drawn first, on the row's border.
+	 */
+	live?: ReactNode;
 	/** Extra attributes for the row element (context menu, data-* hooks). */
 	rowProps?: Omit<HTMLAttributes<HTMLDivElement>, "className" | "children"> & DataAttributes;
 	/** Extra attributes for the row's button (roving `tabIndex`, keyboard handlers, data-* hooks). */
@@ -125,7 +127,7 @@ export function ListRow({
 				className,
 			)}
 		>
-			{live && <LiveEdge inside />}
+			{live}
 			{leading && (
 				<span className="flex shrink-0 items-center text-(--sc-text-muted) [&>svg]:size-(--sc-icon-md)">
 					{leading}
