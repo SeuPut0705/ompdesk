@@ -559,6 +559,17 @@ function commitHydration({
 	const restored = messages?.getState().restoredAt != null;
 	if (messagesResult.status !== "fulfilled" || !messagesResult.value.success) {
 		if (restored) messages?.setState({ restoredAt: null });
+		// Nothing of the transcript is on screen: the failure is shown with Retry, never an empty session.
+		if (messages && messages.getState().messages.length === 0) {
+			const failed = messagesResult.status === "fulfilled" ? messagesResult.value : null;
+			const reason =
+				messagesResult.status === "rejected"
+					? messagesResult.reason instanceof Error
+						? messagesResult.reason.message
+						: String(messagesResult.reason)
+					: (failed && !failed.success && failed.error) || "Transcript page could not be loaded";
+			messages.setState({ pageError: reason });
+		}
 		return;
 	}
 	const fetched = page?.messages ?? [];
