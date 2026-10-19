@@ -246,6 +246,8 @@ export interface SessionRpcClient {
 	killDesktopSlot(): Promise<RpcResponse>;
 	getDelegation(): Promise<RpcResponse>;
 	setDelegation(mode: DelegationMode): Promise<RpcResponse>;
+	/** This session's advisor spend, calls and delivered advisories (`AdvisorUsage`). */
+	getAdvisorStats(): Promise<RpcResponse>;
 	setGoal(args: {
 		objective?: string;
 		tokenBudget?: number | null;
@@ -592,6 +594,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		killDesktopSlot: () => rpcCommand({ type: "desktop_slot_kill" }),
 		getDelegation: () => rpcCommand({ type: "get_delegation" }),
 		setDelegation: mode => rpcCommand({ type: "set_delegation", mode }),
+		getAdvisorStats: () => rpcCommand({ type: "get_advisor_stats" }),
 		getGoal: () => rpcCommand({ type: "get_goal" }),
 		guidedGoal: initial => rpcCommand({ type: "guided_goal", initial }),
 		setAgentsPaused: enabled => rpcCommand({ type: "set_agents_paused", enabled }),

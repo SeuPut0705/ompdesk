@@ -250,6 +250,8 @@ export type RpcCommand =
 	// Delegation strength (composer chip): gui-bridge modes/delegation.ts
 	| { id?: string; type: "get_delegation" }
 	| { id?: string; type: "set_delegation"; mode: DelegationMode }
+	// This session's advisor spend, calls and delivered advisories (gui-bridge advisor-stats.ts → `AdvisorUsage`)
+	| { id?: string; type: "get_advisor_stats" }
 	// Preview agent browsing: stock's browser relay in the tab's omp (gui-bridge browser-relay.ts)
 	| { id?: string; type: "browser_relay_start" }
 	| { id?: string; type: "browser_relay_stop" }

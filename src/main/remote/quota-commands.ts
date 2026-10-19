@@ -136,6 +136,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"desktop_slot_retry",
 	"desktop_slot_kill",
 	"desktop_slot_bridge",
+	// Reads stock's advisor ledger and the session journal (bridge advisor-stats.ts): no model.
+	"get_advisor_stats",
 	"get_delegation",
 	"get_directories",
 	"get_force_tool",

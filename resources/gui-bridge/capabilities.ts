@@ -70,6 +70,7 @@ export const FEATURES = {
 	pstack: "pstack engineering mode (always-on playbook section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
+	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -425,6 +426,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/** session-dump.ts: the two session methods `/dump all` and `/dump anon` run, called directly for their zip. */
 	sessionDump: {
 		session: ["dumpSessionArchiveToTmpDir()", "dumpAnonymizedArchiveToTmpDir()"],
+	},
+	/** advisor-stats.ts: stock's advisor stats and branch. It imports nothing from omp, so health.ts has no LOADERS entry for it. */
+	advisorStats: {
+		session: ["getAdvisorStats()", "isAdvisorUsingSubscription()", "sessionManager.getBranch()"],
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits

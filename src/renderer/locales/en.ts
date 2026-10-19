@@ -4212,6 +4212,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.agentControl": "OMPdesk control tools (sessions, confirmation cards)",
 	"bridgeHealth.feature.desktopSlot": "Screen turns between sessions",
 	"bridgeHealth.feature.sessionDump": "Save diagnostic bundle (session dump)",
+	"bridgeHealth.feature.advisorStats": "Advisor spend and advisories (Run popover, Insights)",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",
