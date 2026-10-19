@@ -45,6 +45,7 @@ export const WORKER_ENTRY = "ompdesk.worker";
 export const WORKER_CONTRACT = `<ompdesk-worker>
 Another agent opened this session and handed you its first message; the person sees this tab and may also write to you.
 - Work only in this session's folder. When a message or a result names an absolute path in another checkout, do not read or write it; ask instead.
+- Never use \`git stash\`: every worktree of a repository shares one stash, so another session's stash can land in yours. Commit work in progress to your branch instead.
 - Stay inside the files and scope the message names. If the task needs more, say so in your answer rather than widening it.
 - Done means the observable acceptance in the message holds, checked by you, and any requested commit is on your branch.
 - Your final answer is what the other agent reads: what changed (files, commits), how you checked it with the actual result, and anything left undone.
