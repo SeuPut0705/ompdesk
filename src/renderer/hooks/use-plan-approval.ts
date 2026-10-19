@@ -23,9 +23,11 @@ export function usePlanApproval(): void {
 				for (const event of events) {
 					const store = usePlanApprovalStore.getState();
 					if (event.type === "plan_proposal_resolved") {
-						// Answered elsewhere (another window, a device, an agent) or replied to by a prompt. This window's
-						// own answer in flight settles the card itself, keeping its outcome notice.
-						if (store.pending?.planFilePath === event.planFilePath && !store.submitting) store.clearProposal();
+						// Answered elsewhere (another window, a device, an agent) or replied to by a prompt. With this
+						// window's own answer in flight, its outcome settles the card (a loser's failure then closes it).
+						if (store.pending?.planFilePath !== event.planFilePath) continue;
+						if (store.submitting) usePlanApprovalStore.setState({ resolved: true });
+						else store.clearProposal();
 						continue;
 					}
 					if (event.type !== "plan_proposal") continue;

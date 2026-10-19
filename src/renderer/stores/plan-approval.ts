@@ -30,6 +30,11 @@ export interface PlanApprovalSnapshot {
 	notice: string | null;
 	/** Submission state follows its owning tab so switching away cannot re-submit it. */
 	submitting: PlanApprovalSubmitState | null;
+	/**
+	 * The proposal was resolved elsewhere (another window, a device, an agent) while this window's answer was in
+	 * flight: that answer then fails ("No plan is awaiting approval") and the card closes instead of staying.
+	 */
+	resolved: boolean;
 }
 
 export interface PlanApprovalStore extends PlanApprovalSnapshot {
@@ -48,11 +53,13 @@ export const createPlanApprovalStore = () =>
 		feedback: "",
 		notice: null,
 		submitting: null,
-		showProposal: proposal => set({ pending: proposal, feedback: "", notice: null, submitting: null }),
+		resolved: false,
+		showProposal: proposal =>
+			set({ pending: proposal, feedback: "", notice: null, submitting: null, resolved: false }),
 		setFeedback: feedback => set({ feedback }),
 		setNotice: notice => set({ notice }),
 		setSubmitting: submitting => set({ submitting }),
-		clearProposal: () => set({ pending: null, feedback: "", notice: null, submitting: null }),
+		clearProposal: () => set({ pending: null, feedback: "", notice: null, submitting: null, resolved: false }),
 	}));
 
 const defaultPlanApprovalStore = createPlanApprovalStore();
