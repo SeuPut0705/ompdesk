@@ -90,9 +90,10 @@ import { UpdatesSection } from "./UpdatesSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { WorktreeBranchPrefixRow } from "./WorktreeBranchPrefixRow";
 
-/** The App group's sections read icon + label + control: no intro, every row description behind its info glyph. */
+/** The App and Agent groups read icon + label + control: no intro, every row description behind its info glyph. */
 const isTerse = (section: SettingsSectionId): boolean =>
-	SETTINGS_NAV.find(group => group.id === "app")?.items.includes(section) ?? false;
+	section !== "memory" &&
+	SETTINGS_NAV.some(group => (group.id === "app" || group.id === "agent") && group.items.includes(section));
 
 const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	general: SlidersHorizontal,

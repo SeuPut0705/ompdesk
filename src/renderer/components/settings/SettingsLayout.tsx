@@ -80,9 +80,10 @@ export function SettingsSection({
 	const showTitle = Boolean(title) && (!nested || Boolean(description || actions));
 	const tipOnly = useContext(SettingsTipOnlyContext);
 	const { inline, tip, note } = splitDescription(description, tipOnly && showTitle);
-	// A long description of a titled group moves behind an info glyph; an untitled one stays a line.
+	// A long description of a titled group moves behind an info glyph; an untitled one stays a line
+	// (none at all in a tip-only section: a string intro there is filler).
 	const tipped = showTitle && tip !== undefined;
-	const line = tipped ? undefined : (inline ?? tip);
+	const line = tipped || (tipOnly && note === undefined) ? undefined : (inline ?? tip);
 	return (
 		<section
 			aria-labelledby={showTitle ? headingId : undefined}
