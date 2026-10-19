@@ -86,8 +86,9 @@ test("one session's bulk stage is refused, it commits its own file, and the othe
 		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === second)?.status)
 		.toBe("ready");
 
-	// The second session edits b.ts; the first edits a.ts and reaches for `git add -A`.
-	await play(second, [{ wait: "peers" }, { write: "src/b.ts", content: "export const b = 2;\n" }]);
+	// The second session edits b.ts from the shell (measured: how two sessions overwrote each other); the first edits
+	// a.ts, then reaches for b.ts and for `git add -A`.
+	await play(second, [{ wait: "peers" }, { bash: "echo 'export const b = 2;' > src/b.ts" }]);
 	const answer = await play(first, [
 		{ wait: "peers" },
 		{ write: "src/a.ts", content: "export const a = 2;\n" },

@@ -274,8 +274,18 @@ export function checkoutRefusal(
 		const refusal = judge(at, peers, repoPeers, ownFiles);
 		if (refusal) return refusal;
 	}
-	const written = effects.writes.map(path => (realpath ? canonicalPath(path, realpath) : path));
-	return overwriteRefusal(written, "from the shell", peers, ownFiles);
+	return overwriteRefusal(shellWrites(command, cwd, realpath), "from the shell", peers, ownFiles);
+}
+
+/**
+ * The files `command` writes through output redirects (`>`, `>>`, `&>`), in main's spelling, devices left out. A
+ * session records them as its own like a file tool's writes: measured, two sessions each wrote the shared file
+ * with `echo >`, and only a recorded write lets the other's guard see it.
+ */
+export function shellWrites(command: string, cwd: string, realpath?: (path: string) => string): string[] {
+	return shellEffects(command, cwd)
+		.writes.filter(path => !path.startsWith("/dev/"))
+		.map(path => (realpath ? canonicalPath(path, realpath) : path));
 }
 
 /**

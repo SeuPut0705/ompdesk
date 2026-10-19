@@ -21,7 +21,14 @@ import {
 	type CheckoutPeer,
 	type CheckoutPeers,
 } from "./checkout-peers-contracts";
-import { canonicalPath, checkoutRefusal, checkoutSection, rememberFiles, writeRefusal } from "./checkout-peers-core";
+import {
+	canonicalPath,
+	checkoutRefusal,
+	checkoutSection,
+	rememberFiles,
+	shellWrites,
+	writeRefusal,
+} from "./checkout-peers-core";
 
 /** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
 const real = (path: string) => fs.realpathSync.native(path);
@@ -41,17 +48,16 @@ export function install(pi: ExtensionAPI): void {
 			if (reason) return { block: true, reason };
 		}
 		if (written.length > 0) ownFiles = rememberFiles(ownFiles, written, CHECKOUT_FILES_MAX);
-		if (!peers || event.toolName !== "bash") return undefined;
+		if (event.toolName !== "bash") return undefined;
 		const input = event.input as { command?: unknown; cwd?: unknown };
 		if (typeof input.command !== "string") return undefined;
-		const reason = checkoutRefusal(
-			input.command,
-			canonicalPath(normalizePath(typeof input.cwd === "string" ? input.cwd : ".", ctx.cwd), real),
-			peers,
-			ownFiles,
-			real,
-		);
-		return reason ? { block: true, reason } : undefined;
+		const cwd = canonicalPath(normalizePath(typeof input.cwd === "string" ? input.cwd : ".", ctx.cwd), real);
+		const reason = peers ? checkoutRefusal(input.command, cwd, peers, ownFiles, real) : undefined;
+		if (reason) return { block: true, reason };
+		// A file written from the shell is this session's too, alone or not, so a session that joins later sees it.
+		const shellWritten = shellWrites(input.command, cwd, real);
+		if (shellWritten.length > 0) ownFiles = rememberFiles(ownFiles, shellWritten, CHECKOUT_FILES_MAX);
+		return undefined;
 	});
 }
 

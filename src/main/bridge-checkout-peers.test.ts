@@ -12,6 +12,7 @@ import {
 	canonicalPath,
 	checkoutRefusal,
 	checkoutSection,
+	shellWrites,
 	writeRefusal,
 } from "../../resources/gui-bridge/modes/checkout-peers-core";
 
@@ -122,6 +123,13 @@ describe("checkout guard: one worktree's files and index", () => {
 		for (const command of ["echo x > src/a.ts", "echo x > src/new.ts", "bun test > /tmp/out.txt 2>&1"])
 			expect(refused(sharing, command), command).toBe(false);
 		expect(writeRefusal([`${REPO}/src/a.ts`, `${REPO}/src/new.ts`], sharing, own)).toBeUndefined();
+	});
+
+	it("counts a file written from the shell as the session's own, so the other session's guard sees it", () => {
+		expect(shellWrites("cd src && cat > b.ts <<'EOF'\nx\nEOF\necho y >> ../README.md 2>/dev/null", REPO)).toEqual([
+			`${REPO}/src/b.ts`,
+			`${REPO}/README.md`,
+		]);
 	});
 
 	it("does not judge worktree steps for a session in another worktree, nor git runs in another repository", () => {

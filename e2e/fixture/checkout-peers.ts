@@ -11,7 +11,12 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
 import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
-import { checkoutRefusal, rememberFiles, writeRefusal } from "../../resources/gui-bridge/modes/checkout-peers-core";
+import {
+	checkoutRefusal,
+	rememberFiles,
+	shellWrites,
+	writeRefusal,
+} from "../../resources/gui-bridge/modes/checkout-peers-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
 
 type Params = Record<string, unknown>;
@@ -74,8 +79,10 @@ export function createCheckoutFake(host: Host) {
 	}
 
 	function bash(command: string): { text: string; isError: boolean } {
-		const refusal = peers ? checkoutRefusal(command, normalizePath(cwd, "/"), peers, ownFiles) : undefined;
+		const at = normalizePath(cwd, "/");
+		const refusal = peers ? checkoutRefusal(command, at, peers, ownFiles) : undefined;
 		if (refusal) return { text: refusal, isError: true };
+		ownFiles = rememberFiles(ownFiles, shellWrites(command, at), 40);
 		try {
 			const out = execFileSync("sh", ["-c", command], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 			return { text: out || "(no output)", isError: false };
