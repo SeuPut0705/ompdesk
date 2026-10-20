@@ -486,14 +486,20 @@ test("a host that never starts the session is named on the phone, logged, and th
 				.toEqual(expect.arrayContaining(["open", "start", "stalled ready"]));
 		});
 
-		await test.step("once the host can start it, Restart brings the session up on the phone", async () => {
+		await test.step("Restart keeps the session it was opening: once the host can start, that session comes up", async () => {
+			// Pressed while the host is still stuck, Restart must try the same session again (it stalls again), never a
+			// new one: the banner's Restart sends no session file, and a remote tab once forgot the one it was opening,
+			// so the host later started an empty session.
+			const restart = phone.getByRole("alert").filter({ hasText: "PC-B" }).getByRole("button", { name: "Restart" });
+			await restart.click();
+			await expect(restart).toBeHidden();
+			await expect(restart).toBeVisible({ timeout: 30_000 });
 			const host = setup?.host;
 			if (host) await exitApp(host.app);
 			Reflect.deleteProperty(hostProfile.env, "OMP_GUI_TEST_BOOT_DELAY_MS");
 			setup = { ...(setup as Rig), host: await (setup as Rig).launchHost() };
 			await hostOnline((setup as Rig).client as RemoteInstance);
-			const restart = phone.getByRole("alert").getByRole("button", { name: "Restart" });
-			if (await restart.isVisible()) await restart.click();
+			// The link coming back brings the tab up by itself: no Restart to race against.
 			await expect(phone.getByText("Answer to Stuck on the host")).toBeVisible({ timeout: 60_000 });
 		});
 	} finally {

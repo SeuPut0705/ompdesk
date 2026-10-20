@@ -1673,14 +1673,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.SIDECAR_RESTART, (caller, payload?: IpcSidecarRestartPayload) => {
 		const win = caller.win;
 		if (!win) throw codedError("no_window", "No window");
-		const sidecar =
-			typeof payload?.tabId === "string"
-				? sidecarPool.sidecarForTab(win, payload.tabId)
-				: sidecarPool.sidecarForWindow(win);
-		if (!sidecar) throw codedError("unknown_tab", "Unknown tab");
+		const target = sidecarPool.tabTarget(win, typeof payload?.tabId === "string" ? payload.tabId : undefined);
+		if (!target) throw codedError("unknown_tab", "Unknown tab");
+		// A restart continues the tab's own session (the banner's Restart names none): without it a tab whose omp
+		// never reported its session (a host that never started it) came back as a new, empty session.
 		const sessionPath =
-			typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
-		sidecar.restart(undefined, sessionPath);
+			typeof payload?.sessionPath === "string" && payload.sessionPath
+				? payload.sessionPath
+				: (target.sessionFile ?? undefined);
+		target.sidecar.restart(undefined, sessionPath);
 	});
 
 	// Native folder picker: this machine's disk only. A tab on a paired host

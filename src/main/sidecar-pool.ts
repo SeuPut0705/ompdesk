@@ -1422,16 +1422,29 @@ export class SidecarPool {
 	/**
 	 * One tab of `win` — `tabId`, or the window's active tab when omitted — with
 	 * the device it runs on, so a handler can route a remote tab to its host,
-	 * and its owner window's id (`winId`), which keys what the tab owns on this
-	 * machine (its terminals) whichever window asks.
+	 * its owner window's id (`winId`), which keys what the tab owns on this
+	 * machine (its terminals) whichever window asks, and the session file it is
+	 * on or opening (null for a fresh tab).
 	 */
 	tabTarget(
 		win: ClientWindow,
 		tabId?: string,
-	): { tabId: string; sidecar: SidecarLike; device: string | undefined; winId: number } | null {
+	): {
+		tabId: string;
+		sidecar: SidecarLike;
+		device: string | undefined;
+		winId: number;
+		sessionFile: string | null;
+	} | null {
 		const entry = tabId ? this.#byTabId.get(tabId) : this.entryForWindow(win);
 		if (!entry || windowOf(entry, win.webContents.id) !== win) return null;
-		return { tabId: entry.tabId, sidecar: entry.sidecar, device: entry.device, winId: entry.winId };
+		return {
+			tabId: entry.tabId,
+			sidecar: entry.sidecar,
+			device: entry.device,
+			winId: entry.winId,
+			sessionFile: entry.sessionFile ?? null,
+		};
 	}
 
 	/**
