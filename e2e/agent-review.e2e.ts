@@ -123,7 +123,18 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	await expect(chip).toHaveCount(1, { timeout: 30_000 });
 	if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
 	const family = page.locator("[data-sidebar-family] [data-sidebar-opened-session]");
-	await expect(family).toHaveCount(3, { timeout: 30_000 });
+	try {
+		await expect(family).toHaveCount(3, { timeout: 30_000 });
+	} catch (error) {
+		// Seen once on a hosted runner (2 rows for 30 s, 0 of 12 locally): which child left, and what its tab said.
+		const rows = await family.evaluateAll(nodes =>
+			nodes.map(node => `${node.getAttribute("data-session-path")} ${(node.textContent ?? "").slice(0, 40)}`),
+		);
+		await test.info().attach("family.json", {
+			body: JSON.stringify({ rows, tabs: await tabs(), made }, null, 2),
+		});
+		throw error;
+	}
 	for (const label of ["attempt a", "attempt b", "attempt c"])
 		await expect(family.filter({ hasText: label })).toHaveCount(1);
 	await expect(page.locator("[data-worktree-group]")).toHaveCount(0);
