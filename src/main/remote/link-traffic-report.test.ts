@@ -178,6 +178,9 @@ function hostServices(bin: string, workDir: string): LocalHostServices {
 interface Session {
 	sidecar: RemoteSidecar;
 	recorder: LinkRecorder;
+	rig: DevicesRig;
+	/** What the host wrote to its `remote-link` runtime log. */
+	hostLog: Array<{ message: string; details: Record<string, unknown> }>;
 	/** Runs one scripted turn and resolves when the host's omp settled it. */
 	turn(scenario: object): Promise<void>;
 	setLevel(level: "off" | "progress" | "events"): Promise<void>;
@@ -197,7 +200,11 @@ async function openSession(): Promise<Session> {
 	await fs.mkdir(workDir);
 	const rig = new DevicesRig();
 	rigs.push(rig);
-	const { a, hostId } = await rig.connected(hostServices(bin, workDir));
+	const hostLog: Session["hostLog"] = [];
+	const { a, hostId } = await rig.connected({
+		services: hostServices(bin, workDir),
+		logLink: (message, details) => hostLog.push({ message, details }),
+	});
 	const sidecar = a.devices.createSidecar(hostId, "t1", workDir, "agent", true);
 	const ready = Promise.withResolvers<void>();
 	sidecar.on("status", ({ status }: { status: string }) => {
@@ -211,11 +218,21 @@ async function openSession(): Promise<Session> {
 	return {
 		sidecar,
 		recorder,
+		rig,
+		hostLog,
 		async turn(scenario) {
 			const settled = Promise.withResolvers<void>();
+			const ended = Promise.withResolvers<void>();
 			sidecar.once("sessionSettled", () => settled.resolve());
+			// `sessionSettled` is not batched, so it can overtake the last events of the turn (the 32 ms batch).
+			const onEvents = (events: Array<{ type: string }>) => {
+				if (!events.some(event => event.type === "agent_end")) return;
+				sidecar.off("events", onEvents);
+				ended.resolve();
+			};
+			sidecar.on("events", onEvents);
 			await sidecar.rpcClient?.command({ type: "prompt", message: JSON.stringify(scenario) });
-			await settled.promise;
+			await Promise.all([settled.promise, ended.promise]);
 		},
 		async setLevel(level) {
 			await sidecar.rpcClient?.command({ type: "set_subagent_subscription", level });
@@ -291,5 +308,23 @@ describe("link traffic harness", () => {
 		await sidecar.rpcClient?.command({ type: "get_state" });
 		expect([...recorder.links.keys()]).toEqual(["A>B req tab.command", "B>A res tab.command"]);
 		expect(recorder.totalBytes).toBeGreaterThan(0);
+	}, 30_000);
+});
+
+describe("the host's traffic line over the real pipeline", () => {
+	it("names the omp event type a streamed reply is made of, and holds none of its text", async () => {
+		const { rig, turn, hostLog } = await openSession();
+		await turn({ kind: "stream", thinkingTokens: 100, textTokens: 300, tokenMs: 0 });
+		await rig.dispose();
+
+		const traffic = hostLog.filter(line => line.message === "traffic");
+		expect(traffic).toHaveLength(1);
+		const details = traffic[0]?.details as {
+			top: Array<{ kind: string }>;
+			events: Record<string, number>;
+		};
+		expect(details.top[0]?.kind).toBe("tx evt tab.event events");
+		expect(details.events.message_update).toBeGreaterThan(400);
+		expect(JSON.stringify(details)).not.toContain("session transcript");
 	}, 30_000);
 });

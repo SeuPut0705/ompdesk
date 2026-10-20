@@ -13,6 +13,7 @@ import { formatAddress, remotePortCandidates } from "./address";
 import { DEVICE_RENAME_EVENT, HOST_NAME_EVENT, NAME_METHODS, NameParams } from "./app-protocol";
 import { authKeys, dh, generateKeyPair } from "./crypto";
 import type { Identity } from "./identity";
+import { logLinkTraffic } from "./link-traffic";
 import type { PeerInfo, PeerStore } from "./peers-store";
 import {
 	AuthInit,
@@ -94,8 +95,11 @@ export interface RemoteHostOptions {
 	renameSelf?: (name: string, by: PeerInfo) => void;
 	/** Something worth a line in the runtime log (a port other than the first, a refusal). */
 	log?: (event: string, details: Record<string, unknown>) => void;
-	/** A device's connection opened or closed (`open`, `closed` with why and how long), for the runtime log (`remote-link`). */
-	logLink?: (event: "open" | "closed", details: Record<string, unknown>) => void;
+	/**
+	 * A device's connection opened or closed (`open`, `closed` with why and how long), or moved a lot in the last
+	 * minute (`traffic`: bytes and frames by kind, never a payload), for the runtime log (`remote-link`).
+	 */
+	logLink?: (event: "open" | "closed" | "traffic", details: Record<string, unknown>) => void;
 	now?: () => number;
 }
 
@@ -424,6 +428,12 @@ export class RemoteHost {
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		this.#opts.logLink?.("open", { deviceId: current.deviceId, ms: openedAt - acceptedAt });
+		const { logLink } = this.#opts;
+		if (logLink)
+			logLinkTraffic(link, {
+				now: this.#now,
+				log: details => logLink("traffic", { deviceId: current.deviceId, ...details }),
+			});
 		link.onClose(() => {
 			this.#opts.logLink?.("closed", {
 				deviceId: current.deviceId,

@@ -54,6 +54,12 @@ function statusOf(tailnet: FakeTailnet): TailscaleStatus | null {
 	};
 }
 
+/** What the host computer of a rig runs: its own services (default: fakes) and where its `remote-link` lines go. */
+export interface HostOptions {
+	services?: LocalHostServices;
+	logLink?: (event: string, details: Record<string, unknown>) => void;
+}
+
 export interface Computer {
 	devices: RemoteDevices;
 	/** Called on every `remote:state` broadcast. */
@@ -86,7 +92,7 @@ export class DevicesRig {
 	async computer(
 		name: string,
 		fake: FakeTailnet,
-		options: { userData?: string; prefs?: Map<string, unknown>; services?: LocalHostServices } = {},
+		options: { userData?: string; prefs?: Map<string, unknown> } & HostOptions = {},
 	): Promise<Computer> {
 		const dir = options.userData ?? (await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-devices-")));
 		if (!options.userData) this.#dirs.push(dir);
@@ -115,6 +121,7 @@ export class DevicesRig {
 				if (channel === "remote:tailnet") tailnet.pushed = structuredClone(data as TailnetComputer[]);
 			},
 			services: options.services ?? (services as unknown as LocalHostServices),
+			logLink: options.logLink,
 			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
 			offlineMessage: () => "offline",
 			stalledMessage: device => `${device} stalled`,
@@ -139,12 +146,12 @@ export class DevicesRig {
 	}
 
 	/** A host B sharing itself and a device A that sees it as node `nSTUDIO`; B sees A as node `nLAPTOP`. */
-	async pair(hostServices?: LocalHostServices): Promise<{ a: Computer; b: Computer }> {
+	async pair(host: HostOptions = {}): Promise<{ a: Computer; b: Computer }> {
 		await this.pickPort();
 		const b = await this.computer(
 			"Studio",
 			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
-			{ services: hostServices },
+			host,
 		);
 		b.devices.start();
 		await b.devices.setHostEnabled(true);
@@ -155,8 +162,8 @@ export class DevicesRig {
 	}
 
 	/** Pair, then connect A to B; resolves once both sides see the link. */
-	async connected(hostServices?: LocalHostServices): Promise<{ a: Computer; b: Computer; hostId: string }> {
-		const { a, b } = await this.pair(hostServices);
+	async connected(host: HostOptions = {}): Promise<{ a: Computer; b: Computer; hostId: string }> {
+		const { a, b } = await this.pair(host);
 		const view = await a.devices.connect("nSTUDIO");
 		await until(a, state => state.hosts[0]?.state === "online");
 		await until(b, state => state.host.peers[0]?.online === true);

@@ -124,6 +124,9 @@ export interface Liveness {
 	deadMs: number;
 }
 
+/** Sees every message the link sends (`tx`) or receives (`rx`) with its wire bytes, header and encryption overhead included. */
+export type TrafficHandler = (direction: "tx" | "rx", message: object, bytes: number) => void;
+
 interface Waiter {
 	resolve: (message: WireMessage) => void;
 	reject: (error: Error) => void;
@@ -148,6 +151,7 @@ export class Link {
 	#sealer: FrameSealer | null = null;
 	#opener: FrameOpener | null = null;
 	#pingTimer: NodeJS.Timeout | undefined;
+	#traffic: TrafficHandler | null = null;
 	#check: { promise: Promise<boolean>; resolve: (alive: boolean) => void; timer: NodeJS.Timeout } | null = null;
 	#lastReceived = Date.now();
 	#closed = false;
@@ -188,7 +192,14 @@ export class Link {
 		if (this.#closed) return;
 		const json = Buffer.from(JSON.stringify(message));
 		const payload = this.#sealer ? this.#sealer.seal(json) : json;
-		this.#socket.write(encodeFrame(payload));
+		const frame = encodeFrame(payload);
+		this.#traffic?.("tx", message, frame.length);
+		this.#socket.write(frame);
+	}
+
+	/** Count what crosses this link from now on; one handler. */
+	onTraffic(handler: TrafficHandler): void {
+		this.#traffic = handler;
 	}
 
 	/** The next message; rejects on timeout, or on close once nothing received is left. */
@@ -277,6 +288,7 @@ export class Link {
 				break;
 			}
 			this.#lastReceived = Date.now();
+			this.#traffic?.("rx", message, payload.length + HEADER_BYTES);
 			this.#settleCheck(true);
 			const waiter = this.#waiter;
 			if (waiter) {
