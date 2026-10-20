@@ -861,6 +861,8 @@ export class AgentControl {
 	readonly #queuedFollowUp = new Map<string, { n: number; id: string; from: string }>();
 	/** Sends with a request id still on their way: a same-id repeat joins one instead of sending twice. */
 	readonly #inflight = new Map<string, Promise<string>>();
+	/** The question cards of each child its opener was already told of (request ids), so a re-announced card stays one message. */
+	readonly #cardsTold = new Map<string, Set<string>>();
 
 	readonly #app: AppControl | null;
 
@@ -886,6 +888,46 @@ export class AgentControl {
 		return [...this.#openedBy(callerTabId, tabs)].filter(id => !id.startsWith("pending:"));
 	}
 
+	/**
+	 * A child showed a question card (stock `ask`, a select, confirm or text prompt): its opener hears of it as one
+	 * question in its session, as a report the child wrote would arrive, so it can answer with ompdesk_session_answer or
+	 * ask the user instead of finding the card by polling. Never OMPdesk's own confirmation cards, a session hidden from
+	 * agents, or a session `openerTabId` did not open. Local and paired-device children alike: both reach here from the
+	 * pool's ask activity.
+	 */
+	async childAsked(openerTabId: string, childTabId: string, requestId: string): Promise<void> {
+		if (!this.#host.enabled()) return;
+		const tabs = this.#host.tabs(openerTabId);
+		if (!tabs) return;
+		const child = tabs.find(tab => tab.tabId === childTabId);
+		if (!child || child.hidden) return;
+		if (this.#host.parentOf(childTabId) !== openerTabId && !this.#openedBy(openerTabId, tabs).has(childTabId)) return;
+		const ask = child.asks.find(entry => entry.id === requestId);
+		if (!ask || askTitle(ask.request).startsWith(AGENT_CARD_PREFIX)) return;
+		const told = this.#cardsTold.get(childTabId) ?? new Set<string>();
+		if (told.has(requestId)) return;
+		told.add(requestId);
+		this.#cardsTold.set(childTabId, told);
+		const mail: Mail = {
+			id: `ask-${childTabId}-${requestId}`,
+			from: childTabId,
+			fromTitle: child.title || child.task || "",
+			to: openerTabId,
+			kind: "question",
+			text: cardText(ask.request),
+			card: requestId,
+			at: Date.now(),
+		};
+		try {
+			await this.#host.mail(openerTabId, mailText(mail), mailDetails(mail), deliveryFor(mail.kind));
+		} catch (error) {
+			// Not delivered (the opener's omp restarting): a later announcement of the same card may try again.
+			told.delete(requestId);
+			throw error;
+		}
+		this.#host.reviewChanged?.(openerTabId);
+	}
+
 	/** Drop a tab's queued steers and follow-ups; the turn that runs is left alone. */
 	async clearQueue(tabId: string): Promise<void> {
 		responseData(await this.#host.command(tabId, { type: "queue_clear" }, 15_000), "Clearing the queue");
@@ -901,6 +943,7 @@ export class AgentControl {
 		this.#reviewed.delete(tabId);
 		this.#conflicts.delete(tabId);
 		this.#mailbox.forget(tabId);
+		this.#cardsTold.delete(tabId);
 		this.#queuedFollowUp.delete(tabId);
 		for (const key of this.#reportedAt.keys()) if (key.split("\n").includes(tabId)) this.#reportedAt.delete(key);
 	}
@@ -1878,11 +1921,22 @@ export class AgentControl {
 		let summary: string;
 		if (request.method === "select") {
 			const approval = approvalChoices(request);
-			const choice = pickOption(
-				request.options,
+			const wanted =
 				args.choice ??
-					(args.approve === undefined ? undefined : args.approve ? (approval?.once ?? "Approve") : APPROVE_DENY),
-			);
+				(args.approve === undefined ? undefined : args.approve ? (approval?.once ?? "Approve") : APPROVE_DENY);
+			if (wanted === undefined)
+				fail(
+					[
+						`No choice given: pass \`choice\` with one of: ${request.options.map(option => `"${option}"`).join(" | ")}.`,
+						...(args.text !== undefined ? ["`text` answers a text prompt, not this choice card."] : []),
+						...(request.options.includes(OTHER_OPTION)
+							? [
+									`To give an answer of your own, choose "${OTHER_OPTION}": the session then asks for the text, which you answer with \`text\`.`,
+								]
+							: []),
+					].join(" "),
+				);
+			const choice = pickOption(request.options, wanted);
 			// Every approving answer (this call, for the session, a remembered folder or file) needs the user's leave;
 			// Deny never does.
 			if (approval && choice !== APPROVE_DENY && !this.#host.approveEnabled())
@@ -1906,7 +1960,10 @@ export class AgentControl {
 			const answers = request.questions.map(question => {
 				const mine =
 					given.find(entry => entry.id === question.id) ?? (request.questions.length === 1 ? given[0] : undefined);
-				if (!mine) fail(`Answer question "${question.id}" (${oneLine(question.question, 80)}).`);
+				if (!mine)
+					fail(
+						`No answer for question "${question.id}" (${oneLine(question.question, 80)}): pass \`answers\` ([{"id": "${question.id}", "selected": [<one of ${question.options.map(option => `"${option.label}"`).join(" | ")}>]}], or "text" instead of "selected" for an answer of your own).`,
+					);
 				const labels = question.options.map(option => option.label);
 				const selected = (mine.selected ?? []).map(name => pickOption(labels, name));
 				if (selected.length === 0 && !mine.text)
@@ -2338,8 +2395,11 @@ export class AgentControl {
 				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
 			...this.#reportFields(tab.tabId),
-			// Its plan waits for approval: the opener (or the person) answers it, nothing is left to review.
-			...(tab.plan ? { waiting: true as const } : {}),
+			// Its plan waits for approval, or a question card of its own waits for an answer: the opener (or the person)
+			// answers it, nothing is left to review.
+			...(tab.plan || tab.asks.some(entry => !askTitle(entry.request).startsWith(AGENT_CARD_PREFIX))
+				? { waiting: true as const }
+				: {}),
 		};
 		if (!tab.worktree) return item;
 		try {
@@ -2812,9 +2872,34 @@ function askTitle(request: ExtensionUIRequest): string {
 	return "title" in request && typeof request.title === "string" ? request.title : "";
 }
 
+/** Stock's label for the custom-answer row of a choice card (`OTHER_OPTION` in the stock ask tool). */
+const OTHER_OPTION = "Other (type your own)";
+
+/** What a question card asks and which `ompdesk_session_answer` field answers it, for its opener's mail. */
+function cardText(request: ExtensionUIRequest): string {
+	switch (request.method) {
+		case "select":
+			return `${request.title}\noptions: ${request.options.map(option => `"${option}"`).join(" | ")}\nanswer with: choice (one option exactly as written)`;
+		case "confirm":
+			return `${request.title}${request.message ? `\n${request.message}` : ""}\nanswer with: approve (true or false)`;
+		case "input":
+		case "editor":
+			return `${request.title}\nanswer with: text`;
+		case "ask":
+			return [
+				...request.questions.map(
+					question =>
+						`[${question.id}] ${question.question}\noptions: ${question.options.map(option => `"${option.label}"`).join(" | ")}${question.multi ? " (several allowed)" : ""}`,
+				),
+				'answer with: answers ([{"id": <question id>, "selected": [<option>]}], or "text" for an answer of your own)',
+			].join("\n");
+		default:
+			return askTitle(request);
+	}
+}
+
 /** The option named `wanted` (case-insensitive, or a unique prefix), or a readable failure listing the options. */
-function pickOption(options: readonly string[], wanted: string | undefined): string {
-	if (wanted === undefined) fail(`Choose one of: ${options.join(" | ")}.`);
+function pickOption(options: readonly string[], wanted: string): string {
 	const lowered = wanted.trim().toLowerCase();
 	const exact = options.find(option => option.toLowerCase() === lowered);
 	if (exact) return exact;

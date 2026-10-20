@@ -247,6 +247,16 @@ export class AgentControlRuntime {
 			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#openerOf(activity.tabId);
 			if (parent) this.#pushReview(parent);
+			// A child's question card tells its opener (local and paired-device children alike); an Autopilot run's
+			// children are answered by its approver, and the run reads them itself.
+			if (
+				activity.type === "ask" &&
+				parent &&
+				this.#parents.get(activity.tabId)?.tag === undefined &&
+				!this.#autopilotRuns.has(parent) &&
+				!this.#deps.isAutopilotRun?.(parent)
+			)
+				this.control.childAsked(parent, activity.tabId, activity.requestId).catch(() => undefined);
 			// A turn that ended changed the session's own cost, the base of its family's (sidebar chip, Work tree).
 			if (activity.type === "idle") this.#pushReview(activity.tabId);
 			// A child finishing, or an opener going idle (it can no longer collect), may let a child close.

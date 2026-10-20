@@ -289,6 +289,57 @@ test.describe("on a paired device", () => {
 		await expect(hostList.filter({ hasText: "remote part" })).toHaveCount(0);
 	});
 
+	test("tells the opener when its session on the paired device shows a question card, and the answer reaches it", async () => {
+		test.setTimeout(240_000);
+		const { hostProfile, clientProfile, call, client: app } = await pairApps();
+		const parentTab = (await app.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		const open = await call("ompdesk_session_open", { device: "PC-B", message: "Title: ask there\nAsk me" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+		// The host's omp raises a stock `ask` card (the fake's "fixture ask").
+		await app.page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture ask" }),
+			child as string,
+		);
+		// Nobody polls: the opener's omp on this computer gets one question mail naming the card, between its steps.
+		const mails = async () =>
+			(await readRecords(clientProfile.record)).filter(
+				frame =>
+					frame.type === "agent_control.mail" &&
+					(frame.details as Record<string, unknown> | undefined)?.kind === "question" &&
+					(frame.details as Record<string, unknown> | undefined)?.from === child,
+			);
+		await expect.poll(async () => (await mails()).length, { timeout: 30_000 }).toBe(1);
+		const [mail] = await mails();
+		expect(mail?.deliverAs).toBe("aside");
+		expect(mail?.triggerTurn).toBe(true);
+		expect(String(mail?.content)).toContain("Where should this deploy?");
+		expect(String(mail?.content)).toContain("ompdesk_session_answer");
+		expect((await readRecords(hostProfile.record)).some(frame => frame.type === "agent_control.mail")).toBe(false);
+		expect((await call("ompdesk_tab_focus", { session: parentTab })).isError).toBe(false);
+		await expect(app.page.locator("[data-agent-mail='question']").last()).toBeVisible({ timeout: 30_000 });
+
+		// Answered by the opener's tool on this computer: the answer reaches the card on the host's omp.
+		const answered = await call("ompdesk_session_answer", {
+			session: child,
+			answers: [
+				{ id: "env", selected: ["Staging"] },
+				{ id: "checks", selected: ["Lint"] },
+				{ id: "notify", selected: ["No"] },
+			],
+		});
+		expect(answered.isError, answered.text).toBe(false);
+		await expect
+			.poll(async () =>
+				(await readRecords(hostProfile.record)).some(
+					frame => frame.type === "extension_ui_response" && frame.id === "fixture-ask",
+				),
+			)
+			.toBe(true);
+		expect((await mails()).length).toBe(1);
+	});
+
 	test("the opener's board and sidebar follow a session running on the paired device, live", async () => {
 		test.setTimeout(240_000);
 		const { hostProfile, call, client: app } = await pairApps();
