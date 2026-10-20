@@ -114,8 +114,8 @@ export interface TodoBoard {
 	/** The first in-progress task, else null. */
 	active: string | null;
 	rows: TodoBoardRow[];
-	/** Completed tasks folded away before the first shown row. */
-	doneBefore: number;
+	/** Completed tasks folded into the one "n done" row, wherever they sit in the plan. */
+	folded: number;
 	/** Tasks after the last shown row. */
 	hidden: number;
 	/** Every counted task's status in order, for the progress bar. */
@@ -126,24 +126,24 @@ export interface TodoBoard {
 export const TODO_BOARD_ROWS = 5;
 
 /**
- * The plan's progress and the tasks from the first open one on; every finished task before it folds into a count.
- * Abandoned tasks are neither done nor left to do, so they leave the count and the list.
+ * The plan's progress and its unfinished tasks in order; every finished task folds into one count, wherever it sits
+ * (an agent marks steps done out of order). A finished list shows its tail instead. Abandoned tasks are neither done
+ * nor left to do, so they leave the count and the list.
  */
 export function todoBoard(phases: readonly { tasks: readonly TodoTask[] }[]): TodoBoard | null {
 	const tasks = phases.flatMap(phase => phase.tasks).filter(task => task.status !== "abandoned");
 	if (tasks.length === 0) return null;
 	const done = tasks.filter(task => task.status === "completed").length;
-	const firstOpen = tasks.findIndex(task => task.status !== "completed");
-	// A list with work left folds all finished tasks before the first open one; a finished list shows its tail.
-	const start = Math.max(0, firstOpen < 0 ? tasks.length - TODO_BOARD_ROWS : firstOpen);
-	const rows = tasks.slice(start, start + TODO_BOARD_ROWS).map(({ content, status }) => ({ content, status }));
+	const open =
+		done === tasks.length ? tasks.slice(-TODO_BOARD_ROWS) : tasks.filter(task => task.status !== "completed");
+	const rows = open.slice(0, TODO_BOARD_ROWS).map(({ content, status }) => ({ content, status }));
 	return {
 		done,
 		total: tasks.length,
 		active: tasks.find(task => task.status === "in_progress")?.content ?? null,
 		rows,
-		doneBefore: start,
-		hidden: Math.max(0, tasks.length - (start + rows.length)),
+		folded: done === tasks.length ? tasks.length - rows.length : done,
+		hidden: open.length - rows.length,
 		segments: tasks.map(task => task.status),
 	};
 }
