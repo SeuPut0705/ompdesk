@@ -14,6 +14,7 @@
  */
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 export interface FakeRequest {
@@ -44,14 +45,22 @@ async function readLines(file: string): Promise<Record<string, unknown>[]> {
 		.map(line => JSON.parse(line) as Record<string, unknown>);
 }
 
-/** Stop the detached server a fake `setup` started under `home` (a missing pid file or a gone process is fine). */
+/**
+ * Stop the detached server a fake `setup` started under `home` and resolve once it is gone (a missing pid file or a
+ * gone process is fine): `process.kill` returns before Windows ends the process, and its handles on the HOME go only then.
+ */
 export async function stopFakeServer(home: string): Promise<void> {
 	const pid = Number(await readFile(join(home, ".fake-ai-memory", "server.pid"), "utf8").catch(() => ""));
 	if (!pid) return;
 	try {
 		process.kill(pid);
+		// Signal 0 throws once the process is gone.
+		for (;;) {
+			process.kill(pid, 0);
+			await sleep(25);
+		}
 	} catch {
-		// already gone
+		// gone
 	}
 }
 

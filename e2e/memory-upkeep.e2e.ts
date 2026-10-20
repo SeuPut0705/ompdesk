@@ -58,6 +58,6 @@ test("the upkeep retitles a junk session page and discards a child's handoff onc
 		delete process.env.FAKE_AI_MEMORY_UPKEEP;
 		if (current) await exitApp(current.app).catch(() => undefined);
 		await stopFakeServer(rig.home);
-		await fs.rm(rig.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+		await fs.rm(rig.root, { recursive: true, force: true });
 	}
 });
