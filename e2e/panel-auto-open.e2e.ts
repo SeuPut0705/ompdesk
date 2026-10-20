@@ -94,7 +94,7 @@ test("an edit turn opens Changes at its end, not before, once the switch is on",
 		await expect(panel(page)).toHaveCount(0);
 		await flow.op({ op: "reply", text: "done" });
 		await expect(panel(page)).toBeVisible();
-		await expect(page.getByText("a.txt").first()).toBeVisible();
+		await expect(panel(page).getByText("a.txt").first()).toBeVisible();
 	});
 });
 
