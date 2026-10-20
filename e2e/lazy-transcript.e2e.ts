@@ -128,13 +128,26 @@ test("renders only the tail, anchors older pages, reaches the first turn and app
 	await capture("loading");
 	await fixture("fixture:release-history");
 	await expect(page.getByTestId("transcript-history-status")).toHaveCount(0);
-	await expect
-		.poll(async () =>
-			page
-				.locator("[data-row-key]")
-				.evaluateAll((rows, key) => rows.some(row => (row as HTMLElement).dataset.rowKey === key), before.key),
-		)
-		.toBe(true);
+	try {
+		await expect
+			.poll(async () =>
+				page
+					.locator("[data-row-key]")
+					.evaluateAll((rows, key) => rows.some(row => (row as HTMLElement).dataset.rowKey === key), before.key),
+			)
+			.toBe(true);
+	} catch (error) {
+		// Seen once on a hosted runner (0 of 9 locally, CPU throttled up to 20×): where the view went instead.
+		const view = await scroll.evaluate(element => ({
+			scrollTop: element.scrollTop,
+			scrollHeight: element.scrollHeight,
+			rows: [...element.querySelectorAll<HTMLElement>("[data-row-key]")].map(
+				row => `${row.dataset.rowKey} ${Math.round(row.getBoundingClientRect().top)}`,
+			),
+		}));
+		await test.info().attach("prepend-view.json", { body: JSON.stringify({ before, view }, null, 2) });
+		throw error;
+	}
 	await expect
 		.poll(async () => {
 			const after = await page.locator(".omp-transcript-scroll").evaluate((element, key) => {
