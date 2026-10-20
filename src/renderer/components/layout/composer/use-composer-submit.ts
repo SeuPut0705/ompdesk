@@ -4,7 +4,7 @@
  * shorthand, slash-command routing, and the prompt/steer/followUp dispatch.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AgentMessage, AvailableCommand } from "../../../../shared/rpc-types";
 import { refreshNextPromptAfterBash } from "../../../hooks/use-next-prompt";
 import { hydrateTabSession } from "../../../hooks/use-rpc-events";
@@ -82,13 +82,20 @@ export function useComposerSubmit({
 		[emojiAutocomplete],
 	);
 	useAutoModePrefetch({ text, isStreaming, status, tabId: runtimeTabId, rpc, expand: expandProse });
+	const heldSend = useRef<{ message: string; overrideText?: string; forceMode?: SendMode } | null>(null);
 	const send = useCallback(
 		// `overrideText` sends a freshly computed value (voice dictation submit
 		// trigger) instead of the rendered `text` state, which lags a setText.
 		// `forceMode` overrides the steer/followUp toggle for one send (the follow-up chord).
 		(overrideText?: string, forceMode?: SendMode) => {
 			const message = (overrideText ?? text).trim();
-			if ((!message && images.length === 0) || sending) return;
+			if (!message && images.length === 0) return;
+			// The previous send is still being answered (a prompt's round trip, a `!` command's whole run): the Enter is
+			// held, not dropped, and goes out once that send settles (the effect below).
+			if (sending) {
+				heldSend.current = { message, overrideText, forceMode };
+				return;
+			}
 			// An edit that cut into a paste marker left text that names a paste but is not one: sending it would
 			// hand the agent the literal fragment and lose the paste (DI-3).
 			const fragment = danglingPasteFragment(message);
@@ -525,6 +532,18 @@ export function useComposerSubmit({
 			setMenu,
 		],
 	);
+
+	// A held Enter goes out when the send it waited for has settled, if the field still holds what was sent: a
+	// failed send puts its own text back and an edit changes the draft, and either means the user must press again.
+	const latestSend = useRef(send);
+	latestSend.current = send;
+	useEffect(() => {
+		const held = heldSend.current;
+		if (sending || !held) return;
+		heldSend.current = null;
+		if (held.overrideText === undefined && text.trim() !== held.message) return;
+		latestSend.current(held.overrideText, held.forceMode);
+	}, [sending, text]);
 
 	return send;
 }

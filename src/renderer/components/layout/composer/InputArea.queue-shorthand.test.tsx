@@ -272,6 +272,56 @@ afterEach(async () => {
 });
 
 describe("InputArea queue shorthand submit", () => {
+	it("sends an Enter pressed while the previous send is still answering as soon as it is, never dropping it", async () => {
+		await mount(true);
+		const pending = Promise.withResolvers<RpcResponse>();
+		prompt.mockReturnValueOnce(pending.promise);
+		await typeInto(findTextarea(), "first");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(1);
+		await typeInto(findTextarea(), "second");
+		await pressEnter(findTextarea());
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(1);
+		expect(useComposerStore.getState().draft).toBe("second");
+		pending.resolve({ type: "response", command: "prompt", success: true });
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(2);
+		expect(prompt.mock.calls[1]?.[0]).toBe("second");
+		expect(useComposerStore.getState().draft).toBe("");
+	});
+
+	it("drops a pressed Enter when the previous send failed and put its text back, or when the draft changed", async () => {
+		await mount(true);
+		const failing = Promise.withResolvers<RpcResponse>();
+		prompt.mockReturnValueOnce(failing.promise);
+		await typeInto(findTextarea(), "first");
+		await pressEnter(findTextarea());
+		await flush();
+		await typeInto(findTextarea(), "second");
+		await pressEnter(findTextarea());
+		await flush();
+		failing.resolve({ type: "response", command: "prompt", success: false, error: "offline" });
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(1);
+		expect(useComposerStore.getState().draft).toBe("first\n\nsecond");
+
+		const slow = Promise.withResolvers<RpcResponse>();
+		prompt.mockReturnValueOnce(slow.promise);
+		await act(async () => useComposerStore.getState().setDraft("third"));
+		await pressEnter(findTextarea());
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(2);
+		await typeInto(findTextarea(), "fourth");
+		await pressEnter(findTextarea());
+		await typeInto(findTextarea(), "fifth");
+		slow.resolve({ type: "response", command: "prompt", success: true });
+		await flush();
+		expect(prompt).toHaveBeenCalledTimes(2);
+		expect(useComposerStore.getState().draft).toBe("fifth");
+	});
+
 	it("restores an unacknowledged send after process recovery and blocks duplicate submission", async () => {
 		await mount(true);
 		const pending = Promise.withResolvers<RpcResponse>();
