@@ -28,8 +28,12 @@ export const PREVIEW_CHECK_SETTLE_MS = 300;
 export const PREVIEW_CHECK_CAPTURE_MS = 2000;
 /** The whole check (probe + page + settle + judge) holds the tool's answer at most this long. */
 export const PREVIEW_CHECK_TOTAL_MS = 4000;
-/** Asking the tab's omp whether a native judge would answer at all; no answer in time counts as "no". */
-export const PREVIEW_CHECK_PROBE_MS = 500;
+/**
+ * Asking the tab's omp whether a native judge would answer at all; no answer in time counts as "no". The answer needs
+ * no model call, but a busy omp on a slow machine (measured on a loaded CI runner) took past 500 ms, and a probe that
+ * misses its bound turns the check off for that machine; the time it takes still comes out of the total.
+ */
+export const PREVIEW_CHECK_PROBE_MS = 1500;
 
 export interface PreviewImage {
 	data: string;
