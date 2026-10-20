@@ -3151,6 +3151,7 @@ describe("situation matrix", () => {
 			}),
 		];
 		host.storedTranscripts.set(file("cccccccc-3333"), said("stored answer"));
+		host.storedTranscripts.set(file("eeeeeeee-3333"), said("sleeper answer"));
 		host.storedTranscripts.set("L:/s/2026-10-20T00-00-00-000Z_dddddddd-4444.jsonl", said("laptop answer"));
 		// The Laptop's link was blipping: it comes back two seconds in, and its tab re-attaches.
 		setTimeout(() => {
@@ -3183,6 +3184,7 @@ describe("situation matrix", () => {
 		"read · paired device's tab": { tool: T.read, args: { session: "remo2222" }, ok: /remote answer/ },
 		"read · device reconnecting": { tool: T.read, args: { session: "blip5555" }, ok: /blip answer/ },
 		"read · saved only": { tool: T.read, args: { session: "cccccccc-3333" }, ok: /stored answer/ },
+		"read · deferred tab, by title": { tool: T.read, args: { session: "Sleeper" }, ok: /sleeper answer/ },
 		"read · saved on a reconnecting device, never listed": {
 			tool: T.read,
 			args: { session: "dddddddd-4444" },
