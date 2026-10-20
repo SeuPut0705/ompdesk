@@ -399,8 +399,7 @@ describe("a device that asks for slim events", () => {
 	);
 
 	it("receives a subagent's streamed messages in at most a tenth of the bytes an older device gets", async () => {
-		// One subagent message (the loop's first pass), unpaced.
-		const scenario = { kind: "subagent", seconds: 0.01, textTokens: 300, tokenMs: 0 };
+		const scenario = { kind: "subagent", messages: 1, textTokens: 300, tokenMs: 0 };
 		const older = await delivered(scenario, { olderDevice: true, level: "events" });
 		const current = await delivered(scenario, { level: "events" });
 		const perFrame = (bytes: number, frames: number): number => bytes / Math.max(1, frames);

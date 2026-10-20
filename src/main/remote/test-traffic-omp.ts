@@ -19,6 +19,8 @@ interface Scenario {
 	tokenMs?: number;
 	/** `tool-wait`: how long the tool call stays silent. `subagent`: how long the subagent works. */
 	seconds?: number;
+	/** `subagent`: stream exactly this many messages instead of working `seconds`. */
+	messages?: number;
 }
 
 const WORDS = [
@@ -245,7 +247,8 @@ async function subagent(emit: (event: object) => void, scenario: Scenario): Prom
 		if (level === "events") out({ type: "subagent_event", payload: { id: "0-Explore", event } });
 	};
 	const deadline = Date.now() + seconds * 1000;
-	while (Date.now() < deadline) {
+	const more = (): boolean => (scenario.messages === undefined ? Date.now() < deadline : tools < scenario.messages);
+	while (more()) {
 		const message = await streamMessage(subEmit, 0, scenario.textTokens ?? 300, tokenMs, {
 			id: `sub-call-${tools}`,
 			name: "grep",
