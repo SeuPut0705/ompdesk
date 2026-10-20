@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	MIN_OMP_VERSION,
+	ompBunDefaults,
 	ompCandidates,
 	ompPackageRoot,
 	ompPathEnv,
@@ -73,6 +74,14 @@ describe("omp lookup", () => {
 		expect(entries[0]).toBe("/usr/bin");
 		expect(entries).toContain("/opt/tools");
 		expect(entries).toContain(path.join(os.homedir(), ".bun", "bin"));
+	});
+
+	it("turns bun's transpiler cache off for a session's omp on Windows, where filling it dominates a cold start", () => {
+		// Measured on Windows: an empty cache made omp's start 4 s slower than none (thousands of small files behind
+		// Defender), and a warm one was still ~0.4 s slower. Elsewhere the default stands.
+		expect(ompBunDefaults("win32")).toEqual({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" });
+		expect(ompBunDefaults("darwin")).toEqual({});
+		expect(ompBunDefaults("linux")).toEqual({});
 	});
 
 	it("points stock `omp update` at this omp: its folder first on PATH, and its own Bun root as BUN_INSTALL", async () => {

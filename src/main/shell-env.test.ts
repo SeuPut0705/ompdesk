@@ -8,6 +8,7 @@ import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
+import { ompBunDefaults } from "./omp-runtime";
 import {
 	resetLoginShellEnvCache,
 	resolveEditorCommand,
@@ -350,6 +351,45 @@ describe("SidecarManager spawn env", () => {
 			await ready.promise;
 			// Stock's initTelemetryExport returns at once on exactly this value.
 			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({ disabled: "true" });
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
+	it("spawns omp with the platform's bun defaults, under whatever the user's environment sets", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-bun-"));
+		const envPath = path.join(tempDir, "bun.json");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ cache: process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		deleteEnv("BUN_RUNTIME_TRANSPILER_CACHE_PATH");
+		let userCache: string | undefined;
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			shellEnv: async (): Promise<Record<string, string>> =>
+				userCache === undefined ? {} : { BUN_RUNTIME_TRANSPILER_CACHE_PATH: userCache },
+		});
+		let ready = Promise.withResolvers<void>();
+		sidecar.on("status", ({ status }) => {
+			if (status === "ready") ready.resolve();
+		});
+		try {
+			sidecar.start();
+			await ready.promise;
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({
+				cache: ompBunDefaults().BUN_RUNTIME_TRANSPILER_CACHE_PATH ?? null,
+			});
+			userCache = path.join(tempDir, "own-cache");
+			ready = Promise.withResolvers<void>();
+			sidecar.restart();
+			await ready.promise;
+			expect(JSON.parse(await fs.readFile(envPath, "utf8"))).toEqual({ cache: userCache });
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);
