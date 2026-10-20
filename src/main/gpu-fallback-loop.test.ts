@@ -65,7 +65,10 @@ describe("GPU crash relaunch", () => {
 	it("never relaunches a launch that already renders in software (the marker's own launch)", async () => {
 		// Windows still runs a GPU process for SwiftShader/WARP with hardware acceleration off; when that one
 		// dies too, a relaunch from here starts the same software launch again: on, off, on, off.
-		writeFileSync(join(electron.userData, "gpu-fallback.json"), JSON.stringify({ reason: "crashed", exitCode: -1 }));
+		writeFileSync(
+			join(electron.userData, "gpu-fallback.json"),
+			JSON.stringify({ at: new Date().toISOString(), reason: "crashed", exitCode: -1 }),
+		);
 		const gpu = await launch();
 		expect(electron.softwareCalls).toBe(1);
 		gpu.handleGpuProcessGone(crash);
@@ -135,11 +138,13 @@ const iGpu = (driverVersion: string) => ({
 });
 const swiftShader = { active: false, vendorId: 0xffff, deviceId: 0xffff, driverVersion: "5.0.0" };
 
-/** A launch that also reads the GPU once ready, as index.ts does. */
+/** A launch that also reads the GPU once ready and outlives the crash-loop window, as index.ts does. */
 async function launchWith(device: Record<string, unknown>): Promise<typeof GpuFallback> {
 	electron.gpuDevices = [swiftShader, device];
 	const gpu = await launch();
 	await gpu.recordGpuIdentity();
+	// Same module graph as the launch above (no reset in between).
+	(await import("./launch-guard")).markLaunchStable();
 	return gpu;
 }
 

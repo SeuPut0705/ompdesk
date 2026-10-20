@@ -97,7 +97,12 @@ import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
-import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
+import {
+	applyGpuFallbackIfNeeded,
+	confirmHardwareTrial,
+	handleGpuProcessGone,
+	recordGpuIdentity,
+} from "./gpu-fallback";
 import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
@@ -587,12 +592,15 @@ app.whenReady().then(() => {
 	if (gotLock) {
 		reportPreviousHang();
 		installHangWatchdog();
+		// The GPU the crash marker compares (gpu-fallback-core.ts): a changed driver brings hardware back.
+		void recordGpuIdentity();
 		// A launch that ran this long, or quits cleanly sooner, ends no crash loop. A GPU relaunch's `app.exit`
-		// and a crash skip both, so those launches stay unstable.
-		if (launchGuardOn) {
-			setTimeout(markLaunchStable, STABLE_AFTER_MS).unref();
-			app.on("will-quit", markLaunchStable);
-		}
+		// and a crash skip both, so those launches stay unstable. A hardware trial that ran this long keeps hardware.
+		setTimeout(() => {
+			if (launchGuardOn) markLaunchStable();
+			confirmHardwareTrial();
+		}, STABLE_AFTER_MS).unref();
+		if (launchGuardOn) app.on("will-quit", markLaunchStable);
 	}
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).

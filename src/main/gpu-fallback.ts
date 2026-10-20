@@ -18,6 +18,15 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
+import {
+	type GpuIdentity,
+	type GpuMarker,
+	gpuChange,
+	gpuIdentityOf,
+	gpuMarkerDecision,
+	markerForTrial,
+	parseGpuMarker,
+} from "./gpu-fallback-core";
 import { launchHistory, launchSafeMode, noteGpuRelaunch } from "./launch-guard";
 import { gpuRelaunchDecision } from "./launch-guard-core";
 import { writeRuntimeLog } from "./runtime-log";
@@ -26,6 +35,22 @@ const MARKER_FILENAME = "gpu-fallback.json";
 
 function markerPath(): string {
 	return join(app.getPath("userData"), MARKER_FILENAME);
+}
+
+function readMarkerText(): string | undefined {
+	try {
+		return readFileSync(markerPath(), "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+function writeMarker(marker: GpuMarker): void {
+	try {
+		writeFileSync(markerPath(), JSON.stringify({ ...marker, at: new Date(marker.at).toISOString() }));
+	} catch {
+		// Without the marker the next launch just retries hardware acceleration.
+	}
 }
 
 /**
@@ -46,14 +71,28 @@ export function applyGpuFallbackIfNeeded(safeMode = false): boolean {
 	} else if (app.commandLine.hasSwitch("disable-gpu")) {
 		disabled = true;
 	} else {
-		let marker: string | undefined;
-		try {
-			marker = readFileSync(markerPath(), "utf8");
-		} catch {
-			// No marker → normal hardware-accelerated path.
-		}
-		if (marker !== undefined && markerForcesSoftware(marker)) disabled = true;
-		else if (marker !== undefined) {
+		const text = readMarkerText();
+		if (text !== undefined && markerForcesSoftware(text)) {
+			const marker = parseGpuMarker(text);
+			const now = Date.now();
+			const decision = gpuMarkerDecision(marker, now);
+			if (decision.software) disabled = true;
+			else {
+				// Recorded before it runs, so a trial that never gets a verdict is not repeated.
+				writeMarker(markerForTrial(marker, now));
+				hardwareTrial = true;
+				writeRuntimeLog({
+					source: "gpu-fallback",
+					message: `GPU crash marker: trying hardware acceleration again (${decision.trial})`,
+					details: {
+						trial: decision.trial,
+						crashedOn: marker.gpu ?? null,
+						now: marker.seen ?? null,
+						crashedAt: marker.at ? new Date(marker.at).toISOString() : null,
+					},
+				});
+			}
+		} else if (text !== undefined) {
 			try {
 				rmSync(markerPath(), { force: true });
 			} catch {
@@ -76,6 +115,52 @@ export function applyGpuFallbackIfNeeded(safeMode = false): boolean {
 
 /** This launch turned hardware acceleration off before ready. */
 let softwareLaunch = false;
+/** This launch tries hardware again under a crash marker (driver or GPU changed, or the cool-off passed). */
+let hardwareTrial = false;
+/** The GPU Chromium named once ready. */
+let currentGpu: GpuIdentity | undefined;
+
+/**
+ * Once ready: read the GPU (`basic` info names the real adapter even in a software launch) for the crash marker.
+ * A software launch under a marker records it as `seen`, so the next launch tries hardware when it changed.
+ */
+export async function recordGpuIdentity(): Promise<void> {
+	let info: unknown;
+	try {
+		info = await app.getGPUInfo("basic");
+	} catch {
+		return;
+	}
+	currentGpu = gpuIdentityOf(
+		typeof info === "object" && info !== null && "gpuDevice" in info ? info.gpuDevice : undefined,
+	);
+	if (!softwareLaunch || !currentGpu) return;
+	const text = readMarkerText();
+	if (text === undefined || !markerForcesSoftware(text)) return;
+	const marker = parseGpuMarker(text);
+	if (marker.seen && !gpuChange(marker.seen, currentGpu)) return;
+	writeMarker({ ...marker, seen: currentGpu });
+	const change = marker.gpu ? gpuChange(marker.gpu, currentGpu) : undefined;
+	writeRuntimeLog({
+		source: "gpu-fallback",
+		message: change
+			? `GPU ${change} since the crash: the next launch tries hardware acceleration`
+			: "GPU unchanged since the crash: software rendering stays",
+		details: { crashedOn: marker.gpu ?? null, now: currentGpu },
+	});
+}
+
+/** A hardware trial ran long enough without a GPU crash: the marker goes, hardware acceleration stays. */
+export function confirmHardwareTrial(): void {
+	if (!hardwareTrial || gpuCrashHandled) return;
+	hardwareTrial = false;
+	try {
+		rmSync(markerPath(), { force: true });
+	} catch {
+		return;
+	}
+	writeRuntimeLog({ source: "gpu-fallback", message: "GPU crash marker cleared: hardware acceleration works again" });
+}
 
 /**
  * Whether this launch composites in software: the crash marker or `--disable-gpu` turned hardware
@@ -140,11 +225,10 @@ export function handleGpuProcessGone(details: { type: string; reason: string; ex
 		now,
 	});
 	if (!softwareLaunch) {
-		try {
-			writeFileSync(markerPath(), JSON.stringify({ at: new Date(now).toISOString(), ...exit }));
-		} catch {
-			// Without the marker the next launch just retries hardware acceleration.
-		}
+		// A crash in a hardware trial starts the cool-off again with the GPU it crashed on.
+		const before = readMarkerText();
+		const gpu = currentGpu ?? (before === undefined ? undefined : parseGpuMarker(before).gpu);
+		writeMarker({ at: now, ...exit, ...(gpu ? { gpu } : {}) });
 	}
 	if (!decision.relaunch) {
 		writeRuntimeLog({
