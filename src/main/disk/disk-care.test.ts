@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -224,6 +225,97 @@ describe("disk care", () => {
 		},
 		SLOW,
 	);
+
+	for (const [where, setUp] of [
+		[
+			// Read lower-cased, the file is missing on a case-sensitive disk.
+			"a core.attributesFile named with capitals and ~",
+			async () => {
+				await write(path.join(root, "home"), "Git Config/MyAttributes", "*.md text eol=crlf\n");
+				gitSync(repo, "config", "core.attributesFile", "~/Git Config/MyAttributes");
+			},
+		],
+		[
+			// The saved commit carries it, so the restore's checkout applies it.
+			"an untracked .gitattributes",
+			async (dir: string) => write(dir, "notes/.gitattributes", "*.md text eol=crlf\n"),
+		],
+		[
+			"the main repository's info/attributes, which git reads for every linked worktree",
+			async () => write(gitSync(repo, "rev-parse", "--absolute-git-dir"), "info/attributes", "notes/** eol=crlf\n"),
+		],
+	] as const) {
+		it(
+			`keeps a worktree whose line-ending rules come from ${where}`,
+			async () => {
+				const dir = await busyWorktree("attrs");
+				await setUp(dir);
+				await care().run("user");
+				expect(listed()).toContain(dir);
+				expect(await fs.readFile(path.join(dir, "notes/todo.md"), "utf8")).toBe("next: tests\n");
+				expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+				const kept = logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
+				expect(kept.join("\n")).toMatch(/a restore could rewrite files/);
+			},
+			SLOW,
+		);
+	}
+
+	/** sha256 of every file in the worktree but git's own `.git` link. */
+	async function fileHashes(dir: string): Promise<Record<string, string>> {
+		const hashes: Record<string, string> = {};
+		for (const entry of await fs.readdir(dir, { recursive: true, withFileTypes: true })) {
+			if (!entry.isFile()) continue;
+			const file = path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join("/");
+			if (file === ".git") continue;
+			hashes[file] = createHash("sha256")
+				.update(await fs.readFile(path.join(dir, file)))
+				.digest("hex");
+		}
+		return hashes;
+	}
+
+	for (const [what, autocrlf, attributes, removed] of [
+		["no conversion (core.autocrlf=false, no attributes)", "false", null, true],
+		["core.autocrlf=true and * text=auto (Git for Windows)", "true", "* text=auto\n", false],
+		["core.autocrlf=false and * text=auto", "false", "* text=auto\n", false],
+		["core.autocrlf=input", "input", null, false],
+		["* -text, which turns conversion off", "false", "* -text\n", true],
+	] as const) {
+		it(
+			`brings back CRLF, LF and mixed files byte for byte or keeps the worktree: ${what}`,
+			async () => {
+				const name = `eol-${what.replace(/\W+/g, "-").slice(0, 24)}`;
+				const dir = await worktree(name);
+				gitSync(dir, "config", "core.autocrlf", autocrlf);
+				if (attributes) await write(dir, ".gitattributes", attributes);
+				await write(dir, "crlf.txt", "one\r\ntwo\r\n");
+				await write(dir, "lf.txt", "one\ntwo\n");
+				await write(dir, "mixed.txt", "one\r\ntwo\nthree\r\n");
+				gitSync(dir, "add", ".");
+				gitSync(dir, "commit", "-q", "-m", "line endings");
+				// Uncommitted, staged and untracked work in every line ending, and an ignored file.
+				await write(dir, "crlf.txt", "one\r\ntwo\r\nthree\r\n");
+				await write(dir, "lf.txt", "one\ntwo\nthree\n");
+				gitSync(dir, "add", "lf.txt");
+				await write(dir, "mixed.txt", "one\ntwo\r\nthree\n");
+				await write(dir, "new-crlf.txt", "a\r\nb\r\n");
+				await write(dir, "new-mixed.txt", "a\nb\r\n");
+				await write(dir, ".env", "A=1\r\nB=2\n");
+				const before = await fileHashes(dir);
+
+				await care().run("user");
+				const [record] = await listSavedWorktrees(repo, saved);
+				expect(Boolean(record), "removed").toBe(removed);
+				if (record) {
+					expect(await exists(dir)).toBe(false);
+					await restoreSavedWorktree(record.id, saved);
+				}
+				expect(await fileHashes(dir)).toEqual(before);
+			},
+			SLOW,
+		);
+	}
 
 	it(
 		"keeps an idle worktree an open tab, a running process, a lock or a half-done merge holds",
