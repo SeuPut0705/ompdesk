@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.47.0] - 2026-10-21
+
+다른 컴퓨터에서 돌리는 세션이 끊김 없이 실시간으로 이어지고, 작업현황이 늘 최신 상태를 보여줘요.
+
+### 바뀐 것
+- 작업 중 표시가 테두리를 도는 빛에서, 세션 제목 위로 빛이 스치는 모습으로 바뀌었어요. 입력창은 배경에 은은한 빛이 지나가고, 답을 기다릴 때는 움직이지 않는 경고색으로 보여요.
+- 세션 찾기나 /resume에서 다른 폴더의 세션을 고르면 그 폴더의 새 탭으로 열려요. 예전에는 아무 일도 일어나지 않았어요.
+
+### 고친 것 (다른 컴퓨터)
+- 맥을 끄거나 업데이트해도 다른 컴퓨터에서 돌던 작업이 멈추지 않고 끝까지 돌아요. 다시 켜면 그 작업에 그대로 붙어요.
+- 다른 컴퓨터에서 세션을 지우면, 이 컴퓨터가 그 세션을 열어 두고 있어도 지워지고 목록에서도 바로 사라져요.
+- 연결이 잠깐 끊겼다 붙어도 작업 중 상태와 경과 시간이 그대로 이어져요. 절전에서 깨어나면 바로 다시 연결되고, 상대 컴퓨터 앱이 다시 켜지면 0.2초 만에 붙어요(예전 11초).
+- "연결이 끊겼어요" 알림은 2.5초 넘게 끊겼을 때만 떠요.
+- 다른 컴퓨터에서 긴 답이 나올 때 오가는 데이터를 19~65분의 1로 줄였어요.
+- 폴더 없이 다른 컴퓨터에 연 세션이 그 컴퓨터에서도 같은 채팅 목록에 보여요.
+
+### 고친 것 (작업현황과 세션)
+- 하위 세션의 현재 단계, 경과 시간, 비용이 2초 안에 바뀌어요. 다른 하위 세션에게 한 질문이 "답 기다림"으로 잘못 뜨지 않아요. 목표 예산, "main에 아직 없음", 사이드바의 시간도 작업 중에 바뀌어요.
+- 닫았던 세션을 다시 열면 원래 폴더에서 열려요. 폴더가 지워졌으면 다른 폴더로 옮기지 않고 알려 주고, 디스크 정리가 저장해 둔 폴더면 복원 버튼이 떠요.
+- "새 창에서 열기"가 빈 세션으로 열리던 문제를 고쳤어요.
+- 자동 재시도가 진행 중인데 "응답 실패" 카드가 떠 있던 문제를 고쳤어요.
+- 에이전트의 세션 도구가 연결이 잠깐 끊기거나 앱을 다시 켠 뒤에도 같은 세션을 찾고, 바쁜 세션도 시간 초과 없이 닫아요.
+
+### 고친 것 (Windows)
+- 세션 시작이 빨라졌어요(처음 켤 때 9.6초 → 1.3초).
+- 업데이트를 설치할 때 앱이 몇 초 멈추던 문제, Windows를 끄거나 로그아웃할 때 omp가 다시 켜지고 하던 작업이 사라지던 문제를 고쳤어요.
+- 디스크 정리가 줄바꿈 변환 규칙이 있는 저장소의 작업 폴더는 지우지 않아요.
+
+<!-- en -->
+
+Sessions on a paired computer keep up in real time without dropping out, and the work board always shows what is happening now.
+
+### Changed
+- The working cue is a light sweeping over the session's title instead of a light running around its border; the composer shows a soft sweep in its background, and a session waiting for an answer shows a still warning colour.
+- Picking a session of another folder in the session picker or /resume opens it in a new tab in its folder. It used to do nothing.
+
+### Fixed (paired computers)
+- Quitting or updating this Mac no longer stops the work it was running on a paired computer; after relaunching, this Mac picks that work up again.
+- Deleting a session on a paired computer deletes it even while this computer has it open, and it leaves the lists at once.
+- A short link drop keeps a session's running state and clock. Waking from sleep reconnects at once, and a paired computer's restarted app is back in 0.2 s (was 11 s).
+- "Disconnected" shows only after the link stayed down for 2.5 s.
+- A long reply streamed from a paired computer sends 19 to 65 times less data.
+- A no-folder session opened on a paired computer shows in the same Chat list on that computer too.
+
+### Fixed (work board and sessions)
+- A child session's step, clock and cost update within 2 s, and a question it asked another child no longer reads as waiting for you. The goal budget, "not in main yet" and the sidebar's ages also move during a turn.
+- A reopened session opens in its own folder. When that folder is gone it says so instead of moving the session elsewhere, and offers Restore when disk care saved the folder.
+- "Open in new window" no longer opens an empty session.
+- No failure card while an automatic retry is still running.
+- The agents' session tools find the same session across a short link drop or a relaunch, and close a busy session without a timeout.
+
+### Fixed (Windows)
+- Sessions start faster (first start 9.6 s → 1.3 s).
+- Installing an update no longer freezes the app for seconds, and shutting down or signing out no longer restarts omp or loses the running work.
+- Disk care keeps the worktrees of repositories with line-ending or filter rules.
+
 ## [0.46.0] - 2026-10-20
 
 원격 연결이 돌아와도 대화가 비지 않고 바로 이어지며, 디스크와 메모리를 앱이 알아서 정리해요.
