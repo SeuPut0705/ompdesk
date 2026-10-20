@@ -730,6 +730,23 @@ describe("useRpcEvents context usage sync", () => {
 			await wait(150);
 			expect(session.getState().sidecarError).toBe(translate("events.sidecarNoResponse"));
 		});
+
+		it("takes the unresponsive banner down once the omp's frames arrive again, and leaves any other error", async () => {
+			const { emitTabStatus, emitTabBatch, commandForTab } = installTabRoutedMockOmp();
+			const session = seedReadyTab("t-back");
+			await mount(<RpcEventsProbe heartbeatMs={25} />);
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-back");
+			await flush();
+			failGetState(commandForTab, () => true);
+			await wait(150);
+			expect(session.getState().sidecarError).toBe(translate("events.sidecarNoResponse"));
+			await act(async () => emitTabBatch([{ type: "turn_start" } as never], "t-back"));
+			expect(session.getState().sidecarError).toBeNull();
+
+			session.getState().setSidecarError("omp exited with code 1");
+			await act(async () => emitTabBatch([{ type: "turn_start" } as never], "t-back"));
+			expect(session.getState().sidecarError).toBe("omp exited with code 1");
+		});
 	});
 });
 

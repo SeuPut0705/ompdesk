@@ -340,9 +340,13 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		const missedProbes = new Map<string, number>();
 		const unsubscribe = window.omp.events.onTabBatch(reduceEvents);
 		function reduceEvents(events: AgentSessionEvent[], tabId: string): void {
-			// Any frame from the tab's omp proves its loop runs: a probe that timed out meanwhile was slow, not wedged.
+			// Any frame from the tab's omp proves its loop runs: a probe that timed out meanwhile was slow, not wedged, and a
+			// banner the probes raised comes down. Any other error (an exit, a failed start) stays.
 			lastEventAt.set(tabId, performance.now());
 			missedProbes.delete(tabId);
+			const live = sessionRuntimeStore<SessionStore>(tabId, "session");
+			if (live?.getState().sidecarError === translate("events.sidecarNoResponse"))
+				live.getState().clearSidecarError();
 			// Incoming session events belong to the target sidecar. Drop them
 			// during an in-place session switch, but never suppress the other pane.
 			if (sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().switchPending) return;
