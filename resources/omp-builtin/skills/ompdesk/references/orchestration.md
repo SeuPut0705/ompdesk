@@ -31,7 +31,7 @@ A worktree child reports paths inside its own checkout. When a result names an a
 
 ## Send and coordinate
 
-`ompdesk_session_send` (`session`, `message`, `delivery`): `follow_up` waits for the turn to end; `steer` only for a correction that cannot wait. Every message shows in the receiver as sent by an agent with your title.
+`ompdesk_session_send` (`session`, `message`, `delivery`): `follow_up` waits for the turn to end; `steer` only for a correction that cannot wait. A session that already reported back to you in its running turn gets the message between its steps anyway, and one that reports while your follow-up still waits is told to end its turn. Every message shows in the receiver as sent by an agent with your title. A session id you were given keeps naming the same session after OMPdesk relaunches, although the list then shows its new id.
 
 With sessions you did not open: look first (`ompdesk_sessions`, then `ompdesk_session_read`), do not interrupt one the user is typing in, hand over exactly what it needs, review by replying with concrete findings rather than redoing its work, and avoid editing its files. Never start message chains between sessions that wait on each other.
 

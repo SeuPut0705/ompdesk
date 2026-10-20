@@ -38,7 +38,14 @@ export interface PersistedTabDescriptor {
 	 * under it again after a relaunch, once the opener's tab is back. A tab id would not do: every restored tab is new.
 	 */
 	openedBy?: string;
+	/**
+	 * The ids this tab had in earlier launches, newest first (≤ `MAX_FORMER_TAB_IDS`). Every restored tab gets a new id,
+	 * and an agent given the old one (`ompdesk_session_open`, `ompdesk_sessions`) still reaches this session by it.
+	 */
+	formerIds?: string[];
 }
+
+export const MAX_FORMER_TAB_IDS = 8;
 
 export interface PersistedTabLayout {
 	version: typeof TAB_LAYOUT_VERSION;
@@ -177,6 +184,12 @@ export function sanitizePersistedTabLayout(
 		// A path is only a key to match against another tab's session file; it is never opened from here.
 		const openedBy = nonEmptyString(candidate.openedBy);
 		if (openedBy && openedBy !== sessionPath) descriptor.openedBy = openedBy;
+		const formerIds = Array.isArray(candidate.formerIds)
+			? candidate.formerIds
+					.flatMap(id => (typeof id === "string" && /^[\w:-]{1,64}$/.test(id) ? [id] : []))
+					.slice(0, MAX_FORMER_TAB_IDS)
+			: [];
+		if (formerIds.length > 0) descriptor.formerIds = formerIds;
 		retained.push({ descriptor, sourceIndex });
 	}
 

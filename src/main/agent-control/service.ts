@@ -137,6 +137,8 @@ export interface ControlTab {
 	restored?: boolean;
 	/** When its current turn started (epoch ms). */
 	busySince?: number;
+	/** The ids this session's tab had before relaunches, newest first (the saved tab layout): they still name it. */
+	formerIds?: readonly string[];
 }
 
 /** A saved session (stock's session index on this computer or a paired device), open in a tab or not. */
@@ -347,6 +349,10 @@ const POLL_MS = 3_000;
 const STATE_TIMEOUT_MS = 5_000;
 const SUMMARY_CHARS = 200;
 const SESSION_PREFIX_MIN = 4;
+/** Reports after which a session waits for, or no longer expects, its receiver's next message in the same turn. */
+const WAITS_AFTER_REPORT: ReadonlySet<string> = new Set(["done", "review", "question", "blocked"]);
+/** How long a tool call waits for an untitled tab's saved name (`#nameUntitled`). */
+const NAME_LOOKUP_MS = 2_000;
 const TOOL_RESULT_CHARS = 300;
 const MESSAGE_CHARS = 1_500;
 /** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
@@ -842,6 +848,12 @@ export class AgentControl {
 	readonly #mailbox: Mailbox;
 	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
 	readonly #receipts = new Map<string, string>();
+	/** Sessions (`device\npath`) whose saved name `#nameUntitled` already looked up. */
+	readonly #namesSought = new Set<string>();
+	/** When each session last reported done, review, a question or a blocker to the one that opened it. */
+	readonly #reportedAt = new Map<string, number>();
+	/** The newest dispatch queued as a follow-up behind each busy child's turn, until its transcript shows it. */
+	readonly #queuedFollowUp = new Map<string, { n: number; id: string; from: string }>();
 	/** Sends with a request id still on their way: a same-id repeat joins one instead of sending twice. */
 	readonly #inflight = new Map<string, Promise<string>>();
 
@@ -884,6 +896,8 @@ export class AgentControl {
 		this.#reviewed.delete(tabId);
 		this.#conflicts.delete(tabId);
 		this.#mailbox.forget(tabId);
+		this.#queuedFollowUp.delete(tabId);
+		for (const key of this.#reportedAt.keys()) if (key.split("\n").includes(tabId)) this.#reportedAt.delete(key);
 	}
 
 	/** Programmatic open (Autopilot): the same path as the tool, with a tag the tool never sets. */
@@ -901,6 +915,7 @@ export class AgentControl {
 				fail("OMPdesk control tools are turned off (Settings › Tools & extensions). Ask the user to turn them on.");
 			const tabs = this.#host.tabs(callerTabId);
 			if (!tabs) fail("This session's tab is gone.");
+			await this.#nameUntitled(tabs);
 			return { text: await this.#dispatch(callerTabId, tabs, tool, args), isError: false };
 		} catch (error) {
 			if (error instanceof ToolError) return { text: error.message, isError: true };
@@ -910,6 +925,43 @@ export class AgentControl {
 
 	#stopping(callerTabId: string): boolean {
 		return this.#closing.has(callerTabId) || this.#host.isStopping?.(callerTabId) === true;
+	}
+
+	/**
+	 * A tab with neither a title nor a task (restored by a relaunch, or reopened) reads as its saved session's name, else
+	 * the task of its first message, from the session index of the computer it runs on. Looked up once per session and
+	 * handed to the pool, so the sidebar, the board and every later call have it too. A tool call waits for the lookup
+	 * at most `NAME_LOOKUP_MS` (a paired device's index is a network read); a later answer still reaches the pool.
+	 */
+	async #nameUntitled(tabs: ControlTab[]): Promise<void> {
+		const key = (tab: ControlTab) => `${tab.device ?? ""}\n${tab.sessionPath}`;
+		const nameless = tabs.filter(
+			tab => !tab.title && !tab.task && !tab.hidden && tab.sessionPath && !this.#namesSought.has(key(tab)),
+		);
+		if (nameless.length === 0) return;
+		for (const tab of nameless) this.#namesSought.add(key(tab));
+		const names = new Map<string, string>();
+		const lookups = [...new Set(nameless.map(tab => tab.device))].map(async device => {
+			const rows = await this.#host.stored(device).catch((): StoredSession[] => []);
+			for (const tab of nameless) {
+				const row = rows.find(entry => entry.path === tab.sessionPath && entry.device === tab.device);
+				const name = row ? row.title || agentTaskTitle(row.firstMessage) : "";
+				if (!row || !name) continue;
+				names.set(key(tab), name);
+				this.#host.setTask(tab.tabId, name);
+			}
+		});
+		const { promise: waited, resolve } = Promise.withResolvers<void>();
+		const timer = setTimeout(resolve, NAME_LOOKUP_MS);
+		timer.unref?.();
+		await Promise.race([Promise.all(lookups), waited]);
+		clearTimeout(timer);
+		for (const tab of nameless) {
+			const name = names.get(key(tab));
+			if (!name) continue;
+			tab.title = name;
+			tab.task = name;
+		}
 	}
 
 	async #dispatch(callerTabId: string, tabs: ControlTab[], tool: AgentControlToolName, raw: unknown): Promise<string> {
@@ -1482,7 +1534,12 @@ export class AgentControl {
 		if (args.request_id && marks.requests.has(args.request_id))
 			return `Sent to ${label(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
-		const steer = args.delivery === "steer";
+		// One that already reported back to the caller in this turn waits in it (an answer) or wraps up: a follow-up
+		// would sit unseen behind that turn, so it reaches it between steps instead.
+		const reported = this.#reportedAt.get(`${target.tabId}\n${caller.tabId}`);
+		const promoted =
+			running && args.delivery !== "steer" && reported !== undefined && reported >= (target.busySince ?? 0);
+		const steer = args.delivery === "steer" || promoted;
 		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
 		const ownChild =
 			this.#host.parentOf(target.tabId) === caller.tabId ||
@@ -1501,11 +1558,15 @@ export class AgentControl {
 			),
 			"Sending the message",
 		);
+		if (running && !steer && dispatch)
+			this.#queuedFollowUp.set(target.tabId, { n: Number(dispatch.slice(1)), id: dispatch, from: caller.tabId });
 		const how = !running
 			? "it was idle and starts on it"
-			: steer
-				? "delivered as steer (it reads it between steps)"
-				: "queued as a follow-up (it runs when the current turn ends)";
+			: promoted
+				? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
+				: steer
+					? "delivered as steer (it reads it between steps)"
+					: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
 		const started = !running && (await this.#turnStarts(caller.tabId, target.tabId));
 		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
 		if (receiptKey) this.#receipts.set(receiptKey, receipt);
@@ -1604,18 +1665,37 @@ export class AgentControl {
 			this.#mailbox.seed(caller.tabId, (await this.#journalMarks(caller.tabId)).dispatch);
 		const outcome = await this.#mailbox.post(mail);
 		if (parent) this.#host.reviewChanged?.(parent);
+		if (outcome !== "duplicate" && outcome !== "stale" && WAITS_AFTER_REPORT.has(args.kind))
+			this.#reportedAt.set(`${caller.tabId}\n${to}`, Date.now());
+		const waiting = await this.#queuedNote(caller, tabs);
 		switch (outcome) {
 			case "duplicate":
-				return `Report ${mail.id} was already delivered; nothing sent again.`;
+				return `Report ${mail.id} was already delivered; nothing sent again.${waiting}`;
 			case "stale":
-				return `Ignored: dispatch ${args.dispatch} is no longer current (the session that opened you has since sent dispatch ${this.#mailbox.current(caller.tabId)}). Work on its latest message.`;
+				return `Ignored: dispatch ${args.dispatch} is no longer current (the session that opened you has since sent dispatch ${this.#mailbox.current(caller.tabId)}). Work on its latest message.${waiting}`;
 			case "queued":
-				return "Progress noted; it reaches the session shortly (several progress reports arrive as the latest one).";
+				return `Progress noted; it reaches the session shortly (several progress reports arrive as the latest one).${waiting}`;
 			default:
 				return mail.kind === "question" || mail.kind === "blocked"
-					? "Delivered. Wait for the answer: it comes as a message; do not guess the decision meanwhile."
-					: "Delivered.";
+					? `Delivered. Wait for the answer: it comes as a message (between your steps while this turn runs); do not guess the decision meanwhile.${waiting}`
+					: `Delivered.${waiting}`;
 		}
+	}
+
+	/**
+	 * Stock shows a queued follow-up to nobody until the turn ends, so a session that reports and then waits in the same
+	 * turn never sees the message it waits for. When one is queued for `caller` and its transcript does not hold it yet,
+	 * the report's answer says so.
+	 */
+	async #queuedNote(caller: ControlTab, tabs: ControlTab[]): Promise<string> {
+		const queued = this.#queuedFollowUp.get(caller.tabId);
+		if (!queued) return "";
+		if ((await this.#journalMarks(caller.tabId)).dispatch >= queued.n) {
+			this.#queuedFollowUp.delete(caller.tabId);
+			return "";
+		}
+		const sender = tabs.find(tab => tab.tabId === queued.from);
+		return ` A message from ${sender ? label(sender) : queued.from} (dispatch ${queued.id}) waits for you, queued until this turn ends: end your turn now to read it, rather than waiting for it in this turn.`;
 	}
 
 	async #sessionSummary(
@@ -1707,9 +1787,12 @@ export class AgentControl {
 		return renderPage(title, row.id, messages.slice(start, end), messages.length, start > 0 ? String(start) : null);
 	}
 
-	/** An open tab by id or unique prefix, undefined when none (an ambiguous prefix fails). */
+	/**
+	 * An open tab by id, by an id it had before a relaunch, or by a unique prefix of its id; undefined when none (an
+	 * ambiguous prefix fails). A former id is matched whole only: tab ids are random, so it names that session alone.
+	 */
 	#lookup(tabs: ControlTab[], session: string): ControlTab | undefined {
-		const exact = tabs.find(tab => tab.tabId === session);
+		const exact = tabs.find(tab => tab.tabId === session) ?? tabs.find(tab => tab.formerIds?.includes(session));
 		if (exact) return exact;
 		if (session.length < SESSION_PREFIX_MIN) return undefined;
 		const matches = tabs.filter(tab => tab.tabId.startsWith(session));
@@ -2289,6 +2372,7 @@ export class AgentControl {
 	async review(callerTabId: string): Promise<AgentReviewResult> {
 		const tabs = this.#host.tabs(callerTabId);
 		if (!tabs) return { items: [], usage: {} };
+		await this.#nameUntitled(tabs);
 		const own = this.#openedBy(callerTabId, tabs);
 		const children = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden);
 		// The session's own journal too: the family's cost (Work tree head) is it plus all it opened.

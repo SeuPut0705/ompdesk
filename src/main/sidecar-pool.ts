@@ -113,7 +113,12 @@ import {
 import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import { nextSnowflake } from "./snowflake";
 import { createSubagentFrameBatcher } from "./subagent-frames";
-import { type PersistedTabDescriptor, type PersistedTabLayout, TAB_LAYOUT_VERSION } from "./tab-layout";
+import {
+	MAX_FORMER_TAB_IDS,
+	type PersistedTabDescriptor,
+	type PersistedTabLayout,
+	TAB_LAYOUT_VERSION,
+} from "./tab-layout";
 import type { ResumeFact } from "./turn-resume";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
@@ -266,6 +271,11 @@ interface PoolEntry extends RunTracking {
 	openedBy?: string;
 	/** That opener's session file, kept once known so a relaunch finds the opener again (`PersistedTabDescriptor.openedBy`). */
 	openedBySession?: string;
+	/**
+	 * The ids this tab had in earlier launches, newest first (`PersistedTabDescriptor.formerIds`), and the session file
+	 * they named: they stop naming this tab once it holds another session.
+	 */
+	former?: { file: string; ids: string[] };
 	/**
 	 * Session file this tab is attached to (F-OWN). Set at acquire when
 	 * spawned with --session and maintained from the RPC passthrough via
@@ -1977,6 +1987,12 @@ export class SidecarPool {
 		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 	}
 
+	/** The ids a tab had in earlier launches while it still holds the session they named (newest first). */
+	formerTabIds(tabId: string): readonly string[] {
+		const entry = this.#byTabId.get(tabId);
+		return entry?.former && entry.former.file === entry.sessionFile ? entry.former.ids : [];
+	}
+
 	/**
 	 * Record that `openerTabId`'s agent opened `tabId` (`ompdesk_session_open`): the windows nest the session under
 	 * its opener, and the layout keeps the opener's session file so the family survives a relaunch.
@@ -2050,6 +2066,9 @@ export class SidecarPool {
 				const opener = entry.openedBy ? this.#byTabId.get(entry.openedBy) : undefined;
 				if (opener?.sessionFile) entry.openedBySession = opener.sessionFile;
 				if (entry.openedBySession) descriptor.openedBy = entry.openedBySession;
+				// This launch's id joins the ones before it: an agent given any of them still reaches the session.
+				if (entry.sessionFile)
+					descriptor.formerIds = [entry.tabId, ...this.formerTabIds(entry.tabId)].slice(0, MAX_FORMER_TAB_IDS);
 				return descriptor;
 			}),
 			...(split
@@ -2107,6 +2126,8 @@ export class SidecarPool {
 					if (sidecar) tabId = fresh;
 					const restoredEntry = this.#byTabId.get(fresh);
 					if (restoredEntry && tab.openedBy) restoredEntry.openedBySession = tab.openedBy;
+					if (restoredEntry && tab.formerIds && tab.sessionPath)
+						restoredEntry.former = { file: tab.sessionPath, ids: tab.formerIds };
 				}
 				if (!tabId) continue;
 				restoredCount++;

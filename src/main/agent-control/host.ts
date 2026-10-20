@@ -127,6 +127,7 @@ export interface AgentControlHostDeps {
 		| "sidecarOf"
 		| "startTab"
 		| "setTabTask"
+		| "formerTabIds"
 		| "setTabOpener"
 		| "hasDraft"
 		| "windowOfTab"
@@ -444,6 +445,7 @@ export class AgentControlRuntime {
 	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
 		const plan = this.#deps.pool.pendingPlan(info.tabId);
 		const autoClosable = this.#autoClosable(info);
+		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
 		return {
 			tabId: info.tabId,
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
@@ -465,6 +467,7 @@ export class AgentControlRuntime {
 			looked: info.active === true || info.visible === true || (info.viewerCount ?? 0) > 0,
 			userTouched: this.#userPrompted.has(info.tabId) || this.#deps.pool.hasDraft(info.tabId),
 			...(this.#busySince.has(info.tabId) ? { busySince: this.#busySince.get(info.tabId) } : {}),
+			...(formerIds.length > 0 ? { formerIds } : {}),
 		};
 	}
 
