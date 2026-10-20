@@ -265,6 +265,32 @@ export async function resetPage(page: Page): Promise<boolean> {
 
 /** Measure the page as it is now. */
 export async function measure(page: Page, look: Look): Promise<Issue[]> {
+	// A popover or sheet can still be placing itself when the surface's settle time is over on a loaded runner (Run
+	// settings at 834: its frame sat left of where it lands, over the sidebar's Agents and Stats, and those read as
+	// stolen taps). Measure once every dialog's box held still for three frames, 3 s at most.
+	await page.evaluate(async () => {
+		const boxes = () =>
+			[...document.querySelectorAll('[role="dialog"], [role="menu"], [role="listbox"]')]
+				.map(node => {
+					const box = node.getBoundingClientRect();
+					return `${box.x},${box.y},${box.width},${box.height}`;
+				})
+				.join("|");
+		const frame = () => {
+			const next = Promise.withResolvers<void>();
+			requestAnimationFrame(() => next.resolve());
+			return next.promise;
+		};
+		const until = performance.now() + 3000;
+		let last = boxes();
+		let still = 0;
+		while (still < 3 && performance.now() < until) {
+			await frame();
+			const now = boxes();
+			still = now === last ? still + 1 : 0;
+			last = now;
+		}
+	});
 	// Typing into or clicking a control scrolls its overflow-hidden ancestors to show it (the session pane, the
 	// page); the user never sees that shift as a layout, so measure from the unscrolled layout.
 	await page.evaluate(() => {
