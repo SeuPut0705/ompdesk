@@ -24,6 +24,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		key: "autopilotNotify",
 		why: "An Autopilot run notifies its stops, end and releases under the app's own notifications switch, never each cycle.",
 	},
+	{
+		key: "autopilotBranch",
+		why: "The Autopilot sheet shows only the folder's own branch (the run cuts its own from it); the remembered choice per repository is gone.",
+	},
 ];
 
 export function dropRetiredPrefs(store: { delete(key: string): void }): void {

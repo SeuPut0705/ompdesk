@@ -82,23 +82,16 @@ describe("the repository's branches as the picker sees them", () => {
 		expect(none.entries.map(entry => entry.name)).toEqual(["trunk"]);
 	});
 
-	it("hands the sheet the repository key, a free suggestion and the remembered choice", async () => {
+	it("hands the sheet the folder's own branch and no other name: no other local, remote or earlier run's branch", async () => {
+		gitSync(main, "switch", "-q", "-c", "dev");
+		gitSync(main, "branch", "feature/a");
 		gitSync(main, "branch", "autopilot/2026-10-18");
-		const pref = { [main]: { kind: "existing", name: "autopilot/2026-10-18" }, "/elsewhere": { kind: "new" } };
-		const info = await readBranchInfo(main, { toplevel: main, remote: "origin", date: "2026-10-18", pref });
-		expect(info).toMatchObject({
-			repo: main,
-			remote: "origin",
-			defaultBranch: "main",
-			suggested: "autopilot/2026-10-18-2",
-			last: { kind: "existing", name: "autopilot/2026-10-18" },
-		});
-		const bare2 = await readBranchInfo(main, {
-			toplevel: main,
-			remote: "origin",
-			date: "2026-10-18",
-			pref: undefined,
-		});
-		expect(bare2).not.toHaveProperty("last");
+		gitSync(main, "push", "-q", "origin", "feature/a:remote-only");
+		gitSync(main, "fetch", "-q", "origin");
+		const info = await readBranchInfo(main, { toplevel: main, remote: "origin" });
+		expect(info).toEqual({ repo: main, remote: "origin", defaultBranch: "main", current: "dev" });
+		// A detached folder has no branch to show.
+		gitSync(main, "switch", "-q", "--detach");
+		expect((await readBranchInfo(main, { toplevel: main, remote: "origin" })).current).toBeNull();
 	});
 });

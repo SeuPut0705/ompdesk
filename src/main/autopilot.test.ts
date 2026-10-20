@@ -24,7 +24,6 @@ import {
 	RELEASE_NOW_MESSAGE,
 	type RepoProbe,
 	startSettings,
-	validAutopilotBranchPref,
 } from "./autopilot";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
@@ -864,34 +863,16 @@ describe("the branch a run is on", () => {
 		});
 	});
 
-	it("gives the sheet the branches, the suggestion and the choice remembered for this repository", async () => {
-		build({
-			prefs: { autopilotBranch: { [main]: { kind: "existing", name: "feature/x" }, "/other": { kind: "new" } } },
-		});
+	it("gives the sheet the folder's own branch only, whatever an earlier release remembered", async () => {
+		// `autopilotBranch` was the remembered choice of earlier releases: retired, never read.
+		build({ prefs: { autopilotBranch: { [main]: { kind: "existing", name: "feature/x" } } } });
 		const sidecar = world.addTab("m", main);
 		const status = dataOf<AutopilotStatus>(
 			await autopilot.handleCommand(win, sidecar as unknown as SidecarLike, "m", { type: "get_autopilot" }, "1"),
 		);
-		expect(status.branches).toMatchObject({
-			repo: main,
-			remote: "origin",
-			defaultBranch: "main",
-			suggested: "autopilot/2026-10-17",
-			last: { kind: "existing", name: "feature/x" },
-		});
-		const byName = Object.fromEntries((status.branches?.branches ?? []).map(entry => [entry.name, entry]));
-		expect(byName.main).toMatchObject({ default: true, current: true, checkedOutAt: main });
-		expect(byName["feature/x"]).toMatchObject({ local: true, remote: true });
-		expect(byName["remote-only"]).toMatchObject({ local: false, remote: true });
+		expect(status.branches).toEqual({ repo: main, remote: "origin", defaultBranch: "main", current: "main" });
 		// The branch is per run: the ship defaults carry none.
 		expect(Object.keys(status.ship?.policy ?? {}).sort()).toEqual(["autoPush", "autoRelease", "remote"]);
-	});
-
-	it("validAutopilotBranchPref accepts the remembered choices per repository and nothing else", () => {
-		expect(validAutopilotBranchPref({ "/r": { kind: "existing", name: "dev" }, "/s": { kind: "new" } })).toBe(true);
-		expect(validAutopilotBranchPref(undefined)).toBe(true);
-		expect(validAutopilotBranchPref({ "/r": { kind: "existing" } })).toBe(false);
-		expect(validAutopilotBranchPref("dev")).toBe(false);
 	});
 });
 

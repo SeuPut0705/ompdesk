@@ -27,7 +27,7 @@ import {
 	waitForStatus,
 	writeGate,
 } from "./autopilot-harness";
-import { captureTo, exitApp } from "./harness";
+import { captureTo, exitApp, variants } from "./harness";
 
 const RELEASE_CYCLE = {
 	tools: [
@@ -236,80 +236,62 @@ test("a run on an existing branch commits there and Push moves that branch of th
 });
 
 const SHEET = {
-	en: {
-		tab: /^Autopilot/,
-		push: "Push",
-		via: /^autopilot\/\d{4}-\d{2}-\d{2} → push to main$/,
-		warning: "Commits go straight to main; Push goes to main.",
-	},
-	ko: {
-		tab: /^오토파일럿/,
-		push: "푸시",
-		via: /^작업 브랜치 autopilot\/\d{4}-\d{2}-\d{2} → 푸시 대상 main$/,
-		warning: "커밋이 main에 바로 쌓이고, 푸시는 main에 해요",
-	},
+	en: { tab: /^Autopilot/, push: "Push" },
+	ko: { tab: /^오토파일럿/, push: "푸시" },
 } as const;
 
-for (const language of ["en", "ko"] as const)
-	test(`target = main while the user's folder is on main: the run works on its own branch, the remote main moves, the folder is untouched (${language})`, async () => {
+for (const language of variants(["en", "ko"] as const))
+	test(`the sheet shows only the folder's own branch; the run works on its own branch cut from it and pushes that, never main (${language})`, async () => {
 		test.setTimeout(240_000);
 		const profile = await makeApProfile({ language, script: { cycleMs: 2_000 } });
+		// Names the sheet must never show: another local branch, a remote-only branch, an earlier run's branch.
 		git(profile.project, "branch", "feature/x");
-		git(profile.project, "push", "-q", "origin", "feature/x");
+		git(profile.project, "branch", "autopilot/2026-01-01");
+		git(profile.project, "push", "-q", "origin", "feature/x:remote-only");
+		git(profile.project, "fetch", "-q", "origin");
 		const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
 		const captures = process.env.OMP_GUI_AUTOPILOT_CAPTURES;
 		const { app, page } = await launchAp(profile);
 		const text = SHEET[language];
-		const openSheet = async () => {
+		try {
 			await page.locator("[data-run-settings-trigger]").click();
 			await page.getByRole("tab", { name: text.tab }).click();
 			await expect(page.locator("[data-autopilot-sheet]")).toBeVisible();
 			// The Branch row sits in the sheet's one Advanced disclosure.
 			await page.locator("[data-autopilot-sheet] [data-settings-advanced] summary").click();
-		};
-		try {
-			await openSheet();
-			const branch = page.locator("[data-autopilot-branch] select");
-			const mainOption = branch.locator('option[value="branch:main"]');
-			await expect(branch).toHaveValue("new");
-			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveValue(/^autopilot\/\d{4}-\d{2}-\d{2}$/);
-			// The user's own folder is on main, and main is still selectable: the run works on its own branch off it.
-			await expect(mainOption).not.toHaveAttribute("disabled", "");
-			await expect(page.locator("[data-autopilot-branch-warning]")).toHaveCount(0);
+			await expect(page.locator("[data-autopilot-branch]")).toHaveText("main");
+			const sheet = page.locator("[data-autopilot-sheet]");
+			await expect(sheet.locator("select, input[data-autopilot-branch-name]")).toHaveCount(0);
+			for (const name of ["feature/x", "remote-only", "autopilot/"]) await expect(sheet).not.toContainText(name);
 			await captureTo(captures, page, `autopilot-branch-sheet-${language}-light`);
-			await branch.selectOption("branch:main");
-			await expect(page.locator("[data-autopilot-branch-warning]")).toHaveText(text.warning);
-			await expect(page.locator("[data-autopilot-branch-via]")).toHaveText(text.via);
-			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveCount(0);
-			await captureTo(captures, page, `autopilot-branch-main-warning-${language}-light`);
-			// Pushing to the default branch is only ever an explicit level: Automatic never pushes main.
-			await page
-				.locator("[data-autopilot-sheet] [role='tab']")
+			await sheet
+				.locator("[role='tab']")
 				.filter({ hasText: new RegExp(`^${text.push}$`) })
 				.click();
 
 			await page.locator("[data-autopilot-start]").click();
 			let tabId = "";
+			let branch = "";
 			await expect
 				.poll(
 					async () => {
 						const tabs = await page.evaluate(() => window.omp.tabs.list());
-						tabId = tabs.find(tab => tab.worktree?.branch.startsWith("autopilot/"))?.tabId ?? "";
-						return tabId;
+						const run = tabs.find(tab => tab.worktree?.branch.startsWith("autopilot/"));
+						tabId = run?.tabId ?? "";
+						branch = run?.worktree?.branch ?? "";
+						return branch;
 					},
 					{ timeout: 60_000, message: "the run's tab opens on its own branch" },
 				)
-				.not.toBe("");
+				.toMatch(/^autopilot\/\d{4}-\d{2}-\d{2}/);
 			const first = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 1, "cycle 1 done", 90_000);
-			expect(first.target).toBe("main");
 			const commit = first.cycles?.[0]?.commit;
 			expect(commit).toBeTruthy();
-			// Push pushed HEAD:main, fast-forward: the remote main moved to the cycle's commit.
-			await expect.poll(() => git(profile.remote, "rev-parse", "refs/heads/main"), { timeout: 30_000 }).toBe(commit);
-			expect(git(profile.remote, "log", "--format=%s", `${mainBefore}..main`)).toContain("autopilot: cycle 1");
-			expect(git(profile.remote, "rev-parse", "refs/heads/feature/x")).toBe(
-				git(profile.project, "rev-parse", "feature/x"),
-			);
+			// Push published the run's own branch; main on the remote did not move.
+			await expect
+				.poll(() => git(profile.remote, "rev-parse", `refs/heads/${branch}`), { timeout: 30_000 })
+				.toBe(commit);
+			expect(git(profile.remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
 			// The user's folder is untouched: still on main, local main not moved, a clean working tree.
 			expect(git(profile.project, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
 			expect(git(profile.project, "rev-parse", "main")).toBe(mainBefore);

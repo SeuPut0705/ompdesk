@@ -1,7 +1,7 @@
 /**
- * Which branch an Autopilot run commits on and pushes to, as pure rules (the sheet and main share them):
- * the picker's list, what a run may not take, the warning for the default branch, the name a new branch gets and
- * the folder slug and run id derived from the choice. Git itself is read in `src/main/autopilot-branches.ts`.
+ * Which branch an Autopilot run commits on and pushes to, as pure rules main applies at a start: what a run may not
+ * take, the default branch, the name a new branch gets and the folder slug and run id derived from the choice. The
+ * start sheet shows only the folder's own branch. Git itself is read in `src/main/autopilot-branches.ts`.
  */
 import {
 	AUTOPILOT_BRANCH_PREFIX,
@@ -153,12 +153,7 @@ export function runIdFor(branch: string, date: string): string {
 	return id || date;
 }
 
-/** The remembered choice of one repository from the `autopilotBranch` pref, tolerating a hand-edited value. */
-export function lastChoiceOf(pref: unknown, repo: string): AutopilotBranchChoice | null {
-	if (typeof pref !== "object" || pref === null) return null;
-	return parseChoice((pref as Record<string, unknown>)[repo]);
-}
-
+/** A start's `branch` option as an agent or an older client sent it, tolerating a malformed value. */
 export function parseChoice(value: unknown): AutopilotBranchChoice | null {
 	if (typeof value !== "object" || value === null) return null;
 	const { kind, name, remote } = value as Record<string, unknown>;
@@ -169,23 +164,4 @@ export function parseChoice(value: unknown): AutopilotBranchChoice | null {
 		return { kind, name, ...(typeof remote === "string" && remote ? { remote } : {}) };
 	}
 	return null;
-}
-
-/** The pref value as stored: only well-formed choices, keyed by repository. */
-export function validBranchPref(value: unknown): boolean {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-	return Object.entries(value).every(
-		([repo, choice]) => repo.length > 0 && repo.length < 1024 && parseChoice(choice) !== null,
-	);
-}
-
-/** What the sheet starts on: the remembered choice while it is still usable, else a new branch. */
-export function initialChoice(
-	last: AutopilotBranchChoice | undefined,
-	entries: readonly AutopilotBranchEntry[],
-): AutopilotBranchChoice {
-	if (last && branchProblem(last, entries) === null) {
-		return last.kind === "new" ? { kind: "new", ...(last.name ? { name: last.name } : {}) } : last;
-	}
-	return { kind: "new" };
 }

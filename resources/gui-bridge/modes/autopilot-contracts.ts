@@ -390,7 +390,7 @@ export type AutopilotBranchChoice =
 	| { kind: "new"; name?: string }
 	| { kind: "existing"; name: string; remote?: string };
 
-/** One row of the sheet's branch picker. */
+/** One branch as a run's start reads it from git (main only: the sheet shows the folder's own branch alone). */
 export interface AutopilotBranchEntry {
 	name: string;
 	/** A local branch of that name exists. */
@@ -405,18 +405,20 @@ export interface AutopilotBranchEntry {
 	checkedOutAt?: string;
 }
 
-/** What the start sheet's branch picker needs of a repository. */
+/**
+ * What the start sheet shows of a repository: the folder's own branch, nothing else (the user's rule, 21 Oct 2026: no
+ * other local or remote branch, no remembered or earlier run's name). The run works on a new branch of its own cut
+ * from it.
+ */
 export interface AutopilotBranchInfo {
-	/** The repository's top level; the key of the remembered choice. */
+	/** The repository's top level. */
 	repo: string;
-	/** The ship remote the remote-only branches come from. */
+	/** The ship remote Automatic pushes to. */
 	remote: string;
+	/** The repository's default branch: an agent's start asks before committing on it. Never shown. */
 	defaultBranch: string | null;
-	/** The name a new branch gets unless the user edits it (`autopilot/<date>`, free of clashes). */
-	suggested: string;
-	branches: AutopilotBranchEntry[];
-	/** The choice remembered for this repository, when it is still usable. */
-	last?: AutopilotBranchChoice;
+	/** The branch checked out in the folder; null when detached. */
+	current: string | null;
 }
 
 export interface AutopilotStatus {
@@ -586,12 +588,6 @@ export function autopilotChildBranch(run: string, cycle: number, area: string): 
 export function isAutopilotArea(value: unknown): value is AutopilotArea {
 	return (AUTOPILOT_AREAS as readonly unknown[]).includes(value);
 }
-
-/**
- * The last branch choice per repository, `{ [repo top level]: AutopilotBranchChoice }` in the main prefs store: the
- * branch is per run, this only prefills the next sheet.
- */
-export const AUTOPILOT_BRANCH_PREF = "autopilotBranch";
 
 // ---------------------------------------------------------------------------------------------
 // Bridge protocol (main <-> bridge; owned by the bridge slice, mirrored by the fake omp)

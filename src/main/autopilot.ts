@@ -23,7 +23,6 @@ import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import {
-	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
 	AUTOPILOT_GUIDE_FILE,
@@ -58,7 +57,6 @@ import {
 	parseChoice,
 	runIdFor,
 	suggestBranchName,
-	validBranchPref,
 	viaWorkBranch,
 	worktreeModeFor,
 } from "../shared/autopilot-branch";
@@ -356,11 +354,6 @@ export async function ghRunStatus(
 	} catch {
 		return null;
 	}
-}
-
-/** Whether `value` may be stored as the remembered branch choices (`autopilotBranch`; `undefined` clears it). */
-export function validAutopilotBranchPref(value: unknown): boolean {
-	return value === undefined || validBranchPref(value);
 }
 
 /** The two commands the coordinator answers (`ipc.ts` routes them here). */
@@ -1748,14 +1741,7 @@ export class Autopilot {
 		const topText = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
 		const toplevel = topText ? resolve(topText) : topText;
 		const remote = await this.#detectRemote(sidecar.cwd);
-		const branches = toplevel
-			? await readBranchInfo(sidecar.cwd, {
-					toplevel,
-					remote,
-					date: this.#deps.today?.() ?? localDate(new Date()),
-					pref: this.#deps.prefs.get(AUTOPILOT_BRANCH_PREF),
-				}).catch(() => null)
-			: null;
+		const branches = toplevel ? await readBranchInfo(sidecar.cwd, { toplevel, remote }).catch(() => null) : null;
 		return {
 			active: false,
 			ship: {

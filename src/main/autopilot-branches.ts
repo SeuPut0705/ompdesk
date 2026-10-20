@@ -1,18 +1,11 @@
 /**
- * Reads what the start sheet's branch picker and a start's branch checks need of a repository: the local branches,
- * the ship remote's branches, which worktree has which branch checked out and the default branch. The rules over
- * these facts are pure (`src/shared/autopilot-branch.ts`).
+ * Reads what a start's branch checks need of a repository: the local branches, the ship remote's branches, which
+ * worktree has which branch checked out and the default branch. The rules over these facts are pure
+ * (`src/shared/autopilot-branch.ts`). The start sheet gets the folder's own branch only (`readBranchInfo`).
  */
 import * as path from "node:path";
 import type { AutopilotBranchEntry, AutopilotBranchInfo } from "../../resources/gui-bridge/modes/autopilot-contracts";
-import {
-	type BranchFacts,
-	branchEntries,
-	lastChoiceOf,
-	parseWorktreeBranches,
-	pickDefaultBranch,
-	suggestBranchName,
-} from "../shared/autopilot-branch";
+import { type BranchFacts, branchEntries, parseWorktreeBranches, pickDefaultBranch } from "../shared/autopilot-branch";
 import { gitRaw } from "./local/git/exec";
 
 const GIT_MS = 30_000;
@@ -61,22 +54,13 @@ export async function readBranchFacts(cwd: string, remote: string): Promise<Bran
 	};
 }
 
-/** The picker's data for the repository `cwd` is in (`toplevel` its top level, the key of the remembered choice). */
+/** What the start sheet shows of the repository `cwd` is in (`toplevel` its top level): the folder's own branch. */
 export async function readBranchInfo(
 	cwd: string,
-	input: { toplevel: string; remote: string; date: string; pref: unknown },
+	input: { toplevel: string; remote: string },
 ): Promise<AutopilotBranchInfo> {
 	const facts = await readBranchFacts(cwd, input.remote);
-	const branches = branchEntries(facts);
-	const last = lastChoiceOf(input.pref, input.toplevel);
-	return {
-		repo: input.toplevel,
-		remote: input.remote,
-		defaultBranch: facts.defaultBranch,
-		suggested: suggestBranchName(input.date, new Set(branches.map(entry => entry.name))),
-		branches,
-		...(last ? { last } : {}),
-	};
+	return { repo: input.toplevel, remote: input.remote, defaultBranch: facts.defaultBranch, current: facts.current };
 }
 
 /** The entries of `readBranchFacts` (a start re-reads them: the sheet's list may be old). */
