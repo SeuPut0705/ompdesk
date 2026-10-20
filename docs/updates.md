@@ -10,6 +10,8 @@ Use **Check for Updates…** in the app menu or **Settings › Updates & about**
 
 With **Continue interrupted work after relaunch** on (the default), restarting for an update does not ask: running tasks pick up on the first launch after the update. With it off, a dialog asks first when tasks are running.
 
+When an install starts (**Restart & install**, or **Now** on the automatic notice), the sidebar and Settings read **Installing update X…** and the buttons wait: OMPdesk closes by itself, installs and opens again, and a second click starts nothing. On Windows the window stays usable while the installer starts, which can take a few seconds while Windows scans the new setup file.
+
 **Install updates automatically** (Settings › Updates & about, off by default) lets OMPdesk install a downloaded update and restart by itself. It picks a quiet moment: no tab running a turn, no question waiting for you, and either the window out of focus or no input for 2 minutes. About a minute before restarting, one quiet line in the sidebar and in Settings says so, with **Now** and **Later** (Later waits for the next quiet moment); it is never a dialog. If work is still running after 30 minutes and **Continue interrupted work after relaunch** is on, it restarts anyway and the work continues afterwards; with that setting off it keeps waiting for a quiet moment. Drafts and your window layout come back as after any restart. Where OMPdesk cannot replace itself (a read-only location or App Translocation), the switch is disabled and says why; move the app to the Applications folder.
 
 No GitHub account or token is needed: the repository is public, the app reads its GitHub releases directly, and it checks each download against the SHA-512 in the release metadata.
