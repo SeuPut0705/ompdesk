@@ -30,6 +30,22 @@ const port = Number(process.argv[3] ?? "0");
 /** Resolve a module the way code inside the omp package would. */
 const fromOmp = (specifier: string) => Bun.resolveSync(specifier, path.join(root, "package.json"));
 
+/** Set once serving: stops the front server and closes stock's database. */
+let stopServing = () => {};
+const shutdown = () => {
+	stopServing();
+	process.exit(0);
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+// The app holds our stdin pipe open for its whole life. When it goes away
+// without a clean quit (crash, force-kill, an app swap), the pipe closes and
+// this server must not outlive it as an orphan, even while it is still
+// starting: a start that never finishes would otherwise keep it forever.
+process.stdin.on("end", shutdown);
+process.stdin.on("close", shutdown);
+process.stdin.resume();
+
 // Runtime-selected: the modules live in whichever omp install the GUI resolved.
 const stats = await import(fromOmp("@oh-my-pi/omp-stats"));
 const statsDb = await import(fromOmp("@oh-my-pi/omp-stats/db"));
@@ -141,16 +157,7 @@ const server = Bun.serve({
 });
 console.log(`Dashboard available at: ${stats.formatStatsDashboardUrl(server.hostname, server.port)}`);
 
-const shutdown = () => {
+stopServing = () => {
 	server.stop(true);
 	stats.closeDb();
-	process.exit(0);
 };
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-// The app holds our stdin pipe open for its whole life. When it goes away
-// without a clean quit (crash, force-kill, an app swap), the pipe closes and
-// this server must not outlive it as an orphan.
-process.stdin.on("end", shutdown);
-process.stdin.on("close", shutdown);
-process.stdin.resume();
