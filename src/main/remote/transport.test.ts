@@ -26,6 +26,7 @@ import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
 import { AuthInit, authTranscriptOf, HANDSHAKE_VERSION } from "./protocol";
+import { freePortRun } from "./test-ports";
 import { Link, WAKE_CHECK_MS } from "./wire";
 
 const APP_VERSION = "0.10.0";
@@ -215,16 +216,19 @@ function listenFake(onSocket: (socket: Socket) => void, port = 0): Promise<{ ser
 	return promise;
 }
 
-/** Hold `count` consecutive free ports with listeners that drop every connection; `release(i)` frees port i. */
+/**
+ * Hold `count` consecutive free ports with listeners that drop every connection; `release(i)` frees port i. The run
+ * sits below the ephemeral range (`freePortRun`): a parallel worker's `listen(0)` would otherwise take a released
+ * port of it before the host under test does.
+ */
 async function heldRun(count: number): Promise<{ base: number; release: (index: number) => Promise<void> }> {
 	for (let attempt = 0; attempt < 20; attempt++) {
-		const first = await listenFake(socket => socket.destroy());
-		const servers = [first.server];
-		const base = first.port;
+		const base = await freePortRun(count);
+		const servers: Server[] = [];
 		try {
-			for (let i = 1; i < count; i++) servers.push((await listenFake(socket => socket.destroy(), base + i)).server);
+			for (let i = 0; i < count; i++) servers.push((await listenFake(socket => socket.destroy(), base + i)).server);
 		} catch {
-			// Taken by another process: try another run (the held ones close with the test).
+			// Taken by another process meanwhile: try another run (the held ones close with the test).
 			continue;
 		}
 		const release = (index: number): Promise<void> => {

@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { freePortRun } from "../src/main/remote/test-ports";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { fixtureOmp, walkRemotePicker } from "./harness";
 
@@ -42,18 +43,13 @@ export interface RemoteInstance {
 	errors: string[];
 }
 
-/** A TCP port free right now, for a host that must keep its address across a relaunch. */
-export async function freePort(): Promise<number> {
-	const server = net.createServer();
-	const listening = Promise.withResolvers<void>();
-	server.listen(0, "127.0.0.1", listening.resolve);
-	await listening.promise;
-	const address = server.address();
-	const closed = Promise.withResolvers<void>();
-	server.close(() => closed.resolve());
-	await closed.promise;
-	if (!address || typeof address === "string") throw new Error("expected a TCP address");
-	return address.port;
+/**
+ * A TCP port free right now, for a host that must keep its address across a relaunch: the first of a free run of its
+ * candidates below the ephemeral range. A `listen(0)` port lets a parallel worker's app take the next candidate, and
+ * the device then connects to that app instead (`freePortRun`).
+ */
+export function freePort(): Promise<number> {
+	return freePortRun();
 }
 
 /**

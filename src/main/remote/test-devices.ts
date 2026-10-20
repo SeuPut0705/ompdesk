@@ -4,7 +4,6 @@
  * harness's `OMP_GUI_TEST_REMOTE_LOOPBACK`), so a host and a device in one process share through real sockets.
  */
 import * as fs from "node:fs/promises";
-import { type AddressInfo, createServer } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { vi } from "vitest";
@@ -14,6 +13,7 @@ import type { TailnetPeer } from "../tailscale/whois";
 import { WebBlocks } from "../web/blocks-store";
 import { RemoteDevices } from "./devices";
 import type { LocalHostServices } from "./host-services";
+import { freePortRun } from "./test-ports";
 
 export const LOGIN = "me@example.com";
 export const LOOPBACK = "127.0.0.1";
@@ -76,14 +76,9 @@ export class DevicesRig {
 	readonly #running: RemoteDevices[] = [];
 	readonly #savedPort = process.env.OMP_GUI_REMOTE_PORT;
 
-	/** A port free now; the host takes it (or a successor) and the device probes the same list. */
+	/** A run of free ports (`freePortRun`); the host takes its first (or a successor) and the device probes the same list. */
 	async pickPort(): Promise<number> {
-		const server = createServer();
-		const { promise, resolve } = Promise.withResolvers<void>();
-		server.listen(0, LOOPBACK, () => resolve());
-		await promise;
-		const port = (server.address() as AddressInfo).port;
-		await new Promise<void>(done => server.close(() => done()));
+		const port = await freePortRun();
 		process.env.OMP_GUI_REMOTE_PORT = String(port);
 		return port;
 	}
