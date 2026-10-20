@@ -37,6 +37,12 @@ const LOGGED_BACKOFF_ATTEMPTS = 6;
 
 export const RECONNECT_MIN_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;
+/**
+ * A dial the host's computer refuses (nothing listens: its app is restarting or updating; the Windows host's log
+ * shows 21 s to app-ready and 26 s to the bridge per update) is retried every `RECONNECT_MIN_MS` this long after
+ * the link was lost, then backs off like any other failure. A refusal is one cheap round trip.
+ */
+export const REFUSED_RETRY_WINDOW_MS = 60_000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 const PROBE_TIMEOUT_MS = 3_000;
@@ -49,11 +55,14 @@ const HANDSHAKE_TIMEOUT_MS = 10_000;
  */
 export class RemoteError extends Error {
 	readonly code: string;
+	/** The dial was refused or reset: the computer answered and nothing listens (not a timeout or no route). */
+	readonly refused: boolean;
 
-	constructor(code: string, message: string = code) {
+	constructor(code: string, message: string = code, refused = false) {
 		super(message);
 		this.name = "RemoteError";
 		this.code = code;
+		this.refused = refused;
 	}
 }
 
@@ -62,7 +71,8 @@ function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket>
 	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
 	const fail = (error: Error) => {
 		socket.destroy();
-		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`));
+		const refused = "code" in error && (error.code === "ECONNREFUSED" || error.code === "ECONNRESET");
+		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused));
 	};
 	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out")));
 	socket.once("error", fail);
@@ -394,6 +404,8 @@ export class RemoteClient {
 		this.#setState("connecting");
 		const addresses = await this.#addresses();
 		let failure = new RemoteError("unreachable", "no address to dial");
+		// Every address refused: the computer is there and the app is not (a timeout anywhere says otherwise).
+		let refused = addresses.length > 0;
 		for (const address of addresses) {
 			if (!this.#running) break;
 			try {
@@ -412,6 +424,7 @@ export class RemoteClient {
 				return;
 			} catch (error) {
 				failure = asRemoteError(error);
+				refused &&= failure.refused;
 				// The host itself answered: other addresses reach the same verdict.
 				if (failure.code !== "unreachable") break;
 			}
@@ -429,7 +442,7 @@ export class RemoteClient {
 			});
 		}
 		this.#setState("offline");
-		this.#scheduleRetry();
+		this.#scheduleRetry(refused && Date.now() - outage.since < REFUSED_RETRY_WINDOW_MS);
 	}
 
 	#online(link: Link, hello: HostHello, address: string): void {
@@ -476,10 +489,12 @@ export class RemoteClient {
 		this.#scheduleRetry();
 	}
 
-	#scheduleRetry(): void {
+	/** `refused`: the host's computer answered with a refusal, so the backoff stays at its first step instead of growing. */
+	#scheduleRetry(refused = false): void {
 		if (!this.#running) return;
+		if (refused) this.#backoff = RECONNECT_MIN_MS;
 		const delay = this.#backoff;
-		this.#backoff = Math.min(this.#backoff * 2, RECONNECT_MAX_MS);
+		this.#backoff = refused ? RECONNECT_MIN_MS : Math.min(this.#backoff * 2, RECONNECT_MAX_MS);
 		clearTimeout(this.#retryTimer);
 		this.#retryTimer = setTimeout(() => {
 			this.#retryTimer = undefined;
