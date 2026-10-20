@@ -912,10 +912,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					});
 				}
 			}
-			notificationBatcher.notify(
-				windowId,
-				{ title: notice.title, body: notice.body, tabId, kind: notice.kind },
-			);
+			notificationBatcher.notify(windowId, { title: notice.title, body: notice.body, tabId, kind: notice.kind });
 		},
 		text: (key, params) => mainT(key, undefined, params),
 		// A run a paired device started stops counting against that device once it ends (hosted-autopilot.ts).
@@ -1514,10 +1511,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				});
 			}
 			// Bursts fold into one summary (notification-batch.ts).
-			notificationBatcher.notify(
-				winId,
-				{ title: notice.title, body: notice.body, tabId: notice.tabId, kind: notice.kind },
-			);
+			notificationBatcher.notify(winId, {
+				title: notice.title,
+				body: notice.body,
+				tabId: notice.tabId,
+				kind: notice.kind,
+			});
 		},
 	});
 	ipc.handle(IPC_COMMANDS.SYSTEM_NOTIFY, (caller, payload: IpcNotifyPayload) => notifyHandler(caller, payload));

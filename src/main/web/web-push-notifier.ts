@@ -219,10 +219,12 @@ export class WebPushNotifier {
 			const push = pushSettingsOf(device);
 			if (!push.subscription || !push.categories.includes(kind) || this.#deps.visible(device.deviceId)) continue;
 			ask?.fedTo.add(device.deviceId);
-			this.#batcher.notify(
-				this.#keyFor(device.deviceId),
-				{ title: clip(title, TITLE_MAX) || FALLBACK_TITLE, body: clip(body, BODY_MAX), tabId, kind },
-			);
+			this.#batcher.notify(this.#keyFor(device.deviceId), {
+				title: clip(title, TITLE_MAX) || FALLBACK_TITLE,
+				body: clip(body, BODY_MAX),
+				tabId,
+				kind,
+			});
 		}
 	}
 

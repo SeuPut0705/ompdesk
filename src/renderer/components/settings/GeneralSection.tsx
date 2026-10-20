@@ -209,7 +209,9 @@ export function GeneralSection() {
 								id={panelId}
 								onChange={event => {
 									const next = event.target.value as PanelTab;
-									void saveGuiPreference("defaultPanelTab", next, () => useUiStore.getState().setPanelTab(next));
+									void saveGuiPreference("defaultPanelTab", next, () =>
+										useUiStore.getState().setPanelTab(next),
+									);
 								}}
 								options={PANEL_TABS.map(value => ({ value, label: t(`panel.tabs.${value}`) }))}
 								value={migrateDefaultPanelTab(panelTab)}

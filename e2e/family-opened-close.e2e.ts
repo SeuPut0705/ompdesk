@@ -42,10 +42,7 @@ test.beforeEach(async () => {
 	git(project, "add", ".");
 	git(project, "commit", "-q", "-m", "init");
 	record = path.join(root, "rpc.jsonl");
-	await fs.writeFile(
-		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true }),
-	);
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	app = await launchApp({
 		project,
 		desktop,

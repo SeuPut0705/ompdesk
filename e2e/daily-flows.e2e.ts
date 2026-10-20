@@ -324,10 +324,7 @@ test("daily flow b: merge one worktree child, delete the other; nothing lingers,
 	await fs.writeFile(path.join(project, "README.md"), "hello\n");
 	flowBGit(project, "add", ".");
 	flowBGit(project, "commit", "-q", "-m", "init");
-	await fs.writeFile(
-		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true }),
-	);
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	const pageErrors: string[] = [];
 	let launched = await flowBLaunch(root);
 	launched.page.on("pageerror", error => pageErrors.push(error.message));

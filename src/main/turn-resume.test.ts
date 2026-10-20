@@ -1363,10 +1363,7 @@ describe("TurnResume scheduled retry", () => {
 	});
 
 	it.each([
-		[
-			"stock's own retry setting is off",
-			SETTINGS_OFF,
-		],
+		["stock's own retry setting is off", SETTINGS_OFF],
 		["it cannot be read", { type: "response", command: "get_settings", success: false, error: "bridge down" }],
 		[
 			"it is missing from the answer",

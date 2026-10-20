@@ -118,6 +118,7 @@ import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-p
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
+import { dropRetiredPrefs } from "./retired-prefs";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
@@ -140,7 +141,6 @@ import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/loc
 import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
 import { createTray, destroyTray, hasTray } from "./tray";
-import { dropRetiredPrefs } from "./retired-prefs";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import {
 	appAutoUpdatePrefChanged,

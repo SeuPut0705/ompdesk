@@ -35,10 +35,7 @@ test.beforeEach(async () => {
 	git("init", "-q", "-b", "main");
 	git("add", "-A");
 	git("commit", "-q", "-m", "init");
-	await fs.writeFile(
-		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true }),
-	);
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	app = await launchApp({
 		project,
 		desktop,

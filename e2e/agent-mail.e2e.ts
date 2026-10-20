@@ -25,10 +25,7 @@ test.beforeEach(async () => {
 	const agent = path.join(profile, "agent");
 	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
 	record = path.join(profile, "rpc.jsonl");
-	await fs.writeFile(
-		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true }),
-	);
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	app = await launchApp({
 		project,
 		desktop,
