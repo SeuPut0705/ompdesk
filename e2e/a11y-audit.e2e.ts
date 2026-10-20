@@ -42,6 +42,13 @@ async function launch(
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+	// Windows 11 Mica: the sidebar is a 62 % tint over a backdrop the compositor draws and axe cannot see; it
+	// composites the tint over white, so the dark theme's 15:1 sidebar text read 4.41:1 (measured on screen: bg
+	// rgb(24,24,26) under rgb(237,237,240); light theme bg 245..255). nativeTheme follows the app's theme, so the
+	// backdrop is the theme's own canvas: paint that for axe.
+	await page.addStyleTag({
+		content: 'html[data-mica="true"], html[data-mica="true"] body { background: var(--sc-bg) !important; }',
+	});
 	return { app, page };
 }
 
