@@ -183,65 +183,62 @@ test("a progress report shows without a prompt: at once to an idle parent, waiti
 
 test("a report repeated after a relaunch arrives once: the receiver's journal is the record", async () => {
 	test.setTimeout(180_000);
-	// This test runs its own two launches on a saved layout; the beforeEach app is not used.
+	// This test runs its own two launches on a saved layout; the beforeEach app is not used. Its folder is `profile`
+	// from here on, so afterEach removes it once the relaunched app and the omp under it, which work in it, are gone:
+	// Windows will not remove a folder a process works in.
 	await exitApp(app);
-	const parentDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-agent-mail-relaunch-"));
-	const relaunchProfile = await makeRemoteProfile(parentDir, "one", {
+	await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-agent-mail-relaunch-"));
+	const relaunchProfile = await makeRemoteProfile(profile, "one", {
 		language: "en",
 		theme: "light",
 	});
 	record = relaunchProfile.record;
-	try {
-		let instance = await launchRemote(relaunchProfile);
-		page = instance.page;
-		const parent = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
-		const opened = await callAs(parent, "ompdesk_session_open", { message: "Title: part A\nDo A" });
-		const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
-		await expect
-			.poll(
-				async () =>
-					(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.sessionPath,
-			)
-			.toBeTruthy();
-		await callAs(child, "ompdesk_report", { kind: "done", text: "A finished", dispatch: "d1" });
-		await expect.poll(() => lastAnswer(parent), { timeout: 30_000 }).toBe(`Read the done report from ${child}.`);
-		await exitApp(instance.app);
+	let instance = await launchRemote(relaunchProfile);
+	app = instance.app;
+	page = instance.page;
+	const parent = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+	const opened = await callAs(parent, "ompdesk_session_open", { message: "Title: part A\nDo A" });
+	const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+	await expect
+		.poll(
+			async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.sessionPath,
+		)
+		.toBeTruthy();
+	await callAs(child, "ompdesk_report", { kind: "done", text: "A finished", dispatch: "d1" });
+	await expect.poll(() => lastAnswer(parent), { timeout: 30_000 }).toBe(`Read the done report from ${child}.`);
+	await exitApp(instance.app);
 
-		// Relaunch: the saved layout brings both tabs back under new ids; the child's call runs again (as stock re-runs
-		// a call whose result the crash lost) and reaches the parent's omp, which already journaled it.
-		instance = await launchRemote(relaunchProfile, { project: false });
-		page = instance.page;
-		app = instance.app;
-		const tabs = await page.evaluate(() => window.omp.tabs.list());
-		const again = tabs.find(tab => tab.openedBySession !== undefined)?.tabId ?? "";
-		const parentAgain = tabs.find(tab => tab.tabId !== again)?.tabId ?? "";
-		expect(again && parentAgain).toBeTruthy();
-		await page.evaluate(id => window.omp.tabs.setActive(id), again);
-		await expect
-			.poll(
-				async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === again)?.status,
-				{ timeout: 60_000 },
-			)
-			.toBe("ready");
-		await page.evaluate(id => window.omp.tabs.setActive(id), parentAgain);
-		await expect
-			.poll(
-				async () =>
-					(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === parentAgain)?.status,
-				{ timeout: 60_000 },
-			)
-			.toBe("ready");
-		const repeated = await callAs(again, "ompdesk_report", { kind: "done", text: "A finished", dispatch: "d1" });
-		expect(repeated.isError, repeated.text).toBe(false);
-		const page_ = await page.evaluate(
-			id => window.omp.rpc.commandForTab(id, { type: "get_transcript_page", fromEnd: true, limit: 50 }),
-			parentAgain,
-		);
-		const messages = ((page_.data as { messages?: { customType?: string }[] } | undefined)?.messages ?? []).filter(
-			message => message.customType === "ompdesk.mail",
-		);
-		expect(messages).toHaveLength(1);
-	} finally {
-		await fs.rm(parentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-	}
+	// Relaunch: the saved layout brings both tabs back under new ids; the child's call runs again (as stock re-runs
+	// a call whose result the crash lost) and reaches the parent's omp, which already journaled it.
+	instance = await launchRemote(relaunchProfile, { project: false });
+	page = instance.page;
+	app = instance.app;
+	const tabs = await page.evaluate(() => window.omp.tabs.list());
+	const again = tabs.find(tab => tab.openedBySession !== undefined)?.tabId ?? "";
+	const parentAgain = tabs.find(tab => tab.tabId !== again)?.tabId ?? "";
+	expect(again && parentAgain).toBeTruthy();
+	await page.evaluate(id => window.omp.tabs.setActive(id), again);
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === again)?.status, {
+			timeout: 60_000,
+		})
+		.toBe("ready");
+	await page.evaluate(id => window.omp.tabs.setActive(id), parentAgain);
+	await expect
+		.poll(
+			async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === parentAgain)?.status,
+			{ timeout: 60_000 },
+		)
+		.toBe("ready");
+	const repeated = await callAs(again, "ompdesk_report", { kind: "done", text: "A finished", dispatch: "d1" });
+	expect(repeated.isError, repeated.text).toBe(false);
+	const page_ = await page.evaluate(
+		id => window.omp.rpc.commandForTab(id, { type: "get_transcript_page", fromEnd: true, limit: 50 }),
+		parentAgain,
+	);
+	const messages = ((page_.data as { messages?: { customType?: string }[] } | undefined)?.messages ?? []).filter(
+		message => message.customType === "ompdesk.mail",
+	);
+	expect(messages).toHaveLength(1);
 });
