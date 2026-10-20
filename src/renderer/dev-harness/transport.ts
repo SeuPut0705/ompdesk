@@ -46,7 +46,15 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
-import { BOARD_BUSY, boardJobs, boardPeers, boardReview, boardSubagents, boardUsage } from "./fixture-board";
+import {
+	BOARD_BUSY,
+	boardJobs,
+	boardPeers,
+	boardReview,
+	boardSubagents,
+	boardUsage,
+	familyEdits,
+} from "./fixture-board";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { memoryAnswer } from "./fixture-memory";
 import {
@@ -295,6 +303,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 					files: GIT_CHANGES.files,
 					truncated: false,
 				});
+			case "agent_control_family_edits":
+				return respond(command, familyEdits());
 			case "get_checkout_peers":
 				return respond(command, BOARD_BUSY ? boardPeers() : { peers: null });
 			case "get_git_diff": {

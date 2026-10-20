@@ -13,6 +13,7 @@
 import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AUTO_OPEN_CHANGES_PREF, AUTO_PREVIEW_DEV_SERVER_PREF } from "../../shared/desktop-prefs";
 import type { AgentSessionEvent, RpcGitFingerprint, RpcGitStatus } from "../../shared/rpc-types";
+import { TURN_EDIT_TOOLS } from "../../shared/turn-edits";
 import { currentShellMode } from "../hooks/use-shell-mode";
 import type { SessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore } from "../stores/session-runtime-context";
@@ -25,7 +26,7 @@ import { detectLocalPreviewUrls } from "./preview-browser";
 export const PANEL_IDLE_MS = 30_000;
 
 /** The tools that write files (stock names); a bash edit shows up as a moved git fingerprint instead. */
-export const EDIT_TOOLS: Record<string, true> = { edit: true, write: true, apply_patch: true, ast_edit: true };
+export const EDIT_TOOLS: Record<string, true> = Object.fromEntries(TURN_EDIT_TOOLS.map(name => [name, true]));
 
 /** Views a person works in: never replaced, however long they sit. */
 const WORKING_VIEWS: Record<string, true> = { terminal: true, files: true, preview: true, subagent: true };

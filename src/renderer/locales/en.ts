@@ -4796,7 +4796,7 @@ export const en: Record<string, string> = {
 	"workBoard.doneFolded": "{count} done",
 	"workBoard.goalBudgetLabel": "Budget",
 	"workBoard.goalTimeLabel": "Time",
-	"workBoard.noChanges": "No files changed",
+	"workBoard.current.thisSession": "This session",
 	"workBoard.current": "Current work",
 	"workBoard.current.unlanded": "Not in {target} yet · {count} file{plural}",
 	"workBoard.current.unlandedTitle": "{branch}: commits and uncommitted work not in {target} yet",

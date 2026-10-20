@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { transcriptPageMessages, transcriptTurnStart } from "../../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, MessagesPage } from "../../shared/rpc-types";
+import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { GuiBridgeClient } from "../bridge-client";
 import { handlers } from "./sessions";
 import type { LocalCommandContext } from "./types";
@@ -152,6 +153,70 @@ describe("get_transcript", () => {
 		expect(full.messages).toHaveLength(600);
 		expect(full.messages.at(-1)).toMatchObject({ entryId: "u599" });
 		expect(requested.length).toBeGreaterThan(1);
+	});
+});
+
+describe("get_turn_edits", () => {
+	const getTurnEdits = handlers.get_turn_edits as (
+		command: { type: string },
+		ctx: LocalCommandContext,
+	) => Promise<RpcTurnEdits>;
+	const call = (id: string, name: string, args: Record<string, unknown>) => ({
+		type: "toolCall" as const,
+		id,
+		name,
+		arguments: args,
+	});
+	const assistant = (timestamp: number, ...content: ReturnType<typeof call>[]): AgentMessage => ({
+		role: "assistant",
+		content: [{ type: "text", text: "working" }, ...content],
+		timestamp,
+	});
+	const result = (toolCallId: string, toolName: string, timestamp: number): AgentMessage => ({
+		role: "toolResult",
+		toolCallId,
+		toolName,
+		content: [{ type: "text", text: "ok" }],
+		details: { diff: "+1 x" },
+		timestamp,
+	});
+
+	it("returns only the file-changing calls of the newest turn, with their results and the turn's clock", async () => {
+		const bodies: AgentMessage[] = [
+			user("first", 1),
+			assistant(2, call("old", "edit", { path: "old.ts" })),
+			result("old", "edit", 3),
+			user("second", 10),
+			assistant(11, call("w1", "write", { path: "b.ts", content: "b\n" }), call("r1", "read", { path: "c.ts" })),
+			result("w1", "write", 12),
+			result("r1", "read", 13),
+			// A steer joins the running turn; it starts none.
+			{ role: "user", content: "also", steering: true, timestamp: 14 },
+			assistant(15, call("b1", "bash", { command: "ls" })),
+			result("b1", "bash", 16),
+			{ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: 17 },
+		];
+		const entries = bodies.map((body, i) => message(`m${i}`, i === 0 ? null : `m${i - 1}`, body));
+		const { ctx } = pagedBridge(entries, () => "m10");
+		const turn = await getTurnEdits({ type: "get_turn_edits" }, ctx);
+		expect(turn).toMatchObject({ cwd: "/tmp", startedAt: 10, endedAt: 17 });
+		expect(turn.messages).toEqual([
+			{ role: "assistant", content: [call("w1", "write", { path: "b.ts", content: "b\n" })], timestamp: 11 },
+			expect.objectContaining({ role: "toolResult", toolCallId: "w1", details: { diff: "+1 x" } }),
+		]);
+	});
+
+	it("reads back page by page to the prompt of a long turn", async () => {
+		const bodies: AgentMessage[] = [user("go", 1), assistant(2, call("e0", "edit", { path: "first.ts" }))];
+		bodies.push(result("e0", "edit", 3));
+		for (let i = 0; i < 600; i++) bodies.push(assistant(4 + i, call(`b${i}`, "bash", { command: "true" })));
+		const entries = bodies.map((body, i) => message(`m${i}`, i === 0 ? null : `m${i - 1}`, body));
+		const { ctx, requested } = pagedBridge(entries, () => "leaf");
+		const turn = await getTurnEdits({ type: "get_turn_edits" }, ctx);
+		expect(turn.startedAt).toBe(1);
+		expect(turn.messages.map(m => m.role)).toEqual(["assistant", "toolResult"]);
+		// Bounded pages, never the whole transcript in one bridge reply.
+		expect(requested.length).toBeGreaterThan(2);
 	});
 });
 

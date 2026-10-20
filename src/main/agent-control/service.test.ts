@@ -6,9 +6,11 @@ import type {
 	ExtensionUIRequest,
 	ExtensionUIResponse,
 	RpcCommand,
+	RpcGitUnlanded,
 	RpcResponse,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft } from "../../shared/schedules";
+import type { RpcTurnEdits } from "../../shared/turn-edits";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import type { MailDelivery } from "./mail";
 import {
@@ -36,6 +38,10 @@ interface FakeTab extends ControlTab {
 	last?: string;
 	messages?: AgentMessage[];
 	subagents?: { id: string; status: string }[];
+	/** What `get_turn_edits` answers (its newest turn's edit calls); absent = an older host refusing it. */
+	turn?: RpcTurnEdits;
+	/** What `get_git_unlanded` answers. */
+	unlanded?: RpcGitUnlanded | null;
 	todos?: { name: string; tasks: { content: string; status: string }[] }[];
 	/** What the fake omp answers `get_state.model` and `get_session_stats.history.cost` with. */
 	model?: { provider: string; id: string };
@@ -185,6 +191,8 @@ class FakeHost implements AgentControlHost {
 	recordClosed = (child: ClosedChild) => {
 		this.closedRecords.push(child);
 	};
+	closed: ClosedChild[] = [];
+	closedChildren = () => this.closed;
 	scheduleRows: ScheduleRow[] = [];
 	scheduleSource: ScheduleSource | null = {
 		list: async () => this.scheduleRows,
@@ -298,6 +306,10 @@ class FakeHost implements AgentControlHost {
 				});
 			case "get_available_models":
 				return ok({ models: [{ provider: "anthropic", id: "claude-x" }] });
+			case "get_turn_edits":
+				return tab.turn ? ok(tab.turn) : bad("unknown command: get_turn_edits");
+			case "get_git_unlanded":
+				return ok(tab.unlanded ?? null);
 			case "prompt":
 				tab.busy = true;
 				return ok();
@@ -1373,6 +1385,122 @@ describe("a worktree child on a paired host", () => {
 	});
 });
 
+describe("familyEdits: what the sessions one opened changed", () => {
+	const edit = (id: string, path: string, timestamp: number): AgentMessage[] => [
+		{ role: "assistant", content: [{ type: "toolCall", id, name: "edit", arguments: { path } }], timestamp },
+		{ role: "toolResult", toolCallId: id, toolName: "edit", content: [], details: { diff: "+1 x" }, timestamp },
+	];
+	const turn = (cwd: string, path: string, at: number): RpcTurnEdits => ({
+		cwd,
+		startedAt: at - 10,
+		endedAt: at,
+		messages: edit(`${path}-call`, path, at),
+	});
+	const unlanded: RpcGitUnlanded = {
+		branch: "omp/agent/w",
+		target: "main",
+		truncated: false,
+		files: [{ path: "w.ts", status: "M", added: 2, removed: 1 }],
+	};
+
+	function family() {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+			{ tabId: "kid10000", title: "Same checkout", busy: true, turn: turn("/repo", "a.ts", 3000) },
+			{
+				tabId: "kid20000",
+				title: "In a worktree",
+				cwd: "/wt/w",
+				worktree: { name: "w", branch: "omp/agent/w", baseCwd: "/repo", path: "/wt/w" },
+				turn: turn("/wt/w", "w.ts", 4000),
+				unlanded,
+			},
+			{ tabId: "kid30000", title: "Not started", status: "asleep", sessionPath: "/s/asleep.jsonl" },
+			{ tabId: "kid40000", title: "Hidden", hidden: true, turn: turn("/repo", "h.ts", 3000) },
+			// Works in the same checkout, opened by nobody here: never one of the family.
+			{ tabId: "peer0001", title: "Someone else", busy: true, turn: turn("/repo", "p.ts", 3000) },
+		);
+		for (const id of ["kid10000", "kid20000", "kid30000", "kid40000"]) host.parents.set(id, "main0001");
+		host.storedTranscripts.set("/s/asleep.jsonl", [
+			{ role: "user", content: "go", timestamp: 1000 },
+			...edit("s1", "asleep.ts", 2500),
+		]);
+		host.closed = [
+			{ path: "/s/landed.jsonl", openedBySession: "/s/boss.jsonl", title: "Landed", cwd: "/repo", closedAt: 5000 },
+			{ path: "/s/before.jsonl", openedBySession: "/s/boss.jsonl", title: "Before", cwd: "/repo", closedAt: 500 },
+			{
+				path: "/s/other.jsonl",
+				openedBySession: "/s/other-boss.jsonl",
+				title: "Other",
+				cwd: "/repo",
+				closedAt: 5000,
+			},
+		];
+		host.storedTranscripts.set("/s/landed.jsonl", [
+			{ role: "user", content: "fix", timestamp: 4000 },
+			...edit("l1", "landed.ts", 4500),
+			{ role: "assistant", content: [{ type: "text", text: "Done.\nResult: ok" }], timestamp: 4600 },
+		]);
+		return { host, service: control(host) };
+	}
+
+	it("asks each session it opened, a worktree's branch too, and leaves out sessions it never opened", async () => {
+		const { host, service } = family();
+		const { members } = await service.familyEdits("main0001", 2000);
+		expect(members.map(member => member.title)).toEqual(["Same checkout", "In a worktree", "Not started", "Landed"]);
+		const [same, worktree, asleep, landed] = members;
+		expect(same).toMatchObject({ live: true, unlanded: null, edits: { cwd: "/repo", endedAt: 3000 } });
+		expect(worktree).toMatchObject({ live: false, unlanded });
+		// Not started: its saved file says what its last turn changed.
+		expect(asleep?.edits?.messages.map(message => message.role)).toEqual(["assistant", "toolResult"]);
+		// Closed after its work landed during this turn: its saved file, cut to its edit calls.
+		expect(landed).toMatchObject({ key: "/s/landed.jsonl", live: false, edits: { startedAt: 4000, endedAt: 4600 } });
+		expect(landed?.edits?.messages).toHaveLength(2);
+		// The unrelated session in the same checkout and the hidden one are never even asked.
+		expect(host.sent.some(entry => entry.tabId === "peer0001" || entry.tabId === "kid40000")).toBe(false);
+	});
+
+	it("brings closed children only for a turn, and reads a closed one's file once", async () => {
+		const { host, service } = family();
+		const read = vi.spyOn(host, "storedMessages");
+		expect((await service.familyEdits("main0001")).members.map(member => member.title)).not.toContain("Landed");
+		await service.familyEdits("main0001", 2000);
+		await service.familyEdits("main0001", 2000);
+		expect(read.mock.calls.filter(([row]) => row.path === "/s/landed.jsonl")).toHaveLength(1);
+	});
+
+	it("reads a child closed on a paired device from that device, never from this computer", async () => {
+		const { host, service } = family();
+		host.closed = [
+			{
+				path: "/s/landed.jsonl",
+				openedBySession: "/s/boss.jsonl",
+				title: "On the desktop",
+				cwd: "C:/repo",
+				device: "dev-win-1",
+				closedAt: 5000,
+			},
+		];
+		const reads: { path: string; device: string | undefined }[] = [];
+		const stored = host.storedMessages;
+		host.storedMessages = async row => {
+			reads.push({ path: row.path, device: row.device });
+			return stored(row);
+		};
+		const { members } = await service.familyEdits("main0001", 2000);
+		const desktop = members.find(member => member.title === "On the desktop");
+		expect(reads).toContainEqual({ path: "/s/landed.jsonl", device: "dev-win-1" });
+		expect(desktop).toMatchObject({ device: "dev-win-1", edits: { cwd: "C:/repo", endedAt: 4600 } });
+	});
+
+	it("says nothing of a session whose host cannot answer, and keeps the rest", async () => {
+		const { host, service } = family();
+		delete (host.tabsById.get("kid10000") as FakeTab).turn;
+		const { members } = await service.familyEdits("main0001", 2000);
+		expect(members.find(member => member.title === "Same checkout")?.edits).toBeNull();
+		expect(members.find(member => member.title === "In a worktree")?.unlanded).toEqual(unlanded);
+	});
+});
 describe("the review queue", () => {
 	it("lists the sessions the caller opened with their diff stat, running ones as running", async () => {
 		const { host, service, ids } = await withWorktreeChildren();
@@ -2234,6 +2362,8 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(asleep.host.removed).toEqual(["omp/agent/w"]);
 			expect(reads).toEqual([{ path: "/s/kid.jsonl", device }]);
 			expect(asleep.host.closedRecords[0]).toMatchObject({ path: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" });
+			// The record keeps the computer its saved file is on, where the opener's board reads it later.
+			expect(asleep.host.closedRecords[0]?.device).toBe(device);
 		}
 	});
 

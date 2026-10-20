@@ -63,6 +63,14 @@ import type {
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleFrequency } from "../../shared/schedules";
 import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
+import {
+	type FamilyEdits,
+	type FamilyMemberEdits,
+	isGitUnlanded,
+	isTurnEdits,
+	type RpcTurnEdits,
+	turnEdits,
+} from "../../shared/turn-edits";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
 import {
@@ -316,6 +324,8 @@ export interface AgentControlHost {
 	discardWorktree(worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval>;
 	/** Remember a session closed after its work landed, so its opener's family still lists it. */
 	recordClosed(child: ClosedChild): void;
+	/** The sessions main closed after their work landed (`recordClosed`), newest last. */
+	closedChildren?(): readonly ClosedChild[];
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
 	schedules(device?: string): ScheduleSource | null;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
@@ -917,6 +927,8 @@ export class AgentControl {
 	readonly #cardsTold = new Map<string, Set<string>>();
 	/** Each session's last read cost and split, which stand while its omp cannot answer (`#cost`, `#split`). */
 	readonly #lastSpend = new Map<string, { cost: number; split?: CostSplit }>();
+	/** Closed children's last turns (`familyEdits`), by device and session file: a closed session's file no longer changes. */
+	readonly #closedTurns = new Map<string, Promise<RpcTurnEdits>>();
 
 	readonly #app: AppControl | null;
 
@@ -2846,6 +2858,103 @@ export class AgentControl {
 	}
 
 	/**
+	 * What each session `callerTabId` opened changed, for its work board's "Changed" row: its newest turn's edit calls
+	 * (`get_turn_edits` of its own omp, or its saved file while it is not started) and, in a worktree, what its branch
+	 * has not landed (`get_git_unlanded`); with `since`, also each one closed after its work landed since then (its
+	 * saved file, read once). Asked through main, so a window viewing the opener (a phone) counts children it holds no
+	 * tab of. A session hidden from agents is left out.
+	 */
+	async familyEdits(callerTabId: string, since?: number): Promise<FamilyEdits> {
+		const tabs = this.#host.tabs(callerTabId);
+		if (!tabs) return { members: [] };
+		const own = this.#openedBy(callerTabId, tabs);
+		const ask = <T>(
+			tab: ControlTab,
+			type: "get_turn_edits" | "get_git_unlanded",
+			valid: (data: unknown) => data is T,
+		) =>
+			this.#host
+				.command(tab.tabId, { type }, STATE_TIMEOUT_MS)
+				.then(response => (response.success && valid(response.data) ? response.data : null))
+				.catch(() => null);
+		const open = await Promise.all(
+			tabs
+				.filter(tab => own.has(tab.tabId) && !tab.hidden)
+				.map(async (tab): Promise<FamilyMemberEdits> => {
+					const ready = tab.status === "ready" || tab.status === "running";
+					const saved = tab.sessionPath ? this.#tabRow(tab, tab.sessionPath) : undefined;
+					const [edits, unlanded] = await Promise.all([
+						ready
+							? ask(tab, "get_turn_edits", isTurnEdits)
+							: saved
+								? this.#host
+										.storedMessages(saved)
+										.then(messages => turnEdits(messages, tab.cwd))
+										.catch(() => null)
+								: null,
+						tab.worktree && ready ? ask(tab, "get_git_unlanded", isGitUnlanded) : null,
+					]);
+					return {
+						key: tab.sessionPath ?? tab.tabId,
+						title: tab.title || tab.task || "",
+						live: tab.busy || waits(tab),
+						...(tab.device ? { device: tab.device } : {}),
+						edits,
+						unlanded,
+					};
+				}),
+		);
+		const caller = tabs.find(tab => tab.tabId === callerTabId);
+		const shown = new Set(tabs.map(tab => `${tab.device ?? ""}\0${tab.sessionPath ?? ""}`));
+		const closed =
+			since !== undefined && caller?.sessionPath
+				? (this.#host.closedChildren?.() ?? []).filter(
+						child =>
+							child.openedBySession === caller.sessionPath &&
+							child.closedAt >= since &&
+							!shown.has(`${child.device ?? ""}\0${child.path}`),
+					)
+				: [];
+		return { members: [...open, ...(await Promise.all(closed.map(child => this.#closedEdits(child))))] };
+	}
+
+	/**
+	 * A closed child's last turn never changes: its saved file is read once, on the computer it ran on (a paired
+	 * device's through its stock helper); a failed read is tried again on the next ask.
+	 */
+	#closedEdits(child: ClosedChild): Promise<FamilyMemberEdits> {
+		const where = `${child.device ?? ""}\0${child.path}`;
+		let turn = this.#closedTurns.get(where);
+		if (!turn) {
+			const row: StoredSession = {
+				id: child.path,
+				path: child.path,
+				title: child.title,
+				firstMessage: "",
+				cwd: child.cwd,
+				modified: "",
+				messages: 0,
+				status: "",
+				hidden: false,
+				...(child.device ? { device: child.device } : {}),
+			};
+			turn = this.#host.storedMessages(row).then(messages => turnEdits(messages, child.cwd));
+			this.#closedTurns.set(where, turn);
+			turn.catch(() => this.#closedTurns.delete(where));
+		}
+		return turn
+			.catch(() => null)
+			.then(edits => ({
+				key: child.path,
+				title: child.title,
+				live: false,
+				...(child.device ? { device: child.device } : {}),
+				edits,
+				unlanded: null,
+			}));
+	}
+
+	/**
 	 * `last` (the review list last sent) with what moves inside a running child's turn read again: its step and what
 	 * it has cost so far. Only the running children (of `only`, when given: those that moved on since) are read, with
 	 * no git. Null when none of `callerTabId`'s children it would read runs.
@@ -3056,6 +3165,7 @@ export class AgentControl {
 				openedBySession: caller.sessionPath as string,
 				title: tab.title || tab.task || "",
 				cwd: removed && tab.worktree ? tab.worktree.baseCwd : tab.cwd,
+				...(tab.device ? { device: tab.device } : {}),
 				closedAt: Date.now(),
 				...(model ? { model: `${model.provider}/${model.id}` } : {}),
 				...(cost > 0 ? { cost } : {}),

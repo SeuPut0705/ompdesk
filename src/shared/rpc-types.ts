@@ -157,6 +157,9 @@ export type RpcCommand =
 	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp. `live`:
 	// a board showing the list asks its running children's step and cost again (pushed when they moved; answers null).
 	| { id?: string; type: "agent_control_review"; live?: boolean }
+	// What the sessions a session opened changed (shared/turn-edits.ts `FamilyEdits`), answered in main like the list
+	// above; `since` also brings those closed after their work landed since then (the board's turn start).
+	| { id?: string; type: "agent_control_family_edits"; since?: number }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }
@@ -416,6 +419,9 @@ export type RpcCommand =
 	| { id?: string; type: "get_git_changes" }
 	// Changes since the session started (its own commits included): the work board's "Changed" row. Answered in main.
 	| { id?: string; type: "get_git_unlanded" }
+	// The current (or last) turn's file-changing calls (shared/turn-edits.ts): the opener's work board counts a child's
+	// edits with them. Answered in main from the session's own transcript.
+	| { id?: string; type: "get_turn_edits" }
 	| { id?: string; type: "get_git_fingerprint"; root?: string }
 	| { id?: string; type: "get_git_diff"; path: string }
 	| {

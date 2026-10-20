@@ -9,6 +9,7 @@
 import type { CheckoutPeers } from "../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentReviewItem } from "../../shared/agent-control";
 import type { ExtensionUIRequest, RpcJobRow, SubagentSnapshot, UsageReport } from "../../shared/rpc-types";
+import type { FamilyEdits, RpcTurnEdits } from "../../shared/turn-edits";
 
 const MINUTE = 60_000;
 const query = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
@@ -282,7 +283,10 @@ export function boardBusyStores(): {
 } {
 	const now = Date.now();
 	return {
-		todo: { turnActive: true, turnStartedAt: now - 3 * MINUTE },
+		// `&family=1`: the orchestrator of the user's report, idle after its turn while the sessions it opened work.
+		todo: BOARD_FAMILY
+			? { turnActive: false, turnStartedAt: null, lastTurn: { start: now - 3 * MINUTE, end: now - 2 * MINUTE } }
+			: { turnActive: true, turnStartedAt: now - 3 * MINUTE },
 		session: {
 			goal: {
 				objective: text(
@@ -302,5 +306,95 @@ export function boardBusyStores(): {
 			),
 			options: ["768", "1024"],
 		},
+	};
+}
+
+/**
+ * `?board=busy&family=1`: the orchestrator of the user's report, idle after its turn while the sessions it opened
+ * work. Main's `agent_control_family_edits` answer: `child-1` in its own worktree (what its branch has not landed),
+ * `child-3` in the parent's checkout and closed after its work landed (its turn's own edits).
+ */
+export const BOARD_FAMILY = BOARD_BUSY && query.get("family") === "1";
+
+const FAMILY_PROJECT = "/Users/dev/projects/ompdesk";
+const FAMILY_WORKTREE = "/Users/dev/.omp/wt/gui-work-board-compact-1a2b3c4";
+
+function familyTurn(
+	key: string,
+	cwd: string,
+	endedAt: number,
+	edits: Array<[path: string, diff: string]>,
+): RpcTurnEdits {
+	return {
+		cwd,
+		startedAt: endedAt - 4 * MINUTE,
+		endedAt,
+		messages: edits.flatMap(([path, diff], index) => [
+			{
+				role: "assistant" as const,
+				content: [{ type: "toolCall" as const, id: `${key}-${index}`, name: "edit", arguments: { path } }],
+				timestamp: endedAt - 60_000 + index,
+			},
+			{
+				role: "toolResult" as const,
+				toolCallId: `${key}-${index}`,
+				toolName: "edit",
+				content: [{ type: "text" as const, text: "ok" }],
+				details: { diff },
+				timestamp: endedAt - 59_000 + index,
+			},
+		]),
+	};
+}
+
+export function familyEdits(): FamilyEdits {
+	if (!BOARD_FAMILY) return { members: [] };
+	const now = Date.now();
+	return {
+		members: [
+			{
+				key: "child-1",
+				title: text(
+					"Make the work board compact on every screen size and theme",
+					"작업현황을 모든 화면 크기와 테마에서 컴팩트하고 잘 보이게 정리",
+				),
+				live: true,
+				edits: familyTurn("child-1", FAMILY_WORKTREE, now, [
+					["src/renderer/styles/work-board.css", "+1 a\n+2 b\n-3 c"],
+				]),
+				unlanded: {
+					branch: "omp/agent/work-board-compact-every-screen-size-and-theme-2026-10-20",
+					target: "main",
+					truncated: false,
+					files: [
+						{ path: "src/renderer/styles/work-board.css", status: "M", added: 48, removed: 21 },
+						{
+							path: "src/renderer/components/layout/work-board/board-parts.tsx",
+							status: "M",
+							added: 17,
+							removed: 9,
+						},
+						{
+							path: "src/renderer/components/layout/work-board/WorkBoard.tsx",
+							status: "M",
+							added: 6,
+							removed: 2,
+						},
+						{ path: "e2e/work-board.e2e.ts", status: "M", added: 31, removed: 4 },
+					],
+				},
+			},
+			{
+				key: "child-3",
+				title: text("Keep the sidebar's folds across a relaunch", "다시 실행해도 사이드바 접힘 상태 유지"),
+				live: false,
+				edits: familyTurn("child-3", FAMILY_PROJECT, now - MINUTE, [
+					["src/renderer/stores/sidebar-folds.ts", "+1 a\n+2 b\n+3 c\n-4 d"],
+					["src/renderer/lib/sidebar-memory.ts", "+1 a\n+2 b"],
+					["src/renderer/stores/sidebar-folds.test.ts", "+1 a\n+2 b\n+3 c\n+4 d\n+5 e"],
+				]),
+				unlanded: null,
+			},
+		],
 	};
 }

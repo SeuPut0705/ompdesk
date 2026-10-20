@@ -158,6 +158,8 @@ export interface ClosedChild {
 	title: string;
 	/** The folder to open it in: its worktree while that exists, else the checkout it was made from. */
 	cwd: string;
+	/** The paired device it ran on, whose stock helper holds its saved file; absent = this computer. */
+	device?: string;
 	closedAt: number;
 	/** What it ran on and had cost when main closed it (an opener's family cost keeps counting it). */
 	model?: string;
@@ -172,7 +174,10 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 	const rows: ClosedChild[] = [];
 	for (const entry of value) {
 		if (!entry || typeof entry !== "object") continue;
-		const { path, openedBySession, title, cwd, closedAt, model, cost, split } = entry as Record<string, unknown>;
+		const { path, openedBySession, title, cwd, closedAt, model, cost, split, device } = entry as Record<
+			string,
+			unknown
+		>;
 		if (typeof path !== "string" || !path || typeof openedBySession !== "string" || !openedBySession) continue;
 		rows.push({
 			path,
@@ -180,6 +185,7 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 			title: typeof title === "string" ? title : "",
 			cwd: typeof cwd === "string" ? cwd : "",
 			closedAt: typeof closedAt === "number" ? closedAt : 0,
+			...(typeof device === "string" && device ? { device } : {}),
 			...(typeof model === "string" ? { model } : {}),
 			...(typeof cost === "number" ? { cost } : {}),
 			...(isCostSplit(split) ? { split } : {}),

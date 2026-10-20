@@ -1,4 +1,5 @@
 import type { AgentProgress } from "../../../../shared/rpc-types";
+import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
 import { extractResultImages, resultDetails, resultText } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import { asRecord } from "../../../lib/wire-value";
@@ -267,7 +268,7 @@ export function workOutcomes(
 				if (!media.has(key)) media.set(key, item);
 			}
 		}
-		if (["write", "edit", "ast_edit", "apply_patch"].includes(entry.toolName) && !entry.isError) {
+		if (TURN_EDIT_TOOLS.includes(entry.toolName) && !entry.isError) {
 			const perFile = asPerFileResults(details?.perFileResults);
 			const targets = perFile.length
 				? perFile

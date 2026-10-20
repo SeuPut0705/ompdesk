@@ -737,6 +737,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				};
 			}
 		}
+		// The work board's "Changed" row: what the sessions this one opened changed (src/main/agent-control).
+		if (cmd.type === "agent_control_family_edits") {
+			if (!issuerTabId)
+				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
+			try {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: true,
+					data: await agentControl.familyEdits(win, issuerTabId, cmd.since),
+				};
+			} catch (err) {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					code: "agent_control_family_edits_failed",
+				};
+			}
+		}
 		// Autopilot's coordinator answers its own commands for a local tab (src/main/autopilot.ts).
 		if ((cmd.type === "get_autopilot" || cmd.type === "set_autopilot") && !sidecar.device && issuerTabId) {
 			return autopilot.handleCommand(win, sidecar, issuerTabId, cmd as AutopilotCommand, _id);

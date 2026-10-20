@@ -65,6 +65,26 @@ function resultsByCallId(messages: readonly AgentMessage[]): Map<string, AgentMe
 	return results;
 }
 
+/**
+ * The tool entries of a transcript slice outside any runtime (another session's turn), one per call, paired with its
+ * results by occurrence as `hydrateMessages` pairs them.
+ */
+export function transcriptToolEntries(messages: readonly AgentMessage[], now = Date.now()): ToolEntry[] {
+	const results = resultsByCallId(messages);
+	const taken = new Map<string, number>();
+	const entries: ToolEntry[] = [];
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type !== "toolCall") continue;
+			const index = taken.get(block.id) ?? 0;
+			taken.set(block.id, index + 1);
+			entries.push(transcriptEntry(block, message, results.get(block.id)?.[index], now));
+		}
+	}
+	return entries;
+}
+
 export interface ToolsStore {
 	/**
 	 * Terminal entries (`done`, `error`, `aborted`) by key. Live events update

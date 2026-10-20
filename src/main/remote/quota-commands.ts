@@ -84,6 +84,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"agent_control_worker",
 	"autopilot_bridge",
 	"agent_control_review",
+	"agent_control_family_edits",
 	"abort",
 	"abort_and_restore_queue",
 	"abort_bash",
@@ -152,6 +153,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_git_diff",
 	"get_git_fingerprint",
 	"get_git_unlanded",
+	// A turn's file-changing calls from its own transcript (local/sessions.ts): no model.
+	"get_turn_edits",
 	"get_git_status",
 	"get_goal",
 	"get_gui_themes",

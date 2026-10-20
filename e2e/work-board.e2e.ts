@@ -117,10 +117,10 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
 
-				// A finished turn stays on the board as Current work, here one that changed no file.
+				// A finished turn that changed no file draws no "Changed" line.
 				await send(page, "hello");
 				await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
-				await expect(board.locator('[data-board-section="current"]')).toBeVisible();
+				await expect(board.locator('[data-board-session="changes"]')).toHaveCount(0);
 
 				// A running subagent and a todo list: the board appears with both.
 				await fixture(page, "fixture:subagents");

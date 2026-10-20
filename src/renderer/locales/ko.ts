@@ -4786,7 +4786,7 @@ export const ko: Record<string, string> = {
 	"workBoard.doneFolded": "{count}개 완료",
 	"workBoard.goalBudgetLabel": "예산",
 	"workBoard.goalTimeLabel": "시간",
-	"workBoard.noChanges": "바뀐 파일 없음",
+	"workBoard.current.thisSession": "이 세션",
 	"workBoard.current": "현재 작업",
 	"workBoard.current.unlanded": "{target}에 아직 없음 · 파일 {count}개",
 	"workBoard.current.unlandedTitle": "{branch}: 아직 {target}에 없는 커밋과 커밋하지 않은 변경",
