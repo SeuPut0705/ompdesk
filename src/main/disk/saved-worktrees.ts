@@ -278,16 +278,21 @@ async function saveCommit(worktree: string, head: string, exclude: readonly stri
 	}
 }
 
-/** Attribute words that make a checkout write other bytes than the blob holds. */
-const CONVERTING_ATTRIBUTE = /(^|\s)-?(text|eol|crlf|filter|working-tree-encoding|ident)(=|\s|$)/m;
+/**
+ * Files whose checkout writes the bytes the blob holds: `text` unspecified or unset and no other converting attribute.
+ * Git reads the attributes itself (tracked and untracked `.gitattributes`, `info/attributes` of the common dir,
+ * `core.attributesFile` however it is spelled, the system file), so nothing here parses or locates them.
+ */
+const VERBATIM = ["!eol", "!crlf", "!filter", "!working-tree-encoding", "!ident"].join(" ");
+const VERBATIM_PATHSPECS = [`:(attr:!text ${VERBATIM})`, `:(attr:-text ${VERBATIM})`];
 
 /**
  * Losing nothing means the restore writes the very bytes the folder holds now, for every tracked file, changed or not.
  * Git rewrites bytes on add and checkout when line-ending or filter settings apply (core.autocrlf true/input, Git for
- * Windows' default; core.eol; .gitattributes text/eol/filter/working-tree-encoding/ident), so an LF
- * file in such a repo comes back CRLF. Without any of them, add stores and checkout writes bytes as they are. So a repo
- * with any such setting keeps its worktree (a configured filter driver, git-lfs on most machines, acts only where an
- * attribute names it, so the attributes decide): the reason, or null when bytes round-trip.
+ * Windows' default; core.eol; text/eol/crlf/filter/working-tree-encoding/ident attributes), so an LF file in such a
+ * repo comes back CRLF. Without any of them, add stores and checkout writes bytes as they are. So a worktree with a
+ * file the saved commit would carry under any such setting is kept (a configured filter driver, git-lfs on most
+ * machines, acts only where an attribute names it, so the attributes decide): the reason, or null when bytes round-trip.
  */
 async function rewritesBytes(worktree: string): Promise<string | null> {
 	const config = async (key: string): Promise<string> =>
@@ -296,26 +301,24 @@ async function rewritesBytes(worktree: string): Promise<string | null> {
 	if (autocrlf === "true" || autocrlf === "input")
 		return `core.autocrlf is ${autocrlf}: a restore could change line endings`;
 	if (await config("core.eol")) return "core.eol is set: a restore could change line endings";
-	const attributeFiles = (await gitRaw(worktree, ["ls-files", "-z", "--", ":(glob)**/.gitattributes"])).stdout
-		.toString("utf8")
-		.split("\0")
-		.filter(Boolean)
-		.map(file => path.join(worktree, file));
-	attributeFiles.push(
-		path.resolve(worktree, (await git(worktree, ["rev-parse", "--git-path", "info/attributes"])).trim()),
-	);
-	const global = await config("core.attributesfile");
-	attributeFiles.push(
-		global
-			? global.replace(/^~(?=\/|\\)/, os.homedir())
-			: path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "git", "attributes"),
-	);
-	for (const file of attributeFiles) {
-		const text = await fs.readFile(file, "utf8").catch(() => "");
-		const rules = text.split("\n").filter(line => !line.trimStart().startsWith("#"));
-		if (rules.some(line => CONVERTING_ATTRIBUTE.test(line)))
-			return `${path.basename(file)} sets line-ending or filter attributes: a restore could rewrite files`;
-	}
+	// What the saved commit can carry: tracked files and untracked ones git does not ignore.
+	const files = async (pathspecs: string[]): Promise<number | null> => {
+		const result = await gitRaw(worktree, [
+			"ls-files",
+			"-z",
+			"--cached",
+			"--others",
+			"--exclude-standard",
+			"--",
+			...pathspecs,
+		]);
+		if (result.code !== 0 || result.truncated) return null;
+		return result.stdout.toString("utf8").split("\0").filter(Boolean).length;
+	};
+	const all = await files([]);
+	const verbatim = await files(VERBATIM_PATHSPECS);
+	if (all === null || verbatim === null) return "git could not list the files' attributes";
+	if (verbatim < all) return "line-ending or filter attributes apply: a restore could rewrite files";
 	return null;
 }
 
