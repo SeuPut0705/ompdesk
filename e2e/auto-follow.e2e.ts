@@ -222,36 +222,35 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 		await sendTurn("fixture turn 0");
 		await expect.poll(entering).toBe(false);
 		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
-		// Every frame from the send until the entrance is over.
+		// Each entrance, measured as it starts (the row 10px low, where it reaches furthest): the animation's own event,
+		// so a slow machine whose frames outlast the 220 ms rise still measures it (a hosted runner's frame sampler saw
+		// no frame of the rise at all).
 		await page.evaluate(() => {
 			const scroll = document.querySelector<HTMLElement>(".omp-transcript-scroll");
 			const canvas = document.querySelector<HTMLElement>(".omp-transcript-canvas");
 			if (!scroll || !canvas) throw new Error("expected the transcript");
-			const probe = { overflow: 0, enteringFrames: 0, done: false };
+			const probe = { overflow: 0, entrances: 0 };
 			// Test-only global the second evaluate reads back.
-			const w = window as unknown as { __entrance: typeof probe };
-			w.__entrance = probe;
-			const sample = () => {
-				if (probe.done) return;
-				const overflow = scroll.scrollHeight - Math.max(canvas.offsetHeight, scroll.clientHeight);
-				probe.overflow = Math.max(probe.overflow, overflow);
-				const rising = [...canvas.querySelectorAll(".omp-row-arrive > .omp-transcript-row")].some(row =>
-					row.getAnimations().some(animation => animation.playState === "running"),
+			(window as unknown as { __entrance: typeof probe }).__entrance = probe;
+			const measured = new WeakSet<Element>();
+			canvas.addEventListener("animationstart", event => {
+				const row = event.target as HTMLElement;
+				if (!row.matches(".omp-row-arrive > .omp-transcript-row") || measured.has(row)) return;
+				measured.add(row);
+				probe.entrances++;
+				probe.overflow = Math.max(
+					probe.overflow,
+					scroll.scrollHeight - Math.max(canvas.offsetHeight, scroll.clientHeight),
 				);
-				if (rising) probe.enteringFrames++;
-				requestAnimationFrame(sample);
-			};
-			requestAnimationFrame(sample);
+			});
 		});
 		await sendTurn("fixture turn 1");
 		await expect.poll(entering).toBe(false);
-		const seen = await page.evaluate(() => {
-			const w = window as unknown as { __entrance: { overflow: number; enteringFrames: number; done: boolean } };
-			w.__entrance.done = true;
-			return w.__entrance;
-		});
-		// The sampler saw the rise itself, not only the frames around it.
-		expect(seen.enteringFrames).toBeGreaterThan(2);
+		const seen = await page.evaluate(
+			() => (window as unknown as { __entrance: { overflow: number; entrances: number } }).__entrance,
+		);
+		// The rise itself was measured, not only the frames around it.
+		expect(seen.entrances).toBeGreaterThan(0);
 		// Scroll height beyond the rows (a pixel of rounding between the two).
 		expect(seen.overflow).toBeLessThanOrEqual(1);
 		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
