@@ -1142,5 +1142,32 @@ describe("SidecarManager", () => {
 				}
 			}
 		});
+
+		it.skipIf(process.platform !== "win32")(
+			"still stops the omp when taskkill fails, as it does while WMI, which it walks the process tree through, is down",
+			async () => {
+				const { tempDir, binaryPath, stopped } = await gracefulOmp(true);
+				const fakeBin = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-taskkill-"));
+				// ping.exe under taskkill's name: `/pid` is a bad option, so it exits 1 and kills nothing.
+				await fs.copyFile(
+					path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "ping.exe"),
+					path.join(fakeBin, "taskkill.exe"),
+				);
+				const realPath = process.env.PATH;
+				process.env.PATH = `${fakeBin}${path.delimiter}${realPath}`;
+				const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+				try {
+					const ready = waitForReady(sidecar);
+					sidecar.start();
+					await ready;
+					sidecar.dispose();
+					await vi.waitFor(async () => stopped([]), { timeout: 10_000 });
+				} finally {
+					process.env.PATH = realPath;
+					await fs.rm(fakeBin, RM_TEMP);
+					await fs.rm(tempDir, RM_TEMP);
+				}
+			},
+		);
 	});
 });
