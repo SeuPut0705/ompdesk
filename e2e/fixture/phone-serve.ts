@@ -47,12 +47,46 @@ export function recordPhoneLoads(page: Page): { attach: (name: string) => Promis
 		if (frame === page.mainFrame())
 			loads.push(`+${Date.now() - started}ms navigated ${new URL(frame.url()).pathname}`);
 	});
+	// The worker's own steps as each page saw them (a reload for "update" right after pairing is not explained yet),
+	// kept in sessionStorage so the lines of a page that reloaded survive into the next one.
+	void page.addInitScript(() => {
+		const container = navigator.serviceWorker;
+		if (!container) return;
+		let registration: ServiceWorkerRegistration | undefined;
+		const note = (line: string) => {
+			const lines: unknown = JSON.parse(sessionStorage.getItem("omp.test.sw-log") ?? "[]");
+			const kept = Array.isArray(lines) ? lines : [];
+			kept.push(
+				`${Date.now()} ${location.pathname} ${line} controller=${container.controller?.state ?? "none"} waiting=${registration?.waiting?.state ?? "none"} active=${registration?.active?.state ?? "none"} sameAsWaiting=${registration?.waiting != null && registration.waiting === container.controller}`,
+			);
+			sessionStorage.setItem("omp.test.sw-log", JSON.stringify(kept.slice(-60)));
+		};
+		note("page start");
+		container.addEventListener("controllerchange", () => note("controllerchange"));
+		const register = container.register.bind(container);
+		container.register = async (...args: Parameters<typeof register>) => {
+			const registered = await register(...args);
+			registration = registered;
+			note(`registered installing=${registered.installing?.state ?? "none"}`);
+			registered.addEventListener("updatefound", () => {
+				const worker = registered.installing;
+				note("updatefound");
+				worker?.addEventListener("statechange", () => note(`statechange ${worker.state}`));
+			});
+			return registered;
+		};
+	});
 	return {
 		attach: async name => {
-			const reasons = await page
-				.evaluate(() => localStorage.getItem("omp.web.reload-reasons"))
-				.catch(error => `unreadable: ${String(error)}`);
-			await test.info().attach(name, { body: [...loads, `reload reasons: ${reasons}`].join("\n") });
+			const read = (key: string) =>
+				page
+					.evaluate(item => localStorage.getItem(item) ?? sessionStorage.getItem(item), key)
+					.catch(error => `unreadable: ${String(error)}`);
+			const reasons = await read("omp.web.reload-reasons");
+			const workerLog = await read("omp.test.sw-log");
+			await test
+				.info()
+				.attach(name, { body: [...loads, `reload reasons: ${reasons}`, `worker: ${workerLog}`].join("\n") });
 		},
 	};
 }
