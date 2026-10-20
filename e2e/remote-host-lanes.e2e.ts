@@ -64,7 +64,10 @@ test("a host's work-folder sessions sit in the Chat lane on the host and on the 
 		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
 		const tab = (await a.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tabId);
 		const deviceRow = section.locator(`[data-device-session=${cssString(tab?.sessionPath ?? `tab:${tabId}`)}]`);
-		await a.locator('[role="tablist"] [data-tab-id="chat"]').click();
+		// Opening it focuses it: the lane follows the host's rule by itself, so its row is in view.
+		await expect(a.locator('[role="tablist"] [data-tab-id="chat"]')).toHaveAttribute("aria-selected", "true", {
+			timeout: 30_000,
+		});
 		await expect(deviceRow).toHaveCount(1, { timeout: 30_000 });
 		await a.locator('[role="tablist"] [data-tab-id="code"]').click();
 		await expect(section.locator(`[data-device-group=${cssString(hostWork)}]`)).toHaveCount(0);

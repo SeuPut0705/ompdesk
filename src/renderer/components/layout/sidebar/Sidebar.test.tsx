@@ -2662,6 +2662,39 @@ describe("Sidebar device sections", () => {
 		expect(section()?.textContent).not.toContain("Remote fix");
 	});
 
+	it("focusing a host's no-project tab opens the Chat lane, by the host's workspace", async () => {
+		const omp = installWithRemote();
+		omp.sidecar.defaultWorkspace.mockImplementation(async (device?: string) =>
+			device === "dev-studio" ? "/Users/kim/.omp/work" : "/default/work",
+		);
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
+		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
+		expect(modeTab("code")?.getAttribute("aria-selected")).toBe("true");
+
+		act(() => {
+			useTabsStore.setState(state => ({
+				tabs: [
+					...state.tabs,
+					{
+						id: "t-remote",
+						cwd: "/Users/kim/.omp/work",
+						status: "ready",
+						kind: "agent",
+						unreadDone: false,
+						device: "dev-studio",
+					},
+				] as never,
+				activeTabId: "t-remote",
+			}));
+			useSessionStore.setState({ cwd: "/Users/kim/.omp/work" });
+		});
+		await flush();
+		expect(modeTab("chat")?.getAttribute("aria-selected")).toBe("true");
+	});
+
 	describe("order", () => {
 		function pairHosts(ids: readonly string[]): void {
 			pairHost("online");

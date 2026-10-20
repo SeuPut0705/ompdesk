@@ -21,7 +21,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "zustand";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -33,7 +33,6 @@ import { basename, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
-import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
@@ -45,6 +44,7 @@ import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
 import { TabLiveEdge } from "../SessionLiveEdge";
+import { useHostWorkspace } from "./host-workspace";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 
 export type SidebarDeviceMode = "code" | "chat";
@@ -57,9 +57,6 @@ interface RemoteOpenArgs {
 	sessionPath?: string;
 	kind?: SessionKind;
 }
-
-/** Snapshot key (`panel` kind, the host's namespace) of a host's no-project workspace. */
-const WORKSPACE_KEY = "sidebar:default-workspace";
 
 const DOT_CLASS: Record<HostView["state"], string> = {
 	online: "bg-(--sc-success)",
@@ -250,25 +247,8 @@ function DeviceSessions({
 	);
 
 	// The host's own lane rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session
-	// opened there without a folder starts) sits in its Chat lane, so it does here too. Its last answer paints first.
-	const [hostWorkspace, setHostWorkspace] = useState(
-		() => snapshots().read<string>("panel", snapshotNs(host.deviceId), WORKSPACE_KEY)?.value ?? null,
-	);
-	useEffect(() => {
-		if (!read) return;
-		let current = true;
-		window.omp.sidecar.defaultWorkspace(host.deviceId).then(
-			workspace => {
-				snapshots().write("panel", snapshotNs(host.deviceId), WORKSPACE_KEY, workspace);
-				if (current) setHostWorkspace(workspace);
-			},
-			// No answer: the kind alone decides the lane until the next read.
-			() => undefined,
-		);
-		return () => {
-			current = false;
-		};
-	}, [host.deviceId, read]);
+	// opened there without a folder starts) sits in its Chat lane, so it does here too.
+	const hostWorkspace = useHostWorkspace(host.deviceId, read);
 
 	const rows = useMemo<DeviceSession[]>(() => {
 		// A file stock wrote before the first message is not a conversation yet (see Sidebar).

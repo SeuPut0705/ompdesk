@@ -128,6 +128,7 @@ import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
 import { SessionLiveEdge } from "../SessionLiveEdge";
+import { useHostWorkspace } from "./host-workspace";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
@@ -580,6 +581,9 @@ export function Sidebar() {
 		return index;
 	}, [hostedSessions]);
 	const hosts = usePairedHosts();
+	// The focused tab on a paired host takes that host's lane: its no-project workspace is the host's, not this one's.
+	// Unanswered (the host offline), the host section's own read fills the shared snapshot this one reads.
+	const activeHostWorkspace = useHostWorkspace(activeTab?.device, true);
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
@@ -639,8 +643,12 @@ export function Sidebar() {
 		const settled = laneSettled.current;
 		laneSettled.current = true;
 		if (!settled && rememberedLane.current !== null) return;
-		setMode(activeTabKind === "chat" || cwd === defaultWorkspace ? "chat" : "code");
-	}, [activeTabKind, cwd, defaultWorkspace]);
+		setMode(
+			inChatLane({ kind: activeTabKind, cwd }, activeTabRemote ? activeHostWorkspace : defaultWorkspace)
+				? "chat"
+				: "code",
+		);
+	}, [activeTabKind, cwd, defaultWorkspace, activeTabRemote, activeHostWorkspace]);
 
 	const query = filter.trim().toLocaleLowerCase();
 	const matchesFilter = useCallback(

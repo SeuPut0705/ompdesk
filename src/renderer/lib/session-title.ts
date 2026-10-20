@@ -1,7 +1,7 @@
 import { assignmentHeadline, stripTitlePrefix } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import { NO_TEXT_PROMPT } from "../../../resources/gui-bridge/session-list-contracts";
 import { agentTaskTitle } from "../../shared/agent-control";
-import type { SessionInfo } from "../../shared/ipc-types";
+import type { SessionInfo, SessionKind } from "../../shared/ipc-types";
 import { translate } from "./i18n";
 import { promptDisplayText } from "./prompt-text";
 
@@ -40,6 +40,6 @@ export function sessionHasContent(session: Pick<SessionInfo, "title" | "firstMes
  * The sidebar's lane rule, one for this computer's list and a paired host's: a chat, or a session in that machine's
  * no-project workspace (`~/.omp/work`), sits in the Chat lane; everything else in Code.
  */
-export function inChatLane(session: Pick<SessionInfo, "kind" | "cwd">, workspace: string | null): boolean {
+export function inChatLane(session: { kind?: SessionKind; cwd: string }, workspace: string | null): boolean {
 	return session.kind === "chat" || (workspace !== null && session.cwd === workspace);
 }
