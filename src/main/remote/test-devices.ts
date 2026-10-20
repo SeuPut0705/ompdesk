@@ -86,7 +86,7 @@ export class DevicesRig {
 	async computer(
 		name: string,
 		fake: FakeTailnet,
-		options: { userData?: string; prefs?: Map<string, unknown> } = {},
+		options: { userData?: string; prefs?: Map<string, unknown>; services?: LocalHostServices } = {},
 	): Promise<Computer> {
 		const dir = options.userData ?? (await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-devices-")));
 		if (!options.userData) this.#dirs.push(dir);
@@ -114,7 +114,7 @@ export class DevicesRig {
 				if (channel === "remote:state") for (const listener of [...listeners]) listener();
 				if (channel === "remote:tailnet") tailnet.pushed = structuredClone(data as TailnetComputer[]);
 			},
-			services: services as unknown as LocalHostServices,
+			services: options.services ?? (services as unknown as LocalHostServices),
 			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
 			offlineMessage: () => "offline",
 			stalledMessage: device => `${device} stalled`,
@@ -139,11 +139,12 @@ export class DevicesRig {
 	}
 
 	/** A host B sharing itself and a device A that sees it as node `nSTUDIO`; B sees A as node `nLAPTOP`. */
-	async pair(): Promise<{ a: Computer; b: Computer }> {
+	async pair(hostServices?: LocalHostServices): Promise<{ a: Computer; b: Computer }> {
 		await this.pickPort();
 		const b = await this.computer(
 			"Studio",
 			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
+			{ services: hostServices },
 		);
 		b.devices.start();
 		await b.devices.setHostEnabled(true);
@@ -154,8 +155,8 @@ export class DevicesRig {
 	}
 
 	/** Pair, then connect A to B; resolves once both sides see the link. */
-	async connected(): Promise<{ a: Computer; b: Computer; hostId: string }> {
-		const { a, b } = await this.pair();
+	async connected(hostServices?: LocalHostServices): Promise<{ a: Computer; b: Computer; hostId: string }> {
+		const { a, b } = await this.pair(hostServices);
 		const view = await a.devices.connect("nSTUDIO");
 		await until(a, state => state.hosts[0]?.state === "online");
 		await until(b, state => state.host.peers[0]?.online === true);
