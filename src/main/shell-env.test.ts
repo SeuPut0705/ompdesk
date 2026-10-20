@@ -698,7 +698,7 @@ describe("SidecarManager spawn env", () => {
 				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
 			}),
 			cwd: tempDir,
-			shellEnv: async () => ({ OMP_GUI_PSTACK: "1", OMP_GUI_ACCOUNT_ROTATION: "even" }),
+			shellEnv: async () => ({ OMP_GUI_PSTACK: "1", OMP_GUI_ECC: "1", OMP_GUI_ACCOUNT_ROTATION: "even" }),
 		});
 		try {
 			sidecar.start();
@@ -707,7 +707,7 @@ describe("SidecarManager spawn env", () => {
 				.not.toBe("");
 			const seen = JSON.parse(await fs.readFile(envPath, "utf8")) as Record<string, string>;
 			expect(seen.OMP_GUI_TEST_KEEP).toBe("kept");
-			for (const key of [...Object.keys(parent), "OMP_GUI_PSTACK", "OMP_GUI_ACCOUNT_ROTATION"]) {
+			for (const key of [...Object.keys(parent), "OMP_GUI_PSTACK", "OMP_GUI_ECC", "OMP_GUI_ACCOUNT_ROTATION"]) {
 				if (key !== "OMP_GUI_TEST_KEEP") expect(seen[key], key).toBeUndefined();
 			}
 		} finally {

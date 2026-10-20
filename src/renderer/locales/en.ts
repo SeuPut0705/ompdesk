@@ -4305,6 +4305,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",
+	"bridgeHealth.feature.eccHint": "ECC skills named for the project's languages",
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 	"bridgeHealth.feature.checkoutPeers": "Sessions sharing a checkout",
 

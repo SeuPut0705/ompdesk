@@ -4293,6 +4293,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "휴대폰 사진(HEIC) 모델용 변환",
 	"bridgeHealth.feature.pstack": "pstack 엔지니어링 모드",
+	"bridgeHealth.feature.eccHint": "프로젝트 언어에 맞는 ECC 스킬 안내",
 	"bridgeHealth.feature.backgroundChecks": "긴 검사 백그라운드 실행",
 	"bridgeHealth.feature.checkoutPeers": "같은 체크아웃을 쓰는 세션",
 

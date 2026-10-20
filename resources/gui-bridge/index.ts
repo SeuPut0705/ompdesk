@@ -71,6 +71,7 @@ const AREAS: readonly Area[] = [
 	{ name: "modes/delegation", features: ["delegation"], load: () => import("./modes/delegation") },
 	{ name: "modes/visuals", features: ["visuals"], load: () => import("./modes/visuals") },
 	{ name: "modes/pstack", features: ["pstack"], load: () => import("./modes/pstack") },
+	{ name: "modes/ecc-hint", features: ["eccHint"], load: () => import("./modes/ecc-hint") },
 	{
 		name: "modes/background-checks",
 		features: ["backgroundChecks"],

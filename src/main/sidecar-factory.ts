@@ -141,9 +141,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				return {
 					args: [...own, ...rea, ...pstack, ...ecc, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
-					// A chat (no project) keeps the pack's root but not its section text.
+					// A chat (no project) keeps the packs' roots but not their section texts.
 					env: {
 						OMP_GUI_PSTACK: pstack.length && kind === "agent" ? "1" : "0",
+						OMP_GUI_ECC: ecc.length && kind === "agent" ? "1" : "0",
 						...(deps.memoryStateFile ? { [MEMORY_ENV]: deps.memoryStateFile } : {}),
 					},
 				};

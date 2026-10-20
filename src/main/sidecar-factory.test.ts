@@ -182,38 +182,42 @@ describe("localSidecarFactory", () => {
 		create("/w/alpha", kind, false);
 		const mcp = await created[0]?.builtinMcp?.();
 		expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "pstack")] : []);
-		expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: flag });
+		expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: flag, OMP_GUI_ECC: "0" });
 	});
 
 	it.each([
-		[undefined, "agent", true],
-		[true, "chat", true],
-		[false, "agent", false],
-		[false, "chat", false],
-	] as const)("loads the ECC root only while its switch is on (pref %s, %s)", async (stored, kind, on) => {
-		created.length = 0;
-		const create = localSidecarFactory({
-			bridgeDir: "/bridge",
-			builtinDir: "/builtin",
-			builtinReaPref: () => false,
-			eccPref: () => stored,
-			proxyEnv: async () => ({}),
-			bridgeHealth: new BridgeHealth(() => {}),
-			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
-			replyLanguagePref: () => undefined,
-			userProfilePref: () => undefined,
-			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
-			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
-			judgeAssistPref: () => true,
-			delegationPref: () => undefined,
-			accountRotationPref: () => undefined,
-			accountRotationLedger: "/ledger.json",
-			launchProfilesPref: () => undefined,
-		});
-		create("/w/alpha", kind, false);
-		const mcp = await created[0]?.builtinMcp?.();
-		expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "ecc")] : []);
-	});
+		[undefined, "agent", true, "1"],
+		[true, "chat", true, "0"],
+		[false, "agent", false, "0"],
+		[false, "chat", false, "0"],
+	] as const)(
+		"loads the ECC root only while its switch is on, its hint for a project (pref %s, %s)",
+		async (stored, kind, on, flag) => {
+			created.length = 0;
+			const create = localSidecarFactory({
+				bridgeDir: "/bridge",
+				builtinDir: "/builtin",
+				builtinReaPref: () => false,
+				eccPref: () => stored,
+				proxyEnv: async () => ({}),
+				bridgeHealth: new BridgeHealth(() => {}),
+				sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+				replyLanguagePref: () => undefined,
+				userProfilePref: () => undefined,
+				nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+				autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+				judgeAssistPref: () => true,
+				delegationPref: () => undefined,
+				accountRotationPref: () => undefined,
+				accountRotationLedger: "/ledger.json",
+				launchProfilesPref: () => undefined,
+			});
+			create("/w/alpha", kind, false);
+			const mcp = await created[0]?.builtinMcp?.();
+			expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "ecc")] : []);
+			expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: "0", OMP_GUI_ECC: flag });
+		},
+	);
 
 	it("hands every spawn ai-memory's extension root while memory is on, read at each spawn (tabs and hosted tabs alike)", async () => {
 		let args: string[] = ["-e", "/ud/ai-memory/omp-ext"];

@@ -70,6 +70,7 @@ export const FEATURES = {
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 	phoneImages: "HEIC photos from a phone converted for the model",
 	pstack: "pstack engineering mode (always-on playbook section)",
+	eccHint: "ECC skills named for the project's languages (prompt section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
@@ -379,6 +380,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
 		session: ["getPlanModeState()", "getActiveToolNames()", "sessionManager.getBranch()"],
 	},
+	/** modes/ecc-hint.ts: the public `before_agent_start` hook and the context's `cwd` only. */
+	eccHint: {},
 	/** modes/background-checks.ts: reads stock `async.enabled` by id. */
 	backgroundChecks: {
 		pkg: ["Settings.instance"],

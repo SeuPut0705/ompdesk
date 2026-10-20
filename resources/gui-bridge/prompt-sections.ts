@@ -23,6 +23,8 @@ export interface JournalEntry {
 export interface PromptSectionContext {
 	sessionManager: { getBranch(): readonly JournalEntry[] };
 	agent: { kind: string };
+	/** The session's working folder (stock's `ExtensionContext.cwd`). */
+	cwd?: string;
 }
 
 /** The instruction to append for this session, or undefined for none. */
