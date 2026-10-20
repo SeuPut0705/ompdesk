@@ -77,11 +77,14 @@ export function useTabPollKey(): string {
 /**
  * `select` of this tab's value of `poll`: the pane's tab, or outside a pane the focused one (whose rpc the
  * window's route reaches), so the sidebar and the focused pane share one feed. Polls while `active`. A surface
- * re-renders only when what it selects changes.
+ * re-renders only when what it selects changes. `scope` names what else the value belongs to (a session the tab
+ * can switch in place): another scope is another feed, read afresh, and the old feed's poller stops, so a reply
+ * for the old scope can never land in the new one.
  */
-export function useTabPoll<T, S>(poll: TabPoll<T>, active: boolean, select: (value: T) => S): S {
+export function useTabPoll<T, S>(poll: TabPoll<T>, active: boolean, select: (value: T) => S, scope = ""): S {
 	const rpc = useTabRpc();
-	const key = useTabPollKey();
+	const tabKey = useTabPollKey();
+	const key = scope ? `${tabKey}\n${scope}` : tabKey;
 
 	useEffect(() => {
 		if (!active) return;

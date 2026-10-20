@@ -35,7 +35,13 @@ const spendPoll = new TabPoll<SessionSpend | null>(null, (rpc, publish) => {
 	};
 });
 
+/**
+ * This tab's session spend. Scoped by the session id too: a tab that switches session in place (a new session, a
+ * picked one) keeps its tab id, ready status and route, so without the scope the board would show the old session's
+ * charges until the next poll, and a reply already on its way could paint them back.
+ */
 export function useSessionSpend(active = true): SessionSpend | null {
 	const ready = useSessionStore(s => s.status) === "ready";
-	return useTabPoll(spendPoll, ready && active, spend => spend);
+	const sessionId = useSessionStore(s => s.sessionId);
+	return useTabPoll(spendPoll, ready && active, spend => spend, sessionId || "none");
 }
