@@ -26,6 +26,7 @@ import type { BeforeRemove } from "../worktree-orphans";
 import { realFolder } from "../worktree-removals";
 import { diskBytes } from "./usage";
 import {
+	inProgressOperation,
 	looksSecret,
 	processInside,
 	readWorktreeFiles,
@@ -417,6 +418,8 @@ export function archiveBeforeRemove(
 ): BeforeRemove {
 	return async worktree => {
 		if (folders !== null && processInside(worktree.path, folders)) throw new KeepWorktree("a process works in it");
+		const operation = await inProgressOperation(worktree.path);
+		if (operation) throw new KeepWorktree(`a git operation is half done (${operation})`);
 		const files = await readWorktreeFiles(worktree.path);
 		measured?.set(worktree.path, await diskBytes(worktree.path));
 		const record = await archiveIgnoredData(

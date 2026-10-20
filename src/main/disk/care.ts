@@ -257,6 +257,8 @@ export class DiskCare {
 				}
 				const dropped = await withRemovalClaim(orphan.path, this.#deps.openFolders, async () => {
 					// Read again under the claim: what a tab or tool changed since is judged afresh.
+					const operation = await inProgressOperation(orphan.path);
+					if (operation) throw new KeepWorktree(`a git operation is half done (${operation})`);
 					const fresh = await readWorktreeFiles(orphan.path);
 					if ((await this.#idleDays(orphan.path, fresh)) < DISK_CARE_ARTIFACT_IDLE_DAYS) return [];
 					return dropArtifacts(orphan.path, fresh);
@@ -270,6 +272,10 @@ export class DiskCare {
 					entries: dropped.map(entry => `${entry.path} (${entry.reason})`).join(", "),
 				});
 			} catch (error) {
+				if (error instanceof KeepWorktree) {
+					this.#kept(tally, orphan.path, error.message);
+					continue;
+				}
 				tally.failed++;
 				this.#deps.log("failed", { step: "artifacts", path: orphan.path, error: errorText(error) });
 			}

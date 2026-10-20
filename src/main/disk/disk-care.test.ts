@@ -394,4 +394,30 @@ describe("disk care", () => {
 		},
 		SLOW,
 	);
+
+	it(
+		"leaves a worktree with a half-done merge or rebase whole: its build output stays, landed or not",
+		async () => {
+			const merging = await busyWorktree("merge-artifacts");
+			const mergeDir = gitSync(merging, "rev-parse", "--absolute-git-dir");
+			await fs.writeFile(path.join(mergeDir, "MERGE_HEAD"), `${gitSync(repo, "rev-parse", "main")}\n`);
+			const rebasing = await worktree("landed-rebase");
+			await write(rebasing, "landed.ts", "x\n");
+			gitSync(rebasing, "add", "landed.ts");
+			gitSync(rebasing, "commit", "-q", "-m", "landed");
+			gitSync(repo, "merge", "--ff-only", "-q", "omp/agent/landed-rebase");
+			await write(rebasing, "node_modules/left-pad/index.js", "module.exports = 1;\n");
+			await fs.mkdir(path.join(gitSync(rebasing, "rev-parse", "--absolute-git-dir"), "rebase-merge"));
+
+			await care(Date.now() + 5 * 24 * 60 * 60_000).run("user");
+			expect(await exists(path.join(merging, "node_modules/left-pad/index.js"))).toBe(true);
+			expect(await exists(path.join(merging, "out/main/index.js"))).toBe(true);
+			expect(listed()).toContain(rebasing);
+			expect(await exists(path.join(rebasing, "node_modules/left-pad/index.js"))).toBe(true);
+			const kept = logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
+			expect(kept.filter(reason => reason.includes("MERGE_HEAD")).length).toBeGreaterThan(0);
+			expect(kept.filter(reason => reason.includes("rebase-merge")).length).toBeGreaterThan(0);
+		},
+		SLOW,
+	);
 });
