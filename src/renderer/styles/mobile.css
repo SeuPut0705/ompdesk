@@ -1182,8 +1182,15 @@ html[data-shell] :is([data-choice-row], [data-switch-grid]) {
 	--hit-gap-y: 4px;
 }
 
+/* A segment sizes to its label (ChoiceRow.tsx), so on touch it is at least 40 px wide, and the segments' reach stops at
+   the midpoint of their 2 px gap (a short Korean label made a 30 px segment whose 4 px-gap reach covered the next). */
 html[data-input="touch"] [data-choice-row] [role="radio"] {
 	min-height: var(--sc-row-touch);
+	min-width: 40px;
+}
+
+html[data-input="touch"] [data-choice-row] [role="radiogroup"] {
+	--hit-gap-x: 2px;
 }
 
 html[data-input="touch"] [data-switch-tile] {

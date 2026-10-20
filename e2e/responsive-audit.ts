@@ -581,7 +581,11 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			push("small-target", element, `${Math.round(hit.width)}×${Math.round(hit.height)} (need ${Math.ceil(need)})`);
 		}
 	}
-	// Overlap: two controls' visible boxes cross, neither holds the other, and both are on top where they meet.
+	// Overlap: two controls' visible boxes cross, neither holds the other, and both are on top where they meet. A menu,
+	// popover or dialog floating over the page covers what lies under it by design: only controls of the same layer
+	// collide.
+	const LAYER = "[role='menu'], [role='dialog'], [role='listbox'], [role='tooltip'], [data-sheet-panel], .omp-pop-in";
+	const layerOf = (element: Element): Element | null => element.closest(LAYER);
 	const boxes = controls
 		.map(element => ({ element, rect: visibleRect(element) }))
 		.filter(
@@ -594,6 +598,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			const b = boxes[j];
 			if (!a || !b) continue;
 			if (a.element.contains(b.element) || b.element.contains(a.element)) continue;
+			if (layerOf(a.element) !== layerOf(b.element)) continue;
 			const width = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
 			const height = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
 			if (width < 4 || height < 4) continue;

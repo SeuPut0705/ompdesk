@@ -287,7 +287,7 @@ export const SURFACES: readonly Surface[] = [
 			open: async page => {
 				await ui(page, "setPanelTab", panel);
 			},
-			ready: "[data-sheet-panel], [data-panel-tabbar]",
+			ready: "[data-sheet-panel], [data-panel-tabbar], .omp-panel-topbar",
 			settle: 900,
 		}),
 	),
@@ -486,7 +486,10 @@ export const SURFACES: readonly Surface[] = [
 		title: "A session row's action menu",
 		open: async (page, look) => {
 			await openDrawer(page, look);
-			await page.locator("[data-sidebar-row-menu]").first().click();
+			// A mouse shows the row's ⋯ on hover; a finger always has it.
+			const row = page.locator(".omp-list-row:has([data-sidebar-row-menu])").first();
+			if ((look.device ?? "touch") !== "touch") await row.hover();
+			await row.locator("[data-sidebar-row-menu]").first().click();
 		},
 	},
 	{

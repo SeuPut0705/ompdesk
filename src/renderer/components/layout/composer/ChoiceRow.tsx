@@ -95,7 +95,10 @@ export function ChoiceRow<V extends string>({
 							aria-checked={checked}
 							aria-label={name}
 							className={cx(
-								"flex h-(--sc-hit-min) min-w-0 flex-1 items-center justify-center gap-1 rounded-(--sc-radius-sm) px-1 text-sc-sm font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast) disabled:cursor-not-allowed disabled:opacity-60",
+								// Each segment takes its label's width plus an even share of the rest (`flex-auto`, not equal
+								// thirds/quarters): with equal widths "Ask and remember" cut its short label to "Rem…" while
+								// "Full" and "Ask" kept room to spare.
+								"flex h-(--sc-hit-min) min-w-0 flex-auto items-center justify-center gap-1 rounded-(--sc-radius-sm) px-1 text-sc-sm font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast) disabled:cursor-not-allowed disabled:opacity-60",
 								checked
 									? "bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-sm)"
 									: "text-(--sc-text-muted) hover:text-(--sc-text)",

@@ -116,6 +116,7 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 								<button
 									aria-pressed={open?.path === page.path}
 									className={LIST_ROW}
+									data-list-item
 									data-memory-page={page.path}
 									key={page.path}
 									onClick={() => setOpen({ ...project, path: page.path })}

@@ -41,6 +41,7 @@ export function MemorySessions({ project }: { project: AiMemoryProjectRef }) {
 				<button
 					aria-pressed={session.id === openId}
 					className={LIST_ROW}
+					data-list-item
 					data-memory-session={session.id}
 					key={session.id}
 					onClick={() => setOpenId(session.id)}

@@ -98,8 +98,13 @@ export function MemorySection({ sub }: { sub?: string }) {
 		<SettingsSection id="settings-memory" scope="app">
 			{usable && (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2" data-memory-bar>
-					{/* Seven tabs 4 px apart (Tabs: gap-1): each one's touch reach stops at half that gap (mobile.css). */}
-					<div className="w-full min-w-0 sm:w-auto sm:flex-1" style={{ "--hit-gap-x": "4px" } as CSSProperties}>
+					{/* Seven tabs 4 px apart (Tabs: gap-1): each one's touch reach stops at half that gap (mobile.css). The
+					    bar sizes to the tabs: where they and the project picker do not fit one line the picker wraps under
+					    them (at 1100 px the picker lay over Profile and Maintenance), and a phone scrolls the tabs sideways. */}
+					<div
+						className="max-w-full min-w-0 flex-[1_1_auto] overflow-x-auto"
+						style={{ "--hit-gap-x": "4px" } as CSSProperties}
+					>
 						<Tabs activeId={tab} ariaLabel={t("memory.title")} onChange={open} tabs={tabs} />
 					</div>
 					{tab !== "overview" && tab !== "profile" && (projects.data?.length ?? 0) > 0 && project && (

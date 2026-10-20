@@ -35,6 +35,7 @@ export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {
 				<button
 					aria-pressed={item.id === openId}
 					className={LIST_ROW}
+					data-list-item
 					data-memory-handoff={item.id}
 					key={item.id}
 					onClick={() => setOpenId(item.id)}
