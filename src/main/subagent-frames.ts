@@ -22,6 +22,13 @@ export interface SubagentFrameBatcher {
 	flush(): void;
 }
 
+/** A subagent's `message_update` reduced to what the renderer reads; every other frame as it is. */
+export function slimSubagentFrame(frame: SubagentFrame): SubagentFrame {
+	return frame.type === "subagent_event" && frame.payload.event.type === "message_update"
+		? { type: frame.type, payload: { ...frame.payload, event: slimMessageUpdate(frame.payload.event) } }
+		: frame;
+}
+
 export function createSubagentFrameBatcher(send: (frames: SubagentFrame[]) => void): SubagentFrameBatcher {
 	let pending: SubagentFrame[] = [];
 	let timer: NodeJS.Timeout | undefined;
@@ -35,11 +42,7 @@ export function createSubagentFrameBatcher(send: (frames: SubagentFrame[]) => vo
 	};
 	return {
 		push(frame) {
-			pending.push(
-				frame.type === "subagent_event" && frame.payload.event.type === "message_update"
-					? { type: frame.type, payload: { ...frame.payload, event: slimMessageUpdate(frame.payload.event) } }
-					: frame,
-			);
+			pending.push(slimSubagentFrame(frame));
 			timer ??= setTimeout(flush, BATCH_INTERVAL_MS);
 		},
 		flush,

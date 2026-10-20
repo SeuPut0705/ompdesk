@@ -68,11 +68,18 @@ export const AuthReply = z.discriminatedUnion("t", [
 /** Any hello; `protocol` is checked before the side-specific shape. */
 export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknown() });
 
+/**
+ * `slimEvents`: the device rebuilds slimmed `events` and `subagentFrame` messages (`link-events.ts`). It is a
+ * capability of the hello, not a `PROTOCOL_VERSION` bump, because a host and a device must agree on the version
+ * exactly: a bump would lock every older device out. A hello without it (an older device) gets whole frames, and an
+ * older host ignores it.
+ */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
 	protocol: z.number(),
 	appVersion: z.string().max(64),
 	name: deviceName,
+	slimEvents: z.boolean().optional(),
 });
 
 export const HostHelloMessage = z.object({

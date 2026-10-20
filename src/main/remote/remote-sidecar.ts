@@ -31,7 +31,13 @@
 import { EventEmitter } from "node:events";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
-import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
+import type {
+	RpcCommand,
+	RpcResponse,
+	SidecarStatus,
+	SidecarStatusPayload,
+	SubagentFrame,
+} from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
 import type { SidecarLike } from "../sidecar-types";
@@ -47,6 +53,7 @@ import {
 	TabSignInArg,
 	TabStatusArg,
 } from "./app-protocol";
+import { createLinkEventDecoder } from "./link-events";
 
 /** The slice of RemoteClient a tab needs. */
 export interface RemoteLink {
@@ -139,6 +146,7 @@ export class PendingTabCloses {
 export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #link: RemoteLink;
 	readonly #rtab: string;
+	readonly #linkEvents = createLinkEventDecoder();
 	readonly #kind: "agent" | "chat";
 	readonly #fresh: boolean;
 	readonly #offlineMessage: () => string;
@@ -378,6 +386,16 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			// The host's person deleted the session this tab shows: the pool drops the tab and remembers the delete.
 			case "sessionDeleted":
 				if (typeof message.arg === "string") this.emit("sessionDeleted", message.arg);
+				return;
+			// A host that sent them slim (the hello asked): back to what a local sidecar delivers; whole ones pass through.
+			case "events":
+				this.emit(message.name, Array.isArray(message.arg) ? this.#linkEvents.events(message.arg) : message.arg);
+				return;
+			case "subagentFrame":
+				this.emit(
+					message.name,
+					message.arg ? this.#linkEvents.subagentFrame(message.arg as SubagentFrame) : message.arg,
+				);
 				return;
 			default:
 				this.emit(message.name, message.arg);

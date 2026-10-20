@@ -56,6 +56,7 @@ import {
 	type RpcResponse,
 	type SessionInfoUpdateFrame,
 	type SidecarStatusPayload,
+	type SubagentFrame,
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
 import type { TerminalOperation } from "../../shared/terminal-types";
@@ -141,6 +142,7 @@ import {
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
 import { HostedTabView, labelForHost } from "./hosted-view";
+import { createLinkEventEncoder, type LinkEventEncoder } from "./link-events";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
@@ -266,6 +268,8 @@ interface HostTab extends RunTracking {
 	viewsWindow?: true;
 	/** Asks answered, by request id → who answered first; the other side's late answer is refused. */
 	answered: Map<string, "device" | "host">;
+	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
+	linkEvents?: { conn: HostConnection; encoder: LinkEventEncoder };
 	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
 	sessionId?: string;
 	title?: string;
@@ -1512,8 +1516,24 @@ export class LocalHostServices implements HostServices {
 	}
 
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {
-		const message: TabEventMessage = { rtab: tab.rtab, name, arg };
-		if (tab.conn) emitSafely(tab.conn, TAB_EVENT, message);
+		const { conn } = tab;
+		if (!conn) return;
+		const message: TabEventMessage = {
+			rtab: tab.rtab,
+			name,
+			arg: conn.slimEvents ? this.#slimmed(tab, conn, name, arg) : arg,
+		};
+		emitSafely(conn, TAB_EVENT, message);
+	}
+
+	/** `events` and `subagentFrame` as a device that asked for slim ones receives them (`link-events.ts`); one encoder per tab and connection. */
+	#slimmed(tab: HostTab, conn: HostConnection, name: TabEventName, arg: unknown): unknown {
+		if (name !== "events" && name !== "subagentFrame") return arg;
+		if (tab.linkEvents?.conn !== conn) tab.linkEvents = { conn, encoder: createLinkEventEncoder() };
+		const { encoder } = tab.linkEvents;
+		return name === "events"
+			? encoder.events(arg as AgentSessionEvent[])
+			: encoder.subagentFrame(arg as SubagentFrame);
 	}
 
 	async #command(peer: PeerInfo, params: z.infer<typeof CommandParams>): Promise<RpcResponse> {

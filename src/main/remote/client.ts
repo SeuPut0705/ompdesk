@@ -177,7 +177,13 @@ async function handshake(address: string, opts: HandshakeOptions): Promise<Hands
 			),
 		);
 		link.secure(keys.ab, keys.ba);
-		link.send({ t: "hello", protocol: PROTOCOL_VERSION, appVersion: opts.appVersion, name: opts.name });
+		link.send({
+			t: "hello",
+			protocol: PROTOCOL_VERSION,
+			appVersion: opts.appVersion,
+			name: opts.name,
+			slimEvents: true,
+		});
 		const message = await link.receive(HANDSHAKE_TIMEOUT_MS);
 		if (message.t === "error") throw new RemoteError(String(message.code ?? "protocol"));
 		const version = HelloVersion.safeParse(message);

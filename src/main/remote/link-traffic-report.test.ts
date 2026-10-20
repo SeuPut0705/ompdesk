@@ -328,7 +328,7 @@ describe("link traffic harness", () => {
 describe("the host's traffic line over the real pipeline", () => {
 	it("names the omp event type a streamed reply is made of, and holds none of its text", async () => {
 		const { rig, turn, hostLog } = await openSession();
-		await turn({ kind: "stream", thinkingTokens: 100, textTokens: 300, tokenMs: 0 });
+		await turn({ kind: "stream", thinkingTokens: 400, textTokens: 1200, tokenMs: 0 });
 		await rig.dispose();
 
 		const traffic = hostLog.filter(line => line.message === "traffic");
@@ -338,7 +338,7 @@ describe("the host's traffic line over the real pipeline", () => {
 			events: Record<string, number>;
 		};
 		expect(details.top[0]?.kind).toBe("tx evt tab.event events");
-		expect(details.events.message_update).toBeGreaterThan(400);
+		expect(details.events.message_update).toBeGreaterThan(1500);
 		expect(JSON.stringify(details)).not.toContain("session transcript");
 	}, 30_000);
 });
