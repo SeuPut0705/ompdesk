@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, test } from "@playwright/test";
-import { writeFakeGh } from "./fixture/fake-gh";
+import { writeShellGh } from "./fixture/shell-gh";
 import { exitApp, launchApp, openDestination, pressShortcutUntilVisible, variants } from "./harness";
 
 // At the smallest window OMPdesk allows (800×640, sidebar open) the settings
@@ -100,7 +100,7 @@ test("pull requests fit the smallest window", async () => {
 	await fs.writeFile(path.join(bin, "list.json"), JSON.stringify([pr]));
 	await fs.writeFile(path.join(bin, "view.json"), JSON.stringify({ ...pr, baseRefName: "main", body: "Body" }));
 	// A stand-in `gh` ahead of the real one on PATH (main puts the inherited PATH first).
-	await writeFakeGh(
+	await writeShellGh(
 		bin,
 		`#!/bin/sh\ncase "$1 $2" in\n"repo view") echo '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;\n"pr list") cat "${bin}/list.json" ;;\n"pr view") cat "${bin}/view.json" ;;\n*) exit 1 ;;\nesac\n`,
 	);

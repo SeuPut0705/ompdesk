@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { writeFakeGh } from "./fixture/fake-gh";
+import { writeShellGh } from "./fixture/shell-gh";
 import { exitApp, fixtureOmp, openDestination, variants } from "./harness";
 import { resize } from "./shell-capture";
 
@@ -84,7 +84,7 @@ async function seed(name: string): Promise<Seeded> {
 			},
 		]),
 	]);
-	await writeFakeGh(
+	await writeShellGh(
 		bin,
 		[
 			"#!/bin/sh",
