@@ -105,9 +105,17 @@ export function diskCareWorld(): DiskCareWorld {
 
 	beforeEach(async () => {
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-disk-care-")));
-		for (const key of ["HOME", "PI_CODING_AGENT_DIR"]) env[key] = process.env[key];
-		process.env.HOME = path.join(root, "home");
-		process.env.PI_CODING_AGENT_DIR = path.join(root, "home", ".omp", "agent");
+		// Every run ends by measuring the home's `.omp`, the agent dir and bun's install cache. Windows reads the home from
+		// USERPROFILE (not HOME), and CI names its real bun cache in BUN_INSTALL_CACHE_DIR: left alone, each case walked
+		// the runner's whole cache file by file, about 20 s of a Windows case.
+		const home = path.join(root, "home");
+		for (const key of ["HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "BUN_INSTALL", "BUN_INSTALL_CACHE_DIR"])
+			env[key] = process.env[key];
+		process.env.HOME = home;
+		process.env.USERPROFILE = home;
+		process.env.PI_CODING_AGENT_DIR = path.join(home, ".omp", "agent");
+		process.env.BUN_INSTALL = path.join(home, ".bun");
+		delete process.env.BUN_INSTALL_CACHE_DIR;
 		world.root = root;
 		world.repo = path.join(root, "repo");
 		wtRoot = path.join(root, "wt");
