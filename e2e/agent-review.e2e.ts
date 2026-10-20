@@ -117,29 +117,6 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	for (const child of made) expect(child.branch).toMatch(/^omp\/agent\//);
 	await call("ompdesk_session_result", { sessions: made.map(child => child.tabId), wait: true, timeout_seconds: 90 });
 
-	// Sessions an agent opened live in its opener's family, whatever their folder: no "Parallel work" group, and the
-	// children's folders (`gui-agent-<id>-<hash>`) never show.
-	const chip = page.locator("[data-sidebar-subagents-toggle]");
-	await expect(chip).toHaveCount(1, { timeout: 30_000 });
-	if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
-	const family = page.locator("[data-sidebar-family] [data-sidebar-opened-session]");
-	try {
-		await expect(family).toHaveCount(3, { timeout: 30_000 });
-	} catch (error) {
-		// Seen once on a hosted runner (2 rows for 30 s, 0 of 12 locally): which child left, and what its tab said.
-		const rows = await family.evaluateAll(nodes =>
-			nodes.map(node => `${node.getAttribute("data-session-path")} ${(node.textContent ?? "").slice(0, 40)}`),
-		);
-		await test.info().attach("family.json", {
-			body: JSON.stringify({ rows, tabs: await tabs(), made }, null, 2),
-		});
-		throw error;
-	}
-	for (const label of ["attempt a", "attempt b", "attempt c"])
-		await expect(family.filter({ hasText: label })).toHaveCount(1);
-	await expect(page.locator("[data-worktree-group]")).toHaveCount(0);
-	await expect.poll(async () => page.locator("body").innerText()).not.toMatch(/gui-2026|gui-agent/);
-
 	// The fake children do not edit; commit a file in each checkout the way a real child's work would land.
 	for (const [index, child] of made.entries()) {
 		const file = `part-${"abc"[index]}.txt`;
@@ -147,6 +124,20 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 		git(child.path, "add", file);
 		git(child.path, "commit", "-q", "-m", `add ${file}`);
 	}
+
+	// Sessions an agent opened live in its opener's family, whatever their folder: no "Parallel work" group, and the
+	// children's folders (`gui-agent-<id>-<hash>`) never show. A finished child is listed only while it has work to
+	// look at (its commits not landed): before the commits above, a finished, untouched child is done and leaves the
+	// list once its review item lands (a hosted runner showed one row of three).
+	const chip = page.locator("[data-sidebar-subagents-toggle]");
+	await expect(chip).toHaveCount(1, { timeout: 30_000 });
+	if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+	const family = page.locator("[data-sidebar-family] [data-sidebar-opened-session]");
+	await expect(family).toHaveCount(3, { timeout: 30_000 });
+	for (const label of ["attempt a", "attempt b", "attempt c"])
+		await expect(family.filter({ hasText: label })).toHaveCount(1);
+	await expect(page.locator("[data-worktree-group]")).toHaveCount(0);
+	await expect.poll(async () => page.locator("body").innerText()).not.toMatch(/gui-2026|gui-agent/);
 
 	const compared = await call("ompdesk_compare");
 	expect(compared.isError).toBe(false);
