@@ -46,10 +46,13 @@ test("the upkeep retitles a junk session page and discards a child's handoff onc
 		expect(String(write?.body)).toContain("1. 맥 자동업데이트 확인");
 		expect(String(write?.body)).not.toContain("ompdesk-agent-message");
 		expect(typeof write?.expected_page_id).toBe("string");
-		const cancelled = all
-			.filter(entry => entry.tool === "memory_handoff_cancel")
-			.map(entry => entry.body?.params?.arguments?.handoff_id);
-		expect(cancelled).toEqual(["h-child"]);
+		// The repair retitles first and cancels the child's handoff after: read the log until the cancel is in (a hosted
+		// runner's single read right after the write found none).
+		const cancelled = async () =>
+			(await requests())
+				.filter(entry => entry.tool === "memory_handoff_cancel")
+				.map(entry => entry.body?.params?.arguments?.handoff_id);
+		await expect.poll(cancelled, { timeout: 30_000 }).toEqual(["h-child"]);
 	} finally {
 		delete process.env.FAKE_AI_MEMORY_UPKEEP;
 		if (current) await exitApp(current.app).catch(() => undefined);
