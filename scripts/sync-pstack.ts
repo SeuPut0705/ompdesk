@@ -4,7 +4,7 @@
  * Claude names to omp and OMPdesk ones. Run after every pin bump:
  *
  *   bun run sync:pstack            copy + translate + regenerate (needs network, or PSTACK_SRC=<clone at the pin>)
- *   bun run sync:pstack -- --check list the upstream commits that touched pstack/ since the pin (no files written)
+ *   bun run sync:pstack -- --check pin vs the newest upstream past the 3-day hold (scripts/skill-packs.ts check pstack)
  *
  * Owned by OMPdesk and never touched here: `pstack-config.json` (the one version pin), `adapter.md`,
  * `agents/pstack-agent.md`, `README.md`. Everything else under the pack is generated; `pstack-manifest.json` holds its
@@ -605,23 +605,11 @@ function upstreamSource(): { dir: string; cleanup: () => void } {
 	return { dir: tmp, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
 }
 
-function check(): void {
-	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pstack-check-"));
-	try {
-		execFileSync("git", ["clone", "--filter=blob:none", "--bare", `https://github.com/${config.repo}`, tmp], {
-			stdio: "ignore",
-		});
-		const log = execFileSync("git", ["-C", tmp, "log", "--oneline", `${config.commit}..HEAD`, "--", config.path], {
-			encoding: "utf8",
-		});
-		console.log(log.trim() ? log : `pstack/ unchanged since ${config.commit}`);
-	} finally {
-		fs.rmSync(tmp, { recursive: true, force: true });
-	}
-}
-
 function main(): void {
-	if (process.argv.includes("--check")) return check();
+	if (process.argv.includes("--check")) {
+		execFileSync("bun", [path.join(import.meta.dir, "skill-packs.ts"), "check", "pstack"], { stdio: "inherit" });
+		return;
+	}
 	const source = upstreamSource();
 	try {
 		const upstream = path.join(source.dir, config.path);
