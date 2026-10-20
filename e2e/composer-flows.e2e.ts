@@ -481,12 +481,16 @@ test("Esc with a draft only arms the stop; an empty field stops at once; a doubl
 test("Stop with queued messages pauses the queue: separate chips in one row, the draft untouched, nothing sent until Resume", async () => {
 	test.setTimeout(120_000);
 	const dirs = await profile("stop-queue");
-	const { app, page, errors } = await launch(dirs);
+	// A slow automatic mode choice, as the real judge's round trip can be on a loaded machine: the composer takes one
+	// submission at a time, so the messages to queue are typed once the turn runs (the lane chip), not when Stop shows
+	// (Stop already withdraws the prompt the choice holds back).
+	const { app, page, errors } = await launch(dirs, { OMP_GUI_TEST_AUTO_MODE_DELAY_MS: "1500" });
 	try {
 		const input = composer(page);
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(stop(page)).toBeVisible();
+		await expect(running(page)).toBeVisible();
 		for (const text of ["queued one", "queued two"]) {
 			await input.fill(text);
 			await input.press("Enter");
@@ -538,6 +542,8 @@ test("Discard and a chip's × drop restored messages; a chip's text puts it in t
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(stop(page)).toBeVisible();
+		// Queue once the turn runs: the composer takes one submission at a time (see the test above).
+		await expect(running(page)).toBeVisible();
 		for (const text of ["queued one", "queued two", "queued three"]) {
 			await input.fill(text);
 			await input.press("Enter");
