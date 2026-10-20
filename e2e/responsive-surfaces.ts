@@ -461,36 +461,24 @@ export const SURFACES: readonly Surface[] = [
 	{
 		id: "composer-run-settings",
 		area: "A",
-		title: "Run settings popover (thinking, approval); on a phone it lives behind the composer's ⋯",
-		when: look => look.width >= 600,
+		title: "Run settings (mode, thinking, approval, delegation): a popover, a bottom sheet on a phone",
 		open: page => page.locator("[data-run-settings-trigger]").first().click(),
 	},
 	{
 		id: "composer-context-usage",
 		area: "A",
-		title: "Context usage popover; on a phone it lives behind the composer's ⋯",
-		when: look => look.width >= 600,
+		title: "Context usage: a popover, a bottom sheet on a phone",
 		open: page => page.locator(".omp-context-usage-trigger").first().click(),
-	},
-	{
-		id: "composer-delegation",
-		area: "A",
-		title: "Delegation strength popover; on a phone it lives behind the composer's ⋯",
-		when: look => look.width >= 600,
-		open: page => page.locator("[data-run-settings-trigger]").first().click(),
-	},
-	{
-		id: "composer-more-sheet",
-		area: "A",
-		title: "A phone's composer ⋯ sheet (mode, model, run settings, context)",
-		when: look => look.width < 600,
-		open: page => page.locator(".omp-composer-toolbar > button").nth(1).click(),
 	},
 	{
 		id: "composer-attach-menu",
 		area: "A",
-		title: "Attach and more menu",
-		open: page => page.locator(".omp-composer-toolbar > button").first().click(),
+		title: "Attach and more menu (the composer's +)",
+		open: page =>
+			page
+				.locator(".omp-composer-toolbar > button, .omp-composer-toolbar > .omp-composer-scroll > button")
+				.first()
+				.click(),
 	},
 	{
 		id: "sidebar-row-menu",

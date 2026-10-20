@@ -139,7 +139,7 @@ export function HostBrowserSheet({ mode, title, defaultPath, filters, host, onDo
 		<Sheet footer={footer} onClose={() => onDone(null)} open placement="full" title={heading}>
 			<div className="flex min-h-0 flex-col gap-3" data-host-sheet="browse" data-host-browser-mode={mode}>
 				<form
-					className="flex items-end gap-2"
+					className="flex items-end gap-2.5 [--hit-gap-x:10px]"
 					onSubmit={event => {
 						event.preventDefault();
 						goTo(typed.trim() || undefined);

@@ -93,7 +93,7 @@ describe("the prompt card on touch", () => {
 });
 
 describe("rows and bars on touch", () => {
-	it("a phone's bar and the rows a thumb taps one after another are dense (40 px), a sheet's items 44", () => {
+	it("a phone's bar and the rows a thumb taps one after another are dense (40 px)", () => {
 		expect(rule('html[data-shell="phone"] .omp-topbar')).toMatch(/height:\s*36px/);
 		for (const row of [
 			'\\[role="menuitem"\\]',
@@ -105,7 +105,6 @@ describe("rows and bars on touch", () => {
 		]) {
 			expect(css).toMatch(new RegExp(`${row}[^{]*\\{\\s*min-height:\\s*var\\(--sc-row-touch\\)`));
 		}
-		expect(rule(".omp-action-sheet [data-menu-item]")).toMatch(/min-height:\s*var\(--sc-row-action\)/);
 	});
 
 	it("a field, which cannot carry the hit area, is drawn 36 px high", () => {

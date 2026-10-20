@@ -334,15 +334,27 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		element => !["SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT"].includes(element.tagName),
 	);
 	/**
-	 * Something that is not this element, and not part of it, is on top at its centre: a dialog's backdrop over the
-	 * page, a sheet over the transcript. What a layer hides is not measured as part of the surface in front of it.
+	 * What a tap at (x, y) reaches. The drawer's left-edge strip (SidebarDrawer.tsx `EdgeSwipeZone`) owns swipes only
+	 * and hands a tap to what lies under it, so it is looked through.
+	 */
+	const tapTarget = (x: number, y: number): Element | null =>
+		document.elementsFromPoint(x, y).find(element => !element.hasAttribute("data-edge-zone")) ?? null;
+	/**
+	 * Something that is not this element, and not part of it, is on top at the centre of its on-screen part: a dialog's
+	 * backdrop over the page, a sheet over the transcript. What a layer hides is not measured as part of the surface in
+	 * front of it. (The centre of the whole box missed an element hanging off the bottom of a viewport the keyboard had
+	 * shortened, whose visible part lay under the dialog.)
 	 */
 	const covered = (element: Element): boolean => {
 		const rect = element.getBoundingClientRect();
-		const x = rect.left + rect.width / 2;
-		const y = rect.top + rect.height / 2;
-		if (x < 0 || y < 0 || x >= vw || y >= vh) return false;
-		const top = document.elementFromPoint(x, y);
+		const left = Math.max(rect.left, 0);
+		const right = Math.min(rect.right, vw);
+		const upper = Math.max(rect.top, 0);
+		const lower = Math.min(rect.bottom, vh);
+		if (right <= left || lower <= upper) return false;
+		const x = (left + right) / 2;
+		const y = (upper + lower) / 2;
+		const top = tapTarget(x, y);
 		if (!top || element.contains(top) || top.contains(element) || top.closest("label")?.contains(element))
 			return false;
 		// A neighbouring control on top is a stolen tap, which the hit test reports; a layer on top hides the element.
@@ -594,7 +606,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			if ((width * height) / smaller > 0.95) continue;
 			const x = Math.max(a.rect.left, b.rect.left) + width / 2;
 			const y = Math.max(a.rect.top, b.rect.top) + height / 2;
-			const top = document.elementFromPoint(x, y);
+			const top = tapTarget(x, y);
 			if (
 				!top ||
 				!(a.element.contains(top) || b.element.contains(top) || top.contains(a.element) || top.contains(b.element))
@@ -639,7 +651,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		for (const [x, y, name] of points) {
 			// Only the part of the box that is on screen and inside the clipping ancestors can be tapped.
 			if (x < 0 || y < 0 || x > vw || y > vh) continue;
-			const topEl = document.elementFromPoint(x, y);
+			const topEl = tapTarget(x, y);
 			if (!topEl || element.contains(topEl) || label?.contains(topEl)) continue;
 			// Inside the control's own scroller bounds only: a point past the clip belongs to the clipper.
 			const owner = topEl.closest(controlSelector);
@@ -648,6 +660,18 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			// A bar or chip floating over a scroller covers content that scrolls under it by design.
 			const scroller = scrollerOf(element);
 			if (owner && scroller && !scroller.contains(owner)) continue;
+			// A control drawn inside a field's own box (a search field's Clear, a name field's auto-title) is the field's
+			// adornment: the field leaves that end to it by design, and keeps the rest of its box.
+			if (owner && ownOnly) {
+				const adornment = owner.getBoundingClientRect();
+				if (
+					adornment.left >= own.left - 1 &&
+					adornment.right <= own.right + 1 &&
+					adornment.top >= own.top - 1 &&
+					adornment.bottom <= own.bottom + 1
+				)
+					continue;
+			}
 			lost.push(name);
 			if (!thief) thief = owner ? describe(owner) : `nothing (${describe(topEl)})`;
 		}

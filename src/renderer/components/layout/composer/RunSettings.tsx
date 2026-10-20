@@ -176,6 +176,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 				<Button
 					aria-expanded={advancedOpen}
 					className="w-full justify-start"
+					data-run-sheet-row
 					icon={
 						<ChevronRight
 							aria-hidden
@@ -240,6 +241,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 			<div className="-mx-3 -mb-1 border-t border-(--sc-divider) px-1 pt-1">
 				<Button
 					className="w-full justify-start"
+					data-run-sheet-row
 					icon={<SlidersHorizontal aria-hidden className="text-(--sc-text-muted)" />}
 					onClick={() => {
 						onClose();

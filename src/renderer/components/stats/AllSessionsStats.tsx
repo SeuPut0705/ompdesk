@@ -126,7 +126,7 @@ export function AllSessionsStats() {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:gap-8">
-			<nav aria-label={t("stats.sectionsAria")} className="min-w-0 shrink-0 lg:w-40">
+			<nav aria-label={t("stats.sectionsAria")} className="min-w-0 shrink-0 lg:w-40" data-stats-nav>
 				<ul className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5">
 					{ROUTES.map(item => (
 						<li key={item.id}>

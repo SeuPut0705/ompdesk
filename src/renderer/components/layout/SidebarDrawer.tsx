@@ -10,6 +10,8 @@ const CLOSE_SWIPE_PX = 72;
 /** How far in from the edge a drag must travel to open the drawer, and how far off the line it may stray. */
 const OPEN_SWIPE_PX = 56;
 const SWIPE_SLOP_PX = 48;
+/** A press that moves less than this is a tap, which the edge strip hands to what lies under it. */
+const TAP_SLOP_PX = 10;
 
 function closeDrawer(): void {
 	useUiStore.setState({ sidebarVisible: false });
@@ -106,7 +108,9 @@ export function SidebarDrawer() {
 /**
  * A strip along the screen's left edge (touch only, mobile.css): dragging in from it opens the drawer. A drag
  * that goes mostly vertical is left alone. It is a real element, not a document listener, because the browser
- * takes a pan away from the page (pointercancel) while a touch-action strip keeps the pointer.
+ * takes a pan away from the page (pointercancel) while a touch-action strip keeps the pointer. The strip owns
+ * swipes only: a tap on it is a tap on what lies under it, so a control at the screen's edge keeps the taps
+ * its hit area reaches into the strip.
  */
 export function EdgeSwipeZone() {
 	const open = useUiStore(state => state.sidebarVisible);
@@ -136,9 +140,22 @@ export function EdgeSwipeZone() {
 					useUiStore.setState({ sidebarVisible: true });
 				}
 			}}
-			onPointerUp={() => {
+			onPointerUp={event => {
+				const from = start.current;
 				start.current = null;
+				if (!from || event.pointerId !== from.id) return;
+				if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > TAP_SLOP_PX) return;
+				tapThrough(event.currentTarget, event.clientX, event.clientY);
 			}}
 		/>
 	);
+}
+
+/** Hand a tap on the edge strip to the element under it, as if the strip were not there. */
+function tapThrough(strip: Element, x: number, y: number): void {
+	const below = document.elementsFromPoint(x, y).find(element => element !== strip);
+	if (!(below instanceof HTMLElement || below instanceof SVGElement)) return;
+	const field = below.closest<HTMLElement>("input, textarea, select, [contenteditable='true']");
+	if (field) field.focus();
+	else below.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
 }

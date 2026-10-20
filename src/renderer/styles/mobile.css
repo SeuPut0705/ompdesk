@@ -220,9 +220,20 @@ html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-ch
 	color: var(--sc-text-muted);
 }
 
-.omp-action-sheet [data-menu-item] {
+/* A sheet's items are 44 px rows stacked flush, each the whole of its own target (the touch rows' 36 px rule above
+   outranked this one, so every item's reach lay over the next item's top). */
+html .omp-action-sheet [data-menu-item] {
 	min-height: var(--sc-row-action);
 	font-size: var(--sc-font-lg);
+	--hit-gap-y: 0px;
+}
+
+/* Insights › Stats' section pills (stats/AllSessionsStats.tsx) wrap in rows 4 px apart: on touch they sit 10 px apart,
+   so each 28 px pill reaches 36 and no pill's reach covers the row under it. */
+html[data-input="touch"] [data-stats-nav] > ul {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
 }
 
 /* ── Drawer (sidebar on a phone and a portrait tablet) ─────────────────────────────────────────────────── */
@@ -1010,9 +1021,25 @@ html[data-shell="phone"] .omp-panel-tabbar > button {
 	min-height: 40px;
 }
 
-/* Dense clusters: each control's 44 px hit area stops at the midpoint to its neighbour (see the hit-area rule). */
+/* Dense clusters: each control's 44 px hit area stops at the midpoint to its neighbour (see the hit-area rule). The side
+   panel's title row on a tablet holds the four view icons, View options and close: 10 px apart (the view icons touched,
+   so each took a third of its neighbour's taps), each 26 px icon reaches 36 across; the 48 px row leaves 10 px above
+   and below, so the reach down and up (8 px) stays inside it. A phone's row holds the title and close only. */
 html[data-shell] .omp-panel-topbar {
-	--hit-gap-x: 4px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 16px;
+}
+
+html[data-input="touch"] .omp-panel-topbar {
+	column-gap: 10px;
+}
+
+html[data-input="touch"] .omp-panel-topbar > div:has(> button) {
+	gap: 10px;
+}
+
+html[data-shell="phone"] .omp-panel-topbar {
+	--hit-gap-x: 14px;
 	--hit-gap-y: 12px;
 }
 
@@ -1163,6 +1190,17 @@ html[data-input="touch"] [data-switch-tile] {
 	min-height: var(--sc-row-touch);
 }
 
+/* Tabs (common/Tabs.tsx): on touch a tab is a row tall and its reach stays inside its own bar. An underline bar's tabs
+   sat 4 px apart over the content below, a segmented bar's 2 px, so each took its neighbour's taps and the next row's. */
+html[data-input="touch"] [role="tablist"] {
+	--hit-gap-x: 4px;
+	--hit-gap-y: 0px;
+}
+
+html[data-input="touch"] [role="tablist"] > [role="tab"] {
+	min-height: var(--sc-row-touch);
+}
+
 /* A session's family rows are stacked 1 px apart and the chip sits inside its parent row: no hit area may grow past
    its own row (the global 44 px reach would cover the neighbour). */
 html[data-shell] .omp-session-sidebar :is([data-sidebar-family], .omp-family-chip) {
@@ -1194,6 +1232,27 @@ html[data-shell="phone"] .omp-restored-queue [data-restored-note] > span {
 html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, .omp-live-step) {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
+}
+
+/* On touch, a side panel view's cluster of buttons on one line (a toolbar's icons, a terminal tab and its close, a
+   preview's address-bar actions) sits 10 px apart: each 26 px icon then reaches 36 across and its reach ends half
+   way to the next, where the desktop's 0–4 px spacing let each icon take its neighbour's edge. The terminal's key bar
+   keeps its own 4 px rhythm (below). */
+html[data-input="touch"]
+	:is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector)
+	:is(div, span, form).flex:not(.flex-col, [data-staged], [data-terminal-keybar], [data-terminal-keybar] *):has(
+		> button + button
+	) {
+	column-gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 12px;
+}
+
+/* A Changes row (stage box, file, discard) is a list row: a row tall and flush with the next, so its reach stays in it
+   (the file button's reach lay 1 px over the next row's). */
+html[data-input="touch"] .omp-changes [data-staged][data-staged] {
+	min-height: var(--sc-row-touch);
+	--hit-gap-y: 0px;
 }
 
 /* The terminal's key bar: keys 4 px apart in one row, the bar's 4 px padding above and below them, the panel tab bar
@@ -1285,6 +1344,26 @@ html[data-shell="phone"] .settings-content .settings-field-row-compact {
 	--hit-gap-y: initial;
 }
 
+/* The update notice and the What's new card are one-line bars right above the work strip: on touch their buttons are
+   34 px (32 inside the border) and reach 4 px each way, inside the bar, instead of 10 px over the strip below and the
+   button beside them. */
+html[data-input="touch"] :is([data-update-notice], .omp-whats-new-card) {
+	--hit-gap-x: 8px;
+	--hit-gap-y: 8px;
+}
+
+html[data-input="touch"] :is([data-update-notice] button, .omp-whats-new-card > button) {
+	min-width: 34px;
+	min-height: 34px;
+}
+
+/* A message's actions (copy, ⋯, branch) sit 2 px apart on the desktop; on touch 10 px, so each icon's reach ends half
+   way to its neighbour instead of covering it. */
+html[data-input="touch"] .omp-message-actions {
+	gap: 10px;
+	--hit-gap-x: 10px;
+}
+
 /* Dialogs and sheets: 16 px side padding, a tight header, a title one step smaller, a footer that hugs the home
    indicator. A body that sets its own padding (flush lists) keeps it. */
 html[data-shell="phone"] :is(.omp-dialog-head, .omp-sheet-head) {
@@ -1302,6 +1381,26 @@ html[data-shell="phone"] .omp-body-pad {
 
 html[data-shell="phone"] :is(.omp-dialog-foot, .omp-sheet-foot) {
 	padding: var(--sc-space-2) var(--sc-space-4);
+}
+
+/* A full-screen sheet's footer is its last row: it clears the home indicator (a bottom sheet's surface already does;
+   the phone's side panel ends in its tab bar, which clears it itself). */
+html[data-shell] [data-sheet-placement="full"] .omp-sheet-foot {
+	padding-bottom: calc(var(--sc-space-2) + var(--safe-b));
+}
+
+/* A host sheet's stacked actions (open on the phone, on the computer, download; save to phone or computer) are sheet
+   items: 44 px each, 8 px apart, each reach ending half way to the next (32 px buttons took each other's edges). */
+html[data-shell] [data-host-sheet] > [data-host-action] {
+	min-height: var(--sc-row-action);
+	--hit-gap-y: 8px;
+}
+
+/* The Run sheet's Advanced disclosure and Model roles link are full-width rows 5 px apart: on touch each is a row tall
+   and its reach stays inside it, so neither takes the other's taps. */
+html[data-input="touch"] [data-run-sheet-row] {
+	min-height: var(--sc-row-touch);
+	--hit-gap-y: 0px;
 }
 
 /* Toasts: full width under the 40 px bar, one 12 px gutter each side. */
