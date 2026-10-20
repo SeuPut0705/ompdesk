@@ -2730,6 +2730,29 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		expect(prompts(host, a).at(-1)).toContain("dispatch d2");
 	});
 
+	it("lists a child as waiting only on a question it asked its opener, never one it asked a sibling", async () => {
+		const { service, a, b } = await family();
+		await service.run(a, T.report, { kind: "progress", text: "half of A done" });
+		await service.run(a, T.report, { kind: "question", to: b, text: "Did you change the shared type?" });
+		const item = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
+		// The sibling's question waits on the sibling: the opener's board neither waits nor shows it as the last report.
+		expect(item?.waiting).toBeUndefined();
+		expect(item?.report).toMatchObject({ kind: "progress", text: "half of A done" });
+	});
+
+	it("stops listing a child as waiting once it carries on with a new turn", async () => {
+		const { host, service, a } = await family();
+		await service.run(a, T.report, { kind: "question", text: "Keep the old API?" });
+		const child = host.tabsById.get(a);
+		if (!child) throw new Error("no child");
+		// The person answered in the child's own tab: its next turn started after the question.
+		child.busy = true;
+		child.busySince = Date.now() + 1;
+		const item = (await service.reviewItems("boss0001")).find(entry => entry.tabId === a);
+		expect(item?.waiting).toBeUndefined();
+		expect(item?.state).toBe("running");
+	});
+
 	it("tells the opener when a child shows a question card, once, and lists the child as waiting until it is answered", async () => {
 		const { host, service, a, b } = await family();
 		const child = host.tabsById.get(a);
