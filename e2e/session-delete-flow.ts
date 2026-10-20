@@ -68,12 +68,13 @@ async function confirmDialog(page: Page): Promise<void> {
 	await expect(dialog).toHaveCount(0);
 }
 
-/** The row's hover trash button. */
+/** The row's ⋯ menu → Delete. */
 async function deleteByTrash(page: Page, session: Seeded): Promise<void> {
 	const row = rowOf(page, session);
 	await expect(row).toBeVisible();
 	await row.hover();
-	await row.locator('[aria-label="Delete session"]').click();
+	await row.locator("[data-sidebar-row-menu]").click();
+	await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
 	await confirmDialog(page);
 	await expectGone(page, session);
 }
