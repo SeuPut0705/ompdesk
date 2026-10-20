@@ -169,13 +169,6 @@ export async function crash(app: ElectronApplication): Promise<void> {
 		.toBe(false);
 }
 
-/** Processes whose command line names `root`: what a killed app left running there. */
-export function survivors(root: string): string[] {
-	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
-		.split("\n")
-		.filter(line => line.includes(root));
-}
-
 /** The run's tab: a tab bound to a worktree on an `autopilot/` branch. */
 export interface RunTab {
 	tabId: string;

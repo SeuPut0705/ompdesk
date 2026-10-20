@@ -320,6 +320,10 @@ export async function exitApp(app: ElectronApplication): Promise<void> {
 			quit.catch(() => undefined);
 			child.kill("SIGKILL");
 		}
+	} catch (error) {
+		// A spec that killed the app (SIGKILL) and then failed ends here with the app gone: wait for the launcher below
+		// rather than let "Target closed" replace the spec's own failure in the report.
+		if (!String(error).includes("has been closed")) throw error;
 	} finally {
 		clearTimeout(timer);
 	}

@@ -25,11 +25,11 @@ import {
 	recorded,
 	setAutopilot,
 	startRun,
-	survivors,
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
 import { exitApp, fixtureOmp } from "./harness";
+import { survivors } from "./process-tree";
 
 /** Relaunch on the profile's userData with no argv cwd, so the saved layout (the run's tab) is restored. */
 async function relaunch(profile: ApProfile): Promise<{ app: ElectronApplication; page: Page }> {

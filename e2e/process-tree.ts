@@ -29,6 +29,30 @@ export function windowsProcesses(): WinProcess[] {
 export const describeProcess = (process: WinProcess) =>
 	`${process.pid} (parent ${process.ppid}) ${process.name}: ${process.commandLine ?? process.exe ?? "?"}`;
 
+/**
+ * Processes whose command line names `root`: what a killed app left running there. Children get an open stdin pipe
+ * and end when it closes (AGENTS.md), because a SIGKILL runs no quit handler. On Windows WMI answers "call
+ * cancelled" or "unspecified error" while the machine is loaded (measured: 8 of 8 listings, minutes before the same
+ * query passed 10 of 10), and `expect.poll` ends on a throwing callback, so a failed listing is asked again.
+ */
+export function survivors(root: string): string[] {
+	if (process.platform === "win32") {
+		const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${root.replaceAll("'", "''")}') } | ForEach-Object { "$($_.ProcessId) ppid=$($_.ParentProcessId) threads=$($_.ThreadCount) $($_.Name) $($_.CommandLine)" }`;
+		for (let attempt = 1; ; attempt++) {
+			try {
+				return execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8", stdio: "pipe" })
+					.split(/\r?\n/)
+					.filter(Boolean);
+			} catch (error) {
+				if (attempt === 5) throw error;
+			}
+		}
+	}
+	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
+		.split("\n")
+		.filter(line => line.includes(root));
+}
+
 /** `root` and everything below it; a child is never older than its parent (Windows reuses pids). */
 export function processTree(all: WinProcess[], root: number): WinProcess[] {
 	const tree = all.filter(process => process.pid === root);

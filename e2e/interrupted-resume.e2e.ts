@@ -12,13 +12,13 @@
  * with Cancel instead of the failure card, and stock `retry` runs once an
  * `online` event arrives. Captures: light/dark × en/ko.
  */
-import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { capture, exitApp, fixtureOmp, variants } from "./harness";
+import { survivors } from "./process-tree";
 
 type Language = "en" | "ko";
 type Theme = "light" | "dark";
@@ -190,22 +190,6 @@ async function crash(app: ElectronApplication): Promise<void> {
 	const pid = await app.evaluate(() => process.pid);
 	process.kill(pid, "SIGKILL");
 	await expect.poll(() => isRunning(pid), { timeout: 20_000, message: "the killed app must be gone" }).toBe(false);
-}
-
-/**
- * Processes whose command line names the profile: what the killed app left running. Children get an
- * open stdin pipe and end when it closes (AGENTS.md), because a SIGKILL runs no quit handler.
- */
-function survivors(root: string): string[] {
-	if (process.platform === "win32") {
-		const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${root.replaceAll("'", "''")}') } | ForEach-Object { "$($_.ProcessId) ppid=$($_.ParentProcessId) threads=$($_.ThreadCount) $($_.Name) $($_.CommandLine)" }`;
-		return execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8" })
-			.split(/\r?\n/)
-			.filter(Boolean);
-	}
-	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
-		.split("\n")
-		.filter(line => line.includes(root));
 }
 
 async function cleanup(profile: Profile): Promise<void> {
