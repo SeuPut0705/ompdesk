@@ -283,7 +283,8 @@ describe("spawnTabForWindow refusal contracts", () => {
 
 describe("spawnTabForWindow reopening a stored session", () => {
 	it("opens it in the folder its file records, whatever folder the caller or the app is in", async () => {
-		const home = await mkdtemp(join(tmpdir(), "omp-spawn-home-"));
+		// Its real path, as stock records a session's cwd: os.tmpdir() can be an 8.3 short name on Windows runners.
+		const home = await realpath(await mkdtemp(join(tmpdir(), "omp-spawn-home-")));
 		try {
 			const { deps, acquire, recordedCwd } = harness();
 			recordedCwd.mockResolvedValue(home);
@@ -294,7 +295,7 @@ describe("spawnTabForWindow reopening a stored session", () => {
 
 			expect(result).toEqual({ tabId: expect.any(String) });
 			expect(recordedCwd).toHaveBeenCalledWith("/s/worktree-session.jsonl");
-			expect(acquire.mock.calls[0]?.[0]).toBe(await realpath(home));
+			expect(acquire.mock.calls[0]?.[0]).toBe(home);
 		} finally {
 			await rm(home, { recursive: true, force: true });
 		}
