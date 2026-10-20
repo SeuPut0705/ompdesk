@@ -153,8 +153,15 @@ test("Stop and Esc withdraw a prompt the automatic mode choice still holds back"
 	const { app, page, errors } = await launch(dirs, { OMP_GUI_TEST_AUTO_MODE_DELAY_MS: "2500" });
 	try {
 		const input = composer(page);
-		const request = "refactor the parser into separate modules";
+		// Each pass asks a text the composer has not asked about while typing: a withdrawn draft rests in the field and
+		// its typing pause asks the judge ahead of Enter (use-auto-mode-prefetch.ts), so sending it again is decided at
+		// once from the cache and nothing is held back to withdraw.
+		const requests = {
+			Esc: "refactor the parser into separate modules",
+			Stop: "migrate the lexer into separate modules",
+		} as const;
 		for (const how of ["Esc", "Stop"] as const) {
+			const request = requests[how];
 			const asked = (await readRecords(dirs.record)).filter(r => r.type === "modes.auto_mode_decide").length;
 			await input.fill(request);
 			await input.press("Enter");
