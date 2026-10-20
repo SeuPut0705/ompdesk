@@ -338,4 +338,60 @@ describe("disk care", () => {
 		},
 		SLOW,
 	);
+
+	it(
+		"keeps a plain JSON password and a token past the first megabyte out of git, and brings both back",
+		async () => {
+			const dir = await busyWorktree("credentials");
+			await write(dir, "config.json", '{"password": "my-real-password"}\n');
+			await write(
+				dir,
+				"data/big.txt",
+				`${"a".repeat(2 * 1024 * 1024)}\nAPI token ghp_abcdefghijklmnopqrstuvwxyz0123\n`,
+			);
+			await care().run("user");
+			expect(listed()).not.toContain(dir);
+			const [record] = await listSavedWorktrees(repo, saved);
+			const savedFiles = gitSync(repo, "show", "--name-only", "--format=", record?.savedBranch ?? "");
+			expect(savedFiles.split("\n").sort()).toEqual(["README.md", "notes/todo.md"]);
+			expect(gitSync(repo, "log", "--all", "--format=%H", "--", "config.json", "data/big.txt")).toBe("");
+			await restoreSavedWorktree(record?.id ?? "", saved);
+			expect(await fs.readFile(path.join(dir, "config.json"), "utf8")).toContain("my-real-password");
+			expect(await fs.readFile(path.join(dir, "data/big.txt"), "utf8")).toContain(
+				"ghp_abcdefghijklmnopqrstuvwxyz0123",
+			);
+		},
+		SLOW,
+	);
+
+	it(
+		"never takes a hand-made folder for a dev server's, Next's dev or a computed output folder",
+		async () => {
+			const dir = await worktree("tools");
+			const pkg = (scripts: Record<string, string>, deps: Record<string, string>) =>
+				JSON.stringify({ scripts, devDependencies: deps });
+			await write(dir, "devonly/package.json", pkg({ dev: "vite" }, { vite: "5" }));
+			await write(dir, "nextdev/package.json", pkg({ dev: "next dev", build: "next build" }, { next: "15" }));
+			await write(dir, "computed/package.json", pkg({ build: "vite build" }, { vite: "5" }));
+			await write(
+				dir,
+				"computed/vite.config.ts",
+				'export default { build: { outDir: resolve(__dirname, "build") } };\n',
+			);
+			await fs.appendFile(path.join(dir, ".gitignore"), "\nout/\n.next/\n");
+			gitSync(dir, "add", ".");
+			gitSync(dir, "commit", "-q", "-m", "three packages");
+			await write(dir, "devonly/dist/handmade.html", "mine\n");
+			await write(dir, "nextdev/out/notes.md", "mine\n");
+			await write(dir, "nextdev/.next/cache.bin", "built\n");
+			await write(dir, "computed/dist/handmade.html", "mine\n");
+			await care(Date.now() + 5 * 24 * 60 * 60_000).run("user");
+			expect(await fs.readFile(path.join(dir, "devonly/dist/handmade.html"), "utf8")).toBe("mine\n");
+			expect(await fs.readFile(path.join(dir, "nextdev/out/notes.md"), "utf8")).toBe("mine\n");
+			expect(await fs.readFile(path.join(dir, "computed/dist/handmade.html"), "utf8")).toBe("mine\n");
+			// `next build` does write `.next/`.
+			expect(await exists(path.join(dir, "nextdev/.next"))).toBe(false);
+		},
+		SLOW,
+	);
 });

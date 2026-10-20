@@ -25,7 +25,14 @@ import { LocalCommandError } from "../local/types";
 import type { BeforeRemove } from "../worktree-orphans";
 import { realFolder } from "../worktree-removals";
 import { diskBytes } from "./usage";
-import { looksSecret, processInside, readWorktreeFiles, secretIn, type WorktreeFiles } from "./worktree-facts";
+import {
+	looksSecret,
+	processInside,
+	readWorktreeFiles,
+	SECRET_SCAN_MAX_BYTES,
+	secretIn,
+	type WorktreeFiles,
+} from "./worktree-facts";
 
 /** A worktree whose untracked files would make a commit this big is kept, not saved. */
 export const SAVE_COMMIT_MAX_BYTES = 256 * 1024 * 1024;
@@ -206,12 +213,20 @@ const SAVE_ENV = {
 async function stagedCommit(worktree: string, head: string): Promise<string | null> {
 	const staged = await gitRaw(worktree, ["diff", "--cached", "--name-only", "--no-renames", "-z"]);
 	if (staged.code !== 0) throw new Error(`git diff --cached failed in ${worktree}: ${staged.stderr.trim()}`);
-	const paths = staged.stdout.toString("utf8").split("\0").filter(Boolean);
-	if (paths.length === 0) return null;
-	for (const file of paths) {
-		const blob = await gitRaw(worktree, ["cat-file", "blob", `:${file}`], { maxBytes: 1024 * 1024 });
-		if (secretIn(file, blob.code === 0 || blob.truncated ? blob.stdout : Buffer.alloc(0)))
-			throw new KeepWorktree(`a staged file holds a secret (${file})`);
+	if (staged.stdout.toString("utf8").split("\0").filter(Boolean).length === 0) return null;
+	// Every staged file that has content in the index (a staged deletion has none to hold a secret).
+	const withContent = await gitRaw(worktree, [
+		"diff",
+		"--cached",
+		"--name-only",
+		"--no-renames",
+		"--diff-filter=d",
+		"-z",
+	]);
+	for (const file of withContent.stdout.toString("utf8").split("\0").filter(Boolean)) {
+		const blob = await gitRaw(worktree, ["cat-file", "blob", `:${file}`], { maxBytes: SECRET_SCAN_MAX_BYTES });
+		if (secretIn(file, blob.stdout, blob.code === 0 && !blob.truncated))
+			throw new KeepWorktree(`a staged file may hold a secret (${file})`);
 	}
 	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-staged-"));
 	try {

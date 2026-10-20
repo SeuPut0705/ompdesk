@@ -52,49 +52,56 @@ const BUILD_SECTION =
 	/\b(?:build|builds|built|output|outputs|artifacts?|generated|caches?|dependencies|deps|compiled|bundles?|dist)\b/i;
 
 /**
- * A build tool and the directories it writes by default. `bin` must appear in one of the package's scripts and
- * `pkg` in its dependencies; `config` names files whose literal `outDir`/`output` setting replaces the default.
+ * A build tool and the directories its build writes by default. `pkg` must be a dependency and `build` match one of
+ * the package's scripts: an invocation that writes output (`vite build`, never a bare `vite` dev server; `next export`
+ * for `out/`, never `next dev`). `config` reads a literal output setting from `configFiles`, which replaces the
+ * default; a config file that sets the output any other way (`outDir: path.join(…)`, matched by `configKey`) leaves
+ * the tool's output unknown, so nothing of it counts as regenerable.
  */
 const BUILD_TOOLS: ReadonlyArray<{
 	pkg: string;
-	bin: RegExp;
+	build: RegExp;
 	outputs: string[];
 	config?: RegExp;
+	configKey?: RegExp;
 	configFiles?: string[];
 }> = [
 	{
 		pkg: "electron-vite",
-		bin: /\belectron-vite\b/,
+		build: /\belectron-vite\s+build\b/,
 		outputs: ["out"],
-		config: /\boutDir\s*:\s*["'`]([^"'`]+)["'`]/,
+		config: /\boutDir\s*:\s*["'`]([^"'`$]+)["'`]/,
+		configKey: /\boutDir\b/,
 		configFiles: ["electron.vite.config.ts", "electron.vite.config.js", "electron.vite.config.mjs"],
 	},
 	{
 		pkg: "vite",
-		bin: /(?<![\w-])vite(?![\w-])/,
+		build: /(?<![\w-])vite\s+build\b/,
 		outputs: ["dist"],
-		config: /\boutDir\s*:\s*["'`]([^"'`]+)["'`]/,
+		config: /\boutDir\s*:\s*["'`]([^"'`$]+)["'`]/,
+		configKey: /\boutDir\b/,
 		configFiles: ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts"],
 	},
 	{
 		pkg: "electron-builder",
-		bin: /\belectron-builder\b/,
+		build: /\belectron-builder\b/,
 		outputs: ["dist"],
-		config: /^\s*output\s*:\s*["']?([^"'\s#]+)/m,
+		config: /^\s*output\s*:\s*["']?([^"'\s#$]+)/m,
+		configKey: /\boutput\s*:/,
 		configFiles: ["electron-builder.yml", "electron-builder.yaml"],
 	},
-	{ pkg: "next", bin: /\bnext\b/, outputs: [".next", "out"] },
-	{ pkg: "nuxt", bin: /\bnuxt\b/, outputs: [".nuxt", ".output"] },
-	{ pkg: "astro", bin: /\bastro\b/, outputs: ["dist", ".astro"] },
-	{ pkg: "@sveltejs/kit", bin: /\b(?:svelte-kit|vite)\b/, outputs: [".svelte-kit"] },
-	{ pkg: "turbo", bin: /\bturbo\b/, outputs: [".turbo"] },
-	{ pkg: "parcel", bin: /\bparcel\b/, outputs: ["dist", ".parcel-cache"] },
-	{ pkg: "webpack-cli", bin: /\bwebpack\b/, outputs: ["dist"] },
+	{ pkg: "next", build: /\bnext\s+build\b/, outputs: [".next"] },
+	{ pkg: "next", build: /\bnext\s+export\b/, outputs: ["out"] },
+	{ pkg: "nuxt", build: /\bnuxi?\s+(?:build|generate)\b/, outputs: [".nuxt", ".output"] },
+	{ pkg: "astro", build: /\bastro\s+build\b/, outputs: ["dist", ".astro"] },
+	{ pkg: "@sveltejs/kit", build: /(?<![\w-])vite\s+build\b/, outputs: [".svelte-kit"] },
+	{ pkg: "parcel", build: /\bparcel\s+build\b/, outputs: ["dist", ".parcel-cache"] },
 	{
 		pkg: "typescript",
-		bin: /\btsc\b/,
+		build: /\btsc\b(?![^\n&|;]*--noEmit)/,
 		outputs: [],
-		config: /"outDir"\s*:\s*"([^"]+)"/,
+		config: /"outDir"\s*:\s*"([^"$]+)"/,
+		configKey: /"outDir"/,
 		configFiles: ["tsconfig.json", "tsconfig.build.json"],
 	},
 ];
@@ -144,20 +151,24 @@ async function declaredOutputs(dir: string, evidence: RepoEvidence): Promise<Map
 		if (out && !out.startsWith("..")) outputs.set(out, `${manifestPath} script passes ${match[0].trim()}`);
 	}
 	for (const tool of BUILD_TOOLS) {
-		if (!deps.has(tool.pkg) || !tool.bin.test(scripts)) continue;
+		if (!deps.has(tool.pkg) || !tool.build.test(scripts)) continue;
 		let configured: string | null = null;
+		let unknown = false;
 		for (const file of tool.configFiles ?? []) {
 			const configPath = join(dir, file);
 			if (!evidence.tracked.has(configPath) || !tool.config) continue;
-			const value = (await evidence.readText(configPath))?.match(tool.config)?.[1];
+			const config = (await evidence.readText(configPath)) ?? "";
+			const value = config.match(tool.config)?.[1];
 			if (value) {
 				configured = normalizeOut(value);
 				outputs.set(configured, `${configPath} sets ${tool.pkg}'s output to ${value}`);
 				break;
 			}
+			// The output is set some way this rule cannot read: its default proves nothing.
+			if (tool.configKey?.test(config)) unknown = true;
 		}
-		if (configured) continue;
-		for (const out of tool.outputs) outputs.set(out, `${tool.pkg} in ${manifestPath}, run by its scripts`);
+		if (configured || unknown) continue;
+		for (const out of tool.outputs) outputs.set(out, `${tool.pkg} in ${manifestPath}, built by its scripts`);
 	}
 	return outputs;
 }

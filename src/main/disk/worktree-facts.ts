@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
 import { agentDir } from "../agent-paths";
 import { git, gitRaw } from "../local/git/exec";
 import { isInside } from "../local/git/parse";
@@ -183,26 +184,33 @@ export function processInside(worktree: string, folders: readonly string[] | nul
 /** A file whose name says it holds a secret: never committed, kept in the private archive instead. */
 const SECRET_NAME =
 	/(?:^|\/)(?:\.env(?:\..+)?|\.envrc|\.npmrc|\.netrc|\.pypirc|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|credentials[^/]*|[^/]*secret[^/]*|[^/]*\.(?:pem|key|p12|pfx|keystore|jks|kdbx))$/i;
-/** Text that is a credential however the file is named: private keys and vendor tokens. */
-const SECRET_TEXT =
-	/-----BEGIN [A-Z ]*PRIVATE KEY-----|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bsk-[A-Za-z0-9_-]{20,}|\bxox[abposr]-[A-Za-z0-9-]{10,}|\bAKIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_-]{35}/;
-const SECRET_SCAN_BYTES = 1024 * 1024;
+/** Files are read whole up to this size; a bigger one is never committed (it goes to the archive unread). */
+export const SECRET_SCAN_MAX_BYTES = 16 * 1024 * 1024;
+const MARKERS = /<secret>|<token>/g;
 
-/** The file (relative) holds or names a secret. A file too big to read whole is judged by its first megabyte. */
-export async function looksSecret(worktree: string, relative: string): Promise<boolean> {
-	if (SECRET_NAME.test(relative)) return true;
-	const handle = await fs.open(path.join(worktree, relative), "r").catch(() => null);
-	if (!handle) return false;
-	try {
-		const buffer = Buffer.alloc(SECRET_SCAN_BYTES);
-		const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-		return SECRET_TEXT.test(buffer.subarray(0, bytesRead).toString("latin1"));
-	} finally {
-		await handle.close();
-	}
+/**
+ * The text holds a credential by the central redactor's rules (`resources/gui-bridge/redactor.ts`, the one diagnostics
+ * and memory use): it puts a `<secret>` or `<token>` where there was none. That also catches a long hex or base64
+ * run (a lockfile's hashes), which only sends that file to the archive instead of the commit: nothing is lost.
+ */
+function holdsCredential(text: string): boolean {
+	return (redactDiagnosticsText(text).match(MARKERS)?.length ?? 0) > (text.match(MARKERS)?.length ?? 0);
 }
 
-/** A file's name or (first megabyte of) content says it holds a secret, for bytes already in hand (a staged blob). */
-export function secretIn(relative: string, bytes: Buffer): boolean {
-	return SECRET_NAME.test(relative) || SECRET_TEXT.test(bytes.subarray(0, SECRET_SCAN_BYTES).toString("latin1"));
+/**
+ * Whether a file named `relative` with these bytes may never enter a commit: its name says secret, its content holds a
+ * credential, or it was not read whole (`complete` false, over `SECRET_SCAN_MAX_BYTES`).
+ */
+export function secretIn(relative: string, bytes: Buffer, complete = true): boolean {
+	return !complete || SECRET_NAME.test(relative) || holdsCredential(bytes.toString("latin1"));
+}
+
+/** The worktree's file `relative` may never enter a commit (`secretIn`); a file that cannot be read whole counts. */
+export async function looksSecret(worktree: string, relative: string): Promise<boolean> {
+	if (SECRET_NAME.test(relative)) return true;
+	const file = path.join(worktree, relative);
+	const stat = await fs.stat(file).catch(() => null);
+	if (!stat || stat.size > SECRET_SCAN_MAX_BYTES) return true;
+	const bytes = await fs.readFile(file).catch(() => null);
+	return bytes === null || secretIn(relative, bytes);
 }
