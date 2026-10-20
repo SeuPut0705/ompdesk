@@ -18,14 +18,13 @@ const children: ChildProcessWithoutNullStreams[] = [];
 afterEach(async () => {
 	// Wait for each host to exit: on Windows its open stats.db keeps the home folder from being removed.
 	await Promise.all(
-		children.splice(0).map(
-			child =>
-				new Promise<void>(resolve => {
-					if (child.exitCode !== null || child.signalCode !== null) return resolve();
-					child.once("exit", () => resolve());
-					child.kill();
-				}),
-		),
+		children.splice(0).map(child => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+			child.once("exit", () => resolve());
+			child.kill();
+			return promise;
+		}),
 	);
 	await Promise.all(tempDirs.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true })));
 });
