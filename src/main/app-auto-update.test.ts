@@ -90,6 +90,18 @@ describe("AutoInstallScheduler", () => {
 		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "install"]);
 	});
 
+	it("is done once it installs: the restart's stall is not met with a second notice and a second install", () => {
+		const t = setup({ focused: false });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		// Windows' installer start blocked the app for 5.6 s; the update still reads as installable when it ticks again.
+		t.advance(5600);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "install"]);
+		expect(t.logs.map(line => line.split(" ")[0])).toEqual(["quiet", "countdown", "install"]);
+	});
+
 	it("treats no input for two minutes as idle even while focused", () => {
 		const t = setup({ focused: true, idleMs: AUTO_INSTALL_IDLE_MS - 1 });
 		t.advance(0);
