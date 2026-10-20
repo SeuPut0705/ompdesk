@@ -9,6 +9,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostView, RemoteState } from "../../../shared/ipc-types";
+import { LINK_NOTICE_GRACE_MS } from "../../../shared/link-notice";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -79,6 +80,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
 	useSessionStore.getState().reset();
+	vi.useRealTimers();
 });
 
 describe("remote tab chip", () => {
@@ -108,6 +110,16 @@ describe("remote tab chip", () => {
 		);
 	});
 
+	it("does not read Reconnecting before the device list has loaded", async () => {
+		seedTab("dev-studio");
+		await mount(<TitleBar />);
+
+		expect(document.body.querySelector('[role="status"]')?.textContent).toContain(translate("titlebar.status.ready"));
+		expect(document.body.querySelector('[role="status"]')?.textContent).not.toContain(
+			translate("remote.tab.statusReconnecting"),
+		);
+	});
+
 	it("shows no chip on a local tab", async () => {
 		useRemoteStore.getState().apply(remoteState([{ deviceId: "dev-studio", name: "studio", state: "online" }]));
 		seedTab();
@@ -118,20 +130,80 @@ describe("remote tab chip", () => {
 });
 
 describe("RemoteTabBanner", () => {
-	it("says the tab is reconnecting while the host is offline, and clears once it is back", async () => {
-		useRemoteStore.getState().apply(remoteState([{ deviceId: "dev-studio", name: "studio", state: "offline" }]));
-		await mount(<RemoteTabBanner deviceId="dev-studio" />);
-
-		expect(document.body.textContent).toContain(translate("remote.tab.reconnecting", { name: "studio" }));
-
-		await act(async () => {
-			useRemoteStore.getState().apply(remoteState([{ deviceId: "dev-studio", name: "studio", state: "online" }]));
+	const offline = () => remoteState([{ deviceId: "dev-studio", name: "studio", state: "offline" }]);
+	const online = () => remoteState([{ deviceId: "dev-studio", name: "studio", state: "online" }]);
+	const apply = (state: RemoteState) =>
+		act(async () => {
+			useRemoteStore.getState().apply(state);
 		});
+	const pass = (ms: number) =>
+		act(async () => {
+			vi.advanceTimersByTime(ms);
+		});
+	const fakeClock = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+	it("shows nothing while the remote state has not loaded, however long it takes", async () => {
+		fakeClock();
+		await mount(<RemoteTabBanner deviceId="dev-studio" />);
+		await pass(LINK_NOTICE_GRACE_MS * 4);
+
 		expect(document.body.textContent).toBe("");
 	});
 
-	it("points at Settings when the host was removed", async () => {
-		useRemoteStore.getState().apply(remoteState([]));
+	it("shows nothing for a link that is back inside the grace", async () => {
+		fakeClock();
+		await apply(online());
+		await mount(<RemoteTabBanner deviceId="dev-studio" />);
+
+		await apply(offline());
+		await pass(LINK_NOTICE_GRACE_MS - 1);
+		expect(document.body.textContent).toBe("");
+		await apply(online());
+		await pass(LINK_NOTICE_GRACE_MS * 4);
+		expect(document.body.textContent).toBe("");
+	});
+
+	it("says the tab is reconnecting once the link has stayed down past the grace, and clears once it is back", async () => {
+		fakeClock();
+		await apply(online());
+		await mount(<RemoteTabBanner deviceId="dev-studio" />);
+
+		await apply(offline());
+		expect(document.body.textContent).toBe("");
+		await pass(LINK_NOTICE_GRACE_MS);
+		expect(document.body.textContent).toContain(translate("remote.tab.reconnecting", { name: "studio" }));
+		await pass(60_000);
+		expect(document.body.textContent).toContain(translate("remote.tab.reconnecting", { name: "studio" }));
+
+		await apply(online());
+		expect(document.body.textContent).toBe("");
+	});
+
+	it("counts the grace from when the link went down, through offline and connecting alike", async () => {
+		fakeClock();
+		await apply(online());
+		await mount(<RemoteTabBanner deviceId="dev-studio" />);
+
+		await apply(offline());
+		await pass(LINK_NOTICE_GRACE_MS - 1000);
+		await apply(remoteState([{ deviceId: "dev-studio", name: "studio", state: "connecting" }]));
+		expect(document.body.textContent).toBe("");
+		await pass(1000);
+		expect(document.body.textContent).toContain(translate("remote.tab.reconnecting", { name: "studio" }));
+	});
+
+	it("shows at once on a tab opened while the link has been down for a while", async () => {
+		fakeClock();
+		await apply(offline());
+		await pass(60_000);
+		await mount(<RemoteTabBanner deviceId="dev-studio" />);
+
+		expect(document.body.textContent).toContain(translate("remote.tab.reconnecting", { name: "studio" }));
+	});
+
+	it("points at Settings when the host was removed, with no wait", async () => {
+		fakeClock();
+		await apply(remoteState([]));
 		await mount(<RemoteTabBanner deviceId="dev-studio" />);
 
 		expect(document.body.textContent).toContain(translate("remote.tab.removed"));

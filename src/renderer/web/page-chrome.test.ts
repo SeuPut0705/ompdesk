@@ -1,6 +1,7 @@
 import { parseHTML } from "linkedom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrayState } from "../../shared/ipc-types";
+import { LINK_NOTICE_GRACE_MS } from "../../shared/link-notice";
 import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
 import type { WsConnectionState } from "./ws-transport";
@@ -83,14 +84,36 @@ describe("the connection banner", () => {
 		};
 	}
 
-	it("shows a bar while reconnecting and removes it when the link is back", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("shows a bar once the link has stayed down past the grace, and removes it when the link is back", () => {
+		vi.useFakeTimers();
 		const doc = page();
 		const { handle, set } = source("open");
 		mountConnectionBanner(handle, doc, key => key);
 		expect(doc.getElementById("omp-web-connection")).toBeNull();
 		set("reconnecting");
+		expect(doc.getElementById("omp-web-connection")).toBeNull();
+		vi.advanceTimersByTime(LINK_NOTICE_GRACE_MS);
+		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
+		vi.advanceTimersByTime(60_000);
 		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
 		set("open");
+		expect(doc.getElementById("omp-web-connection")).toBeNull();
+	});
+
+	it("shows nothing for a reconnect that finishes inside the grace", () => {
+		vi.useFakeTimers();
+		const doc = page();
+		const { handle, set } = source("open");
+		mountConnectionBanner(handle, doc, key => key);
+		set("reconnecting");
+		vi.advanceTimersByTime(LINK_NOTICE_GRACE_MS - 1);
+		expect(doc.getElementById("omp-web-connection")).toBeNull();
+		set("open");
+		vi.advanceTimersByTime(60_000);
 		expect(doc.getElementById("omp-web-connection")).toBeNull();
 	});
 
@@ -113,10 +136,12 @@ describe("the connection banner", () => {
 	});
 
 	it("says so when the device is unpaired, and shows nothing for an outdated page (it reloads itself)", () => {
+		vi.useFakeTimers();
 		const doc = page();
 		const { handle, set } = source("open");
 		mountConnectionBanner(handle, doc, key => key);
 		set("reconnecting");
+		vi.advanceTimersByTime(LINK_NOTICE_GRACE_MS);
 		expect(doc.getElementById("omp-web-connection")?.textContent).toBe("web.connection.lost");
 		set("outdated");
 		expect(doc.getElementById("omp-web-connection")).toBeNull();
