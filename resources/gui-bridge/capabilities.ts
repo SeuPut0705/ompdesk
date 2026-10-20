@@ -784,9 +784,11 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	modelSetupFacts: {
 		// model_setup_facts (model-setup-facts.ts): billing from stock's auth data, the models of every role's pool,
 		// what config.yml persists per role (`getGlobalModelRole`: its absence would let full auto overwrite a hand-set
-		// role, so it is required, not feature-detected) and stock's judge defaults.
+		// role, so it is required, not feature-detected) and stock's judge defaults. session_spend: the live journal's
+		// spend per provider with that billing (work board: a metered charge apart from a subscription's estimate).
 		session: [
 			"settings.getGlobalModelRole()",
+			"sessionManager.getEntries()",
 			"modelRegistry",
 			"modelRegistry.getAll()",
 			"modelRegistry.getDiscoverableProviders()",

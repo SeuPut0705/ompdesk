@@ -3,7 +3,7 @@
  * section with stock-shaped data instead of the transport's `{}`.
  */
 
-import type { ModelSetupFacts } from "../../../resources/gui-bridge/model-setup-contracts";
+import type { ModelSetupFacts, SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
 import type { RemoteState } from "../../shared/ipc-types";
 import { type MobileWebState, type WebBlockedInfo, type WebDeviceInfo, webDeviceTier } from "../../shared/mobile-web";
 import type { ModelRoleCandidate, ModelRoleEntry } from "../../shared/rpc-types";
@@ -134,6 +134,20 @@ export const MODEL_SETUP_FACTS: ModelSetupFacts = {
 		smol: { persisted: "anthropic/claude-haiku-4-5" },
 	},
 	judgePins: [],
+};
+
+/**
+ * `get_session_spend`: the spend of a real session's journal (a read-only copy, 20 Oct 2026: its OpenRouter row is
+ * the judge's `find` calls, its Anthropic rows a subscription's replies), plus the billing classes above.
+ */
+export const SESSION_SPEND: SessionSpend = {
+	providers: {
+		anthropic: { billing: "subscription", cost: 35.627, today: 35.627 },
+		openrouter: { billing: "metered", cost: 0.00142, today: 0.00142 },
+	},
+	billing: Object.fromEntries(
+		Object.entries(MODEL_SETUP_FACTS.providers).map(([provider, row]) => [provider, row.billing]),
+	),
 };
 
 export const PLUGINS = { plugins: [] };

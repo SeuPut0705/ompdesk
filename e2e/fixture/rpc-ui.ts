@@ -2298,6 +2298,12 @@ export function runRpcUi(): void {
 			),
 			judgePins: [],
 		}),
+		// gui-bridge model-setup-facts.ts `session_spend`: the journal's spend per provider and the billing classes
+		// above. `OMP_GUI_TEST_SESSION_SPEND` (JSON of `providers`) sets what the journal spent.
+		session_spend: () => ({
+			providers: JSON.parse(process.env.OMP_GUI_TEST_SESSION_SPEND ?? "{}"),
+			billing: { anthropic: "subscription", "openai-codex": "subscription", openrouter: "metered", fixture: "free" },
+		}),
 		// Stock `fetchUsageReports` for the fixture provider: limited only after `fixture usage limit`.
 		usage: () => ({
 			reports:

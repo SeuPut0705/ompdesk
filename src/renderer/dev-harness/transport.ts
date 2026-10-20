@@ -62,6 +62,7 @@ import {
 	SCHEDULE_LOG,
 	SCHEDULES_STATE,
 	SECURITY_DASHBOARD,
+	SESSION_SPEND,
 	SETUP_STATE,
 	WEB_BLOCKS,
 	WEB_DEVICES,
@@ -243,6 +244,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, MODEL_ROLES);
 			case "get_model_setup_facts":
 				return respond(command, MODEL_SETUP_FACTS);
+			case "get_session_spend":
+				return respond(command, SESSION_SPEND);
 			case "get_plugins":
 				return respond(command, PLUGINS);
 			case "get_marketplaces":

@@ -25,7 +25,8 @@ import {
 	type ProviderStockFacts,
 	UNKNOWN_BILLING,
 } from "./model-setup-billing-core";
-import type { ModelSetupFacts, ProviderBilling, SetupModelFacts } from "./model-setup-contracts";
+import type { ModelSetupFacts, ProviderBilling, SessionSpend, SetupModelFacts } from "./model-setup-contracts";
+import { dayStart, spendByProvider } from "./session-spend-core";
 import { roleMetadata } from "./settings";
 import type { BridgeMethods } from "./types";
 
@@ -153,8 +154,26 @@ export function modelSetupFacts(session: AgentSession): ModelSetupFacts {
 	return { providers, models, roles, judgePins: judgePins(session, judgePool) };
 }
 
+/**
+ * This session's spend per provider with each provider's billing class: what a metered provider charged and what a
+ * subscription's calls would cost at API prices, never added together. Read from the live journal (`getEntries`),
+ * whole-journal like stock's own tally; judge calls are in it because stock journals them into the session they served.
+ */
+export function sessionSpend(session: AgentSession, now: number): SessionSpend {
+	const spend = spendByProvider(session.sessionManager.getEntries(), dayStart(now));
+	const known = new Set([...Object.keys(spend), ...session.modelRegistry.getAll().map(model => model.provider)]);
+	const billings = providerBillings(session, known);
+	const providers: SessionSpend["providers"] = {};
+	for (const [provider, row] of Object.entries(spend))
+		providers[provider] = { billing: billings[provider]?.billing ?? "metered", ...row };
+	const billing: SessionSpend["billing"] = {};
+	for (const [provider, row] of Object.entries(billings)) billing[provider] = row.billing;
+	return { providers, billing };
+}
+
 export const methods: BridgeMethods = {
 	...guard("modelSetupFacts", {
 		model_setup_facts: async (_params, env) => modelSetupFacts(env.session()),
+		session_spend: async (_params, env) => sessionSpend(env.session(), Date.now()),
 	}),
 };

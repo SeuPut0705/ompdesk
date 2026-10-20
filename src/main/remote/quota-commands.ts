@@ -180,6 +180,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_skill_detail",
 	"get_skills",
 	"get_ssh_hosts",
+	"get_session_spend",
 	"get_state",
 	"get_last_assistant_text",
 	"get_subagent_messages",

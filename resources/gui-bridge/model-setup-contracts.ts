@@ -73,3 +73,19 @@ export interface ModelSetupFacts {
 	 */
 	judgePins: string[];
 }
+
+/** One provider's share of a session's journal (`session_spend`, RPC `get_session_spend`). */
+export interface ProviderSessionSpend {
+	billing: Billing;
+	/** USD over the whole journal: a metered provider's charge, a subscription's API-price estimate. */
+	cost: number;
+	/** USD of the entries since the host's local midnight. */
+	today: number;
+}
+
+export interface SessionSpend {
+	/** Providers this session's journal spent on, each with its billing class. */
+	providers: Record<string, ProviderSessionSpend>;
+	/** Every provider stock's catalog knows → its billing class, so a child's model can be classed too. */
+	billing: Record<string, Billing>;
+}
