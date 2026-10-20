@@ -7,6 +7,7 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { withoutGitSelectors } from "../../../shared/git-env";
 import { brewBinDirs, spawnPath } from "../../shell-env";
 import { findOnPath } from "../../spawn";
 
@@ -92,7 +93,9 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	const child = spawn(bin, args, {
 		cwd: opts.cwd,
 		// A read-only `git status` must not take `.git/index.lock` to refresh the index: the agent's own git would fail on it.
-		env: { ...process.env, PATH: pathEnv, GIT_OPTIONAL_LOCKS: "0", ...opts.env },
+		// Ambient repository selectors (an OMPdesk started from a hook or `git bisect run`) are dropped, so git works on the
+		// repository `cwd` is in; a selector the caller means (disk care's scratch GIT_INDEX_FILE) comes in `opts.env`.
+		env: { ...withoutGitSelectors(process.env), PATH: pathEnv, GIT_OPTIONAL_LOCKS: "0", ...opts.env },
 		shell: false,
 		stdio: ["ignore", "pipe", "pipe"],
 		windowsHide: true,

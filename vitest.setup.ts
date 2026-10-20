@@ -1,6 +1,11 @@
 // A write under the real ~/.omp, ~/.pi, ~/.config/omp or OMPdesk's userData fails the test.
 import "./scripts/vitest-real-home-guard";
 import { loadLocale } from "./src/renderer/lib/i18n";
+import { dropGitSelectors } from "./src/shared/git-env";
+
+// Each worker too: a leaked GIT_DIR or its kin would send a test's temp-repo git to another repository
+// (src/shared/git-env.ts).
+dropGitSelectors();
 
 if (typeof navigator !== "undefined") {
 	Object.defineProperty(navigator, "language", { configurable: true, get: () => "en-US" });

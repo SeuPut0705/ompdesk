@@ -2,10 +2,12 @@
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { withoutGitSelectors } from "../../../shared/git-env";
 import type { LifecycleWorktree } from "./session-worktree";
 
 export function gitSync(cwd: string, ...args: string[]): string {
-	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+	// Never the repository a leaked GIT_DIR names (src/shared/git-env.ts): only the one `cwd` is in.
+	return execFileSync("git", args, { cwd, encoding: "utf8", env: withoutGitSelectors(process.env) }).trim();
 }
 
 /** A repository with one commit and an ignored `.env`. */

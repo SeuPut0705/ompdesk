@@ -6,6 +6,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
+import { withoutGitSelectors } from "../src/shared/git-env";
 
 /**
  * Install the fake omp in `sidecar-fixture.ts` under `dir` for `OMP_GUI_OMP`,
@@ -101,7 +102,8 @@ export interface LaunchOptions {
 export async function launchApp(options: LaunchOptions): Promise<ElectronApplication> {
 	const extra = options.env ?? {};
 	const env: Record<string, string | undefined> = {
-		...process.env,
+		// The app must never inherit a leaked GIT_DIR or its kin (src/shared/git-env.ts).
+		...withoutGitSelectors(process.env),
 		PI_CODING_AGENT_DIR: options.agent,
 		PI_CONFIG_DIR: path.relative(os.homedir(), options.profile),
 		OMP_PROFILE: "",
