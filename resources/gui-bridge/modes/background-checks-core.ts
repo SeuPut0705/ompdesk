@@ -18,6 +18,7 @@ export const BACKGROUND_CHECKS_SECTION_ID = "background-checks";
 
 export const BACKGROUND_CHECKS_SECTION = `<background-checks>
 Run tests, builds, lints and typechecks with bash \`async: true\` by default (how long a suite takes is rarely known up front), then keep working on steps that do not depend on the result. It arrives by itself; call \`wait\` when nothing else is left. Read it before you say the work is done and before an edit that depends on it.
+A run that started before your last edit to the code it covers says nothing about that code: never wait for it, cancel it if it is still going, and run the check once on the edited tree.
 Keep a run in the foreground only when the very next step needs its output, when it must be watched interactively, or when it would fight another run for the same lock, port or build directory.
 </background-checks>`;
 

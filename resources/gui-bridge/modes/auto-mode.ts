@@ -23,20 +23,23 @@
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
-import { AUTO_MODE_TIMEOUT_MS, type AutoModeDecision } from "./auto-mode-contracts";
+import { AUTO_MODE_TIMEOUT_MS, type AutoModeDecision, type AutoModeReason } from "./auto-mode-contracts";
 import {
 	AUTO_MODE_INSTRUCTIONS,
+	AUTO_MODE_WARM_REQUEST,
+	AUTO_MODE_WARM_TIMEOUT_MS,
 	type AutoModeWork,
 	autoModeCriteria,
 	autoModeSkip,
 	goalObjective,
 	modeFromAnswer,
 	noDecision,
+	PrefetchSlot,
 	previousExchange,
 } from "./auto-mode-core";
 import { autoModeFlags, markSuppressed } from "./auto-mode-state";
 import { exitPlanMode } from "./plan";
-import { attach, errorMessage, record } from "./shared";
+import { attach, boundEnv, errorMessage, record } from "./shared";
 
 /** A transcript message's plain text (string content or its text parts). */
 function messageText(message: unknown): string {
@@ -85,16 +88,20 @@ interface Answer {
 
 /**
  * Load the stock modules the first decision needs when the bridge starts (index.ts calls `install`), so the first
- * prompt of a session does not pay their import time inside its 2 s deadline. A module that is missing fails
- * later, in `decide`, with the capability guard's coded error.
+ * prompt of a session does not pay their import time inside its 2 s deadline, and warm the judge as the main session
+ * starts (`warmJudge`). A module that is missing fails later, in `decide`, with the capability guard's coded error.
  */
-export function install(): void {
+export function install(pi: BridgeEnv["pi"]): void {
 	void Promise.allSettled([
 		import("@oh-my-pi/pi-coding-agent/judgment"),
 		import("@oh-my-pi/pi-coding-agent/tiny/message-preproc"),
 		import("@oh-my-pi/pi-coding-agent/plan-mode/settings"),
 		import("@oh-my-pi/pi-coding-agent/config/registry"),
 	]);
+	pi.on("session_start", (_event, ctx) => {
+		const env = boundEnv();
+		if (ctx.agent.kind === "main" && env) void warmJudge(env);
+	});
 }
 
 /** `goal.enabled` comes through stock's registry: omp's bundle has no `goals/settings` (an import is a copy). */
@@ -106,6 +113,23 @@ async function enabledByStock(session: AgentSession): Promise<{ plan: boolean; g
 	return { plan: cfgPlanEnabled.get(session.settings), goal: lookup("goal.enabled")?.get(session.settings) === true };
 }
 
+/** Stock's judge for this session, on the `judge` role chain. `billed` journals usage and uses the answer cache. */
+async function judgeFor(session: AgentSession, billed: boolean) {
+	const { resolveJudge, sharedJudgmentCache, journalJudgmentUsage } = await import(
+		"@oh-my-pi/pi-coding-agent/judgment"
+	);
+	return resolveJudge({
+		settings: session.settings,
+		registry: session.modelRegistry,
+		sessionModel: session.model,
+		sessionId: session.sessionId,
+		metadataResolver: provider => session.agent.metadataForProvider(provider),
+		purpose: "auto-mode",
+		...(billed ? { onUsage: journalJudgmentUsage(session.sessionManager), cache: sharedJudgmentCache() } : {}),
+		telemetry: session.agent.telemetry,
+	});
+}
+
 /** Ask the judge role's cheapest available model; throws when none answers. */
 async function ask(
 	session: AgentSession,
@@ -113,22 +137,11 @@ async function ask(
 	previous: string | undefined,
 	allowPlan: boolean,
 	signal: AbortSignal,
-): Promise<{ answer: Answer; model: string; tokens: { input: number; output: number }; costUsd?: number }> {
-	const [{ resolveJudge, sharedJudgmentCache, journalJudgmentUsage }, { preprocessTinyMessage }] = await Promise.all([
-		import("@oh-my-pi/pi-coding-agent/judgment"),
+): Promise<Asked> {
+	const [judge, { preprocessTinyMessage }] = await Promise.all([
+		judgeFor(session, true),
 		import("@oh-my-pi/pi-coding-agent/tiny/message-preproc"),
 	]);
-	const judge = resolveJudge({
-		settings: session.settings,
-		registry: session.modelRegistry,
-		sessionModel: session.model,
-		sessionId: session.sessionId,
-		metadataResolver: provider => session.agent.metadataForProvider(provider),
-		purpose: "auto-mode",
-		onUsage: journalJudgmentUsage(session.sessionManager),
-		telemetry: session.agent.telemetry,
-		cache: sharedJudgmentCache(),
-	});
 	const mode = {
 		type: "choice" as const,
 		instructions: AUTO_MODE_INSTRUCTIONS,
@@ -145,10 +158,22 @@ async function ask(
 	};
 }
 
-async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision> {
-	const started = Date.now();
+interface Asked {
+	answer: Answer;
+	model: string;
+	tokens: { input: number; output: number };
+	costUsd?: number;
+}
+
+/** What a decision for `text` asks, or why nothing is asked: the guards decide and prefetch share. */
+async function prepare(
+	env: BridgeEnv,
+	text: string,
+): Promise<
+	| { skip: AutoModeReason }
+	| { skip: null; session: AgentSession; previous?: string; planAllowed: boolean; goalAllowed: boolean }
+> {
 	const session = attach(env);
-	const text = typeof record(params).message === "string" ? (record(params).message as string) : "";
 	const flags = autoModeFlags(session.sessionManager.getSessionId());
 	const goal = session.getGoalModeState();
 	const { work, previous } = sessionWork(session);
@@ -163,6 +188,87 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 		suppressed: flags.suppressed,
 		work,
 	});
+	if (skip) return { skip };
+	const allowed = await enabledByStock(session);
+	const planAllowed = allowed.plan && !flags.planRejected;
+	if (!planAllowed && !allowed.goal) return { skip: "unavailable" };
+	return { skip: null, session, previous, planAllowed, goalAllowed: allowed.goal };
+}
+
+/**
+ * The question asked while the user types (`modes.auto_mode_prefetch`). The answer lands in stock's judgment cache,
+ * so the decision at Enter for the same text is answered from it; a decision that arrives while it is still asked
+ * waits for it instead of asking a second time. The mode is still set before the prompt is sent: the prefetch only
+ * moves the judge's round trip into the typing pause.
+ */
+const prefetched = new PrefetchSlot<Asked>();
+/** The warm-up of this omp, once: the judge's connection belongs to the process. */
+let warming: Promise<boolean> | undefined;
+
+/**
+ * One unbilled judgment of a fixed state, outside the answer cache so it always reaches the provider, as the omp's
+ * main session starts. Measured (20 Oct 2026, stock's model discovery running as an omp starts): the first request to
+ * the judge's host took 1.5 s and more under load (DNS, TLS, the discovery's own downloads to the same host), the
+ * next ones 0.4 s. A decision's 2 s deadline lost it on every first message, and stock's own auto-thinking classifier
+ * (OMPdesk's held `defaultThinkingLevel: auto`) waits its 4 s on the same host. Only a native judge is warmed: a
+ * prompted one would cost a chat request on every omp start.
+ */
+export function warmJudge(env: BridgeEnv): Promise<boolean> {
+	warming ??= (async () => {
+		try {
+			const session = attach(env);
+			const { hasNativeJudge } = await import("@oh-my-pi/pi-coding-agent/judgment");
+			if (!hasNativeJudge(session.settings, session.modelRegistry)) return false;
+			const judge = await judgeFor(session, false);
+			await judge.judge(
+				{
+					state: { request: AUTO_MODE_WARM_REQUEST },
+					questions: {
+						mode: { type: "choice", instructions: AUTO_MODE_INSTRUCTIONS, criteria: autoModeCriteria(true) },
+					},
+				},
+				{ signal: AbortSignal.timeout(AUTO_MODE_WARM_TIMEOUT_MS) },
+			);
+			return true;
+		} catch (error) {
+			env.pi.logger.debug("gui-bridge: auto mode warm-up failed", { error: errorMessage(error) });
+			return false;
+		}
+	})();
+	return warming;
+}
+
+/** Wait (within `signal`) for a warm-up still under way: a request then reuses its connection instead of opening one. */
+async function warmed(signal: AbortSignal): Promise<void> {
+	if (!warming) return;
+	const { promise: aborted, resolve } = Promise.withResolvers<void>();
+	signal.addEventListener("abort", () => resolve(), { once: true });
+	await Promise.race([warming, aborted]);
+}
+
+async function prefetch(env: BridgeEnv, params: unknown): Promise<{ prefetched: boolean; reason?: AutoModeReason }> {
+	const message = typeof record(params).message === "string" ? (record(params).message as string) : "";
+	try {
+		const prepared = await prepare(env, message);
+		if (prepared.skip) {
+			prefetched.clear();
+			return { prefetched: false, reason: prepared.skip };
+		}
+		const { session, previous, planAllowed } = prepared;
+		await prefetched.run(message, async signal => {
+			await warmed(signal);
+			return ask(session, message, previous, planAllowed, signal);
+		});
+		return { prefetched: true };
+	} catch (error) {
+		env.pi.logger.debug("gui-bridge: auto mode prefetch failed", { error: errorMessage(error) });
+		return { prefetched: false, reason: "error" };
+	}
+}
+
+async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision> {
+	const started = Date.now();
+	const text = typeof record(params).message === "string" ? (record(params).message as string) : "";
 	const log = (decision: AutoModeDecision): AutoModeDecision => {
 		env.pi.logger.debug("gui-bridge: auto mode", {
 			mode: decision.mode,
@@ -174,18 +280,21 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 		});
 		return decision;
 	};
-	if (skip) return log(noDecision(skip));
 	try {
-		const allowed = await enabledByStock(session);
-		const planAllowed = allowed.plan && !flags.planRejected;
-		if (!planAllowed && !allowed.goal) return log(noDecision("unavailable"));
+		const prepared = await prepare(env, text);
+		if (prepared.skip) return log(noDecision(prepared.skip));
+		const { session, previous, planAllowed, goalAllowed } = prepared;
 		const controller = new AbortController();
 		const timer = setTimeout(
 			() => controller.abort(new Error(`auto mode timed out after ${AUTO_MODE_TIMEOUT_MS} ms`)),
 			AUTO_MODE_TIMEOUT_MS,
 		);
-		let asked: Awaited<ReturnType<typeof ask>>;
+		let asked: Asked;
 		try {
+			// A prefetch of this text still in flight is joined, not asked again; its answer, or the cache it filled,
+			// answers the question below. A warm-up still under way is joined too: its connection is reused.
+			await prefetched.settle(text, controller.signal);
+			await warmed(controller.signal);
 			asked = await ask(session, text, previous, planAllowed, controller.signal);
 		} catch (error) {
 			if (controller.signal.aborted) return log(noDecision("timeout", Date.now() - started));
@@ -194,7 +303,7 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 			clearTimeout(timer);
 		}
 		const latencyMs = Date.now() - started;
-		const picked = modeFromAnswer(asked.answer, { plan: planAllowed, goal: allowed.goal });
+		const picked = modeFromAnswer(asked.answer, { plan: planAllowed, goal: goalAllowed });
 		const spent = { model: asked.model, tokens: asked.tokens, costUsd: asked.costUsd };
 		if (picked.mode === "none") {
 			return log({ ...noDecision(picked.reason ?? "classified_none", latencyMs), ...spent });
@@ -213,6 +322,11 @@ async function decide(env: BridgeEnv, params: unknown): Promise<AutoModeDecision
 
 export const methods: BridgeMethods = guard("autoMode", {
 	"modes.auto_mode_decide": (params, env) => decide(env, params),
+	/**
+	 * While the user types: asks the question the decision at Enter will ask for `{message}` (its answer is cached).
+	 * Changes nothing; answers whether a request was made.
+	 */
+	"modes.auto_mode_prefetch": (params, env) => prefetch(env, params),
 	/** The user undid an automatic decision: leave plan mode if it is the mode, and stop deciding for this session. */
 	"modes.auto_mode_undo": async (params, env) => {
 		const session = attach(env);
