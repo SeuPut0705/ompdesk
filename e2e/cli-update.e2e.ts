@@ -55,14 +55,17 @@ interface Launched {
 	errors: string[];
 }
 
+const WIN = process.platform === "win32";
 const TOOL_NAMES = ["claude", "codex", "gemini", "cursor-agent", "copilot", "gh", "node"];
+/** The files a tool is found as along a PATH: the bare name, or `.exe` and `.cmd` on Windows. */
+const TOOL_FILES = TOOL_NAMES.flatMap(name => (WIN ? [`${name}.exe`, `${name}.cmd`] : [name]));
 
 /** The test's PATH without any directory that holds one of the tools, so the developer's own never answers. */
-function cleanPath(extra: string): string {
+function cleanPath(...extra: string[]): string {
 	const rest = (process.env.PATH ?? "")
 		.split(path.delimiter)
-		.filter(dir => dir && !TOOL_NAMES.some(name => existsSync(path.join(dir, name))));
-	return [extra, ...rest].join(path.delimiter);
+		.filter(dir => dir && !TOOL_FILES.some(file => existsSync(path.join(dir, file))));
+	return [...extra, ...rest].join(path.delimiter);
 }
 
 async function launch(name: string, prefs: Record<string, unknown>): Promise<Launched> {
@@ -82,18 +85,30 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 	const missed = { failures: 3, lastAttempt: Date.now() };
 	await fs.writeFile(path.join(desktop, "setup-state.json"), JSON.stringify({ gh: missed, node: missed }));
 
-	// Claude Code 2.0.1, installed with its own updater (…/share/claude/versions/…), linked from a bin dir.
+	// Claude Code 2.0.1, installed with its own updater and found on PATH: on POSIX under …/share/claude/versions/…,
+	// linked from a bin dir; on Windows a `.cmd` shim in the bin dir. The Codex inside the ChatGPT app, which updates
+	// it: `ChatGPT.app/Contents/` on a Mac, the app's `WindowsApps` package folder on Windows.
 	const versionFile = path.join(root, "claude-version");
 	await fs.writeFile(versionFile, "2.0.1");
-	const claude = path.join(home, ".local", "share", "claude", "versions", "stable", "claude");
-	await fs.mkdir(path.dirname(claude), { recursive: true });
-	await fs.writeFile(claude, `#!/bin/sh\necho "$(cat '${versionFile}') (Claude Code)"\n`, { mode: 0o755 });
-	await fs.symlink(claude, path.join(bin, "claude"));
-	// The Codex inside ChatGPT.app: its app updates it.
-	const codex = path.join(root, "Applications", "ChatGPT.app", "Contents", "Resources", "codex");
-	await fs.mkdir(path.dirname(codex), { recursive: true });
-	await fs.writeFile(codex, "#!/bin/sh\necho 'codex-cli 0.46.0'\n", { mode: 0o755 });
-	await fs.symlink(codex, path.join(bin, "codex"));
+	let codexDir = bin;
+	if (WIN) {
+		await fs.writeFile(
+			path.join(bin, "claude.cmd"),
+			`@echo off\r\nset /p version=<"${versionFile}"\r\necho %version% (Claude Code)\r\n`,
+		);
+		codexDir = path.join(root, "WindowsApps", "OpenAI.ChatGPT");
+		await fs.mkdir(codexDir, { recursive: true });
+		await fs.writeFile(path.join(codexDir, "codex.cmd"), "@echo off\r\necho codex-cli 0.46.0\r\n");
+	} else {
+		const claude = path.join(home, ".local", "share", "claude", "versions", "stable", "claude");
+		await fs.mkdir(path.dirname(claude), { recursive: true });
+		await fs.writeFile(claude, `#!/bin/sh\necho "$(cat '${versionFile}') (Claude Code)"\n`, { mode: 0o755 });
+		await fs.symlink(claude, path.join(bin, "claude"));
+		const codex = path.join(root, "Applications", "ChatGPT.app", "Contents", "Resources", "codex");
+		await fs.mkdir(path.dirname(codex), { recursive: true });
+		await fs.writeFile(codex, "#!/bin/sh\necho 'codex-cli 0.46.0'\n", { mode: 0o755 });
+		await fs.symlink(codex, path.join(bin, "codex"));
+	}
 
 	const omp = await fixtureOmp(root);
 	const stock = path.join(path.dirname(omp), "node_modules", "@oh-my-pi", "pi-coding-agent");
@@ -104,10 +119,11 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 	await fs.writeFile(path.join(stock, "package.json"), JSON.stringify(manifest));
 	await fs.writeFile(path.join(stock, "sdk.ts"), FAKE_SDK);
 
-	const PATH = cleanPath(bin);
-	// The login-shell probe would add Homebrew's dirs (path_helper); this one reports PATH as it is.
+	const PATH = cleanPath(bin, ...(codexDir === bin ? [] : [codexDir]));
+	// The login-shell probe would add Homebrew's dirs (path_helper); this one reports PATH as it is. Windows has no probe.
 	const shell = path.join(root, "login-shell");
-	await fs.writeFile(shell, `#!/bin/sh\nexec /usr/bin/env PATH='${PATH}' /bin/sh -c "$2"\n`, { mode: 0o755 });
+	if (!WIN)
+		await fs.writeFile(shell, `#!/bin/sh\nexec /usr/bin/env PATH='${PATH}' /bin/sh -c "$2"\n`, { mode: 0o755 });
 	const installer = await writeFakeOmp(installerDir, INSTALLER);
 	await fs.writeFile(path.join(installerDir, "hold"), "");
 	const app = await launchApp({
@@ -117,7 +133,7 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		profile: root,
 		env: {
 			PATH,
-			SHELL: shell,
+			...(WIN ? {} : { SHELL: shell }),
 			HOME: home,
 			PI_CONFIG_DIR: "omp-config",
 			OMP_GUI_OMP: omp,
@@ -156,8 +172,6 @@ async function openThisComputer(page: Page) {
 	await expect(settings.locator("#setting-gui-cliAutoUpdate")).toBeVisible();
 	return settings;
 }
-
-test.skip(process.platform === "win32", "the fake claude, codex and the stand-in login shell are shebang scripts");
 
 for (const language of variants(["en", "ko"] as const)) {
 	test(`a connected account's Claude Code updates on its own: check, update, re-detect; a bundled Codex is left alone (${language})`, async () => {

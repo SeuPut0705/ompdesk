@@ -144,14 +144,18 @@ interface Launched {
 	errors: string[];
 }
 
-const NPM_PACKAGE = ["lib", "node_modules", "mcp-thing"] as const;
+const WIN = process.platform === "win32";
+/** Where `npm i -g` puts `mcp-thing` under its prefix: `lib/node_modules` on POSIX, `node_modules` on Windows. */
+const NPM_PACKAGE = WIN ? (["node_modules", "mcp-thing"] as const) : (["lib", "node_modules", "mcp-thing"] as const);
 const TOOL_NAMES = ["mcp-thing", "claude", "codex", "gemini", "cursor-agent", "copilot", "gh", "node"];
+/** The files a tool is found as along a PATH: the bare name, or `.exe` and `.cmd` on Windows. */
+const TOOL_FILES = TOOL_NAMES.flatMap(name => (WIN ? [`${name}.exe`, `${name}.cmd`] : [name]));
 
 /** The test's PATH without any directory that holds one of the tools, so the developer's own never answers. */
 function cleanPath(extra: string): string {
 	const rest = (process.env.PATH ?? "")
 		.split(path.delimiter)
-		.filter(dir => dir && !TOOL_NAMES.some(name => existsSync(path.join(dir, name))));
+		.filter(dir => dir && !TOOL_FILES.some(file => existsSync(path.join(dir, file))));
 	return [extra, ...rest].join(path.delimiter);
 }
 
@@ -164,10 +168,10 @@ async function launch(name: string, prefs: Record<string, unknown>, held: boolea
 	const installerDir = path.join(root, "installer");
 	const ext = path.join(root, "ext");
 	const npmPrefix = path.join(root, "npm");
+	// `npm i -g` links a command into `<prefix>/bin` on POSIX and writes its `.cmd` shim into the prefix on Windows.
+	const npmBin = WIN ? npmPrefix : path.join(npmPrefix, "bin");
 	await Promise.all(
-		[home, desktop, project, agent, installerDir, ext, path.join(npmPrefix, "bin")].map(dir =>
-			fs.mkdir(dir, { recursive: true }),
-		),
+		[home, desktop, project, agent, installerDir, ext, npmBin].map(dir => fs.mkdir(dir, { recursive: true })),
 	);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
@@ -177,7 +181,7 @@ async function launch(name: string, prefs: Record<string, unknown>, held: boolea
 	const missed = { failures: 3, lastAttempt: Date.now() };
 	await fs.writeFile(path.join(desktop, "setup-state.json"), JSON.stringify({ gh: missed, node: missed }));
 
-	// `mcp-thing`: a script in a global npm package, linked from the prefix's bin dir like `npm i -g` does.
+	// `mcp-thing`: a script in a global npm package, with the command npm links or shims for it.
 	const pkgDir = path.join(npmPrefix, ...NPM_PACKAGE);
 	await fs.mkdir(pkgDir, { recursive: true });
 	const packageFile = path.join(pkgDir, "package.json");
@@ -186,7 +190,11 @@ async function launch(name: string, prefs: Record<string, unknown>, held: boolea
 		JSON.stringify({ name: "mcp-thing", version: "1.0.0", bin: { "mcp-thing": "cli.js" } }),
 	);
 	await fs.writeFile(path.join(pkgDir, "cli.js"), "#!/usr/bin/env node\nconsole.log('mcp-thing');\n", { mode: 0o755 });
-	await fs.symlink(path.join("..", ...NPM_PACKAGE, "cli.js"), path.join(npmPrefix, "bin", "mcp-thing"));
+	if (WIN) {
+		// npm's cmd-shim: the `.cmd` names the package's file relative to its own folder.
+		const shim = `@ECHO off\r\nSETLOCAL\r\nSET dp0=%~dp0\r\n"%dp0%\\${path.join(...NPM_PACKAGE, "cli.js")}" %*\r\n`;
+		await fs.writeFile(path.join(npmBin, "mcp-thing.cmd"), shim);
+	} else await fs.symlink(path.join("..", ...NPM_PACKAGE, "cli.js"), path.join(npmBin, "mcp-thing"));
 
 	// The stand-in stock state: demo@mkt installed at 1.0.0, its catalog at 1.1.0, two configured servers.
 	await fs.writeFile(
@@ -224,10 +232,11 @@ export const getMCPConfigPath = () => ${JSON.stringify(path.join(agent, "mcp.jso
 `,
 	);
 
-	const PATH = cleanPath(path.join(npmPrefix, "bin"));
-	// The login-shell probe would add Homebrew's dirs (path_helper); this one reports PATH as it is.
+	const PATH = cleanPath(npmBin);
+	// The login-shell probe would add Homebrew's dirs (path_helper); this one reports PATH as it is. Windows has no probe.
 	const shell = path.join(root, "login-shell");
-	await fs.writeFile(shell, `#!/bin/sh\nexec /usr/bin/env PATH='${PATH}' /bin/sh -c "$2"\n`, { mode: 0o755 });
+	if (!WIN)
+		await fs.writeFile(shell, `#!/bin/sh\nexec /usr/bin/env PATH='${PATH}' /bin/sh -c "$2"\n`, { mode: 0o755 });
 	const installer = await writeFakeOmp(installerDir, INSTALLER);
 	if (held) {
 		await fs.writeFile(path.join(installerDir, "hold"), "");
@@ -237,7 +246,7 @@ export const getMCPConfigPath = () => ${JSON.stringify(path.join(agent, "mcp.jso
 	const env = {
 		...process.env,
 		PATH,
-		SHELL: shell,
+		...(WIN ? {} : { SHELL: shell }),
 		HOME: home,
 		PI_CODING_AGENT_DIR: agent,
 		PI_CONFIG_DIR: "omp-config",
@@ -322,8 +331,6 @@ const PINNED = "mcp-pinned-pkg";
 const BUILTIN = "mcp-rea";
 
 const status = (settings: Locator, id: string) => settings.getByTestId(`extension-status-${id}`);
-
-test.skip(process.platform === "win32", "the fake npm package's bin is a symlink to a shebang script");
 
 for (const language of variants(["en", "ko"] as const)) {
 	const strings: Record<string, string> = language === "en" ? en : ko;
