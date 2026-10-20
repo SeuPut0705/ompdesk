@@ -173,6 +173,13 @@ class FakeHost implements AgentControlHost {
 		if (this.removal) this.removed.push(worktree.branch);
 		return this.removal;
 	};
+	/** Worktrees a failed open took back (`discardWorktree`), and what that returns. */
+	discarded: { branch: string; device: string | undefined }[] = [];
+	discardResult: WorktreeRemoval = "removed";
+	discardWorktree = async (worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval> => {
+		this.discarded.push({ branch: worktree.branch, device });
+		return this.discardResult;
+	};
 	recordClosed = (child: ClosedChild) => {
 		this.closedRecords.push(child);
 	};
@@ -255,11 +262,16 @@ class FakeHost implements AgentControlHost {
 		if (request.task) this.tasks.set(tab.tabId, request.task);
 		return { tabId: tab.tabId, ...(tab.worktree ? { worktree: tab.worktree } : {}) };
 	};
+	/** An omp that answers `agent_control_worker` only this long after it was asked (a just-started omp under load). */
+	workerAnswersAfterMs = 0;
 
-	command = async (tabId: string, command: RpcCommand): Promise<RpcResponse> => {
+	command = async (tabId: string, command: RpcCommand, timeoutMs?: number): Promise<RpcResponse> => {
 		this.sent.push({ tabId, command });
 		const tab = this.tabsById.get(tabId);
 		if (!tab) return bad("gone");
+		// rpc-client.ts: a command not answered within its budget (8 s unless the caller names one) rejects.
+		if (command.type === "agent_control_worker" && this.workerAnswersAfterMs > (timeoutMs ?? 8_000))
+			throw new Error(`RPC timeout (${timeoutMs ?? 8_000}ms): agent_control_worker`);
 		switch (command.type) {
 			case "get_state":
 				return ok({
@@ -437,6 +449,39 @@ describe("ompdesk_session_open", () => {
 		expect(result.text).toContain("guard failed");
 		expect(failing.views.some(view => view.how === "close")).toBe(true);
 		expect(prompts(failing, [...failing.tabsById.keys()].find(id => id !== "main0001") ?? "")).toEqual([]);
+	});
+
+	it("marks a just-started session a worker even when its omp takes longer than the default 8 s to answer", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.workerAnswersAfterMs = 12_000;
+		const result = await control(host).run("main0001", T.open, { message: "go", worktree: { base: "default" } });
+		expect(result.isError).toBe(false);
+		expect(result.text).toContain("Opened session");
+		const child = [...host.tabsById.keys()].find(id => id !== "main0001") ?? "";
+		expect(prompts(host, child)).toHaveLength(1);
+		expect(host.discarded).toEqual([]);
+	});
+
+	it("takes back the worktree and branch a failed open made, and says when git kept them", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.beforeFirstPromptError = new Error("guard failed");
+		const result = await control(host).run("main0001", T.open, { message: "go", worktree: true });
+		expect(result.text).toContain("guard failed");
+		expect(host.views.some(view => view.how === "close")).toBe(true);
+		expect(host.discarded).toEqual([{ branch: "omp/agent/w", device: undefined }]);
+
+		const kept = new FakeHost({ tabId: "main0001" });
+		kept.beforeFirstPromptError = new Error("guard failed");
+		kept.discardResult = null;
+		const told = await control(kept).run("main0001", T.open, { message: "go", worktree: true });
+		expect(told.text).toContain("/wt/w");
+		expect(told.text).toContain("omp/agent/w");
+
+		// An open without a worktree has nothing to take back.
+		const plain = new FakeHost({ tabId: "main0001" });
+		plain.beforeFirstPromptError = new Error("guard failed");
+		await control(plain).run("main0001", T.open, { message: "go" });
+		expect(plain.discarded).toEqual([]);
 	});
 
 	it("names each opened session's task (its Title: line, else its first line) for the sidebar until it has a title", async () => {

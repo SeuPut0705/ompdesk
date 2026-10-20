@@ -9,6 +9,7 @@ import {
 	boundDiff,
 	branchEvidence,
 	branchFacts,
+	discardNewWorktree,
 	landingFacts,
 	mergeBranch,
 	predictMerge,
@@ -272,6 +273,37 @@ describe("removeSafeWorktree", () => {
 		expect(gitSync(repo, "branch", "--list", dirty.branch)).toContain(dirty.branch);
 
 		expect(await removeSafeWorktree({ path: repo, branch: "main", baseCwd: repo })).toBeNull();
+	});
+});
+
+describe("discardNewWorktree", () => {
+	it("takes back a worktree and branch nobody used, even when the parent's main is behind the branch's base", async () => {
+		await staleParentMain();
+		// What `worktree_create` with base "default" makes: a branch off origin/main, which the parent's main lacks.
+		const branch = "omp/agent/fresh";
+		const target = path.join(root, "wt-fresh");
+		gitSync(repo, "branch", "--no-track", branch, "origin/main");
+		gitSync(repo, "worktree", "add", "-q", target, branch);
+		const wt = { path: target, branch, baseCwd: repo };
+		// The safe removal of a finished child's worktree keeps that branch (`branch -d` against the stale main).
+		expect(await discardNewWorktree(wt)).toBe("removed");
+		await expect(fs.stat(target)).rejects.toThrow();
+		expect(gitSync(repo, "branch", "--list", branch)).toBe("");
+	});
+
+	it("keeps a worktree with files in it and a branch that moved since it was made", async () => {
+		const dirty = await agentWorktree("busy");
+		await fs.writeFile(path.join(dirty.path, "scratch.txt"), "unsaved");
+		expect(await discardNewWorktree(dirty)).toBeNull();
+		expect(await fs.readFile(path.join(dirty.path, "scratch.txt"), "utf8")).toBe("unsaved");
+
+		const moved = await agentWorktree("moved");
+		await commitIn(moved.path, "a.ts", "a\n");
+		expect(await discardNewWorktree(moved)).toBeNull();
+		await fs.stat(moved.path);
+		expect(gitSync(repo, "branch", "--list", moved.branch)).toContain(moved.branch);
+
+		expect(await discardNewWorktree({ path: repo, branch: "main", baseCwd: repo })).toBeNull();
 	});
 });
 

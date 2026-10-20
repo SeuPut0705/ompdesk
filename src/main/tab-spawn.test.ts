@@ -1,3 +1,6 @@
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
 import type { SidecarLike } from "./sidecar-types";
@@ -18,6 +21,7 @@ interface Harness {
 	deps: SpawnTabDeps;
 	acquire: Mock<(...args: unknown[]) => SidecarLike>;
 	kindFor: Mock<(path: string) => Promise<SessionKind>>;
+	recordedCwd: Mock<(path: string) => Promise<string | null>>;
 	remoteKindFor: Mock<(device: string, path: string) => Promise<SessionKind>>;
 	remoteDefaultWorkspace: Mock<(device: string) => Promise<string>>;
 	sessionOwner: Mock<(path: string, device?: string) => { tabId: string; winId: number } | null>;
@@ -31,6 +35,7 @@ const SPAWNED = [false, false, undefined] as const;
 function harness(): Harness {
 	const acquire = vi.fn(() => ({}) as SidecarLike);
 	const kindFor = vi.fn(async (_path: string): Promise<SessionKind> => "agent");
+	const recordedCwd = vi.fn(async (_path: string): Promise<string | null> => null);
 	const remoteKindFor = vi.fn(async (_device: string, _path: string): Promise<SessionKind> => "agent");
 	const remoteDefaultWorkspace = vi.fn(async (_device: string) => "/host/work");
 	const sessionOwner = vi.fn((_path: string, _device?: string): { tabId: string; winId: number } | null => null);
@@ -39,6 +44,7 @@ function harness(): Harness {
 	return {
 		acquire,
 		kindFor,
+		recordedCwd,
 		remoteKindFor,
 		remoteDefaultWorkspace,
 		sessionOwner,
@@ -46,7 +52,7 @@ function harness(): Harness {
 		attachViewer,
 		deps: {
 			sidecarPool: { sessionOwner, acquire, attachViewer } as unknown as SpawnTabDeps["sidecarPool"],
-			sessionIndex: { kindFor },
+			sessionIndex: { kindFor, recordedCwd },
 			fallbackCwd,
 			initialCwd: () => "/initial",
 			defaultWorkspace: () => "/default-workspace",
@@ -272,6 +278,43 @@ describe("spawnTabForWindow refusal contracts", () => {
 			undefined,
 			undefined,
 		);
+	});
+});
+
+describe("spawnTabForWindow reopening a stored session", () => {
+	it("opens it in the folder its file records, whatever folder the caller or the app is in", async () => {
+		const home = await mkdtemp(join(tmpdir(), "omp-spawn-home-"));
+		try {
+			const { deps, acquire, recordedCwd } = harness();
+			recordedCwd.mockResolvedValue(home);
+			const result = await spawnTabForWindow(deps, fakeWindow(), {
+				cwd: "/Users/me/main-checkout",
+				sessionPath: "/s/worktree-session.jsonl",
+			});
+
+			expect(result).toEqual({ tabId: expect.any(String) });
+			expect(recordedCwd).toHaveBeenCalledWith("/s/worktree-session.jsonl");
+			expect(acquire.mock.calls[0]?.[0]).toBe(await realpath(home));
+		} finally {
+			await rm(home, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses, naming the folder, when the folder its file records is gone, and never opens it elsewhere", async () => {
+		const gone = join(tmpdir(), `omp-spawn-gone-${process.pid}-${Date.now()}`);
+		const { deps, acquire, recordedCwd } = harness();
+		recordedCwd.mockResolvedValue(gone);
+		const result = await spawnTabForWindow(deps, fakeWindow(), { sessionPath: "/s/removed-worktree.jsonl" });
+
+		expect(result).toEqual({ tabId: null, refusal: "folder-missing", folder: gone });
+		expect(acquire).not.toHaveBeenCalled();
+	});
+
+	it("keeps the caller's folder when the file records none", async () => {
+		const { deps, acquire } = harness();
+		await spawnTabForWindow(deps, fakeWindow(), { cwd: "/Users/me/project", sessionPath: "/s/old.jsonl" });
+
+		expect(acquire.mock.calls[0]?.[0]).toBe("/Users/me/project");
 	});
 });
 

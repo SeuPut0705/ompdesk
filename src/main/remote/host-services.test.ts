@@ -278,6 +278,7 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 	const local = fakeLocalTabs();
 	const deleteSession = vi.fn(async (_path: string) => {});
 	const renameStoredSession = vi.fn(async (_path: string, _name: string) => {});
+	const recordedCwd = vi.fn(async (_path: string): Promise<string | null> => null);
 	const services = new LocalHostServices({
 		createSidecar: (cwd, kind, _fresh, origin) => {
 			const sidecar = new FakeHostSidecar(cwd, kind);
@@ -290,6 +291,7 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 			list: async () => [],
 			searchContent: async () => [],
 			kindFor: async () => "chat",
+			recordedCwd,
 			deleteSession,
 			moveSession: async (path: string) => path,
 			sessionsDir: join(workDir, "sessions"),
@@ -305,7 +307,7 @@ function setup(graceMs = 60_000, extra: Partial<HostServicesDeps> = {}) {
 		graceMs,
 		...extra,
 	});
-	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine };
+	return { services, sidecars, origins, local, deleteSession, renameStoredSession, machine, recordedCwd };
 }
 
 describe("LocalHostServices", () => {
@@ -356,6 +358,36 @@ describe("LocalHostServices", () => {
 			.catch((error: unknown) => error);
 		initDeletedSessions(null);
 		expect(ipcErrorCode(refused)).toBe("session_deleted");
+		expect(sidecars).toHaveLength(0);
+	});
+
+	it("opens a device's saved session in the folder its file records here, never in the folder the device guessed", async () => {
+		const { services, sidecars, recordedCwd } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const home = mkdtempSync(join(tmpdir(), "omp-host-session-home-"));
+		try {
+			recordedCwd.mockResolvedValue(home);
+			const opened = await services.call(
+				x.peer,
+				"tab.open",
+				{ rtab: "t1", cwd: workDir, sessionPath: join(workDir, "worktree-session.jsonl") },
+				x,
+			);
+			expect(opened).toMatchObject({ cwd: realpathSync(home), attached: false });
+			expect(sidecars[0]?.cwd).toBe(realpathSync(home));
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses a device's saved session whose recorded folder is gone instead of opening it in another folder", async () => {
+		const { services, sidecars, recordedCwd } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		recordedCwd.mockResolvedValue(join(workDir, "removed-worktree"));
+		const refused = await services
+			.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: join(workDir, "orphan.jsonl") }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_folder_missing");
 		expect(sidecars).toHaveLength(0);
 	});
 
