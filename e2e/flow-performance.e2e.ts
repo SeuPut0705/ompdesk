@@ -734,7 +734,7 @@ test.describe("flow performance", () => {
 							if (!(animation instanceof CSSAnimation) || !animation.animationName.startsWith("omp-live-"))
 								continue;
 							count++;
-							const title = animation.animationName === "omp-live-shine-text";
+							const title = animation.animationName.startsWith("omp-live-shine-text");
 							if (playing === "all" || (playing === "titles" && title)) animation.play();
 							else animation.pause();
 						}

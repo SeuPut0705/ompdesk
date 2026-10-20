@@ -54,15 +54,25 @@ export function useTabLive(props: Omit<SessionLiveProps, "opened">): LiveState |
 }
 
 export const SessionLiveTitle = memo(function SessionLiveTitle({
+	text,
 	children,
 	...props
-}: SessionLiveProps & { children: ReactNode }): ReactElement {
-	return <LiveText state={useSessionLive(props)}>{children}</LiveText>;
+}: SessionLiveProps & { text: string; children?: ReactNode }): ReactElement {
+	return (
+		<LiveText state={useSessionLive(props)} text={text}>
+			{children}
+		</LiveText>
+	);
 });
 
 export function TabLiveTitle({
+	text,
 	children,
 	...props
-}: Omit<SessionLiveProps, "opened"> & { children: ReactNode }): ReactElement {
-	return <LiveText state={useTabLive(props)}>{children}</LiveText>;
+}: Omit<SessionLiveProps, "opened"> & { text: string; children?: ReactNode }): ReactElement {
+	return (
+		<LiveText state={useTabLive(props)} text={text}>
+			{children}
+		</LiveText>
+	);
 }

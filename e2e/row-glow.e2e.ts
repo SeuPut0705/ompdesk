@@ -1,7 +1,7 @@
 /**
  * A session that works shimmers its own title: three tabs run on the fake omp while a fourth sits idle in front.
- * Their sidebar rows' titles carry the sweep (one CSS animation of the text's background position, nothing else
- * moves), the idle row's does not; split with one of them, the running pane's header title sweeps and the idle pane's
+ * Their sidebar rows' titles carry the sweep (two transforms: a masked window and the copy of the words going back;
+ * nothing else moves), the idle row's does not; split with one of them, the running pane's header title sweeps and the idle pane's
  * does not; when that pane's turn ends while a subagent it started still works, its row and header keep the sweep in
  * its fainter form, at the same pace, until the subagents finish, and so does a tab stock reports unsettled after its
  * turn (`prompt_result.sessionSettled: false`, main's `settling`); under reduced motion nothing moves and the title
@@ -10,8 +10,9 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
+import sharp from "sharp";
 import { captureTo, exitApp, launchApp } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_ROW_GLOW;
@@ -32,7 +33,7 @@ async function lightAnimations(page: Page, scope: string) {
 				const target = (animation.effect as KeyframeEffect).target;
 				return {
 					name: animation instanceof CSSAnimation ? animation.animationName : "",
-					title: target?.classList.contains("omp-live-text") === true,
+					title: target?.closest(".omp-live-text") != null,
 					owner: target?.closest("[data-session-path]")?.getAttribute("data-session-path") ?? "",
 					duration: animation.effect?.getComputedTiming().duration,
 					props: [
@@ -47,6 +48,67 @@ async function lightAnimations(page: Page, scope: string) {
 			});
 	}, scope);
 }
+
+/** The working cue's sweep frames sampled: holds at both ends and the band crossing the words. */
+const SWEEP_FRAMES = [0, 1000, 1500, 2000, 2600];
+
+/**
+ * How much of a working title's box is ink at each sweep frame: the share of its pixels that stand out from the row
+ * behind them (the most common shade). A title drawn invisibly (the background-clip shimmer drew none in Electron:
+ * a selected row in the background state showed only its chip) reads 0.
+ */
+async function titleInk(page: Page, title: Locator): Promise<number[]> {
+	await title.scrollIntoViewIfNeeded();
+	const text = await title.boundingBox();
+	const line = await title.locator("xpath=ancestor-or-self::*[contains(@class,'truncate')][1]").boundingBox();
+	if (!text) throw new Error("title has no box");
+	const left = Math.max(text.x, line?.x ?? text.x);
+	const right = Math.min(text.x + text.width, line ? line.x + line.width : text.x + text.width);
+	const clip = { x: left, y: text.y, width: right - left, height: text.height };
+	const shares: number[] = [];
+	for (const at of SWEEP_FRAMES) {
+		await page.evaluate(at => {
+			for (const animation of document.getAnimations()) {
+				if (!(animation instanceof CSSAnimation) || !animation.animationName.startsWith("omp-live-")) continue;
+				animation.pause();
+				animation.currentTime = at - Number(animation.effect?.getTiming().delay ?? 0);
+			}
+		}, at);
+		await page.evaluate(() => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+			return promise;
+		});
+		const { data } = await sharp(await page.screenshot({ clip, animations: "allow" }))
+			.greyscale()
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		const counts = new Map<number, number>();
+		for (const value of data) counts.set(value, (counts.get(value) ?? 0) + 1);
+		const behind = [...counts].reduce((best, entry) => (entry[1] > best[1] ? entry : best))[0];
+		let ink = 0;
+		for (const value of data) if (Math.abs(value - behind) > 48) ink++;
+		shares.push(ink / data.length);
+	}
+	await page.evaluate(() => {
+		for (const animation of document.getAnimations())
+			if (animation instanceof CSSAnimation && animation.animationName.startsWith("omp-live-")) animation.play();
+	});
+	return shares;
+}
+
+/** Every sampled frame of each working title shows its words. */
+async function expectTitlesReadable(page: Page, titles: Locator): Promise<void> {
+	const count = await titles.count();
+	expect(count).toBeGreaterThan(0);
+	for (let index = 0; index < count; index++) {
+		const shares = await titleInk(page, titles.nth(index));
+		for (const share of shares)
+			expect(share, `title ${index}: ink per frame ${shares.join(", ")}`).toBeGreaterThan(0.03);
+	}
+}
+
+const WORKING_TITLES = '.omp-live-text:is([data-working="turn"], [data-working="background"])';
 
 async function launch(): Promise<{ app: ElectronApplication; page: Page; profile: string }> {
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-row-glow-"));
@@ -109,25 +171,26 @@ test("three running tabs sweep their titles and a split's running pane header ti
 		await expect(page.locator(".omp-live-edge")).toHaveCount(0);
 		await expect(page.locator(".omp-sidebar-session-row[data-signal='running']")).toHaveCount(3);
 
-		// The sweep is one animation per working title, of its text's background position and nothing else;
-		// software compositing keeps it still.
+		// The sweep is two transforms per working title (the masked window and the copy of its words going back),
+		// nothing that repaints; software compositing keeps it still.
 		const moving = await lightAnimations(page, ".omp-session-sidebar");
 		if (software) expect(moving).toEqual([]);
 		else {
 			// Only the working titles move, nothing else in the sidebar.
-			expect(moving.map(animation => animation.owner).toSorted()).toEqual(running.map(id => `tab:${id}`).toSorted());
+			expect([...new Set(moving.map(animation => animation.owner))].toSorted()).toEqual(
+				running.map(id => `tab:${id}`).toSorted(),
+			);
+			expect(moving.map(animation => animation.name).toSorted()).toEqual(
+				running.flatMap(() => ["omp-live-shine-text", "omp-live-shine-text-hold"]).toSorted(),
+			);
 			for (const animation of moving)
-				expect(animation).toMatchObject({
-					name: "omp-live-shine-text",
-					title: true,
-					props: ["backgroundPositionX"],
-					duration: 3000,
-				});
+				expect(animation).toMatchObject({ title: true, props: ["transform"], duration: 3000 });
 		}
 		for (const theme of ["light", "dark"] as const) {
 			await page.emulateMedia({ colorScheme: theme });
 			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 			await captureTo(CAPTURES, page, `electron-three-running-${theme}`);
+			await expectTitlesReadable(page, page.locator(WORKING_TITLES));
 		}
 
 		// Split the idle pane with a running tab: the running pane's header title sweeps, the idle one's does not.
@@ -138,6 +201,7 @@ test("three running tabs sweep their titles and a split's running pane header ti
 		await expect(header(running[0] ?? "").locator('.omp-live-text[data-working="turn"]')).toHaveCount(1);
 		await expect(header(idle).locator("[data-working]")).toHaveCount(0);
 		await captureTo(CAPTURES, page, "electron-split-header");
+		await expectTitlesReadable(page, page.locator(WORKING_TITLES));
 
 		// The pane's turn ends while the subagents it started still work: its row and its header title keep the
 		// sweep, fainter at the same pace (a switch never retimes it); the subagents finishing end it.
@@ -165,6 +229,8 @@ test("three running tabs sweep their titles and a split's running pane header ti
 			await page.emulateMedia({ colorScheme: theme });
 			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 			await captureTo(CAPTURES, page, `electron-background-${theme}`);
+			// The selected row and its pane header in the background form (the case that drew no title at all).
+			await expectTitlesReadable(page, page.locator(WORKING_TITLES));
 		}
 		for (const id of ["sa-explore", "sa-nested"]) await fixture(`fixture:subagents:finish:${id}`);
 		await expect(row(page, behind).locator("[data-working]")).toHaveCount(0);
@@ -185,6 +251,7 @@ test("three running tabs sweep their titles and a split's running pane header ti
 		await expect(header(idle).locator('.omp-live-text[data-working="background"]')).toHaveCount(1);
 		await expect(header(idle)).not.toHaveAttribute("data-pane-running", "true");
 		await captureTo(CAPTURES, page, "electron-settling");
+		await expectTitlesReadable(page, page.locator(WORKING_TITLES));
 
 		// Reduced motion: nothing moves in a row's or a header's title (the composer's own sweep is pinned by
 		// composer-live.e2e.ts); the title keeps a still accent cast.
@@ -197,6 +264,7 @@ test("three running tabs sweep their titles and a split's running pane header ti
 			"-webkit-text-fill-color",
 			"rgba(0, 0, 0, 0)",
 		);
+		await expectTitlesReadable(page, page.locator(WORKING_TITLES));
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

@@ -1938,6 +1938,7 @@ export function Sidebar() {
 								running={signal === "running"}
 								settling={settling}
 								tabId={openTabId ?? null}
+								text={title}
 								waiting={signal === "waiting"}
 							>
 								<SwapText scope={session.path}>{title}</SwapText>

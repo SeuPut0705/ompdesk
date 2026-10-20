@@ -12,9 +12,10 @@
  * Every sweep shares one phase: the animation's delay is set from the document's clock when the work starts, so a
  * row that starts later sweeps in step with the others and a turn ↔ background change never restarts it (same
  * animation, same duration, only the colours differ). Cost rules (components.css `.omp-live-text`/`.omp-live-sweep`):
- * the box's light is one transform animation; a title's is its text's background position; both rest while the
- * window is hidden (`data-paused`), and reduced motion and software compositing (`html[data-gpu="software"]`) draw
- * still text and a still tint with no animation at all.
+ * every light moves by transform alone, so the compositor draws each frame and nothing repaints. The box's light is
+ * one band; a title's is a copy of its own words in a masked window that slides across while the copy slides back
+ * (the letters stay put, the soft band passes over them). Both rest while the window is hidden (`data-paused`), and
+ * reduced motion and software compositing (`html[data-gpu="software"]`) draw still text and a still tint.
  */
 import { type CSSProperties, type ReactElement, type ReactNode, useMemo, useSyncExternalStore } from "react";
 import { cx } from "../../lib/format";
@@ -55,19 +56,34 @@ function useLiveAttrs(state: LiveState | null): {
 	return { "data-working": state, "data-paused": visible ? undefined : "", style };
 }
 
-/** Text that shimmers while its session works: the existing words, no new ones. Inline, so it takes no space. */
+/**
+ * Text that shimmers while its session works: the existing words, no new ones. Inline, so it takes no space. `text`
+ * is the words as plain text: while the light runs, the title's own glyphs are transparent and a copy of `text`
+ * (a pseudo-element, so neither the DOM's text nor the accessible name doubles) draws them under the moving mask.
+ */
 export function LiveText({
 	state,
+	text,
 	className,
 	children,
 }: {
 	state: LiveState | null;
+	text: string;
 	className?: string;
-	children: ReactNode;
+	/** What the title renders when it is more than its words (an animated swap); `text` by default. */
+	children?: ReactNode;
 }): ReactElement {
+	const attrs = useLiveAttrs(state);
 	return (
-		<span className={cx("omp-live-text", className)} {...useLiveAttrs(state)}>
-			{children}
+		<span className={cx("omp-live-text", className)} {...attrs}>
+			{children ?? text}
+			{(state === "turn" || state === "background") && (
+				<span aria-hidden className="omp-live-shine">
+					<span className="omp-live-shine-window">
+						<span className="omp-live-shine-words" data-text={text} />
+					</span>
+				</span>
+			)}
 		</span>
 	);
 }

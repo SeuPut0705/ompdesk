@@ -1,7 +1,7 @@
 /**
  * The working cue on the sidebar's session rows, the phone drawer's and the composer, on the dev harness (the
  * renderer in a browser over a fixture transport, `vite.harness.config.ts`; desktop and an iPhone 15, light and dark):
- * a running row's own title shimmers (`LiveText`, one animation of its text's background position), an idle one's
+ * a running row's own title shimmers (`LiveText`, two transforms: a masked window and the words going back), an idle one's
  * stays plain and one that waits for an answer holds a still warning colour, a session whose turn ended while its
  * subagents still work shimmers fainter at the same pace, the family chip's count and a running child's dot hold
  * still, the composer's background carries the same sweep (one transform), and under reduced motion nothing moves.
@@ -193,11 +193,15 @@ for (const surface of SURFACES)
 			// The idle session (tab 3) and every child row stays plain; no border light anywhere.
 			await expect(sidebar.locator("[data-working]")).toHaveCount(2);
 			await expect(page.locator(".omp-live-edge")).toHaveCount(0);
-			// One shimmer per working title, of its text's background position; nothing else in the sidebar loops.
+			// Two transforms per working title (the masked window, the copy of its words going back); nothing else in
+			// the sidebar loops, and nothing repaints.
 			const inSidebar = (await runningAnimations(page)).filter(animation => animation.inSidebar);
-			expect(inSidebar).toEqual([
-				{ name: "omp-live-shine-text", inSidebar: true, duration: 3000, props: ["backgroundPositionX"] },
-				{ name: "omp-live-shine-text", inSidebar: true, duration: 3000, props: ["backgroundPositionX"] },
+			const shine = { inSidebar: true, duration: 3000, props: ["transform"] };
+			expect(inSidebar.toSorted((a, b) => a.name.localeCompare(b.name))).toEqual([
+				{ name: "omp-live-shine-text", ...shine },
+				{ name: "omp-live-shine-text", ...shine },
+				{ name: "omp-live-shine-text-hold", ...shine },
+				{ name: "omp-live-shine-text-hold", ...shine },
 			]);
 			// The family chip shows its count once: the filled running pill with the kind glyph, no plain count beside it.
 			await expect(sidebar.locator("[data-family-running]")).toHaveCount(1);
@@ -222,7 +226,7 @@ for (const surface of SURFACES)
 			const background = sidebar.locator('.omp-sidebar-session-row .omp-live-text[data-working="background"]');
 			await expect(background).toHaveCount(1);
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"]')).toHaveCount(0);
-			await expect(background).toHaveCSS("animation-duration", "3s");
+			await expect(background.locator(".omp-live-shine-window")).toHaveCSS("animation-duration", "3s");
 			if (CAPTURES)
 				await sidebar.screenshot({ path: path.join(CAPTURES, `working-${surface.name}-${theme}-background.png`) });
 			await page.context().close();

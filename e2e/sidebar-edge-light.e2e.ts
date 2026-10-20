@@ -7,7 +7,7 @@ import type { ElectronApplication, Page } from "playwright";
 import { exitApp, launchApp } from "./harness";
 
 // What the running rows' working cue costs (the shared `LiveText`, components.css `.omp-live-text`): each running
-// row's own title shimmers, one CSS animation of its text's background position. 16 s of sampling, so it runs with
+// row's own title shimmers (two transform animations: a masked window and the copy of its words). 16 s of sampling, so it runs with
 // the other performance measurements (OMP_GUI_PERFORMANCE=1), not in every run. Three tabs run in the background
 // while a fourth sits idle in front, so the composer's own cue is not part of the number. Measured earlier for the
 // border lights (1100x800, fake omp, mean of 4 s, three runs each): the old left-edge bar 0.3-0.6 % GPU / 0.3-0.4 %
@@ -83,7 +83,7 @@ test("three running rows add no visible renderer or GPU cost", async () => {
 		// The same three runs with the shimmer stopped: what the animation alone costs.
 		await page.evaluate(() => {
 			for (const animation of document.getAnimations())
-				if (animation instanceof CSSAnimation && animation.animationName === "omp-live-shine-text")
+				if (animation instanceof CSSAnimation && animation.animationName.startsWith("omp-live-shine-text"))
 					animation.pause();
 		});
 		await page.waitForTimeout(1000);

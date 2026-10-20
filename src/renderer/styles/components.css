@@ -3933,8 +3933,13 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
    (set from the document clock when the work starts) puts every sweep on one shared phase.
    - States never retime: `turn` and `background` run the same animation; `background` only lowers the light's
      contrast. `waiting` stops the sweep and holds a still warning colour (the title) or tint (the box).
-   - The box's light is a transform on one band inside a clipped layer behind the box's content; a title's is its
-     text's background position. Nothing breathes by opacity and nothing changes layout. */
+   - Every light moves by transform alone, so the compositor draws each frame and nothing repaints (the title's light
+     as a background position repainted its text every frame: +9 % of a GPU core with four panes streaming). The
+     box's light is one band inside a clipped layer behind the box's content. A title's own glyphs turn transparent
+     and a copy of its words (`.omp-live-shine-words::before`, `data-text`) draws them inside a window whose static
+     mask holds the band; the window slides across while the copy slides back by the same amount, so the letters
+     stay put. Window and mask are 250 % of the title's width and the slide covers what the background position
+     did, so band, width and timing are the same. Nothing breathes by opacity and nothing changes layout. */
 .omp-live-text,
 .omp-live-sweep {
 	--live-period: 3s;
@@ -3942,33 +3947,95 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 }
 
 .omp-live-text:is([data-working="turn"], [data-working="background"]) {
-	--live-band: color-mix(in srgb, currentColor 28%, transparent);
-	background-image: linear-gradient(100deg, currentColor 40%, var(--live-band) 50%, currentColor 60%);
-	background-size: 250% 100%;
-	background-repeat: no-repeat;
-	background-position-x: 100%;
-	-webkit-background-clip: text;
-	background-clip: text;
+	--live-band: rgb(0 0 0 / 28%);
+	position: relative;
 	-webkit-text-fill-color: transparent;
-	animation: omp-live-shine-text var(--live-period) linear var(--live-delay) infinite;
 }
 
 .omp-live-text[data-working="background"] {
-	--live-band: color-mix(in srgb, currentColor 62%, transparent);
+	--live-band: rgb(0 0 0 / 62%);
 }
 
 .omp-live-text[data-working="waiting"] {
 	color: var(--sc-warning);
 }
 
+/* The copy ends where the title's line does, so its ellipsis falls where the line's own does: the title's box when
+   it truncates itself, else the truncating line it starts (a sidebar row's button; measured as a size container). */
+.omp-live-text {
+	--live-line: 100%;
+}
+
+.truncate:has(> .omp-live-text:is([data-working="turn"], [data-working="background"])) {
+	container-type: inline-size;
+}
+
+.truncate > .omp-live-text {
+	--live-line: 100cqw;
+}
+
+.omp-live-shine {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.omp-live-shine-window {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 250%;
+	height: 100%;
+	mask-image: linear-gradient(100deg, #000 40%, var(--live-band) 50%, #000 60%);
+	transform: translateX(-60%);
+	animation: omp-live-shine-text var(--live-period) linear var(--live-delay) infinite;
+}
+
+.omp-live-shine-words {
+	position: absolute;
+	top: 0;
+	left: 0;
+	display: flex;
+	align-items: center;
+	width: 40%;
+	height: 100%;
+	transform: translateX(150%);
+	animation: omp-live-shine-text-hold var(--live-period) linear var(--live-delay) infinite;
+}
+
+.omp-live-shine-words::before {
+	content: attr(data-text);
+	flex: none;
+	width: var(--live-line);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	line-height: normal;
+	-webkit-text-fill-color: currentColor;
+}
+
+/* The window carries the band from just left of the title (-60 % of its 250 %) to just past its end. */
 @keyframes omp-live-shine-text {
 	0%,
 	15% {
-		background-position-x: 100%;
+		transform: translateX(-60%);
 	}
 	85%,
 	100% {
-		background-position-x: 0%;
+		transform: translateX(0);
+	}
+}
+
+/* The copy goes back by the same 1.5 title widths (150 % of its own), so its letters never move. */
+@keyframes omp-live-shine-text-hold {
+	0%,
+	15% {
+		transform: translateX(150%);
+	}
+	85%,
+	100% {
+		transform: translateX(0);
 	}
 }
 
@@ -4028,7 +4095,7 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 }
 
 /* Rest while the window is hidden; go on from there. */
-.omp-live-text[data-paused],
+.omp-live-text[data-paused] :is(.omp-live-shine-window, .omp-live-shine-words),
 .omp-live-sweep[data-paused]::before {
 	animation-play-state: paused;
 }
@@ -4064,12 +4131,15 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
    accent tint; waiting keeps its warning colour. */
 @media (prefers-reduced-motion: reduce) {
 	.omp-live-sweep[data-working]::before,
-	.omp-live-text[data-working] {
+	.omp-live-text[data-working] :is(.omp-live-shine-window, .omp-live-shine-words) {
 		animation: none;
 	}
 
+	.omp-live-shine {
+		display: none;
+	}
+
 	.omp-live-text:is([data-working="turn"], [data-working="background"]) {
-		background: none;
 		-webkit-text-fill-color: currentColor;
 		color: color-mix(in srgb, var(--sc-accent) 55%, var(--sc-text));
 	}
@@ -4092,12 +4162,15 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 }
 
 html[data-gpu="software"] .omp-live-sweep[data-working]::before,
-html[data-gpu="software"] .omp-live-text[data-working] {
+html[data-gpu="software"] .omp-live-text[data-working] :is(.omp-live-shine-window, .omp-live-shine-words) {
 	animation: none;
 }
 
+html[data-gpu="software"] .omp-live-shine {
+	display: none;
+}
+
 html[data-gpu="software"] .omp-live-text:is([data-working="turn"], [data-working="background"]) {
-	background: none;
 	-webkit-text-fill-color: currentColor;
 	color: color-mix(in srgb, var(--sc-accent) 55%, var(--sc-text));
 }

@@ -196,9 +196,7 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 					aria-hidden
 					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
 				/>
-				<LiveText className="min-w-0 truncate font-medium text-(--sc-text)" state={live}>
-					{label}
-				</LiveText>
+				<LiveText className="min-w-0 truncate font-medium text-(--sc-text)" state={live} text={label} />
 			</span>
 			{tab.device !== undefined && <DeviceChip deviceId={tab.device} />}
 			<IconButton icon={<X />} label={t("split.removePane")} onClick={() => void removePane(tab.id)} size="sm" />

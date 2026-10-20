@@ -208,6 +208,22 @@ describe("the composer's sweep in the stylesheet", () => {
 		expect(rule('.omp-live-sweep[data-working="waiting"]::before')).toContain("display: none");
 	});
 
+	// A looping cue that animates anything else repaints its element every frame (the title shimmer's background
+	// position cost +9 % of a GPU core with four panes streaming); transform and opacity stay on the compositor.
+	it("animates only transform and opacity in every working cue", () => {
+		const blocks = [...css.matchAll(/@keyframes (omp-live-[\w-]+) \{([\s\S]*?)\n\}/g)];
+		expect(blocks.map(([, name]) => name)).toEqual(
+			expect.arrayContaining(["omp-live-shine-sweep", "omp-live-shine-text"]),
+		);
+		for (const [, name, body] of blocks) {
+			const properties = new Set([...(body ?? "").matchAll(/^\s*([a-z-]+):/gm)].map(([, property]) => property));
+			expect(
+				[...properties].filter(property => property !== "transform" && property !== "opacity"),
+				name,
+			).toEqual([]);
+		}
+	});
+
 	it("steps the Send ring out of the way beside a draft", () => {
 		const ring = rule(".omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after");
 		expect(ring).toContain("opacity: 0");
@@ -224,12 +240,14 @@ describe("the composer's sweep in the stylesheet", () => {
 		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-"));
 		const block = reduced.slice(0, reduced.indexOf("\n}\n"));
 		expect(block).toMatch(
-			/\.omp-live-sweep\[data-working\]::before,\s*\.omp-live-text\[data-working\]\s*\{\s*animation: none/,
+			/\.omp-live-sweep\[data-working\]::before,\s*\.omp-live-text\[data-working\] :is\(\.omp-live-shine-window, \.omp-live-shine-words\)\s*\{\s*animation: none/,
 		);
+		expect(block).toMatch(/\.omp-live-shine \{\s*display: none/);
 		expect(
 			rule(
-				'html[data-gpu="software"] .omp-live-sweep[data-working]::before,\nhtml[data-gpu="software"] .omp-live-text[data-working]',
+				'html[data-gpu="software"] .omp-live-sweep[data-working]::before,\nhtml[data-gpu="software"] .omp-live-text[data-working] :is(.omp-live-shine-window, .omp-live-shine-words)',
 			),
 		).toContain("animation: none");
+		expect(rule('html[data-gpu="software"] .omp-live-shine')).toContain("display: none");
 	});
 });

@@ -446,10 +446,9 @@ function DeviceSessions({
 							running={signal?.running === true && tab?.awaitingInput === undefined}
 							settling={tab?.settling === true}
 							tabId={tab?.id ?? null}
+							text={title}
 							waiting={tab?.awaitingInput !== undefined}
-						>
-							{title}
-						</TabLiveTitle>
+						/>
 						{signal?.running && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
 						{openElsewhere && !signal?.running && <span className="sr-only">, {t("sidebar.row.open")}</span>}
 					</>
