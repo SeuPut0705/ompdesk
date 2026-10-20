@@ -115,9 +115,10 @@ const RULES: Rule[] = [
 	rule(
 		"mode-todolist",
 		/^poteto-mode\/SKILL\.md$/,
-		"Open a todolist whose first items",
-		"Open a `todo` list whose first items",
+		"Open a todolist whose first items are the matched playbook's steps, copied in verbatim, before any task-specific todos.",
+		"Open a `todo` list whose first items are the matched playbook's steps, copied in one per step in its order, before any task-specific todos. Write each copied step in the todo language your `<reply-language>` section sets (word for word without one), keeping skill, tool and file names as written.",
 	),
+	rule("mode-todolist-copy", /^poteto-mode\/SKILL\.md$/, "Copy its steps in verbatim.", "Copy its steps in that way."),
 	rule(
 		"mode-playbooks-file",
 		/^poteto-mode\/SKILL\.md$/,
@@ -703,7 +704,7 @@ function insertNote(text: string): string {
 /** Under the title of a playbook: the `todo` instruction, where the model is looking when it has just read the steps. */
 function insertPlaybookNote(text: string): string {
 	const note =
-		'> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in verbatim as its first items (a step you skip stays with `skip: <reason>`), then work the list.';
+		'> OMPdesk: before step 1, call `todo` with `op: "init"` and the numbered steps below copied in as its first items, one per step in order, each written in the todo language your `<reply-language>` section sets (word for word without one; skill, tool and file names stay as written; a step you skip stays with `skip: <reason>`), then work the list.';
 	const newline = text.indexOf("\n");
 	if (!text.startsWith("### ") || newline < 0) throw new Error("a playbook does not start with its ### title");
 	return `${text.slice(0, newline + 1)}\n${note}\n${text.slice(newline + 1)}`;

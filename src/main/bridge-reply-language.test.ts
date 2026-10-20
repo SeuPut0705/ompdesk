@@ -5,6 +5,8 @@
  * language is off or English, so those prompts stay stock.
  */
 import { afterEach, describe, expect, it } from "vitest";
+import { WORKER_ENTRY } from "../../resources/gui-bridge/agent-control";
+import { AUTOPILOT_STATE_ENTRY } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	currentReplyLanguage,
 	install,
@@ -85,6 +87,27 @@ describe("gui-bridge reply language", () => {
 			expect(hook({ systemPrompt: ["base"] })).toBeUndefined();
 		}
 		expect(replyLanguageInstruction(undefined)).toBeUndefined();
+	});
+
+	it("gives the label line to every session kind: main, subagent, worker and an Autopilot run", async () => {
+		const handlers: Handler[] = [];
+		install({ on: (_event, handler) => handlers.push(handler) });
+		await methods.reply_language_set({ language: "Korean" });
+		const worker = { type: "custom", customType: WORKER_ENTRY, data: { from: "opener" } };
+		const autopilot = { type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: { state: "running" } };
+		for (const [kind, branch] of [
+			["main", []],
+			["sub", []],
+			["main", [worker]],
+			["main", [autopilot]],
+			["sub", [autopilot]],
+		] as const) {
+			const result = handlers[0]?.(
+				{ systemPrompt: ["base"] },
+				{ sessionManager: { getBranch: () => branch }, agent: { kind } },
+			);
+			expect(result?.systemPrompt[1], `${kind} ${JSON.stringify(branch)}`).toContain("todo items and phase names");
+		}
 	});
 
 	it("follows a changed language on the next prompt without reinstalling", async () => {

@@ -66,7 +66,9 @@ function normalized(text: string): string {
 }
 
 async function launch(prompt: string, prefs: Record<string, unknown> = {}) {
-	const real = await realOmpProfile({ launchProfiles: {}, ...prefs });
+	// Reply language off: the copied steps are then the playbook's own English words, which `playbookStarts` matches
+	// (with a reply language they are translated into it; bridge-pstack.test.ts pins that rule).
+	const real = await realOmpProfile({ launchProfiles: {}, replyLanguage: "off", ...prefs });
 	execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: real.project });
 	execFileSync("git", ["config", "user.name", "t"], { cwd: real.project });
 	await fs.writeFile(path.join(real.project, "sum.js"), "exports.sum = (list) => list.reduce((a, b) => a + b, 1);\n");

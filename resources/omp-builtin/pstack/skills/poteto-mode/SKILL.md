@@ -116,7 +116,7 @@ Comments follow the same rule as the reply. Write them clean as you go. Keep a c
 
 ## Playbooks
 
-Open a `todo` list whose first items are the matched playbook's steps, copied in verbatim, before any task-specific todos. A step you choose not to do stays in the list with a one-line `skip: <reason>`. Match the task to a playbook below and open its full steps at the `skill://poteto-mode/playbooks/<file>.md` path printed after the entry. Copy its steps in verbatim.
+Open a `todo` list whose first items are the matched playbook's steps, copied in one per step in its order, before any task-specific todos. Write each copied step in the todo language your `<reply-language>` section sets (word for word without one), keeping skill, tool and file names as written. A step you choose not to do stays in the list with a one-line `skip: <reason>`. Match the task to a playbook below and open its full steps at the `skill://poteto-mode/playbooks/<file>.md` path printed after the entry. Copy its steps in that way.
 
 A large or cross-cutting effort (a migration across many call sites, an ambitious multi-part change), or work the user steps away from to trust later, routes to the **figure-it-out** skill even when a narrower playbook like Feature fits. Use **figure-it-out** whenever no bundled playbook fits. It designs a bespoke, rigorous playbook for the task. A standing project-scale program (multi-day, many stacked PRs) routes to **figure-it-out** too, with each unit as an OMPdesk session (`ompdesk_session_open`).
 
