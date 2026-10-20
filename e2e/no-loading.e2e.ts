@@ -349,11 +349,12 @@ test.describe("no loading screens: more surfaces", () => {
 			);
 			// From the tab snapshot: the title and the open session's row are in the first React frames.
 			// Counted in frames, not ms: a hosted runner's first React frame alone took 315 ms, which says how fast the
-			// machine is, not whether the layout waited (here the title is in the shell's frame and the row in the next).
+			// machine is, not whether the layout waited. Both are in the shell's own frame: the tab's folder and this
+			// computer's workspace come from what the last launch knew (session-hydration.ts, Sidebar's defaultWorkspace).
 			expect(warmReading.titleAt, "no tab was named at the first frame").not.toBeNull();
 			expect(warmReading.titleFrame).toBe(warmReading.shellFrame);
 			expect(warmReading.selectedAt, "no session was marked open in the sidebar").not.toBeNull();
-			expect((warmReading.selectedFrame as number) - (warmReading.shellFrame as number)).toBeLessThanOrEqual(1);
+			expect(warmReading.selectedFrame).toBe(warmReading.shellFrame);
 		} finally {
 			await exitApp(warm.app);
 		}
