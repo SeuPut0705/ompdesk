@@ -6,9 +6,9 @@
  * and the app's own folder is the wrong home for that (a Windows update replaces the install folder while the server
  * still holds its .exe open; a macOS app can be moved or run from a disk image). `stageBinary` therefore verifies the
  * shipped file (its bytes are the build record's, or on macOS its signature satisfies OMPdesk's `AI_MEMORY_REQUIREMENT`) and
- * copies it once into the managed tools dir as `<tools>/ai-memory/<version>-<first 8 hex of the recorded SHA-256>/`. A new app version stages a new directory, so
- * ai-memory's own `setup` sees a changed unit path and restarts the service on the new binary; the old directory is
- * removed afterwards.
+ * copies it once into the managed tools dir under `<tools>/ai-memory/<stageKey>/`: one stable folder on macOS, whose TCC
+ * grants then survive updates, and a folder per build on Windows. Either way the unit `setup` renders changes with the
+ * new bytes, so ai-memory's own `setup` restarts the service on them; other folders are removed afterwards.
  *
  * A user's own newer ai-memory (on PATH, `~/.local/bin`, the Windows script's folders) wins over the shipped copy:
  * the data directory's schema only migrates forward, so an older binary must never open data a newer one wrote. An
@@ -30,6 +30,8 @@ export type AiMemoryPlatform = "darwin" | "win32";
 export interface BuiltAsset {
 	binary: string;
 	binarySha256: string;
+	/** The platform it was built for, which decides where it is staged (`stageKey`). */
+	platform: AiMemoryPlatform;
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -54,7 +56,7 @@ export async function readBuiltAsset(bundledDir: string, platform: string, arch:
 	if (record.binary !== binary || typeof record.binarySha256 !== "string" || !HEX64.test(record.binarySha256)) {
 		throw new Error(`${file} is not a build record of ${binary}. Run \`bun run build:memory\` or reinstall OMPdesk.`);
 	}
-	return { binary, binarySha256: record.binarySha256 };
+	return { binary, binarySha256: record.binarySha256, platform: platform === "darwin" ? "darwin" : "win32" };
 }
 
 export async function sha256File(file: string): Promise<string> {
@@ -68,12 +70,24 @@ export function stagingRoot(toolsDir: string): string {
 	return join(toolsDir, "ai-memory");
 }
 
+/** macOS: the one folder every build stages into (`stageKey`). */
+export const MAC_STAGE_KEY = "current";
+
 /**
- * The folder name a build stages under: the version and the first 8 hex of the recorded SHA-256, so a rebuilt binary of
- * the same version (OMPdesk edits the source) gets a new path, the service unit then points at it and ai-memory's own
- * `setup` restarts the server on the new bytes, instead of replacing a file under a running server.
+ * The folder a build stages under.
+ *
+ * macOS: always `MAC_STAGE_KEY`. The service is a launchd job, so it is its own responsible process for TCC, and TCC
+ * keys an unbundled program's privacy grants (Desktop, Documents, Downloads, network volumes) by its absolute path
+ * (`AUTHREQ_SUBJECT` in tccd's log is the binary's path), checked against its designated requirement. A path that
+ * changed with every build asked for every protected folder again after each update, although the requirement
+ * (`AI_MEMORY_REQUIREMENT`) never changes. The new bytes replace the old file at the same path; the unit `setup` renders
+ * names the binary's SHA-256 (`native/memory` `user_service.rs`), so `setup` still restarts the server on them.
+ *
+ * Windows: the version and the first 8 hex of the recorded SHA-256, because a running server keeps its .exe locked
+ * and a new build cannot replace it; the logon entry then points at the new path and `setup` restarts the host on it.
  */
 export function stageKey(asset: BuiltAsset): string {
+	if (asset.platform === "darwin") return MAC_STAGE_KEY;
 	return `${AI_MEMORY_VERSION}-${asset.binarySha256.slice(0, 8)}`;
 }
 
@@ -106,7 +120,7 @@ export function codeRequirementProblem(file: string, requirement: string): Promi
 }
 
 /**
- * Verify the shipped binary and copy it into `<tools>/ai-memory/<version>-<first 8 hex of the recorded SHA-256>/` (atomically: a temp directory renamed
+ * Verify the shipped binary and copy it into `<tools>/ai-memory/<stageKey>/` (atomically: a temp directory renamed
  * into place). Returns the staged path. The shipped file is accepted when its bytes are the build record's (Windows ships the
  * binary unsigned; a dev build's `resources/ai-memory-bin` copy) or, with `requirement` (macOS), when its signature
  * satisfies it (re-signed with OMPdesk's certificate). A staged copy is trusted only by bytes: it is reused

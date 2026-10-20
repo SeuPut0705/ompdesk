@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { AI_MEMORY_REQUIREMENT } from "../src/main/ai-memory/binary";
+import { AI_MEMORY_REQUIREMENT, MAC_STAGE_KEY } from "../src/main/ai-memory/binary";
 import { AI_MEMORY_VERSION } from "../src/shared/ai-memory";
 import { exitApp, fixtureOmp } from "./harness";
 
@@ -87,16 +87,8 @@ test("@smoke macOS: the packaged app's first launch stages the shipped ai-memory
 	]) {
 		Reflect.deleteProperty(env, key);
 	}
-	const record = JSON.parse(await fs.readFile(path.join(path.dirname(shipped), "ai-memory.build.json"), "utf8")) as {
-		binarySha256: string;
-	};
-	const staged = path.join(
-		userData,
-		"tools",
-		"ai-memory",
-		`${AI_MEMORY_VERSION}-${record.binarySha256.slice(0, 8)}`,
-		"ai-memory",
-	);
+	// One stable folder on macOS: TCC keys the launchd server's privacy grants by its path.
+	const staged = path.join(userData, "tools", "ai-memory", MAC_STAGE_KEY, "ai-memory");
 	const rootDir = path.join(userData, "ai-memory", "omp-ext");
 	const runtimeLog = path.join(userData, "logs", "gui-runtime.jsonl");
 	const memoryLines = async () =>

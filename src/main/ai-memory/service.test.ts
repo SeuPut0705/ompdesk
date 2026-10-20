@@ -10,6 +10,7 @@ import type { SpawnSpec } from "../setup/plans";
 import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
+import { MAC_STAGE_KEY } from "./binary";
 import { AiMemoryClient } from "./client";
 import { rootComplete } from "./root";
 import { AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
@@ -1067,7 +1068,7 @@ describe("AiMemoryService", () => {
 					},
 				});
 				await service.start();
-				const staged = join(toolsDir, "ai-memory", `${AI_MEMORY_VERSION}-00000000`, "ai-memory");
+				const staged = join(toolsDir, "ai-memory", MAC_STAGE_KEY, "ai-memory");
 				expect(checked).toEqual([join(shipped, "ai-memory")]);
 				expect(service.state()).toMatchObject({ phase: "ready", source: "bundled", binary: staged });
 				expect(calls.every(call => call.file === staged)).toBe(true);

@@ -13,6 +13,7 @@ import {
 	type BuiltAsset,
 	codeRequirementProblem,
 	externalCandidates,
+	MAC_STAGE_KEY,
 	newerExternal,
 	parseAiMemoryVersion,
 	pruneStaged,
@@ -26,10 +27,14 @@ import {
 
 const CONTENT = "#!/bin/sh\necho ai-memory fake\n";
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+/** A Windows build: staged in a folder of its own version and hash. */
 const ASSET: BuiltAsset = {
 	binary: "ai-memory",
 	binarySha256: sha(CONTENT),
+	platform: "win32",
 };
+/** The same build for macOS: staged in the one stable folder. */
+const MAC_ASSET: BuiltAsset = { ...ASSET, platform: "darwin" };
 
 let root: string;
 let toolsDir: string;
@@ -65,7 +70,11 @@ describe("readBuiltAsset", () => {
 	it("reads the recorded hash for the supported platforms and refuses the rest", async () => {
 		const dir = join(root, "shipped");
 		await record("ai-memory", sha("a"));
-		expect(await readBuiltAsset(dir, "darwin", "arm64")).toEqual({ binary: "ai-memory", binarySha256: sha("a") });
+		expect(await readBuiltAsset(dir, "darwin", "arm64")).toEqual({
+			binary: "ai-memory",
+			binarySha256: sha("a"),
+			platform: "darwin",
+		});
 		expect(await readBuiltAsset(dir, "darwin", "x64")).toBeNull();
 		expect(await readBuiltAsset(dir, "linux", "x64")).toBeNull();
 		expect(await readBuiltAsset(dir, "win32", "arm64")).toBeNull();
@@ -130,6 +139,27 @@ describe("stageBinary", () => {
 		const staged = await stageBinary({ source, asset: ASSET, toolsDir });
 		await writeFile(source, "tampered");
 		await expect(stageBinary({ source, asset: ASSET, toolsDir })).resolves.toBe(staged);
+	});
+
+	it("stages every macOS build at one path, so TCC's grants (keyed by the path) outlive an update", async () => {
+		const requirement = async () => null;
+		const first = await stageBinary({ source, asset: MAC_ASSET, toolsDir, requirement });
+		expect(first).toBe(join(toolsDir, "ai-memory", MAC_STAGE_KEY, "ai-memory"));
+		const next = "#!/bin/sh\necho the next release\n";
+		await writeFile(source, next);
+		const nextAsset: BuiltAsset = { ...MAC_ASSET, binarySha256: sha(next) };
+		const second = await stageBinary({ source, asset: nextAsset, toolsDir, requirement });
+		expect(second).toBe(first);
+		expect(await readFile(second, "utf8")).toBe(next);
+	});
+
+	it("stages each Windows build in a folder of its own (a running server locks its .exe)", async () => {
+		const first = await stageBinary({ source, asset: ASSET, toolsDir });
+		const next = "#!/bin/sh\necho the next release\n";
+		await writeFile(source, next);
+		const second = await stageBinary({ source, asset: { ...ASSET, binarySha256: sha(next) }, toolsDir });
+		expect(second).not.toBe(first);
+		expect(await readFile(first, "utf8")).toBe(CONTENT);
 	});
 
 	describe("macOS, where packaging re-signed the shipped file with OMPdesk's certificate", () => {
@@ -205,6 +235,15 @@ describe("pruneStaged", () => {
 		await pruneStaged(toolsDir, ASSET);
 		expect(await readdir(stagingDir)).toEqual([stageKey(ASSET)]);
 		expect(await readFile(stagedBinaryPath(toolsDir, ASSET), "utf8")).toBe(CONTENT);
+	});
+
+	it("moves an install off the per-build macOS folders it staged before", async () => {
+		const stagingDir = stagingRoot(toolsDir);
+		await mkdir(join(stagingDir, "3.1.1-cd334dd2"), { recursive: true });
+		await writeFile(join(stagingDir, "3.1.1-cd334dd2", "ai-memory"), "old");
+		await stageBinary({ source, asset: MAC_ASSET, toolsDir });
+		await pruneStaged(toolsDir, MAC_ASSET);
+		expect(await readdir(stagingDir)).toEqual([MAC_STAGE_KEY]);
 	});
 
 	it("does nothing when nothing was ever staged", async () => {

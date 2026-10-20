@@ -502,6 +502,11 @@ describe("release assets", () => {
 			release.jobs[name === "mac" ? "mac" : "win"]?.steps.find(step => step.name?.startsWith("Verify"))?.run ?? "";
 		expect(verify("mac")).toContain("ai-memory-bin/ai-memory");
 		expect(verify("mac")).toContain("codesign --verify --strict");
+		// The stable identity TCC checks the staged server against across updates (binary.ts AI_MEMORY_REQUIREMENT): the
+		// signing identifier and OMPdesk's pinned certificate, never a cdhash that changes with every build.
+		expect(verify("mac")).toContain(
+			String.raw`-R "=identifier \"ai-memory\" and certificate root = H\"$SHA1\"" "$AIM"`,
+		);
 		expect(verify("win")).toContain("ai-memory-bin/ai-memory.exe");
 	});
 });

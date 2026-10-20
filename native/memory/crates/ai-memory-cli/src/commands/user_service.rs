@@ -218,9 +218,10 @@ fn render_systemd(spec: &ServiceSpec) -> Result<ServiceUnit> {
             1,
         );
     let body = SYSTEMD_USER_TEMPLATE.replacen(exec, &rendered_exec, 1);
+    let binary = binary_line("# ", "", &spec.exe);
     let unstamped = format!(
         "# Written by `ai-memory setup` from packaging/systemd/ai-memory-user.service.\n\
-         # Re-run `ai-memory setup` instead of editing; `ai-memory uninstall` removes it.\n{body}"
+         # Re-run `ai-memory setup` instead of editing; `ai-memory uninstall` removes it.\n{binary}{body}"
     );
     Ok(ServiceUnit {
         manager: ServiceManager::SystemdUser,
@@ -268,6 +269,25 @@ fn identity_line(manager: ServiceManager, digest: &str) -> String {
 fn sha256_hex(text: &str) -> String {
     use sha2::{Digest as _, Sha256};
     format!("{:x}", Sha256::digest(text.as_bytes()))
+}
+
+/// The line naming the SHA-256 of the binary a unit runs, or nothing when the
+/// file cannot be read. A unit names the bytes it runs, not only their path:
+/// an upgrade that replaces the binary in place (OMPdesk keeps the macOS path
+/// stable, because TCC keys an unbundled program's privacy grants by its
+/// path) then changes the unit, and [`install`] restarts the service on the
+/// new bytes instead of leaving the old server running as `Unchanged`.
+fn binary_line(open: &str, close: &str, exe: &Path) -> String {
+    use sha2::{Digest as _, Sha256};
+    std::fs::read(exe).map_or_else(
+        |_| String::new(),
+        |bytes| {
+            format!(
+                "{open}ai-memory binary sha256:{:x}{close}\n",
+                Sha256::digest(&bytes)
+            )
+        },
+    )
 }
 
 /// Insert the identity line: first in a systemd unit, right after the XML
@@ -335,7 +355,12 @@ fn render_launchd(spec: &ServiceSpec) -> Result<ServiceUnit> {
     let home = format!("<string>{}/", xml_text(checked_path("home", &spec.home)?));
     let contents = LAUNCHD_TEMPLATE
         .replacen(LAUNCHD_BIN, &program, 1)
-        .replace(LAUNCHD_HOME, &home);
+        .replace(LAUNCHD_HOME, &home)
+        .replacen(
+            "<plist version",
+            &format!("{}<plist version", binary_line("<!-- ", " -->", &spec.exe)),
+            1,
+        );
     if contents.contains("<string>__") {
         bail!("the packaged LaunchAgent has a placeholder `setup` does not fill in");
     }
@@ -1320,31 +1345,6 @@ mod tests {
         );
     }
 
-    /// An app update re-points the unit at a newly staged binary. `bootout`
-    /// returns while the old server still drains, and a `bootstrap` sent then
-    /// is refused with "5: Input/output error", leaving nothing loaded. The
-    /// update waits for the old job to leave and tries the bootstrap again.
-    #[test]
-    fn an_updated_launch_agent_waits_for_the_old_job_and_retries_a_refused_bootstrap() {
-        let tmp = tempfile::tempdir().unwrap();
-        let unit = render(ServiceManager::Launchd, &spec(tmp.path())).unwrap();
-        std::fs::create_dir_all(unit.path.parent().unwrap()).unwrap();
-        std::fs::write(&unit.path, "stale").unwrap();
-        let runner = FakeRunner {
-            failing: vec!["launchctl print"],
-            // Loaded before the update, still loaded twice after `bootout`.
-            once: RefCell::new(vec![
-                ("launchctl print", true),
-                ("launchctl print", true),
-                ("launchctl print", true),
-                ("launchctl bootstrap", false),
-            ]),
-            stdout: vec![("id -u", "501\n")],
-            ..FakeRunner::default()
-        };
-        assert_eq!(install(&unit, &runner).unwrap(), ServiceChange::Updated);
-        let plist = unit.path.to_string_lossy().into_owned();
-        let target = "gui/501/com.github.akitaonrails.ai-memory";
     /// OMPdesk keeps the macOS binary at one path (TCC keys an unbundled
     /// program's privacy grants by its path, so a new path asks for Desktop,
     /// Documents... all over again) and replaces the bytes on an update. The
@@ -1393,6 +1393,31 @@ mod tests {
         }
     }
 
+    /// An app update re-points the unit at a newly staged binary. `bootout`
+    /// returns while the old server still drains, and a `bootstrap` sent then
+    /// is refused with "5: Input/output error", leaving nothing loaded. The
+    /// update waits for the old job to leave and tries the bootstrap again.
+    #[test]
+    fn an_updated_launch_agent_waits_for_the_old_job_and_retries_a_refused_bootstrap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let unit = render(ServiceManager::Launchd, &spec(tmp.path())).unwrap();
+        std::fs::create_dir_all(unit.path.parent().unwrap()).unwrap();
+        std::fs::write(&unit.path, "stale").unwrap();
+        let runner = FakeRunner {
+            failing: vec!["launchctl print"],
+            // Loaded before the update, still loaded twice after `bootout`.
+            once: RefCell::new(vec![
+                ("launchctl print", true),
+                ("launchctl print", true),
+                ("launchctl print", true),
+                ("launchctl bootstrap", false),
+            ]),
+            stdout: vec![("id -u", "501\n")],
+            ..FakeRunner::default()
+        };
+        assert_eq!(install(&unit, &runner).unwrap(), ServiceChange::Updated);
+        let plist = unit.path.to_string_lossy().into_owned();
+        let target = "gui/501/com.github.akitaonrails.ai-memory";
         assert_eq!(
             runner.calls.borrow().clone(),
             vec![
