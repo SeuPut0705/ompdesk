@@ -1106,6 +1106,20 @@ describe("a failed turn", () => {
 		});
 	}
 
+	it("a queued nudge checks the run right before it asks: one that lands after a pause asks nothing", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		// The ask was queued while the run was running; the user paused before the queue reached it.
+		(world.statuses.get("ap-1") as AutopilotStatus).state = "paused";
+		autopilot.frame(sidecar, { type: "autopilot_nudge", reason: "no_progress" });
+		await autopilot.idle();
+		expect(world.stock("ap-1", "prompt")).toHaveLength(0);
+		(world.statuses.get("ap-1") as AutopilotStatus).state = "running";
+		autopilot.frame(sidecar, { type: "autopilot_nudge", reason: "no_progress" });
+		await autopilot.idle();
+		expect(world.stock("ap-1", "prompt")).toHaveLength(1);
+	});
+
 	it("waits while TurnResume holds a scheduled retry, or a turn is running again", async () => {
 		await start();
 		world.scheduled.add("ap-1");

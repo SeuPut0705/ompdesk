@@ -405,8 +405,8 @@ export class Autopilot {
 
 	/**
 	 * The pool's tab activity (`observeTabs`): a released tab ends its run; a failed turn that neither stock's
-	 * auto-retry nor TurnResume's scheduled retries will take up (they are spent) pauses the run with `error`.
-	 * A usage limit is the renderer's: it books a reservation that resumes the run at the reset.
+	 * auto-retry nor TurnResume's scheduled retries will take up (they are spent) gets a nudge for the next cycle, never a
+	 * pause. A usage limit is the renderer's: it books a reservation that resumes the run at the reset.
 	 */
 	observeActivity(activity: TabActivity): void {
 		if (activity.type === "released") {
@@ -417,19 +417,14 @@ export class Autopilot {
 		const run = this.#runs.get(activity.tabId);
 		const message = activity.outcome.errorMessage ?? "";
 		if (!run || QUOTA_ERROR.test(message)) return;
-		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance.
-		(this.#deps.after ?? afterMs)(() => this.#track(this.#errorStands(run)), ERROR_GRACE_MS);
-	}
-
-	async #errorStands(run: Run): Promise<void> {
-		// A model that keeps failing after TurnResume's retries is no reason to stop: ask for the next cycle later.
-		if (await this.#quietAndRunning(run)) this.#enqueue(run, () => this.#nudge(run, "error"));
+		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance (the
+		// nudge itself asks nothing while a retry, a turn or the connection wait holds the run).
+		(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#nudge(run, "error")), ERROR_GRACE_MS);
 	}
 
 	/**
 	 * The run is still this tab's, running, and nothing else holds its next turn: no turn going, no stock auto-retry, no
-	 * retry TurnResume armed, no wait for the connection. Checked again by a deferred nudge, since the user may have
-	 * paused or stopped the run meanwhile.
+	 * retry TurnResume armed, no wait for the connection. `#nudge` asks it right before it prompts.
 	 */
 	async #quietAndRunning(run: Run): Promise<boolean> {
 		if (this.#runs.get(run.tabId) !== run || run.stopping) return false;
@@ -1157,7 +1152,8 @@ export class Autopilot {
 	/**
 	 * The run went quiet (plan mode, every todo blocked, no turn started, a failed turn nobody retries): leave plan mode and
 	 * ask for the next cycle. Never a pause; at most one ask per {@link NUDGE_MS}. An ask inside that window is asked again
-	 * once it passes, never dropped: a failed turn reports its failure once, so nothing else would wake the run.
+	 * once it passes, never dropped: a failed turn reports its failure once, so nothing else would wake the run. The run is
+	 * checked right before the ask, since it runs from the cycle-end queue and the user may pause or stop meanwhile.
 	 */
 	async #nudge(run: Run, reason: AutopilotNudgeReason | "error"): Promise<void> {
 		const now = this.#now();
@@ -1167,18 +1163,16 @@ export class Autopilot {
 			run.nudgeLater = true;
 			(this.#deps.after ?? afterMs)(() => {
 				run.nudgeLater = false;
-				this.#track(
-					this.#quietAndRunning(run).then(quiet => {
-						if (quiet) this.#enqueue(run, () => this.#nudge(run, reason));
-					}),
-				);
+				this.#enqueue(run, () => this.#nudge(run, reason));
 			}, run.nextNudgeAt - now);
 			return;
 		}
-		if (this.#deps.pool.tabFacts(run.tabId)?.busy) return;
+		if (!(await this.#quietAndRunning(run))) return;
 		run.nextNudgeAt = now + (reason === "error" ? ERROR_NUDGE_MS : NUDGE_MS);
-		if (reason === "plan")
+		if (reason === "plan") {
 			await this.#stock(run.tabId, { type: "set_plan_mode", enabled: false }).catch(() => undefined);
+			if (!(await this.#quietAndRunning(run))) return;
+		}
 		await this.#stockResponse(run.tabId, {
 			type: "prompt",
 			message: NUDGE_MESSAGE,
