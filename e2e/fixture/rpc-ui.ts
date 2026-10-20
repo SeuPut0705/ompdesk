@@ -5797,6 +5797,23 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					fail(`Session file not found: ${sessionPath}`);
 					break;
 				}
+				// Stock refuses an RPC switch to a session recorded in another folder (`switchSession` without
+				// `onCwdChange`: SESSION_CWD_CHANGE_REJECTED → `{cancelled: true}`), and changes nothing.
+				const recordedCwd = fs
+					.readFileSync(sessionPath, "utf8")
+					.split("\n")
+					.map(line => {
+						try {
+							return JSON.parse(line) as { type?: string; cwd?: unknown };
+						} catch {
+							return null;
+						}
+					})
+					.find(entry => entry?.type === "session")?.cwd;
+				if (typeof recordedCwd === "string" && nodePath.resolve(recordedCwd) !== nodePath.resolve(process.cwd())) {
+					ok({ cancelled: true });
+					break;
+				}
 				// The stored file becomes the live journal, as it was written.
 				const header = loadJournal(sessionPath);
 				resumed = { ...header, id: header.id ?? sessionId, file: sessionPath };
