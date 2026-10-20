@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createAutopilotStore } from "../stores/autopilot";
 import { QUOTA_RESUME_GRACE_MS, useQuotaResumeStore } from "../stores/quota-resume";
 import { deleteSessionRuntime, registerSessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
@@ -66,6 +67,21 @@ describe("useQuotaResume", () => {
 		expect(command).toHaveBeenCalledWith({ type: "retry" }, undefined);
 		expect(useQuotaResumeStore.getState().reservations).toEqual({ "s-later": expect.any(Number) });
 		expect(saved).toEqual({ "s-later": expect.any(Number) });
+	});
+
+	it("never retries an Autopilot run's session: main owns its quota wait; the stray booking is dropped", async () => {
+		const autopilot = createAutopilotStore();
+		autopilot.getState().apply({ active: true, state: "waiting_quota", quotaResetAt: Date.now() - 1000 });
+		deleteSessionRuntime("tab-1");
+		registerSessionRuntime({
+			tabId: "tab-1",
+			command: command as never,
+			stores: new Map([["autopilot", autopilot]]) as never,
+		});
+		saved = { "s-1": Date.now() - 1000 };
+		await mount();
+		expect(command).not.toHaveBeenCalled();
+		expect(useQuotaResumeStore.getState().reservations).toEqual({});
 	});
 
 	it("waits for a busy tab and drops a booking a day past its time", async () => {

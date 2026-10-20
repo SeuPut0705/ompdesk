@@ -1,5 +1,6 @@
 import { Ban, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
+import { quotaResetAt } from "../../../shared/quota-reset";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { useUsageReports } from "../../hooks/use-usage-reports";
 import { formatClock, formatDuration } from "../../lib/format";
@@ -7,9 +8,10 @@ import { useT } from "../../lib/i18n";
 import { describeTurnError, retryLastTurn, runManualMaintenance, type TurnErrorAction } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
+import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
-import { quotaResetAt, useQuotaResumeStore } from "../../stores/quota-resume";
+import { useQuotaResumeStore } from "../../stores/quota-resume";
 import { useSessionStore } from "../../stores/session";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useAwaitingConnection, useScheduledRetry } from "../../stores/tabs";
@@ -67,6 +69,8 @@ export function TurnErrorNotice({
 	const provider = useModelStore(state => state.model?.provider);
 	const sessionId = useSessionStore(state => state.sessionId);
 	const booked = useQuotaResumeStore(state => (sessionId ? state.reservations[sessionId] : undefined));
+	// An Autopilot run waits for the quota on its own (main's `waiting_quota`): no second booking to offer.
+	const autopilotRun = useAutopilotStore(isLiveAutopilot);
 	// Best effort: without a usage report the card keeps its plain guidance. The reset moves when another
 	// account frees up or a reset pass is spent, so it follows the tab's live usage.
 	const reports = useUsageReports(quota);
@@ -189,7 +193,7 @@ export function TurnErrorNotice({
 						{t(ACTION_LABEL_KEYS[action])}
 					</Button>
 				)),
-				showReset && sessionId ? (
+				showReset && sessionId && !autopilotRun ? (
 					<Button
 						data-quota-resume={booked !== undefined ? "booked" : "offer"}
 						key="resume"

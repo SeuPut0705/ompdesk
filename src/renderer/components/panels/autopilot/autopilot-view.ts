@@ -151,10 +151,10 @@ export type AutopilotChip =
 	| { kind: "quota"; cycle: number; until: number | undefined };
 
 /**
- * The composer chip's state, or null when this session is no live run. A running run with a booked usage-limit
- * resume (`reservation`, epoch ms) is waiting for the quota, whether or not the coordinator said so.
+ * The composer chip's state, or null when this session is no live run. A quota wait is the coordinator's
+ * (`waiting_quota` with the reset it wakes at): main books and wakes it, every window only shows it.
  */
-export function autopilotChip(status: AutopilotStatus, reservation: number | undefined): AutopilotChip | null {
+export function autopilotChip(status: AutopilotStatus): AutopilotChip | null {
 	if (!status.active || !status.state || status.state === "ended") return null;
 	const cycle = status.now?.n ?? status.cycle ?? 0;
 	switch (status.state) {
@@ -167,11 +167,9 @@ export function autopilotChip(status: AutopilotStatus, reservation: number | und
 				reason: status.reason as AutopilotPauseReason | undefined,
 			};
 		case "waiting_quota":
-			return { kind: "quota", cycle, until: status.quotaResetAt ?? reservation };
+			return { kind: "quota", cycle, until: status.quotaResetAt };
 		default:
-			return reservation !== undefined
-				? { kind: "quota", cycle, until: reservation }
-				: { kind: "running", cycle, area: status.now?.area };
+			return { kind: "running", cycle, area: status.now?.area };
 	}
 }
 

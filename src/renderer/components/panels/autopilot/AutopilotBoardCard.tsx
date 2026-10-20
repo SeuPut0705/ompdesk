@@ -8,7 +8,6 @@ import { AreaIcon } from "./AreaIcon";
 import { AutopilotStopButtons } from "./AutopilotControls";
 import { useCycleCalls } from "./AutopilotNow";
 import { autopilotChip, autopilotStep } from "./autopilot-view";
-import { useAutopilotReservation } from "./use-autopilot-reservation";
 
 const RECENT_CYCLES = 3;
 
@@ -16,8 +15,7 @@ const RECENT_CYCLES = 3;
 export function useAutopilotStateText(): string | null {
 	const t = useT();
 	const status = useAutopilotStore(s => s.status);
-	const reservation = useAutopilotReservation();
-	const chip = autopilotChip(status, reservation);
+	const chip = autopilotChip(status);
 	if (!chip) return null;
 	switch (chip.kind) {
 		case "stopping":

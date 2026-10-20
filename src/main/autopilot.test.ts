@@ -13,13 +13,16 @@ import {
 	type AutopilotStatus,
 	DEFAULT_SHIP_POLICY,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { QUOTA_FALLBACK_MS } from "../shared/quota-reset";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../shared/rpc-types";
 import {
 	Autopilot,
 	type AutopilotNotice,
 	type AutopilotPool,
 	localDate,
+	probeRepo,
 	RELEASE_NOW_MESSAGE,
+	type RepoProbe,
 	startSettings,
 	validAutopilotBranchPref,
 } from "./autopilot";
@@ -78,6 +81,8 @@ class World {
 	sessionNames = new Map<string, string>();
 	/** What the windows were told the session is called (`noteSessionName`). */
 	shownNames = new Map<string, string>();
+	/** What stock's `get_usage` answers (`reports`). */
+	usage: Array<{ provider: string; fetchedAt: number; limits: never[]; resetAt?: number }> = [];
 
 	handle(tab: string, command: RpcCommand): Promise<RpcResponse> {
 		const ok = (data?: unknown) => Promise.resolve({ type: "response", success: true, data } as RpcResponse);
@@ -93,7 +98,9 @@ class World {
 		if (type === "get_goal") return ok(this.goal);
 		if (type === "get_session_stats") return ok(this.stats.get(tab) ?? { tokens: { total: 0 }, cost: 0 });
 		if (type === "set_session_name") this.sessionNames.set(tab, String(rest.name));
-		if (type === "get_state") return ok({ sessionName: this.sessionNames.get(tab) ?? null });
+		if (type === "get_state")
+			return ok({ sessionName: this.sessionNames.get(tab) ?? null, model: { provider: "anthropic", id: "m" } });
+		if (type === "get_usage") return ok({ reports: this.usage });
 		if (type === "set_goal" && rest.objective && this.failGoalCreate) return fail("goal refused");
 		if (type === "set_goal" && rest.action === "resume" && this.failGoalResume)
 			return fail("No paused goal to resume.");
@@ -129,6 +136,7 @@ class World {
 					current.state = params.state as AutopilotStatus["state"];
 					current.reason = params.reason as AutopilotStatus["reason"];
 					current.detail = params.detail as string | undefined;
+					current.quotaResetAt = params.quotaResetAt as number | undefined;
 					if ("inFlight" in params && current.ship) {
 						current.ship.inFlight = (params.inFlight as never) ?? undefined;
 					}
@@ -192,7 +200,12 @@ function text(key: MainTextKey, params?: Record<string, string | number>): strin
 }
 
 function build(
-	over: { releaseProcedure?: boolean; relaunch?: RelaunchContinuation; prefs?: Record<string, unknown> } = {},
+	over: {
+		releaseProcedure?: boolean;
+		relaunch?: RelaunchContinuation;
+		prefs?: Record<string, unknown>;
+		probeRepo?: (root: string) => Promise<RepoProbe>;
+	} = {},
 ): void {
 	const pool: AutopilotPool = {
 		sidecarOf: tab => (world.sidecars.get(tab) as unknown as SidecarLike | undefined) ?? null,
@@ -273,6 +286,7 @@ function build(
 		},
 		detectRelease: async () => (over.releaseProcedure ? { file: "AGENTS.md", anchors: ["Release"] } : null),
 		log: () => undefined,
+		...(over.probeRepo ? { probeRepo: over.probeRepo } : {}),
 	});
 	autopilot.attachControl({ childrenOf: () => [], clearQueue: async () => undefined });
 }
@@ -346,6 +360,14 @@ afterEach(async () => {
 describe("pure helpers", () => {
 	it("localDate is the local YYYY-MM-DD", () => {
 		expect(localDate(new Date(2026, 9, 7))).toBe("2026-10-07");
+	});
+
+	it("probeRepo says present for a checkout, gone for a missing folder or one git calls no repository", async () => {
+		expect(await probeRepo(main)).toBe("present");
+		expect(await probeRepo(path.join(tmp, "missing"))).toBe("gone");
+		const plain = path.join(tmp, "plain");
+		await fs.mkdir(plain);
+		expect(await probeRepo(plain)).toBe("gone");
 	});
 
 	it("startSettings layers defaults, a preset and the explicit values", () => {
@@ -1134,15 +1156,57 @@ describe("a failed turn", () => {
 		expect(world.stock("ap-1", "set_goal").map(call => call.params?.action ?? "create")).toEqual(["create"]);
 	});
 
-	it("leaves a usage limit to the renderer's reservation and other tabs alone", async () => {
+	it("a usage limit waits in main, with no window: journals the reset, wakes at it and retries the turn", async () => {
 		await start();
+		world.usage = [{ provider: "anthropic", fetchedAt: clock.value, limits: [], resetAt: clock.value + 3_600_000 }];
 		autopilot.observeActivity(failed("429 usage limit reached, resets at 14:20"));
-		expect(afters).toHaveLength(0);
+		afters[0]?.();
+		await autopilot.idle();
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		expect(status).toMatchObject({ state: "waiting_quota", quotaResetAt: clock.value + 3_600_000 });
+		expect(world.stock("ap-1", "retry")).toHaveLength(0);
+		expect(afters).toHaveLength(2);
+		clock.value += 3_600_000;
+		afters[1]?.();
+		await autopilot.idle();
+		expect(status.state).toBe("running");
+		expect(world.stock("ap-1", "retry")).toHaveLength(1);
+		// Other tabs and endings that are no failure are left alone.
 		autopilot.observeActivity({ type: "idle", tabId: "elsewhere", outcome: { stopReason: "error" } });
 		autopilot.observeActivity({ type: "idle", tabId: "ap-1", outcome: { stopReason: "stop" } });
 		autopilot.observeActivity({ type: "idle", tabId: "ap-1", outcome: undefined });
-		expect(afters).toHaveLength(0);
-		expect(world.stock("ap-1", "set_goal")).toHaveLength(1);
+		expect(afters).toHaveLength(2);
+	});
+
+	it("a usage limit with no reset in the reports waits the fallback, and a pause meanwhile cancels the wake", async () => {
+		await start();
+		autopilot.observeActivity(failed("Too many requests"));
+		afters[0]?.();
+		await autopilot.idle();
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		expect(status.quotaResetAt).toBe(clock.value + QUOTA_FALLBACK_MS);
+		status.state = "paused";
+		afters[1]?.();
+		await autopilot.idle();
+		expect(status.state).toBe("paused");
+		expect(world.stock("ap-1", "retry")).toHaveLength(0);
+	});
+
+	it("a run that was waiting for the quota when the app quit wakes at the reset after the relaunch", async () => {
+		await start();
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		Object.assign(status, { state: "waiting_quota", quotaResetAt: clock.value + 60_000 });
+		build();
+		const sidecar = world.sidecars.get("ap-1") as FakeSidecar;
+		autopilot.attachSidecar("ap-1", sidecar as unknown as SidecarLike);
+		sidecar.emit("status", { status: "ready" });
+		await autopilot.idle();
+		expect(afters.length).toBeGreaterThan(0);
+		clock.value += 60_000;
+		afters.at(-1)?.();
+		await autopilot.idle();
+		expect(status.state).toBe("running");
+		expect(world.stock("ap-1", "set_goal").at(-1)?.params).toMatchObject({ action: "resume" });
 	});
 
 	it("does not pause a run that is already paused or stopping", async () => {
@@ -1166,6 +1230,54 @@ describe("a failed turn", () => {
 });
 
 describe("a cycle's end", () => {
+	/** Fires the timers the coordinator arms while its chain waits on them, until the chain has drained. */
+	async function drainWithTimers(): Promise<void> {
+		for (let round = 0; round < 50; round++) {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setImmediate(resolve);
+			await promise;
+			for (const fire of afters.splice(0)) fire();
+		}
+		await autopilot.idle();
+	}
+
+	it("a git that cannot answer for a moment is no missing repository: no pause, the next cycle goes on", async () => {
+		const probes: RepoProbe[] = ["unknown", "unknown", "present"];
+		build({ probeRepo: async () => probes.shift() ?? "present" });
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record() });
+		await drainWithTimers();
+		const states = () => world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).map(call => call.params?.state);
+		expect(states()).not.toContain("paused");
+		expect(world.stock("ap-1", "set_goal").map(call => call.params?.action ?? "create")).toEqual(["create"]);
+	});
+
+	it("one probe that says gone is checked again: gone twice pauses, gone then present goes on", async () => {
+		const once: RepoProbe[] = ["gone", "present"];
+		build({ probeRepo: async () => once.shift() ?? "present" });
+		await start();
+		autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+			type: "autopilot_cycle_end",
+			record: record(),
+		});
+		await drainWithTimers();
+		expect(
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).map(call => call.params?.state),
+		).not.toContain("paused");
+		build({ probeRepo: async () => "gone" });
+		await start();
+		autopilot.frame(world.sidecars.get("ap-2") as unknown as SidecarLike, {
+			type: "autopilot_cycle_end",
+			record: record(),
+		});
+		await drainWithTimers();
+		expect(world.bridgeCalls("ap-2", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params).toMatchObject({
+			state: "paused",
+			reason: "repo_gone",
+		});
+	});
+
 	it("pushes the autopilot branch after a green cycle when auto push is on, and records the journal action first", async () => {
 		await start({ type: "set_autopilot", action: "start", preset: "push" });
 		const sha = await commit(path.join(tmp, "wt-2026-10-17"), "a.txt");

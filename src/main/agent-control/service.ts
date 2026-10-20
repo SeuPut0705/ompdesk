@@ -507,8 +507,12 @@ export function describeRun(tab: Pick<ControlTab, "tabId" | "title">, status: Au
 	);
 	const children = (status.children ?? []).filter(child => child.status === "running").length;
 	if (children > 0) lines.push(`${children} child session(s) running`);
-	if (status.state === "paused" || status.state === "waiting_quota")
+	if (status.state === "paused")
 		lines.push("It does not continue by itself: the user resumes it on the Autopilot screen.");
+	if (status.state === "waiting_quota")
+		lines.push(
+			`It waits for the account's usage limit and goes on by itself${status.quotaResetAt ? ` at ${new Date(status.quotaResetAt).toISOString()}` : ""}.`,
+		);
 	return lines.join("\n");
 }
 

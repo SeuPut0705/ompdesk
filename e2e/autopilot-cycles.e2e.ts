@@ -251,7 +251,7 @@ test("approvals and questions: yolo override, the approver answers leftover card
 	}
 });
 
-test("a usage limit waits for the quota, books a resume by itself and retries after the reset", async () => {
+test("a usage limit waits for the quota in main, wakes at the reset and retries the turn", async () => {
 	test.setTimeout(180_000);
 	const profile = await makeApProfile({
 		script: { cycleMs: 500, cycles: { "2": { quota: true, quotaResetMs: 9_000 } } },
@@ -260,19 +260,12 @@ test("a usage limit waits for the quota, books a resume by itself and retries af
 	const { app, page } = await launchAp(profile);
 	try {
 		const { tabId } = await startFromSheet(page, "en");
-		// The turn of cycle 2 ends on the limit: no record for it, and a booking exists without a click.
-		await expect
-			.poll(
-				async () =>
-					page.evaluate(async () => {
-						const booked = (await window.omp.prefs.get("quotaResume")) as Record<string, number> | undefined;
-						return booked ? Object.keys(booked).length : 0;
-					}),
-				{ timeout: 30_000 },
-			)
-			.toBeGreaterThan(0);
-		const waiting = await status(page, tabId);
+		// The turn of cycle 2 ends on the limit: no record for it; main journals the wait with the reset it wakes at,
+		// and no renderer booking exists (main owns the wake).
+		const waiting = await waitForStatus(page, tabId, s => s.state === "waiting_quota", "the quota wait", 30_000);
+		expect(waiting.quotaResetAt).toBeGreaterThan(Date.now() - 60_000);
 		expect(waiting.cycles?.length).toBe(1);
+		expect(await page.evaluate(() => window.omp.prefs.get("quotaResume"))).toBeFalsy();
 		await expect(page.locator("[data-autopilot-now]")).toBeVisible();
 		await expect(page.locator("[data-run-settings-trigger]")).toContainText(/quota|until|\d{2}:\d{2}/i);
 		await capture(page, "quota-wait");

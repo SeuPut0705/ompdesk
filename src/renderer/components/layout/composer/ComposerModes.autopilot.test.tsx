@@ -162,17 +162,6 @@ describe("Autopilot chip", () => {
 		expect(trigger().textContent).toContain(translate("autopilot.state.waiting_quota"));
 	});
 
-	it("treats a booked usage-limit resume as a quota wait", async () => {
-		installMockOmp();
-		useSessionStore.setState({ sessionId: "s1" });
-		live(running);
-		await mount(<ComposerModes />);
-		const resetAt = Date.now() + 3_600_000;
-		await act(async () => useQuotaResumeStore.setState({ reservations: { s1: resetAt } }));
-		const time = new Date(resetAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-		expect(trigger().textContent).toContain(translate("autopilot.chip.quotaUntil", { time }));
-	});
-
 	it("opens the Autopilot screen from the small button beside the chip", async () => {
 		installMockOmp();
 		live(running);

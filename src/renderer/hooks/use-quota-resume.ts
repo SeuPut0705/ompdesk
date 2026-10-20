@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { translate } from "../lib/i18n";
 import { createTabRpc } from "../lib/tab-rpc";
+import { isLiveAutopilot, tabAutopilotStore } from "../stores/autopilot";
 import { QUOTA_RESUME_GRACE_MS, useQuotaResumeStore } from "../stores/quota-resume";
 import { sessionRuntime } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
@@ -17,7 +18,8 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
  *
  * A tab other windows show too (multi-viewer) is resumed by its owner window only: every window that shows
  * it books the same reset, and each running `retry` would resume the turn once per window. A viewer keeps
- * its booking untouched, so it still runs it if the tab is later its own.
+ * its booking untouched, so it still runs it if the tab is later its own. An Autopilot run's session is never
+ * retried here: main owns its quota wait.
  */
 export function useQuotaResume(): void {
 	const reservations = useQuotaResumeStore(state => state.reservations);
@@ -46,8 +48,11 @@ export function useQuotaResume(): void {
 				candidate => candidate.sessionId === sessionId && candidate.status === "ready" && !candidate.shared,
 			);
 			const runtime = tab ? sessionRuntime(tab.id) : null;
-			if (!runtime) continue;
+			if (!tab || !runtime) continue;
 			cancel(sessionId);
+			// An Autopilot run waits for the quota in main (`waiting_quota`, woken there): a second `retry` from here
+			// would run the turn twice.
+			if (isLiveAutopilot(tabAutopilotStore(tab.id).getState())) continue;
 			void createTabRpc(runtime.command)
 				.retry()
 				.then(response => {

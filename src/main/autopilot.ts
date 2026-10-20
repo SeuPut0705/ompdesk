@@ -64,7 +64,14 @@ import {
 } from "../shared/autopilot-branch";
 import { autopilotLogTitle, formatAutopilotLog } from "../shared/autopilot-log";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult } from "../shared/ipc-types";
-import type { ExtensionUIResponse, RpcCommand, RpcResponse, RpcWorktreeCreateResult } from "../shared/rpc-types";
+import { QUOTA_FALLBACK_MS, quotaResetAt } from "../shared/quota-reset";
+import type {
+	ExtensionUIResponse,
+	RpcCommand,
+	RpcResponse,
+	RpcWorktreeCreateResult,
+	UsageReport,
+} from "../shared/rpc-types";
 import { type ApproverRun, AutopilotApprover } from "./autopilot-approver";
 import { type AuditScope, type AuditSnapshot, type AuditViolation, auditCycle, takeSnapshot } from "./autopilot-audit";
 import { readBranchEntries, readBranchInfo } from "./autopilot-branches";
@@ -174,7 +181,25 @@ export interface AutopilotDeps {
 	/** One-shot timer (default `setTimeout`); returns its cancel. */
 	after?: (run: () => void, ms: number) => () => void;
 	detectRelease?: (root: string) => Promise<AutopilotReleaseProcedure | null>;
+	/** Default: {@link probeRepo}. */
+	probeRepo?: (root: string) => Promise<RepoProbe>;
 	log?: (message: string) => void;
+}
+
+/**
+ * What git says of a run's worktree: `present`, `gone` (the folder is missing, or git answers it is no repository) or
+ * `unknown` (git did not answer: a timeout, a lock, a spawn failure, any other error).
+ */
+export type RepoProbe = "present" | "gone" | "unknown";
+
+/** How long a probe that said `gone` waits before it is asked again. */
+const REPO_RECHECK_MS = 1_500;
+
+export async function probeRepo(root: string): Promise<RepoProbe> {
+	if (!(await pathExists(root))) return "gone";
+	const result = await gitRaw(root, ["rev-parse", "--git-dir"], { timeoutMs: GIT_MS }).catch(() => null);
+	if (result?.code === 0) return "present";
+	return result && /not a git repository/i.test(result.stderr) ? "gone" : "unknown";
 }
 
 /** A command failure whose message is readable as it is (shown in a toast). */
@@ -225,6 +250,8 @@ interface Run {
 	nextNudgeAt: number;
 	/** A nudge that came inside the window is asked again when the window passes (one at a time). */
 	nudgeLater: boolean;
+	/** Cancels the wake armed for the end of a quota wait (`waiting_quota`). */
+	cancelQuotaWake: (() => void) | null;
 	/** The cycle-end pipeline of one run is sequential. */
 	chain: Promise<unknown>;
 	refreshing: boolean;
@@ -397,6 +424,7 @@ export class Autopilot {
 		if (!run) return;
 		this.#runs.delete(tabId);
 		run.stopPolling?.();
+		run.cancelQuotaWake?.();
 		for (const child of run.children.keys()) {
 			this.#childRuns.delete(child);
 			this.#track(this.#deps.pool.releaseTabWhenExited(child).catch(() => undefined));
@@ -406,7 +434,7 @@ export class Autopilot {
 	/**
 	 * The pool's tab activity (`observeTabs`): a released tab ends its run; a failed turn that neither stock's
 	 * auto-retry nor TurnResume's scheduled retries will take up (they are spent) gets a nudge for the next cycle, never a
-	 * pause. A usage limit is the renderer's: it books a reservation that resumes the run at the reset.
+	 * pause. A usage limit waits here (`#waitForQuota`): journaled `waiting_quota` with its reset, woken at it.
 	 */
 	observeActivity(activity: TabActivity): void {
 		if (activity.type === "released") {
@@ -416,7 +444,12 @@ export class Autopilot {
 		if (activity.type !== "idle" || activity.outcome?.stopReason !== "error") return;
 		const run = this.#runs.get(activity.tabId);
 		const message = activity.outcome.errorMessage ?? "";
-		if (!run || QUOTA_ERROR.test(message)) return;
+		if (!run) return;
+		if (QUOTA_ERROR.test(message)) {
+			// Stock's own auto-retry may still take it: look once it has had the chance, as for any other failure.
+			(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#waitForQuota(run)), ERROR_GRACE_MS);
+			return;
+		}
 		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance (the
 		// nudge itself asks nothing while a retry, a turn or the connection wait holds the run).
 		(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#nudge(run, "error")), ERROR_GRACE_MS);
@@ -768,6 +801,7 @@ export class Autopilot {
 			starting: false,
 			nextNudgeAt: 0,
 			nudgeLater: false,
+			cancelQuotaWake: null,
 			chain: Promise.resolve(),
 			refreshing: false,
 			refreshAgain: false,
@@ -855,6 +889,8 @@ export class Autopilot {
 	}
 	async #resume(run: Run): Promise<void> {
 		run.stopping = false;
+		run.cancelQuotaWake?.();
+		run.cancelQuotaWake = null;
 		const status = await this.#fetchStatus(run);
 		await this.#arm(run, status, true);
 		const response = await this.#stockResponse(run.tabId, { type: "set_goal", action: "resume" });
@@ -923,6 +959,11 @@ export class Autopilot {
 		const run = await this.#adopt(tabId);
 		if (!run || run.starting || this.#resumedOnLaunch.delete(tabId)) return;
 		const status = await this.#fetchStatus(run);
+		if (status.state === "waiting_quota") {
+			// A wait the last process journaled: stock paused the goal at startup, so the wake resumes it like a restart.
+			this.#armQuotaWake(run, status.quotaResetAt ?? this.#now(), true);
+			return;
+		}
 		if (status.state !== "running" || this.#resumedOnLaunch.delete(tabId)) return;
 		// The process came up with the run `running` in its journal (a relaunch, or its omp restarted): stock paused
 		// the goal at startup. The run goes on after any restart; with a launch marker, after TurnResume's restore.
@@ -1037,9 +1078,18 @@ export class Autopilot {
 	}
 
 	async #cycleEnd(run: Run, record: AutopilotCycleRecord, receivedAt: number): Promise<void> {
-		// The repository vanishing is one of the few stops left: nothing can be committed or audited without it.
-		if (!(await pathExists(run.root)) || !(await this.#gitText(run.root, ["rev-parse", "--git-dir"]))) {
+		// The repository vanishing is one of the few stops left: nothing can be committed or audited without it. Only a
+		// confirmed loss pauses; a git that cannot answer this time (a lock, a timeout, a load spike) skips this cycle's
+		// audit and shipping, and the next cycle end checks again against the same snapshot.
+		const repo = await this.#repoState(run.root);
+		if (repo === "gone") {
 			await this.#pause(run, "repo_gone", run.root);
+			return;
+		}
+		if (repo === "unknown") {
+			this.#log(
+				`${run.tabId}: git did not answer at cycle ${record.n}'s end; its audit and shipping wait for the next`,
+			);
 			return;
 		}
 		await this.#closeChildren(run, record.n);
@@ -1178,6 +1228,58 @@ export class Autopilot {
 			message: NUDGE_MESSAGE,
 			streamingBehavior: "followUp",
 		}).catch(error => this.#log(`nudge: ${String(error)}`));
+	}
+
+	/**
+	 * A turn ended on the account's usage limit and stock's auto-retry let it go: the run waits until the provider's
+	 * first account resets (its usage reports; {@link QUOTA_FALLBACK_MS} when none names a reset), journaled as
+	 * `waiting_quota` with that time so every window, a paired device and a relaunch see it. Main owns the wake: it
+	 * fires with no window open. Never a pause.
+	 */
+	async #waitForQuota(run: Run): Promise<void> {
+		if (this.#runs.get(run.tabId) !== run || run.stopping) return;
+		const facts = this.#deps.pool.tabFacts(run.tabId);
+		if (!facts || facts.busy || facts.retrying) return;
+		const status = await this.#fetchStatus(run).catch(() => null);
+		if (status?.state !== "running") return;
+		const state = await this.#stock<{ model?: { provider?: string } | null }>(run.tabId, { type: "get_state" }).catch(
+			() => null,
+		);
+		const usage = await this.#stock<{ reports?: UsageReport[] }>(run.tabId, { type: "get_usage" }).catch(() => null);
+		const now = this.#now();
+		const reports = Array.isArray(usage?.reports) ? usage.reports : [];
+		const resetAt = quotaResetAt(reports, state?.model?.provider ?? undefined, now) ?? now + QUOTA_FALLBACK_MS;
+		await this.#setState(run, { state: "waiting_quota", quotaResetAt: resetAt });
+		this.#armQuotaWake(run, resetAt, false);
+	}
+
+	#armQuotaWake(run: Run, at: number, restarted: boolean): void {
+		run.cancelQuotaWake?.();
+		run.cancelQuotaWake = (this.#deps.after ?? afterMs)(
+			() => {
+				run.cancelQuotaWake = null;
+				this.#enqueue(run, () => this.#quotaWake(run, restarted));
+			},
+			Math.max(0, at - this.#now()),
+		);
+	}
+
+	/**
+	 * The reset came: a run still waiting (not paused, stopped or resumed meanwhile) goes on. In this process stock's
+	 * `retry` takes the failed turn up again; after a relaunch stock paused the goal at startup, so it resumes as a
+	 * restart does.
+	 */
+	async #quotaWake(run: Run, restarted: boolean): Promise<void> {
+		if (this.#runs.get(run.tabId) !== run || run.stopping) return;
+		const status = await this.#fetchStatus(run).catch(() => null);
+		if (status?.state !== "waiting_quota") return;
+		await this.#setState(run, { state: "running" });
+		if (restarted) {
+			await this.#continueOrPause(run);
+			return;
+		}
+		const retried = await this.#stockResponse(run.tabId, { type: "retry" }).catch(() => null);
+		if (!retried?.success) this.#enqueue(run, () => this.#nudge(run, "error"));
 	}
 
 	async #stopRequested(run: Run, request: AutopilotStopRequest): Promise<void> {
@@ -1488,6 +1590,7 @@ export class Autopilot {
 			reason?: AutopilotPauseReason | AutopilotEndReason;
 			detail?: string;
 			inFlight?: { kind: "push" | "release"; startedAt: number } | null;
+			quotaResetAt?: number;
 		},
 	): Promise<void> {
 		const current = run.status;
@@ -1499,6 +1602,7 @@ export class Autopilot {
 			...(reason ? { reason } : {}),
 			...(detail ? { detail } : {}),
 			...(change.inFlight !== undefined ? { inFlight: change.inFlight } : {}),
+			...(change.quotaResetAt !== undefined ? { quotaResetAt: change.quotaResetAt } : {}),
 		});
 	}
 
@@ -1569,6 +1673,17 @@ export class Autopilot {
 	async #detectRemote(cwd: string): Promise<string> {
 		const names = (await this.#gitText(cwd, ["remote"])).split("\n").filter(Boolean);
 		return names.includes("origin") ? "origin" : (names[0] ?? "origin");
+	}
+
+	/** `gone` only when two probes {@link REPO_RECHECK_MS} apart both say so; `unknown` when git could not answer. */
+	async #repoState(root: string): Promise<RepoProbe> {
+		const probe = this.#deps.probeRepo ?? probeRepo;
+		const first = await probe(root);
+		if (first !== "gone") return first;
+		const { promise, resolve } = Promise.withResolvers<void>();
+		(this.#deps.after ?? afterMs)(resolve, REPO_RECHECK_MS);
+		await promise;
+		return probe(root);
 	}
 
 	async #gitText(cwd: string, args: string[]): Promise<string> {

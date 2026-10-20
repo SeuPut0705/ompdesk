@@ -200,16 +200,16 @@ describe("autopilotChip", () => {
 	};
 
 	it("is null for a session that is no run, or one that ended", () => {
-		expect(autopilotChip({ active: false }, undefined)).toBeNull();
-		expect(autopilotChip({ ...base, state: "ended", reason: "user" }, undefined)).toBeNull();
+		expect(autopilotChip({ active: false })).toBeNull();
+		expect(autopilotChip({ ...base, state: "ended", reason: "user" })).toBeNull();
 	});
 
 	it("names the running cycle and its area", () => {
-		expect(autopilotChip(base, undefined)).toEqual({ kind: "running", cycle: 7, area: "performance" });
+		expect(autopilotChip(base)).toEqual({ kind: "running", cycle: 7, area: "performance" });
 	});
 
 	it("falls back to the last finished cycle number when none is in flight", () => {
-		expect(autopilotChip({ ...base, now: undefined, cycle: 6 }, undefined)).toEqual({
+		expect(autopilotChip({ ...base, now: undefined, cycle: 6 })).toEqual({
 			kind: "running",
 			cycle: 6,
 			area: undefined,
@@ -217,25 +217,17 @@ describe("autopilotChip", () => {
 	});
 
 	it("shows ending, paused with its reason, and a quota wait", () => {
-		expect(autopilotChip({ ...base, state: "stopping" }, undefined)).toEqual({ kind: "stopping", cycle: 7 });
-		expect(autopilotChip({ ...base, state: "paused", reason: "cycles" }, undefined)).toEqual({
+		expect(autopilotChip({ ...base, state: "stopping" })).toEqual({ kind: "stopping", cycle: 7 });
+		expect(autopilotChip({ ...base, state: "paused", reason: "cycles" })).toEqual({
 			kind: "paused",
 			cycle: 7,
 			reason: "cycles",
 		});
-		expect(autopilotChip({ ...base, state: "waiting_quota", quotaResetAt: 9_000 }, undefined)).toEqual({
+		expect(autopilotChip({ ...base, state: "waiting_quota", quotaResetAt: 9_000 })).toEqual({
 			kind: "quota",
 			cycle: 7,
 			until: 9_000,
 		});
-	});
-
-	it("treats a running run with a booked quota reservation as waiting for the quota", () => {
-		expect(autopilotChip(base, 12_000)).toEqual({ kind: "quota", cycle: 7, until: 12_000 });
-	});
-
-	it("keeps a paused run paused even with a reservation", () => {
-		expect(autopilotChip({ ...base, state: "paused", reason: "user_pause" }, 12_000)?.kind).toBe("paused");
 	});
 });
 

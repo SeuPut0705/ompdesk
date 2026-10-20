@@ -36,7 +36,6 @@ import {
 	type TodoPhase,
 } from "../../shared/rpc-types";
 import { messageSourceTimestamp } from "../components/chat/work/work-turn";
-import { bookAutopilotQuota } from "../lib/autopilot-quota";
 import { compactionActionKey } from "../lib/compaction-action";
 import { errorDetail } from "../lib/error-detail";
 import { formatClock } from "../lib/format";
@@ -411,7 +410,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useUsageSignal.getState().turnEnded();
 							notifyOnAgentEnd(tabId, event);
 							toastOnAgentError(tabId, event);
-							void bookAutopilotQuota(tabId, event);
 							// Re-fetch state so agent-side todo updates mid-turn reach the panel.
 							void refreshSessionState(tabId);
 							bumpVersion = true;
