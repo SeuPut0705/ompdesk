@@ -652,7 +652,9 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	}
 
 	// ── Safe areas ──────────────────────────────────────────────────────────────────────────────────
-	const { t, r, b, l } = options.safe;
+	const { t, r, l } = options.safe;
+	// An open keyboard covers the home indicator (and the layout already ends at its top edge).
+	const b = document.documentElement.dataset.kb === "open" ? 0 : options.safe.b;
 	const bands = (rect: { left: number; top: number; right: number; bottom: number }): string[] => {
 		const found: string[] = [];
 		if (t > 0 && rect.top < t - 1 && rect.bottom > 2) found.push(`top ${Math.round(t - rect.top)}px`);

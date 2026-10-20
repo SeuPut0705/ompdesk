@@ -59,6 +59,20 @@ async function updater(page: Page, status: Record<string, unknown>): Promise<voi
 }
 
 const isPhone = (look: Look): boolean => look.width < 600;
+
+/**
+ * The soft keyboard comes up the way Chrome on Android shows it (`interactive-widget=resizes-content`): the layout
+ * viewport loses the keyboard's height while a field has focus (lib/keyboard-inset.ts `layoutKeyboardOpen`), about 40 %
+ * of a phone and a third of a tablet. iOS only shrinks the visual viewport, which a browser test cannot do; the
+ * shell's `--kb-inset` answers both the same way. Portrait only: a sideways tablet this short reads as a phone.
+ */
+async function keyboardUp(page: Page, look: Look, focus: string): Promise<void> {
+	await page.locator(focus).first().click();
+	const height = Math.round(look.height * (isPhone(look) ? 0.6 : 0.67));
+	await page.setViewportSize({ width: look.width, height });
+	await page.waitForFunction(() => document.documentElement.dataset.kb === "open", undefined, { timeout: 5_000 });
+}
+const keyboardLook = (look: Look): boolean => (look.device ?? "touch") === "touch" && look.orientation === "portrait";
 /** A portrait tablet at least 800 px wide docks the session list; a phone and the narrower tablet use the drawer. */
 const sidebarDocked = (look: Look): boolean => look.width >= 800;
 
@@ -229,6 +243,41 @@ export const SURFACES: readonly Surface[] = [
 				).join("\n"),
 			);
 		},
+	},
+	{
+		id: "composer-keyboard",
+		area: "A",
+		title: "Composer with the soft keyboard up and a draft typed",
+		query: "&kb=1",
+		when: keyboardLook,
+		open: async (page, look) => {
+			await keyboardUp(page, look, "[data-composer-input]");
+			await page.locator("[data-composer-input]").fill("A short draft typed with the keyboard up");
+		},
+		ready: "[data-composer-input]",
+	},
+	{
+		id: "composer-keyboard-slash",
+		area: "A",
+		title: "Slash command menu with the soft keyboard up",
+		query: "&kb=1",
+		when: keyboardLook,
+		open: async (page, look) => {
+			await keyboardUp(page, look, "[data-composer-input]");
+			await page.locator("[data-composer-input]").pressSequentially("/", { delay: 30 });
+		},
+	},
+	{
+		id: "dialog-rename-keyboard",
+		area: "B",
+		title: "Rename dialog with the soft keyboard up on its field",
+		query: "&kb=1",
+		when: keyboardLook,
+		open: async (page, look) => {
+			await ui(page, "openRenameDialog");
+			await keyboardUp(page, look, "[role='dialog'] input");
+		},
+		settle: 700,
 	},
 	...PANELS.map(
 		(panel): Surface => ({
