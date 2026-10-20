@@ -220,12 +220,17 @@ test("all named themes apply with readable primary text and no stale scheme toke
 				});
 				return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 			};
-			const ratio = (element: Element) => {
-				const style = getComputedStyle(element);
-				const light = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => a - b);
+			const ratio = (element: Element, canvas: Element = element) => {
+				const light = [
+					luminance(getComputedStyle(element).color),
+					luminance(getComputedStyle(canvas).backgroundColor),
+				].sort((a, b) => a - b);
 				return (light[1] + 0.05) / (light[0] + 0.05);
 			};
-			return { body: ratio(document.body), send: ratio(button) };
+			// A Windows 11 window with Mica leaves html and body transparent; the workspace paints the canvas the text sits on.
+			const workspace = document.querySelector(".omp-workspace-main");
+			if (!workspace) throw new Error("no .omp-workspace-main");
+			return { body: ratio(document.body, workspace), send: ratio(button) };
 		});
 		expect(contrastValues[label].body, `${label} body text`).toBeGreaterThanOrEqual(4.5);
 		expect(contrastValues[label].send, `${label} send icon`).toBeGreaterThanOrEqual(4.5);

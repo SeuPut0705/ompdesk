@@ -8,6 +8,7 @@
 import * as fs from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { launch, makeRig, phaseIs } from "./fixture/ai-memory-rig";
+import { stopFakeServer } from "./fixture/fake-ai-memory-install";
 import { exitApp } from "./harness";
 
 interface Logged {
@@ -56,6 +57,7 @@ test("the upkeep retitles a junk session page and discards a child's handoff onc
 	} finally {
 		delete process.env.FAKE_AI_MEMORY_UPKEEP;
 		if (current) await exitApp(current.app).catch(() => undefined);
-		await fs.rm(rig.root, { recursive: true, force: true });
+		await stopFakeServer(rig.home);
+		await fs.rm(rig.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });

@@ -264,7 +264,7 @@ test("the completion menu keeps modified keys and its closing; `->` comes off; â
 		await expect(menu(page)).toBeVisible();
 		await page.keyboard.press("Tab");
 		await expect(input).toHaveValue("/retry ");
-		await page.keyboard.press("Meta+z");
+		await page.keyboard.press("ControlOrMeta+z");
 		await expect(input).toHaveValue("/ret");
 
 		// `@` reads Hangul, and a picked name with a space goes in quoted, as stock reads it.
@@ -296,7 +296,7 @@ test("the completion menu keeps modified keys and its closing; `->` comes off; â
 		await page.getByRole("dialog", { name: "History" }).getByRole("option", { name: "older prompt" }).click();
 		await expect(input).toHaveValue("older prompt");
 		await expect(input).toBeFocused();
-		await page.keyboard.press("Meta+z");
+		await page.keyboard.press("ControlOrMeta+z");
 		await expect(input).toHaveValue("precious draft");
 		expect(errors).toEqual([]);
 	} finally {
@@ -617,7 +617,7 @@ test("a new tab, âŒƒTab and the project row's + put the next keystroke in the co
 	try {
 		const field = () => page.locator('.omp-session-pane[data-active="true"] textarea[data-composer-input]');
 		await composer(page).fill("first tab draft");
-		await page.keyboard.press("Meta+t");
+		await page.keyboard.press("ControlOrMeta+t");
 		const tabs = () => page.evaluate(() => window.omp.tabs.list());
 		await expect.poll(async () => (await tabs()).length).toBe(2);
 		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status, { timeout: 30_000 }).toBe("ready");
