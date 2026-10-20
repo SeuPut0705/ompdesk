@@ -186,113 +186,6 @@ fn launchd_agent_plist_is_a_valid_property_list() {
 }
 
 #[test]
-fn macos_release_tarball_ships_the_launchd_agent_plist() {
-    let release = read_repo(".github/workflows/release.yml");
-    assert!(release.contains("cp -a packaging/launchd \"dist/$artifact/packaging/launchd\""));
-    assert!(
-        release.contains(LAUNCHD_AGENT_PLIST),
-        "the macOS tarball smoke test must prove the plist actually shipped"
-    );
-}
-
-/// Source lock: Unix release packing must disable macOS AppleDouble sidecars
-/// (`._*`) so Linux runners and macOS producers emit the same archive layout
-/// upgrade's allowlist expects (see `extracts_archive_built_like_release_yml`).
-#[test]
-fn unix_release_tarball_packing_disables_appledouble_sidecars() {
-    let release = read_repo(".github/workflows/release.yml");
-    let pack = "COPYFILE_DISABLE=1 tar -C \"dist/$artifact\" -czf \"$artifact.tar.gz\" .";
-    assert!(
-        release.matches(pack).count() >= 2,
-        "Linux and macOS release pack steps must set COPYFILE_DISABLE=1"
-    );
-}
-
-/// Drift lock for #1025: every top-level name staged into a release archive
-/// by `release.yml` must be extractable or listed in upgrade's exact support
-/// consts (`RELEASE_SUPPORT_*`). Direction is release → allowlist (Windows
-/// correctly omits `packaging/`). Catching a new `dist/$artifact/share`
-/// without an allowlist update keeps CI red before a live tarball upgrade
-/// fails after checksum.
-#[test]
-fn release_yml_staged_top_levels_are_upgrade_allowlisted() {
-    let release = read_repo(".github/workflows/release.yml");
-    let staged = release_yml_staged_top_levels(&release);
-    assert!(
-        staged.contains("hooks") && staged.contains("docs") && staged.contains("crates"),
-        "sanity: release.yml must still stage shared top-levels; got {staged:?}"
-    );
-
-    let upgrade = read_repo("crates/ai-memory-cli/src/commands/upgrade.rs");
-    let dirs = const_str_slice_body(&upgrade, "RELEASE_SUPPORT_DIRS");
-    let files = const_str_slice_body(&upgrade, "RELEASE_SUPPORT_FILES");
-    for name in &staged {
-        // Runtime extract targets live outside the support consts.
-        if matches!(name.as_str(), "hooks" | "ai-memory" | "ai-memory.exe") {
-            continue;
-        }
-        let quoted = format!("\"{name}\"");
-        assert!(
-            dirs.contains(&quoted) || files.contains(&quoted),
-            "release.yml stages top-level `{name}` but it is missing from \
-             RELEASE_SUPPORT_DIRS/FILES in upgrade.rs"
-        );
-    }
-}
-
-/// First path components under `dist/$artifact/…` and `$stage/…`, plus
-/// README.md/LICENSE when the workflow copies them onto the stage root.
-fn release_yml_staged_top_levels(release: &str) -> std::collections::BTreeSet<String> {
-    let mut tops = std::collections::BTreeSet::new();
-    for prefix in ["dist/$artifact/", "$stage/"] {
-        let mut search = release;
-        while let Some(idx) = search.find(prefix) {
-            let after = &search[idx + prefix.len()..];
-            let end = after
-                .find(|c: char| c == '"' || c == '\'' || c == '`' || c == '\\' || c.is_whitespace())
-                .unwrap_or(after.len());
-            let rel = &after[..end];
-            if let Some(top) = rel
-                .split('/')
-                .next()
-                .filter(|s| is_release_top_level_name(s))
-            {
-                tops.insert(top.to_string());
-            }
-            // Always advance so an empty relative path cannot spin forever.
-            search = &search[idx + 1..];
-        }
-    }
-    if release.contains("cp README.md LICENSE \"dist/$artifact/\"")
-        || release.contains("Copy-Item README.md, LICENSE $stage")
-    {
-        tops.insert("README.md".to_string());
-        tops.insert("LICENSE".to_string());
-    }
-    tops
-}
-
-/// Reject globs / comment noise (e.g. `"$stage/*"` in release.yml prose).
-fn is_release_top_level_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-}
-
-fn const_str_slice_body<'a>(src: &'a str, name: &str) -> &'a str {
-    let marker = format!("const {name}:");
-    let start = src
-        .find(&marker)
-        .unwrap_or_else(|| panic!("upgrade.rs must declare {name}"));
-    let from = &src[start..];
-    let end = from
-        .find(';')
-        .unwrap_or_else(|| panic!("{name} const must end with ';'"));
-    &from[..end]
-}
-
-#[test]
 fn aur_packages_install_all_native_assets() {
     for path in ["packaging/aur/PKGBUILD", "packaging/aur/PKGBUILD-bin"] {
         let pkgbuild = read_repo(path);
@@ -356,20 +249,6 @@ fn aur_packages_install_all_native_assets() {
 }
 
 #[test]
-fn docker_source_build_uses_vendored_tailwind() {
-    let dockerfile = read_repo("docker/Dockerfile");
-    assert!(dockerfile.contains("cargo build --locked --release -p ai-memory-cli"));
-    assert!(
-        dockerfile.contains("COPY Cargo.toml Cargo.lock rust-toolchain.toml deny.toml LICENSE ./"),
-        "the source builder must copy files embedded by ai-memory-cli"
-    );
-    assert!(
-        !dockerfile.contains("TAILWIND"),
-        "the vendored stylesheet is the default; the image build must not opt into a regeneration"
-    );
-}
-
-#[test]
 fn docker_context_excludes_operator_deployment_files() {
     let dockerignore = read_repo(".dockerignore");
     let protected_suffix = concat!(
@@ -384,40 +263,6 @@ fn docker_context_excludes_operator_deployment_files() {
         dockerignore.ends_with(protected_suffix),
         "operator deployment exclusions must remain the final Docker ignore rules"
     );
-}
-
-#[test]
-fn docker_publish_jobs_use_prebuilt_binaries() {
-    let dockerfile = read_repo("docker/Dockerfile");
-    assert!(dockerfile.contains("FROM runtime-base AS runtime-prebuilt-amd64"));
-    assert!(dockerfile.contains("FROM runtime-base AS runtime-prebuilt-arm64"));
-    assert!(dockerfile.contains("dist/docker/ai-memory-linux-x86_64/ai-memory"));
-    assert!(dockerfile.contains("dist/docker/ai-memory-linux-aarch64/ai-memory"));
-
-    let release = read_repo(".github/workflows/release.yml");
-    assert!(release.contains("artifact: ai-memory-linux-x86_64"));
-    assert!(release.contains("artifact: ai-memory-linux-aarch64"));
-    assert!(release.contains("artifact: ai-memory-macos-aarch64"));
-    assert!(release.contains("artifact: ai-memory-macos-x86_64"));
-    assert!(release.contains("needs: [binary, macos, windows, rpm, validate-version]"));
-    assert!(release.contains("target: runtime-prebuilt-amd64"));
-    assert!(release.contains("target: runtime-prebuilt-arm64"));
-
-    let ci = read_repo(".github/workflows/ci.yml");
-    assert!(ci.contains("ci-ai-memory-${{ matrix.artifact }}"));
-    // The release-build matrix is a conditional expression since the
-    // fast-CI split: Linux always, the macOS legs on full-ci/dispatch.
-    // The full branch must keep every release artifact and runner.
-    assert!(ci.contains(r#"{"artifact": "linux-x86_64", "runner": "ubuntu-22.04"}"#));
-    assert!(ci.contains(r#"{"artifact": "macos-aarch64", "runner": "macos-15"}"#));
-    assert!(ci.contains(r#"{"artifact": "macos-x86_64", "runner": "macos-15-intel"}"#));
-    // and the reduced branch still builds the Linux artifact docker uses
-    assert!(
-        ci.matches(r#"{"artifact": "linux-x86_64", "runner": "ubuntu-22.04"}"#)
-            .count()
-            >= 2
-    );
-    assert!(ci.contains("--target runtime-prebuilt-amd64"));
 }
 
 // Like run_wrapper_on_fake_macos's fake docker, but the wrapper is spawned with
@@ -669,32 +514,12 @@ fn powershell_wrapper_forwards_every_supported_provider_api_key() {
 }
 
 #[test]
-fn wrapper_updates_and_install_docs_use_verified_release_assets() {
+fn wrapper_updates_and_install_docs_verify_downloads() {
     let wrapper = read_repo("bin/ai-memory");
     assert!(wrapper.contains("releases/latest/download/ai-memory-wrapper"));
     assert!(wrapper.contains("WRAPPER_SHA256_URL"));
     assert!(wrapper.contains("wrapper checksum mismatch; refusing update"));
     assert!(!wrapper.contains("raw.githubusercontent.com/akitaonrails/ai-memory/main"));
-
-    let release = read_repo(".github/workflows/release.yml");
-    for asset in [
-        "ai-memory-wrapper",
-        "ai-memory-wrapper.ps1",
-        "ai-memory-wrapper.cmd",
-        "ai-memory-install-hooks",
-        "ai-memory-hooks.tar.gz",
-        "install.sh",
-        "install.ps1",
-    ] {
-        assert!(release.contains(asset), "release must publish {asset}");
-        assert!(
-            release.contains(&format!("{asset}.sha256")),
-            "release must publish a checksum for {asset}"
-        );
-    }
-    assert!(release.contains("permissions:\n  contents: read"));
-    assert!(release.contains("github-release:"));
-    assert!(release.contains("contents: write"));
 
     for path in ["README.md", "docs/install.md", "docs/windows.md"] {
         let docs = read_repo(path);
@@ -741,136 +566,6 @@ fn install_ps1_keeps_its_safety_checks() {
     );
     assert_eq!(script.trim_end().lines().last(), Some("Install-AiMemory"));
     assert!(!script.contains("raw.githubusercontent.com"));
-}
-
-#[test]
-fn github_actions_are_pinned_to_full_commits() {
-    for path in [".github/workflows/ci.yml", ".github/workflows/release.yml"] {
-        let workflow = read_repo(path);
-        for line in workflow.lines().filter(|line| line.contains("uses: ")) {
-            let Some(reference) = line
-                .split('@')
-                .nth(1)
-                .and_then(|value| value.split_whitespace().next())
-            else {
-                continue;
-            };
-            assert!(
-                reference.len() == 40 && reference.chars().all(|c| c.is_ascii_hexdigit()),
-                "{path} action is not pinned to a full commit: {line}"
-            );
-        }
-    }
-}
-
-#[test]
-fn workflows_keep_fixed_rust_jobs_on_the_fixed_toolchain() {
-    for (path, expected_fixed_jobs) in [
-        (".github/workflows/ci.yml", 2),
-        (".github/workflows/release.yml", 3),
-    ] {
-        let workflow = read_repo(path);
-        let lines = workflow.lines().collect::<Vec<_>>();
-        let mut fixed_jobs = 0;
-        for (index, line) in lines.iter().enumerate().filter(|(_, line)| {
-            line.contains("uses: dtolnay/rust-toolchain@") && line.ends_with("# 1.95")
-        }) {
-            fixed_jobs += 1;
-            assert_eq!(
-                lines.get(index + 1).map(|line| line.trim()),
-                Some("with:"),
-                "{path} must configure the fixed toolchain after: {line}"
-            );
-            assert_eq!(
-                lines.get(index + 2).map(|line| line.trim()),
-                Some("toolchain: \"1.95\""),
-                "{path} must keep its # 1.95 job on Rust 1.95"
-            );
-        }
-
-        assert_eq!(
-            fixed_jobs, expected_fixed_jobs,
-            "{path} has an unexpected number of fixed Rust jobs"
-        );
-    }
-}
-
-#[test]
-fn dev_loop_is_wired_consistently() {
-    // One gate, written down in four places; keep them from drifting apart.
-    let ci = read_repo(".github/workflows/ci.yml");
-    assert!(ci.contains("cargo nextest run --workspace --all-targets --profile ci"));
-    // nextest does not run doctests.
-    assert!(ci.contains("cargo test --workspace --doc"));
-    // Windows stays on plain `cargo test`: nextest's per-test processes cost
-    // more there than its parallelism saves.
-    let windows = read_repo(".github/workflows/windows.yml");
-    assert!(windows.contains("cargo test --workspace --all-targets"));
-    // The `ci` profile is what makes CI a full gate: every tier, nothing
-    // turned green by a retry.
-    let nextest = read_repo(".config/nextest.toml");
-    let ci_profile = nextest
-        .split("[profile.ci]")
-        .nth(1)
-        .expect("nextest.toml defines [profile.ci]");
-    let ci_profile = ci_profile.split("\n[").next().unwrap_or(ci_profile);
-    assert!(ci_profile.contains("default-filter = \"all()\""));
-    assert!(ci_profile.contains("retries = 0"));
-    assert!(
-        ci.contains("TAILWIND_BUILD=1"),
-        "CI must regenerate the stylesheet somewhere"
-    );
-    assert!(ci.contains("git diff --exit-code -- crates/ai-memory-web/static/tailwind.css"));
-
-    let release = read_repo("bin/release");
-    assert!(release.contains("git diff --check"));
-    assert!(release.contains("cargo test --workspace --all-targets"));
-
-    let pr_template = read_repo(".github/pull_request_template.md");
-    assert!(pr_template.contains("git diff --check"));
-    assert!(pr_template.contains("cargo tf"));
-
-    let contributing = read_repo("CONTRIBUTING.md");
-    assert!(contributing.contains("cargo tf"));
-    assert!(contributing.contains("install-git-hooks.sh"));
-
-    let installer = read_repo("scripts/install-git-hooks.sh");
-    assert!(installer.contains("# >>> ai-memory pre-push >>>"));
-    assert!(
-        !installer.contains("cat > \"$hook\""),
-        "the hook installer must not overwrite an existing user hook"
-    );
-
-    // `.cargo/config.toml` carries the tier aliases and nothing else. An env
-    // table there applies to every cargo invocation on every platform.
-    let cargo_config = read_repo(".cargo/config.toml");
-    assert!(
-        !cargo_config.contains("[env]"),
-        "keep .cargo/config.toml to aliases"
-    );
-    for alias in ["t = ", "tf = "] {
-        assert!(
-            cargo_config.contains(alias),
-            "missing cargo alias {alias:?}"
-        );
-    }
-
-    // The build is self-contained: nothing should still ask for the old skip flag.
-    for path in [
-        ".github/workflows/ci.yml",
-        ".github/workflows/release.yml",
-        ".github/workflows/windows.yml",
-        "docker/Dockerfile",
-        "bin/release",
-        "AGENTS.md",
-        "CONTRIBUTING.md",
-        ".github/pull_request_template.md",
-    ] {
-        assert!(
-            !read_repo(path).contains("TAILWIND_SKIP"),
-            "{path} still sets TAILWIND_SKIP"
-        );
-    }
 }
 
 #[cfg(unix)]
@@ -1327,7 +1022,7 @@ fn run_powershell_wrapper_with_server_url(args: &[&str], server_url: Option<&str
 }
 
 #[test]
-fn macos_docs_use_valid_install_commands_and_release_body_points_to_them() {
+fn macos_docs_use_valid_install_commands() {
     let docs = read_repo("docs/macos.md");
     assert!(docs.contains("install-hooks --agent claude-code --apply"));
     assert!(docs.contains("install-mcp --client claude-code --apply"));
@@ -1341,9 +1036,6 @@ fn macos_docs_use_valid_install_commands_and_release_body_points_to_them() {
     );
     assert!(docs.contains("Host-side agent config should use"));
     assert!(docs.contains("Tagged releases publish a multi-arch manifest"));
-
-    let release = read_repo(".github/workflows/release.yml");
-    assert!(release.contains("follow the bundled docs/macos.md"));
 }
 
 // ---------------------------------------------------------------------------

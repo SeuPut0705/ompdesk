@@ -71,7 +71,9 @@ mod slow {
             ])
             .env("AI_MEMORY_DATA_DIR", data_dir.path())
             .env("AI_MEMORY_HOME", home.path())
-            .env("AI_MEMORY_EMBEDDING_PROVIDER", "none");
+            .env("AI_MEMORY_EMBEDDING_PROVIDER", "none")
+            // OMPdesk ships the profile off; this test is about the profile, so it turns it on.
+            .env("AI_MEMORY_PROFILE__ENABLED", "auto");
             cmd
         })
         .await;
