@@ -111,15 +111,18 @@ test("finished opened sessions are not listed and their tabs close; unmerged wor
 		],
 	});
 	expect(opened.isError).toBe(false);
-	const all = (await tabs()).filter(tab => tab.tabId !== main);
-	expect(all).toHaveLength(3);
-	const plain = all.find(tab => !tab.worktree) as (typeof all)[number];
+	// The plain child can finish and close before the next read (the opener is idle, so nothing waits on it: a loaded
+	// runner listed only the two worktree children here), so its id comes from the open's own answer.
+	const ids = [...opened.text.matchAll(/Opened session (\w+)/g)].map(match => match[1] ?? "");
+	expect(ids).toHaveLength(3);
 	const [b, c] = (await children()) as [
 		{ tabId: string; path: string; branch: string },
 		{ tabId: string; path: string; branch: string },
 	];
+	const plain = { tabId: ids.find(id => id !== b.tabId && id !== c.tabId) ?? "" };
+	expect(plain.tabId).not.toBe("");
 	// The opener reads every answer, so nothing waits on it.
-	await call("ompdesk_session_result", { sessions: all.map(tab => tab.tabId), wait: true, timeout_seconds: 90 });
+	await call("ompdesk_session_result", { sessions: ids, wait: true, timeout_seconds: 90 });
 
 	// The plain session has no branch: its final answer is in, so its tab closes. The session files stay.
 	await expect
