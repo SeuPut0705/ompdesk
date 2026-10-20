@@ -473,6 +473,11 @@ export type RuntimeErrorSource =
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
 	/**
+	 * An Autopilot run's summary when it ends or pauses (src/main/autopilot.ts `runLog`): `message` is ended or paused,
+	 * `details.summary` the line its notification shows (cycles, commits, landed or pushed, why it stopped).
+	 */
+	| "autopilot"
+	/**
 	 * An app update's decisions (src/main/updater.ts, `AutoInstallScheduler`; info level, `details.level: "info"`):
 	 * `message` is check, download, scheduler or swap and `details.event` the step (never a token or a URL).
 	 */

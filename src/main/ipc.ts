@@ -1003,6 +1003,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// A run a paired device started stops counting against that device once it ends (hosted-autopilot.ts).
 		runEnded: root => deps.hostedTabs.endRun(root),
 		relaunchContinuation: deps.relaunchContinuation,
+		runLog: (message, details) => writeRuntimeLog({ source: "autopilot", message, details }),
 	});
 	deps.autopilotRef.current = autopilot;
 	// A paired device's get/set_autopilot on its tab here are this coordinator's (src/main/remote/hosted-autopilot.ts).

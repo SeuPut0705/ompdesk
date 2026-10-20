@@ -147,10 +147,33 @@ export const MAIN_TEXT = {
 	// Autopilot (src/main/autopilot.ts): notifications and the readable failures of a start.
 	"autopilot.paused.title": { en: "Autopilot paused", ko: "오토파일럿이 멈췄어요" },
 	"autopilot.ended.title": { en: "Autopilot ended", ko: "오토파일럿이 끝났어요" },
-	"autopilot.ended.body": {
-		en: "{branch}: {cycles} cycles, {commits} commits.",
-		ko: "{branch}: 사이클 {cycles}개, 커밋 {commits}개.",
+	"autopilot.summary": {
+		en: "{branch}: {cycles} cycles ({green} green), {commits} commits; {shipped}. Stopped: {reason}",
+		ko: "{branch}: 사이클 {cycles}개(초록 {green}개), 커밋 {commits}개. {shipped}. 멈춘 이유: {reason}",
 	},
+	"autopilot.summary.landed": {
+		en: "{landed} of {commits} landed on {target}",
+		ko: "{target}에 {commits}개 중 {landed}개 반영",
+	},
+	"autopilot.summary.pr": {
+		en: "{target} is protected: {landed} of {commits} landed, the rest waits in {url}",
+		ko: "{target}가 보호되어 있어 {commits}개 중 {landed}개만 반영, 나머지는 {url}에서 기다려요",
+	},
+	"autopilot.summary.pushed": { en: "pushed to {target}", ko: "{target}에 푸시함" },
+	"autopilot.summary.notPushed": { en: "the last commit is not pushed", ko: "마지막 커밋은 푸시 안 됨" },
+	"autopilot.summary.local": { en: "kept on this computer", ko: "이 컴퓨터에만 있음" },
+	"autopilot.land.prTitle": {
+		en: "Autopilot can't push to the default branch",
+		ko: "오토파일럿이 기본 브랜치에 푸시할 수 없어요",
+	},
+	"autopilot.land.prBody": {
+		en: "{branch} is protected. Green cycles now go to one pull request instead: {url}",
+		ko: "{branch}가 보호되어 있어요. 이제 초록 사이클은 풀 리퀘스트 하나로 올라가요: {url}",
+	},
+	"autopilot.reason.user": { en: "Ended by you.", ko: "직접 끝냈어요." },
+	"autopilot.reason.user_pause": { en: "Paused by you.", ko: "직접 일시정지했어요." },
+	"autopilot.reason.user_abort": { en: "Stopped by you.", ko: "직접 멈췄어요." },
+	"autopilot.reason.tab_closed": { en: "Its tab was closed.", ko: "탭이 닫혔어요." },
 	"autopilot.reason.repo_gone": {
 		en: "The repository folder is gone ({detail}).",
 		ko: "저장소 폴더가 사라졌어요({detail}).",

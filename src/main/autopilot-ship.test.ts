@@ -499,7 +499,9 @@ describe("land", () => {
 		await fs.chmod(hook, 0o755);
 		const ship = runner({
 			prCreate: async () => {
-				throw new Error('a pull request for branch "x" into branch "main" already exists:\nhttps://github.com/o/r/pull/3');
+				throw new Error(
+					'a pull request for branch "x" into branch "main" already exists:\nhttps://github.com/o/r/pull/3',
+				);
 			},
 		});
 		const sha = await commit(work, "a.txt");
