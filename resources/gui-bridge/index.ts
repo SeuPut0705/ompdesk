@@ -16,7 +16,7 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { type AreaFailure, type FeatureId, mergeAreaFailures, UnsupportedOmpError } from "./capabilities";
+import { ALL_FEATURES, type AreaFailure, type FeatureId, mergeAreaFailures, UnsupportedOmpError } from "./capabilities";
 import { probe } from "./health";
 import { bindEnv } from "./modes/shared";
 import type { RoleSettings } from "./ompdesk-roles";
@@ -102,7 +102,7 @@ function builtins(failures: readonly AreaFailure[]): BridgeMethods {
 		/** Startup compatibility self-check: which GUI features this omp cannot serve, and why. */
 		capabilities: async (_params, env) => ({
 			ompVersion: env.pi.pi.VERSION,
-			unavailable: mergeAreaFailures(await probe(env), failures),
+			unavailable: mergeAreaFailures(await probe(env, ALL_FEATURES, { evaluateHeavy: false }), failures),
 		}),
 	};
 }

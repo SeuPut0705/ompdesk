@@ -7,10 +7,12 @@
  * called.
  */
 import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
 	ALL_FEATURES,
 	deriveUnavailable,
 	type FeatureId,
+	HEAVY_COPIES,
 	parseHidden,
 	REQUIREMENTS,
 	separateCopies,
@@ -225,6 +227,9 @@ export function stockCopies(): string[] {
 
 const COPIES = unsafeCopies(TARGETS);
 
+/** The costly source copies of this omp (`HEAVY_COPIES`); empty on an omp run from source, where nothing is a copy. */
+const HEAVY = new Set(separateCopies(TARGETS).filter(specifier => specifier in HEAVY_COPIES));
+
 /** Settled imports by specifier; `undefined` when this omp has no such module. */
 const imports = new Map<string, Promise<unknown>>();
 
@@ -239,15 +244,26 @@ function importOnce(specifier: string): Promise<unknown> {
 	return pending;
 }
 
-/** Features of `features` whose omp internals are missing. */
+/**
+ * Features of `features` whose omp internals are missing. `evaluateHeavy: false` (the startup `capabilities` probe)
+ * leaves each costly source copy unevaluated and checks only that its file exists, so no omp thread spends a second
+ * transpiling omp's source tree before the first tab can answer; `guard` evaluates them on a feature's first call.
+ */
 export async function probe(
 	env: BridgeEnv,
 	features: readonly FeatureId[] = ALL_FEATURES,
+	{ evaluateHeavy = true }: { evaluateHeavy?: boolean } = {},
 ): Promise<UnavailableFeature[]> {
 	const specifiers = new Set(features.flatMap(feature => Object.keys(REQUIREMENTS[feature].modules ?? {})));
 	const modules = new Map<string, unknown>();
+	const unloaded = new Set<string>();
 	await Promise.all(
 		[...specifiers].map(async specifier => {
+			const target = TARGETS[specifier] ?? "";
+			if (!evaluateHeavy && HEAVY.has(specifier) && !imports.has(specifier) && target.startsWith("file:")) {
+				if (fs.existsSync(fileURLToPath(target))) unloaded.add(specifier);
+				return;
+			}
 			const namespace = await importOnce(specifier);
 			if (namespace !== undefined) modules.set(specifier, namespace);
 		}),
@@ -267,6 +283,7 @@ export async function probe(
 		hasPrompt: relative => fs.existsSync(ompPromptPath(relative)),
 		hidden: HIDDEN,
 		copies: COPIES,
+		unloaded,
 	});
 }
 

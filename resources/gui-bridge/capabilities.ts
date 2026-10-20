@@ -1287,6 +1287,24 @@ export const COPY_SAFE: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Source copies whose first import makes bun transpile a large part of omp's source tree inside the omp process,
+ * measured on Windows (omp 18.12.3, bun 1.4.3, warm cache): `config` and `tts/*` ~540 ms of omp's only thread, `sdk` and
+ * `skillshare/*` another ~600 ms; with a cold transpiler cache the same loads took 4 to 6 s before omp's `ready`. The
+ * startup `capabilities` probe leaves them unevaluated (`ProbeSources.unloaded`); `guard` still evaluates a feature's
+ * modules on its first call. Each is in COPY_SAFE.
+ */
+export const HEAVY_COPIES: Readonly<Record<string, string>> = {
+	[`${AGENT}/config`]: "extensions/agents.ts loads it on use",
+	[`${AGENT}/sdk`]: "presence probe only",
+	[`${AGENT}/skillshare/client`]: "presence probe only",
+	[`${AGENT}/skillshare/installer`]: "presence probe only",
+	[`${AGENT}/skillshare/manifest`]: "presence probe only",
+	[`${AGENT}/tts/models`]: "voice.ts loads it on use",
+	[`${AGENT}/tts/tts-client`]: "voice.ts loads it on use",
+	[`${AGENT}/tts/wav`]: "voice.ts loads it on use",
+};
+
+/**
  * Specifiers whose loader reached a separate copy, from each loader's import target as omp rewrote it. On an omp run
  * from source nothing is bundled and every import shares one graph, so nothing counts as a copy there.
  */
@@ -1314,6 +1332,11 @@ export interface ProbeSources {
 	hidden?: ReadonlySet<string>;
 	/** Specifiers that loaded a separate copy of stock, not the running omp's module (`unsafeCopies`). */
 	copies?: ReadonlySet<string>;
+	/**
+	 * Specifiers a probe left unevaluated because their file is there and loading it is costly (`HEAVY_COPIES`): present
+	 * for this check, verified by the first guarded call that needs them.
+	 */
+	unloaded?: ReadonlySet<string>;
 }
 
 const label = (owner: string, path: string) => `${owner}${path.endsWith("()") ? path.slice(0, -2) : path}`;
@@ -1335,6 +1358,7 @@ export function missingFor(requirement: FeatureRequirement, sources: ProbeSource
 			missing.push(`${specifier} (separate copy, not this omp's module)`);
 			continue;
 		}
+		if (sources.unloaded?.has(specifier)) continue;
 		if (!sources.modules.has(specifier)) {
 			missing.push(specifier);
 			continue;
