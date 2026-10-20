@@ -6,6 +6,8 @@
 
 Before you open: say which parts you will run. Write each first message with the brief template in SKILL.md. When the child writes files, give it `worktree: true` or Ownership no other child shares, so two sessions never edit one file.
 
+Track what you dispatched in `todo`: one item per session you open, named by its title, marked done when its `done` report arrives (dropped when you stop it), so the list on the user's work board is the work in flight, not an earlier task's steps.
+
 ```json
 ompdesk_session_open
 {"show": "background", "sessions": [
