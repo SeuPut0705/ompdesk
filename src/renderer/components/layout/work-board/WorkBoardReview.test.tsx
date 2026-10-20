@@ -68,6 +68,9 @@ Reflect.set(globalThis, "ResizeObserver", FakeResizeObserver);
 
 const { createRoot } = await import("react-dom/client");
 const { WorkBoardHost } = await import("./WorkBoard");
+// The board's lazy chunks, loaded (and transformed) here once, so React.lazy finds them in the module cache and a
+// mount never races a first transform: on a slow runner that took longer than any fixed wait.
+await Promise.all([import("./WorkBoardOpened"), import("./WorkBoardSession"), import("./SessionSpendLine")]);
 
 let container: HTMLElement;
 let root: Root;
@@ -97,9 +100,9 @@ async function mount(more: Array<Record<string, unknown>> = []): Promise<void> {
 			if (observer.element === (pane as unknown as Element))
 				observer.callback([{ target: pane as unknown as Element, contentRect: { width: 1600 } }]);
 	});
-	// The review and opened rows are a lazy chunk: let it load.
+	// The lazy chunks are already loaded above: one macrotask lets React.lazy resolve from the module cache.
 	await act(async () => {
-		await new Promise(resolve => setTimeout(resolve, 30));
+		await new Promise(resolve => setTimeout(resolve, 0));
 	});
 }
 
