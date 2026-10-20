@@ -1,9 +1,12 @@
 import { defineConfig } from "@playwright/test";
+import { dropGitRoutingEnv } from "./scripts/git-env";
 import { pinSnapshot } from "./scripts/out-snapshot";
 
 // Every suite launches Electron with `...process.env`; keep its windows off the
 // user's screen (see OMP_GUI_HEADLESS in src/main/index.ts). Set to 0 to watch.
 process.env.OMP_GUI_HEADLESS ??= "1";
+// A run started under `git bisect run` or a hook must not send the specs' temp-repo git commands to this checkout.
+dropGitRoutingEnv();
 // Every spec launches the app from OMP_GUI_E2E_OUT (default out/). Pin it once, here, to an immutable
 // copy of the current build (`scripts/out-snapshot.ts`), so a build another agent starts mid-run never
 // changes the app under this one. Workers load this file again and inherit the pinned value.
