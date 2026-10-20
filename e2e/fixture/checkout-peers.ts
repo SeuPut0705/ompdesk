@@ -10,8 +10,8 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { normalizePath } from "../../resources/gui-bridge/modes/autopilot-guard-core";
-import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
 import {
+	CheckoutPeersState,
 	checkoutRefusal,
 	rememberFiles,
 	shellWrites,
@@ -30,18 +30,17 @@ interface Host {
 }
 
 export function createCheckoutFake(host: Host) {
-	let peers: CheckoutPeers | undefined;
+	const state = new CheckoutPeersState();
 	let ownFiles: string[] = [];
 	const cwd = process.cwd();
 
 	const bridgeMethods: Record<string, (params: Params) => unknown> = {
 		checkout_peers_set: params => {
-			const next = params as unknown as CheckoutPeers;
-			peers = next.worktree.length > 0 || next.repo.length > 0 ? next : undefined;
+			state.set(params);
 			return { ok: true };
 		},
 		checkout_touched: () => ({ files: ownFiles }),
-		"checkout_peers.get": () => ({ peers: peers ?? null }),
+		"checkout_peers.get": () => ({ peers: state.peers ?? null }),
 	};
 
 	function call(
@@ -81,7 +80,7 @@ export function createCheckoutFake(host: Host) {
 
 	function bash(command: string): { text: string; isError: boolean } {
 		const at = normalizePath(cwd, "/");
-		const refusal = peers ? checkoutRefusal(command, at, peers, ownFiles) : undefined;
+		const refusal = state.peers ? checkoutRefusal(command, at, state.peers, ownFiles) : undefined;
 		if (refusal) return { text: refusal, isError: true };
 		ownFiles = rememberFiles(ownFiles, shellWrites(command, at), 40);
 		try {
@@ -95,7 +94,7 @@ export function createCheckoutFake(host: Host) {
 
 	function writeFile(path: string, content: string): { text: string; isError: boolean } {
 		const file = nodePath.resolve(cwd, path);
-		const refusal = peers ? writeRefusal([normalizePath(file, "/")], peers, ownFiles) : undefined;
+		const refusal = state.peers ? writeRefusal([normalizePath(file, "/")], state.peers, ownFiles) : undefined;
 		if (refusal) return { text: refusal, isError: true };
 		fs.mkdirSync(nodePath.dirname(file), { recursive: true });
 		fs.writeFileSync(file, content);
@@ -109,7 +108,7 @@ export function createCheckoutFake(host: Host) {
 		for (const [index, step] of steps.entries()) {
 			if ("wait" in step) {
 				const until = Date.now() + 15_000;
-				while (!peers && Date.now() < until) {
+				while (!state.peers && Date.now() < until) {
 					const { promise, resolve } = Promise.withResolvers<void>();
 					setTimeout(resolve, 100);
 					await promise;
