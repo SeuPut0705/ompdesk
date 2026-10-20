@@ -63,7 +63,11 @@ for (const language of variants(["en", "ko"] as const, language => language === 
 				buttons.map(button => button.getAttribute("data-settings-section") ?? ""),
 			);
 			for (const id of ids) {
-				await settings.locator(`[data-settings-section="${id}"]`).click();
+				const navItem = settings.locator(`[data-settings-section="${id}"]`);
+				await navItem.click();
+				// The section changes inside a view transition: until the new one is shown, the tabs counted below
+				// would be the previous section's (nightly 39467829687 counted Tools' and then clicked a detached tab).
+				await expect(content.locator("#settings-section-title")).toHaveText((await navItem.innerText()).trim());
 				await expect(content.locator(".animate-spin")).toHaveCount(0, { timeout: 30_000 });
 				if ((await sideways(content)) > 0) overflowing.push(id);
 				const tabs = content.getByRole("tab");

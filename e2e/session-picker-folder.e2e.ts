@@ -42,9 +42,19 @@ async function seed(agent: string, id: string, cwd: string, title: string): Prom
 }
 
 async function pick(page: Page, title: string): Promise<void> {
-	await page.keyboard.press("ControlOrMeta+Shift+F");
 	const option = page.getByRole("option").filter({ hasText: title });
-	await expect(option).toBeVisible({ timeout: 30_000 });
+	// On a loaded runner the first ⇧⌘F right after "ready" opened no picker (nightly 39467829687; the cause is not
+	// known, nothing covered the window). Press again while no dialog is open, and note it in the report, so a press
+	// the app keeps dropping still shows up.
+	let presses = 0;
+	await expect(async () => {
+		if (!(await page.getByRole("dialog").isVisible())) {
+			presses++;
+			await page.keyboard.press("ControlOrMeta+Shift+F");
+		}
+		await expect(option).toBeVisible({ timeout: 5_000 });
+	}).toPass({ timeout: 30_000 });
+	if (presses > 1) test.info().annotations.push({ type: "picker-presses", description: `${title}: ${presses}` });
 	await option.click();
 }
 

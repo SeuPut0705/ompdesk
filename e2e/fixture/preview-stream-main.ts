@@ -397,7 +397,12 @@ async function main() {
 	const settle = await poll(null, 3000);
 	if (settle.frame) seq = settle.frame.seq;
 	log.length = 0;
+	// A tap sent while the freshly loaded page cannot hit-test yet is lost, as on any browser (nightly 39467829687 on a
+	// loaded runner: no click, so no dialog). While no dialog came and the page logged no click, tap again; the count
+	// goes in the result.
 	input({ t: "tap", x: 100 / 390, y: 58 / 700 });
+	let dialogTaps = 1;
+	let tappedAt = Date.now();
 	const dialogs: Array<{ kind: string; message: string; initial: string | null }> = [];
 	const answers = [
 		{ accept: true, text: undefined },
@@ -409,6 +414,12 @@ async function main() {
 		const waitedFrom = Date.now();
 		while (!opened?.dialogs.length) {
 			if (Date.now() - waitedFrom > 8000) throw new Error("No dialog arrived");
+			const lost = dialogs.length === 0 && !log.some(entry => entry.type === "click" && entry.target === "btn");
+			if (lost && Date.now() - tappedAt > 2500 && dialogTaps < 3) {
+				input({ t: "tap", x: 100 / 390, y: 58 / 700 });
+				dialogTaps++;
+				tappedAt = Date.now();
+			}
 			opened = await poll(seq, 1500);
 			if (opened.frame) seq = opened.frame.seq;
 		}
@@ -424,6 +435,7 @@ async function main() {
 		});
 	}
 	await waitFor("the page to resume", () => log.some(entry => entry.type === "alert-returned"));
+	result.dialogTaps = dialogTaps;
 	result.dialogs = {
 		asked: dialogs,
 		confirm: log.find(entry => entry.type === "confirm")?.result,
