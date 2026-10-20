@@ -32,6 +32,7 @@
  */
 
 import { stat } from "node:fs/promises";
+import type { SavedWorktree } from "../shared/disk-care";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
 import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
@@ -66,6 +67,12 @@ export type SpawnTabDeps = {
 	anyWindowViews?: boolean;
 	/** The tabs this computer runs for paired devices: a view of the one holding a session, else null. */
 	hosted?: { viewSession(sessionPath: string): SidecarLike | null };
+	/** Worktrees disk care saved before removing them (`disk/saved-worktrees.ts`): what a gone folder can come back from. */
+	savedWorktrees?: {
+		/** The saved record of exactly that folder, if disk care took it. */
+		find(folder: string): Promise<Pick<SavedWorktree, "id" | "branch" | "removedAt"> | null>;
+		restore(id: string): Promise<unknown>;
+	};
 };
 
 export async function spawnTabForWindow(
@@ -114,11 +121,23 @@ export async function spawnTabForWindow(
 		if (!device && kind !== "chat") {
 			const recorded = await deps.sessionIndex.recordedCwd(sessionPath);
 			if (recorded) {
-				const exists = await stat(recorded).then(
-					info => info.isDirectory(),
-					() => false,
-				);
-				if (!exists) return { tabId: null, refusal: "folder-missing", folder: recorded };
+				const exists = () =>
+					stat(recorded).then(
+						info => info.isDirectory(),
+						() => false,
+					);
+				if (!(await exists())) {
+					const saved = (await deps.savedWorktrees?.find(recorded)) ?? null;
+					if (!saved || payload.restoreSaved !== true)
+						return {
+							tabId: null,
+							refusal: "folder-missing",
+							folder: recorded,
+							...(saved ? { saved: { id: saved.id, branch: saved.branch, removedAt: saved.removedAt } } : {}),
+						};
+					await deps.savedWorktrees?.restore(saved.id);
+					if (!(await exists())) return { tabId: null, refusal: "folder-missing", folder: recorded };
+				}
 				home = recorded;
 			}
 		}

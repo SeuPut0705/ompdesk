@@ -91,7 +91,15 @@ export const ko: Record<string, string> = {
 	// Session tab strip (TabBar)
 	"tabs.kindMismatch":
 		"이 세션은 유형이 달라요. 에이전트 세션과 채팅 세션은 서로 변환할 수 없으니 세션 목록에서 여세요.",
-	"tabs.folderMissing": "이 세션이 속한 폴더가 없어졌어요 ({folder}). 다른 폴더에서는 열지 않아요.",
+	"tabs.folderMissing":
+		"이 세션이 작업하던 폴더({folder})가 없어졌고 저장된 것도 없어서, 다른 폴더에서는 열지 않아요. 세션은 지울 때까지 목록에 남아 있어요.",
+	"tabs.folderSaved.title": "이 세션의 폴더가 정리됐어요",
+	"tabs.folderSaved":
+		"디스크 정리가 {folder}를 저장한 뒤 지웠어요. 브랜치, 커밋하지 않은 작업, 개인 파일이 남아 있어요. 복원하면 그 폴더에서 세션을 이어 갈 수 있어요.",
+	"tabs.folderSaved.restore": "복원",
+	"sessionFolder.gone": "폴더 없음",
+	"sessionFolder.goneTip":
+		"이 세션이 작업하던 폴더가 없어졌어요. 열면, 디스크 정리가 저장해 둔 경우 복원할 수 있어요.",
 	"tabs.menu.splitRight": "오른쪽으로 분할",
 	"tabs.menu.splitBottom": "아래로 분할",
 	"tabs.menu.removeSplit": "분할 보기 종료",

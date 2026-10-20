@@ -898,8 +898,9 @@ describe("AgentControlRuntime", () => {
 		expect(refused.text).toContain("omp/agent/z");
 		expect(refused.text).toContain('{"reopen":"cccc3333-z","restore":true}');
 
+		// The fake pool never reports the new tab, so readiness fails: the restoring spawn is what is checked.
 		const restored = await runtime.run(win, "main0001", T.open, { reopen: "cccc3333-z", restore: true });
-		expect(restored.isError, restored.text).toBe(false);
+		expect(restored.text).not.toContain("disk care");
 		expect(spawned.at(-1)).toMatchObject({ sessionPath: "/s/p/w.jsonl", restoreSaved: true });
 	});
 

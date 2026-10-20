@@ -1487,6 +1487,18 @@ export interface IpcSpawnTabPayload {
 	device?: string;
 	/** What another session's agent opened the tab for (`IpcTabInfo.task`): set before any window hears of the tab. */
 	task?: string;
+	/**
+	 * A stored session whose folder is gone and was saved by disk care: restore that worktree first, then open the
+	 * session in it (the Restore a `folder-missing` refusal offers).
+	 */
+	restoreSaved?: true;
+}
+
+/** A worktree disk care saved before removing it (`SavedWorktree`), as a `folder-missing` refusal names it. */
+export interface IpcSavedFolder {
+	id: string;
+	branch: string | null;
+	removedAt: number;
 }
 
 /** Owner of a session file: the tab (and its window) currently attached to it. */
@@ -1543,6 +1555,8 @@ export interface IpcSpawnTabResult {
 	refusal?: "owned" | "kind-mismatch" | "folder-missing";
 	/** With `folder-missing`: the folder the session belongs in. */
 	folder?: string;
+	/** With `folder-missing`: disk care saved that folder before removing it; `restoreSaved` puts it back. */
+	saved?: IpcSavedFolder;
 	/** The session was already open in another window's tab, and this window now views that tab (`tabId`). */
 	attached?: true;
 }

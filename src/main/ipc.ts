@@ -108,6 +108,7 @@ import {
 } from "./checkout-peers";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { DesktopSlotHost } from "./desktop-slot-host";
+import { savedWorktreesForSpawn } from "./disk/saved-worktrees";
 import { openInExternalEditor } from "./editor";
 import { isOpenableExternalUrl } from "./external-url";
 import { getMainLanguage, mainT } from "./i18n";
@@ -945,6 +946,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					defaultWorkspace: ensureDefaultWorkspace,
 					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
 					hosted: deps.hostedTabs,
+					savedWorktrees: savedWorktreesForSpawn,
 				},
 				win,
 				payload,
@@ -1059,6 +1061,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					defaultWorkspace: ensureDefaultWorkspace,
 					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
 					hosted: deps.hostedTabs,
+					savedWorktrees: savedWorktreesForSpawn,
 				},
 				win,
 				payload,
@@ -1272,6 +1275,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				defaultWorkspace: ensureDefaultWorkspace,
 				remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
 				hosted: deps.hostedTabs,
+				savedWorktrees: savedWorktreesForSpawn,
 				anyWindowViews: process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1",
 			},
 			win,

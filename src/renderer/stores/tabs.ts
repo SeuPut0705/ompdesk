@@ -472,6 +472,8 @@ export interface TabsStore {
 		device?: string;
 		/** The empty start tab (`SessionTab.placeholder`): no session until its first message. */
 		placeholder?: boolean;
+		/** The session's folder is gone and disk care saved it: restore that worktree, then open the session there. */
+		restoreSaved?: boolean;
 	}) => Promise<string | null>;
 	/**
 	 * Focus this tab (the pick rules live in `viewAfterPick`): a pane of the
@@ -694,6 +696,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 				kind,
 				...(args?.work ? { defaultWorkspace: true } : {}),
 				...(args?.placeholder ? { placeholder: true } : {}),
+				...(args?.restoreSaved ? { restoreSaved: true } : {}),
 				worktree: args?.worktree,
 				...(device === undefined ? {} : { device }),
 			});
@@ -712,10 +715,23 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			return null;
 		}
 		if (result.tabId === null && result.refusal === "folder-missing") {
+			const folder = result.folder ?? "";
+			// Disk care saved the folder before it removed it: Restore puts the worktree back and opens the session there.
+			if (result.saved && !args?.restoreSaved) {
+				const again = { ...args, restoreSaved: true };
+				toast({
+					variant: "warning",
+					title: translate("tabs.folderSaved.title"),
+					message: translate("tabs.folderSaved", { folder }),
+					action: { label: translate("tabs.folderSaved.restore"), run: () => void get().openTab(again) },
+					durationMs: Number.POSITIVE_INFINITY,
+				});
+				return null;
+			}
 			toast({
 				variant: "error",
 				title: translate("tabs.newFailed"),
-				message: translate("tabs.folderMissing", { folder: result.folder ?? "" }),
+				message: translate("tabs.folderMissing", { folder }),
 			});
 			return null;
 		}

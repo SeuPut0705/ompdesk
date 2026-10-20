@@ -62,6 +62,11 @@ const OPEN_ONE = {
 		description:
 			"Open a stored session again instead of a new one: its id from ompdesk_sessions scope stored. folder, worktree and mode do not apply.",
 	},
+	restore: {
+		type: "boolean",
+		description:
+			"With reopen: when the session's folder is gone and OMPdesk's disk care saved it, put that worktree back first (its branch, uncommitted work and archived files), then open the session there.",
+	},
 	model: {
 		type: "string",
 		description: "Model as provider/id or an id from the model list; default the session's default model.",
@@ -603,6 +608,7 @@ const openFields = {
 	folder: z.string().trim().min(1).max(4096).optional(),
 	device: deviceArg.optional(),
 	reopen: sessionArg.optional(),
+	restore: z.boolean().optional(),
 	model: z.string().trim().min(1).max(200).optional(),
 	mode: z.enum(["plan", "goal"]).optional(),
 	worktree: worktreeArg.optional(),
@@ -613,10 +619,14 @@ const goalNeedsMessage = [
 	{ message: "mode goal needs a message: it becomes the goal" },
 ] as const;
 const reopenAlone = [
-	(args: { reopen?: string; folder?: string; worktree?: unknown; mode?: string }) =>
-		args.reopen === undefined ||
-		(args.folder === undefined && args.worktree === undefined && args.mode === undefined),
-	{ message: "reopen opens a stored session as it was: give no folder, worktree or mode with it" },
+	(args: { reopen?: string; restore?: boolean; folder?: string; worktree?: unknown; mode?: string }) =>
+		args.reopen === undefined
+			? args.restore === undefined
+			: args.folder === undefined && args.worktree === undefined && args.mode === undefined,
+	{
+		message:
+			"reopen opens a stored session as it was: give no folder, worktree or mode with it; restore goes only with reopen",
+	},
 ] as const;
 
 const openOne = z

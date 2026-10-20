@@ -102,6 +102,7 @@ import {
 	type ControlTab,
 	type OpenedChild,
 	type ScheduleRow,
+	SessionFolderMissing,
 	type SpawnRequest,
 	type ToolOutcome,
 } from "./service";
@@ -572,6 +573,7 @@ export class AgentControlRuntime {
 		const result = await this.#deps.spawnTab(win, {
 			...(target !== undefined ? { cwd: target } : {}),
 			...(request.sessionPath ? { sessionPath: request.sessionPath } : {}),
+			...(request.restoreSaved ? { restoreSaved: true as const } : {}),
 			...(worktree ? { worktree } : {}),
 			...(device ? { device } : {}),
 			...(request.task ? { task: request.task } : {}),
@@ -585,9 +587,7 @@ export class AgentControlRuntime {
 				).catch(() => null);
 			}
 			if (result?.refusal === "folder-missing")
-				throw new Error(
-					`The folder this saved session belongs in no longer exists (${result.folder}); it is not opened in any other folder.`,
-				);
+				throw new SessionFolderMissing(result.folder ?? "", result.saved ?? null);
 			throw new Error("The new session could not be started.");
 		}
 		this.#windows.set(result.tabId, win);

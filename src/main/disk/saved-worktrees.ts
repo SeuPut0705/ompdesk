@@ -486,6 +486,15 @@ export function discardOpenedWorktree(worktree: WorktreeRef): Promise<WorktreeRe
 	return discardNewWorktree(worktree, archiveBeforeRemove(savedWorktreeStore(), null));
 }
 
+/** What the tab spawn asks of this computer's saved worktrees (`SpawnTabDeps.savedWorktrees`). */
+export const savedWorktreesForSpawn = {
+	async find(folder: string): Promise<SavedWorktree | null> {
+		const wanted = realFolder(folder);
+		return (await savedWorktreeStore().list()).find(record => realFolder(record.path) === wanted) ?? null;
+	},
+	restore: (id: string) => restoreSavedWorktree(id, savedWorktreeStore()),
+};
+
 /** The saved worktrees of `cwd`'s repository, newest removal first. */
 export async function listSavedWorktrees(primary: string, saved: SavedWorktreeStore): Promise<SavedWorktree[]> {
 	const repo = realFolder(primary);

@@ -64,7 +64,7 @@ import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import type { CheckoutMember } from "../checkout-peers";
 import { deletedSessions } from "../deleted-sessions";
-import { discardOpenedWorktree } from "../disk/saved-worktrees";
+import { discardOpenedWorktree, savedWorktreesForSpawn } from "../disk/saved-worktrees";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
@@ -1161,10 +1161,13 @@ export class LocalHostServices implements HostServices {
 					? await this.#deps.sessionIndex.recordedCwd(params.sessionPath)
 					: null;
 			cwd = recorded
-				? await directory(recorded).catch(() => {
+				? await directory(recorded).catch(async () => {
+						const saved = await savedWorktreesForSpawn.find(recorded).catch(() => null);
 						throw codedError(
 							"session_folder_missing",
-							`The folder this session belongs in no longer exists: ${recorded}`,
+							saved
+								? `The folder this session belongs in no longer exists: ${recorded}. ${this.#deps.hostName()}'s disk care saved it (saved worktree ${saved.id}); restore it there from Work tree › Saved worktrees, then open the session again.`
+								: `The folder this session belongs in no longer exists: ${recorded}`,
 						);
 					})
 				: await directory(params.cwd);

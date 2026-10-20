@@ -47,7 +47,7 @@ import {
 	wrapAgentMessage,
 } from "../../shared/agent-control";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
-import type { IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
+import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -181,6 +181,8 @@ export interface SpawnRequest {
 	device?: string | null;
 	/** Open this saved session file instead of a new session. */
 	sessionPath?: string;
+	/** With `sessionPath`: its folder is gone and disk care saved it; restore that worktree, then open the session there. */
+	restoreSaved?: true;
 	/** Who asked for the session (Autopilot passes "autopilot-child"); the host records the caller tab as parent. */
 	tag?: string;
 	/**
@@ -429,6 +431,18 @@ class ToolError extends Error {}
 
 function fail(message: string): never {
 	throw new ToolError(message);
+}
+
+/** A stored session's recorded folder is gone (`folder-missing` from the tab spawn); `saved` = disk care kept it. */
+export class SessionFolderMissing extends Error {
+	constructor(
+		readonly folder: string,
+		readonly saved: IpcSavedFolder | null,
+	) {
+		super(
+			`The folder this saved session belongs in no longer exists (${folder}); it is not opened in any other folder.`,
+		);
+	}
 }
 
 function responseData<T>(response: RpcResponse, what: string): T {
@@ -1557,9 +1571,20 @@ export class AgentControl {
 				worktree: worktreeArg,
 				...(device !== undefined ? { device } : {}),
 				...(sessionPath ? { sessionPath } : {}),
+				...(sessionPath && args.restore ? { restoreSaved: true as const } : {}),
 				...(tag ? { tag } : {}),
 				...(task ? { task } : {}),
 			}));
+		} catch (error) {
+			if (!(error instanceof SessionFolderMissing) || !args.reopen) throw error;
+			const { folder, saved } = error;
+			if (!saved)
+				fail(
+					`The folder this saved session worked in no longer exists (${folder}) and nothing of it was saved, so it is not opened in any other folder. Its transcript stays readable with ompdesk_session_read {"session":"${args.reopen}"}.`,
+				);
+			fail(
+				`The folder this saved session worked in (${folder}) was removed by OMPdesk's disk care, which saved it first (saved worktree ${saved.id}${saved.branch ? `, branch ${saved.branch}` : ""}, removed ${new Date(saved.removedAt).toISOString()}). Put it back and open the session there with ompdesk_session_open ${JSON.stringify({ reopen: args.reopen, restore: true })}; the person can also restore it from Work tree › Saved worktrees.`,
+			);
 		} finally {
 			opened.delete(reservation);
 		}

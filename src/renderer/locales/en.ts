@@ -95,7 +95,14 @@ export const en: Record<string, string> = {
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted, so open it from the session list instead.",
 	"tabs.folderMissing":
-		"The folder this session belongs in no longer exists ({folder}), so it isn't opened anywhere else.",
+		"The folder this session worked in ({folder}) is gone and nothing of it was saved, so it isn't opened in any other folder. The session itself stays in your list until you delete it.",
+	"tabs.folderSaved.title": "This session's folder was tidied away",
+	"tabs.folderSaved":
+		"Disk care removed {folder} after saving it: its branch, uncommitted work and private files. Restore it to continue the session there.",
+	"tabs.folderSaved.restore": "Restore",
+	"sessionFolder.gone": "Folder removed",
+	"sessionFolder.goneTip":
+		"The folder this session worked in is gone. Opening it offers Restore when disk care saved it.",
 	"tabs.menu.splitRight": "Split right",
 	"tabs.menu.splitBottom": "Split below",
 	"tabs.menu.removeSplit": "Exit split view",
