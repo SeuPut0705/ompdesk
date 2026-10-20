@@ -621,7 +621,8 @@ export const en: Record<string, string> = {
 	"autopilot.ship.cadenceEvery": "Every {n} green cycles",
 	"autopilot.ship.cadenceAgent": "When the agent decides",
 	"autopilot.ship.procedure": "Release procedure found: {file} › {anchors}",
-	"autopilot.ship.noProcedure": "No release procedure found in the repository's rules files, so releases are off.",
+	"autopilot.ship.noProcedure":
+		"No release procedure in the rules files or AUTOPILOT.md yet. Automatic writes one from the repository when the project releases.",
 	"autopilot.ship.kind.push": "Push",
 	"autopilot.ship.kind.pr": "Pull request",
 	"autopilot.ship.kind.merge": "Merge",
@@ -654,7 +655,7 @@ export const en: Record<string, string> = {
 	"autopilot.ship.preset.auto": "Automatic",
 	"autopilot.ship.preset.auto.desc": "No remote: commits stay on your computer. Never a release.",
 	"autopilot.ship.preset.auto.descRemote":
-		"Pushes the run's own branch to {remote} after every green cycle. Never main, never a release.",
+		"Pushes the run's own branch to {remote} after every green cycle, and releases when the project releases: by AGENTS.md's procedure, else by one Autopilot writes into AUTOPILOT.md from the repository.",
 	"autopilot.ship.preset.local": "Commit",
 	"autopilot.ship.preset.push": "Push",
 	"autopilot.ship.preset.release": "Release",
@@ -685,14 +686,6 @@ export const en: Record<string, string> = {
 	"autopilot.sheet.backlog": "Backlog",
 	"autopilot.sheet.backlogPlaceholder": "One item per line",
 	"autopilot.sheet.backlogHint": "Items the agent does first, one per line.",
-	"autopilot.sheet.guide": "Project guide (AUTOPILOT.md)",
-	"autopilot.sheet.guidePlaceholder": "Goals, priorities, paths to avoid",
-	"autopilot.sheet.guideExists": "From this repository. Edits land on the Autopilot branch only.",
-	"autopilot.sheet.guideDrafting": "Drafting a guide from your rules files, README and recent commits…",
-	"autopilot.sheet.guideModel": "Drafted from your rules, README and commits. Lands on the Autopilot branch only.",
-	"autopilot.sheet.guideTemplate": "Outline from your rules, README and commits. Lands on the Autopilot branch only.",
-	"autopilot.sheet.guideTooLarge":
-		"AUTOPILOT.md is larger than 64 KB: edit it in the repository. Autopilot reads it as it is.",
 	"autopilot.sheet.warningShort": "Full access · new worktree",
 	"autopilot.sheet.worktreeNote": "Uncommitted changes are not included.",
 	"autopilot.sheet.start": "Start Autopilot",

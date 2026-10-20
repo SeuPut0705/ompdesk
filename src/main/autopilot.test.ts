@@ -28,6 +28,7 @@ import {
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 import { createWorktree } from "./local/git/worktree";
+import { detectReleaseProcedure } from "./release-detect";
 import type { SidecarLike } from "./sidecar-types";
 import type { RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
@@ -74,8 +75,8 @@ class World {
 	goal: { enabled: boolean; status?: string } = { enabled: false };
 	failGoalCreate = false;
 	failGoalResume = false;
-	/** What the bridge answers `modes.autopilot_guide` with. */
-	guide: unknown = { exists: false, text: "" };
+	/** What the bridge answers `modes.autopilot_guide` with; unset: an agent's own text as it came, else no guide. */
+	guide: unknown = undefined;
 	/** Stock's session name per tab (`set_session_name` / `get_state`). */
 	sessionNames = new Map<string, string>();
 	/** What the windows were told the session is called (`noteSessionName`). */
@@ -143,7 +144,12 @@ class World {
 				return current;
 			}
 			case AUTOPILOT_BRIDGE_METHODS.guide:
-				return this.guide;
+				return (
+					this.guide ??
+					(typeof params.text === "string"
+						? { text: params.text, source: "given", release: "kept", releases: false }
+						: null)
+				);
 			case AUTOPILOT_BRIDGE_METHODS.takeShipRequests:
 				return { requests: this.requests.splice(0) };
 			case AUTOPILOT_BRIDGE_METHODS.disarm:
@@ -201,6 +207,8 @@ function text(key: MainTextKey, params?: Record<string, string | number>): strin
 function build(
 	over: {
 		releaseProcedure?: boolean;
+		/** The real detection over the run's checkout (the committed guide's Release section counts). */
+		realDetect?: boolean;
 		relaunch?: RelaunchContinuation;
 		prefs?: Record<string, unknown>;
 		probeRepo?: (root: string) => Promise<RepoProbe>;
@@ -283,7 +291,9 @@ function build(
 				entry.stopped = true;
 			};
 		},
-		detectRelease: async () => (over.releaseProcedure ? { file: "AGENTS.md", anchors: ["Release"] } : null),
+		detectRelease: over.realDetect
+			? detectReleaseProcedure
+			: async () => (over.releaseProcedure ? { file: "AGENTS.md", anchors: ["Release"] } : null),
 		log: () => undefined,
 		...(over.probeRepo ? { probeRepo: over.probeRepo } : {}),
 	});
@@ -452,9 +462,45 @@ describe("start", () => {
 			await start({ type: "set_autopilot", action: "start" });
 			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
 		});
-		it("pushes the run's own new branch when the repository has a remote, never releases", async () => {
+		it("pushes the run's own new branch when the repository has a remote, and releases only by a procedure", async () => {
 			await start({ type: "set_autopilot", action: "start" });
 			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: false }, remote: "origin" });
+		});
+		it("releases by a rules file's procedure, when the agent judges it due", async () => {
+			build({ releaseProcedure: true });
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: true, cadence: { kind: "agent" } } });
+		});
+		it("releases by the Release section of the guide Start committed, and the agent is told to follow it", async () => {
+			build({ realDetect: true });
+			world.guide = {
+				text: "# Guide\n\n## Release\n\nReleases: yes\n1. Tag it.\n",
+				source: "template",
+				release: "added",
+				releases: true,
+			};
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: true } });
+			expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params).toMatchObject({
+				releaseProcedure: { file: "AUTOPILOT.md", anchors: ["Release"] },
+			});
+		});
+		it("stays push-only when the guide says the project does not release, and local without a remote", async () => {
+			build({ realDetect: true });
+			world.guide = {
+				text: "# Guide\n\n## Release\n\nReleases: no\n- Nothing ships.\n",
+				source: "template",
+				release: "added",
+				releases: false,
+			};
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: false } });
+		});
+		it("never releases without a remote, whatever the procedure", async () => {
+			build({ releaseProcedure: true });
+			gitSync(main, "remote", "remove", "origin");
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
 		});
 		it("stays local when the run would push the default branch", async () => {
 			await start({ type: "set_autopilot", action: "start", branch: { kind: "existing", name: "main" } });
@@ -486,7 +532,7 @@ describe("start", () => {
 		expect(names.lastIndexOf(AUTOPILOT_BRIDGE_METHODS.backlog)).toBeLessThan(names.indexOf("set_goal"));
 	});
 
-	it("commits the sheet's guide as the branch's first commit and leaves the user's branch alone", async () => {
+	it("commits an agent's guide as the branch's first commit and leaves the user's branch alone", async () => {
 		const { response } = await start({
 			type: "set_autopilot",
 			action: "start",
@@ -502,7 +548,7 @@ describe("start", () => {
 		expect(gitSync(main, "log", "--format=%s", "main").split("\n")).not.toContain("docs: add AUTOPILOT.md guide");
 	});
 
-	it("commits nothing when the sheet's guide is the repo's own text", async () => {
+	it("commits nothing when the agent's guide is the repo's own text", async () => {
 		await fs.writeFile(path.join(main, "AUTOPILOT.md"), "# Ours\n");
 		gitSync(main, "add", "AUTOPILOT.md");
 		gitSync(main, "commit", "-q", "-m", "add guide");
@@ -520,30 +566,37 @@ describe("start", () => {
 		expect(await fs.readFile(path.join(worktree, "AUTOPILOT.md"), "utf8")).toBe("# Ours\n\nEdited.\n");
 	});
 
-	it("asks the bridge for the repo's guide with the status, and for a draft only on guide_draft", async () => {
+	it("asks the bridge for Start's guide with the checkout and its procedure, commits what it answers, and the sheet asks for none", async () => {
+		build({ releaseProcedure: true });
+		world.guide = {
+			text: "# Built\n\n## Release\n\nReleases: yes\n",
+			source: "template",
+			release: "added",
+			releases: true,
+		};
+		await start({ type: "set_autopilot", action: "start" });
+		expect(world.bridgeCalls("parent", AUTOPILOT_BRIDGE_METHODS.guide)[0]?.params).toEqual({
+			root: expect.any(String),
+			procedure: { file: "AGENTS.md", anchors: ["Release"] },
+		});
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		expect(await fs.readFile(path.join(worktree, "AUTOPILOT.md"), "utf8")).toBe(
+			"# Built\n\n## Release\n\nReleases: yes\n",
+		);
+		expect(gitSync(worktree, "log", "--format=%s", "main..HEAD")).toBe("docs: add AUTOPILOT.md guide");
+
 		const sidecar = world.addTab("sheet", main);
 		autopilot.attachSidecar("sheet", sidecar as unknown as SidecarLike);
-		world.guide = { exists: false, text: "" };
 		const idle = await autopilot.status(sidecar as unknown as SidecarLike, "sheet");
-		expect(idle).toMatchObject({ active: false, guide: { exists: false, text: "" } });
-		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide)[0]?.params).toMatchObject({
-			root: expect.any(String),
-			draft: false,
-		});
-		world.guide = { exists: false, text: "# Draft\n", draft: "template" };
-		const drafted = await autopilot.handleCommand(
-			win,
-			sidecar as unknown as SidecarLike,
-			"sheet",
-			{ type: "set_autopilot", action: "guide_draft" },
-			"2",
-		);
-		expect(dataOf<AutopilotStatus>(drafted)).toMatchObject({
-			active: false,
-			guide: { text: "# Draft\n", draft: "template" },
-			ship: { queue: [] },
-		});
-		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide).at(-1)?.params).toMatchObject({ draft: true });
+		expect(idle).toMatchObject({ active: false, ship: { queue: [] } });
+		expect(idle).not.toHaveProperty("guide");
+		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide)).toEqual([]);
+	});
+
+	it("starts with no guide commit when the bridge cannot build one", async () => {
+		const { response } = await start({ type: "set_autopilot", action: "start" });
+		expect(response.success).toBe(true);
+		expect(gitSync(path.join(tmp, "wt-2026-10-17"), "log", "--format=%s", "main..HEAD")).toBe("");
 	});
 
 	it("passes a token ceiling to stock as the goal's budget and never a time limit", async () => {

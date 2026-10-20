@@ -6,12 +6,11 @@
  */
 
 import { CircleCheck, GitBranch, PanelRight, Rocket, TriangleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
 	AUTOPILOT_SHIP_PRESETS,
 	type AutopilotArea,
-	type AutopilotGuideInfo,
 	type AutopilotShipPreset,
 	type AutopilotStatus,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
@@ -38,22 +37,6 @@ function isShipChoice(value: unknown): value is ShipChoice {
 
 function isIdleStatus(value: unknown): value is AutopilotStatus {
 	return typeof value === "object" && value !== null && "active" in value && value.active === false;
-}
-
-type GuideHintKey =
-	| "autopilot.sheet.guideTooLarge"
-	| "autopilot.sheet.guideExists"
-	| "autopilot.sheet.guideDrafting"
-	| "autopilot.sheet.guideModel"
-	| "autopilot.sheet.guideTemplate";
-
-/** The line under the guide box: what the text is (the repo's file, a draft, a template) and where it goes. */
-function guideHintKey(guide: AutopilotGuideInfo | undefined, drafting: boolean): GuideHintKey | null {
-	if (guide?.tooLarge) return "autopilot.sheet.guideTooLarge";
-	if (guide?.exists) return "autopilot.sheet.guideExists";
-	if (drafting) return "autopilot.sheet.guideDrafting";
-	if (guide?.draft === "model") return "autopilot.sheet.guideModel";
-	return guide?.draft === "template" ? "autopilot.sheet.guideTemplate" : null;
 }
 
 /** Whether the tab's folder is a git repository (`get_git_status`); null until answered or when it cannot be read. */
@@ -155,7 +138,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const tabId = useRuntimeTabId();
 	const live = useAutopilotStore(isLiveAutopilot);
 	const detected = useAutopilotStore(s => s.status.ship);
-	const guide = useAutopilotStore(s => s.status.guide);
 	const rpc = useTabRpc();
 	const isRepo = useIsRepo();
 	const branches = useAutopilotStore(s => s.status.branches);
@@ -164,31 +146,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const [focus, setFocus] = useState<AutopilotArea[]>([]);
 	const [preset, setPreset] = useState<ShipChoice>(AUTO);
 	const [backlog, setBacklog] = useState("");
-	const [guideText, setGuideText] = useState("");
-	const [guideEdited, setGuideEdited] = useState(false);
-	const [drafting, setDrafting] = useState(false);
-	const draftAsked = useRef(false);
-
-	// The repo's guide (or the draft the first look asked for) fills the box until the user types in it.
-	useEffect(() => {
-		if (!guideEdited && guide?.text) setGuideText(guide.text);
-	}, [guide, guideEdited]);
-
-	// A repo with no guide gets one drafted, once per sheet: one cheap smol request in the bridge, the template on failure.
-	useEffect(() => {
-		if (live || isRepo !== true || !guide || guide.exists || guide.text || draftAsked.current) return;
-		draftAsked.current = true;
-		setDrafting(true);
-		void rpc
-			.setAutopilot({ action: "guide_draft" })
-			.then(response => {
-				if (response.success && isIdleStatus(response.data))
-					tabAutopilotStore(tabId).getState().apply(response.data);
-			})
-			.catch(() => {})
-			.finally(() => setDrafting(false));
-	}, [live, isRepo, guide, rpc, tabId]);
-
 	// The folder's branch is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
 	useEffect(() => {
 		if (live || isRepo !== true) return;
@@ -210,8 +167,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	}, [live, isRepo, rpc, tabId]);
 
 	if (live) return <RunSummary onOpened={onStarted} />;
-	const guideKey = guideHintKey(guide, drafting);
-	const guideHint = guideKey ? t(guideKey) : undefined;
 
 	const block = isRepo === false ? "notRepo" : null;
 	const procedure = detected?.releaseProcedure;
@@ -234,7 +189,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			...(focus.length > 0 ? { focus } : {}),
 			...(preset !== AUTO ? { preset } : {}),
 			...(items.length > 0 ? { backlog: items } : {}),
-			...(guideText.trim() && guide?.tooLarge !== true ? { guide: guideText } : {}),
 		});
 		if (started) onStarted?.();
 	};
@@ -244,25 +198,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			{block && <InlineNotice title={t(`autopilot.sheet.blocked.${block}`)} tone="info" />}
 
 			<fieldset className="settings-section-body min-w-0" disabled={block !== null}>
-				<SettingsRow
-					badge={guideHint ? <SettingInfo text={guideHint} /> : undefined}
-					label={t("autopilot.sheet.guide")}
-				>
-					<GrowArea
-						aria-label={t("autopilot.sheet.guide")}
-						data-autopilot-guide
-						disabled={guide?.tooLarge === true}
-						focusRows={8}
-						mono
-						onChange={event => {
-							setGuideEdited(true);
-							setGuideText(event.target.value);
-						}}
-						placeholder={t("autopilot.sheet.guidePlaceholder")}
-						value={guideText}
-					/>
-				</SettingsRow>
-
 				<SettingsAdvanced>
 					<SettingsRow
 						badge={<SettingInfo text={shipNote} />}

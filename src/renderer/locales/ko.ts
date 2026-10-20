@@ -612,7 +612,8 @@ export const ko: Record<string, string> = {
 	"autopilot.ship.cadenceEvery": "초록 사이클 {n}개마다",
 	"autopilot.ship.cadenceAgent": "에이전트가 판단할 때",
 	"autopilot.ship.procedure": "배포 절차 감지: {file} › {anchors}",
-	"autopilot.ship.noProcedure": "저장소 규칙 파일에서 배포 절차를 찾지 못해서 배포는 꺼져 있어요.",
+	"autopilot.ship.noProcedure":
+		"규칙 파일이나 AUTOPILOT.md에 아직 배포 절차가 없어요. 자동을 고르면 배포하는 프로젝트일 때 저장소를 읽고 절차를 써 둬요.",
 	"autopilot.ship.kind.push": "푸시",
 	"autopilot.ship.kind.pr": "PR",
 	"autopilot.ship.kind.merge": "합치기",
@@ -643,7 +644,7 @@ export const ko: Record<string, string> = {
 	"autopilot.ship.preset.auto": "자동",
 	"autopilot.ship.preset.auto.desc": "리모트가 없어서 커밋은 내 컴퓨터에만 남아요. 배포는 하지 않아요.",
 	"autopilot.ship.preset.auto.descRemote":
-		"초록 사이클마다 실행의 브랜치를 {remote}에 푸시해요. main이나 배포는 아니에요.",
+		"초록 사이클마다 실행의 브랜치를 {remote}에 푸시하고, 배포하는 프로젝트면 배포도 해요. AGENTS.md의 절차를 따르고, 없으면 저장소를 읽고 AUTOPILOT.md에 써 둔 절차를 따라요.",
 	"autopilot.ship.preset.local": "커밋",
 	"autopilot.ship.preset.push": "푸시",
 	"autopilot.ship.preset.release": "배포",
@@ -674,14 +675,6 @@ export const ko: Record<string, string> = {
 	"autopilot.sheet.backlog": "백로그",
 	"autopilot.sheet.backlogPlaceholder": "한 줄에 하나",
 	"autopilot.sheet.backlogHint": "에이전트가 먼저 할 항목을 한 줄에 하나씩 적어요.",
-	"autopilot.sheet.guide": "프로젝트 가이드(AUTOPILOT.md)",
-	"autopilot.sheet.guidePlaceholder": "목표, 우선순위, 건드리지 말 경로",
-	"autopilot.sheet.guideExists": "이 저장소의 파일이에요. 수정은 오토파일럿 브랜치에만 들어가요.",
-	"autopilot.sheet.guideDrafting": "규칙 파일, README, 최근 커밋으로 가이드 초안을 만드는 중…",
-	"autopilot.sheet.guideModel": "규칙 파일, README, 커밋으로 만든 초안이에요. 오토파일럿 브랜치에만 들어가요.",
-	"autopilot.sheet.guideTemplate": "규칙 파일, README, 커밋으로 만든 틀이에요. 오토파일럿 브랜치에만 들어가요.",
-	"autopilot.sheet.guideTooLarge":
-		"AUTOPILOT.md가 64KB보다 커요. 저장소에서 직접 고치세요. 오토파일럿은 있는 그대로 읽어요.",
 	"autopilot.sheet.warningShort": "전체 권한 · 새 워크트리",
 	"autopilot.sheet.worktreeNote": "커밋하지 않은 변경은 포함되지 않아요.",
 	"autopilot.sheet.start": "오토파일럿 시작",

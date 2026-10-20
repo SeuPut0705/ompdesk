@@ -25,6 +25,7 @@ import { basename, join, resolve } from "node:path";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
+	AUTOPILOT_GUIDE_COMMIT_MAX_BYTES,
 	AUTOPILOT_GUIDE_FILE,
 	AUTOPILOT_OBJECTIVE,
 	type AutopilotAction,
@@ -35,7 +36,7 @@ import {
 	type AutopilotChildLive,
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
-	type AutopilotGuideInfo,
+	type AutopilotEnsuredGuide,
 	type AutopilotNudgeReason,
 	type AutopilotPauseReason,
 	type AutopilotReleaseProcedure,
@@ -88,12 +89,10 @@ import type { ClientWindow } from "./web/client-window";
 const READY_TIMEOUT_MS = 120_000;
 const RELEASE_POLL_MS = 15_000;
 const RELEASE_CACHE_MS = 60_000;
-/** The most a sheet-provided guide may weigh when it is committed (the file may exceed what `begin` passes on). */
-const GUIDE_COMMIT_MAX_BYTES = 256 * 1024;
 const GIT_MS = 30_000;
 const WORKTREE_MS = 960_000;
-/** A guide draft is one model request (the bridge gives it 20 s, plus reading the repo): longer than the default 8 s RPC wait. */
-const GUIDE_DRAFT_MS = 45_000;
+/** Start's guide is at most one model request (the bridge gives it 20 s, plus reading the repo and gh): longer than the default 8 s RPC wait. */
+const GUIDE_MS = 45_000;
 /** TurnResume arms its scheduled retry a beat after a failed turn is reported; a failure still standing after this is final. */
 const ERROR_GRACE_MS = 3_000;
 /** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
@@ -536,7 +535,7 @@ export class Autopilot {
 		if (run) return this.#overlaid(run, await this.#fetchStatus(run));
 		const status = await this.#bridge<AutopilotStatus>(tabId, AUTOPILOT_BRIDGE_METHODS.status, {}).catch(() => null);
 		if (status?.active) return status;
-		return this.#idleStatus(sidecar, tabId, false);
+		return this.#idleStatus(sidecar);
 	}
 
 	async #action(
@@ -546,7 +545,6 @@ export class Autopilot {
 		action: AutopilotAction,
 	): Promise<AutopilotStatus & { tabId?: string }> {
 		if (action.action === "start") return this.#start(win, sidecar, tabId, action);
-		if (action.action === "guide_draft") return this.#idleStatus(sidecar, tabId, true);
 		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
 		if (!run) throw new AutopilotError(this.#deps.text("autopilot.err.noRun"), "autopilot_no_run");
 		switch (action.action) {
@@ -617,10 +615,13 @@ export class Autopilot {
 			options.ship?.autoPush === undefined &&
 			options.ship?.autoRelease === undefined;
 		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } });
-		const release = await this.#releaseFor(toplevel);
-		if ((settings.ship.autoRelease.on || options.preset === "release") && !release.procedure) {
+		const checkoutRelease = await this.#releaseFor(toplevel);
+		if ((settings.ship.autoRelease.on || options.preset === "release") && !checkoutRelease.procedure) {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
 		}
+		// The app owns the guide: the repo's own (an agent's text first), a Release section added from the project's facts
+		// when it has none, or a whole one built from them. Built while the worktree is made; committed into it below.
+		const guideWork = this.#guideToCommit(tabId, toplevel, checkoutRelease.procedure, options.guide);
 
 		// The branch is checked now, from git's own state: the sheet's list may be old.
 		const date = this.#deps.today?.() ?? localDate(new Date());
@@ -633,11 +634,11 @@ export class Autopilot {
 		this.#refuseBranch(choice, entries);
 		const target = viaWorkBranch(choice, entries);
 		// Nobody chose a level: push the run's own branch when the repository has a remote, unless that branch is the
-		// default branch (only an explicit choice pushes there). Never a release. Pushing is ShipRunner's fast-forward of a
-		// branch the run owns, so it is safe on a protected main and with or without CI.
+		// default branch (only an explicit choice pushes there). Pushing is ShipRunner's fast-forward of a branch the run
+		// owns, so it is safe on a protected main and with or without CI. Releasing is decided below, from the procedure.
+		const hasRemote = shipUndecided && (await this.#gitText(cwd, ["remote"])).trim() !== "";
 		if (shipUndecided) {
 			const pushes = target ?? (choice.kind === "existing" ? choice.name : null);
-			const hasRemote = (await this.#gitText(cwd, ["remote"])).trim() !== "";
 			settings = { ...settings, ship: { ...settings.ship, autoPush: hasRemote && pushes !== defaultBranch } };
 		}
 		const mode = worktreeModeFor(choice, entries);
@@ -670,9 +671,21 @@ export class Autopilot {
 		);
 		if (!created.success) throw new AutopilotError(created.error ?? "Creating the worktree failed.");
 		const made = created.data as RpcWorktreeCreateResult;
-		if (typeof options.guide === "string" && options.guide.trim()) {
-			await this.#commitGuide(made.path, options.guide);
+		const guide = await guideWork;
+		if (guide) await this.#commitGuide(made.path, guide.text);
+		// The run's own checkout holds the guide now, so its Release section counts when no rules file names a procedure.
+		const release = await this.#releaseFor(made.path);
+		// Nobody chose a level and a procedure says the project releases: the agent releases by it, when it judges the
+		// changes worth one (cadence `agent`). No remote: nothing to release to.
+		if (shipUndecided && hasRemote && release.procedure) {
+			settings = {
+				...settings,
+				ship: { ...settings.ship, autoRelease: { ...settings.ship.autoRelease, on: true } },
+			};
 		}
+		this.#deps.log?.(
+			`autopilot: guide ${guide ? `${guide.source}, release ${guide.release}, releases ${guide.releases}` : "unavailable"}; ship push ${settings.ship.autoPush}, release ${settings.ship.autoRelease.on}${release.procedure ? ` (${release.procedure.file})` : ""}`,
+		);
 		// The run's own base: the folder's branch, or, on the default branch itself, that branch (a release pushes it).
 		const baseBranch = (target ?? made.branch) === defaultBranch ? (target ?? made.branch) : checkoutBranch;
 		const runId = runIdFor(made.branch, date);
@@ -1690,13 +1703,13 @@ export class Autopilot {
 	}
 
 	/**
-	 * Writes the start sheet's guide into the new worktree and commits it as the autopilot branch's first commit; nothing
-	 * happens when the worktree's own AUTOPILOT.md already says the same. Hooks are skipped (a docs-only commit must not
-	 * be able to stop the start) and so is signing. The user's own branch is never written.
+	 * Writes Start's guide into the new worktree and commits it as the autopilot branch's first commit; nothing happens
+	 * when the worktree's own AUTOPILOT.md already says the same. Hooks are skipped (a docs-only commit must not be able
+	 * to stop the start) and so is signing. The user's own branch is never written.
 	 */
 	async #commitGuide(root: string, guide: string): Promise<void> {
 		const body = `${guide.trim()}\n`;
-		if (Buffer.byteLength(body) > GUIDE_COMMIT_MAX_BYTES) {
+		if (Buffer.byteLength(body) > AUTOPILOT_GUIDE_COMMIT_MAX_BYTES) {
 			throw new AutopilotError(this.#deps.text("autopilot.err.guideTooLarge"), "autopilot_guide_large");
 		}
 		const file = join(root, AUTOPILOT_GUIDE_FILE);
@@ -1720,23 +1733,27 @@ export class Autopilot {
 		}
 	}
 
-	/** The repo's guide as the sheet shows it (with `draft`, a drafted one when there is none); null when the bridge cannot say. */
-	async #guideFor(tabId: string, cwd: string, draft: boolean): Promise<AutopilotGuideInfo | null> {
-		const root = (await this.#gitText(cwd, ["rev-parse", "--show-toplevel"])) || cwd;
-		const info = await this.#bridge<unknown>(
+	/** Start's guide from the bridge (see {@link AUTOPILOT_BRIDGE_METHODS.guide}); null when the bridge cannot build one. */
+	async #guideToCommit(
+		tabId: string,
+		root: string,
+		procedure: AutopilotReleaseProcedure | null,
+		text: string | undefined,
+	): Promise<AutopilotEnsuredGuide | null> {
+		const guide = await this.#bridge<unknown>(
 			tabId,
 			AUTOPILOT_BRIDGE_METHODS.guide,
-			{ root, draft },
-			draft ? GUIDE_DRAFT_MS : undefined,
+			{ root, procedure, ...(typeof text === "string" && text.trim() ? { text } : {}) },
+			GUIDE_MS,
 		).catch(() => null);
-		if (typeof info !== "object" || info === null || !("exists" in info) || !("text" in info)) return null;
-		return typeof info.exists === "boolean" && typeof info.text === "string" ? (info as AutopilotGuideInfo) : null;
+		if (typeof guide !== "object" || guide === null || !("text" in guide) || typeof guide.text !== "string")
+			return null;
+		return guide.text.trim() ? (guide as AutopilotEnsuredGuide) : null;
 	}
 
-	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the guide, the branches. */
-	async #idleStatus(sidecar: SidecarLike, tabId: string, draft: boolean): Promise<AutopilotStatus> {
+	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the branches. */
+	async #idleStatus(sidecar: SidecarLike): Promise<AutopilotStatus> {
 		const release = await this.#releaseFor(sidecar.cwd);
-		const guide = await this.#guideFor(tabId, sidecar.cwd, draft);
 		// git prints `C:/x` on Windows; the sheet's key and the folders the picker names are native paths.
 		const topText = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
 		const toplevel = topText ? resolve(topText) : topText;
@@ -1750,7 +1767,6 @@ export class Autopilot {
 				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
 			},
-			...(guide ? { guide } : {}),
 			...(branches ? { branches } : {}),
 		};
 	}

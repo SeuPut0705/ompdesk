@@ -287,25 +287,28 @@ test("a usage limit waits for the quota in main, wakes at the reset and retries 
 	}
 });
 
-test("the project guide: a repo without one gets a draft in the sheet, the edited text is the branch's first commit (never main's), and every begin reads the file afresh", async () => {
+test("the project guide: Start builds one from the repo's facts (its Release section says the project does not release), it is the branch's first commit (never main's), and every begin reads the file afresh", async () => {
 	test.setTimeout(180_000);
 	const profile = await makeApProfile({ script: { cycleMs: 900 } });
 	const { app, page } = await launchAp(profile);
 	try {
 		await page.locator("[data-run-settings-trigger]").click();
 		await page.getByRole("tab", { name: /^(Autopilot|오토파일럿)/ }).click();
-		const box = page.locator("[data-autopilot-guide]");
-		// The fake omp has no smol model: the draft is the deterministic template over what the repo says.
-		await expect(box).toHaveValue(/# Autopilot guide: project/);
-		await expect(box).toHaveValue(/AGENTS\.md/);
-		await box.fill("# Our guide\n\nPrefer small diffs. MARKER-ONE\n");
+		// Nobody edits the guide in the sheet: the app owns it.
+		await expect(page.locator("[data-autopilot-sheet]")).toBeVisible();
+		await expect(page.locator("[data-autopilot-guide]")).toHaveCount(0);
 		await page.locator("[data-autopilot-start]").click();
 		const { cwd } = await waitForRunTab(page);
 
-		// The guide is the autopilot branch's first commit; the user's checkout and branch never get it.
+		// The guide is the autopilot branch's first commit; the user's checkout and branch never get it. The fake omp has
+		// no smol model, so it is the template over what the repo says: no tags, no publish path, so no release.
 		const [first] = git(cwd, "log", "--reverse", "--format=%H %s", "main..HEAD").split("\n");
 		expect(first).toMatch(/ docs: add AUTOPILOT\.md guide$/);
 		expect(git(cwd, "show", "--name-only", "--format=", first?.split(" ")[0] ?? "")).toBe("AUTOPILOT.md");
+		const guide = await fs.readFile(path.join(cwd, "AUTOPILOT.md"), "utf8");
+		expect(guide).toMatch(/^# Autopilot guide: project/);
+		expect(guide).toContain("AGENTS.md");
+		expect(guide).toMatch(/\n## Release\n\nReleases: no\n/);
 		expect(git(profile.project, "log", "--format=%s")).toBe("seed");
 		await expect(fs.access(path.join(profile.project, "AUTOPILOT.md"))).rejects.toThrow();
 
@@ -315,7 +318,7 @@ test("the project guide: a repo without one gets a draft in the sheet, the edite
 					entry.op === "begin" &&
 					(entry.result as { guide?: { text?: string } } | undefined)?.guide?.text?.includes(marker),
 			);
-		await expect.poll(() => guideOf("MARKER-ONE"), { timeout: 60_000 }).toBe(true);
+		await expect.poll(() => guideOf("Releases: no"), { timeout: 60_000 }).toBe(true);
 		// An edit applies from the next cycle's begin.
 		await fs.writeFile(path.join(cwd, "AUTOPILOT.md"), "# Our guide\n\nPrefer small diffs. MARKER-TWO\n");
 		await expect.poll(() => guideOf("MARKER-TWO"), { timeout: 60_000 }).toBe(true);

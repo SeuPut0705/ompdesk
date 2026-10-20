@@ -1,35 +1,51 @@
 /**
  * The per-project Autopilot guide (AUTOPILOT.md at the repo root): reading it (at every `begin`, from the run's
- * worktree; for the start sheet, from the checkout), and drafting one for a repo that has none.
+ * worktree) and making sure the guide Start commits has one. The app owns it, nobody edits it in the start sheet: a
+ * repo without one gets one built, a guide without a Release section gets that section added, nothing else is rewritten.
  *
- * The draft is ONE cheap request on stock's `smol` role (`completeOnSmol`, never the main model) over a bounded
- * prompt built from what the repo already says (rules files, README, recent commit subjects, test/build commands);
- * any failure falls back to a deterministic template built from the same facts. Everything here takes its I/O as a
- * seam (`GuideIo`) so the rules are testable without a repo or a model.
+ * A new guide is ONE cheap request on stock's `smol` role (`completeOnSmol`, never the main model) over a bounded
+ * prompt built from what the repo already says (rules files, README, recent commit subjects, test/build commands, the
+ * release facts of `autopilot-release-facts.ts`); any failure falls back to a deterministic template built from the
+ * same facts. Everything here takes its I/O as a seam (`GuideIo`) so the rules are testable without a repo or a model.
  */
 
 import type { FileHandle } from "node:fs/promises";
-import { open } from "node:fs/promises";
+import { open, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	AUTOPILOT_GUIDE_COMMIT_MAX_BYTES,
 	AUTOPILOT_GUIDE_FILE,
 	AUTOPILOT_GUIDE_MAX_BYTES,
-	AUTOPILOT_GUIDE_SHEET_MAX_BYTES,
-	type AutopilotGuideInfo,
+	type AutopilotEnsuredGuide,
+	type AutopilotReleaseProcedure,
 } from "./autopilot-contracts";
 import { boundGuide } from "./autopilot-core";
+import {
+	guideRelease,
+	type ReleaseFacts,
+	type ReleaseVerdict,
+	releaseSectionTemplate,
+	releaseVerdict,
+	withReleaseSection,
+} from "./autopilot-release-core";
+import { collectReleaseFacts } from "./autopilot-release-facts";
 
 export interface GuideIo {
 	/** The first `maxBytes` of a file as text, or null when it cannot be read. */
 	read(path: string, maxBytes: number): Promise<string | null>;
 	/** stdout of a command that exited 0, or null. */
 	exec(command: string, args: string[], cwd: string): Promise<string | null>;
+	/** The names in a folder; empty when it cannot be read. */
+	list(dir: string): Promise<string[]>;
 }
 
 /** Real file reads; `exec` is the host's (`pi.exec`), handed in by the bridge module. */
 export function fileIo(exec: GuideIo["exec"]): GuideIo {
 	return {
 		exec,
+		async list(dir) {
+			return readdir(dir).catch(() => []);
+		},
 		async read(path, maxBytes) {
 			let handle: FileHandle | undefined;
 			try {
@@ -65,16 +81,6 @@ export async function readGuide(root: string, io: GuideIo): Promise<{ text: stri
 	return raw === null ? null : boundGuide(raw);
 }
 
-/** The guide as the start sheet edits it: the whole file up to the sheet's limit, else flagged too large. */
-export async function readGuideInfo(root: string, io: GuideIo): Promise<AutopilotGuideInfo | null> {
-	const raw = await io.read(join(root, AUTOPILOT_GUIDE_FILE), AUTOPILOT_GUIDE_SHEET_MAX_BYTES + 1);
-	if (raw === null) return null;
-	if (new TextEncoder().encode(raw).length > AUTOPILOT_GUIDE_SHEET_MAX_BYTES) {
-		return { exists: true, text: "", tooLarge: true };
-	}
-	return { exists: true, text: raw };
-}
-
 // ---------------------------------------------------------------------------------------------
 // Draft
 // ---------------------------------------------------------------------------------------------
@@ -84,8 +90,8 @@ const RULES_EXCERPT_CHARS = 1500;
 const README_EXCERPT_CHARS = 1500;
 const COMMITS = 15;
 const SCRIPT_NAMES = /^(test|build|lint|check|typecheck|format|e2e)(:|$)/;
-/** A drafted guide longer than this is cut: the guide itself is bounded when `begin` passes it on. */
-const DRAFT_MAX_CHARS = 5000;
+/** A drafted guide longer than this is cut (its Release section is put back after the cut): `begin` bounds the guide too. */
+const DRAFT_MAX_CHARS = 6500;
 const DRAFT_MIN_CHARS = 80;
 
 export interface GuideFacts {
@@ -98,6 +104,9 @@ export interface GuideFacts {
 	commits: string[];
 	/** Shell-ready commands the repo's own files name (`bun run check:changed`, `cargo test`, ...). */
 	commands: string[];
+	/** What the repository says about releasing, and the verdict drawn from it. */
+	release: ReleaseFacts;
+	verdict: ReleaseVerdict;
 }
 
 function excerpt(text: string, chars: number): string {
@@ -144,7 +153,11 @@ async function commandsOf(root: string, io: GuideIo): Promise<string[]> {
 }
 
 /** What the repo already says about itself, each part bounded. Never throws. */
-export async function collectGuideFacts(root: string, io: GuideIo): Promise<GuideFacts> {
+export async function collectGuideFacts(
+	root: string,
+	io: GuideIo,
+	options: { procedure?: AutopilotReleaseProcedure | null; now?: number } = {},
+): Promise<GuideFacts> {
 	const rules: GuideFacts["rules"] = [];
 	for (const file of RULES_FILES) {
 		const text = await io.read(join(root, file), RULES_EXCERPT_CHARS * 4);
@@ -157,6 +170,11 @@ export async function collectGuideFacts(root: string, io: GuideIo): Promise<Guid
 	const pkg = await io.read(join(root, "package.json"), 64 * 1024);
 	const declared = pkg === null ? undefined : parsedObject(pkg).name;
 	if (typeof declared === "string" && declared.trim()) name = declared.trim();
+	const commands = await commandsOf(root, io);
+	const release = await collectReleaseFacts(root, io, {
+		checks: commands,
+		...(options.now ? { now: options.now } : {}),
+	});
 	return {
 		name,
 		rules,
@@ -167,7 +185,9 @@ export async function collectGuideFacts(root: string, io: GuideIo): Promise<Guid
 			.map(line => line.trim())
 			.filter(Boolean)
 			.slice(0, COMMITS),
-		commands: await commandsOf(root, io),
+		commands,
+		release,
+		verdict: releaseVerdict(release, options.procedure),
 	};
 }
 
@@ -206,8 +226,7 @@ export function templateGuide(facts: GuideFacts): string {
 				]
 			: []),
 		"",
-		"## Release cadence",
-		"- Release only through the repo's own release procedure, when the maintainers want it.",
+		...releaseSectionTemplate(facts.release, facts.verdict).trimEnd().split("\n"),
 		"",
 		"## Long-lived ideas",
 		"- (Ideas that outlast a run go here; the run's own backlog lives in the Autopilot panel.)",
@@ -217,7 +236,7 @@ export function templateGuide(facts: GuideFacts): string {
 }
 
 export const GUIDE_DRAFT_SYSTEM = `You write AUTOPILOT.md for a software repository: the project-wide direction an unattended coding agent follows across many sessions.
-Output only the markdown file, no preamble and no code fence, at most 3500 characters. Sections, in order: Goals and roadmap; Area priorities (design/UI, performance, features, refactoring, tests, bugs, docs: say which matter most now); Do not touch (paths and kinds of change that are off limits); Done means (the exact check commands that must pass, commit style); Taste (how changes should look); Release cadence; Long-lived ideas.
+Output only the markdown file, no preamble and no code fence, at most 4500 characters. Sections, in order: Goals and roadmap; Area priorities (design/UI, performance, features, refactoring, tests, bugs, docs: say which matter most now); Do not touch (paths and kinds of change that are off limits); Done means (the exact check commands that must pass, commit style); Taste (how changes should look); Long-lived ideas. Do not write a Release section: the app adds one built from the repository's release facts.
 Use only what the facts below support; where they are silent, write a short sensible default or leave a one-line placeholder. Never invent file paths, commands or names. State that the repo's rules files win over this guide. Do not list concrete backlog tasks.`;
 
 /** The bounded request body: the same facts the template uses, as plain text. */
@@ -240,35 +259,54 @@ export function cleanDraft(reply: string): string | null {
 	return `${text}\n`.replace(/\n{3,}/g, "\n\n");
 }
 
-export interface GuideDraft {
+/** One smol-role answer: its text, the model that answered and what it cost. */
+export interface GuideReply {
 	text: string;
-	draft: "model" | "template";
-	model?: string;
+	model: string;
 	usd?: number;
 	tokens?: number;
 }
 
-/** One smol request over the facts; the template on any failure or an unusable reply. */
-export async function draftGuide(
+/** One request to stock's `smol` role: `completeOnSmol` in the bridge, a stand-in in tests. */
+export type GuideAsk = (system: string, user: string) => Promise<GuideReply>;
+
+/**
+ * The guide Start commits. A guide that exists (the agent's `text`, else the checkout's AUTOPILOT.md) is kept as it is
+ * and only gets the facts' Release section when it has none (no model request); without one, one smol request drafts
+ * the rest over the facts and the facts' Release section goes in (replacing any the model wrote), the template on any
+ * failure. Null for a guide too large to touch. Never writes.
+ */
+export async function ensureGuide(
 	root: string,
 	io: GuideIo,
-	ask: (system: string, user: string) => Promise<{ text: string; model: string; usd?: number; tokens?: number }>,
-): Promise<GuideDraft> {
-	const facts = await collectGuideFacts(root, io);
+	ask: GuideAsk,
+	options: { procedure?: AutopilotReleaseProcedure | null; text?: string; now?: number } = {},
+): Promise<AutopilotEnsuredGuide | null> {
+	const given = options.text?.trim() ? `${options.text.trim()}\n` : null;
+	const file =
+		given === null ? await io.read(join(root, AUTOPILOT_GUIDE_FILE), AUTOPILOT_GUIDE_COMMIT_MAX_BYTES + 1) : null;
+	const base = given ?? (file?.trim() ? file : null);
+	if (base !== null && new TextEncoder().encode(base).length > AUTOPILOT_GUIDE_COMMIT_MAX_BYTES) return null;
+	const source = given !== null ? "given" : "file";
+	const own = base === null ? null : guideRelease(base);
+	if (base !== null && own) return { text: base, source, release: "kept", releases: own.releases };
+	const facts = await collectGuideFacts(root, io, options);
+	const releases = facts.verdict.releases;
+	const section = releaseSectionTemplate(facts.release, facts.verdict);
+	if (base !== null) return { text: withReleaseSection(base, section), source, release: "added", releases };
 	try {
 		const reply = await ask(GUIDE_DRAFT_SYSTEM, guidePrompt(facts));
 		const text = cleanDraft(reply.text);
 		if (text) {
-			return {
-				text,
-				draft: "model",
+			const cost = {
 				model: reply.model,
 				...(reply.usd !== undefined ? { usd: reply.usd } : {}),
 				...(reply.tokens !== undefined ? { tokens: reply.tokens } : {}),
 			};
+			return { text: withReleaseSection(text, section), source: "model", release: "added", releases, cost };
 		}
 	} catch {
 		// No smol model, no credentials, a failed or slow request: the template below.
 	}
-	return { text: templateGuide(facts), draft: "template" };
+	return { text: templateGuide(facts), source: "template", release: "added", releases };
 }

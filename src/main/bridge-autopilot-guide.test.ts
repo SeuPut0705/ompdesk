@@ -3,24 +3,24 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	AUTOPILOT_GUIDE_COMMIT_MAX_BYTES,
 	AUTOPILOT_GUIDE_FILE,
 	AUTOPILOT_GUIDE_MAX_BYTES,
-	AUTOPILOT_GUIDE_SHEET_MAX_BYTES,
 	DEFAULT_AUTOPILOT_SETTINGS,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { boundGuide, buildBegin, initialStateEntry } from "../../resources/gui-bridge/modes/autopilot-core";
 import {
 	cleanDraft,
 	collectGuideFacts,
-	draftGuide,
+	ensureGuide,
 	fileIo,
 	type GuideIo,
 	guidePrompt,
 	readGuide,
-	readGuideInfo,
 	templateGuide,
 } from "../../resources/gui-bridge/modes/autopilot-guide";
 import { autopilotSection } from "../../resources/gui-bridge/modes/autopilot-prompt";
+import { guideRelease } from "../../resources/gui-bridge/modes/autopilot-release-core";
 
 let dir: string;
 const noExec: GuideIo["exec"] = async () => null;
@@ -70,15 +70,6 @@ describe("reading the guide", () => {
 		expect((await readGuide(dir, io))?.text).toContain("TWO");
 		await fs.rm(path.join(dir, AUTOPILOT_GUIDE_FILE));
 		expect(await readGuide(dir, io)).toBeNull();
-	});
-
-	it("gives the sheet the whole file, or flags one past its limit", async () => {
-		await write(AUTOPILOT_GUIDE_FILE, "# Guide\n");
-		expect(await readGuideInfo(dir, fileIo(noExec))).toEqual({ exists: true, text: "# Guide\n" });
-		await write(AUTOPILOT_GUIDE_FILE, "y".repeat(AUTOPILOT_GUIDE_SHEET_MAX_BYTES + 1));
-		expect(await readGuideInfo(dir, fileIo(noExec))).toEqual({ exists: true, text: "", tooLarge: true });
-		await fs.rm(path.join(dir, AUTOPILOT_GUIDE_FILE));
-		expect(await readGuideInfo(dir, fileIo(noExec))).toBeNull();
 	});
 });
 
@@ -135,7 +126,7 @@ describe("the static section", () => {
 	});
 });
 
-describe("drafting", () => {
+describe("the guide Start commits", () => {
 	const files: Record<string, string> = {
 		"AGENTS.md": "# Rules\n\nRun `bun run check` before every commit.",
 		"README.md": "# Demo\n\nDemo is a tiny tool that turns notes into reminders for busy people.\n",
@@ -145,55 +136,103 @@ describe("drafting", () => {
 		}),
 		"bun.lock": "",
 	};
-	const io: GuideIo = {
+	const io = (extra: Record<string, string> = {}): GuideIo => ({
 		read: async (file, max) => {
-			const content = files[path.basename(file)];
+			const content = { ...files, ...extra }[path.basename(file)];
 			return content === undefined ? null : content.slice(0, max);
 		},
-		exec: async () => "fix: a bug\nfeat: a thing\ndocs: words\nchore: tidy\n",
+		exec: async (_command, args) =>
+			args[0] === "log" && args[1]?.startsWith("-n")
+				? "fix: a bug\nfeat: a thing\ndocs: words\nchore: tidy\n"
+				: null,
+		list: async () => [],
+	});
+	const fail = async () => {
+		throw new Error("no credentials");
 	};
 
-	it("collects the rules, README, commits and commands, each bounded", async () => {
-		const facts = await collectGuideFacts("/work/demo", io);
+	it("collects the rules, README, commits, commands and release facts, each bounded", async () => {
+		const facts = await collectGuideFacts("/work/demo", io());
 		expect(facts.name).toBe("demo");
 		expect(facts.rules.map(rule => rule.file)).toEqual(["AGENTS.md"]);
 		expect(facts.summary).toContain("tiny tool");
 		expect(facts.commits).toHaveLength(4);
 		expect(facts.commands).toEqual(["bun run test", "bun run build", "bun run lint"]);
+		expect(facts.verdict).toEqual({ releases: false });
 		expect(guidePrompt(facts)).toContain("bun run check");
 	});
 
-	it("falls back to the deterministic template when the model fails", async () => {
-		const drafted = await draftGuide("/work/demo", io, async () => {
-			throw new Error("no credentials");
-		});
-		expect(drafted.draft).toBe("template");
-		expect(drafted.text).toContain("# Autopilot guide: demo");
-		expect(drafted.text).toContain("`bun run test` passes");
-		expect(drafted.text).toContain("AGENTS.md");
-		expect(drafted.text).toContain("  - fix: a bug");
-		expect(drafted.text).toMatch(/rules files .* win over this guide/);
+	it("without a guide falls back to the deterministic template when the model fails, with a Release section", async () => {
+		const ensured = await ensureGuide("/work/demo", io(), fail);
+		expect(ensured).toMatchObject({ source: "template", release: "added", releases: false });
+		expect(ensured?.text).toContain("# Autopilot guide: demo");
+		expect(ensured?.text).toContain("`bun run test` passes");
+		expect(ensured?.text).toContain("  - fix: a bug");
+		expect(ensured?.text).toMatch(/rules files .* win over this guide/);
+		expect(guideRelease(ensured?.text ?? "")).toEqual({ title: "Release", releases: false, marked: true });
 	});
 
 	it("falls back too when the reply is not a usable guide", async () => {
-		const drafted = await draftGuide("/work/demo", io, async () => ({ text: "Sure!", model: "m/smol" }));
-		expect(drafted.draft).toBe("template");
+		expect(await ensureGuide("/work/demo", io(), async () => ({ text: "Sure!", model: "m/smol" }))).toMatchObject({
+			source: "template",
+		});
 	});
 
-	it("uses the model's guide, fence stripped, and reports what it cost", async () => {
-		const body = `# Autopilot guide: demo\n\n## Goals and roadmap\n- ${"Reminders that work. ".repeat(6)}\n`;
-		const drafted = await draftGuide("/work/demo", io, async () => ({
-			text: `\`\`\`markdown\n${body}\`\`\``,
+	it("uses the model's guide, fence stripped, and reports what it cost; the Release section is the facts', never the model's", async () => {
+		const head = `# Autopilot guide: demo\n\n## Goals and roadmap\n- ${"Reminders that work. ".repeat(6)}\n`;
+		const ensured = await ensureGuide("/work/demo", io(), async () => ({
+			text: `\`\`\`markdown\n${head}\n## Release\n\nReleases: yes\n1. npm publish\n\n## Long-lived ideas\n- x\n\`\`\``,
 			model: "p/smol",
 			usd: 0.0004,
 		}));
-		expect(drafted).toMatchObject({ draft: "model", model: "p/smol", usd: 0.0004 });
-		expect(drafted.text.startsWith("# Autopilot guide: demo")).toBe(true);
-		expect(drafted.text).not.toContain("```");
+		expect(ensured).toMatchObject({ source: "model", release: "added", cost: { model: "p/smol", usd: 0.0004 } });
+		expect(ensured?.text.startsWith("# Autopilot guide: demo")).toBe(true);
+		expect(ensured?.text).not.toContain("```");
+		expect(ensured?.text).not.toContain("npm publish");
+		expect(ensured?.text).toMatch(/## Release\n\nReleases: no\n[\s\S]*\n## Long-lived ideas\n- x\n$/);
+		const missing = await ensureGuide("/work/demo", io(), async () => ({ text: head, model: "p/smol" }));
+		expect(guideRelease(missing?.text ?? "")).toMatchObject({ releases: false, marked: true });
+	});
+
+	it("keeps an existing guide byte for byte when it has a Release section; asks no model", async () => {
+		const own = "# Ours\n\nSmall diffs.\n\n## Release\n\nWe ship on Fridays.\n";
+		let asked = 0;
+		const ensured = await ensureGuide("/work/demo", io({ "AUTOPILOT.md": own }), async () => {
+			asked++;
+			throw new Error("x");
+		});
+		expect(ensured).toEqual({ text: own, source: "file", release: "kept", releases: true });
+		expect(asked).toBe(0);
+	});
+
+	it("adds only the missing Release section to an existing guide, never rewriting the rest, with no model request", async () => {
+		const own = "# Ours\n\nSmall diffs.\n\n## Release cadence\n\nWhen the maintainers want.\n";
+		let asked = 0;
+		const added = await ensureGuide("/work/demo", io({ "AUTOPILOT.md": own }), async () => {
+			asked++;
+			throw new Error("x");
+		});
+		expect(added).toMatchObject({ source: "file", release: "added", releases: false });
+		expect(added?.text.startsWith(`${own}\n## Release\n\nReleases: no\n`)).toBe(true);
+		expect(asked).toBe(0);
+	});
+
+	it("an agent's own text wins over the file, and only gets the Release section it lacks", async () => {
+		const ensured = await ensureGuide("/work/demo", io({ "AUTOPILOT.md": "# File\n" }), fail, {
+			text: "# Given\n\nGo.",
+			procedure: { file: "AGENTS.md", anchors: ["Release"] },
+		});
+		expect(ensured).toMatchObject({ source: "given", release: "added", releases: true });
+		expect(ensured?.text).toMatch(/^# Given\n\nGo\.\n\n## Release\n\nReleases: yes\n- Follow `AGENTS\.md` › Release/);
+	});
+
+	it("leaves a guide too large to commit alone", async () => {
+		const huge = `# Big\n${"x".repeat(AUTOPILOT_GUIDE_COMMIT_MAX_BYTES)}`;
+		expect(await ensureGuide("/work/demo", io({ "AUTOPILOT.md": huge }), fail)).toBeNull();
 	});
 
 	it("the template is deterministic and works for a repo that says nothing", async () => {
-		const empty: GuideIo = { read: async () => null, exec: async () => null };
+		const empty: GuideIo = { read: async () => null, exec: async () => null, list: async () => [] };
 		const facts = await collectGuideFacts("/work/bare-repo", empty);
 		expect(facts.name).toBe("bare-repo");
 		expect(templateGuide(facts)).toBe(templateGuide(facts));
@@ -203,6 +242,6 @@ describe("drafting", () => {
 	it("cleanDraft refuses text without a heading and bounds a long reply", () => {
 		expect(cleanDraft(`${"plain words ".repeat(20)}`)).toBeNull();
 		const long = cleanDraft(`# T\n${"line of text\n".repeat(1000)}`);
-		expect(long?.length).toBeLessThanOrEqual(5100);
+		expect(long?.length).toBeLessThanOrEqual(6600);
 	});
 });

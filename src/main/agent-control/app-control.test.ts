@@ -556,7 +556,6 @@ describe("MCP install, pairing and Autopilot", () => {
 			"note",
 			"pause",
 			"resume",
-			"guide_draft",
 			"cancel_ship",
 		])
 			expect(rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");

@@ -224,8 +224,8 @@ describe("Autopilot start sheet", () => {
 		const count = (selector: string) => document.querySelectorAll(`[data-autopilot-sheet] ${selector}`).length;
 		// Descriptions ride tooltips; the only paragraph left sits inside the closed ceilings disclosure.
 		expect(count("p:not(details p)")).toBe(0);
-		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(4);
-		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(4);
+		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(3);
+		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(3);
 		expect($("[data-autopilot-warning] .truncate")?.textContent).toBe(translate("autopilot.sheet.warningShort"));
 		// The release procedure is a glyph with the sentence as its name, not a line of text.
 		expect($("button[data-autopilot-no-procedure]")?.getAttribute("aria-label")).toBe(
@@ -235,11 +235,10 @@ describe("Autopilot start sheet", () => {
 		expect($("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
-	it("shows only the guide and Start with Advanced closed; shipping, branch, focus and backlog sit in that one disclosure", async () => {
+	it("shows only Start with Advanced closed; shipping, branch, focus and backlog sit in that one disclosure, and no guide box", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
-			guide: { exists: true, text: "# Ours\n" },
 			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
 		});
 		await mount(<ComposerModes />);
@@ -252,8 +251,8 @@ describe("Autopilot start sheet", () => {
 		const outside = rows.filter(row => !row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
 		const inside = rows.filter(row => row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
 		const has = (list: string[], key: string) => list.some(text => text.includes(translate(key)));
-		expect(outside).toHaveLength(1);
-		expect(has(outside, "autopilot.sheet.guide")).toBe(true);
+		expect(outside).toHaveLength(0);
+		expect(sheet.querySelector("[data-autopilot-guide]")).toBeNull();
 		for (const key of [
 			"autopilot.sheet.ship",
 			"autopilot.sheet.branch",
@@ -272,7 +271,6 @@ describe("Autopilot start sheet", () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
-			guide: { exists: true, text: "# Ours\n" },
 			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
 		});
 		await mount(<ComposerModes />);
@@ -284,17 +282,16 @@ describe("Autopilot start sheet", () => {
 		);
 	});
 
-	it("changes no layout on blur: the guide box keeps its rows and the sheet its row count", async () => {
+	it("changes no layout on blur: the backlog box keeps its rows and the sheet its row count", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
-			guide: { exists: true, text: "# Ours\n" },
 			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
 		});
 		await mount(<ComposerModes />);
 		await openSheet();
 		const sheet = $("[data-autopilot-sheet]") as unknown as Element;
-		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement;
+		const box = sheet.querySelector("textarea") as unknown as HTMLTextAreaElement;
 		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
 		const before = { rows: box.getAttribute("rows"), count: sheet.querySelectorAll("[data-setting-row]").length };
 		await act(async () => handlersOf(box).onBlur?.({ target: box, currentTarget: box }));
@@ -362,86 +359,16 @@ describe("Autopilot start sheet", () => {
 		return (key ? record[key] : {}) as FieldHandlers;
 	}
 
-	async function typeInto(selector: string, value: string): Promise<void> {
-		const element = document.querySelector(selector) as unknown as HTMLTextAreaElement;
-		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set?.call(element, value);
-		await act(async () => handlersOf(element).onChange?.({ target: element, currentTarget: element }));
-	}
-
-	function draftOnRequest(draft: string): void {
-		setAutopilot.mockImplementation(async action =>
-			action.action === "guide_draft"
-				? success({ active: false, guide: { exists: false, text: draft, draft: "model" } })
-				: success({ active: true, tabId: "new-tab" }),
-		);
-	}
-
-	it("shows a drafted guide for a repo without one and commits the user's edit with the start", async () => {
+	it("sends no guide: the app builds or completes AUTOPILOT.md itself at Start", async () => {
 		installMockOmp();
-		draftOnRequest("# Drafted guide\n\nKeep it small.\n");
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: false, text: "" } });
-		await mount(<ComposerModes />);
-		await openSheet();
-		await flush();
-		expect(setAutopilot.mock.calls.map(call => call[0].action)).toEqual(["guide_draft"]);
-		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement | null;
-		expect(box?.value).toBe("# Drafted guide\n\nKeep it small.\n");
-		expect(document.body.textContent).toContain(translate("autopilot.sheet.guideModel"));
-
-		await typeInto("textarea[data-autopilot-guide]", "# Mine\n\nEdited by the user.\n");
-		await act(async () => $("button[data-autopilot-start]")?.click());
-		await flush();
-		const start = setAutopilot.mock.calls.find(call => call[0].action === "start")?.[0];
-		expect(start).toMatchObject({ action: "start", guide: "# Mine\n\nEdited by the user.\n" });
-		// One draft only, however often the sheet re-renders.
-		expect(setAutopilot.mock.calls.filter(call => call[0].action === "guide_draft")).toHaveLength(1);
-	});
-
-	it("Start sends the edited guide even though the press blurs the guide box first, and the box keeps its size", async () => {
-		installMockOmp();
-		draftOnRequest("# Drafted guide\n");
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: false, text: "" } });
-		await mount(<ComposerModes />);
-		await openSheet();
-		await flush();
-		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement;
-		expect(box.getAttribute("rows")).toBe("1");
-		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
-		expect(box.getAttribute("rows")).toBe("8");
-		await typeInto("textarea[data-autopilot-guide]", "# Mine\n\nMARKER-ONE\n");
-		// A press on Start blurs the box at mousedown, before the click: the sheet must not reflow under the pointer,
-		// or the release lands beside Start and the click never reaches it (v0.35.0: Start did nothing).
-		await act(async () => handlersOf(box).onBlur?.({ target: box, currentTarget: box }));
-		expect(box.getAttribute("rows")).toBe("8");
-		await act(async () => $("button[data-autopilot-start]")?.click());
-		await flush();
-		const starts = setAutopilot.mock.calls.filter(call => call[0].action === "start");
-		expect(starts).toHaveLength(1);
-		expect(starts[0]?.[0]).toMatchObject({ action: "start", guide: "# Mine\n\nMARKER-ONE\n" });
-	});
-
-	it("shows the repo's own guide for editing and drafts nothing", async () => {
-		installMockOmp();
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: true, text: "# Ours\n\nDo X.\n" } });
+		useAutopilotStore.getState().apply({ active: false });
 		await mount(<ComposerModes />);
 		await openSheet();
 		await flush();
 		expect(setAutopilot).not.toHaveBeenCalled();
-		expect(($("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement | null)?.value).toBe(
-			"# Ours\n\nDo X.\n",
-		);
-		expect(document.body.textContent).toContain(translate("autopilot.sheet.guideExists"));
-	});
-
-	it("sends no guide when the box is cleared", async () => {
-		installMockOmp();
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: true, text: "# Ours\n" } });
-		await mount(<ComposerModes />);
-		await openSheet();
-		await typeInto("textarea[data-autopilot-guide]", "");
 		await act(async () => $("button[data-autopilot-start]")?.click());
 		await flush();
-		expect(setAutopilot.mock.calls[0]?.[0]).not.toHaveProperty("guide");
+		expect(setAutopilot.mock.calls.map(call => call[0])).toEqual([{ action: "start" }]);
 	});
 
 	describe("the Branch row", () => {

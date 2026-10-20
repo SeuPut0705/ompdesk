@@ -446,8 +446,6 @@ export interface AutopilotStatus {
 	backlog?: AutopilotBacklogItem[];
 	notes?: AutopilotNote[];
 	ship?: AutopilotShipState;
-	/** A session that is no run: the repo's guide, or a draft of one (`ship` stays what the sheet needs). */
-	guide?: AutopilotGuideInfo;
 	/** A session that is no run: the branches the sheet's picker offers (this folder's repository). */
 	branches?: AutopilotBranchInfo;
 	totals?: AutopilotTotals;
@@ -489,7 +487,7 @@ export type AutopilotStartOptions = {
 	limits?: Partial<AutopilotLimits>;
 	maxParallel?: number;
 	backlog?: string[];
-	/** The guide text to commit as the autopilot branch's first commit when the new worktree's AUTOPILOT.md differs (or is missing). */
+	/** An agent's guide text (`ompdesk_autopilot`); without it Start uses the repo's AUTOPILOT.md or builds one. A missing Release section is added from the project's facts; the result is the branch's first commit when it differs. */
 	guide?: string;
 	/** Where the run commits and pushes; absent: a new `autopilot/<date>` branch. */
 	branch?: AutopilotBranchChoice;
@@ -497,7 +495,6 @@ export type AutopilotStartOptions = {
 
 export type AutopilotAction =
 	| ({ action: "start" } & AutopilotStartOptions)
-	| { action: "guide_draft" }
 	| { action: "stop" }
 	| { action: "abort" }
 	| { action: "pause" }
@@ -543,20 +540,27 @@ export const AUTOPILOT_CHILD_TAG = "autopilot-child";
 export const AUTOPILOT_GUIDE_FILE = "AUTOPILOT.md";
 /** What `begin` passes on of the guide (bytes); a longer file is cut with a marker. */
 export const AUTOPILOT_GUIDE_MAX_BYTES = 8 * 1024;
-/** What the start sheet loads of a guide to edit it (bytes); a longer file is shown read-only. */
-export const AUTOPILOT_GUIDE_SHEET_MAX_BYTES = 64 * 1024;
+/** A guide past this (bytes) is never written or completed by the app: Start leaves it as it is. */
+export const AUTOPILOT_GUIDE_COMMIT_MAX_BYTES = 256 * 1024;
 
-/** The guide as the start sheet shows it (`get_autopilot` / `guide_draft` on a session that is no run). */
-export interface AutopilotGuideInfo {
-	/** The repo's checkout has an AUTOPILOT.md. */
-	exists: boolean;
-	/** The file's text, or the draft when there is no file. */
+/** `modes.autopilot_guide`'s params: the checkout to read, the rules files' release procedure, a guide an agent gave. */
+export interface AutopilotGuideParams {
+	root: string;
+	procedure?: AutopilotReleaseProcedure | null;
+	text?: string;
+}
+
+/** The guide Start commits (`modes.autopilot_guide`): the repo's own or the given text with a Release section, or a new one. */
+export interface AutopilotEnsuredGuide {
+	/** The guide to commit; the file's own text when nothing was missing. */
 	text: string;
-	/** The file exceeds the sheet's limit: `text` is empty and the guide is not editable here. */
-	tooLarge?: boolean;
-	/** Where a draft came from: one smol-role request, or the deterministic template. */
-	draft?: "model" | "template";
-	/** What the draft's one model request cost (a model draft only): the smol model that answered, dollars and tokens. */
+	/** Where the body came from: the checkout's AUTOPILOT.md, the agent's start, one smol-role request, the template. */
+	source: "file" | "given" | "model" | "template";
+	/** The Release section: the text's own, or added from the project's facts (never written by a model). */
+	release: "kept" | "added";
+	/** Whether the project releases, as the Release section says. */
+	releases: boolean;
+	/** What the guide's one model request cost, when one answered. */
 	cost?: { model: string; usd?: number; tokens?: number };
 }
 
@@ -617,7 +621,7 @@ export const AUTOPILOT_BRIDGE_METHODS = {
 	cycleAmend: "modes.autopilot_cycle_amend",
 	/** `{}`: restore tools/overrides, journal `ended` (the state main passed to `setState` first stays the reason). */
 	disarm: "modes.autopilot_disarm",
-	/** `{root, draft?}` -> {@link AutopilotGuideInfo}: the checkout's AUTOPILOT.md; with `draft` and no file, one smol-role draft (template on failure). Works on any session. */
+	/** {@link AutopilotGuideParams} -> {@link AutopilotEnsuredGuide}: the guide Start commits (the file or `text`, a Release section added from the project's facts when missing; with neither, one smol-role draft, template on failure). Never writes. Works on any session. */
 	guide: "modes.autopilot_guide",
 } as const;
 

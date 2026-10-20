@@ -51,6 +51,7 @@ import {
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
 	type AutopilotNote,
+	type AutopilotReleaseProcedure,
 	type AutopilotSetStateParams,
 	type AutopilotShipAction,
 	type AutopilotShipRequest,
@@ -91,7 +92,7 @@ import {
 	verifyShipQuote,
 } from "../../resources/gui-bridge/modes/autopilot-core";
 import { evaluateToolCall } from "../../resources/gui-bridge/modes/autopilot-guard-core";
-import { draftGuide, fileIo, readGuideInfo } from "../../resources/gui-bridge/modes/autopilot-guide";
+import { ensureGuide, fileIo } from "../../resources/gui-bridge/modes/autopilot-guide";
 import { mergeRepeatedEnd } from "../../resources/gui-bridge/modes/autopilot-verify";
 import { goalActiveAtExit, type JournalEntry as RestartJournalEntry } from "../../resources/gui-bridge/restart-core";
 import type { AgentMessage } from "../../src/shared/rpc-types";
@@ -976,12 +977,12 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				}
 			});
 			void (async () => {
-				const existing = await readGuideInfo(root, io);
-				if (existing) return reply(existing);
-				if (params.draft !== true) return reply({ exists: false, text: "" });
-				// No smol model on the fake omp: the draft is the deterministic template.
-				const drafted = await draftGuide(root, io, () => Promise.reject(new Error("fixture: no smol model")));
-				reply({ exists: false, text: drafted.text, draft: drafted.draft });
+				// No smol model on the fake omp: a new guide or a missing Release section comes from the template.
+				const ensured = await ensureGuide(root, io, () => Promise.reject(new Error("fixture: no smol model")), {
+					...(params.procedure ? { procedure: params.procedure as AutopilotReleaseProcedure } : {}),
+					...(typeof params.text === "string" ? { text: params.text } : {}),
+				});
+				reply(ensured);
 			})();
 			return undefined;
 		},
