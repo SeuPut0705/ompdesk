@@ -2572,6 +2572,23 @@ describe("SidecarPool worktree.onStart hooks", () => {
 		expect(released).toContain("tab-c");
 		expect(released).toContain("tab-b:exited");
 	});
+
+	it("holds a released tab's omp as going until its process exited, and none for a tab nothing released", async () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		expect(pool.releaseTab("tab-a")).toBe(true);
+		let exited = false;
+		const waiting = pool.whenTabExited("tab-a").then(() => {
+			exited = true;
+		});
+		await Promise.resolve();
+		expect(exited).toBe(false);
+		sidecars[0]?.exited.resolve();
+		await waiting;
+		expect(exited).toBe(true);
+		await pool.whenTabExited("tab-never-opened");
+	});
 });
 
 describe("SidecarPool multi-viewer", () => {

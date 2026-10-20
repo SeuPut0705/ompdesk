@@ -110,6 +110,8 @@ class FakeHost implements AgentControlHost {
 		this.views.push(event);
 		if (event.how === "close") this.tabsById.delete(event.tabId);
 	};
+	/** Settles once the omp of a closed tab has exited; a test holds it to see what waits for it. */
+	exited = async (_tabId: string): Promise<void> => {};
 	notify = vi.fn();
 	confirm = async (_caller: string, title: string, message: string) => {
 		this.cards.push({ title, message });
@@ -333,6 +335,31 @@ async function onFakeClock<T>(call: () => Promise<T>): Promise<T> {
 	}
 }
 
+/**
+ * Runs `call` while the omp of the tab it closes has not exited (`host.exited` waits on it): `pendingWhileRunning` says
+ * whether `call` was still going a second of the fake clock later, and `result` is what it returned once the omp exited.
+ */
+async function whileOmpRuns<T>(
+	host: FakeHost,
+	call: () => Promise<T>,
+): Promise<{ pendingWhileRunning: boolean; result: T }> {
+	vi.useFakeTimers();
+	try {
+		const exit = Promise.withResolvers<void>();
+		host.exited = () => exit.promise;
+		let settled = false;
+		const pending = call().finally(() => {
+			settled = true;
+		});
+		await vi.advanceTimersByTimeAsync(1_000);
+		const pendingWhileRunning = !settled;
+		exit.resolve();
+		return { pendingWhileRunning, result: await pending };
+	} finally {
+		vi.useRealTimers();
+	}
+}
+
 const select = (title: string, options: string[]): ControlAsk => ({
 	id: "req1",
 	request: { type: "extension_ui_request", id: "req1", method: "select", title, options } as ExtensionUIRequest,
@@ -494,6 +521,17 @@ describe("ompdesk_session_open", () => {
 		const result = await onFakeClock(() => control(host).run("main0001", T.open, { message: "go", worktree: true }));
 		expect(result.text).toContain("its tab is still open, so its worktree /wt/w and branch omp/agent/w were kept");
 		expect(host.discarded).toEqual([]);
+	});
+
+	it("takes back a failed open's worktree only once the omp that started in it has exited", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.beforeFirstPromptError = new Error("guard failed");
+		const { pendingWhileRunning, result } = await whileOmpRuns(host, () =>
+			control(host).run("main0001", T.open, { message: "go", worktree: true }),
+		);
+		expect(pendingWhileRunning).toBe(true);
+		expect(result.text).toContain("guard failed");
+		expect(host.discarded).toEqual([{ branch: "omp/agent/w", device: undefined }]);
 	});
 
 	it("names each opened session's task (its Title: line, else its first line) for the sidebar until it has a title", async () => {
@@ -2023,6 +2061,14 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(dirty.host.removed).toEqual([]);
 	});
 
+	it("removes the worktree of a closed child only once its omp has exited", async () => {
+		const { host, service } = await finishedChild({ worktree: true });
+		host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+		const { pendingWhileRunning } = await whileOmpRuns(host, () => service.autoClose("main0001"));
+		expect(pendingWhileRunning).toBe(true);
+		expect(host.removed).toEqual(["omp/agent/w"]);
+	});
+
 	it("closes a landed child on a paired host and removes its worktree there", async () => {
 		const { host, service } = await finishedChild({
 			worktree: true,
@@ -3041,6 +3087,15 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 		expect(host.sent.some(entry => entry.command.type === "abort")).toBe(false);
 		expect(host.mails.map(mail => mail.to).sort()).toEqual(["boss0001", "else0002"]);
 		expect(host.mails.every(mail => mail.delivery.triggerTurn === false)).toBe(true);
+	});
+
+	it("replies to a close once the closed session's omp has exited: until then its folder cannot be removed", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "else0002", title: "Done work" });
+		const { pendingWhileRunning, result } = await whileOmpRuns(host, () =>
+			control(host).run("boss0001", T.stop, { session: "else0002", close: true }),
+		);
+		expect(pendingWhileRunning).toBe(true);
+		expect(result.text).toContain("Closed");
 	});
 
 	it("still asks before stopping a running session it did not open, and before deleting one", async () => {
