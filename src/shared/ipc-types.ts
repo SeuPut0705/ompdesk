@@ -487,6 +487,12 @@ export type RuntimeErrorSource =
 	 * failed, `details` the device, rtab, `ms` since the bring-up began and, when it stalled or failed, the `step`.
 	 */
 	| "remote-tab"
+	/** The GPU fallback (src/main/gpu-fallback.ts): software rendering, a relaunch or why none, a hardware trial. */
+	| "gpu-fallback"
+	/** The crash-loop guard (src/main/launch-guard.ts): this launch starts in safe mode. */
+	| "launch-guard"
+	/** The pre-rename profile moved into userData (src/main/legacy-user-data.ts). */
+	| "user-data-migration"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
