@@ -101,6 +101,9 @@ test("a host's tab shows a streamed reply, live and finished, as a local tab doe
 			await command(tabId, "fixture:parts:resume");
 			await expect(pane).toContainText("Streamed answer line 30.", { timeout: 30_000 });
 			await expect(pane).toContainText("Streamed answer line 15.");
+			// The running step shows its clock once it has run a whole second, on whichever tick of the shared clock comes
+			// next: read before that, one tab's live rows had the clock and the other's not (both tabs draw it alike).
+			await expect(pane.locator(".omp-work-clock")).toBeVisible({ timeout: 30_000 });
 			const live = await settled(a, tabId);
 			await command(tabId, "fixture:finish:parts");
 			await expect(pane).toContainText("Streamed parts finished", { timeout: 30_000 });
