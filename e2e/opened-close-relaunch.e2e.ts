@@ -115,11 +115,9 @@ test("a finished child restored by a relaunch leaves the open list by itself and
 
 		const second = await launch(profile);
 		current = second.app;
-		const restored = (await tabs(second.page)).find(tab => tab.sessionPath === childPath);
-		expect(restored?.status).toBe("asleep");
-		const boss = (await tabs(second.page)).find(tab => tab.active)?.tabId ?? "";
-		// The opener reads the answer, as its agent does after a relaunch.
-		await call(profile, second.page, boss, "ompdesk_session_result", { session: restored?.tabId });
+		// The relaunch continues the opener's cut-off turn; once that turn has run and ended (the opener has nothing
+		// running that could still read the answer) the restored child leaves by itself. The opener reading it first
+		// and the continuing opener holding it are pinned by service.test.ts ("waits while …").
 		await expect
 			.poll(async () => (await tabs(second.page)).some(tab => tab.sessionPath === childPath), { timeout: 15_000 })
 			.toBe(false);
