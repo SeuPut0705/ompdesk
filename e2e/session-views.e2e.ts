@@ -227,12 +227,14 @@ for (const language of variants(["en", "ko"] as const))
 					const box = await scroller.boundingBox();
 					if (!start || !box) throw new Error("expected the last prompt and the transcript");
 					const before = await scroller.evaluate(element => element.scrollTop);
-					// A whole-pixel press, as a mouse reports it. Chromium places the press caret
-					// from the point as sent, but on the first drag move it hit-tests the press
-					// point again floored to whole pixels (SelectionController::HandleMouseDraggedEvent).
+					// A whole-device-pixel press, as a mouse reports it (125 % display scaling is not whole in CSS
+					// pixels). Chromium places the press caret from the point as sent, but on the first drag move it
+					// hit-tests the press point again floored to whole pixels (SelectionController::HandleMouseDraggedEvent).
 					// A fractional point just right of a glyph's middle gives two offsets, and the
 					// changed caret restarts the selection at the pointer on every move.
-					await page.mouse.move(Math.round(start.x + start.width - 4), Math.round(start.y + start.height / 2));
+					const dpr = await page.evaluate(() => window.devicePixelRatio);
+					const wholePixel = (value: number) => Math.round(value * dpr) / dpr;
+					await page.mouse.move(wholePixel(start.x + start.width - 4), wholePixel(start.y + start.height / 2));
 					await page.mouse.down();
 					await page.mouse.move(start.x + 10, box.y + 60, { steps: 6 });
 					// Held just inside the top edge: the transcript keeps scrolling on its own.
