@@ -58,7 +58,8 @@ for (const language of variants(["en", "ko"] as const))
 				const input = page.locator("textarea").first();
 				const box = page.locator(".omp-composer-box").first();
 
-				// Picker: any file type; inside the project relative, outside quoted absolute.
+				// Picker: any file type; inside the project relative, outside quoted absolute, both in the host's
+				// separators (fileMentionFor keeps `docs\spec.pdf` on Windows).
 				await box
 					.locator('input[type="file"]')
 					.setInputFiles([
@@ -66,7 +67,7 @@ for (const language of variants(["en", "ko"] as const))
 						path.join(profile, "outside", "Quarter Report.xlsx"),
 					]);
 				await expect(input).toHaveValue(
-					`@docs/spec.pdf @"${path.join(profile, "outside", "Quarter Report.xlsx")}" `,
+					`@${path.join("docs", "spec.pdf")} @"${path.join(profile, "outside", "Quarter Report.xlsx")}" `,
 				);
 
 				// A dropped file without a path (a browser blob) goes in as its text.
