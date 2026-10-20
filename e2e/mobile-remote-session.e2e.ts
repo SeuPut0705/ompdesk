@@ -17,7 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type Browser, chromium, devices, expect, type Page, test } from "@playwright/test";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { defaultTailscaleScenario } from "./fixture/tailscale-scenario";
 import { controlToolCaller, cssString, exitApp, openedSessions, readRecords } from "./harness";
 import {
@@ -218,7 +218,7 @@ async function rig(
 	const phoneErrors: string[] = [];
 	phone.on("pageerror", error => phoneErrors.push(error.message));
 	await phone.goto(`${proxy.url}/`);
-	await expect(phone.getByRole("button", { name: "Open menu" })).toBeVisible({ timeout: 60_000 });
+	await phonePaired(phone);
 	return {
 		parent,
 		hostProfile,

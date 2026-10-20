@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import { useBackLayer } from "../../hooks/use-back-layer";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
@@ -12,7 +12,9 @@ const FOCUSABLE =
  * Escape closes it (only when topmost), and focus returns to the opener on
  * close. Focus, keyboard and layer scope live with `open`: the layer is
  * released the moment close begins, handing Escape to the dialog beneath
- * even while this one plays its exit animation.
+ * even while this one plays its exit animation. All of it is in place before
+ * the dialog paints (a layout effect): set up after paint, an Escape pressed on
+ * the frame a lazily loaded dialog first showed was lost.
  */
 export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | null>, onClose: () => void): void {
 	const onCloseRef = useRef(onClose);
@@ -20,8 +22,10 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 	// The system back gesture closes the topmost sheet or dialog (web shell only).
 	useBackLayer(open, onClose);
 	const restoreRef = useRef<HTMLElement | null>(null);
+	/** The dialog closed while topmost: focus goes back to its opener once the commit is over. */
+	const restorePending = useRef(false);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		if (!open) return;
 		const unregisterLayer = registerDialogLayer(panelRef.current);
 		restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -70,9 +74,24 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => {
 			document.removeEventListener("keydown", onKeyDown, true);
-			const wasTopmost = isTopmostDialog(panel);
+			restorePending.current = isTopmostDialog(panel);
 			unregisterLayer();
-			if (wasTopmost) restoreRef.current?.focus();
 		};
 	}, [open, panelRef]);
+
+	// Focus returns to the opener in a passive cleanup: a layout cleanup runs inside React's commit, and React then
+	// puts focus back on whatever held it before the commit (the closing dialog's button). A dialog that took focus
+	// meanwhile (opened in the same commit) keeps it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `open` going false is what runs this cleanup.
+	useEffect(
+		() => () => {
+			if (!restorePending.current) return;
+			restorePending.current = false;
+			const active = document.activeElement;
+			const panel = panelRef.current;
+			if (active instanceof HTMLElement && active !== document.body && !panel?.contains(active)) return;
+			restoreRef.current?.focus();
+		},
+		[open, panelRef],
+	);
 }

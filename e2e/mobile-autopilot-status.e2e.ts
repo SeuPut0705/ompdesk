@@ -12,7 +12,7 @@ import { chromium, devices, expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { makeApProfile } from "./autopilot-harness";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { exitApp, fixtureOmp } from "./harness";
 
 test("a phone says a live run's state once: the strip, not the dock row or the Run chip", async () => {
@@ -53,7 +53,7 @@ test("a phone says a live run's state once: the strip, not the dock row or the R
 			await browser.newContext({ ...devices["Pixel 7"], viewport: { width: 390, height: 844 } })
 		).newPage();
 		await phone.goto(`${proxy.url}/`);
-		await expect(phone.getByRole("button", { name: "Open menu" })).toBeVisible({ timeout: 60_000 });
+		await phonePaired(phone);
 		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), ap.project);
 		await phone.reload();
 		await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });

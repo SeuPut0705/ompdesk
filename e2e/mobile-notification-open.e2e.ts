@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { cssString, exitApp, fixtureOmp } from "./harness";
 
 async function activeTab(page: Page): Promise<string | undefined> {
@@ -37,20 +37,11 @@ async function pickTab(page: Page, tabId: string): Promise<void> {
 }
 
 /**
- * The page is paired and its host answers. The title bar says nothing: a new device's first `/` renders the app
- * before `/api/session` refuses it and the page moves to `/pair`. Then a tap, as a person's, ends the launch moment
+ * The page is paired and its host answers (`phonePaired`), then a tap, as a person's, ends the launch moment
  * (sw-update.ts `ResumeGate`), so no update or failed-chunk reload lands on the page while the test works in it.
  */
 async function inUse(page: Page): Promise<void> {
-	await expect
-		.poll(
-			() =>
-				page
-					.evaluate(async () => location.pathname === "/" && Array.isArray(await window.omp.tabs.list()))
-					.catch(() => false),
-			{ timeout: 60_000 },
-		)
-		.toBe(true);
+	await phonePaired(page);
 	await page.locator("[data-composer-input]").first().click();
 }
 

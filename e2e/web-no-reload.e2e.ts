@@ -26,7 +26,7 @@ import { type BrowserType, chromium, devices, expect, type Page, test, webkit } 
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { crash } from "./autopilot-harness";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired as paired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { cssString, exitApp, fixtureOmp } from "./harness";
 
 const ENGINES: { name: string; type: BrowserType; device: (typeof devices)[string] }[] = [
@@ -88,19 +88,6 @@ async function fixture(phone: Page, tabId: string, line: string) {
 		tabId,
 		line,
 	] as const);
-}
-
-/** The page is paired and its host answers (a new device's first `/` renders before it moves to `/pair`). */
-async function paired(phone: Page): Promise<void> {
-	await expect
-		.poll(
-			() =>
-				phone
-					.evaluate(async () => location.pathname === "/" && Array.isArray(await window.omp.tabs.list()))
-					.catch(() => false),
-			{ timeout: 60_000 },
-		)
-		.toBe(true);
 }
 
 /**

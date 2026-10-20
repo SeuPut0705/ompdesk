@@ -146,8 +146,10 @@ export const PRECACHE_LIMITS: PrecacheLimits = { maxBytes: 8 * 1024 * 1024, maxC
  * mermaid…), kept as they arrive so a page older than the host's update still finds them; oldest out first.
  */
 export const RUNTIME_LIMITS: PrecacheLimits = { maxBytes: 24 * 1024 * 1024, maxCount: 150 };
-/** How long a failed asset fetch waits before its one retry. */
+/** How long a failed asset fetch waits before its first retry. */
 export const ASSET_RETRY_MS = 400;
+/** How long the worker keeps retrying a hashed asset while the host does not answer or answers a 5xx. */
+export const ASSET_OUTAGE_MS = 30_000;
 
 /** The entries, in priority order, that fit the limits (an entry that would overflow the bytes is skipped). */
 export function selectPrecache(entries: readonly PrecacheEntry[], limits: PrecacheLimits): PrecacheEntry[] {
@@ -278,10 +280,13 @@ async function matchAnyBuild(caches: CacheStorageLike, path: string): Promise<Re
 
 /**
  * A hashed `/assets/` file: this build's cache first (precached, or kept when the page last fetched it), then the
- * network, once more after `ASSET_RETRY_MS` when that failed (a phone between networks, a host mid-restart), then any
- * other build's copy. A file fetched whole is kept for the next time (`RUNTIME_LIMITS`, oldest out first), so a
- * page loaded before the host updated still finds the chunks it already used; the host also serves the previous
- * builds' assets for a while (main/web/asset-archive.ts).
+ * network, once more after `ASSET_RETRY_MS` when that failed, then any other build's copy. While the host does not
+ * answer or answers a 5xx (a host restarting for an update, a phone between networks) it keeps trying, waiting
+ * longer each time, for up to `ASSET_OUTAGE_MS`: a page's lazy import that got an error stays failed for the page's
+ * life (a browser keeps a failed module, and every view built on it opened empty until a reload). A 404 (a chunk the
+ * host really lacks) gives up after the one retry. A file fetched whole is kept for the next time (`RUNTIME_LIMITS`,
+ * oldest out first), so a page loaded before the host updated still finds the chunks it already used; the host also
+ * serves the previous builds' assets for a while (main/web/asset-archive.ts).
  */
 async function respondWithAsset(
 	path: string,
@@ -294,11 +299,25 @@ async function respondWithAsset(
 	const kept = await deps.caches.open(runtimeCacheNameFor(deps.build));
 	const hit = (precached ? await shell.match(path) : undefined) ?? (await kept.match(path));
 	if (hit) return hit;
+	const wait = deps.wait ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
 	const attempt = () => deps.fetch(url).catch((error: unknown) => error);
+	const failed = (result: unknown) => !(result instanceof Response) || !result.ok;
+	const outage = (result: unknown) => !(result instanceof Response) || result.status >= 500;
 	let result = await attempt();
-	if (!(result instanceof Response) || !result.ok) {
-		await (deps.wait ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms))))(ASSET_RETRY_MS);
+	if (failed(result)) {
+		await wait(ASSET_RETRY_MS);
 		result = await attempt();
+	}
+	if (failed(result)) {
+		const elsewhere = await matchAnyBuild(deps.caches, path);
+		if (elsewhere) return elsewhere;
+		let waited = ASSET_RETRY_MS;
+		for (let pause = ASSET_RETRY_MS * 2; outage(result) && waited < ASSET_OUTAGE_MS; pause *= 2) {
+			const next = Math.min(pause, ASSET_OUTAGE_MS - waited);
+			await wait(next);
+			waited += next;
+			result = await attempt();
+		}
 	}
 	if (result instanceof Response && result.ok) {
 		if (!precached && result.status === 200 && !result.redirected) {
@@ -308,8 +327,6 @@ async function respondWithAsset(
 		}
 		return result;
 	}
-	const elsewhere = await matchAnyBuild(deps.caches, path);
-	if (elsewhere) return elsewhere;
 	if (result instanceof Response) return result;
 	throw result;
 }

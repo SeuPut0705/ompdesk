@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { chromium, devices, expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { captureTo, controlToolCaller, exitApp, fixtureOmp, openedSessions } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_VIEWER_FAMILY;
@@ -109,7 +109,7 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 		const context = await browser.newContext({ ...devices["Pixel 8"] });
 		const phone = await context.newPage();
 		await phone.goto(`${proxy.url}/`);
-		await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
+		await phonePaired(phone);
 		const viewed = await phone.evaluate(
 			([cwd, sessionPath]) => window.omp.tabs.spawn({ cwd, kind: "agent", sessionPath }),
 			[project, openerSession] as const,

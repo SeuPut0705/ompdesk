@@ -23,7 +23,7 @@ import * as path from "node:path";
 import { type BrowserType, chromium, devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { captureTo, exitApp, fixtureOmp } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_MOBILE_ATTACH;
@@ -164,9 +164,10 @@ async function startHost(engine: Engine, profile: Profile): Promise<Host> {
 /** The phone page with a tab of its own in the project (a web window starts with none). */
 async function openPhonePage(phone: Page, proxy: ServeProxy, project: string) {
 	await phone.goto(`${proxy.url}/`);
-	await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
+	await phonePaired(phone);
 	await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
 	await phone.reload();
+	await phonePaired(phone);
 	await expect(phone.locator("[data-composer-input]").first()).toBeVisible({ timeout: 60_000 });
 }
 

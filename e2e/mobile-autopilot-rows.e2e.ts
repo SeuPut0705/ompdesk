@@ -14,7 +14,7 @@ import { type Browser, chromium, devices, expect, type Page, test } from "@playw
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { crash, makeApProfile } from "./autopilot-harness";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { exitApp, fixtureOmp } from "./harness";
 
 /** Where the before/after captures go when set (`OMP_GUI_MOBILE_ROWS_CAPTURES=/tmp/mobile-dup`). */
@@ -150,7 +150,7 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		browser = await chromium.launch();
 		const phone = await (await browser.newContext({ ...devices["Pixel 7"], colorScheme: "light" })).newPage();
 		await phone.goto(`${proxy.url}/`);
-		await expect(phone.getByRole("button", { name: "Open menu" })).toBeVisible({ timeout: 60_000 });
+		await phonePaired(phone);
 		// A web window starts with no tab: the phone opens one in the project, then starts Autopilot from its composer.
 		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), ap.project);
 		await phone.reload();

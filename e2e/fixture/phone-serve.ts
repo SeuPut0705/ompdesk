@@ -8,7 +8,25 @@
  */
 import * as http from "node:http";
 import * as net from "node:net";
+import { expect, type Page } from "@playwright/test";
 import type { FixtureTailscale } from "./fake-tailscale-install";
+
+/**
+ * The phone's page is paired and its host answers. Not a visible title bar: a new device's first `/` renders the app
+ * before `/api/session` refuses it and the page moves to `/pair` and back, so a reload, a spawn or a file pick made
+ * on it meets a navigation ("Frame load interrupted", "Execution context was destroyed").
+ */
+export async function phonePaired(page: Page): Promise<void> {
+	await expect
+		.poll(
+			() =>
+				page
+					.evaluate(async () => location.pathname === "/" && Array.isArray(await window.omp.tabs.list()))
+					.catch(() => false),
+			{ timeout: 60_000, message: "the phone's page is paired" },
+		)
+		.toBe(true);
+}
 
 /** One of OMPdesk's published serve handlers: its address, the loopback port it proxies to and the secret path. */
 export interface ServeSite {

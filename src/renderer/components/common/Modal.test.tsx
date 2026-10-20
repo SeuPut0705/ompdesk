@@ -1,5 +1,5 @@
 import { parseHTML } from "linkedom";
-import { act, type ReactElement, useState } from "react";
+import { act, type ReactElement, useLayoutEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OVERLAY_EXIT_MS } from "../../hooks/use-overlay-presence";
@@ -109,6 +109,52 @@ describe("Modal", () => {
 		expect(document.querySelector("[role='dialog']")?.contains(activeElement)).toBe(true);
 		await pressEscape();
 		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes on an Escape pressed as soon as the dialog is on screen, before any passive effect ran", async () => {
+		// The listener used to wait for a passive effect, which runs after paint: an Escape pressed on the frame the
+		// dialog first painted (a lazily loaded dialog, a busy page) was lost. A later sibling's layout effect runs
+		// after the dialog committed and before any passive effect, which is that moment.
+		const close = vi.fn();
+		function PressEscapeNow() {
+			useLayoutEffect(() => {
+				const event = new Event("keydown", { bubbles: true, cancelable: true });
+				Object.defineProperties(event, { key: { value: "Escape" }, keyCode: { value: 27 } });
+				document.dispatchEvent(event);
+			}, []);
+			return null;
+		}
+		await mount(
+			<>
+				<Modal open onClose={close} title="Fast">
+					<input />
+				</Modal>
+				<PressEscapeNow />
+			</>,
+		);
+		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("leaves focus in a dialog that opened in the same commit as another one closed", async () => {
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			activeElement = this;
+		});
+		const swap = (first: boolean) => (
+			<>
+				<Modal open={first} onClose={() => {}} title="First">
+					<button type="button">One</button>
+				</Modal>
+				<Modal open={!first} onClose={() => {}} title="Second">
+					<button type="button">Two</button>
+				</Modal>
+			</>
+		);
+		await mount(swap(true));
+		await render(swap(false));
+		const second = [...document.querySelectorAll("[role='dialog']")].find(dialog =>
+			dialog.textContent?.includes("Two"),
+		);
+		expect(second?.contains(activeElement)).toBe(true);
 	});
 
 	it("focuses the dialog on open and restores the trigger on close", async () => {

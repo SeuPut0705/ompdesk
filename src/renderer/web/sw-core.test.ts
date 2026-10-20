@@ -1,6 +1,8 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { WebPushPayload } from "../../shared/web-push";
 import {
+	ASSET_OUTAGE_MS,
+	ASSET_RETRY_MS,
 	type CacheLike,
 	type CacheStorageLike,
 	type ClientsLike,
@@ -334,6 +336,40 @@ describe("shell cache", () => {
 		network.mockResolvedValue(new Response("part", { status: 206 }));
 		await respondToFetch(GET("/assets/media-fff.js"), deps);
 		expect([...(caches.named.get(runtimeCacheNameFor("b1"))?.store.keys() ?? [])]).toEqual(["/assets/lazy-ddd.js"]);
+	});
+
+	// The host restarting (an update) or the phone between networks for a few seconds: a page's lazy import that got
+	// an error then stayed failed for the page's life (a browser keeps a failed module), Settings opened empty.
+	it("keeps retrying a hashed asset through a short outage (no answer or a 5xx), never through a 404", async () => {
+		const waits: number[] = [];
+		const { deps, network } = shellDeps({
+			wait: async ms => {
+				waits.push(ms);
+			},
+		});
+		network
+			.mockRejectedValueOnce(new TypeError("Load failed"))
+			.mockResolvedValueOnce(new Response("down", { status: 502 }))
+			.mockResolvedValueOnce(new Response("down", { status: 502 }))
+			.mockRejectedValueOnce(new TypeError("Load failed"));
+		const response = await respondToFetch(GET("/assets/SettingsPage-iii.js"), deps);
+		expect(await response?.text()).toBe(`net:${ORIGIN}/assets/SettingsPage-iii.js`);
+		expect(network).toHaveBeenCalledTimes(5);
+		expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThanOrEqual(ASSET_OUTAGE_MS);
+
+		network.mockClear();
+		waits.length = 0;
+		network.mockResolvedValue(new Response("gone", { status: 404 }));
+		expect((await respondToFetch(GET("/assets/gone-jjj.js"), deps))?.status).toBe(404);
+		expect(network).toHaveBeenCalledTimes(2);
+
+		// It gives up once the outage outlasts its budget.
+		network.mockClear();
+		waits.length = 0;
+		network.mockResolvedValue(new Response("down", { status: 503 }));
+		expect((await respondToFetch(GET("/assets/never-kkk.js"), deps))?.status).toBe(503);
+		expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeGreaterThanOrEqual(ASSET_OUTAGE_MS - ASSET_RETRY_MS);
+		expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThanOrEqual(ASSET_OUTAGE_MS);
 	});
 
 	it("falls back to another build's copy of the same hashed file, and rejects only when nothing has it", async () => {
