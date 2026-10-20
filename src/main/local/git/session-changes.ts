@@ -1,9 +1,10 @@
 /**
  * `get_git_session_changes`: what this checkout changed since the session started, from git. The baseline is the
- * newest commit of HEAD's history committed before the session's first entry (`git rev-list -1 --before`), so the
- * session's own commits stay counted after it commits or pushes them; the diff runs from that baseline to the
- * working tree (committed, staged and unstaged together) plus untracked files. A session with no file yet, or a
- * checkout with no commit before it, has HEAD as its baseline: its uncommitted changes, as `get_git_changes`.
+ * newest commit of HEAD's history committed before the session's first entry (`git rev-list -1 --before`), or the
+ * empty tree when the session made every commit (it created the repository), so the session's own commits stay
+ * counted after it commits or pushes them; the diff runs from that baseline to the working tree (committed, staged
+ * and unstaged together) plus untracked files. A session with no file yet, or an unborn HEAD, falls back to
+ * `get_git_changes` (the latter lists every staged and untracked file already).
  */
 import * as fs from "node:fs/promises";
 import type { RpcGitChanges } from "../../../shared/rpc-types";
@@ -38,16 +39,31 @@ export async function sessionStartedAt(sessionFile: string): Promise<number | nu
 	return stat && stat.birthtimeMs > 0 ? stat.birthtimeMs : null;
 }
 
-/** The newest commit of HEAD's history committed before `since`; null when there is none. */
-async function baselineCommit(root: string, since: number): Promise<string | null> {
-	const result = await gitRaw(root, ["rev-list", "-1", `--before=${Math.floor(since / 1000)}`, "HEAD", "--"]);
-	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
+/** Git's empty tree, per object format: always known to git, whether or not the store holds it. */
+const EMPTY_TREE: Record<string, string> = {
+	sha1: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+	sha256: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+};
+
+/**
+ * What the session's changes are measured from: the newest commit of HEAD's history committed before `since`, else
+ * (every commit is the session's own: it created the repository) the empty tree; null for an unborn HEAD, whose
+ * staged and untracked files `get_git_changes` already lists in full.
+ */
+async function baseline(root: string, since: number): Promise<string | null> {
+	const head = await gitRaw(root, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+	if (head.code !== 0) return null;
+	const older = await gitRaw(root, ["rev-list", "-1", `--before=${Math.floor(since / 1000)}`, "HEAD", "--"]);
+	const commit = older.code === 0 ? older.stdout.toString("utf8").trim() : "";
+	if (commit) return commit;
+	const format = (await gitRaw(root, ["rev-parse", "--show-object-format"])).stdout.toString("utf8").trim();
+	return EMPTY_TREE[format] ?? EMPTY_TREE.sha1 ?? null;
 }
 
 export async function getGitSessionChanges(cwd: string, since: number | null): Promise<RpcGitChanges> {
 	const root = await repoRoot(cwd);
 	if (!root) return { isRepo: false, root: null, base: null, files: [], truncated: false };
-	const base = since === null ? null : await baselineCommit(root, since);
+	const base = since === null ? null : await baseline(root, since);
 	if (!base) return getGitChanges(cwd);
 	const [names, numstat, status] = await Promise.all([
 		git(root, ["diff", "--name-status", "-z", "--find-renames", "--no-ext-diff", base]),

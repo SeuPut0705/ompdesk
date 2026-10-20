@@ -44,16 +44,38 @@ describe("changes since the session started", () => {
 		]);
 	});
 
-	it("counts nothing from before the session, and falls back to HEAD when no commit predates it", async () => {
+	it("counts nothing from before the session", async () => {
 		const since = Date.now() + 60_000;
 		// A commit made before the session started is the baseline's history, not the session's work.
 		await fs.writeFile(path.join(root, "README.md"), "hello\nolder work\n");
 		commitAt(since - 30_000, "before the session");
 		expect((await getGitSessionChanges(root, since)).files).toEqual([]);
-		// The repository is newer than the session (no commit before it): HEAD is the baseline.
-		await fs.writeFile(path.join(root, "README.md"), "hello\nolder work\nuncommitted\n");
-		const early = await getGitSessionChanges(root, 1_000);
-		expect(early.files).toEqual([expect.objectContaining({ path: "README.md", added: 1 })]);
+	});
+
+	it("counts every committed file of a repository the session created, measured from the empty tree", async () => {
+		const fresh = await fs.mkdtemp(path.join(os.tmpdir(), "omp-session-changes-born-"));
+		try {
+			// The session starts, then creates the repository: unborn HEAD first, nothing committed yet.
+			const since = Date.now() - 60_000;
+			gitSync(fresh, "init", "-q", "-b", "main");
+			gitSync(fresh, "config", "user.email", "test@example.com");
+			gitSync(fresh, "config", "user.name", "Test");
+			gitSync(fresh, "config", "commit.gpgsign", "false");
+			await fs.writeFile(path.join(fresh, "app.ts"), "one\ntwo\n");
+			expect((await getGitSessionChanges(fresh, since)).files).toEqual([
+				expect.objectContaining({ path: "app.ts" }),
+			]);
+			// The initial commit leaves the checkout clean; the session's row still holds the file and its lines.
+			gitSync(fresh, "add", ".");
+			gitSync(fresh, "commit", "-qm", "initial");
+			expect(gitSync(fresh, "status", "--porcelain")).toBe("");
+			const changes = await getGitSessionChanges(fresh, since);
+			expect(changes.files).toEqual([
+				expect.objectContaining({ path: "app.ts", status: "A", added: 2, removed: 0 }),
+			]);
+		} finally {
+			await fs.rm(fresh, { recursive: true, force: true });
+		}
 	});
 
 	it("reads the session's start from its header line", async () => {
