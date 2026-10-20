@@ -223,6 +223,8 @@ interface Run {
 	stopping: boolean;
 	/** The earliest time the next nudge may go out. */
 	nextNudgeAt: number;
+	/** A nudge that came inside the window is asked again when the window passes (one at a time). */
+	nudgeLater: boolean;
 	/** The cycle-end pipeline of one run is sequential. */
 	chain: Promise<unknown>;
 	refreshing: boolean;
@@ -786,6 +788,7 @@ export class Autopilot {
 			stopping: false,
 			starting: false,
 			nextNudgeAt: 0,
+			nudgeLater: false,
 			chain: Promise.resolve(),
 			refreshing: false,
 			refreshAgain: false,
@@ -1171,11 +1174,21 @@ export class Autopilot {
 
 	/**
 	 * The run went quiet (plan mode, every todo blocked, no turn started, a failed turn nobody retries): leave plan mode and
-	 * ask for the next cycle. Never a pause; at most one ask per {@link NUDGE_MS}.
+	 * ask for the next cycle. Never a pause; at most one ask per {@link NUDGE_MS}. An ask inside that window is asked again
+	 * once it passes, never dropped: a failed turn reports its failure once, so nothing else would wake the run.
 	 */
 	async #nudge(run: Run, reason: AutopilotNudgeReason | "error"): Promise<void> {
 		const now = this.#now();
-		if (run.stopping || now < run.nextNudgeAt) return;
+		if (run.stopping) return;
+		if (now < run.nextNudgeAt) {
+			if (run.nudgeLater) return;
+			run.nudgeLater = true;
+			(this.#deps.after ?? afterMs)(() => {
+				run.nudgeLater = false;
+				if (this.#runs.get(run.tabId) === run) this.#enqueue(run, () => this.#nudge(run, reason));
+			}, run.nextNudgeAt - now);
+			return;
+		}
 		if (this.#deps.pool.tabFacts(run.tabId)?.busy) return;
 		run.nextNudgeAt = now + (reason === "error" ? ERROR_NUDGE_MS : NUDGE_MS);
 		if (reason === "plan")

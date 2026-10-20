@@ -1086,6 +1086,26 @@ describe("a failed turn", () => {
 		).toBe(false);
 	});
 
+	it("a second failure inside the nudge window is asked for again once the window passes, never dropped", async () => {
+		await start();
+		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
+		afters[0]?.();
+		await autopilot.idle();
+		const asked = () => world.stock("ap-1", "prompt").length;
+		expect(asked()).toBe(1);
+		// The nudge's own turn fails again a few seconds later: nothing else will ever wake the run.
+		clock.value += 5_000;
+		autopilot.observeActivity(failed("Provider returned 500: overloaded"));
+		afters[1]?.();
+		await autopilot.idle();
+		expect(asked()).toBe(1);
+		expect(afters).toHaveLength(3);
+		clock.value += 60_000;
+		afters[2]?.();
+		await autopilot.idle();
+		expect(asked()).toBe(2);
+	});
+
 	it("waits while TurnResume holds a scheduled retry, or a turn is running again", async () => {
 		await start();
 		world.scheduled.add("ap-1");
