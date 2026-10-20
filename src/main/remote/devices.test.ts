@@ -3,24 +3,28 @@
  * sockets on 127.0.0.1, a fake Tailscale per computer; test-devices.ts).
  */
 import * as fs from "node:fs/promises";
-import { createServer, type Server } from "node:net";
+import { type AddressInfo, connect, createServer, type Server, type Socket } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import { generateKeyPair } from "./crypto";
 import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
 import { DevicesRig, fakeTailnet, LOGIN, LOOPBACK, studioNode, until } from "./test-devices";
+import { WAKE_CHECK_MS } from "./wire";
 
 const rig = new DevicesRig();
 const servers: Server[] = [];
+const held: Socket[] = [];
 const dirs: string[] = [];
 
 afterEach(async () => {
+	vi.useRealTimers();
 	await rig.dispose();
 	for (const server of servers.splice(0)) server.close();
+	for (const socket of held.splice(0)) socket.destroy();
 	for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -135,6 +139,75 @@ describe("ports", () => {
 		const state = await b.devices.setHostEnabled(true);
 		expect(state.host.port).toBeNull();
 		expect(state.host.listenError).toEqual({ code: "port_in_use", ports: held });
+	});
+});
+
+describe("a host link after the computer wakes or the network returns", () => {
+	/** A relay a test can silence: both directions drop every byte but the connections stay open, as a dead path does. */
+	async function silenceableRelay(target: number): Promise<{ port: number; silence: { on: boolean } }> {
+		const silence = { on: false };
+		const server = createServer(inbound => {
+			const outbound = connect({ host: LOOPBACK, port: target });
+			held.push(inbound, outbound);
+			inbound.on("data", chunk => {
+				if (!silence.on) outbound.write(chunk);
+			});
+			outbound.on("data", chunk => {
+				if (!silence.on) inbound.write(chunk);
+			});
+			inbound.on("close", () => outbound.destroy());
+			outbound.on("close", () => inbound.destroy());
+			inbound.on("error", () => {});
+			outbound.on("error", () => {});
+		});
+		servers.push(server);
+		const { promise, resolve } = Promise.withResolvers<void>();
+		server.listen(0, LOOPBACK, () => resolve());
+		await promise;
+		return { port: (server.address() as AddressInfo).port, silence };
+	}
+
+	it("a wake drops a silent link within the wake check, so the host shows offline and is dialed again", async () => {
+		const hostPort = await rig.pickPort();
+		const b = await rig.computer(
+			"Studio",
+			fakeTailnet({ whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]) }),
+		);
+		b.devices.start();
+		await b.devices.setHostEnabled(true);
+		await until(b, state => state.host.port !== null);
+		const relay = await silenceableRelay(hostPort);
+		process.env.OMP_GUI_REMOTE_PORT = String(relay.port);
+		const a = await rig.computer("Laptop", fakeTailnet({ peers: [studioNode()] }));
+		a.devices.start();
+		await a.devices.connect("nSTUDIO");
+		await until(a, state => state.hosts[0]?.state === "online");
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		relay.silence.on = true;
+
+		a.devices.wake("resume");
+		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS);
+
+		expect(a.devices.state().hosts[0]?.state).not.toBe("online");
+	});
+
+	it("the tailnet poll wakes a link at once when its host's node comes back online", async () => {
+		const { a, b } = await rig.connected();
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		await b.devices.setHostEnabled(false);
+		await until(a, state => state.hosts[0]?.state === "offline");
+		const node = a.fake.peers[0];
+		if (!node) throw new Error("expected the host's node");
+		node.online = false;
+		await a.devices.tailscaleAction("start-app");
+
+		await b.devices.setHostEnabled(true);
+		node.online = true;
+		await a.devices.tailscaleAction("start-app");
+
+		// The retry timer is frozen: only the poll's wake can have started this attempt.
+		expect(a.devices.state().hosts[0]?.state).not.toBe("offline");
+		await until(a, state => state.hosts[0]?.state === "online");
 	});
 });
 

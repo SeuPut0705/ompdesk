@@ -11,16 +11,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { type AddressInfo, connect, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
-import { connectFirst, type LinkState, probeHost, RemoteClient, RemoteError } from "./client";
+import { connectFirst, type LinkState, probeHost, RemoteClient, type RemoteClientOptions, RemoteError } from "./client";
 import { authKeys, dh, generateKeyPair } from "./crypto";
-import { type GateResult, type HostServices, RemoteHost, type TailnetVisitor } from "./host-server";
+import {
+	type GateResult,
+	type HostServices,
+	RemoteHost,
+	type RemoteHostOptions,
+	type TailnetVisitor,
+} from "./host-server";
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
 import { AuthInit, authTranscriptOf, HANDSHAKE_VERSION } from "./protocol";
-import { Link } from "./wire";
+import { Link, WAKE_CHECK_MS } from "./wire";
 
 const APP_VERSION = "0.10.0";
 const MACHINE = { platform: "darwin", ompVersion: "18.7.0", home: "/Users/b", sep: "/" };
@@ -69,7 +75,12 @@ interface HostRig {
 	addresses: { hosts: string[] };
 }
 
-async function startHost(b: Side = side(), port = 0, bindHosts = [LOOPBACK]): Promise<HostRig> {
+async function startHost(
+	b: Side = side(),
+	port = 0,
+	bindHosts = [LOOPBACK],
+	logLink?: RemoteHostOptions["logLink"],
+): Promise<HostRig> {
 	const peers = new PeerStore(b.dir);
 	const gate = { next: (_ip: string) => visitor() };
 	const admit = { answer: true, asked: [] as TailnetVisitor[] };
@@ -88,6 +99,7 @@ async function startHost(b: Side = side(), port = 0, bindHosts = [LOOPBACK]): Pr
 		},
 		appVersion: APP_VERSION,
 		hello: () => MACHINE,
+		logLink,
 	});
 	await host.start();
 	cleanups.push(() => host.stop());
@@ -111,16 +123,39 @@ async function connectedClient(
 	return { a, hosts, paired };
 }
 
-function client(a: Side, paired: PairedHost, hosts?: HostStore): RemoteClient {
+function client(a: Side, paired: PairedHost, hosts?: HostStore, log?: RemoteClientOptions["log"]): RemoteClient {
 	const remote = new RemoteClient({
 		identity: a.identity,
 		host: paired,
 		appVersion: APP_VERSION,
 		name: () => "Laptop",
 		hosts,
+		log,
 	});
 	cleanups.push(() => remote.close());
 	return remote;
+}
+
+interface LinkLine {
+	message: string;
+	details: Record<string, unknown>;
+}
+
+/** Everything a client or host wrote to the runtime log's `remote-link` source. */
+function linkLog(): { lines: LinkLine[]; log: (message: string, details: Record<string, unknown>) => void } {
+	const lines: LinkLine[] = [];
+	return { lines, log: (message, details) => lines.push({ message, details }) };
+}
+
+/** Fake timers that leave `setImmediate` and the sockets alone: a link's real I/O still runs. */
+function fakeLinkClock(): void {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+}
+
+/** Let the retry timer fire after `delayMs`, then wait for that attempt to fail. */
+async function failedRetry(remote: RemoteClient, delayMs: number): Promise<void> {
+	await vi.advanceTimersByTimeAsync(delayMs);
+	await untilState(remote, "offline");
 }
 
 /** Resolve once `done()` holds after a state change; the timer is only a failure deadline. */
@@ -209,6 +244,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+	vi.useRealTimers();
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
@@ -467,6 +503,146 @@ describe("authenticated link", () => {
 		remote.connect();
 		await untilState(remote, "online");
 		expect(new HostStore(a.dir).get(paired.deviceId)?.addresses).toEqual([working, `${LOOPBACK}:${dead}`]);
+	});
+});
+
+describe("a link that dropped or went silent", () => {
+	/** The host goes away; the client waits out 1, 2, 4 and 8 s of backoff with the next retry 16 s off. */
+	async function backedOff(log?: RemoteClientOptions["log"]) {
+		const rig = await startHost();
+		const { a, hosts, paired } = await connectedClient(rig);
+		fakeLinkClock();
+		const remote = client(a, paired, hosts, log);
+		remote.connect();
+		await untilState(remote, "online");
+		await rig.host.stop();
+		await untilState(remote, "offline");
+		for (const delay of [1_000, 2_000, 4_000, 8_000]) await failedRetry(remote, delay);
+		return { rig, remote, paired };
+	}
+
+	it("a wake connects at once, without waiting out the grown backoff", async () => {
+		const { lines, log } = linkLog();
+		const { rig, remote, paired } = await backedOff(log);
+		await startHost(rig.b, rig.port);
+
+		remote.wake("resume");
+		await untilState(remote, "online");
+
+		expect(lines.filter(line => line.message === "attempt").at(-1)?.details).toEqual({
+			deviceId: paired.deviceId,
+			n: 5,
+			delayMs: 0,
+			trigger: "resume",
+		});
+	});
+
+	it("a wake that finds the host still down starts the backoff over at 1 s", async () => {
+		const { lines, log } = linkLog();
+		const { remote, paired } = await backedOff(log);
+
+		remote.wake("online");
+		await untilState(remote, "offline");
+		await failedRetry(remote, 1_000);
+
+		expect(lines.filter(line => line.message === "attempt").slice(-2)).toEqual([
+			{ message: "attempt", details: { deviceId: paired.deviceId, n: 5, delayMs: 0, trigger: "online" } },
+			{ message: "attempt", details: { deviceId: paired.deviceId, n: 6, delayMs: 1_000, trigger: "backoff" } },
+		]);
+	});
+
+	it("a wake drops a link that went silent within the wake check, not after the 30 s dead timer", async () => {
+		const rig = await startHost();
+		const { a, paired } = await connectedClient(rig);
+		const silence = { on: false };
+		const held = new Set<Socket>();
+		const relay = await listenFake(inbound => {
+			const outbound = connect({ host: LOOPBACK, port: rig.port });
+			held.add(inbound).add(outbound);
+			inbound.on("data", chunk => {
+				if (!silence.on) outbound.write(chunk);
+			});
+			outbound.on("data", chunk => {
+				if (!silence.on) inbound.write(chunk);
+			});
+			inbound.on("close", () => outbound.destroy());
+			outbound.on("close", () => inbound.destroy());
+			inbound.on("error", () => {});
+			outbound.on("error", () => {});
+		});
+		cleanups.push(() => {
+			for (const socket of held) socket.destroy();
+		});
+		fakeLinkClock();
+		const { lines, log } = linkLog();
+		const remote = client(a, { ...paired, addresses: [`${LOOPBACK}:${relay.port}`] }, undefined, log);
+		remote.connect();
+		await untilState(remote, "online");
+		await vi.advanceTimersByTimeAsync(5_000);
+		silence.on = true;
+
+		remote.wake("focus");
+		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS);
+
+		expect(remote.state).not.toBe("online");
+		expect(lines.find(line => line.message === "down")?.details).toEqual({
+			deviceId: paired.deviceId,
+			name: "Studio",
+			reason: "dead",
+			wasOnlineMs: 5_000 + WAKE_CHECK_MS,
+		});
+	});
+
+	it("logs an outage: down with the reason, each attempt, up with how long it lasted", async () => {
+		const rig = await startHost();
+		const { a, hosts, paired } = await connectedClient(rig);
+		fakeLinkClock();
+		const { lines, log } = linkLog();
+		const remote = client(a, paired, hosts, log);
+		remote.connect();
+		await untilState(remote, "online");
+		await vi.advanceTimersByTimeAsync(2_000);
+		await rig.host.stop();
+		await untilState(remote, "offline");
+		await failedRetry(remote, 1_000);
+		await failedRetry(remote, 2_000);
+		await startHost(rig.b, rig.port);
+		await vi.advanceTimersByTimeAsync(4_000);
+		await untilState(remote, "online");
+
+		const id = paired.deviceId;
+		expect(lines).toEqual([
+			{ message: "attempt", details: { deviceId: id, n: 1, delayMs: 0, trigger: "start" } },
+			{ message: "up", details: { deviceId: id, outageMs: 0, attempts: 1 } },
+			{ message: "down", details: { deviceId: id, name: "Studio", reason: "closed", wasOnlineMs: 2_000 } },
+			{ message: "attempt", details: { deviceId: id, n: 1, delayMs: 1_000, trigger: "backoff" } },
+			{ message: "attempt", details: { deviceId: id, n: 2, delayMs: 2_000, trigger: "backoff" } },
+			{ message: "attempt", details: { deviceId: id, n: 3, delayMs: 4_000, trigger: "backoff" } },
+			{ message: "up", details: { deviceId: id, outageMs: 7_000, attempts: 3 } },
+		]);
+	});
+
+	it("the host logs each connection's open and close with who, why and how long", async () => {
+		const { lines, log } = linkLog();
+		const settled = Promise.withResolvers<void>();
+		let closes = 0;
+		const rig = await startHost(side(), 0, [LOOPBACK], (message, details) => {
+			log(message, details);
+			// The device's first contact (connectFirst) is a connection too, and ends on its own.
+			if (message === "closed" && ++closes === 2) settled.resolve();
+		});
+		const { a, hosts, paired } = await connectedClient(rig);
+		const remote = client(a, paired, hosts);
+		remote.connect();
+		await untilState(remote, "online");
+		remote.close();
+		await settled.promise;
+
+		expect(lines.map(line => line.message).sort()).toEqual(["closed", "closed", "open", "open"]);
+		for (const { message, details } of lines) {
+			const who = { deviceId: a.identity.deviceId, ms: expect.any(Number) };
+			expect(details).toEqual(message === "open" ? who : { ...who, reason: "closed" });
+		}
 	});
 });
 

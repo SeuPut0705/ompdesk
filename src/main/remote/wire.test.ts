@@ -1,11 +1,21 @@
 import { randomBytes } from "node:crypto";
 import { connect, createServer, type Socket } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
-import { encodeFrame, FrameDecoder, FrameOpener, FrameSealer, Link, MAX_FRAME_BYTES, type WireMessage } from "./wire";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	encodeFrame,
+	FrameDecoder,
+	FrameOpener,
+	FrameSealer,
+	Link,
+	MAX_FRAME_BYTES,
+	WAKE_CHECK_MS,
+	type WireMessage,
+} from "./wire";
 
 const sockets: Socket[] = [];
 
 afterEach(() => {
+	vi.useRealTimers();
 	for (const socket of sockets.splice(0)) socket.destroy();
 });
 
@@ -59,6 +69,42 @@ describe("Link", () => {
 		link.listen(() => {});
 		await closed;
 		expect(link.closed).toBe(true);
+	});
+
+	it("says why it closed: the peer ended the connection", async () => {
+		const [left, right] = await socketPair();
+		const link = new Link(left);
+		const { promise: closed, resolve } = Promise.withResolvers<void>();
+		link.onClose(resolve);
+		link.listen(() => {});
+		right.destroy();
+		await closed;
+		expect(link.closeReason).toBe("closed");
+	});
+
+	it("a check on a peer that went silent drops the link when its window passes, not before", async () => {
+		const [left] = await socketPair();
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		const link = new Link(left);
+		link.listen(() => {});
+
+		const answered = link.check(WAKE_CHECK_MS);
+		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS - 1);
+		expect(link.closed).toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(link.closed).toBe(true);
+		expect(link.closeReason).toBe("dead");
+		expect(await answered).toBe(false);
+	});
+
+	it("a check on a live peer is answered and leaves the link open", async () => {
+		const [left, right] = await socketPair();
+		const a = new Link(left);
+		const b = new Link(right);
+		a.listen(() => {});
+		b.listen(() => {});
+		expect(await a.check(WAKE_CHECK_MS)).toBe(true);
+		expect(a.closed).toBe(false);
 	});
 });
 
