@@ -210,7 +210,7 @@ for (const [language, theme] of variants([
 			await expect(composer).toHaveValue("@notes.md ");
 
 			// C46/C47/C48: ⌥⌘F searches file contents through stock grep; Match case narrows it; a hit opens its line.
-			await page.keyboard.press("Alt+Meta+f");
+			await page.keyboard.press("Alt+ControlOrMeta+f");
 			const query = aside.getByRole("searchbox", { name: label.query });
 			await expect(query).toBeFocused();
 			await query.fill("ONE");
@@ -258,13 +258,13 @@ for (const [language, theme] of variants([
 			await editor.click();
 			await page.keyboard.type("unsaved");
 			await expect(status).toHaveText(label.unsaved);
-			await page.keyboard.press("Alt+Meta+f");
+			await page.keyboard.press("Alt+ControlOrMeta+f");
 			const discard = page.getByRole("dialog");
 			await expect(discard).toContainText("notes.md");
 			await capture("files-edit-switch");
 			await discard.getByRole("button", { name: label.cancel, exact: true }).click();
 			await expect(editor).toContainText("unsaved");
-			await page.keyboard.press("Alt+Meta+f");
+			await page.keyboard.press("Alt+ControlOrMeta+f");
 			await page.getByRole("dialog").getByRole("button", { name: label.discard, exact: true }).click();
 			await expect(aside.getByRole("searchbox", { name: label.query })).toBeFocused();
 			expect(await fs.readFile(path.join(project, "notes.md"), "utf8")).toBe("# Someone else\n");
