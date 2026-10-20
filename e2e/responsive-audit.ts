@@ -187,16 +187,27 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 		if (message.type() === "error") errors.push(message.text().slice(0, 240));
 	});
 	Object.assign(page, { auditErrors: errors });
+	// The device's safe areas on every load of the page: a sweep reloads it when a surface leaves something modal on
+	// screen, and a style tag added once went with that reload, so every later surface was measured against insets
+	// the page no longer had (the topbar "under the top 43px inset" of a slow runner's nightly).
+	const inset = safeInsets(look);
+	await page.addInitScript(css => {
+		document.addEventListener(
+			"DOMContentLoaded",
+			() => {
+				const style = document.createElement("style");
+				style.textContent = css;
+				document.head.append(style);
+			},
+			{ once: true },
+		);
+	}, `:root:root{--safe-t:${inset.t}px;--safe-r:${inset.r}px;--safe-b:${inset.b}px;--safe-l:${inset.l}px}`);
 	await page.goto(
 		`${options.origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all&stress=1${look.device === "electron" ? "&platform=darwin" : ""}${options.query ?? ""}`,
 		{ timeout: 90_000 },
 	);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
 	await page.waitForFunction(() => window.__stores !== undefined, undefined, { timeout: 45_000 });
-	const inset = safeInsets(look);
-	await page.addStyleTag({
-		content: `:root:root{--safe-t:${inset.t}px;--safe-r:${inset.r}px;--safe-b:${inset.b}px;--safe-l:${inset.l}px}`,
-	});
 	return page;
 }
 
