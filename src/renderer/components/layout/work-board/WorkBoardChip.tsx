@@ -22,6 +22,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
+import { useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { liveSubagents, todoBoard } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
@@ -85,6 +86,8 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 		[pending, loginRequestIds],
 	);
 	const planProposal = usePlanApprovalStore(state => state.pending);
+	// A live run's own words (cycle and area, a pause reason, a quota wait): on a phone the strip is its only status.
+	const autopilotState = useAutopilotStateText();
 
 	const waiting = blocking.length + (planProposal ? 1 : 0) + opened.counts.waiting;
 	const running = agents.length + jobs.length + opened.counts.running;
@@ -96,15 +99,17 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 			? t("workBoard.status.waiting", { count: waiting })
 			: failed
 				? t("workBoard.session.checkFailed")
-				: plan
-					? t("workBoard.planProgress", { done: plan.done, total: plan.total })
-					: turnActive
-						? t("workBoard.step.working")
-						: running > 0
-							? `${t("workBoard.running")} · ${running}`
-							: goal
-								? t("workBoard.goal")
-								: null;
+				: autopilotState
+					? `${t("autopilot.name")} · ${autopilotState}`
+					: plan
+						? t("workBoard.planProgress", { done: plan.done, total: plan.total })
+						: turnActive
+							? t("workBoard.step.working")
+							: running > 0
+								? `${t("workBoard.running")} · ${running}`
+								: goal
+									? t("workBoard.goal")
+									: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {
 		if (label === null && open) close();
@@ -151,7 +156,7 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 			>
 				<span aria-hidden className="omp-work-board-pulse" data-state={state} />
 				<span aria-live="polite" className="omp-work-chip-label" role="status">
-					{plan && waiting === 0 && !failed ? (
+					{plan && waiting === 0 && !failed && !autopilotState ? (
 						<>
 							<span className="sr-only">{label}</span>
 							<span aria-hidden className="omp-work-chip-plan">

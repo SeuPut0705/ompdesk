@@ -3,6 +3,8 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
+import { useAutopilotStore } from "../../../stores/autopilot";
+import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
@@ -66,6 +68,27 @@ describe("WorkBoardChip, the phone's work strip", () => {
 	it("shows nothing when there is nothing to say", async () => {
 		await mount();
 		expect(container.querySelector("[data-work-chip]")).toBeNull();
+	});
+
+	it("names a live Autopilot run and its cycle, never just its Goal, even with the run's plan open", async () => {
+		useSessionStore.setState({ goal: { objective: "Autopilot: keep developing" }, goalState: { status: "active" } });
+		useTodoStore.getState().setPhases([{ name: "Cycle", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
+		useAutopilotStore.getState().apply({
+			active: true,
+			state: "running",
+			cycle: 3,
+			now: { n: 3, area: "bugs", startedAt: 1 },
+			branch: "autopilot/2026-10-20",
+		});
+		try {
+			await mount();
+			const label = container.querySelector("[data-work-chip] [role=status]")?.textContent ?? "";
+			expect(label).toContain("Autopilot");
+			expect(label).toContain("Cycle 3");
+		} finally {
+			useAutopilotStore.getState().reset();
+			useSessionStore.getState().reset();
+		}
 	});
 
 	it("says the plan's progress with the current task, and counts running subagents", async () => {
