@@ -44,7 +44,7 @@ import { applyAcceptLanguages, seedSpellchecker } from "../system-languages";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { DIALOG_CHANNEL, dialogRequestSchema, dialogReturnValue } from "../web/preview-dialog";
-import { InputMapper, previewStreamBatchSchema } from "../web/preview-input";
+import { InputMapper, InputSequence, previewStreamBatchSchema } from "../web/preview-input";
 import { streamProfile } from "../web/preview-pacer";
 import { type OsrPage, PageStream, POLL_MAX_WAIT_MS } from "../web/preview-stream";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
@@ -150,6 +150,8 @@ interface PreviewPage {
 	stream: PageStream | null;
 	/** A web viewer's gesture state (a drag in progress). */
 	mapper: InputMapper;
+	/** The order a viewer's events and committed text reach the page in. */
+	input: InputSequence;
 	/** A web viewer's window DIPs per frame CSS px (`placeStreamed`): a wheel delta in frame px is scaled by it. */
 	streamScale: number;
 }
@@ -479,6 +481,7 @@ export function registerPreviewHost(
 			lastInput: 0,
 			stream,
 			mapper: new InputMapper(),
+			input: new InputSequence(),
 			streamScale: 1,
 		};
 		if (stream) {
@@ -963,15 +966,17 @@ export function registerPreviewHost(
 		if (page.state.crashed || osr.isDestroyed()) return;
 		const [width, height] = osr.getContentSize();
 		for (const input of batch.data) {
-			for (const op of page.mapper.map(input, { width, height, scale: page.streamScale })) {
-				if (op.op === "event") page.contents.sendInputEvent(op.event);
-				else if (op.op === "text") void page.contents.insertText(op.text).catch(() => {});
-				else {
-					page.state = { ...page.state, zoom: clampPreviewZoom(page.state.zoom * op.scale) };
+			page.input.push(page.mapper.map(input, { width, height, scale: page.streamScale }), {
+				event: event => page.contents.sendInputEvent(event),
+				text: text => page.contents.insertText(text),
+				roundTrip: () => runOnPage(page, "0"),
+				pinch: scale => {
+					if (page.contents.isDestroyed()) return;
+					page.state = { ...page.state, zoom: clampPreviewZoom(page.state.zoom * scale) };
 					place(host);
 					publish(host, page);
-				}
-			}
+				},
+			});
 		}
 	});
 	ipc.handle(PREVIEW_STREAM_DIALOG, (caller, raw: unknown) => {

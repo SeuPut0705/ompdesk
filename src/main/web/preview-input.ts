@@ -181,3 +181,43 @@ export class InputMapper {
 		this.#dragging = false;
 	}
 }
+
+/** Where one page takes a viewer's ops: events, committed text, a call that returns once the page's main thread answers. */
+export interface InputSink {
+	event(event: MouseInputEvent | MouseWheelInputEvent | KeyboardInputEvent): void;
+	text(text: string): Promise<unknown>;
+	roundTrip(): Promise<unknown>;
+	pinch(scale: number): void;
+}
+
+/**
+ * Applies a viewer's ops to one page in the order the viewer made them. `sendInputEvent` and `insertText` reach the
+ * page by different routes, and while its main thread is busy committed text lands before the keys sent ahead of it
+ * (Windows, a page repainting under load: "a", "b", Backspace, then "한글" typed "한글a" in 5 of 40 runs of
+ * e2e/preview-stream). So committed text waits for a round trip to the page after any events before it, and what
+ * follows text waits for the insert to finish.
+ */
+export class InputSequence {
+	#tail: Promise<void> = Promise.resolve();
+	/** Events went out since the last round trip: text must not overtake them. */
+	#eventsInFlight = false;
+
+	push(ops: readonly InputOp[], sink: InputSink): void {
+		for (const op of ops) this.#tail = this.#tail.then(() => this.#apply(op, sink)).catch(() => {});
+	}
+
+	async #apply(op: InputOp, sink: InputSink): Promise<void> {
+		if (op.op === "event") {
+			sink.event(op.event);
+			this.#eventsInFlight = true;
+		} else if (op.op === "text") {
+			if (this.#eventsInFlight) {
+				this.#eventsInFlight = false;
+				await sink.roundTrip();
+			}
+			await sink.text(op.text);
+		} else {
+			sink.pinch(op.scale);
+		}
+	}
+}
