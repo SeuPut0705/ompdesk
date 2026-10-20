@@ -17,8 +17,8 @@ import { activeComposerInput } from "./composer-focus";
 const TEXT_ENTRY = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 /** A dialog, or the overlay of one still fading out (`Modal` drops its role then but keeps the focus trap in the DOM). */
 const DIALOG = '[role="dialog"], dialog[open], .omp-dialog-overlay';
-/** About half a second of frames for a closing dialog to leave, or the new pane's field to be there to focus. */
-const RETRY_FRAMES = 30;
+/** Half a second for a closing dialog to leave (`Modal` unmounts 150 ms after it closes), or the new pane's field to be there to focus. Counted in time: a 240 Hz display draws 30 frames before that exit ends. */
+const RETRY_MS = 500;
 
 /** Whether the element holding focus is one the composer may take it from. */
 export function focusIsAdrift(active: Element | null): boolean {
@@ -40,9 +40,10 @@ export function followActivationFocus(): () => void {
 	let frame = 0;
 	const schedule = () => {
 		cancelAnimationFrame(frame);
-		let frames = 0;
+		let started: number | null = null;
 		// After React commits the pane (its `data-active` and field), as `omp:fill-composer` waits a frame.
-		const attempt = () => {
+		const attempt = (now: number) => {
+			started ??= now;
 			const decision = verdict();
 			if (decision === "leave") return;
 			if (decision === "take") {
@@ -50,7 +51,7 @@ export function followActivationFocus(): () => void {
 				field?.focus();
 				if (field && document.activeElement === field) return;
 			}
-			if (++frames < RETRY_FRAMES) frame = requestAnimationFrame(attempt);
+			if (now - started < RETRY_MS) frame = requestAnimationFrame(attempt);
 		};
 		frame = requestAnimationFrame(attempt);
 	};

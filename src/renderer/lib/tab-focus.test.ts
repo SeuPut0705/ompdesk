@@ -15,13 +15,15 @@ globals.document = document;
 globals.window = window;
 globals.HTMLElement = HTMLElement;
 
-let frames: (() => void)[] = [];
-globals.requestAnimationFrame = (callback: () => void) => frames.push(callback);
+let frames: ((time: number) => void)[] = [];
+let clock = 0;
+globals.requestAnimationFrame = (callback: (time: number) => void) => frames.push(callback);
 globals.cancelAnimationFrame = () => {};
-const runFrames = () => {
+const runFrames = (frameMs = 16) => {
 	const pending = frames;
 	frames = [];
-	for (const callback of pending) callback();
+	clock += frameMs;
+	for (const callback of pending) callback(clock);
 };
 
 afterEach(() => {
@@ -120,6 +122,27 @@ describe("followActivationFocus", () => {
 		document.querySelector('[role="dialog"]')?.remove();
 		runFrames();
 		expect(view.active()).toBe(view.byId("composer"));
+		view.stop();
+	});
+
+	it("waits out a closing dialog by time, not by frames: a 240 Hz display draws 30 frames inside the 150 ms exit", () => {
+		const view = setup();
+		document.body.insertAdjacentHTML("beforeend", '<div class="omp-dialog-overlay" role="presentation"></div>');
+		useTabsStore.setState({ activeTabId: "t1" });
+		for (let frame = 0; frame < 40; frame++) runFrames(4);
+		expect(view.active()).toBe(document.body);
+		document.querySelector(".omp-dialog-overlay")?.remove();
+		runFrames(4);
+		expect(view.active()).toBe(view.byId("composer"));
+		view.stop();
+	});
+
+	it("gives up on a dialog that never leaves", () => {
+		const view = setup();
+		document.body.insertAdjacentHTML("beforeend", '<div role="dialog"></div>');
+		useTabsStore.setState({ activeTabId: "t1" });
+		for (let frame = 0; frame < 60; frame++) runFrames(16);
+		expect(frames).toHaveLength(0);
 		view.stop();
 	});
 
