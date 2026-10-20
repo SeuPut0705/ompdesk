@@ -84,6 +84,7 @@ import { sessionForkOrigin } from "../../../lib/session-fork";
 import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
+import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
@@ -484,7 +485,12 @@ export function Sidebar() {
 		shownLane.current = mode;
 		useSidebarFolds.getState().setLane(mode);
 	}, [mode]);
-	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(null);
+	// This computer's no-project workspace decides which lane a session's row sits in (`inChatLane`): its last answer
+	// paints the first frame, as a paired host's does (host-workspace.ts). Without it a chat-lane session was missing
+	// from the first frame's list and its row and selection came one frame later (300 ms on a slow machine).
+	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(
+		() => snapshots().read<string>("panel", snapshotNs(), "workspace")?.value ?? null,
+	);
 	const [filter, setFilter] = useState("");
 	const switchPendingTo = useSessionStore(s => s.switchPending?.toId ?? null);
 	// Resizable docked column; the width persists like every other chrome pref.
@@ -625,6 +631,7 @@ export function Sidebar() {
 		void window.omp.sidecar
 			.defaultWorkspace()
 			.then(workspace => {
+				snapshots().write("panel", snapshotNs(), "workspace", workspace);
 				setDefaultWorkspace(workspace);
 				const tabState = useTabsStore.getState();
 				const activeKind = tabState.tabs.find(tab => tab.id === tabState.activeTabId)?.kind;

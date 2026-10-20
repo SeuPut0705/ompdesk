@@ -775,9 +775,12 @@ function snapshotIdentity(tab: SessionTab) {
 }
 
 /** The tab's last known page paints before the live read answers (a restored or re-opened session, a cold start). */
-function seedFromSnapshot(tabId: string, { messages, tools, model }: HydrationStores): void {
+function seedFromSnapshot(tabId: string, { messages, session, tools, model }: HydrationStores): void {
 	const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
 	if (!tab) return;
+	// The tab knows its folder before its omp reports one: the title bar's project and the sidebar's rows (and the
+	// selected one) read it, so without it the first frame showed "Chats" and an empty list, a frame later the project.
+	if (session && !session.getState().cwd && tab.cwd) session.setState({ cwd: tab.cwd });
 	if (model) seedModelStore(model, tab.device, transcriptKey(snapshotIdentity(tab)));
 	if (!messages) return;
 	const rows = seedTranscript(messages, snapshotIdentity(tab));
