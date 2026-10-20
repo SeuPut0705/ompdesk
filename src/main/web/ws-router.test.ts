@@ -525,6 +525,21 @@ describe("events", () => {
 		]);
 	});
 
+	it("sends the events pushed before a call's answer ahead of it, as the desktop's IPC keeps them in order", async () => {
+		// A status the tab pushed before the page's tab list was read used to wait out the batch window and land after
+		// the list: a stale "no session file yet" over a known file made the page replace the tab's runtime, and the
+		// text being typed in its composer went with it (web-no-reload.e2e.ts, 1 in about 4 under load).
+		const r = rig();
+		const win = r.windows.windowFor("dev1");
+		win.webContents.send(IPC_EVENTS.TAB_STATUS, { tabId: "a", status: "ready", sessionPath: null });
+		r.frame({ t: "inv", id: 9, ch: IPC_COMMANDS.SESSIONS_LIST, a: [{ scope: "global" }] });
+		await r.settle();
+		expect(r.socket.sent.map(frame => frame.t).filter(t => t === "evt" || t === "res")).toEqual(["evt", "res"]);
+		// The batch window that held it sends nothing twice.
+		r.timers.flush();
+		expect(r.socket.frames("evt")).toHaveLength(1);
+	});
+
 	it("joins a tab's neighbouring batches and merges their streaming deltas", () => {
 		const r = rig();
 		const win = r.windows.windowFor("dev1");

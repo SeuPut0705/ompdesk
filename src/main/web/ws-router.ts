@@ -550,6 +550,7 @@ export class WsConnection {
 
 	/** Send what is queued now. */
 	flush(): void {
+		this.#cancelFlush?.();
 		this.#cancelFlush = null;
 		if (this.#closed || this.#queue.length === 0) return;
 		const queue = this.#queue;
@@ -671,17 +672,27 @@ export class WsConnection {
 	async #invoke(id: number, channel: string, args: readonly unknown[]): Promise<void> {
 		try {
 			const value = await this.#dispatch("invoke", channel, args);
-			if (this.#write({ t: "res", id, ok: true, v: value })) return;
+			if (this.#reply({ t: "res", id, ok: true, v: value })) return;
 			// A result JSON cannot carry: the call fails here instead of the page waiting for it forever.
-			this.#write({
+			this.#reply({
 				t: "res",
 				id,
 				ok: false,
 				e: { message: `The computer's answer to ${channel} could not be sent to this page` },
 			});
 		} catch (error) {
-			this.#write({ t: "res", id, ok: false, e: webError(error) });
+			this.#reply({ t: "res", id, ok: false, e: webError(error) });
 		}
+	}
+
+	/**
+	 * A call's answer, after every event pushed before it. Without the flush an answer overtook the batch window
+	 * (75 ms): a page read a tab list naming the tab's session file, then a status pushed before it saying "no file
+	 * yet", and replaced the tab's runtime with the draft being typed in it. The desktop's IPC keeps this order.
+	 */
+	#reply(frame: Extract<WebServerFrame, { t: "res" }>): boolean {
+		this.flush();
+		return this.#write(frame);
 	}
 
 	#send(channel: string, args: readonly unknown[]): void {

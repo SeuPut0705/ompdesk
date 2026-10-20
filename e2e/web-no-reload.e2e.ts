@@ -27,7 +27,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { crash } from "./autopilot-harness";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
-import { exitApp, fixtureOmp } from "./harness";
+import { cssString, exitApp, fixtureOmp } from "./harness";
 
 const ENGINES: { name: string; type: BrowserType; device: (typeof devices)[string] }[] = [
 	{ name: "chromium", type: chromium, device: devices["Pixel 7"] },
@@ -90,6 +90,39 @@ async function fixture(phone: Page, tabId: string, line: string) {
 	] as const);
 }
 
+/** The page is paired and its host answers (a new device's first `/` renders before it moves to `/pair`). */
+async function paired(phone: Page): Promise<void> {
+	await expect
+		.poll(
+			() =>
+				phone
+					.evaluate(async () => location.pathname === "/" && Array.isArray(await window.omp.tabs.list()))
+					.catch(() => false),
+			{ timeout: 60_000 },
+		)
+		.toBe(true);
+}
+
+/**
+ * Show `tabId` as a person does, by its drawer row. The page has a tab of its own besides it (a paired page with
+ * none opens the empty start tab), and after a reload either may be the active one.
+ */
+async function showTab(phone: Page, tabId: string): Promise<void> {
+	const active = async () => (await phone.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
+	if ((await active()) === tabId) return;
+	const sessionPath = (await phone.evaluate(() => window.omp.tabs.list())).find(
+		tab => tab.tabId === tabId,
+	)?.sessionPath;
+	await phone.getByRole("button", { name: "Open menu" }).click();
+	const sidebar = phone.locator("[data-drawer] .omp-session-sidebar");
+	for (const fold of await sidebar.locator('[data-workspace-group] button[aria-expanded="false"]').all())
+		await fold.click().catch(() => undefined);
+	await sidebar
+		.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath ?? `tab:${tabId}`)}]`)
+		.click();
+	await expect.poll(active).toBe(tabId);
+}
+
 for (const engine of ENGINES)
 	test(`The phone's page (${engine.name}) catches up in place after a drop mid-reply, and opens a never-loaded view after the computer updated without reloading or losing the draft; a view nobody has any more stays quiet and the page reloads only once unused`, async () => {
 		test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
@@ -138,15 +171,15 @@ for (const engine of ENGINES)
 			});
 			const phone = await (await browser.newContext({ ...engine.device, colorScheme: "light" })).newPage();
 			await phone.goto(`${proxy.url}/`);
-			await expect(phone.getByRole("button", { name: "Open menu" })).toBeVisible({ timeout: 60_000 });
-			await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+			await paired(phone);
+			// The tab this test drives: by the id the spawn answers, never "the active one" (see showTab).
+			const tabId = (await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project))?.tabId;
+			if (!tabId) throw new Error("no tab on the phone");
 			await phone.reload();
+			await paired(phone);
 			const field = phone.locator("[data-composer-input]").first();
 			await expect(field).toBeVisible({ timeout: 60_000 });
-			const tabId = await phone.evaluate(
-				async () => (await window.omp.tabs.list()).find(tab => tab.active)?.tabId ?? null,
-			);
-			if (!tabId) throw new Error("no tab on the phone");
+			await showTab(phone, tabId);
 			await expect
 				.poll(
 					() =>
@@ -215,9 +248,12 @@ for (const engine of ENGINES)
 			// On touch the help menu is a sheet of rows.
 			await phone.getByText("Send feedback", { exact: true }).click();
 			expect((await keptServed).status()).toBe(200);
-			await expect(phone.getByRole("dialog", { name: "Send feedback" })).toBeVisible({ timeout: 30_000 });
-			await phone.keyboard.press("Escape");
-			await expect(phone.getByRole("dialog", { name: "Send feedback" })).toHaveCount(0);
+			const feedback = phone.getByRole("dialog", { name: "Send feedback" });
+			await expect(feedback).toBeVisible({ timeout: 30_000 });
+			// Its close button, as on a phone (no Escape key there; an Escape pressed the frame the dialog painted can
+			// come before its key listener, attached after paint, and was lost 1 in 20 in WebKit).
+			await feedback.getByRole("button", { name: "Close" }).first().click();
+			await expect(feedback).toHaveCount(0);
 			// The drawer it was opened from is still there: the system back gesture closes it (a same-page entry).
 			await phone.goBack();
 			await expect(phone.locator("[data-drawer]")).toHaveCount(0);
