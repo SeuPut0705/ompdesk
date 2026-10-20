@@ -287,9 +287,19 @@ for (const language of variants(["en", "ko"] as const))
 			const first = await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 1, "cycle 1 done", 90_000);
 			const commit = first.cycles?.[0]?.commit;
 			expect(commit).toBeTruthy();
-			// Push published the run's own branch; main on the remote did not move.
+			// Push published the run's own branch; main on the remote did not move. The branch is new on the remote, so
+			// until the push lands `rev-parse` fails: that is "not yet", never a failure of the poll.
 			await expect
-				.poll(() => git(profile.remote, "rev-parse", `refs/heads/${branch}`), { timeout: 30_000 })
+				.poll(
+					() => {
+						try {
+							return git(profile.remote, "rev-parse", `refs/heads/${branch}`);
+						} catch {
+							return "";
+						}
+					},
+					{ timeout: 30_000 },
+				)
 				.toBe(commit);
 			expect(git(profile.remote, "rev-parse", "refs/heads/main")).toBe(mainBefore);
 			// The user's folder is untouched: still on main, local main not moved, a clean working tree.
