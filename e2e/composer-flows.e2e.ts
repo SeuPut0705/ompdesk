@@ -594,7 +594,7 @@ test("Shift+Tab moves focus back out of the composer; the thinking level cycles 
 	}
 });
 
-test("a new tab, ⌃Tab and New session put the next keystroke in the composer", async () => {
+test("a new tab, ⌃Tab and the project row's + put the next keystroke in the composer", async () => {
 	test.setTimeout(120_000);
 	const dirs = await profile("activation-focus");
 	const { app, page, errors } = await launch(dirs);
@@ -615,11 +615,13 @@ test("a new tab, ⌃Tab and New session put the next keystroke in the composer",
 		await page.keyboard.type("!");
 		await expect(field()).toHaveValue(/!/);
 
-		// A sidebar button keeps focus after it is clicked; the new session's composer takes it.
-		await page
-			.getByRole("button", { name: /^New session/ })
-			.first()
-			.click();
+		// A sidebar button keeps focus after it is clicked; the new session's composer takes it. The sidebar has no New
+		// session button since cc397d06 (a /^New session/ name now matches an untitled session's row): a code session
+		// starts from its project row's +.
+		const plus = page.locator("[data-sidebar-group-new]").first();
+		await plus.hover();
+		await plus.click();
+		await expect.poll(async () => (await tabs()).length).toBe(3);
 		await expect(field()).toBeFocused();
 		await page.keyboard.type("typed after the click");
 		await expect(field()).toHaveValue("typed after the click");
