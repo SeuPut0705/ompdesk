@@ -17,7 +17,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
-import { capture, exitApp, openDestination, variants } from "./harness";
+import { capture, cssString, exitApp, openDestination, variants } from "./harness";
 import {
 	connectHost,
 	type Language,
@@ -360,7 +360,7 @@ for (const language of variants(["en", "ko"] as const))
 
 				// ── A opens the session B's user typed in, from B's section of the sidebar ──
 				const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
-				await section.locator(`[data-device-session="${shared}"] button[data-roving-item]`).click();
+				await section.locator(`[data-device-session=${cssString(shared)}] button[data-roving-item]`).click();
 				let remoteTab = "";
 				await expect
 					.poll(
@@ -438,7 +438,7 @@ for (const language of variants(["en", "ko"] as const))
 					// A's own tab's row: its session file once omp named one, else the live tab.
 					const own = (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === localTab.tabId);
 					const ownRow = a.locator(
-						`[data-session-path="tab:${localTab.tabId}"], [data-session-path="${own?.sessionPath ?? ""}"]`,
+						`[data-session-path="tab:${localTab.tabId}"], [data-session-path=${cssString(own?.sessionPath ?? "")}]`,
 					);
 					await focusTab(localTab.tabId, ownRow.first());
 					await openSection("models");
@@ -450,7 +450,7 @@ for (const language of variants(["en", "ko"] as const))
 					await openSection("updates");
 					await expect(settings.locator(`[data-device-chip="${deviceId}"]`)).toHaveCount(0);
 					await closeSettings();
-					await focusTab(remoteTab, section.locator(`[data-device-session="${shared}"]`));
+					await focusTab(remoteTab, section.locator(`[data-device-session=${cssString(shared)}]`));
 				});
 
 				await test.step("the host's theme and language while its tab is focused", async () => {
@@ -472,7 +472,7 @@ for (const language of variants(["en", "ko"] as const))
 						localTab.tabId,
 						a
 							.locator(
-								`[data-session-path="tab:${localTab.tabId}"], [data-session-path="${own?.sessionPath ?? ""}"]`,
+								`[data-session-path="tab:${localTab.tabId}"], [data-session-path=${cssString(own?.sessionPath ?? "")}]`,
 							)
 							.first(),
 					);
@@ -480,7 +480,7 @@ for (const language of variants(["en", "ko"] as const))
 					expect(
 						JSON.parse(await fs.readFile(path.join(clientProfile.desktop, "prefs.json"), "utf8")),
 					).toMatchObject({ language, themeName: theme, useHostAppearance: true });
-					await focusTab(remoteTab, section.locator(`[data-device-session="${shared}"]`));
+					await focusTab(remoteTab, section.locator(`[data-device-session=${cssString(shared)}]`));
 					await expect.poll(scheme).toBe(hostTheme);
 					await openSection("connections");
 					await appearance.getByRole("switch").click();
@@ -532,7 +532,7 @@ for (const language of variants(["en", "ko"] as const))
 						)
 						.toBe(false);
 					await expect.poll(() => fs.readFile(shared, "utf8")).toContain("Typed on the laptop");
-					await b.locator(`[data-session-path="${shared}"] button[data-roving-item]`).click();
+					await b.locator(`[data-session-path=${cssString(shared)}] button[data-roving-item]`).click();
 					const from = b.locator("[data-prompt-from]");
 					await expect(from.first()).toBeVisible({ timeout: 30_000 });
 					await expect(from.first()).toHaveText(tb("chat.promptFrom", { device: "Laptop A" }));

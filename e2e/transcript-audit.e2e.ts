@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { exitApp, fixtureOmp } from "./harness";
+import { cssString, exitApp, fixtureOmp } from "./harness";
 
 // Opt-in visual audit of the transcript outside the work card
 // (OMP_GUI_TRANSCRIPT_AUDIT=<dir>): a seeded session with every message kind
@@ -598,7 +598,10 @@ for (const language of ["en", "ko"] as const)
 				).toBeVisible();
 				await expect(page.getByText("Both installers are signed with the rotated certificate.")).toHaveCount(0);
 				// Back to the original session for the rest of the flows.
-				await page.locator(`[data-session-path="${origin}"]`).first().click();
+				await page
+					.locator(`[data-session-path=${cssString(origin)}]`)
+					.first()
+					.click();
 				await expect.poll(activeSession).toBe(origin);
 				await page.waitForTimeout(800);
 

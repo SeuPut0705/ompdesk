@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { captureTo, exitApp, launchApp, recordsOfType } from "./harness";
+import { captureTo, cssString, exitApp, launchApp, recordsOfType } from "./harness";
 
 // Two windows view one tab (the multi-viewer model the paired web devices use, here on two Electron windows through
 // the test hook OMP_GUI_TEST_VIEWER_WINDOWS=1): the first answer to a card wins and the other window's card closes
@@ -119,7 +119,7 @@ test("two windows view one tab: echo, first answer wins, drafts, one notificatio
 	expect(spawned).toMatchObject({ tabId: tab.tabId, attached: true });
 
 	// Neither window marks the tab as shared (no title-bar chip, no line under the composer), and B can switch to it.
-	const row = b.locator(`[data-session-path="${tab.file}"], [data-session-path="tab:${tab.tabId}"]`).first();
+	const row = b.locator(`[data-session-path=${cssString(tab.file)}], [data-session-path="tab:${tab.tabId}"]`).first();
 	await row.locator("button[data-roving-item]").click();
 	await expect(userBubbles(b)).toHaveCount(1);
 	for (const page of [a, b]) {

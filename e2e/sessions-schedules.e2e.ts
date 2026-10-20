@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "playwright";
-import { exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
+import { cssString, exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 import { resize } from "./shell-capture";
 
 const TEXT = {
@@ -92,7 +92,7 @@ for (const [language, theme] of variants([
 			await page.keyboard.press("ControlOrMeta+w");
 			await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(1);
 
-			const row = page.locator(`.omp-sidebar-session-row[data-session-path="${saved.sessionPath}"]`);
+			const row = page.locator(`.omp-sidebar-session-row[data-session-path=${cssString(saved.sessionPath ?? "")}]`);
 			await expect(row).toBeVisible();
 			await row.hover();
 			await row.locator("[data-sidebar-row-menu]").click();

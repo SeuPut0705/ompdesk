@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, launchApp } from "./harness";
+import { cssString, exitApp, fixtureOmp, launchApp } from "./harness";
 
 /** Records, before the page's own scripts, what the first frames of the boot shell and the app show. */
 const FIRST_FRAME_PROBE = `(() => {
@@ -200,7 +200,7 @@ test("a collapsed sidebar and two folded projects come back on the first frame a
 		.toBe(spawned);
 	await say("hello two");
 	await expect.poll(async () => await savedSessions(desktop)).toBeGreaterThanOrEqual(2);
-	const group = (page: Page, cwd: string) => page.locator(`[data-workspace-group="${cwd}"]`);
+	const group = (page: Page, cwd: string) => page.locator(`[data-workspace-group=${cssString(cwd)}]`);
 	const toggle = (page: Page, cwd: string) => group(page, cwd).locator("button[aria-expanded]").first();
 	for (const cwd of [project, second]) {
 		await expect(toggle(first.page, cwd)).toHaveAttribute("aria-expanded", "true");

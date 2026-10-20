@@ -14,7 +14,7 @@ import { chromium, devices, expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { captureTo, controlToolCaller, exitApp, fixtureOmp, openedSessions } from "./harness";
+import { captureTo, controlToolCaller, cssString, exitApp, fixtureOmp, openedSessions } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_VIEWER_FAMILY;
 
@@ -126,7 +126,7 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 		});
 		await phone.locator("header button:has(svg.lucide-menu)").click();
 		const sidebar = phone.locator("[data-drawer] .omp-session-sidebar");
-		const openerRow = sidebar.locator(`.omp-sidebar-session-row[data-session-path="${openerSession}"]`);
+		const openerRow = sidebar.locator(`.omp-sidebar-session-row[data-session-path=${cssString(openerSession)}]`);
 		await expect(openerRow).toBeVisible({ timeout: 30_000 });
 		if (CAPTURES) {
 			// Taken before the assertions, so a build without the fix leaves its picture too.
@@ -140,16 +140,16 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 		const chip = openerRow.locator("[data-family-running]");
 		await expect(chip).toHaveAttribute("data-family-running", "2");
 		await chip.click();
-		const family = sidebar.locator(`[data-sidebar-family="${openerSession}"]`);
+		const family = sidebar.locator(`[data-sidebar-family=${cssString(openerSession)}]`);
 		for (const childSession of childSessions)
 			await expect(
-				family.locator(`[data-sidebar-opened-session][data-session-path="${childSession}"]`),
+				family.locator(`[data-sidebar-opened-session][data-session-path=${cssString(childSession)}]`),
 			).toHaveAttribute("data-child-status", "running");
 		await captureTo(CAPTURES, phone, "phone-drawer-unfolded");
 
 		// A tap views the desktop's tab: the same tab, no second omp on its file.
 		await family
-			.locator(`[data-sidebar-opened-session][data-session-path="${childSessions[0]}"] button`)
+			.locator(`[data-sidebar-opened-session][data-session-path=${cssString(childSessions[0])}] button`)
 			.first()
 			.click();
 		await expect
