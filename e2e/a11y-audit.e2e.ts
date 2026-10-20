@@ -206,14 +206,14 @@ for (const [language, theme] of variants([
 			await expect(page.locator(".omp-composer-input").first()).toBeVisible();
 			await scan("session");
 
-			await page.keyboard.press("Meta+k");
+			await page.keyboard.press("ControlOrMeta+k");
 			await expect(page.getByRole("dialog")).toBeVisible();
 			await scan("palette");
 			await page.keyboard.press("Escape");
 			if ((await page.getByRole("dialog").count()) > 0)
 				findings.push({ surface: "palette", kind: "escape:not-closed", detail: "dialog stays after Escape" });
 
-			await page.keyboard.press("Meta+j");
+			await page.keyboard.press("ControlOrMeta+j");
 			const aside = page.locator("aside[data-docked]");
 			await expect(aside).toBeVisible();
 			await scan("panel");
@@ -225,7 +225,7 @@ for (const [language, theme] of variants([
 				await expect(page.locator("aside[data-docked] .animate-spin")).toHaveCount(0, { timeout: 15_000 });
 				await scan(`panel › ${view}`);
 			}
-			await page.keyboard.press("Meta+j");
+			await page.keyboard.press("ControlOrMeta+j");
 
 			for (const dest of ["agents", "insights"] as const) {
 				await openDestination(page, dest);
@@ -234,7 +234,7 @@ for (const [language, theme] of variants([
 				await scanTabs(`page-${dest}`, page.locator("main"));
 			}
 
-			await page.keyboard.press("Meta+,");
+			await page.keyboard.press("ControlOrMeta+,");
 			const settings = page.locator("[data-settings-page]");
 			await expect(settings).toBeVisible();
 			const sections = await settings
