@@ -4,11 +4,14 @@
  * by `WorkBoard.tsx` (the phone's first screen never needs them).
  */
 import { Check, X } from "lucide-react";
-import { formatCost, formatElapsed } from "../../../lib/format";
+import { useSessionSpend } from "../../../hooks/use-session-spend";
+import { formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { costBasis } from "../../../lib/spend";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useTabsStore } from "../../../stores/tabs";
+import { CostAmount, costWords } from "../../common/CostAmount";
 import type { OpenedChildCounts, OpenedChildRow } from "./opened-children";
 import { BoardRow, BoardSection, Dot } from "./WorkBoard";
 
@@ -19,6 +22,9 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	const live = useAgentReviewStore(state => state.usage[row.sessionPath ?? row.tabId ?? ""]);
 	const closed = useClosedChildrenStore(state => state.rows.find(entry => entry.path === row.sessionPath));
 	const usage = live ?? closed;
+	const billing = useSessionSpend()?.billing;
+	const cost = usage?.cost && usage.cost > 0 ? usage.cost : 0;
+	const basis = cost ? costBasis(billing, [usage?.model]) : undefined;
 	const title = row.title || t("workBoard.review.untitled");
 	const status = row.status;
 	const statusLabel = status ? t(`workBoard.opened.status.${status}`) : t("workBoard.opened.status.open");
@@ -69,10 +75,13 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 						</span>
 					) : null}
 					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
-					{usage?.cost ? (
-						<span className="shrink-0 tabular-nums" data-board-opened-cost>
-							{formatCost(usage.cost, 2)}
-						</span>
+					{cost ? (
+						<CostAmount
+							basis={basis}
+							className="shrink-0 tabular-nums"
+							cost={cost}
+							data={{ "data-board-opened-cost": true }}
+						/>
 					) : null}
 				</>
 			}
@@ -80,7 +89,7 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				`${title}${row.device ? ` · ${row.device}` : ""}`,
 				statusLabel,
 				branch,
-				[usage?.model, usage?.cost ? formatCost(usage.cost, 2) : null].filter(Boolean).join(" · "),
+				[usage?.model, cost ? costWords(t, cost, basis) : null].filter(Boolean).join(" · "),
 			]
 				.filter(Boolean)
 				.join("\n")}

@@ -5,7 +5,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
@@ -48,9 +48,15 @@ const getUsage = vi.fn(async () => ({
 	success: true,
 	data: { reports: usageReports },
 }));
+let sessionSpend: unknown = null;
+const getSessionSpend = vi.fn(async () =>
+	sessionSpend
+		? { type: "response", command: "get_session_spend", success: true, data: sessionSpend }
+		: { type: "response", command: "get_session_spend", success: false, error: "unsupported_omp" },
+);
 const prefsSet = vi.fn(async () => {});
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGoal, getUsage },
+	rpc: { getJobs, getGoal, getUsage, getSessionSpend },
 	prefs: { get: vi.fn(async () => undefined), set: prefsSet },
 });
 
@@ -144,6 +150,7 @@ afterEach(async () => {
 	getGoal.mockClear();
 	prefsSet.mockClear();
 	usageReports = [];
+	sessionSpend = null;
 	useModelStore.getState().reset();
 	useMessagesStore.getState().reset();
 	useWorkBoardStore.getState().reset();
@@ -659,6 +666,44 @@ describe("WorkBoard account limit", () => {
 		await mount();
 		expect(pane.querySelector("[data-board-account]")).toBeNull();
 		expect(board()).not.toBeNull();
+	});
+
+	it("shows a metered provider's real charge for the session and today, never summed with a subscription's estimate", async () => {
+		usageReports = [report()];
+		// The judge's OpenRouter calls and an Anthropic subscription's replies, as `session_spend` answers them.
+		sessionSpend = {
+			providers: {
+				openrouter: { billing: "metered", cost: 0.000624, today: 0.000146 },
+				anthropic: { billing: "subscription", cost: 12.5, today: 3 },
+				ollama: { billing: "free", cost: 0, today: 0 },
+			},
+			billing: { openrouter: "metered", anthropic: "subscription", ollama: "free" },
+		};
+		withAgent();
+		await mount();
+		// The rows are a lazy chunk, loaded once the session spent on a metered provider.
+		await vi.waitFor(() => expect(pane.querySelector("[data-board-spend-provider]")).not.toBeNull());
+		const rows = [...pane.querySelectorAll("[data-board-spend-provider]")];
+		expect(rows.map(row => row.getAttribute("data-board-spend-provider"))).toEqual(["openrouter"]);
+		expect(rows[0]?.querySelector("[data-board-spend-cost]")?.textContent).toBe("$0.0006");
+		expect(rows[0]?.querySelector("[data-board-spend-today]")?.textContent).toBe(
+			translate("workBoard.spend.today", { cost: "$0.0001" }),
+		);
+		// The subscription's figure is named as an estimate apart, in the tooltip only; $12.50 never joins the charge.
+		const tip = rows[0]?.getAttribute("title") ?? "";
+		expect(tip).toContain(translate("workBoard.spend.estimate", { cost: "$12.50" }));
+		expect(pane.textContent).not.toContain("12.5");
+	});
+
+	it("shows no spend line when nothing metered was spent", async () => {
+		usageReports = [report()];
+		sessionSpend = {
+			providers: { anthropic: { billing: "subscription", cost: 12.5, today: 3 } },
+			billing: { anthropic: "subscription" },
+		};
+		withAgent();
+		await mount();
+		expect(pane.querySelector("[data-board-spend]")).toBeNull();
 	});
 });
 

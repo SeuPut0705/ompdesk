@@ -13,7 +13,6 @@ import {
 	childUsageText,
 	type FamilySession,
 	type FamilyTab,
-	familyCost,
 	familyCounts,
 	isFoldedSubagent,
 	isShownOpened,
@@ -170,37 +169,10 @@ describe("familyCounts", () => {
 	});
 });
 
-describe("familyCost", () => {
-	it("is the whole family: the session once, its subagents at work, every session it opened", () => {
-		const roster = [
-			agent("a", 1, "running", { progress: { cost: 0.12 } as SubagentSnapshot["progress"] }),
-			// Finished: stock already put its spend into the session's own journal cost (its task result).
-			agent("b", 2, "completed", { progress: { cost: 0.2 } as SubagentSnapshot["progress"] }),
-			agent("c", 3, "failed"),
-		];
-		// The opened sessions as the sidebar built them: a running one, a closed (done) one, one with no stats yet.
-		const opened = [{ usage: { cost: 0.05 } }, { usage: { cost: 0.05 } }, {}];
-		// 1.00 (the session, its finished subagent's 0.20 inside) + 0.12 at work + 0.05 + 0.05.
-		expect(familyCost(1, roster, opened)).toBeCloseTo(1.22, 10);
-		expect(familyCost(undefined, [], [])).toBe(0);
-		// A cost stock has not reported (NaN, absent) counts as nothing rather than poisoning the sum.
-		expect(
-			familyCost(
-				Number.NaN,
-				[agent("x", 1, "running", { progress: { cost: Number.NaN } as SubagentSnapshot["progress"] })],
-				[{ usage: {} }],
-			),
-		).toBe(0);
-	});
-});
-
 describe("childUsageText", () => {
-	it("reads model, role and cost as one tooltip line, leaving out what is unknown", () => {
-		expect(childUsageText("anthropic/claude-sonnet-5", "task", 0.031)).toBe(
-			"anthropic/claude-sonnet-5 · @task · $0.03",
-		);
-		expect(childUsageText("openai/gpt-z", undefined, 0)).toBe("openai/gpt-z");
-		expect(childUsageText(undefined, undefined, 1.5)).toBe("$1.50");
+	it("reads model and role as one tooltip line, leaving out what is unknown", () => {
+		expect(childUsageText("anthropic/claude-sonnet-5", "task")).toBe("anthropic/claude-sonnet-5 · @task");
+		expect(childUsageText("openai/gpt-z")).toBe("openai/gpt-z");
 		expect(childUsageText()).toBe("");
 	});
 });

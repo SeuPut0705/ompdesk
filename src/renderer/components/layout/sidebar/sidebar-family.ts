@@ -6,7 +6,6 @@
 
 import { agentMessageSender } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import { formatCost } from "../../../lib/format";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */
@@ -188,27 +187,9 @@ export interface ChildUsage {
 	cost?: number;
 }
 
-/** The tooltip line a child's model, role and cost read as ("anthropic/claude-x · @task · $0.03"); "" when unknown. */
-export function childUsageText(model?: string, role?: string, cost?: number): string {
-	return [model, role && `@${role}`, cost && cost > 0 && formatCost(cost, 2)].filter(Boolean).join(" · ");
-}
-
-/**
- * What the whole family has cost, the one number the sidebar chip and the Work tree's head show: the session's own
- * journal (stock puts a finished subagent's spend there, with its task result), its subagents still at work, and every
- * session it opened (each its own journal), closed ones included, so nothing counts twice and the total never drops
- * when a child ends.
- */
-export function familyCost(
-	rootCost: number | undefined,
-	subagents: Iterable<SubagentSnapshot>,
-	opened: readonly { usage?: ChildUsage }[],
-): number {
-	// `|| 0`: a cost stock has not reported (absent, NaN) adds nothing.
-	let total = rootCost || 0;
-	for (const agent of subagents) if (isLiveSubagentStatus(agent.status)) total += agent.progress?.cost || 0;
-	for (const child of opened) total += child.usage?.cost || 0;
-	return total;
+/** The tooltip line a child's model and role read as ("anthropic/claude-x · @task"); "" when unknown. */
+export function childUsageText(model?: string, role?: string): string {
+	return [model, role && `@${role}`].filter(Boolean).join(" · ");
 }
 
 /** Live subagents in a roster. */

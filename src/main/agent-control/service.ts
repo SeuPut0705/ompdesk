@@ -2219,22 +2219,28 @@ export class AgentControl {
 		if (!tabs) return { items: [], usage: {} };
 		const own = this.#openedBy(callerTabId, tabs);
 		const children = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden);
-		// The session's own journal too: the family's cost (sidebar chip, Work tree head) is it plus all it opened.
+		// The session's own journal too: the family's cost (Work tree head) is it plus all it opened.
 		const caller = tabs.find(tab => tab.tabId === callerTabId);
-		const [rows, callerCost] = await Promise.all([
+		const usageOf = async (tab: ControlTab, session?: SessionState): Promise<AgentChildUsage> => {
+			const [state, cost] = await Promise.all([session ?? this.#state(tab), this.#cost(tab)]);
+			const model = state.state?.model;
+			return { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
+		};
+		const [rows, callerUsage] = await Promise.all([
 			Promise.all(
 				children.map(async tab => {
-					const [session, cost] = await Promise.all([this.#state(tab), this.#cost(tab)]);
-					const item = this.#reviewed.has(tab.tabId) ? null : await this.#reviewItem(tab, session);
-					const model = session.state?.model;
-					const usage: AgentChildUsage = { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
+					const session = await this.#state(tab);
+					const [item, usage] = await Promise.all([
+						this.#reviewed.has(tab.tabId) ? null : this.#reviewItem(tab, session),
+						usageOf(tab, session),
+					]);
 					return { item, usage, key: tab.sessionPath ?? tab.tabId };
 				}),
 			),
-			caller ? this.#cost({ ...caller, hidden: false }) : 0,
+			caller ? usageOf({ ...caller, hidden: false }) : undefined,
 		]);
 		const usage: Record<string, AgentChildUsage> = Object.fromEntries(rows.map(row => [row.key, row.usage]));
-		if (caller) usage[caller.sessionPath ?? callerTabId] = { cost: callerCost };
+		if (caller && callerUsage) usage[caller.sessionPath ?? callerTabId] = callerUsage;
 		return { items: rows.flatMap(row => (row.item ? [row.item] : [])), usage };
 	}
 

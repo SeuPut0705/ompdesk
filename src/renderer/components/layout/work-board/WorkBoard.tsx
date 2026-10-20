@@ -15,10 +15,12 @@
 
 import { Check, ChevronRight, Pause, X } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
+import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { isDrawerMode, useShellMode } from "../../../hooks/use-shell-mode";
 import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
@@ -26,6 +28,7 @@ import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
 import { useProjectNames } from "../../../lib/project-origin";
+import { costBasis } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
@@ -44,6 +47,7 @@ import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
 import { IconButton, Kbd } from "../../common";
+import { costWords } from "../../common/CostAmount";
 import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
@@ -55,6 +59,15 @@ import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits }
 
 /** The opened-session rows load when a session has such children: most never do. */
 const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
+/** The metered-spend rows load when this session spent on a metered provider (most sessions run on subscriptions). */
+const SessionSpendLine = lazy(() =>
+	import("./SessionSpendLine").then(module => ({ default: module.SessionSpendLine })),
+);
+
+/** Whether the session spent anything on a metered provider: only then the spend rows load and show. */
+function hasCharge(spend: SessionSpend | null): spend is SessionSpend {
+	return spend !== null && Object.values(spend.providers).some(row => row.billing === "metered" && row.cost > 0);
+}
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
 const TURN_STEPS = 4;
@@ -322,6 +335,9 @@ function AgentRow({
 	const step = progress?.currentToolIntent ?? progress?.lastIntent ?? progress?.currentTool ?? status;
 	const tokens = progress?.tokens ?? 0;
 	const provider = providerOf(progress?.resolvedModel);
+	const billing = useSessionSpend()?.billing;
+	const cost = progress?.cost && progress.cost > 0 ? progress.cost : 0;
+	const costLine = cost ? costWords(t, cost, costBasis(billing, [progress?.resolvedModel])) : "";
 	return (
 		<BoardRow
 			exiting={exiting}
@@ -341,7 +357,7 @@ function AgentRow({
 					) : null}
 				</>
 			}
-			title={[label, status, childUsageText(progress?.resolvedModel, progress?.modelRole, progress?.cost)]
+			title={[label, status, childUsageText(progress?.resolvedModel, progress?.modelRole), costLine]
 				.filter(Boolean)
 				.join("\n")}
 		/>
@@ -366,6 +382,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
+	const spend = useSessionSpend();
 	useEffect(() => {
 		ensureAgentReviewSubscription();
 		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
@@ -497,6 +514,11 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					</span>
 				) : null}
 				<AccountLimit />
+				{hasCharge(spend) ? (
+					<Suspense fallback={null}>
+						<SessionSpendLine spend={spend} />
+					</Suspense>
+				) : null}
 			</header>
 
 			{autopilot && (

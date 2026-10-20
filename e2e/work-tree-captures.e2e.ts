@@ -1,11 +1,12 @@
 /**
- * Opt-in captures of the family cost and the Work tree view (`OMP_GUI_WORK_TREE_SHOTS=<dir>`), on the dev harness
+ * Opt-in captures of the family and its cost (`OMP_GUI_WORK_TREE_SHOTS=<dir>`), on the dev harness
  * (`vite.harness.config.ts`): a session with running and finished subagents (each with a model, role and cost), two
- * sessions its agent opened (one on a paired device), and the harness's unused
+ * sessions its agent opened (one on a paired device, on a metered provider), and the harness's unused
  * worktrees (`dev-harness/fixture-work-tree.ts`). Writes `<surface>-<view>-<theme>-<lang>.png` for desktop
- * (1280×800) and phone (390 wide) × light/dark × en/ko, and asserts what each child row tells (its model and cost) and that
- * the chip and the Work tree head show the same whole-family cost.
- * Behaviour is covered by `WorkTreePanel.test.tsx`, `work-tree.test.ts`, `sidebar-family.test.ts`.
+ * (1280×800) and phone (390 wide) × light/dark × en/ko, and asserts that the sidebar shows no money, that the Work
+ * tree marks a subscription's figure as an estimate and a metered one as a charge, and (desktop) that the work board
+ * lists the session's metered charge (`dev-harness` `SESSION_SPEND`, a real journal's spend).
+ * Behaviour is covered by `WorkTreePanel.test.tsx`, `work-tree.test.ts`, `WorkBoard.test.tsx`, `SidebarSubagents.test.tsx`.
  */
 import * as fs from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -76,11 +77,24 @@ if (SHOTS) {
 
 					if (surface.mobile) await page.getByRole("button", { name: /Open menu|메뉴 열기/ }).click();
 					const chip = page.locator("[data-sidebar-subagents-toggle]").first();
-					await expect(chip.locator("[data-family-cost]")).toBeVisible();
-					const chipCost = (await chip.locator("[data-family-cost]").textContent())?.replace("·", "").trim();
+					await expect(chip).toBeVisible();
+					// The sidebar shows no money: not on the chip, not beside the title.
+					await expect(chip).not.toContainText("$");
 					await chip.click();
+					await expect(page.locator(".omp-session-sidebar")).not.toContainText("$");
 					await page.screenshot({ path: file("sidebar") });
 					if (surface.mobile) await page.keyboard.press("Escape");
+
+					if (!surface.mobile) {
+						// The work board's money line: the session's metered charge (OpenRouter), today's beside it. The board
+						// docks only with 300 px beside the transcript column, so this shot is wider.
+						await page.setViewportSize({ width: 1720, height: 800 });
+						const spend = page.locator('[data-board-spend-provider="openrouter"]');
+						await expect(spend).toBeVisible();
+						await expect(spend.locator("[data-board-spend-cost]")).toHaveText("$0.0014");
+						await page.screenshot({ path: file("board") });
+						await page.setViewportSize(surface.viewport);
+					}
 
 					await page.evaluate(() => window.__stores?.ui.setState({ panelVisible: true, panelTab: "work" }));
 					await expect(page.locator("[data-work-tree]")).toBeVisible();
@@ -91,9 +105,12 @@ if (SHOTS) {
 						.evaluateAll(rows => rows.map(row => row.getAttribute("title") ?? ""));
 					expect(titles.length).toBeGreaterThan(2);
 					for (const title of titles) expect(title).toMatch(/\$\d/);
-					// One rule everywhere: the chip and the tree head show the same whole-family cost.
-					const head = (await page.locator("[data-work-tree-summary]").first().textContent())?.trim();
-					expect(head).toBe(chipCost);
+					// A subscription's figure is an estimate (≈), a metered provider's a charge; the head mixes both: ≈.
+					await expect(page.locator('[data-work-tree-row="tab:kid1"] [data-work-tree-cost]')).toHaveText(
+						"≈ $0.18",
+					);
+					await expect(page.locator('[data-work-tree-row="tab:kid2"] [data-work-tree-cost]')).toHaveText("$0.09");
+					await expect(page.locator("[data-work-tree-summary]").first()).toHaveText(/^≈ \$\d/);
 					await page.screenshot({ path: file("panel") });
 					await page.locator("[data-work-tree-finished]").first().click();
 					await page.screenshot({ path: file("panel-finished") });
@@ -163,7 +180,7 @@ async function seed(page: Page): Promise<void> {
 				// The session itself: the base of the family's cost on its chip and its Work tree head.
 				[parentPath]: { cost: 0.21 },
 				"/s/kid1.jsonl": { model: "openai/gpt-5.5-codex", cost: 0.18 },
-				"C:\\s\\kid2.jsonl": { model: "anthropic/claude-sonnet-5", cost: 0.09 },
+				"C:\\s\\kid2.jsonl": { model: "openrouter/qwen/qwen3-coder", cost: 0.09 },
 			},
 		});
 

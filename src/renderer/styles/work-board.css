@@ -410,3 +410,14 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	color: var(--sc-text-secondary);
 }
 
+/* A metered provider's real charge (SessionSpendLine): one line, the account rows' inset and type. */
+.omp-work-board-spend {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: var(--sc-space-2);
+	padding: var(--sc-space-1) var(--sc-space-1-5);
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-secondary);
+}
+

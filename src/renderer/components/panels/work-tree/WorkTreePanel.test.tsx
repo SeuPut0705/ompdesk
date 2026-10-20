@@ -11,10 +11,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStore } from "zustand/vanilla";
 import type { RpcCommand, RpcOrphanWorktrees, RpcResponse, SubagentSnapshot } from "../../../../shared/rpc-types";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
+import { useSessionStore } from "../../../stores/session";
 import {
 	deleteSessionRuntime,
 	registerSessionRuntime,
@@ -143,13 +144,22 @@ beforeEach(() => {
 	};
 	const command = vi.fn(async (cmd: RpcCommand): Promise<RpcResponse> => {
 		sent.push(cmd);
+		if (cmd.type === "get_session_spend")
+			return {
+				type: "response",
+				command: cmd.type,
+				success: true,
+				data: { providers: {}, billing: { anthropic: "subscription", openai: "metered" } },
+			};
 		if (cmd.type === "remove_orphan_worktree") {
 			orphans = { ...orphans, worktrees: orphans.worktrees.filter(row => row.path !== cmd.path) };
 			return { type: "response", command: cmd.type, success: true, data: { removal: "branch-kept" } };
 		}
 		return { type: "response", command: cmd.type, success: true, data: orphans };
 	});
-	Object.assign(window, { omp: { rpc: { command } } });
+	Object.assign(window, {
+		omp: { rpc: { command, getSessionSpend: () => command({ type: "get_session_spend" }) } },
+	});
 	registerSessionRuntime({
 		tabId: "boss",
 		command: command as never,
@@ -157,6 +167,8 @@ beforeEach(() => {
 	});
 	setFocusedSessionRuntime("boss");
 	useTabsStore.setState({ tabs, activeTabId: "boss" });
+	// A ready omp: the session's spend (and with it the providers' billing) is read.
+	useSessionStore.setState({ status: "ready" });
 	useAgentReviewStore.setState({
 		byTab: {},
 		usage: {
@@ -184,6 +196,7 @@ afterEach(async () => {
 	container?.remove();
 	deleteSessionRuntime("boss");
 	useTabsStore.setState({ tabs: [], activeTabId: null });
+	useSessionStore.setState({ status: "starting" });
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
 	resetLastReadForTest();
@@ -193,16 +206,25 @@ const rowKeys = (selector = "[data-work-tree-row]") =>
 	container.querySelectorAll(selector).map(row => row.getAttribute("data-work-tree-row"));
 
 describe("WorkTreePanel", () => {
-	it("lists the family with model, role and cost on every child, finished ones in a closed fold", async () => {
+	it("lists the family with model, role and cost on every child, an estimate marked as one, finished ones folded", async () => {
 		await mount();
 		expect(rowKeys()).toEqual(["tab:boss", "agent:boss:a", "tab:kid", "tab:far"]);
 		const title = (key: string) =>
 			container.querySelector(`[data-work-tree-row="${key}"]`)?.getAttribute("title") ?? "";
-		expect(title("agent:boss:a")).toContain("anthropic/claude-x · @task · $0.10");
-		expect(title("tab:kid")).toContain("openai/gpt-z · $0.05");
+		const cost = (key: string) =>
+			container.querySelector(`[data-work-tree-row="${key}"] [data-work-tree-cost]`)?.textContent;
+		// A subscription's spend is an estimate at API prices, never shown as a charge; a metered provider's is one.
+		expect(title("agent:boss:a")).toContain("anthropic/claude-x · @task");
+		expect(title("agent:boss:a")).toContain(translate("cost.estimate", { cost: "$0.10" }));
+		expect(cost("agent:boss:a")).toBe("≈ $0.10");
+		expect(title("tab:kid")).toContain(translate("cost.charged", { cost: "$0.05" }));
+		expect(cost("tab:kid")).toBe("$0.05");
 		expect(title("tab:far")).toContain("pc1");
-		// The whole family: 1 (the session, its finished subagent's 0.2 inside) + 0.1 at work + 0.05 + 0.03 + 0.07 (closed).
-		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$1.25");
+		// The whole family: 1 (the session, its finished subagent's 0.2 inside) + 0.1 at work + 0.05 + 0.03 + 0.07 (closed);
+		// part of it ran on the subscription, so the sum is an estimate.
+		const summary = container.querySelector("[data-work-tree-summary]");
+		expect(summary?.textContent).toBe("≈ $1.25");
+		expect(summary?.getAttribute("data-cost-basis")).toBe("estimate");
 
 		const fold = container.querySelector("[data-work-tree-finished]");
 		expect(fold?.getAttribute("aria-expanded")).toBe("false");

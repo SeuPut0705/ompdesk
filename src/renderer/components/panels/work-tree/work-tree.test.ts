@@ -4,8 +4,7 @@ import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../
 import type { IpcHostedSession } from "../../../../shared/ipc-types";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import type { SessionTab } from "../../../stores/tabs";
-import { familyCost } from "../../layout/sidebar/sidebar-family";
-import { buildWorkTree, type WorkTreeInput } from "./work-tree";
+import { buildWorkTree, familySpend, type WorkTreeInput } from "./work-tree";
 
 const tab = (id: string, extra: Partial<SessionTab> = {}): SessionTab =>
 	({ id, cwd: "/repo", status: "ready", kind: "agent", sessionPath: `/s/${id}.jsonl`, ...extra }) as SessionTab;
@@ -100,7 +99,7 @@ describe("buildWorkTree", () => {
 		expect([family?.running, family?.waiting]).toEqual([4, 0]);
 	});
 
-	it("folds what finished, at any depth; the head is the whole family by the sidebar chip's own rule", () => {
+	it("folds what finished, at any depth; the head is the whole family's cost and the models it was spent on", () => {
 		const fixture = input();
 		const [family] = buildWorkTree(fixture);
 		expect(family?.finished.map(row => row.key)).toEqual(["agent:boss:b", "tab:done", "session:/s/old.jsonl"]);
@@ -108,11 +107,16 @@ describe("buildWorkTree", () => {
 		// 1 (boss, its finished subagent inside) + 0.1 (its subagent at work) + 0.05 (kid) + 0.02 (done) + 0.07 (closed);
 		// far has no stats yet. The kid's own subagent counts once it finishes, in the kid's journal.
 		expect(family?.cost).toBeCloseTo(1.24, 10);
-		// The same number the chip on boss's sidebar row shows for the same children.
-		const opened = [{ usage: { cost: 0.05 } }, { usage: { cost: 0.02 } }, {}, { usage: { cost: 0.07 } }];
-		expect(family?.cost).toBe(familyCost(1, fixture.subagents.get("boss")?.values() ?? [], opened));
+		// What names the figure's basis (a subscription's estimate, or a charge): every model with a share in it.
+		expect(family?.models).toEqual(expect.arrayContaining(["anthropic/claude-x", "openai/gpt-z"]));
 		// A child row shows its own cost.
 		expect(family?.rows.find(row => row.key === "tab:kid")?.usage.cost).toBe(0.05);
+	});
+
+	it("counts nothing for a cost stock has not reported, rather than poisoning the sum", () => {
+		const running = { id: "x", index: 1, agent: "task", status: "running", lastUpdate: 0 } as SubagentSnapshot;
+		const unpriced = { ...running, progress: { cost: Number.NaN } as SubagentSnapshot["progress"] };
+		expect(familySpend({ cost: Number.NaN }, [unpriced], [{ usage: {} }, {}])).toEqual({ cost: 0, models: [] });
 	});
 
 	it("lists a paired device's session at work on this computer as a root of its own, and nothing idle", () => {

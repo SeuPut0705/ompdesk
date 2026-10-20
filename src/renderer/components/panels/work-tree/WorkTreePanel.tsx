@@ -11,9 +11,12 @@
 
 import { Bot, ChevronRight, GitBranch, MessageSquare, Network } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
+import type { Billing } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import { cx, formatCost } from "../../../lib/format";
+import { useSessionSpend } from "../../../hooks/use-session-spend";
+import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { costBasis } from "../../../lib/spend";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -23,6 +26,7 @@ import type { SubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { EmptyState } from "../../common";
+import { CostAmount, costFigure, costWords } from "../../common/CostAmount";
 import { SettingInfo } from "../../common/SettingInfo";
 import { FamilyStatus } from "../../layout/sidebar/SidebarFamilyRow";
 import { childUsageText } from "../../layout/sidebar/sidebar-family";
@@ -114,12 +118,18 @@ function open(node: WorkTreeNode): void {
 	else void useTabsStore.getState().openTab({ cwd: target.cwd, sessionPath: target.sessionPath, kind: "agent" });
 }
 
-const TreeRow = memo(function TreeRow({ node }: { node: WorkTreeNode }) {
+const TreeRow = memo(function TreeRow({
+	node,
+	billing,
+}: {
+	node: WorkTreeNode;
+	billing?: Readonly<Record<string, Billing>>;
+}) {
 	const t = useT();
 	const stateLabel = node.state ? t(`workTree.state.${node.state}`) : "";
 	const Icon = KIND_ICON[node.kind];
 	const title = node.title || t("workTree.untitled");
-	const usage = childUsageText(node.usage.model, node.usage.role, node.usage.cost);
+	const usage = childUsageText(node.usage.model, node.usage.role);
 	const branchNote =
 		node.kind === "branch"
 			? [
@@ -129,8 +139,10 @@ const TreeRow = memo(function TreeRow({ node }: { node: WorkTreeNode }) {
 					.filter(Boolean)
 					.join(" · ")
 			: "";
-	const tooltip = [title, stateLabel, node.device, usage, branchNote].filter(Boolean).join("\n");
-	const cost = node.usage.cost && node.usage.cost > 0 ? formatCost(node.usage.cost, 2) : null;
+	const cost = node.usage.cost && node.usage.cost > 0 ? node.usage.cost : 0;
+	const basis = cost ? costBasis(billing, [node.usage.model]) : undefined;
+	const costLine = cost ? costWords(t, cost, basis) : "";
+	const tooltip = [title, stateLabel, node.device, usage, costLine, branchNote].filter(Boolean).join("\n");
 	return (
 		<li>
 			<button
@@ -160,9 +172,12 @@ const TreeRow = memo(function TreeRow({ node }: { node: WorkTreeNode }) {
 					</span>
 				) : null}
 				{cost ? (
-					<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums" data-work-tree-cost>
-						{cost}
-					</span>
+					<CostAmount
+						basis={basis}
+						className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums"
+						cost={cost}
+						data={{ "data-work-tree-cost": true }}
+					/>
 				) : null}
 				{node.state ? <FamilyStatus state={node.state} /> : null}
 			</button>
@@ -170,13 +185,14 @@ const TreeRow = memo(function TreeRow({ node }: { node: WorkTreeNode }) {
 	);
 });
 
-function FamilyTree({ family }: { family: WorkTreeFamily }) {
+function FamilyTree({ family, billing }: { family: WorkTreeFamily; billing?: Readonly<Record<string, Billing>> }) {
 	const t = useT();
 	const [finishedOpen, setFinishedOpen] = useState(false);
+	const basis = family.cost > 0 ? costBasis(billing, family.models) : undefined;
 	const summary = [
 		family.running > 0 ? t("sidebar.family.running", { count: family.running }) : "",
 		family.waiting > 0 ? t("sidebar.family.waiting", { count: family.waiting }) : "",
-		family.cost > 0 ? t("sidebar.family.cost", { cost: formatCost(family.cost, 2) }) : "",
+		family.cost > 0 ? t("workTree.familyCost", { cost: costWords(t, family.cost, basis) }) : "",
 	]
 		.filter(Boolean)
 		.join(" · ");
@@ -186,21 +202,22 @@ function FamilyTree({ family }: { family: WorkTreeFamily }) {
 				<li className="flex items-center">
 					<div className="min-w-0 flex-1">
 						<ul>
-							<TreeRow node={family.root} />
+							<TreeRow billing={billing} node={family.root} />
 						</ul>
 					</div>
 					{summary ? (
 						<span
 							className="shrink-0 pr-3 text-sc-xs text-(--sc-text-muted) tabular-nums"
 							data-work-tree-summary
+							data-cost-basis={basis}
 							title={summary}
 						>
-							{family.cost > 0 ? formatCost(family.cost, 2) : summary}
+							{family.cost > 0 ? costFigure(family.cost, basis) : summary}
 						</span>
 					) : null}
 				</li>
 				{family.rows.map(node => (
-					<TreeRow key={node.key} node={node} />
+					<TreeRow billing={billing} key={node.key} node={node} />
 				))}
 			</ul>
 			{family.finished.length > 0 ? (
@@ -227,7 +244,7 @@ function FamilyTree({ family }: { family: WorkTreeFamily }) {
 					{finishedOpen ? (
 						<ul data-work-tree-finished-rows>
 							{family.finished.map(node => (
-								<TreeRow key={node.key} node={{ ...node, depth: node.depth + 1 }} />
+								<TreeRow billing={billing} key={node.key} node={{ ...node, depth: node.depth + 1 }} />
 							))}
 						</ul>
 					) : null}
@@ -240,6 +257,7 @@ function FamilyTree({ family }: { family: WorkTreeFamily }) {
 export function WorkTreePanel() {
 	const t = useT();
 	const families = useWorkTree();
+	const billing = useSessionSpend()?.billing;
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3" data-work-tree>
 			<h3 className="flex items-center gap-1 px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
@@ -251,7 +269,7 @@ export function WorkTreePanel() {
 			) : (
 				<div className="flex flex-col gap-2">
 					{families.map(family => (
-						<FamilyTree family={family} key={family.root.key} />
+						<FamilyTree billing={billing} family={family} key={family.root.key} />
 					))}
 				</div>
 			)}

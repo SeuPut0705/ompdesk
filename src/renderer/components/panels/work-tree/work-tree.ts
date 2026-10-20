@@ -20,12 +20,11 @@ import {
 	type ChildUsage,
 	type FamilyKind,
 	type FamilyState,
-	familyCost,
 	isFoldedSubagent,
 	subagentFamilyState,
 } from "../../layout/sidebar/sidebar-family";
 import { openedChildRows } from "../../layout/work-board/opened-children";
-import { subagentPrimaryLabel } from "../subagent-graph";
+import { isLiveSubagentStatus, subagentPrimaryLabel } from "../subagent-graph";
 
 /** A row of the tree: a session, a subagent, an opened session (plain or in a worktree), or a worktree's branch. */
 export type WorkTreeKind = FamilyKind | "branch";
@@ -59,8 +58,10 @@ export interface WorkTreeFamily {
 	rows: WorkTreeNode[];
 	/** Descendants that finished (and everything under them), for the closed fold. */
 	finished: WorkTreeNode[];
-	/** The whole family's cost (`familyCost`), the same number as the sidebar chip on the session's row. */
+	/** The whole family's cost (`familySpend`): the session, its subagents at work, every session it opened. */
 	cost: number;
+	/** The models that cost was spent on, so its basis (a charge, or a subscription's estimate) can be named. */
+	models: string[];
 	running: number;
 	waiting: number;
 }
@@ -125,6 +126,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			rows: [],
 			finished: [],
 			cost: 0,
+			models: [],
 			running: 0,
 			waiting: 0,
 		};
@@ -208,16 +210,18 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			}
 		};
 		visit(rootTab, 0, false);
-		// The whole family by the sidebar chip's own rule (`familyCost`): the session, its subagents at work, every
-		// session opened under it; an opened session's own subagents count once they finish, in its journal.
+		// The whole family: the session, its subagents at work, every session opened under it; an opened session's
+		// own subagents count once they finish, in its journal.
 		const opened = [...family.rows, ...family.finished].filter(
 			node => node.kind === "session" || node.kind === "worktree",
 		);
-		family.cost = familyCost(
-			usage[rootTab.sessionPath ?? rootTab.id]?.cost,
+		const spend = familySpend(
+			usage[rootTab.sessionPath ?? rootTab.id],
 			(subagents.get(rootTab.id) ?? NO_AGENTS).values(),
 			opened,
 		);
+		family.cost = spend.cost;
+		family.models = spend.models;
 		if (family.rows.length > 0 || family.finished.length > 0) families.push(family);
 	}
 
@@ -247,9 +251,35 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			rows: [],
 			finished: [],
 			cost: 0,
+			models: [],
 			running: 0,
 			waiting: 0,
 		});
 	}
 	return families;
+}
+
+/**
+ * What the whole family has cost and on which models: the session's own journal (stock puts a finished subagent's
+ * spend there, with its task result), its subagents still at work, and every session it opened (each its own
+ * journal), closed ones included, so nothing counts twice and the total never drops when a child ends.
+ */
+export function familySpend(
+	root: ChildUsage | undefined,
+	subagents: Iterable<SubagentSnapshot>,
+	opened: readonly { usage?: ChildUsage }[],
+): { cost: number; models: string[] } {
+	const models = new Set<string>();
+	// `|| 0`: a cost stock has not reported (absent, NaN) adds nothing.
+	let cost = 0;
+	const add = (usage: ChildUsage | undefined) => {
+		const spent = usage?.cost || 0;
+		cost += spent;
+		if (spent > 0 && usage?.model) models.add(usage.model);
+	};
+	add(root);
+	for (const agent of subagents)
+		if (isLiveSubagentStatus(agent.status)) add({ model: agent.progress?.resolvedModel, cost: agent.progress?.cost });
+	for (const child of opened) add(child.usage);
+	return { cost, models: [...models] };
 }

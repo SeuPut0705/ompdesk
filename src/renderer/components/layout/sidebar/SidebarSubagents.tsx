@@ -32,11 +32,10 @@ import {
 } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { cx, formatCost, formatTimeAgo, formatTokens } from "../../../lib/format";
+import { cx, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
-import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useSessionStore } from "../../../stores/session";
 import {
 	SessionRuntimeProvider,
@@ -61,12 +60,10 @@ import { FamilyRow, type FamilyRowProps } from "./SidebarFamilyRow";
 import {
 	buildSubagentFamilyRows,
 	type ChildStatus,
-	type ChildUsage,
 	childUsageText,
 	countLiveSubagents,
 	type FamilyCounts,
 	type FamilyState,
-	familyCost,
 	familyCounts,
 	isShownOpened,
 	subagentFamilyState,
@@ -85,8 +82,6 @@ export interface FamilyOpened {
 	stateLabel: string;
 	title: string;
 	age?: string;
-	/** What it runs on and has cost (the review push, or the closed record); its cost counts in the family's. */
-	usage?: ChildUsage;
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
 	tooltip: string;
@@ -198,7 +193,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		elapsed !== null ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
-		childUsageText(progress?.resolvedModel, progress?.modelRole, progress?.cost),
+		childUsageText(progress?.resolvedModel, progress?.modelRole),
 		usage,
 		note,
 	]
@@ -251,7 +246,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	);
 });
 
-/** The family's shown opened sessions, counts and cost, as the chip and the open/closed rule read them. */
+/** The family's shown opened sessions and counts, as the chip and the open/closed rule read them. */
 function useFamilyCounts(
 	sessionKey: string,
 	slice: AgentSlice,
@@ -288,12 +283,6 @@ function FamilyChip({
 }) {
 	const t = useT();
 	const { counts } = useFamilyCounts(sessionKey, slice, opened);
-	// The whole family, the Work tree head's number too: the session (main's push), its subagents at work, all it opened.
-	const rootCost = useAgentReviewStore(s => s.usage[sessionKey]?.cost);
-	const cost = useMemo(
-		() => familyCost(rootCost, slice.subagents.values(), opened),
-		[rootCost, slice.subagents, opened],
-	);
 	const expanded = useSidebarSubagentsStore(s => s.expanded.has(sessionKey));
 	const anyHidden = useSidebarSubagentsStore(s => s.hidden.size > 0);
 	const [menuAt, setMenuAt] = useState<ContextMenuAnchor | null>(null);
@@ -322,7 +311,6 @@ function FamilyChip({
 		counts.sessions > 0 ? t("sidebar.family.sessions", { count: counts.sessions }) : "",
 		counts.running > 0 ? t("sidebar.family.running", { count: counts.running }) : "",
 		counts.waiting > 0 ? t("sidebar.family.waiting", { count: counts.waiting }) : "",
-		cost > 0 ? t("sidebar.family.cost", { cost: formatCost(cost, 2) }) : "",
 	]
 		.filter(Boolean)
 		.join(", ");
@@ -379,8 +367,6 @@ function FamilyChip({
 						)}
 					</>
 				)}
-				{/* The family's cost, once: what every child spent, finished ones included ("⑂3 · $0.42", narrow too). */}
-				{cost > 0 && <span data-family-cost="">· {formatCost(cost, 2)}</span>}
 			</button>
 			{menuAt && (
 				<ContextMenu
