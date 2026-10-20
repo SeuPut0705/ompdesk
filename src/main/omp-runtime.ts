@@ -88,6 +88,17 @@ export function ompPathEnv(bin: string, basePath: string): string {
 export const OMP_TELEMETRY_OFF = { OTEL_SDK_DISABLED: "true" } as const;
 
 /**
+ * Bun settings a session's omp starts with, under anything the user's own environment sets. On Windows bun's
+ * transpiler cache is off: omp's start with an empty cache (right after `omp update`, or any bridge file change) took
+ * about 4 s longer than with none while thousands of small cache files were written, and a warm cache was still
+ * ~0.4 s slower than none (measured, omp 18.12.3 on bun 1.4.3, 16-thread Ryzen with Defender on). macOS keeps bun's
+ * default: not measured there.
+ */
+export function ompBunDefaults(platform: NodeJS.Platform = process.platform): Record<string, string> {
+	return platform === "win32" ? { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" } : {};
+}
+
+/**
  * What points stock `omp update` (and `--check`) at `bin`'s own install. Stock updates the first `omp` on PATH
  * (`resolveOmpPath` = `$which("omp")`) and calls it a Bun install only when that launcher sits in `bun pm bin -g`
  * (BUN_INSTALL's `bin`); otherwise it routes through npm, Homebrew or a standalone-binary replacement. So `bin`'s

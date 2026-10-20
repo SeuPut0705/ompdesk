@@ -37,7 +37,7 @@ import { EventBatcher } from "./event-batcher";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
-import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
+import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
@@ -601,6 +601,8 @@ export class SidecarManager extends EventEmitter {
 			child = spawn(spawnCommand(bin), spawnArgs(bin, args), {
 				stdio: ["pipe", "pipe", "pipe"],
 				env: {
+					// Bun's own defaults for omp first, so the user's environment still wins (`ompBunDefaults`).
+					...ompBunDefaults(),
 					// Login-shell env over the app's own, then the GUI proxy pref (and inherited proxy env) over
 					// rc-file proxy exports. What another OMPdesk session left in either is never this tab's
 					// (`SESSION_OWNED_ENV`).
