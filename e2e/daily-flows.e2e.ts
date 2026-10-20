@@ -258,6 +258,10 @@ const GIT_ENV = {
 };
 const flowBGit = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8" }).trim();
+// The app's git runs under the machine's config (Git for Windows' system `core.autocrlf=true` writes CRLF checkouts),
+// so a status read under GIT_ENV's isolation calls a merged file modified: the final status is read the app's way.
+const flowBStatus = (cwd: string) =>
+	execFileSync("git", ["status", "--porcelain"], { cwd, env: process.env, encoding: "utf8" }).trim();
 
 const flowBExists = (target: string) =>
 	fs.stat(target).then(
@@ -396,10 +400,14 @@ test("daily flow b: merge one worktree child, delete the other; nothing lingers,
 			expect((await tabs()).some(tab => tab.tabId === deletedId)).toBe(false);
 			expect(await flowBExists(kept?.path ?? "")).toBe(true);
 			expect(flowBGit(project, "branch", "--list", kept?.branch ?? "")).toContain(kept?.branch);
-			const worktrees = flowBGit(project, "worktree", "list", "--porcelain");
-			expect(worktrees).not.toContain(merged?.path);
-			expect(worktrees).toContain(kept?.path);
-			expect(flowBGit(project, "status", "--porcelain")).toBe("");
+			// git lists `C:/x/wt`, the app and `path` spell it `C:\x\wt`: compare the normalized paths.
+			const worktrees = flowBGit(project, "worktree", "list", "--porcelain")
+				.split(/\r?\n/)
+				.filter(line => line.startsWith("worktree "))
+				.map(line => path.normalize(line.slice("worktree ".length)));
+			expect(worktrees).not.toContain(path.normalize(merged?.path ?? ""));
+			expect(worktrees).toContain(path.normalize(kept?.path ?? ""));
+			expect(flowBStatus(project)).toBe("");
 			await expect.poll(async () => (await tabs()).length).toBe(1);
 			await flowBExpectClean(page, true);
 		});
