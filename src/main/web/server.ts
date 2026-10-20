@@ -165,6 +165,7 @@ interface ConfigurablePolicy {
 	publicPort?: number;
 	secure?: boolean;
 	servePrefix?: string | null;
+	pendingPrefix?: string | null;
 }
 
 /** The Tailscale address serve put in `X-Forwarded-For` (it sets it itself, over any value the client sent), or null. */
@@ -436,8 +437,10 @@ export class WebServer {
 	async #route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const method = req.method ?? "GET";
 		const { policy } = this.#deps;
-		// Only a request that came through serve carries the secret prefix; everything below sees it taken off.
-		const stripped = policy.servePrefix === null ? null : stripServePrefix(req.url ?? "/", policy.servePrefix);
+		// Only a request that came through serve carries the secret prefix; everything below sees it taken off. Before
+		// the handler is confirmed the prefix to come names the route, and the check answers it 503.
+		const prefix = policy.servePrefix ?? policy.pendingPrefix ?? null;
+		const stripped = prefix === null ? null : stripServePrefix(req.url ?? "/", prefix);
 		const queryAt = (stripped ?? "/").indexOf("?");
 		const pathname = queryAt === -1 ? (stripped ?? "/") : (stripped ?? "/").slice(0, queryAt);
 
@@ -745,8 +748,9 @@ export class WebServer {
 			);
 			socket.destroy();
 		};
-		const { servePrefix } = this.#deps.policy;
-		const stripped = servePrefix === null ? null : stripServePrefix(req.url ?? "", servePrefix);
+		const { servePrefix, pendingPrefix } = this.#deps.policy;
+		const prefix = servePrefix ?? pendingPrefix ?? null;
+		const stripped = prefix === null ? null : stripServePrefix(req.url ?? "", prefix);
 		if (stripped?.split("?", 1)[0] !== "/ws" || !isLoopbackAddress(req.socket.remoteAddress)) return deny(404);
 		const checked = this.#check(req, "ws");
 		if (!checked.ok) return deny(checked.status);

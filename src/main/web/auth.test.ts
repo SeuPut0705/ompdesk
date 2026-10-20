@@ -120,6 +120,22 @@ describe("checkRequest", () => {
 		});
 	});
 
+	it("asks a request under the secret about to be published to come back (503), and still gives anything else a bare 404", () => {
+		const starting = policy({ servePrefix: null, pendingPrefix: SECRET });
+		expect(check(good, { policy: starting })).toMatchObject({ ok: false, status: 503 });
+		expect(check({}, { policy: starting, url: `/${SECRET}/assets/SettingsPage-x.js`, method: "GET" })).toMatchObject({
+			ok: false,
+			status: 503,
+		});
+		expect(check(good, { policy: starting, url: "/api/pair" })).toMatchObject({ ok: false, status: 404 });
+		expect(check(good, { policy: starting, url: `/${SECRET.slice(0, -1)}X/api/pair` })).toMatchObject({
+			ok: false,
+			status: 404,
+		});
+		// Published: the pending secret no longer decides anything.
+		expect(check(good, { policy: policy({ pendingPrefix: "other" }) })).toMatchObject({ ok: true });
+	});
+
 	it("refuses a Host other than the published one (DNS rebinding)", () => {
 		expect(check({ ...good, host: "evil.example:47831" })).toMatchObject({ ok: false, status: 421 });
 		expect(check({ ...good, host: HOST })).toMatchObject({ ok: false, status: 421 });

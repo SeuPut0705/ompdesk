@@ -227,7 +227,8 @@ export class WebHost {
 	/** Start listening (the loopback port; 0 picks a free one) and the upload sweep. */
 	async start(options: { port?: number } = {}): Promise<{ port: number }> {
 		const started = await this.server.start(options);
-		this.server.configure({ publicPort: started.port });
+		// Until Mobile web confirms serve's handler, a request under this host's secret is answered 503, not 404.
+		this.server.configure({ publicPort: started.port, pendingPrefix: this.serveSecret() });
 		this.#sweeper ??= setInterval(() => this.#sweep(), UPLOAD_SWEEP_MS);
 		this.#sweeper.unref();
 		this.#sweep();
