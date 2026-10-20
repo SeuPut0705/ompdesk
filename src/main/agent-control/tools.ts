@@ -37,7 +37,7 @@ export const MESSAGE_MAX_CHARS = 50_000;
 const SESSION = {
 	type: "string",
 	description:
-		"Session id as ompdesk_sessions lists it (a unique prefix is enough); a stored session's id from scope stored too.",
+		"The session: its id as ompdesk_sessions lists it (or a unique prefix), an id it had before OMPdesk relaunched, its saved id from scope stored (open or not), or its title (or a unique start of it).",
 } as const;
 const DEVICE = {
 	type: "string",

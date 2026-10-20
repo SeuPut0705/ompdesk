@@ -46,6 +46,7 @@ import {
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
+import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
 import type {
 	AgentMessage,
@@ -365,6 +366,26 @@ const AUTO_CLOSE_WAIT_MS = 2_000;
 const LIST_DEFAULT_ROWS = 30;
 /** A sent message's receipt waits this long to see the target's turn start. */
 const TURN_START_WAIT_MS = 1_500;
+/**
+ * A paired device's link is waited for this long while it is not online: a blip is a reconnect (1 s back-off, then up
+ * to 5 s per address to dial, `RemoteClient`), so a call made during one goes through instead of failing.
+ */
+const LINK_WAIT_MS = 15_000;
+/** Back on the link, a device's tab re-attaches (`error` → `starting` → its status) within this. */
+const REATTACH_WAIT_MS = 10_000;
+/** A device or tab that is not there yet is looked at again this often. */
+const LINK_POLL_MS = 250;
+/**
+ * Stock's abort answers only once the turn unwound (tools, subagents, compaction), which can take longer than any
+ * fixed RPC timeout. A close or delete gives it this long and goes on: closing the tab ends its omp anyway.
+ */
+const ABORT_BEFORE_CLOSE_MS = 3_000;
+/** A plain stop waits this long for stock's abort to confirm; a delete, which needs the turn over, as long. */
+const STOP_WAIT_MS = 30_000;
+/** A close is confirmed by the window dropping the tab within this. */
+const CLOSE_WAIT_MS = 5_000;
+/** A title names a session by a prefix this long or longer. */
+const TITLE_PREFIX_MIN = 3;
 
 const DEFAULT_TIMERS: Pick<MailboxDeps, "setTimer" | "clearTimer"> = {
 	setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -1031,12 +1052,12 @@ export class AgentControl {
 			}
 			case T.send: {
 				const args = ARGS[T.send].parse(raw);
-				return this.#send(caller, this.#resolve(tabs, args.session, caller, "send to"), args);
+				return this.#send(caller, await this.#open(tabs, args.session, caller, "send to"), args);
 			}
 			case T.result: {
 				const args = ARGS[T.result].parse(raw);
 				const ids = args.sessions ?? (args.session ? [args.session] : []);
-				const targets = ids.map(id => this.#resolve(tabs, id, caller, "read"));
+				const targets = await Promise.all(ids.map(id => this.#resolveAny(tabs, id, caller, "read")));
 				return this.#result(caller, targets, args, args.sessions !== undefined);
 			}
 			case T.read: {
@@ -1046,11 +1067,11 @@ export class AgentControl {
 			}
 			case T.answer: {
 				const args = ARGS[T.answer].parse(raw);
-				return this.#answer(caller, this.#resolve(tabs, args.session, caller, "answer"), args);
+				return this.#answer(caller, await this.#open(tabs, args.session, caller, "answer"), args);
 			}
 			case T.focus: {
 				const args = ARGS[T.focus].parse(raw);
-				const target = this.#resolve(tabs, args.session, null, "show");
+				const target = await this.#open(tabs, args.session, null, "show", false);
 				this.#refuseHidden(target, caller);
 				this.#host.view(caller.tabId, { tabId: target.tabId, how: args.how ?? "focus" });
 				return `Showing ${label(target)} (${args.how ?? "focus"}).`;
@@ -1074,7 +1095,7 @@ export class AgentControl {
 				return this.#report(caller, tabs, ARGS[T.report].parse(raw));
 			case T.merge: {
 				const args = ARGS[T.merge].parse(raw);
-				return this.#merge(caller, this.#resolve(tabs, args.session, caller, "merge"));
+				return this.#merge(caller, await this.#open(tabs, args.session, caller, "merge"));
 			}
 			case T.schedule:
 				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
@@ -1109,15 +1130,30 @@ export class AgentControl {
 		return this.#app;
 	}
 
-	/** An open session's id the list printed, or a unique prefix of one; never the caller itself where `self` is passed. */
-	#resolve(tabs: ControlTab[], session: string, self: ControlTab | null, verb: string): ControlTab {
-		const target = this.#lookup(tabs, session);
-		if (!target)
+	/**
+	 * A session that has to be open in a tab, named any way `#find` reads (never the caller itself where `self` is
+	 * passed). One saved but not open fails with the call that opens it. `reach`: a paired device's tab is waited
+	 * for while its link comes back (`#reachTab`).
+	 */
+	async #open(
+		tabs: ControlTab[],
+		session: string,
+		self: ControlTab | null,
+		verb: string,
+		reach = true,
+	): Promise<ControlTab> {
+		const found = await this.#find(tabs, session);
+		if (!found.target)
 			fail(
-				`No session "${session}" open in this app. Call ompdesk_sessions (scope app for every window); a saved session must be opened again first (ompdesk_session_open reopen).`,
+				`No session "${session}" open in this app or saved${unreachedText(found.unreached)}. Call ompdesk_sessions (scope app for every window, scope stored for saved ones) and use an id it lists.`,
+			);
+		const target = found.target;
+		if (!("busy" in target))
+			fail(
+				`"${oneLine(storedTitle(target), 80)}" (${target.id}) is saved${target.deviceName ? ` on ${target.deviceName}` : ""} but not open in any tab. Open it again with ompdesk_session_open {"reopen":"${target.id}"}, then ${verb} it by the id that returns (ompdesk_session_read reads it without opening).`,
 			);
 		if (self && target.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
-		return target;
+		return reach ? this.#reachTab(target, self?.tabId ?? target.tabId) : target;
 	}
 
 	#refuseHidden(target: ControlTab, caller: ControlTab): void {
@@ -1179,8 +1215,12 @@ export class AgentControl {
 			case "waiting":
 				return "starting";
 			case "error":
-			case "exited":
+			case "exited": {
+				const link = tab.device ? this.#host.devices().find(entry => entry.id === tab.device) : undefined;
+				if (link && link.state !== "online")
+					return `${link.name} is ${link.state} (its link is down; tools wait a moment for it, then this session answers again)`;
 				return `stopped (${tab.status})`;
+			}
 		}
 		if (tab.busy || state?.isStreaming) return `running${step ? `, ${step}` : ""}`;
 		if (state && state.isSettled === false) return "running (background work still going)";
@@ -1206,9 +1246,68 @@ export class AgentControl {
 		return found;
 	}
 
-	#online(device: ControlDevice): void {
-		if (device.state !== "online")
-			fail(`${device.name} is ${device.state}: it has to be on and reachable first (Settings › Devices).`);
+	/**
+	 * A paired device once its link is up: waited for `LINK_WAIT_MS` while it connects or reconnects, so a blip never
+	 * fails a call. A device that stays away fails with what to do.
+	 */
+	async #reach(device: ControlDevice): Promise<ControlDevice> {
+		const deadline = Date.now() + LINK_WAIT_MS;
+		let current = device;
+		while (current.state !== "online") {
+			const left = deadline - Date.now();
+			if (left <= 0)
+				fail(
+					`${current.name} is ${current.state} (waited ${LINK_WAIT_MS / 1000} s for its link). It has to be on, awake and on the tailnet (Settings › Devices); call again once ompdesk_sessions lists it online, or tell the user.`,
+				);
+			await this.#nextChange(Math.min(LINK_POLL_MS, left));
+			current =
+				this.#host.devices().find(entry => entry.id === device.id) ??
+				fail(`${device.name} is no longer paired with this computer (Settings › Devices).`);
+		}
+		return current;
+	}
+
+	/**
+	 * A paired device's tab, once it can answer: while the device's link is down the tab reports `error` and refuses
+	 * every command (`remote_offline`); back online it re-attaches (`starting`, then its status). A local tab, and one
+	 * whose device is online and settled, is returned as it is.
+	 */
+	async #reachTab(tab: ControlTab, callerTabId: string): Promise<ControlTab> {
+		if (!tab.device) return tab;
+		const device = this.#host.devices().find(entry => entry.id === tab.device);
+		if (!device) return tab;
+		const away = device.state !== "online";
+		if (away) await this.#reach(device);
+		else if (tab.status !== "error") return tab;
+		// An `error` right after the link came back is the link's; one that stays is the host's own.
+		const deadline = Date.now() + REATTACH_WAIT_MS;
+		for (;;) {
+			const now = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tab.tabId);
+			if (!now) fail(`${label(tab)} was closed while ${device.name} reconnected.`);
+			const settling =
+				now.status === "error" ||
+				(away && (now.status === "starting" || now.status === "restarting" || now.status === "waiting"));
+			const left = deadline - Date.now();
+			if (!settling || left <= 0) return now;
+			await this.#nextChange(Math.min(LINK_POLL_MS, left));
+		}
+	}
+
+	/**
+	 * A read from a paired device that a link drop cut short is made once more when the link is back (reads only:
+	 * a prompt or an answer may have arrived before the drop, so those are never repeated).
+	 */
+	async #overLink<T>(deviceId: string | undefined, read: () => Promise<T>): Promise<T> {
+		try {
+			return await read();
+		} catch (error) {
+			const device = deviceId ? this.#host.devices().find(entry => entry.id === deviceId) : undefined;
+			if (!device || ipcErrorCode(error) !== "remote_offline") throw error;
+			// The link's state turns a moment after the request failed.
+			await this.#nextChange(LINK_POLL_MS);
+			await this.#reach(this.#host.devices().find(entry => entry.id === deviceId) ?? device);
+			return read();
+		}
 	}
 
 	#devicesLine(): string {
@@ -1218,20 +1317,27 @@ export class AgentControl {
 			: "No paired devices.";
 	}
 
-	async #list(caller: ControlTab, tabs: ControlTab[], args: ListArgs): Promise<string> {
-		const device = args.device === undefined ? undefined : this.#device(args.device);
+	async #list(caller: ControlTab, listed: ControlTab[], args: ListArgs): Promise<string> {
+		const named = args.device === undefined ? undefined : this.#device(args.device);
+		// A device asked for by name is waited for while its link comes back; its tabs re-attach meanwhile.
+		const device = named ? await this.#reach(named) : named;
+		const tabs = device && named?.state !== "online" ? (this.#host.tabs(caller.tabId) ?? listed) : listed;
 		const limit = args.limit ?? LIST_DEFAULT_ROWS;
 		if (args.scope === "stored") return this.#listStored(caller, tabs, args, device, limit);
 		const opened = this.#openedBy(caller.tabId, tabs);
 		const query = args.query?.toLowerCase();
 		const app = args.scope === "app" || device !== undefined;
-		const candidates = tabs.filter(
-			tab =>
-				(app || tab.here) &&
-				(device === undefined || (device === null ? !tab.device : tab.device === device.id)) &&
-				(!args.folder || tab.cwd.includes(args.folder)) &&
-				(!args.mine || opened.has(tab.tabId)) &&
-				(!query || (!tab.hidden && tab.title.toLowerCase().includes(query))),
+		const candidates = await Promise.all(
+			tabs
+				.filter(
+					tab =>
+						(app || tab.here) &&
+						(device === undefined || (device === null ? !tab.device : tab.device === device.id)) &&
+						(!args.folder || tab.cwd.includes(args.folder)) &&
+						(!args.mine || opened.has(tab.tabId)) &&
+						(!query || (!tab.hidden && tab.title.toLowerCase().includes(query))),
+				)
+				.map(tab => (device ? this.#reachTab(tab, caller.tabId).catch(() => tab) : tab)),
 		);
 		const rows = await Promise.all(
 			candidates.map(async tab => {
@@ -1294,11 +1400,10 @@ export class AgentControl {
 		device: ControlDevice | null | undefined,
 		limit: number,
 	): Promise<string> {
-		if (device) this.#online(device);
 		if (args.status) fail("status filters open sessions; leave it out with scope stored.");
 		const opened = this.#openedBy(caller.tabId, tabs);
 		const mine = new Set(tabs.filter(tab => opened.has(tab.tabId)).flatMap(tab => tab.sessionPath ?? []));
-		const rows = (await this.#host.stored(device?.id, args.query))
+		const rows = (await this.#overLink(device?.id, () => this.#host.stored(device?.id, args.query)))
 			.filter(row => (!args.folder || row.cwd.includes(args.folder)) && (!args.mine || mine.has(row.path)))
 			.sort((a, b) => b.modified.localeCompare(a.modified));
 		for (const row of rows) this.#stored.set(row.id, row);
@@ -1403,17 +1508,19 @@ export class AgentControl {
 	): Promise<OpenResult> {
 		const worktreeArg = args.worktree === true ? {} : args.worktree === false ? undefined : args.worktree;
 		let device: string | null | undefined;
+		let target: ControlDevice | null | undefined;
 		if (args.device !== undefined) {
-			const found = this.#device(args.device);
-			if (found) this.#online(found);
-			device = found ? found.id : null;
+			target = this.#device(args.device);
+			if (target) target = await this.#reach(target);
+			device = target ? target.id : null;
 		}
 		let sessionPath: string | undefined;
 		if (args.reopen) {
+			const found = await this.#storedSession(args.reopen, target);
 			const row =
-				(await this.#storedSession(args.reopen)) ??
+				found.row ??
 				fail(
-					`No saved session "${args.reopen}" here. List them with ompdesk_sessions {"scope":"stored"} (with device for a paired device's).`,
+					`No saved session "${args.reopen}" ${target ? `on ${target.name}` : target === null ? "on this computer" : "on this computer or a paired device"}${unreachedText(found.unreached)}. List them with ompdesk_sessions {"scope":"stored"} (with device for a paired device's).`,
 				);
 			if (row.hidden) fail("The user hid that session from other agents.");
 			const open = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], row);
@@ -1423,6 +1530,8 @@ export class AgentControl {
 				);
 			if (args.device !== undefined && (device ?? undefined) !== row.device)
 				fail("A saved session opens on the device it is saved on; leave device out with reopen.");
+			const home = row.device ? this.#host.devices().find(entry => entry.id === row.device) : undefined;
+			if (home) await this.#reach(home);
 			sessionPath = row.path;
 			device = row.device ?? null;
 		}
@@ -1657,7 +1766,7 @@ export class AgentControl {
 	 */
 	async #report(caller: ControlTab, tabs: ControlTab[], args: ReportArgs): Promise<string> {
 		const parent = this.#host.parentOf(caller.tabId);
-		const target = args.to ? this.#resolve(tabs, args.to, caller, "report to") : undefined;
+		const target = args.to ? await this.#open(tabs, args.to, caller, "report to") : undefined;
 		const peer =
 			target !== undefined &&
 			target.tabId !== parent &&
@@ -1766,20 +1875,48 @@ export class AgentControl {
 
 	async #result(
 		caller: ControlTab,
-		targets: ControlTab[],
+		targets: (ControlTab | StoredSession)[],
 		args: { wait?: boolean; until?: "all" | "any"; timeout_seconds?: number },
 		table: boolean,
 	): Promise<string> {
 		const seconds = args.timeout_seconds ?? RESULT_WAIT_DEFAULT_SECONDS;
 		const deadline = Date.now() + seconds * 1000;
-		const ids = targets.map(tab => tab.tabId);
+		const perAnswer = table ? RESULT_TABLE_ANSWER_CHARS : RESULT_MAX_CHARS;
+		// A saved session no tab holds is finished as its file says; it is read once.
+		const saved = new Map(
+			await Promise.all(
+				targets.flatMap(target => {
+					if ("busy" in target) return [];
+					if (target.hidden) fail("The user hid a session you asked about from other agents.");
+					return [
+						this.#overLink(target.device, () => this.#host.storedMessages(target)).then(messages => {
+							const last = transcriptEnding(messages).last;
+							const where = `saved${target.deviceName ? ` on ${target.deviceName}` : ""}, not open in any tab`;
+							return [
+								target.id,
+								{
+									settled: true,
+									text: `"${oneLine(storedTitle(target), 80)}" [${target.id}]: ${where}.\nLast answer:\n${last ? cut(last, perAnswer) : "(no answer)"}`,
+								},
+							] as const;
+						}),
+					];
+				}),
+			),
+		);
+		const ids = targets.map(target => ("busy" in target ? target.tabId : target.id));
 		for (;;) {
-			const current = ids.map(id => this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === id));
+			const tabs = this.#host.tabs(caller.tabId);
+			const current = targets.map(target =>
+				"busy" in target ? tabs?.find(tab => tab.tabId === target.tabId) : target,
+			);
 			const gone = current.findIndex(tab => !tab);
 			if (gone >= 0) fail(`${label(targets[gone] as ControlTab)} was closed while you waited.`);
 			const summaries = await Promise.all(
-				(current as ControlTab[]).map(tab =>
-					this.#sessionSummary(caller, tab, table ? RESULT_TABLE_ANSWER_CHARS : RESULT_MAX_CHARS),
+				current.map((target, index) =>
+					target && "busy" in target
+						? this.#sessionSummary(caller, target, perAnswer)
+						: (saved.get(ids[index] as string) as { settled: boolean; text: string }),
 				),
 			);
 			const done = summaries.filter(summary => summary.settled).length;
@@ -1787,8 +1924,10 @@ export class AgentControl {
 			const timedOut = Date.now() >= deadline;
 			if (!args.wait || ready || timedOut) {
 				// The opener has the answer now: the session may close once its work landed.
-				for (const [index, summary] of summaries.entries())
-					if (summary.settled) this.#collected.add((current[index] as ControlTab).tabId);
+				for (const [index, summary] of summaries.entries()) {
+					const target = current[index];
+					if (summary.settled && target && "busy" in target) this.#collected.add(target.tabId);
+				}
 				const note =
 					args.wait && timedOut && !ready
 						? `Still running after waiting ${seconds} s (${done}/${summaries.length} finished).\n`
@@ -1812,13 +1951,18 @@ export class AgentControl {
 		const page =
 			transcriptPage(
 				responseData<unknown>(
-					await this.#host.command(
-						target.tabId,
-						args.before
-							? { type: "get_transcript_page", cursor: args.before, limit }
-							: { type: "get_transcript_page", fromEnd: true, limit },
-						30_000,
-					),
+					await this.#overLink(target.device, async () => {
+						const response = await this.#host.command(
+							target.tabId,
+							args.before
+								? { type: "get_transcript_page", cursor: args.before, limit }
+								: { type: "get_transcript_page", fromEnd: true, limit },
+							30_000,
+						);
+						if (!response.success && response.code === "remote_offline")
+							throw new Error(`[remote_offline] ${response.error}`);
+						return response;
+					}),
 					"Reading the transcript",
 				),
 			) ?? fail("The transcript page came back empty.");
@@ -1829,7 +1973,7 @@ export class AgentControl {
 	/** A saved session's transcript, paged from its end; the cursor is the index of the page's first message. */
 	async #readStored(row: StoredSession, args: { limit?: number; before?: string }): Promise<string> {
 		if (row.hidden) fail("The user hid this session from other agents.");
-		const messages = await this.#host.storedMessages(row);
+		const messages = await this.#overLink(row.device, () => this.#host.storedMessages(row));
 		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
 		const end = args.before === undefined ? messages.length : Number.parseInt(args.before, 10);
 		if (!Number.isInteger(end) || end < 0 || end > messages.length)
@@ -1840,38 +1984,113 @@ export class AgentControl {
 	}
 
 	/**
-	 * An open tab by id, by an id it had before a relaunch, or by a unique prefix of its id; undefined when none (an
-	 * ambiguous prefix fails). A former id is matched whole only: tab ids are random, so it names that session alone.
+	 * Every way an agent names a session, the first match wins: a tab id; an id the tab had before a relaunch (whole
+	 * only: tab ids are random, so it names that session alone); the saved (stock) id of the session a tab holds; a
+	 * unique prefix of a tab id or of that saved id; the title, exactly or by a unique prefix in any case (a hidden
+	 * session's title is private and never matched); then a saved session no tab holds (`#storedSession`, on `device`
+	 * when given). An ambiguous name fails, naming the candidates.
 	 */
-	#lookup(tabs: ControlTab[], session: string): ControlTab | undefined {
-		const exact = tabs.find(tab => tab.tabId === session) ?? tabs.find(tab => tab.formerIds?.includes(session));
-		if (exact) return exact;
-		if (session.length < SESSION_PREFIX_MIN) return undefined;
-		const matches = tabs.filter(tab => tab.tabId.startsWith(session));
-		if (matches.length > 1) fail(`"${session}" matches several sessions; use the full id from ompdesk_sessions.`);
-		return matches[0];
+	async #find(
+		tabs: ControlTab[],
+		session: string,
+		device?: ControlDevice | null,
+	): Promise<{ target?: ControlTab | StoredSession; unreached: string[] }> {
+		const name = session.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
+		const only = (matches: ControlTab[]): ControlTab | undefined => {
+			if (matches.length > 1)
+				fail(
+					`"${name}" matches several sessions: ${matches
+						.slice(0, 6)
+						.map(tab => `${tab.tabId} ${label(tab)}`)
+						.join("; ")}. Use the full id from ompdesk_sessions.`,
+				);
+			return matches[0];
+		};
+		// Stock names a session file `<time>_<session id>.jsonl`.
+		const savedId = (tab: ControlTab): string | undefined =>
+			tab.sessionPath ? /_([^_/\\]+)\.jsonl$/.exec(tab.sessionPath)?.[1] : undefined;
+		const listed = this.#stored.get(name);
+		const tab =
+			tabs.find(entry => entry.tabId === name) ??
+			tabs.find(entry => entry.formerIds?.includes(name)) ??
+			tabs.find(entry => savedId(entry) === name) ??
+			(listed ? this.#liveTab(tabs, listed) : undefined) ??
+			(name.length >= SESSION_PREFIX_MIN
+				? (only(tabs.filter(entry => entry.tabId.startsWith(name))) ??
+					only(tabs.filter(entry => savedId(entry)?.startsWith(name))))
+				: undefined);
+		if (tab) return { target: tab, unreached: [] };
+		const wanted = name.toLowerCase();
+		const titled = tabs.filter(entry => !entry.hidden);
+		const titleOf = (entry: ControlTab): string => (entry.title || entry.task || "").trim().toLowerCase();
+		const byTitle =
+			only(titled.filter(entry => titleOf(entry) === wanted)) ??
+			(wanted.length >= TITLE_PREFIX_MIN
+				? only(titled.filter(entry => titleOf(entry).startsWith(wanted)))
+				: undefined);
+		if (byTitle) return { target: byTitle, unreached: [] };
+		const { row, unreached } = await this.#storedSession(name, device);
+		return { target: row ? (this.#liveTab(tabs, row) ?? row) : undefined, unreached };
 	}
 
 	/**
-	 * A saved session by stock id or unique prefix: the last stored lists first, then the index of `device` (this
-	 * computer when undefined or null). A row read with `device` given is that device's only.
+	 * A saved session by stock id, unique id prefix or exact title: the rows the last stored lists printed first, then
+	 * a fresh read of the index of `device` (this computer when null). With `device` undefined, a name not saved here
+	 * is looked up on every paired device too: a saved id names its session wherever it is saved, also after a relaunch
+	 * forgot the lists. `unreached` names the devices whose index could not be read.
 	 */
-	async #storedSession(session: string, device?: ControlDevice | null): Promise<StoredSession | undefined> {
+	async #storedSession(
+		session: string,
+		device?: ControlDevice | null,
+	): Promise<{ row?: StoredSession; unreached: string[] }> {
 		const where = device === undefined ? undefined : (device?.id ?? undefined);
 		const find = (): StoredSession | undefined => {
 			const rows = [...this.#stored.values()].filter(row => device === undefined || row.device === where);
 			const exact = rows.find(row => row.id === session);
 			if (exact) return exact;
-			if (session.length < SESSION_PREFIX_MIN) return undefined;
-			const matches = rows.filter(row => row.id.startsWith(session));
-			if (matches.length > 1) fail(`"${session}" matches several saved sessions; use the full id.`);
-			return matches[0];
+			const several = (matches: StoredSession[]): StoredSession | undefined => {
+				if (matches.length > 1)
+					fail(
+						`"${session}" matches several saved sessions: ${matches
+							.slice(0, 6)
+							.map(row => `${row.id} "${oneLine(storedTitle(row), 60)}"`)
+							.join("; ")}. Use the full id.`,
+					);
+				return matches[0];
+			};
+			const wanted = session.toLowerCase();
+			return (
+				(session.length >= SESSION_PREFIX_MIN
+					? several(rows.filter(row => row.id.startsWith(session)))
+					: undefined) ??
+				several(rows.filter(row => !row.hidden && storedTitle(row).trim().toLowerCase() === wanted))
+			);
 		};
 		const known = find();
-		if (known) return known;
-		if (device) this.#online(device);
-		for (const row of await this.#host.stored(where)) this.#stored.set(row.id, row);
-		return find();
+		if (known) return { row: known, unreached: [] };
+		const load = async (deviceId: string | undefined): Promise<void> => {
+			for (const row of await this.#overLink(deviceId, () => this.#host.stored(deviceId)))
+				this.#stored.set(row.id, row);
+		};
+		if (device !== undefined) {
+			if (device) await this.#reach(device);
+			await load(device?.id);
+			return { row: find(), unreached: [] };
+		}
+		await load(undefined);
+		const local = find();
+		if (local) return { row: local, unreached: [] };
+		const unreached: string[] = [];
+		await Promise.all(
+			this.#host.devices().map(async paired => {
+				try {
+					await load((await this.#reach(paired)).id);
+				} catch {
+					unreached.push(paired.name);
+				}
+			}),
+		);
+		return { row: find(), unreached };
 	}
 
 	/**
@@ -1893,19 +2112,15 @@ export class AgentControl {
 		verb: string,
 		device?: ControlDevice | null,
 	): Promise<ControlTab | StoredSession> {
-		const tab = this.#lookup(tabs, session);
-		if (tab) {
-			if (tab.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
-			return tab;
-		}
-		const row = await this.#storedSession(session, device);
-		if (!row)
+		const found = await this.#find(tabs, session, device);
+		const target =
+			found.target ??
 			fail(
-				`No session "${session}" open in this app or saved ${device ? `on ${device.name}` : "here"}. Call ompdesk_sessions (scope app, or scope stored with device for a paired device's).`,
+				`No session "${session}" open in this app or saved ${device ? `on ${device.name}` : device === null ? "on this computer" : "on this computer or a paired device"}${unreachedText(found.unreached)}. Call ompdesk_sessions (scope app for open ones, scope stored for saved ones, with device for a paired device's) and use an id it lists.`,
 			);
-		const open = this.#liveTab(tabs, row);
-		if (open?.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
-		return open ?? row;
+		if (!("busy" in target)) return target;
+		if (target.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
+		return this.#reachTab(target, self.tabId);
 	}
 
 	async #answer(caller: ControlTab, target: ControlTab, args: AnswerArgs): Promise<string> {
@@ -1916,7 +2131,7 @@ export class AgentControl {
 			fail(
 				target.asks.length > 0
 					? "That is a confirmation card for the user (OMPdesk asks the person before an agent action); only the user answers it."
-					: `${label(target)} is not waiting for an answer.`,
+					: `${label(target)} is not waiting for an answer (${this.#stateLine(target, { state: null, last: null, step: null, subagents: [] })}). See where it is with ompdesk_session_result; only a session ompdesk_sessions lists as waiting can be answered.`,
 			);
 		const ask = args.request ? asks.find(entry => entry.id === args.request) : asks[0];
 		if (!ask) fail(`No pending request "${args.request}" there. Pending: ${asks.map(entry => entry.id).join(", ")}.`);
@@ -1925,14 +2140,18 @@ export class AgentControl {
 		let summary: string;
 		if (request.method === "select") {
 			const approval = approvalChoices(request);
+			// `approve` answers a tool approval; on a plain choice card it names no option.
 			const wanted =
 				args.choice ??
-				(args.approve === undefined ? undefined : args.approve ? (approval?.once ?? "Approve") : APPROVE_DENY);
+				(args.approve === undefined || !approval ? undefined : args.approve ? approval.once : APPROVE_DENY);
 			if (wanted === undefined)
 				fail(
 					[
 						`No choice given: pass \`choice\` with one of: ${request.options.map(option => `"${option}"`).join(" | ")}.`,
 						...(args.text !== undefined ? ["`text` answers a text prompt, not this choice card."] : []),
+						...(args.approve !== undefined
+							? ["`approve` answers a tool approval or a yes/no card, not this choice."]
+							: []),
 						...(request.options.includes(OTHER_OPTION)
 							? [
 									`To give an answer of your own, choose "${OTHER_OPTION}": the session then asks for the text, which you answer with \`text\`.`,
@@ -1950,20 +2169,44 @@ export class AgentControl {
 			response = { type: "extension_ui_response", id: ask.id, value: choice };
 			summary = `"${choice}" to "${oneLine(request.title, 100)}"`;
 		} else if (request.method === "confirm") {
-			if (args.approve === undefined && args.choice === undefined)
-				fail("Give approve: true or false for this confirmation.");
-			const yes = args.approve ?? /^(y|yes|ok|true|confirm)/i.test(args.choice ?? "");
+			// A yes or no, however it was given.
+			const said = args.choice ?? args.text;
+			if (args.approve === undefined && said === undefined)
+				fail(`This is a yes/no card ("${oneLine(request.title, 100)}"): pass \`approve\` true or false.`);
+			const yes = args.approve ?? /^\s*(y|yes|ok|true|confirm|approve|allow)/i.test(said ?? "");
 			response = { type: "extension_ui_response", id: ask.id, confirmed: yes };
 			summary = `${yes ? "yes" : "no"} to "${oneLine(request.title, 100)}"`;
 		} else if (request.method === "input" || request.method === "editor") {
-			if (args.text === undefined) fail("Give text: the answer to type into this prompt.");
-			response = { type: "extension_ui_response", id: ask.id, value: args.text };
+			// The words to type, whichever field carried them.
+			const text = args.text ?? args.choice;
+			if (text === undefined)
+				fail(`This is a text prompt ("${oneLine(request.title, 100)}"): pass \`text\` with the answer to type.`);
+			response = { type: "extension_ui_response", id: ask.id, value: text };
 			summary = `text to "${oneLine(request.title, 100)}"`;
 		} else if (request.method === "ask") {
-			const given = args.answers ?? [];
+			const one = request.questions.length === 1;
+			// One question takes `choice` or `text` as its answer too; several need `answers`, one entry each.
+			const given =
+				args.answers ??
+				(one && (args.choice !== undefined || args.text !== undefined)
+					? [
+							{
+								...(args.choice !== undefined ? { selected: [args.choice] } : {}),
+								...(args.text ? { text: args.text } : {}),
+							},
+						]
+					: []);
+			if (!one && given.length === 0)
+				fail(
+					`This card asks ${request.questions.length} questions: pass \`answers\` with one entry each: [${request.questions
+						.map(
+							question =>
+								`{"id": "${question.id}", "selected": [<one of ${question.options.map(option => `"${option.label}"`).join(" | ")}>]}`,
+						)
+						.join(", ")}] (or "text" instead of "selected" for an answer of your own).`,
+				);
 			const answers = request.questions.map(question => {
-				const mine =
-					given.find(entry => entry.id === question.id) ?? (request.questions.length === 1 ? given[0] : undefined);
+				const mine = given.find(entry => entry.id === question.id) ?? (one ? given[0] : undefined);
 				if (!mine)
 					fail(
 						`No answer for question "${question.id}" (${oneLine(question.question, 80)}): pass \`answers\` ([{"id": "${question.id}", "selected": [<one of ${question.options.map(option => `"${option.label}"`).join(" | ")}>]}], or "text" instead of "selected" for an answer of your own).`,
@@ -1978,7 +2221,9 @@ export class AgentControl {
 			response = { type: "extension_ui_response", id: ask.id, answers };
 			summary = `${answers.length} answer(s)`;
 		} else {
-			return fail("That request is not a question an agent can answer.");
+			return fail(
+				`That request (${request.method}) is not a question an agent can answer: show it to the user with ompdesk_tab_focus.`,
+			);
 		}
 		await this.#host.answer(target.tabId, ask.id, response);
 		await this.#host.markAnswered(target.tabId, caller.title || caller.tabId).catch(() => undefined);
@@ -2050,18 +2295,27 @@ export class AgentControl {
 				return `The user declined: ${label(target)} keeps running. Do not ask again unless they tell you to.`;
 		}
 		this.#closing.add(target.tabId);
+		const running = target.busy && (target.status === "ready" || target.status === "running");
+		let confirmed = !running;
 		try {
-			if (target.busy && (target.status === "ready" || target.status === "running")) {
-				responseData(await this.#host.command(target.tabId, { type: "abort" }), "Stopping the session");
-			}
-			if (args.close || args.delete) await this.#journalClose(caller, target, args.delete === true);
-			if (args.delete) await this.#host.deleteSession(caller.tabId, target.tabId);
+			// Stock answers an abort once the turn unwound; a close never waits on that (closing ends the omp), a stop
+			// and a delete (which needs the turn over) wait a bounded while and say what they saw.
+			if (running)
+				confirmed = await this.#abort(target, args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS);
+			if (args.close || args.delete)
+				await this.#within(this.#journalClose(caller, target, args.delete === true), ABORT_BEFORE_CLOSE_MS);
+			if (args.delete) await this.#deleteWhenIdle(caller, target);
 			else if (args.close) {
 				// The card and the lines took time: the person may have opened it meanwhile.
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
 				if (now && (now.looked || now.userTouched))
 					fail(`${label(target)} came into the user's view meanwhile; it stays open.`);
 				this.#host.view(caller.tabId, { tabId: target.tabId, how: "close" });
+				await this.#whenGone(caller.tabId, target.tabId, CLOSE_WAIT_MS);
+				if (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === target.tabId))
+					fail(
+						`${label(target)} is still open: its window kept the tab (it is that window's last tab, or it holds unsaved Files edits). Ask the user to close it; its session is saved either way.`,
+					);
 			}
 		} finally {
 			this.#closing.delete(target.tabId);
@@ -2071,7 +2325,52 @@ export class AgentControl {
 			return own && target.worktree ? `${done} ${await this.#dropWorktree(target.worktree, target.device)}` : done;
 		}
 		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
-		return target.busy ? `Stopped ${label(target)}.` : `${label(target)} was not running; nothing to stop.`;
+		if (!running) return `${label(target)} was not running; nothing to stop.`;
+		if (confirmed || !this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId)?.busy)
+			return `Stopped ${label(target)}.`;
+		return `Asked ${label(target)} to stop; it has not confirmed after ${STOP_WAIT_MS / 1000} s (a tool or subagent is still unwinding) and stops once that ends. Check it with ompdesk_session_result {"session":"${target.tabId}"}, or end it now with ompdesk_session_stop {"session":"${target.tabId}","close": true} (closing ends its omp; the session stays saved).`;
+	}
+
+	/** Stock's abort, answered within `waitMs` (true) or not yet (false); it is sent either way and never fails. */
+	async #abort(target: ControlTab, waitMs: number): Promise<boolean> {
+		const answered = this.#host
+			.command(target.tabId, { type: "abort" }, waitMs)
+			.then(response => response.success)
+			.catch(() => false);
+		return (await this.#within(answered, waitMs)) === true;
+	}
+
+	/** `promise`'s value, or undefined once `ms` passed (the promise runs on). */
+	async #within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+		const late = Promise.withResolvers<undefined>();
+		const timer = setTimeout(() => late.resolve(undefined), ms);
+		try {
+			return await Promise.race([promise, late.promise]);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	/**
+	 * Main deletes a session only while no turn runs in it (`session_running`); an abort's turn ends a moment after it
+	 * was sent, so the delete is tried again until `STOP_WAIT_MS` passed.
+	 */
+	async #deleteWhenIdle(caller: ControlTab, target: ControlTab): Promise<void> {
+		const deadline = Date.now() + STOP_WAIT_MS;
+		for (;;) {
+			try {
+				await this.#host.deleteSession(caller.tabId, target.tabId);
+				return;
+			} catch (error) {
+				const left = deadline - Date.now();
+				if (ipcErrorCode(error) !== "session_running") throw error;
+				if (left <= 0)
+					fail(
+						`${label(target)} is still finishing its turn after ${STOP_WAIT_MS / 1000} s, so it was not deleted. Close it first (ompdesk_session_stop {"session":"${target.tabId}","close": true}), then delete its saved session by its saved id from ompdesk_sessions {"scope":"stored"}.`,
+					);
+				await this.#nextChange(Math.min(LINK_POLL_MS * 4, left));
+			}
+		}
 	}
 
 	/**
@@ -2644,7 +2943,7 @@ export class AgentControl {
 			if (!own) fail(`${caller.deviceName ?? caller.device} is no longer a paired device.`);
 			device = own;
 		} else device = null;
-		if (device) this.#online(device);
+		if (device) device = await this.#reach(device);
 		const where = device ? `on ${device.name}` : "on this computer";
 		const source = this.#host.schedules(device?.id);
 		if (!source) fail(`Scheduled runs are not available ${where}.`);
@@ -2711,7 +3010,7 @@ export class AgentControl {
 		const source = this.#host.autopilot;
 		if (!source) fail("Autopilot is not available here.");
 		if (args.action === "start") return this.#autopilotStart(caller, tabs, source, args);
-		const target = this.#resolve(tabs, args.session, caller, args.action === "stop" ? "stop" : "read");
+		const target = await this.#open(tabs, args.session, caller, args.action === "stop" ? "stop" : "read");
 		this.#refuseHidden(target, caller);
 		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
 		if (args.action === "status") {
@@ -2767,7 +3066,7 @@ export class AgentControl {
 		let deviceName = caller.deviceName;
 		if (args.device !== undefined) {
 			const found = this.#device(args.device);
-			if (found) this.#online(found);
+			if (found) await this.#reach(found);
 			device = found?.id;
 			deviceName = found?.name;
 		}
@@ -2916,4 +3215,11 @@ function pickOption(options: readonly string[], wanted: string): string {
 	const near = options.filter(option => option.toLowerCase().startsWith(lowered));
 	if (near.length === 1 && near[0]) return near[0];
 	return fail(`"${wanted}" is not one of: ${options.join(" | ")}.`);
+}
+
+/** The tail of a "no such session" failure naming the devices whose saved sessions could not be searched. */
+function unreachedText(devices: readonly string[]): string {
+	return devices.length
+		? ` (${devices.join(", ")} could not be searched: not online; call again once it is, or name the device)`
+		: "";
 }
