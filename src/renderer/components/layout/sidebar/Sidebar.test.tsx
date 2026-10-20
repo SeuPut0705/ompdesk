@@ -65,7 +65,7 @@ interface TestElement {
 
 interface MockOmp {
 	sidecar: {
-		defaultWorkspace: Mock<() => Promise<string>>;
+		defaultWorkspace: Mock<(device?: string) => Promise<string>>;
 		selectProject: Mock<() => Promise<string | null>>;
 		setProject: Mock<(cwd: string) => Promise<boolean>>;
 	};
@@ -2635,6 +2635,33 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
 	});
 
+	it("puts the host's no-project sessions in its Chat lane, by the host's own workspace, as the host does", async () => {
+		const omp = installWithRemote();
+		const work = session("/Users/kim/.omp/agent/sessions/-.omp-work/two.jsonl", "/Users/kim/.omp/work", {
+			title: "Opened in the host's workspace",
+			device: "dev-studio",
+		});
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio" ? [...REMOTE, work] : LIST,
+		);
+		omp.sidecar.defaultWorkspace.mockImplementation(async (device?: string) =>
+			device === "dev-studio" ? "/Users/kim/.omp/work" : "/default/work",
+		);
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
+
+		const section = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(omp.sidecar.defaultWorkspace).toHaveBeenCalledWith("dev-studio");
+		expect(section()?.textContent).toContain("Remote fix");
+		expect(section()?.textContent).not.toContain("Opened in the host's workspace");
+
+		await fire(container.querySelector('[role="tablist"] [data-tab-id="chat"]'), "onClick");
+		expect(section()?.textContent).toContain("Opened in the host's workspace");
+		expect(section()?.textContent).not.toContain("Remote fix");
+	});
+
 	describe("order", () => {
 		function pairHosts(ids: readonly string[]): void {
 			pairHost("online");
@@ -3278,6 +3305,36 @@ describe("Sidebar worktree groups", () => {
 		expect(rows.some(text => text.includes("Approach B"))).toBe(true);
 		expect(rows.some(text => text.includes("Approach C"))).toBe(false);
 		expect(container.textContent).not.toContain("gui-agent");
+	});
+
+	it("keeps a discarded worktree's session while a tab holds it, a paired device's tab here included", async () => {
+		const DISCARDED = "/home/me/.omp/wt/h1/gui-agent-c3d4e5-0a1b2c3";
+		const omp = installMockOmp([
+			session("/wt/hosted.jsonl", DISCARDED, { title: "Held by the device", created: "2026-02-02T00:00:00Z" }),
+			session("/wt/local.jsonl", DISCARDED, { title: "Held here", created: "2026-02-01T00:00:00Z" }),
+			...LIST,
+		]);
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === "/work/alpha" ? { project: "alpha", root: "/work/alpha", worktree: null } : null,
+					]),
+				),
+			),
+		};
+		seedStores();
+		openTab("tl", DISCARDED, "/wt/local.jsonl");
+		useHostedSessionsStore.setState({
+			sessions: [
+				{ sessionPath: "/wt/hosted.jsonl", cwd: DISCARDED, kind: "agent", status: "exited", device: "Mac" },
+			],
+		});
+		await mount(<Sidebar />);
+		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		expect(rows.some(text => text.includes("Held by the device"))).toBe(true);
+		expect(rows.some(text => text.includes("Held here"))).toBe(true);
 	});
 
 	it("names the project too when its own group is not listed", async () => {
