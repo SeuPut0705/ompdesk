@@ -9,6 +9,8 @@
  *
  * The fake's "service" is a pid file under the test's HOME; point the app's `OMP_GUI_AI_MEMORY_UNIT_PIDFILE` at
  * `<HOME>/.fake-ai-memory/server.pid` (the specs do) so turning memory off can stop it the way the OS service would be.
+ * The server is detached and outlives the app, so a spec that removes the HOME afterwards calls `stopFakeServer(home)`
+ * first: Windows refuses (EBUSY) to remove a directory a running process holds.
  */
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -40,6 +42,17 @@ async function readLines(file: string): Promise<Record<string, unknown>[]> {
 		.split("\n")
 		.filter(Boolean)
 		.map(line => JSON.parse(line) as Record<string, unknown>);
+}
+
+/** Stop the detached server a fake `setup` started under `home` (a missing pid file or a gone process is fine). */
+export async function stopFakeServer(home: string): Promise<void> {
+	const pid = Number(await readFile(join(home, ".fake-ai-memory", "server.pid"), "utf8").catch(() => ""));
+	if (!pid) return;
+	try {
+		process.kill(pid);
+	} catch {
+		// already gone
+	}
 }
 
 export async function fixtureAiMemory(dir: string): Promise<FixtureAiMemory> {

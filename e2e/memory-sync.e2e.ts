@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { z } from "zod";
 import { phaseIs } from "./fixture/ai-memory-rig";
-import { type FixtureAiMemory, fixtureAiMemory } from "./fixture/fake-ai-memory-install";
+import { type FixtureAiMemory, fixtureAiMemory, stopFakeServer } from "./fixture/fake-ai-memory-install";
 import { exitApp } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
@@ -240,6 +240,7 @@ test("a decision made on one computer is in the other's memory, and never comes 
 	} finally {
 		if (device) await exitApp(device.app.app);
 		if (host) await exitApp(host.app.app);
+		await Promise.all(["win", "mac"].map(name => stopFakeServer(path.join(parent, `${name}-home`))));
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
