@@ -180,9 +180,10 @@ export function TitleBar() {
 	const device = useTabsStore(s => s.tabs.find(tab => tab.id === tabId)?.device);
 	const host = useHostView(device);
 	const remoteLoaded = useRemoteStore(s => s.state !== null);
-	// Same rule as the pane's RemoteTabBanner: unknown before the device list loads.
+	// Unknown before the device list loads: no host is not "removed" and not "reconnecting" yet. The chip is
+	// a pending state, not an alarm, so it names a dropped link at once (the pane's banner waits out the grace).
 	const unpaired = device !== undefined && remoteLoaded && host === undefined;
-	const reconnecting = device !== undefined && !unpaired && host?.state !== "online";
+	const reconnecting = host !== undefined && host.state !== "online";
 	const statsMessageCount = useMessagesStore(s => s.messages.length);
 	const sidebarVisible = useUiStore(s => s.sidebarVisible);
 	const drawer = useDrawerMode();

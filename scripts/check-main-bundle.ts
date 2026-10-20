@@ -60,11 +60,13 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * paired host's sidebar rows and focused tab taking that host's own Chat/Code lane (`useHostWorkspace`, both lists
  * are on the first screen), 0.5 KB; 3.300 MB (3,299,739 on the merged main) with the composer asking the automatic
  * mode choice's question while the user types (`useAutoModePrefetch`, `prefetchAutoMode`; the web page skips it, but
- * the composer is the first screen), 0.7 KB): a build that grows past it fails,
+ * the composer is the first screen), 0.7 KB; 3.301 MB (3,300,809, 3,299,739 before) with the disconnect notice's grace
+ * (`useHostLinkLost` in stores/remote.ts and `connection-banner.ts`: the phone's bar is on the first screen and the
+ * pane's banner is in the shared app chunk), 1.1 KB): a build that grows past it fails,
  * so the next eager import is a decision, not an accident. The language chunk the entries load before rendering is
  * not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_300_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_301_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

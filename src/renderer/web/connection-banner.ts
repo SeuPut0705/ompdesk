@@ -1,14 +1,14 @@
 /**
- * The link's state on the page: a bar under the status bar while the connection to the computer is down or
- * being made. A host that needs a newer page has no notice: the page reloads itself (sw-update.ts). Plain DOM,
- * so it shows even when the app has not rendered (a host that is off, a bundle that failed). Text through `t`
- * (lib/i18n `translate`).
+ * The link's state on the page: a bar under the status bar once the connection to the computer has been down
+ * or in the making for `LINK_NOTICE_GRACE_MS` (a drop that heals sooner, like the page coming back from the
+ * background, shows nothing). A host that needs a newer page has no notice: the page reloads itself
+ * (sw-update.ts). Plain DOM, so it shows even when the app has not rendered (a host that is off, a bundle
+ * that failed). Text through `t` (lib/i18n `translate`).
  */
+import { LINK_NOTICE_GRACE_MS } from "../../shared/link-notice";
 import type { WsConnectionState } from "./ws-transport";
 
 const BANNER_ID = "omp-web-connection";
-/** A first connection that takes longer than this shows the bar (a quick one never flashes it). */
-const CONNECTING_GRACE_MS = 2500;
 
 export interface BannerSource {
 	readonly state: WsConnectionState;
@@ -22,7 +22,7 @@ export function mountConnectionBanner(
 	setTimer: (callback: () => void, ms: number) => unknown = (callback, ms) => setTimeout(callback, ms),
 	clearTimer: (handle: unknown) => void = handle => clearTimeout(handle as number),
 ): () => void {
-	let connectingTimer: unknown = null;
+	let graceTimer: unknown = null;
 
 	const element = () => {
 		let bar = doc.getElementById(BANNER_ID);
@@ -45,9 +45,9 @@ export function mountConnectionBanner(
 	const hide = () => doc.getElementById(BANNER_ID)?.remove();
 
 	const apply = (state: WsConnectionState) => {
-		if (connectingTimer !== null) {
-			clearTimer(connectingTimer);
-			connectingTimer = null;
+		if (graceTimer !== null) {
+			clearTimer(graceTimer);
+			graceTimer = null;
 		}
 		switch (state) {
 			case "open":
@@ -55,10 +55,10 @@ export function mountConnectionBanner(
 				hide();
 				return;
 			case "reconnecting":
-				show("web.connection.lost");
+				graceTimer = setTimer(() => show("web.connection.lost"), LINK_NOTICE_GRACE_MS);
 				return;
 			case "connecting":
-				connectingTimer = setTimer(() => show("web.connection.connecting"), CONNECTING_GRACE_MS);
+				graceTimer = setTimer(() => show("web.connection.connecting"), LINK_NOTICE_GRACE_MS);
 				return;
 			case "outdated":
 				// The page reloads itself at a safe moment (web-boot.ts); a bar would only ask the user to do it.

@@ -5,9 +5,10 @@
  * `remote:state` push carries every other change, so this store only holds
  * the latest snapshot plus how its first read went.
  */
-import { useEffect } from "react";
+import { useEffect, useReducer } from "react";
 import { create } from "zustand";
 import type { HostView, RemoteState } from "../../shared/ipc-types";
+import { LINK_NOTICE_GRACE_MS } from "../../shared/link-notice";
 import { focusedRuntimeTabId, useRuntimeTabId } from "./session-runtime-context";
 import { useTabsStore } from "./tabs";
 
@@ -18,6 +19,8 @@ export interface RemoteStore {
 	loadError: unknown;
 	/** Bumped by every push; a read started before a push must not overwrite it. */
 	revision: number;
+	/** `trackDown`: when each not-online host was first seen down. */
+	downSince: Readonly<Record<string, number>>;
 	apply: (state: RemoteState) => void;
 	setLoadError: (error: unknown) => void;
 	reset: () => void;
@@ -29,9 +32,16 @@ export const useRemoteStore = create<RemoteStore>()(set => ({
 	state: null,
 	loadError: null,
 	revision: 0,
-	apply: state => set(current => ({ state, loadError: null, revision: current.revision + 1 })),
+	downSince: {},
+	apply: state =>
+		set(current => ({
+			state,
+			loadError: null,
+			revision: current.revision + 1,
+			downSince: trackDown(current.downSince, state.hosts),
+		})),
 	setLoadError: error => set({ loadError: error }),
-	reset: () => set({ state: null, loadError: null, revision: 0 }),
+	reset: () => set({ state: null, loadError: null, revision: 0, downSince: {} }),
 }));
 
 /** Read the whole state from main; a push that lands meanwhile wins over the reply. */
@@ -65,6 +75,32 @@ export function useHostView(deviceId: string | undefined): HostView | undefined 
 	return useRemoteStore(store =>
 		deviceId === undefined ? undefined : store.state?.hosts.find(host => host.deviceId === deviceId),
 	);
+}
+
+/** When each host that is not online was first seen so (ms); a host that is online has no entry. */
+function trackDown(previous: Readonly<Record<string, number>>, hosts: readonly HostView[]): Record<string, number> {
+	const now = Date.now();
+	const next: Record<string, number> = {};
+	for (const host of hosts) if (host.state !== "online") next[host.deviceId] = previous[host.deviceId] ?? now;
+	return next;
+}
+
+/**
+ * True once the host's link has stayed down for `LINK_NOTICE_GRACE_MS`, counted from when this window first
+ * saw it down (a tab opened later in a long outage shows at once). False before the device list has loaded,
+ * for a host that is online or was removed, and for a drop that heals inside the grace.
+ */
+export function useHostLinkLost(deviceId: string | undefined): boolean {
+	const since = useRemoteStore(store => (deviceId === undefined ? undefined : store.downSince[deviceId]));
+	const [, wake] = useReducer((count: number) => count + 1, 0);
+	useEffect(() => {
+		if (since === undefined) return;
+		const left = since + LINK_NOTICE_GRACE_MS - Date.now();
+		if (left <= 0) return;
+		const timer = setTimeout(wake, left);
+		return () => clearTimeout(timer);
+	}, [since]);
+	return since !== undefined && Date.now() - since >= LINK_NOTICE_GRACE_MS;
 }
 
 /** Paired host the window's focused tab runs on (pane-scoped inside a session pane); undefined = this device. */
