@@ -359,8 +359,6 @@ const USER_ONLY = "the person decides this in Settings; an agent changing it wou
 
 export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	language: { never: "the window's own language switch applies it; ask the person" },
-	autopilotShip: { never: "Autopilot's shipping default decides what unattended runs may push or release" },
-	autopilotNotify: { never: "Autopilot's notification default; the person's own choice" },
 	profileName: { never: "the person's own profile text" },
 	profileExperience: { never: "the person's own profile" },
 	railPins: { never: "the person's own sidebar layout" },

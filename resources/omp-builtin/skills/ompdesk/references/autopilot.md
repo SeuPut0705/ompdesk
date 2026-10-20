@@ -13,9 +13,9 @@ Starts, reads and stops an Autopilot run: an unattended loop that keeps improvin
 
 - `action: "start"`; `folder` (absolute; default your own) on `device` (default the device your session runs on; `local` is this computer). On this computer the folder must be open in a session of this window, because the run starts from that session; open one there first. On a paired device a session there is opened for it when none has the folder open.
 - A run on a paired device is that device's: its worktree, checks and shipping run there, and it opens here as a session of yours that shows the device's run.
-- `ship`: `commit` (local commits only), `push` (push each green cycle) or `release` (also publishes versions). Omitted: the user's own Autopilot setting.
+- `ship`: `commit` (local commits only), `push` (push each green cycle) or `release` (also publishes versions). Omitted: `commit`.
 - `branch`: `{"kind":"new","name":"..."}` or `{"kind":"existing","name":"..."}`. Omitted: a new `autopilot/<date>` branch.
-- `guide`: AUTOPILOT.md text committed as the branch's first commit. `advanced`: `focus`, `parallel`, `cadence` (with release), `remote`, `notify`, `backlog`, `limits`; anything omitted keeps the Autopilot sheet's defaults.
+- `guide`: AUTOPILOT.md text committed as the branch's first commit. `advanced`: `focus`, `parallel`, `cadence` (with release), `remote`, `backlog`, `limits`; anything omitted keeps the Autopilot sheet's defaults.
 - The run opens as a session you started; the answer names its id. Do not message it.
 
 ## Cards

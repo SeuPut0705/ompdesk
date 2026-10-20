@@ -11,7 +11,6 @@ import {
 	autopilotProgress,
 	autopilotStep,
 	overnightSummary,
-	presetOfPolicy,
 	ratePrediction,
 	toolStep,
 } from "./autopilot-view";
@@ -237,15 +236,6 @@ describe("autopilotChip", () => {
 
 	it("keeps a paused run paused even with a reservation", () => {
 		expect(autopilotChip({ ...base, state: "paused", reason: "user_pause" }, 12_000)?.kind).toBe("paused");
-	});
-});
-
-describe("presetOfPolicy", () => {
-	it("reads the start preset back from a ship policy", () => {
-		const cadence = { kind: "every", n: 5 } as const;
-		expect(presetOfPolicy({ autoPush: false, autoRelease: { on: false, cadence }, remote: "origin" })).toBe("local");
-		expect(presetOfPolicy({ autoPush: true, autoRelease: { on: false, cadence }, remote: "origin" })).toBe("push");
-		expect(presetOfPolicy({ autoPush: true, autoRelease: { on: true, cadence }, remote: "origin" })).toBe("release");
 	});
 });
 

@@ -212,8 +212,8 @@ const SHIP_PRESET: Record<ShipLevel, AutopilotShipPreset> = { commit: "local", p
 
 /** Autopilot's coordinator seen by `ompdesk_autopilot` (`host.ts` adapts `src/main/autopilot.ts`; absent where it is not). */
 export interface AutopilotSource {
-	/** The user's stored ship level (what a start without `ship` gets) and the default branch of the folder's repository. */
-	plan(sourceTabId: string): Promise<{ defaultShip: ShipLevel; defaultBranch: string | null }>;
+	/** The default branch of the folder's repository (a start on it, `main` or `master` asks the user). */
+	plan(sourceTabId: string): Promise<{ defaultBranch: string | null }>;
 	/** `Autopilot.handleCommand` start from the source tab; the new run tab is the caller's opened session. Rejects with a readable message. */
 	start(
 		callerTabId: string,
@@ -439,7 +439,7 @@ function trimSeparators(path: string): string {
 	return trimmed === "" || /^[A-Za-z]:$/.test(trimmed) ? path : trimmed;
 }
 
-/** `ompdesk_autopilot start` arguments as the start sheet's options; omitted fields keep the sheet's defaults. */
+/** `ompdesk_autopilot start` arguments as the start sheet's options, with the level always named (never Automatic). */
 function startOptions(args: Extract<AutopilotArgs, { action: "start" }>, ship: ShipLevel): AutopilotStartOptions {
 	const advanced = args.advanced ?? {};
 	const shipPolicy: NonNullable<AutopilotStartOptions["ship"]> = {
@@ -449,13 +449,12 @@ function startOptions(args: Extract<AutopilotArgs, { action: "start" }>, ship: S
 			: {}),
 	};
 	return {
-		...(args.ship ? { preset: SHIP_PRESET[ship] } : {}),
+		preset: SHIP_PRESET[ship],
 		...(Object.keys(shipPolicy).length > 0 ? { ship: shipPolicy } : {}),
 		...(args.guide ? { guide: args.guide } : {}),
 		...(args.branch ? { branch: args.branch } : {}),
 		...(advanced.focus ? { focus: advanced.focus } : {}),
 		...(advanced.parallel !== undefined ? { maxParallel: advanced.parallel } : {}),
-		...(advanced.notify ? { notify: advanced.notify } : {}),
 		...(advanced.backlog ? { backlog: advanced.backlog } : {}),
 		...(advanced.limits ? { limits: advanced.limits } : {}),
 	};
@@ -2544,7 +2543,8 @@ export class AgentControl {
 	): Promise<string> {
 		const where = deviceName ? `${folder} on ${deviceName}` : folder;
 		const plan = await source.plan(sourceTab.tabId);
-		const ship = args.ship ?? plan.defaultShip;
+		// A start always names its level: the card says what it will do, and an omitted one commits only.
+		const ship = args.ship ?? "commit";
 		const advanced = args.advanced ?? {};
 		if (advanced.cadence !== undefined && ship !== "release")
 			fail("advanced.cadence goes with ship release (it is the release rhythm).");

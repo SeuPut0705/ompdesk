@@ -9,8 +9,6 @@ import {
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
 	type AutopilotPauseReason,
-	type AutopilotShipPolicy,
-	type AutopilotShipPreset,
 	type AutopilotStatus,
 	type ShipQueueItem,
 } from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
@@ -175,12 +173,6 @@ export function autopilotChip(status: AutopilotStatus, reservation: number | und
 				? { kind: "quota", cycle, until: reservation }
 				: { kind: "running", cycle, area: status.now?.area };
 	}
-}
-
-/** The start preset a saved ship policy corresponds to (the sheet's segmented control). */
-export function presetOfPolicy(policy: AutopilotShipPolicy): AutopilotShipPreset {
-	if (policy.autoRelease.on) return "release";
-	return policy.autoPush ? "push" : "local";
 }
 
 /**

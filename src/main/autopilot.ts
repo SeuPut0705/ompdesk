@@ -284,12 +284,15 @@ export function runSessionTitle(prefix: string, what: string): string {
 	return `${prefix} · ${text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text}`;
 }
 
-/** The settings of a start: defaults, then the stored prefs the sheet prefilled, then what the start sent. */
-export function startSettings(options: AutopilotStartOptions, stored: Partial<AutopilotSettings>): AutopilotSettings {
-	const remote = options.ship?.remote ?? stored.ship?.remote ?? DEFAULT_SHIP_POLICY.remote;
+/**
+ * The settings of a start: defaults, then what the start sent. Nothing is stored between runs: shipping nobody chose is
+ * decided per repository at the start (`#start`), notifications are the stops a person must know of.
+ */
+export function startSettings(options: AutopilotStartOptions): AutopilotSettings {
+	const remote = options.ship?.remote ?? DEFAULT_SHIP_POLICY.remote;
 	const preset: AutopilotShipPolicy = options.preset
 		? shipPolicyForPreset(options.preset, remote)
-		: (stored.ship ?? DEFAULT_SHIP_POLICY);
+		: DEFAULT_SHIP_POLICY;
 	const ship: AutopilotShipPolicy = {
 		autoPush: options.ship?.autoPush ?? preset.autoPush,
 		autoRelease: options.ship?.autoRelease ?? preset.autoRelease,
@@ -301,11 +304,10 @@ export function startSettings(options: AutopilotStartOptions, stored: Partial<Au
 			? Math.max(0, Math.floor(asked))
 			: DEFAULT_AUTOPILOT_SETTINGS.maxParallel;
 	return {
-		focus: options.focus ?? stored.focus ?? [],
+		focus: options.focus ?? [],
 		ship,
-		limits: { ...NO_LIMITS, ...stored.limits, ...options.limits },
+		limits: { ...NO_LIMITS, ...options.limits },
 		maxParallel,
-		notify: options.notify ?? stored.notify ?? DEFAULT_AUTOPILOT_SETTINGS.notify,
 	};
 }
 
@@ -329,26 +331,9 @@ export async function ghRunStatus(
 	}
 }
 
-/** Whether `value` may be stored under one of the autopilot prefs (`autopilotShip`, `autopilotNotify`, `autopilotBranch`). */
-export function validAutopilotPref(key: string, value: unknown): boolean {
-	if (value === undefined) return true;
-	if (key === "autopilotNotify") return value === "stops" || value === "cycles" || value === "off";
-	const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
-	if (!record) return false;
-	if (key === AUTOPILOT_BRANCH_PREF) return validBranchPref(value);
-	if (key !== "autopilotShip") return false;
-	const release = record.autoRelease as { on?: unknown; cadence?: { kind?: unknown; n?: unknown } } | null | undefined;
-	const cadence = release?.cadence;
-	const cadenceOk =
-		cadence?.kind === "agent" ||
-		(cadence?.kind === "every" && Number.isInteger(cadence.n) && Number(cadence.n) >= 1 && Number(cadence.n) <= 100);
-	return (
-		typeof record.autoPush === "boolean" &&
-		typeof release?.on === "boolean" &&
-		cadenceOk &&
-		typeof record.remote === "string" &&
-		/^[^\s-][^\s]{0,99}$/.test(record.remote)
-	);
+/** Whether `value` may be stored as the remembered branch choices (`autopilotBranch`; `undefined` clears it). */
+export function validAutopilotBranchPref(value: unknown): boolean {
+	return value === undefined || validBranchPref(value);
 }
 
 /** The two commands the coordinator answers (`ipc.ts` routes them here). */
@@ -437,13 +422,21 @@ export class Autopilot {
 	}
 
 	async #errorStands(run: Run): Promise<void> {
-		if (this.#runs.get(run.tabId) !== run || run.stopping) return;
-		const facts = this.#deps.pool.tabFacts(run.tabId);
-		if (!facts || facts.busy || facts.awaitingConnection || facts.retrying || facts.scheduledRetry) return;
-		const status = await this.#fetchStatus(run).catch(() => null);
-		if (status?.state !== "running") return;
 		// A model that keeps failing after TurnResume's retries is no reason to stop: ask for the next cycle later.
-		this.#enqueue(run, () => this.#nudge(run, "error"));
+		if (await this.#quietAndRunning(run)) this.#enqueue(run, () => this.#nudge(run, "error"));
+	}
+
+	/**
+	 * The run is still this tab's, running, and nothing else holds its next turn: no turn going, no stock auto-retry, no
+	 * retry TurnResume armed, no wait for the connection. Checked again by a deferred nudge, since the user may have
+	 * paused or stopped the run meanwhile.
+	 */
+	async #quietAndRunning(run: Run): Promise<boolean> {
+		if (this.#runs.get(run.tabId) !== run || run.stopping) return false;
+		const facts = this.#deps.pool.tabFacts(run.tabId);
+		if (!facts || facts.busy || facts.awaitingConnection || facts.retrying || facts.scheduledRetry) return false;
+		const status = await this.#fetchStatus(run).catch(() => null);
+		return status?.state === "running";
 	}
 
 	/** The sidecar factory's `frameTransform` for `autopilot_update`: the status plus what only main knows. */
@@ -596,14 +589,12 @@ export class Autopilot {
 		}
 		const checkoutBranch = await this.#gitText(cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
 		if (!checkoutBranch) throw new AutopilotError(text("autopilot.err.detached"), "autopilot_detached");
-		const stored = this.#storedSettings();
-		const remoteChosen = options.ship?.remote ?? stored.ship?.remote ?? (await this.#detectRemote(cwd));
+		const remoteChosen = options.ship?.remote ?? (await this.#detectRemote(cwd));
 		const shipUndecided =
 			options.preset === undefined &&
 			options.ship?.autoPush === undefined &&
-			options.ship?.autoRelease === undefined &&
-			stored.ship === undefined;
-		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } }, stored);
+			options.ship?.autoRelease === undefined;
+		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } });
 		const release = await this.#releaseFor(toplevel);
 		if ((settings.ship.autoRelease.on || options.preset === "release") && !release.procedure) {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
@@ -989,7 +980,6 @@ export class Autopilot {
 			focus?: AutopilotArea[];
 			ship?: Partial<AutopilotShipPolicy>;
 			limits?: Partial<AutopilotSettings["limits"]>;
-			notify?: AutopilotSettings["notify"];
 		},
 	): Promise<void> {
 		if (changes.ship?.autoRelease?.on === true && !(await this.#releaseFor(run.root)).procedure) {
@@ -1078,7 +1068,6 @@ export class Autopilot {
 		}
 		run.releaseRequested = false;
 		if (record.ship) await this.#releaseReported(run, record.ship);
-		this.#notifyCycle(run, record);
 		const wantsPush = requests.some(request => request.kind === "push");
 		const autoPush = run.settings.ship.autoPush && record.verify === "green";
 		let own: string | undefined;
@@ -1178,7 +1167,11 @@ export class Autopilot {
 			run.nudgeLater = true;
 			(this.#deps.after ?? afterMs)(() => {
 				run.nudgeLater = false;
-				if (this.#runs.get(run.tabId) === run) this.#enqueue(run, () => this.#nudge(run, reason));
+				this.#track(
+					this.#quietAndRunning(run).then(quiet => {
+						if (quiet) this.#enqueue(run, () => this.#nudge(run, reason));
+					}),
+				);
 			}, run.nextNudgeAt - now);
 			return;
 		}
@@ -1393,8 +1386,9 @@ export class Autopilot {
 	// Notifications
 	// ----------------------------------------------------------------------------------------
 
+	/** Stops, ends and release outcomes: what a person away from the screen must know, unless the app's own switch is off. */
 	#notify(run: Run, notice: AutopilotNotice): void {
-		if (run.settings.notify === "off") return;
+		if (this.#deps.prefs.get("notifications") === false) return;
 		this.#deps.notify(run.tabId, notice);
 	}
 
@@ -1422,16 +1416,6 @@ export class Autopilot {
 							cycles: cycles.length,
 							commits: cycles.filter(cycle => cycle.commit).length,
 						}),
-		});
-	}
-
-	#notifyCycle(run: Run, record: AutopilotCycleRecord): void {
-		if (run.settings.notify !== "cycles") return;
-		const red = record.verify === "red";
-		this.#notify(run, {
-			kind: red ? "error" : "completion",
-			title: this.#deps.text(red ? "autopilot.cycle.red.title" : "autopilot.cycle.title", { n: record.n }),
-			body: record.title,
 		});
 	}
 
@@ -1649,10 +1633,11 @@ export class Autopilot {
 		// git prints `C:/x` on Windows; the sheet's key and the folders the picker names are native paths.
 		const topText = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
 		const toplevel = topText ? resolve(topText) : topText;
+		const remote = await this.#detectRemote(sidecar.cwd);
 		const branches = toplevel
 			? await readBranchInfo(sidecar.cwd, {
 					toplevel,
-					remote: this.#storedPolicy().remote,
+					remote,
 					date: this.#deps.today?.() ?? localDate(new Date()),
 					pref: this.#deps.prefs.get(AUTOPILOT_BRANCH_PREF),
 				}).catch(() => null)
@@ -1660,7 +1645,7 @@ export class Autopilot {
 		return {
 			active: false,
 			ship: {
-				policy: this.#storedPolicy(),
+				policy: { ...DEFAULT_SHIP_POLICY, remote },
 				queue: [],
 				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
@@ -1703,21 +1688,6 @@ export class Autopilot {
 			this.#releaseCache.set(root, { at: now, value });
 		}
 		return value ? { procedure: value } : { procedure: null, blocked: this.#deps.text("autopilot.err.noRelease") };
-	}
-
-	#storedPolicy(): AutopilotShipPolicy {
-		return this.#storedSettings().ship ?? DEFAULT_SHIP_POLICY;
-	}
-
-	/** The prefs Settings stores (`autopilotShip`, `autopilotNotify`), trusted only in shape. */
-	#storedSettings(): Partial<AutopilotSettings> {
-		const ship = this.#deps.prefs.get("autopilotShip");
-		const notify = this.#deps.prefs.get("autopilotNotify");
-		const out: Partial<AutopilotSettings> = {};
-		if (ship && typeof ship === "object")
-			out.ship = { ...DEFAULT_SHIP_POLICY, ...(ship as Partial<AutopilotShipPolicy>) };
-		if (notify === "stops" || notify === "cycles" || notify === "off") out.notify = notify;
-		return out;
 	}
 
 	#now(): number {

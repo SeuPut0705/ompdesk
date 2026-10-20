@@ -14,11 +14,7 @@ import path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell } from "electron";
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
-import {
-	AUTOPILOT_BRANCH_PREF,
-	AUTOPILOT_NOTIFY_PREF,
-	AUTOPILOT_SHIP_PREF,
-} from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { AUTOPILOT_BRANCH_PREF } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/modes/next-prompt-contracts";
@@ -102,8 +98,7 @@ import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
-import { Autopilot, type AutopilotCommand, validAutopilotPref } from "./autopilot";
-import { readBranchFacts } from "./autopilot-branches";
+import { Autopilot, type AutopilotCommand, validAutopilotBranchPref } from "./autopilot";
 import {
 	CHECKOUT_PEERS_SWEEP_MS,
 	type CheckoutMember,
@@ -996,7 +991,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		beforeFirstPrompt: child => autopilot.beforeFirstPrompt(child),
 		autopilot: {
 			command: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
-			defaultBranch: async (cwd, remote) => (await readBranchFacts(cwd, remote)).defaultBranch,
 		},
 		pool: sidecarPool,
 		schedules: () => deps.schedules?.() ?? null,
@@ -1564,12 +1558,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid delegation strength");
 		}
-		if (
-			(payload.key === AUTOPILOT_SHIP_PREF ||
-				payload.key === AUTOPILOT_NOTIFY_PREF ||
-				payload.key === AUTOPILOT_BRANCH_PREF) &&
-			!validAutopilotPref(payload.key, payload.value)
-		) {
+		if (payload.key === AUTOPILOT_BRANCH_PREF && !validAutopilotBranchPref(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid autopilot preference");
 		}
 		if (payload.key === ACCOUNT_ROTATION_PREF) {

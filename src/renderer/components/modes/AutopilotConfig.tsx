@@ -10,16 +10,13 @@ import { useEffect, useRef, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
 	AUTOPILOT_BRANCH_PREF,
-	AUTOPILOT_SHIP_PREF,
 	AUTOPILOT_SHIP_PRESETS,
 	type AutopilotArea,
 	type AutopilotBranchChoice,
 	type AutopilotBranchEntry,
 	type AutopilotGuideInfo,
-	type AutopilotShipPolicy,
 	type AutopilotShipPreset,
 	type AutopilotStatus,
-	DEFAULT_AUTOPILOT_SETTINGS,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { branchProblem, initialChoice, isDefaultBranchChoice, viaWorkBranch } from "../../../shared/autopilot-branch";
 import { cx } from "../../lib/format";
@@ -42,7 +39,6 @@ import {
 import { FocusChips } from "../panels/autopilot/AreaMix";
 import { useAutopilotStateText } from "../panels/autopilot/AutopilotBoardCard";
 import { AutopilotPauseButton, AutopilotStopButtons } from "../panels/autopilot/AutopilotControls";
-import { presetOfPolicy } from "../panels/autopilot/autopilot-view";
 import { useAutopilotActions } from "../panels/autopilot/use-autopilot-actions";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
@@ -99,45 +95,6 @@ function guideHintKey(guide: AutopilotGuideInfo | undefined, drafting: boolean):
 	if (drafting) return "autopilot.sheet.guideDrafting";
 	if (guide?.draft === "model") return "autopilot.sheet.guideModel";
 	return guide?.draft === "template" ? "autopilot.sheet.guideTemplate" : null;
-}
-
-/** A saved ship policy (Settings › Agent behavior › Smart automation), tolerating a missing or hand-edited value. */
-function savedPolicy(value: unknown): AutopilotShipPolicy | null {
-	if (typeof value !== "object" || value === null) return null;
-	const candidate = value as Partial<AutopilotShipPolicy>;
-	const release = candidate.autoRelease;
-	return {
-		autoPush: candidate.autoPush === true,
-		autoRelease: {
-			on: release?.on === true,
-			cadence:
-				release?.cadence?.kind === "every" && Number.isFinite(release.cadence.n) && release.cadence.n > 0
-					? { kind: "every", n: Math.floor(release.cadence.n) }
-					: release?.cadence?.kind === "agent"
-						? { kind: "agent" }
-						: DEFAULT_AUTOPILOT_SETTINGS.ship.autoRelease.cadence,
-		},
-		remote: typeof candidate.remote === "string" && candidate.remote.trim() ? candidate.remote.trim() : "origin",
-	};
-}
-
-/** The shipping level Settings stored, else Automatic; `loaded` once the read landed. */
-function useStoredShip(): { loaded: boolean; choice: ShipChoice } {
-	const [state, setState] = useState<{ loaded: boolean; choice: ShipChoice }>({ loaded: false, choice: AUTO });
-	useEffect(() => {
-		let live = true;
-		void window.omp.prefs
-			.get(AUTOPILOT_SHIP_PREF)
-			.then(ship => {
-				const policy = savedPolicy(ship);
-				if (live) setState({ loaded: true, choice: policy ? presetOfPolicy(policy) : AUTO });
-			})
-			.catch(() => live && setState(current => ({ ...current, loaded: true })));
-		return () => {
-			live = false;
-		};
-	}, []);
-	return state;
 }
 
 /** Whether the tab's folder is a git repository (`get_git_status`); null until answered or when it cannot be read. */
@@ -242,7 +199,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const guide = useAutopilotStore(s => s.status.guide);
 	const rpc = useTabRpc();
 	const isRepo = useIsRepo();
-	const storedShip = useStoredShip();
 	const branches = useAutopilotStore(s => s.status.branches);
 	const { run, pending } = useAutopilotActions();
 
@@ -277,12 +233,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			.catch(() => {})
 			.finally(() => setDrafting(false));
 	}, [live, isRepo, guide, rpc, tabId]);
-
-	// The shipping level Settings stored seeds the sheet once it is read; what the user then picks is theirs.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the read lands once.
-	useEffect(() => {
-		if (storedShip.loaded) setPreset(storedShip.choice);
-	}, [storedShip.loaded]);
 
 	// The branch list is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
 	useEffect(() => {

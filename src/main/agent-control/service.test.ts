@@ -25,7 +25,6 @@ import {
 	renderMessage,
 	type ScheduleRow,
 	type ScheduleSource,
-	type ShipLevel,
 	type SpawnRequest,
 	type StoredSession,
 } from "./service";
@@ -1475,12 +1474,11 @@ describe("ompdesk_autopilot", () => {
 		starts: { caller: string; source: string; options: AutopilotStartOptions }[] = [];
 		stops: { tab: string; now: boolean }[] = [];
 		statuses = new Map<string, AutopilotStatus>();
-		defaultShip: ShipLevel = "commit";
 		defaultBranch: string | null = "main";
 		failStart: string | null = null;
 		n = 0;
 		constructor(readonly host: FakeHost) {}
-		plan = async () => ({ defaultShip: this.defaultShip, defaultBranch: this.defaultBranch });
+		plan = async () => ({ defaultBranch: this.defaultBranch });
 		start = async (caller: string, source: string, options: AutopilotStartOptions) => {
 			if (this.failStart) throw new Error(this.failStart);
 			this.starts.push({ caller, source, options });
@@ -1509,7 +1507,8 @@ describe("ompdesk_autopilot", () => {
 		const result = await service.run("main0001", T.autopilot, { action: "start" });
 		expect(result.isError).toBe(false);
 		expect(host.cards).toHaveLength(1);
-		expect(pilot.starts).toEqual([{ caller: "main0001", source: "main0001", options: {} }]);
+		// An omitted level is named: commits only.
+		expect(pilot.starts).toEqual([{ caller: "main0001", source: "main0001", options: { preset: "local" } }]);
 		expect(result.text).toContain("Started Autopilot in session apr10000");
 		expect(result.text).toContain("cycle 3");
 	});
@@ -1539,14 +1538,6 @@ describe("ompdesk_autopilot", () => {
 		expect(pilot.starts).toHaveLength(2);
 	});
 
-	it("treats a stored release preference as release", async () => {
-		const { host, pilot, service } = setup();
-		host.manage = true;
-		pilot.defaultShip = "release";
-		await service.run("main0001", T.autopilot, { action: "start" });
-		expect(host.cards).toHaveLength(1);
-	});
-
 	it("does nothing when the user declines the card", async () => {
 		const { host, pilot, service } = setup();
 		host.cardAnswer = false;
@@ -1571,7 +1562,6 @@ describe("ompdesk_autopilot", () => {
 				parallel: 2,
 				cadence: 4,
 				remote: "upstream",
-				notify: "cycles",
 				backlog: ["one", "two"],
 				limits: { cycles: 10, usd: 5 },
 			},
@@ -1584,7 +1574,6 @@ describe("ompdesk_autopilot", () => {
 			branch: { kind: "new", name: "autopilot/night" },
 			focus: ["tests", "docs"],
 			maxParallel: 2,
-			notify: "cycles",
 			backlog: ["one", "two"],
 			limits: { cycles: 10, usd: 5 },
 		});

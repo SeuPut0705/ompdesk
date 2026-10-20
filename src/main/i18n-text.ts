@@ -172,8 +172,6 @@ export const MAIN_TEXT = {
 	"autopilot.release.failed": { en: "Release {version} failed.", ko: "릴리스 {version} 실패." },
 	"autopilot.release.title": { en: "Autopilot release", ko: "오토파일럿 릴리스" },
 	"autopilot.sessionTitle": { en: "Autopilot", ko: "오토파일럿" },
-	"autopilot.cycle.title": { en: "Autopilot cycle {n} done", ko: "오토파일럿 사이클 {n} 완료" },
-	"autopilot.cycle.red.title": { en: "Autopilot cycle {n}: checks red", ko: "오토파일럿 사이클 {n}: 검증 실패" },
 	"autopilot.denied": {
 		en: "Denied a request that breaks a hard limit: {reason}",
 		ko: "금지된 요청을 거절했어요: {reason}",

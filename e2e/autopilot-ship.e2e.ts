@@ -227,11 +227,13 @@ test("a run on an existing branch commits there and Push moves that branch of th
 const SHEET = {
 	en: {
 		tab: /^Autopilot/,
+		push: "Push",
 		via: /^autopilot\/\d{4}-\d{2}-\d{2} → push to main$/,
 		warning: "Commits go straight to main; Push goes to main.",
 	},
 	ko: {
 		tab: /^오토파일럿/,
+		push: "푸시",
 		via: /^작업 브랜치 autopilot\/\d{4}-\d{2}-\d{2} → 푸시 대상 main$/,
 		warning: "커밋이 main에 바로 쌓이고, 푸시는 main에 해요",
 	},
@@ -240,17 +242,7 @@ const SHEET = {
 for (const language of ["en", "ko"] as const)
 	test(`target = main while the user's folder is on main: the run works on its own branch, the remote main moves, the folder is untouched (${language})`, async () => {
 		test.setTimeout(240_000);
-		const profile = await makeApProfile({
-			language,
-			script: { cycleMs: 2_000 },
-			prefs: {
-				autopilotShip: {
-					autoPush: true,
-					autoRelease: { on: false, cadence: { kind: "every", n: 5 } },
-					remote: "origin",
-				},
-			},
-		});
+		const profile = await makeApProfile({ language, script: { cycleMs: 2_000 } });
 		git(profile.project, "branch", "feature/x");
 		git(profile.project, "push", "-q", "origin", "feature/x");
 		const mainBefore = git(profile.remote, "rev-parse", "refs/heads/main");
@@ -279,6 +271,11 @@ for (const language of ["en", "ko"] as const)
 			await expect(page.locator("[data-autopilot-branch-via]")).toHaveText(text.via);
 			await expect(page.locator("input[data-autopilot-branch-name]")).toHaveCount(0);
 			await captureTo(captures, page, `autopilot-branch-main-warning-${language}-light`);
+			// Pushing to the default branch is only ever an explicit level: Automatic never pushes main.
+			await page
+				.locator("[data-autopilot-sheet] [role='tab']")
+				.filter({ hasText: new RegExp(`^${text.push}$`) })
+				.click();
 
 			await page.locator("[data-autopilot-start]").click();
 			let tabId = "";

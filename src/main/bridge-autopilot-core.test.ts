@@ -399,7 +399,6 @@ describe("settings merge", () => {
 			ship: { autoPush: true, remote: "  up  ", autoRelease: { on: true, cadence: { kind: "every", n: 7.4 } } },
 			limits: { tokens: 5000, minutes: -1, cycles: Number.NaN },
 			maxParallel: 99,
-			notify: "cycles",
 		});
 		expect(next.focus).toEqual(["tests", "docs"]);
 		expect(next.ship).toEqual({
@@ -409,7 +408,6 @@ describe("settings merge", () => {
 		});
 		expect(next.limits).toEqual({ tokens: 5000, minutes: null, cycles: null, usd: null });
 		expect(next.maxParallel).toBe(99);
-		expect(next.notify).toBe("cycles");
 	});
 	it("null clears a limit, an absent key keeps it, bad values keep the old one", () => {
 		const withLimits: AutopilotSettings = { ...base, limits: { tokens: 10, minutes: 20, cycles: 30, usd: 40 } };
@@ -426,7 +424,6 @@ describe("settings merge", () => {
 		expect(
 			mergeSettings(base, { ship: { autoRelease: { on: true, cadence: { kind: "agent" } } } }).ship.autoRelease,
 		).toEqual({ on: true, cadence: { kind: "agent" } });
-		expect(mergeSettings(base, { notify: "loud" as never }).notify).toBe("stops");
 		expect(mergeSettings(base, { maxParallel: -3 }).maxParallel).toBe(0);
 		expect(mergeSettings(base, { maxParallel: "x" as never }).maxParallel).toBe(base.maxParallel);
 		expect(mergeSettings({ ...base, maxParallel: 2 }, { maxParallel: null }).maxParallel).toBeNull();

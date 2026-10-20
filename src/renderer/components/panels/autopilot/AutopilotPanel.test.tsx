@@ -169,7 +169,6 @@ const status: AutopilotStatus = {
 		ship: { autoPush: false, autoRelease: { on: false, cadence: { kind: "every", n: 5 } }, remote: "origin" },
 		limits: { tokens: null, minutes: null, cycles: null, usd: null },
 		maxParallel: 3,
-		notify: "stops",
 	},
 	cycles: [cycle(1, { area: "design" }), cycle(2, { verify: "red", commit: undefined })],
 	backlog: [

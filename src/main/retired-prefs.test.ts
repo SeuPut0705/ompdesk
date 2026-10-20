@@ -15,9 +15,16 @@ describe("dropRetiredPrefs", () => {
 		expect(store.data).toEqual({ language: "en" });
 	});
 
-	it("covers the four retired prefs", () => {
+	it("covers the six retired prefs", () => {
 		expect(RETIRED_PREFS.map(entry => entry.key).sort()).toEqual(
-			["batchNotifications", "modelPool", "scheduledRetry", "worktreeAutoClean"].sort(),
+			[
+				"autopilotNotify",
+				"autopilotShip",
+				"batchNotifications",
+				"modelPool",
+				"scheduledRetry",
+				"worktreeAutoClean",
+			].sort(),
 		);
 	});
 });

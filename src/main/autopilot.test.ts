@@ -21,7 +21,7 @@ import {
 	localDate,
 	RELEASE_NOW_MESSAGE,
 	startSettings,
-	validAutopilotPref,
+	validAutopilotBranchPref,
 } from "./autopilot";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepo } from "./local/git/test-repos";
@@ -348,48 +348,23 @@ describe("pure helpers", () => {
 		expect(localDate(new Date(2026, 9, 7))).toBe("2026-10-07");
 	});
 
-	it("startSettings layers defaults, stored prefs, a preset and the explicit values", () => {
-		expect(startSettings({}, {}).ship).toEqual(DEFAULT_SHIP_POLICY);
-		expect(startSettings({ preset: "push" }, {}).ship).toMatchObject({ autoPush: true, autoRelease: { on: false } });
-		expect(startSettings({ preset: "release" }, {}).ship).toMatchObject({
+	it("startSettings layers defaults, a preset and the explicit values", () => {
+		expect(startSettings({}).ship).toEqual(DEFAULT_SHIP_POLICY);
+		expect(startSettings({ preset: "push" }).ship).toMatchObject({ autoPush: true, autoRelease: { on: false } });
+		expect(startSettings({ preset: "release" }).ship).toMatchObject({
 			autoPush: true,
 			autoRelease: { on: true },
 		});
-		expect(startSettings({ ship: { remote: "up" } }, {}).ship.remote).toBe("up");
-		expect(startSettings({ maxParallel: 9 }, {}).maxParallel).toBe(9);
-		expect(startSettings({ maxParallel: -2 }, {}).maxParallel).toBe(0);
-		expect(startSettings({}, {}).maxParallel).toBeNull();
-		expect(startSettings({}, { notify: "cycles" }).notify).toBe("cycles");
-		expect(startSettings({ notify: "off" }, { notify: "cycles" }).notify).toBe("off");
-		expect(
-			startSettings({ limits: { cycles: 3 } }, { limits: { tokens: 5, minutes: null, cycles: null, usd: null } })
-				.limits,
-		).toEqual({
-			tokens: 5,
+		expect(startSettings({ ship: { remote: "up" } }).ship.remote).toBe("up");
+		expect(startSettings({ maxParallel: 9 }).maxParallel).toBe(9);
+		expect(startSettings({ maxParallel: -2 }).maxParallel).toBe(0);
+		expect(startSettings({}).maxParallel).toBeNull();
+		expect(startSettings({ limits: { cycles: 3 } }).limits).toEqual({
+			tokens: null,
 			minutes: null,
 			cycles: 3,
 			usd: null,
 		});
-	});
-
-	it("validAutopilotPref accepts the shapes the sheet stores and refuses anything else", () => {
-		expect(validAutopilotPref("autopilotNotify", "cycles")).toBe(true);
-		expect(validAutopilotPref("autopilotNotify", "loud")).toBe(false);
-		expect(validAutopilotPref("autopilotShip", DEFAULT_SHIP_POLICY)).toBe(true);
-		expect(validAutopilotPref("autopilotShip", { ...DEFAULT_SHIP_POLICY, remote: "--upload-pack=x" })).toBe(false);
-		expect(
-			validAutopilotPref("autopilotShip", {
-				...DEFAULT_SHIP_POLICY,
-				autoRelease: { on: true, cadence: { kind: "every", n: 0 } },
-			}),
-		).toBe(false);
-		expect(
-			validAutopilotPref("autopilotShip", {
-				...DEFAULT_SHIP_POLICY,
-				autoRelease: { on: true, cadence: { kind: "agent" } },
-			}),
-		).toBe(true);
-		expect(validAutopilotPref("autopilotShip", "origin")).toBe(false);
 	});
 });
 
@@ -880,12 +855,11 @@ describe("the branch a run is on", () => {
 		expect(Object.keys(status.ship?.policy ?? {}).sort()).toEqual(["autoPush", "autoRelease", "remote"]);
 	});
 
-	it("validAutopilotPref accepts the remembered choices per repository and nothing else", () => {
-		expect(
-			validAutopilotPref("autopilotBranch", { "/r": { kind: "existing", name: "dev" }, "/s": { kind: "new" } }),
-		).toBe(true);
-		expect(validAutopilotPref("autopilotBranch", { "/r": { kind: "existing" } })).toBe(false);
-		expect(validAutopilotPref("autopilotBranch", "dev")).toBe(false);
+	it("validAutopilotBranchPref accepts the remembered choices per repository and nothing else", () => {
+		expect(validAutopilotBranchPref({ "/r": { kind: "existing", name: "dev" }, "/s": { kind: "new" } })).toBe(true);
+		expect(validAutopilotBranchPref(undefined)).toBe(true);
+		expect(validAutopilotBranchPref({ "/r": { kind: "existing" } })).toBe(false);
+		expect(validAutopilotBranchPref("dev")).toBe(false);
 	});
 });
 
@@ -1042,8 +1016,9 @@ describe("stop requests from the bridge", () => {
 		expect(notices.at(-1)?.kind).toBe("completion");
 	});
 
-	it("the user's own pause says nothing, and notify off silences everything", async () => {
-		await start({ type: "set_autopilot", action: "start", notify: "off" });
+	it("the user's own pause says nothing, and the app's notification switch off silences everything", async () => {
+		build({ prefs: { notifications: false } });
+		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "ban_violation", detail: "x" });
 		await autopilot.idle();
@@ -1108,6 +1083,28 @@ describe("a failed turn", () => {
 		await autopilot.idle();
 		expect(asked()).toBe(2);
 	});
+
+	for (const [held, hold] of [
+		["paused by the user", () => ((world.statuses.get("ap-1") as AutopilotStatus).state = "paused")],
+		["retried by TurnResume", () => world.scheduled.add("ap-1")],
+	] as const) {
+		it(`a deferred ask that comes due while the run is ${held} asks nothing`, async () => {
+			await start();
+			autopilot.observeActivity(failed("Provider returned 500: overloaded"));
+			afters[0]?.();
+			await autopilot.idle();
+			clock.value += 5_000;
+			autopilot.observeActivity(failed("Provider returned 500: overloaded"));
+			afters[1]?.();
+			await autopilot.idle();
+			expect(afters).toHaveLength(3);
+			hold();
+			clock.value += 60_000;
+			afters[2]?.();
+			await autopilot.idle();
+			expect(world.stock("ap-1", "prompt")).toHaveLength(1);
+		});
+	}
 
 	it("waits while TurnResume holds a scheduled retry, or a turn is running again", async () => {
 		await start();
@@ -1340,25 +1337,13 @@ describe("a cycle's end", () => {
 		await expect(fs.stat(dir)).resolves.toBeTruthy();
 	});
 
-	it("notifies every cycle only in cycles mode, and a red one as an error", async () => {
-		await start({ type: "set_autopilot", action: "start", notify: "cycles" });
+	it("a cycle's end is no notification, green or red: the screen and the timeline say it", async () => {
+		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: 2, title: "Fix it" }) });
 		autopilot.frame(sidecar, {
 			type: "autopilot_cycle_end",
 			record: record({ n: 3, verify: "red", title: "Broke it" }),
-		});
-		await autopilot.idle();
-		expect(notices).toEqual([
-			{ kind: "completion", title: "Autopilot cycle 2 done", body: "Fix it" },
-			{ kind: "error", title: "Autopilot cycle 3: checks red", body: "Broke it" },
-		]);
-		build();
-		notices = [];
-		await start();
-		autopilot.frame(world.sidecars.get("ap-2") as unknown as SidecarLike, {
-			type: "autopilot_cycle_end",
-			record: record(),
 		});
 		await autopilot.idle();
 		expect(notices).toEqual([]);
@@ -1762,7 +1747,7 @@ describe("restart", () => {
 			branch,
 			baseBranch: "main",
 			cycle: 3,
-			settings: startSettings({}, {}),
+			settings: startSettings({}),
 			cycles: [],
 			ship: { policy: DEFAULT_SHIP_POLICY, queue: [] },
 		});
@@ -1885,7 +1870,7 @@ describe("restart", () => {
 			branch: "autopilot/2026-10-17",
 			baseBranch: "main",
 			cycle: 3,
-			settings: startSettings({}, {}),
+			settings: startSettings({}),
 			cycles: [],
 			ship: { policy: DEFAULT_SHIP_POLICY, queue: [] },
 		});
@@ -1942,7 +1927,7 @@ describe("restart", () => {
 			role: "child",
 			root: main,
 			branch: "x",
-			settings: startSettings({}, {}),
+			settings: startSettings({}),
 		});
 		autopilot.attachSidecar("kid", child as unknown as SidecarLike);
 		child.emit("status", { status: "ready" });
@@ -1955,7 +1940,7 @@ describe("restart", () => {
 			role: "parent",
 			root: main,
 			branch: "x",
-			settings: startSettings({}, {}),
+			settings: startSettings({}),
 		});
 		autopilot.attachSidecar("done", done as unknown as SidecarLike);
 		done.emit("status", { status: "ready" });

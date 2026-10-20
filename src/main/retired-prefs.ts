@@ -16,6 +16,14 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		key: "scheduledRetry",
 		why: "The scheduled retry follows stock `retry.enabled` alone (turn-resume.ts); the switch is gone.",
 	},
+	{
+		key: "autopilotShip",
+		why: "Autopilot shipping nobody picked is decided per repository at each start (src/main/autopilot.ts); other levels are picked per run in the start sheet.",
+	},
+	{
+		key: "autopilotNotify",
+		why: "An Autopilot run notifies its stops, end and releases under the app's own notifications switch, never each cycle.",
+	},
 ];
 
 export function dropRetiredPrefs(store: { delete(key: string): void }): void {

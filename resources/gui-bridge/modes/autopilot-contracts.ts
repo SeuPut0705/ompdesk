@@ -102,10 +102,6 @@ export type AutopilotLimits = {
 
 export const NO_LIMITS: AutopilotLimits = { tokens: null, minutes: null, cycles: null, usd: null };
 
-/** `stops` = stops, release outcomes and quota waits (default); `cycles` = also every cycle; `off`. */
-export const AUTOPILOT_NOTIFY_MODES = ["stops", "cycles", "off"] as const;
-export type AutopilotNotifyMode = (typeof AUTOPILOT_NOTIFY_MODES)[number];
-
 export interface AutopilotSettings {
 	/** Areas the cycles focus on; empty = all. */
 	focus: AutopilotArea[];
@@ -113,7 +109,6 @@ export interface AutopilotSettings {
 	limits: AutopilotLimits;
 	/** Child sessions per cycle: `null` = the agent decides, with no cap (default); a number caps it, 0 = no fan-out. */
 	maxParallel: number | null;
-	notify: AutopilotNotifyMode;
 }
 
 export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
@@ -121,7 +116,6 @@ export const DEFAULT_AUTOPILOT_SETTINGS: AutopilotSettings = {
 	ship: DEFAULT_SHIP_POLICY,
 	limits: NO_LIMITS,
 	maxParallel: null,
-	notify: "stops",
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -492,7 +486,6 @@ export type AutopilotStartOptions = {
 	ship?: Partial<AutopilotShipPolicy>;
 	limits?: Partial<AutopilotLimits>;
 	maxParallel?: number;
-	notify?: AutopilotNotifyMode;
 	backlog?: string[];
 	/** The guide text to commit as the autopilot branch's first commit when the new worktree's AUTOPILOT.md differs (or is missing). */
 	guide?: string;
@@ -512,7 +505,6 @@ export type AutopilotAction =
 			focus?: AutopilotArea[];
 			ship?: Partial<AutopilotShipPolicy>;
 			limits?: Partial<AutopilotLimits>;
-			notify?: AutopilotNotifyMode;
 	  }
 	| { action: "note"; text: string }
 	| { action: "backlog_add"; text: string }
@@ -595,12 +587,9 @@ export function isAutopilotArea(value: unknown): value is AutopilotArea {
 	return (AUTOPILOT_AREAS as readonly unknown[]).includes(value);
 }
 
-/** The prefs keys (main prefs store, written through `prefs.set`). */
-export const AUTOPILOT_SHIP_PREF = "autopilotShip";
-export const AUTOPILOT_NOTIFY_PREF = "autopilotNotify";
 /**
- * The last branch choice per repository, `{ [repo top level]: AutopilotBranchChoice }`. Not part of `autopilotShip`:
- * the branch is per run, this only prefills the next sheet.
+ * The last branch choice per repository, `{ [repo top level]: AutopilotBranchChoice }` in the main prefs store: the
+ * branch is per run, this only prefills the next sheet.
  */
 export const AUTOPILOT_BRANCH_PREF = "autopilotBranch";
 
@@ -660,7 +649,6 @@ export interface AutopilotConfigureParams {
 	focus?: AutopilotArea[];
 	ship?: Partial<AutopilotShipPolicy>;
 	limits?: Partial<AutopilotLimits>;
-	notify?: AutopilotNotifyMode;
 	/** `null` clears. */
 	releaseProcedure?: AutopilotReleaseProcedure | null;
 	releaseBlocked?: string | null;

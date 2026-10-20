@@ -9,11 +9,7 @@
 
 import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
-import type {
-	AutopilotAction,
-	AutopilotShipPolicy,
-	AutopilotStatus,
-} from "../../../resources/gui-bridge/modes/autopilot-contracts";
+import type { AutopilotAction, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	MAX_NEXT_PROMPT_CHILDREN,
 	type NextPromptChild,
@@ -105,7 +101,6 @@ import {
 	type ControlTab,
 	type OpenedChild,
 	type ScheduleRow,
-	type ShipLevel,
 	type SpawnRequest,
 	type ToolOutcome,
 } from "./service";
@@ -175,7 +170,7 @@ export interface AgentControlHostDeps {
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
 	isStopping?: (callerTabId: string) => boolean;
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
-	/** Autopilot's coordinator (`Autopilot.handleCommand`, a repository's default branch); absent where there is none. */
+	/** Autopilot's coordinator (`Autopilot.handleCommand`); absent where there is none. */
 	autopilot?: {
 		command: (
 			win: ClientWindow,
@@ -183,7 +178,6 @@ export interface AgentControlHostDeps {
 			tabId: string,
 			command: { type: "get_autopilot" } | ({ type: "set_autopilot" } & AutopilotAction),
 		) => Promise<RpcResponse>;
-		defaultBranch: (cwd: string, remote: string) => Promise<string | null>;
 	};
 	/** Settings › Schedules (`ScheduleService`); absent or null where there is none. */
 	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
@@ -214,14 +208,6 @@ export function splitBranch(branch: string | undefined, slug: string): { branchP
 	return at < 0
 		? { branchPrefix: "", name: branch }
 		: { branchPrefix: branch.slice(0, at + 1), name: branch.slice(at + 1) };
-}
-
-/** A stored ship policy (this computer's `autopilotShip`, or a host's as its idle `get_autopilot` reports it) as a level. */
-function shipLevel(stored: Partial<AutopilotShipPolicy> | undefined): { level: ShipLevel; remote: string } {
-	return {
-		level: stored?.autoRelease?.on ? "release" : stored?.autoPush ? "push" : "commit",
-		remote: typeof stored?.remote === "string" && stored.remote ? stored.remote : "origin",
-	};
 }
 
 export class AgentControlRuntime {
@@ -591,19 +577,9 @@ export class AgentControlRuntime {
 		};
 		return {
 			plan: async sourceTabId => {
-				// A paired host's folder follows that host's stored ship level and its repository's default branch.
-				if (this.#sidecar(sourceTabId).device) {
-					const idle = await this.#autopilotCommand(winFor(sourceTabId), sourceTabId, { type: "get_autopilot" });
-					return {
-						defaultShip: shipLevel(idle.ship?.policy).level,
-						defaultBranch: idle.branches?.defaultBranch ?? null,
-					};
-				}
-				const { level, remote } = shipLevel(deps.prefs.get("autopilotShip") as Partial<AutopilotShipPolicy>);
-				const defaultBranch = await autopilot
-					.defaultBranch(this.#sidecar(sourceTabId).cwd, remote)
-					.catch(() => null);
-				return { defaultShip: level, defaultBranch };
+				// The folder's repository's default branch, read by the coordinator of the computer it is on.
+				const idle = await this.#autopilotCommand(winFor(sourceTabId), sourceTabId, { type: "get_autopilot" });
+				return { defaultBranch: idle.branches?.defaultBranch ?? null };
 			},
 			start: async (callerTabId, sourceTabId, options) => {
 				const win = winFor(callerTabId);

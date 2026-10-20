@@ -615,8 +615,6 @@ describe("Autopilot start sheet", () => {
 			expect(prefs).toHaveBeenCalledWith("autopilotBranch", {
 				"/work/app": { kind: "existing", name: "feature/login" },
 			});
-			// The ship defaults are a separate pref and never carry the branch.
-			expect(prefs.mock.calls.some(call => call[0] === "autopilotShip")).toBe(false);
 		});
 
 		it("warns in one line when the default branch is picked: commits land on it and Push pushes to it", async () => {

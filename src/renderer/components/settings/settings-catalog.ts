@@ -209,19 +209,6 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"auto mode automatic plan goal choose mode small model smart automation 자동 모드 계획 목표 자동 선택 작은 모델 스마트 자동화",
 	},
 	{
-		id: "autopilotShip",
-		section: "agent",
-		labelKey: "settings.gui.autopilotShip",
-		aliases:
-			"autopilot ship shipping commit push release local only default preset overnight unattended 오토파일럿 내보내기 커밋 배포 푸시 릴리스 로컬만 기본 프리셋 무인",
-	},
-	{
-		id: "autopilotNotify",
-		section: "agent",
-		labelKey: "settings.gui.autopilotNotify",
-		aliases: "autopilot notify notification stops cycles off overnight 오토파일럿 알림 정지 사이클 끄기 무인",
-	},
-	{
 		id: "nextPromptSuggestions",
 		section: "agent",
 		labelKey: "settings.gui.nextPromptSuggestions",

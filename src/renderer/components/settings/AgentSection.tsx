@@ -2,7 +2,6 @@ import { useT } from "../../lib/i18n";
 import { AgentModes } from "./AgentModes";
 import { AutoModeRow } from "./AutoModeRow";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
-import { AutopilotSettingsRows } from "./AutopilotRows";
 import { AutoTitleRow } from "./AutoTitleRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { EccRow } from "./EccRow";
@@ -71,7 +70,6 @@ export function AgentSection() {
 				<AutoModeRow />
 				<PstackRow />
 				<EccRow />
-				<AutopilotSettingsRows />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />

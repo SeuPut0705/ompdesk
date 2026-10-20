@@ -395,8 +395,6 @@ export function mergeSettings(
 				: patch.maxParallel === null
 					? null
 					: base.maxParallel,
-		notify:
-			patch.notify === "stops" || patch.notify === "cycles" || patch.notify === "off" ? patch.notify : base.notify,
 	};
 }
 

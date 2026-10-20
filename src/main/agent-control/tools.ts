@@ -5,7 +5,7 @@
  * lists every host tool in the session's xd:// device notice.
  */
 import { z } from "zod";
-import { AUTOPILOT_AREAS, AUTOPILOT_NOTIFY_MODES } from "../../../resources/gui-bridge/modes/autopilot-contracts";
+import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { MAIL_KINDS } from "./mail";
@@ -419,8 +419,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				ship: {
 					type: "string",
 					enum: ["commit", "push", "release"],
-					description:
-						"start: how far the run may ship; default the user's setting. release always asks the user.",
+					description: "start: how far the run may ship; default commit. release always asks the user.",
 				},
 				branch: {
 					type: "object",
@@ -448,11 +447,9 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 							type: "integer",
 							description: "With ship release: release every N cycles; default the run decides.",
 						},
-						remote: { type: "string", description: "Git remote a push goes to; default the user's setting." },
-						notify: {
+						remote: {
 							type: "string",
-							enum: [...AUTOPILOT_NOTIFY_MODES],
-							description: "Notifications for the user.",
+							description: "Git remote a push goes to; default origin, else the only remote.",
 						},
 						backlog: {
 							type: "array",
@@ -562,7 +559,6 @@ const autopilotAdvanced = z
 			.string()
 			.regex(/^[^\s-][^\s]{0,99}$/, "remote is a git remote name")
 			.optional(),
-		notify: z.enum(AUTOPILOT_NOTIFY_MODES).optional(),
 		backlog: z.array(z.string().trim().min(1).max(500)).optional(),
 		limits: z
 			.object({

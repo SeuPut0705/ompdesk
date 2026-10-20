@@ -317,14 +317,14 @@ describe("AgentControlRuntime", () => {
 							: { active: true, state: "stopping" };
 					return { type: "response", success: true, data } as RpcResponse;
 				},
-				defaultBranch: async () => "trunk",
 			},
 		});
-		prefs.autopilotShip = { autoPush: true, autoRelease: { on: false }, remote: "up" };
 		prefs.agentControlManage = true;
 		const started = await runtime.run(win, "main0001", T.autopilot, { action: "start", ship: "push" });
 		expect(started.isError).toBe(false);
-		expect(sent[0]).toEqual({
+		// The plan reads the folder's idle status first (its default branch), then the start goes out.
+		expect(sent[0]).toMatchObject({ tabId: "main0001", command: { type: "get_autopilot" } });
+		expect(sent[1]).toEqual({
 			tabId: "main0001",
 			command: { type: "set_autopilot", action: "start", preset: "push" },
 		});
@@ -339,26 +339,34 @@ describe("AgentControlRuntime", () => {
 		expect(sent.at(-1)).toEqual({ tabId: "run00005", command: { type: "set_autopilot", action: "abort" } });
 	});
 
-	it("reads the stored ship level and the default branch for the card rules", async () => {
+	it("names a level on every start (commit when omitted) and reads the default branch for the card rules", async () => {
+		const sent: unknown[] = [];
 		const { runtime, win, prefs, commands } = setup({
 			autopilot: {
-				command: async () =>
-					({ type: "response", success: true, data: { active: true, tabId: "run00005" } }) as RpcResponse,
-				defaultBranch: async (_cwd, remote) => (remote === "up" ? "trunk" : null),
+				command: async (_win, _sidecar, _tabId, command) => {
+					sent.push(command);
+					return {
+						type: "response",
+						success: true,
+						data:
+							command.type === "get_autopilot"
+								? { active: false, branches: { defaultBranch: "trunk" } }
+								: { active: true, tabId: "run00005" },
+					} as RpcResponse;
+				},
 			},
 		});
-		prefs.autopilotShip = { autoPush: true, autoRelease: { on: true }, remote: "up" };
 		prefs.agentControlManage = true;
 		prefs.agentControlFull = false;
 		await runtime.run(win, "main0001", T.autopilot, { action: "start" });
-		const cards = commands.filter(entry => entry.command.type === "agent_control_confirm");
-		expect(cards).toHaveLength(1);
+		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(0);
+		expect(sent).toContainEqual({ type: "set_autopilot", action: "start", preset: "local" });
 		await runtime.run(win, "main0001", T.autopilot, {
 			action: "start",
 			ship: "commit",
 			branch: { kind: "existing", name: "trunk" },
 		});
-		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(2);
+		expect(commands.filter(entry => entry.command.type === "agent_control_confirm")).toHaveLength(1);
 	});
 
 	it("starts a run on a paired host through that host's coordinator and shows it here as a view of its session", async () => {
@@ -368,7 +376,7 @@ describe("AgentControlRuntime", () => {
 				{ tabId: "main0001", title: "Boss", device: "dev1", cwd: "/h/repo" },
 				{ tabId: "new00003", title: "Run", device: "dev1", cwd: "/h/wt" },
 			],
-			autopilot: { command: local, defaultBranch: async () => "local-only" },
+			autopilot: { command: local },
 		});
 		sidecars.set("main0001", { cwd: "/h/repo", device: "dev1" });
 		sidecars.set("new00003", { cwd: "/h/wt", device: "dev1" });
@@ -400,7 +408,7 @@ describe("AgentControlRuntime", () => {
 		expect(local).not.toHaveBeenCalled();
 		const start = sent.find(entry => entry.command.type === "set_autopilot");
 		expect(start?.tabId).toBe("main0001");
-		expect(start?.command).toEqual({ type: "set_autopilot", action: "start" });
+		expect(start?.command).toEqual({ type: "set_autopilot", action: "start", preset: "local" });
 		expect(start?.timeoutMs).toBeGreaterThanOrEqual(960_000);
 		expect(spawned[0]).toEqual({ device: "dev1", sessionPath: "/h/sessions/run.jsonl" });
 		expect(started.text).toContain("new00003");
