@@ -187,7 +187,21 @@ jobs:
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
+      # Vitest starts the files that took longest last time first (its results cache): without it the
+      # git-heavy files (disk care, autopilot) could start last and leave one worker alone at the end.
+      - name: Restore vitest's file durations
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/vitest
+          key: vitest-results-win-${{ github.run_id }}
+          restore-keys: vitest-results-win-
       - run: bun run test:platform
+      - name: Save vitest's file durations
+        if: ${{ !cancelled() && hashFiles('node_modules/.vite/vitest/**/results.json') != '' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.vite/vitest
+          key: vitest-results-win-${{ github.run_id }}-${{ github.run_attempt }}
       - if: failure()
         shell: bash
         run: bash scripts/ci-failure.sh
