@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.45.0] - 2026-10-20
+
+일부 Windows 노트북에서 창이 켜졌다 꺼졌다 반복하던 문제를 고쳤어요.
+
+### 고친 것
+- 그래픽 처리가 불안정한 Windows PC(드라이버가 기본이거나 오래된 내장 GPU 노트북 등)에서 앱이 저절로 다시 켜지기를 끝없이 반복하던 문제를 고쳤어요. 그래픽 가속을 끈 상태에서는 다시 켜지 않고, 자동 재시작은 10분에 한 번까지만 해요. 연속으로 금방 꺼지면 다음에는 안전 모드로 켜요. 드라이버가 바뀌거나 7일이 지나면 그래픽 가속을 한 번 다시 써 봐요.
+- 메모리가 지금 대화의 이전 답이나 이미 알려 준 기억을 매번 다시 붙이던 문제를 고쳤어요. 고쳐진 기억과 새 결론은 다시 붙여요.
+- 휴대폰·아이패드에서 병렬 세션이 세션 목록에 안 보이고 위 세션의 작업중 불빛이 안 켜지던 문제를 고쳤어요.
+- 하위 세션 보고가 다음 메시지를 보낼 때까지 안 보이다가 몰아서 나오던 문제, 앱을 다시 켜면 끝난 하위 세션이 목록에 남던 문제를 고쳤어요.
+- 할 일 목록이 대화 언어가 아니라 영어로 써지던 문제를 고쳤어요.
+- 통계가 10월 15일 이후 갱신되지 않던 문제와, omp 로그 파일을 수천 개씩 열어 두던 문제를 고쳤어요.
+- 오토파일럿이 일시적인 git 오류로 멈추던 문제를 고쳤고, 창이 없어도 사용량 한도 뒤에 다시 시작하며, 시작한 기기와 휴대폰에도 알림이 가요.
+
+### 바뀐 것
+- 입력창의 보내기와 정지가 버튼 하나로 합쳐졌어요. 입력 중에 멈추려면 길게 누르거나(휴대폰) 우클릭(데스크톱)해요. 모델 이름은 "Sonnet 5.5 · 자동"처럼 짧게, 컨텍스트는 작은 원으로 보여요.
+- 작업현황이 모든 화면에서 한 줄씩 컴팩트하게 바뀌었어요. 바뀐 파일, 마지막 검사, 개발 서버, 같은 폴더 세션, 이번 턴에 쓴 기억이 더해졌고, 아이패드 가로 화면에서도 오른쪽에 붙어요.
+- 하위 세션 보고는 한 줄로 접혀 보이고, 질문만 펼쳐져요.
+- 같은 폴더에서 일하는 다른 세션의 이름은 작업현황에서 바로 열 수 있어요.
+- 설정에서 자동으로 정할 수 있는 항목을 없애거나 고급으로 접었어요(알림 묶기, 예약 재시도, 오토파일럿 내보내기·알림 등).
+- 내장 스킬(ECC)이 프로젝트 언어에 맞는 스킬을 짚어 줘서, 모델이 실제로 찾아 읽어요.
+
+<!-- en -->
+
+Fixes a window that kept opening and closing on some Windows laptops.
+
+### Fixed
+- On Windows PCs with unstable graphics (a basic or old integrated-GPU driver, for example), the app relaunched itself over and over. A launch without hardware acceleration no longer relaunches, an automatic relaunch happens at most once in 10 minutes, and launches that keep ending quickly start the next one in safe mode. Hardware acceleration is tried again after a driver change or 7 days.
+- Memory kept attaching this conversation's own earlier answers, and notes it had already given, on every turn. An edited note or a newer conclusion still comes back.
+- On a phone or iPad, parallel sessions were missing from the session list and the parent's working light stayed off.
+- Child session reports waited for your next message and then arrived all at once, and finished child sessions stayed listed after a relaunch.
+- Todo lists came out in English instead of the conversation language.
+- Stats stopped updating after 15 October, and the app held thousands of omp log files open.
+- Autopilot no longer stops on a passing git error, resumes after a usage limit with no window open, and notifies the device that started it and phones.
+
+### Changed
+- Send and Stop are one button in the composer. To stop while typing, long-press it (phone) or right-click it (desktop). The model chip is shorter ("Sonnet 5.5 · Auto") and context is a small ring.
+- The work board is compact on every screen, one line per row, adds changed files, the last check, dev servers, sessions in the same folder and the memory used this turn, and docks on the right on a sideways iPad too.
+- Child session reports fold to one line; only questions stay open.
+- Sessions working in the same folder open straight from the work board.
+- Settings drops or folds under Advanced what can be decided automatically (notification batching, scheduled retry, Autopilot's shipping and notification rows, and more).
+- The built-in ECC skills name the skills that fit the project's languages, so the model actually reads them.
+
 ## [0.44.0] - 2026-10-20
 
 ECC 스킬이 내장되고, 데스크톱 세션 줄이 ⋯ 메뉴 하나로 정리됐어요.
