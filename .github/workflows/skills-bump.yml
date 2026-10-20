@@ -111,6 +111,8 @@ jobs:
     permissions:
       contents: write # push the bump commits to main
       actions: write # dispatch ci.yml: a GITHUB_TOKEN push starts no workflow
+    outputs:
+      pushed: ${{ steps.commit.outputs.pushed }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -120,6 +122,7 @@ jobs:
           name: skills-bump
           path: ${{ runner.temp }}/skills-bump
       - name: Commit to main
+        id: commit
         env:
           PATCHES: ${{ runner.temp }}/skills-bump/patches
         run: |
@@ -128,7 +131,7 @@ jobs:
           git am -3 "$PATCHES"/*.patch
           # main may move meanwhile: rebase onto it and try again, never force.
           for attempt in 1 2 3; do
-            if git push origin HEAD:main; then exit 0; fi
+            if git push origin HEAD:main; then echo "pushed=true" >> "$GITHUB_OUTPUT"; exit 0; fi
             echo "push $attempt was rejected; rebasing onto origin/main"
             git fetch origin main
             git rebase origin/main
@@ -140,12 +143,15 @@ jobs:
         run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main -f win_platform=true
 
   report:
-    needs: bump
+    needs: [bump, push]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       issues: write
+    env:
+      # The push job is skipped when nothing was bumped; any other result than success means a bump never landed.
+      PUSH_FAILED: ${{ needs.push.result != 'success' && needs.push.result != 'skipped' }}
     steps:
       - if: needs.bump.outputs.failed != '' || needs.bump.result != 'success'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
@@ -154,10 +160,13 @@ jobs:
           name: skills-bump
           path: ${{ runner.temp }}/skills-bump
       - name: Open or update the bump issue
-        if: needs.bump.outputs.failed != '' || needs.bump.result != 'success'
+        if: needs.bump.outputs.failed != '' || needs.bump.result != 'success' || env.PUSH_FAILED == 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           FAILED: ${{ needs.bump.outputs.failed }}
+          BUMPED: ${{ needs.bump.outputs.bumped }}
+          PUSH_RESULT: ${{ needs.push.result }}
+          PUSHED: ${{ needs.push.outputs.pushed }}
           LOGS: ${{ runner.temp }}/skills-bump/logs
         with:
           script: |
@@ -173,9 +182,16 @@ jobs:
               const tail = log.split("\n").slice(-150).join("\n").slice(-15000);
               return `## ${name}\n\nNothing was committed for ${name}. Last lines of \`bun scripts/skill-packs.ts bump ${name}\`:\n\n\`\`\`\`text\n${tail}\n\`\`\`\``;
             });
+            const pushFailed = process.env.PUSH_FAILED === "true";
+            const bumped = (process.env.BUMPED || "").split(" ").filter(Boolean);
             const body = [
               `The scheduled skill pack bump did not go through: ${run}`,
-              failed.length ? "" : "The bump job itself failed before any pack was tried; see the run.",
+              failed.length || pushFailed ? "" : "The bump job itself failed before any pack was tried; see the run.",
+              pushFailed
+                ? process.env.PUSHED === "true"
+                  ? `## push\n\nThe bump of ${bumped.join(", ") || "a pack"} is on main, but dispatching ci.yml to verify it failed. Run \`gh workflow run ci.yml -f win_platform=true\` or wait for the next push; see the run.`
+                  : `## push\n\nThe bump of ${bumped.join(", ") || "a pack"} passed its checks but never reached main: the push job ended \`${process.env.PUSH_RESULT}\` (git am, rebase or push). Nothing is on main for it; see the run.`
+                : "",
               ...sections,
               "",
               "A sync rule that no longer matches is adapted in scripts/sync-<pack>.ts (never silenced); see AGENTS.md › Built-in pstack / ECC / REA.",
@@ -190,7 +206,7 @@ jobs:
               core.info(`Opened #${created.data.number}`);
             }
       - name: Close the bump issue once every pack goes through
-        if: needs.bump.result == 'success' && needs.bump.outputs.failed == ''
+        if: needs.bump.result == 'success' && needs.bump.outputs.failed == '' && env.PUSH_FAILED != 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -202,5 +218,5 @@ jobs:
               await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed" });
             }
       - name: Fail the run while a pack is stuck
-        if: needs.bump.outputs.failed != '' || needs.bump.result != 'success'
+        if: needs.bump.outputs.failed != '' || needs.bump.result != 'success' || env.PUSH_FAILED == 'true'
         run: exit 1
