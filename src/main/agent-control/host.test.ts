@@ -48,8 +48,6 @@ function setup(
 		autopilot?: AgentControlHostDeps["autopilot"];
 		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
 		sweepMs?: number;
-		/** `AgentControlHostDeps.liveReviewMs`. */
-		liveReviewMs?: number;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 		app?: AgentControlHostDeps["app"];
@@ -126,7 +124,6 @@ function setup(
 		schedules: options.schedules,
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
-		liveReviewMs: options.liveReviewMs,
 	};
 	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
@@ -300,13 +297,12 @@ describe("AgentControlRuntime", () => {
 			vi.useRealTimers();
 		}
 	});
-	it("sends a running child's moving step and cost between sweeps, and nothing while they stand still", async () => {
+	it("reads a running child's step and cost again only when a board asks and the child moved on, and sends them only when they moved", async () => {
 		vi.useFakeTimers();
 		try {
 			const { runtime, win, activity } = setup({
 				tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
 				sweepMs: 1_000_000,
-				liveReviewMs: 20,
 			});
 			const opening = runtime.run(win, "main0001", T.open, {});
 			await vi.advanceTimersByTimeAsync(60_000);
@@ -326,16 +322,25 @@ describe("AgentControlRuntime", () => {
 				items: last.items.map(item => ({ ...item, step: "running bash (tests)" })),
 				usage: { "/s/new.jsonl": { cost: 0.4 } },
 			}));
-			await vi.advanceTimersByTimeAsync(40);
-			expect(live).toHaveBeenCalled();
+			// Nobody shows the board: nothing is read, however long the child runs.
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(live).not.toHaveBeenCalled();
+			// A board asks, but the child did nothing since the list went out: nothing is read.
+			await runtime.liveReview("main0001");
+			expect(live).not.toHaveBeenCalled();
+			// It moved on (a tool call): the board's next ask reads that child alone.
+			for (const observer of activity) observer({ type: "step", tabId: "new00003" });
+			await runtime.liveReview("main0001");
+			expect(live.mock.calls[0]?.[2]).toEqual(new Set(["new00003"]));
 			expect(frames().at(-1)).toMatchObject({
 				items: [{ step: "running bash (tests)" }],
 				usage: { "/s/new.jsonl": { cost: 0.4 } },
 			});
-			// Nothing moved since: nothing more is sent.
+			// Nothing moved since: nothing is read or sent.
 			const before = frames().length;
-			await vi.advanceTimersByTimeAsync(100);
+			await runtime.liveReview("main0001");
 			expect(frames()).toHaveLength(before);
+			expect(live).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.useRealTimers();
 		}

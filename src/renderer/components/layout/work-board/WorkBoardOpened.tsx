@@ -4,11 +4,13 @@
  * by `WorkBoard.tsx` (the phone's first screen never needs them).
  */
 import { Check, X } from "lucide-react";
+import { useEffect } from "react";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
+import { useTabRpc } from "../../../lib/tab-rpc";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useTabsStore } from "../../../stores/tabs";
@@ -107,6 +109,30 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	);
 }
 
+/** While a child runs, a shown board asks main for its step and cost this often (main pushes them only when they moved). */
+export const LIVE_REVIEW_MS = 2_000;
+
+/**
+ * Main reads a running child's step and cost again only while a board showing them is mounted and its window is in
+ * view: this asks for them (`agent_control_review {live: true}`); the answer comes as main's review push.
+ */
+function useLiveReview(running: boolean): void {
+	const rpc = useTabRpc();
+	useEffect(() => {
+		if (!running) return;
+		const ask = () => {
+			if (document.visibilityState === "hidden") return;
+			void rpc.command({ type: "agent_control_review", live: true }).catch(() => undefined);
+		};
+		const timer = window.setInterval(ask, LIVE_REVIEW_MS);
+		document.addEventListener("visibilitychange", ask);
+		return () => {
+			window.clearInterval(timer);
+			document.removeEventListener("visibilitychange", ask);
+		};
+	}, [rpc, running]);
+}
+
 export function OpenedSection({
 	rows,
 	counts,
@@ -117,6 +143,7 @@ export function OpenedSection({
 	now: number;
 }) {
 	const t = useT();
+	useLiveReview(rows.some(row => row.status === "running"));
 	return (
 		<BoardSection
 			aside={counts.closed > 0 ? t("workBoard.opened.closed", { count: counts.closed }) : null}

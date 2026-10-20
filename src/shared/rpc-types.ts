@@ -154,8 +154,9 @@ export type RpcCommand =
 	// The other live sessions in this session's worktree or repository (gui-bridge modes/checkout-peers.ts);
 	// `checkout_peers` frames keep the value current. Answers `{peers}` (null: the session works alone).
 	| { id?: string; type: "get_checkout_peers" }
-	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp
-	| { id?: string; type: "agent_control_review" }
+	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp. `live`:
+	// a board showing the list asks its running children's step and cost again (pushed when they moved; answers null).
+	| { id?: string; type: "agent_control_review"; live?: boolean }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
 	| { id?: string; type: "handoff"; customInstructions?: string }
 	| { id?: string; type: "get_login_providers" }

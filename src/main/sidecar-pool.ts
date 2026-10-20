@@ -170,7 +170,12 @@ export type TabActivity =
 	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
 	| { type: "ask"; tabId: string; requestId: string; text: string }
 	| { type: "askClosed"; tabId: string; requestId: string }
-	| { type: "released"; tabId: string };
+	| { type: "released"; tabId: string }
+	/**
+	 * A running turn moved on: a tool call started or ended, or a reply was written (its step and cost changed). Once
+	 * per event batch; what the work board re-reads a running child for (agent-control/host.ts `liveReview`).
+	 */
+	| { type: "step"; tabId: string };
 
 /** A tab's facts an observer reads when its debounce ends. */
 export interface TabFacts {
@@ -954,9 +959,11 @@ export class SidecarPool {
 			let runEnded = false;
 			let retryStarted = false;
 			const unsavedBefore = entry.unsavedPrompt;
+			let stepped = false;
 			for (const event of events) {
 				if (trackRunEvent(entry, event)) runEnded = true;
 				if (event.type === "agent_start") entry.placeholder = false;
+				else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") stepped = true;
 				else if (event.type === "auto_retry_start") retryStarted = true;
 				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
 					if (event.type === "plan_proposal")
@@ -967,8 +974,10 @@ export class SidecarPool {
 				} else if (event.type === "message_end") {
 					// Stock writes a new session's file with its first assistant message: until then the
 					// prompt lives nowhere else, and a relaunch sends it again (turn-resume.ts).
-					if (event.message.role === "assistant") delete entry.unsavedPrompt;
-					else if (event.message.role === "user" && entry.unsavedPrompt === undefined) {
+					if (event.message.role === "assistant") {
+						delete entry.unsavedPrompt;
+						stepped = true;
+					} else if (event.message.role === "user" && entry.unsavedPrompt === undefined) {
 						const text = messageText(event.message);
 						if (text) entry.unsavedPrompt = text;
 					}
@@ -980,6 +989,7 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
+			else if (stepped && busy) this.#announce({ type: "step", tabId: entry.tabId });
 			if (runSettling(entry.run) !== wasSettling) this.settleWatch?.track(entry.tabId, runSettling(entry.run));
 			if (
 				busyChanged ||

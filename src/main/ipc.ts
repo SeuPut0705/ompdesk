@@ -716,6 +716,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			if (!issuerTabId)
 				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
 			try {
+				if (cmd.live) {
+					await agentControl.liveReview(issuerTabId);
+					return { id: _id, type: "response", command: cmd.type, success: true, data: null };
+				}
 				return {
 					id: _id,
 					type: "response",

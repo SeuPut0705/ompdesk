@@ -2840,14 +2840,20 @@ export class AgentControl {
 
 	/**
 	 * `last` (the review list last sent) with what moves inside a running child's turn read again: its step and what
-	 * it has cost so far. Only the children running now are read, with no git: the board follows a long turn between
-	 * the 10 s full sweeps. Null when none of `callerTabId`'s children runs.
+	 * it has cost so far. Only the running children (of `only`, when given: those that moved on since) are read, with
+	 * no git. Null when none of `callerTabId`'s children it would read runs.
 	 */
-	async liveReview(callerTabId: string, last: AgentReviewResult): Promise<AgentReviewResult | null> {
+	async liveReview(
+		callerTabId: string,
+		last: AgentReviewResult,
+		only?: ReadonlySet<string>,
+	): Promise<AgentReviewResult | null> {
 		const tabs = this.#host.tabs(callerTabId);
 		if (!tabs) return null;
 		const own = this.#openedBy(callerTabId, tabs);
-		const running = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden && tab.busy);
+		const running = tabs.filter(
+			tab => own.has(tab.tabId) && !tab.hidden && tab.busy && (only === undefined || only.has(tab.tabId)),
+		);
 		if (running.length === 0) return null;
 		const usage = { ...last.usage };
 		const items = [...last.items];

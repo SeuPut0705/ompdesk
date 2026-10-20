@@ -117,8 +117,6 @@ const REVIEW_SETTLE_MS = 400;
 const SWEEP_SETTLE_MS = 1_000;
 /** Opened sessions are looked at this often even without activity (a merge or push elsewhere moves no tab). */
 const SWEEP_INTERVAL_MS = 10_000;
-/** Between sweeps a running child's step and cost are read again this often (no git: `AgentControl.liveReview`). */
-const LIVE_REVIEW_MS = 2_000;
 
 export interface AgentControlHostDeps {
 	pool: Pick<
@@ -171,8 +169,6 @@ export interface AgentControlHostDeps {
 	text: AgentControlHost["text"];
 	/** How often opened sessions are looked at for closing; 0 turns the timer off (default 10 s). */
 	sweepMs?: number;
-	/** How often a running child's step and cost are read again for its opener's board; 0 off (default 2 s, 0 with `sweepMs` 0). */
-	liveReviewMs?: number;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -235,8 +231,10 @@ export class AgentControlRuntime {
 	 * so on a slow machine one tick's read outlived the next and the git processes piled up without end.
 	 */
 	readonly #sweepReviews = new Set<string>();
-	/** Openers whose live read (`#liveAll`) has not answered yet: the next tick skips them. */
+	/** Openers whose live read (`liveReview`) has not answered yet: a request meanwhile is dropped. */
 	readonly #liveReviews = new Set<string>();
+	/** Children whose running turn moved on (the pool's `step`) since their last live read. */
+	readonly #moved = new Set<string>();
 	/** The running or waiting children last told to each parent's prompt suggestions (JSON). */
 	readonly #childrenSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
@@ -251,6 +249,11 @@ export class AgentControlRuntime {
 		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
 			const parent = this.#openerOf(activity.tabId);
+			// A running child moved on: the next live read takes its step and cost; nothing else changed.
+			if (activity.type === "step") {
+				if (parent) this.#moved.add(activity.tabId);
+				return;
+			}
 			if (parent) this.#pushReview(parent);
 			// A child's question card tells its opener (local and paired-device children alike); an Autopilot run's
 			// children are answered by its approver, and the run reads them itself.
@@ -272,14 +275,13 @@ export class AgentControlRuntime {
 				this.#reviewSent.delete(activity.tabId);
 				this.#childrenSent.delete(activity.tabId);
 				this.#userPrompted.delete(activity.tabId);
+				this.#moved.delete(activity.tabId);
 				this.#autopilotRuns.delete(activity.tabId);
 				this.control.released(activity.tabId);
 			}
 		});
 		const every = deps.sweepMs ?? SWEEP_INTERVAL_MS;
 		if (every > 0) setInterval(() => this.#sweepAll(), every).unref();
-		const live = deps.liveReviewMs ?? (every > 0 ? LIVE_REVIEW_MS : 0);
-		if (live > 0) setInterval(() => this.#liveAll(), live).unref();
 	}
 
 	/** The tab Autopilot (or anyone) opened this one for, if the control tools opened it. */
@@ -365,27 +367,35 @@ export class AgentControlRuntime {
 	}
 
 	/**
-	 * A running child's step and cost move inside its turn, with no tab activity to push them: every opener whose last
-	 * sent list has a running child gets those read again, sent only when they moved and only if no fuller list was
-	 * sent meanwhile.
+	 * A running child's step and cost move inside its turn, with no busy or idle edge to push them. A work board that
+	 * shows the opener's children asks for them (`agent_control_review {live: true}`, only while it is mounted in a
+	 * visible window: renderer `WorkBoardOpened.tsx` `useLiveReview`); only the running children whose omp sent a step
+	 * since (the pool's `step` activity: a tool call started or ended, a reply was written) are read, over the list last
+	 * sent, and it is pushed only when they moved and no fuller list went out meanwhile. A child that did nothing costs
+	 * nothing, on this computer or over a paired device's link.
 	 */
-	#liveAll(): void {
-		for (const [opener, sent] of this.#reviewSent) {
-			if (this.#liveReviews.has(opener) || this.#sweepReviews.has(opener) || this.#reviewTimers.has(opener))
-				continue;
-			const last = JSON.parse(sent) as AgentReviewResult;
-			if (!last.items.some(item => item.state === "running")) continue;
-			this.#liveReviews.add(opener);
-			void this.control
-				.liveReview(opener, last)
-				.then(
-					review => {
-						if (!review || this.#reviewSent.get(opener) !== sent) return;
-						if (JSON.stringify(review) !== sent) this.#sendReview(opener, review);
-					},
-					() => undefined,
-				)
-				.finally(() => this.#liveReviews.delete(opener));
+	async liveReview(callerTabId: string): Promise<void> {
+		const sent = this.#reviewSent.get(callerTabId);
+		if (
+			!sent ||
+			this.#liveReviews.has(callerTabId) ||
+			this.#sweepReviews.has(callerTabId) ||
+			this.#reviewTimers.has(callerTabId)
+		)
+			return;
+		const last = JSON.parse(sent) as AgentReviewResult;
+		const moved = new Set(
+			last.items.flatMap(item => (item.state === "running" && this.#moved.has(item.tabId) ? [item.tabId] : [])),
+		);
+		if (moved.size === 0) return;
+		for (const tabId of moved) this.#moved.delete(tabId);
+		this.#liveReviews.add(callerTabId);
+		try {
+			const review = await this.control.liveReview(callerTabId, last, moved);
+			if (!review || this.#reviewSent.get(callerTabId) !== sent) return;
+			if (JSON.stringify(review) !== sent) this.#sendReview(callerTabId, review);
+		} finally {
+			this.#liveReviews.delete(callerTabId);
 		}
 	}
 

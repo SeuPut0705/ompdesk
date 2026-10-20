@@ -2741,6 +2741,23 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(seen).toEqual([{ type: "idle", tabId: "tab-a", outcome: { stopReason: "error", errorMessage: "boom" } }]);
 	});
 
+	it("announces a running turn's step once per batch that starts or ends a tool call or writes a reply", () => {
+		const { a, seen } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		a.emitEvents([
+			{ type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: {} },
+			{ type: "tool_execution_update", toolCallId: "c1", toolName: "bash", args: {}, partialResult: {} },
+		]);
+		// A streamed delta alone is no step.
+		a.emitEvents([{ type: "message_update", message: { role: "assistant", content: [] } }]);
+		a.emitEvents([{ type: "message_end", message: { role: "assistant", content: [] } }]);
+		expect(seen).toEqual([
+			{ type: "busy", tabId: "tab-a" },
+			{ type: "step", tabId: "tab-a" },
+			{ type: "step", tabId: "tab-a" },
+		]);
+	});
+
 	it("waits for background work: idle comes at session_settled, not at agent_end", () => {
 		const { a, seen } = observed();
 		a.emitEvents([{ type: "agent_start" }]);
