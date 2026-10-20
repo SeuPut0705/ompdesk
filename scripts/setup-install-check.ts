@@ -27,9 +27,9 @@ import {
 	refreshPath,
 	setupPlatform,
 } from "../src/main/setup/paths";
-import { SetupService } from "../src/main/setup/service";
 import type { SetupState } from "../src/shared/setup";
 import { isNewer } from "../src/shared/version";
+import { electronOutside } from "./electron-outside";
 
 const ROOT_ENV = "OMPDESK_INSTALL_CHECK_ROOT";
 const PROGRAM_FILES_ENV = "OMPDESK_INSTALL_CHECK_PROGRAM_FILES";
@@ -102,6 +102,9 @@ async function check(root: string): Promise<void> {
 	const realProgramFiles: Record<string, string> = JSON.parse(process.env[PROGRAM_FILES_ENV] ?? "{}");
 	const states: SetupState[] = [];
 	const printed = new Map<string, number>();
+	electronOutside(join(root, "userData"), "0.0.0-install-check");
+	// Dynamic: service.ts links runtime-log's `electron` import, which only resolves once electronOutside ran.
+	const { SetupService } = await import("../src/main/setup/service");
 	const service = new SetupService({
 		platform,
 		arch: process.arch,
