@@ -99,6 +99,7 @@ import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice, validAutopilotBranchPref } from "./autopilot";
+import { routeHostAutopilotNotice } from "./autopilot-notice-route";
 import {
 	CHECKOUT_PEERS_SWEEP_MS,
 	type CheckoutMember,
@@ -885,15 +886,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		notificationBatcher.notify(windowId, { title: notice.title, body: notice.body, tabId, kind: notice.kind });
 	};
-	// A paired host's run this device started or shows: on the tab that shows its session, else a plain banner.
-	deps.remoteDevices.onAutopilotNotice((host, notice) => {
-		const shown = notice.sessionPath
-			? sidecarPool.resumeFacts().find(fact => fact.device === host && fact.sessionFile === notice.sessionPath)
-			: undefined;
-		if (shown) notifyTab(shown.tabId, notice);
-		else if (prefsStore.get("notifications") !== false)
-			appNotification({ title: notice.title, body: notice.body }).show();
-	});
+	// A paired host's run this device started or shows (autopilot-notice-route.ts).
+	deps.remoteDevices.onAutopilotNotice((host, notice) =>
+		routeHostAutopilotNotice(
+			{
+				facts: () => sidecarPool.resumeFacts(),
+				notifyTab,
+				webPush: (tabId, event) => deps.webAutopilotNotice.current?.(tabId, event),
+				banner: event => {
+					if (prefsStore.get("notifications") !== false)
+						appNotification({ title: event.title, body: event.body }).show();
+				},
+			},
+			host,
+			notice,
+		),
+	);
 	const autopilot: Autopilot = new Autopilot({
 		// A paired device's tab here can be a run's source (it starts the run from its folder): the coordinator reads it
 		// by its resume id. Runs themselves are always this computer's window tabs.

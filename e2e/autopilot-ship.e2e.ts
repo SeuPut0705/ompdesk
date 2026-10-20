@@ -7,6 +7,9 @@
  * no release without a procedure, a failing gate or run) are unit-tested in src/main/autopilot*.test.ts and
  * src/main/bridge-autopilot-*.test.ts.
  */
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import {
 	agentTools,
@@ -111,13 +114,14 @@ test("'push now' in chat pushes the autopilot branch at the end of the turn; a f
 
 test("the screen's Push, PR, merge and revert queue up during a turn and run in order at its end", async () => {
 	test.setTimeout(180_000);
-	const profile = await makeApProfile({ script: { cycleMs: 5_000 } });
+	// Cycle 2 holds before it reports until this test opens the gate: the actions below queue during a turn whatever
+	// the load, and the turn ends on the test's event, not on a timer.
+	const gate = path.join(os.tmpdir(), `autopilot-ship-gate-${process.pid}-${Date.now()}`);
+	const profile = await makeApProfile({ script: { cycleMs: 400, cycles: { "2": { holdUntil: gate } } } });
 	const mainBefore = git(profile.project, "rev-parse", "main");
 	const { app, page } = await launchAp(profile);
 	try {
-		// Local level: the queue must hold only the screen's four actions. Automatic would push cycle 1's commit too, and
-		// whether that push is still running or already queued behind turn 2 when this looks depends on whether cycle
-		// 1's end was handled before or after turn 2 started (the flake under load), not on anything this test does.
+		// Local level: the queue must hold only the screen's four actions (Automatic would push cycle 1's commit too).
 		const tabId = await startRun(page, await mainTab(page), { preset: "local" });
 		await waitForStatus(
 			page,
@@ -153,6 +157,7 @@ test("the screen's Push, PR, merge and revert queue up during a turn and run in 
 		// Nothing ran inside the turn.
 		expect(git(profile.remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
 		expect(git(profile.project, "rev-parse", "main")).toBe(mainBefore);
+		await fs.writeFile(gate, "");
 
 		const done = await waitForStatus(
 			page,
@@ -179,7 +184,10 @@ test("the screen's Push, PR, merge and revert queue up during a turn and run in 
 				timeout: 15_000,
 			})
 			.toBe(true);
-		expect(git(done.root as string, "log", "--format=%s", "-n", "1")).toMatch(/^Revert/);
+		// Later cycles keep committing after the gate opened: the revert is in the branch's history, not necessarily on top.
+		expect(git(done.root as string, "log", "--format=%s").split("\n")).toContainEqual(
+			expect.stringMatching(/^Revert "autopilot: cycle 1/),
+		);
 		expect(cycle1?.commit).toBeTruthy();
 		expect((await recorded(profile, "modes.autopilot_mark_reverted")).length).toBe(1);
 		// The audit saw only what the ShipRunner did: the run was not paused.

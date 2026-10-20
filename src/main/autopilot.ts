@@ -100,13 +100,6 @@ const ERROR_GRACE_MS = 3_000;
 /** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
 const QUOTA_ERROR = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota/i;
 
-function pathExists(path: string): Promise<boolean> {
-	return access(path).then(
-		() => true,
-		() => false,
-	);
-}
-
 function afterMs(run: () => void, ms: number): () => void {
 	const timer = setTimeout(run, ms);
 	timer.unref?.();
@@ -196,7 +189,13 @@ export type RepoProbe = "present" | "gone" | "unknown";
 const REPO_RECHECK_MS = 1_500;
 
 export async function probeRepo(root: string): Promise<RepoProbe> {
-	if (!(await pathExists(root))) return "gone";
+	// Only "no such file or folder" is absence; a refused, busy or out-of-handles check says nothing.
+	const missing = await access(root).then(
+		() => false,
+		(error: NodeJS.ErrnoException) => (error.code === "ENOENT" || error.code === "ENOTDIR" ? true : null),
+	);
+	if (missing === null) return "unknown";
+	if (missing) return "gone";
 	const result = await gitRaw(root, ["rev-parse", "--git-dir"], { timeoutMs: GIT_MS }).catch(() => null);
 	if (result?.code === 0) return "present";
 	return result && /not a git repository/i.test(result.stderr) ? "gone" : "unknown";

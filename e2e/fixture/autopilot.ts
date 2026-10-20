@@ -18,7 +18,8 @@
  * - `cycle`: defaults for every cycle; `cycles`: `{ "<n>": ... }` overrides. A cycle script: `commit` (default true:
  *   a real commit in the worktree), `title`, `area`, `tools` (`{tool, input, raw?}` run through the guard unless `raw`,
  *   which stands for an obfuscated command the guard cannot see), `children` (sessions opened through the host tools),
- *   `compactions`, `tokens`, `usd`, `holdMs` (extra time at the end of the turn), `quota` (the turn ends on the usage
+ *   `compactions`, `tokens`, `usd`, `holdMs` (extra time at the end of the turn), `holdUntil` (a file path: the turn
+ *   waits before it reports until the file exists, a gate the test opens), `quota` (the turn ends on the usage
  *   limit, `quotaResetMs` later), `error` (a failed turn), `complete` (the agent calls `goal complete`),
  *   `noContinue` (stock stops continuing: the stall timer runs), `card` (an approval card raised mid-turn),
  *   `forgeQuote` (the agent calls `ship push` with words the user never said), `release` (what a due release cycle
@@ -31,6 +32,7 @@
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import { existsSync } from "node:fs";
 import * as nodePath from "node:path";
 import {
 	AUTOPILOT_BACKLOG_ENTRY,
@@ -116,6 +118,8 @@ interface CycleScript {
 	tokens?: number;
 	usd?: number;
 	holdMs?: number;
+	/** The turn waits, before it reports, until this file exists: a test's gate it releases on an event it saw. */
+	holdUntil?: string;
 	/** This cycle's turn length (default: the script's `cycleMs`). */
 	ms?: number;
 	quota?: boolean;
@@ -771,6 +775,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 				host.stats.cost += cs.usd ?? 0.01;
 				const holdMs = (releasing ? cs.release?.holdMs : cs.holdMs) ?? 0;
 				if (holdMs > 0) await sleep(holdMs, ctl);
+				while (cs.holdUntil && !existsSync(cs.holdUntil)) await sleep(50, ctl);
 				if (verify !== "none") {
 					callOp({
 						op: "end",

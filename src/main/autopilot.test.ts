@@ -370,6 +370,20 @@ describe("pure helpers", () => {
 		expect(await probeRepo(plain)).toBe("gone");
 	});
 
+	it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+		"probeRepo says unknown, never gone, when the folder cannot be looked at (EACCES): no soft stop",
+		async () => {
+			const locked = path.join(tmp, "locked");
+			await fs.mkdir(path.join(locked, "wt"), { recursive: true });
+			await fs.chmod(locked, 0o000);
+			try {
+				expect(await probeRepo(path.join(locked, "wt"))).toBe("unknown");
+			} finally {
+				await fs.chmod(locked, 0o755);
+			}
+		},
+	);
+
 	it("startSettings layers defaults, a preset and the explicit values", () => {
 		expect(startSettings({}).ship).toEqual(DEFAULT_SHIP_POLICY);
 		expect(startSettings({ preset: "push" }).ship).toMatchObject({ autoPush: true, autoRelease: { on: false } });
