@@ -136,6 +136,7 @@ import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { setSessionDeleteLog } from "./session-mutations";
+import { SettleWatch } from "./settle-watch";
 import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
 import { SetupService } from "./setup/service";
@@ -1469,6 +1470,10 @@ app.whenReady().then(() => {
 		syncWorkAwake();
 		turnResume.sync();
 	};
+	sidecarPool.settleWatch = new SettleWatch({
+		facts: tabId => sidecarPool.settleFacts(tabId),
+		log: details => writeRuntimeLog({ source: "settle-watch", message: "still settling", details }),
+	});
 	hostServices.attachResume(turnResume);
 	// Disk care: idle worktrees' build output, landed and long-idle worktrees (saved first), the HTTP and Bun caches.
 	// Automatic only in the packaged app outside a test run: a dev or test instance sees none of the real app's open

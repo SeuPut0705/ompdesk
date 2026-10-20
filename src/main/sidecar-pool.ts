@@ -100,6 +100,7 @@ import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
 import { HostedTabView } from "./remote/hosted-view";
+import type { SettleWatch } from "./settle-watch";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import {
 	idleRun,
@@ -397,10 +398,35 @@ export class SidecarPool {
 	onTabReleased: ((tabId: string, exited: Promise<void>) => void) | null = null;
 	/** A tab's sidecar was created (Autopilot attaches its approval and readiness listeners). */
 	onAcquire: ((tabId: string, sidecar: SidecarLike) => void) | null = null;
+	/** Diagnostic only: a turn that ended but stays settling past a minute leaves one runtime-log line (settle-watch.ts). */
+	settleWatch: SettleWatch | null = null;
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
 
 	constructor(factory: SidecarFactory) {
 		this.#factory = factory;
+	}
+
+	/** What the settle diagnostic logs: stock's own settle predicate inputs and main's run flags. */
+	async settleFacts(tabId: string): Promise<Record<string, unknown>> {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry) return { gone: true };
+		const response = await entry.sidecar.rpcClient?.command({ type: "get_state" });
+		const data = (response?.data ?? {}) as Record<string, unknown>;
+		const queued = data.queuedMessages as { steering?: unknown[]; followUp?: unknown[] } | undefined;
+		return {
+			stock: {
+				isSettled: data.isSettled,
+				isStreaming: data.isStreaming,
+				isCompacting: data.isCompacting,
+				queuedMessageCount: data.queuedMessageCount,
+				hasPendingAsyncWork: data.hasPendingAsyncWork,
+				queued: { steering: queued?.steering?.length ?? 0, followUp: queued?.followUp?.length ?? 0 },
+				messageCount: data.messageCount,
+			},
+			run: { ...entry.run },
+			status: entry.status,
+			lastRun: entry.lastRun?.stopReason,
+		};
 	}
 
 	get size(): number {
@@ -890,10 +916,12 @@ export class SidecarPool {
 		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
 			this.hostToolExecutor?.(sidecar, request, { tabId: entry.tabId, win });
 		});
-		const settle = (settled: boolean): void => {
+		const settle = (settled: boolean, frame: "prompt_result" | "session_settled"): void => {
 			const wasBusy = runBusy(entry.run);
 			const wasSettling = runSettling(entry.run);
 			settleRun(entry.run, settled);
+			this.settleWatch?.noteFrame(entry.tabId, frame, settled);
+			this.settleWatch?.track(entry.tabId, runSettling(entry.run));
 			if (runBusy(entry.run) === wasBusy) {
 				// Still busy, but the turn's end now reads as background work (or the other way round).
 				if (runSettling(entry.run) !== wasSettling)
@@ -907,9 +935,9 @@ export class SidecarPool {
 			this.#scheduleExtensionApply(entry);
 		};
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {
-			if (typeof frame.sessionSettled === "boolean") settle(frame.sessionSettled);
+			if (typeof frame.sessionSettled === "boolean") settle(frame.sessionSettled, "prompt_result");
 		});
-		sidecar.on("sessionSettled", () => settle(true));
+		sidecar.on("sessionSettled", () => settle(true, "session_settled"));
 		// A paired host holds this tab's connection wait (its own connectivity decides, turn-resume.ts): mirror it.
 		sidecar.on("awaitingConnection", (awaiting: boolean) => this.setAwaitingConnection(entry.tabId, awaiting));
 		// Agent-end means one run yielded; upstream prompt/session-settled frames
@@ -952,6 +980,7 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
+			if (runSettling(entry.run) !== wasSettling) this.settleWatch?.track(entry.tabId, runSettling(entry.run));
 			if (
 				busyChanged ||
 				runSettling(entry.run) !== wasSettling ||
@@ -1087,6 +1116,7 @@ export class SidecarPool {
 	#releaseEntry(entry: PoolEntry): Promise<void> {
 		if (!this.#entries.delete(entry)) return Promise.resolve();
 		this.#byTabId.delete(entry.tabId);
+		this.settleWatch?.forget(entry.tabId);
 		this.onRunningChange?.();
 		const sessionFile = entry.sessionFile;
 		this.#unregisterSessionFile(entry);
