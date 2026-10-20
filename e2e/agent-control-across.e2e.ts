@@ -145,6 +145,68 @@ test.describe("on this computer", () => {
 		// In the folder its file records, not the caller's or the app's (v0.46.0 reopened one in the main checkout).
 		expect(reopened.text).toContain(`in ${await fs.realpath(elsewhere)} (`);
 		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(tabsBefore + 1);
+
+		// Its folder removed with nothing saved: the reopen is refused, naming the folder, and opens no tab anywhere.
+		const [again] = opened(reopened.text);
+		expect((await call("ompdesk_session_stop", { session: again, close: true })).isError).toBe(false);
+		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(tabsBefore);
+		const home = await fs.realpath(elsewhere);
+		await fs.rm(elsewhere, { recursive: true, force: true });
+		const refused = await call("ompdesk_session_open", { reopen: id });
+		expect(refused.text).toContain(`no longer exists (${home}) and nothing of it was saved`);
+		expect((await page.evaluate(() => window.omp.tabs.list())).length).toBe(tabsBefore);
+	});
+
+	test("a saved session whose worktree disk care saved and removed is restored and reopened there", async () => {
+		test.setTimeout(120_000);
+		const call = await caller(page, record);
+		const repo = await fs.realpath(path.join(profile, "project"));
+		git(repo, "init", "-q", "-b", "main");
+		git(repo, "commit", "-q", "--allow-empty", "-m", "init");
+		const worktree = path.join(path.dirname(repo), "wt-saved");
+		git(repo, "worktree", "add", "-q", "-b", "omp/agent/saved", worktree);
+		const home = await fs.realpath(worktree);
+		const open = await call("ompdesk_session_open", { message: "Work in the worktree", folder: home });
+		const [child] = opened(open.text);
+		await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+		expect((await call("ompdesk_session_stop", { session: child, close: true })).isError).toBe(false);
+		let stored = "";
+		await expect
+			.poll(async () => {
+				stored = (await call("ompdesk_sessions", { scope: "stored", query: "Work in the worktree" })).text;
+				return stored;
+			})
+			.toMatch(/\n- \S+ "Work in the worktree"/);
+		const id = /\n- (\S+) "Work in the worktree"/.exec(stored)?.[1] ?? "";
+
+		// What disk care leaves when it saves and removes an idle worktree: the record, then the folder gone.
+		const head = git(home, "rev-parse", "HEAD");
+		git(repo, "worktree", "remove", home);
+		await fs.mkdir(path.join(profile, "desktop", "disk-care"), { recursive: true });
+		const saved = {
+			id: "saved1",
+			path: home,
+			repo,
+			branch: "omp/agent/saved",
+			head,
+			savedBranch: null,
+			removedAt: Date.now(),
+			archivedFiles: 0,
+			archivedBytes: 0,
+		};
+		await fs.writeFile(path.join(profile, "desktop", "disk-care", "saved.json"), JSON.stringify([saved]));
+
+		// The agent is told the record and the way back, and nothing opens; restore puts the worktree back and opens
+		// the session there. The window's toast and its Restore re-open are unit-tested (stores/tabs.test.tsx).
+		const tabsBefore = (await page.evaluate(() => window.omp.tabs.list())).length;
+		const refused = await call("ompdesk_session_open", { reopen: id });
+		expect(refused.text).toContain("saved worktree saved1");
+		expect(refused.text).toContain(`{"reopen":"${id}","restore":true}`);
+		expect((await page.evaluate(() => window.omp.tabs.list())).length).toBe(tabsBefore);
+		const restored = await call("ompdesk_session_open", { reopen: id, restore: true });
+		expect(restored.isError, restored.text).toBe(false);
+		expect(restored.text).toContain(`in ${home} (reopened)`);
+		expect(git(home, "rev-parse", "--abbrev-ref", "HEAD")).toBe("omp/agent/saved");
 	});
 });
 

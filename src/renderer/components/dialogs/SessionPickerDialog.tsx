@@ -21,6 +21,7 @@ import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../l
 import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
 import { sessionListFeed } from "../../stores/session-list";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
 
@@ -181,7 +182,12 @@ export function SessionPickerDialog() {
 		}
 		setSwitching(session.path);
 		try {
-			if (await switchSessionNow(session)) close();
+			// A gone folder cannot take an in-place switch (stock refuses another folder); a tab open says why and offers
+			// Restore when disk care saved it.
+			if (projectNameOf(session.cwd, session.title).gone) {
+				const kind = session.kind === "chat" ? "chat" : "agent";
+				if ((await useTabsStore.getState().openTab({ sessionPath: session.path, kind })) !== null) close();
+			} else if (await switchSessionNow(session)) close();
 		} finally {
 			setSwitching(null);
 		}
@@ -345,6 +351,11 @@ export function SessionPickerDialog() {
 											</span>
 										)}
 									</span>
+									{projectNameOf(session.cwd, session.title).gone && (
+										<span className="shrink-0" data-session-folder-gone title={t("sessionFolder.goneTip")}>
+											<Badge variant="warning">{t("sessionFolder.gone")}</Badge>
+										</span>
+									)}
 									{contentOnly.has(session.path) && (
 										<Badge className="shrink-0" variant="info">
 											{t("sessionPicker.contentMatch")}

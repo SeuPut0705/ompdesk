@@ -16,6 +16,7 @@ import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
@@ -131,6 +132,10 @@ const TreeRow = memo(function TreeRow({
 	const stateLabel = node.state ? t(`workTree.state.${node.state}`) : "";
 	const Icon = KIND_ICON[node.kind];
 	const title = node.title || t("workTree.untitled");
+	// A stored session whose folder is gone says so before the click (the open then offers Restore when it was saved).
+	const storedCwd = node.target?.kind === "stored" ? node.target.cwd : undefined;
+	const projectName = useProjectNames(storedCwd ? [storedCwd] : []);
+	const gone = storedCwd !== undefined && projectName(storedCwd).gone;
 	const usage = childUsageText(node.usage.model, node.usage.role);
 	const branchNote =
 		node.kind === "branch"
@@ -142,7 +147,17 @@ const TreeRow = memo(function TreeRow({
 					.join(" · ")
 			: "";
 	const kinds = costKinds(node.usage, billing);
-	const tooltip = [title, stateLabel, node.device, usage, costWords(t, kinds), branchNote].filter(Boolean).join("\n");
+	const tooltip = [
+		title,
+		stateLabel,
+		gone ? t("sessionFolder.goneTip") : "",
+		node.device,
+		usage,
+		costWords(t, kinds),
+		branchNote,
+	]
+		.filter(Boolean)
+		.join("\n");
 	return (
 		<li>
 			<button
@@ -166,6 +181,11 @@ const TreeRow = memo(function TreeRow({
 				<span className={cx("min-w-0 flex-1 truncate", node.kind === "branch" && "font-mono text-sc-xs")}>
 					{title}
 				</span>
+				{gone ? (
+					<span className="shrink-0 text-sc-xs text-(--sc-warning)" data-session-folder-gone>
+						{t("sessionFolder.gone")}
+					</span>
+				) : null}
 				{node.device ? (
 					<span className="max-w-24 shrink-0 truncate text-sc-xs text-(--sc-text-subtle)" data-work-tree-device>
 						{node.device}

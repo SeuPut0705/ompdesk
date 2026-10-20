@@ -11,6 +11,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionContentMatch, SessionInfo } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useProjectOrigins } from "../../stores/project-origins";
+import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { SessionPickerDialog } from "./SessionPickerDialog";
 
@@ -134,5 +136,23 @@ describe("SessionPickerDialog listing", () => {
 		expect(rows()).toHaveLength(2);
 		expect(rows().join("\n")).toContain("Queue retry design");
 		expect(rows().join("\n")).toContain("Release notes");
+	});
+
+	it("says up front that a session's worktree folder is gone, and opens it as a tab that explains or offers Restore", async () => {
+		const removed: SessionInfo = {
+			...session("w", "Worktree child"),
+			cwd: "/Users/me/.omp/wt/gui-agent-abc123-540bd7d",
+		};
+		list.mockResolvedValueOnce([removed]);
+		const openTab = vi.fn(async () => null);
+		useTabsStore.setState({ openTab });
+		// No answer from git about the folder: the origin store records it as not a repository.
+		useProjectOrigins.setState({ origins: { [removed.cwd]: null } });
+		await mount();
+		expect(rows()[0]).toContain(translate("sessionFolder.gone"));
+		const row = document.body.querySelector('[role="option"]') as unknown as { click(): void };
+		await act(async () => row.click());
+		await flush();
+		expect(openTab).toHaveBeenCalledWith({ sessionPath: removed.path, kind: "agent" });
 	});
 });

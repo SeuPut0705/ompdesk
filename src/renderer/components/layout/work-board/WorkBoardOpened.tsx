@@ -7,6 +7,7 @@ import { Check, X } from "lucide-react";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
@@ -38,6 +39,10 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 			: report && status !== "done"
 				? report
 				: [status === "running" ? null : statusLabel, mergeNote].filter(Boolean).join(" · ");
+	// A closed child whose folder is gone says so before the click (the open then offers Restore when it was saved).
+	const storedCwd = !row.tabId && row.sessionPath ? row.cwd : undefined;
+	const projectName = useProjectNames(storedCwd ? [storedCwd] : []);
+	const gone = storedCwd !== undefined && projectName(storedCwd).gone;
 	const open = () => {
 		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
 		else if (row.sessionPath)
@@ -57,6 +62,12 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 						<span className="text-(--sc-text-subtle)">
 							{" · "}
 							<span data-board-device>{row.device}</span>
+						</span>
+					) : null}
+					{gone ? (
+						<span className="text-(--sc-warning)">
+							{" · "}
+							<span data-session-folder-gone>{t("sessionFolder.gone")}</span>
 						</span>
 					) : null}
 				</>
@@ -86,6 +97,7 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 			title={[
 				`${title}${row.device ? ` · ${row.device}` : ""}`,
 				note || statusLabel,
+				gone ? t("sessionFolder.goneTip") : null,
 				branch,
 				[usage?.model, costWords(t, kinds)].filter(Boolean).join(" · "),
 			]
