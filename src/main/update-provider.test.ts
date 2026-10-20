@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { ElectronHttpExecutor } from "electron-updater/out/electronHttpExecutor";
 import { findFile } from "electron-updater/out/providers/Provider";
-import { describe, expect, it } from "vitest";
-import { type ReleaseFeed, releaseUpdateProvider } from "./update-provider";
+import { describe, expect, it, vi } from "vitest";
+import { RELEASE_LOOKUP_TIMEOUT_MS, type ReleaseFeed, releaseUpdateProvider } from "./update-provider";
 import {
 	NO_RELEASE_ERROR,
 	type PlatformRelease,
@@ -66,6 +66,28 @@ function feedFor(response: () => Response, overrides: Partial<ReleaseFeed> = {})
 const json = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status });
 
 describe("release-notes update provider", () => {
+	it("gives up on a lookup GitHub never answers, so a check settles instead of reading Checking… forever", async () => {
+		vi.useFakeTimers();
+		try {
+			let aborted = false;
+			const { provider } = feedFor(() => json({}), {
+				// A stalled connection (captive portal, a dropped Wi-Fi): no answer and no error, ever.
+				fetch: (_url, init) => {
+					init.signal?.addEventListener("abort", () => {
+						aborted = true;
+					});
+					return new Promise<Response>(() => {});
+				},
+			});
+			const outcome = provider.getLatestVersion().catch((error: unknown) => error);
+			await vi.advanceTimersByTimeAsync(RELEASE_LOOKUP_TIMEOUT_MS);
+			expect(await outcome).toMatchObject({ code: RELEASE_LOOKUP_ERROR });
+			expect(aborted).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("builds electron-updater's UpdateInfo from the metadata comment", async () => {
 		const { provider, requests, resolved } = feedFor(() => json(releasePayload()));
 		const info = await provider.getLatestVersion();
