@@ -375,10 +375,13 @@ for (const { engine, device } of variants(
 			await chip.click();
 			await expect(panel).toHaveCount(0);
 			await expect(chip).toHaveAttribute("aria-expanded", "false");
-			// A tap on the transcript (outside) collapses it too, and still reaches the transcript.
+			// A tap on the transcript (outside) collapses it too, and still reaches the transcript. The reopened panel is
+			// measured again: a Current work row that landed after the first measurement grows it, and a tap at the old
+			// edge then fell inside it on a slow runner.
 			await chip.click();
 			await expect(panel).toBeVisible();
-			await page.mouse.click((viewport?.width ?? 0) / 2, panelBox.y + panelBox.height + 6);
+			const reopened = await settledBox(panel);
+			await page.mouse.click((viewport?.width ?? 0) / 2, reopened.y + reopened.height + 6);
 			await expect(panel).toHaveCount(0);
 			await chip.click();
 			await expect(panel).toBeVisible();
