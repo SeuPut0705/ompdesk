@@ -1415,10 +1415,34 @@ describe("the review queue", () => {
 			spend: { anthropic: { billing: "subscription", cost: 0.4, today: 0.4 } },
 		});
 		const first = await service.review("main0001");
-		expect(first.usage["/s/kid1.jsonl"]).toMatchObject({ cost: 0.4, split: { charged: 0, estimate: 0.4 } });
+		expect(first.usage?.["/s/kid1.jsonl"]).toMatchObject({ cost: 0.4, split: { charged: 0, estimate: 0.4 } });
 		child.status = "starting";
 		const again = await service.review("main0001");
-		expect(again.usage["/s/kid1.jsonl"]).toMatchObject({ cost: 0.4, split: { charged: 0, estimate: 0.4 } });
+		expect(again.usage?.["/s/kid1.jsonl"]).toMatchObject({ cost: 0.4, split: { charged: 0, estimate: 0.4 } });
+	});
+
+	it("reads a running child's step and cost again between full reviews, and leaves the rest as sent", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		const child = host.tabsById.get(ids[1]) as FakeTab;
+		const call = (id: string, intent: string) => ({
+			role: "assistant",
+			content: [{ type: "toolCall", id, name: "bash", arguments: {}, intent }],
+		});
+		Object.assign(child, { sessionPath: "/s/kid1.jsonl", busy: true, cost: 0.1, messages: [call("c1", "build")] });
+		const last = await service.review("main0001");
+		expect(last.items.find(item => item.tabId === ids[1])).toMatchObject({
+			state: "running",
+			step: "running bash (build)",
+		});
+		Object.assign(child, { cost: 0.7, messages: [call("c2", "run the tests")] });
+		host.sent.length = 0;
+		const live = await service.liveReview("main0001", last);
+		expect(live?.items.find(item => item.tabId === ids[1])?.step).toBe("running bash (run the tests)");
+		expect(live?.usage?.["/s/kid1.jsonl"]?.cost).toBe(0.7);
+		// No git and no other child is read for it.
+		expect(host.sent.every(entry => entry.tabId === ids[1])).toBe(true);
+		child.busy = false;
+		expect(await service.liveReview("main0001", last)).toBeNull();
 	});
 });
 

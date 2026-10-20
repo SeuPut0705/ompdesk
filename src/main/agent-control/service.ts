@@ -2805,6 +2805,43 @@ export class AgentControl {
 	}
 
 	/**
+	 * `last` (the review list last sent) with what moves inside a running child's turn read again: its step and what
+	 * it has cost so far. Only the children running now are read, with no git: the board follows a long turn between
+	 * the 10 s full sweeps. Null when none of `callerTabId`'s children runs.
+	 */
+	async liveReview(callerTabId: string, last: AgentReviewResult): Promise<AgentReviewResult | null> {
+		const tabs = this.#host.tabs(callerTabId);
+		if (!tabs) return null;
+		const own = this.#openedBy(callerTabId, tabs);
+		const running = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden && tab.busy);
+		if (running.length === 0) return null;
+		const usage = { ...last.usage };
+		const items = [...last.items];
+		await Promise.all(
+			running.map(async tab => {
+				const [page, cost, split] = await Promise.all([
+					this.#host
+						.command(tab.tabId, { type: "get_transcript_page", fromEnd: true, limit: 8 }, STATE_TIMEOUT_MS)
+						.then(response => (response.success ? transcriptPage(response.data) : null))
+						.catch(() => null),
+					this.#cost(tab),
+					this.#split(tab),
+				]);
+				const key = tab.sessionPath ?? tab.tabId;
+				const { split: _split, ...kept } = usage[key] ?? { cost: 0 };
+				usage[key] = { ...kept, cost, ...(split ? { split } : {}) };
+				const index = items.findIndex(item => item.tabId === tab.tabId);
+				const item = items[index];
+				if (item?.state !== "running" || !page) return;
+				const { step: _step, ...rest } = item;
+				const step = currentStep(page.messages);
+				items[index] = { ...rest, ...(step ? { step } : {}) };
+			}),
+		);
+		return { items, usage };
+	}
+
+	/**
 	 * What a session has cost over its whole journal (the title bar's figure). While its omp cannot say (restarting, a
 	 * paired device's link down, a read past its timeout) the last figure read stands: a cost never drops to nothing.
 	 */

@@ -47,6 +47,8 @@ function setup(
 		autopilot?: AgentControlHostDeps["autopilot"];
 		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
 		sweepMs?: number;
+		/** `AgentControlHostDeps.liveReviewMs`. */
+		liveReviewMs?: number;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 		app?: AgentControlHostDeps["app"];
@@ -123,6 +125,7 @@ function setup(
 		schedules: options.schedules,
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
+		liveReviewMs: options.liveReviewMs,
 	};
 	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
@@ -292,6 +295,46 @@ describe("AgentControlRuntime", () => {
 			pending.resolve({ items: [], usage: {} });
 			await vi.advanceTimersByTimeAsync(20);
 			expect(review).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("sends a running child's moving step and cost between sweeps, and nothing while they stand still", async () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime, win, activity } = setup({
+				tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
+				sweepMs: 1_000_000,
+				liveReviewMs: 20,
+			});
+			const opening = runtime.run(win, "main0001", T.open, {});
+			await vi.advanceTimersByTimeAsync(60_000);
+			await opening;
+			const running = { tabId: "new00003", title: "Kid", state: "running", step: "running bash (build)" };
+			vi.spyOn(runtime.control, "review").mockImplementation(
+				async () => ({ items: [running], usage: { "/s/new.jsonl": { cost: 0.1 } } }) as never,
+			);
+			const frames = () =>
+				win.sent
+					.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
+					.map(([, payload]) => payload as AgentReviewEvent);
+			// A full list goes out once (the child started), as before.
+			for (const observer of activity) observer({ type: "busy", tabId: "new00003" });
+			await vi.advanceTimersByTimeAsync(1_000);
+			const live = vi.spyOn(runtime.control, "liveReview").mockImplementation(async (_opener, last) => ({
+				items: last.items.map(item => ({ ...item, step: "running bash (tests)" })),
+				usage: { "/s/new.jsonl": { cost: 0.4 } },
+			}));
+			await vi.advanceTimersByTimeAsync(40);
+			expect(live).toHaveBeenCalled();
+			expect(frames().at(-1)).toMatchObject({
+				items: [{ step: "running bash (tests)" }],
+				usage: { "/s/new.jsonl": { cost: 0.4 } },
+			});
+			// Nothing moved since: nothing more is sent.
+			const before = frames().length;
+			await vi.advanceTimersByTimeAsync(100);
+			expect(frames()).toHaveLength(before);
 		} finally {
 			vi.useRealTimers();
 		}
