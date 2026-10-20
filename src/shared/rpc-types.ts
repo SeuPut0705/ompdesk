@@ -2769,4 +2769,9 @@ export interface SidecarStatusPayload {
 	 * the page shows. The page keeps its transcript, cards and state; a plain `starting` follows if that omp is gone.
 	 */
 	reconnecting?: true;
+	/**
+	 * On `exited`: Windows ended the session under omp (exit code 0x40010004), so its turn was cut off by the
+	 * machine, not by omp. Main keeps that turn's resume marker for the next launch (`resumeFacts`).
+	 */
+	sessionEnded?: true;
 }

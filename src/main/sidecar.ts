@@ -436,7 +436,7 @@ export class SidecarManager extends EventEmitter {
 	 * fires before the window subscribes; the renderer's boot snapshot
 	 * (SIDECAR_STATUS_GET) reads this so the reason is not lost.
 	 */
-	#statusDetail: Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback"> = {};
+	#statusDetail: Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback" | "sessionEnded"> = {};
 	#options: SidecarOptions;
 	#runtime: OmpRuntime | null = null;
 	#proxyEnvVars: Record<string, string> = {};
@@ -717,7 +717,7 @@ export class SidecarManager extends EventEmitter {
 				return;
 			}
 			if (code === WINDOWS_SESSION_END_EXIT_CODE) {
-				this.#setStatus("exited", "The Windows session ended");
+				this.#setStatus("exited", "The Windows session ended", undefined, undefined, true);
 				return;
 			}
 			// `exit` can fire before stderr has drained, and the boot-failure
@@ -1039,10 +1039,16 @@ export class SidecarManager extends EventEmitter {
 		return true;
 	}
 
-	#setStatus(status: SidecarStatus, message?: string, restart?: SidecarRestartProgress, modelFallback?: string): void {
+	#setStatus(
+		status: SidecarStatus,
+		message?: string,
+		restart?: SidecarRestartProgress,
+		modelFallback?: string,
+		sessionEnded?: true,
+	): void {
 		this.#status = status;
-		this.#statusDetail = { message, restart, modelFallback };
-		this.emit("status", { status, message, cwd: this.#options.cwd, restart, modelFallback });
+		this.#statusDetail = { message, restart, modelFallback, sessionEnded };
+		this.emit("status", { status, message, cwd: this.#options.cwd, restart, modelFallback, sessionEnded });
 	}
 
 	#cleanup(): void {

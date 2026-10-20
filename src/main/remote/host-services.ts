@@ -1329,9 +1329,10 @@ export class LocalHostServices implements HostServices {
 			if (busyChanged || news) this.#resume?.sync();
 		};
 		// "Running" only means something on a live connection: a restart or crash ends the run,
-		// and the asks it had open: the next process never heard of them.
+		// and the asks it had open: the next process never heard of them. Windows ending the session
+		// cut the turn off for the next launch to continue (its marker), so those stay as they were.
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
-			if (payload.status !== "ready")
+			if (payload.status !== "ready" && !payload.sessionEnded)
 				change(() => {
 					tab.run = idleRun();
 					const asked = tab.asks.size > 0;

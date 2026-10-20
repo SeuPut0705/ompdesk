@@ -710,7 +710,9 @@ export class SidecarPool {
 			// it had open: the next process never heard of them, so none may outlive it as "asking".
 			// A paired host's link blip is no such exit: its omp still holds the ask, so the route (and a
 			// reloaded window's card) stays until the host itself reports that omp gone.
-			if (payload.status !== "ready") {
+			// Windows ending the session is neither: the machine cut the turn off, and the next launch
+			// continues it from the marker these facts write, so they stay as they were.
+			if (payload.status !== "ready" && !payload.sessionEnded) {
 				entry.run = idleRun();
 				if (!sidecar.statusFromLink) {
 					for (const [id, owner] of this.#requestOwners) {
