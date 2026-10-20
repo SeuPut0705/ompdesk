@@ -20,11 +20,9 @@ import {
 	APP_AUTO_UPDATE_PREF,
 	AUTO_OPEN_CHANGES_PREF,
 	AUTO_PREVIEW_DEV_SERVER_PREF,
-	BATCH_NOTIFICATIONS_PREF,
 	CLOSE_TO_TRAY_PREF,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
-	SCHEDULED_RETRY_PREF,
 } from "../../shared/desktop-prefs";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../../shared/extension-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
@@ -110,7 +108,6 @@ export const SETTINGS: readonly Setting[] = [
 	}),
 	pref("notifications", "notifications", "general", "Notifications", "알림"),
 	pref("notificationSound", "notificationSound", "general", "Notification sound", "알림 소리"),
-	pref("batchNotifications", BATCH_NOTIFICATIONS_PREF, "general", "Batch notifications", "알림 묶기"),
 	pref("linkPreview", "linkPreview", "general", "Open links in the preview", "링크를 미리보기에서 열기"),
 	pref(
 		"panelDefault",
@@ -132,7 +129,6 @@ export const SETTINGS: readonly Setting[] = [
 		"개발 서버 미리보기 자동 열기",
 	),
 	pref("autoOpenChanges", AUTO_OPEN_CHANGES_PREF, "agent", "Open changes after a turn", "턴이 끝나면 변경 사항 열기"),
-	pref("scheduledRetry", SCHEDULED_RETRY_PREF, "agent", "Retry transient errors later", "일시 오류 나중에 재시도"),
 	pref("autoMode", AUTO_MODE_PREF, "agent", "Auto mode", "자동 모드"),
 	pref("nextPromptSuggestions", NEXT_PROMPT_PREF, "agent", "Next prompt suggestions", "다음 메시지 제안"),
 	pref("nextPromptInline", NEXT_PROMPT_INLINE_PREF, "agent", "Inline completion", "이어서 완성"),

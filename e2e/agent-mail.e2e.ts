@@ -27,7 +27,7 @@ test.beforeEach(async () => {
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, batchNotifications: false }),
+		JSON.stringify({ language: "en", firstRunComplete: true }),
 	);
 	app = await launchApp({
 		project,
@@ -192,7 +192,6 @@ test("a report repeated after a relaunch arrives once: the receiver's journal is
 	const relaunchProfile = await makeRemoteProfile(parentDir, "one", {
 		language: "en",
 		theme: "light",
-		prefs: { batchNotifications: false },
 	});
 	record = relaunchProfile.record;
 	try {

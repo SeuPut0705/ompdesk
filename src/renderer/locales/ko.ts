@@ -5799,8 +5799,6 @@ export const ko: Record<string, string> = {
 	"settings.agent.io": "입출력",
 	"settings.agent.suggestions": "제안",
 	"settings.agent.automation": "스마트 자동화",
-	"settings.gui.scheduledRetry": "일시 오류 뒤 자동 재시도",
-	"settings.gui.scheduledRetryDesc": "30초, 2분, 10분 간격으로 최대 3번 다시 시도해요",
 	"settings.gui.judgeAssist": "작은 판단에 판단 모델 쓰기",
 	"settings.gui.judgeAssistDesc":
 		"판단 모델이 전용 판단 모델이면, OMPdesk가 한 단어로 답하는 질문을 몇 가지 물어봐요. 끝난 턴이 내 답을 기다리는지, 새 세션 제목이 어울리는지, 에이전트가 연 페이지에 오류가 보이는지요. 질문 하나에 약 $0.00004, 0.5초 안쪽이에요. 다른 판단 모델이면 아무것도 달라지지 않아요.",
@@ -5833,8 +5831,6 @@ export const ko: Record<string, string> = {
 	"settings.gui.agentControlManage": "에이전트가 다른 세션 관리하기",
 	"settings.gui.agentControlManageDesc":
 		"기본값은 켜짐: 에이전트가 열지 않은 세션을 중단하거나 닫고, 세션의 브랜치를 병합하고, 예약 실행을 만들고, Autopilot(릴리스·main 제외)을 시작할 때 묻지 않아요. 에이전트가 열지 않은 저장된 세션의 삭제는 계속 물어봐요. 끄면 이 모두를 먼저 물어봐요.",
-	"settings.gui.batchNotifications": "알림 묶기",
-	"settings.gui.batchNotificationsDesc": "여러 작업이 끝나면 알림을 하나로 묶어요",
 	"settings.gui.nextPromptSuggestions": "다음 메시지 제안",
 	"settings.gui.nextPromptSuggestionsDesc":
 		"답이 끝날 때마다 이어서 보낼 만한 말을 제안해요. 가장 알맞은 제안은 입력창 안내 문구로, 나머지는 입력창 위 칩으로 보여 줘요. Tab으로 받아들일 수 있어요.",

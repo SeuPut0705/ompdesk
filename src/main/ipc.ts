@@ -39,7 +39,6 @@ import {
 	parseAgentMessage,
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
-import { BATCH_NOTIFICATIONS_PREF } from "../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -916,7 +915,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			notificationBatcher.notify(
 				windowId,
 				{ title: notice.title, body: notice.body, tabId, kind: notice.kind },
-				prefsStore.get(BATCH_NOTIFICATIONS_PREF) !== false,
 			);
 		},
 		text: (key, params) => mainT(key, undefined, params),
@@ -1515,11 +1513,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					notificationBatcher.dropWindow(winId);
 				});
 			}
-			// Bursts fold into one summary unless the pref is off (notification-batch.ts).
+			// Bursts fold into one summary (notification-batch.ts).
 			notificationBatcher.notify(
 				winId,
 				{ title: notice.title, body: notice.body, tabId: notice.tabId, kind: notice.kind },
-				prefsStore.get(BATCH_NOTIFICATIONS_PREF) !== false,
 			);
 		},
 	});

@@ -26,12 +26,6 @@ export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 /** Install a downloaded OMPdesk update and restart by itself at a quiet moment (Settings › Updates & about; default off; only `true` turns it on). */
 export const APP_AUTO_UPDATE_PREF = "appAutoUpdate";
 
-/** Retry a turn that ended in a transient error after 30 s, 2 min, 10 min (default on; only `false` turns it off). */
-export const SCHEDULED_RETRY_PREF = "scheduledRetry";
-
-/** Fold several tabs finishing within seconds into one notification (default on; only `false` turns it off). */
-export const BATCH_NOTIFICATIONS_PREF = "batchNotifications";
-
 /** A dev server's address in a bash result opens the Preview for the focused tab (default off; only `true` turns it on). */
 export const AUTO_PREVIEW_DEV_SERVER_PREF = "autoPreviewDevServer";
 

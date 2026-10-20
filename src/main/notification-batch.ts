@@ -110,11 +110,11 @@ export class NotificationBatcher {
 		this.#deps = deps;
 	}
 
-	/** `enabled` is the user's pref; without it, a `kind` or a tab, the notice shows as it always did. */
-	notify(windowId: number, notice: BatchNotice, enabled: boolean): void {
+	/** Without a `kind` or a tab the notice shows as it always did. */
+	notify(windowId: number, notice: BatchNotice): void {
 		const shown: ShownNotice = { title: notice.title, body: notice.body ?? "", tabId: notice.tabId ?? null };
 		const { kind, tabId } = notice;
-		if (!enabled || !kind || !tabId) {
+		if (!kind || !tabId) {
 			this.#deps.show(windowId, shown, kind ? { kind, summary: null } : null);
 			return;
 		}

@@ -1,0 +1,23 @@
+/** Prefs whose switch was removed; `dropRetiredPrefs` deletes them so a stale value never lingers in prefs.json. */
+export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
+	{
+		key: "modelPool",
+		why: "The model pool was removed. The journal's `ompdesk.model-pool` entries stay in old sessions and are ignored.",
+	},
+	{
+		key: "worktreeAutoClean",
+		why: "Agent worktrees are swept by OMPdesk's own landed rule, always (worktree-orphans.ts); the switch that ran stock's `omp worktree clear` on a timer is gone.",
+	},
+	{
+		key: "batchNotifications",
+		why: "Desktop notifications and Web Push always batch (notification-batch.ts); the switch is gone.",
+	},
+	{
+		key: "scheduledRetry",
+		why: "The scheduled retry follows stock `retry.enabled` alone (turn-resume.ts); the switch is gone.",
+	},
+];
+
+export function dropRetiredPrefs(store: { delete(key: string): void }): void {
+	for (const { key } of RETIRED_PREFS) store.delete(key);
+}

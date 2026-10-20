@@ -65,7 +65,7 @@ test("runs Autopilot in a paired device's repository and changes that device's s
 		language: "en",
 		theme: "light",
 		port: hostProfile.port,
-		prefs: { batchNotifications: false, agentControlManage: true },
+		prefs: { agentControlManage: true },
 	});
 	host = await launchRemote(hostProfile);
 	client = await launchRemote(clientProfile);

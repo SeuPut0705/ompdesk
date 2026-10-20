@@ -78,7 +78,6 @@ export async function makeApProfile(options: ApProfileOptions = {}): Promise<ApP
 			themeName: options.theme ?? "light",
 			firstRunComplete: true,
 			lastProject: project,
-			batchNotifications: false,
 			...(options.prefs ?? {}),
 		}),
 	);

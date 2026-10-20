@@ -57,7 +57,7 @@ function event(tabId: string | undefined, kind: NoticeKind | undefined, title = 
 describe("NotificationBatcher", () => {
 	it("shows a single event at once and leaves it alone when the window ends", () => {
 		const { batcher, shown, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
 		expect(shown).toEqual([{ title: "Tab a", body: "completion body", tabId: "a", closed: false }]);
 		advance(4000);
 		expect(shown).toHaveLength(1);
@@ -66,11 +66,11 @@ describe("NotificationBatcher", () => {
 
 	it("shows the first event at once, then one summary at 4 s that replaces it", () => {
 		const { batcher, shown, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
 		advance(1000);
-		batcher.notify(1, event("b", "completion"), true);
-		batcher.notify(1, event("c", "error"), true);
-		batcher.notify(1, event("d", "ask"), true);
+		batcher.notify(1, event("b", "completion"));
+		batcher.notify(1, event("c", "error"));
+		batcher.notify(1, event("d", "ask"));
 		expect(shown).toHaveLength(1);
 		advance(2999);
 		expect(shown).toHaveLength(1);
@@ -87,22 +87,22 @@ describe("NotificationBatcher", () => {
 
 	it("points the click at needs-you, then failed, then the most recent finished", () => {
 		const a = setup();
-		a.batcher.notify(1, event("a", "completion"), true);
-		a.batcher.notify(1, event("b", "error"), true);
-		a.batcher.notify(1, event("c", "completion"), true);
+		a.batcher.notify(1, event("a", "completion"));
+		a.batcher.notify(1, event("b", "error"));
+		a.batcher.notify(1, event("c", "completion"));
 		a.advance(4000);
 		expect(a.shown.at(-1)?.tabId).toBe("b");
 
 		const b = setup();
-		b.batcher.notify(1, event("a", "completion"), true);
-		b.batcher.notify(1, event("b", "completion"), true);
-		b.batcher.notify(1, event("c", "completion"), true);
+		b.batcher.notify(1, event("a", "completion"));
+		b.batcher.notify(1, event("b", "completion"));
+		b.batcher.notify(1, event("c", "completion"));
 		b.advance(4000);
 		expect(b.shown.at(-1)?.tabId).toBe("c");
 
 		const c = setup();
-		c.batcher.notify(1, event("a", "ask"), true);
-		c.batcher.notify(1, event("b", "error"), true);
+		c.batcher.notify(1, event("a", "ask"));
+		c.batcher.notify(1, event("b", "error"));
 		c.advance(4000);
 		expect(c.shown.at(-1)?.tabId).toBe("a");
 		expect(c.shown.at(-1)?.title).toBe("1 failed · 1 needs you");
@@ -110,10 +110,10 @@ describe("NotificationBatcher", () => {
 
 	it("counts a tab once, the highest-priority kind winning", () => {
 		const { batcher, shown, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
-		batcher.notify(1, event("a", "ask"), true);
-		batcher.notify(1, event("a", "completion"), true);
-		batcher.notify(1, event("b", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
+		batcher.notify(1, event("a", "ask"));
+		batcher.notify(1, event("a", "completion"));
+		batcher.notify(1, event("b", "completion"));
 		advance(4000);
 		expect(shown.at(-1)?.title).toBe("1 task finished · 1 needs you");
 		expect(shown.at(-1)?.tabId).toBe("a");
@@ -121,8 +121,8 @@ describe("NotificationBatcher", () => {
 
 	it("keeps two windows apart", () => {
 		const { batcher, shown, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
-		batcher.notify(2, event("b", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
+		batcher.notify(2, event("b", "completion"));
 		expect(shown).toHaveLength(2);
 		advance(4000);
 		expect(shown).toHaveLength(2);
@@ -131,11 +131,11 @@ describe("NotificationBatcher", () => {
 
 	it("opens a new batch for an event after the window ended", () => {
 		const { batcher, shown, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
-		batcher.notify(1, event("b", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
+		batcher.notify(1, event("b", "completion"));
 		advance(4000);
 		expect(shown).toHaveLength(2);
-		batcher.notify(1, event("c", "completion"), true);
+		batcher.notify(1, event("c", "completion"));
 		expect(shown).toHaveLength(3);
 		expect(shown[2]).toMatchObject({ title: "Tab c", closed: false });
 		advance(4000);
@@ -144,28 +144,26 @@ describe("NotificationBatcher", () => {
 
 	it("does not slide the window with followers", () => {
 		const { batcher, shown, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
 		advance(3000);
-		batcher.notify(1, event("b", "completion"), true);
+		batcher.notify(1, event("b", "completion"));
 		advance(1000);
 		expect(shown).toHaveLength(2);
 	});
 
-	it("bypasses batching without a kind, without a tab, or when the pref is off", () => {
+	it("bypasses batching without a kind or without a tab", () => {
 		const { batcher, shown, timers } = setup();
-		batcher.notify(1, event("a", undefined), true);
-		batcher.notify(1, event(undefined, "completion"), true);
-		batcher.notify(1, event("b", "completion"), false);
-		batcher.notify(1, event("c", "completion"), false);
-		expect(shown.map(entry => entry.tabId)).toEqual(["a", null, "b", "c"]);
+		batcher.notify(1, event("a", undefined));
+		batcher.notify(1, event(undefined, "completion"));
+		expect(shown.map(entry => entry.tabId)).toEqual(["a", null]);
 		expect(timers.size).toBe(0);
 	});
 
 	it("cancels a window's timer when the window goes away, and every timer on dispose", () => {
 		const { batcher, shown, timers, advance } = setup();
-		batcher.notify(1, event("a", "completion"), true);
-		batcher.notify(1, event("b", "completion"), true);
-		batcher.notify(2, event("c", "completion"), true);
+		batcher.notify(1, event("a", "completion"));
+		batcher.notify(1, event("b", "completion"));
+		batcher.notify(2, event("c", "completion"));
 		expect(timers.size).toBe(2);
 		batcher.dropWindow(1);
 		expect(timers.size).toBe(1);
@@ -206,9 +204,9 @@ describe("NotificationBatcher", () => {
 
 		it("hands the sink each notice's kind: a lone event's own, a summary's strongest with its tally", () => {
 			const { batcher, infos, end } = sink();
-			batcher.notify(1, event("a", "completion"), true);
-			batcher.notify(1, event("b", "error"), true);
-			batcher.notify(1, event("c", "completion"), true);
+			batcher.notify(1, event("a", "completion"));
+			batcher.notify(1, event("b", "error"));
+			batcher.notify(1, event("c", "completion"));
 			end();
 			expect(infos.map(item => item.info)).toEqual([
 				{ kind: "completion", summary: null },
@@ -216,24 +214,24 @@ describe("NotificationBatcher", () => {
 			]);
 		});
 
-		it("hands over the kind when batching is off, and null for a notice without one", () => {
+		it("hands over the kind of a lone event, and null for a notice without one", () => {
 			const { batcher, infos } = sink();
-			batcher.notify(1, event("a", "ask"), false);
-			batcher.notify(1, event("b", undefined), true);
+			batcher.notify(1, event("a", "ask"));
+			batcher.notify(1, event("b", undefined));
 			expect(infos.map(item => item.info)).toEqual([{ kind: "ask", summary: null }, null]);
 		});
 
 		it("drops a retracted ask from the summary, and sends no summary when nothing is left", () => {
 			const a = sink();
-			a.batcher.notify(1, event("a", "completion"), true);
-			a.batcher.notify(1, event("b", "ask"), true);
+			a.batcher.notify(1, event("a", "completion"));
+			a.batcher.notify(1, event("b", "ask"));
 			a.batcher.retract(1, "b");
 			a.end();
 			expect(a.infos.at(-1)?.title).toBe("1 task finished");
 
 			const b = sink();
-			b.batcher.notify(1, event("a", "ask"), true);
-			b.batcher.notify(1, event("b", "ask"), true);
+			b.batcher.notify(1, event("a", "ask"));
+			b.batcher.notify(1, event("b", "ask"));
 			b.batcher.retract(1, "a");
 			b.batcher.retract(1, "b");
 			b.end();
@@ -243,8 +241,8 @@ describe("NotificationBatcher", () => {
 		it("leaves a finished or failed entry alone, and an unknown window", () => {
 			const { batcher, infos, end } = sink();
 			batcher.retract(9, "x");
-			batcher.notify(1, event("a", "completion"), true);
-			batcher.notify(1, event("b", "error"), true);
+			batcher.notify(1, event("a", "completion"));
+			batcher.notify(1, event("b", "error"));
 			batcher.retract(1, "a");
 			batcher.retract(1, "b");
 			end();

@@ -95,8 +95,6 @@ export interface WebHostDeps {
 	log?: ((message: string) => void) | undefined;
 	/** The host's UI language: pushes read in it. */
 	language: () => UiLanguage;
-	/** The user's `batchNotifications` pref: bursts of pushes fold into one summary unless it is off. */
-	batchNotifications: () => boolean;
 }
 
 const DeviceId = z.string().min(1).max(128);
@@ -184,7 +182,6 @@ export class WebHost {
 			visible: deviceId => this.router.isDeviceVisible(deviceId),
 			tabFacts: deps.tabs.facts,
 			language: deps.language,
-			batching: deps.batchNotifications,
 			setTimer: deps.pushTimers?.setTimer ?? ((fn, ms) => setTimeout(fn, ms).unref()),
 			clearTimer: deps.pushTimers?.clearTimer ?? (handle => clearTimeout(handle as NodeJS.Timeout)),
 		});

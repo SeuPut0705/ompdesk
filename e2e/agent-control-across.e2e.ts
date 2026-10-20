@@ -48,7 +48,6 @@ test.describe("on this computer", () => {
 			JSON.stringify({
 				language: "en",
 				firstRunComplete: true,
-				batchNotifications: false,
 				agentControlManage: true,
 			}),
 		);
@@ -156,7 +155,6 @@ test.describe("on a paired device", () => {
 			language: "en",
 			theme: "light",
 			port: hostProfile.port,
-			prefs: { batchNotifications: false },
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
@@ -398,7 +396,6 @@ test.describe("on a paired device", () => {
 			language: "en",
 			theme: "light",
 			port: hostProfile.port,
-			prefs: { batchNotifications: false },
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);

@@ -5810,8 +5810,6 @@ export const en: Record<string, string> = {
 	"settings.agent.io": "Input & output",
 	"settings.agent.suggestions": "Suggestions",
 	"settings.agent.automation": "Smart automation",
-	"settings.gui.scheduledRetry": "Retry after temporary errors",
-	"settings.gui.scheduledRetryDesc": "Waits 30 s, then 2 min, then 10 min (3 tries)",
 	"settings.gui.judgeAssist": "Use the judge model for small decisions",
 	"settings.gui.judgeAssistDesc":
 		"When the judge model is a native decision model, OMPdesk asks it a few one-word questions: whether a finished turn needs you, whether a new session title fits, whether a page the agent opened shows an error. About $0.00004 a question, under half a second; with any other judge model nothing changes.",
@@ -5845,8 +5843,6 @@ export const en: Record<string, string> = {
 	"settings.gui.agentControlManage": "Let agents manage other sessions",
 	"settings.gui.agentControlManageDesc":
 		"On by default: agents may stop or close sessions they did not open, merge a session's branch, schedule runs and start Autopilot (not a release or main) without asking. Deleting a saved session they did not open still asks. Off: all of these ask first.",
-	"settings.gui.batchNotifications": "Batch notifications",
-	"settings.gui.batchNotificationsDesc": "Several finished tasks become one notification",
 	"settings.gui.nextPromptSuggestions": "Suggest my next message",
 	"settings.gui.nextPromptSuggestionsDesc":
 		"After each reply, offers what you might say next: the best guess as the composer's placeholder (Tab accepts it), the others as chips above it.",

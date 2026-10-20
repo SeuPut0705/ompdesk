@@ -230,8 +230,6 @@ interface Harness {
 	retries: Array<IpcScheduledRetry | undefined>;
 	/** The retry timers it armed; a test fires one the way a clock would. */
 	timers: Array<{ run: () => void; ms: number; cancelled: boolean }>;
-	/** Settings › Agent behavior › Smart automation › retry. */
-	prefs: { scheduledRetry: boolean };
 	/** Every `setResuming` call (the calm "continuing" row), in order. */
 	resuming: Array<[string, boolean]>;
 	/** The tabs whose process the resume started, in order. */
@@ -250,8 +248,6 @@ function setup(
 		answers?: Partial<Record<string, RpcResponse | Error>>;
 		/** The tab's sidecar status when the resume first looks (default ready). */
 		status?: string;
-		/** Settings pref for the scheduled retry (default on). */
-		scheduledRetry?: boolean;
 		/** An injected goal resume (autopilot's); default: the tab's `set_goal` resume. */
 		resumeGoal?: (tabId: string) => Promise<void>;
 		/** Told how a tab's launch continuation ended for its goal. */
@@ -265,7 +261,6 @@ function setup(
 	const awaiting: Array<[string, boolean]> = [];
 	const retries: Array<IpcScheduledRetry | undefined> = [];
 	const timers: Array<{ run: () => void; ms: number; cancelled: boolean }> = [];
-	const prefs = { scheduledRetry: options.scheduledRetry ?? true };
 	const resuming: Array<[string, boolean]> = [];
 	const started: string[] = [];
 	const logs: Array<[string, ResumeLogDetails]> = [];
@@ -312,7 +307,6 @@ function setup(
 		},
 		enabled: () => state.enabled,
 		scheduledRetry: {
-			enabled: () => prefs.scheduledRetry,
 			delays: SCHEDULED_RETRY_DELAYS_MS,
 			schedule: (run, ms) => {
 				const timer = { run, ms, cancelled: false };
@@ -351,7 +345,6 @@ function setup(
 		statusListeners: listeners,
 		retries,
 		timers,
-		prefs,
 		resuming,
 		started,
 		logs,
@@ -1054,8 +1047,8 @@ describe("TurnResume connection wait", () => {
 	});
 
 	it("an ordinary failure while online is a failure: no waiting, no retry", async () => {
-		// The scheduled retry (its own describe below) is off here: this is about the connection wait.
-		h = setup({ online: true, scheduledRetry: false });
+		// Stock's retry is off here, so the scheduled retry (its own describe below) stays out of a test about the connection wait.
+		h = setup({ online: true, answers: { get_settings: SETTINGS_OFF } });
 		h.resume.launch();
 		h.facts.push(fact({ running: false, lastRun: { stopReason: "error", errorMessage: "fetch failed: ENOTFOUND" } }));
 		h.resume.sync();
@@ -1266,6 +1259,13 @@ const SETTINGS_ON: RpcResponse = {
 	data: { values: { "retry.enabled": true } },
 };
 
+const SETTINGS_OFF: RpcResponse = {
+	type: "response",
+	command: "get_settings",
+	success: true,
+	data: { values: { "retry.enabled": false } },
+};
+
 const SERVER_DOWN: IpcTabRunOutcome = { stopReason: "error", errorMessage: "503 Service unavailable" };
 
 /** Longer than `settle`: the retry's chain asks the tab's settings, waits for the sidecar, then sends. */
@@ -1353,7 +1353,6 @@ describe("TurnResume scheduled retry", () => {
 	});
 
 	it.each([
-		["the pref is off", { options: { scheduledRetry: false }, patch: {} }],
 		["the tab is a paired device's hosted tab", { options: {}, patch: { peer: "device-x" } }],
 		["the tab has no session file", { options: {}, patch: { sessionFile: undefined } }],
 		["the user pressed Stop", { options: {}, patch: { stopped: true } }],
@@ -1366,7 +1365,7 @@ describe("TurnResume scheduled retry", () => {
 	it.each([
 		[
 			"stock's own retry setting is off",
-			{ type: "response", command: "get_settings", success: true, data: { values: { "retry.enabled": false } } },
+			SETTINGS_OFF,
 		],
 		["it cannot be read", { type: "response", command: "get_settings", success: false, error: "bridge down" }],
 		[
@@ -1476,12 +1475,6 @@ describe("TurnResume scheduled retry", () => {
 			},
 		],
 		[
-			"the setting is switched off",
-			() => {
-				h.prefs.scheduledRetry = false;
-			},
-		],
-		[
 			"the tab closes",
 			() => {
 				h.facts.length = 0;
@@ -1511,12 +1504,6 @@ describe("TurnResume scheduled retry", () => {
 
 	it("sends nothing when stock's retry setting was switched off while it waited", async () => {
 		await failed();
-		const off: RpcResponse = {
-			type: "response",
-			command: "get_settings",
-			success: true,
-			data: { values: { "retry.enabled": false } },
-		};
 		// The sidecar's scripted answer changes: the fire re-asks.
 		const commands = h.commands;
 		commands.length = 0;
@@ -1525,7 +1512,7 @@ describe("TurnResume scheduled retry", () => {
 			rpcClient: {
 				command: async (cmd: RpcCommand) => {
 					commands.push(cmd);
-					return cmd.type === "get_settings" ? off : RETRIED;
+					return cmd.type === "get_settings" ? SETTINGS_OFF : RETRIED;
 				},
 			},
 		} as unknown as SidecarLike);

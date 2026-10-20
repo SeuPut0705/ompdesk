@@ -186,7 +186,6 @@ beforeEach(async () => {
 		whois: async () => null,
 		onUnpairedAuth: () => undefined,
 		language: () => language.current,
-		batchNotifications: () => true,
 		pushTransport: transport,
 		pushTimers: {
 			setTimer: (fn, ms) => {

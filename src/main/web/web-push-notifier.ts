@@ -49,8 +49,6 @@ export interface WebPushNotifierDeps {
 	/** A live tab's facts (`SidecarPool.tabFacts`); null once the tab is gone. */
 	tabFacts: (tabId: string) => TabFacts | null;
 	language: () => UiLanguage;
-	/** The user's `batchNotifications` pref. */
-	batching: () => boolean;
 	setTimer: (fn: () => void, ms: number) => unknown;
 	clearTimer: (handle: unknown) => void;
 }
@@ -217,7 +215,6 @@ export class WebPushNotifier {
 
 	/** Every device that wants `kind` and is not looking at its page gets the event into its own notification window. */
 	#feed(kind: NoticeKind, tabId: string, title: string, body: string, ask?: OpenAsk): void {
-		const batching = this.#deps.batching();
 		for (const device of this.#deps.devices.list()) {
 			const push = pushSettingsOf(device);
 			if (!push.subscription || !push.categories.includes(kind) || this.#deps.visible(device.deviceId)) continue;
@@ -225,7 +222,6 @@ export class WebPushNotifier {
 			this.#batcher.notify(
 				this.#keyFor(device.deviceId),
 				{ title: clip(title, TITLE_MAX) || FALLBACK_TITLE, body: clip(body, BODY_MAX), tabId, kind },
-				batching,
 			);
 		}
 	}

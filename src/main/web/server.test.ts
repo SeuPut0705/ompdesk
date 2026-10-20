@@ -119,7 +119,6 @@ beforeEach(async () => {
 		whois: async address => peers.get(address) ?? null,
 		onUnpairedAuth: unpaired,
 		language: () => "en",
-		batchNotifications: () => true,
 	};
 	host = new WebHost(deps);
 	({ port } = await host.start({ port: 0 }));

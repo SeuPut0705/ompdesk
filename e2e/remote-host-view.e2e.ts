@@ -27,7 +27,6 @@ test("the host's own window lists, views and works in a session its paired devic
 			language: "en",
 			theme: "light",
 			port: hostProfile.port,
-			prefs: { batchNotifications: false },
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);

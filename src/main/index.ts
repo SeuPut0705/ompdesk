@@ -52,13 +52,11 @@ import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	APP_AUTO_UPDATE_PREF,
-	BATCH_NOTIFICATIONS_PREF,
 	CLOSE_TO_TRAY_NOTICE_PREF,
 	CLOSE_TO_TRAY_PREF,
 	closeToTrayEnabled,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
-	SCHEDULED_RETRY_PREF,
 } from "../shared/desktop-prefs";
 import { ECC_PREF } from "../shared/ecc";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
@@ -142,6 +140,7 @@ import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/loc
 import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
 import { createTray, destroyTray, hasTray } from "./tray";
+import { dropRetiredPrefs } from "./retired-prefs";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import {
 	appAutoUpdatePrefChanged,
@@ -289,12 +288,7 @@ let mainPrefsStore: Store<MainPrefs> | null = null;
 function prefsStore(): Store<MainPrefs> {
 	if (!mainPrefsStore) {
 		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
-		// The model pool was removed; its saved presets (pref `modelPool`) are dropped once. The journal's
-		// `ompdesk.model-pool` entries stay in old sessions and are ignored.
-		(mainPrefsStore as unknown as Store<Record<string, unknown>>).delete("modelPool");
-		// Agent worktrees are now swept by OMPdesk's own landed rule, always (worktree-orphans.ts); the switch that ran
-		// stock's `omp worktree clear` on a timer is gone.
-		(mainPrefsStore as unknown as Store<Record<string, unknown>>).delete("worktreeAutoClean");
+		dropRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
 		// A theme the app no longer ships (the pre-curated set) is replaced by its nearest successor, so the
 		// stored pref never names a missing theme and the saved window opens in the right scheme.
 		const prefs = mainPrefsStore as unknown as Store<Record<string, unknown>>;
@@ -1322,7 +1316,6 @@ app.whenReady().then(() => {
 		},
 		enabled: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
 		scheduledRetry: {
-			enabled: () => prefs.get(SCHEDULED_RETRY_PREF) !== false,
 			// OMP_GUI_RETRY_DELAYS_MS (comma list of ms) shortens the waits for e2e runs.
 			delays: retryDelays(process.env.OMP_GUI_RETRY_DELAYS_MS),
 			schedule: (run, ms) => {
@@ -1414,7 +1407,6 @@ app.whenReady().then(() => {
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
-			if (key === SCHEDULED_RETRY_PREF) turnResume.sync();
 			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
 			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
@@ -1453,7 +1445,6 @@ app.whenReady().then(() => {
 		onUnpairedAuth: () =>
 			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
-		batchNotifications: () => prefs.get(BATCH_NOTIFICATIONS_PREF) !== false,
 		log: message => console.warn(`[web-push] ${message}`),
 	});
 	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).

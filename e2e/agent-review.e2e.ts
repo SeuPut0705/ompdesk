@@ -44,7 +44,7 @@ test.beforeEach(async () => {
 	record = path.join(root, "rpc.jsonl");
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, batchNotifications: false }),
+		JSON.stringify({ language: "en", firstRunComplete: true }),
 	);
 	app = await launchApp({
 		project,

@@ -195,20 +195,6 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"changes diff open automatically edits turn end side panel smart automation 변경 사항 자동 열기 편집 패널 스마트 자동화",
 	},
 	{
-		id: "batchNotifications",
-		section: "agent",
-		labelKey: "settings.gui.batchNotifications",
-		aliases:
-			"batch group combine bundle notification notifications summary finished tasks smart automation 알림 묶기 묶음 합치기 요약 완료 작업 스마트 자동화",
-	},
-	{
-		id: "scheduledRetry",
-		section: "agent",
-		labelKey: "settings.gui.scheduledRetry",
-		aliases:
-			"retry again later temporary transient error server overloaded 503 timeout connection backoff automatic smart automation 재시도 다시 시도 일시 오류 서버 과부하 시간 초과 연결 자동 스마트 자동화",
-	},
-	{
 		id: "judgeAssist",
 		section: "agent",
 		labelKey: "settings.gui.judgeAssist",

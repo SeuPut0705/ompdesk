@@ -30,7 +30,7 @@ async function start(prefs: Record<string, unknown> = {}): Promise<void> {
 	record = path.join(profile, "rpc.jsonl");
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language: "en", firstRunComplete: true, batchNotifications: false, ...prefs }),
+		JSON.stringify({ language: "en", firstRunComplete: true, ...prefs }),
 	);
 	app = await launchApp({
 		project,

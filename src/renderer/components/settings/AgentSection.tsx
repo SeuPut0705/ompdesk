@@ -4,14 +4,12 @@ import { AutoModeRow } from "./AutoModeRow";
 import { AutoChangesRow, AutoPreviewRow } from "./AutoPanelRows";
 import { AutopilotSettingsRows } from "./AutopilotRows";
 import { AutoTitleRow } from "./AutoTitleRow";
-import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
 import { EccRow } from "./EccRow";
 import { JudgeAssistRow } from "./JudgeAssistRow";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
 import { PstackRow } from "./PstackRow";
-import { ScheduledRetryRow } from "./ScheduledRetryRow";
 import { SchemaField } from "./SchemaField";
 import { SettingsAdvanced, SettingsSection } from "./SettingsLayout";
 import type { AgentSettingsGroup } from "./settings-catalog";
@@ -70,8 +68,6 @@ export function AgentSection() {
 			<SettingsSection id="settings-agent-automation" scope="app" title={t("settings.agent.automation")}>
 				<AutoPreviewRow />
 				<AutoChangesRow />
-				<BatchNotificationsRow />
-				<ScheduledRetryRow />
 				<JudgeAssistRow />
 				<AutoModeRow />
 				<PstackRow />

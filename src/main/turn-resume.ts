@@ -287,9 +287,8 @@ export interface ResumeDeps {
 	enabled(): boolean;
 	/** A quit is underway: the pool is being torn down and must not rewrite the markers. */
 	frozen(): boolean;
-	/** Settings › Agent behavior › Retry failed turns later: the backoff retry after transient errors. */
+	/** The backoff retry after transient errors; stock `retry.enabled` (Settings › Agent behavior) turns it on and off. */
 	scheduledRetry: {
-		enabled(): boolean;
 		/** Waits before each attempt; its length is the attempt count. */
 		delays: readonly number[];
 		/** Run `run` after `ms`; the returned function cancels it. */
@@ -510,10 +509,9 @@ export class TurnResume {
 		this.#planRetry(fact, outcome);
 	}
 
-	/** Whether a scheduled retry may exist for this failure now: every condition the user's choice puts on it. */
+	/** Whether a scheduled retry may exist for this failure now: every condition but stock `retry.enabled`, which `#stockRetryOn` reads at arm and at fire. */
 	#mayRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): boolean {
 		return (
-			this.#deps.scheduledRetry.enabled() &&
 			!this.#deps.frozen() &&
 			// A hosted tab is a paired device's invisible spend; a host's tab is its host's.
 			!fact.peer &&

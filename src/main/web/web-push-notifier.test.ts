@@ -33,7 +33,7 @@ const subscriptionOf = (deviceId: string): WebPushSubscriptionJson => ({
 	keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
 });
 
-function rig(options: { language?: UiLanguage; batching?: boolean } = {}) {
+function rig(options: { language?: UiLanguage } = {}) {
 	const devices = new WebDevices(dir);
 	const sent: Sent[] = [];
 	const visible = new Set<string>();
@@ -54,7 +54,6 @@ function rig(options: { language?: UiLanguage; batching?: boolean } = {}) {
 		visible: deviceId => visible.has(deviceId),
 		tabFacts: tabId => tabs.get(tabId) ?? null,
 		language: () => options.language ?? "en",
-		batching: () => options.batching ?? true,
 		setTimer: (fn, ms) => {
 			const handle = nextTimer++;
 			timers.set(handle, { at: now + ms, fn });
@@ -481,19 +480,6 @@ describe("batching (notification-batch.ts)", () => {
 		r.notifier.handle({ type: "askClosed", tabId: "b", requestId: "q2" });
 		r.advance(4000);
 		expect(r.sent.filter(item => item.payload.kind === "batch")).toEqual([]);
-	});
-
-	it("pushes every event on its own when the pref is off", () => {
-		const r = rig({ batching: false });
-		r.phone("iPhone");
-		r.tab("a");
-		r.tab("b");
-		r.notifier.handle({ type: "idle", tabId: "a", outcome: done() });
-		r.advance(COMPLETION_DEBOUNCE_MS);
-		r.notifier.handle({ type: "idle", tabId: "b", outcome: done() });
-		r.advance(COMPLETION_DEBOUNCE_MS);
-		r.advance(4000);
-		expect(r.sent.map(item => item.payload.tabId)).toEqual(["a", "b"]);
 	});
 
 	it("hides the tab names in a summary for a device that hides content", () => {
