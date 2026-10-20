@@ -11,6 +11,8 @@ const electron = vi.hoisted(() => ({
 	relaunches: 0,
 	exits: 0,
 	softwareCalls: 0,
+	/** What `app.getGPUInfo("basic").gpuDevice` answers. */
+	gpuDevices: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("electron", () => ({
@@ -27,6 +29,7 @@ vi.mock("electron", () => ({
 		exit: () => {
 			electron.exits++;
 		},
+		getGPUInfo: async () => ({ gpuDevice: electron.gpuDevices }),
 	},
 }));
 
@@ -51,6 +54,7 @@ beforeEach(() => {
 	electron.relaunches = 0;
 	electron.exits = 0;
 	electron.softwareCalls = 0;
+	electron.gpuDevices = [];
 });
 
 afterEach(() => {
@@ -117,5 +121,84 @@ describe("GPU crash relaunch", () => {
 		expect(electron.softwareCalls).toBe(1);
 		safe.handleGpuProcessGone(crash);
 		expect(electron.relaunches).toBe(0);
+	});
+});
+
+// Intel iGPU of a laptop, before and after the user updates its driver. Chromium's basic info names the real
+// adapter even in a software launch; the SwiftShader device (vendor 0xffff) is never an identity.
+const iGpu = (driverVersion: string) => ({
+	active: true,
+	vendorId: 0x8086,
+	deviceId: 0x9a49,
+	driverVersion,
+	driverDate: "2021-6-14",
+});
+const swiftShader = { active: false, vendorId: 0xffff, deviceId: 0xffff, driverVersion: "5.0.0" };
+
+/** A launch that also reads the GPU once ready, as index.ts does. */
+async function launchWith(device: Record<string, unknown>): Promise<typeof GpuFallback> {
+	electron.gpuDevices = [swiftShader, device];
+	const gpu = await launch();
+	await gpu.recordGpuIdentity();
+	return gpu;
+}
+
+function readLog(): string {
+	return readFileSync(join(electron.userData, "logs", "gui-runtime.jsonl"), "utf8");
+}
+
+describe("hardware acceleration comes back by itself", () => {
+	it("stays in software while the driver that crashed is still installed", async () => {
+		(await launchWith(iGpu("27.20.100.9466"))).handleGpuProcessGone(crash);
+		expect(electron.relaunches).toBe(1);
+		await launchWith(iGpu("27.20.100.9466"));
+		await launchWith(iGpu("27.20.100.9466"));
+		expect(electron.softwareCalls).toBe(2);
+	});
+
+	it("tries hardware once after the driver changed, and keeps it when that launch stays up", async () => {
+		(await launchWith(iGpu("27.20.100.9466"))).handleGpuProcessGone(crash);
+		// The software launch after the update sees the new driver.
+		await launchWith(iGpu("31.0.101.5186"));
+		expect(electron.softwareCalls).toBe(1);
+		const trial = await launchWith(iGpu("31.0.101.5186"));
+		expect(electron.softwareCalls).toBe(1);
+		expect(readLog()).toContain("trying hardware acceleration again (driver-changed)");
+		trial.confirmHardwareTrial();
+		expect(readLog()).toContain("hardware acceleration works again");
+		await launchWith(iGpu("31.0.101.5186"));
+		expect(electron.softwareCalls).toBe(1);
+	});
+
+	it("tries hardware once only: a trial launch that ends without a verdict leaves the next one in software", async () => {
+		(await launchWith(iGpu("27.20.100.9466"))).handleGpuProcessGone(crash);
+		await launchWith(iGpu("31.0.101.5186"));
+		await launchWith(iGpu("31.0.101.5186")); // the trial, closed before it proved anything
+		await launchWith(iGpu("31.0.101.5186"));
+		expect(electron.softwareCalls).toBe(2);
+	});
+
+	it("a crash in the trial goes back to software without a second relaunch inside the cap", async () => {
+		(await launchWith(iGpu("27.20.100.9466"))).handleGpuProcessGone(crash);
+		await launchWith(iGpu("31.0.101.5186"));
+		const trial = await launchWith(iGpu("31.0.101.5186"));
+		trial.handleGpuProcessGone(crash);
+		expect(electron.relaunches).toBe(1);
+		expect(electron.exits).toBe(1);
+		// Back in software with the new driver recorded: the same driver does not try again.
+		await launchWith(iGpu("31.0.101.5186"));
+		await launchWith(iGpu("31.0.101.5186"));
+		expect(electron.softwareCalls).toBe(3);
+	});
+
+	it("tries hardware once again after a 7-day cool-off", async () => {
+		const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60_000).toISOString();
+		writeFileSync(
+			join(electron.userData, "gpu-fallback.json"),
+			JSON.stringify({ at: eightDaysAgo, reason: "crashed", exitCode: -1 }),
+		);
+		await launchWith(iGpu("27.20.100.9466"));
+		expect(electron.softwareCalls).toBe(0);
+		expect(readLog()).toContain("trying hardware acceleration again (cool-off)");
 	});
 });
