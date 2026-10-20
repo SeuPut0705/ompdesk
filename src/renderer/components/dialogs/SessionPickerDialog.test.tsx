@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionContentMatch, SessionInfo } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useProjectOrigins } from "../../stores/project-origins";
+import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { SessionPickerDialog } from "./SessionPickerDialog";
@@ -146,6 +147,8 @@ describe("SessionPickerDialog listing", () => {
 		list.mockResolvedValueOnce([removed]);
 		const openTab = vi.fn(async () => null);
 		useTabsStore.setState({ openTab });
+		// The focused session works in the project; the picked one recorded its own (removed) worktree.
+		useSessionStore.setState({ cwd: "/work/app" });
 		// No answer from git about the folder: the origin store records it as not a repository.
 		useProjectOrigins.setState({ origins: { [removed.cwd]: null } });
 		await mount();

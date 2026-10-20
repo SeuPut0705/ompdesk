@@ -11,7 +11,7 @@
 import { ArrowDownAZ, Check, Clock, Folder, FolderTree, Globe, History, MessageCircle, RotateCw } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { SessionInfo } from "../../../shared/ipc-types";
-import { requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
+import { opensInOwnTab, requestSessionSwitch, switchSessionNow } from "../../hooks/use-session-switch";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { formatTimeAgo, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -21,7 +21,6 @@ import { mergeContentMatches, rankSessions, type SessionSortMode } from "../../l
 import { sessionDisplayTitle, sessionHasContent } from "../../lib/session-title";
 import { useSessionStore } from "../../stores/session";
 import { sessionListFeed } from "../../stores/session-list";
-import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import {
 	Badge,
@@ -184,21 +183,17 @@ export function SessionPickerDialog() {
 	const select = async (session: SessionInfo) => {
 		if (switching !== null) return;
 		// Busy sessions route to the switch dialog (new window vs abort) — close
-		// the picker first so it doesn't sit behind the modal.
+		// the picker first so it doesn't sit behind the modal. A session of another folder opens as its own tab and
+		// aborts nothing.
 		const { isStreaming, isCompacting } = useSessionStore.getState();
-		if (isStreaming || isCompacting) {
+		if ((isStreaming || isCompacting) && !opensInOwnTab(session)) {
 			close();
 			requestSessionSwitch(session);
 			return;
 		}
 		setSwitching(session.path);
 		try {
-			// A gone folder cannot take an in-place switch (stock refuses another folder); a tab open says why and offers
-			// Restore when disk care saved it.
-			if (projectNameOf(session.cwd, session.title).gone) {
-				const kind = session.kind === "chat" ? "chat" : "agent";
-				if ((await useTabsStore.getState().openTab({ sessionPath: session.path, kind })) !== null) close();
-			} else if (await switchSessionNow(session)) close();
+			if (await switchSessionNow(session)) close();
 		} finally {
 			setSwitching(null);
 		}

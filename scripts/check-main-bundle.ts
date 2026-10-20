@@ -64,11 +64,13 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * (`useHostLinkLost` in stores/remote.ts and `connection-banner.ts`: the phone's bar is on the first screen and the
  * pane's banner is in the shared app chunk), 1.1 KB; 3.301 MB (3,301,397, 3,300,809 before) with a stored session's
  * gone folder: `openTab`'s folder-missing toast and its Restore re-open, and the session picker's gone mark that opens
- * such a row as a tab, 0.6 KB): a build that grows past it fails,
+ * such a row as a tab, 0.6 KB; 3.302 MB (3,302,253 on the merged main) with a pick of another folder's session opening
+ * as its own tab instead of stock's refused in-place switch (`opensInOwnTab` in use-session-switch.ts, which the
+ * sidebar and picker share), 0.9 KB): a build that grows past it fails,
  * so the next eager import is a decision, not an accident. The language chunk the entries load before rendering is
  * not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_302_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_303_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

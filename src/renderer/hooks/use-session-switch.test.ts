@@ -28,7 +28,7 @@ import { selectTodoCardVisible, useTodoStore } from "../stores/todo";
 import { useToolsStore } from "../stores/tools";
 import { useUiStore } from "../stores/ui";
 import { routeCommands } from "../test-support/route-commands";
-import { newSessionNow, switchSessionNow } from "./use-session-switch";
+import { newSessionNow, opensInOwnTab, requestSessionSwitch, switchSessionNow } from "./use-session-switch";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -47,7 +47,7 @@ function serverState(overrides: Partial<RpcSessionState> = {}): RpcSessionState 
 		sessionId: "srv",
 		sessionName: null,
 		sessionFile: null,
-		cwd: "/srv",
+		cwd: "/alpha",
 		isStreaming: false,
 		isCompacting: false,
 		contextUsage: null,
@@ -64,7 +64,8 @@ function session(path: string): SessionInfo {
 		path,
 		id: path,
 		title: "Session X",
-		cwd: "/srv",
+		// The active tab's folder (seedTabs): stock switches only within it.
+		cwd: "/alpha",
 		created: "2026-01-01T00:00:00Z",
 		modified: "2026-01-01T00:00:00Z",
 		messageCount: 3,
@@ -246,6 +247,30 @@ describe("switchSessionNow F-OWN owner guard", () => {
 		// The existing flow hydrated after the switch.
 		expect(omp.rpc.getState).toHaveBeenCalled();
 		expect(omp.tabs.setActive).not.toHaveBeenCalled();
+	});
+
+	it("opens a session recorded in another folder as a tab there, since stock refuses it in place, even while busy", async () => {
+		seedTabs();
+		omp.tabs.getSessionOwner.mockResolvedValue(null);
+		const elsewhere = { ...session("/sessions/other.jsonl"), cwd: "/beta/other" };
+
+		expect(await switchSessionNow(elsewhere)).toBe(true);
+		expect(omp.rpc.switchSession).not.toHaveBeenCalled();
+		expect(omp.tabs.spawn).toHaveBeenCalledWith(
+			expect.objectContaining({ sessionPath: "/sessions/other.jsonl", kind: "agent" }),
+		);
+
+		// A turn running in the focused tab is not aborted for it: no switch dialog, a tab opens.
+		useSessionStore.setState({ isStreaming: true });
+		requestSessionSwitch({ ...elsewhere, id: "other-2", path: "/sessions/other-2.jsonl" });
+		expect(useUiStore.getState().sessionSwitchPrompt).toBeNull();
+		await vi.waitFor(() =>
+			expect(omp.tabs.spawn).toHaveBeenCalledWith(
+				expect.objectContaining({ sessionPath: "/sessions/other-2.jsonl" }),
+			),
+		);
+		// A trailing separator is the same folder (stock compares resolved paths).
+		expect(opensInOwnTab({ ...elsewhere, cwd: "/alpha/" })).toBe(false);
 	});
 
 	it("does not carry a held or finished todo card into the switched-to session", async () => {

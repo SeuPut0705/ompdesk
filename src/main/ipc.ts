@@ -145,7 +145,7 @@ import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
 import { stockHelperRequest } from "./stock-helper";
-import { type SessionFolderState, type SpawnTabRemote, spawnTabForWindow } from "./tab-spawn";
+import { type SessionFolderState, type SpawnTabRemote, sessionFolderState, spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
@@ -1253,7 +1253,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				: (requested ??
 					cwdOnDevice(deps, caller, device) ??
 					(device ? await remoteDefaultWorkspace(device) : deps.initialCwd()));
-		return deps.spawnWindow(cwd, sessionPath, kind, device) !== null;
+		// Its boot switch_session runs in the window's omp, which stock refuses for a session recorded in another
+		// folder: a stored session's window starts where its file says (tab-spawn.ts' rule), never elsewhere.
+		const folder =
+			sessionPath && kind !== "chat"
+				? device
+					? await spawnRemote.sessionFolder?.(device, sessionPath, false).catch(() => null)
+					: await sessionFolderState(
+							{ recordedCwd: path => sessionIndex.recordedCwd(path), savedWorktrees: savedWorktreesForSpawn },
+							sessionPath,
+							false,
+						)
+				: null;
+		if (folder?.missing)
+			throw codedError(
+				"session_folder_missing",
+				`The folder this session belongs in no longer exists: ${folder.folder}`,
+			);
+		return deps.spawnWindow(folder?.folder ?? cwd, sessionPath, kind, device) !== null;
 	});
 
 	// Fresh window pulls the session it was opened to display (one-shot). The

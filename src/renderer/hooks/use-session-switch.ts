@@ -126,6 +126,22 @@ export async function routeToSessionOwner(
 }
 
 /**
+ * Stock's RPC `switch_session` refuses a session recorded in another folder than the focused tab's
+ * (SESSION_CWD_CHANGE_REJECTED, answered `cancelled`; stock compares `path.resolve` of both), so such a pick opens it
+ * as a tab in its own folder, as a sidebar row does, and aborts nothing.
+ */
+export function opensInOwnTab(session: SessionInfo): boolean {
+	const runtime = focusedSessionRuntime();
+	const store = runtime ? sessionRuntimeStore<SessionStore>(runtime.tabId, "session") : null;
+	const tabsState = useTabsStore.getState();
+	const activeTab = tabsState.tabs.find(tab => tab.id === (runtime?.tabId ?? tabsState.activeTabId));
+	const tabCwd = (store ?? useSessionStore).getState().cwd || activeTab?.cwd;
+	if (!tabCwd || !session.cwd) return false;
+	const trim = (folder: string) => folder.replace(/[\\/]+$/, "") || folder;
+	return trim(tabCwd) !== trim(session.cwd);
+}
+
+/**
  * Run the switch immediately. The server aborts any in-flight turn
  * (`switchSession` → `abort({goalReason:"internal"})`) — this is NOT a
  * parallel session, it replaces the current one. Returns true when the
@@ -173,6 +189,16 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 			// but kinds never convert — the file opened in its own tab instead.
 			toast({ variant: "info", message: translate("sidebar.openedInNewTab") });
 		}
+		return tabId !== null;
+	}
+	// Another folder than the tab's: stock would refuse it in place, so it opens as its own tab there (the main spawn
+	// says why, or offers Restore, when that folder is gone).
+	if (opensInOwnTab(session)) {
+		const tabId = await tabsState.openTab({
+			sessionPath: session.path,
+			kind: fileKind,
+			...(activeTab?.device ? { device: activeTab.device } : {}),
+		});
 		return tabId !== null;
 	}
 	const fromId = originSessionId;
@@ -249,7 +275,7 @@ export async function switchSessionNow(session: SessionInfo, model?: SessionMode
 export function requestSessionSwitch(session: SessionInfo): void {
 	const { isStreaming, isCompacting, sessionId } = useSessionStore.getState();
 	if (session.id === sessionId) return;
-	if (isStreaming || isCompacting) {
+	if ((isStreaming || isCompacting) && !opensInOwnTab(session)) {
 		useUiStore.getState().requestSessionSwitch(session);
 		return;
 	}
