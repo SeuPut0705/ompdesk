@@ -113,11 +113,9 @@ async function mountGroup(entries: [string, ToolEntry][]): Promise<void> {
 }
 
 describe("work card on a narrow window (#21)", () => {
-	it("keeps a minimum narrative width and lets the summary row truncate inside the card", () => {
-		const head = rule(stylesheet, ".omp-work-head");
-		expect(head).toContain(
-			"grid-template-columns: var(--sc-icon-sm) minmax(min(10rem, 50%), 1fr) minmax(0, max-content)",
-		);
+	// The head's columns (whole summary parts, never a cut figure) are pinned on a real layout by the work-card case of
+	// e2e/responsive-smoke.e2e.ts.
+	it("lets the summary row drop whole parts inside the card", () => {
 		expect(rule(stylesheet, ".omp-work-head-side")).toContain("min-width: 0");
 		// The summary line drops whole parts instead of ellipsizing each (ExecutionGroup.summary-and-notes.test.tsx).
 		const summary = rule(stylesheet, ".omp-summary-line");
