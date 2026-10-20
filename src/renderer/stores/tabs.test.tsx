@@ -2590,6 +2590,34 @@ describe("a web window with no tab", () => {
 		expect(useTabsStore.getState().activeTabId).toBe("start");
 	});
 
+	it("lets a start tab go that gave way to a real tab before its open answered, with no error", async () => {
+		// Main pushes the tab list ahead of a call's answer (ws-router), so the page meets its own start tab in the list
+		// together with a real tab that arrived meanwhile; housekeeping closes the start tab before `spawn` answers.
+		const released = new Set<string>();
+		const listed = [tabInfo("real", "/project"), { ...tabInfo("start", "/host/work"), placeholder: true }];
+		omp.tabs.list.mockResolvedValueOnce([]);
+		omp.tabs.list.mockImplementation(async () => listed.filter(info => !released.has(info.tabId)));
+		omp.tabs.close.mockImplementation(async id => {
+			released.add(id);
+			return true;
+		});
+		omp.tabs.setActive.mockImplementation(async id => !released.has(id));
+		const spawned = Promise.withResolvers<IpcSpawnTabResult | null>();
+		omp.tabs.spawn.mockReturnValue(spawned.promise);
+
+		const boot = useTabsStore.getState().reconcileTabs();
+		await vi.waitFor(() => expect(omp.tabs.spawn).toHaveBeenCalledTimes(1));
+		await useTabsStore.getState().applyTabList(listed);
+		await useTabsStore.getState().closeTab("start");
+		spawned.resolve({ tabId: "start", cwd: "/host/work" });
+		await boot;
+
+		expect(useToastStore.getState().toasts.filter(toast => toast.variant === "error")).toEqual([]);
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["real"]);
+		expect(useTabsStore.getState().activeTabId).toBe("real");
+		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("start");
+	});
+
 	it("opens it once while reconciles overlap, and never on the desktop", async () => {
 		omp.tabs.list.mockResolvedValue([]);
 		const spawned = Promise.withResolvers<IpcSpawnTabResult | null>();
