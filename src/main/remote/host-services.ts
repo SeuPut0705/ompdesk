@@ -86,6 +86,8 @@ import {
 	type RunState,
 	type RunTracking,
 	runBusy,
+	runFromReading,
+	runReading,
 	runSettling,
 	settleRun,
 	trackRunEvent,
@@ -138,7 +140,6 @@ import {
 	type TabEventMessage,
 	type TabEventName,
 	type TabOpenResult,
-	type TabRunArg,
 	type TabSignInArg,
 	type TabStatusArg,
 } from "./app-protocol";
@@ -245,8 +246,6 @@ interface HostTab extends RunTracking {
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
 	run: RunState;
-	/** When the current run went busy (this computer's clock); a re-attaching device is told how long ago. */
-	runSince?: number;
 	/**
 	 * Open asks and approvals the device has not answered, by request id, as the omp raised them:
 	 * every `tab.open` re-sends them (`openAsks`), since the device missed whatever changed while away.
@@ -695,6 +694,7 @@ export class LocalHostServices implements HostServices {
 				...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
 				...(tab.title ? { title: tab.title } : {}),
 				...(tab.awaitingConnection ? { awaitingConnection: true } : {}),
+				run: runReading(tab.run),
 			}),
 			leave: left => {
 				tab.views.delete(left);
@@ -1123,7 +1123,7 @@ export class LocalHostServices implements HostServices {
 			// the device still has to `tab.start` it.
 			const attached = existing.sidecar.status !== "asleep";
 			// The turn first: the device kept its reading through the lost link and checks it against this.
-			if (attached) this.#emit(existing, "run", this.#runArg(existing));
+			if (attached) this.#emit(existing, "run", runReading(existing.run));
 			if (attached) this.#emit(existing, "status", this.#statusArg(existing, existing.sidecar.statusPayload));
 			// Which sign-ins still run decides whether a re-sent code paste is the login panel's or a leftover,
 			// so it goes first.
@@ -1147,6 +1147,7 @@ export class LocalHostServices implements HostServices {
 			: null;
 		if (view && params.sessionPath) {
 			const tab = this.#createTab(peer, params.rtab, view.cwd, view.kind, false, params.sessionPath, conn, view);
+			this.#emit(tab, "run", runReading(tab.run));
 			this.#emit(tab, "status", this.#statusArg(tab, view.statusPayload));
 			this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
 			this.#emit(tab, "awaitingConnection", false);
@@ -1260,7 +1261,8 @@ export class LocalHostServices implements HostServices {
 			resumeSessionPath: sessionPath,
 			sessionFile: sessionPath,
 			graceTimer: undefined,
-			run: idleRun(),
+			// A window's tab may be mid-turn as the device joins it: its events so far reached nobody here.
+			run: view instanceof HostedTabView ? runFromReading(view.runReading()) : idleRun(),
 			asks: new Map(),
 			origin,
 			views: new Set(),
@@ -1357,7 +1359,6 @@ export class LocalHostServices implements HostServices {
 			const news = apply();
 			const busyChanged = runBusy(tab.run) !== was;
 			if (busyChanged) {
-				tab.runSince = runBusy(tab.run) ? Date.now() : undefined;
 				this.#runningChanged();
 				this.#scheduleOmpRestart(tab);
 				this.#scheduleExtensionApply(tab);
@@ -1479,16 +1480,6 @@ export class LocalHostServices implements HostServices {
 			if (tab.ompRestartPending) return;
 			this.#applyExtensionPlan(tab, plan);
 		});
-	}
-
-	#runArg(tab: HostTab): TabRunArg {
-		const { run } = tab;
-		return {
-			running: run.running,
-			turn: run.turn,
-			...(run.compacting !== undefined ? { compacting: run.compacting } : {}),
-			...(tab.runSince !== undefined ? { elapsedMs: Math.max(0, Date.now() - tab.runSince) } : {}),
-		};
 	}
 
 	#statusArg(tab: HostTab, payload: SidecarStatusPayload): TabStatusArg {

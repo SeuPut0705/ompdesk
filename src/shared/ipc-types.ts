@@ -1432,6 +1432,11 @@ export interface IpcTabInfo {
 	 * `background` light, not the turn's. Resume, Stop and the quit guard still read `running`.
 	 */
 	settling?: true;
+	/**
+	 * While `status` is `running`: when its turn started (epoch ms, this computer's clock; a paired host's turn is
+	 * placed by the host's own elapsed time). The work board's clock for a session another one opened.
+	 */
+	runningSince?: number;
 }
 
 /**

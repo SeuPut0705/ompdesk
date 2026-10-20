@@ -55,6 +55,16 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		expect(running).toMatchObject({ title: "Running", step: "running bash (vitest)", since: 1000 });
 	});
 
+	it("starts a running child's clock from its tab's own status, before main's review list reaches the board", () => {
+		const rows = openedChildRows({
+			parent,
+			tabs: [tab("run", { openedBy: "boss", status: "running", task: "Running", runningSince: 2000 })],
+			review: new Map(),
+			closed: [],
+		});
+		expect(rows[0]).toMatchObject({ status: "running", since: 2000 });
+	});
+
 	it("names the paired device a child runs on, as a child on this computer otherwise", () => {
 		const rows = openedChildRows({
 			parent,

@@ -94,7 +94,8 @@ export function openedChildRows(input: {
 			title: tab.title || tab.task || "",
 			status,
 			...(item?.step ? { step: item.step } : {}),
-			...(item?.runningSince ? { since: item.runningSince } : {}),
+			// The tab list carries the turn's start with its running status; the review item only after its push.
+			...((tab.runningSince ?? item?.runningSince) ? { since: tab.runningSince ?? item?.runningSince } : {}),
 			...((item?.branch ?? tab.worktree?.branch) ? { branch: item?.branch ?? tab.worktree?.branch } : {}),
 			...(item?.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : tab.worktree && !item ? { merge: "merged" as const } : {}),

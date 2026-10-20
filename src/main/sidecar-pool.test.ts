@@ -425,7 +425,15 @@ describe("SidecarPool tabs", () => {
 		b?.emitAgentEvents(["agent_start"]);
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH)).toHaveLength(0);
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "running", placeholder: false, sessionPath: null },
+			{
+				kind: "agent",
+				tabId: "tab-b",
+				cwd: "/b",
+				status: "running",
+				placeholder: false,
+				sessionPath: null,
+				runningSince: expect.any(Number),
+			},
 		]);
 		expect(pool.tabsForWindow(fw.win)).toEqual([
 			{
@@ -438,7 +446,15 @@ describe("SidecarPool tabs", () => {
 				placeholder: false,
 				sessionPath: null,
 			},
-			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "running", placeholder: false, sessionPath: null },
+			{
+				kind: "agent",
+				tabId: "tab-b",
+				cwd: "/b",
+				status: "running",
+				placeholder: false,
+				sessionPath: null,
+				runningSince: expect.any(Number),
+			},
 		]);
 
 		// Run settles → ready (the renderer's unreadDone signal for background tabs).
@@ -2809,16 +2825,33 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(seen.at(-1)).toMatchObject({ type: "idle", tabId: "tab-a" });
 	});
 
-	it("announces a turn a re-attach found running with its start by the host's clock", () => {
-		const { pool, a, seen } = observed();
+	it("announces a turn a re-attach found running, started by the host's clock, and lists that start", () => {
+		const { pool, a, fw, seen } = observed();
 		const before = Date.now();
 		a.emit("hostRun", { running: true, turn: true, elapsedMs: 60_000 });
-		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
-		const busy = seen.at(-1);
-		expect(busy?.type).toBe("busy");
-		const since = busy?.type === "busy" ? (busy.since ?? 0) : 0;
+		expect(seen.at(-1)).toEqual({ type: "busy", tabId: "tab-a" });
+		const since = pool.tabFacts("tab-a")?.runningSince ?? 0;
 		expect(since).toBeLessThanOrEqual(before - 60_000 + 50);
 		expect(since).toBeGreaterThan(before - 61_000);
+		// The tab list carries it, so the opener's board has its clock with the running status.
+		const status = fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data as IpcTabStatusPayload | undefined;
+		expect(status).toMatchObject({ status: "running", runningSince: since });
+	});
+
+	it("lists a turn's own start, a new one after background work included", () => {
+		const { pool, a, fw } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		const first = pool.tabFacts("tab-a")?.runningSince;
+		expect(first).toEqual(expect.any(Number));
+		a.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		a.emitEvents([reply("stop")]);
+		expect(pool.tabFacts("tab-a")?.runningSince).toBe(first);
+		fw.sent.length = 0;
+		a.emitEvents([{ type: "agent_start" }]);
+		const status = fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data as IpcTabStatusPayload | undefined;
+		expect(status?.runningSince).toBe(pool.tabFacts("tab-a")?.runningSince);
+		a.emit("sessionSettled", { type: "session_settled" });
+		expect(pool.tabFacts("tab-a")?.runningSince).toBeUndefined();
 	});
 
 	it("reads a turn as over after a link blip when an older host re-sends no run state", () => {
@@ -2869,6 +2902,7 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		expect(pool.tabFacts("tab-a")).toEqual({
 			title: "Refactor",
 			busy: true,
+			runningSince: expect.any(Number),
 			awaitingConnection: true,
 			retrying: true,
 			scheduledRetry: false,
@@ -2974,6 +3008,15 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		desktop.sent.length = 0;
 		return { pool, sidecar, desktop, view };
 	}
+
+	it("tells a device that joins mid-turn how the window's turn stands, and since when", () => {
+		const { sidecar, view } = viewed();
+		expect(view.runReading()).toEqual({ running: false, turn: false });
+		sidecar.emitAgentEvents(["agent_start"]);
+		const reading = view.runReading();
+		expect(reading).toMatchObject({ running: true, turn: true });
+		expect(reading.elapsedMs).toBeGreaterThanOrEqual(0);
+	});
 
 	it("hands the device the tab's omp: its stream but never its host tool calls, the tab counts it as a viewer", async () => {
 		const { pool, sidecar, desktop, view } = viewed();

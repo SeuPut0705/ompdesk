@@ -99,14 +99,16 @@ import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
-import type { TabRunArg } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import {
 	idleRun,
+	type RunReading,
 	type RunState,
 	type RunTracking,
 	runBusy,
+	runFromReading,
+	runReading,
 	runSettling,
 	settleRun,
 	trackRunEvent,
@@ -163,8 +165,7 @@ function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): Suba
  * A provider sign-in's own requests are never asks.
  */
 export type TabActivity =
-	/** `since`: when the run started, when it is older than this news (a paired host's turn the link hid). */
-	| { type: "busy"; tabId: string; since?: number }
+	| { type: "busy"; tabId: string }
 	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
 	| { type: "ask"; tabId: string; requestId: string; text: string }
 	| { type: "askClosed"; tabId: string; requestId: string }
@@ -174,6 +175,8 @@ export type TabActivity =
 export interface TabFacts {
 	title: string;
 	busy: boolean;
+	/** When the busy run's turn started (this computer's clock), when known. */
+	runningSince?: number;
 	awaitingConnection: boolean;
 	/** Stock's auto-retry is waiting for its next attempt: the failure is not final. */
 	retrying: boolean;
@@ -429,6 +432,7 @@ export class SidecarPool {
 		return {
 			title: entry.title ?? "",
 			busy: runBusy(entry.run),
+			...(runBusy(entry.run) && entry.run.since !== undefined ? { runningSince: entry.run.since } : {}),
 			awaitingConnection: entry.awaitingConnection === true,
 			retrying: entry.retry !== undefined,
 			scheduledRetry: entry.scheduledRetry !== undefined,
@@ -451,10 +455,10 @@ export class SidecarPool {
 	}
 
 	/** The tab's turn started or settled: told after the resume rules have judged it (`onRunningChange`). */
-	#announceRun(entry: PoolEntry, since?: number): void {
+	#announceRun(entry: PoolEntry): void {
 		this.#announce(
 			runBusy(entry.run)
-				? { type: "busy", tabId: entry.tabId, ...(since !== undefined ? { since } : {}) }
+				? { type: "busy", tabId: entry.tabId }
 				: { type: "idle", tabId: entry.tabId, outcome: entry.lastRun },
 		);
 	}
@@ -581,7 +585,8 @@ export class SidecarPool {
 			kind: sidecar.kind,
 			placeholder: false,
 			status: sidecar.status,
-			run: idleRun(),
+			// The device's tab may be mid-turn as this window joins it: its events so far reached nobody here.
+			run: sidecar instanceof HostedTabView ? runFromReading(sidecar.runReading()) : idleRun(),
 			onWindowClosed: () => {
 				this.#releaseEntry(entry);
 			},
@@ -638,6 +643,7 @@ export class SidecarPool {
 				...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
 				...(entry.title ? { title: entry.title } : {}),
 				...(entry.awaitingConnection ? { awaitingConnection: true } : {}),
+				run: runReading(entry.run),
 			}),
 			leave: left => {
 				entry.deviceViews?.delete(left);
@@ -749,23 +755,14 @@ export class SidecarPool {
 			this.onRunningChange?.();
 		});
 		// The host's reading of the turn on a re-attach (sent before its status): what the lost link hid of its start or end.
-		sidecar.on("hostRun", (arg: TabRunArg) => {
+		sidecar.on("hostRun", (reading: RunReading) => {
 			const wasBusy = runBusy(entry.run);
-			const kept = entry.run;
 			entry.runAcrossLink = false;
-			entry.run = {
-				running: arg.running,
-				turn: arg.turn,
-				// Background work still pending from the turn the device saw start.
-				awaitingSettled: arg.running && (!arg.turn || (wasBusy && kept.awaitingSettled)),
-				retrying: false,
-				endedWhileRetrying: false,
-				...(arg.compacting !== undefined ? { compacting: arg.compacting } : {}),
-			};
+			entry.run = runFromReading(reading, entry.run);
 			if (runBusy(entry.run) === wasBusy) return;
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
-			this.#announceRun(entry, arg.elapsedMs !== undefined ? Date.now() - arg.elapsedMs : undefined);
+			this.#announceRun(entry);
 		});
 		// A paired host deleted this session while the tab was away (`session_deleted`): it closes here as a delete
 		// from this device would, and stays deleted for every later restore.
@@ -921,6 +918,7 @@ export class SidecarPool {
 			const wasBusy = runBusy(entry.run);
 			const wasSettling = runSettling(entry.run);
 			const wasPlaceholder = entry.placeholder;
+			const wasSince = entry.run.since;
 			// A plan proposal blocks a hidden tab's session on the user: it goes to
 			// that tab's runtime here (the full channel carries it for a shown tab).
 			let hiddenProposals: AgentSessionEvent[] | undefined;
@@ -954,7 +952,12 @@ export class SidecarPool {
 			// window already waiting, so it never shows (or notifies) as a failure first.
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
-			if (busyChanged || runSettling(entry.run) !== wasSettling || entry.placeholder !== wasPlaceholder) {
+			if (
+				busyChanged ||
+				runSettling(entry.run) !== wasSettling ||
+				entry.placeholder !== wasPlaceholder ||
+				entry.run.since !== wasSince
+			) {
 				this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			}
 			if (busyChanged) {
@@ -2257,6 +2260,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	};
 	// The turn ended; stock's background work (subagents, async jobs) keeps the session unsettled.
 	if (payload.status === "running" && runSettling(entry.run)) payload.settling = true;
+	if (payload.status === "running" && entry.run.since !== undefined) payload.runningSince = entry.run.since;
 	if (entry.run.compacting !== undefined) payload.compacting = entry.run.compacting;
 	if (entry.sessionId !== undefined) payload.sessionId = entry.sessionId;
 	if (entry.title !== undefined) payload.title = entry.title;

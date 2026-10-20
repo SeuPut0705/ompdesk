@@ -233,8 +233,6 @@ export class AgentControlRuntime {
 	readonly #childrenSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
 	readonly #userPrompted = new Set<string>();
-	/** When each tab's current turn started. */
-	readonly #busySince = new Map<string, number>();
 	/** Run tabs `ompdesk_autopilot` started: they end with their run, not with the rules for opened sessions. */
 	readonly #autopilotRuns = new Set<string>();
 	/** Debounce timers of the auto-close passes, per opener tab. */
@@ -244,8 +242,6 @@ export class AgentControlRuntime {
 		this.#deps = deps;
 		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
-			if (activity.type === "busy") this.#busySince.set(activity.tabId, activity.since ?? Date.now());
-			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#openerOf(activity.tabId);
 			if (parent) this.#pushReview(parent);
 			// A child's question card tells its opener (local and paired-device children alike); an Autopilot run's
@@ -265,7 +261,6 @@ export class AgentControlRuntime {
 			if (activity.type === "released") {
 				this.#windows.delete(activity.tabId);
 				this.#parents.delete(activity.tabId);
-				this.#busySince.delete(activity.tabId);
 				this.#reviewSent.delete(activity.tabId);
 				this.#childrenSent.delete(activity.tabId);
 				this.#userPrompted.delete(activity.tabId);
@@ -457,6 +452,7 @@ export class AgentControlRuntime {
 		const plan = this.#deps.pool.pendingPlan(info.tabId);
 		const autoClosable = this.#autoClosable(info);
 		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
+		const facts = this.#deps.pool.tabFacts(info.tabId);
 		return {
 			tabId: info.tabId,
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
@@ -464,7 +460,7 @@ export class AgentControlRuntime {
 			cwd: info.cwd,
 			...(info.device ? { device: info.device, deviceName: this.#deps.deviceName(info.device) } : {}),
 			status: info.status,
-			busy: this.#deps.pool.tabFacts(info.tabId)?.busy === true,
+			busy: facts?.busy === true,
 			asks,
 			...(plan ? { plan } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
@@ -477,7 +473,7 @@ export class AgentControlRuntime {
 			...(autoClosable && !this.#parents.has(info.tabId) ? { restored: true } : {}),
 			looked: info.active === true || info.visible === true || (info.viewerCount ?? 0) > 0,
 			userTouched: this.#userPrompted.has(info.tabId) || this.#deps.pool.hasDraft(info.tabId),
-			...(this.#busySince.has(info.tabId) ? { busySince: this.#busySince.get(info.tabId) } : {}),
+			...(facts?.runningSince !== undefined ? { busySince: facts.runningSince } : {}),
 			...(formerIds.length > 0 ? { formerIds } : {}),
 		};
 	}

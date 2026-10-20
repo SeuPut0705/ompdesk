@@ -137,6 +137,8 @@ export interface SessionTab {
 	resuming?: boolean;
 	/** `status` is `running` only for stock's background work after the turn ended (main's `settling`). */
 	settling?: true;
+	/** While `running`: when its turn started (main's `runningSince`); the clock of a session another one opened. */
+	runningSince?: number;
 	/** The tab's failed turn retries by itself at `at` (main's turn-resume schedule); the error card counts it down. */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Another window owns this tab and this one views it (multi-viewer); closing it here only leaves it. */
@@ -277,6 +279,7 @@ function projectSessionTab(
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
 		...(info.resuming === true ? { resuming: true } : {}),
 		...(info.settling === true ? { settling: true as const } : {}),
+		...(info.status === "running" && info.runningSince !== undefined ? { runningSince: info.runningSince } : {}),
 		...(info.scheduledRetry ? { scheduledRetry: info.scheduledRetry } : {}),
 		// A status push carries no viewer fields: only a tab list (GET_TABS, TAB_LIST_CHANGED) states them.
 		...(previous?.shared ? { shared: true as const } : {}),

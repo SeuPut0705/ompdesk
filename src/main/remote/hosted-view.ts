@@ -34,6 +34,7 @@ import type {
 	SidecarStatusPayload,
 } from "../../shared/rpc-types";
 import type { RpcClient } from "../rpc-client";
+import type { RunReading } from "../sidecar-run-state";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { STOP_COMMANDS } from "../turn-stop-log";
 
@@ -72,8 +73,14 @@ export interface HostedTabPort {
 	stopped(): void;
 	/** The user's Cancel on the tab's "waiting for the connection" row. */
 	cancelWait(): void;
-	/** The asks open now, the session's identity and the connection wait, for a window that just joined. */
-	snapshot(): { asks: ExtensionUIRequest[]; sessionId?: string; title?: string; awaitingConnection?: boolean };
+	/** The asks open now, the session's identity, the connection wait and its run, for a window that just joined. */
+	snapshot(): {
+		asks: ExtensionUIRequest[];
+		sessionId?: string;
+		title?: string;
+		awaitingConnection?: boolean;
+		run: RunReading;
+	};
 	/** The window left the tab. */
 	leave(view: HostedTabView): void;
 }
@@ -131,6 +138,11 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 
 	get processAlive(): boolean {
 		return this.#port.sidecar.processAlive;
+	}
+
+	/** How the tab's run stands now: a party joining mid-turn saw none of its start. */
+	runReading(): RunReading {
+		return this.#port.snapshot().run;
 	}
 
 	/** Null while the hosted omp is not connected, like the sidecar's own. */

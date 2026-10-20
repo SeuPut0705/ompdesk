@@ -1785,6 +1785,13 @@ describe("LocalHostServices for this computer's own windows", () => {
 		expect(replayed).toHaveBeenCalledWith([ask("ask-1")]);
 	});
 
+	it("tells a window that joins mid-turn how the device's turn stands", async () => {
+		const { services, sidecar } = await hosted();
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		const view = services.viewSession(SESSION);
+		expect(view?.runReading()).toMatchObject({ running: true, turn: true, elapsedMs: expect.any(Number) });
+	});
+
 	it("takes the first answer to an ask from the device or a window here, and refuses the other's", async () => {
 		const { services, sidecar, x } = await hosted();
 		const view = viewOf(services);
