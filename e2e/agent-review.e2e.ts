@@ -205,7 +205,9 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 		.poll(async () => (await tabs()).some(tab => tab.tabId === third.tabId), { timeout: 30_000 })
 		.toBe(false);
 	await expect(fs.stat(path.join(project, "part-c.txt"))).rejects.toThrow();
-	expect(git(project, "status", "--porcelain")).toBe("");
+	// Read as the user's own git reads it: the app merged under that config (core.autocrlf=true on Windows writes CRLF
+	// checkouts and calls them clean), which GIT_ENV's isolated config would call modified.
+	expect(execFileSync("git", ["status", "--porcelain"], { cwd: project, encoding: "utf8" }).trim()).toBe("");
 	// Nothing was ever pushed: the repository has no remote.
 	expect(git(project, "remote")).toBe("");
 });
