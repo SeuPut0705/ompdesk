@@ -198,8 +198,15 @@ async function freeBranchName(primary: string, folder: string): Promise<string> 
 	}
 }
 
+/**
+ * Bytes in, the same bytes out: with `core.autocrlf` (Git for Windows' default is true) `add` stores a CRLF file as LF
+ * and the restore's checkout writes CRLF into a file that had LF, so a saved worktree came back changed.
+ */
+const BYTE_EXACT = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.autocrlf", GIT_CONFIG_VALUE_0: "false" };
+
 /** Disk care's own identity on its commits; no hook runs and nothing is signed (`commit-tree --no-gpg-sign`). */
 const SAVE_ENV = {
+	...BYTE_EXACT,
 	GIT_AUTHOR_NAME: "OMPdesk disk care",
 	GIT_AUTHOR_EMAIL: "disk-care@ompdesk.invalid",
 	GIT_COMMITTER_NAME: "OMPdesk disk care",
@@ -517,7 +524,7 @@ export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore
 		onBranch
 			? ["worktree", "add", record.path, record.branch as string]
 			: ["worktree", "add", "--detach", record.path, record.head],
-		{ timeoutMs: 300_000 },
+		{ timeoutMs: 300_000, env: BYTE_EXACT },
 	);
 	if (added.code !== 0) throw new Error(`git worktree add failed: ${added.stderr.trim()}`);
 	if (record.savedBranch) {
@@ -526,7 +533,8 @@ export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore
 			// Two-tree read-tree moves the working tree from HEAD to the saved commit (deletions too); the reset puts
 			// the index back on HEAD, so the saved work is uncommitted again; then what was staged goes back into the
 			// index alone (read-tree without -u leaves the working tree as it is).
-			await git(record.path, ["read-tree", "-m", "-u", "HEAD", savedSha]);
+			const moved = await gitRaw(record.path, ["read-tree", "-m", "-u", "HEAD", savedSha], { env: BYTE_EXACT });
+			if (moved.code !== 0) throw new Error(`git read-tree failed in ${record.path}: ${moved.stderr.trim()}`);
 			await git(record.path, ["reset", "-q"]);
 			if (record.staged) await git(record.path, ["read-tree", record.staged]);
 		}

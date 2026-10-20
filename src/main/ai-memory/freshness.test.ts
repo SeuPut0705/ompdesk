@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AiMemoryPage, AiMemoryPageRef } from "../../shared/ai-memory";
 import { checkFreshness, type FreshnessClient, type FreshnessLogDetails, namedItems } from "./freshness";
@@ -31,7 +31,8 @@ function put(path: string, text: string): void {
 }
 
 beforeAll(() => {
-	root = realpathSync(mkdtempSync(join(tmpdir(), "fresh-")));
+	// The native realpath expands Windows 8.3 names (RUNNER~1), as git's own paths do.
+	root = realpathSync.native(mkdtempSync(join(tmpdir(), "fresh-")));
 	main = join(root, "main");
 	worktree = join(root, "wt");
 	mkdirSync(main);
@@ -151,7 +152,8 @@ describe("checkFreshness", () => {
 			},
 		});
 		const report = await run(client);
-		expect(report.checkout).toBe(main);
+		// git names the checkout with forward slashes on Windows; resolve() gives the platform's form.
+		expect(resolve(report.checkout ?? "")).toBe(main);
 		expect(client.retired).toEqual([
 			{
 				path: "decisions/0001.md",
