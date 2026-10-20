@@ -222,6 +222,11 @@ export class AgentControlRuntime {
 	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
 	/** The review list last sent per parent tab (JSON), so the timer pushes only what changed. */
 	readonly #reviewSent = new Map<string, string>();
+	/**
+	 * Openers whose timer review is still reading git: the next tick skips them. A review reads every child's branch,
+	 * so on a slow machine one tick's read outlived the next and the git processes piled up without end.
+	 */
+	readonly #sweepReviews = new Set<string>();
 	/** The running or waiting children last told to each parent's prompt suggestions (JSON). */
 	readonly #childrenSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
@@ -327,13 +332,18 @@ export class AgentControlRuntime {
 		}
 		for (const opener of openers) {
 			this.#sweepSoon(opener);
-			void this.control.review(opener).then(
-				review => {
-					const last = this.#reviewSent.get(opener) ?? JSON.stringify({ items: [], usage: {} });
-					if (JSON.stringify(review) !== last) this.#sendReview(opener, review);
-				},
-				() => undefined,
-			);
+			if (this.#sweepReviews.has(opener)) continue;
+			this.#sweepReviews.add(opener);
+			void this.control
+				.review(opener)
+				.then(
+					review => {
+						const last = this.#reviewSent.get(opener) ?? JSON.stringify({ items: [], usage: {} });
+						if (JSON.stringify(review) !== last) this.#sendReview(opener, review);
+					},
+					() => undefined,
+				)
+				.finally(() => this.#sweepReviews.delete(opener));
 		}
 	}
 

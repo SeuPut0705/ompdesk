@@ -10,6 +10,7 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
+	type AgentReviewResult,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
@@ -270,6 +271,24 @@ describe("AgentControlRuntime", () => {
 			await vi.advanceTimersByTimeAsync(200);
 			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [], usage }));
 			expect(frames()).toHaveLength(before + 1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it("never starts a timer review of an opener while its last one still reads git", async () => {
+		vi.useFakeTimers();
+		try {
+			const { runtime, win } = setup({ tabs: [{ tabId: "main0001" }, { tabId: "new00003" }], sweepMs: 20 });
+			const opening = runtime.run(win, "main0001", T.open, {});
+			await vi.advanceTimersByTimeAsync(60_000);
+			await opening;
+			const pending = Promise.withResolvers<AgentReviewResult>();
+			const review = vi.spyOn(runtime.control, "review").mockImplementation(() => pending.promise);
+			await vi.advanceTimersByTimeAsync(200);
+			expect(review).toHaveBeenCalledTimes(1);
+			pending.resolve({ items: [], usage: {} });
+			await vi.advanceTimersByTimeAsync(20);
+			expect(review).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -693,6 +712,7 @@ describe("AgentControlRuntime", () => {
 
 	it("closes a child restored after a relaunch whose branch was pushed straight to main, and removes its worktree", async () => {
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-host-relaunch-")));
+		let closed: unknown;
 		try {
 			const origin = path.join(root, "origin.git");
 			const repo = path.join(root, "repo");
@@ -727,7 +747,6 @@ describe("AgentControlRuntime", () => {
 				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
 			// The close's last step, written once its worktree removal (and `branch -d`) settled: awaiting it leaves no
 			// git running in the repository when the test deletes it (Windows refuses an rmdir while one has it open).
-			let closed: unknown;
 			deps.prefs.set = (key, value) => {
 				if (key === AGENT_CLOSED_CHILDREN_PREF) closed = value;
 			};
