@@ -121,14 +121,20 @@ export function boardPeers(): { peers: CheckoutPeers } {
 			commonDir: "/Users/dev/projects/ompdesk/.git",
 			canMessage: true,
 			worktree: [
-				{ id: "tab-2", title: text("Settings test race", "설정 화면 테스트가 가끔 실패하는 문제") },
 				{
-					id: "tab-9",
+					id: "tab-2",
+					title: text("Settings test race", "설정 화면 테스트가 가끔 실패하는 문제"),
+					sessionPath: "-Users-dev-projects-ompdesk/sess-2.jsonl",
+				},
+				{
+					// A session this computer runs for a paired device: no id here, opened by its file.
+					id: null,
 					title: text(
 						"Move the checkout peers row into the work board and measure how it reads on a phone",
 						"같은 체크아웃의 다른 세션 줄을 작업 보드로 옮기고 휴대폰에서 읽히는지 길이를 재서 확인하기",
 					),
 					device: text("Seuput's iPhone", "스풋의 아이폰"),
+					sessionPath: "-Users-dev-projects-ompdesk/sess-phone.jsonl",
 				},
 			],
 			repo: [],

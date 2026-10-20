@@ -94,3 +94,32 @@ describe("expanding a huge finished work card", () => {
 		expect(mounted()).toBe(12);
 	});
 });
+
+describe("a step asked for from outside the transcript (the work board's failed check)", () => {
+	it("is mounted and scrolled to once its card opens, however deep in a sliced card it sits", async () => {
+		const scrolled: string[] = [];
+		Reflect.set(HTMLElement.prototype, "scrollIntoView", function (this: HTMLElement) {
+			scrolled.push(this.dataset.toolCallId ?? "");
+		});
+		await show(false);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<ProcessGroup
+						expanded
+						onExpandedChange={() => {}}
+						reveal={{ key: "call-390" }}
+						row={row}
+						rowKey="process-huge"
+					/>
+				</I18nProvider>,
+			),
+		);
+		for (let step = 0; step < 60 && !scrolled.includes("call-390"); step++)
+			await act(async () => {
+				vi.advanceTimersByTime(50);
+			});
+		expect(container.querySelector('[data-tool-call-id="call-390"]')).not.toBeNull();
+		expect(scrolled).toContain("call-390");
+	});
+});

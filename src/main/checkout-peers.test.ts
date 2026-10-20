@@ -102,14 +102,15 @@ describe("checkout peers", () => {
 		expect(a.sent[1]).toMatchObject({ worktree: [], repo: [] });
 	});
 
-	it("lists a session hidden from agents without its id or title, and one run for a paired device without an id", async () => {
+	it("lists a session hidden from agents without its id, title or file, and one run for a paired device without an id", async () => {
 		const a = member("a", main);
 		const secret = member("s", main, [path.join(main, "src/secret.ts")]);
 		const hosted = member("h", main, [], { id: null, device: "Galaxy", canMessage: false });
 		await coordinator(() => [a, secret, hosted], new Set(["/sessions/s.jsonl"])).refresh();
+		// The board opens a peer by its file; a hidden session's file is never named.
 		expect(a.sent.at(-1)?.worktree).toEqual([
 			{ id: null, title: "", files: [path.join(main, "src/secret.ts")] },
-			{ id: null, title: "Session h", device: "Galaxy", files: [] },
+			{ id: null, title: "Session h", device: "Galaxy", sessionPath: "/sessions/h.jsonl", files: [] },
 		]);
 		expect(hosted.sent.at(-1)?.canMessage).toBe(false);
 	});

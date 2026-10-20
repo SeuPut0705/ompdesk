@@ -9,6 +9,23 @@ export interface StepReveal {
 /** The step the card's findings last asked to show: the group holding it opens. */
 export const StepRevealContext = createContext<StepReveal | null>(null);
 
+/**
+ * A step asked for from outside the transcript (the work board's failed-check row): the transcript of tab `tabId`
+ * scrolls to the work card holding the call, opens it (it may be collapsed, or not mounted at all in a long
+ * transcript) and reveals the call there. A window event, so the board needs no handle on the transcript.
+ */
+export const REVEAL_STEP_EVENT = "omp:reveal-step";
+
+export interface RevealStepRequest {
+	tabId: string;
+	/** The call's entry key. */
+	key: string;
+}
+
+export function requestRevealStep(request: RevealStepRequest): void {
+	window.dispatchEvent(new CustomEvent<RevealStepRequest>(REVEAL_STEP_EVENT, { detail: request }));
+}
+
 /** How long the opened card is waited for: its rows mount a slice per task (`useMountedCount`). */
 const TRIES = 40;
 const TRY_MS = 50;

@@ -16,6 +16,8 @@ export interface CheckoutPeer {
 	title: string;
 	/** A session this computer runs for a paired device: that device's name. */
 	device?: string;
+	/** Its session file on this computer, for the work board to open it (never for a session hidden from agents). */
+	sessionPath?: string;
 	/** Its worktree's top level, for a peer in another worktree of the repository. */
 	worktree?: string;
 	/** Files it changed lately (absolute paths, newest first), only for a peer in the same worktree. */

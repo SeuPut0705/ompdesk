@@ -428,6 +428,7 @@ function peerList(value: unknown): CheckoutPeer[] {
 				id: typeof peer.id === "string" ? peer.id : null,
 				title: typeof peer.title === "string" ? peer.title.slice(0, 200) : "",
 				...(typeof peer.device === "string" ? { device: peer.device } : {}),
+				...(typeof peer.sessionPath === "string" ? { sessionPath: peer.sessionPath } : {}),
 				...(typeof peer.worktree === "string" ? { worktree: normalizePath(peer.worktree, "/") } : {}),
 				...(Array.isArray(peer.files)
 					? {

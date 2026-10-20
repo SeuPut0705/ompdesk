@@ -77,6 +77,7 @@ import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { estimateRowSize, RowSizeLearner, rowSizeKey } from "./transcript-row-estimate";
+import { REVEAL_STEP_EVENT, type RevealStepRequest, revealStep, type StepReveal } from "./work/reveal-step";
 import { StepGroups, useMountedCount } from "./work/StepGroups";
 import { messageTimestampMs } from "./work/work-turn";
 
@@ -920,6 +921,31 @@ function SessionTranscript() {
 		});
 	}, []);
 
+	// The work board's failed check (`requestRevealStep`): scroll to the work card holding the call, open it and show
+	// the call. The card may be collapsed, or not mounted at all far up a long transcript; its row is found here.
+	const [stepReveal, setStepReveal] = useState<{ rowKey: string; key: string } | null>(null);
+	const revealRows = useRef({ rows, rowKeys });
+	revealRows.current = { rows, rowKeys };
+	useEffect(() => {
+		const onReveal = (event: Event) => {
+			const request = event instanceof CustomEvent ? (event.detail as RevealStepRequest | null) : null;
+			if (!request || request.tabId !== tabId) return;
+			const { rows: current, rowKeys: keys } = revealRows.current;
+			const index = current.findIndex(row => row.kind === "process" && row.toolCallIds.includes(request.key));
+			const rowKey = index < 0 ? undefined : keys[index];
+			// Not inside a work card (full transcript detail lists tool cards as rows): show it where it is.
+			if (rowKey === undefined) {
+				revealStep(parentRef.current, request.key);
+				return;
+			}
+			updateProcessExpanded(rowKey, true);
+			jumpToConversation(index);
+			setStepReveal({ rowKey, key: request.key });
+		};
+		window.addEventListener(REVEAL_STEP_EVENT, onReveal);
+		return () => window.removeEventListener(REVEAL_STEP_EVENT, onReveal);
+	}, [tabId, updateProcessExpanded, jumpToConversation]);
+
 	// Messages hydrate via hydrateSession (use-rpc-events) on sidecar ready —
 	// no separate fetch here (that would double-download the transcript).
 
@@ -1035,6 +1061,7 @@ function SessionTranscript() {
 												expanded={expandedProcessKeys.has(rowKey)}
 												live={item.index === tailRowIndex}
 												onExpandedChange={updateProcessExpanded}
+												reveal={stepReveal?.rowKey === rowKey ? stepReveal : null}
 												row={row}
 												rowKey={rowKey}
 												superseded={item.index < currentWorkRow}
@@ -1047,6 +1074,7 @@ function SessionTranscript() {
 												expanded={expandedProcessKeys.has(rowKey)}
 												live
 												onExpandedChange={updateProcessExpanded}
+												reveal={stepReveal?.rowKey === rowKey ? stepReveal : null}
 												row={STREAMING_WORK_ROW}
 												rowKey={rowKey}
 												streaming
@@ -1183,6 +1211,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 	rowKey,
 	superseded = false,
 	streaming = false,
+	reveal = null,
 }: {
 	expanded: boolean;
 	/**
@@ -1197,6 +1226,8 @@ export const ProcessGroup = memo(function ProcessGroup({
 	superseded?: boolean;
 	/** The in-flight reply's own row: its streamed text follows the card as the answer turn. */
 	streaming?: boolean;
+	/** A step asked for from outside the transcript (the work board): the card opens and shows it. */
+	reveal?: StepReveal | null;
 }) {
 	const changeExpanded = useCallback((next: boolean) => onExpandedChange(rowKey, next), [onExpandedChange, rowKey]);
 	const output = useMemo(() => summarizeMessagesOutput(row.messages), [row.messages]);
@@ -1228,6 +1259,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 						stepCount={row.stepCount + liveCards.length + (hasThinking ? 1 : 0)}
 						thinkingLive={hasThinking && !hasText}
 						toolCallIds={toolCallIds}
+						revealRequest={reveal}
 						todoSnapshots={row.todoSnapshots}
 					>
 						<div className="omp-process-group">

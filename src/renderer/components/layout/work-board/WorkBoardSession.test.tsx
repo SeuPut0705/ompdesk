@@ -13,11 +13,12 @@ import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 
-const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
+const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
 	window,
 	Event,
+	CustomEvent,
 	HTMLElement,
 	Node,
 	IS_REACT_ACT_ENVIRONMENT: true,
@@ -35,6 +36,8 @@ Reflect.set(window, "omp", {
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
 const { createRoot } = await import("react-dom/client");
 const { FailedCheckSection, FailedCheckWatch, SessionSection, useSessionBoard } = await import("./WorkBoardSession");
+const { peerOpen } = await import("./session-board");
+const { REVEAL_STEP_EVENT } = await import("../../chat/work/reveal-step");
 /** What the strip's watcher reports (WorkBoardChip's failed-check label). */
 const watched = vi.fn();
 
@@ -222,7 +225,7 @@ describe("Last check row", () => {
 		expect(section("session")).toBeNull();
 	});
 
-	it("a failed newest check is its own section, not a session row, and its tap shows the call", async () => {
+	it("a failed newest check is its own section, not a session row, and its tap asks the transcript for the call", async () => {
 		finished(
 			["b1", bash("bun run build", { startTime: 100, endTime: 200 })],
 			[
@@ -236,14 +239,6 @@ describe("Last check row", () => {
 				}),
 			],
 		);
-		const card = document.createElement("div");
-		card.dataset.toolCallId = "b2";
-		const header = document.createElement("button");
-		header.setAttribute("aria-expanded", "false");
-		const opened = vi.fn();
-		header.addEventListener("click", opened);
-		card.appendChild(header);
-		document.body.appendChild(card);
 		await mount();
 		const failed = section("check")?.querySelector('[data-board-session="check"]');
 		expect(failed?.getAttribute("data-state")).toBe("failed");
@@ -251,8 +246,14 @@ describe("Last check row", () => {
 		expect(container.querySelectorAll('[data-board-section="session"] [data-board-session="check"]')).toHaveLength(0);
 		// The strip hears it too (FailedCheckWatch, the strip's label "Check failed").
 		expect(watched).toHaveBeenLastCalledWith(true);
+		// The tap asks the board's own tab's transcript to open the card holding the call (it may be collapsed or
+		// not mounted), not the document at large.
+		const asked: unknown[] = [];
+		const listen = (event: Event) => asked.push(event instanceof CustomEvent ? event.detail : null);
+		window.addEventListener(REVEAL_STEP_EVENT, listen);
 		await press(failed ?? null);
-		expect(opened).toHaveBeenCalledTimes(1);
+		window.removeEventListener(REVEAL_STEP_EVENT, listen);
+		expect(asked).toEqual([{ tabId: "t1", key: "b2" }]);
 	});
 
 	it("a failed check that a later passing run replaced is no longer failed", async () => {
@@ -330,16 +331,70 @@ describe("Same checkout row", () => {
 		expect(section("session")).toBeNull();
 	});
 
-	it("switches to the one peer when it is an open tab, and does nothing for a peer it has no tab for", async () => {
+	it("expands to one line per peer, each opening its own session: switch, owner window, or the host's file", async () => {
 		const switchTab = vi.fn(async () => {});
-		useSessionStore.setState({ checkoutPeers: checkout([peer()]) });
+		const openTab = vi.fn(async () => "new-tab");
+		const getSessionOwner = vi.fn(async (path: string) =>
+			path === "/s/other-window.jsonl" ? { tabId: "w2-tab", windowId: 2 } : null,
+		);
+		const openInNewWindow = vi.fn(async () => true);
+		Reflect.set(window.omp as object, "tabs", { getSessionOwner });
+		Reflect.set(window.omp as object, "sessions", { openInNewWindow });
+		useSessionStore.setState({
+			checkoutPeers: checkout([
+				peer(),
+				peer({ id: "w2-tab", title: "In another window", sessionPath: "/s/other-window.jsonl" }),
+				peer({ id: null, title: "On the phone", device: "iPhone", sessionPath: "/s/phone.jsonl" }),
+				peer({ id: null, title: "" }),
+			]),
+		});
 		await mount();
-		useTabsStore.setState({ switchTab });
+		useTabsStore.setState({ switchTab, openTab });
+		const items = () => [...container.querySelectorAll('[data-board-session="peer"]')];
+		expect(items()).toHaveLength(0);
+		// One tap lists them, and the row says it expands in place (the phone's strip stays open for it).
+		expect(row("peers")?.hasAttribute("data-board-expands")).toBe(true);
 		await press(row("peers"));
+		expect(items().map(item => item.textContent)).toEqual([
+			"Settings test race",
+			"In another window",
+			"On the phone · iPhone",
+			"a hidden session",
+		]);
+		// The second peer: held by another window, so its owner is asked and that window is focused.
+		await press(items()[1] ?? null);
+		expect(getSessionOwner).toHaveBeenCalledWith("/s/other-window.jsonl");
+		expect(openInNewWindow).toHaveBeenCalledWith({ sessionPath: "/s/other-window.jsonl" });
+		// The first: a tab of this window.
+		await press(items()[0] ?? null);
 		expect(switchTab).toHaveBeenCalledWith("t2");
-		await act(async () => useSessionStore.setState({ checkoutPeers: checkout([peer({ id: "elsewhere" })]) }));
-		await press(row("peers"));
-		expect(switchTab).toHaveBeenCalledTimes(1);
+		// A paired device's session this computer runs: no owner here, so its file opens as a tab.
+		await press(items()[2] ?? null);
+		expect(openTab).toHaveBeenCalledWith({ sessionPath: "/s/phone.jsonl" });
+		// A session hidden from agents has nothing to open.
+		expect(items()[3]?.tagName).not.toBe("BUTTON");
+	});
+});
+
+describe("peerOpen", () => {
+	it("opens a peer of a paired host's session by the host's file, never by a tab id of this computer", () => {
+		const here = {
+			device: "host-1",
+			tabs: [
+				{ id: "t2", device: undefined },
+				{ id: "r9", sessionPath: "/h/held.jsonl", device: "host-1" },
+			],
+		};
+		expect(peerOpen({ id: "t2", title: "x", sessionPath: "/h/a.jsonl" }, here)).toEqual({
+			kind: "path",
+			sessionPath: "/h/a.jsonl",
+			device: "host-1",
+		});
+		expect(peerOpen({ id: "z", title: "y", sessionPath: "/h/held.jsonl" }, here)).toEqual({
+			kind: "switch",
+			tabId: "r9",
+		});
+		expect(peerOpen({ id: null, title: "" }, here)).toBeNull();
 	});
 });
 

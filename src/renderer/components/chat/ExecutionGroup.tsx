@@ -41,6 +41,8 @@ interface ExecutionGroupProps {
 	notes?: readonly AgentMessage[];
 	/** A later work card exists in this session; this one never shows a running head. */
 	superseded?: boolean;
+	/** A step asked for from outside the transcript (the work board): shown like a finding's, once opened. */
+	revealRequest?: StepReveal | null;
 }
 
 /** A completion notice only for agents that have a lane: the lane already states it. */
@@ -81,12 +83,17 @@ export function ExecutionGroup({
 	todoSnapshots,
 	notes,
 	superseded = false,
+	revealRequest = null,
 }: ExecutionGroupProps) {
 	const t = useT();
 	const openPreview = useUiStore(state => state.openPreview);
 	const sectionRef = useRef<HTMLElement>(null);
 	// The step a finding asked to show: the opened body looks for it once it is mounted.
 	const [reveal, setReveal] = useState<StepReveal | null>(null);
+	// A step asked for from outside (the work board, through ChatStream, which opened this card): show it too.
+	useEffect(() => {
+		if (revealRequest) setReveal({ key: revealRequest.key });
+	}, [revealRequest]);
 	useEffect(() => (reveal && expanded ? revealStep(sectionRef.current, reveal.key) : undefined), [reveal, expanded]);
 	const setPanelTab = useUiStore(state => state.setPanelTab);
 	const goal = useSessionStore(state => (live ? state.goal?.objective : undefined));

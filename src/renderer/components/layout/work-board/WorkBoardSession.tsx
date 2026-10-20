@@ -4,20 +4,23 @@
  * checkout and the memory the turn used. `useSessionBoard` reads them all once; the sections draw what it found.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CheckoutPeer } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { RpcGitChanges } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
+import { routeToSessionOwner } from "../../../hooks/use-session-switch";
 import { formatDuration, formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
+import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
 import { useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
-import { revealStep } from "../../chat/work/reveal-step";
+import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { BoardRow, BoardSection, Dot } from "./board-parts";
 import {
@@ -26,7 +29,9 @@ import {
 	devServers,
 	type LastCheck,
 	lastCheck,
+	type PeerOpen,
 	type PeersSummary,
+	peerOpen,
 	recallTitles,
 	summarizeChanges,
 	summarizePeers,
@@ -117,6 +122,10 @@ const plural = (count: number) => (count === 1 ? "" : "s");
 
 function CheckRow({ check }: { check: LastCheck }) {
 	const t = useT();
+	// The transcript of the board's own tab opens the card holding the call (a collapsed or unmounted one too).
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const tabId = runtimeTabId ?? activeTabId;
 	const running = check.state === "running";
 	const now = useNowTick(running);
 	const verdict = check.state === "passed" ? "passed" : "failed";
@@ -136,7 +145,7 @@ function CheckRow({ check }: { check: LastCheck }) {
 			label={label}
 			lead={<Dot tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />}
 			meta={meta}
-			onClick={check.state === "failed" ? () => revealStep(document, check.key) : undefined}
+			onClick={check.state === "failed" && tabId ? () => requestRevealStep({ tabId, key: check.key }) : undefined}
 			title={check.command}
 		/>
 	);
@@ -174,23 +183,69 @@ function DevServerRow({ url, host, command }: DevServer) {
 	);
 }
 
+/** Open one peer: a tab this window holds is switched to; otherwise its file opens where it is held (`peerOpen`). */
+async function openPeer(target: PeerOpen): Promise<void> {
+	if (!target) return;
+	const tabs = useTabsStore.getState();
+	if (target.kind === "switch") {
+		await tabs.switchTab(target.tabId);
+		return;
+	}
+	// This computer's file: another window or a paired device's tab may hold it (F-OWN), so ask its owner first.
+	if (!target.device) {
+		const owner = await window.omp.tabs.getSessionOwner(target.sessionPath).catch(() => null);
+		if (owner) {
+			await routeToSessionOwner(owner, target.sessionPath);
+			return;
+		}
+	}
+	await tabs.openTab({ sessionPath: target.sessionPath, ...(target.device ? { device: target.device } : {}) });
+}
+
+/**
+ * One line naming how many sessions share the checkout; a tap lists each on its own line (title, its device), and a
+ * tap on one shows that session. The row expands in place (`data-board-expands`): the phone's strip stays open.
+ */
 function PeersRow({ scope, peers }: PeersSummary) {
 	const t = useT();
+	const [open, setOpen] = useState(false);
 	const tabs = useTabsStore(state => state.tabs);
-	const names = peers.map(peer => {
-		const name = peer.title || t("workBoard.session.peers.hidden");
-		return peer.device ? `${name} (${peer.device})` : name;
-	});
-	const only = peers.length === 1 ? peers[0] : undefined;
-	const tabId = only?.id && tabs.some(tab => tab.id === only.id) ? only.id : null;
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const device = tabs.find(tab => tab.id === (runtimeTabId ?? activeTabId))?.device;
+	const name = (peer: CheckoutPeer) => peer.title || t("workBoard.session.peers.hidden");
 	return (
-		<BoardRow
-			data={{ "data-board-session": "peers" }}
-			label={t(`workBoard.session.peers.${scope}`, { count: peers.length, plural: plural(peers.length) })}
-			lead={<Dot tone="muted" />}
-			onClick={tabId ? () => void useTabsStore.getState().switchTab(tabId) : undefined}
-			title={names.join("\n")}
-		/>
+		<>
+			<BoardRow
+				data={{ "data-board-session": "peers", "data-open": String(open), "data-board-expands": "" }}
+				label={t(`workBoard.session.peers.${scope}`, { count: peers.length, plural: plural(peers.length) })}
+				lead={<Dot tone="muted" />}
+				onClick={() => setOpen(!open)}
+				title={peers.map(peer => (peer.device ? `${name(peer)} (${peer.device})` : name(peer))).join("\n")}
+			/>
+			{open
+				? peers.map((peer, index) => {
+						const target = peerOpen(peer, { tabs, device });
+						return (
+							<BoardRow
+								data={{ "data-board-session": "peer", "data-peer-index": String(index) }}
+								key={peer.id ?? peer.sessionPath ?? index}
+								label={
+									<span className="text-(--sc-text-muted)">
+										{name(peer)}
+										{peer.device ? (
+											<span className="text-(--sc-text-subtle)">{` · ${peer.device}`}</span>
+										) : null}
+									</span>
+								}
+								lead={null}
+								onClick={target ? () => void openPeer(target) : undefined}
+								title={[name(peer), peer.worktree].filter(Boolean).join("\n")}
+							/>
+						);
+					})
+				: null}
+		</>
 	);
 }
 

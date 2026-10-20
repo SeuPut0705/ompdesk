@@ -121,6 +121,7 @@ export class CheckoutPeerCoordinator {
 						id: isHidden ? null : other.member.id,
 						title: isHidden ? "" : other.member.title,
 						...(other.member.device ? { device: other.member.device } : {}),
+						...(!isHidden && other.member.sessionPath ? { sessionPath: other.member.sessionPath } : {}),
 						...(sameWorktree ? { files: files.get(other.member.key) ?? [] } : { worktree: other.place.toplevel }),
 					};
 				};
