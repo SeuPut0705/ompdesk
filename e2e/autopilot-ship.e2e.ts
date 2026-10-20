@@ -115,7 +115,10 @@ test("the screen's Push, PR, merge and revert queue up during a turn and run in 
 	const mainBefore = git(profile.project, "rev-parse", "main");
 	const { app, page } = await launchAp(profile);
 	try {
-		const tabId = await startRun(page, await mainTab(page));
+		// Local level: the queue must hold only the screen's four actions. Automatic would push cycle 1's commit too, and
+		// whether that push is still running or already queued behind turn 2 when this looks depends on whether cycle
+		// 1's end was handled before or after turn 2 started (the flake under load), not on anything this test does.
+		const tabId = await startRun(page, await mainTab(page), { preset: "local" });
 		await waitForStatus(
 			page,
 			tabId,
