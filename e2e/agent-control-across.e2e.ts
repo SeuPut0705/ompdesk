@@ -93,9 +93,15 @@ test.describe("on this computer", () => {
 		expect(own.text).toContain("1 session in this window");
 		expect(own.text).toContain("1 more open in other windows (scope app)");
 
-		// Two attempts, judged against a criterion: the fake judge ranks them in evidence order.
+		// Two attempts, judged against a criterion: the fake judge ranks them in evidence order. The second works in
+		// a folder of its own, as a worktree child does, so its reopen below must go back there.
+		const elsewhere = path.join(profile, "elsewhere");
+		await fs.mkdir(elsewhere);
 		const open = await call("ompdesk_session_open", {
-			sessions: [{ message: "First attempt at the task" }, { message: "Second attempt at the task" }],
+			sessions: [
+				{ message: "First attempt at the task" },
+				{ message: "Second attempt at the task", folder: elsewhere },
+			],
 		});
 		expect(open.isError, open.text).toBe(false);
 		const [one, two] = opened(open.text);
@@ -136,6 +142,8 @@ test.describe("on this computer", () => {
 		const reopened = await call("ompdesk_session_open", { reopen: id });
 		expect(reopened.isError, reopened.text).toBe(false);
 		expect(reopened.text).toContain("reopened");
+		// In the folder its file records, not the caller's or the app's (v0.46.0 reopened one in the main checkout).
+		expect(reopened.text).toContain(`in ${await fs.realpath(elsewhere)} (`);
 		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(tabsBefore + 1);
 	});
 });
