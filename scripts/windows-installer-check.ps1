@@ -191,11 +191,18 @@ function Stop-App {
 	Wait-Until { -not (Get-Process OMPdesk -ErrorAction SilentlyContinue) } 30 'OMPdesk to exit'
 }
 
-# Electron's main process is the one OMPdesk.exe without a `--type=` (renderer, GPU, utility) switch.
+# Electron's main process: an OMPdesk.exe whose parent is no OMPdesk.exe. Its children include OMPdesk.exe run as
+# Node (ELECTRON_RUN_AS_NODE: the setup supervisor, helpers) with no `--type=` switch, so that alone is not enough.
 function Get-MainPids {
-	@(Get-CimInstance Win32_Process -Filter "Name = 'OMPdesk.exe'" -ErrorAction SilentlyContinue |
-			Where-Object { $_.CommandLine -notmatch '--type=' } |
+	$all = @(Get-CimInstance Win32_Process -Filter "Name = 'OMPdesk.exe'" -ErrorAction SilentlyContinue)
+	$ids = @($all | ForEach-Object { $_.ProcessId })
+	@($all | Where-Object { $_.CommandLine -notmatch '--type=' -and $ids -notcontains $_.ParentProcessId } |
 			ForEach-Object { $_.ProcessId })
+}
+
+function Show-AppProcesses {
+	Get-CimInstance Win32_Process -Filter "Name = 'OMPdesk.exe'" -ErrorAction SilentlyContinue |
+		ForEach-Object { Write-Host "     pid $($_.ProcessId) parent $($_.ParentProcessId): $($_.CommandLine)" }
 }
 
 # A fresh install must not open and close by itself (v0.44.0: a GPU-fallback relaunch loop on a laptop): the
@@ -209,6 +216,7 @@ function Assert-StaysUp([int] $Seconds = 60) {
 		$now = Get-MainPids
 		if ($now.Count -ne 1 -or $now[0] -ne $first[0]) {
 			Save-Screen 'app-restarted'
+			Show-AppProcesses
 			Fail "the OMPdesk main process changed within $Seconds s (was $($first[0]), now $($now -join ', ')): it restarted itself"
 		}
 	}
@@ -276,6 +284,7 @@ function Assert-NoGpuRelaunchLoop {
 		}
 		if ($now.Count -ne 1 -or $now[0] -ne $second) {
 			Save-Screen 'gpu-loop'
+			Show-AppProcesses
 			Fail "the software launch relaunched after a GPU crash ($second -> $($now -join ', ')): the relaunch loop"
 		}
 		Start-Sleep -Seconds 2
