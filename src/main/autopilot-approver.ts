@@ -31,7 +31,7 @@ export interface ApprovalDecision {
 
 function shipLevel(ship: AutopilotShipPolicy): "local" | "push" | "release" {
 	if (ship.autoRelease.on) return "release";
-	return ship.autoPush ? "push" : "local";
+	return ship.autoPush || ship.land === true ? "push" : "local";
 }
 
 /** The card's text: its title (tool and arguments) and the option details. */

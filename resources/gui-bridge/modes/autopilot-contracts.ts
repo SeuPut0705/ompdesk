@@ -70,6 +70,11 @@ export type AutopilotReleaseCadence = { kind: "every"; n: number } | { kind: "ag
 export type AutopilotShipPolicy = {
 	/** Push the autopilot branch after every green cycle (main's ShipRunner). */
 	autoPush: boolean;
+	/**
+	 * Automatic shipping: every green cycle with a commit is fast-forwarded onto the project's default branch and pushed
+	 * there by main's ShipRunner (never the agent, never forced); a protected default branch gets one pull request instead.
+	 */
+	land?: boolean;
 	autoRelease: { on: boolean; cadence: AutopilotReleaseCadence };
 	remote: string;
 };
@@ -244,7 +249,7 @@ export interface AutopilotBacklogItem {
 	cycle?: number;
 }
 
-export const SHIP_KINDS = ["push", "pr", "merge", "release", "revert"] as const;
+export const SHIP_KINDS = ["push", "pr", "merge", "land", "release", "revert"] as const;
 export type ShipKind = (typeof SHIP_KINDS)[number];
 export type ShipItemState = "queued" | "running" | "done" | "failed";
 
@@ -302,6 +307,8 @@ export interface AutopilotShipState {
 	releaseProcedure?: AutopilotReleaseProcedure;
 	/** Why auto release / the Release button is unavailable (no detected procedure, ...). */
 	releaseBlocked?: string;
+	/** Landing fell back to a pull request because the remote refused the default branch push (said once, kept by main). */
+	landing?: { via: "pr"; url?: string; reason: string };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -344,6 +351,8 @@ export interface AutopilotBeginResult {
 	stopping: boolean;
 	ship: {
 		autoPush: boolean;
+		/** Green cycles land on the default branch (main's ShipRunner); a moved default branch is a note to merge it first. */
+		land?: boolean;
 		autoRelease: { on: boolean; cadence: AutopilotReleaseCadence };
 		remote: string;
 		branch: string;
