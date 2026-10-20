@@ -192,6 +192,21 @@ describe("translation", () => {
 		expect(sicko.name).toBe("comment-sicko");
 		expect(sicko.tools).toBe("[read, grep, glob, find]");
 	});
+
+	it("has every instruction to copy a playbook's steps into `todo` write them in the todo language the prompt sets", () => {
+		// The reply-language section asks for todo items in the conversation language; "copied in verbatim" won over it
+		// (real omp, Korean reply language: 0 of 36 items in Korean).
+		const verbatim: string[] = [];
+		for (const file of textFiles.filter(entry => entry.endsWith(".md"))) {
+			const text = readFileSync(path.join(PACK, file), "utf8");
+			for (const line of text.split("\n")) {
+				if (!/todo/.test(line) || !/\b(copied|[Cc]opy)\b/.test(line)) continue;
+				if (/verbatim|word for word(?! without)/.test(line) || !line.includes("`<reply-language>`"))
+					verbatim.push(`${file}: ${line.slice(0, 120)}`);
+			}
+		}
+		expect(verbatim).toEqual([]);
+	});
 });
 
 describe("always-on section", () => {

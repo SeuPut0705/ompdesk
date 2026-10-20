@@ -66,6 +66,14 @@ describe("pstackText", () => {
 		);
 	});
 
+	it("has the playbook's steps written into `todo` in the todo language the reply-language section sets", () => {
+		for (const text of [PSTACK_SECTION, PSTACK_SECTION_SOLO]) {
+			const gate = text.slice(text.indexOf("## Routing gate"));
+			expect(gate.slice(0, gate.indexOf("\n## ", 3))).toContain("`<reply-language>`");
+			expect(text).not.toMatch(/steps[^.\n]*verbatim|verbatim[^.\n]*steps|Copy its steps in verbatim/);
+		}
+	});
+
 	it("keeps the Autopilot variant away from shipping playbooks", () => {
 		expect(PSTACK_AUTOPILOT_SECTION).toContain("HARD LIMITS outrank");
 		expect(PSTACK_AUTOPILOT_SECTION).toContain("skill://poteto-mode/playbooks/bug-fix.md");
