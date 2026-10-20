@@ -92,32 +92,53 @@ export class WindowsLidBackend implements LidBackend {
 
 	async hold(): Promise<LidHoldOutcome> {
 		const { run } = this.#options.powercfg;
+		// A restore that failed still owns the user's value: never read the 0 it left as theirs.
+		if (this.#held) {
+			await this.#apply(this.#held.scheme);
+			return { changed: true, details: { scheme: this.#held.scheme, ac: this.#held.ac } };
+		}
 		const scheme = parseActiveScheme(await run(["/getactivescheme"]));
 		const ac = parseAcValue(await run(queryArgs(scheme)));
 		if (ac === DO_NOTHING) return { changed: false, details: { scheme, ac } };
 		const marker: LidMarker = { scheme, ac, at: this.#options.now() };
 		this.#writeMarker(marker);
 		this.#held = marker;
-		await run(["/setacvalueindex", scheme, SUB_BUTTONS, LIDACTION, String(DO_NOTHING)]);
-		await run(["/setactive", "SCHEME_CURRENT"]);
+		try {
+			await this.#apply(scheme);
+		} catch (error) {
+			// Half a hold is undone now; if that fails too, the marker stays for release, quit or the next launch.
+			await this.release().catch(() => {});
+			throw error;
+		}
 		return { changed: true, details: { scheme, ac } };
 	}
 
+	/** Puts back the user's value. The marker stays until that succeeded, so a failure is retried, not forgotten. */
 	async release(): Promise<void> {
 		const marker = this.#held;
-		this.#held = undefined;
 		if (!marker) return;
 		const { run } = this.#options.powercfg;
 		for (const command of restoreCommands(marker, await run(queryArgs(marker.scheme)))) await run(command);
-		this.#removeMarker();
+		this.#restored(marker);
 	}
 
 	releaseNow(): void {
 		const marker = this.#held;
-		this.#held = undefined;
 		if (!marker) return;
 		const { runSync } = this.#options.powercfg;
 		for (const command of restoreCommands(marker, runSync(queryArgs(marker.scheme)))) runSync(command);
+		this.#restored(marker);
+	}
+
+	async #apply(scheme: string): Promise<void> {
+		const { run } = this.#options.powercfg;
+		await run(["/setacvalueindex", scheme, SUB_BUTTONS, LIDACTION, String(DO_NOTHING)]);
+		await run(["/setactive", "SCHEME_CURRENT"]);
+	}
+
+	#restored(marker: LidMarker): void {
+		if (this.#held !== marker) return;
+		this.#held = undefined;
 		this.#removeMarker();
 	}
 

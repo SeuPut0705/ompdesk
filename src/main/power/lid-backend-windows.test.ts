@@ -31,13 +31,19 @@ function queryOutput(ac: number, dc: number, korean = false): string {
 	].join("\r\n");
 }
 
-/** A fake powercfg over one scheme's lid values; records every command. */
+/** A fake powercfg over one scheme's lid values; records every command. `fail` makes the next N calls of a verb throw. */
 function fakePowercfg(initial: { ac: number; dc: number }) {
 	const state = { ...initial, active: BALANCED };
 	const commands: string[] = [];
+	/** `"/setactive#1"`: the first `/setactive` this fake answers throws. */
+	const fail = new Set<string>();
+	const seen = new Map<string, number>();
 	const answer = (args: readonly string[]): string => {
 		commands.push(args.join(" "));
-		const [verb, scheme, , , value] = args;
+		const [verb = "", scheme, , , value] = args;
+		const nth = (seen.get(verb) ?? 0) + 1;
+		seen.set(verb, nth);
+		if (fail.delete(`${verb}#${nth}`)) throw new Error(`powercfg ${verb} failed`);
 		if (verb === "/getactivescheme") return `Power Scheme GUID: ${state.active}  (Balanced)\r\n`;
 		if (verb === "/query") return queryOutput(state.ac, state.dc);
 		if (verb === "/setacvalueindex") {
@@ -48,7 +54,7 @@ function fakePowercfg(initial: { ac: number; dc: number }) {
 		if (verb === "/setactive") return "";
 		throw new Error(`unexpected powercfg ${args.join(" ")}`);
 	};
-	return { state, commands, runner: { run: async (args: readonly string[]) => answer(args), runSync: answer } };
+	return { state, commands, fail, runner: { run: async (args: readonly string[]) => answer(args), runSync: answer } };
 }
 
 let dir: string;
@@ -144,6 +150,45 @@ describe("WindowsLidBackend", () => {
 		writeFileSync(join(dir, "lid-awake.json"), "{not json");
 		expect(await lid.recover()).toBeNull();
 		expect(powercfg.state.ac).toBe(0);
+		expect(existsSync(join(dir, "lid-awake.json"))).toBe(false);
+	});
+});
+
+describe("WindowsLidBackend when powercfg fails", () => {
+	it("rolls a hold back when activating it fails, so stopping work has nothing left to undo", async () => {
+		const powercfg = fakePowercfg({ ac: 1, dc: 1 });
+		const lid = backend(powercfg);
+		powercfg.fail.add("/setactive#1");
+		await expect(lid.hold()).rejects.toThrow("/setactive");
+		expect(powercfg.state.ac).toBe(1);
+		expect(existsSync(join(dir, "lid-awake.json"))).toBe(false);
+	});
+
+	it("a hold whose rollback also failed is still undone at quit", async () => {
+		const powercfg = fakePowercfg({ ac: 1, dc: 1 });
+		const lid = backend(powercfg);
+		powercfg.fail.add("/setactive#1");
+		// The rollback's query: the hold's own query was the first.
+		powercfg.fail.add("/query#2");
+		await expect(lid.hold()).rejects.toThrow();
+		expect(powercfg.state.ac).toBe(0);
+		lid.releaseNow();
+		expect(powercfg.state.ac).toBe(1);
+		expect(existsSync(join(dir, "lid-awake.json"))).toBe(false);
+	});
+
+	it("a failed release keeps the user's value: the retry restores it, and a new hold never takes the 0 for theirs", async () => {
+		const powercfg = fakePowercfg({ ac: 2, dc: 1 });
+		const lid = backend(powercfg);
+		await lid.hold();
+		powercfg.fail.add("/setacvalueindex#2");
+		await expect(lid.release()).rejects.toThrow();
+		expect(powercfg.state.ac).toBe(0);
+		expect(existsSync(join(dir, "lid-awake.json"))).toBe(true);
+
+		await lid.hold();
+		await lid.release();
+		expect(powercfg.state.ac).toBe(2);
 		expect(existsSync(join(dir, "lid-awake.json"))).toBe(false);
 	});
 });

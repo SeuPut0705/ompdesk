@@ -98,11 +98,11 @@ export class LidAwake {
 		this.#kick();
 	}
 
-	/** Quit: release at once, whatever runs. */
+	/** Quit: release at once, whatever runs (also what a failed hold or release left behind). */
 	dispose(): void {
 		if (this.#disposed) return;
 		this.#disposed = true;
-		if (this.#applied) this.#releaseNow("quit");
+		this.#releaseNow("quit");
 	}
 
 	/** Resolves once the hold matches the inputs (tests). */
@@ -177,10 +177,11 @@ export class LidAwake {
 	}
 
 	#releaseNow(reason: LidAwakeReason): void {
+		const applied = this.#applied;
 		this.#applied = false;
 		try {
 			this.#backend.releaseNow();
-			this.#log("released", { reason, backend: this.#backend.name });
+			if (applied) this.#log("released", { reason, backend: this.#backend.name });
 		} catch (error) {
 			this.#log("failed", { step: "release", reason, backend: this.#backend.name, error: errorText(error) });
 		}

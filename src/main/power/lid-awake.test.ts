@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { LidAwake, type LidBackend } from "./lid-awake";
 
-function setup(options: { onAc?: boolean; laptop?: boolean; holdFails?: boolean } = {}) {
+function setup(options: { onAc?: boolean; laptop?: boolean; holdFails?: boolean; releaseFails?: number } = {}) {
+	let releaseFailures = options.releaseFails ?? 0;
 	const calls: string[] = [];
 	const backend: LidBackend = {
 		name: "fake",
@@ -17,6 +18,7 @@ function setup(options: { onAc?: boolean; laptop?: boolean; holdFails?: boolean 
 		}),
 		release: vi.fn(async () => {
 			calls.push("release");
+			if (releaseFailures-- > 0) throw new Error("powercfg failed");
 		}),
 		releaseNow: vi.fn(() => {
 			calls.push("releaseNow");
@@ -109,6 +111,26 @@ describe("LidAwake", () => {
 		await lid.settled();
 		expect(backend.hold).toHaveBeenCalledTimes(2);
 		expect(lines()).toEqual(["failed work", "failed work"]);
+	});
+
+	it("a failed release stays held, is retried on the next change and at quit the backend is always asked", async () => {
+		const { calls, lid, work, lines } = setup({ releaseFails: 1 });
+		const id = work.start();
+		await lid.settled();
+		work.stop(id);
+		await lid.settled();
+		expect(lid.held).toBe(true);
+		lid.setOnAc(false);
+		await lid.settled();
+		expect(lid.held).toBe(false);
+		expect(lines()).toEqual(["held work", "failed work-ended", "released on-battery"]);
+
+		const failedHold = setup({ holdFails: true });
+		failedHold.work.start();
+		await failedHold.lid.settled();
+		failedHold.lid.dispose();
+		expect(failedHold.calls).toEqual(["recover", "hold", "releaseNow"]);
+		expect(calls).toEqual(["recover", "hold", "release", "release"]);
 	});
 
 	it("quit releases synchronously, and a hold that lands after quit is undone", async () => {
