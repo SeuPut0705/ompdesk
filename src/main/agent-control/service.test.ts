@@ -1469,6 +1469,20 @@ describe("familyEdits: what the sessions one opened changed", () => {
 		expect(read.mock.calls.filter(([row]) => row.path === "/s/landed.jsonl")).toHaveLength(1);
 	});
 
+	it("reads a child's file again when it was reopened and closed again", async () => {
+		const { host, service } = family();
+		const first = (await service.familyEdits("main0001", 2000)).members.find(member => member.title === "Landed");
+		expect(first?.edits?.endedAt).toBe(4600);
+		// Reopened for more work, then closed again by main: the record is replaced, the file has a newer turn.
+		host.storedTranscripts.set("/s/landed.jsonl", [
+			{ role: "user", content: "one more", timestamp: 8000 },
+			...edit("l2", "again.ts", 8500),
+		]);
+		host.closed = [{ ...(host.closed[0] as ClosedChild), closedAt: 9000 }];
+		const again = (await service.familyEdits("main0001", 7000)).members.find(member => member.title === "Landed");
+		expect(again?.edits).toMatchObject({ startedAt: 8000, endedAt: 8500 });
+	});
+
 	it("reads a child closed on a paired device from that device, never from this computer", async () => {
 		const { host, service } = family();
 		host.closed = [

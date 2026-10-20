@@ -927,7 +927,7 @@ export class AgentControl {
 	readonly #cardsTold = new Map<string, Set<string>>();
 	/** Each session's last read cost and split, which stand while its omp cannot answer (`#cost`, `#split`). */
 	readonly #lastSpend = new Map<string, { cost: number; split?: CostSplit }>();
-	/** Closed children's last turns (`familyEdits`), by device and session file: a closed session's file no longer changes. */
+	/** Closed children's last turns (`familyEdits`), by device, session file and close: a closed file no longer changes. */
 	readonly #closedTurns = new Map<string, Promise<RpcTurnEdits>>();
 
 	readonly #app: AppControl | null;
@@ -2923,7 +2923,8 @@ export class AgentControl {
 	 * device's through its stock helper); a failed read is tried again on the next ask.
 	 */
 	#closedEdits(child: ClosedChild): Promise<FamilyMemberEdits> {
-		const where = `${child.device ?? ""}\0${child.path}`;
+		// Reopened and closed again, the same file holds a newer last turn: each close is its own version.
+		const where = `${child.device ?? ""}\0${child.path}\0${child.closedAt}`;
 		let turn = this.#closedTurns.get(where);
 		if (!turn) {
 			const row: StoredSession = {
