@@ -1,0 +1,206 @@
+# Keeps the three built-in skill packs current: pstack (cursor/plugins), ECC
+# (affaan-m/ECC pi/core) and REA (npm rea-agents). Daily, or on dispatch,
+# scripts/skill-packs.ts compares each pin with the newest upstream release
+# that has been public for bunfig.toml's minimumReleaseAge (3 days: a commit's
+# committer date, an npm version's registry publish time). For each pack behind
+# it moves the pin, runs the pack's sync script, regenerates the notices and
+# runs the pack's drift, stock and packaging tests and licenses:check; a pack
+# that passes becomes one commit `chore(skills): bump <name> to <version>` on
+# main, and the ordinary release cadence ships it. A sync rule that no longer
+# matches or a failing test commits nothing and opens or updates ONE issue
+# ("Skill pack bump failed") with the log; a clean run closes it.
+#
+# Trust: the job that runs upstream code (the syncs, REA's server for its
+# catalog check, the tests) has a read-only token and no stored credentials;
+# only the push job, which runs no third-party code (git am, git push), can
+# write contents. A push made with GITHUB_TOKEN starts no workflow, so the push
+# job dispatches ci.yml on main afterwards to verify the bump.
+#
+# Run it now: gh workflow run skills-bump.yml
+name: skills-bump
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: skills-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    outputs:
+      outdated: ${{ steps.check.outputs.outdated }}
+      bumped: ${{ steps.bump.outputs.bumped }}
+      failed: ${{ steps.bump.outputs.failed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: Which packs are behind
+        id: check
+        run: bun scripts/skill-packs.ts check --github-output
+      - if: steps.check.outputs.outdated != ''
+        run: bun install --frozen-lockfile
+      # ECC's stock test builds a real omp session; without omp it would skip.
+      - name: Install omp
+        if: steps.check.outputs.outdated != ''
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      - name: Bump each pack that is behind
+        id: bump
+        if: steps.check.outputs.outdated != ''
+        env:
+          OUTDATED: ${{ steps.check.outputs.outdated }}
+          OUT: ${{ runner.temp }}/skills-bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p "$OUT/logs" "$OUT/patches"
+          start=$(git rev-parse HEAD)
+          bumped=""
+          failed=""
+          for name in $OUTDATED; do
+            base=$(git rev-parse HEAD)
+            if bun scripts/skill-packs.ts bump "$name" > "$OUT/logs/$name.log" 2>&1; then
+              git add -A
+              if ! git diff --cached --quiet; then
+                git commit -q -m "chore(skills): bump $name to $(bun scripts/skill-packs.ts version "$name")"
+                bumped="$bumped $name"
+              fi
+            else
+              git reset -q --hard "$base"
+              git clean -fdq
+              failed="$failed $name"
+            fi
+            echo "::group::$name"; cat "$OUT/logs/$name.log"; echo "::endgroup::"
+          done
+          git format-patch -q -o "$OUT/patches" "$start..HEAD"
+          echo "bumped=${bumped# }" >> "$GITHUB_OUTPUT"
+          echo "failed=${failed# }" >> "$GITHUB_OUTPUT"
+      - if: always() && steps.check.outputs.outdated != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skills-bump
+          path: ${{ runner.temp }}/skills-bump
+          retention-days: 14
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  push:
+    needs: bump
+    if: needs.bump.outputs.bumped != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the bump commits to main
+      actions: write # dispatch ci.yml: a GITHUB_TOKEN push starts no workflow
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: main
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: skills-bump
+          path: ${{ runner.temp }}/skills-bump
+      - name: Commit to main
+        env:
+          PATCHES: ${{ runner.temp }}/skills-bump/patches
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git am -3 "$PATCHES"/*.patch
+          # main may move meanwhile: rebase onto it and try again, never force.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            echo "push $attempt was rejected; rebasing onto origin/main"
+            git fetch origin main
+            git rebase origin/main
+          done
+          exit 1
+      - name: Verify the bump with ci.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main -f win_platform=true
+
+  report:
+    needs: bump
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - if: needs.bump.outputs.failed != '' || needs.bump.result != 'success'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        continue-on-error: true
+        with:
+          name: skills-bump
+          path: ${{ runner.temp }}/skills-bump
+      - name: Open or update the bump issue
+        if: needs.bump.outputs.failed != '' || needs.bump.result != 'success'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          FAILED: ${{ needs.bump.outputs.failed }}
+          LOGS: ${{ runner.temp }}/skills-bump/logs
+        with:
+          script: |
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const title = "Skill pack bump failed";
+            const { owner, repo } = context.repo;
+            const run = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const failed = (process.env.FAILED || "").split(" ").filter(Boolean);
+            const sections = failed.map(name => {
+              const file = path.join(process.env.LOGS, `${name}.log`);
+              const log = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "(no log)";
+              const tail = log.split("\n").slice(-150).join("\n").slice(-15000);
+              return `## ${name}\n\nNothing was committed for ${name}. Last lines of \`bun scripts/skill-packs.ts bump ${name}\`:\n\n\`\`\`\`text\n${tail}\n\`\`\`\``;
+            });
+            const body = [
+              `The scheduled skill pack bump did not go through: ${run}`,
+              failed.length ? "" : "The bump job itself failed before any pack was tried; see the run.",
+              ...sections,
+              "",
+              "A sync rule that no longer matches is adapted in scripts/sync-<pack>.ts (never silenced); see AGENTS.md › Built-in pstack / ECC / REA.",
+            ].join("\n\n");
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "all", per_page: 100 });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, body, state: "open" });
+              core.info(`Updated #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body });
+              core.info(`Opened #${created.data.number}`);
+            }
+      - name: Close the bump issue once every pack goes through
+        if: needs.bump.result == 'success' && needs.bump.outputs.failed == ''
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const title = "Skill pack bump failed";
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "open", per_page: 100 });
+            for (const issue of issues.filter(entry => !entry.pull_request && entry.title === title)) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `Every skill pack is current or bumped again: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}` });
+              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed" });
+            }
+      - name: Fail the run while a pack is stuck
+        if: needs.bump.outputs.failed != '' || needs.bump.result != 'success'
+        run: exit 1
