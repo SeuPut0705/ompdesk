@@ -448,4 +448,23 @@ describe("disk care", () => {
 			SLOW,
 		);
 	}
+
+	it.skipIf(process.platform === "win32")(
+		"restores the archived .env over the default a post-checkout hook writes, setting the default aside",
+		async () => {
+			const dir = await busyWorktree("hooked");
+			const hook = path.join(repo, ".git", "hooks", "post-checkout");
+			await fs.writeFile(hook, '#!/bin/sh\n[ -f .env ] || printf "DEFAULT=1\\n" > .env\n');
+			await fs.chmod(hook, 0o755);
+			await care().run("user");
+			expect(listed()).not.toContain(dir);
+			const [record] = await listSavedWorktrees(repo, saved);
+			const restored = await restoreSavedWorktree(record?.id ?? "", saved);
+			expect(restored.archive.skipped).toBe(0);
+			expect(await fs.readFile(path.join(dir, ".env"), "utf8")).toBe("API_KEY=edited-in-worktree\n");
+			expect(await fs.readFile(path.join(dir, ".env.ompdesk-before-restore"), "utf8")).toBe("DEFAULT=1\n");
+			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+		},
+		SLOW,
+	);
 });

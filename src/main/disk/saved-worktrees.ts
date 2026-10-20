@@ -441,18 +441,46 @@ export async function listSavedWorktrees(primary: string, saved: SavedWorktreeSt
 		.sort((a, b) => b.removedAt - a.removedAt);
 }
 
+async function sameBytes(a: string, b: string): Promise<boolean> {
+	const [left, right] = await Promise.all([fs.readFile(a).catch(() => null), fs.readFile(b).catch(() => null)]);
+	return left !== null && right !== null && left.equals(right);
+}
+
+/** `<target>.ompdesk-before-restore`, numbered when that is taken too. */
+async function asideName(target: string): Promise<string> {
+	for (let suffix = 1; ; suffix++) {
+		const candidate = `${target}.ompdesk-before-restore${suffix > 1 ? `-${suffix}` : ""}`;
+		if (!(await fs.lstat(candidate).catch(() => null))) return candidate;
+	}
+}
+
+/**
+ * Puts the archive back. The archived bytes are what the person had, so they win: a file something else made at that
+ * path since (a post-checkout hook's default `.env`, the repository's seeding) is moved aside to
+ * `<name>.ompdesk-before-restore`, never deleted; an identical one counts as restored; a tracked secret's change goes
+ * over HEAD's copy (which git holds). A folder where a file was is left alone and the file counts as skipped.
+ */
 async function copyBack(dir: string, worktree: string): Promise<{ restored: number; skipped: number }> {
 	const manifest = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8")) as { files: ArchivedFile[] };
 	let restored = 0;
 	let skipped = 0;
 	for (const file of manifest.files) {
 		const target = path.join(worktree, ...file.path.split("/"));
-		if (!file.overwrite && (await fs.lstat(target).catch(() => null))) {
-			skipped++;
-			continue;
+		const from = path.join(dir, "files", ...file.path.split("/"));
+		const existing = await fs.lstat(target).catch(() => null);
+		if (existing) {
+			if (existing.isDirectory()) {
+				skipped++;
+				continue;
+			}
+			if (!file.link && existing.isFile() && (await sameBytes(from, target))) {
+				restored++;
+				continue;
+			}
+			if (file.overwrite) await fs.rm(target, { force: true });
+			else await fs.rename(target, await asideName(target));
 		}
 		await fs.mkdir(path.dirname(target), { recursive: true });
-		const from = path.join(dir, "files", ...file.path.split("/"));
 		if (file.link) await fs.symlink(await fs.readlink(from), target);
 		else {
 			await fs.copyFile(from, target, fs.constants.COPYFILE_FICLONE);
@@ -465,8 +493,9 @@ async function copyBack(dir: string, worktree: string): Promise<{ restored: numb
 
 /**
  * Put a saved worktree back at its old path: on its branch when the branch still points where it did and no other
- * worktree has it checked out, else detached at the saved HEAD; the saved changes as uncommitted work; the archive
- * copied back without overwriting; then the repository's seeding and setup hook. The record and archive go after.
+ * worktree has it checked out, else detached at the saved HEAD; the saved changes as uncommitted work; then the
+ * repository's seeding and setup hook; then the archive over whatever those made (`copyBack`). The record and archive
+ * go only when every archived file came back; otherwise both stay.
  */
 export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore): Promise<SavedWorktreeRestore> {
 	const record = (await saved.list()).find(entry => entry.id === id);
@@ -503,10 +532,12 @@ export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore
 		}
 	}
 	const dir = saved.archiveDir(record.id);
-	const archive = record.archivedFiles > 0 ? await copyBack(dir, record.path) : { restored: 0, skipped: 0 };
 	await prepareWorktree(record.repo, record.path);
-	await saved.update(records => records.filter(entry => entry.id !== record.id));
-	await fs.rm(dir, { recursive: true, force: true });
+	const archive = record.archivedFiles > 0 ? await copyBack(dir, record.path) : { restored: 0, skipped: 0 };
+	if (archive.skipped === 0) {
+		await saved.update(records => records.filter(entry => entry.id !== record.id));
+		await fs.rm(dir, { recursive: true, force: true });
+	}
 	return { path: record.path, branch: onBranch ? record.branch : null, archive };
 }
 
