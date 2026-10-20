@@ -12,6 +12,8 @@ import type { Socket } from "node:net";
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const PING_INTERVAL_MS = 10_000;
 export const DEAD_AFTER_MS = 30_000;
+/** How long a wake's liveness check waits for any frame from the peer before it drops the link. */
+export const WAKE_CHECK_MS = 3_000;
 /** How long a graceful close waits for the peer before destroying the socket. */
 const CLOSE_GRACE_MS = 1_000;
 
@@ -114,6 +116,9 @@ export class FrameOpener {
 /** A decoded JSON message: an object with a string `t`. */
 export type WireMessage = { t: string } & Record<string, unknown>;
 
+/** Why a link ended: the peer or the network closed it, silence, a bad frame, or this side destroyed it. */
+export type LinkCloseReason = "closed" | "dead" | "protocol" | "local";
+
 export interface Liveness {
 	pingMs: number;
 	deadMs: number;
@@ -143,8 +148,11 @@ export class Link {
 	#sealer: FrameSealer | null = null;
 	#opener: FrameOpener | null = null;
 	#pingTimer: NodeJS.Timeout | undefined;
+	#check: { promise: Promise<boolean>; resolve: (alive: boolean) => void; timer: NodeJS.Timeout } | null = null;
 	#lastReceived = Date.now();
 	#closed = false;
+	#closeReason: LinkCloseReason | null = null;
+	#closing = false;
 
 	constructor(socket: Socket, liveness: Liveness = { pingMs: PING_INTERVAL_MS, deadMs: DEAD_AFTER_MS }) {
 		this.#socket = socket;
@@ -155,7 +163,7 @@ export class Link {
 			try {
 				frames = this.#decoder.push(chunk);
 			} catch {
-				this.destroy();
+				this.destroy("protocol");
 				return;
 			}
 			this.#pending.push(...frames);
@@ -163,11 +171,16 @@ export class Link {
 		});
 		// "close" follows every error; the error itself carries nothing to act on.
 		socket.on("error", () => {});
-		socket.on("close", () => this.#finish());
+		socket.on("close", () => this.#finish(this.#closing ? "local" : "closed"));
 	}
 
 	get closed(): boolean {
 		return this.#closed;
+	}
+
+	/** Why the link ended; null while it is open. */
+	get closeReason(): LinkCloseReason | null {
+		return this.#closeReason;
 	}
 
 	/** Send one message, encrypted once `secure()` ran. Throws when it exceeds the frame cap. */
@@ -204,7 +217,7 @@ export class Link {
 		this.#listener = onMessage;
 		this.#lastReceived = Date.now();
 		this.#pingTimer = setInterval(() => {
-			if (Date.now() - this.#lastReceived >= this.#liveness.deadMs) this.destroy();
+			if (Date.now() - this.#lastReceived >= this.#liveness.deadMs) this.destroy("dead");
 			else this.send({ t: "ping" });
 		}, this.#liveness.pingMs);
 		this.#pingTimer.unref();
@@ -216,16 +229,31 @@ export class Link {
 		else this.#closeHandlers.push(handler);
 	}
 
+	/**
+	 * Ask the peer now whether it is there: resolves true on the next frame from it, and drops the link (`dead`)
+	 * when none arrives within `windowMs`, so a link that went silent does not wait for the dead timer.
+	 */
+	check(windowMs: number): Promise<boolean> {
+		if (this.#closed) return Promise.resolve(false);
+		if (this.#check) return this.#check.promise;
+		const { promise, resolve } = Promise.withResolvers<boolean>();
+		const timer = setTimeout(() => this.destroy("dead"), windowMs);
+		this.#check = { promise, resolve, timer };
+		this.send({ t: "ping" });
+		return promise;
+	}
+
 	/** Flush what was sent, then close; destroys if the peer does not finish in time. */
 	close(): void {
 		if (this.#closed) return;
+		this.#closing = true;
 		this.#socket.end();
 		setTimeout(() => this.#socket.destroy(), CLOSE_GRACE_MS).unref();
 	}
 
-	destroy(): void {
+	destroy(reason: LinkCloseReason = "local"): void {
 		this.#socket.destroy();
-		this.#finish();
+		this.#finish(reason);
 	}
 
 	#decode(payload: Buffer): WireMessage {
@@ -245,10 +273,11 @@ export class Link {
 				message = this.#decode(payload);
 			} catch {
 				this.#pending = [];
-				this.destroy();
+				this.destroy("protocol");
 				break;
 			}
 			this.#lastReceived = Date.now();
+			this.#settleCheck(true);
 			const waiter = this.#waiter;
 			if (waiter) {
 				this.#waiter = null;
@@ -268,10 +297,20 @@ export class Link {
 		}
 	}
 
-	#finish(): void {
+	#settleCheck(alive: boolean): void {
+		const check = this.#check;
+		if (!check) return;
+		this.#check = null;
+		clearTimeout(check.timer);
+		check.resolve(alive);
+	}
+
+	#finish(reason: LinkCloseReason): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.#closeReason = reason;
 		clearInterval(this.#pingTimer);
+		this.#settleCheck(false);
 		this.#listener = null;
 		this.#drain();
 		for (const handler of this.#closeHandlers.splice(0)) handler();

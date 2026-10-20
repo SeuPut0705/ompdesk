@@ -854,6 +854,7 @@ app.whenReady().then(() => {
 		},
 		loopback: !app.isPackaged && process.env.OMP_GUI_TEST_REMOTE_LOOPBACK === "1",
 		log: (message, details) => writeRuntimeLog({ source: "remote", message, details }),
+		logLink: (message, details) => writeRuntimeLog({ source: "remote-link", message, details }),
 	});
 	remoteDevices = devices;
 	// A paired web device's window is filed under the device (its window id changes every launch); a quit tears
@@ -1372,7 +1373,10 @@ app.whenReady().then(() => {
 			const timer = setTimeout(run, ms);
 			return () => clearTimeout(timer);
 		},
-		changed: () => turnResume.connectivityChanged(),
+		changed: online => {
+			turnResume.connectivityChanged();
+			if (online) devices.wake("online");
+		},
 	});
 	const turnResume = new TurnResume({
 		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json")),
@@ -1446,7 +1450,12 @@ app.whenReady().then(() => {
 	});
 	setQuitResumes(() => prefs.get(RESUME_INTERRUPTED_PREF) !== false);
 	powerMonitor.on("suspend", () => connectivity.suspend());
-	powerMonitor.on("resume", () => connectivity.resume());
+	powerMonitor.on("resume", () => {
+		connectivity.resume();
+		devices.wake("resume");
+	});
+	powerMonitor.on("unlock-screen", () => devices.wake("unlock"));
+	app.on("browser-window-focus", () => devices.wake("focus"));
 	// Chromium's own link state, sampled for changes the windows' events missed (a window may not exist).
 	setInterval(() => connectivity.poll(), 3000).unref();
 	sidecarPool.onRunningChange = () => {

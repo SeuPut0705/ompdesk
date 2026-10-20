@@ -55,7 +55,7 @@ import {
 	TAB_EVENT,
 	TabEventMessage,
 } from "./app-protocol";
-import { connectFirst, type ProbeResult, probeHost, RemoteClient, RemoteError } from "./client";
+import { connectFirst, type ProbeResult, probeHost, RemoteClient, RemoteError, type WakeTrigger } from "./client";
 import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor } from "./host-server";
 import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
@@ -148,6 +148,8 @@ export interface RemoteDevicesDeps {
 	loopback?: boolean;
 	/** A line in the runtime log (`source: "remote"`). */
 	log?: (event: string, details: Record<string, unknown>) => void;
+	/** A host link's transitions and the host role's connections (`remote-link`; no addresses or keys). */
+	logLink?: (event: string, details: Record<string, unknown>) => void;
 	now?: () => number;
 }
 
@@ -181,6 +183,8 @@ export class RemoteDevices {
 	#computers: TailnetComputer[] = [];
 	/** Where each node's host answered last (`ip:port`). */
 	readonly #found = new Map<string, string>();
+	/** Whether each known host's node was online in the last Tailscale poll. */
+	readonly #nodeOnline = new Map<string, boolean>();
 	/** This computer's name on the tailnet: the device name until the user picks one. */
 	#tailnetName: string | null = null;
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
@@ -210,6 +214,14 @@ export class RemoteDevices {
 		void this.#poll();
 		this.#pollTimer = setInterval(() => void this.#poll(), TAILNET_POLL_MS);
 		this.#pollTimer.unref?.();
+	}
+
+	/**
+	 * The computer or the network may have changed (wake from sleep, unlock, the network back, a window in front):
+	 * every host link checks that it is alive, or retries now when it is not (`RemoteClient.wake`).
+	 */
+	wake(trigger: WakeTrigger): void {
+		for (const link of this.#links.values()) link.client.wake(trigger);
 	}
 
 	state(): RemoteState {
@@ -584,13 +596,25 @@ export class RemoteDevices {
 		if (status?.login) this.#deps.adoptLogin(status.login);
 		if (status?.selfName) this.#tailnetName = status.selfName;
 		if (status) this.#migrateHosts(status);
+		if (status) this.#wakeReturnedHosts(status);
 		await this.#host?.rebind();
 		if (phase !== this.#phase) {
 			this.#phase = phase;
 			// Back on the tailnet: known hosts are reachable at their nodes again.
-			if (phase === "ready") for (const link of this.#links.values()) link.client.connect();
+			if (phase === "ready") this.wake("tailnet");
 		}
 		this.#broadcastState();
+	}
+
+	/** A host whose node was offline in the last poll and is online now: its link checks or retries at once. */
+	#wakeReturnedHosts(status: TailscaleStatus): void {
+		for (const host of this.#hosts.list()) {
+			if (!host.nodeId) continue;
+			const online = status.peers.find(peer => peer.nodeId === host.nodeId)?.online === true;
+			const was = this.#nodeOnline.get(host.nodeId);
+			this.#nodeOnline.set(host.nodeId, online);
+			if (online && was === false) this.#links.get(host.deviceId)?.client.wake("tailnet");
+		}
 	}
 
 	/**
@@ -685,6 +709,7 @@ export class RemoteDevices {
 				gate: ip => this.#gate(ip),
 				admit: (visitor, name) => this.#admit(visitor, name),
 				log: this.#deps.log,
+				logLink: this.#deps.logLink,
 				renameSelf: (name, by) => {
 					console.info(`[remote] ${by.name} (${by.deviceId}) renamed this computer to "${name}"`);
 					this.setDeviceName(name);
@@ -807,6 +832,7 @@ export class RemoteDevices {
 			name: () => this.deviceName(),
 			hosts: this.#hosts,
 			addresses: host => this.#hostAddresses(host),
+			log: this.#deps.logLink,
 		});
 		const link: HostLink = { client, tabs: new Map(), closes: new PendingTabCloses() };
 		client.on("state", state => {

@@ -94,6 +94,8 @@ export interface RemoteHostOptions {
 	renameSelf?: (name: string, by: PeerInfo) => void;
 	/** Something worth a line in the runtime log (a port other than the first, a refusal). */
 	log?: (event: string, details: Record<string, unknown>) => void;
+	/** A device's connection opened or closed (`open`, `closed` with why and how long), for the runtime log (`remote-link`). */
+	logLink?: (event: "open" | "closed", details: Record<string, unknown>) => void;
 	now?: () => number;
 }
 
@@ -289,10 +291,11 @@ export class RemoteHost {
 
 	#accept(socket: Socket): void {
 		const ip = (socket.remoteAddress ?? "").replace(/^::ffff:/i, "");
+		const acceptedAt = this.#now();
 		const link = new Link(socket);
 		this.#links.add(link);
 		link.onClose(() => this.#links.delete(link));
-		this.#handshake(link, ip).catch(() => link.destroy());
+		this.#handshake(link, ip, acceptedAt).catch(() => link.destroy());
 	}
 
 	#refuse(link: Link, t: "auth-fail" | "error", code: RefusalCode, ip: string): void {
@@ -301,7 +304,7 @@ export class RemoteHost {
 		link.close();
 	}
 
-	async #handshake(link: Link, ip: string): Promise<void> {
+	async #handshake(link: Link, ip: string, acceptedAt: number): Promise<void> {
 		const first = await link.receive(HANDSHAKE_TIMEOUT_MS);
 		const opening = Opening.safeParse(first);
 		if (!opening.success) {
@@ -329,7 +332,7 @@ export class RemoteHost {
 		if (!gate.ok) return this.#refuse(link, "auth-fail", gate.code, ip);
 		const bound = await this.#bindDevice(init, gate.visitor);
 		if (typeof bound === "string") return this.#refuse(link, "auth-fail", bound, ip);
-		await this.#auth(link, init, bound);
+		await this.#auth(link, init, bound, acceptedAt);
 	}
 
 	/**
@@ -372,7 +375,7 @@ export class RemoteHost {
 	}
 
 	/** Auth, host side: key agreement over both static and both ephemeral keys, then hellos. */
-	async #auth(link: Link, init: AuthInit, peer: PeerInfo): Promise<void> {
+	async #auth(link: Link, init: AuthInit, peer: PeerInfo, acceptedAt: number): Promise<void> {
 		const { identity, peers } = this.#opts;
 		const eph = generateKeyPair();
 		link.send({
@@ -419,7 +422,16 @@ export class RemoteHost {
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
 		const conn = new PeerConnection(link, current);
 		this.#connections.add(conn);
-		link.onClose(() => this.#disconnected(conn));
+		const openedAt = this.#now();
+		this.#opts.logLink?.("open", { deviceId: current.deviceId, ms: openedAt - acceptedAt });
+		link.onClose(() => {
+			this.#opts.logLink?.("closed", {
+				deviceId: current.deviceId,
+				reason: link.closeReason ?? "closed",
+				ms: this.#now() - openedAt,
+			});
+			this.#disconnected(conn);
+		});
 		link.listen(message => this.#onMessage(conn, message));
 		this.#emitter.emit("peersChanged");
 		this.#emitter.emit("connectionsChanged");

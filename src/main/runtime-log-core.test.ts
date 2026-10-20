@@ -67,6 +67,16 @@ describe("runtime crash log", () => {
 			details: { launchInode: 100, currentInode: 101 },
 		});
 	});
+
+	it("keeps a host link's line under its own source, not unknown", () => {
+		const report = normalizeRuntimeErrorReport({
+			source: "remote-link",
+			message: "down",
+			details: { deviceId: "d1", reason: "dead", wasOnlineMs: 8000 },
+		});
+
+		expect(report).toMatchObject({ source: "remote-link", message: "down", details: { reason: "dead" } });
+	});
 });
 
 describe("tailLogLines", () => {

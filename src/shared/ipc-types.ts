@@ -504,6 +504,12 @@ export type RuntimeErrorSource =
 	 * name (`session`) and a refusal's code or a failure's message (`reason`).
 	 */
 	| "session-delete"
+	/**
+	 * A host link's transitions (src/main/remote/client.ts, host-server.ts): `message` is `down` (`reason`,
+	 * `wasOnlineMs`), `attempt` (`n`, `delayMs`, `trigger`), `up` (`outageMs`, `attempts`) on the client, `open` and
+	 * `closed` (`reason`, `ms`) on the host; `details.deviceId` names the other computer.
+	 */
+	| "remote-link"
 	/** The GPU fallback (src/main/gpu-fallback.ts): software rendering, a relaunch or why none, a hardware trial. */
 	| "gpu-fallback"
 	/** The crash-loop guard (src/main/launch-guard.ts): this launch starts in safe mode. */

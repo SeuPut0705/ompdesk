@@ -23,9 +23,17 @@ import {
 	WireEvent,
 	WireResponse,
 } from "./protocol";
-import { Link, type WireMessage } from "./wire";
+import { Link, WAKE_CHECK_MS, type WireMessage } from "./wire";
 
 export type LinkState = "connecting" | "online" | "offline";
+
+/** What may say the network or the computer changed: the client checks (online) or retries (offline) at once. */
+export type WakeTrigger = "resume" | "unlock" | "online" | "tailnet" | "focus";
+
+type AttemptTrigger = "start" | "connect" | "backoff" | WakeTrigger;
+
+/** Backoff retries past this one (30 s apart by then) are not logged: an absent host would fill the log. */
+const LOGGED_BACKOFF_ATTEMPTS = 6;
 
 export const RECONNECT_MIN_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;
@@ -224,6 +232,15 @@ export interface RemoteClientOptions {
 	hosts?: HostStore;
 	/** Where the host can be reached now (its node's tailnet address first); the stored addresses when omitted. */
 	addresses?: (host: PairedHost) => Promise<string[]>;
+	/** The link's transitions for the runtime log (`remote-link`): `down`, each `attempt`, `up`. No addresses or keys. */
+	log?: (event: "down" | "attempt" | "up", details: Record<string, unknown>) => void;
+}
+
+/** One stretch without a link: from the drop (or the first attempt of a launch) until it is online again. */
+interface Outage {
+	since: number;
+	attempts: number;
+	downLogged: boolean;
 }
 
 interface Pending {
@@ -247,6 +264,8 @@ export class RemoteClient {
 	#attempting = false;
 	#retryTimer: NodeJS.Timeout | undefined;
 	#backoff = RECONNECT_MIN_MS;
+	#onlineAt: number | null = null;
+	#outage: Outage | null = null;
 	#nextId = 1;
 
 	constructor(opts: RemoteClientOptions) {
@@ -285,14 +304,33 @@ export class RemoteClient {
 	connect(): void {
 		this.#running = true;
 		if (this.#link || this.#attempting) return;
-		clearTimeout(this.#retryTimer);
-		void this.#attempt();
+		const trigger = this.#retryTimer ? "connect" : "start";
+		this.#clearRetry();
+		void this.#attempt(trigger, 0);
+	}
+
+	/**
+	 * The network or the computer may have changed under the link (wake from sleep, unlock, the network back, a
+	 * window in front, the tailnet's node of the host back). Offline or waiting out a backoff: start over from a 1 s
+	 * backoff and try now. Online: send a ping and drop the link if nothing answers within `WAKE_CHECK_MS`, then try
+	 * now, instead of waiting for the 30 s dead timer. An attempt already running is the one that is trying now.
+	 */
+	wake(trigger: WakeTrigger): void {
+		if (!this.#running || this.#attempting) return;
+		const link = this.#link;
+		if (!link) {
+			this.#retryNow(trigger);
+			return;
+		}
+		void link.check(WAKE_CHECK_MS).then(alive => {
+			if (!alive) this.#retryNow(trigger);
+		});
 	}
 
 	/** Stop reconnecting and drop the link; pending requests reject `remote_offline`. */
 	close(): void {
 		this.#running = false;
-		clearTimeout(this.#retryTimer);
+		this.#clearRetry();
 		this.#link?.destroy();
 		this.#setState("offline");
 	}
@@ -345,8 +383,14 @@ export class RemoteClient {
 		return this.#opts.addresses(stored).catch(() => []);
 	}
 
-	async #attempt(): Promise<void> {
+	async #attempt(trigger: AttemptTrigger, delayMs: number): Promise<void> {
 		this.#attempting = true;
+		this.#outage ??= { since: Date.now(), attempts: 0, downLogged: false };
+		const outage = this.#outage;
+		outage.attempts += 1;
+		if (trigger !== "backoff" || outage.attempts <= LOGGED_BACKOFF_ATTEMPTS) {
+			this.#opts.log?.("attempt", { deviceId: this.deviceId, n: outage.attempts, delayMs, trigger });
+		}
 		this.#setState("connecting");
 		const addresses = await this.#addresses();
 		let failure = new RemoteError("unreachable", "no address to dial");
@@ -375,11 +419,27 @@ export class RemoteClient {
 		this.#attempting = false;
 		if (!this.#running) return;
 		this.#error = failure.code;
+		if (!outage.downLogged) {
+			outage.downLogged = true;
+			this.#opts.log?.("down", {
+				deviceId: this.deviceId,
+				name: this.#host.name,
+				reason: failure.code,
+				wasOnlineMs: 0,
+			});
+		}
 		this.#setState("offline");
 		this.#scheduleRetry();
 	}
 
 	#online(link: Link, hello: HostHello, address: string): void {
+		const now = Date.now();
+		const outage = this.#outage;
+		this.#outage = null;
+		this.#onlineAt = now;
+		if (outage) {
+			this.#opts.log?.("up", { deviceId: this.deviceId, outageMs: now - outage.since, attempts: outage.attempts });
+		}
 		this.#link = link;
 		this.#hello = hello;
 		this.#error = null;
@@ -399,6 +459,14 @@ export class RemoteClient {
 	#dropped(link: Link): void {
 		if (this.#link !== link) return;
 		this.#link = null;
+		const now = Date.now();
+		this.#opts.log?.("down", {
+			deviceId: this.deviceId,
+			name: this.#host.name,
+			reason: link.closeReason ?? "closed",
+			wasOnlineMs: now - (this.#onlineAt ?? now),
+		});
+		this.#outage = { since: now, attempts: 0, downLogged: true };
 		for (const [id, pending] of this.#pending) {
 			clearTimeout(pending.timer);
 			this.#pending.delete(id);
@@ -413,7 +481,22 @@ export class RemoteClient {
 		const delay = this.#backoff;
 		this.#backoff = Math.min(this.#backoff * 2, RECONNECT_MAX_MS);
 		clearTimeout(this.#retryTimer);
-		this.#retryTimer = setTimeout(() => void this.#attempt(), delay);
+		this.#retryTimer = setTimeout(() => {
+			this.#retryTimer = undefined;
+			void this.#attempt("backoff", delay);
+		}, delay);
+	}
+
+	#clearRetry(): void {
+		clearTimeout(this.#retryTimer);
+		this.#retryTimer = undefined;
+	}
+
+	#retryNow(trigger: WakeTrigger): void {
+		if (!this.#running || this.#link || this.#attempting) return;
+		this.#clearRetry();
+		this.#backoff = RECONNECT_MIN_MS;
+		void this.#attempt(trigger, 0);
 	}
 
 	#onMessage(message: WireMessage): void {

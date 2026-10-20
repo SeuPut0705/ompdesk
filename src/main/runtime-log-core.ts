@@ -35,6 +35,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"web-reload",
 	"remote-tab",
 	"session-delete",
+	"remote-link",
 	"gpu-fallback",
 	"launch-guard",
 	"user-data-migration",
