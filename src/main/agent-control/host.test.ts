@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APPROVE_PREF,
 	AGENT_CONTROL_FULL_PREF,
 	AGENT_CONTROL_MANAGE_PREF,
@@ -724,6 +725,12 @@ describe("AgentControlRuntime", () => {
 			});
 			deps.pool.sessionOwner = sessionPath =>
 				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
+			// The close's last step, written once its worktree removal (and `branch -d`) settled: awaiting it leaves no
+			// git running in the repository when the test deletes it (Windows refuses an rmdir while one has it open).
+			let closed: unknown;
+			deps.prefs.set = (key, value) => {
+				if (key === AGENT_CLOSED_CHILDREN_PREF) closed = value;
+			};
 			deps.dispatch = async (_target, _sidecar, _tabId, command) =>
 				command.type === "get_state"
 					? ok({ isStreaming: false })
@@ -748,16 +755,8 @@ describe("AgentControlRuntime", () => {
 				tabs.findIndex(tab => tab.tabId === "kid00002"),
 				1,
 			);
-			await expect
-				.poll(
-					() =>
-						fs.stat(worktree.path).then(
-							() => true,
-							() => false,
-						),
-					{ timeout: 10_000 },
-				)
-				.toBe(false);
+			await expect.poll(() => closed, { timeout: 10_000 }).toEqual([expect.objectContaining({ cwd: repo })]);
+			await expect(fs.stat(worktree.path)).rejects.toThrow();
 		} finally {
 			await fs.rm(root, { recursive: true, force: true });
 		}
