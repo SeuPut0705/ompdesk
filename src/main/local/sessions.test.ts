@@ -218,6 +218,17 @@ describe("get_turn_edits", () => {
 		// Bounded pages, never the whole transcript in one bridge reply.
 		expect(requested.length).toBeGreaterThan(2);
 	});
+
+	it("keeps an edit made near the start of a turn longer than a thousand messages", async () => {
+		const bodies: AgentMessage[] = [user("go", 1), assistant(2, call("e0", "edit", { path: "early.ts" }))];
+		bodies.push(result("e0", "edit", 3));
+		for (let i = 0; i < 1500; i++) bodies.push(assistant(4 + i, call(`b${i}`, "bash", { command: "true" })));
+		const entries = bodies.map((body, i) => message(`m${i}`, i === 0 ? null : `m${i - 1}`, body));
+		const { ctx } = pagedBridge(entries, () => "leaf");
+		const turn = await getTurnEdits({ type: "get_turn_edits" }, ctx);
+		expect(turn.startedAt).toBe(1);
+		expect(turn.messages[0]).toMatchObject({ content: [{ id: "e0", arguments: { path: "early.ts" } }] });
+	});
 });
 
 describe("switch_session", () => {

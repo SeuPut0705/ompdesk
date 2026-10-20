@@ -66,9 +66,6 @@ function pageLimit(raw: unknown): number {
 	return Math.min(MAX_PAGE_LIMIT, Math.max(1, Math.floor(raw)));
 }
 
-/** How far back `get_turn_edits` reads for the prompt that started a turn. */
-const TURN_EDITS_MAX_MESSAGES = 1024;
-
 /** The `get_state` field the session-changing handlers consult. */
 interface RunState {
 	isStreaming: boolean;
@@ -128,18 +125,20 @@ export const handlers: Record<string, LocalHandler> = {
 
 	/**
 	 * The newest turn's file-changing calls (shared/turn-edits.ts), read back page by page to the prompt that started
-	 * it (a steer joins the running turn), at most {@link TURN_EDITS_MAX_MESSAGES} messages: only those calls and their
-	 * results leave, never the turn's reads or command output.
+	 * it (a steer joins the running turn), however long the turn: a count cut short would read as exact. Only those
+	 * calls and their results leave, never the turn's reads or command output.
 	 */
 	get_turn_edits: async (_command, ctx): Promise<RpcTurnEdits> => {
 		const head = await transcriptPage(ctx, 0, 0);
 		const tail: AgentMessage[] = [];
 		let end = head.total;
-		while (end > 0 && !tail.some(isTurnPrompt) && head.total - end < TURN_EDITS_MAX_MESSAGES) {
+		let prompted = false;
+		while (end > 0 && !prompted) {
 			const offset = Math.max(0, end - MAX_PAGE_LIMIT);
 			const page = await transcriptPage(ctx, offset, end - offset);
 			if (page.leafId !== head.leafId || page.total !== head.total)
 				throw new LocalCommandError("Transcript changed while it was read", "stale_cursor");
+			prompted = page.messages.some(isTurnPrompt);
 			tail.unshift(...page.messages);
 			end = offset;
 		}
