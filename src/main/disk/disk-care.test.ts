@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { setOpenFoldersSource } from "../worktree-orphans";
 import { realFolder } from "../worktree-removals";
-import { DiskCare } from "./care";
+import { DiskCare, type DiskCareDeps } from "./care";
 import { listSavedWorktrees, restoreSavedWorktree, SavedWorktreeStore } from "./saved-worktrees";
 
 const SLOW = 120_000;
@@ -29,7 +29,7 @@ const bridge = {
 	},
 };
 
-function care(now = Date.now() + MONTH_MS): DiskCare {
+function care(now = Date.now() + MONTH_MS, extra: Partial<DiskCareDeps> = {}): DiskCare {
 	return new DiskCare({
 		bridge,
 		openFolders: () => open,
@@ -43,6 +43,7 @@ function care(now = Date.now() + MONTH_MS): DiskCare {
 		automatic: false,
 		now: () => now,
 		processFolders: async () => processes,
+		...extra,
 	});
 }
 
@@ -420,4 +421,31 @@ describe("disk care", () => {
 		},
 		SLOW,
 	);
+
+	for (const [what, file] of [
+		["an already modified tracked file", "README.md"],
+		["an ignored .env", ".env"],
+	] as const) {
+		it(
+			`keeps the worktree, and its newest bytes, when ${what} is edited again while it is being saved`,
+			async () => {
+				const dir = await busyWorktree(`edit-${file.replace(/\W/g, "")}`);
+				let calls = 0;
+				// The second process read is the one right before removal: an editor (cwd elsewhere) writes just then,
+				// leaving `git status` the same.
+				const processFolders = async (): Promise<string[]> => {
+					if (++calls === 2) await fs.writeFile(path.join(dir, file), "edited again during the save\n");
+					return [];
+				};
+				await care(undefined, { processFolders }).run("user");
+				expect(listed()).toContain(dir);
+				expect(await fs.readFile(path.join(dir, file), "utf8")).toBe("edited again during the save\n");
+				expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+				expect(savedRefs()).toEqual([]);
+				const kept = logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
+				expect(kept).toContain("it changed while it was being saved");
+			},
+			SLOW,
+		);
+	}
 });
