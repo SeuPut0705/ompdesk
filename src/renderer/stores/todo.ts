@@ -46,6 +46,11 @@ export interface TodoStore {
 	/** Mirrors the session's agent run (agent_start → agent_end, or a get_state snapshot). */
 	turnActive: boolean;
 	turnStartedAt: number | null;
+	/**
+	 * The last turn that ended in this tab, noted as it ends: the work board's "Current work" counts its changes while
+	 * idle. Kept with the tab's runtime, so a board or strip mounted after the turn (a phone opening the strip) has it.
+	 */
+	lastTurn: { start: number; end: number } | null;
 	/** A wire message/authoritative transcript replaced the provisional receipt clock. */
 	turnSourceKnown: boolean;
 	historyEpoch: number;
@@ -71,6 +76,7 @@ const initialState = {
 	historyHydrated: false,
 	turnActive: false,
 	turnStartedAt: null as number | null,
+	lastTurn: null as { start: number; end: number } | null,
 	turnSourceKnown: false,
 	historyEpoch: 0,
 	keepClosedVisible: false,
@@ -187,6 +193,9 @@ export const createTodoStore = () =>
 				return {
 					turnActive: active,
 					turnStartedAt: startedAt,
+					...(changed && !active && state.turnStartedAt !== null
+						? { lastTurn: { start: state.turnStartedAt, end: endedAt ?? Date.now() } }
+						: {}),
 					turnSourceKnown: sourceKnown,
 					historyEpoch: epoch,
 					history,

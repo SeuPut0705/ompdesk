@@ -51,14 +51,19 @@
 	height: 100%;
 	align-items: center;
 	justify-content: space-between;
+	/* Label and percent never touch ("5H64%" on the board's narrow head): a gap that holds however tight the bar. */
+	gap: var(--sc-space-1-5);
 	padding-inline: var(--sc-space-2);
+	white-space: nowrap;
 	color: var(--sc-text);
 	font-weight: 500;
 	font-variant-numeric: tabular-nums;
 }
 
+/* The window's name is the quiet half; the percent carries the weight, in tabular numerals. */
 .omp-usage-gauge-text > :first-child {
 	color: var(--sc-text-secondary);
+	font-weight: 400;
 }
 
 .omp-usage-gauge-reset {

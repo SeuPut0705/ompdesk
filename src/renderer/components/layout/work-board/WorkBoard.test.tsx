@@ -542,6 +542,30 @@ describe("WorkBoard sections", () => {
 		await click('[data-board-session="changes"]');
 		expect(useUiStore.getState().panelTab).toBe("diff");
 	});
+
+	it("counts the finished turn when the board mounts only after it ended (a phone opening its strip)", async () => {
+		const startedAt = Date.now() - 5000;
+		useTodoStore.getState().setTurnActive(true, startedAt);
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"e1",
+					tool({
+						toolName: "write",
+						args: { path: "src/a.ts", content: "one\ntwo\n" },
+						status: "done",
+						result: { details: { path: "src/a.ts" } },
+						startTime: startedAt + 1000,
+						endTime: startedAt + 2000,
+					}),
+				],
+			]),
+		});
+		useTodoStore.getState().setTurnActive(false);
+		await mount();
+		await expect.poll(() => pane.querySelector('[data-board-session="changes"]')).not.toBeNull();
+		expect(pane.querySelector('[data-board-session="changes"]')?.textContent).toContain("1 file changed");
+	});
 });
 
 describe("WorkBoard folds", () => {

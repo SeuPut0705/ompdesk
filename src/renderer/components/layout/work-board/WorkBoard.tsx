@@ -146,28 +146,6 @@ function useGoalDetail(objective: string | undefined, status: string | undefined
 	return detail;
 }
 
-interface FinishedTurn {
-	start: number;
-	end: number;
-}
-
-/** The last turn that ended, noted as it ends: "Current work" counts its changes and shows how long it took. */
-function useFinishedTurn(turnActive: boolean, startedAt: number | null): FinishedTurn | null {
-	const [last, setLast] = useState<FinishedTurn | null>(null);
-	const started = useRef<number | null>(null);
-	useEffect(() => {
-		if (turnActive) {
-			started.current = startedAt ?? started.current ?? Date.now();
-			return;
-		}
-		const start = started.current;
-		if (start === null) return;
-		started.current = null;
-		setLast({ start, end: Date.now() });
-	}, [turnActive, startedAt]);
-	return last;
-}
-
 /** The turn's newest few calls, live and finished, oldest first. */
 function useTurnSteps(active: boolean, startedAt: number | null): ToolEntry[] {
 	const { tools } = useRunStores();
@@ -285,7 +263,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	);
 	const planProposal = usePlanApprovalStore(state => state.pending);
 
-	const lastTurn = useFinishedTurn(turnActive, turnStartedAt);
+	const lastTurn = useTodoStore(state => state.lastTurn);
 	const running = agents.length + jobs.length + opened.counts.running;
 	const now = useNowTick(turnActive || running > 0);
 	const presentedAgents = usePresence(agents, agent => agent.id);

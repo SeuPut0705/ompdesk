@@ -85,7 +85,8 @@ export function UsageGauges({
 						key={limit.id}
 					>
 						<span
-							aria-label={usageLimitLabel(limit, t)}
+							// The name read with its value ("5시간 64%"), not the glyphs "5H" and "64%".
+							aria-label={`${usageLimitLabel(limit, t)} ${percent}%`}
 							aria-valuemax={100}
 							aria-valuemin={0}
 							aria-valuenow={percent}
@@ -94,9 +95,9 @@ export function UsageGauges({
 							role="progressbar"
 						>
 							<span className="omp-usage-gauge-fill" style={{ width: `${percent}%` }} />
-							<span className="omp-usage-gauge-text">
-								<span>{shortWindowLabel(limit)}</span>
-								<span>{percent}%</span>
+							<span aria-hidden className="omp-usage-gauge-text">
+								<span data-usage-label>{shortWindowLabel(limit)}</span>
+								<span data-usage-percent>{percent}%</span>
 							</span>
 						</span>
 						{resets && limit.resetsAt !== undefined ? (
