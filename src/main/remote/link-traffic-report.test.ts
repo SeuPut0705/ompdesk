@@ -382,18 +382,25 @@ describe("a device that asks for slim events", () => {
 	] as const)(
 		"streams a reply of %i thinking + %i text tokens in at most a tenth of the bytes an older device gets",
 		async (thinkingTokens, textTokens) => {
-			const scenario = { kind: "stream", thinkingTokens, textTokens, tokenMs: 2 };
+			// Unpaced: a byte count needs no wall clock (2 ms a token was 7 of the 1800-token case's 9.5 s), and a burst
+			// is what packs an older device's whole updates into frames past the link's cap.
+			const scenario = { kind: "stream", thinkingTokens, textTokens, tokenMs: 0 };
 			const older = await delivered(scenario, { olderDevice: true });
 			const current = await delivered(scenario);
+			const updates = (run: Delivered) => run.events.filter(event => event.type === "message_update").length;
+			// Nothing dropped on the way: an older device's batch past the frame cap once lost the turn, end included.
+			expect(updates(older)).toBeGreaterThanOrEqual(thinkingTokens + textTokens);
+			expect(updates(older)).toBe(updates(current));
 			expect(current.eventBytes * 10, `${current.eventBytes} B against ${older.eventBytes} B`).toBeLessThanOrEqual(
 				older.eventBytes,
 			);
 		},
-		120_000,
+		30_000,
 	);
 
 	it("receives a subagent's streamed messages in at most a tenth of the bytes an older device gets", async () => {
-		const scenario = { kind: "subagent", seconds: 3, textTokens: 300, tokenMs: 2 };
+		// One subagent message (the loop's first pass), unpaced.
+		const scenario = { kind: "subagent", seconds: 0.01, textTokens: 300, tokenMs: 0 };
 		const older = await delivered(scenario, { olderDevice: true, level: "events" });
 		const current = await delivered(scenario, { level: "events" });
 		const perFrame = (bytes: number, frames: number): number => bytes / Math.max(1, frames);

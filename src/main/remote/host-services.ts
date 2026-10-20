@@ -148,6 +148,7 @@ import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
 import { readJson, writeSecureJson } from "./secure-file";
+import { FrameTooLargeError } from "./wire";
 
 /** How long a disconnected device's tabs keep running, waiting for it to come back. */
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
@@ -1519,12 +1520,7 @@ export class LocalHostServices implements HostServices {
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {
 		const { conn } = tab;
 		if (!conn) return;
-		const message: TabEventMessage = {
-			rtab: tab.rtab,
-			name,
-			arg: conn.slimEvents ? this.#slimmed(tab, conn, name, arg) : arg,
-		};
-		emitSafely(conn, TAB_EVENT, message);
+		sendTabEvent(conn, tab.rtab, name, conn.slimEvents ? this.#slimmed(tab, conn, name, arg) : arg);
 	}
 
 	/** `events` and `subagentFrame` as a device that asked for slim ones receives them (`link-events.ts`); one encoder per tab and connection. */
@@ -1788,6 +1784,25 @@ function emitSafely(conn: HostConnection, event: string, data: unknown): void {
 		conn.emit(event, data);
 	} catch (error) {
 		console.warn(`[remote-host] dropped ${event}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+}
+
+/**
+ * Push a tab event. An `events` batch over the frame cap goes as several frames, in order: an older device gets every
+ * `message_update` whole, so a burst of a long reply (an omp catching up, a fast provider) passed 16 MiB in one 32 ms
+ * batch, and dropping it lost the turn's `agent_end` with it (the device's tab never left "running").
+ */
+function sendTabEvent(conn: HostConnection, rtab: string, name: TabEventName, arg: unknown): void {
+	try {
+		conn.emit(TAB_EVENT, { rtab, name, arg } satisfies TabEventMessage);
+	} catch (error) {
+		if (error instanceof FrameTooLargeError && name === "events" && Array.isArray(arg) && arg.length > 1) {
+			const half = Math.ceil(arg.length / 2);
+			sendTabEvent(conn, rtab, name, arg.slice(0, half));
+			sendTabEvent(conn, rtab, name, arg.slice(half));
+			return;
+		}
+		console.warn(`[remote-host] dropped ${TAB_EVENT}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 

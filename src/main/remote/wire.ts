@@ -21,8 +21,15 @@ const HEADER_BYTES = 4;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 
+/** A message whose frame would pass `MAX_FRAME_BYTES`: nothing was sent. */
+export class FrameTooLargeError extends Error {
+	constructor(bytes: number) {
+		super(`frame of ${bytes} bytes exceeds the 16 MiB cap`);
+	}
+}
+
 export function encodeFrame(payload: Buffer): Buffer {
-	if (payload.length > MAX_FRAME_BYTES) throw new Error(`frame of ${payload.length} bytes exceeds the 16 MiB cap`);
+	if (payload.length > MAX_FRAME_BYTES) throw new FrameTooLargeError(payload.length);
 	const header = Buffer.allocUnsafe(HEADER_BYTES);
 	header.writeUInt32BE(payload.length);
 	return Buffer.concat([header, payload]);
@@ -187,10 +194,12 @@ export class Link {
 		return this.#closeReason;
 	}
 
-	/** Send one message, encrypted once `secure()` ran. Throws when it exceeds the frame cap. */
+	/** Send one message, encrypted once `secure()` ran. Throws `FrameTooLargeError` when it exceeds the frame cap. */
 	send(message: object): void {
 		if (this.#closed) return;
 		const json = Buffer.from(JSON.stringify(message));
+		// Sealing adds bytes, never removes them: a message already past the cap is refused before it is encrypted.
+		if (json.length > MAX_FRAME_BYTES) throw new FrameTooLargeError(json.length);
 		const payload = this.#sealer ? this.#sealer.seal(json) : json;
 		const frame = encodeFrame(payload);
 		this.#traffic?.("tx", message, frame.length);
