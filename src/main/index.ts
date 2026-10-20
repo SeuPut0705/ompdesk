@@ -93,6 +93,8 @@ import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
 import { poolTabFor, registerDiagnosticBundleIpc } from "./diagnostic-bundle";
 import { currentDiagnosticsReport, registerDiagnosticsIpc } from "./diagnostics";
+import { DiskCare, registerDiskCareIpc } from "./disk/care";
+import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
@@ -173,7 +175,7 @@ import {
 	WorktreePrompts,
 	type WorktreeWindows,
 } from "./worktree-lifecycle";
-import { sessionOpenFolders, setOpenFoldersSource, sweepLandedWorktrees, WorktreeSweeper } from "./worktree-orphans";
+import { sessionOpenFolders, setOpenFoldersSource } from "./worktree-orphans";
 
 // App identity: the dev run shows "Electron" in the dock otherwise; packaged
 // builds get the name from the bundle via electron-builder. The name also picks
@@ -435,8 +437,8 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
-/** Landed agent worktrees removed at launch and every 6 h (worktree-orphans.ts). */
-let worktreeSweeper: WorktreeSweeper | null = null;
+/** Disk care at launch and daily (src/main/disk/care.ts). */
+let diskCare: DiskCare | null = null;
 
 function errorMessage(value: unknown): { message: string; stack?: string } {
 	if (value instanceof Error) return { message: value.message, stack: value.stack };
@@ -1399,20 +1401,38 @@ app.whenReady().then(() => {
 		turnResume.sync();
 	};
 	hostServices.attachResume(turnResume);
-	// Finished agent worktrees go by themselves: the Work tree view's landed rule, branch kept, every 6 h. Only the
-	// packaged app outside a test run: a dev or test instance sees none of the real app's open sessions, so their
-	// worktrees would look unused to it.
-	const sweeper = new WorktreeSweeper({
-		sweep: () => sweepLandedWorktrees({ bridge: tablessWorktreeBridge, openFolders: sessionOpenFolders }),
+	// Disk care: idle worktrees' build output, landed and long-idle worktrees (saved first), the HTTP and Bun caches.
+	// Automatic only in the packaged app outside a test run: a dev or test instance sees none of the real app's open
+	// sessions, so their worktrees would look unused to it. The button runs it anywhere.
+	const diskCareDir = join(app.getPath("userData"), "disk-care");
+	const savedWorktrees = new SavedWorktreeStore(diskCareDir);
+	setSavedWorktreeStore(savedWorktrees);
+	const care = new DiskCare({
+		bridge: tablessWorktreeBridge,
+		openFolders: sessionOpenFolders,
+		userData: app.getPath("userData"),
+		saved: savedWorktrees,
+		clearHttpCache: () => session.defaultSession.clearCache(),
+		bunBin: () => findBun(process.env),
+		automatic: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
+		worktrees:
+			(app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") ||
+			process.env.OMP_GUI_TEST_DISK_CARE_WORKTREES === "1",
 		log: (message, details) =>
 			writeRuntimeLog({
-				source: "worktree-cleanup",
+				source: "disk-care",
 				message,
-				details: { level: message === "removed" ? "info" : "error", ...details },
+				details: { level: message === "failed" ? "error" : "info", ...details },
 			}),
+		broadcast: state => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.DISK_CARE_STATE, state);
+			}
+		},
 	});
-	worktreeSweeper = sweeper;
-	if (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") sweeper.start();
+	diskCare = care;
+	registerDiskCareIpc(ipc, care);
+	void care.start();
 
 	// Register all handlers and sidecar listeners before loading the renderer.
 	registerIpcHandlers({
@@ -1643,7 +1663,7 @@ installQuitGuard(
 			["github-auth", () => githubAuthService?.dispose()],
 			["schedules", () => scheduleService?.dispose()],
 			["work-awake", () => workAwakePolicy?.dispose()],
-			["worktree-sweep", () => worktreeSweeper?.stop()],
+			["disk-care", () => diskCare?.stop()],
 			["sidecars", () => sidecarPool?.disposeAll()],
 			["remote-devices", () => void remoteDevices?.dispose()],
 			["mobile-web", () => mobileWebService?.dispose()],

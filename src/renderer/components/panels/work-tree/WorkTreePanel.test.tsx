@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStore } from "zustand/vanilla";
+import type { SavedWorktree } from "../../../../shared/disk-care";
 import type { RpcCommand, RpcOrphanWorktrees, RpcResponse, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
@@ -43,6 +44,7 @@ let container: TestElement;
 let root: Root;
 const sent: RpcCommand[] = [];
 let orphans: RpcOrphanWorktrees;
+let saved: SavedWorktree[];
 
 const agent = (id: string, index: number, status: string, cost: number): SubagentSnapshot =>
 	({
@@ -109,6 +111,30 @@ async function mount() {
 
 beforeEach(() => {
 	sent.length = 0;
+	saved = [
+		{
+			id: "s1",
+			path: "/wt/gui-s1",
+			repo: "/repo",
+			branch: "omp/agent/s1",
+			head: "abc",
+			savedBranch: null,
+			removedAt: 1,
+			archivedFiles: 3,
+			archivedBytes: 2048,
+		},
+		{
+			id: "s2",
+			path: "/wt/gui-s2",
+			repo: "/repo",
+			branch: null,
+			head: "def",
+			savedBranch: "omp/saved/s2",
+			removedAt: 1,
+			archivedFiles: 0,
+			archivedBytes: 0,
+		},
+	];
 	orphans = {
 		root: "/wt",
 		worktrees: [
@@ -154,6 +180,19 @@ beforeEach(() => {
 		if (cmd.type === "remove_orphan_worktree") {
 			orphans = { ...orphans, worktrees: orphans.worktrees.filter(row => row.path !== cmd.path) };
 			return { type: "response", command: cmd.type, success: true, data: { removal: "branch-kept" } };
+		}
+		if (cmd.type === "get_saved_worktrees")
+			return { type: "response", command: cmd.type, success: true, data: { worktrees: saved } };
+		if (cmd.type === "restore_saved_worktree") {
+			const id = cmd.savedId;
+			const path = saved.find(row => row.id === id)?.path ?? "";
+			saved = saved.filter(row => row.id !== id);
+			return {
+				type: "response",
+				command: cmd.type,
+				success: true,
+				data: { path, branch: null, archive: { restored: 3, skipped: 0 } },
+			};
 		}
 		return { type: "response", command: cmd.type, success: true, data: orphans };
 	});
@@ -279,5 +318,25 @@ describe("WorkTreePanel", () => {
 			{ type: "remove_orphan_worktree", path: "/wt/gui-a" },
 		]);
 		expect(container.querySelectorAll("[data-orphan-worktree]")).toHaveLength(2);
+	});
+
+	it("lists saved worktrees, restores one by its id and reads again, and hides when none are saved", async () => {
+		await mount();
+		const rows = container.querySelectorAll("[data-saved-worktree]");
+		expect(rows.map(row => row.getAttribute("data-saved-worktree"))).toEqual(["s1", "s2"]);
+		expect(rows[0]?.textContent).toContain("gui-s1");
+		expect(rows[0]?.textContent).toContain("omp/agent/s1");
+		expect(rows[0]?.getAttribute("title")).toContain("3 archived files");
+		expect(rows[1]?.textContent).toContain("omp/saved/s2");
+		await act(async () => container.querySelector('[data-saved-restore="s1"]')?.click());
+		await settle();
+		expect(sent.filter(cmd => cmd.type === "restore_saved_worktree")).toEqual([
+			{ type: "restore_saved_worktree", savedId: "s1" },
+		]);
+		expect(container.querySelectorAll("[data-saved-worktree]")).toHaveLength(1);
+		saved = [];
+		await act(async () => container.querySelector('[data-saved-restore="s2"]')?.click());
+		await settle();
+		expect(container.querySelector("[data-saved-worktrees]")).toBeNull();
 	});
 });

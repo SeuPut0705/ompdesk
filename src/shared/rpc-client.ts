@@ -327,6 +327,8 @@ const RPC_COMMAND_TIMEOUTS: Record<string, number> = {
 	// while the worktree, checkout, or PR still lands.
 	worktree_create: 960_000,
 	worktree_remove: 360_000,
+	// `worktree add`, the archive copied back, then seeding and the setup hook (as worktree_create).
+	restore_saved_worktree: 960_000,
 	pr_repo: 120_000,
 	pr_list: 180_000,
 	pr_get: 180_000,

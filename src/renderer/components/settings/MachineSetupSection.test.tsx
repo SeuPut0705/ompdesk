@@ -27,7 +27,14 @@ Object.assign(globalThis as Record<string, unknown>, {
 
 const fake = fakeSetupApi(setupState("darwin"));
 const openExternal = vi.fn(async () => {});
-Object.assign(window as unknown as Record<string, unknown>, { omp: { setup: fake.api, system: { openExternal } } });
+const diskCare = {
+	getState: async () => ({ running: false, usage: null, lastRun: null, automatic: true }),
+	run: async () => ({ running: false, usage: null, lastRun: null, automatic: true }),
+	onState: () => () => {},
+};
+Object.assign(window as unknown as Record<string, unknown>, {
+	omp: { setup: fake.api, system: { openExternal }, diskCare },
+});
 
 let root: Root | null = null;
 async function mount(state: SetupState): Promise<void> {

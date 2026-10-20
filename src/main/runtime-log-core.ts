@@ -30,7 +30,7 @@ const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
 	"turn-resume",
 	"app-update",
 	"ai-memory",
-	"worktree-cleanup",
+	"disk-care",
 	"main-thread-hang",
 	"web-reload",
 	"remote-tab",

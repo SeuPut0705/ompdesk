@@ -413,6 +413,11 @@ export type RpcCommand =
 	// `not_orphan`, `not_removable`).
 	| { id?: string; type: "get_orphan_worktrees" }
 	| { id?: string; type: "remove_orphan_worktree"; path: string }
+	// Worktrees disk care saved and removed (src/main/disk/saved-worktrees.ts), for the repository of the tab's cwd;
+	// a restore puts the folder, its branch, its uncommitted work and its private archive back (`LocalCommandError`
+	// codes `not_saved`, `path_exists`).
+	| { id?: string; type: "get_saved_worktrees" }
+	| { id?: string; type: "restore_saved_worktree"; savedId: string }
 	// omp's `worktree.onStart` / `worktree.onExit` as the live session resolves them (omp 18.8.6+).
 	| { id?: string; type: "worktree_lifecycle_settings" }
 	// Pull requests (PR Center, plan/21). pr_diff is per-file (lazy), pr_draft

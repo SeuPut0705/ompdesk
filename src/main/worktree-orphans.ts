@@ -5,9 +5,11 @@
  * Local only: git runs on the computer this module runs on, which is where a paired device's tab answers too (local
  * handlers run where the tab's omp runs). The listing and the removal read the repository again each time; the
  * caller's word is never taken for a state. Nothing here forces: `worktree remove` without `--force`, `branch -d`.
+ * `git worktree remove` deletes ignored files without asking, so every removal first runs the caller's `prepare`
+ * (disk care's private archive of what no tool makes again, `src/main/disk/`), which may keep the worktree.
  *
- * `sweepLandedWorktrees` runs the same rule over every repository with a worktree under stock's worktree root, at
- * launch and every six hours (index.ts): what the Work tree view's cleanup would offer goes by itself, branch kept.
+ * `sweepLandedWorktrees` runs the same rule over every repository with a worktree under stock's worktree root, as
+ * part of disk care (`src/main/disk/care.ts`): what the Work tree view's cleanup would offer goes by itself, branch kept.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -19,6 +21,7 @@ import type {
 	RpcOrphanWorktrees,
 } from "../shared/rpc-types";
 import { removeLinkedWorktree, removeSafeWorktree, worktreeStanding } from "./agent-control/branches";
+import { KeepWorktree } from "./disk/saved-worktrees";
 import { primaryRoot, repoRoot } from "./local/git/changes";
 import { git, withRepoLock } from "./local/git/exec";
 import { isInside } from "./local/git/parse";
@@ -207,6 +210,12 @@ export async function listOrphanWorktrees(cwd: string, deps: OrphanDeps): Promis
 const REMOVABLE: readonly OrphanWorktreeState[] = ["landed", "untouched"];
 
 /**
+ * Runs inside the removal claim right before git removes the worktree; may throw `KeepWorktree` to keep it. The
+ * function it returns hears whether the folder went.
+ */
+export type BeforeRemove = (worktree: RpcOrphanWorktree) => Promise<(removed: boolean) => Promise<void>>;
+
+/**
  * Remove one orphaned worktree whose work is landed (or never begun), after reading it again: a path that is not in
  * the fresh listing is `not_orphan`, one that is not `landed` or `untouched` is `not_removable`. `removeSafeWorktree`
  * then checks landed and clean once more, and the branch goes only with `branch -d` (`branch-kept` when a squash merge
@@ -216,7 +225,7 @@ export async function removeOrphanWorktree(
 	cwd: string,
 	worktreePath: string,
 	deps: OrphanDeps,
-	options: { keepBranch?: boolean } = {},
+	options: { keepBranch?: boolean; prepare?: BeforeRemove } = {},
 ): Promise<RpcOrphanWorktreeRemoval> {
 	if (!(await repoRoot(cwd))) throw new LocalCommandError(`Not a git repository: ${cwd}`, "not_a_repo");
 	const primary = await primaryRoot(cwd);
@@ -240,13 +249,24 @@ export async function removeOrphanWorktree(
 		}
 		// The listing above read the open sessions before its git awaits: a tab may have opened on this worktree since.
 		// Read them again and claim the folder in one step, so no tab starts in it until git is done.
-		const removal = await withRemovalClaim(entry.path, deps.openFolders, async () =>
-			entry.branch === null
-				? (await removeLinkedWorktree(primary, entry.path))
-					? ("removed" as const)
-					: null
-				: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary }, options),
-		);
+		const removal = await withRemovalClaim(entry.path, deps.openFolders, async () => {
+			let settle: (removed: boolean) => Promise<void> = async () => {};
+			try {
+				if (options.prepare) settle = await options.prepare(entry);
+			} catch (error) {
+				if (error instanceof KeepWorktree)
+					throw new LocalCommandError(`${entry.path} was kept: ${error.message}.`, "not_removable");
+				throw error;
+			}
+			const result =
+				entry.branch === null
+					? (await removeLinkedWorktree(primary, entry.path))
+						? ("removed" as const)
+						: null
+					: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary }, options);
+			await settle(result !== null);
+			return result;
+		});
 		if (!removal) {
 			throw new LocalCommandError(
 				`${entry.path} changed or git refused to remove it; nothing was removed.`,
@@ -257,41 +277,53 @@ export async function removeOrphanWorktree(
 	});
 }
 
-/** One worktree the sweep removed (or, in a dry run, would remove). */
+/** One worktree the sweep removed (or, in a dry run, would remove), or kept. */
 export interface SweptWorktree {
 	path: string;
 	repo: string;
 	branch: string | null;
 	state: OrphanWorktreeState;
 	squashed?: true;
+	/** Why a removable one was kept after all (its `prepare` or git refused). */
+	reason?: string;
 }
 
 export interface SweepReport {
 	root: string;
 	removed: SweptWorktree[];
-	/** Orphans the rule keeps: uncommitted or untracked files, or commits nothing else holds. */
+	/** Orphans the rule keeps: uncommitted or untracked files, commits nothing else holds, or a `prepare` refusal. */
 	kept: SweptWorktree[];
 	failed: { path: string; error: string }[];
 }
 
 /**
- * Remove every orphaned worktree under stock's worktree root whose work is landed (or never begun), keeping its
- * branch: the repositories are the primary checkouts the root's `gui-` folders belong to, each listed and removed by
- * `listOrphanWorktrees` / `removeOrphanWorktree`, so in use, dirty, unlanded, locked, the primary checkout and
- * anything outside the repository's own root stay. `dryRun` removes nothing and reports what would go.
+ * Stock's global worktree root (`worktree.base`; a repository's own base is read per repository) and the primary
+ * checkouts its `gui-` folders belong to. A folder git cannot place (a removed repository, a stray directory) holds
+ * nothing a rule may judge.
  */
-export async function sweepLandedWorktrees(deps: OrphanDeps, options: { dryRun?: boolean } = {}): Promise<SweepReport> {
-	// The root without a repository: stock's global `worktree.base` (a repository's own base is read per repository).
+export async function orphanRepositories(deps: OrphanDeps): Promise<{ root: string; repos: string[] }> {
 	const { root } = await stockWorktreeLocation(deps.bridge, os.homedir());
-	const report: SweepReport = { root, removed: [], kept: [], failed: [] };
-	const names = await fs.readdir(root).catch(() => [] as string[]);
 	const repos = new Set<string>();
-	for (const name of names) {
+	for (const name of await fs.readdir(root).catch(() => [] as string[])) {
 		if (!name.startsWith("gui-")) continue;
-		// A folder git cannot place (a removed repository, a stray directory) holds nothing this rule may judge.
 		const primary = await primaryRoot(path.join(root, name)).catch(() => null);
 		if (primary) repos.add(realFolder(primary));
 	}
+	return { root, repos: [...repos] };
+}
+
+/**
+ * Remove every orphaned worktree under stock's worktree root whose work is landed (or never begun), keeping its
+ * branch: each repository of `orphanRepositories` listed and removed by `listOrphanWorktrees` / `removeOrphanWorktree`,
+ * so in use, dirty, unlanded, locked, the primary checkout and anything outside the repository's own root stay.
+ * `prepare` runs before each removal (disk care's archive). `dryRun` removes nothing and reports what would go.
+ */
+export async function sweepLandedWorktrees(
+	deps: OrphanDeps,
+	options: { dryRun?: boolean; prepare?: BeforeRemove } = {},
+): Promise<SweepReport> {
+	const { root, repos } = await orphanRepositories(deps);
+	const report: SweepReport = { root, removed: [], kept: [], failed: [] };
 	for (const repo of repos) {
 		const listed = await listOrphanWorktrees(repo, deps).catch((error: unknown) => {
 			report.failed.push({ path: repo, error: error instanceof Error ? error.message : String(error) });
@@ -314,75 +346,18 @@ export async function sweepLandedWorktrees(deps: OrphanDeps, options: { dryRun?:
 				continue;
 			}
 			try {
-				await removeOrphanWorktree(repo, worktree.path, deps, { keepBranch: true });
+				await removeOrphanWorktree(repo, worktree.path, deps, { keepBranch: true, prepare: options.prepare });
 				report.removed.push(swept);
 			} catch (error) {
-				report.failed.push({ path: worktree.path, error: error instanceof Error ? error.message : String(error) });
+				if (error instanceof LocalCommandError && error.code === "not_removable")
+					report.kept.push({ ...swept, reason: error.message });
+				else
+					report.failed.push({
+						path: worktree.path,
+						error: error instanceof Error ? error.message : String(error),
+					});
 			}
 		}
 	}
 	return report;
-}
-
-/** The first sweep waits for the restored tabs to register their folders; then one every six hours. */
-export const SWEEP_FIRST_DELAY_MS = 60_000;
-export const SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
-
-export interface WorktreeSweeperDeps {
-	sweep(): Promise<SweepReport>;
-	/** One line per removed worktree and per failure (gui-runtime.jsonl). */
-	log(message: string, details: Record<string, unknown>): void;
-}
-
-/** Runs {@link sweepLandedWorktrees} at launch and every six hours, one at a time; a failed sweep is logged and the next still comes. */
-export class WorktreeSweeper {
-	#deps: WorktreeSweeperDeps;
-	#timer: NodeJS.Timeout | undefined;
-	#running: Promise<void> | null = null;
-	#stopped = false;
-
-	constructor(deps: WorktreeSweeperDeps) {
-		this.#deps = deps;
-	}
-
-	start(): void {
-		this.#stopped = false;
-		this.#schedule(SWEEP_FIRST_DELAY_MS);
-	}
-
-	/** No further sweeps (quit); a sweep already running finishes. */
-	stop(): void {
-		this.#stopped = true;
-		clearTimeout(this.#timer);
-		this.#timer = undefined;
-	}
-
-	/** One sweep now (tests and the timer); resolves when it ends. */
-	runOnce(): Promise<void> {
-		if (this.#running) return this.#running;
-		const run = this.#sweep().finally(() => {
-			this.#running = null;
-		});
-		this.#running = run;
-		return run;
-	}
-
-	#schedule(ms: number): void {
-		clearTimeout(this.#timer);
-		if (this.#stopped) return;
-		this.#timer = setTimeout(() => {
-			void this.runOnce().then(() => this.#schedule(SWEEP_INTERVAL_MS));
-		}, ms);
-		this.#timer.unref?.();
-	}
-
-	async #sweep(): Promise<void> {
-		try {
-			const report = await this.#deps.sweep();
-			for (const worktree of report.removed) this.#deps.log("removed", { ...worktree, branchKept: true });
-			for (const failure of report.failed) this.#deps.log("failed", failure);
-		} catch (error) {
-			this.#deps.log("failed", { error: error instanceof Error ? error.message : String(error) });
-		}
-	}
 }

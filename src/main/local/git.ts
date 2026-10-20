@@ -1,7 +1,13 @@
 /** Git / worktree / PR / source-control commands (rpc-map §5), answered in main over the git and gh CLIs. */
 
+import {
+	archiveBeforeRemove,
+	listSavedWorktrees,
+	restoreSavedWorktree,
+	savedWorktreeStore,
+} from "../disk/saved-worktrees";
 import { listOrphanWorktrees, removeOrphanWorktree, sessionOpenFolders } from "../worktree-orphans";
-import { getGitChanges, getGitDiff, getGitFingerprint, getGitStatus } from "./git/changes";
+import { getGitChanges, getGitDiff, getGitFingerprint, getGitStatus, primaryRoot } from "./git/changes";
 import { githubCommand } from "./git/github";
 import {
 	prCheckout,
@@ -20,7 +26,7 @@ import {
 import * as scm from "./git/scm";
 import { getGitUnlanded } from "./git/unlanded";
 import { createWorktree, removeWorktree, worktreeBranchSource } from "./git/worktree";
-import type { LocalHandler } from "./types";
+import { LocalCommandError, type LocalHandler } from "./types";
 
 const str = (value: unknown) => (typeof value === "string" ? value : undefined);
 const pathsOrAll = (value: unknown) => (value === "all" ? "all" : Array.isArray(value) ? (value as string[]) : []);
@@ -49,8 +55,25 @@ export const handlers: Record<string, LocalHandler> = {
 	// Orphaned worktrees (src/main/worktree-orphans.ts): which folders sessions hold is the whole app's, not this tab's.
 	get_orphan_worktrees: (_command, ctx) =>
 		listOrphanWorktrees(ctx.cwd, { bridge: ctx.bridge, openFolders: sessionOpenFolders }),
+	// The person asked for this removal: no process check, but what no tool makes again is archived first.
 	remove_orphan_worktree: (command, ctx) =>
-		removeOrphanWorktree(ctx.cwd, str(command.path) ?? "", { bridge: ctx.bridge, openFolders: sessionOpenFolders }),
+		removeOrphanWorktree(
+			ctx.cwd,
+			str(command.path) ?? "",
+			{ bridge: ctx.bridge, openFolders: sessionOpenFolders },
+			{ prepare: archiveBeforeRemove(savedWorktreeStore(), null) },
+		),
+	// Worktrees disk care saved and removed (src/main/disk/saved-worktrees.ts), for this tab's repository.
+	get_saved_worktrees: async (_command, ctx) => ({
+		worktrees: await listSavedWorktrees(await primaryRoot(ctx.cwd), savedWorktreeStore()),
+	}),
+	restore_saved_worktree: (command, ctx) =>
+		primaryRoot(ctx.cwd).then(async primary => {
+			const id = str(command.savedId) ?? "";
+			const mine = (await listSavedWorktrees(primary, savedWorktreeStore())).some(record => record.id === id);
+			if (!mine) throw new LocalCommandError(`No saved worktree ${id} in this repository.`, "not_saved");
+			return restoreSavedWorktree(id, savedWorktreeStore());
+		}),
 	// worktree-lifecycle.ts reads `worktree.onExit` from the closing tab's live session.
 	worktree_lifecycle_settings: (_command, ctx) => ctx.bridge.request("worktree_lifecycle_settings"),
 	pr_repo: (_command, ctx) => prRepo(ctx.cwd),

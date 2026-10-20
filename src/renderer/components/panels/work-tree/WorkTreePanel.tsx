@@ -32,6 +32,7 @@ import { FamilyStatus } from "../../layout/sidebar/SidebarFamilyRow";
 import { childUsageText } from "../../layout/sidebar/sidebar-family";
 import { PANEL_ROW_SURFACE } from "../PanelChrome";
 import { OrphanWorktrees } from "./OrphanWorktrees";
+import { SavedWorktrees } from "./SavedWorktrees";
 import { buildWorkTree, type WorkTreeFamily, type WorkTreeNode } from "./work-tree";
 
 const KIND_ICON = { subagent: Bot, worktree: GitBranch, session: MessageSquare, branch: GitBranch } as const;
@@ -276,6 +277,7 @@ export function WorkTreePanel() {
 				</div>
 			)}
 			<OrphanWorktrees />
+			<SavedWorktrees />
 		</div>
 	);
 }

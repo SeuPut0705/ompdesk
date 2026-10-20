@@ -141,6 +141,36 @@ describe("ompdesk_app tiers", () => {
 		expect(open.cards).toEqual([]);
 	});
 
+	it("reads the disk state and runs disk care with no card", async () => {
+		const ports = new FakePorts();
+		const state = {
+			running: false,
+			automatic: true,
+			usage: { measuredAt: 1, total: 2_147_483_648, parts: [{ id: "worktrees", bytes: 1_073_741_824, path: "/w" }] },
+			lastRun: {
+				trigger: "agent",
+				startedAt: 1,
+				endedAt: 2,
+				freedBytes: 1_048_576,
+				actions: [{ kind: "artifacts", count: 2, bytes: 1_048_576 }],
+				kept: 1,
+				failed: 0,
+			},
+		};
+		ports.invoke = async (_tab, channel, args) => {
+			ports.invoked.push({ channel, args });
+			return state;
+		};
+		const control = new AppControl(ports);
+		expect(await control.run(CALLER, "disk.status", {})).toContain("OMPdesk uses 2.0 GB: worktrees 1.0 GB.");
+		expect(await control.run(CALLER, "disk.clean", {})).toContain("freed 1.0 MB: artifacts 2 (1.0 MB)");
+		expect(ports.invoked.map(call => call.channel)).toEqual([
+			IPC_COMMANDS.DISK_CARE_GET_STATE,
+			IPC_COMMANDS.DISK_CARE_RUN,
+		]);
+		expect(ports.cards).toEqual([]);
+	});
+
 	/** Each action that asks while agentControlManage is on, with arguments that pass its schema. */
 	const ALWAYS_ASKS: [string, Record<string, unknown>][] = [
 		["sessions.delete", { sessionPath: "/s/a.jsonl" }],

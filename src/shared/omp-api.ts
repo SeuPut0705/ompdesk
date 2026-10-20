@@ -33,6 +33,7 @@ import type {
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
+import type { DiskCareState } from "./disk-care";
 import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type {
@@ -478,6 +479,13 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			now: (device: string) => transport.invoke(IPC_COMMANDS.HOST_OMP_UPDATE_NOW, device) as Promise<OmpUpdateState>,
 			onState: (callback: (update: IpcHostOmpUpdate) => void) =>
 				subscribe<IpcHostOmpUpdate>(IPC_EVENTS.HOST_OMP_UPDATE_STATE, callback),
+		},
+
+		diskCare: {
+			getState: () => transport.invoke(IPC_COMMANDS.DISK_CARE_GET_STATE) as Promise<DiskCareState>,
+			run: () => transport.invoke(IPC_COMMANDS.DISK_CARE_RUN) as Promise<DiskCareState>,
+			onState: (callback: (state: DiskCareState) => void) =>
+				subscribe<DiskCareState>(IPC_EVENTS.DISK_CARE_STATE, callback),
 		},
 
 		githubAuth: {

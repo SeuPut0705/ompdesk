@@ -402,8 +402,10 @@ async function downloadMacAsset(
 		existing = 0;
 	}
 	const response = await withinIdle(
+		// `no-store`: a 100 MB installer in Chromium's disk cache is dead weight (it filled userData/Cache to 1.2 GB).
 		net.fetch(assetUrl, {
 			signal: controller.signal,
+			cache: "no-store",
 			...(existing > 0 ? { headers: { range: `bytes=${existing}-` } } : {}),
 		}),
 		DOWNLOAD_IDLE_TIMEOUT_MS,

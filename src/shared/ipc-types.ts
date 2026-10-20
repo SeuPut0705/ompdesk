@@ -25,6 +25,7 @@ import type {
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
+import type { DiskCareState } from "./disk-care";
 import type { ExtensionUpdateState } from "./extension-update";
 import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
@@ -153,6 +154,8 @@ export const IPC_EVENTS = {
 	OMP_UPDATED: "omp-update:updated",
 	/** A paired host's omp update changed (pushed by the host over the link); payload is an IpcHostOmpUpdate. */
 	HOST_OMP_UPDATE_STATE: "host-omp-update:state",
+	/** Disk care ran, measured or started (src/main/disk/); payload is the whole DiskCareState. */
+	DISK_CARE_STATE: "disk-care:state",
 	/** A paired host's scheduled runs changed (pushed by the host over the link); payload is an IpcHostSchedules. */
 	HOST_SCHEDULES_STATE: "host-schedules:state",
 	/** The tool CLIs' automatic updates changed (src/main/cli-tools/updater.ts); payload is the whole CliUpdateState. */
@@ -353,6 +356,10 @@ export const IPC_COMMANDS = {
 	HOST_OMP_UPDATE_GET: "host-omp-update:get",
 	/** Update the paired host's omp now, whatever its pref says (runs on the host in the background) */
 	HOST_OMP_UPDATE_NOW: "host-omp-update:now",
+	/** Disk care (src/main/disk/): whole DiskCareState snapshot */
+	DISK_CARE_GET_STATE: "disk-care:get-state",
+	/** Run disk care now (joins a run already going); resolves when it ends */
+	DISK_CARE_RUN: "disk-care:run",
 	/** The tool CLIs' automatic updates (src/main/cli-tools/updater.ts): whole CliUpdateState snapshot */
 	CLI_UPDATE_GET_STATE: "cli-update:get-state",
 	/** Check and update one tool (a CliToolId) or all now, whatever the pref says (runs in the background) */
@@ -471,10 +478,10 @@ export type RuntimeErrorSource =
 	/** ai-memory's service (src/main/ai-memory/service.ts `log`): `message` is launch, binary, phase or failed. */
 	| "ai-memory"
 	/**
-	 * The automatic sweep of landed agent worktrees (src/main/worktree-orphans.ts `WorktreeSweeper`): `message` is
-	 * removed (`details`: path, repo, branch, state; the branch is kept) or failed.
+	 * Disk care (src/main/disk/care.ts): `message` is run (a summary), artifacts, worktree-landed, worktree-saved,
+	 * kept (`details.reason`), http-cache, bun-cache or failed; `details` names the path and the bytes it took.
 	 */
-	| "worktree-cleanup"
+	| "disk-care"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
 	/**
@@ -1842,6 +1849,12 @@ export interface OmpApi {
 		/** Check and update the host's omp now, whatever its pref says; progress arrives through `onState`. */
 		now(device: string): Promise<OmpUpdateState>;
 		onState(callback: (update: IpcHostOmpUpdate) => void): () => void;
+	};
+	/** This computer's disk care: what OMPdesk uses on disk, the last cleanup, and a run now. */
+	diskCare: {
+		getState(): Promise<DiskCareState>;
+		run(): Promise<DiskCareState>;
+		onState(callback: (state: DiskCareState) => void): () => void;
 	};
 	/** This computer's tool CLIs (Claude Code, Codex, Gemini, Cursor Agent, gh, Node…), kept current by its own updater. */
 	cliUpdate: {

@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RpcOrphanWorktree } from "../shared/rpc-types";
 import { gitSync, initRepo } from "./local/git/test-repos";
 import { LocalCommandError } from "./local/types";
@@ -10,13 +10,9 @@ import {
 	listOrphanWorktrees,
 	type OrphanFacts,
 	removeOrphanWorktree,
-	SWEEP_FIRST_DELAY_MS,
-	SWEEP_INTERVAL_MS,
-	type SweepReport,
 	sessionOpenFolders,
 	setOpenFoldersSource,
 	sweepLandedWorktrees,
-	WorktreeSweeper,
 } from "./worktree-orphans";
 import { realFolder } from "./worktree-removals";
 
@@ -382,63 +378,6 @@ describe("sweepLandedWorktrees", () => {
 		},
 		SLOW,
 	);
-});
-
-describe("WorktreeSweeper", () => {
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-
-	it("sweeps a minute after launch and then every 6 hours, logs each removal, and stops for good", async () => {
-		vi.useFakeTimers();
-		const report: SweepReport = {
-			root: "/wt",
-			removed: [{ path: "/wt/gui-a", repo: "/repo", branch: "omp/gui/a", state: "landed" }],
-			kept: [],
-			failed: [{ path: "/wt/gui-b", error: "git refused" }],
-		};
-		let sweeps = 0;
-		const log: [string, Record<string, unknown>][] = [];
-		const sweeper = new WorktreeSweeper({
-			sweep: async () => {
-				sweeps++;
-				return report;
-			},
-			log: (message, details) => log.push([message, details]),
-		});
-		sweeper.start();
-		await vi.advanceTimersByTimeAsync(SWEEP_FIRST_DELAY_MS - 1);
-		expect(sweeps).toBe(0);
-		await vi.advanceTimersByTimeAsync(1);
-		expect(sweeps).toBe(1);
-		expect(log).toEqual([
-			["removed", { path: "/wt/gui-a", repo: "/repo", branch: "omp/gui/a", state: "landed", branchKept: true }],
-			["failed", { path: "/wt/gui-b", error: "git refused" }],
-		]);
-		await vi.advanceTimersByTimeAsync(SWEEP_INTERVAL_MS);
-		expect(sweeps).toBe(2);
-		sweeper.stop();
-		await vi.advanceTimersByTimeAsync(SWEEP_INTERVAL_MS * 2);
-		expect(sweeps).toBe(2);
-	});
-
-	it("logs a sweep that throws and still sweeps again", async () => {
-		vi.useFakeTimers();
-		let sweeps = 0;
-		const log: string[] = [];
-		const sweeper = new WorktreeSweeper({
-			sweep: async () => {
-				sweeps++;
-				throw new Error("no omp");
-			},
-			log: (message, details) => log.push(`${message}: ${String(details.error)}`),
-		});
-		sweeper.start();
-		await vi.advanceTimersByTimeAsync(SWEEP_FIRST_DELAY_MS + SWEEP_INTERVAL_MS);
-		expect(sweeps).toBe(2);
-		expect(log).toEqual(["failed: no omp", "failed: no omp"]);
-		sweeper.stop();
-	});
 });
 
 describe("sessionOpenFolders", () => {

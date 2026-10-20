@@ -68,7 +68,7 @@ import {
 	WEB_BLOCKS,
 	WEB_DEVICES,
 } from "./fixture-settings";
-import { orphanWorktrees } from "./fixture-work-tree";
+import { diskCareState, orphanWorktrees, savedWorktreeRestore, savedWorktrees } from "./fixture-work-tree";
 
 type Listener = (data: unknown) => void;
 
@@ -279,6 +279,10 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, orphanWorktrees());
 			case "remove_orphan_worktree":
 				return respond(command, { removal: "removed" });
+			case "get_saved_worktrees":
+				return respond(command, savedWorktrees());
+			case "restore_saved_worktree":
+				return respond(command, savedWorktreeRestore());
 			case "get_git_fingerprint":
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":
@@ -372,6 +376,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				};
 			case IPC_COMMANDS.UPDATER_GET_STATUS:
 				return { state: "idle" };
+			case IPC_COMMANDS.DISK_CARE_GET_STATE:
+			case IPC_COMMANDS.DISK_CARE_RUN:
+				return diskCareState();
 			case IPC_COMMANDS.UPDATER_CHECK:
 				return { state: "not-available", version: "0.0.0-harness" };
 			case IPC_COMMANDS.LOG_SNAPSHOT:

@@ -27,6 +27,7 @@ import {
 	useMachineSetupState,
 } from "../onboarding/MachineSetupView";
 import { CliUpdateRows } from "./CliUpdateRows";
+import { DiskCareRow } from "./DiskCareRow";
 import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
 import { MemoryComponentRow } from "./memory/MemoryComponentRow";
 import { OmpUpdateRows } from "./OmpUpdateRows";
@@ -202,6 +203,7 @@ export function MachineSetupSection() {
 			title={t("machineSetup.settings.title")}
 		>
 			{state && <OmpUpdateRows />}
+			<DiskCareRow />
 			{state ? (
 				state.items.map(item => <SetupItemRow item={item} key={item.id} windows={state.platform === "win32"} />)
 			) : loadError ? (

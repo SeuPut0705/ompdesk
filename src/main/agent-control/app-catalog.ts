@@ -10,6 +10,7 @@
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
 import type { DiagnosticBundleResult } from "../../shared/diagnostic-bundle";
+import type { DiskCareState } from "../../shared/disk-care";
 import { type HostView, IPC_COMMANDS, type RemoteState, type TailnetComputer } from "../../shared/ipc-types";
 import {
 	MOBILE_WEB_COMMAND,
@@ -108,6 +109,30 @@ const SETTINGS_SECTIONS = [
 export { SETTINGS_SECTIONS };
 
 const C = IPC_COMMANDS;
+
+const diskSize = (bytes: number): string =>
+	bytes >= 1_073_741_824 ? `${(bytes / 1_073_741_824).toFixed(1)} GB` : `${(bytes / 1_048_576).toFixed(1)} MB`;
+
+/** The disk care state as one short report for the agent. */
+function diskText(state: DiskCareState): string {
+	const lines: string[] = [];
+	if (state.usage) {
+		lines.push(
+			`OMPdesk uses ${diskSize(state.usage.total)}: ${state.usage.parts.map(part => `${part.id} ${diskSize(part.bytes)}`).join(", ")}.`,
+		);
+	} else lines.push("Disk use is not measured yet.");
+	const run = state.lastRun;
+	if (run) {
+		const actions = run.actions
+			.map(action => `${action.kind} ${action.count} (${diskSize(action.bytes)})`)
+			.join(", ");
+		lines.push(
+			`Last cleanup (${run.trigger}, ${new Date(run.endedAt).toISOString()}) freed ${diskSize(run.freedBytes)}${actions ? `: ${actions}` : ""}; ${run.kept} idle worktrees kept, ${run.failed} failed.`,
+		);
+	} else lines.push("No cleanup has run yet.");
+	if (state.running) lines.push("A cleanup is running now.");
+	return lines.join(" ");
+}
 
 const shown = (value: unknown): string =>
 	typeof value === "string" ? value : typeof value === "boolean" ? (value ? "on" : "off") : JSON.stringify(value);
@@ -621,6 +646,24 @@ export const APP_ACTIONS: readonly AppAction[] = [
 			else await ctx.invoke(C.UPDATER_APPLY);
 			return { text: `Applying the update; ${device ? "the paired host's " : ""}OMPdesk restarts.` };
 		},
+	},
+	{
+		id: "disk.status",
+		area: "updates",
+		description:
+			"How much disk OMPdesk uses on this computer (worktrees, sessions, logs, stats, app data, Bun cache) and what the last disk cleanup freed.",
+		args: NO_ARGS,
+		tier: "read",
+		run: async ctx => ({ text: diskText((await ctx.invoke(C.DISK_CARE_GET_STATE)) as DiskCareState) }),
+	},
+	{
+		id: "disk.clean",
+		area: "updates",
+		description:
+			"Run disk care now on this computer and wait for it: drops build output and dependencies from worktrees idle 3+ days (the project makes them again) and saves then removes worktrees idle 14+ days (restorable from the Work tree view). Nothing the user could lose is deleted.",
+		args: NO_ARGS,
+		tier: "change",
+		run: async ctx => ({ text: diskText((await ctx.invoke(C.DISK_CARE_RUN)) as DiskCareState) }),
 	},
 	{
 		id: "app.quit",
