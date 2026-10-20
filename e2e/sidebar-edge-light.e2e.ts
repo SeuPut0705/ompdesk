@@ -12,6 +12,11 @@ import { exitApp, launchApp } from "./harness";
 // while a fourth sits idle in front, so the composer's own cue is not part of the number. Measured earlier for the
 // border lights (1100x800, fake omp, mean of 4 s, three runs each): the old left-edge bar 0.3-0.6 % GPU / 0.3-0.4 %
 // renderer; a masked + clipped conic ring per row 1.3-1.7 % GPU; the comet of pills 0.3 % GPU / 0.2-0.3 % renderer.
+// The title shimmer (20 Oct 2026, three runs each, light cost = animated minus stopped): as a background position under
+// background-clip: text 0.6-0.7 % GPU / 0.6 % renderer (and it drew no words in Electron); as the masked window that
+// slides over a counter-moving copy 0.8-0.9 % GPU / 0.2 % renderer, 0 paints. The GPU share is the masked layer drawn
+// again every frame because its content moves inside the mask: without the mask 0.3 % GPU, the window's size barely
+// matters (100 % wide 0.8 %).
 
 /** Mean CPU % of the renderer and GPU processes over a window, from Electron's own process metrics. */
 async function cpu(app: ElectronApplication, ms: number): Promise<{ renderer: number; gpu: number }> {
