@@ -69,15 +69,30 @@ describe("deleteSession", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("this computer's own delete closes the devices' idle tabs on it first, never while its own tab runs", async () => {
+	it("this computer's own delete closes the devices' idle tabs first and tells them only once the file is gone", async () => {
 		const { fake, calls } = tabs(true);
 		const deviceTabs = {
 			closeSessionTabs: vi.fn(async (sessionPath: string) => {
 				calls.push(`devices ${sessionPath}`);
+				return () => void calls.push(`told ${sessionPath}`);
 			}),
 		};
 		await deleteSession(fake, "/s/d.jsonl", undefined, async () => void calls.push("deleteStored"), deviceTabs);
-		expect(calls).toEqual(["devices /s/d.jsonl", "close /s/d.jsonl local", "deleteStored"]);
+		expect(calls).toEqual(["devices /s/d.jsonl", "close /s/d.jsonl local", "deleteStored", "told /s/d.jsonl"]);
+
+		// The stored delete fails: the file is still there, so no device may record it deleted.
+		const failing = tabs(true);
+		const failed = await deleteSession(
+			failing.fake,
+			"/s/f.jsonl",
+			undefined,
+			async () => {
+				throw new Error("disk");
+			},
+			deviceTabs,
+		).catch((error: unknown) => error);
+		expect(failed).toBeInstanceOf(Error);
+		expect(calls).not.toContain("told /s/f.jsonl");
 
 		// A window's own tab runs: nothing is closed anywhere, no device is told the session went.
 		const busy = tabs(true, true);

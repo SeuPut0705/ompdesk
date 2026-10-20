@@ -898,19 +898,22 @@ describe("LocalHostServices", () => {
 		expect(sidecars[0]?.disposed).toBe(false);
 
 		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
-		let closed = false;
-		const closing = services.closeSessionTabs("/s/x.jsonl").then(() => {
-			closed = true;
+		let notify: (() => void) | undefined;
+		const closing = services.closeSessionTabs("/s/x.jsonl").then(told => {
+			notify = told;
 		});
 		await new Promise<void>(resolve => setImmediate(resolve));
 		expect(sidecars[0]?.disposed).toBe(true);
-		// The device drops its tab and saved layout entry at once, and records the session deleted.
-		expect(x.tabEvents()).toContainEqual({ rtab: "t", name: "sessionDeleted", arg: "/s/x.jsonl" });
 		expect(services.hostedSessions()).toEqual([]);
-		expect(closed).toBe(false);
+		expect(notify).toBeUndefined();
+		// Closed, not yet deleted: the device's tab ends, but no tombstone until the file is gone.
+		expect(x.tabEvents().map(event => event.name)).not.toContain("sessionDeleted");
+		expect(x.tabEvents().at(-1)).toMatchObject({ rtab: "t", name: "status", arg: { status: "exited" } });
 		sidecars[0]?.exited.resolve();
 		await closing;
-		expect(closed).toBe(true);
+		// The stored file went: the device drops its tab and saved layout entry, and records the delete.
+		notify?.();
+		expect(x.tabEvents()).toContainEqual({ rtab: "t", name: "sessionDeleted", arg: "/s/x.jsonl" });
 	});
 
 	it("resumes the requested session on start and works out its kind on the host", async () => {
@@ -1801,7 +1804,9 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		const { services, view, x } = await viewing();
 		// A real view (HostedTabView) has no omp of its own to wait for; the fake's exit stands in for that.
 		view.exited.resolve();
-		await services.closeSessionTabs(SESSION);
+		const told = await services.closeSessionTabs(SESSION);
+		expect(x.tabEvents().map(event => event.name)).not.toContain("sessionDeleted");
+		told();
 		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "sessionDeleted", arg: SESSION });
 		expect(view.disposed).toBe(true);
 	});

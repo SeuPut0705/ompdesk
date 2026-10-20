@@ -657,7 +657,7 @@ describe("ompdesk_session_read", () => {
 		expect(host.sent.at(-1)?.command).toMatchObject({ type: "get_transcript_page", cursor: "cur1" });
 	});
 
-	it("refuses hidden and not-started sessions", async () => {
+	it("refuses a hidden session and a not-started one with no saved file", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001" },
 			{ tabId: "work0002", hidden: true },
@@ -666,6 +666,32 @@ describe("ompdesk_session_read", () => {
 		const service = control(host);
 		expect((await service.run("main0001", T.read, { session: "work0002" })).text).toMatch(/hid this session/);
 		expect((await service.run("main0001", T.read, { session: "work0003" })).text).toMatch(/has not started/);
+	});
+
+	it("reads a deferred tab's saved transcript on the computer it runs on, starting nothing", async () => {
+		for (const device of [undefined, "dev-win-1"]) {
+			const host = new FakeHost(
+				{ tabId: "main0001" },
+				{
+					tabId: "work0003",
+					title: "Kid",
+					status: "asleep",
+					sessionPath: "/s/kid.jsonl",
+					...(device ? { device, deviceName: "DESKTOP-PC" } : {}),
+				},
+			);
+			const reads: { path: string; device: string | undefined }[] = [];
+			host.storedMessages = async row => {
+				reads.push({ path: row.path, device: row.device });
+				return messages;
+			};
+			const result = await control(host).run("main0001", T.read, { session: "work0003", limit: 2 });
+			expect(result.text, String(device)).toContain("[assistant] Done.");
+			expect(result.text).toContain(`"before":"2"`);
+			expect(reads).toEqual([{ path: "/s/kid.jsonl", device }]);
+			// No omp started, no command reached the tab.
+			expect(host.sent.filter(entry => entry.tabId === "work0003")).toEqual([]);
+		}
 	});
 
 	it("currentStep and renderMessage read the tail rules", () => {
