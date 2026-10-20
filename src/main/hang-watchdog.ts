@@ -39,7 +39,8 @@ export function reportPreviousHang(): void {
 			detectedAt: new Date(marker.detectedAt).toISOString(),
 			previousPid: marker.pid,
 			phase: marker.phase ?? null,
-			steps: marker.steps ?? [],
+			// The runtime log keeps primitives only: an array would be dropped from the line.
+			steps: marker.steps?.join(" > ") ?? null,
 		},
 	});
 }
