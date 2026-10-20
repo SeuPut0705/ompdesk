@@ -221,6 +221,7 @@ export function handleGpuProcessGone(details: { type: string; reason: string; ex
 	const decision = gpuRelaunchDecision({
 		software: softwareLaunch,
 		safeMode: launchSafeMode(),
+		testLaunch: process.env.OMP_GUI_HEADLESS === "1",
 		history: launchHistory(),
 		now,
 	});

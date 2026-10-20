@@ -125,6 +125,22 @@ describe("GPU crash relaunch", () => {
 		safe.handleGpuProcessGone(crash);
 		expect(electron.relaunches).toBe(0);
 	});
+
+	it("never relaunches a test launch (OMP_GUI_HEADLESS): nothing follows the new process, which outlives the test", async () => {
+		// Seen under parallel e2e load: the GPU helper crashed, the app relaunched and exited, Playwright's page went
+		// with it ("Target page, context or browser has been closed") and the relaunched app kept running unwatched.
+		vi.stubEnv("OMP_GUI_HEADLESS", "1");
+		try {
+			const gpu = await launch();
+			gpu.handleGpuProcessGone(crash);
+			expect(electron.relaunches).toBe(0);
+			expect(electron.exits).toBe(0);
+			const log = readFileSync(join(electron.userData, "logs", "gui-runtime.jsonl"), "utf8");
+			expect(log).toContain("no relaunch (test-launch)");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
 });
 
 // Intel iGPU of a laptop, before and after the user updates its driver. Chromium's basic info names the real

@@ -336,13 +336,6 @@ for (const engine of ENGINES)
 			await openPhonePage(phone, host.proxy, profile.project);
 			const field = phone.locator("[data-composer-input]").first();
 			const thumbnails = phone.locator('ul[aria-label="Attached images"] li[data-strip-item]');
-			// Each upload is held until its chip has been seen.
-			let gate = Promise.resolve();
-			await phone.route("**/upload", async route => {
-				await gate;
-				await route.continue();
-			});
-
 			const documents = [
 				{
 					name: "report.pdf",
@@ -358,14 +351,15 @@ for (const engine of ENGINES)
 				expect(await chooser.element().getAttribute("accept")).toBeNull();
 				await setVisibility(phone, "hidden");
 				await replyWhileHidden(phone, profile.record, `busy while picking ${index}`);
-				const release = Promise.withResolvers<void>();
-				gate = release.promise;
+				// Held until its chip has been seen: in the fake serve, never with `page.route` (WebKit's interception
+				// can send the multipart body without the file's bytes; phone-serve.ts `hold`).
+				const upload = host.proxy.hold("/upload");
 				await setVisibility(phone, "visible");
 				await chooser.setFiles(file);
 				const chip = phone.locator("[data-upload-chip]");
 				await expect(chip).toHaveText(new RegExp(file.name));
 				await captureTo(CAPTURES, phone, `${engine.name}-${file.name}-uploading`);
-				release.resolve();
+				upload.release();
 				await expect(chip).toHaveCount(0, { timeout: 30_000 });
 				// The file is on the computer and the draft names it there.
 				await expect(field).toHaveValue(new RegExp(`web-uploads.*${file.name.replace(".", "\\.")}`), {

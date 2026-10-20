@@ -60,19 +60,23 @@ export function crashLoopDetected(previous: readonly LaunchRecord[], now: number
 
 export type GpuRelaunchDecision =
 	| { relaunch: true }
-	| { relaunch: false; why: "software" | "safe-mode" | "cooldown"; lastRelaunchAt?: number };
+	| { relaunch: false; why: "software" | "safe-mode" | "cooldown" | "test-launch"; lastRelaunchAt?: number };
 
 /**
  * Whether a GPU process crash may relaunch the app into software rendering. Never from a launch that already
  * renders in software (Windows still runs a GPU process for SwiftShader/WARP, and its crash would start the
- * same launch again forever), never in safe mode, and at most once per `GPU_RELAUNCH_COOLDOWN_MS`.
+ * same launch again forever), never in safe mode, never in a test launch (`testLaunch`, OMP_GUI_HEADLESS: the
+ * process the test drives would exit and the relaunched one run unwatched; Chromium restarts the GPU process
+ * itself), and at most once per `GPU_RELAUNCH_COOLDOWN_MS`.
  */
 export function gpuRelaunchDecision(input: {
 	software: boolean;
 	safeMode: boolean;
+	testLaunch: boolean;
 	history: readonly LaunchRecord[];
 	now: number;
 }): GpuRelaunchDecision {
+	if (input.testLaunch) return { relaunch: false, why: "test-launch" };
 	if (input.safeMode) return { relaunch: false, why: "safe-mode" };
 	if (input.software) return { relaunch: false, why: "software" };
 	const last = input.history.reduce<number | undefined>(

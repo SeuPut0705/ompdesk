@@ -104,6 +104,8 @@ export class ServeProxy {
 	readonly #up = new LinkPipe();
 	/** Client connections that have sent a request already (a new one pays its handshake once). */
 	readonly #warm = new WeakSet<net.Socket>();
+	/** Requests held by `hold` until released: the path and when it may go. */
+	readonly #holds = new Set<{ path: string; until: Promise<void> }>();
 	#link: LinkProfile | undefined;
 	#target: ServeSite;
 	readonly bytes: WireBytes = { httpDown: 0, httpRequests: 0, wsDown: 0, wsUp: 0, wsFramesDown: 0 };
@@ -173,6 +175,24 @@ export class ServeProxy {
 		for (const socket of this.#sockets) socket.destroy();
 	}
 
+	/**
+	 * Hold every request whose path is `path` here, with its body unread, until `release` (a test's way to see the
+	 * page while an upload is on its way). Never hold it in the browser with `page.route`: WebKit's interception can
+	 * continue a multipart request with the inspector's copy of the body, which leaves a picked file's bytes out
+	 * (the host got `report.pdf` empty, 1 in about 30 under load).
+	 */
+	hold(path: string): { release(): void } {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		const held = { path, until: promise };
+		this.#holds.add(held);
+		return {
+			release: () => {
+				this.#holds.delete(held);
+				resolve();
+			},
+		};
+	}
+
 	#headers(req: http.IncomingMessage): http.OutgoingHttpHeaders {
 		const headers: http.OutgoingHttpHeaders = { ...req.headers };
 		headers.host = this.#target.site;
@@ -187,6 +207,12 @@ export class ServeProxy {
 	}
 
 	#forward(req: http.IncomingMessage, res: http.ServerResponse): void {
+		const pathOnly = (req.url ?? "/").split("?")[0];
+		const held = [...this.#holds].filter(hold => hold.path === pathOnly).map(hold => hold.until);
+		if (held.length > 0) {
+			void Promise.all(held).then(() => this.#forward(req, res));
+			return;
+		}
 		this.bytes.httpRequests++;
 		this.#sendUp(req.socket, 0, () => {
 			const upstream = http.request(
