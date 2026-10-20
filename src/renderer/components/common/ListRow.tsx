@@ -49,11 +49,6 @@ export interface ListRowProps {
 	/** Native tooltip for truncated titles. */
 	titleText?: string;
 	className?: string;
-	/**
-	 * The light the row's card wears while its session works: a `<LiveEdge inside />`, or a component drawing one
-	 * (the sidebar's `SessionLiveEdge`); drawn first, on the row's border.
-	 */
-	live?: ReactNode;
 	/** Extra attributes for the row element (context menu, data-* hooks). */
 	rowProps?: Omit<HTMLAttributes<HTMLDivElement>, "className" | "children"> & DataAttributes;
 	/** Extra attributes for the row's button (roving `tabIndex`, keyboard handlers, data-* hooks). */
@@ -98,7 +93,6 @@ export function ListRow({
 	titleText,
 	className,
 	rowProps,
-	live,
 	buttonProps,
 }: ListRowProps) {
 	const room = ACTION_ROOM[Math.min(Math.max(actionCount ?? 2, 1), ACTION_ROOM.length) - 1] ?? ACTION_ROOM[1];
@@ -128,7 +122,6 @@ export function ListRow({
 				className,
 			)}
 		>
-			{live}
 			{leading && (
 				<span className="flex shrink-0 items-center text-(--sc-text-muted) [&>svg]:size-(--sc-icon-md)">
 					{leading}

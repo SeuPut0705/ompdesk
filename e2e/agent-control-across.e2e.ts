@@ -399,10 +399,10 @@ test.describe("on a paired device", () => {
 		await expect(row.locator("[data-board-device]")).toHaveText("PC-B");
 		// Its clock runs while the turn on the host does.
 		await expect(row).toContainText(/\d+s/, { timeout: 15_000 });
-		// The opener's sidebar row counts it among its children at work, and the opener wears the background light.
+		// The opener's sidebar row counts it among its children at work, and the opener's title sweeps (background).
 		const opener = app.page.locator(".omp-sidebar-session-row", { has: app.page.locator("[data-family-running]") });
 		await expect(opener.locator("[data-family-running]")).toHaveText("1", { timeout: 30_000 });
-		await expect(opener.locator("[data-live-edge]")).toHaveCount(1);
+		await expect(opener.locator("[data-working]")).toHaveCount(1);
 
 		// A report from the child on the host shows on the row while it still runs.
 		const asChild = await caller(app.page, hostProfile.record, child);

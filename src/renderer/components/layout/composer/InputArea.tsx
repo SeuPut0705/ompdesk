@@ -27,7 +27,7 @@ import { CompletionList, CompletionStatus } from "./CompletionList";
 import { ComposerAttachments } from "./ComposerAttachments";
 import { ComposerExpandedHeader, useExternalEditor } from "./ComposerExpandedHeader";
 import { ComposerField, ComposerFieldHint } from "./ComposerField";
-import { ComposerLiveEdge } from "./ComposerLive";
+import { ComposerLiveSweep } from "./ComposerLive";
 import { ComposerPickers } from "./ComposerPickers";
 import { ComposerQueueLive, ComposerQueuePill } from "./ComposerQueue";
 import { ComposerEditBanner, useComposerQueueEdit } from "./ComposerQueueEdit";
@@ -463,7 +463,7 @@ export function InputArea() {
 						data-composer-draft={text !== "" || undefined}
 						data-drag-active={dragActive || undefined}
 					>
-						<ComposerLiveEdge />
+						<ComposerLiveSweep />
 						{dragActive && (
 							<div aria-hidden className="omp-composer-drop omp-fade-in">
 								<Paperclip aria-hidden className="size-(--sc-icon-md)" />

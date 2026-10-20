@@ -43,7 +43,7 @@ import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
-import { TabLiveEdge } from "../SessionLiveEdge";
+import { TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 
@@ -413,14 +413,6 @@ function DeviceSessions({
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
 				className="omp-sidebar-session-row"
 				key={session.path}
-				live={
-					<TabLiveEdge
-						running={signal?.running === true && tab?.awaitingInput === undefined}
-						settling={tab?.settling === true}
-						tabId={tab?.id ?? null}
-						waiting={tab?.awaitingInput !== undefined}
-					/>
-				}
 				meta={
 					chat || age ? (
 						<span className="inline-flex items-center gap-1.5">
@@ -453,7 +445,14 @@ function DeviceSessions({
 				selected={active}
 				title={
 					<>
-						{title}
+						<TabLiveTitle
+							running={signal?.running === true && tab?.awaitingInput === undefined}
+							settling={tab?.settling === true}
+							tabId={tab?.id ?? null}
+							waiting={tab?.awaitingInput !== undefined}
+						>
+							{title}
+						</TabLiveTitle>
 						{signal?.running && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
 						{openElsewhere && !signal?.running && <span className="sr-only">, {t("sidebar.row.open")}</span>}
 					</>

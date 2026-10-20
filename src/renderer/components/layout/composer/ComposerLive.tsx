@@ -1,12 +1,13 @@
 /**
- * The composer's "work is going on" cue. One light: while the main turn runs the box's border carries a soft accent
- * comet (`turn`); between turns, while this tab's subagents or background shells still run, the same comet is dimmer
- * and the Send button gets a still ring with a tooltip saying that sending starts a turn right away (`background`).
- * A question or approval waiting on the user wins: the comet fades out and the edge holds a still warning tint.
+ * The composer's "work is going on" cue. While the main turn runs a soft light sweeps across the composer box's
+ * background (`turn`), low enough in contrast that typed text stays fully readable; between turns, while this tab's
+ * subagents or background shells still run, the same sweep is fainter and the Send button gets a still ring with a
+ * tooltip saying that sending starts a turn right away (`background`). A question or approval waiting on the user wins:
+ * the sweep stops and the box holds a still warning tint.
  *
  * Everything is read from the stores the work board and the dock read (the run state, the subagent
- * store, the shared jobs poll); nothing here polls. The light itself is the shared `common/LiveEdge`
- * (components.css `.omp-live-edge`), the same one a running session's sidebar row and pane header wear.
+ * store, the shared jobs poll); nothing here polls. The light is the shared `common/LiveShimmer` (components.css
+ * `.omp-live-sweep`), at the pace and phase of a working session's title in the sidebar and pane header.
  */
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
@@ -19,11 +20,11 @@ import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
-import { LiveEdge, type LiveEdgeState, Tooltip } from "../../common";
+import { type LiveState, LiveSweep, Tooltip } from "../../common";
 import { liveWorkState, workingAgentCount } from "../live-work";
 
 /** The cue this tab's composer shows, and how many agents and shells stand behind a background one. */
-export function useComposerLive(): { state: LiveEdgeState | null; background: number } {
+export function useComposerLive(): { state: LiveState | null; background: number } {
 	const streaming = useSessionStore(s => s.isStreaming);
 	const agents = useSubagentsStore(s => workingAgentCount(s.subagents.values()));
 	const shells = useBackgroundJobs().length;
@@ -44,9 +45,9 @@ export function useComposerLive(): { state: LiveEdgeState | null; background: nu
 	};
 }
 
-/** The light along the composer box's border; mount it first inside `.omp-composer-box`. */
-export function ComposerLiveEdge(): ReactElement | null {
-	return <LiveEdge state={useComposerLive().state} />;
+/** The light across the composer box's background; mount it first inside `.omp-composer-box`. */
+export function ComposerLiveSweep(): ReactElement | null {
+	return <LiveSweep state={useComposerLive().state} />;
 }
 
 /** Wraps the composer's action button: its tooltip and ring tell that background work runs and a send starts at once. */

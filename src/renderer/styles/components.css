@@ -3926,76 +3926,114 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	transform: translate(-50%, -50%);
 }
 
-/* "Work is going on" light (common/LiveEdge.tsx, geometry and clock in common/live-light.ts): ONE soft accent comet
-   travelling the box's rounded edge clockwise at an even pace, the same on the composer box and on every card that
-   shows a working session (a sidebar row, a split pane's header).
-   - The comet is a chain of tiny pills; each pill runs the same closed path around the real rounded rectangle on
-     one compositor-only transform animation, a few px behind the one before, fading with its rank. No mask, no clip,
-     no opacity group, nothing repaints per frame (an SVG dash offset following the corners repainted every frame:
-     about 3x the GPU and renderer cost of this chain on a bench page).
-   - States crossfade, never retime: `turn` is the full comet; `background` the same comet at the same pace, dimmer,
-     its faint tail trimmed; `waiting` lets the comet fade out and holds a still warning tint on the edge; a light
-     whose work ended fades out (`data-leaving`) before it goes, and a new one fades in. Every pill's opacity is its
-     own (`--live-strength` × the state's gain), so a state change is one short opacity transition per pill.
-   - Edge: the composer's sits on the box's own border (`inset: -1px`); a card's inside its box (`inside`), so a
-     row's `content-visibility: auto` never cuts it, with a still 1 px accent line all round under the comet. */
-.omp-live-edge {
-	--live-fade: var(--sc-duration-slow);
-	--live-gain: 1;
-	--live-trim: 0;
-	position: absolute;
-	inset: -1px;
-	box-sizing: border-box;
-	border: 1px solid transparent;
-	border-radius: inherit;
-	pointer-events: none;
-	transition: border-color var(--live-fade) var(--sc-ease-standard);
+/* "Work is going on" cue (common/LiveShimmer.tsx): a soft light sweeping across what is already on screen, never a
+   border light, a new word or a box that takes space. A working session's own title shimmers (`.omp-live-text`: a
+   sidebar session row, a split pane's header) and the composer box's background carries the same light
+   (`.omp-live-sweep`), at one pace: every sweep runs `--live-period` with a hold at each end, and `--live-delay`
+   (set from the document clock when the work starts) puts every sweep on one shared phase.
+   - States never retime: `turn` and `background` run the same animation; `background` only lowers the light's
+     contrast. `waiting` stops the sweep and holds a still warning colour (the title) or tint (the box).
+   - The box's light is a transform on one band inside a clipped layer behind the box's content; a title's is its
+     text's background position. Nothing breathes by opacity and nothing changes layout. */
+.omp-live-text,
+.omp-live-sweep {
+	--live-period: 3s;
+	--live-delay: 0ms;
 }
 
-.omp-live-edge[data-live-edge-inside] {
-	inset: 0;
-	border-color: color-mix(in srgb, var(--sc-accent) 30%, transparent);
+.omp-live-text:is([data-working="turn"], [data-working="background"]) {
+	--live-band: color-mix(in srgb, currentColor 28%, transparent);
+	background-image: linear-gradient(100deg, currentColor 40%, var(--live-band) 50%, currentColor 60%);
+	background-size: 250% 100%;
+	background-repeat: no-repeat;
+	background-position-x: 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: omp-live-shine-text var(--live-period) linear var(--live-delay) infinite;
 }
 
-.omp-live-edge[data-live-edge="background"] {
-	--live-gain: 0.5;
-	--live-trim: 0.35;
+.omp-live-text[data-working="background"] {
+	--live-band: color-mix(in srgb, currentColor 62%, transparent);
 }
 
-.omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
-	border-color: color-mix(in srgb, var(--sc-accent) 15%, transparent);
+.omp-live-text[data-working="waiting"] {
+	color: var(--sc-warning);
 }
 
-.omp-live-edge[data-live-edge="waiting"],
-.omp-live-edge[data-live-edge-inside][data-live-edge="waiting"] {
-	--live-gain: 0;
-	border-color: color-mix(in srgb, var(--sc-warning) 45%, transparent);
-}
-
-.omp-live-edge[data-leaving],
-.omp-live-edge[data-live-edge-inside][data-leaving] {
-	--live-gain: 0;
-	border-color: transparent;
-}
-
-@starting-style {
-	.omp-live-edge,
-	.omp-live-edge[data-live-edge-inside] {
-		border-color: transparent;
+@keyframes omp-live-shine-text {
+	0%,
+	15% {
+		background-position-x: 100%;
+	}
+	85%,
+	100% {
+		background-position-x: 0%;
 	}
 }
 
-/* A draft quiets the cue: while the field holds one (focused or not), the comet dims to a faint trace and the Send
-   ring steps out of the way (its tooltip still says that a send starts at once). */
-.omp-composer-box[data-composer-draft] .omp-live-edge {
-	--live-gain: 0.3;
+/* The box's light sits behind its content (`isolation` keeps the negative layer above the box's own background). */
+.omp-composer-box {
+	isolation: isolate;
 }
 
-.omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after {
-	opacity: 0;
+.omp-live-sweep {
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	border-radius: inherit;
+	overflow: hidden;
+	pointer-events: none;
 }
 
-.omp-composer-region--expanded .omp-live-edge {
+.omp-live-sweep::before {
+	content: "";
+	position: absolute;
+	inset-block: 0;
+	left: 0;
+	width: 40%;
+	background: linear-gradient(100deg, transparent, var(--live-sweep-band) 50%, transparent);
+	transform: translateX(-100%);
+}
+
+.omp-live-sweep[data-working="turn"] {
+	--live-sweep-band: color-mix(in srgb, var(--sc-accent) 11%, transparent);
+}
+
+.omp-live-sweep[data-working="background"] {
+	--live-sweep-band: color-mix(in srgb, var(--sc-accent) 5%, transparent);
+}
+
+.omp-live-sweep:is([data-working="turn"], [data-working="background"])::before {
+	animation: omp-live-shine-sweep var(--live-period) linear var(--live-delay) infinite;
+}
+
+.omp-live-sweep[data-working="waiting"] {
+	background: color-mix(in srgb, var(--sc-warning) 7%, transparent);
+}
+
+.omp-live-sweep[data-working="waiting"]::before {
+	display: none;
+}
+
+@keyframes omp-live-shine-sweep {
+	0%,
+	15% {
+		transform: translateX(-100%);
+	}
+	85%,
+	100% {
+		transform: translateX(250%);
+	}
+}
+
+/* Rest while the window is hidden; go on from there. */
+.omp-live-text[data-paused],
+.omp-live-sweep[data-paused]::before {
+	animation-play-state: paused;
+}
+
+.omp-composer-region--expanded .omp-live-sweep {
 	display: none;
 }
 
@@ -4016,40 +4054,66 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 
+/* A draft steps the Send ring out of the way (its tooltip still says that a send starts at once). */
+.omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after {
+	opacity: 0;
+}
+
 /* Reduced motion and software compositing (`html[data-gpu="software"]`: every animated frame costs real CPU there):
-   LiveEdge lays no comet and starts no animation, and the edge holds a still hint instead. The composer box gets one
-   1 px line on its top edge at ~40 %, ~25 % between turns; a contained card its whole 1 px edge at 45 % (a line on
-   its top alone would read as a separator there), 25 % for background work. Waiting keeps its warning tint. */
+   no sweep runs. A working title is still text with an accent cast (fainter for background work), the box a still
+   accent tint; waiting keeps its warning colour. */
 @media (prefers-reduced-motion: reduce) {
-	.omp-live-edge[data-live-edge="turn"] {
-		border-top-color: color-mix(in srgb, var(--sc-accent) 40%, transparent);
+	.omp-live-sweep[data-working]::before,
+	.omp-live-text[data-working] {
+		animation: none;
 	}
 
-	.omp-live-edge[data-live-edge="background"] {
-		border-top-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
+	.omp-live-text:is([data-working="turn"], [data-working="background"]) {
+		background: none;
+		-webkit-text-fill-color: currentColor;
+		color: color-mix(in srgb, var(--sc-accent) 55%, var(--sc-text));
 	}
 
-	.omp-live-edge[data-live-edge-inside][data-live-edge="turn"] {
-		border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
+	.omp-live-text[data-working="background"] {
+		color: color-mix(in srgb, var(--sc-accent) 30%, var(--sc-text));
 	}
 
-	.omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
-		border-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
+	.omp-live-sweep::before {
+		display: none;
+	}
+
+	.omp-live-sweep[data-working="turn"] {
+		background: color-mix(in srgb, var(--sc-accent) 5%, transparent);
+	}
+
+	.omp-live-sweep[data-working="background"] {
+		background: color-mix(in srgb, var(--sc-accent) 3%, transparent);
 	}
 }
 
-html[data-gpu="software"] .omp-live-edge[data-live-edge="turn"] {
-	border-top-color: color-mix(in srgb, var(--sc-accent) 40%, transparent);
+html[data-gpu="software"] .omp-live-sweep[data-working]::before,
+html[data-gpu="software"] .omp-live-text[data-working] {
+	animation: none;
 }
 
-html[data-gpu="software"] .omp-live-edge[data-live-edge="background"] {
-	border-top-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
+html[data-gpu="software"] .omp-live-text:is([data-working="turn"], [data-working="background"]) {
+	background: none;
+	-webkit-text-fill-color: currentColor;
+	color: color-mix(in srgb, var(--sc-accent) 55%, var(--sc-text));
 }
 
-html[data-gpu="software"] .omp-live-edge[data-live-edge-inside][data-live-edge="turn"] {
-	border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
+html[data-gpu="software"] .omp-live-text[data-working="background"] {
+	color: color-mix(in srgb, var(--sc-accent) 30%, var(--sc-text));
 }
 
-html[data-gpu="software"] .omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
-	border-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
+html[data-gpu="software"] .omp-live-sweep::before {
+	display: none;
+}
+
+html[data-gpu="software"] .omp-live-sweep[data-working="turn"] {
+	background: color-mix(in srgb, var(--sc-accent) 5%, transparent);
+}
+
+html[data-gpu="software"] .omp-live-sweep[data-working="background"] {
+	background: color-mix(in srgb, var(--sc-accent) 3%, transparent);
 }

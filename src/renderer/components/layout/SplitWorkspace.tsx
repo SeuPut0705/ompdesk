@@ -15,11 +15,11 @@ import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayTitle, 
 import { type PanelSubagent, useUiStore } from "../../stores/ui";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
-import { IconButton, Spinner } from "../common";
+import { IconButton, LiveText, Spinner } from "../common";
 import { DeviceChip } from "../remote/DeviceChip";
 import { RemoteTabBanner } from "../remote/RemoteTabBanner";
 import { InputArea } from "./composer/InputArea";
-import { TabLiveEdge } from "./SessionLiveEdge";
+import { useTabLive } from "./SessionLiveTitle";
 import { SidecarBanner } from "./SidecarBanner";
 import { WorkBoardHost } from "./work-board/WorkBoard";
 
@@ -146,23 +146,23 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	);
 	const kindLabels = useWorktreeKindLabels();
 	const shown = tab.kind === "chat" || !tab.cwd ? null : projectNameOf(tab.cwd);
-	// The header's border wears the session's light: its turn, or (fainter) its subagents, background work and opened
-	// sessions still working behind an idle turn. A waiting one keeps its warning look elsewhere (the question card), so
-	// it never shows the light. Compacting and (re)starting keep the spinner.
+	// The header's own title wears the session's working cue: its turn, or (fainter) its subagents, background work and
+	// opened sessions still working behind an idle turn; a still warning colour while it waits on the person.
+	// Compacting and (re)starting keep the spinner.
 	const running = tab.status === "running" && tab.awaitingInput === undefined;
 	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
 	const failed = tab.status === "error" || tab.status === "exited";
+	const live = useTabLive({
+		running,
+		settling: tab.settling === true,
+		tabId: tab.id,
+		waiting: tab.awaitingInput !== undefined,
+	});
 	return (
 		<header
 			className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm"
 			data-pane-running={(running && tab.settling !== true) || undefined}
 		>
-			<TabLiveEdge
-				running={running}
-				settling={tab.settling === true}
-				tabId={tab.id}
-				waiting={tab.awaitingInput !== undefined}
-			/>
 			{busy ? (
 				<span aria-hidden className="inline-flex">
 					<Spinner size="sm" />
@@ -196,7 +196,9 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 					aria-hidden
 					className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
 				/>
-				<span className="min-w-0 truncate font-medium text-(--sc-text)">{label}</span>
+				<LiveText className="min-w-0 truncate font-medium text-(--sc-text)" state={live}>
+					{label}
+				</LiveText>
 			</span>
 			{tab.device !== undefined && <DeviceChip deviceId={tab.device} />}
 			<IconButton icon={<X />} label={t("split.removePane")} onClick={() => void removePane(tab.id)} size="sm" />

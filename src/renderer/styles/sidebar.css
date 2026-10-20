@@ -53,8 +53,8 @@
    indentation: left unpositioned (`inset-inline-start: auto`) an absolutely positioned child of this flex row
    starts at the content edge, the padding that indents nested sessions and subagents, and the negative margin
    pulls it just left of the icon.
-   waiting = warning and error = danger, both still. A running row has no bar: its whole border carries the
-   composer's travelling accent light (common/LiveEdge.tsx, components.css `.omp-live-edge`). */
+   waiting = warning and error = danger, both still. A running row has no bar: its own title carries the
+   composer's sweeping light (common/LiveShimmer.tsx, components.css `.omp-live-text`). */
 .omp-sidebar-session-row[data-signal="waiting"]::before,
 .omp-sidebar-session-row[data-signal="error"]::before {
 	content: "";

@@ -36,7 +36,7 @@ export {
 export { Kbd, type KbdProps } from "./Kbd";
 export { LangSwitcher, type LangSwitcherProps } from "./LangSwitcher";
 export { ListRow, type ListRowProps } from "./ListRow";
-export { LiveEdge, type LiveEdgeState, useWindowVisible } from "./LiveEdge";
+export { LIVE_PERIOD_MS, type LiveState, LiveSweep, LiveText, useWindowVisible } from "./LiveShimmer";
 export {
 	MasterDetail,
 	MasterDetailBack,

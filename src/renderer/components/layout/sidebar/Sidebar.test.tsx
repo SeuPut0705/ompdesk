@@ -739,14 +739,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		const activeRow = () => container.querySelector('[data-active="true"]') as unknown as Element;
 		expect(activeRow().textContent).not.toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBeNull();
-		expect(activeRow().querySelector(".omp-live-edge")).toBeNull();
+		expect(activeRow().querySelector("[data-working]")).toBeNull();
 
 		await act(async () => {
 			useTabsStore.setState({ tabs: [{ ...useTabsStore.getState().tabs[0]!, status: "running" }] });
 		});
 		expect(activeRow().textContent).toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBe("running");
-		expect(activeRow().querySelector(".omp-live-edge")).not.toBeNull();
+		expect(activeRow().querySelector("[data-working]")).not.toBeNull();
 		expect(activeRow().querySelector('[aria-label="Delete session"]')).toBeNull();
 	});
 
@@ -774,10 +774,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		const row = rowFor("Session /work/beta/three");
 		expect(row.textContent).toContain("Running");
 		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
-		// The state is the composer's travelling light on the row's border (`LiveEdge`), not a spinner or a bar;
+		// The state is a light sweeping the row's own title (no border light, no spinner, no bar, no new word);
 		// the word stays for screen readers.
 		expect(row.getAttribute("data-signal")).toBe("running");
-		expect(row.querySelector(".omp-live-edge[data-live-edge='turn'][data-live-edge-inside]")).not.toBeNull();
+		const titleText = row.querySelector(".omp-live-text[data-working='turn']");
+		expect(titleText?.textContent).toContain("Session /work/beta/three");
+		expect(row.querySelector(".omp-live-edge")).toBeNull();
 		expect(row.querySelector('[role="status"], .omp-spinner')).toBeNull();
 		expect(row.querySelector("button")?.getAttribute("title")).toContain("Running");
 	});
@@ -816,13 +818,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		const failed = rowFor("Session /work/alpha/one");
 		expect(failed.getAttribute("data-signal")).toBe("error");
 		expect(failed.textContent).toContain("Failed");
-		// Idle and failed rows carry no edge state; a waiting one keeps its bar and its edge holds a still warning
-		// tint, never the travelling light.
+		// Idle and failed rows carry no working state; a waiting one keeps its bar and its title turns a still
+		// warning colour, never the sweep.
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
-		expect(waiting.querySelector(".omp-live-edge")?.getAttribute("data-live-edge")).toBe("waiting");
-		expect(waiting.querySelector(".omp-live-pill")).toBeNull();
+		expect(waiting.querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
 		for (const row of [failed, rowFor("Session /work/alpha/two")])
-			expect(row.querySelector(".omp-live-edge")).toBeNull();
+			expect(row.querySelector("[data-working]")).toBeNull();
 	});
 
 	it("keeps a session a paired device's tab runs on this computer in its project group, with that tab's live state", async () => {
@@ -888,10 +889,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		const groupedAgentRow = container.querySelector('[data-session-group="/work/alpha"] [data-session-kind="agent"]');
 		expect(chatRow?.querySelector("[data-sidebar-row-end] svg[data-sidebar-session-icon]")).not.toBeNull();
 		expect(groupedAgentRow?.querySelector("[data-sidebar-session-icon]")).toBeNull();
-		// The title is the row's first content: nothing (but the light) comes before it.
-		const firstContent = [...((groupedAgentRow as unknown as Element | null)?.children ?? [])].find(
-			child => !child.classList.contains("omp-live-edge"),
-		);
+		// The title is the row's first content: nothing comes before it.
+		const firstContent = (groupedAgentRow as unknown as Element | null)?.children[0];
 		expect(firstContent?.querySelector("button")).not.toBeNull();
 	});
 
@@ -1764,14 +1763,14 @@ describe("Sidebar subagents", () => {
 		expect(useSidebarSubagentsStore.getState().expanded.has(TWO)).toBe(false);
 	});
 
-	it("keeps a faint light on the row while its turn is idle and a subagent still works, and none once it is done", async () => {
+	it("keeps a fainter sweep on the title while its turn is idle and a subagent still works, and none once it is done", async () => {
 		installMockOmp(LIST);
 		seedSubagentTab(false);
-		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-edge");
+		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-text");
 		await mount(<Sidebar />);
-		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+		expect(edge()?.getAttribute("data-working")).toBe("turn");
 
-		// The turn ends; the subagent it started runs on: the same light, the background form.
+		// The turn ends; the subagent it started runs on: the same sweep, the background form.
 		await act(async () => {
 			useTabsStore.setState(state => ({
 				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "ready" } : tab)),
@@ -1779,13 +1778,13 @@ describe("Sidebar subagents", () => {
 		});
 		await flush();
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
-		expect(edge()?.hasAttribute("data-live-edge-inside")).toBe(true);
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 
 		setSubagentStatus("aborted");
 		await flush();
-		// The work ended: the light fades out (and then goes).
-		expect(edge()?.hasAttribute("data-leaving")).toBe(true);
+		// The work ended: the title is plain text again.
+		expect(edge()?.hasAttribute("data-working")).toBe(false);
+		expect(edge()?.textContent).toContain("Session /work/alpha/two");
 	});
 
 	it("draws a running tab whose turn ended but whose background work keeps it unsettled in the background form", async () => {
@@ -1793,9 +1792,9 @@ describe("Sidebar subagents", () => {
 		seedSubagentTab(false);
 		// No roster entry runs: main's `settling` (stock's background work, shells included) is the only fact.
 		setSubagentStatus("aborted");
-		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-edge");
+		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-text");
 		await mount(<Sidebar />);
-		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+		expect(edge()?.getAttribute("data-working")).toBe("turn");
 
 		await act(async () => {
 			useTabsStore.setState(state => ({
@@ -1803,7 +1802,7 @@ describe("Sidebar subagents", () => {
 			}));
 		});
 		await flush();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 	});
 });
 
@@ -2445,7 +2444,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		mountFamily();
 		await mount(<Sidebar />);
 		const boss = () => rowFor("Session /work/alpha/two");
-		const edge = () => boss().querySelector(".omp-live-edge");
+		const edge = () => boss().querySelector(".omp-live-text");
 		const setTab = async (id: string, change: Record<string, unknown>) => {
 			await act(async () => {
 				useTabsStore.setState(state => ({
@@ -2456,18 +2455,18 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		};
 		// The boss's own turn is idle; two sessions it opened run.
 		expect(boss().getAttribute("data-signal")).toBeNull();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 
 		// One now waits for the person: its row keeps the warning look and no light; the other still runs.
 		await setTab("ta", { awaitingInput: "input" });
 		const waiting = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
 		expect(waiting?.getAttribute("data-signal")).toBe("waiting");
-		expect(waiting?.querySelector(".omp-live-edge")).toBeNull();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(waiting?.querySelector('[data-working="turn"], [data-working="background"]')).toBeNull();
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 
 		// Nothing runs behind the idle boss any more (one waits, the other finished): no light.
 		await setTab("tc", { status: "ready" });
-		expect(boss().querySelector(".omp-live-edge:not([data-leaving])")).toBeNull();
+		expect(boss().querySelector("[data-working]")).toBeNull();
 	});
 
 	it("lights the boss's row in a window viewing it while a session its agent opened runs as another window's tab", async () => {
@@ -2526,7 +2525,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		const child = () =>
 			container.querySelector(`[data-sidebar-family="${BOSS}"] [data-session-path="/wt/x.jsonl"]`) as Element | null;
 		expect(boss().getAttribute("data-signal")).toBeNull();
-		expect(boss().querySelector(".omp-live-edge")?.getAttribute("data-live-edge")).toBe("background");
+		expect(boss().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("background");
 		expect(child()?.getAttribute("data-child-status")).toBe("running");
 
 		// It waits on the person: no light on the idle boss, the child keeps its warning look.

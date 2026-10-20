@@ -498,10 +498,10 @@ describe("a session's family: one-line rows", () => {
 		expect(row("r2").querySelector('[data-family-status="idle"]')).not.toBeNull();
 		expect(row("r1").getAttribute("data-signal")).toBe("running");
 		expect(row("r2").getAttribute("data-signal")).toBeNull();
-		// A child is a plain row with a still dot: no light, no pulse; only a top-level session's card wears the light.
-		expect(first.querySelector(".omp-live-edge")).toBeNull();
+		// A child is a plain row with a still dot: no sweep, no pulse; only a top-level session's title sweeps.
+		expect(first.querySelector("[data-working]")).toBeNull();
 		expect(first.querySelector('[data-family-status="running"] .omp-pulse-dot')).toBeNull();
-		expect(row("r2").querySelector(".omp-live-edge")).toBeNull();
+		expect(row("r2").querySelector("[data-working]")).toBeNull();
 		// Focusable row button in the sidebar's roving list.
 		expect(first.querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
 		// One age format across the sidebar: the session rows' own formatter.

@@ -62,13 +62,14 @@ describe("split pane breadcrumb", () => {
 	});
 });
 
-describe("split pane header light", () => {
-	const light = () => container.querySelector("header .omp-live-edge");
+describe("split pane header working title", () => {
+	const light = () => container.querySelector("header [data-working]");
 
-	it("lights a running session's header with the shared light, and no spinner", async () => {
+	it("shimmers a running session's own title, with no border light and no spinner", async () => {
 		await mount({ ...tab, status: "running" });
-		expect(light()?.getAttribute("data-live-edge")).toBe("turn");
-		expect(light()?.hasAttribute("data-live-edge-inside")).toBe(true);
+		expect(light()?.getAttribute("data-working")).toBe("turn");
+		expect(light()?.classList.contains("omp-live-text")).toBe(true);
+		expect(container.querySelector("header .omp-live-edge")).toBeNull();
 		expect(container.querySelector("[role='status']")).toBeNull();
 		expect(container.querySelector("header")?.getAttribute("data-pane-running")).toBe("true");
 	});
@@ -84,8 +85,7 @@ describe("split pane header light", () => {
 			container.remove();
 		}
 		await mount({ ...tab, status: "running", awaitingInput: "input" });
-		expect(light()?.getAttribute("data-live-edge")).toBe("waiting");
-		expect(container.querySelector("header .omp-live-pill")).toBeNull();
+		expect(light()?.getAttribute("data-working")).toBe("waiting");
 		expect(container.querySelector("header")?.getAttribute("data-pane-running")).not.toBe("true");
 		await act(async () => root?.unmount());
 		container.remove();

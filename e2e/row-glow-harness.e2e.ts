@@ -1,12 +1,12 @@
 /**
- * The running state's light on the sidebar's session rows and the phone drawer's, on the dev harness (the renderer
- * in a browser over a fixture transport, `vite.harness.config.ts`; desktop and an iPhone 15, light and dark):
- * a running row wears the shared light (`LiveEdge`, a comet of transform-only pills running its rounded edge), an
- * idle one wears none and one that waits for an answer a still warning tint, a session whose turn ended while its
- * subagents still work wears the dimmer form at the same pace, the family chip's count and a running child's dot hold
- * still, and under reduced motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>`
- * also writes the captures (three frames of the light on the desktop, the phone drawer, the waiting and background
- * states). The light's geometry and clock are measured by `e2e/live-light.e2e.ts`.
+ * The working cue on the sidebar's session rows, the phone drawer's and the composer, on the dev harness (the
+ * renderer in a browser over a fixture transport, `vite.harness.config.ts`; desktop and an iPhone 15, light and dark):
+ * a running row's own title shimmers (`LiveText`, one animation of its text's background position), an idle one's
+ * stays plain and one that waits for an answer holds a still warning colour, a session whose turn ended while its
+ * subagents still work shimmers fainter at the same pace, the family chip's count and a running child's dot hold
+ * still, the composer's background carries the same sweep (one transform), and under reduced motion nothing moves.
+ * No border light anywhere. `OMP_GUI_ROW_GLOW=<dir>` also writes the sidebar captures; `OMP_GUI_WORKING_SHOTS=<dir>`
+ * writes every surface × theme × language, with frame strips of the motion and the composer while typing in a turn.
  */
 import * as fs from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -59,18 +59,23 @@ const SURFACES: readonly Surface[] = [
 	{ name: "desktop", context: { viewport: { width: 1280, height: 860 } } },
 ];
 
-async function openHarness(surface: Surface, theme: "light" | "dark", reducedMotion: boolean): Promise<Page> {
+async function openHarness(
+	surface: Surface,
+	theme: "light" | "dark",
+	reducedMotion: boolean,
+	lang: "en" | "ko" = "en",
+): Promise<Page> {
 	if (!browser) throw new Error("no browser");
 	const context = await browser.newContext({
 		...surface.context,
 		reducedMotion: reducedMotion ? "reduce" : "no-preference",
 	});
 	const page = await context.newPage();
-	await page.goto(`${origin}/harness.html?theme=${theme}&lang=en`);
+	await page.goto(`${origin}/harness.html?theme=${theme}&lang=${lang}`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	await page.waitForFunction(() => window.__stores?.subagents !== undefined, undefined, { timeout: 45_000 });
 	if (surface.name === "phone") {
-		await page.getByRole("button", { name: /Open menu/ }).click();
+		await page.getByRole("button", { name: /Open menu|메뉴 열기/ }).click();
 		await expect(page.locator("[data-drawer] .omp-session-sidebar")).toBeVisible();
 	}
 	return page;
@@ -112,20 +117,18 @@ async function seedRunning(page: Page): Promise<void> {
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(2);
 }
 
-/** Every running loop of the page, the lights' pills (in each edge's shadow root) included; a fade is no loop. */
+/** Every running loop of the page (pseudo-elements included); a fade is no loop. */
 async function runningAnimations(page: Page) {
 	return page.evaluate(() =>
-		[
-			...document.getAnimations(),
-			...[...document.querySelectorAll(".omp-live-edge")].flatMap(edge => edge.shadowRoot?.getAnimations() ?? []),
-		]
+		document
+			.getAnimations()
 			.filter(animation => !(animation instanceof CSSTransition) && animation.playState === "running")
 			.map(animation => {
 				const effect = animation.effect as KeyframeEffect;
-				const inLight = effect.target?.getRootNode() instanceof ShadowRoot;
 				return {
-					pill: inLight,
-					inLight,
+					name: animation instanceof CSSAnimation ? animation.animationName : "",
+					inSidebar: effect.target?.closest(".omp-session-sidebar") != null,
+					duration: effect.getComputedTiming().duration,
 					props: [
 						...new Set(
 							effect
@@ -139,96 +142,173 @@ async function runningAnimations(page: Page) {
 	);
 }
 
+async function setTabs(page: Page, change: Record<string, Record<string, unknown>>): Promise<void> {
+	await page.evaluate(change => {
+		const tabs = window.__stores?.tabs as unknown as {
+			getState(): { tabs: { id: string }[] };
+			setState(partial: unknown): void;
+		};
+		tabs.setState({ tabs: tabs.getState().tabs.map(tab => ({ ...tab, ...change[tab.id] })) });
+	}, change);
+}
+
+/** The harness's session store (`window.__stores`): `isStreaming` drives the composer's own cue. */
+async function setSession(page: Page, patch: Record<string, unknown>): Promise<void> {
+	await page.evaluate(patch => {
+		const session = window.__stores?.session;
+		if (!session) throw new Error("no session store");
+		session.setState(patch);
+	}, patch);
+}
+
+/** Replace the open session's subagent roster. */
+async function setSubagents(page: Page, rows: unknown[]): Promise<void> {
+	await page.evaluate(rows => {
+		const roster = window.__stores?.subagents?.getState() as { setSnapshots(rows: unknown[]): void } | undefined;
+		if (!roster) throw new Error("no subagents store");
+		roster.setSnapshots(rows);
+	}, rows);
+}
+
+const RUNNING_AGENT = {
+	id: "r9",
+	index: 9,
+	agent: "task",
+	assignment: "Title: Watch the build",
+	status: "running",
+	lastUpdate: Date.now(),
+};
+
 for (const surface of SURFACES)
 	for (const theme of ["light", "dark"] as const)
-		test(`running rows wear the light, idle ones do not, a waiting one holds a still tint (${surface.name} ${theme})`, async () => {
+		test(`running rows' titles shimmer, idle ones stay plain, a waiting one holds a still colour (${surface.name} ${theme})`, async () => {
 			test.setTimeout(120_000);
 			const page = await openHarness(surface, theme, false);
 			await seedRunning(page);
 			const sidebar = page.locator(".omp-session-sidebar").first();
-			const rows = sidebar.locator(".omp-sidebar-session-row");
 			const running = sidebar.locator('.omp-sidebar-session-row[data-signal="running"]');
 			await expect(running).toHaveCount(2);
-			for (const row of await running.all()) await expect(row.locator(".omp-live-edge")).toHaveCount(1);
-			// The idle session (tab 3) and everything unlit has no light.
-			expect(await rows.locator(".omp-live-edge").count()).toBe(2 + 0);
-			// A running child is a plain row with a still dot: no box, no light; only the 2 top-level rows are lit.
-			const children = sidebar.locator("[data-sidebar-subagent]");
-			for (const child of await children.all()) await expect(child.locator(".omp-live-edge")).toHaveCount(0);
-			// Light = a comet of pills per lit card, a transform each and nothing else; no other loop runs in the sidebar.
-			const animations = await runningAnimations(page);
-			const lights = animations.filter(animation => animation.pill);
-			expect(lights.length).toBeGreaterThan(8);
-			for (const light of lights) expect(light.props).toEqual(["transform"]);
-			// Nothing in the sidebar loops outside the lights (their pills live in the edges' shadow roots).
-			const insideSidebar = await sidebar.evaluate(
-				element =>
-					element
-						.getAnimations({ subtree: true })
-						.filter(animation => !(animation instanceof CSSTransition) && animation.playState === "running")
-						.length,
-			);
-			expect(insideSidebar).toBe(0);
+			for (const row of await running.all())
+				await expect(row.locator('.omp-live-text[data-working="turn"]')).toHaveCount(1);
+			// The idle session (tab 3) and every child row stays plain; no border light anywhere.
+			await expect(sidebar.locator("[data-working]")).toHaveCount(2);
+			await expect(page.locator(".omp-live-edge")).toHaveCount(0);
+			// One shimmer per working title, of its text's background position; nothing else in the sidebar loops.
+			const inSidebar = (await runningAnimations(page)).filter(animation => animation.inSidebar);
+			expect(inSidebar).toEqual([
+				{ name: "omp-live-shine-text", inSidebar: true, duration: 3000, props: ["backgroundPositionX"] },
+				{ name: "omp-live-shine-text", inSidebar: true, duration: 3000, props: ["backgroundPositionX"] },
+			]);
 			// The family chip shows its count once: the filled running pill with the kind glyph, no plain count beside it.
 			await expect(sidebar.locator("[data-family-running]")).toHaveCount(1);
 			await expect(sidebar.locator("[data-family-agents], [data-family-sessions]")).toHaveCount(0);
 			await expect(sidebar.locator("[data-family-running] svg")).toHaveCount(1);
-			await page.waitForTimeout(700);
 			if (CAPTURES) {
 				await fs.mkdir(CAPTURES, { recursive: true });
-				const frames = surface.name === "desktop" ? 3 : 1;
-				for (let frame = 0; frame < frames; frame++) {
-					await sidebar.screenshot({
-						path: path.join(CAPTURES, `final2-${surface.name}-${theme}${frames > 1 ? `-t${frame}` : ""}.png`),
-					});
-					await page.waitForTimeout(2600);
-				}
+				await sidebar.screenshot({ path: path.join(CAPTURES, `working-${surface.name}-${theme}.png`) });
 			}
 
-			// A session that waits for an answer keeps its warning look and wears no light.
-			await page.evaluate(() => {
-				const tabs = window.__stores?.tabs as unknown as {
-					getState(): { tabs: { id: string; awaitingInput?: string }[] };
-					setState(partial: unknown): void;
-				};
-				tabs.setState({
-					tabs: tabs.getState().tabs.map(tab => (tab.id === "tab-2" ? { ...tab, awaitingInput: "input" } : tab)),
-				});
-			});
-			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"]')).toHaveCount(1);
-			const waitingEdge = sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"] .omp-live-edge');
-			await expect(waitingEdge).toHaveAttribute("data-live-edge", "waiting");
-			await expect(waitingEdge.locator(".omp-live-pill")).toHaveCount(0);
-			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-edge')).toHaveCount(1);
+			// A session that waits for an answer keeps its warning look; its title holds a still warning colour.
+			await setTabs(page, { "tab-2": { awaitingInput: "input" } });
+			const waiting = sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"] .omp-live-text');
+			await expect(waiting).toHaveAttribute("data-working", "waiting");
+			await expect(waiting).toHaveCSS("animation-name", "none");
 			if (CAPTURES)
-				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-waiting.png`) });
+				await sidebar.screenshot({ path: path.join(CAPTURES, `working-${surface.name}-${theme}-waiting.png`) });
 
-			// The open session's turn ends while its two subagents still work: its row keeps the light, dimmer at the
-			// same pace, and says nothing is running in front.
-			await page.evaluate(() => {
-				const tabs = window.__stores?.tabs as unknown as {
-					getState(): { tabs: { id: string; status: string }[] };
-					setState(partial: unknown): void;
-				};
-				tabs.setState({
-					tabs: tabs.getState().tabs.map(tab => (tab.id === "tab-1" ? { ...tab, status: "ready" } : tab)),
-				});
-			});
-			const background = sidebar.locator('.omp-sidebar-session-row > .omp-live-edge[data-live-edge="background"]');
+			// The open session's turn ends while its two subagents still work: its title keeps the shimmer, fainter at
+			// the same pace, and says nothing is running in front.
+			await setTabs(page, { "tab-1": { status: "ready" } });
+			const background = sidebar.locator('.omp-sidebar-session-row .omp-live-text[data-working="background"]');
 			await expect(background).toHaveCount(1);
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"]')).toHaveCount(0);
-			const durations = await background.evaluate(element =>
-				(element.shadowRoot?.getAnimations() ?? [])
-					.filter(animation => !(animation instanceof CSSTransition))
-					.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
-			);
-			expect(new Set(durations)).toEqual(new Set([8000]));
-			// Dimmer by each pill's own opacity and the edge's colour, never by an opacity group on the card.
-			await expect(background).toHaveCSS("opacity", "1");
+			await expect(background).toHaveCSS("animation-duration", "3s");
 			if (CAPTURES)
-				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-background.png`) });
+				await sidebar.screenshot({ path: path.join(CAPTURES, `working-${surface.name}-${theme}-background.png`) });
 			await page.context().close();
 		});
+
+for (const surface of SURFACES)
+	test(`the composer's background sweeps while a turn runs, fainter for background work, still while waiting (${surface.name})`, async () => {
+		test.setTimeout(120_000);
+		const page = await openHarness(surface, "light", false);
+		if (surface.name === "phone") await page.keyboard.press("Escape");
+		const box = page.locator(".omp-composer-box").first();
+		const sweep = box.locator(":scope > .omp-live-sweep");
+		await expect(sweep).toHaveCount(0);
+		await setSession(page, { isStreaming: true });
+		await expect(sweep).toHaveAttribute("data-working", "turn");
+		// Behind the box's content, never over the text; one transform loop.
+		await expect(sweep).toHaveCSS("z-index", "-1");
+		await expect(sweep).toHaveCSS("pointer-events", "none");
+		const loops = (await runningAnimations(page)).filter(animation => animation.name === "omp-live-shine-sweep");
+		expect(loops).toEqual([{ name: "omp-live-shine-sweep", inSidebar: false, duration: 3000, props: ["transform"] }]);
+		// Typing during the turn: the text stays above the light.
+		const field = box.locator("textarea").first();
+		await field.fill("Check the attachments again");
+		await expect(sweep).toHaveAttribute("data-working", "turn");
+		await setSubagents(page, [RUNNING_AGENT]);
+		await setSession(page, { isStreaming: false });
+		await expect(sweep).toHaveAttribute("data-working", "background");
+		await page.context().close();
+	});
+
+const SHOTS = process.env.OMP_GUI_WORKING_SHOTS;
+if (SHOTS)
+	for (const surface of SURFACES)
+		for (const theme of ["light", "dark"] as const)
+			for (const lang of ["en", "ko"] as const)
+				test(`captures: working cue (${surface.name} ${theme} ${lang})`, async () => {
+					test.setTimeout(180_000);
+					const page = await openHarness(surface, theme, false, lang);
+					await seedRunning(page);
+					const tag = `${surface.name}-${theme}-${lang}`;
+					await fs.mkdir(path.join(SHOTS, "frames"), { recursive: true });
+					const sidebar = page.locator(".omp-session-sidebar").first();
+					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-turn-${tag}.png`) });
+					// Frame strip of the title shimmer: eight frames across one period.
+					const row = sidebar.locator('.omp-sidebar-session-row[data-signal="running"]').first();
+					for (let frame = 0; frame < 8; frame++) {
+						await row.screenshot({ path: path.join(SHOTS, "frames", `row-${tag}-${frame}.png`) });
+						await page.waitForTimeout(375);
+					}
+					await setTabs(page, { "tab-2": { awaitingInput: "input" } });
+					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-waiting-${tag}.png`) });
+					await setTabs(page, { "tab-1": { status: "ready" } });
+					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-background-${tag}.png`) });
+					await setTabs(page, {
+						"tab-1": { status: "ready" },
+						"tab-2": { status: "ready", awaitingInput: undefined },
+					});
+					await setSubagents(page, []);
+					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-done-${tag}.png`) });
+					if (surface.name === "phone") await page.keyboard.press("Escape");
+					const box = page.locator(".omp-composer-box").first();
+					await setSession(page, { isStreaming: true });
+					await page.waitForTimeout(400);
+					for (let frame = 0; frame < 8; frame++) {
+						await box.screenshot({ path: path.join(SHOTS, "frames", `composer-${tag}-${frame}.png`) });
+						await page.waitForTimeout(375);
+					}
+					await box.screenshot({ path: path.join(SHOTS, `composer-turn-${tag}.png`) });
+					await box
+						.locator("textarea")
+						.first()
+						.fill(
+							lang === "ko"
+								? "첨부 파일을 다시 확인해 줘. 특히 PDF가 열리는지"
+								: "Check the attachments again, especially whether the PDF opens",
+						);
+					await page.waitForTimeout(1500);
+					await box.screenshot({ path: path.join(SHOTS, `composer-typing-${tag}.png`) });
+					await page.screenshot({ path: path.join(SHOTS, `window-typing-${tag}.png`) });
+					await box.locator("textarea").first().fill("");
+					await setSession(page, { isStreaming: false });
+					await setSubagents(page, [RUNNING_AGENT]);
+					await page.waitForTimeout(1500);
+					await box.screenshot({ path: path.join(SHOTS, `composer-background-${tag}.png`) });
+					await page.context().close();
+				});
 
 for (const surface of SURFACES)
 	test(`a session title starts at its group's content edge; a child sits one step in (${surface.name})`, async () => {
@@ -272,15 +352,15 @@ for (const surface of SURFACES)
 	});
 
 for (const surface of SURFACES)
-	test(`reduced motion: nothing moves and the edge stays a still line (${surface.name})`, async () => {
+	test(`reduced motion: nothing moves; a working title holds a still accent cast (${surface.name})`, async () => {
 		test.setTimeout(120_000);
 		const page = await openHarness(surface, "dark", true);
 		await seedRunning(page);
 		const sidebar = page.locator(".omp-session-sidebar").first();
-		const edge = sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-edge').first();
-		await expect(edge).toHaveCount(1);
-		expect((await runningAnimations(page)).filter(animation => animation.inLight)).toEqual([]);
-		await expect(edge).toHaveCSS("border-top-width", "1px");
-		await expect(edge.locator(".omp-live-pill")).toHaveCount(0);
+		const title = sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-text').first();
+		await expect(title).toHaveAttribute("data-working", "turn");
+		await setSession(page, { isStreaming: true });
+		expect((await runningAnimations(page)).filter(animation => animation.name.startsWith("omp-live-"))).toEqual([]);
+		await expect(title).not.toHaveCSS("-webkit-text-fill-color", "rgba(0, 0, 0, 0)");
 		await page.context().close();
 	});

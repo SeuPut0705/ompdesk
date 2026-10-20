@@ -1,10 +1,10 @@
 /**
- * The composer's working cue on the fake omp: a soft accent comet travelling the box's border while the main turn
- * runs (Stop), a dimmer one plus a still ring and tooltip on Send while the turn is idle but a subagent still runs,
- * and a still warning tint while a question waits on the user. Also pins what the cue costs: its only motion is
- * the comet's pills' transforms (no repaint per frame), the renderer and GPU stay quiet beside it, and a
+ * The composer's working cue on the fake omp: a soft light sweeping across the box's background while the main turn
+ * runs (Stop), a fainter one plus a still ring and tooltip on Send while the turn is idle but a subagent still runs,
+ * and a still warning tint while a question waits on the user. Also pins what the cue costs: its only motion is one
+ * transform of the sweep's band (no repaint per frame), the renderer and GPU stay quiet beside it, and a
  * reduced-motion user gets a still indicator. Captures in light/dark × en/ko go to `OMP_GUI_COMPOSER_LIVE_CAPTURES`
- * (default: the test output). The light's own geometry and clock: `e2e/live-light.e2e.ts`.
+ * (default: the test output). The sweep beside the sidebar's shimmering titles: `e2e/row-glow-harness.e2e.ts`.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -113,32 +113,30 @@ for (const language of variants(["en", "ko"] as const))
 			try {
 				const errors: string[] = [];
 				page.on("pageerror", error => errors.push(error.message));
-				const live = page.locator(".omp-composer-box > .omp-live-edge");
+				const live = page.locator(".omp-composer-box > .omp-live-sweep");
 				const ring = page.locator(".omp-composer-send-live[data-composer-live]");
 
 				// Idle: nothing moves.
 				await expect(live).toHaveCount(0);
 				await expect(ring).toHaveCount(0);
 
-				// State 1: a turn runs, Stop is the action, the light turns.
+				// State 1: a turn runs, Stop is the action, the light sweeps.
 				await send(page, "fixture stream");
 				await expect(page.getByRole("button", { name: text.stop })).toBeVisible();
-				await expect(live).toHaveAttribute("data-live-edge", "turn");
+				await expect(live).toHaveAttribute("data-working", "turn");
+				await expect(page.locator(".omp-live-edge")).toHaveCount(0);
 				await expect(ring).toHaveCount(0);
 				await page.waitForTimeout(700);
 				await capture("turn");
 
-				// The only motion is the comet's pills (in the edge's shadow root), one transform each: nothing repaints per
-				// frame, and nothing else in the box loops.
+				// The only motion is the sweep's band, one transform: nothing repaints per frame, and nothing else in the
+				// box loops.
 				const software = await softwareMarked(app, page);
-				const animated = await live.evaluate(edge =>
-					[
-						...(edge.shadowRoot?.getAnimations() ?? []),
-						...(edge.parentElement?.getAnimations({ subtree: true }) ?? []),
-					]
+				const animated = await live.evaluate(sweep =>
+					(sweep.parentElement?.getAnimations({ subtree: true }) ?? [])
 						.filter(animation => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY)
 						.map(animation => ({
-							pill: (animation.effect as KeyframeEffect).target?.getRootNode() === edge.shadowRoot,
+							name: animation instanceof CSSAnimation ? animation.animationName : "",
 							props: [
 								...new Set(
 									(animation.effect as KeyframeEffect).getKeyframes().flatMap(frame => Object.keys(frame)),
@@ -149,20 +147,15 @@ for (const language of variants(["en", "ko"] as const))
 				);
 				// Software compositing (the app's own `html[data-gpu]` signal) draws the cue still: no animation at all.
 				if (software) expect(animated).toEqual([]);
-				else {
-					expect(animated.length).toBeGreaterThan(4);
-					for (const animation of animated)
-						expect(animation).toEqual({ pill: true, props: ["transform"], state: "running" });
-				}
+				else expect(animated).toEqual([{ name: "omp-live-shine-sweep", props: ["transform"], state: "running" }]);
 
-				// Typing quiets the light to a faint trace (never gone: a turn still runs); clearing the draft brings it back.
-				const gain = async () =>
-					Number(await live.evaluate(element => getComputedStyle(element).getPropertyValue("--live-gain").trim()));
+				// Typing during the turn: the light stays behind the text (the field is above it), at the same strength.
 				const input = page.locator("textarea").first();
 				await input.fill("draft");
-				await expect.poll(gain).toBe(0.3);
+				await expect(live).toHaveAttribute("data-working", "turn");
+				await expect(live).toHaveCSS("z-index", "-1");
+				await capture("turn-typing");
 				await input.fill("");
-				await expect.poll(gain).toBe(1);
 
 				// The turn ends; no agents run: the cue leaves.
 				await fixture(page, "fixture:finish");
@@ -171,10 +164,9 @@ for (const language of variants(["en", "ko"] as const))
 
 				// State 2: idle, but a subagent still runs. Send stays Send, fainter light, a ring with the hint.
 				await fixture(page, "fixture:subagents");
-				await expect(live).toHaveAttribute("data-live-edge", "background");
+				await expect(live).toHaveAttribute("data-working", "background");
 				await expect(ring).toHaveCount(1);
 				await expect(page.getByRole("button", { name: text.send })).toBeVisible();
-				expect(Number(await gain())).toBeLessThan(1);
 				// Re-hover until the tooltip shows: under load the Send button can re-render under a single hover.
 				await expect(async () => {
 					await page.mouse.move(5, 5);
@@ -197,14 +189,14 @@ for (const language of variants(["en", "ko"] as const))
 					await page.waitForTimeout(1000);
 					on = await cpu(app, 4000);
 					await page.evaluate(() =>
-						document.querySelector(".omp-composer-box > .omp-live-edge")?.setAttribute("data-live-edge", "turn"),
+						document.querySelector(".omp-composer-box > .omp-live-sweep")?.setAttribute("data-working", "turn"),
 					);
 					strong = await cpu(app, 4000);
 					bare = strong;
 					if (software) {
 						// Hidden, not removed: React still owns the node and unmounts it later.
 						await page.evaluate(() => {
-							const cue = document.querySelector<HTMLElement>(".omp-composer-box > .omp-live-edge");
+							const cue = document.querySelector<HTMLElement>(".omp-composer-box > .omp-live-sweep");
 							if (cue) cue.style.display = "none";
 						});
 						bare = await cpu(app, 4000);
@@ -237,11 +229,11 @@ for (const language of variants(["en", "ko"] as const))
 					}
 				}
 
-				// A question waiting on the user wins over a running turn: the comet goes, a still warning tint stays.
+				// A question waiting on the user wins over a running turn: the sweep stops, a still warning tint stays.
 				await send(page, "fixture ask");
 				await expect(page.getByRole("dialog").or(page.locator(".omp-prompt-card")).first()).toBeVisible();
-				await expect(live).toHaveAttribute("data-live-edge", "waiting");
-				await expect(live.locator(".omp-live-pill")).toHaveCount(0);
+				await expect(live).toHaveAttribute("data-working", "waiting");
+				expect(await live.evaluate(sweep => sweep.getAnimations({ subtree: true }).length)).toBe(0);
 				await capture("asking", 260);
 				expect(errors).toEqual([]);
 			} finally {
@@ -256,15 +248,15 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 	try {
 		await page.emulateMedia({ reducedMotion: "reduce" });
 		await send(page, "fixture stream");
-		const live = page.locator(".omp-composer-box > .omp-live-edge");
-		await expect(live).toHaveAttribute("data-live-edge", "turn");
-		// The light's own loops (a turn's spinner keeps turning whatever the light does).
+		const live = page.locator(".omp-composer-box > .omp-live-sweep");
+		await expect(live).toHaveAttribute("data-working", "turn");
+		// The light's own loop (a turn's spinner keeps turning whatever the light does).
 		const loops = () =>
-			live.evaluate(edge => (edge.shadowRoot?.getAnimations() ?? []).map(animation => animation.playState));
+			live.evaluate(sweep => sweep.getAnimations({ subtree: true }).map(animation => animation.playState));
 		expect(await loops()).toEqual([]);
-		await expect(live).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+		await expect(live).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		await page.emulateMedia({ reducedMotion: "no-preference" });
-		// Software compositing keeps the still form whatever the media says; hardware gets the travelling comet.
+		// Software compositing keeps the still form whatever the media says; hardware gets the moving sweep.
 		const software = await softwareMarked(app, page);
 		await expect.poll(async () => (await loops()).length > 0).toBe(!software);
 		await page.evaluate(() => {
@@ -290,20 +282,19 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 		expect(status.startsWith("enabled")).toBe(false);
 		await expect(page.locator("html")).toHaveAttribute("data-gpu", "software");
 		await send(page, "fixture stream");
-		const live = page.locator(".omp-composer-box > .omp-live-edge");
-		await expect(live).toHaveAttribute("data-live-edge", "turn");
+		const live = page.locator(".omp-composer-box > .omp-live-sweep");
+		await expect(live).toHaveAttribute("data-working", "turn");
 		const running = await live.evaluate(
-			edge => (edge.shadowRoot?.getAnimations() ?? []).filter(animation => animation.playState === "running").length,
+			sweep => sweep.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length,
 		);
 		expect(running).toBe(0);
-		await expect(live.locator(".omp-live-pill")).toHaveCount(0);
-		await expect(live).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+		await expect(live).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent
 		// (10 s of sampling; with the other performance measurements, OMP_GUI_PERFORMANCE=1).
 		if (process.env.OMP_GUI_PERFORMANCE === "1") {
 			await page.waitForTimeout(1000);
 			const withCue = await cpu(app, 4000);
-			await page.evaluate(() => document.querySelector(".omp-composer-box > .omp-live-edge")?.remove());
+			await page.evaluate(() => document.querySelector(".omp-composer-box > .omp-live-sweep")?.remove());
 			await page.waitForTimeout(1000);
 			const without = await cpu(app, 4000);
 			console.log(`composer-live software cpu ${JSON.stringify({ withCue, without })}`);

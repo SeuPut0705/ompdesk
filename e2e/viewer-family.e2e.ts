@@ -133,8 +133,8 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 			await phone.waitForTimeout(1500);
 			await captureTo(CAPTURES, phone, "phone-drawer");
 		}
-		// The idle opener wears the background light; its family counts both children as running.
-		await expect(openerRow.locator(".omp-live-edge")).toHaveAttribute("data-live-edge", "background", {
+		// The idle opener's title sweeps in the background form; its family counts both children as running.
+		await expect(openerRow.locator(".omp-live-text")).toHaveAttribute("data-working", "background", {
 			timeout: 20_000,
 		});
 		const chip = openerRow.locator("[data-family-running]");

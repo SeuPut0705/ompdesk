@@ -26,7 +26,7 @@ const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", succ
 Reflect.set(window, "omp", { rpc: { getJobs } });
 
 const { createRoot } = await import("react-dom/client");
-const { ComposerLiveEdge, ComposerSend } = await import("./ComposerLive");
+const { ComposerLiveSweep, ComposerSend } = await import("./ComposerLive");
 
 let container: HTMLElement;
 let root: Root;
@@ -57,7 +57,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<ComposerLiveEdge />
+				<ComposerLiveSweep />
 				<ComposerSend label="Send">
 					<button type="button">send</button>
 				</ComposerSend>
@@ -67,7 +67,7 @@ async function mount(): Promise<void> {
 	await act(async () => {});
 }
 
-const edge = () => container.querySelector(".omp-live-edge");
+const edge = () => container.querySelector(".omp-live-sweep");
 const sendWrap = () => container.querySelector(".omp-composer-send-live");
 
 afterEach(async () => {
@@ -107,19 +107,20 @@ describe("liveWorkState", () => {
 	});
 });
 
-describe("ComposerLiveEdge", () => {
-	it("is absent while idle and shows `turn` while the turn runs", async () => {
+describe("ComposerLiveSweep", () => {
+	it("is absent while idle and shows `turn` while the turn runs, with no border light", async () => {
 		await mount();
 		expect(edge()).toBeNull();
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		expect(edge()?.getAttribute("data-live-edge")).toBe("turn");
+		expect(edge()?.getAttribute("data-working")).toBe("turn");
+		expect(edge()?.getAttribute("aria-hidden")).toBe("true");
+		expect(container.querySelector(".omp-live-edge, .omp-live-pill")).toBeNull();
 		expect(sendWrap()?.hasAttribute("data-composer-live")).toBe(false);
 	});
-
 	it("shows `background` between turns for a working subagent, and rings Send", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running"), agent("a2", "running")]);
 		await mount();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 		expect(sendWrap()?.getAttribute("data-composer-live")).toBe("background");
 	});
 
@@ -134,13 +135,13 @@ describe("ComposerLiveEdge", () => {
 	it("shows `background` while a shell runs", async () => {
 		rows = [job("j3", "bash", "running")];
 		await mount();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 	});
 
 	it("shows `background` while only a subagent's own shell runs", async () => {
 		rows = [job("j1", "task", "completed"), job("j4", "bash", "running", 1)];
 		await mount();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 	});
 
 	it("shows `background` while main reports the tab unsettled after its turn, with nothing in its own lists", async () => {
@@ -151,13 +152,13 @@ describe("ComposerLiveEdge", () => {
 				tabs: state.tabs.map(tab => ({ ...tab, status: "running", settling: true as const })),
 			})),
 		);
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 	});
 
-	it("lets the comet go while a question waits on the user, whatever else runs, and holds a still tint", async () => {
+	it("stops the sweep while a question waits on the user, whatever else runs, and holds a still tint", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
 		await mount();
-		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
+		expect(edge()?.getAttribute("data-working")).toBe("background");
 		await act(async () =>
 			useExtensionUiStore.getState().pushRequest({
 				type: "extension_ui_request",
@@ -167,9 +168,9 @@ describe("ComposerLiveEdge", () => {
 				options: ["Approve", "Deny"],
 			}),
 		);
-		expect(edge()?.getAttribute("data-live-edge")).toBe("waiting");
+		expect(edge()?.getAttribute("data-working")).toBe("waiting");
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		expect(edge()?.getAttribute("data-live-edge")).toBe("waiting");
+		expect(edge()?.getAttribute("data-working")).toBe("waiting");
 		expect(sendWrap()?.hasAttribute("data-composer-live")).toBe(false);
 	});
 
@@ -183,7 +184,7 @@ describe("ComposerLiveEdge", () => {
 	});
 });
 
-describe("the cue beside a draft", () => {
+describe("the composer's sweep in the stylesheet", () => {
 	const css = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
 	/** Declarations of the top-level rule whose selector is exactly `selector`. */
 	const rule = (selector: string) => {
@@ -191,20 +192,44 @@ describe("the cue beside a draft", () => {
 		return start < 0 ? "" : css.slice(start, css.indexOf("}", start));
 	};
 
-	it("dims to a faint trace beside a draft, focused or not, and steps the Send ring out of the way", () => {
-		// AGENTS.md: the cue steps back while the field holds a draft (DR-19: not gone: a faint trace stays).
-		const gain = rule(".omp-composer-box[data-composer-draft] .omp-live-edge").match(/--live-gain: ([\d.]+);/)?.[1];
-		expect(Number(gain)).toBeGreaterThan(0);
-		expect(Number(gain)).toBeLessThan(0.5);
+	it("has no border light left", () => {
+		expect(css).not.toContain("omp-live-edge");
+		expect(css).not.toContain("omp-live-pill");
+	});
+
+	it("sweeps a transform only while work runs, and the waiting tint holds still", () => {
+		const moving = rule('.omp-live-sweep:is([data-working="turn"], [data-working="background"])::before');
+		expect(moving).toMatch(/animation: omp-live-shine-sweep /);
+		const keyframes = css.slice(css.indexOf("@keyframes omp-live-shine-sweep"));
+		const body = keyframes.slice(0, keyframes.indexOf("\n}\n"));
+		expect(body).toContain("transform:");
+		expect(body).not.toMatch(/opacity|background-position|width|left/);
+		expect(rule('.omp-live-sweep[data-working="waiting"]')).toContain("var(--sc-warning)");
+		expect(rule('.omp-live-sweep[data-working="waiting"]::before')).toContain("display: none");
+	});
+
+	it("steps the Send ring out of the way beside a draft", () => {
 		const ring = rule(".omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after");
 		expect(ring).toContain("opacity: 0");
 	});
 
-	it("takes a still 1px line on the box's top edge at ~40% under reduced motion, not a permanent ring", () => {
-		const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-edge"));
-		const reduced = block.slice(0, block.indexOf("\n}\n"));
-		expect(reduced).toMatch(
-			/\.omp-live-edge\[data-live-edge="turn"\] \{\s*border-top-color: color-mix\(in srgb, var\(--sc-accent\) 40%/,
+	it("holds every working cue still under reduced motion and software compositing", () => {
+		for (const opener of [
+			"@media (prefers-reduced-motion: reduce) {\n\t.omp-live-",
+			'html[data-gpu="software"] .omp-live-',
+		]) {
+			const at = css.indexOf(opener);
+			expect(at, opener).toBeGreaterThan(0);
+		}
+		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-"));
+		const block = reduced.slice(0, reduced.indexOf("\n}\n"));
+		expect(block).toMatch(
+			/\.omp-live-sweep\[data-working\]::before,\s*\.omp-live-text\[data-working\]\s*\{\s*animation: none/,
 		);
+		expect(
+			rule(
+				'html[data-gpu="software"] .omp-live-sweep[data-working]::before,\nhtml[data-gpu="software"] .omp-live-text[data-working]',
+			),
+		).toContain("animation: none");
 	});
 });

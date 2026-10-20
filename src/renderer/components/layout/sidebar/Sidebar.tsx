@@ -127,7 +127,7 @@ import { SwapText } from "../../common/SwapText";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
-import { SessionLiveEdge } from "../SessionLiveEdge";
+import { SessionLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
@@ -1826,7 +1826,7 @@ export function Sidebar() {
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path)
 			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
-		// The state is the row's light (`SessionLiveEdge`) or its left-edge bar (sidebar.css `data-signal`), its words the
+		// The state is the row's own title sweeping (`SessionLiveTitle`) or its left-edge bar (sidebar.css `data-signal`), its words the
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
 		// alone; else a chat, a pin or a fork.
@@ -1911,15 +1911,6 @@ export function Sidebar() {
 							toggleSidebarSubagents(session.path);
 						openSession(session);
 					}}
-					live={
-						<SessionLiveEdge
-							opened={opened.filter(child => child.status === "running").length}
-							running={signal === "running"}
-							settling={settling}
-							tabId={openTabId ?? null}
-							waiting={signal === "waiting"}
-						/>
-					}
 					rowProps={{
 						draggable: openTabId !== undefined && !isCurrent,
 						onDragStart: event => {
@@ -1943,7 +1934,15 @@ export function Sidebar() {
 					selected={active}
 					title={
 						<>
-							<SwapText scope={session.path}>{title}</SwapText>
+							<SessionLiveTitle
+								opened={opened.filter(child => child.status === "running").length}
+								running={signal === "running"}
+								settling={settling}
+								tabId={openTabId ?? null}
+								waiting={signal === "waiting"}
+							>
+								<SwapText scope={session.path}>{title}</SwapText>
+							</SessionLiveTitle>
 							{fork?.parentTitle && <ForkParent name={fork.parentTitle} />}
 							{fork && <span className="sr-only">, {fork.label}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
