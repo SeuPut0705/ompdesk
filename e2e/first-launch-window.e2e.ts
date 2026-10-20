@@ -7,6 +7,7 @@ import { expect, type TestInfo, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
 import { micaSupported } from "../src/main/window-chrome";
 import { exitApp, fixtureOmp } from "./harness";
+import { describeProcess, isAiMemoryService, processTree, type WinProcess, windowsProcesses } from "./process-tree";
 
 // What a Windows user sees when OMPdesk opens: the packaged app (dist/win-unpacked, which release.yml's win job
 // has just packaged; OMP_GUI_E2E_EXE points at another OMPdesk.exe, e.g. an installed release), NOT headless
@@ -148,57 +149,6 @@ async function expectDrawn({ app, page }: Launched, info: TestInfo, name: string
 
 /** How a test ends the app: ⌘Q's teardown (`app.quit()`), or the one an update's `quitAndInstall()` runs. */
 type QuitPath = "quit" | "update";
-
-/** A Windows process as Win32_Process lists it; `created` (FILETIME) tells a reused pid apart. */
-interface WinProcess {
-	pid: number;
-	ppid: number;
-	name: string;
-	exe: string | null;
-	commandLine: string | null;
-	created: string;
-}
-
-function windowsProcesses(): WinProcess[] {
-	const script = [
-		"Get-CimInstance Win32_Process | ForEach-Object {",
-		"[pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; exe = $_.ExecutablePath;",
-		"commandLine = $_.CommandLine; created = $(if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc().ToString() } else { '' }) }",
-		"} | ConvertTo-Json -Compress",
-	].join(" ");
-	const json = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-		encoding: "utf8",
-		maxBuffer: 64 * 1024 * 1024,
-		windowsHide: true,
-	});
-	return JSON.parse(json) as WinProcess[];
-}
-
-const describeProcess = (process: WinProcess) =>
-	`${process.pid} (parent ${process.ppid}) ${process.name}: ${process.commandLine ?? process.exe ?? "?"}`;
-
-/** `root` and everything below it; a child is never older than its parent (Windows reuses pids). */
-function processTree(all: WinProcess[], root: number): WinProcess[] {
-	const tree = all.filter(process => process.pid === root);
-	for (let i = 0; i < tree.length; i++) {
-		const parent = tree[i];
-		if (!parent) continue;
-		for (const process of all) {
-			if (
-				process.ppid === parent.pid &&
-				Number(process.created) >= Number(parent.created) &&
-				!tree.includes(process)
-			) {
-				tree.push(process);
-			}
-		}
-	}
-	return tree;
-}
-
-/** ai-memory's own per-user service (`service-host`, its `--supervise` copy and the `serve` it runs). */
-const isAiMemoryService = (process: WinProcess) =>
-	/^ai-memory(\.exe)?$/i.test(process.name) && /\s(service-host|serve)(\s|$)/.test(process.commandLine ?? "");
 
 /**
  * Every named pipe libuv made (`\Device\NamedPipe\uv\<ptr>-<creator pid>`) and who holds it, then every file and pipe

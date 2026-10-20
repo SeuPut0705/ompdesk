@@ -7,6 +7,7 @@ import { type ElectronApplication, _electron as electron } from "playwright";
 import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { withoutGitSelectors } from "../src/shared/git-env";
+import { processesBelow, waitForProcessesToExit } from "./process-tree";
 
 /**
  * Install the fake omp in `sidecar-fixture.ts` under `dir` for `OMP_GUI_OMP`,
@@ -295,10 +296,18 @@ const EXIT_GRACE_MS = 10_000;
  * A main process whose thread is stuck never runs the evaluate; it is killed
  * after a grace period, so the test reports its own failure instead of the
  * worker teardown timing out.
+ *
+ * On Windows a process keeps the folder it works in from being removed, and the launcher exits before the app
+ * under it has: main, Chromium's helpers, the omp it started, that omp's MCP servers and the git it ran wind
+ * down for another ~0.1 s (measured: the omp and its `npx` chain were alive when `exitApp` returned, and the
+ * spec's `fs.rm(profile)` failed `EBUSY` on `project`, 5 of 24 runs of `real-core.e2e.ts`). So the processes
+ * below the launcher are listed before the exit and waited for after it; one still running after the grace
+ * period is killed.
  */
 export async function exitApp(app: ElectronApplication): Promise<void> {
 	const child = app.process();
 	if (child.exitCode !== null || child.signalCode !== null) return;
+	const owned = child.pid === undefined ? [] : processesBelow(child.pid);
 	const exited = Promise.withResolvers<void>();
 	child.once("exit", () => exited.resolve());
 	const quit = app.evaluate(({ app }) => {
@@ -315,6 +324,7 @@ export async function exitApp(app: ElectronApplication): Promise<void> {
 		clearTimeout(timer);
 	}
 	await exited.promise;
+	await waitForProcessesToExit(owned, EXIT_GRACE_MS);
 }
 
 /** What a drawn box and a finger each reach, in CSS px. */
