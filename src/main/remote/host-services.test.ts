@@ -1191,6 +1191,25 @@ describe("LocalHostServices", () => {
 		expect(signIns(third)).toEqual([{ active: [] }]);
 	});
 
+	it("keeps a hosted turn running when Windows ended the session under its omp", async () => {
+		const { services, sidecars } = setup();
+		services.attachResume({ sync: vi.fn(), cancelWait: vi.fn() });
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("events", [{ type: "agent_start" }]);
+
+		// The next launch continues this turn: its marker's input stays while main lives out its last seconds.
+		sidecar.emit("status", { status: "exited", cwd: workDir, sessionEnded: true });
+		expect(services.resumeFacts()[0]).toMatchObject({ running: true });
+
+		sidecar.emit("status", { status: "restarting", cwd: workDir });
+		expect(services.resumeFacts()[0]).toMatchObject({ running: false });
+	});
+
 	it("gives this computer's resume coordinator the hosted turns: facts, Stop, asks, the wait and its Cancel", async () => {
 		const { services, sidecars } = setup();
 		const resume = { sync: vi.fn(), cancelWait: vi.fn() };

@@ -2206,6 +2206,25 @@ describe("SidecarPool background tabs", () => {
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("awaitingConnection");
 		});
 
+		it("keeps the running turn and its open ask when Windows ended the session under omp", async () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			a?.emitEvents([{ type: "agent_start" }]);
+			a?.emitUiRequest({ id: "ask-1", method: "ask", title: "Which?", questions: [] });
+			const fact = () => pool.resumeFacts().find(entry => entry.tabId === "tab-a");
+
+			// The OS killed omp: the next launch continues this turn, so the marker's inputs stay as they were.
+			a?.emit("status", { status: "exited", cwd: "/a", sessionEnded: true });
+			expect(fact()).toMatchObject({ running: true, awaitingUi: true });
+
+			// Any other exit still ends the run and its asks.
+			a?.emit("status", { status: "restarting", cwd: "/a" });
+			expect(fact()).toMatchObject({ running: false, awaitingUi: false });
+		});
+
 		it("holds a scheduled retry in main: TAB_STATUS pushes it, GET_TABS re-reads it after a reload, and clearing removes it", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

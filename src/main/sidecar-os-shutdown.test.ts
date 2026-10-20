@@ -80,7 +80,8 @@ describe("omp ended by the Windows session", () => {
 
 			expect(children).toHaveLength(1);
 			expect(statuses.map(payload => payload.status)).not.toContain("restarting");
-			expect(statuses.at(-1)?.status).toBe("exited");
+			expect(statuses.at(-1)).toMatchObject({ status: "exited", sessionEnded: true });
+			expect(sidecar.statusPayload).toMatchObject({ status: "exited", sessionEnded: true });
 			expect(reportFailure).not.toHaveBeenCalled();
 		} finally {
 			sidecar.dispose();
