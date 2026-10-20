@@ -130,7 +130,7 @@ for (const { language, theme } of VARIANTS) {
 	});
 }
 
-/** Per frame from the document's start: the first local row's top, whether a host section is pending/online, host rows. */
+/** Per frame from the document's start: the first local row's top, whether a host section is drawn (pending or online), host rows. */
 const FRAME_PROBE = `(() => {
 	const frames = [];
 	window.__deviceFrames = frames;
@@ -141,6 +141,7 @@ const FRAME_PROBE = `(() => {
 			pending: document.querySelector("[data-device-pending]") !== null,
 			online: document.querySelector('[data-sidebar-device][data-device-state="online"]') !== null,
 			hostRows: document.querySelectorAll("[data-sidebar-device] [data-device-session]").length,
+			section: document.querySelector("[data-sidebar-device]") !== null,
 		});
 		requestAnimationFrame(tick);
 	};
@@ -151,6 +152,7 @@ interface DeviceFrame {
 	top: number | null;
 	pending: boolean;
 	online: boolean;
+	section: boolean;
 	hostRows: number;
 }
 
@@ -247,9 +249,11 @@ test("the local rows do not move across the first remote read of a relaunch", as
 		console.log(
 			`device-order probe: ${frames.length} frames, pending first at ${pendingFrame}, online at ${onlineFrame}`,
 		);
-		// A pending section is drawn before the first remote read answers (the read may beat the first React frame).
-		expect(pendingFrame).toBeGreaterThanOrEqual(0);
-		expect(pendingFrame).toBeLessThan(onlineFrame);
+		// Whether a pending section is drawn at all depends on which comes first, the host list's read or the sidebar's
+		// first frame (Sidebar.test.tsx pins the pending section itself). What must hold either way: the host's
+		// section already has its place on the first frame that draws a local row.
+		const firstRow = frames.findIndex(frame => frame.top !== null);
+		expect(frames[firstRow]?.section, changes).toBe(true);
 	} finally {
 		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
 		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
