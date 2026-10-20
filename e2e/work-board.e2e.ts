@@ -112,11 +112,15 @@ for (const language of variants(["en", "ko"] as const))
 				const board = page.getByRole("complementary", { name: text.board });
 				const pane = page.locator(".omp-session-pane").first();
 
-				// Nothing to show yet: no board takes the margin.
-				await send(page, "hello");
-				await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
+				// Nothing to show before the first turn: no board takes the margin.
+				await expect(page.locator(".omp-composer-input").first()).toBeVisible({ timeout: 30_000 });
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
+
+				// A finished turn stays on the board as Current work, here one that changed no file.
+				await send(page, "hello");
+				await expect(page.locator("[data-transcript-kind]").first()).toBeVisible({ timeout: 30_000 });
+				await expect(board.locator('[data-board-section="current"]')).toBeVisible();
 
 				// A running subagent and a todo list: the board appears with both.
 				await fixture(page, "fixture:subagents");
