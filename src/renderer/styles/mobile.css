@@ -1276,12 +1276,13 @@ html[data-shell="phone"] :is(.markdown-body, .omp-streaming-tail) :not(pre) > co
 }
 
 /* Safe areas: a side or full-screen sheet (the side panel) and a docked sidebar (portrait tablet) clear the notch and
-   the home indicator; the drawer panel and the bottom sheet already do. */
+   the home indicator; the drawer panel and the bottom sheet already do. So does the side panel docked beside the page
+   on a tablet held sideways: its title row and view icons sat under the status bar and the screen's rounded corner. */
 html[data-shell] [data-sheet-placement]:not([data-sheet-placement="bottom"]) > [data-sheet-panel] {
 	padding-top: var(--safe-t);
 }
 
-html[data-shell] .omp-session-sidebar:not(.omp-drawer .omp-session-sidebar) {
+html[data-shell] :is(.omp-session-sidebar:not(.omp-drawer .omp-session-sidebar), .omp-inspector[data-docked]) {
 	padding-top: var(--safe-t);
 	padding-bottom: var(--safe-b);
 }
@@ -1369,6 +1370,15 @@ html[data-input="touch"] :is([data-update-notice] button, .omp-whats-new-card > 
 html[data-input="touch"] .omp-message-actions {
 	gap: 10px;
 	--hit-gap-x: 10px;
+}
+
+/* The context popover's actions (compact, hand off, details) and a schedule's day buttons wrap in rows 4 px apart: on
+   touch 10 px apart each way, so a button's reach ends half way to the next row's instead of covering it. The phone's
+   context sheet stacks its actions as 44 px rows of its own. */
+html[data-input="touch"] :is([data-context-actions]:not(.flex-col), div:has(> [data-schedule-day])) {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
 }
 
 /* Dialogs and sheets: 16 px side padding, a tight header, a title one step smaller, a footer that hugs the home

@@ -584,7 +584,8 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	// Overlap: two controls' visible boxes cross, neither holds the other, and both are on top where they meet. A menu,
 	// popover or dialog floating over the page covers what lies under it by design: only controls of the same layer
 	// collide.
-	const LAYER = "[role='menu'], [role='dialog'], [role='listbox'], [role='tooltip'], [data-sheet-panel], .omp-pop-in";
+	const LAYER =
+		"[role='menu'], [role='dialog'], [role='listbox'], [role='tooltip'], [data-sheet-panel], .omp-pop-in, .omp-toast-stack";
 	const layerOf = (element: Element): Element | null => element.closest(LAYER);
 	const boxes = controls
 		.map(element => ({ element, rect: visibleRect(element) }))
@@ -661,6 +662,9 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			// Inside the control's own scroller bounds only: a point past the clip belongs to the clipper.
 			const owner = topEl.closest(controlSelector);
 			if (owner && (owner.contains(element) || element.contains(owner))) continue;
+			// A popover, sheet or toast lying over part of the control covers it while it is open; it takes nothing.
+			const cover = layerOf(topEl);
+			if (cover && cover !== layerOf(element) && !cover.contains(element)) continue;
 			if (!owner && (ownOnly || x < clip.left || x > clip.right || y < clip.top || y > clip.bottom)) continue;
 			// A bar or chip floating over a scroller covers content that scrolls under it by design.
 			const scroller = scrollerOf(element);

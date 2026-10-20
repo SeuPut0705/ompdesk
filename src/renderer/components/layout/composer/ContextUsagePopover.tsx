@@ -435,6 +435,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 									? "-mx-1 mt-3 flex flex-col gap-0.5 border-t border-(--sc-divider) pt-2"
 									: "-mx-4 mt-3 flex flex-wrap gap-1 border-t border-(--sc-divider) px-2 pt-2"
 							}
+							data-context-actions
 						>
 							<Button
 								className={sheet ? "min-h-(--sc-row-action) w-full justify-start" : undefined}

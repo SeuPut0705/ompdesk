@@ -1,16 +1,19 @@
 import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
-import { type Browser, chromium, expect, test } from "@playwright/test";
+import { type Browser, chromium, expect, type Page, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 import { type Look, lookTag, measure, measureDensity, openLook, resetPage } from "./responsive-audit";
 import { SURFACES } from "./responsive-surfaces";
 
-// The default run's one responsive smoke: a phone (390) and a portrait tablet (834), en light, a handful of key
-// surfaces (session, drawer, Mode popover, model picker, a side panel, Settings, Agents, a card, toasts). Nothing
-// may scroll the page sideways, escape the viewport or open a popover off screen, and on the phone the idle
-// session's app chrome (header + dock + composer, the hardware insets excluded) stays within 19.4 % of the screen.
-// The full matrix (every surface × width × orientation × theme × language) is e2e/responsive-audit.e2e.ts, behind
-// OMP_GUI_RESPONSIVE=<dir>.
+// The default run's responsive smoke: a phone (390) and a portrait tablet (834), en light, a handful of key surfaces
+// (session, drawer, Mode popover, model picker, a side panel, Settings, Agents, a card, toasts). Nothing may scroll
+// the page sideways, escape the viewport or open a popover off screen, and on the phone the idle session's app chrome
+// (header + dock + composer, the hardware insets excluded) stays within 19.4 % of the screen. Then the classes the
+// responsive pass of 20 Oct 2026 fixed, so they cannot come back: every tap reaches its own control (no stolen taps,
+// nothing under the home indicator, 36 px targets in a docked tablet sidebar, whole summary figures on a work card),
+// a tap on the drawer's edge strip reaches the control under it, and a 1100 px desktop window keeps Memory's tabs clear
+// of its project picker and cuts no Run popover choice. The full matrix (every surface × width × orientation × theme ×
+// language × touch, web and Electron desktop) is e2e/responsive-audit.e2e.ts, behind OMP_GUI_RESPONSIVE=<dir>.
 
 const LOOKS: readonly Look[] = [
 	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "en" },
@@ -171,3 +174,108 @@ for (const look of BOARD_LOOKS) {
 		await page.context().close();
 	});
 }
+
+/** Open one named surface on a page that already shows the harness (reloading when something modal stayed up). */
+async function show(page: Page, look: Look, id: string): Promise<void> {
+	const surface = SURFACES.find(entry => entry.id === id);
+	if (!surface) throw new Error(`no surface ${id}`);
+	if (!(await resetPage(page))) {
+		await page.reload();
+		await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+	}
+	await surface.open(page, look);
+	if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
+	await page.waitForTimeout(surface.settle ?? 450);
+}
+
+/**
+ * What a finger aims at, it gets: on a phone and a portrait tablet no control loses part of its hit area to a
+ * neighbour, an edge strip or a layer (tabs over the content below, sheet items over the next item, the sidebar's
+ * project ⋯ over the title, the composer's last chip under Send, a notice's buttons over the work strip, wrapped
+ * section pills), nothing sits under the home indicator (a full-screen sheet's footer), a work card's summary never
+ * cuts a figure, and a docked tablet sidebar's controls are 36 px targets. The matrix measures every surface.
+ */
+const TOUCH_LOOKS: readonly Look[] = [
+	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "en" },
+	{ width: 834, height: 1194, dpr: 2, orientation: "portrait", theme: "light", lang: "en" },
+];
+const TAP_SURFACES = [
+	"session-idle",
+	"sidebar",
+	"banner-update-error",
+	"composer-attach-menu",
+	"composer-run-settings",
+	"stats-all",
+	"agents-prs",
+	"settings-general",
+	"settings-memory-search",
+	"panel-files",
+];
+const HOST_SURFACES = ["host-path-actions", "host-browser-folder"];
+
+for (const look of TOUCH_LOOKS) {
+	test(`responsive smoke ${lookTag(look)}: every tap reaches the control it aims at`, async () => {
+		if (!browser) throw new Error("the browser is not up");
+		const found: string[] = [];
+		const check = async (page: Page, id: string) => {
+			await show(page, look, id);
+			for (const issue of await measure(page, look)) {
+				const summaryCut = issue.kind === "truncated" && issue.at.includes("omp-summary-part");
+				const sidebarTarget = issue.kind === "small-target" && issue.at.includes("[data-sidebar-");
+				if (["stolen-tap", "safe-area", "overlap"].includes(issue.kind) || summaryCut || sidebarTarget)
+					found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
+			}
+		};
+		const page = await openLook(browser, look, { origin });
+		for (const id of TAP_SURFACES) await check(page, id);
+		await page.context().close();
+		const hosted = await openLook(browser, look, { origin, query: "&host=1" });
+		for (const id of HOST_SURFACES) await check(hosted, id);
+		await hosted.context().close();
+		expect(found).toEqual([]);
+	});
+}
+
+test("responsive smoke 390: a tap on the drawer's edge strip reaches the control under it", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look = TOUCH_LOOKS[0] as Look;
+	const page = await openLook(browser, look, { origin });
+	await show(page, look, "agents-prs");
+	const strip = await page.locator("[data-edge-zone]").boundingBox();
+	if (!strip) throw new Error("no edge strip");
+	// The PR list's rows start 8 px from the screen's edge, so the strip lies over their first 2 px.
+	const row = page.locator("nav > ul > li > button").first();
+	const box = await row.boundingBox();
+	if (!box) throw new Error("no PR row");
+	expect(box.x).toBeLessThan(strip.x + strip.width);
+	await page.touchscreen.tap(strip.x + strip.width - 1, box.y + box.height / 2);
+	await expect(page.locator("[data-master-detail-back]")).toBeVisible();
+	await page.context().close();
+});
+
+/**
+ * A desktop window (painted as the Electron window it is, `?platform=darwin`) at 1100 px: Settings › Memory's tabs and
+ * project picker share the row without one covering the other, and the Run popover's segmented choices cut no label.
+ */
+test("responsive smoke 1100 desktop: Memory's tabs and the Run popover's choices fit", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 1100,
+		height: 800,
+		dpr: 2,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await openLook(browser, look, { origin });
+	const found: string[] = [];
+	for (const id of ["settings-memory-maintenance", "composer-run-settings"]) {
+		await show(page, look, id);
+		for (const issue of await measure(page, look))
+			if (issue.kind === "overlap" || (issue.kind === "truncated" && issue.at.includes("-option]")))
+				found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
+	}
+	expect(found).toEqual([]);
+	await page.context().close();
+});
