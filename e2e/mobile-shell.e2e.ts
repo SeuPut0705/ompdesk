@@ -375,13 +375,13 @@ for (const { engine, device } of variants(
 			await chip.click();
 			await expect(panel).toHaveCount(0);
 			await expect(chip).toHaveAttribute("aria-expanded", "false");
-			// A tap on the transcript (outside) collapses it too, and still reaches the transcript. The reopened panel is
-			// measured again: a Current work row that landed after the first measurement grows it, and a tap at the old
-			// edge then fell inside it on a slow runner.
+			// A tap on the transcript (outside) collapses it too, and still reaches the transcript. Below the panel's
+			// height cap (50dvh), not the box measured at the first open: this open's rows (Current work's reads, the
+			// jobs poll) may land later and grow it, and under load a tap at the old bottom landed inside (seen 1 in 6
+			// on iPad Pro 11, 359 px then 388–403 px tall).
 			await chip.click();
 			await expect(panel).toBeVisible();
-			const reopened = await settledBox(panel);
-			await page.mouse.click((viewport?.width ?? 0) / 2, reopened.y + reopened.height + 6);
+			await page.mouse.click((viewport?.width ?? 0) / 2, panelBox.y + (viewport?.height ?? 0) * 0.5 + 8);
 			await expect(panel).toHaveCount(0);
 			await chip.click();
 			await expect(panel).toBeVisible();
