@@ -65,11 +65,14 @@ test("a stats server that binds late fills the open stats page with no reload", 
 		JSON.stringify({
 			name: "@oh-my-pi/omp-stats",
 			type: "module",
-			exports: { ".": "./index.ts", "./db": "./rest.ts", "./aggregator": "./rest.ts" },
+			exports: { ".": "./index.ts", "./db": "./rest.ts", "./aggregator": "./rest.ts", "./live": "./rest.ts" },
 		}),
 	);
 	await fs.writeFile(path.join(stats, "index.ts"), FAKE_STATS);
-	await fs.writeFile(path.join(stats, "rest.ts"), "export function getTimeRangeConfig() { return {}; }\n");
+	await fs.writeFile(
+		path.join(stats, "rest.ts"),
+		"export function getTimeRangeConfig() { return {}; }\nexport const statsLive = () => ({ start() {} });\n",
+	);
 	// stats-host also loads stock's frustration judge from the agent package.
 	const agentPackage = path.join(modules, "pi-coding-agent");
 	const manifest = JSON.parse(await fs.readFile(path.join(agentPackage, "package.json"), "utf8"));

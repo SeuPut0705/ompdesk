@@ -12,6 +12,13 @@
  * needs, and its server takes no extra routes. So the stock server listens on
  * an internal loopback port and a front server answers `/api/stats/requests`
  * from the stock stats database, passing every other request through.
+ *
+ * Stock ingests sessions into that database only while something runs its
+ * live sync (`statsLive().start()`), which its server starts when a dashboard
+ * page subscribes to `/api/events`. `omp stats` always opens such a page; the
+ * GUI reads the API and never subscribes, so this host starts the same live
+ * sync itself: a full sync now and every 5 minutes, and the transcripts a
+ * session writes shortly after it writes them.
  */
 import * as path from "node:path";
 
@@ -27,12 +34,14 @@ const fromOmp = (specifier: string) => Bun.resolveSync(specifier, path.join(root
 const stats = await import(fromOmp("@oh-my-pi/omp-stats"));
 const statsDb = await import(fromOmp("@oh-my-pi/omp-stats/db"));
 const { getTimeRangeConfig } = await import(fromOmp("@oh-my-pi/omp-stats/aggregator"));
+const { statsLive } = await import(fromOmp("@oh-my-pi/omp-stats/live"));
 const { openStandaloneJudge } = await import(fromOmp("@oh-my-pi/pi-coding-agent/judgment/standalone"));
 const cwd = process.cwd();
 const upstream = await stats.startServer(0, "127.0.0.1", {
 	judge: async () => (await openStandaloneJudge(cwd, "stats_frustration")).judge,
 });
 const upstreamOrigin = `http://127.0.0.1:${upstream.port}`;
+statsLive().start();
 
 const RANGES = ["1h", "24h", "7d", "30d", "90d", "all"];
 
