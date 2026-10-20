@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { electronKey, INPUT_BATCH_MAX, InputMapper, type InputOp, previewStreamBatchSchema } from "./preview-input";
 
-const SURFACE = { width: 400, height: 800 };
+const SURFACE = { width: 400, height: 800, scale: 1 };
 
 const events = (ops: InputOp[]) => ops.map(op => (op.op === "event" ? op.event : op));
 
@@ -66,6 +66,14 @@ describe("InputMapper", () => {
 		]);
 		const [huge] = events(mapper.map({ t: "wheel", x: 0, y: 0, dx: 0, dy: -1e9 }, SURFACE));
 		expect(huge).toMatchObject({ deltaY: 5000 });
+	});
+
+	it("scales a wheel delta from the frame's CSS px to the window's DIPs, so a swipe scrolls as far on any host", () => {
+		// A 1× host screen: the window is twice the frame and zoomed by 2 (host.ts `placeStreamed`). 120 frame px is
+		// 240 DIPs, which the page's zoom of 2 reads as the same 120 CSS px a 2× host's unzoomed page does.
+		const mapper = new InputMapper();
+		const [event] = events(mapper.map({ t: "wheel", x: 0, y: 0, dx: 30, dy: 120 }, { ...SURFACE, scale: 2 }));
+		expect(event).toMatchObject({ deltaX: -60, deltaY: -240 });
 	});
 
 	it("turns a pinch into a zoom factor within a sane range", () => {
