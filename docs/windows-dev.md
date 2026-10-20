@@ -32,6 +32,11 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
 - `bun run test:platform` is the suite Windows CI runs (everything but `src/renderer/**`). Renderer tests never read the host platform, so the full `bunx vitest run` also works.
 - `@smoke` Playwright specs run on Windows CI. `terminal` and `mobile-web` are macOS only there (no stock omp PTY natives on the runner; the fake Tailscale is a bun shebang script). Run a Windows e2e on CI with `gh workflow run ci.yml --ref <branch> -f win_e2e=true`.
 - Never in a test: the real home. The real-home guard uses `os.userInfo().homedir`, which is `C:\Users\<you>` on Windows too.
+- Writing e2e specs for a Windows machine (each of these four failed on a developer PC at 125 % scaling with Git for Windows' default config):
+  - `git worktree list` prints `C:/x/wt`, the app and `node:path` use `C:\x\wt`: compare through `path.normalize`, never as raw substrings.
+  - Git for Windows sets `core.autocrlf=true` in its system config. The app's git runs under it (a merge writes CRLF checkouts that the user's git calls clean), so a spec that isolates its own git with `GIT_CONFIG_NOSYSTEM=1` must read the final `git status` without that isolation.
+  - A shortcut written ⌘ is Ctrl on Windows and the Windows key is no chord: press `ControlOrMeta`, never `Meta`.
+  - A press that must land on one caret offset (drag-select) aligns to a device pixel: `Math.round(v * devicePixelRatio) / devicePixelRatio`.
 
 ## Known limits
 
