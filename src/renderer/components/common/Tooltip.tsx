@@ -225,7 +225,9 @@ export function Tooltip({ content, shortcut, side = "top", describe = true, hidd
 				!hidden &&
 				createPortal(
 					<div
-						className="fixed z-(--sc-z-tooltip)"
+						// The bubble takes no pointer, and neither does its frame: a tooltip a focused control shows over a
+						// control next to it (the mic's over a failed take's Details) must not take that control's clicks.
+						className="pointer-events-none fixed z-(--sc-z-tooltip)"
 						ref={bubbleRef}
 						style={position ?? { left: 0, top: 0, visibility: "hidden" }}
 					>
