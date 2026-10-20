@@ -461,6 +461,10 @@ export function runRpcUi(): void {
 	let heldBash: ((data: unknown) => void) | undefined;
 	let streamTimer: Timer | undefined;
 	let streamChunks = 0;
+	/** The reply `fixture stream parts` streams, held open until `fixture:finish:parts` commits it. */
+	let streamedParts: AgentMessage | undefined;
+	/** `fixture stream parts paused` holds its stream at these steps, one `fixture:parts:resume` each. */
+	let partsGates: number[] = [];
 	let streamTick: (() => void) | undefined;
 	/** get_subagents roster; `fixture:subagents` fills it (running, finished, nested). */
 	let subagentRoster: SubagentSnapshot[] = [];
@@ -4086,6 +4090,68 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			};
 			clearInterval(streamTimer);
 			streamTimer = setInterval(streamTick, 16);
+		} else if (message === "fixture stream parts" || message === "fixture stream parts paused") {
+			// Stock's stream shape for one reply: thinking, text, then a tool call, each update carrying the whole
+			// message so far (`messageUpdates: "full"`). The turn stays open (`fixture:finish:parts` commits it) so a tab can
+			// be read live; the `paused` prompt also holds the text after lines 10 and 20 (`fixture:parts:resume`).
+			const blocks: Exclude<AgentMessage["content"], string | undefined> = [];
+			const answer: AgentMessage = { role: "assistant", content: blocks, timestamp: Date.now() };
+			streamedParts = answer;
+			write({ type: "message_start", message: { ...answer, content: [] } });
+			const send = (assistantMessageEvent: object) =>
+				write({
+					type: "message_update",
+					message: answer,
+					assistantMessageEvent: { ...assistantMessageEvent, partial: answer },
+				});
+			const steps: Array<() => void> = [];
+			steps.push(() => {
+				blocks.push({ type: "thinking", thinking: "" });
+				send({ type: "thinking_start", contentIndex: 0 });
+			});
+			for (let line = 1; line <= 20; line++)
+				steps.push(() => {
+					const delta = `Reasoning step ${line}. `;
+					const block = blocks[0];
+					if (block?.type === "thinking") block.thinking += delta;
+					send({ type: "thinking_delta", contentIndex: 0, delta });
+				});
+			steps.push(() => send({ type: "thinking_end", contentIndex: 0 }));
+			steps.push(() => {
+				blocks.push({ type: "text", text: "" });
+				send({ type: "text_start", contentIndex: 1 });
+			});
+			const pauses: number[] = [];
+			for (let line = 1; line <= 30; line++) {
+				steps.push(() => {
+					const delta = `Streamed answer line ${line}.\n`;
+					const block = blocks[1];
+					if (block?.type === "text") block.text += delta;
+					send({ type: "text_delta", contentIndex: 1, delta });
+				});
+				if (line === 10 || line === 20) pauses.push(steps.length);
+			}
+			partsGates = message === "fixture stream parts paused" ? pauses : [];
+			steps.push(() => send({ type: "text_end", contentIndex: 1 }));
+			steps.push(() => {
+				blocks.push({ type: "toolCall", id: "stream-parts-call", name: "bash", arguments: {} });
+				send({ type: "toolcall_start", contentIndex: 2 });
+			});
+			steps.push(() => {
+				const command = { command: "echo streamed-parts" };
+				const block = blocks[2];
+				if (block?.type === "toolCall") block.arguments = command;
+				send({ type: "toolcall_delta", contentIndex: 2, delta: JSON.stringify(command) });
+			});
+			steps.push(() => send({ type: "toolcall_end", contentIndex: 2 }));
+			let next = 0;
+			clearInterval(streamTimer);
+			streamTick = undefined;
+			streamTimer = setInterval(() => {
+				if (next === partsGates[0]) return;
+				steps[next++]?.();
+				if (next >= steps.length) clearInterval(streamTimer);
+			}, 16);
 		} else if (message.startsWith("fixture checkout:")) {
 			void checkout.run(user, JSON.parse(message.slice("fixture checkout:".length)));
 		} else if (message === "fixture steps") {
@@ -5033,6 +5099,57 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						method: "cancel",
 						targetId: "fixture-confirm",
 					});
+					ok();
+					break;
+				}
+				// Lets a `fixture stream parts paused` reply go on to its next pause, or to the end (the tab was switched away meanwhile).
+				if (line === "fixture:parts:resume") {
+					partsGates.shift();
+					ok();
+					break;
+				}
+				// Ends the `fixture stream parts` turn: its streamed reply is committed with its tool call, the tool runs, a last line follows.
+				if (line === "fixture:finish:parts" && streamedParts) {
+					const answer = streamedParts;
+					streamedParts = undefined;
+					const text = "streamed-parts";
+					answer.provider = model.provider;
+					answer.model = model.id;
+					answer.stopReason = "toolUse";
+					appendMessage(answer);
+					write({ type: "message_end", message: answer });
+					const args = { command: "echo streamed-parts" };
+					write({ type: "tool_execution_start", toolCallId: "stream-parts-call", toolName: "bash", args });
+					const content = [{ type: "text" as const, text }];
+					write({
+						type: "tool_execution_end",
+						toolCallId: "stream-parts-call",
+						toolName: "bash",
+						result: { content, details: { exitCode: 0 } },
+						isError: false,
+					});
+					const result: AgentMessage = {
+						role: "toolResult",
+						toolCallId: "stream-parts-call",
+						toolName: "bash",
+						content,
+						isError: false,
+						timestamp: Date.now(),
+					};
+					appendMessage(result);
+					write({ type: "message_end", message: result });
+					const last: AgentMessage = {
+						role: "assistant",
+						content: [{ type: "text", text: "Streamed parts finished" }],
+						timestamp: Date.now(),
+						provider: model.provider,
+						model: model.id,
+						stopReason: "stop",
+					};
+					appendMessage(last);
+					write({ type: "message_start", message: { ...last, content: [] } });
+					write({ type: "message_end", message: last });
+					endTurn([answer, result, last]);
 					ok();
 					break;
 				}
