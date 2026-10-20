@@ -389,6 +389,9 @@ export function runRpcUi(): void {
 	let usageLimitResetAt: number | undefined;
 	/** `fixture network error` ends a turn on a dropped connection; stock `/retry` runs it again. */
 	let networkFailed = false;
+	/** `fixture socket drop`: stock's auto-retry saga in flight (its timer and attempt), until it gives up or `abort_retry`. */
+	let socketRetry: { timer: NodeJS.Timeout; attempt: number; failed: AgentMessage } | undefined;
+	const SOCKET_CLOSED = "The socket connection was closed unexpectedly before the response completed";
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
 	let autoModeSuppressed = false;
@@ -658,6 +661,16 @@ export function runRpcUi(): void {
 		scheduleRecap();
 		scheduleNextPrompt("turn");
 		lastActivityAt = Date.now();
+	};
+	/** Stock `abortRetry` during the saga's backoff: "Retry cancelled", then the terminal `agent_end`. False when no saga waits. */
+	const cancelSocketRetry = (): boolean => {
+		if (!socketRetry) return false;
+		clearTimeout(socketRetry.timer);
+		write({ type: "auto_retry_end", success: false, attempt: socketRetry.attempt, finalError: "Retry cancelled" });
+		const failed = socketRetry.failed;
+		socketRetry = undefined;
+		endTurn([failed]);
+		return true;
 	};
 	/**
 	 * Stock's goal continuation (rpc-goal.ts `#scheduleContinuation`): `goal create` on an idle session starts the goal's
@@ -4290,6 +4303,47 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
 			endTurn([user, answer]);
+		} else if (message === "fixture socket drop") {
+			// Bun's own words when the provider's socket closes mid-response (Wi-Fi rejoining). Stock classes it
+			// transient and runs its auto-retry saga in stock's order (agent-session.ts agent_end routing,
+			// turn-recovery.ts `handleRetryableError`): the failed attempt's `message_end`, `auto_retry_start`, the
+			// backoff, a non-terminal `agent_end` and the continued `agent_start`; once the budget is spent
+			// `auto_retry_end` failed and the terminal `agent_end`. The prompt stays in flight (`isStreaming`) all along.
+			// Every attempt fails the same way while the network is gone; `/retry` afterwards answers like
+			// `fixture network error`.
+			networkFailed = true;
+			const maxAttempts = 3;
+			const delayMs = Number(process.env.OMP_GUI_TEST_SOCKET_RETRY_MS ?? 1500);
+			const fail = (attempt: number) => {
+				const failed: AgentMessage = {
+					role: "assistant",
+					content: [],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "error",
+					errorMessage: SOCKET_CLOSED,
+				};
+				appendMessage(failed);
+				write({ type: "message_end", message: failed });
+				if (attempt > maxAttempts) {
+					write({ type: "auto_retry_end", success: false, attempt: maxAttempts, finalError: SOCKET_CLOSED });
+					endTurn([failed]);
+					return;
+				}
+				write({ type: "auto_retry_start", attempt, maxAttempts, delayMs, errorMessage: SOCKET_CLOSED });
+				socketRetry = {
+					attempt,
+					failed,
+					timer: setTimeout(() => {
+						socketRetry = undefined;
+						write({ type: "agent_end", messages: [failed], isTerminal: false });
+						write({ type: "agent_start" });
+						fail(attempt + 1);
+					}, delayMs),
+				};
+			};
+			fail(1);
 		} else if (message === "fixture usage limit") {
 			// The provider's quota stops the turn; the limit resets a few seconds later.
 			usageLimitResetAt = Date.now() + Number(process.env.OMP_GUI_TEST_USAGE_RESET_MS ?? 90_000);
@@ -5657,11 +5711,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok(compaction);
 				break;
 			}
+			// Stock `abortRetry`: the saga's backoff ends, "Retry cancelled", and the prompt it held returns.
+			case "abort_retry":
+				ok();
+				cancelSocketRetry();
+				break;
 			case "abort":
 				if (autopilot.abort(ok)) break;
 				clearInterval(streamTimer);
 				clearInterval(workStreamTimer);
 				ok();
+				if (cancelSocketRetry()) break;
 				if (!flow?.abort()) endTurn([]);
 				break;
 			case "prompt":

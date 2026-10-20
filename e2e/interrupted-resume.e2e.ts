@@ -496,6 +496,35 @@ for (const language of variants(["en", "ko"] as const))
 			}
 		});
 
+test("a socket closed mid-reply while offline takes stock's retry over, shows no failure and continues online", async () => {
+	test.setTimeout(120_000);
+	const profile = await makeProfile("en", "light");
+	let current: ElectronApplication | undefined;
+	try {
+		const { app, page } = await launch(profile);
+		current = app;
+		const input = page.locator(".omp-composer-input").first();
+		await expect(input).toBeVisible();
+		await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+		await input.fill("fixture socket drop");
+		await input.press("Enter");
+
+		const wait = page.locator("[data-connection-wait]");
+		await expect(wait).toBeVisible({ timeout: 30_000 });
+		// Stock's retry saga runs 3 attempts 1.5 s apart: none of them may show the failure card while the wait holds.
+		await page.waitForTimeout(5_000);
+		await expect(wait).toBeVisible();
+		await expect(page.locator(".omp-message-error")).toHaveCount(0);
+
+		await page.evaluate(() => window.dispatchEvent(new Event("online")));
+		await expect(page.getByText("Back online: the turn went on.")).toBeVisible({ timeout: 30_000 });
+		await expect(wait).toHaveCount(0);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});
+
 test("Cancel on the waiting row shows the failure and nothing resumes when the connection returns", async () => {
 	test.setTimeout(120_000);
 	const profile = await makeProfile("en", "light");

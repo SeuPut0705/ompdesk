@@ -146,6 +146,47 @@ describe("TurnErrorNotice after the turn went on", () => {
 	});
 });
 
+describe("TurnErrorNotice while stock's own retry runs", () => {
+	const SOCKET = "The socket connection was closed unexpectedly before the response completed";
+	const attempt = (timestamp: number) => ({
+		role: "assistant",
+		content: [],
+		stopReason: "error",
+		errorMessage: SOCKET,
+		timestamp,
+	});
+
+	afterEach(() => {
+		useSessionStore.setState({ retryInfo: null });
+		useMessagesStore.setState({ liveMessages: [] });
+	});
+
+	it("is no failure card while the saga retries the latest failure, and the card once stock gives up", async () => {
+		// The saga is one run: its failed attempts stay live (uncommitted) until the terminal end.
+		useMessagesStore.setState({
+			messages: [{ role: "user", content: "go", timestamp: 1 }] as never,
+			liveMessages: [attempt(2), attempt(3)] as never,
+		});
+		useSessionStore.setState({
+			retryInfo: { attempt: 2, maxAttempts: 3, delayMs: 8_000, errorMessage: SOCKET, startedAt: Date.now() },
+		});
+		await mount(3, SOCKET);
+		// The status row says "Retrying (2/3)…" with its Stop; a red card with Try again beside it reads as a dead turn.
+		expect(container.querySelector(".omp-message-error")).toBeNull();
+		expect(container.textContent).toBe("");
+		await unmount();
+		// The earlier attempt was retried: a quiet note, not a card.
+		await mount(2, SOCKET);
+		expect(container.querySelector("[data-turn-retried]")).not.toBeNull();
+		expect(container.querySelector(".omp-message-error")).toBeNull();
+		await unmount();
+
+		await mount(3, SOCKET);
+		await act(async () => useSessionStore.setState({ retryInfo: null }));
+		expect(container.querySelector(".omp-message-error")).not.toBeNull();
+	});
+});
+
 describe("TurnErrorNotice scheduled retry", () => {
 	const SERVER = "503 Service unavailable";
 	const cancelWait = vi.fn(async () => {});

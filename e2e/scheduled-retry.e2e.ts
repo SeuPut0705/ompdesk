@@ -67,10 +67,14 @@ async function stockRetry(page: Page, enabled: boolean): Promise<void> {
 
 /** Send the prompt the fake omp fails with a dropped connection; resolves once the `nth` error card shows. */
 async function failTurn(page: Page, nth = 1): Promise<void> {
-	const input = page.locator(".omp-composer-input").first();
-	await input.fill("fixture network error");
-	await input.press("Enter");
+	await send(page, "fixture network error");
 	await expect(page.locator(".omp-message-error")).toHaveCount(nth, { timeout: 30_000 });
+}
+
+async function send(page: Page, prompt: string): Promise<void> {
+	const input = page.locator(".omp-composer-input").first();
+	await input.fill(prompt);
+	await input.press("Enter");
 }
 
 async function cleanup(profile: Profile): Promise<void> {
@@ -89,6 +93,27 @@ test("the retry fires on its own and the turn recovers", async () => {
 		await expect(page.locator("[data-scheduled-retry]")).toBeVisible({ timeout: 30_000 });
 		await expect(page.getByText("Back online: the turn went on.")).toBeVisible({ timeout: 60_000 });
 		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});
+
+test("a socket closed mid-reply that stock's own retries could not clear continues by itself while the computer still reads online", async () => {
+	test.setTimeout(120_000);
+	const profile = await makeProfile("en", "4000,4000,4000");
+	let current: ElectronApplication | undefined;
+	try {
+		const { app, page } = await launch(profile);
+		current = app;
+		await stockRetry(page, true);
+		// A Wi-Fi rejoin of 10-20 s need not flip `net.isOnline()`: no offline event, stock's saga spends its attempts.
+		await send(page, "fixture socket drop");
+		// Stock's saga retries first: its row says so, and no failure card claims the turn is over meanwhile.
+		await expect(page.getByText(/Retrying \(\d\/3\) in/)).toBeVisible({ timeout: 30_000 });
+		expect(await page.locator(".omp-message-error").count()).toBe(0);
+		await expect(page.locator("[data-scheduled-retry]")).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText("Back online: the turn went on.")).toBeVisible({ timeout: 60_000 });
 	} finally {
 		if (current) await exitApp(current);
 		await cleanup(profile);
