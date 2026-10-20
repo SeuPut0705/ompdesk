@@ -441,6 +441,8 @@ test.describe("on a paired device", () => {
 		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
 		const repo = hostProfile.project;
 		git(repo, "init", "-q", "-b", "main");
+		// Git for Windows ships core.autocrlf=true in its system config: the merge would write remote.txt with CRLF.
+		git(repo, "config", "core.autocrlf", "false");
 		await fs.writeFile(path.join(repo, "README.md"), "hello\n");
 		git(repo, "add", ".");
 		git(repo, "commit", "-q", "-m", "init");
