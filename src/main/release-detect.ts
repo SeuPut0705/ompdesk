@@ -14,7 +14,9 @@ const RELEASE_WORDS = /release|releasing|릴리스|릴리즈|배포|publish/i;
 const RULES_FILES = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"];
 /** Files that are a procedure as a whole. */
 const WHOLE_FILES = ["RELEASING.md"];
-const MAX_FILE_BYTES = 512 * 1024;
+/** A rules file is read whole up to this size (this repository's own AGENTS.md passed 512 KB, cutting off its Release
+ *  section at the end). */
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 interface Section {
 	title: string;
