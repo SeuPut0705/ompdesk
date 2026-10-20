@@ -1,10 +1,10 @@
 import { availableParallelism } from "node:os";
 import { configDefaults, defineConfig } from "vitest/config";
-import { dropGitRoutingEnv } from "./scripts/git-env";
+import { dropGitSelectors } from "./src/shared/git-env";
 
 // Tests make temp repositories with `git init` and `git config`: under `git bisect run` or a hook those would
-// rewrite this checkout (scripts/git-env.ts).
-dropGitRoutingEnv();
+// rewrite this checkout (src/shared/git-env.ts).
+dropGitSelectors();
 
 const RENDERER = "src/renderer/**/*.{test,spec}.?(c|m)[jt]s?(x)";
 
