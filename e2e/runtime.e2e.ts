@@ -38,7 +38,16 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 		const scroll = page.locator(".omp-transcript-scroll");
 		await scroll.hover();
+		// macOS animates wheel scrolls, and a loaded runner can stall that animation for longer than two reads
+		// (the anchor then moved 82 px after it was taken): take it once the browser says the scroll ended.
+		const ended = scroll.evaluate(node => {
+			const done = Promise.withResolvers<void>();
+			node.addEventListener("scrollend", () => done.resolve(), { once: true });
+			setTimeout(done.resolve, 10_000);
+			return done.promise;
+		});
 		await page.mouse.wheel(0, -1500);
+		await ended;
 		await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
 		const readAnchor = (): Promise<ReadingAnchor | null> =>
 			scroll.evaluate(node => {
