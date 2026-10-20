@@ -542,13 +542,13 @@ function spawnWindow(
 	device?: string,
 ): BrowserWindow | null {
 	if (device && cwd) {
-		const win = windowManager.createWindow({ cwd: resolveInitialCwd(), pendingSessionPath });
+		const win = windowManager.createWindow({ cwd: resolveInitialCwd() });
 		const fresh = pendingSessionPath === undefined;
 		const sidecar = sidecarPool.acquire(
 			cwd,
 			win,
 			undefined,
-			undefined,
+			pendingSessionPath,
 			kind ?? "agent",
 			undefined,
 			fresh,
@@ -576,12 +576,14 @@ function spawnWindow(
 		resolveInitialCwd(),
 		ensureDefaultWorkspace(),
 	);
-	const win = windowManager.createWindow({ cwd: target.cwd, pendingSessionPath });
+	// The tab's omp starts on the session file (`--session`), as a tab spawn's does: the renderer's boot switch it
+	// used to wait for never ran in a window whose tab list had not named its tab yet.
+	const win = windowManager.createWindow({ cwd: target.cwd });
 	const sidecar = sidecarPool.acquire(
 		target.cwd,
 		win,
 		undefined,
-		undefined,
+		pendingSessionPath,
 		target.kind,
 		undefined,
 		target.fresh,

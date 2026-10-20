@@ -1225,9 +1225,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// window (win.show()+win.focus() — the codebase's focus pattern, see
 	// deep-link.ts/tray.ts) instead of spawning a second sidecar for the same
 	// file; resolves true because the session ends up foregrounded either way.
-	// The session switch is done by the NEW window's renderer on boot (it pulls
-	// pendingSessionPath and runs switch_session + hydrate itself), which avoids
-	// racing the renderer's boot hydration and surfaces failures in that window.
+	// The new window's tab starts on the session file itself (spawnWindow passes it to the pool, `--session`).
 	ipc.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (caller, payload: IpcSessionOpenNewWindowPayload) => {
 		const sessionPath = typeof payload?.sessionPath === "string" ? payload.sessionPath : undefined;
 		const device = deviceOf(payload?.device);
@@ -1273,13 +1271,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return deps.spawnWindow(folder?.folder ?? cwd, sessionPath, kind, device) !== null;
 	});
 
-	// Fresh window pulls the session it was opened to display (one-shot). The
-	// renderer performs the actual switch_session + hydrate on boot, which
-	// avoids racing the boot hydration and surfaces failures in that window.
-	ipc.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, caller => {
-		const win = caller.win;
-		return win ? (deps.windowManager.consumePendingSession(win) ?? null) : null;
-	});
+	// A desktop window starts its tab on its session (spawnWindow), so it has nothing pending; a paired web page
+	// answers this from its own launch link (web/shim.ts `takePendingSessionPath`).
+	ipc.handle(IPC_COMMANDS.SESSION_CONSUME_PENDING, () => null);
 
 	// ========================================================================
 	// Session tabs — in-window parallel sessions. Each tab owns a pooled

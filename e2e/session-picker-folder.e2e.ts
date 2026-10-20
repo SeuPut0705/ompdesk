@@ -79,14 +79,13 @@ test("a session from another folder picked in the session picker opens as a tab 
 	expect((await tabs(page)).length).toBe(2);
 
 	// "Open in new window" of another folder's session (the tree, a fork) starts that window in the session's folder,
-	// where its boot switch is not refused. (The switch itself runs when the window takes focus, which a headless
-	// test window never does: its folder is what this checks.)
+	// where its boot switch is not refused, and the window shows that session.
 	const third = await seed(agent, "other-2", other, "More work in the other folder");
 	expect(await page.evaluate(file => window.omp.sessions.openInNewWindow({ sessionPath: file }), third)).toBe(true);
 	await expect.poll(() => app?.windows().length, { timeout: 30_000 }).toBe(2);
 	const second = app.windows().find(win => win !== page);
 	await second?.waitForFunction(() => window.omp?.tabs != null);
-	await expect
-		.poll(async () => (await second?.evaluate(() => window.omp.tabs.list()))?.[0]?.cwd, { timeout: 30_000 })
-		.toBe(other);
+	const opened = () => second?.evaluate(() => window.omp.tabs.list());
+	await expect.poll(async () => (await opened())?.[0]?.cwd, { timeout: 30_000 }).toBe(other);
+	await expect.poll(async () => (await opened())?.[0]?.sessionPath, { timeout: 30_000 }).toBe(third);
 });

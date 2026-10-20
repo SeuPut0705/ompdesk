@@ -58,13 +58,6 @@ export interface WindowRecord {
 	/** Stable id for routing/logging; equals win.webContents.id. */
 	id: number;
 	cwd: string;
-	/**
-	 * Session to switch to once the renderer is up (set when a window is opened
-	 * for a specific session). The renderer pulls this on boot and performs the
-	 * switch itself (switch_session + hydrate), which avoids the race where the
-	 * main process switches before/after the renderer's boot hydration.
-	 */
-	pendingSessionPath?: string;
 	/** The window has the Mica backdrop: its renderer loads with `?mica=1` and lets it through. */
 	mica: boolean;
 	/**
@@ -81,7 +74,7 @@ export interface WindowRecord {
  * on a bare process.cwd(), which is "/" for Finder-launched apps. `kind` is the
  * target session file's stamped kind (OPEN_NEW_WINDOW resolves it from the
  * session index); omitted = agent. `device` opens the window's tab on a paired
- * host, where `cwd` and `pendingSessionPath` are that host's paths.
+ * host, where `cwd` and `pendingSessionPath` are that host's paths. A session's window starts its tab on that file.
  */
 export type SpawnWindow = (
 	cwd?: string,
@@ -116,7 +109,7 @@ export class WindowManager {
 		this.#store = new Store<StoreSchema>({ name: "window-state" });
 	}
 
-	createWindow(opts: { cwd: string; pendingSessionPath?: string }): BrowserWindow {
+	createWindow(opts: { cwd: string }): BrowserWindow {
 		const cwd = opts.cwd;
 		const saved = this.#store.get("windowState", {
 			width: DEFAULT_WIDTH,
@@ -184,7 +177,6 @@ export class WindowManager {
 			win,
 			id: win.webContents.id,
 			cwd,
-			pendingSessionPath: opts.pendingSessionPath,
 			mica,
 			slot: this.#freeSlot(),
 		};
@@ -481,14 +473,6 @@ export class WindowManager {
 	setRecordCwd(win: ClientWindow, cwd: string): void {
 		const record = this.#records.get(win.webContents.id);
 		if (record) record.cwd = cwd;
-	}
-
-	/** Read-and-clear the session a fresh window should switch to (one-shot). */
-	consumePendingSession(win: ClientWindow): string | undefined {
-		const record = this.#records.get(win.webContents.id);
-		const path = record?.pendingSessionPath;
-		if (record) record.pendingSessionPath = undefined;
-		return path;
 	}
 
 	getMainWindow(): BrowserWindow | null {
