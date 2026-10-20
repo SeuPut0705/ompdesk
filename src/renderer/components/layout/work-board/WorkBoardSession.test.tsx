@@ -313,6 +313,20 @@ describe("Same checkout row", () => {
 		expect(peers?.getAttribute("title")).toBe("Settings test race\nFix the sidebar (iPhone)");
 	});
 
+	it("names both scopes and lists a peer of each, the other worktree's marked as such", async () => {
+		useSessionStore.setState({
+			checkoutPeers: checkout([peer()], [peer({ id: "t9", title: "Release notes", worktree: "/wt/notes" })]),
+		});
+		await mount();
+		expect(row("peers")?.textContent).toContain("1 session in this checkout, 1 in this repository");
+		await press(row("peers"));
+		const items = [...container.querySelectorAll('[data-board-session="peer"]')];
+		expect(items.map(item => [item.getAttribute("data-peer-scope"), item.textContent])).toEqual([
+			["worktree", "Settings test race"],
+			["repo", "Release notes · other worktree"],
+		]);
+	});
+
 	it("says repository when the others work in other worktrees only, and counts a hidden session", async () => {
 		useSessionStore.setState({
 			checkoutPeers: checkout([], [{ id: null, title: "", worktree: "/wt/x" }]),

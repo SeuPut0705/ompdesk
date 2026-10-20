@@ -81,18 +81,27 @@ export function lastCheck(
 	return null;
 }
 
-/** The other sessions the row names: the same worktree's, else (only the repository's) the other worktrees'. */
+/** One other session and where it works: this worktree, or another worktree of the repository. */
+export type ScopedPeer = CheckoutPeer & { scope: "worktree" | "repo" };
+
+/** The other sessions the row names: the same worktree's first, then the other worktrees' of the repository. */
 export interface PeersSummary {
-	scope: "worktree" | "repo";
-	peers: CheckoutPeer[];
+	worktree: number;
+	repo: number;
+	peers: ScopedPeer[];
 }
 
 /** `null` when the session works alone: the row never shows on a session by itself. */
 export function summarizePeers(peers: CheckoutPeers | null): PeersSummary | null {
-	if (!peers) return null;
-	if (peers.worktree.length > 0) return { scope: "worktree", peers: peers.worktree };
-	if (peers.repo.length > 0) return { scope: "repo", peers: peers.repo };
-	return null;
+	if (!peers || peers.worktree.length + peers.repo.length === 0) return null;
+	return {
+		worktree: peers.worktree.length,
+		repo: peers.repo.length,
+		peers: [
+			...peers.worktree.map(peer => ({ ...peer, scope: "worktree" as const })),
+			...peers.repo.map(peer => ({ ...peer, scope: "repo" as const })),
+		],
+	};
 }
 
 /** How a tap on one peer opens it, from where the board's own session runs. */

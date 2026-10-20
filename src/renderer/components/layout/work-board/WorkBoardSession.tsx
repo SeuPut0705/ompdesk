@@ -4,7 +4,6 @@
  * checkout and the memory the turn used. `useSessionBoard` reads them all once; the sections draw what it found.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CheckoutPeer } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { RpcGitChanges } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { routeToSessionOwner } from "../../../hooks/use-session-switch";
@@ -33,6 +32,7 @@ import {
 	type PeersSummary,
 	peerOpen,
 	recallTitles,
+	type ScopedPeer,
 	summarizeChanges,
 	summarizePeers,
 } from "./session-board";
@@ -206,19 +206,26 @@ async function openPeer(target: PeerOpen): Promise<void> {
  * One line naming how many sessions share the checkout; a tap lists each on its own line (title, its device), and a
  * tap on one shows that session. The row expands in place (`data-board-expands`): the phone's strip stays open.
  */
-function PeersRow({ scope, peers }: PeersSummary) {
+function PeersRow({ worktree, repo, peers }: PeersSummary) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
 	const tabs = useTabsStore(state => state.tabs);
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const device = tabs.find(tab => tab.id === (runtimeTabId ?? activeTabId))?.device;
-	const name = (peer: CheckoutPeer) => peer.title || t("workBoard.session.peers.hidden");
+	const name = (peer: ScopedPeer) => peer.title || t("workBoard.session.peers.hidden");
 	return (
 		<>
 			<BoardRow
 				data={{ "data-board-session": "peers", "data-open": String(open), "data-board-expands": "" }}
-				label={t(`workBoard.session.peers.${scope}`, { count: peers.length, plural: plural(peers.length) })}
+				label={
+					worktree > 0 && repo > 0
+						? t("workBoard.session.peers.both", { count: worktree, plural: plural(worktree), repo })
+						: t(`workBoard.session.peers.${worktree > 0 ? "worktree" : "repo"}`, {
+								count: peers.length,
+								plural: plural(peers.length),
+							})
+				}
 				lead={<Dot tone="muted" />}
 				onClick={() => setOpen(!open)}
 				title={peers.map(peer => (peer.device ? `${name(peer)} (${peer.device})` : name(peer))).join("\n")}
@@ -228,13 +235,25 @@ function PeersRow({ scope, peers }: PeersSummary) {
 						const target = peerOpen(peer, { tabs, device });
 						return (
 							<BoardRow
-								data={{ "data-board-session": "peer", "data-peer-index": String(index) }}
+								data={{
+									"data-board-session": "peer",
+									"data-peer-index": String(index),
+									"data-peer-scope": peer.scope,
+								}}
 								key={peer.id ?? peer.sessionPath ?? index}
 								label={
 									<span className="text-(--sc-text-muted)">
 										{name(peer)}
-										{peer.device ? (
-											<span className="text-(--sc-text-subtle)">{` · ${peer.device}`}</span>
+										{peer.device || peer.scope === "repo" ? (
+											<span className="text-(--sc-text-subtle)">
+												{[
+													"",
+													peer.device,
+													peer.scope === "repo" ? t("workBoard.session.peers.otherWorktree") : null,
+												]
+													.filter(part => part !== null && part !== undefined)
+													.join(" · ")}
+											</span>
 										) : null}
 									</span>
 								}
@@ -294,7 +313,7 @@ function SessionRow({ row }: { row: SessionRowModel }) {
 		case "dev-server":
 			return <DevServerRow command={row.command} host={row.host} url={row.url} />;
 		case "peers":
-			return <PeersRow peers={row.peers} scope={row.scope} />;
+			return <PeersRow peers={row.peers} repo={row.repo} worktree={row.worktree} />;
 		case "recall":
 			return <RecallRow titles={row.titles} />;
 	}

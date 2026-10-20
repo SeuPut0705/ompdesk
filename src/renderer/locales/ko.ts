@@ -4788,6 +4788,8 @@ export const ko: Record<string, string> = {
 	"workBoard.session.peers.worktree": "이 체크아웃에 세션 {count}개",
 	"workBoard.session.peers.repo": "이 저장소에 세션 {count}개",
 	"workBoard.session.peers.hidden": "숨겨진 세션",
+	"workBoard.session.peers.both": "이 체크아웃에 세션 {count}개, 이 저장소에 {repo}개",
+	"workBoard.session.peers.otherWorktree": "다른 워크트리",
 	"workBoard.session.recall.label": "메모리 · {title}",
 	"workBoard.session.recall.expand": "이번 턴에 쓴 메모리 펼치기",
 	"workBoard.session.recall.collapse": "이번 턴에 쓴 메모리 접기",
