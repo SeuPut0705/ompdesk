@@ -42,6 +42,7 @@ import {
 	OMP_UPDATE_EVENT,
 	SCHEDULES_EVENT,
 	type TabEventMessage,
+	TabRunArg,
 	TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection } from "./host-server";
@@ -488,6 +489,32 @@ describe("LocalHostServices", () => {
 		sidecar.setStatus("ready");
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: false }, x);
 		expect(ompOf()).not.toBe(first);
+	});
+
+	it("tells a re-attaching device how the tab's turn stands, and since when, before its status", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: false }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		const started = Date.now();
+		const reattach = async () => {
+			const from = x.tabEvents().length;
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: false }, x);
+			return x.tabEvents().slice(from);
+		};
+		const events = await reattach();
+		expect(events.map(event => event.name).slice(0, 2)).toEqual(["run", "status"]);
+		const run = TabRunArg.parse(events[0]?.arg);
+		expect(run).toMatchObject({ running: true, turn: true });
+		expect(run.elapsedMs).toBeLessThanOrEqual(Date.now() - started + 50);
+
+		// The turn ended while the device was away: the next re-attach says so.
+		sidecar.emit("events", [{ type: "agent_end", messages: [] }]);
+		const after = TabRunArg.parse((await reattach())[0]?.arg);
+		expect(after).toEqual({ running: false, turn: false });
 	});
 
 	it("runs commands on the tab and re-syncs every tab on this machine after a login", async () => {
@@ -994,9 +1021,10 @@ describe("LocalHostServices", () => {
 		const reopened = await services.call(second.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, second);
 		expect(reopened).toEqual({ cwd: workDir, kind: "agent", attached: true });
 		expect(sidecars).toHaveLength(1);
-		// The status is re-sent on attach, the asks its omp holds (none), and whether this computer holds the
-		// turn for its connection.
+		// The turn and the status are re-sent on attach, the asks its omp holds (none), and whether this computer holds
+		// the turn for its connection.
 		expect(second.tabEvents()).toEqual([
+			{ rtab: "t1", name: "run", arg: { running: false, turn: false } },
 			expect.objectContaining({ name: "status", arg: expect.objectContaining({ status: "ready" }) }),
 			{ rtab: "t1", name: "signIn", arg: { active: [] } },
 			{ rtab: "t1", name: "openAsks", arg: [] },
@@ -1037,6 +1065,7 @@ describe("LocalHostServices", () => {
 		expect(services.runningPeers()).toEqual(["device-x"]);
 		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
 		expect(after.tabEvents().map(event => [event.rtab, event.name])).toEqual([
+			["new", "run"],
 			["new", "status"],
 			["new", "signIn"],
 			["new", "openAsks"],
@@ -1162,6 +1191,7 @@ describe("LocalHostServices", () => {
 		const reopened = await services.call(fourth.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, fourth);
 		expect(reopened).toMatchObject({ attached: true });
 		expect(fourth.tabEvents().map(event => event.name)).toEqual([
+			"run",
 			"status",
 			"signIn",
 			"openAsks",
@@ -1201,6 +1231,7 @@ describe("LocalHostServices", () => {
 		expect(signIns(second)).toEqual([{ active: ["anthropic"] }]);
 		// `signIn` precedes `openAsks`, which the device reads against it.
 		expect(second.tabEvents().map(event => event.name)).toEqual([
+			"run",
 			"status",
 			"signIn",
 			"openAsks",

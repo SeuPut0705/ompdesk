@@ -429,6 +429,68 @@ test.describe("on a paired device", () => {
 		expect(parentTab).not.toBe(child);
 	});
 
+	test("the board keeps a running remote child's clock, and the child running, across a link blip", async () => {
+		test.setTimeout(240_000);
+		const { call, link, state, client: app } = await pairApps({ blips: true });
+		if (!link) throw new Error("no relay");
+		await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 900));
+		const open = await call("ompdesk_session_open", { device: "PC-B" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		await app.page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+			child as string,
+		);
+		const row = app.page.locator(`[data-board-section="opened"] [data-board-opened="${child}"]`);
+		await expect(row).toHaveAttribute("data-status", "running", { timeout: 30_000 });
+		const seconds = async (): Promise<number | null> => {
+			const text = (await row.textContent()) ?? "";
+			const clock = /(?:(\d+)h\s*)?(?:(\d+)m\s*)?(\d+)s/.exec(text);
+			if (!clock) return null;
+			return Number(clock[1] ?? 0) * 3600 + Number(clock[2] ?? 0) * 60 + Number(clock[3]);
+		};
+		await expect.poll(seconds, { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
+		const before = (await seconds()) ?? 0;
+		const shots = process.env.OMP_GUI_REALTIME_BOARD;
+		if (shots) await app.page.screenshot({ path: path.join(shots, "remote-child-before-blip.png") });
+
+		// The link drops and comes back while the host's omp keeps the turn going.
+		await link.drop();
+		await expect.poll(state, { timeout: 30_000 }).not.toBe("online");
+		await expect
+			.poll(
+				async () =>
+					(await app.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.status,
+				{
+					timeout: 30_000,
+				},
+			)
+			.not.toBe("running");
+		await link.restore();
+		await expect.poll(state, { timeout: 60_000 }).toBe("online");
+
+		// The tab still runs, and its clock goes on from where it was (the turn's start, not the re-attach).
+		await expect
+			.poll(
+				async () =>
+					(await app.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.status,
+				{
+					timeout: 30_000,
+				},
+			)
+			.toBe("running");
+		await expect(row).toHaveAttribute("data-status", "running");
+		await expect.poll(seconds, { timeout: 15_000 }).toBeGreaterThan(before);
+		if (shots) await app.page.screenshot({ path: path.join(shots, "remote-child-after-blip.png") });
+
+		// The turn ends on the host: the row stops running.
+		await app.page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }),
+			child as string,
+		);
+		await expect(row).not.toHaveAttribute("data-status", "running", { timeout: 30_000 });
+	});
+
 	test("creates, lists and cancels a schedule on a paired device, which keeps and runs it", async () => {
 		test.setTimeout(180_000);
 		const { hostProfile, clientProfile, deviceId, call, client: app } = await pairApps();

@@ -271,6 +271,15 @@ describe("RemoteSidecar", () => {
 		]);
 	});
 
+	it("hands the pool the host's reading of the turn, and drops a malformed one", () => {
+		const { sidecar } = setup();
+		const runs: unknown[] = [];
+		sidecar.on("hostRun", run => runs.push(run));
+		sidecar.handleEvent({ rtab: "tab-1", name: "run", arg: { running: true, turn: false, elapsedMs: 1200 } });
+		sidecar.handleEvent({ rtab: "tab-1", name: "run", arg: { running: "yes" } });
+		expect(runs).toEqual([{ running: true, turn: false, elapsedMs: 1200 }]);
+	});
+
 	describe("a re-attach after a lost link", () => {
 		/** Start on omp `first`, lose the link, re-attach (`attached`), and return what the page heard from then on. */
 		async function reattach(first: string | undefined, attached: boolean, again?: string): Promise<unknown[]> {

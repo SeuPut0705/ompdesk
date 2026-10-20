@@ -2789,6 +2789,47 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 		]);
 	});
 
+	it("keeps a paired host's turn running through a link blip and takes the host's reading on re-attach", () => {
+		const { pool, a, seen } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		a.emitLinkStatus("error");
+		a.emitLinkStatus("starting");
+		// The host's omp runs the turn on: it stays busy and no idle is announced while the link is down.
+		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
+		a.emit("hostRun", { running: true, turn: true, elapsedMs: 5_000 });
+		a.emitStatus("ready");
+		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
+		expect(seen).toEqual([{ type: "busy", tabId: "tab-a" }]);
+
+		// The turn ended while the link was down: the host's reading ends it here.
+		a.emitLinkStatus("error");
+		a.emit("hostRun", { running: false, turn: false });
+		a.emitStatus("ready");
+		expect(pool.tabFacts("tab-a")?.busy).toBe(false);
+		expect(seen.at(-1)).toMatchObject({ type: "idle", tabId: "tab-a" });
+	});
+
+	it("announces a turn a re-attach found running with its start by the host's clock", () => {
+		const { pool, a, seen } = observed();
+		const before = Date.now();
+		a.emit("hostRun", { running: true, turn: true, elapsedMs: 60_000 });
+		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
+		const busy = seen.at(-1);
+		expect(busy?.type).toBe("busy");
+		const since = busy?.type === "busy" ? (busy.since ?? 0) : 0;
+		expect(since).toBeLessThanOrEqual(before - 60_000 + 50);
+		expect(since).toBeGreaterThan(before - 61_000);
+	});
+
+	it("reads a turn as over after a link blip when an older host re-sends no run state", () => {
+		const { pool, a } = observed();
+		a.emitEvents([{ type: "agent_start" }]);
+		a.emitLinkStatus("error");
+		expect(pool.tabFacts("tab-a")?.busy).toBe(true);
+		a.emitStatus("ready");
+		expect(pool.tabFacts("tab-a")?.busy).toBe(false);
+	});
+
 	it("never announces a provider sign-in's own requests as asks", () => {
 		const { pool, a, seen } = observed();
 		pool.noteSignIn("tab-a", true, { providerId: "anthropic" });
