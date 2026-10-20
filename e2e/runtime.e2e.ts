@@ -115,7 +115,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		}
 		if (profiler) {
 			const captured = await profiler.send("Profiler.stop");
-			await fs.writeFile("test-results/switch.cpuprofile", JSON.stringify(captured.profile));
+			await fs.writeFile(test.info().outputPath("switch.cpuprofile"), JSON.stringify(captured.profile));
 			await profiler.detach();
 		}
 		// ⇧⌘] steps the strip order (⌃⇥ is the most-recent-first switcher, which only
@@ -123,17 +123,23 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		// one; one more reaches the first.
 		await page.keyboard.press("ControlOrMeta+Shift+BracketRight");
 		await expect(input).toHaveValue("retained stream draft");
-		await page.getByRole("button", { name: "Stop", exact: true }).click();
-		await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+		// With a draft the one action button is Send: its right click offers the Stop that keeps the draft.
+		await page.locator('[data-slot="send"] button').click({ button: "right" });
+		await page.locator("[data-menu-item]").filter({ hasText: "Stop" }).click();
+		await expect(page.locator("[data-send-stop-hint]")).toHaveCount(0);
 		await page.evaluate(() => window.omp.sidecar.restart());
 		await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
 		await expect(input).toHaveValue("retained stream draft");
 		await expect(input).toBeEditable();
 		await fs.writeFile(
-			"test-results/runtime.json",
+			test.info().outputPath("runtime.json"),
 			JSON.stringify({ history: 50000, inputMs, switchMs, anchor, after, errors }, null, 2),
 		);
-		await page.screenshot({ path: "test-results/runtime-recovered.png", scale: "css", animations: "disabled" });
+		await page.screenshot({
+			path: test.info().outputPath("runtime-recovered.png"),
+			scale: "css",
+			animations: "disabled",
+		});
 		expect(errors).toEqual([]);
 	} finally {
 		await exitApp(app);
