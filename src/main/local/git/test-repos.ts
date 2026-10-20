@@ -15,6 +15,8 @@ export async function initRepo(dir: string): Promise<void> {
 	gitSync(dir, "config", "user.email", "test@example.com");
 	gitSync(dir, "config", "user.name", "Test");
 	gitSync(dir, "config", "commit.gpgsign", "false");
+	// Git for Windows' installer sets core.autocrlf=true system-wide; tests compare file bytes exactly.
+	gitSync(dir, "config", "core.autocrlf", "false");
 	await fs.writeFile(path.join(dir, "README.md"), "hello\n");
 	await fs.writeFile(path.join(dir, ".gitignore"), ".env\n");
 	gitSync(dir, "add", ".");
