@@ -112,6 +112,7 @@ async function ask(
 	purpose: string,
 	request: () => unknown,
 	needsImages = false,
+	timeoutMs = JUDGE_ASSIST_TIMEOUT_MS,
 ): Promise<unknown> {
 	if (!enabled || !loadStock) return undefined;
 	const limit = new AbortController();
@@ -119,7 +120,7 @@ async function ask(
 	const timer = setTimeout(() => {
 		limit.abort();
 		timedOut.resolve(undefined);
-	}, JUDGE_ASSIST_TIMEOUT_MS);
+	}, timeoutMs);
 	try {
 		return await Promise.race([
 			judge(loadStock, session, purpose, request, needsImages, limit.signal),
@@ -128,6 +129,20 @@ async function ask(
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+/**
+ * A judgment for a background pass that may wait longer than an interactive caller (memory curation runs in its own
+ * one-shot omp, never inside a turn). Same gate, chain, cache and ledger as every other ask; `undefined` when the
+ * judge did not decide.
+ */
+export function askJudge(
+	session: JudgeSession,
+	purpose: string,
+	request: () => unknown,
+	timeoutMs: number,
+): Promise<unknown> {
+	return ask(session, purpose, request, false, timeoutMs);
 }
 
 /**
