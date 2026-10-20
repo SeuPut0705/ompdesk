@@ -178,6 +178,9 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	const openStopMenu = slot.stopHint
 		? (event: MouseEvent<HTMLElement>) => setStopMenu(anchorFromEvent(event))
 		: undefined;
+	// The menu belongs to this turn: once Stop is not offered (the turn ended, the draft emptied) it is gone for good,
+	// never reopening on the next turn's draft.
+	if (stopMenu && !slot.stopHint) setStopMenu(null);
 	/** What a long press or right click offers while the button is not Stop: the button is named, and wears a small ■. */
 	const stopHintProps = slot.stopHint ? { "aria-describedby": stopHintId, onContextMenu: openStopMenu } : {};
 	const withStopHint = (glyph: ReactNode) =>
@@ -273,7 +276,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 					{touchInput ? t("input.send.stopHintTouch") : t("input.send.stopHintDesktop")}
 				</span>
 			)}
-			{stopMenu && slot.stopHint && (
+			{stopMenu && (
 				<ContextMenu
 					align="end"
 					ariaLabel={t("input.stopMenu")}

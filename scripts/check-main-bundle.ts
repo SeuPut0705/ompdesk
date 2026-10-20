@@ -51,10 +51,12 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * answers on the approval card (`approvalChoices`) and the mode in the composer's approval row; 3.292 MB (3,292,441)
  * with the work board's strip wherever the board cannot dock (`workBoardForm`, `workBoardWidth`), its capped
  * sections (`CappedRows`) and the `checkout_peers` frame in the session store (the session rows themselves are a
- * lazy chunk), 3.4 KB): a build that grows past it fails, so the next eager import is a decision, not an accident.
- * The language chunk the entries load before rendering is not in it.
+ * lazy chunk), 3.4 KB; 3.294 MB (3,293,964) with the composer's one Send/Stop button (its state rule and the
+ * long-press Stop menu that keeps the draft) and the model chip's short name and plain Auto, 1.5 KB): a build that
+ * grows past it fails, so the next eager import is a decision, not an accident. The language chunk the entries load
+ * before rendering is not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_293_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_295_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

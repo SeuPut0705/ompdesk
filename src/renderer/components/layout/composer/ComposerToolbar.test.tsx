@@ -240,6 +240,19 @@ describe("one action button", () => {
 		expect(document.querySelector("[data-menu-item]")).toBeNull();
 	});
 
+	it("forgets an open Stop menu once the turn ends: the next turn's draft never reopens it", async () => {
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await render({ stoppable: true, hasDraft: true });
+		await contextMenu(button());
+		expect(document.querySelector("[data-menu-item]")).not.toBeNull();
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		await render({ stoppable: false, hasDraft: true });
+		expect(document.querySelector("[data-menu-item]")).toBeNull();
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await render({ stoppable: true, hasDraft: true });
+		expect(document.querySelector("[data-menu-item]")).toBeNull();
+	});
+
 	it("puts the dictation 'Stop and send' arrow in the button's place", async () => {
 		await render({ dictationPhase: "recording" });
 		const dictation = slot("send").querySelector("[data-dictation-send]");
