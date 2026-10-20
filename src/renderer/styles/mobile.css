@@ -871,9 +871,12 @@ html[data-shell="phone"] .omp-composer-scroll {
 	overscroll-behavior-x: contain;
 	scrollbar-width: none;
 	/* A scroller clips every reach to its padding box: 8 px of padding (taken back by the margin) lets the controls
-	   reach 44 px vertically, and the edges a little sideways. */
+	   reach 44 px vertically, and the edges a little sideways. It stacks above the action button, whose 9 px reach to
+	   the left otherwise lay over the last chip's edge (the context ring lost its right-hand taps to Send). */
 	padding: 8px 4px;
 	margin: -8px -4px;
+	position: relative;
+	z-index: 1;
 }
 
 html[data-shell="phone"] .omp-composer-scroll::-webkit-scrollbar {
@@ -1020,10 +1023,11 @@ html[data-shell] .omp-titlebar {
 	--hit-gap-y: 14px;
 }
 
+/* The composer's controls sit 10 px apart on a tablet: a 28 px chip (26 inside its border) reaches 36 px. */
 html[data-shell] .omp-composer-toolbar {
-	gap: 8px;
-	--hit-gap-x: 8px;
-	--hit-gap-y: 8px;
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
 }
 
 /* The phone's box row: + and the send cluster draw 28 px and reach 44. The ::after is positioned against the padding
@@ -1129,10 +1133,13 @@ html[data-shell] .omp-session-sidebar {
 	--hit-gap-y: 0px;
 }
 
-/* Page-top bars (Agents, Stats…) and figure headers: icons are close, the reach stops at their midpoint. */
+/* Page-top bars (Agents, Stats, Settings): the toggle, the back control and the way out sit 10 px apart, so each 26 px
+   icon's reach (half the gap) is 36 px across; the 48 px bar leaves 10 px above and below a 28 px control, so the
+   reach down and up (8 px) stays inside the bar. */
 html[data-shell] .omp-topbar:not(.omp-titlebar) {
-	--hit-gap-x: 8px;
-	--hit-gap-y: 8px;
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 16px;
 }
 
 html[data-shell] [data-figure-header] {
@@ -1169,7 +1176,7 @@ html[data-shell] .omp-titlebar > div {
 }
 
 html[data-shell] .omp-composer-send-cluster {
-	gap: 8px;
+	gap: 10px;
 }
 
 /* Paused after Stop is ONE 36 px row on a phone: the sentence yields to the restored chips (its icon, the section's
@@ -1406,7 +1413,10 @@ html[data-shell]
 		.omp-sidebar-header button,
 		.omp-sidebar-controls button,
 		[data-sidebar-destinations] button,
-		[data-device-state] > div > button
+		[data-device-state] > div > button,
+		[data-device-group] > div:first-child > button,
+		[data-sidebar-device-header] > button,
+		[data-starter-guide] > button
 	) {
 	min-width: 36px;
 	min-height: 36px;
@@ -1414,14 +1424,36 @@ html[data-shell]
 	--hit-gap-y: 0px;
 }
 
+/* The rows holding those controls grow with them: a host's header and a host folder's row were `h-8` boxes whose
+   36 px buttons hung 2–4 px into the next row and took its taps. */
+html[data-shell] .omp-session-sidebar :is([data-device-state] > div:first-child, [data-device-group] > div:first-child) {
+	height: auto;
+	min-height: 36px;
+}
+
 html[data-shell] .omp-session-sidebar [data-sidebar-row-menu][data-sidebar-row-menu][data-sidebar-row-menu] {
 	min-width: 44px;
 }
 
-/* The project row's hover-only ⋯ shares its end with "new session here": that button takes the row's height but keeps
-   its width, so the two never cover each other. */
+/* With a mouse, the project row's ⋯ appears on hover over the title's faded end and shares the row's end with "new
+   session here": that button takes the row's height but keeps its width, so the two never cover each other. A finger
+   has no hover, so the ⋯ is always shown: it takes its own slot beside "+" instead of sitting over the title, whose
+   end it hid and whose taps it took. */
 html[data-shell] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-group-new] {
 	min-width: 0;
+}
+
+html[data-input="touch"] .omp-session-sidebar .omp-sidebar-project-menu {
+	position: relative;
+	right: auto;
+	min-width: 36px;
+	min-height: 36px;
+	--hit-gap-x: 0px;
+	--hit-gap-y: 0px;
+}
+
+html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-sidebar-group-new] {
+	min-width: 36px;
 }
 
 /* A phone turned sideways (844 × 390 and the like): the row has the width the portrait phone lacks, so its controls

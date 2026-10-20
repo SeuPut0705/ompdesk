@@ -1124,8 +1124,9 @@
 .omp-work-head {
 	--omp-work-head-line: calc(var(--sc-font-lg) * var(--sc-leading-snug));
 	display: grid;
-	/* The narrative keeps a readable minimum; the side takes its full width only from what is left. */
-	grid-template-columns: var(--sc-icon-sm) minmax(min(10rem, 50%), 1fr) minmax(0, max-content);
+	/* The narrative keeps a readable minimum; the side takes its full width only from what is left, but never less
+	   than its widest part, so a narrow card (a phone, a split pane) drops whole parts and never cuts a figure. */
+	grid-template-columns: var(--sc-icon-sm) minmax(min(10rem, 40%), 1fr) minmax(min-content, max-content);
 	align-items: start;
 	column-gap: var(--sc-space-2);
 	padding: var(--sc-space-2) var(--sc-space-3);

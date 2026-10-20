@@ -561,7 +561,10 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		const bounded =
 			style(element).getPropertyValue("--hit-gap-x").trim() !== "" ||
 			style(element).getPropertyValue("--hit-gap-y").trim() !== "";
-		const need = hit.row ? 39.5 : hit.field || bounded ? 35.5 : 43.5;
+		// A list row is as tall as the shell's `--sc-row-touch` (40 on touch, 36 in the phone's denser scale).
+		const rowNeed =
+			(Number.parseFloat(style(document.documentElement).getPropertyValue("--sc-row-touch")) || 40) - 0.5;
+		const need = hit.row ? rowNeed : hit.field || bounded ? 35.5 : 43.5;
 		if (Math.min(hit.width, hit.height) < need) {
 			push("small-target", element, `${Math.round(hit.width)}×${Math.round(hit.height)} (need ${Math.ceil(need)})`);
 		}
