@@ -445,10 +445,12 @@ describe("ompdesk_session_open", () => {
 	it("opens as many sessions as asked, in one call and across calls", async () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		const service = control(host);
+		// One call of ten is past the old 4-a-turn and 6-at-once caps; three more calls are past the old 12-an-hour.
 		const many = Array.from({ length: 10 }, (_, index) => ({ message: `part ${index}` }));
 		expect((await service.run("main0001", T.open, { sessions: many })).isError).toBe(false);
-		expect((await service.run("main0001", T.open, { message: "one more" })).isError).toBe(false);
-		expect(host.tabsById.size - 1).toBe(11);
+		for (const index of [10, 11, 12])
+			expect((await service.run("main0001", T.open, { message: `part ${index}` })).isError).toBe(false);
+		expect(host.tabsById.size - 1).toBe(13);
 	});
 
 	it("refuses to open or send while the caller is stopping", async () => {
