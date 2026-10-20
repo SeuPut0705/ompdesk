@@ -13,6 +13,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { freePortRun } from "../src/main/remote/test-ports";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { fixtureOmp, walkRemotePicker } from "./harness";
@@ -199,7 +200,7 @@ export async function launchRemote(
 	profile: RemoteProfile,
 	options: { project?: boolean; ready?: boolean } = {},
 ): Promise<RemoteInstance> {
-	const args = [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js")];
+	const args = [assertAppBuilt()];
 	if (options.project !== false) args.push(profile.project);
 	args.push(`--user-data-dir=${profile.desktop}`);
 	const app = await electron.launch({ args, env: profile.env });

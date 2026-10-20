@@ -201,7 +201,10 @@ async function rig(
 		try {
 			return await launchRemote(hostProfile, launch);
 		} finally {
-			process.env.OMP_GUI_E2E_OUT = own;
+			// Assigning undefined would set the string "undefined" (process.env stringifies), so the client
+			// would launch from ./undefined: an unset value is deleted again.
+			if (own === undefined) Reflect.deleteProperty(process.env, "OMP_GUI_E2E_OUT");
+			else process.env.OMP_GUI_E2E_OUT = own;
 		}
 	};
 	const host = await launchHost({ ready: options.hostReady !== false });
