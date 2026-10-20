@@ -128,6 +128,21 @@ export const SURFACES: readonly Surface[] = [
 		ready: "[data-composer-input]",
 	},
 	{
+		id: "board-strip",
+		area: "A",
+		title: "Work board where it cannot dock: the status strip under the header, expanded (busy session, ?board=busy)",
+		query: "&board=busy",
+		when: look => look.width < 1000 || look.orientation === "portrait",
+		open: async page => {
+			// The busy fixture's turn, question and goal land 1.5 s after boot (dev-harness/boot.ts).
+			const chip = page.locator("[data-work-chip][data-state='waiting']");
+			await chip.waitFor({ state: "visible", timeout: 15_000 });
+			if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+		},
+		ready: "[data-work-strip-panel] [data-work-board-panel]",
+		settle: 600,
+	},
+	{
 		id: "sidebar",
 		area: "A",
 		title: "Session list: the drawer on a phone, docked beside the page from 800 px",

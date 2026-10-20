@@ -12,8 +12,8 @@ import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useTabsStore } from "../../../stores/tabs";
 import { CostAmount, hasCost } from "../../common/CostAmount";
+import { BoardRow, BoardSection, Dot } from "./board-parts";
 import type { OpenedChildCounts, OpenedChildRow } from "./opened-children";
-import { BoardRow, BoardSection, Dot } from "./WorkBoard";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
 function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
@@ -69,11 +69,15 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				<>
 					<span className="min-w-0 flex-1 truncate">{note}</span>
 					{row.device ? (
-						<span className="shrink-0 truncate" data-board-device>
+						<span className="min-w-0 max-w-[40%] truncate" data-board-device>
 							{row.device}
 						</span>
 					) : null}
-					{branch ? <span className="shrink-0 truncate">{branch}</span> : null}
+					{branch ? (
+						<span className="min-w-0 max-w-[60%] truncate" data-board-branch>
+							{branch}
+						</span>
+					) : null}
 					{hasCost(kinds) ? (
 						<CostAmount
 							className="shrink-0 tabular-nums"

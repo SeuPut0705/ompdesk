@@ -11,6 +11,7 @@ import { InstallPrompt } from "../web/install";
 import { PushClient } from "../web/push-client";
 import { setWebPwa } from "../web/pwa";
 import { setWebRuntime } from "../web/runtime";
+import { BOARD_BUSY, boardBusyStores } from "./fixture-board";
 import { createHarnessTransport } from "./transport";
 
 document.documentElement.dataset.platform = "web";
@@ -141,6 +142,7 @@ const [
 	model,
 	agentReview,
 	closedChildren,
+	todo,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -162,6 +164,7 @@ const [
 	import("../stores/model").then(module => module.useModelStore),
 	import("../stores/agent-review").then(module => module.useAgentReviewStore),
 	import("../stores/closed-children").then(module => module.useClosedChildrenStore),
+	import("../stores/todo").then(module => module.useTodoStore),
 ]);
 window.__stores = {
 	ui,
@@ -184,7 +187,19 @@ window.__stores = {
 	model,
 	agentReview,
 	closedChildren,
+	todo,
 };
+
+// `?board=busy` (./fixture-board.ts): the running turn, the waiting question and the goal come from events and
+// cards, not from a transport answer, so they are put into the stores once the session has hydrated.
+if (BOARD_BUSY) {
+	setTimeout(() => {
+		const busy = boardBusyStores();
+		todo.setState(busy.todo);
+		session.setState(busy.session);
+		extensionUi.getState().pushRequest(busy.request);
+	}, 1_500);
+}
 
 declare global {
 	interface Window {

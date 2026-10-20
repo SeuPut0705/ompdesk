@@ -31,7 +31,7 @@ const KEY_SURFACES = [
 ];
 
 /** What the smoke refuses; the matrix also counts the softer kinds (targets, text size, truncation). */
-const HARD = new Set(["overflow-page", "overflow-el", "offscreen-popover"]);
+const HARD = new Set(["overflow-page", "overflow-el", "overflow-sideways", "offscreen-popover"]);
 
 /**
  * The phone's app chrome budget at rest, percent of the screen height (header + work chip + dock + composer): the
@@ -132,3 +132,35 @@ test("responsive smoke phone landscape: the session's controls keep their taps a
 	expect(found).toEqual([]);
 	await page.context().close();
 });
+
+/**
+ * The work board with everything at once and long Korean content (?board=busy: long titles, an `omp/agent/…`
+ * branch, an OpenRouter charge): docked beside a wide pane and inside the phone's expanded strip, it never scrolls
+ * sideways and nothing on it escapes the screen. The matrix covers the strip at every phone and tablet width.
+ */
+const BOARD_LOOKS: readonly Look[] = [
+	{ width: 1600, height: 1000, dpr: 2, orientation: "landscape", theme: "light", lang: "ko" },
+	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "ko" },
+];
+
+for (const look of BOARD_LOOKS) {
+	test(`responsive smoke ${lookTag(look)}: the busy work board never scrolls sideways`, async () => {
+		if (!browser) throw new Error("the browser is not up");
+		const page = await openLook(browser, look, { origin, query: "&board=busy" });
+		const strip = SURFACES.find(surface => surface.id === "board-strip");
+		if (!strip) throw new Error("no board-strip surface");
+		if (look.width < 1000) {
+			await strip.open(page, look);
+			if (strip.ready) await page.locator(strip.ready).waitFor({ state: "visible" });
+		} else {
+			await page.locator("[data-work-board-panel] [data-board-section='waiting']").waitFor({ timeout: 15_000 });
+		}
+		await page.waitForTimeout(600);
+		const board = page.locator("[data-work-board-panel]").first();
+		const widths = await board.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
+		expect(widths.scroll, "the board's content width").toBeLessThanOrEqual(widths.client);
+		const hard = (await measure(page, look)).filter(issue => HARD.has(issue.kind));
+		expect(hard).toEqual([]);
+		await page.context().close();
+	});
+}

@@ -46,6 +46,7 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
+import { BOARD_BUSY, boardJobs, boardReview, boardSubagents, boardUsage } from "./fixture-board";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { memoryAnswer } from "./fixture-memory";
 import {
@@ -263,13 +264,17 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_available_commands":
 				return respond(command, { commands: [] });
 			case "get_subagents":
-				return respond(command, { subagents: JOBS_TREE ? JOB_TREE_SUBAGENTS : [] });
+				return respond(command, {
+					subagents: BOARD_BUSY ? boardSubagents() : JOBS_TREE ? JOB_TREE_SUBAGENTS : [],
+				});
 			case "get_jobs":
-				return respond(command, { rows: JOBS_TREE ? jobTreeRows() : [] });
+				return respond(command, { rows: BOARD_BUSY ? boardJobs() : JOBS_TREE ? jobTreeRows() : [] });
 			case "get_queue":
 				return respond(command, { steering: [], followUp: [] });
 			case "agent_control_review":
-				return respond(command, { items: [] });
+				return respond(command, BOARD_BUSY ? boardReview() : { items: [] });
+			case "get_usage":
+				return respond(command, BOARD_BUSY ? boardUsage() : { reports: [] });
 			case "get_orphan_worktrees":
 				return respond(command, orphanWorktrees());
 			case "remove_orphan_worktree":

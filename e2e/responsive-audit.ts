@@ -14,6 +14,7 @@ import { type Browser, devices, expect, type Page } from "@playwright/test";
 export type IssueKind =
 	| "overflow-page" // the document scrolls sideways
 	| "overflow-el" // an element escapes the viewport and no clipping or scrolling ancestor holds it
+	| "overflow-sideways" // a vertical list that must never scroll sideways (the work board) is wider than its box
 	| "truncated" // an ellipsis on a control, heading, tab or label, where the full text is required
 	| "clipped" // text cut by an overflow-hidden ancestor, or spilling out of its own box
 	| "offscreen-popover" // a dialog, menu, listbox, tooltip or toast partly outside the viewport
@@ -26,6 +27,7 @@ export type IssueKind =
 export const ISSUE_KINDS: readonly IssueKind[] = [
 	"overflow-page",
 	"overflow-el",
+	"overflow-sideways",
 	"truncated",
 	"clipped",
 	"offscreen-popover",
@@ -41,6 +43,7 @@ export const KIND_WEIGHT: Record<IssueKind, number> = {
 	"overflow-page": 10,
 	"offscreen-popover": 8,
 	"overflow-el": 5,
+	"overflow-sideways": 8,
 	clipped: 4,
 	overlap: 4,
 	"stolen-tap": 5,
@@ -339,6 +342,15 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			element,
 			escapesRight ? `right edge ${Math.round(rect.right)} > ${vw}` : `left edge ${Math.round(rect.left)} < 0`,
 		);
+	}
+
+	// ── Vertical lists that never scroll sideways ──────────────────────────────────────────────────
+	// The work board (docked, and inside the phone strip) scrolls down only: a row wider than it (a branch, a path,
+	// a title that does not truncate) gives it a horizontal scrollbar, which no viewport check sees.
+	for (const list of document.querySelectorAll("[data-work-board-panel], .omp-work-strip-body")) {
+		if (!shown(list)) continue;
+		const extra = list.scrollWidth - list.clientWidth;
+		if (extra > 1) push("overflow-sideways", list, `scrolls sideways by ${extra}px (box ${list.clientWidth})`);
 	}
 
 	// ── Text: truncated, clipped, small ─────────────────────────────────────────────────────────────

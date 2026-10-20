@@ -23,6 +23,9 @@
 	column-gap: var(--sc-space-2);
 	row-gap: var(--sc-space-1-5);
 	padding-inline: var(--sc-space-1-5);
+	/* A touch reach stops at the head's padding: the ✕ at the board's edge reached past it and the board, a scroller,
+	   grew a horizontal scrollbar. */
+	--hit-gap-x: calc(2 * var(--sc-space-1-5));
 }
 
 .omp-work-board-pulse {
@@ -285,6 +288,10 @@ button.omp-work-board-row:hover {
 	background: var(--sc-warning);
 }
 
+.omp-work-board-dot[data-tone="danger"] {
+	background: var(--sc-danger);
+}
+
 .omp-work-board-dot[data-ring] {
 	background: transparent;
 	box-shadow: inset 0 0 0 1px var(--sc-text-subtle);
@@ -323,6 +330,11 @@ button.omp-work-board-row:hover {
 
 .omp-work-board-section[data-tone="warning"] button.omp-work-board-row:hover {
 	background: color-mix(in srgb, var(--sc-warning) 18%, transparent);
+}
+
+/* A failed check comes first too, in the danger tone. */
+.omp-work-board-section[data-tone="danger"] .omp-work-board-title {
+	color: var(--sc-danger);
 }
 
 /* An opened session that waits on the user: only its own row wears the wash, the list stays plain. */
