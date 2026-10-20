@@ -182,6 +182,22 @@ for (const engine of ENGINES)
 			phone.on("domcontentloaded", () => {
 				loads++;
 			});
+			// Which lazy chunk asked when, and how it was answered: a hosted runner's Settings once showed no sections
+			// after the host's crash (no reload, no prompt), and the trace holds no page state.
+			const runStart = Date.now();
+			const assets: string[] = [];
+			phone.on("response", response => {
+				const url = new URL(response.url());
+				if (url.pathname.startsWith("/assets/"))
+					assets.push(
+						`+${Date.now() - runStart}ms ${response.status()}${response.fromServiceWorker() ? " sw" : ""} ${url.pathname}`,
+					);
+			});
+			phone.on("requestfailed", request => {
+				const url = new URL(request.url());
+				if (url.pathname.startsWith("/assets/"))
+					assets.push(`+${Date.now() - runStart}ms failed ${request.failure()?.errorText} ${url.pathname}`);
+			});
 			await phone.evaluate(() => Reflect.set(window, "noReloadRun", true));
 
 			// (b) A reply streams; the link drops under it.
@@ -213,6 +229,7 @@ for (const engine of ENGINES)
 			await field.fill("a draft that must outlive the update");
 			// Typing is saved once it pauses (InputArea's DRAFT_SAVE_MS); a crash right after a keystroke loses less.
 			await phone.waitForTimeout(1000);
+			assets.push(`+${Date.now() - runStart}ms host crashed`);
 			await crash(current);
 			current = null;
 			const second = await launch(b.out, desktop, env);
@@ -261,7 +278,14 @@ for (const engine of ENGINES)
 			});
 			await phone.getByRole("button", { name: "Open menu" }).click();
 			await phone.locator('[data-destination="settings"]').click();
-			await phone.locator('[data-settings-section="models"]').click();
+			try {
+				await phone.locator('[data-settings-section="models"]').click();
+			} catch (error) {
+				await test.info().attach("phone-assets.txt", { body: assets.join("\n") });
+				await test.info().attach("settings.png", { body: await phone.screenshot(), contentType: "image/png" });
+				throw error;
+			}
+			if (process.env.OMP_GUI_WEB_ASSET_LOG) console.log(assets.join("\n"));
 			// The button waits for the tab's omp, which the relaunched host is still starting.
 			const setup = phone.locator("#settings-models-setup").getByRole("button", { name: "Set up automatically" });
 			await expect(setup).toBeEnabled({ timeout: 90_000 });
