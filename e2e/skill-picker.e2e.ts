@@ -64,10 +64,11 @@ for (const language of variants(["en", "ko"] as const))
 				const input = page.locator(".omp-composer-input").first();
 				const viewportHeight = (await page.viewportSize())?.height ?? 860;
 
-				// The + menu: four actions and one skills entry, no skill rows, above the composer, under 60vh.
+				// The + menu: Attach, History, Dictation (off in this profile) and one skills entry, no skill rows, above the
+				// composer, under 60vh. Expand composer and Set a goal left it (⌃G and the Mode popover hold them).
 				await page.getByRole("button", { name: text.add }).click();
 				const menu = page.getByRole("menu", { name: text.add });
-				await expect(menu.getByRole("menuitem")).toHaveCount(5);
+				await expect(menu.getByRole("menuitem")).toHaveCount(4);
 				await expect(menu.getByRole("menuitem").last()).toContainText(text.skills);
 				await expect(menu).not.toContainText("agent-reach");
 				const menuBox = await menu.boundingBox();
