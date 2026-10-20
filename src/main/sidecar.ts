@@ -39,7 +39,7 @@ import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
-import { MAX_RESTART_ATTEMPTS, restartDelay } from "./restart-policy";
+import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 import { completeRunMessages } from "./run-messages";
@@ -714,6 +714,10 @@ export class SidecarManager extends EventEmitter {
 			if (this.#disposed) return;
 			if (code === 0) {
 				this.#setStatus("exited", "Normal shutdown");
+				return;
+			}
+			if (code === WINDOWS_SESSION_END_EXIT_CODE) {
+				this.#setStatus("exited", "The Windows session ended");
 				return;
 			}
 			// `exit` can fire before stderr has drained, and the boot-failure
