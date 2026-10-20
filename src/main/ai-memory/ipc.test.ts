@@ -44,6 +44,7 @@ function setup(webUrl: string | null = "http://127.0.0.1:49374/web") {
 		writeClipboard: (text: string) => {
 			clipboard = text;
 		},
+		care: () => null,
 	} satisfies AiMemoryIpcDeps;
 	const ipc = new IpcRegistry({ handle: () => {}, on: () => {} });
 	registerAiMemoryIpc(ipc, service as unknown as AiMemoryService, deps);

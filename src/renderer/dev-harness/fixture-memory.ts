@@ -185,6 +185,20 @@ export function memoryAnswer(channel: string, args: unknown[]): { value: unknown
 					observationsPruned: 0,
 				},
 			};
+		case IPC_COMMANDS.AI_MEMORY_CARE:
+			return {
+				value: {
+					at: "2026-10-20T06:00:00Z",
+					retired: 2,
+					flagged: 1,
+					backfilled: 340,
+					pages: [
+						{ ...PROJECT, path: "decisions/pairing-code.md", title: "컴퓨터 간 공유는 페어링 코드로 연결" },
+						{ ...PROJECT, path: "decisions/manual-update.md", title: "OMPdesk는 수동 업데이트" },
+						{ ...PROJECT, path: "gotchas/review-buttons.md", title: "작업 보드의 검토 버튼" },
+					],
+				},
+			};
 		default:
 			return undefined;
 	}

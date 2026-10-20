@@ -2,6 +2,7 @@
 import type { AiMemoryProjectRef } from "../../shared/ai-memory";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { IpcRegistry } from "../web/ipc-registry";
+import type { MemoryCare } from "./care";
 import type { AiMemoryService } from "./service";
 
 /** The password the /web console asks for stays on the clipboard this long, unless something else replaced it. */
@@ -13,6 +14,8 @@ export interface AiMemoryIpcDeps {
 	openPath: (path: string) => Promise<string>;
 	readClipboard: () => string;
 	writeClipboard: (text: string) => void;
+	/** Memory's own upkeep (care.ts): its Maintenance line and undo; null until created. */
+	care: () => Pick<MemoryCare, "summary" | "undo"> | null;
 }
 
 function requireProject(value: unknown): AiMemoryProjectRef {
@@ -190,4 +193,6 @@ export function registerAiMemoryIpc(
 	ipc.handle(IPC_COMMANDS.AI_MEMORY_CANCEL_HANDOFF, (_caller, project: unknown, id: unknown) =>
 		service.cancelHandoff(requireProject(project), text(id, "id")),
 	);
+	ipc.handle(IPC_COMMANDS.AI_MEMORY_CARE, () => deps.care()?.summary() ?? null);
+	ipc.handle(IPC_COMMANDS.AI_MEMORY_CARE_UNDO, () => deps.care()?.undo() ?? 0);
 }

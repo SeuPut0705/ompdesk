@@ -4,7 +4,7 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { homedir, release } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
@@ -72,9 +72,12 @@ import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
 import { agentDir } from "./agent-paths";
+import { MemoryCare } from "./ai-memory/care";
+import { careUnits } from "./ai-memory/care-units";
 import { AiMemoryClient } from "./ai-memory/client";
 import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
+import { chainJudges, jevJudge, type PairJudge, smolJudge } from "./ai-memory/memory-judge";
 import { RecallStateFile } from "./ai-memory/recall-state";
 import { RecallTermsIndex } from "./ai-memory/recall-terms";
 import { AiMemoryService } from "./ai-memory/service";
@@ -429,6 +432,7 @@ let ompUpdater: OmpUpdater | null = null;
 let cliUpdater: CliUpdater | null = null;
 let aiMemoryService: AiMemoryService | null = null;
 let aiMemoryUpkeep: MemoryUpkeep | null = null;
+let aiMemoryCare: MemoryCare | null = null;
 let aiMemorySync: MemorySync | null = null;
 let recallTerms: RecallTermsIndex | null = null;
 const RECALL_TERMS_REFRESH_MS = 10 * 60_000;
@@ -1143,8 +1147,13 @@ app.whenReady().then(() => {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.AI_MEMORY_STATE, state);
 			}
 			// The repair and the learning run only while the server answers.
-			if (state.phase === "ready") aiMemoryUpkeep?.ready();
-			else aiMemoryUpkeep?.pause();
+			if (state.phase === "ready") {
+				aiMemoryUpkeep?.ready();
+				aiMemoryCare?.ready();
+			} else {
+				aiMemoryUpkeep?.pause();
+				aiMemoryCare?.pause();
+			}
 			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null, state.enabled);
 			// Memory just came up: catch up with the computers this one is connected to.
 			if (state.phase === "ready" && aiMemoryPhase !== "ready") {
@@ -1173,6 +1182,42 @@ app.whenReady().then(() => {
 		},
 		stateFile: join(app.getPath("userData"), "ai-memory", "upkeep.json"),
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message: `upkeep-${message}`, details }),
+	});
+	// Memory's own care (src/main/ai-memory/care.ts): after each update and then daily it fills in older conversations'
+	// conclusions, hides pages a newer one repeats or contradicts and pages naming files that are gone; quiet but for the
+	// runtime log and one line in Settings › Memory › Maintenance with Undo.
+	const upkeepCwd = join(app.getPath("temp"), "ompdesk-memory-upkeep");
+	const memoryJudge: PairJudge = async (pairs, rules) => {
+		const omp = await systemOmp();
+		if (!omp.ok) return null;
+		await mkdir(upkeepCwd, { recursive: true });
+		const judges = [
+			jevJudge({
+				omp: omp.runtime,
+				hostFile: join(bridgeDir, "memory-judge-host.ts"),
+				enabled: () => judgeAssistEnabled(prefs.get(JUDGE_ASSIST_PREF)),
+				cwd: upkeepCwd,
+			}),
+		];
+		// The cheap model reads stored pages to the provider, as learning reads conversations: only while learning is on.
+		if (prefs.get(AI_MEMORY_LEARN_PREF) !== false) {
+			judges.push(smolJudge({ model: message => runSmol(omp.runtime, message, upkeepCwd) }));
+		}
+		return chainJudges(...judges)(pairs, rules);
+	};
+	aiMemoryCare = new MemoryCare({
+		client: memoryClient,
+		units: careUnits({
+			client: memoryClient,
+			judge: () => memoryJudge,
+			sessionsDir: sessionIndex.sessionsDir,
+			readMessages: path => sessionIndex.readMessages(path),
+			origin: () => devices.deviceId,
+			log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
+		}),
+		version: app.getVersion(),
+		stateFile: join(app.getPath("userData"), "ai-memory", "care.json"),
+		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
 	// Memory shared between the person's paired computers (src/main/ai-memory/sync.ts): durable pages and session
 	// conclusions, over the remote link. This computer serves `host.memory.*` to the devices allowed to use it, and
@@ -1213,6 +1258,7 @@ app.whenReady().then(() => {
 		openPath: path => shell.openPath(path),
 		readClipboard: () => clipboard.readText(),
 		writeClipboard: text => clipboard.writeText(text),
+		care: () => aiMemoryCare,
 	});
 	// start() turns every failure into the `failed` phase and a log line; anything escaping it is logged too.
 	void aiMemory.start().catch(error =>
@@ -1659,6 +1705,7 @@ installQuitGuard(
 			["setup", () => setupService?.dispose()],
 			["ai-memory-sync", () => aiMemorySync?.dispose()],
 			["ai-memory-upkeep", () => aiMemoryUpkeep?.dispose()],
+			["ai-memory-care", () => aiMemoryCare?.dispose()],
 			["ai-memory", () => aiMemoryService?.dispose()],
 			["github-auth", () => githubAuthService?.dispose()],
 			["schedules", () => scheduleService?.dispose()],

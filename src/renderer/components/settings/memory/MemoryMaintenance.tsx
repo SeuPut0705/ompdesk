@@ -1,6 +1,7 @@
 /**
- * Memory › Maintenance: lint findings (rule-based, writes nothing), the retention sweep (preview first), and
- * Delete all memory (typed confirmation).
+ * Memory › Maintenance: what memory's own upkeep changed lately (one line, Undo through each page's restore), lint
+ * findings (rule-based, writes nothing), the retention sweep (preview first), and Delete all memory (typed
+ * confirmation).
  */
 import { Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -15,7 +16,7 @@ import { useMemoryPageStore } from "../../../stores/memory-page";
 import { Badge, Button, ConfirmDialog, Input, Modal } from "../../common";
 import { SettingsRow } from "../SettingsLayout";
 import { MutedLine, useMemoryAction } from "./memory-ui";
-import { projectKey } from "./use-memory-read";
+import { projectKey, useMemoryRead } from "./use-memory-read";
 
 export function MemoryMaintenance({ project, state }: { project: AiMemoryProjectRef; state: AiMemoryState }) {
 	const t = useT();
@@ -32,9 +33,51 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 		? sweep.evicted + sweep.compacted + sweep.merged + sweep.expired + sweep.observationsPruned > 0
 		: false;
 	const word = t("memory.maint.purge.word");
+	const care = useMemoryRead("care", () => window.omp.aiMemory.care());
+	const cared = care.data;
+	// Only the parts that happened: "Hid 2 old pages · marked 1 · filled in 340 conclusions".
+	const careLabel = cared
+		? t("memory.maint.care", {
+				what: [
+					cared.retired ? t("memory.maint.care.retired", { count: cared.retired }) : "",
+					cared.flagged ? t("memory.maint.care.flagged", { count: cared.flagged }) : "",
+					cared.backfilled ? t("memory.maint.care.backfilled", { count: cared.backfilled }) : "",
+				]
+					.filter(Boolean)
+					.join(" · "),
+			})
+		: "";
 
 	return (
 		<div className="flex flex-col" data-memory-maintenance>
+			{cared && (
+				<SettingsRow
+					tipOnly
+					compactControl
+					control={
+						cared.pages.length > 0 ? (
+							<Button
+								data-memory-care-undo
+								loading={busy === "care"}
+								onClick={() =>
+									void run(
+										"care",
+										() => window.omp.aiMemory.undoCare(),
+										t("memory.maint.care.undone", { count: cared.pages.length }),
+									)
+								}
+								size="sm"
+								variant="secondary"
+							>
+								{t("memory.maint.care.undo")}
+							</Button>
+						) : undefined
+					}
+					description={[t("memory.maint.care.info"), ...cared.pages.map(page => `· ${page.title}`)].join("\n")}
+					id="setting-memory-care"
+					label={careLabel}
+				/>
+			)}
 			<SettingsRow
 				tipOnly
 				control={

@@ -9,6 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { vi } from "vitest";
 import type {
+	AiMemoryCareSummary,
 	AiMemoryHandoff,
 	AiMemoryLintFinding,
 	AiMemoryObservations,
@@ -173,6 +174,8 @@ export function fakeMemoryApi() {
 		restorePage: vi.fn(async (_ref: unknown, _rev: string) => {}),
 		feedback: vi.fn(async (_ref: unknown, _signal: string) => {}),
 		cancelHandoff: vi.fn(async (_project: unknown, _id: string) => {}),
+		care: vi.fn(async (): Promise<AiMemoryCareSummary | null> => null),
+		undoCare: vi.fn(async () => 0),
 	};
 }
 

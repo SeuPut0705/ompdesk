@@ -201,6 +201,20 @@ export interface AiMemoryDeleted extends AiMemoryProjectRef {
 	deletedAt: string;
 }
 
+/** What memory's own upkeep changed in the last week (Settings › Memory › Maintenance, one line with Undo). */
+export interface AiMemoryCareSummary {
+	/** The latest change. */
+	at: string;
+	/** Pages taken out of recall (duplicates, contradicted, naming files that are gone). */
+	retired: number;
+	/** Pages marked out of date for review. */
+	flagged: number;
+	/** Session conclusions filled in from older conversations. */
+	backfilled: number;
+	/** The changed pages, which Undo puts back. */
+	pages: (AiMemoryProjectRef & { path: string; title: string })[];
+}
+
 export type AiMemoryFeedback = "helpful" | "not_helpful";
 
 export interface AiMemoryWriteInput extends AiMemoryProjectRef {

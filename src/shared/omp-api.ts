@@ -14,6 +14,7 @@ import {
 	type AgentReviewEvent,
 } from "./agent-control";
 import type {
+	AiMemoryCareSummary,
 	AiMemoryDeleted,
 	AiMemoryFeedback,
 	AiMemoryHandoff,
@@ -454,6 +455,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.AI_MEMORY_FEEDBACK, ref, signal) as Promise<void>,
 			cancelHandoff: (project: AiMemoryProjectRef, id: string) =>
 				transport.invoke(IPC_COMMANDS.AI_MEMORY_CANCEL_HANDOFF, project, id) as Promise<void>,
+			care: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_CARE) as Promise<AiMemoryCareSummary | null>,
+			undoCare: () => transport.invoke(IPC_COMMANDS.AI_MEMORY_CARE_UNDO) as Promise<number>,
 			onState: (callback: (state: AiMemoryState) => void) =>
 				subscribe<AiMemoryState>(IPC_EVENTS.AI_MEMORY_STATE, callback),
 		},

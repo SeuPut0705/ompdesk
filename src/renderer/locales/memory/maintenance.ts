@@ -1,5 +1,13 @@
 /** Memory › Maintenance. `en` and `ko` carry exactly the same keys (locales.test.ts). */
 export const en: Record<string, string> = {
+	"memory.maint.care": "Tidied by itself this week: {what}",
+	"memory.maint.care.retired": "{count} out-of-date pages hidden",
+	"memory.maint.care.flagged": "{count} pages marked for review",
+	"memory.maint.care.backfilled": "{count} conclusions filled in from older conversations",
+	"memory.maint.care.info":
+		"Memory checks itself after each update and then daily: it hides pages a newer one repeats or contradicts and pages naming files that no longer exist, and fills in what older conversations concluded. Undo puts the pages back as they were and leaves them alone from then on.",
+	"memory.maint.care.undo": "Undo",
+	"memory.maint.care.undone": "{count} pages put back",
 	"memory.maint.lint": "Check pages",
 	"memory.maint.lint.info":
 		"A rule-based audit of this project's pages: duplicates, stale and orphaned pages, broken links. Writes nothing.",
@@ -28,6 +36,14 @@ export const en: Record<string, string> = {
 	"memory.maint.purged": "All memory deleted",
 };
 export const ko: Record<string, string> = {
+	"memory.maint.care": "이번 주 스스로 정리함: {what}",
+	"memory.maint.care.retired": "오래된 페이지 {count}개 숨김",
+	"memory.maint.care.flagged": "검토할 페이지 {count}개 표시",
+	"memory.maint.care.backfilled": "지난 대화의 결론 {count}개 채움",
+	"memory.maint.care.info":
+		"메모리는 업데이트 뒤와 매일 스스로 점검해요. 새 페이지가 되풀이하거나 뒤집은 페이지와 이제 없는 파일을 가리키는 페이지를 숨기고, 지난 대화의 결론을 채워요. 되돌리기는 페이지를 원래대로 돌려놓고 그 뒤로는 손대지 않아요.",
+	"memory.maint.care.undo": "되돌리기",
+	"memory.maint.care.undone": "페이지 {count}개를 되돌렸어요",
 	"memory.maint.lint": "페이지 점검",
 	"memory.maint.lint.info":
 		"이 프로젝트 페이지를 규칙으로 점검해요. 중복, 오래된 페이지, 고립된 페이지, 깨진 링크를 찾고 아무것도 쓰지 않아요.",

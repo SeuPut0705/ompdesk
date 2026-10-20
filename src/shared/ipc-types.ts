@@ -6,6 +6,7 @@
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
+	AiMemoryCareSummary,
 	AiMemoryDeleted,
 	AiMemoryFeedback,
 	AiMemoryHandoff,
@@ -389,6 +390,9 @@ export const IPC_COMMANDS = {
 	AI_MEMORY_DELETE_PAGE: "ai-memory:delete-page",
 	AI_MEMORY_RESTORE_PAGE: "ai-memory:restore-page",
 	AI_MEMORY_FEEDBACK: "ai-memory:feedback",
+	/** What memory's own upkeep changed in the last week (AiMemoryCareSummary | null), and its undo */
+	AI_MEMORY_CARE: "ai-memory:care",
+	AI_MEMORY_CARE_UNDO: "ai-memory:care-undo",
 	AI_MEMORY_CANCEL_HANDOFF: "ai-memory:cancel-handoff",
 	/** The extensions' automatic updates (src/main/ext-update/): whole ExtensionUpdateState snapshot */
 	EXTENSION_UPDATE_GET_STATE: "extension-update:get-state",
@@ -1907,6 +1911,10 @@ export interface OmpApi {
 		restorePage(ref: AiMemoryProjectRef & { path: string }, rev: string): Promise<void>;
 		feedback(ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback): Promise<void>;
 		cancelHandoff(project: AiMemoryProjectRef, id: string): Promise<void>;
+		/** What memory's own care changed in the last week (Maintenance's line), null when nothing. */
+		care(): Promise<AiMemoryCareSummary | null>;
+		/** Puts those pages back as they were; they are left alone from then on. Resolves how many came back. */
+		undoCare(): Promise<number>;
 		onState(callback: (state: AiMemoryState) => void): () => void;
 	};
 	/** This computer's marketplaces, plugins, skills and MCP servers, kept current by its own updater. */

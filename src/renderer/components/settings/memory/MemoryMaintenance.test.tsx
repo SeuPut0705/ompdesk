@@ -49,6 +49,31 @@ describe("Memory › Maintenance", () => {
 		expect(q("[data-memory-lint-none]")).not.toBeNull();
 	});
 
+	it("shows nothing about the upkeep until it changed something", async () => {
+		await mountIt();
+		expect(q("#setting-memory-care")).toBeNull();
+		expect(q("[data-memory-care-undo]")).toBeNull();
+	});
+
+	it("shows one line of what the upkeep did and undoes its page changes", async () => {
+		api.care.mockResolvedValue({
+			at: "2026-10-20T06:00:00Z",
+			retired: 2,
+			flagged: 0,
+			backfilled: 340,
+			pages: [
+				{ ...PROJECT, path: "decisions/a.md", title: "Pairing code" },
+				{ ...PROJECT, path: "decisions/b.md", title: "Manual update" },
+			],
+		});
+		await mountIt();
+		expect(text("[data-memory-maintenance]")).toContain(
+			"Tidied by itself this week: 2 out-of-date pages hidden · 340 conclusions filled in from older conversations",
+		);
+		await click(q("[data-memory-care-undo]"));
+		expect(api.undoCare).toHaveBeenCalledTimes(1);
+	});
+
 	it("the sweep needs a preview that found something, then asks before running", async () => {
 		api.sweep.mockImplementation(async (_project, dryRun) => ({
 			dryRun,
