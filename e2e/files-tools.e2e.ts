@@ -158,10 +158,31 @@ for (const [language, theme] of variants([
 
 			// C35: rename keeps the extension selected out and refuses nothing here.
 			await row("file:src/made.ts").click({ button: "right" });
+			// The field's own first frame (focus, base name selected) can come after the person already took it on a slow
+			// machine: hold that frame, select the whole name and type, then let it come. The typed name stands.
+			await page.evaluate(() => {
+				const w = window as unknown as { __heldFrames: FrameRequestCallback[]; __holdFrames: boolean };
+				w.__heldFrames = [];
+				w.__holdFrames = true;
+				const raf = window.requestAnimationFrame.bind(window);
+				window.requestAnimationFrame = cb => {
+					if (!w.__holdFrames) return raf(cb);
+					w.__heldFrames.push(cb);
+					return 0;
+				};
+			});
 			await page.getByRole("menuitem", { name: label.rename, exact: true }).click();
 			await expect(field).toHaveValue("made.ts");
 			await capture("files-rename");
-			await field.fill("renamed.ts");
+			await field.focus();
+			await field.selectText();
+			await page.evaluate(() => {
+				const w = window as unknown as { __heldFrames: FrameRequestCallback[]; __holdFrames: boolean };
+				w.__holdFrames = false;
+				for (const callback of w.__heldFrames.splice(0)) callback(performance.now());
+			});
+			await page.keyboard.insertText("renamed.ts");
+			await expect(field).toHaveValue("renamed.ts");
 			await field.press("Enter");
 			await expect(row("file:src/renamed.ts")).toBeVisible();
 			await expect(row("file:src/made.ts")).toHaveCount(0);
