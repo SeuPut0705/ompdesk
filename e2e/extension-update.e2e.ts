@@ -352,7 +352,7 @@ for (const language of variants(["en", "ko"] as const)) {
 		try {
 			await waitForReadyTab(page);
 			const settings = await openExtensions(page);
-			await expect(settings.locator("#setting-gui-extensionAutoUpdate [role='switch']")).toHaveAttribute(
+			await expect(settings.locator("#setting-gui-toolsAutoUpdate [role='switch']")).toHaveAttribute(
 				"aria-checked",
 				"true",
 			);
@@ -447,12 +447,12 @@ for (const language of variants(["en", "ko"] as const)) {
 
 test("with the pref off nothing runs at launch; Update now runs that row's cycle and tells the tab", async () => {
 	test.setTimeout(120_000);
-	const launched = await launch("off", { language: "en", extensionAutoUpdate: false }, false);
+	const launched = await launch("off", { language: "en", toolsAutoUpdate: false }, false);
 	const { page } = launched;
 	try {
 		await waitForReadyTab(page);
 		const settings = await openExtensions(page);
-		await expect(settings.locator("#setting-gui-extensionAutoUpdate [role='switch']")).toHaveAttribute(
+		await expect(settings.locator("#setting-gui-toolsAutoUpdate [role='switch']")).toHaveAttribute(
 			"aria-checked",
 			"false",
 		);
@@ -490,13 +490,13 @@ test("with the pref off nothing runs at launch; Update now runs that row's cycle
 				{ type: "extension_update.reconnect", names: ["mcp-thing"], recordedBy: expect.any(String) },
 			]);
 
-		// The switch writes the pref main reads.
-		await settings.locator("#setting-gui-extensionAutoUpdate [role='switch']").click();
-		await expect(settings.locator("#setting-gui-extensionAutoUpdate [role='switch']")).toHaveAttribute(
+		// The one "Keep tools up to date" switch writes the pref main reads.
+		await settings.locator("#setting-gui-toolsAutoUpdate [role='switch']").click();
+		await expect(settings.locator("#setting-gui-toolsAutoUpdate [role='switch']")).toHaveAttribute(
 			"aria-checked",
 			"true",
 		);
-		expect(await page.evaluate(() => window.omp.prefs.get("extensionAutoUpdate"))).toBe(true);
+		expect(await page.evaluate(() => window.omp.prefs.get("toolsAutoUpdate"))).toBe(true);
 		expect(launched.errors).toEqual([]);
 	} finally {
 		await close(launched);

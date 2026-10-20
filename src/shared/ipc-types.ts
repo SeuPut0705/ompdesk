@@ -423,8 +423,6 @@ export const IPC_COMMANDS = {
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
 	/** Keep a device that uses this computer out: block its Tailscale node, forget it, close its connections */
 	REMOTE_BLOCK_PEER: "remote:block-peer",
-	/** Ask before a new device may use this computer (prefs `remote.confirmNewDevices`) */
-	REMOTE_SET_CONFIRM_NEW_DEVICES: "remote:set-confirm-new-devices",
 	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
 	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
 	/** Rename a paired host ({deviceId, name}): the host sets its own device name */
@@ -1699,8 +1697,6 @@ export interface RemoteHostState {
 	keepingAwake: boolean;
 	/** Names of devices connected now or with a turn still running here. */
 	usedBy: string[];
-	/** Ask on this computer before a new device may use it (prefs `remote.confirmNewDevices`, default off). */
-	confirmNewDevices: boolean;
 }
 
 export interface RemoteState {
@@ -2067,7 +2063,6 @@ export interface OmpApi {
 		revokePeer(deviceId: string): Promise<RemoteState>;
 		/** Block the device's Tailscale node (shared with Mobile web's blocks) and forget the device. */
 		blockPeer(deviceId: string): Promise<RemoteState>;
-		setConfirmNewDevices(on: boolean): Promise<RemoteState>;
 		/** Daily model-use limits for a paired device; `{}` removes them. */
 		setPeerLimits(deviceId: string, limits: PeerLimits): Promise<RemoteState>;
 		/** Rename a paired host (it sets its own name). Throws `remote_offline` while it is unreachable. */

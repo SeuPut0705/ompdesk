@@ -169,7 +169,7 @@ async function openThisComputer(page: Page) {
 	const settings = page.locator("[data-settings-page]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 	await settings.locator('[data-settings-section="updates"]').click();
-	await expect(settings.locator("#setting-gui-cliAutoUpdate")).toBeVisible();
+	await expect(settings.locator("#setting-gui-toolsAutoUpdate")).toBeVisible();
 	return settings;
 }
 
@@ -180,7 +180,7 @@ for (const language of variants(["en", "ko"] as const)) {
 		const { page } = launched;
 		// The tool CLIs' rows end This computer's list, below the fold of a 900 px window: scroll them to the top.
 		const shot = async (name: string) => {
-			await page.locator("#setting-gui-cliAutoUpdate").evaluate(row => row.scrollIntoView({ block: "start" }));
+			await page.locator("#setting-cli-tool-claude").evaluate(row => row.scrollIntoView({ block: "start" }));
 			await page.mouse.move(1, 1);
 			await page.locator("[data-settings-page]").screenshot({
 				animations: "disabled",
@@ -192,7 +192,7 @@ for (const language of variants(["en", "ko"] as const)) {
 			const settings = await openThisComputer(page);
 			const claude = settings.locator("#setting-cli-tool-claude");
 			const codex = settings.locator("#setting-cli-tool-codex");
-			await expect(settings.locator("#setting-gui-cliAutoUpdate [role='switch']")).toHaveAttribute(
+			await expect(settings.locator("#setting-gui-toolsAutoUpdate [role='switch']")).toHaveAttribute(
 				"aria-checked",
 				"true",
 			);

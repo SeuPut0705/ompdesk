@@ -10,6 +10,7 @@
  */
 
 import { ChevronDown, ChevronRight } from "lucide-react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { useT } from "../../../lib/i18n";
 import { lastUsedAccounts } from "../../../lib/usage-reports";
@@ -23,7 +24,13 @@ import { bareEmail, shortAccountLabel } from "../AccountLimit";
 /** Providers the block stacks before "+N" takes the rest to Settings. */
 export const USAGE_LINE_CAP = 4;
 
-export function SidebarUsage() {
+export function SidebarUsage({
+	onContextMenu,
+	onKeyDown,
+}: {
+	onContextMenu?: (event: MouseEvent<HTMLElement>) => void;
+	onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
+}) {
 	const t = useT();
 	const provider = useModelStore(s => s.model?.provider ?? null);
 	const reports = useUsageReports();
@@ -35,7 +42,13 @@ export function SidebarUsage() {
 	const more = collapsed ? 0 : lines.length - USAGE_LINE_CAP;
 	const Chevron = collapsed ? ChevronRight : ChevronDown;
 	return (
-		<div className="omp-sidebar-usage" data-collapsed={collapsed || undefined} data-rail-pin="usage">
+		<div
+			className="omp-sidebar-usage"
+			data-collapsed={collapsed || undefined}
+			data-rail-pin="usage"
+			onContextMenu={onContextMenu}
+			onKeyDown={onKeyDown}
+		>
 			<button
 				aria-expanded={!collapsed}
 				className="flex h-6 w-full min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) outline-none hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"

@@ -5,16 +5,12 @@
  */
 
 import {
-	Brain,
 	ClipboardPaste,
 	CornerDownLeft,
 	Eye,
-	EyeOff,
 	Gauge,
 	ListOrdered,
 	Palette,
-	PanelRight,
-	PanelTop,
 	Rows3,
 	ScrollText,
 	Shrink,
@@ -25,7 +21,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import {
-	GUI_DISPLAY_BOOL_FIELDS,
+	type GuiDisplayBoolField,
 	saveGuiPreference,
 	setDisplayPreference,
 	useDisplayPreference,
@@ -39,18 +35,16 @@ import { webRuntime } from "../../web/runtime";
 import { Button, Input, Select, SettingInfo } from "../common";
 import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
 import { ThemePicker } from "./ThemePicker";
+import { ThinkingDisplayRow } from "./ThinkingDisplayRow";
 
 const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20] as const;
 
-/** Each display preference's glyph. */
-const DISPLAY_ICONS: Record<(typeof GUI_DISPLAY_BOOL_FIELDS)[number], ReactNode> = {
-	hideThinkingBlock: <EyeOff />,
+/** The display preferences that are their own switch, with their glyphs (hiding thinking is `ThinkingDisplayRow`'s). */
+const DISPLAY_ICONS: Record<Exclude<GuiDisplayBoolField, "hideThinkingBlock">, ReactNode> = {
 	proseOnlyThinking: <TextQuote />,
 	showTokenUsage: <Gauge />,
 	collapseCompacted: <Shrink />,
-	titleState: <PanelTop />,
 	goalStatusInFooter: <Target />,
-	showProgress: <Gauge />,
 	emojiAutocomplete: <Smile />,
 };
 
@@ -58,7 +52,7 @@ const DISPLAY_ICONS: Record<(typeof GUI_DISPLAY_BOOL_FIELDS)[number], ReactNode>
  * A display preference that, until changed here, follows the omp setting of
  * the same name; once set in ompdesk a reset returns it to following omp.
  */
-export function DisplayPreferenceRow({ field }: { field: (typeof GUI_DISPLAY_BOOL_FIELDS)[number] }) {
+export function DisplayPreferenceRow({ field }: { field: keyof typeof DISPLAY_ICONS }) {
 	const t = useT();
 	const value = useDisplayPreference(field);
 	const overridden = useUiStore(state => state.displayPreferences[field] != null);
@@ -115,8 +109,6 @@ export function AppearanceSection() {
 	const compactDensity = useUiStore(state => state.compactDensity);
 	const colorBlindMode = useUiStore(state => state.colorBlindMode);
 	const followAgentTheme = useUiStore(state => state.followAgentTheme);
-	const thinkingExpanded = useUiStore(state => state.thinkingExpanded);
-	const workBoard = useUiStore(state => state.workBoard);
 	const transcriptDetail = useUiStore(state => state.transcriptDetail);
 	const pasteMenuThreshold = useDisplayPreference("pasteMenuThreshold");
 	const mobileEnterSends = useUiStore(state => state.displayPreferences.mobileEnterSends === true);
@@ -237,29 +229,8 @@ export function AppearanceSection() {
 					id="setting-gui-transcriptDetail"
 					label={t("settings.gui.transcriptDetail")}
 				/>
+				<ThinkingDisplayRow />
 				<SettingsTiles>
-					<SettingsSwitchRow
-						checked={thinkingExpanded}
-						description={t("settings.gui.thinkingExpandedDesc")}
-						icon={<Brain />}
-						id="setting-gui-thinkingExpanded"
-						label={t("settings.gui.thinkingExpanded")}
-						onCheckedChange={next =>
-							void saveGuiPreference("thinkingExpanded", next, () =>
-								useUiStore.getState().setThinkingExpanded(next),
-							)
-						}
-					/>
-					<SettingsSwitchRow
-						checked={workBoard}
-						description={t("settings.gui.workBoardDesc")}
-						icon={<PanelRight />}
-						id="setting-gui-workBoard"
-						label={t("settings.gui.workBoard")}
-						onCheckedChange={next =>
-							void saveGuiPreference("workBoard", next, () => useUiStore.getState().setWorkBoard(next))
-						}
-					/>
 					<SettingsSwitchRow
 						checked={codeLineNumbers}
 						icon={<ListOrdered />}
@@ -271,11 +242,11 @@ export function AppearanceSection() {
 							})
 						}
 					/>
-					{GUI_DISPLAY_BOOL_FIELDS.filter(
-						field => field !== "titleState" && field !== "showProgress" && field !== "emojiAutocomplete",
-					).map(field => (
-						<DisplayPreferenceRow field={field} key={field} />
-					))}
+					{(["proseOnlyThinking", "showTokenUsage", "collapseCompacted", "goalStatusInFooter"] as const).map(
+						field => (
+							<DisplayPreferenceRow field={field} key={field} />
+						),
+					)}
 				</SettingsTiles>
 			</SettingsSection>
 			<SettingsSection title={t("settings.appearance.input")}>

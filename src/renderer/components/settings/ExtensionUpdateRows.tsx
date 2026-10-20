@@ -7,18 +7,12 @@
  */
 import { Puzzle, RefreshCw, Server, Sparkles, Store } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
-import {
-	EXTENSION_AUTO_UPDATE_PREF,
-	type ExtensionKind,
-	type ExtensionRow,
-	type ExtensionUpdateState,
-} from "../../../shared/extension-update";
+import type { ExtensionKind, ExtensionRow, ExtensionUpdateState } from "../../../shared/extension-update";
 import { isNewer } from "../../../shared/version";
-import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { useExtensionUpdateStore } from "../../stores/extension-update";
 import { Badge, IconButton, InlineNotice } from "../common";
-import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsRow } from "./SettingsLayout";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -161,16 +155,6 @@ export function ExtensionUpdateRows() {
 			<h4 className="pt-3 text-sc-sm font-medium text-(--sc-text-secondary)" data-testid="extension-update-group">
 				{t("extensionUpdate.group")}
 			</h4>
-			<SettingsSwitchRow
-				icon={<Puzzle />}
-				checked={state?.enabled ?? true}
-				description={t("extensionUpdate.autoDesc")}
-				tipOnly
-				disabled={state === null}
-				id="setting-gui-extensionAutoUpdate"
-				label={t("extensionUpdate.auto")}
-				onCheckedChange={next => void saveGuiPreference(EXTENSION_AUTO_UPDATE_PREF, next, () => {})}
-			/>
 			{state?.rows.map(row => (
 				<ExtensionRowView key={row.key} row={row} state={state} />
 			))}

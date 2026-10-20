@@ -2136,9 +2136,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_BLOCK_PEER, (_caller, deviceId: unknown) => remoteDevices.blockPeer(deviceId));
-	ipc.handle(IPC_COMMANDS.REMOTE_SET_CONFIRM_NEW_DEVICES, (_caller, on: unknown) =>
-		remoteDevices.setConfirmNewDevices(on),
-	);
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_HOST, (_caller, payload: unknown) => remoteDevices.renameHost(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_PEER, (_caller, payload: unknown) => remoteDevices.renamePeer(payload));

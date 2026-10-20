@@ -7,19 +7,12 @@
  */
 import { RefreshCw, Terminal } from "lucide-react";
 import { useEffect } from "react";
-import {
-	CLI_AUTO_UPDATE_PREF,
-	CLI_TOOL_NAMES,
-	type CliToolId,
-	type CliToolState,
-	type CliUpdateState,
-} from "../../../shared/cli-update";
-import { saveGuiPreference } from "../../lib/display-preferences";
+import { CLI_TOOL_NAMES, type CliToolId, type CliToolState, type CliUpdateState } from "../../../shared/cli-update";
 import { useT } from "../../lib/i18n";
 import { useCliUpdateStore } from "../../stores/cli-update";
 import { Badge, IconButton, InlineNotice } from "../common";
 import { ProviderMark } from "./providers/ProviderMark";
-import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsRow } from "./SettingsLayout";
 
 /** The provider whose brand mark identifies a tool (Copilot and gh are GitHub's); Node.js gets a neutral glyph. */
 const CLI_PROVIDER: Partial<Record<CliToolId, string>> = {
@@ -128,16 +121,6 @@ export function CliUpdateRows() {
 	}, []);
 	return (
 		<>
-			<SettingsSwitchRow
-				icon={<Terminal />}
-				checked={state?.enabled ?? true}
-				description={t("cliUpdate.autoDesc")}
-				tipOnly
-				disabled={state === null}
-				id="setting-gui-cliAutoUpdate"
-				label={t("cliUpdate.auto")}
-				onCheckedChange={next => void saveGuiPreference(CLI_AUTO_UPDATE_PREF, next, () => {})}
-			/>
 			{state?.tools.map(tool => (
 				<CliToolRow key={tool.id} state={state} tool={tool} />
 			))}

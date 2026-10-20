@@ -230,7 +230,6 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.REMOTE_SET_KEEP_AWAKE]: never(OPERATOR),
 	[C.REMOTE_REVOKE_PEER]: never(OPERATOR),
 	[C.REMOTE_BLOCK_PEER]: sensitive("remote.block"),
-	[C.REMOTE_SET_CONFIRM_NEW_DEVICES]: never(OPERATOR),
 	[C.REMOTE_SET_PEER_LIMITS]: never(OPERATOR),
 	[C.REMOTE_WATCH_TAILNET]: read("remote.list_tailnet"),
 	[C.REMOTE_CONNECT]: sensitive("remote.connect"),

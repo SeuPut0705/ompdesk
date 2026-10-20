@@ -135,6 +135,7 @@ import { useHostWorkspace } from "./host-workspace";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
+import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
 	type FamilyOpened,
@@ -267,7 +268,7 @@ function showPanelView(tab: PanelTab): void {
 	ui.setPanelTab(tab);
 }
 
-/** Footer shortcuts the user pins in Settings › General (usage renders as bars, the rest as rows). */
+/** Footer shortcuts the user pins from Customize sidebar (usage renders as bars, the rest as rows). */
 const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { icon: typeof Bot; open: () => void }> = {
 	terminal: { icon: RAIL_PIN_ICONS.terminal, open: () => showPanelView("terminal") },
 	diff: { icon: RAIL_PIN_ICONS.diff, open: () => showPanelView("diff") },
@@ -277,7 +278,7 @@ const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { ic
 	schedules: { icon: RAIL_PIN_ICONS.schedules, open: () => useUiStore.getState().openSettings("schedules") },
 };
 
-function useHelpItems(): ContextMenuItem[] {
+function useHelpItems(customizeSidebar: () => void): ContextMenuItem[] {
 	const t = useT();
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const installOffered = useInstallOffered();
@@ -326,12 +327,11 @@ function useHelpItems(): ContextMenuItem[] {
 			onSelect: () => useUiStore.getState().openSettings("updates"),
 		},
 		{
-			// The pins themselves are Settings switches, so search finds them too.
 			id: "help-customize-sidebar",
 			label: t("help.customizeSidebar"),
 			icon: PanelLeft,
 			separatorBefore: true,
-			onSelect: () => useUiStore.getState().openSettings("general:setting-gui-railPins"),
+			onSelect: customizeSidebar,
 		},
 	];
 }
@@ -368,7 +368,10 @@ function SidebarFooter() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
-	const helpItems = useHelpItems();
+	// Null until the first open: the sheet mounts then and stays, so it can animate out.
+	const [pinsSheet, setPinsSheet] = useState<{ open: boolean } | null>(null);
+	const [pinMenu, setPinMenu] = useState<PinMenuState | null>(null);
+	const helpItems = useHelpItems(() => setPinsSheet({ open: true }));
 	const railPins = useSidebarPrefs(s => s.railPins);
 	const shortcutFor = (id: PageDestination) =>
 		id === "agents"
@@ -389,12 +392,13 @@ function SidebarFooter() {
 			data-sidebar-destinations
 		>
 			{railPins.map(pin => {
-				if (pin === "usage") return <SidebarUsage key={pin} />;
+				if (pin === "usage") return <SidebarUsage key={pin} {...pinMenuHandlers(pin, setPinMenu)} />;
 				// Agents and Stats are the destination rows below, shown only while pinned.
 				if (pin === "agents" || pin === "stats") return null;
 				const { icon: Icon, open: openPin } = RAIL_PIN_ROWS[pin];
 				return (
 					<Button
+						{...pinMenuHandlers(pin, setPinMenu)}
 						className="omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5 text-(--sc-text-secondary)"
 						data-rail-pin={pin}
 						icon={<Icon />}
@@ -411,8 +415,10 @@ function SidebarFooter() {
 			).map(({ id, labelKey, icon: Icon }) => {
 				const current = destination === id;
 				const shortcut = shortcutFor(id);
+				const pinnable = id === "agents" || id === "insights";
 				const row = (
 					<Button
+						{...(pinnable ? pinMenuHandlers(id === "agents" ? "agents" : "stats", setPinMenu) : {})}
 						aria-current={current ? "page" : undefined}
 						className={cx(
 							"omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5",
@@ -444,6 +450,10 @@ function SidebarFooter() {
 					</div>
 				);
 			})}
+			{pinMenu && (
+				<PinMenu menu={pinMenu} onClose={() => setPinMenu(null)} onCustomize={() => setPinsSheet({ open: true })} />
+			)}
+			{pinsSheet && <SidebarPinsSheet onClose={() => setPinsSheet({ open: false })} open={pinsSheet.open} />}
 		</nav>
 	);
 }

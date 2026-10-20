@@ -202,7 +202,6 @@ function focusTab(device: string | undefined): void {
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
-			confirmNewDevices: false,
 		},
 		hosts: [{ deviceId: HOST_ID, name: "Studio", state: "online" }],
 		forgotten: [],

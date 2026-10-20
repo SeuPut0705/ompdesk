@@ -6,7 +6,7 @@
  * identity: the confirm says so). Main owns the lists; every action answers with the whole new list (devices,
  * blocks) or state (users).
  */
-import { Ban, Gauge, MoreHorizontal, Pencil, Smartphone } from "lucide-react";
+import { Ban, Gauge, MoreHorizontal, Pencil, ShieldCheck, Smartphone } from "lucide-react";
 import { useId, useState } from "react";
 import type { PeerView } from "../../../shared/ipc-types";
 import {
@@ -25,7 +25,29 @@ import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../..
 import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, MenuButton, Select, Switch } from "../common";
 import { DeviceNameField } from "./DeviceNameField";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+
+/**
+ * The one "approve new devices on this computer" switch, for phones (Mobile web) and computers (OMPdesk sharing)
+ * alike: pref `mobileWeb.confirmNewDevices`, written through Mobile web and read by `remote/devices.ts`. Sharing's
+ * section shows it while sharing is on, Mobile web's only otherwise, so one switch is on screen.
+ */
+export function ConfirmNewDevicesRow({ state }: { state: MobileWebState }) {
+	const t = useT();
+	return (
+		<SettingsSwitchRow
+			icon={<ShieldCheck />}
+			checked={state.confirmNewDevices}
+			description={t("mobileWeb.confirmNewDesc")}
+			tipOnly
+			id="settings-mobile-web-confirm"
+			label={t("mobileWeb.confirmNew")}
+			onCheckedChange={on =>
+				void mobileWebCommand({ action: "set-confirm-new-devices", on }, t("mobileWeb.toggleFailed"))
+			}
+		/>
+	);
+}
 
 /** Every permission a device can hold: `pairing-admin` is never granted to one. */
 const GRANTABLE = WEB_PERMISSIONS.filter(permission => permission !== "pairing-admin");

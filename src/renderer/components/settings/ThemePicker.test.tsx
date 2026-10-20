@@ -196,4 +196,14 @@ describe("ThemePicker", () => {
 		);
 		expect(previews).toEqual([THEMES.light.label, THEMES.dark.label]);
 	});
+
+	it("shows the light/dark pair only while System is the theme", async () => {
+		await mount();
+		expect(document.body.querySelector("#setting-gui-systemLightTheme")).not.toBeNull();
+		await choose("nord");
+		expect(document.body.querySelector("#setting-gui-systemLightTheme")).toBeNull();
+		expect(document.body.querySelector("#setting-gui-systemDarkTheme")).toBeNull();
+		await choose("system");
+		expect(document.body.querySelector("#setting-gui-systemDarkTheme")).not.toBeNull();
+	});
 });

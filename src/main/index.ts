@@ -49,7 +49,6 @@ import {
 	aiMemoryEnabled,
 } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
-import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	APP_AUTO_UPDATE_PREF,
 	CLOSE_TO_TRAY_NOTICE_PREF,
@@ -57,13 +56,12 @@ import {
 	closeToTrayEnabled,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
+	TOOLS_AUTO_UPDATE_PREF,
 } from "../shared/desktop-prefs";
 import { ECC_PREF } from "../shared/ecc";
-import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
-import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -132,7 +130,7 @@ import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-p
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
-import { dropRetiredPrefs } from "./retired-prefs";
+import { migrateRetiredPrefs } from "./retired-prefs";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
@@ -321,7 +319,7 @@ let mainPrefsStore: Store<MainPrefs> | null = null;
 function prefsStore(): Store<MainPrefs> {
 	if (!mainPrefsStore) {
 		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
-		dropRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
+		migrateRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
 		// A theme the app no longer ships (the pre-curated set) is replaced by its nearest successor, so the
 		// stored pref never names a missing theme and the saved window opens in the right scheme.
 		const prefs = mainPrefsStore as unknown as Store<Record<string, unknown>>;
@@ -1034,7 +1032,7 @@ app.whenReady().then(() => {
 		scheduled: testInstaller
 			? process.env.OMP_GUI_TEST_OMP_UPDATES === "1"
 			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-		enabled: () => prefs.get(OMP_AUTO_UPDATE_PREF) !== false,
+		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		fetchLatest: () => setup.latestOmp(),
 		installed: () => {
 			const presence = setup.state().items.find(item => item.id === "omp")?.presence;
@@ -1075,14 +1073,14 @@ app.whenReady().then(() => {
 	ompUpdater = updater;
 	registerOmpUpdateIpc(ipc, updater);
 	// The vendor CLIs of connected accounts (Claude Code, Codex, Gemini, Cursor Agent, gh, …) keep current
-	// the same way (src/main/cli-tools/, pref `cliAutoUpdate`): already-installed tools only, through the
+	// the same way (src/main/cli-tools/, pref `toolsAutoUpdate`): already-installed tools only, through the
 	// method that owns each. A test launch needs the fake installer and OMP_GUI_TEST_CLI_UPDATES=1. A
 	// paired host does its own; remote tabs never reach this computer's tools.
 	const cliToolUpdater = new CliUpdater({
 		scheduled: testInstaller
 			? process.env.OMP_GUI_TEST_CLI_UPDATES === "1"
 			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-		enabled: () => prefs.get(CLI_AUTO_UPDATE_PREF) !== false,
+		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		platform: platform === "win32" ? "win32" : "darwin",
 		toolsDir,
 		connectedProviders: () =>
@@ -1101,7 +1099,7 @@ app.whenReady().then(() => {
 	cliUpdater = cliToolUpdater;
 	registerCliUpdateIpc(ipc, cliToolUpdater);
 	// The marketplaces, plugins, skills and MCP servers of this computer's omp keep current too
-	// (src/main/ext-update/, pref `extensionAutoUpdate`): stock's own refresh and upgrade run in the stock
+	// (src/main/ext-update/, pref `toolsAutoUpdate`): stock's own refresh and upgrade run in the stock
 	// helper's `extensions` worker, an MCP server's global binary is updated by the package manager that owns
 	// it, and the live local tabs (this computer's own and the ones it hosts for paired devices) pick up the
 	// result between turns. A test launch needs the fake installer and OMP_GUI_TEST_EXT_UPDATES=1.
@@ -1109,7 +1107,7 @@ app.whenReady().then(() => {
 		scheduled: testInstaller
 			? process.env.OMP_GUI_TEST_EXT_UPDATES === "1"
 			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-		enabled: () => prefs.get(EXTENSION_AUTO_UPDATE_PREF) !== false,
+		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		platform: platform === "win32" ? "win32" : "darwin",
 		toolsDir,
 		helper: <T>(method: string, params: unknown, timeoutMs: number) =>
@@ -1556,10 +1554,12 @@ app.whenReady().then(() => {
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
-			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
-			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
-			if (key === EXTENSION_AUTO_UPDATE_PREF) extensionToolUpdater.prefChanged();
+			if (key === TOOLS_AUTO_UPDATE_PREF) {
+				updater.prefChanged();
+				cliToolUpdater.prefChanged();
+				extensionToolUpdater.prefChanged();
+			}
 			if (key === "themeName" || key === "theme") {
 				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
 			}

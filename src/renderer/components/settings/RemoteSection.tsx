@@ -29,7 +29,6 @@ import {
 	Pencil,
 	RefreshCw,
 	Router,
-	ShieldCheck,
 	Tag,
 	Trash2,
 	Users,
@@ -59,7 +58,7 @@ import {
 } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
 import { DeviceNameField } from "./DeviceNameField";
-import { MobileWebAllowedUsers, MobileWebBlocked } from "./MobileWebDevices";
+import { ConfirmNewDevicesRow, MobileWebAllowedUsers, MobileWebBlocked } from "./MobileWebDevices";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTipOnly } from "./SettingsLayout";
 
@@ -436,17 +435,7 @@ export function RemoteSection() {
 								<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.host.noAddresses")}</p>
 							)}
 						</SettingsRow>
-						<SettingsSwitchRow
-							icon={<ShieldCheck />}
-							checked={host.confirmNewDevices}
-							description={t("remote.host.confirmNewDesc")}
-							tipOnly
-							id="settings-remote-confirm-new"
-							label={t("remote.host.confirmNew")}
-							onCheckedChange={on =>
-								void mutate(() => window.omp.remote.setConfirmNewDevices(on), t("remote.host.confirmNewFailed"))
-							}
-						/>
+						{mobileWeb && <ConfirmNewDevicesRow state={mobileWeb} />}
 						<SettingsRow icon={<Users />} label={t("remote.host.peers")}>
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>

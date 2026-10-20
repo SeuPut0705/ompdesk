@@ -53,12 +53,7 @@ import { startAgentAppEvents } from "./lib/agent-app";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { lazyChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
-import {
-	hydrateDisplayPreferences,
-	readDisplayPreference,
-	setDisplayPreference,
-	useDisplayPreference,
-} from "./lib/display-preferences";
+import { hydrateDisplayPreferences, readDisplayPreference, setDisplayPreference } from "./lib/display-preferences";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
@@ -121,14 +116,13 @@ const ModelSetupDialog = lazyChunk(() =>
 function FocusedSessionEffects() {
 	useTraySync();
 	useWorkspaceRecency();
-	const titleRunState = useDisplayPreference("titleState");
+	// The run state in the window title and progress on the app icon are always on (no setting).
 	const titleStreaming = useSessionStore(s => s.isStreaming);
 	const titleSessionName = useSessionStore(s => s.sessionName);
 	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window
 	// while its tab is in front; each tab keeps its own.
 	const titleExtension = useExtensionUiStore(s => s.title);
 	const titleAwaiting = useAwaitedInput();
-	const progressEnabled = useDisplayPreference("showProgress");
 	const progressStreaming = useSessionStore(s => s.isStreaming);
 	const progressAwaiting = useAwaitedInput();
 	const compactDensity = useUiStore(s => s.compactDensity);
@@ -146,21 +140,15 @@ function FocusedSessionEffects() {
 	useEffect(() => {
 		const base = titleExtension ?? titleSessionName ?? "OMPdesk";
 		const name = titleProject ? `${base} — ${titleProject}` : base;
-		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
-	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
+		document.title = titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
+	}, [titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {
-		const state: RunProgressState = !progressEnabled
-			? "idle"
-			: progressAwaiting
-				? "waiting"
-				: progressStreaming
-					? "working"
-					: "idle";
+		const state: RunProgressState = progressAwaiting ? "waiting" : progressStreaming ? "working" : "idle";
 		const timer = setTimeout(() => window.omp.progress.set(state), 200);
 		return () => clearTimeout(timer);
-	}, [progressEnabled, progressAwaiting, progressStreaming]);
+	}, [progressAwaiting, progressStreaming]);
 	useEffect(() => {
 		document.documentElement.dataset.density = compactDensity ? "tight" : "comfortable";
 		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";
@@ -275,7 +263,6 @@ export function App() {
 				"linkPreview",
 				"panelSide",
 				"thinkingExpanded",
-				"workBoard",
 				"transcriptDetail",
 				"panelTab",
 				"sidebarVisible",
@@ -328,9 +315,6 @@ export function App() {
 				}
 				if (typeof prefs.thinkingExpanded === "boolean" && !changedPreferences.has("thinkingExpanded")) {
 					useUiStore.setState({ thinkingExpanded: prefs.thinkingExpanded });
-				}
-				if (typeof prefs.workBoard === "boolean" && !changedPreferences.has("workBoard")) {
-					useUiStore.setState({ workBoard: prefs.workBoard });
 				}
 				if (
 					(prefs.transcriptDetail === "compact" || prefs.transcriptDetail === "full") &&

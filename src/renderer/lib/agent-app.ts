@@ -18,7 +18,6 @@ const UI_STATE_KEYS: Record<string, "boolean" | "number" | "string"> = {
 	notificationSound: "boolean",
 	linkPreview: "boolean",
 	thinkingExpanded: "boolean",
-	workBoard: "boolean",
 	fontSize: "number",
 	panelSide: "string",
 	transcriptDetail: "string",

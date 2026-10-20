@@ -385,16 +385,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(shortcuts as Element, "onClick");
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "keyboard" });
-		// The pins live in Settings › General, where search finds them.
+		// Customize sidebar opens its own sheet, not Settings.
 		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
-		const customize = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
-			(button.textContent ?? "").includes("Customize sidebar…"),
-		);
-		await fire(customize as Element, "onClick");
-		expect(useUiStore.getState()).toMatchObject({
-			destination: "settings",
-			settingsTab: "general:setting-gui-railPins",
-		});
+		await fire(menuItem("Customize sidebar…"), "onClick");
+		expect(document.body.querySelector("[data-sidebar-pins]")).not.toBeNull();
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "keyboard" });
 	});
 
 	it("pins only the usage block by default (it draws nothing without a subscription account); other pinned ones sit above the destinations in a fixed order and open their view", async () => {
@@ -429,6 +424,40 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		await pin("files");
 		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "schedules"]);
+	});
+
+	it("Help › Customize sidebar opens a sheet whose switches pin and unpin; a pinned row's menu unpins", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const footer = container.querySelector("[data-sidebar-destinations]");
+		expect(document.body.querySelector("[data-sidebar-pins]")).toBeNull();
+
+		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
+		await fire(menuItem("Customize sidebar…"), "onClick");
+		const sheet = document.body.querySelector("[data-sidebar-pins]");
+		expect(sheet?.querySelectorAll('[role="switch"]')).toHaveLength(9);
+		const switchFor = (pin: string) => document.body.querySelector(`#sidebar-pin-${pin}`);
+		expect(switchFor("usage")?.getAttribute("aria-checked")).toBe("true");
+		expect(switchFor("files")?.getAttribute("aria-checked")).toBe("false");
+
+		await fire(switchFor("files"), "onClick");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "files"]);
+		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ railPins: ["usage", "files"] }));
+		expect(switchFor("files")?.getAttribute("aria-checked")).toBe("true");
+		expect(footer?.querySelector('[data-rail-pin="files"]')).not.toBeNull();
+
+		await fire(footer?.querySelector('[data-rail-pin="files"]') ?? null, "onContextMenu");
+		expect(menuItemLabels()).toEqual(["Unpin from sidebar", "Customize sidebar…"]);
+		await fire(menuItem("Unpin from sidebar"), "onClick");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage"]);
+		expect(footer?.querySelector('[data-rail-pin="files"]')).toBeNull();
+
+		await fire(switchFor("agents"), "onClick");
+		await fire(footer?.querySelector('[data-destination="agents"]') ?? null, "onContextMenu");
+		await fire(menuItem("Unpin from sidebar"), "onClick");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage"]);
 	});
 
 	it("opens the command palette from the header and selecting a session returns from a page", async () => {
@@ -2007,7 +2036,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],
@@ -2063,7 +2091,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [
 				{ deviceId: "dev-studio", name: "studio", state: "online" },
@@ -2104,7 +2131,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [
 				{ deviceId: "dev-studio", name: "studio", state: "online" },
@@ -2555,7 +2581,6 @@ describe("Sidebar device sections", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state }],
 			forgotten: [],
@@ -3619,7 +3644,6 @@ describe("Sidebar remembered folds", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],
@@ -3683,7 +3707,6 @@ describe("Sidebar remembered folds", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [],
 			forgotten: [],

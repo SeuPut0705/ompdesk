@@ -60,7 +60,7 @@ const UPGRADE_TIMEOUT_MS = 600_000;
 export interface ExtensionUpdaterDeps {
 	/** This launch checks on a timer: a packaged app, or a test launch that opts in. */
 	scheduled: boolean;
-	/** The pref `extensionAutoUpdate` (default on). */
+	/** The pref `toolsAutoUpdate` (default on), shared with omp and the tool CLIs. */
 	enabled: () => boolean;
 	platform: CliPlatform;
 	toolsDir: string;

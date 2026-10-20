@@ -662,12 +662,13 @@ function PluginDoctorRow() {
 }
 
 /**
- * Optional GitHub token for the update check (releases are public): which
- * source the updater uses (env → gh → saved token; none = anonymous), a masked
- * field to save a token (encrypted by the main process), a test, and removal
- * of the saved token.
+ * GitHub token for the update check (releases are public, so the default user
+ * never sees this): shown only when the updater reports `auth-required` or a
+ * token is already saved (so it can be removed). It offers the active source
+ * (env → gh → saved token; none = anonymous), a masked field to save a token
+ * (encrypted by the main process), a test, and removal of the saved token.
  */
-function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
+export function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 	const t = useT();
 	const [info, setInfo] = useState<UpdateAuthInfo>();
 	const [draft, setDraft] = useState("");
@@ -705,6 +706,8 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 		[draft, onChanged, t],
 	);
 
+	const authRequired = useUpdaterStore(state => state.status.state === "auth-required");
+	if (!authRequired && !info?.hasStoredToken) return null;
 	const source = info?.source ?? "none";
 	return (
 		<SettingsRow

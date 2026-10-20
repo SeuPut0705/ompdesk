@@ -158,7 +158,7 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 		const settings = page.locator("[data-settings-page]");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 		await settings.locator('[data-settings-section="updates"]').click();
-		await expect(settings.locator("#setting-gui-ompAutoUpdate [role='switch']")).toHaveAttribute(
+		await expect(settings.locator("#setting-gui-toolsAutoUpdate [role='switch']")).toHaveAttribute(
 			"aria-checked",
 			"true",
 		);

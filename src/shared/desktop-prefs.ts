@@ -29,6 +29,13 @@ export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 /** Install a downloaded OMPdesk update and restart by itself at a quiet moment (Settings › Updates & about; default off; only `true` turns it on). */
 export const APP_AUTO_UPDATE_PREF = "appAutoUpdate";
 
+/**
+ * Keep tools up to date (Settings › Updates & about; default on, only a stored `false` turns it off): omp itself
+ * (`omp-updater.ts`), the tool CLIs of connected accounts (`cli-tools/`) and omp's extensions (`ext-update/`).
+ * Replaced the three switches `ompAutoUpdate`, `cliAutoUpdate`, `extensionAutoUpdate` (`retired-prefs.ts`).
+ */
+export const TOOLS_AUTO_UPDATE_PREF = "toolsAutoUpdate";
+
 /** A dev server's address in a bash result opens the Preview for the focused tab (default off; only `true` turns it on). */
 export const AUTO_PREVIEW_DEV_SERVER_PREF = "autoPreviewDevServer";
 

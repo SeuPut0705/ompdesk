@@ -443,7 +443,6 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.REMOTE_SET_KEEP_AWAKE]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_REVOKE_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_BLOCK_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
-	[C.REMOTE_SET_CONFIRM_NEW_DEVICES]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_SET_PEER_LIMITS]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_HOST]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_RENAME_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },

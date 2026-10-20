@@ -8,9 +8,6 @@
  * The renderer shows this state and may ask for "Update now" by tool id; it never names a command or a path.
  */
 
-/** Settings › Updates & about › Update tool CLIs automatically (default on); a stored `false` turns it off. */
-export const CLI_AUTO_UPDATE_PREF = "cliAutoUpdate";
-
 /** Display order. */
 export const CLI_TOOLS = ["claude", "codex", "gemini", "cursor-agent", "copilot", "gh", "gh-copilot", "node"] as const;
 export type CliToolId = (typeof CLI_TOOLS)[number];

@@ -577,8 +577,6 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
 			blockPeer: (deviceId: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_BLOCK_PEER, deviceId) as Promise<RemoteState>,
-			setConfirmNewDevices: (on: boolean) =>
-				transport.invoke(IPC_COMMANDS.REMOTE_SET_CONFIRM_NEW_DEVICES, on) as Promise<RemoteState>,
 			setPeerLimits: (deviceId: string, limits: PeerLimits) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, { deviceId, limits }) as Promise<RemoteState>,
 			renameHost: (deviceId: string, name: string) =>

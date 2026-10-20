@@ -1,6 +1,6 @@
 /**
- * Settings › Updates & about › This computer › tool CLIs: the switch is on by default (state's `enabled`) and
- * writes the `cliAutoUpdate` pref; one row per detected CLI shows its installed and newest version, its update
+ * Settings › Updates & about › This computer › tool CLIs: no switch of their own (the one "Keep tools up to date"
+ * switch covers them); one row per detected CLI shows its installed and newest version, its update
  * method and the last result or the reason it is left alone; "Update now" names the tool by id and is off while
  * that tool runs or when it is skipped.
  */
@@ -81,7 +81,6 @@ const push = (state: CliUpdateState) =>
 	act(async () => {
 		listener?.(state);
 	});
-const toggle = () => document.body.querySelector("#setting-gui-cliAutoUpdate [role='switch']") as HTMLElement;
 const row = (id: string) => document.body.querySelector(`#setting-cli-tool-${id}`) as HTMLElement;
 const nowButton = (id: string) =>
 	document.body.querySelector(`[data-testid='cli-update-now-${id}']`) as HTMLButtonElement;
@@ -96,15 +95,9 @@ afterEach(async () => {
 });
 
 describe("CliUpdateRows", () => {
-	it("shows the switch on by default and writes the cliAutoUpdate pref when it is turned off", async () => {
+	it("has no switch of its own: 'Keep tools up to date' covers the tool CLIs", async () => {
 		await mount(cliState([]));
-		expect(translate("cliUpdate.auto")).toBe("Update tool CLIs automatically");
-		expect(document.body.textContent).toContain(translate("cliUpdate.auto"));
-		expect(toggle().getAttribute("aria-checked")).toBe("true");
-		await act(async () => toggle().click());
-		expect(prefsSet).toHaveBeenCalledWith("cliAutoUpdate", false);
-		await push(cliState([], { enabled: false }));
-		expect(toggle().getAttribute("aria-checked")).toBe("false");
+		expect(document.body.querySelector("[role='switch']")).toBeNull();
 	});
 
 	it("says so when none of the connected accounts' CLIs is installed", async () => {

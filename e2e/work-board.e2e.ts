@@ -175,12 +175,10 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await expect(board).toBeVisible();
 
-				// The board's own button hides it and keeps it off (the pref).
+				// The board's own button hides it for this window; nothing is stored.
 				await board.getByRole("button", { name: text.hide }).click();
 				await expect(board).toHaveCount(0);
-				await expect
-					.poll(async () => (await page.evaluate(() => window.omp.prefs.get("workBoard"))) === false)
-					.toBe(true);
+				expect(await page.evaluate(() => window.omp.prefs.get("workBoard"))).toBeUndefined();
 				expect(errors).toEqual([]);
 			} finally {
 				await exitApp(app);

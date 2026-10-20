@@ -8,9 +8,6 @@
  * and follows the state the host pushes; it never runs `omp update` there.
  */
 
-/** Settings › Updates & about › Update omp automatically (default on); a stored `false` turns it off. */
-export const OMP_AUTO_UPDATE_PREF = "ompAutoUpdate";
-
 /**
  * - `check`: the registry lookup failed (`detail` is the reason).
  * - `install`: `omp update` failed or could not start.

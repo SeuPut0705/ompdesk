@@ -85,7 +85,8 @@ export const LEGACY_PEER_GRACE_MS = 30 * 24 * 60 * 60_000;
 const HOST_ENABLED_KEY = "remote.hostEnabled";
 const DEVICE_NAME_KEY = "remote.deviceName";
 const KEEP_AWAKE_KEY = "remote.keepAwake";
-const CONFIRM_KEY = "remote.confirmNewDevices";
+/** The one "approve new devices" switch, shared with Mobile web (`MOBILE_WEB_PREFS.confirmNewDevices`, written there). */
+const CONFIRM_KEY = "mobileWeb.confirmNewDevices";
 /** When code-paired hosts were matched to tailnet nodes (epoch ms); unset = not yet. */
 const MIGRATED_KEY = "remote.tailnetMigratedAt";
 /** Names of code-paired hosts that were not found on the tailnet and were forgotten (until the user read it). */
@@ -250,7 +251,6 @@ export class RemoteDevices {
 				keepAwake: this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
 				keepingAwake: this.#keepAwake.held,
 				usedBy: peers.filter(peer => using.has(peer.deviceId)).map(peer => peer.name),
-				confirmNewDevices: this.#deps.prefs.get(CONFIRM_KEY) === true,
 			},
 			hosts: this.#hosts
 				.list()
@@ -341,11 +341,6 @@ export class RemoteDevices {
 
 	setKeepAwake(enabled: boolean): RemoteState {
 		this.#deps.prefs.set(KEEP_AWAKE_KEY, enabled === true);
-		return this.#broadcastState();
-	}
-
-	setConfirmNewDevices(on: unknown): RemoteState {
-		this.#deps.prefs.set(CONFIRM_KEY, on === true);
 		return this.#broadcastState();
 	}
 

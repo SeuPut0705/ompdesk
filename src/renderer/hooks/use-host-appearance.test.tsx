@@ -54,7 +54,6 @@ function remoteState(hosts: HostView[]): RemoteState {
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
-			confirmNewDevices: false,
 		},
 		hosts,
 		forgotten: [],

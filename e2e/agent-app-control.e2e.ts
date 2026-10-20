@@ -118,7 +118,7 @@ test("the agent lists actions, changes the theme with a toast and undo, opens th
 test("with full control and manage stored off a sensitive action asks with the card and runs only when approved; agent-power switches are never reachable", async () => {
 	test.setTimeout(150_000);
 	await start({ agentControlFull: false, agentControlManage: false });
-	const denied = app_("settings.cliAutoUpdate", { value: false });
+	const denied = app_("settings.toolsAutoUpdate", { value: false });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -128,9 +128,9 @@ test("with full control and manage stored off a sensitive action asks with the c
 	const refused = await denied;
 	expect(refused.isError).toBe(true);
 	expect(refused.text).toContain("The user declined");
-	expect(await storedPref("cliAutoUpdate")).not.toBe(false);
+	expect(await storedPref("toolsAutoUpdate")).not.toBe(false);
 
-	const approved = app_("settings.cliAutoUpdate", { value: false });
+	const approved = app_("settings.toolsAutoUpdate", { value: false });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -141,7 +141,7 @@ test("with full control and manage stored off a sensitive action asks with the c
 		.first()
 		.click();
 	expect((await approved).isError).toBe(false);
-	await expect.poll(() => storedPref("cliAutoUpdate")).toBe(false);
+	await expect.poll(() => storedPref("toolsAutoUpdate")).toBe(false);
 
 	for (const [action, args] of [
 		["agent_power.set", { switch: "agentControlFull", on: true }],
@@ -161,9 +161,9 @@ test("with full control stored off a sensitive action runs without a card, a del
 	test.setTimeout(150_000);
 	await start({ agentControlFull: false });
 	// Nothing stored: "Let agents manage other sessions" is on, so this needs no card.
-	const changed = await app_("settings.cliAutoUpdate", { value: false });
+	const changed = await app_("settings.toolsAutoUpdate", { value: false });
 	expect(changed.isError).toBe(false);
-	await expect.poll(() => storedPref("cliAutoUpdate")).toBe(false);
+	await expect.poll(() => storedPref("toolsAutoUpdate")).toBe(false);
 	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
 
 	// Erasing a saved session asks whatever the switch says; a refusal runs nothing.
@@ -185,7 +185,7 @@ test("with full control stored off a sensitive action runs without a card, a del
 test("by default (full control) erasing and sensitive actions run without a card and the agent may change its own switches, never answer a card", async () => {
 	test.setTimeout(150_000);
 	await start();
-	expect((await app_("settings.cliAutoUpdate", { value: false })).isError).toBe(false);
+	expect((await app_("settings.toolsAutoUpdate", { value: false })).isError).toBe(false);
 	const erased = await app_("sessions.delete", { sessionPath: path.join(profile, "agent", "never-saved.jsonl") });
 	expect(erased.text).not.toContain("declined");
 	const power = await app_("agent_power.set", { switch: "agentControlApprove", on: true });

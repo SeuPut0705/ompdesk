@@ -83,9 +83,9 @@ describe("computers of the tailnet", () => {
 		expect(b.devices.state().host.peers).toEqual([]);
 	});
 
-	it("asks the host's person about a new device when approval is on, and refuses a declined one", async () => {
+	it("asks the host's person about a new device when the one approval switch (Mobile web's) is on, and refuses a declined one", async () => {
 		const { a, b } = await rig.pair();
-		b.prefs.set("remote.confirmNewDevices", true);
+		b.prefs.set("mobileWeb.confirmNewDevices", true);
 		b.confirm.answer = false;
 		expect(await rejectionCode(a.devices.connect("nSTUDIO"))).toBe("remote_declined");
 		expect(b.confirm.asked).toEqual(["Laptop"]);

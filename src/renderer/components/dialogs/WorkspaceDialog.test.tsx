@@ -158,7 +158,6 @@ describe("WorkspaceDialog folder picker", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],

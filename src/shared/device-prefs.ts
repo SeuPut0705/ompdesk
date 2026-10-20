@@ -24,7 +24,6 @@ export const DEVICE_LOCAL_PREF_KEYS: readonly string[] = [
 	"transcriptDetail",
 	"thinkingExpanded",
 	"codeLineNumbers",
-	"workBoard",
 	// Layout.
 	"sidebarWidth",
 	"sidebarVisible",

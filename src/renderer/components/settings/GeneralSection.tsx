@@ -2,8 +2,7 @@
  * Settings › General: language, conversation language and reply style;
  * notifications (and their chime); the profile the agent addresses (name,
  * development experience); the window (how reply links open, window close,
- * sleep, title and Dock status); the sidebar's pinned shortcuts; the GitHub
- * account; and, folded under Advanced, the side panel's default and edge, the
+ * sleep); the GitHub account; and, folded under Advanced, the side panel's default and edge, the
  * terminal shell and this device's network proxy. All of it is this device's.
  */
 
@@ -19,18 +18,15 @@ import {
 	RotateCcw,
 	Volume2,
 } from "lucide-react";
-import { createElement, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CLOSE_TO_TRAY_PREF, KEEP_AWAKE_WORKING_PREF, RESUME_INTERRUPTED_PREF } from "../../../shared/desktop-prefs";
 import { isUiLanguage, UI_LANGUAGE_NAMES, UI_LANGUAGES } from "../../../shared/ui-language";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useLang, useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { playChime } from "../../lib/notification-sound";
-import { RAIL_PIN_LABEL_KEYS, RAIL_PINS, useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { migrateDefaultPanelTab, PANEL_TABS, type PanelSide, type PanelTab, useUiStore } from "../../stores/ui";
 import { Button, Select } from "../common";
-import { RAIL_PIN_ICONS } from "../layout/sidebar/rail-pin-icons";
-import { DisplayPreferenceRow } from "./AppearanceSection";
 import { GithubAccountSection } from "./GithubAccountSection";
 import { ProxyRow } from "./LaunchSettings";
 import { OutputStyleRow } from "./OutputStyleRow";
@@ -194,12 +190,7 @@ export function GeneralSection() {
 					label={t("settings.gui.resumeInterrupted")}
 					onCheckedChange={setResumeInterrupted}
 				/>
-				<SettingsTiles>
-					<DisplayPreferenceRow field="titleState" />
-					<DisplayPreferenceRow field="showProgress" />
-				</SettingsTiles>
 			</SettingsSection>
-			<SidebarShortcutsSection />
 			<GithubAccountSection />
 			<SettingsAdvanced>
 				<SettingsSection title={t("settings.general.window")}>
@@ -247,27 +238,5 @@ export function GeneralSection() {
 				</SettingsSection>
 			</SettingsAdvanced>
 		</>
-	);
-}
-
-/** Shortcuts pinned above Agents · Stats · Settings at the sidebar's foot; none until the user picks one. */
-function SidebarShortcutsSection() {
-	const t = useT();
-	const railPins = useSidebarPrefs(state => state.railPins);
-	return (
-		<SettingsSection id="setting-gui-railPins" title={t("settings.gui.railPins")}>
-			<SettingsTiles>
-				{RAIL_PINS.map(pin => (
-					<SettingsSwitchRow
-						checked={railPins.includes(pin)}
-						id={`setting-gui-railPin-${pin}`}
-						key={pin}
-						icon={createElement(RAIL_PIN_ICONS[pin])}
-						label={t(RAIL_PIN_LABEL_KEYS[pin])}
-						onCheckedChange={() => void useSidebarPrefs.getState().toggleRailPin(pin)}
-					/>
-				))}
-			</SettingsTiles>
-		</SettingsSection>
 	);
 }

@@ -1,6 +1,6 @@
 /**
- * Settings › Updates & about › This computer › omp updates: the switch is on by
- * default (state's `enabled`) and writes the `ompAutoUpdate` pref, "Update now"
+ * Settings › Updates & about › This computer › omp updates: the one "Keep tools up to date" switch is on by
+ * default (state's `enabled`) and writes the `toolsAutoUpdate` pref, "Update now"
  * asks main and is off while an update runs, the status line says what main
  * learned from npm, and a failed attempt keeps its reason and the retry note.
  */
@@ -76,7 +76,7 @@ const push = (state: OmpUpdateState) =>
 	act(async () => {
 		listener?.(state);
 	});
-const toggle = () => document.body.querySelector("#setting-gui-ompAutoUpdate [role='switch']") as HTMLElement;
+const toggle = () => document.body.querySelector("#setting-gui-toolsAutoUpdate [role='switch']") as HTMLElement;
 const nowButton = () => document.body.querySelector("[data-testid='omp-update-now']") as HTMLButtonElement;
 const status = () => document.body.querySelector("[data-testid='omp-update-status']")?.textContent;
 
@@ -89,14 +89,15 @@ afterEach(async () => {
 });
 
 describe("OmpUpdateRows", () => {
-	it("shows the switch on by default, says omp is the latest, and writes the pref when it is turned off", async () => {
+	it("shows one 'Keep tools up to date' switch on by default, says omp is the latest, and turns all three off", async () => {
 		await mount(ompUpdateState());
-		expect(document.body.textContent).toContain(translate("ompUpdate.auto"));
-		expect(translate("ompUpdate.auto")).toBe("Update omp automatically");
+		expect(translate("toolsUpdate.auto")).toBe("Keep tools up to date");
+		expect(document.body.textContent).toContain(translate("toolsUpdate.auto"));
+		expect(document.body.querySelector("#setting-gui-ompAutoUpdate")).toBeNull();
 		expect(toggle().getAttribute("aria-checked")).toBe("true");
 		expect(status()).toBe(translate("ompUpdate.status.current", { version: "18.8.7" }));
 		await act(async () => toggle().click());
-		expect(prefsSet).toHaveBeenCalledWith("ompAutoUpdate", false);
+		expect(prefsSet).toHaveBeenCalledWith("toolsAutoUpdate", false);
 		// Main pushes the new state after the pref change.
 		await push(ompUpdateState({ enabled: false }));
 		expect(toggle().getAttribute("aria-checked")).toBe("false");

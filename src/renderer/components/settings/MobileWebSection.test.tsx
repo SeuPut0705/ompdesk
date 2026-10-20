@@ -11,10 +11,12 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RemoteState } from "../../../shared/ipc-types";
 import type { MobileWebState } from "../../../shared/mobile-web";
 import { DEFAULT_WEB_GRANTS } from "../../../shared/web-protocol";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useMobileWebStore } from "../../stores/mobile-web";
+import { useRemoteStore } from "../../stores/remote";
 import { useToastStore } from "../../stores/toast";
 import {
 	blockedDevice,
@@ -123,6 +125,7 @@ afterEach(async () => {
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
 	useToastStore.setState({ toasts: [] });
 	useMobileWebStore.getState().reset();
+	useRemoteStore.getState().reset();
 	vi.clearAllMocks();
 });
 
@@ -454,6 +457,13 @@ describe("MobileWebSection ready", () => {
 	});
 
 	it("shows no approval switch while Mobile web is off", async () => {
+		await mount();
+		expect(document.body.querySelector("#settings-mobile-web-confirm")).toBeNull();
+	});
+
+	it("leaves the approval switch to OMPdesk sharing while sharing is on, so one switch shows", async () => {
+		fake.set(readyMobileWebState());
+		useRemoteStore.setState({ state: { host: { enabled: true } } as RemoteState });
 		await mount();
 		expect(document.body.querySelector("#settings-mobile-web-confirm")).toBeNull();
 	});

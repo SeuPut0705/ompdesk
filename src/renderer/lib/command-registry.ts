@@ -38,7 +38,7 @@ import { type AgentsTab, type DockCardId, type InsightsStatsScope, type Insights
 import { checkForUpdatesInPlace } from "../stores/updater";
 import type { CommandGuard } from "./command-search";
 import { requestComposerAction } from "./composer-actions";
-import { readDisplayPreference, saveGuiPreference, setDisplayPreference } from "./display-preferences";
+import { readDisplayPreference, setDisplayPreference } from "./display-preferences";
 import { exportSessionHtml } from "./export-session";
 import { copyText } from "./format";
 import { translate } from "./i18n";
@@ -1498,10 +1498,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		category: "settings",
 		affordance: {
 			kind: "action",
-			run: () => {
-				const next = !useUiStore.getState().workBoard;
-				void saveGuiPreference("workBoard", next, () => useUiStore.getState().setWorkBoard(next));
-			},
+			run: () => useUiStore.getState().setWorkBoard(!useUiStore.getState().workBoard),
 		},
 	});
 	add({
