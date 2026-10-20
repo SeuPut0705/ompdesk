@@ -12,6 +12,7 @@ import {
 	refreshSessionState,
 	retryPendingTabs,
 	syncAutopilot,
+	syncCheckoutPeers,
 	syncGoal,
 	syncPendingMail,
 } from "./session-hydration";
@@ -104,6 +105,8 @@ const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> 
 	desktop_slot_update: true,
 	// Held reports are the bridge's own feed (get_pending_mail), not something a get_state snapshot reports.
 	mail_pending: true,
+	// The checkout's peers are the bridge's own feed (get_checkout_peers), not something a get_state snapshot reports.
+	checkout_peers: true,
 };
 
 /** Schema defaults for the agent's notify settings (settings-schema.ts). */
@@ -619,6 +622,10 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useSessionStore.setState({ pendingMail: event.items });
 							break;
 						}
+						case "checkout_peers": {
+							useSessionStore.setState({ checkoutPeers: event.peers });
+							break;
+						}
 						case "goal_time_limit_reached": {
 							useToastStore.getState().push({
 								variant: "info",
@@ -778,6 +785,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									syncGoal("", activeTabCommand, isCurrent),
 									syncAutopilot("", activeTabCommand, isCurrent),
 									syncPendingMail("", activeTabCommand, isCurrent),
+									syncCheckoutPeers("", activeTabCommand, isCurrent),
 									useQueueStore.getState().refresh(),
 									useSettingsStore.getState().syncDisplaySettings(),
 									useSettingsStore.getState().syncApproval(),

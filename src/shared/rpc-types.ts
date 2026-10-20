@@ -9,6 +9,7 @@ import type { DesktopSlotState } from "../../resources/gui-bridge/desktop-slot-c
 import type { SkippedPreferred } from "../../resources/gui-bridge/model-role-contracts";
 import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type {
 	InlineCompletion,
@@ -126,6 +127,9 @@ export type RpcCommand =
 	// The reports a receiver's bridge holds until its running turn ends (gui-bridge agent-control.ts); `mail_pending`
 	// frames keep the list current
 	| { id?: string; type: "get_pending_mail" }
+	// The other live sessions in this session's worktree or repository (gui-bridge modes/checkout-peers.ts);
+	// `checkout_peers` frames keep the value current. Answers `{peers}` (null: the session works alone).
+	| { id?: string; type: "get_checkout_peers" }
 	// The work board's opened-session list (main/agent-control/host.ts): answered in main, never reaches omp
 	| { id?: string; type: "agent_control_review" }
 	| { id?: string; type: "set_entry_label"; entryId: string; label?: string }
@@ -2677,6 +2681,8 @@ export type AgentSessionEvent =
 	| { type: "desktop_slot_update"; state: DesktopSlotState }
 	// The reports from other sessions the bridge holds until the running turn ends (gui-bridge agent-control.ts).
 	| { type: "mail_pending"; items: PendingMail[] }
+	// The other live sessions in this session's worktree or repository, null when it works alone (gui-bridge modes/checkout-peers.ts).
+	| { type: "checkout_peers"; peers: CheckoutPeers | null }
 	| {
 			type: "plan_proposal";
 			planFilePath: string;

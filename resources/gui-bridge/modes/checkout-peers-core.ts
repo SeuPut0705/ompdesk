@@ -11,7 +11,12 @@
  * session changed whole (a shell redirect, the `write` tool) is refused too. A session working alone is never judged.
  */
 import { type GitInvocation, isInside, normalizePath, shellEffects } from "./autopilot-guard-core";
-import type { CheckoutPeer, CheckoutPeers } from "./checkout-peers-contracts";
+import {
+	CHECKOUT_FILES_MAX,
+	CHECKOUT_PEERS_SET,
+	type CheckoutPeer,
+	type CheckoutPeers,
+} from "./checkout-peers-contracts";
 
 /** What one git run does to shared state, before knowing who else works here. */
 type Hazard =
@@ -411,6 +416,57 @@ export function checkoutSection(peers: CheckoutPeers | undefined): string | unde
 	} else lines.push("- Leave their files alone; ask the user when you need one of them to go first.");
 	lines.push("</shared-checkout>");
 	return lines.join("\n");
+}
+
+function peerList(value: unknown): CheckoutPeer[] {
+	if (!Array.isArray(value)) throw new Error(`${CHECKOUT_PEERS_SET} needs peer lists`);
+	return value.flatMap(item => {
+		if (typeof item !== "object" || item === null) return [];
+		const peer = item as Record<string, unknown>;
+		return [
+			{
+				id: typeof peer.id === "string" ? peer.id : null,
+				title: typeof peer.title === "string" ? peer.title.slice(0, 200) : "",
+				...(typeof peer.device === "string" ? { device: peer.device } : {}),
+				...(typeof peer.worktree === "string" ? { worktree: normalizePath(peer.worktree, "/") } : {}),
+				...(Array.isArray(peer.files)
+					? {
+							files: peer.files
+								.filter((file): file is string => typeof file === "string")
+								.slice(0, CHECKOUT_FILES_MAX)
+								.map(file => normalizePath(file, "/")),
+						}
+					: {}),
+			},
+		];
+	});
+}
+
+/** What main last told this session about the others in its checkout (`checkout_peers_set`). */
+export class CheckoutPeersState {
+	#peers: CheckoutPeers | undefined;
+
+	/** Undefined while the session works alone. */
+	get peers(): CheckoutPeers | undefined {
+		return this.#peers;
+	}
+
+	/** Take main's `CheckoutPeers`; true when what the session knows changed (the GUI is told then). */
+	set(params: unknown): boolean {
+		const record = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
+		if (typeof record.toplevel !== "string" || typeof record.commonDir !== "string")
+			throw new Error(`${CHECKOUT_PEERS_SET} needs {toplevel, commonDir, worktree, repo, canMessage}`);
+		const next: CheckoutPeers = {
+			toplevel: normalizePath(record.toplevel, "/"),
+			commonDir: normalizePath(record.commonDir, "/"),
+			worktree: peerList(record.worktree),
+			repo: peerList(record.repo),
+			canMessage: record.canMessage === true,
+		};
+		const before = JSON.stringify(this.#peers ?? null);
+		this.#peers = next.worktree.length > 0 || next.repo.length > 0 ? next : undefined;
+		return JSON.stringify(this.#peers ?? null) !== before;
+	}
 }
 
 /** `files` with `added` moved to the front, at most `max`. */

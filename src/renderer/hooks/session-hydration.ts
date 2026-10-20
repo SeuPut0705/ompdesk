@@ -1,6 +1,7 @@
 import type { StoreApi } from "zustand";
 import type { PendingMail } from "../../../resources/gui-bridge/agent-control-contracts";
 import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
+import type { CheckoutPeers } from "../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { NextPromptState } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type {
 	AgentMessage,
@@ -295,6 +296,26 @@ export async function syncPendingMail(tabId: string, command: TabCommand, isCurr
 		});
 	} catch {
 		// unsupported_omp or transient: the next mail_pending frame carries the list.
+	}
+}
+
+/**
+ * Fetch the other sessions sharing the tab's checkout (`get_checkout_peers`); `checkout_peers` frames keep the value
+ * current afterwards, and one that lands while this read is in flight wins. An omp without the method leaves it null.
+ */
+export async function syncCheckoutPeers(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
+	const before = withSessionRuntime(tabId, () => useSessionStore.getState().checkoutPeers);
+	try {
+		const res = await command({ type: "get_checkout_peers" });
+		if (!isCurrent() || !res.success) return;
+		const peers = (res.data as { peers?: CheckoutPeers | null } | undefined)?.peers;
+		if (peers === undefined) return;
+		withSessionRuntime(tabId, () => {
+			if (useSessionStore.getState().checkoutPeers !== before) return;
+			useSessionStore.setState({ checkoutPeers: peers });
+		});
+	} catch {
+		// unsupported_omp or transient: the next checkout_peers frame carries the value.
 	}
 }
 
@@ -636,6 +657,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 		syncGoal("", activeTabCommand, isCurrent),
 		syncAutopilot("", activeTabCommand, isCurrent),
 		syncPendingMail("", activeTabCommand, isCurrent),
+		syncCheckoutPeers("", activeTabCommand, isCurrent),
 		syncNextPrompt("", activeTabCommand, isCurrent),
 		useQueueStore.getState().refresh(),
 		useSettingsStore.getState().syncDisplaySettings(),
@@ -836,6 +858,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		syncGoal(tabId, runtime.command, isCurrent),
 		syncAutopilot(tabId, runtime.command, isCurrent),
 		syncPendingMail(tabId, runtime.command, isCurrent),
+		syncCheckoutPeers(tabId, runtime.command, isCurrent),
 		syncNextPrompt(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;
 		// get_queue is only the hydrate fallback (boot/reconnect/session

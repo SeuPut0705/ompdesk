@@ -182,6 +182,8 @@ const AGENT_EVENT_TYPES: Record<string, true> = {
 	plan_proposal_resolved: true,
 	// The reports the bridge holds until the running turn ends (agent-control.ts): the transcript's waiting lines.
 	mail_pending: true,
+	// The other live sessions in this session's worktree or repository (modes/checkout-peers.ts): the board's row.
+	checkout_peers: true,
 	queue_update: true,
 	token_rate: true,
 	read_group_metadata: true,

@@ -40,5 +40,12 @@ export const CHECKOUT_PEERS_SECTION_ID = "checkout-peers";
 export const CHECKOUT_PEERS_SET = "checkout_peers_set";
 /** Main → bridge: the files this session's agents changed lately (`{files: string[]}`, absolute, newest first). */
 export const CHECKOUT_TOUCHED = "checkout_touched";
+/**
+ * Bridge → GUI frame `{type, peers: CheckoutPeers | null}` (null: the session works alone), pushed whenever
+ * `checkout_peers_set` changes what the session knows; bridge method `checkout_peers.get` answers the same value
+ * (`{peers}`) for a window that opens later (the work board's "same checkout" row).
+ */
+export const CHECKOUT_PEERS_EVENT = "checkout_peers";
+export const CHECKOUT_PEERS_GET = "checkout_peers.get";
 /** How many changed files a session remembers and reports. */
 export const CHECKOUT_FILES_MAX = 40;

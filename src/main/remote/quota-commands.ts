@@ -133,6 +133,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"get_autopilot",
 	// The reports a bridge holds until the running turn ends (bridge agent-control.ts): no model.
 	"get_pending_mail",
+	// The other sessions in this session's checkout (bridge modes/checkout-peers.ts): no model.
+	"get_checkout_peers",
 	"autopilot_branch_status",
 	"get_desktop_slot",
 	"desktop_slot_stop",

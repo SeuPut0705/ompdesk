@@ -15,13 +15,14 @@ import { registerPromptSection } from "../prompt-sections";
 import { fileToolPaths, normalizePath } from "./autopilot-guard-core";
 import {
 	CHECKOUT_FILES_MAX,
+	CHECKOUT_PEERS_EVENT,
+	CHECKOUT_PEERS_GET,
 	CHECKOUT_PEERS_SECTION_ID,
 	CHECKOUT_PEERS_SET,
 	CHECKOUT_TOUCHED,
-	type CheckoutPeer,
-	type CheckoutPeers,
 } from "./checkout-peers-contracts";
 import {
+	CheckoutPeersState,
 	canonicalPath,
 	checkoutRefusal,
 	checkoutSection,
@@ -33,16 +34,17 @@ import {
 /** Main's spelling of a path: it resolves top levels with realpath, and a session's cwd may go through a symlink. */
 const real = (path: string) => fs.realpathSync.native(path);
 
-let peers: CheckoutPeers | undefined;
+const state = new CheckoutPeersState();
 let ownFiles: string[] = [];
 
 /** Called once per extension instance (main and every subagent rebinding) by index.ts. */
 export function install(pi: ExtensionAPI): void {
-	registerPromptSection(pi, CHECKOUT_PEERS_SECTION_ID, () => checkoutSection(peers));
+	registerPromptSection(pi, CHECKOUT_PEERS_SECTION_ID, () => checkoutSection(state.peers));
 	pi.on("tool_call", (event, ctx) => {
 		const written = fileToolPaths(event.toolName, event.input).map(file =>
 			canonicalPath(normalizePath(file, ctx.cwd), real),
 		);
+		const peers = state.peers;
 		if (peers && event.toolName === "write") {
 			const reason = writeRefusal(written, peers, ownFiles);
 			if (reason) return { block: true, reason };
@@ -61,45 +63,13 @@ export function install(pi: ExtensionAPI): void {
 	});
 }
 
-function peerList(value: unknown): CheckoutPeer[] {
-	if (!Array.isArray(value)) throw new Error(`${CHECKOUT_PEERS_SET} needs peer lists`);
-	return value.flatMap(item => {
-		if (typeof item !== "object" || item === null) return [];
-		const peer = item as Record<string, unknown>;
-		return [
-			{
-				id: typeof peer.id === "string" ? peer.id : null,
-				title: typeof peer.title === "string" ? peer.title.slice(0, 200) : "",
-				...(typeof peer.device === "string" ? { device: peer.device } : {}),
-				...(typeof peer.worktree === "string" ? { worktree: normalizePath(peer.worktree, "/") } : {}),
-				...(Array.isArray(peer.files)
-					? {
-							files: peer.files
-								.filter((file): file is string => typeof file === "string")
-								.slice(0, CHECKOUT_FILES_MAX)
-								.map(file => normalizePath(file, "/")),
-						}
-					: {}),
-			},
-		];
-	});
-}
-
 export const methods = guard("checkoutPeers", {
-	/** `CheckoutPeers` from main; both lists empty when the session works alone. */
-	[CHECKOUT_PEERS_SET]: async (params: unknown) => {
-		const record = (typeof params === "object" && params !== null ? params : {}) as Record<string, unknown>;
-		if (typeof record.toplevel !== "string" || typeof record.commonDir !== "string")
-			throw new Error(`${CHECKOUT_PEERS_SET} needs {toplevel, commonDir, worktree, repo, canMessage}`);
-		const next: CheckoutPeers = {
-			toplevel: normalizePath(record.toplevel, "/"),
-			commonDir: normalizePath(record.commonDir, "/"),
-			worktree: peerList(record.worktree),
-			repo: peerList(record.repo),
-			canMessage: record.canMessage === true,
-		};
-		peers = next.worktree.length > 0 || next.repo.length > 0 ? next : undefined;
+	/** `CheckoutPeers` from main; both lists empty when the session works alone. Emits `checkout_peers` when it changes. */
+	[CHECKOUT_PEERS_SET]: async (params: unknown, env) => {
+		if (state.set(params)) env.emit({ type: CHECKOUT_PEERS_EVENT, peers: state.peers ?? null });
 		return { ok: true };
 	},
 	[CHECKOUT_TOUCHED]: async () => ({ files: ownFiles }),
+	/** `{}` → `{peers}`: what the last `checkout_peers` frame carried. */
+	[CHECKOUT_PEERS_GET]: async () => ({ peers: state.peers ?? null }),
 });

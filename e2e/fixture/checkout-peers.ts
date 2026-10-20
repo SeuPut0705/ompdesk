@@ -41,6 +41,7 @@ export function createCheckoutFake(host: Host) {
 			return { ok: true };
 		},
 		checkout_touched: () => ({ files: ownFiles }),
+		"checkout_peers.get": () => ({ peers: peers ?? null }),
 	};
 
 	function call(
