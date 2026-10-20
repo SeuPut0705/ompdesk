@@ -123,7 +123,19 @@ async function openPhone(engine: Engine, options: PhoneOptions = {}): Promise<Pa
 	await page.goto(`${origin}/harness.html?theme=${theme}&lang=${lang}`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
 	await page.waitForFunction(() => window.__stores?.nextPrompt !== undefined, undefined, { timeout: 45_000 });
-	await expect(page.locator("html")).toHaveAttribute("data-input", "touch");
+	// Twice on hosted runners (Chromium, iPhone 15) the page kept `mouse` for 10 s; never seen locally in 500+ loads.
+	// Name what the browser said then, so the next one tells an emulation glitch from a missed media change.
+	await expect(page.locator("html"))
+		.toHaveAttribute("data-input", "touch")
+		.catch(async (error: Error) => {
+			const media = await page.evaluate(() => ({
+				coarse: matchMedia("(pointer: coarse)").matches,
+				anyCoarse: matchMedia("(any-pointer: coarse)").matches,
+				hoverNone: matchMedia("(hover: none)").matches,
+				maxTouchPoints: navigator.maxTouchPoints,
+			}));
+			throw new Error(`${error.message}\nthe browser now says ${JSON.stringify(media)}`);
+		});
 	await expect(page.locator("html")).toHaveAttribute("data-shell", "phone");
 	await page.evaluate(
 		({ candidates, stt: dictation, suggestions: suggest }) => {
