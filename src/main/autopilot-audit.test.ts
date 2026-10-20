@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type AuditScope, type AuditSnapshot, auditCycle, diffRefs, takeSnapshot } from "./autopilot-audit";
-import { gitSync, initRepo } from "./local/git/test-repos";
+import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 
 let tmp = "";
 let main = "";
@@ -39,11 +39,7 @@ beforeEach(async () => {
 	main = path.join(tmp, "main");
 	remote = path.join(tmp, "remote.git");
 	work = path.join(tmp, "work");
-	await initRepo(main);
-	gitSync(tmp, "init", "-q", "--bare", "-b", "main", remote);
-	gitSync(main, "remote", "add", "origin", remote);
-	gitSync(main, "push", "-q", "origin", "main");
-	gitSync(main, "fetch", "-q", "origin");
+	await initRepoWithRemote(main, remote);
 	gitSync(main, "worktree", "add", "-q", "-b", "autopilot/2026-10-17", work);
 });
 

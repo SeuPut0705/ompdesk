@@ -1,140 +1,24 @@
-import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { gitSync, initRepo } from "../local/git/test-repos";
-import { setOpenFoldersSource } from "../worktree-orphans";
-import { realFolder } from "../worktree-removals";
-import { DiskCare, type DiskCareDeps } from "./care";
-import { listSavedWorktrees, restoreSavedWorktree, SavedWorktreeStore } from "./saved-worktrees";
+import { describe, expect, it } from "vitest";
+import { gitSync } from "../local/git/test-repos";
+import { DAY_MS, diskCareWorld, exists, SLOW, write } from "./disk-care-fixture";
+import { listSavedWorktrees, restoreSavedWorktree } from "./saved-worktrees";
 
-const SLOW = 120_000;
-const HASH = "abcdef1";
-const MONTH_MS = 30 * 24 * 60 * 60_000;
-
-let root: string;
-let repo: string;
-let wtRoot: string;
-let userData: string;
-let saved: SavedWorktreeStore;
-let open: string[];
-let processes: string[] | null;
-let logs: [string, Record<string, unknown>][];
-const env: Record<string, string | undefined> = {};
-
-const bridge = {
-	request: async <T>(method: string): Promise<T> => {
-		if (method !== "git.worktree_location") throw new Error(`unexpected bridge call ${method}`);
-		return { root: wtRoot, hash: HASH } as T;
-	},
-};
-
-function care(now = Date.now() + MONTH_MS, extra: Partial<DiskCareDeps> = {}): DiskCare {
-	return new DiskCare({
-		bridge,
-		openFolders: () => open,
-		userData,
-		saved,
-		clearHttpCache: async () => {},
-		bunBin: () => null,
-		worktrees: true,
-		log: (message, details) => logs.push([message, details]),
-		broadcast: () => {},
-		automatic: false,
-		now: () => now,
-		processFolders: async () => processes,
-		...extra,
-	});
-}
-
-beforeEach(async () => {
-	root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-disk-care-")));
-	for (const key of ["HOME", "PI_CODING_AGENT_DIR"]) env[key] = process.env[key];
-	process.env.HOME = path.join(root, "home");
-	process.env.PI_CODING_AGENT_DIR = path.join(root, "home", ".omp", "agent");
-	repo = path.join(root, "repo");
-	wtRoot = path.join(root, "wt");
-	userData = path.join(root, "userData");
-	saved = new SavedWorktreeStore(path.join(userData, "disk-care"));
-	open = [];
-	processes = [];
-	logs = [];
-	await initRepo(repo);
-	// Disk care keeps any worktree whose repo converts line endings (Git for Windows' default core.autocrlf=true), so
-	// the tests that save and remove one pin plain bytes; the eol test turns conversion on.
-	gitSync(repo, "config", "core.autocrlf", "false");
-	// A project whose dependencies come from a lockfile and whose build writes `out/`.
-	await fs.writeFile(
-		path.join(repo, "package.json"),
-		JSON.stringify({ scripts: { build: "electron-vite build" }, devDependencies: { "electron-vite": "1" } }),
-	);
-	await fs.writeFile(path.join(repo, "bun.lock"), "{}\n");
-	await fs.writeFile(path.join(repo, ".gitignore"), ".env\nnode_modules/\nout/\ndist/\n");
-	gitSync(repo, "add", ".");
-	gitSync(repo, "commit", "-q", "-m", "project");
-	await fs.mkdir(wtRoot, { recursive: true });
-	setOpenFoldersSource(() => open);
-});
-
-afterEach(async () => {
-	for (const [key, value] of Object.entries(env)) {
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
-	}
-	await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-});
-
-async function worktree(name: string): Promise<string> {
-	const target = path.join(wtRoot, `gui-${name}-${HASH}`);
-	gitSync(repo, "worktree", "add", "-q", "-b", `omp/agent/${name}`, target, "main");
-	return fs.realpath(target);
-}
-
-async function write(dir: string, file: string, content: string): Promise<void> {
-	await fs.mkdir(path.dirname(path.join(dir, file)), { recursive: true });
-	await fs.writeFile(path.join(dir, file), content);
-}
-
-const exists = (file: string) =>
-	fs.lstat(file).then(
-		() => true,
-		() => false,
-	);
-const listed = () =>
-	gitSync(repo, "worktree", "list", "--porcelain")
-		.split("\n")
-		.filter(line => line.startsWith("worktree "))
-		.map(line => realFolder(line.slice("worktree ".length)));
-
-/** An idle worktree with unlanded commits, uncommitted edits, an edited seeded `.env`, deps, build output and a hand-made dist. */
-async function busyWorktree(name: string): Promise<string> {
-	const dir = await worktree(name);
-	await write(dir, "feature.ts", "export const done = 1;\n");
-	gitSync(dir, "add", "feature.ts");
-	gitSync(dir, "commit", "-q", "-m", "feature");
-	await write(dir, "README.md", "hello, edited\n");
-	await write(dir, "notes/todo.md", "next: tests\n");
-	await write(dir, ".env", "API_KEY=edited-in-worktree\n");
-	await write(dir, "node_modules/left-pad/index.js", "module.exports = 1;\n");
-	await write(dir, "out/main/index.js", "built\n");
-	await write(dir, "dist/handmade.html", "<p>my page</p>\n");
-	await write(dir, "config/.env.local", "STRIPE=sk-live-abcdefghijklmnopqrstuvwx\n");
-	return dir;
-}
+const w = diskCareWorld();
 
 describe("disk care", () => {
 	it(
 		"drops a lockfile-backed node_modules and the build tool's out/, keeps a hand-made dist/ and the .env",
 		async () => {
-			const dir = await busyWorktree("artifacts");
-			await care(Date.now() + 5 * 24 * 60 * 60_000).run("user");
+			const dir = await w.busyWorktree("artifacts");
+			await w.care(Date.now() + 5 * DAY_MS).run("user");
 			expect(await exists(path.join(dir, "node_modules"))).toBe(false);
 			expect(await exists(path.join(dir, "out"))).toBe(false);
 			expect(await fs.readFile(path.join(dir, "dist/handmade.html"), "utf8")).toBe("<p>my page</p>\n");
 			expect(await fs.readFile(path.join(dir, ".env"), "utf8")).toBe("API_KEY=edited-in-worktree\n");
-			expect(listed()).toContain(dir);
-			const line = logs.find(([message]) => message === "artifacts");
+			expect(w.listed()).toContain(dir);
+			const line = w.logs.find(([message]) => message === "artifacts");
 			expect(String(line?.[1].entries)).toMatch(/node_modules\/ \(lockfile-dependencies\)/);
 		},
 		SLOW,
@@ -143,15 +27,15 @@ describe("disk care", () => {
 	it(
 		"drops what the .gitignore files under a build-output comment and keeps what it files under any other",
 		async () => {
-			const dir = await worktree("sections");
+			const dir = await w.worktree("sections");
 			await fs.appendFile(path.join(dir, ".gitignore"), "\n# Build output\ngen/\n\n# My scratch notes\nscratch/\n");
 			gitSync(dir, "commit", "-q", "-am", "ignore sections");
 			await write(dir, "gen/bundle.js", "built\n");
 			await write(dir, "scratch/ideas.md", "keep me\n");
-			await care(Date.now() + 5 * 24 * 60 * 60_000).run("user");
+			await w.care(Date.now() + 5 * DAY_MS).run("user");
 			expect(await exists(path.join(dir, "gen"))).toBe(false);
 			expect(await fs.readFile(path.join(dir, "scratch/ideas.md"), "utf8")).toBe("keep me\n");
-			const line = logs.find(([message]) => message === "artifacts");
+			const line = w.logs.find(([message]) => message === "artifacts");
 			expect(String(line?.[1].entries)).toContain("gen/ (gitignore-build-section)");
 		},
 		SLOW,
@@ -160,28 +44,28 @@ describe("disk care", () => {
 	it(
 		"saves an idle unlanded worktree to a branch and a private archive, removes it, and restores it whole",
 		async () => {
-			const dir = await busyWorktree("idle");
-			const tip = gitSync(repo, "rev-parse", "omp/agent/idle");
-			await care().run("user");
+			const dir = await w.busyWorktree("idle");
+			const tip = gitSync(w.repo, "rev-parse", "omp/agent/idle");
+			await w.care().run("user");
 
 			expect(await exists(dir)).toBe(false);
-			expect(listed()).not.toContain(dir);
+			expect(w.listed()).not.toContain(dir);
 			// The worktree's own branch is untouched; the uncommitted work sits on a new saved branch.
-			expect(gitSync(repo, "rev-parse", "omp/agent/idle")).toBe(tip);
-			const [record] = await listSavedWorktrees(repo, saved);
+			expect(gitSync(w.repo, "rev-parse", "omp/agent/idle")).toBe(tip);
+			const [record] = await listSavedWorktrees(w.repo, w.saved);
 			expect(record?.savedBranch).toMatch(/^ompdesk\/saved\//);
-			const savedFiles = gitSync(repo, "show", "--name-only", "--format=", record?.savedBranch ?? "");
+			const savedFiles = gitSync(w.repo, "show", "--name-only", "--format=", record?.savedBranch ?? "");
 			expect(savedFiles.split("\n").sort()).toEqual(["README.md", "notes/todo.md"]);
 			// Secrets never entered git, not even the saved branch: neither the ignored `.env` nor the untracked one.
-			expect(gitSync(repo, "log", "--all", "--format=%H", "--", ".env", "config/.env.local")).toBe("");
-			const archive = path.join(userData, "disk-care", "saved", record?.id ?? "");
+			expect(gitSync(w.repo, "log", "--all", "--format=%H", "--", ".env", "config/.env.local")).toBe("");
+			const archive = path.join(w.userData, "disk-care", "saved", record?.id ?? "");
 			if (process.platform !== "win32") {
 				expect((await fs.stat(archive)).mode & 0o777).toBe(0o700);
 				expect((await fs.stat(path.join(archive, "files", ".env"))).mode & 0o777).toBe(0o600);
 			}
-			expect(logs.find(([message]) => message === "worktree-saved")?.[1].restore).toContain("git worktree add");
+			expect(w.logs.find(([message]) => message === "worktree-saved")?.[1].restore).toContain("git worktree add");
 
-			const restored = await restoreSavedWorktree(record?.id ?? "", saved);
+			const restored = await restoreSavedWorktree(record?.id ?? "", w.saved);
 			expect(restored).toMatchObject({ path: dir, branch: "omp/agent/idle" });
 			expect(await fs.readFile(path.join(dir, "README.md"), "utf8")).toBe("hello, edited\n");
 			expect(await fs.readFile(path.join(dir, "notes/todo.md"), "utf8")).toBe("next: tests\n");
@@ -192,154 +76,34 @@ describe("disk care", () => {
 			// Uncommitted again, as it was: changed in the working tree, nothing staged.
 			expect(gitSync(dir, "diff", "--name-only")).toBe("README.md");
 			expect(gitSync(dir, "diff", "--cached", "--name-only")).toBe("");
-			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+			expect(await listSavedWorktrees(w.repo, w.saved)).toEqual([]);
 		},
 		SLOW,
 	);
-
-	it(
-		"keeps a worktree whose files a restore would not bring back byte for byte (core.autocrlf=true, an LF file)",
-		async () => {
-			const dir = await busyWorktree("eol");
-			// Git for Windows' default: a checkout of this repo writes CRLF, so the edited LF README would come back CRLF.
-			gitSync(dir, "config", "core.autocrlf", "true");
-			await care().run("user");
-			expect(await exists(dir)).toBe(true);
-			expect(listed()).toContain(dir);
-			expect(await fs.readFile(path.join(dir, "README.md"), "utf8")).toBe("hello, edited\n");
-			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
-		},
-		SLOW,
-	);
-
-	it(
-		"keeps a worktree whose repo has a .gitattributes line-ending rule, even with nothing changed by it",
-		async () => {
-			const dir = await busyWorktree("attrs");
-			await write(dir, ".gitattributes", "* text=auto\n");
-			gitSync(dir, "add", ".gitattributes");
-			gitSync(dir, "commit", "-q", "-m", "attrs");
-			await care().run("user");
-			expect(await exists(dir)).toBe(true);
-			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
-		},
-		SLOW,
-	);
-
-	for (const [where, setUp] of [
-		[
-			// Read lower-cased, the file is missing on a case-sensitive disk.
-			"a core.attributesFile named with capitals and ~",
-			async () => {
-				await write(path.join(root, "home"), "Git Config/MyAttributes", "*.md text eol=crlf\n");
-				gitSync(repo, "config", "core.attributesFile", "~/Git Config/MyAttributes");
-			},
-		],
-		[
-			// The saved commit carries it, so the restore's checkout applies it.
-			"an untracked .gitattributes",
-			async (dir: string) => write(dir, "notes/.gitattributes", "*.md text eol=crlf\n"),
-		],
-		[
-			"the main repository's info/attributes, which git reads for every linked worktree",
-			async () => write(gitSync(repo, "rev-parse", "--absolute-git-dir"), "info/attributes", "notes/** eol=crlf\n"),
-		],
-	] as const) {
-		it(
-			`keeps a worktree whose line-ending rules come from ${where}`,
-			async () => {
-				const dir = await busyWorktree("attrs");
-				await setUp(dir);
-				await care().run("user");
-				expect(listed()).toContain(dir);
-				expect(await fs.readFile(path.join(dir, "notes/todo.md"), "utf8")).toBe("next: tests\n");
-				expect(await listSavedWorktrees(repo, saved)).toEqual([]);
-				const kept = logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
-				expect(kept.join("\n")).toMatch(/a restore could rewrite files/);
-			},
-			SLOW,
-		);
-	}
-
-	/** sha256 of every file in the worktree but git's own `.git` link. */
-	async function fileHashes(dir: string): Promise<Record<string, string>> {
-		const hashes: Record<string, string> = {};
-		for (const entry of await fs.readdir(dir, { recursive: true, withFileTypes: true })) {
-			if (!entry.isFile()) continue;
-			const file = path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join("/");
-			if (file === ".git") continue;
-			hashes[file] = createHash("sha256")
-				.update(await fs.readFile(path.join(dir, file)))
-				.digest("hex");
-		}
-		return hashes;
-	}
-
-	for (const [what, autocrlf, attributes, removed] of [
-		["no conversion (core.autocrlf=false, no attributes)", "false", null, true],
-		["core.autocrlf=true and * text=auto (Git for Windows)", "true", "* text=auto\n", false],
-		["core.autocrlf=false and * text=auto", "false", "* text=auto\n", false],
-		["core.autocrlf=input", "input", null, false],
-		["* -text, which turns conversion off", "false", "* -text\n", true],
-	] as const) {
-		it(
-			`brings back CRLF, LF and mixed files byte for byte or keeps the worktree: ${what}`,
-			async () => {
-				const name = `eol-${what.replace(/\W+/g, "-").slice(0, 24)}`;
-				const dir = await worktree(name);
-				gitSync(dir, "config", "core.autocrlf", autocrlf);
-				if (attributes) await write(dir, ".gitattributes", attributes);
-				await write(dir, "crlf.txt", "one\r\ntwo\r\n");
-				await write(dir, "lf.txt", "one\ntwo\n");
-				await write(dir, "mixed.txt", "one\r\ntwo\nthree\r\n");
-				gitSync(dir, "add", ".");
-				gitSync(dir, "commit", "-q", "-m", "line endings");
-				// Uncommitted, staged and untracked work in every line ending, and an ignored file.
-				await write(dir, "crlf.txt", "one\r\ntwo\r\nthree\r\n");
-				await write(dir, "lf.txt", "one\ntwo\nthree\n");
-				gitSync(dir, "add", "lf.txt");
-				await write(dir, "mixed.txt", "one\ntwo\r\nthree\n");
-				await write(dir, "new-crlf.txt", "a\r\nb\r\n");
-				await write(dir, "new-mixed.txt", "a\nb\r\n");
-				await write(dir, ".env", "A=1\r\nB=2\n");
-				const before = await fileHashes(dir);
-
-				await care().run("user");
-				const [record] = await listSavedWorktrees(repo, saved);
-				expect(Boolean(record), "removed").toBe(removed);
-				if (record) {
-					expect(await exists(dir)).toBe(false);
-					await restoreSavedWorktree(record.id, saved);
-				}
-				expect(await fileHashes(dir)).toEqual(before);
-			},
-			SLOW,
-		);
-	}
 
 	it(
 		"keeps an idle worktree an open tab, a running process, a lock or a half-done merge holds",
 		async () => {
-			const tab = await busyWorktree("tab");
-			const proc = await busyWorktree("proc");
-			const locked = await busyWorktree("locked");
-			gitSync(repo, "worktree", "lock", locked);
-			const merging = await busyWorktree("merging");
+			const tab = await w.busyWorktree("tab");
+			const proc = await w.busyWorktree("proc");
+			const locked = await w.busyWorktree("locked");
+			gitSync(w.repo, "worktree", "lock", locked);
+			const merging = await w.busyWorktree("merging");
 			await fs.writeFile(path.join(merging, "README.md"), "hello\n");
 			gitSync(merging, "checkout", "-q", "--", "README.md");
 			const gitDir = gitSync(merging, "rev-parse", "--absolute-git-dir");
-			await fs.writeFile(path.join(gitDir, "MERGE_HEAD"), `${gitSync(repo, "rev-parse", "main")}\n`);
-			open = [path.join(tab, "src")];
-			processes = [path.join(proc, "notes")];
+			await fs.writeFile(path.join(gitDir, "MERGE_HEAD"), `${gitSync(w.repo, "rev-parse", "main")}\n`);
+			w.open = [path.join(tab, "src")];
+			w.processes = [path.join(proc, "notes")];
 
-			await care().run("user");
-			for (const dir of [tab, proc, locked, merging]) expect(listed(), dir).toContain(dir);
+			await w.care().run("user");
+			for (const dir of [tab, proc, locked, merging]) expect(w.listed(), dir).toContain(dir);
 			expect(await fs.readFile(path.join(proc, ".env"), "utf8")).toBe("API_KEY=edited-in-worktree\n");
 			// The process and the half-done merge are named in the log.
-			const kept = logs.filter(([message]) => message === "kept").map(([, details]) => details.reason);
+			const kept = w.logs.filter(([message]) => message === "kept").map(([, details]) => details.reason);
 			expect(kept).toContain("a process works in it");
 			expect(kept.some(reason => String(reason).includes("MERGE_HEAD"))).toBe(true);
-			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+			expect(await listSavedWorktrees(w.repo, w.saved)).toEqual([]);
 		},
 		SLOW,
 	);
@@ -347,10 +111,10 @@ describe("disk care", () => {
 	it(
 		"keeps everything where running processes cannot be told",
 		async () => {
-			const dir = await busyWorktree("unknown");
-			processes = null;
-			await care().run("user");
-			expect(listed()).toContain(dir);
+			const dir = await w.busyWorktree("unknown");
+			w.processes = null;
+			await w.care().run("user");
+			expect(w.listed()).toContain(dir);
 			expect(await exists(path.join(dir, "node_modules"))).toBe(true);
 		},
 		SLOW,
@@ -359,132 +123,19 @@ describe("disk care", () => {
 	it(
 		"archives a landed worktree's edited .env before removing it, so it can come back",
 		async () => {
-			const dir = await worktree("landed");
+			const dir = await w.worktree("landed");
 			await write(dir, "landed.ts", "x\n");
 			gitSync(dir, "add", "landed.ts");
 			gitSync(dir, "commit", "-q", "-m", "landed");
-			gitSync(repo, "merge", "--ff-only", "-q", "omp/agent/landed");
+			gitSync(w.repo, "merge", "--ff-only", "-q", "omp/agent/landed");
 			await write(dir, ".env", "TOKEN=only-here\n");
 			// Not idle: the landed rule does not wait.
-			await care(Date.now()).run("user");
+			await w.care(Date.now()).run("user");
 			expect(await exists(dir)).toBe(false);
-			const [record] = await listSavedWorktrees(repo, saved);
+			const [record] = await listSavedWorktrees(w.repo, w.saved);
 			expect(record).toMatchObject({ path: dir, savedBranch: null, archivedFiles: 1 });
-			await restoreSavedWorktree(record?.id ?? "", saved);
+			await restoreSavedWorktree(record?.id ?? "", w.saved);
 			expect(await fs.readFile(path.join(dir, ".env"), "utf8")).toBe("TOKEN=only-here\n");
-		},
-		SLOW,
-	);
-
-	const savedRefs = () =>
-		gitSync(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/ompdesk/saved")
-			.split("\n")
-			.filter(Boolean);
-
-	it.skipIf(process.platform === "win32")(
-		"keeps the saved branch, archive and record when git stops removing a worktree half way",
-		async () => {
-			const dir = await busyWorktree("partial");
-			// A folder git cannot empty: the forced removal deletes what it can and fails on it.
-			await fs.chmod(path.join(dir, "notes"), 0o555);
-			try {
-				await care().run("user");
-			} finally {
-				await fs.chmod(path.join(dir, "notes"), 0o755).catch(() => {});
-			}
-			expect(logs.some(([message, details]) => message === "failed" && details.step === "worktree-saved")).toBe(
-				true,
-			);
-			const [record] = await listSavedWorktrees(repo, saved);
-			expect(record?.path).toBe(dir);
-			expect(savedRefs()).toEqual([record?.savedBranch]);
-			expect(gitSync(repo, "show", `${record?.savedBranch}:notes/todo.md`)).toBe("next: tests");
-			const archive = path.join(userData, "disk-care", "saved", record?.id ?? "", "files");
-			expect(await fs.readFile(path.join(archive, ".env"), "utf8")).toBe("API_KEY=edited-in-worktree\n");
-		},
-		SLOW,
-	);
-
-	it(
-		"leaves the worktree untouched and keeps no stray branch or archive when the record cannot be written",
-		async () => {
-			const dir = await busyWorktree("unrecorded");
-			saved = new (class extends SavedWorktreeStore {
-				override update(): Promise<void> {
-					return Promise.reject(new Error("disk full"));
-				}
-			})(path.join(userData, "disk-care"));
-			await care().run("user");
-			expect(listed()).toContain(dir);
-			expect(await fs.readFile(path.join(dir, ".env"), "utf8")).toBe("API_KEY=edited-in-worktree\n");
-			expect(await fs.readFile(path.join(dir, "notes/todo.md"), "utf8")).toBe("next: tests\n");
-			expect(savedRefs()).toEqual([]);
-			expect(await fs.readdir(path.join(userData, "disk-care", "saved")).catch(() => [])).toEqual([]);
-		},
-		SLOW,
-	);
-
-	it(
-		"brings back what was staged and what was edited after it, each where it was",
-		async () => {
-			const dir = await busyWorktree("staged");
-			await write(dir, "README.md", "staged A\n");
-			gitSync(dir, "add", "README.md");
-			await write(dir, "README.md", "working B\n");
-			await write(dir, "added.ts", "staged only\n");
-			gitSync(dir, "add", "added.ts");
-			await fs.rm(path.join(dir, "added.ts"));
-			await care().run("user");
-			expect(listed()).not.toContain(dir);
-			const [record] = await listSavedWorktrees(repo, saved);
-			await restoreSavedWorktree(record?.id ?? "", saved);
-			expect(gitSync(dir, "show", ":README.md")).toBe("staged A");
-			expect(await fs.readFile(path.join(dir, "README.md"), "utf8")).toBe("working B\n");
-			expect(gitSync(dir, "show", ":added.ts")).toBe("staged only");
-			expect(await exists(path.join(dir, "added.ts"))).toBe(false);
-			expect(await fs.readFile(path.join(dir, "notes/todo.md"), "utf8")).toBe("next: tests\n");
-		},
-		SLOW,
-	);
-
-	it(
-		"keeps a worktree whose staged files hold a secret",
-		async () => {
-			const dir = await busyWorktree("staged-secret");
-			await write(dir, "config.json", '{"token": "ghp_abcdefghijklmnopqrstuvwxyz0123"}\n');
-			gitSync(dir, "add", "config.json");
-			await write(dir, "config.json", "{}\n");
-			await care().run("user");
-			expect(listed()).toContain(dir);
-			expect(savedRefs()).toEqual([]);
-			expect(
-				logs.some(([message, details]) => message === "kept" && String(details.reason).includes("secret")),
-			).toBe(true);
-		},
-		SLOW,
-	);
-
-	it(
-		"keeps a plain JSON password and a token past the first megabyte out of git, and brings both back",
-		async () => {
-			const dir = await busyWorktree("credentials");
-			await write(dir, "config.json", '{"password": "my-real-password"}\n');
-			await write(
-				dir,
-				"data/big.txt",
-				`${"a".repeat(2 * 1024 * 1024)}\nAPI token ghp_abcdefghijklmnopqrstuvwxyz0123\n`,
-			);
-			await care().run("user");
-			expect(listed()).not.toContain(dir);
-			const [record] = await listSavedWorktrees(repo, saved);
-			const savedFiles = gitSync(repo, "show", "--name-only", "--format=", record?.savedBranch ?? "");
-			expect(savedFiles.split("\n").sort()).toEqual(["README.md", "notes/todo.md"]);
-			expect(gitSync(repo, "log", "--all", "--format=%H", "--", "config.json", "data/big.txt")).toBe("");
-			await restoreSavedWorktree(record?.id ?? "", saved);
-			expect(await fs.readFile(path.join(dir, "config.json"), "utf8")).toContain("my-real-password");
-			expect(await fs.readFile(path.join(dir, "data/big.txt"), "utf8")).toContain(
-				"ghp_abcdefghijklmnopqrstuvwxyz0123",
-			);
 		},
 		SLOW,
 	);
@@ -492,7 +143,7 @@ describe("disk care", () => {
 	it(
 		"never takes a hand-made folder for a dev server's, Next's dev or a computed output folder",
 		async () => {
-			const dir = await worktree("tools");
+			const dir = await w.worktree("tools");
 			const pkg = (scripts: Record<string, string>, deps: Record<string, string>) =>
 				JSON.stringify({ scripts, devDependencies: deps });
 			await write(dir, "devonly/package.json", pkg({ dev: "vite" }, { vite: "5" }));
@@ -510,7 +161,7 @@ describe("disk care", () => {
 			await write(dir, "nextdev/out/notes.md", "mine\n");
 			await write(dir, "nextdev/.next/cache.bin", "built\n");
 			await write(dir, "computed/dist/handmade.html", "mine\n");
-			await care(Date.now() + 5 * 24 * 60 * 60_000).run("user");
+			await w.care(Date.now() + 5 * DAY_MS).run("user");
 			expect(await fs.readFile(path.join(dir, "devonly/dist/handmade.html"), "utf8")).toBe("mine\n");
 			expect(await fs.readFile(path.join(dir, "nextdev/out/notes.md"), "utf8")).toBe("mine\n");
 			expect(await fs.readFile(path.join(dir, "computed/dist/handmade.html"), "utf8")).toBe("mine\n");
@@ -523,71 +174,25 @@ describe("disk care", () => {
 	it(
 		"leaves a worktree with a half-done merge or rebase whole: its build output stays, landed or not",
 		async () => {
-			const merging = await busyWorktree("merge-artifacts");
+			const merging = await w.busyWorktree("merge-artifacts");
 			const mergeDir = gitSync(merging, "rev-parse", "--absolute-git-dir");
-			await fs.writeFile(path.join(mergeDir, "MERGE_HEAD"), `${gitSync(repo, "rev-parse", "main")}\n`);
-			const rebasing = await worktree("landed-rebase");
+			await fs.writeFile(path.join(mergeDir, "MERGE_HEAD"), `${gitSync(w.repo, "rev-parse", "main")}\n`);
+			const rebasing = await w.worktree("landed-rebase");
 			await write(rebasing, "landed.ts", "x\n");
 			gitSync(rebasing, "add", "landed.ts");
 			gitSync(rebasing, "commit", "-q", "-m", "landed");
-			gitSync(repo, "merge", "--ff-only", "-q", "omp/agent/landed-rebase");
+			gitSync(w.repo, "merge", "--ff-only", "-q", "omp/agent/landed-rebase");
 			await write(rebasing, "node_modules/left-pad/index.js", "module.exports = 1;\n");
 			await fs.mkdir(path.join(gitSync(rebasing, "rev-parse", "--absolute-git-dir"), "rebase-merge"));
 
-			await care(Date.now() + 5 * 24 * 60 * 60_000).run("user");
+			await w.care(Date.now() + 5 * DAY_MS).run("user");
 			expect(await exists(path.join(merging, "node_modules/left-pad/index.js"))).toBe(true);
 			expect(await exists(path.join(merging, "out/main/index.js"))).toBe(true);
-			expect(listed()).toContain(rebasing);
+			expect(w.listed()).toContain(rebasing);
 			expect(await exists(path.join(rebasing, "node_modules/left-pad/index.js"))).toBe(true);
-			const kept = logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
+			const kept = w.logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
 			expect(kept.filter(reason => reason.includes("MERGE_HEAD")).length).toBeGreaterThan(0);
 			expect(kept.filter(reason => reason.includes("rebase-merge")).length).toBeGreaterThan(0);
-		},
-		SLOW,
-	);
-
-	for (const [what, file] of [
-		["an already modified tracked file", "README.md"],
-		["an ignored .env", ".env"],
-	] as const) {
-		it(
-			`keeps the worktree, and its newest bytes, when ${what} is edited again while it is being saved`,
-			async () => {
-				const dir = await busyWorktree(`edit-${file.replace(/\W/g, "")}`);
-				let calls = 0;
-				// The second process read is the one right before removal: an editor (cwd elsewhere) writes just then,
-				// leaving `git status` the same.
-				const processFolders = async (): Promise<string[]> => {
-					if (++calls === 2) await fs.writeFile(path.join(dir, file), "edited again during the save\n");
-					return [];
-				};
-				await care(undefined, { processFolders }).run("user");
-				expect(listed()).toContain(dir);
-				expect(await fs.readFile(path.join(dir, file), "utf8")).toBe("edited again during the save\n");
-				expect(await listSavedWorktrees(repo, saved)).toEqual([]);
-				expect(savedRefs()).toEqual([]);
-				const kept = logs.filter(([message]) => message === "kept").map(([, details]) => String(details.reason));
-				expect(kept).toContain("it changed while it was being saved");
-			},
-			SLOW,
-		);
-	}
-
-	it.skipIf(process.platform === "win32")(
-		"restores the archived .env over the default a post-checkout hook writes, setting the default aside",
-		async () => {
-			const dir = await busyWorktree("hooked");
-			const hook = path.join(repo, ".git", "hooks", "post-checkout");
-			await fs.writeFile(hook, '#!/bin/sh\n[ -f .env ] || printf "DEFAULT=1\\n" > .env\n');
-			await fs.chmod(hook, 0o755);
-			await care().run("user");
-			expect(listed()).not.toContain(dir);
-			const [record] = await listSavedWorktrees(repo, saved);
-			const restored = await restoreSavedWorktree(record?.id ?? "", saved);
-			expect(restored.archive.skipped).toBe(0);
-			expect(await fs.readFile(path.join(dir, ".env"), "utf8")).toBe("API_KEY=edited-in-worktree\n");
-			expect(await fs.readFile(path.join(dir, ".env.ompdesk-before-restore"), "utf8")).toBe("DEFAULT=1\n");
-			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
 		},
 		SLOW,
 	);

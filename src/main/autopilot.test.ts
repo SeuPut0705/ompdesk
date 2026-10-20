@@ -27,7 +27,7 @@ import {
 	validAutopilotBranchPref,
 } from "./autopilot";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
-import { gitSync, initRepo } from "./local/git/test-repos";
+import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 import { createWorktree } from "./local/git/worktree";
 import type { SidecarLike } from "./sidecar-types";
 import type { RelaunchContinuation } from "./turn-resume";
@@ -321,15 +321,11 @@ async function commit(cwd: string, name: string): Promise<string> {
 	return gitSync(cwd, "rev-parse", "HEAD");
 }
 
-// One repository with its bare remote, built once (a dozen git processes) and copied for each test.
+// One repository with its bare remote, built once and copied for each test.
 let template = "";
 beforeAll(async () => {
 	template = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), "autopilot-template-")));
-	const repo = path.join(template, "main");
-	await initRepo(repo);
-	gitSync(template, "init", "-q", "--bare", "-b", "main", path.join(template, "remote.git"));
-	gitSync(repo, "remote", "add", "origin", path.join(template, "remote.git"));
-	gitSync(repo, "push", "-q", "origin", "main");
+	await initRepoWithRemote(path.join(template, "main"), path.join(template, "remote.git"));
 });
 
 afterAll(async () => {

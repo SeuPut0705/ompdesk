@@ -63,8 +63,12 @@ export default defineConfig({
 					sequence: { groupOrder: 1 },
 					// Starting a process costs several times more on Windows, and the git-driven tests
 					// (autopilot audit/ship, workspace walk) spawn dozens: 5 s timed them out on windows-latest.
+					// Their beforeEach hooks run git too (a repository, a remote, a worktree), so hooks get the same.
 					testTimeout: process.platform === "win32" ? 20_000 : 5_000,
+					hookTimeout: process.platform === "win32" ? 20_000 : 10_000,
 					exclude: [...configDefaults.exclude, RENDERER],
+					// The folder the git test repositories are copied from (`src/main/local/git/test-repos.ts`).
+					globalSetup: ["./scripts/vitest-test-repos.ts"],
 				},
 			},
 		],

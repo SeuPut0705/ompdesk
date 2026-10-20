@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AutopilotShipActionParams, ShipQueueItem } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { classifyPushFailure, type ShipDeps, ShipRunner, type ShipTarget } from "./autopilot-ship";
-import { gitSync, initRepo } from "./local/git/test-repos";
+import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 
 let tmp = "";
 let main = "";
@@ -62,10 +62,7 @@ beforeEach(async () => {
 	broadcasts = [];
 	reverted = [];
 	prs = [];
-	await initRepo(main);
-	gitSync(tmp, "init", "-q", "--bare", "-b", "main", remote);
-	gitSync(main, "remote", "add", "origin", remote);
-	gitSync(main, "push", "-q", "origin", "main");
+	await initRepoWithRemote(main, remote);
 	gitSync(main, "worktree", "add", "-q", "-b", branch, work);
 });
 
