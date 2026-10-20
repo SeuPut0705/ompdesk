@@ -715,8 +715,12 @@ for (const engine of ENGINES) {
 						expect(top).toBeGreaterThanOrEqual(header.y + header.height - 1);
 						await capture(page, "slash-menu", engine, theme, lang);
 						await keyboardUp(page, 330);
+						// The menu measures its room on `resize`, which comes after `data-kb` is set (WebKit on Windows: long enough
+						// for a read to land between them): wait for the fit, not for the attribute.
+						await expect
+							.poll(async () => (await boxOf(menu)).y)
+							.toBeGreaterThanOrEqual(header.y + header.height - 1);
 						const small = await boxOf(menu);
-						expect(small.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
 						expect(small.y + small.height).toBeLessThanOrEqual(330);
 					} finally {
 						await page.context().close();
