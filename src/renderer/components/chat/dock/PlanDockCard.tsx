@@ -48,7 +48,11 @@ interface ResolvedPlanPath {
  * else resolves against the session cwd. Returns null when a `local://` path
  * cannot be resolved because the session has no file on disk yet.
  */
-function resolvePlanFsPath(planFilePath: string, sessionFile: string | null, cwd: string): ResolvedPlanPath | null {
+export function resolvePlanFsPath(
+	planFilePath: string,
+	sessionFile: string | null,
+	cwd: string,
+): ResolvedPlanPath | null {
 	if (planFilePath.startsWith("local:")) {
 		if (!sessionFile?.endsWith(".jsonl")) return null;
 		const name = planFilePath.replace(/^local:\/+/, "");
@@ -56,9 +60,9 @@ function resolvePlanFsPath(planFilePath: string, sessionFile: string | null, cwd
 		const localRoot = `${sessionFile.slice(0, -".jsonl".length)}/local`;
 		return { fsPath: `${localRoot}/${name}`, localRoot };
 	}
-	if (planFilePath.startsWith("/")) return { fsPath: planFilePath, localRoot: null };
+	if (/^(\/|[A-Za-z]:[\\/]|\\\\)/.test(planFilePath)) return { fsPath: planFilePath, localRoot: null };
 	if (!cwd) return null;
-	return { fsPath: `${cwd.replace(/\/+$/, "")}/${planFilePath}`, localRoot: null };
+	return { fsPath: `${cwd.replace(/[\\/]+$/, "")}/${planFilePath}`, localRoot: null };
 }
 
 interface PlanStep {

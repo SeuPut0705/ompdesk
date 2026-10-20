@@ -8,7 +8,7 @@ import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
-import { PlanDockCard } from "./PlanDockCard";
+import { PlanDockCard, resolvePlanFsPath } from "./PlanDockCard";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -119,5 +119,27 @@ describe("PlanDockCard approval", () => {
 		expect(approveButton()).toBeUndefined();
 		await act(async () => usePlanApprovalStore.getState().clearProposal());
 		expect(approveButton()?.disabled).toBe(false);
+	});
+});
+
+describe("resolvePlanFsPath", () => {
+	it("passes an absolute path through on both platforms", () => {
+		expect(resolvePlanFsPath("/work/PLAN.md", null, "/work")).toEqual({ fsPath: "/work/PLAN.md", localRoot: null });
+		expect(resolvePlanFsPath("C:\\work\\PLAN.md", null, "C:\\work")).toEqual({
+			fsPath: "C:\\work\\PLAN.md",
+			localRoot: null,
+		});
+		expect(resolvePlanFsPath("D:/plans/PLAN.md", null, "C:\\work")).toEqual({
+			fsPath: "D:/plans/PLAN.md",
+			localRoot: null,
+		});
+	});
+
+	it("resolves a relative path against the session folder", () => {
+		expect(resolvePlanFsPath("PLAN.md", null, "/work/")).toEqual({ fsPath: "/work/PLAN.md", localRoot: null });
+		expect(resolvePlanFsPath("PLAN.md", null, "C:\\work\\")).toEqual({
+			fsPath: "C:\\work/PLAN.md",
+			localRoot: null,
+		});
 	});
 });
