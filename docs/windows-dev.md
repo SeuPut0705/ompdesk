@@ -31,7 +31,8 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
 ## Tests
 
 - `bun run test:platform` is the suite Windows CI runs (everything but `src/renderer/**`). Renderer tests never read the host platform, so the full `bunx vitest run` also works.
-- `@smoke` Playwright specs run on Windows CI. `terminal` and `mobile-web` are macOS only there (no stock omp PTY natives on the runner; the fake Tailscale is a bun shebang script). Run a Windows e2e on CI with `gh workflow run ci.yml --ref <branch> -f win_e2e=true`.
+- `@smoke` Playwright specs run on Windows CI. `terminal` is macOS only there (no stock omp PTY natives on the runner). Run a Windows e2e on CI with `gh workflow run ci.yml --ref <branch> -f win_e2e=true`.
+- The fake tools the e2e specs launch are files Windows can start: `.cmd` shims that call bun for omp, the Tailscale CLI, the test installer, Claude Code and the bundled Codex; a bun-compiled `gh.exe` for `gh` (`e2e/fixture/fake-gh-install.ts`; Windows starts `gh` only as `gh.exe`); npm's `node_modules` layout with its `.cmd` shim for an npm global. The mobile-web, phone-work, Autopilot-on-a-phone, GitHub sign-in, CLI and extension update specs therefore run on a Windows PC. The one that does not is `github-cli-install`: Windows installs gh with winget only, so the archive download it drives does not exist there (see AGENTS.md › Windows › Fake tools on Windows).
 - Never in a test: the real home. The real-home guard uses `os.userInfo().homedir`, which is `C:\Users\<you>` on Windows too.
 - Writing e2e specs for a Windows machine (each of these four failed on a developer PC at 125 % scaling with Git for Windows' default config):
   - `git worktree list` prints `C:/x/wt`, the app and `node:path` use `C:\x\wt`: compare through `path.normalize`, never as raw substrings.
