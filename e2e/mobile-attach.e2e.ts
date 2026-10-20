@@ -23,7 +23,7 @@ import * as path from "node:path";
 import { type BrowserType, chromium, devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, recordPhoneLoads, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { captureTo, exitApp, fixtureOmp } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_MOBILE_ATTACH;
@@ -163,25 +163,14 @@ async function startHost(engine: Engine, profile: Profile): Promise<Host> {
 
 /** The phone page with a tab of its own in the project (a web window starts with none). */
 async function openPhonePage(phone: Page, proxy: ServeProxy, project: string) {
-	// Seen once on a hosted runner: WebKit's "Frame load interrupted" (a navigation whose response it would not
-	// show) on the reload below. What every main-frame load answered is kept for the next look.
-	const loads: string[] = [];
-	phone.on("response", response => {
-		if (response.request().isNavigationRequest() && response.frame() === phone.mainFrame())
-			loads.push(
-				`${response.status()} ${response.headers()["content-type"] ?? "-"} ${new URL(response.url()).pathname}`,
-			);
-	});
-	phone.on("framenavigated", frame => {
-		if (frame === phone.mainFrame()) loads.push(`navigated ${new URL(frame.url()).pathname}`);
-	});
+	const loads = recordPhoneLoads(phone);
 	await phone.goto(`${proxy.url}/`);
 	await phonePaired(phone);
-	await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
 	try {
+		await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
 		await phone.reload();
 	} catch (error) {
-		await test.info().attach("phone-loads.txt", { body: loads.join("\n") });
+		await loads.attach("phone-loads.txt");
 		throw error;
 	}
 	await phonePaired(phone);

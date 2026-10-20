@@ -8,7 +8,7 @@
  */
 import * as http from "node:http";
 import * as net from "node:net";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { FixtureTailscale } from "./fake-tailscale-install";
 
 /**
@@ -26,6 +26,35 @@ export async function phonePaired(page: Page): Promise<void> {
 			{ timeout: 60_000, message: "the phone's page is paired" },
 		)
 		.toBe(true);
+}
+
+/**
+ * Every main-frame load of the phone's page from now on (status, type, path) and each navigation, for an
+ * attachment when a step meets one it did not expect. Seen on hosted runners only, in WebKit: a page that passed
+ * `phonePaired` navigated once more under the next step ("Frame load interrupted", "Execution context was
+ * destroyed"); the page's own reload reason (`omp.web.reload-reasons`) is added when the attachment is made.
+ */
+export function recordPhoneLoads(page: Page): { attach: (name: string) => Promise<void> } {
+	const loads: string[] = [];
+	const started = Date.now();
+	page.on("response", response => {
+		if (response.request().isNavigationRequest() && response.frame() === page.mainFrame())
+			loads.push(
+				`+${Date.now() - started}ms ${response.status()} ${response.headers()["content-type"] ?? "-"} ${new URL(response.url()).pathname}`,
+			);
+	});
+	page.on("framenavigated", frame => {
+		if (frame === page.mainFrame())
+			loads.push(`+${Date.now() - started}ms navigated ${new URL(frame.url()).pathname}`);
+	});
+	return {
+		attach: async name => {
+			const reasons = await page
+				.evaluate(() => localStorage.getItem("omp.web.reload-reasons"))
+				.catch(error => `unreadable: ${String(error)}`);
+			await test.info().attach(name, { body: [...loads, `reload reasons: ${reasons}`].join("\n") });
+		},
+	};
 }
 
 /** One of OMPdesk's published serve handlers: its address, the loopback port it proxies to and the secret path. */

@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { type BrowserType, chromium, devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
-import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
+import { phonePaired, recordPhoneLoads, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { controlToolCaller, exitApp, fixtureOmp, openedSessions, variants } from "./harness";
 
 const ENGINES = variants([
@@ -79,10 +79,16 @@ for (const engine of ENGINES)
 
 			const context = await browser.newContext({ ...engine.device });
 			const phone = await context.newPage();
+			const loads = recordPhoneLoads(phone);
 			await phone.goto(`${proxy.url}/`);
 			await phonePaired(phone);
-			await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
-			await phone.reload();
+			try {
+				await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
+				await phone.reload();
+			} catch (error) {
+				await loads.attach("phone-loads.txt");
+				throw error;
+			}
 			await expect(phone.locator("[data-composer-input]").first()).toBeEditable({ timeout: 60_000 });
 			const strip = phone.locator("[data-work-strip] [data-work-chip]");
 
