@@ -18,7 +18,7 @@ import {
 	prReview,
 } from "./git/pr";
 import * as scm from "./git/scm";
-import { getGitSessionChanges, sessionStartedAt } from "./git/session-changes";
+import { getGitUnlanded } from "./git/unlanded";
 import { createWorktree, removeWorktree, worktreeBranchSource } from "./git/worktree";
 import type { LocalHandler } from "./types";
 
@@ -28,9 +28,8 @@ const pathsOrAll = (value: unknown) => (value === "all" ? "all" : Array.isArray(
 export const handlers: Record<string, LocalHandler> = {
 	get_git_status: (_command, ctx) => getGitStatus(ctx.cwd),
 	get_git_changes: (_command, ctx) => getGitChanges(ctx.cwd),
-	// The work board's "Changed" row: since the session started, its own commits included (git/session-changes.ts).
-	get_git_session_changes: async (_command, ctx) =>
-		getGitSessionChanges(ctx.cwd, ctx.sessionFile ? await sessionStartedAt(ctx.sessionFile) : null),
+	// The work board's "Not in main yet" row: a session branch's commits and uncommitted work (git/unlanded.ts).
+	get_git_unlanded: (_command, ctx) => getGitUnlanded(ctx.cwd),
 	get_git_fingerprint: (command, ctx) => getGitFingerprint(ctx.cwd, str(command.root)),
 	get_git_diff: (command, ctx) => getGitDiff(ctx.cwd, str(command.path) ?? ""),
 	worktree_create: (command, ctx) =>

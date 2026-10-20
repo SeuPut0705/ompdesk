@@ -32,9 +32,7 @@ Reflect.set(window, "omp", {
 		getJobs: vi.fn(async () => ok("get_jobs", { rows: [] })),
 		getGoal: vi.fn(async () => ok("get_goal", { enabled: false })),
 		getUsage: vi.fn(async () => ok("get_usage", { reports: [] })),
-		getGitSessionChanges: vi.fn(async () =>
-			ok("get_git_session_changes", { isRepo: false, root: null, base: null, files: [] }),
-		),
+		getGitUnlanded: vi.fn(async () => ok("get_git_unlanded", null)),
 		setAutopilot,
 	},
 	prefs: { get: vi.fn(async () => undefined), set: prefsSet },

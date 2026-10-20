@@ -390,7 +390,7 @@ export type RpcCommand =
 	| { id?: string; type: "get_git_status" }
 	| { id?: string; type: "get_git_changes" }
 	// Changes since the session started (its own commits included): the work board's "Changed" row. Answered in main.
-	| { id?: string; type: "get_git_session_changes" }
+	| { id?: string; type: "get_git_unlanded" }
 	| { id?: string; type: "get_git_fingerprint"; root?: string }
 	| { id?: string; type: "get_git_diff"; path: string }
 	| {
@@ -1020,6 +1020,15 @@ export interface RpcGitChanges {
 	truncated: boolean;
 	/** Branch, upstream and in-progress operation of the checkout, for the source-control header. */
 	head?: RpcGitHead;
+}
+
+/** `get_git_unlanded`: what a branch has not landed in the default branch yet (git/unlanded.ts). */
+export interface RpcGitUnlanded {
+	branch: string;
+	/** The default branch's short name (`main`). */
+	target: string;
+	files: RpcGitChanges["files"];
+	truncated: boolean;
 }
 
 export interface RpcGitHead {

@@ -50,7 +50,7 @@ Reflect.set(window, "omp", {
 		getGoal,
 		getUsage,
 		commandForTab,
-		getGitSessionChanges: vi.fn(async () => ({ type: "response", success: false, error: "no git" })),
+		getGitUnlanded: vi.fn(async () => ({ type: "response", success: false, error: "no git" })),
 	},
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
@@ -189,7 +189,7 @@ describe("work board opened sessions", () => {
 				worktree: { name: "m", branch: "omp/agent/m", baseCwd: "/w", path: "/wt/m" },
 			}),
 		]);
-		expect(opened()?.textContent).toContain("Opened sessions");
+		expect(opened()?.textContent).toContain("Child sessions");
 		const listedRows = () => [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
 		// Three rows, waiting first; the fourth folds into one "+1 more" row until it is tapped.
 		expect(listedRows().map(row => row.getAttribute("data-board-opened"))).toEqual(["c-ask", "c-merge", "c-run"]);

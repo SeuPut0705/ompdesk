@@ -1,10 +1,11 @@
 /**
- * The work board's session rows, one line each: what the checkout changed since the session started, the session's
- * newest check (a failed one is its own section at the top), the dev servers running, the other sessions in the
- * checkout and the memory the turn used. `useSessionBoard` reads them all once; the sections draw what it found.
+ * The work board's "Current work" rows, one line each: what the turn's own edit tools changed (the last turn's while
+ * idle), what the session's branch has not landed in main yet, the session's newest check (a failed one is its own
+ * section at the top), the dev servers running, the other sessions in the checkout and the memory the turn used.
+ * `useSessionBoard` reads them all once; the section draws what it found.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RpcGitChanges } from "../../../../shared/rpc-types";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { routeToSessionOwner } from "../../../hooks/use-session-switch";
 import { formatDuration, formatElapsed } from "../../../lib/format";
@@ -21,6 +22,7 @@ import { useUiStore } from "../../../stores/ui";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunStores } from "../../chat/work/use-work-run";
+import { workOutcomes } from "../../chat/work/work-view";
 import { BoardRow, BoardSection, Dot } from "./board-parts";
 import {
 	type ChangesSummary,
@@ -33,12 +35,15 @@ import {
 	peerOpen,
 	recallTitles,
 	type ScopedPeer,
-	summarizeChanges,
 	summarizePeers,
+	summarizeTurnFiles,
+	summarizeUnlanded,
+	type UnlandedSummary,
 } from "./session-board";
 
 export type SessionRowModel =
 	| ({ kind: "changes" } & ChangesSummary)
+	| ({ kind: "unlanded" } & UnlandedSummary)
 	| { kind: "check"; check: LastCheck }
 	| ({ kind: "dev-server" } & DevServer)
 	| ({ kind: "peers" } & PeersSummary)
@@ -47,28 +52,58 @@ export type SessionRowModel =
 export interface SessionBoard {
 	/** The newest check when it failed: the board's own section. */
 	failedCheck: LastCheck | null;
-	/** Changed, last check (passed or running), dev servers, same checkout, memory: only those with something to say. */
+	/** Changed, not in main yet, last check (passed or running), dev servers, same checkout, memory: only those with
+	 * something to say. */
 	rows: SessionRowModel[];
 }
 
+/** The turn the "Changed" row counts: the running one, else the last that ended (its `end`). */
+export interface TurnWindow {
+	start: number;
+	end: number | null;
+}
+
+/** Calls may be stamped a little before the turn's own start (one clock, two events). */
+const TURN_CLOCK_SLACK_MS = 500;
+
 /**
- * What the checkout changed since the session started, its own commits included (`get_git_session_changes`: git from
- * the newest commit before the session's first entry to the working tree), read through this tab's runtime (a paired
- * host's tab reads its host) once on mount and once each time a turn settles: no timer.
+ * What the turn's own edit tools changed (write, edit, ast_edit, apply_patch, as the work card counts them), live while
+ * it runs. Never git: in a checkout other sessions share, git cannot tell this session's edits from theirs.
  */
-function useChanges(): ChangesSummary | null {
+function useTurnChanges(turn: TurnWindow | null): ChangesSummary | null {
+	const { tools } = useRunStores();
+	const cwd = useSessionStore(state => state.cwd);
+	const finishedVersion = useToolsStore(state => state.finishedVersion);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
+	return useMemo(() => {
+		if (!turn) return null;
+		const entries = [...tools.getState().finishedTools.values()].filter(
+			entry =>
+				entry.startTime >= turn.start - TURN_CLOCK_SLACK_MS &&
+				(turn.end === null || entry.startTime <= turn.end + TURN_CLOCK_SLACK_MS),
+		);
+		return summarizeTurnFiles(workOutcomes(entries, undefined, cwd).files);
+	}, [turn?.start, turn?.end, tools, cwd, finishedVersion]);
+}
+
+/**
+ * What the session's branch has not landed in main yet (`get_git_unlanded`; null on main itself), read through this
+ * tab's runtime (a paired host's tab reads its host) once on mount and once each time a turn settles: no timer.
+ */
+function useUnlanded(): UnlandedSummary | null {
 	const rpc = useTabRpc();
 	const turnActive = useTodoStore(state => state.turnActive);
-	const [changes, setChanges] = useState<ChangesSummary | null>(null);
+	const [unlanded, setUnlanded] = useState<UnlandedSummary | null>(null);
 	const read = useCallback(() => {
 		let current = true;
 		void rpc
-			.getGitSessionChanges()
+			.getGitUnlanded()
 			.then(response => {
-				if (current) setChanges(response.success ? summarizeChanges(response.data as RpcGitChanges) : null);
+				if (current)
+					setUnlanded(response.success ? summarizeUnlanded(response.data as RpcGitUnlanded | null) : null);
 			})
 			.catch(() => {
-				if (current) setChanges(null);
+				if (current) setUnlanded(null);
 			});
 		return () => {
 			current = false;
@@ -81,7 +116,7 @@ function useChanges(): ChangesSummary | null {
 		wasActive.current = turnActive;
 		return settled ? read() : undefined;
 	}, [turnActive, read]);
-	return changes;
+	return unlanded;
 }
 
 /** The session's newest check over its finished and live calls, with the verdicts of backgrounded ones. */
@@ -98,8 +133,9 @@ export function useLastCheck(): LastCheck | null {
 	);
 }
 
-export function useSessionBoard(): SessionBoard {
-	const changes = useChanges();
+export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
+	const changes = useTurnChanges(turn);
+	const unlanded = useUnlanded();
 	const check = useLastCheck();
 	const jobs = useBackgroundJobs();
 	const peers = useSessionStore(state => state.checkoutPeers);
@@ -108,14 +144,16 @@ export function useSessionBoard(): SessionBoard {
 	const titles = useMemo(() => recallTitles(messages), [messages]);
 	return useMemo(() => {
 		const rows: SessionRowModel[] = [];
-		if (changes) rows.push({ kind: "changes", ...changes });
+		// A finished turn that changed nothing says so; a running one only once it changed something.
+		if (changes && (changes.files > 0 || turn?.end != null)) rows.push({ kind: "changes", ...changes });
+		if (unlanded) rows.push({ kind: "unlanded", ...unlanded });
 		if (check && check.state !== "failed") rows.push({ kind: "check", check });
 		for (const server of servers) rows.push({ kind: "dev-server", ...server });
 		const company = summarizePeers(peers);
 		if (company) rows.push({ kind: "peers", ...company });
 		if (titles.length > 0) rows.push({ kind: "recall", titles });
 		return { failedCheck: check?.state === "failed" ? check : null, rows };
-	}, [changes, check, servers, peers, titles]);
+	}, [changes, unlanded, check, servers, peers, titles, turn?.end]);
 }
 
 const plural = (count: number) => (count === 1 ? "" : "s");
@@ -151,22 +189,48 @@ function CheckRow({ check }: { check: LastCheck }) {
 	);
 }
 
-function ChangesRow({ files, added, removed }: ChangesSummary) {
+/** "N files changed +a −r"; a capped count reads as a floor ("1000+") and its lines are left out, never read as exact. */
+function changesText(summary: ChangesSummary): { count: string | number; meta: ReactNode } {
+	return {
+		count: summary.capped ? `${summary.files}+` : summary.files,
+		meta:
+			!summary.capped && summary.added + summary.removed > 0 ? (
+				<span className="tabular-nums">
+					<span className="text-(--sc-success)">+{summary.added}</span>{" "}
+					<span className="text-(--sc-danger)">−{summary.removed}</span>
+				</span>
+			) : undefined,
+	};
+}
+
+function ChangesRow(summary: ChangesSummary) {
 	const t = useT();
+	const { count, meta } = changesText(summary);
 	return (
 		<BoardRow
 			data={{ "data-board-session": "changes" }}
-			label={t("chat.work.filesChanged", { count: files, plural: plural(files) })}
-			lead={<Dot tone="muted" />}
-			meta={
-				added + removed > 0 ? (
-					<span className="tabular-nums">
-						<span className="text-(--sc-success)">+{added}</span>{" "}
-						<span className="text-(--sc-danger)">−{removed}</span>
-					</span>
-				) : undefined
+			label={
+				summary.files > 0
+					? t("chat.work.filesChanged", { count, plural: plural(summary.files) })
+					: t("workBoard.noChanges")
 			}
-			onClick={() => useUiStore.getState().setPanelTab("diff")}
+			lead={<Dot tone="muted" />}
+			meta={meta}
+			onClick={summary.files > 0 ? () => useUiStore.getState().setPanelTab("diff") : undefined}
+		/>
+	);
+}
+
+function UnlandedRow(summary: UnlandedSummary) {
+	const t = useT();
+	const { count, meta } = changesText(summary);
+	return (
+		<BoardRow
+			data={{ "data-board-session": "unlanded" }}
+			label={t("workBoard.current.unlanded", { target: summary.target, count, plural: plural(summary.files) })}
+			lead={<Dot tone="muted" />}
+			meta={meta}
+			title={t("workBoard.current.unlandedTitle", { branch: summary.branch, target: summary.target })}
 		/>
 	);
 }
@@ -307,7 +371,18 @@ function RecallRow({ titles }: { titles: string[] }) {
 function SessionRow({ row }: { row: SessionRowModel }) {
 	switch (row.kind) {
 		case "changes":
-			return <ChangesRow added={row.added} files={row.files} removed={row.removed} />;
+			return <ChangesRow added={row.added} capped={row.capped} files={row.files} removed={row.removed} />;
+		case "unlanded":
+			return (
+				<UnlandedRow
+					added={row.added}
+					branch={row.branch}
+					capped={row.capped}
+					files={row.files}
+					removed={row.removed}
+					target={row.target}
+				/>
+			);
 		case "check":
 			return <CheckRow check={row.check} />;
 		case "dev-server":
@@ -329,11 +404,11 @@ export function FailedCheckSection({ check }: { check: LastCheck }) {
 	);
 }
 
-export function SessionSection({ rows }: { rows: SessionRowModel[] }) {
+export function CurrentSection({ rows, aside }: { rows: SessionRowModel[]; aside?: string }) {
 	const t = useT();
 	if (rows.length === 0) return null;
 	return (
-		<BoardSection id="session" title={t("workBoard.session.title")}>
+		<BoardSection aside={aside} id="current" title={t("workBoard.current")}>
 			{rows.map(row => (
 				<SessionRow key={row.kind === "dev-server" ? `dev-server:${row.url}` : row.kind} row={row} />
 			))}
@@ -343,15 +418,15 @@ export function SessionSection({ rows }: { rows: SessionRowModel[] }) {
 
 /**
  * The board mounts these from a lazy chunk (the phone's first screen has no room for the rows' code): the failed
- * check at its top, the session section near its foot, and a watcher that tells the strip a check failed.
+ * check at its top, the "Current work" section near its foot, and a watcher that tells the strip a check failed.
  */
 export function FailedCheckSlot() {
 	const check = useLastCheck();
 	return check?.state === "failed" ? <FailedCheckSection check={check} /> : null;
 }
 
-export function SessionSlot() {
-	return <SessionSection rows={useSessionBoard().rows} />;
+export function SessionSlot({ turn, aside }: { turn: TurnWindow | null; aside?: string }) {
+	return <CurrentSection aside={aside} rows={useSessionBoard(turn).rows} />;
 }
 
 export function FailedCheckWatch({ onChange }: { onChange: (failed: boolean) => void }) {

@@ -1,33 +1,54 @@
 /**
- * What the work board's "This session" rows and the failed-check row read, as plain data (WorkBoardSession.tsx draws
- * them): the checkout's uncommitted changes, the session's newest check, the other sessions in the checkout, the
- * memory the turn used and the dev servers running. Everything here is a pure function of store snapshots.
+ * What the work board's "Current work" rows and the failed-check row read, as plain data (WorkBoardSession.tsx draws
+ * them): the files the turn's own edit tools changed, what the session's branch has not landed yet, the session's
+ * newest check, the other sessions in the checkout, the memory the turn used and the dev servers running. Everything
+ * here is a pure function of store snapshots.
  */
 import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import { memoryRecallDetails } from "../../../../../resources/gui-bridge/modes/memory-recall-contracts";
-import type { AgentMessage, RpcAsyncJobItem, RpcGitChanges } from "../../../../shared/rpc-types";
+import type { AgentMessage, RpcAsyncJobItem, RpcGitUnlanded } from "../../../../shared/rpc-types";
 import { resultDetails } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import type { ToolEntry } from "../../../stores/tools";
 import type { BackgroundJobVerdict } from "../../chat/completion-events";
 import { type CheckKind, checkKind, summarizeChecks } from "../../chat/work/work-checks";
-import { workOutcomes } from "../../chat/work/work-view";
+import { type WorkFileOutcome, workOutcomes } from "../../chat/work/work-view";
 
-/** What the checkout changed since the session started (`get_git_session_changes`). */
+/** A count of changed files and their lines. */
 export interface ChangesSummary {
 	files: number;
 	added: number;
 	removed: number;
+	/** The list was cut (`truncated`): `files` is a floor ("1000+"), the lines unknown. */
+	capped: boolean;
 }
 
-/** `null`: not a repository, or nothing changed. */
-export function summarizeChanges(changes: RpcGitChanges | null): ChangesSummary | null {
-	if (!changes?.isRepo || changes.files.length === 0) return null;
+function summarize(files: readonly { added?: number; removed?: number }[], capped: boolean): ChangesSummary {
 	return {
-		files: changes.files.length,
-		added: changes.files.reduce((sum, file) => sum + (file.added ?? 0), 0),
-		removed: changes.files.reduce((sum, file) => sum + (file.removed ?? 0), 0),
+		files: files.length,
+		added: files.reduce((sum, file) => sum + (file.added ?? 0), 0),
+		removed: files.reduce((sum, file) => sum + (file.removed ?? 0), 0),
+		capped,
 	};
+}
+
+/**
+ * What the turn's own edit tools changed (the work card's file outcomes): never git, so another session's work in a
+ * shared checkout never counts as this one's.
+ */
+export function summarizeTurnFiles(files: readonly WorkFileOutcome[]): ChangesSummary {
+	return summarize(files, false);
+}
+
+/** What the session's branch has not landed in its default branch (`get_git_unlanded`); null on main or when none. */
+export interface UnlandedSummary extends ChangesSummary {
+	branch: string;
+	target: string;
+}
+
+export function summarizeUnlanded(unlanded: RpcGitUnlanded | null): UnlandedSummary | null {
+	if (!unlanded || unlanded.files.length === 0) return null;
+	return { ...summarize(unlanded.files, unlanded.truncated), branch: unlanded.branch, target: unlanded.target };
 }
 
 /** The session's newest test, typecheck, lint or build command, as the work card reads it. */

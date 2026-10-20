@@ -12,6 +12,7 @@ import { useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
+import type { TurnWindow } from "./WorkBoardSession";
 
 const { document, window, Event, CustomEvent, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -25,28 +26,31 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 let rows: RpcJobRow[] = [];
-let changes: unknown = { isRepo: false, root: null, base: null, files: [], truncated: false };
+/** What `get_git_unlanded` answers: null on main itself, as by default. */
+let unlanded: unknown = null;
+/** The turn "Changed" counts: the board passes the running or last finished turn. */
+let turn: TurnWindow | null = null;
 const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows } }));
-const getGitSessionChanges = vi.fn(async () => ({ success: true, data: changes }));
+const getGitUnlanded = vi.fn(async () => ({ success: true, data: unlanded }));
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGitSessionChanges },
+	rpc: { getJobs, getGitUnlanded },
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
 
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
 const { createRoot } = await import("react-dom/client");
-const { FailedCheckSection, FailedCheckWatch, SessionSection, useSessionBoard } = await import("./WorkBoardSession");
+const { FailedCheckSection, FailedCheckWatch, CurrentSection, useSessionBoard } = await import("./WorkBoardSession");
 const { peerOpen } = await import("./session-board");
 const { REVEAL_STEP_EVENT } = await import("../../chat/work/reveal-step");
 /** What the strip's watcher reports (WorkBoardChip's failed-check label). */
 const watched = vi.fn();
 
 function Host() {
-	const board = useSessionBoard();
+	const board = useSessionBoard(turn);
 	return (
 		<>
 			{board.failedCheck ? <FailedCheckSection check={board.failedCheck} /> : null}
-			<SessionSection rows={board.rows} />
+			<CurrentSection rows={board.rows} />
 			<FailedCheckWatch onChange={watched} />
 		</>
 	);
@@ -129,7 +133,7 @@ function serverJob(label: string, resultPreview?: string): RpcJobRow {
 }
 
 beforeEach(() => {
-	getGitSessionChanges.mockClear();
+	getGitUnlanded.mockClear();
 });
 
 afterEach(async () => {
@@ -137,7 +141,8 @@ afterEach(async () => {
 	container?.remove();
 	document.body.replaceChildren();
 	rows = [];
-	changes = { isRepo: false, root: null, base: null, files: [], truncated: false };
+	unlanded = null;
+	turn = null;
 	useMessagesStore.getState().reset();
 	useWorkBoardStore.getState().reset();
 	useTodoStore.getState().reset();
@@ -147,58 +152,113 @@ afterEach(async () => {
 	useUiStore.setState({ panelVisible: false });
 });
 
+function edit(path: string, diff: string, startTime: number): ToolEntry {
+	return {
+		toolName: "edit",
+		args: { path },
+		status: "done",
+		streamingArgs: "",
+		result: { content: [{ type: "text", text: "ok" }], details: { diff } },
+		isError: false,
+		startTime,
+		endTime: startTime + 100,
+	};
+}
+
 describe("Changed row", () => {
-	it("counts what the checkout changed since the session started, with added and removed lines, and opens Changes", async () => {
-		changes = {
-			isRepo: true,
-			root: "/w",
-			base: "HEAD",
-			truncated: false,
-			files: [
-				{ path: "a.ts", status: "M", added: 3, removed: 1 },
-				{ path: "b.ts", status: "M", added: 2, removed: 1 },
-				{ path: "new.txt", status: "?" },
-			],
-		};
+	it("counts the files the turn's own edit tools changed, with their lines, and opens Changes", async () => {
+		turn = { start: 10_000, end: null };
+		finished(
+			// The previous turn's edit is not this turn's.
+			["e0", edit("src/old.ts", "+1 old", 2000)],
+			["e1", edit("src/a.ts", "+1 one\n+2 two\n-3 three", 11_000)],
+			["e2", edit("src/b.ts", "+1 b", 12_000)],
+		);
 		await mount();
-		expect(row("changes")?.textContent).toContain("3 files changed");
-		expect(row("changes")?.textContent).toContain("+5");
-		expect(row("changes")?.textContent).toContain("−2");
+		expect(row("changes")?.textContent).toContain("2 files changed");
+		expect(row("changes")?.textContent).toContain("+3");
+		expect(row("changes")?.textContent).toContain("−1");
 		await press(row("changes"));
 		expect(useUiStore.getState().panelTab).toBe("diff");
 	});
 
-	it("is absent outside a repository and when nothing changed", async () => {
+	it("never counts what git sees in the checkout: other sessions' commits and edits stay out", async () => {
+		// The user's report: a session in a checkout others push to read 1000 files, +149005 −42996 of everyone's work.
+		// The row reads the turn's own tools; git only answers the separate "not in main yet" row of a branch.
+		turn = { start: 10_000, end: 20_000 };
+		finished(["e1", edit("src/mine.ts", "+1 mine", 11_000)]);
+		unlanded = null;
+		await mount();
+		expect(row("changes")?.textContent).toContain("1 file changed");
+		expect(row("unlanded")).toBeNull();
+	});
+
+	it("says a finished turn changed nothing, and is absent while a turn has changed nothing yet", async () => {
+		turn = { start: 10_000, end: 20_000 };
+		await mount();
+		expect(row("changes")?.textContent).toBe("No files changed");
+		await act(async () => root.unmount());
+		turn = { start: 10_000, end: null };
 		await mount();
 		expect(row("changes")).toBeNull();
-		changes = { isRepo: true, root: "/w", base: "HEAD", files: [], truncated: false };
-		await act(async () => {
-			useTodoStore.getState().setTurnActive(true, Date.now());
-		});
-		await act(async () => {
-			useTodoStore.getState().setTurnActive(false);
-		});
-		expect(row("changes")).toBeNull();
-		expect(section("session")).toBeNull();
+		expect(section("current")).toBeNull();
+	});
+
+	it("shows what the session's branch has not landed in main yet, under Current work", async () => {
+		unlanded = {
+			branch: "omp/agent/sidebar",
+			target: "main",
+			truncated: false,
+			files: [
+				{ path: "a.ts", status: "M", added: 3, removed: 1 },
+				{ path: "b.ts", status: "A", added: 2, removed: 1 },
+				{ path: "new.txt", status: "??" },
+			],
+		};
+		await mount();
+		expect(row("unlanded")?.textContent).toContain("Not in main yet · 3 files");
+		expect(row("unlanded")?.textContent).toContain("+5");
+		expect(row("unlanded")?.getAttribute("title")).toBe(
+			"omp/agent/sidebar: commits and uncommitted work not in main yet",
+		);
+		expect(section("current")?.querySelector(".omp-work-board-title")?.textContent).toBe("Current work");
+	});
+
+	it("reads a capped list as at least that many, never as an exact count", async () => {
+		unlanded = {
+			branch: "omp/agent/big",
+			target: "main",
+			truncated: true,
+			files: Array.from({ length: 1000 }, (_, index) => ({
+				path: `f${index}.ts`,
+				status: "M",
+				added: 1,
+				removed: 0,
+			})),
+		};
+		await mount();
+		expect(row("unlanded")?.textContent).toContain("1000+ files");
+		// Lines of a cut list would read as exact too: left out.
+		expect(row("unlanded")?.textContent).not.toContain("+1000");
 	});
 
 	it("reads once on mount and once when a turn settles, never on a timer", async () => {
 		vi.useFakeTimers();
 		try {
 			await mount();
-			expect(getGitSessionChanges).toHaveBeenCalledTimes(1);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(true, Date.now());
 			});
-			expect(getGitSessionChanges).toHaveBeenCalledTimes(1);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
 			await act(async () => {
 				vi.advanceTimersByTime(60_000);
 			});
-			expect(getGitSessionChanges).toHaveBeenCalledTimes(1);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(false);
 			});
-			expect(getGitSessionChanges).toHaveBeenCalledTimes(2);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -214,7 +274,7 @@ describe("Last check row", () => {
 		expect(check?.textContent).toContain("128 tests passed");
 		expect(check?.textContent).toContain("2.0s");
 		expect(check?.closest("button")?.getAttribute("title") ?? check?.getAttribute("title")).toBe("bunx vitest run");
-		expect(section("session")).not.toBeNull();
+		expect(section("current")).not.toBeNull();
 		expect(section("check")).toBeNull();
 	});
 
@@ -222,7 +282,7 @@ describe("Last check row", () => {
 		finished(["b1", bash("ls -la")]);
 		await mount();
 		expect(row("check")).toBeNull();
-		expect(section("session")).toBeNull();
+		expect(section("current")).toBeNull();
 	});
 
 	it("a failed newest check is its own section, not a session row, and its tap asks the transcript for the call", async () => {
@@ -243,7 +303,7 @@ describe("Last check row", () => {
 		const failed = section("check")?.querySelector('[data-board-session="check"]');
 		expect(failed?.getAttribute("data-state")).toBe("failed");
 		expect(failed?.textContent).toContain("2 tests failed");
-		expect(container.querySelectorAll('[data-board-section="session"] [data-board-session="check"]')).toHaveLength(0);
+		expect(container.querySelectorAll('[data-board-section="current"] [data-board-session="check"]')).toHaveLength(0);
 		// The strip hears it too (FailedCheckWatch, the strip's label "Check failed").
 		expect(watched).toHaveBeenLastCalledWith(true);
 		// The tap asks the board's own tab's transcript to open the card holding the call (it may be collapsed or
@@ -342,7 +402,7 @@ describe("Same checkout row", () => {
 		expect(row("peers")).toBeNull();
 		await act(async () => useSessionStore.setState({ checkoutPeers: null }));
 		expect(row("peers")).toBeNull();
-		expect(section("session")).toBeNull();
+		expect(section("current")).toBeNull();
 	});
 
 	it("expands to one line per peer, each opening its own session: switch, owner window, or the host's file", async () => {
@@ -463,15 +523,16 @@ describe("Dev server row", () => {
 	});
 });
 
-describe("This session section", () => {
-	it("lists Changed, Last check, Dev servers, Same checkout and Memory in that order", async () => {
-		changes = { isRepo: true, root: "/w", base: "HEAD", truncated: false, files: [{ path: "a.ts", status: "M" }] };
-		finished(["b1", bash("bun run build")]);
+describe("Current work section", () => {
+	it("lists Changed, Not in main yet, Last check, Dev servers, Same checkout and Memory in that order", async () => {
+		turn = { start: 500, end: null };
+		unlanded = { branch: "omp/agent/x", target: "main", truncated: false, files: [{ path: "a.ts", status: "M" }] };
+		finished(["e1", edit("src/a.ts", "+1 a", 600)], ["b1", bash("bun run build")]);
 		rows = [serverJob("bun run dev", "Local: http://localhost:3000/")];
 		useSessionStore.setState({ checkoutPeers: checkout([peer()]) });
 		useMessagesStore.setState({ messages: [user, recall("Use bun")] });
 		await mount();
-		expect(rowKinds()).toEqual(["changes", "check", "dev-server", "peers", "recall"]);
-		expect(section("session")?.querySelector(".omp-work-board-title")?.textContent).toBe("This session");
+		expect(rowKinds()).toEqual(["changes", "unlanded", "check", "dev-server", "peers", "recall"]);
+		expect(section("current")?.querySelector(".omp-work-board-title")?.textContent).toBe("Current work");
 	});
 });

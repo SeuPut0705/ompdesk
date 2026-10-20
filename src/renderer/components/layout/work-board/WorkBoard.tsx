@@ -46,7 +46,6 @@ import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
-import { workOutcomes } from "../../chat/work/work-view";
 import { IconButton, Kbd } from "../../common";
 import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
@@ -147,18 +146,14 @@ function useGoalDetail(objective: string | undefined, status: string | undefined
 	return detail;
 }
 
-interface LastTurn {
-	durationMs: number;
-	files: number;
-	added: number;
-	removed: number;
+interface FinishedTurn {
+	start: number;
+	end: number;
 }
 
-/** The last finished turn's duration and what it changed, noted as the turn ends. */
-function useLastTurn(turnActive: boolean, startedAt: number | null): LastTurn | null {
-	const { tools } = useRunStores();
-	const cwd = useSessionStore(state => state.cwd);
-	const [last, setLast] = useState<LastTurn | null>(null);
+/** The last turn that ended, noted as it ends: "Current work" counts its changes and shows how long it took. */
+function useFinishedTurn(turnActive: boolean, startedAt: number | null): FinishedTurn | null {
+	const [last, setLast] = useState<FinishedTurn | null>(null);
 	const started = useRef<number | null>(null);
 	useEffect(() => {
 		if (turnActive) {
@@ -168,17 +163,8 @@ function useLastTurn(turnActive: boolean, startedAt: number | null): LastTurn | 
 		const start = started.current;
 		if (start === null) return;
 		started.current = null;
-		const entries = [...tools.getState().finishedTools.values()].filter(
-			entry => entry.startTime >= start - TURN_CLOCK_SLACK_MS,
-		);
-		const { files } = workOutcomes(entries, undefined, cwd);
-		setLast({
-			durationMs: Date.now() - start,
-			files: files.length,
-			added: files.reduce((sum, file) => sum + (file.added ?? 0), 0),
-			removed: files.reduce((sum, file) => sum + (file.removed ?? 0), 0),
-		});
-	}, [turnActive, startedAt, tools, cwd]);
+		setLast({ start, end: Date.now() });
+	}, [turnActive, startedAt]);
 	return last;
 }
 
@@ -299,7 +285,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	);
 	const planProposal = usePlanApprovalStore(state => state.pending);
 
-	const lastTurn = useLastTurn(turnActive, turnStartedAt);
+	const lastTurn = useFinishedTurn(turnActive, turnStartedAt);
 	const running = agents.length + jobs.length + opened.counts.running;
 	const now = useNowTick(turnActive || running > 0);
 	const presentedAgents = usePresence(agents, agent => agent.id);
@@ -359,7 +345,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const clock = (from: number | null) => (from === null ? "" : formatElapsed(Math.max(0, now - from)));
 	// The turn's paced token rate, the one the per-message meter shows; not shown between turns.
 	const speed = turnLive && rate != null && rate > 0 ? t("chat.meter.rate", { rate: formatTokenRate(rate) }) : "";
-	const plural = (count: number) => (count === 1 ? "" : "s");
 	const jumpKey = actionShortcut("board.focus");
 
 	return (
@@ -631,35 +616,11 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			)}
 
 			<Suspense fallback={null}>
-				<SessionSlot />
+				<SessionSlot
+					aside={showsLast && lastTurn ? formatDuration(lastTurn.end - lastTurn.start) : undefined}
+					turn={turnActive && startedAt !== null ? { start: startedAt, end: null } : lastTurn}
+				/>
 			</Suspense>
-
-			{showsLast && lastTurn && (
-				<BoardSection id="last" title={t("workBoard.lastTurn")} aside={formatDuration(lastTurn.durationMs)}>
-					<BoardRow
-						data={{ "data-board-last-turn": "" }}
-						label={
-							lastTurn.files > 0 ? (
-								<span>
-									{t("chat.work.filesChanged", { count: lastTurn.files, plural: plural(lastTurn.files) })}
-								</span>
-							) : (
-								t("workBoard.noChanges")
-							)
-						}
-						lead={<Check aria-hidden className="size-3 text-(--sc-text-subtle)" />}
-						meta={
-							lastTurn.added + lastTurn.removed > 0 ? (
-								<span className="tabular-nums">
-									<span className="text-(--sc-success)">+{lastTurn.added}</span>{" "}
-									<span className="text-(--sc-danger)">−{lastTurn.removed}</span>
-								</span>
-							) : undefined
-						}
-						onClick={lastTurn.files > 0 ? () => useUiStore.getState().setPanelTab("diff") : undefined}
-					/>
-				</BoardSection>
-			)}
 		</aside>
 	);
 }

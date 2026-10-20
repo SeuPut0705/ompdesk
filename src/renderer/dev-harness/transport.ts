@@ -282,8 +282,15 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_git_fingerprint":
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":
-			case "get_git_session_changes":
 				return respond(command, GIT_CHANGES);
+			case "get_git_unlanded":
+				// The harness session works on its own branch: "Not in main yet" lists the changed files.
+				return respond(command, {
+					branch: "omp/agent/sidebar-flake",
+					target: "main",
+					files: GIT_CHANGES.files,
+					truncated: false,
+				});
 			case "get_checkout_peers":
 				return respond(command, BOARD_BUSY ? boardPeers() : { peers: null });
 			case "get_git_diff": {

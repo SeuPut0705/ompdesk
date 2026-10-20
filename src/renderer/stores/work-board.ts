@@ -11,8 +11,7 @@ export type WorkBoardSectionId =
 	| "opened"
 	| "todos"
 	| "goal"
-	| "session"
-	| "last";
+	| "current";
 
 const PREF = "workBoardCollapsed";
 
@@ -51,8 +50,7 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 				"opened",
 				"todos",
 				"goal",
-				"session",
-				"last",
+				"current",
 			];
 			const collapsed = Object.fromEntries(
 				known.filter(id => (saved as Record<string, unknown>)[id] === true).map(id => [id, true as const]),

@@ -56,15 +56,15 @@ const getSessionSpend = vi.fn(async () =>
 );
 const prefsSet = vi.fn(async () => {});
 Reflect.set(window, "omp", {
-	// Not a repository: the session section's Changed row stays out of these tests (WorkBoardSession.test.tsx has it).
+	// Not a repository: the "Not in main yet" row stays out of these tests (WorkBoardSession.test.tsx has it).
 	rpc: {
 		getJobs,
 		getGoal,
 		getUsage,
 		getSessionSpend,
-		getGitSessionChanges: vi.fn(async () => ({
+		getGitUnlanded: vi.fn(async () => ({
 			type: "response",
-			command: "get_git_session_changes",
+			command: "get_git_unlanded",
 			success: false,
 			error: "no git",
 		})),
@@ -509,11 +509,11 @@ describe("WorkBoard sections", () => {
 		expect(current?.textContent).toContain("Run the unit tests");
 	});
 
-	it("sums the last turn up once it is over: duration, files and lines, and opens Changes", async () => {
+	it("shows the finished turn's changes under Current work with its duration, and opens Changes", async () => {
 		await mount();
 		const startedAt = Date.now() - 5000;
 		await act(async () => useTodoStore.getState().setTurnActive(true, startedAt));
-		expect(pane.querySelector("[data-board-last-turn]")).toBeNull();
+		expect(pane.querySelector('[data-board-session="changes"]')).toBeNull();
 		await act(async () => {
 			useToolsStore.setState({
 				finishedTools: new Map([
@@ -532,12 +532,14 @@ describe("WorkBoard sections", () => {
 			});
 			useTodoStore.getState().setTurnActive(false);
 		});
-		const last = pane.querySelector("[data-board-last-turn]");
-		expect(section("last")?.textContent).toMatch(/5\.\ds/);
-		expect(last?.textContent).toContain("1 file changed");
-		expect(last?.textContent).toContain("+3");
-		expect(pane.querySelector("[data-board-turn]")).toBeNull();
-		await click("[data-board-last-turn]");
+		// The rows come from a lazy chunk.
+		await expect.poll(() => pane.querySelector('[data-board-session="changes"]')).not.toBeNull();
+		const changed = pane.querySelector('[data-board-session="changes"]');
+		expect(section("current")?.querySelector(".omp-work-board-title")?.textContent).toMatch(/^Current work5\.\ds$/);
+		expect(changed?.textContent).toContain("1 file changed");
+		expect(changed?.textContent).toContain("+3");
+		expect(section("turn")).toBeNull();
+		await click('[data-board-session="changes"]');
 		expect(useUiStore.getState().panelTab).toBe("diff");
 	});
 });
