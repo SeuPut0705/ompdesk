@@ -56,7 +56,11 @@ class LinkRecorder {
 		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, message: object) {
 			record(message);
 			if (device !== "current" && "slimEvents" in message) {
-				const { slimEvents, slimProgress: _progress, ...older } = message as { slimEvents: unknown };
+				const {
+					slimEvents,
+					slimProgress: _progress,
+					...older
+				} = message as { slimEvents: unknown; slimProgress?: unknown };
 				return original.call(this, device === "older" ? older : { ...older, slimEvents });
 			}
 			return original.call(this, message);
@@ -116,10 +120,16 @@ class LinkRecorder {
 				sized.push([`events/${event.type}`, Buffer.byteLength(JSON.stringify(event))]);
 		} else if (name === "subagentFrame" || name === "liveFrame" || name === "btwFrame") {
 			// A host that batches sends an array of frames in one tab event.
-			const frames = (Array.isArray(arg) ? arg : [arg]) as Array<{ type?: string; payload?: { event?: { type?: string } } }>;
+			const frames = (Array.isArray(arg) ? arg : [arg]) as Array<{
+				type?: string;
+				payload?: { event?: { type?: string } };
+			}>;
 			for (const frame of frames) {
 				const nested = frame.payload?.event?.type;
-				sized.push([`${name}/${frame.type}${nested ? `/${nested}` : ""}`, Buffer.byteLength(JSON.stringify(frame))]);
+				sized.push([
+					`${name}/${frame.type}${nested ? `/${nested}` : ""}`,
+					Buffer.byteLength(JSON.stringify(frame)),
+				]);
 			}
 		} else {
 			sized.push([name, Buffer.byteLength(JSON.stringify(arg ?? null))]);
@@ -496,20 +506,26 @@ describe("a device that asks for slim progress", () => {
 	it("sends the progress it reports, with the subscription off, in at most half the bytes", () => {
 		const current = perSnapshot(run("current", "off").tabEventBytes, run("current", "off"));
 		const before = perSnapshot(run("slimEventsOnly", "off").tabEventBytes, run("slimEventsOnly", "off"));
-		expect(current * 2, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(before);
+		expect(current * 2, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(
+			before,
+		);
 	});
 
 	it("sends the progress it reports, with the progress subscription, in at most a third of the bytes", () => {
 		const current = perSnapshot(run("current", "progress").tabEventBytes, run("current", "progress"));
 		const before = perSnapshot(run("slimEventsOnly", "progress").tabEventBytes, run("slimEventsOnly", "progress"));
-		expect(current * 3, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(before);
+		expect(current * 3, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(
+			before,
+		);
 	});
 
 	it("sends all of a subagent's events but its own messages in at most a third of the bytes", () => {
 		const rest = (d: Delivered): number => perSnapshot(d.tabEventBytes - d.subagentUpdateBytes, d);
 		const current = rest(run("current", "events"));
 		const before = rest(run("slimEventsOnly", "events"));
-		expect(current * 3, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(before);
+		expect(current * 3, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(
+			before,
+		);
 	});
 
 	it("sends the frames of one flush in one tab event", () => {

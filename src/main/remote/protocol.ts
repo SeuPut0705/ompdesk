@@ -73,6 +73,11 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * capability of the hello, not a `PROTOCOL_VERSION` bump, because a host and a device must agree on the version
  * exactly: a bump would lock every older device out. A hello without it (an older device) gets whole frames, and an
  * older host ignores it.
+ *
+ * `slimProgress` (only ever sent with `slimEvents`): the device also rebuilds a subagent's `AgentProgress` snapshots
+ * sent once or as a delta against the last one of the same subagent (in `subagent_progress` frames and in the task
+ * tool's `tool_execution_update` `details.progress`), and takes `subagentFrame` tab events as arrays, one per flush.
+ * A device that sent only `slimEvents` (v0.46.0) cannot read either, so it keeps single, whole frames.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -80,6 +85,7 @@ export const ClientHello = z.object({
 	appVersion: z.string().max(64),
 	name: deviceName,
 	slimEvents: z.boolean().optional(),
+	slimProgress: z.boolean().optional(),
 });
 
 export const HostHelloMessage = z.object({

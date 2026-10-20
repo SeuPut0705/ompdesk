@@ -31,13 +31,7 @@
 import { EventEmitter } from "node:events";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { RemoteLinkState } from "../../shared/ipc-types";
-import type {
-	RpcCommand,
-	RpcResponse,
-	SidecarStatus,
-	SidecarStatusPayload,
-	SubagentFrame,
-} from "../../shared/rpc-types";
+import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
 import type { SidecarLike } from "../sidecar-types";
@@ -53,7 +47,7 @@ import {
 	TabSignInArg,
 	TabStatusArg,
 } from "./app-protocol";
-import { createLinkEventDecoder } from "./link-events";
+import { createLinkEventDecoder, type WireSubagentFrame } from "./link-events";
 
 /** The slice of RemoteClient a tab needs. */
 export interface RemoteLink {
@@ -391,11 +385,12 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "events":
 				this.emit(message.name, Array.isArray(message.arg) ? this.#linkEvents.events(message.arg) : message.arg);
 				return;
+			// One frame, or an array of them: what a host that batches (`slimProgress`) sends for each flush.
 			case "subagentFrame":
-				this.emit(
-					message.name,
-					message.arg ? this.#linkEvents.subagentFrame(message.arg as SubagentFrame) : message.arg,
-				);
+				for (const frame of Array.isArray(message.arg) ? message.arg : [message.arg]) {
+					const decoded = frame ? this.#linkEvents.subagentFrame(frame as WireSubagentFrame) : frame;
+					if (decoded !== null) this.emit(message.name, decoded);
+				}
 				return;
 			default:
 				this.emit(message.name, message.arg);

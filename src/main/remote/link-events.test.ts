@@ -8,6 +8,7 @@ import {
 	createLinkEventEncoder,
 	createLinkEventSender,
 	type LinkEventDecoder,
+	type WireSubagentFrame,
 } from "./link-events";
 
 type Update = Extract<AgentSessionEvent, { type: "message_update" }>;
@@ -163,7 +164,7 @@ describe("a subagent's slim frames", () => {
 		];
 		const encoder = createLinkEventEncoder();
 		const decoder = createLinkEventDecoder();
-		const arrived = raw.map(item => decoder.subagentFrame(overTheWire(encoder.subagentFrame(item))));
+		const arrived = raw.flatMap(item => decoder.subagentFrame(overTheWire(encoder.subagentFrame(item))) ?? []);
 		expect(arrived.map(slimSubagentFrame)).toEqual(raw.map(slimSubagentFrame));
 		expect(JSON.stringify(raw.map(item => encoder.subagentFrame(item))).length * 3).toBeLessThan(
 			JSON.stringify(raw).length,
@@ -179,7 +180,9 @@ describe("a subagent's slim frames", () => {
 });
 
 const ASSIGNMENT =
-	"Find every place the host pushes state to a device and report the file, the line and how often it fires. ".repeat(12);
+	"Find every place the host pushes state to a device and report the file, the line and how often it fires. ".repeat(
+		12,
+	);
 
 /**
  * One stock `AgentProgress` snapshot of a running subagent after `step` coalesced emits. As in task/executor.ts, a
@@ -353,7 +356,7 @@ describe("a subagent's progress snapshots", () => {
 	it("are never delivered half rebuilt: what a device has no earlier snapshot for is dropped", () => {
 		const encoder = createLinkEventEncoder({ progress: true });
 		const decoder = createLinkEventDecoder();
-		const frames: SubagentFrame[] = [];
+		const frames: WireSubagentFrame[] = [];
 		const events: AgentSessionEvent[] = [];
 		for (const [index, item] of run.entries()) {
 			if ("frames" in item) {
@@ -397,7 +400,12 @@ describe("a connection's event sender", () => {
 				return sent.length !== options.failing;
 			},
 		});
-		return { sender, sent };
+		/** The frames of the `index`th tab event the sender sent. */
+		const batch = (index: number): WireSubagentFrame[] => {
+			const { arg } = sent[index] ?? { arg: [] };
+			return Array.isArray(arg) ? arg : [];
+		};
+		return { sender, sent, batch };
 	}
 
 	const frames = [
@@ -407,14 +415,14 @@ describe("a connection's event sender", () => {
 	];
 
 	it("sends the frames of one flush as one tab event, in order, and a device rebuilds them", () => {
-		const { sender, sent } = connection({ progress: true });
+		const { sender, sent, batch } = connection({ progress: true });
 		for (const frame of frames) sender.subagentFrame(frame);
 		expect(sent).toEqual([]);
 		vi.advanceTimersByTime(BATCH_INTERVAL_MS);
 		expect(sent).toHaveLength(1);
 		expect(sent[0]?.name).toBe("subagentFrame");
 		const decoder = createLinkEventDecoder();
-		const arrived = (sent[0]?.arg as SubagentFrame[]).map(frame => decoder.subagentFrame(frame));
+		const arrived = batch(0).map(frame => decoder.subagentFrame(frame));
 		expect(arrived).toEqual(overTheWire(frames));
 	});
 
@@ -443,14 +451,14 @@ describe("a connection's event sender", () => {
 	});
 
 	it("starts over after a send that failed, so a device that missed it still rebuilds what follows", () => {
-		const { sender, sent } = connection({ progress: true, failing: 1 });
+		const { sender, batch } = connection({ progress: true, failing: 1 });
 		sender.subagentFrame(progressFrame(snapshot("0-A", 1)));
 		sender.flush();
 		const next = progressFrame(snapshot("0-A", 2));
 		sender.subagentFrame(next);
 		sender.flush();
 		const decoder = createLinkEventDecoder();
-		const [delivered] = (sent[1]?.arg as SubagentFrame[]).map(frame => decoder.subagentFrame(frame));
+		const [delivered] = batch(1).map(frame => decoder.subagentFrame(frame));
 		expect(delivered).toEqual(overTheWire(next));
 	});
 

@@ -53,6 +53,8 @@ export interface HostConnection {
 	readonly peer: PeerInfo;
 	/** The device's hello asked for slim `events` and `subagentFrame` (`link-events.ts`); absent for an older device. */
 	readonly slimEvents?: boolean;
+	/** It also rebuilds progress snapshots from deltas and takes subagent frames in arrays (`slimProgress`, protocol.ts). */
+	readonly slimProgress?: boolean;
 	/** Push `{t:"evt"}`; throws when the event exceeds the frame cap. */
 	emit(event: string, data: unknown): void;
 	close(): void;
@@ -111,11 +113,13 @@ class PeerConnection implements HostConnection {
 	readonly link: Link;
 	peer: PeerInfo;
 	readonly slimEvents: boolean;
+	readonly slimProgress: boolean;
 
-	constructor(link: Link, peer: PeerInfo, slimEvents: boolean) {
+	constructor(link: Link, peer: PeerInfo, slimEvents: boolean, slimProgress: boolean) {
 		this.link = link;
 		this.peer = peer;
 		this.slimEvents = slimEvents;
+		this.slimProgress = slimProgress;
 	}
 
 	emit(event: string, data: unknown): void {
@@ -428,7 +432,8 @@ export class RemoteHost {
 			...this.#opts.hello(),
 		});
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
-		const conn = new PeerConnection(link, current, hello.slimEvents === true);
+		const slimEvents = hello.slimEvents === true;
+		const conn = new PeerConnection(link, current, slimEvents, slimEvents && hello.slimProgress === true);
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		this.#opts.logLink?.("open", { deviceId: current.deviceId, ms: openedAt - acceptedAt });

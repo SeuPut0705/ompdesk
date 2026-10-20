@@ -28,7 +28,7 @@ export interface TrafficWindow {
 	rx: number;
 	/** Every kind seen, the biggest first. */
 	rows: TrafficRow[];
-	/** omp events inside `tab.event events` batches, by type. */
+	/** omp events inside `tab.event events` batches and subagent frames inside batched `subagentFrame` ones, by type. */
 	batched: Record<string, number>;
 }
 
@@ -95,13 +95,15 @@ export class LinkTraffic {
 		const { name: tabEvent, arg } = (data ?? {}) as { name?: unknown; arg?: unknown };
 		const base = `evt ${TAB_EVENT} ${name(tabEvent)}`;
 		if (typeof tabEvent !== "string") return base;
-		if (tabEvent === "events" && Array.isArray(arg)) {
-			for (const event of arg) {
-				const type = name((event as { type?: unknown } | null)?.type);
+		if (Array.isArray(arg) && (tabEvent === "events" || TYPED_TAB_EVENTS[tabEvent] === true)) {
+			for (const item of arg) {
+				const type = name((item as { type?: unknown } | null)?.type);
 				this.#batched.set(type, (this.#batched.get(type) ?? 0) + 1);
 			}
-		} else if (TYPED_TAB_EVENTS[tabEvent] === true)
-			return `${base}/${name((arg as { type?: unknown } | null)?.type)}`;
+			// A flush of subagent frames (`slimProgress`) holds frames of several types: one kind, each type counted.
+			return tabEvent === "events" ? base : `${base}/batch`;
+		}
+		if (TYPED_TAB_EVENTS[tabEvent] === true) return `${base}/${name((arg as { type?: unknown } | null)?.type)}`;
 		return base;
 	}
 }

@@ -143,7 +143,7 @@ import {
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
 import { HostedTabView, labelForHost } from "./hosted-view";
-import { createLinkEventEncoder, type LinkEventEncoder } from "./link-events";
+import { createLinkEventSender, type LinkEventSender } from "./link-events";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
@@ -271,7 +271,7 @@ interface HostTab extends RunTracking {
 	/** Asks answered, by request id → who answered first; the other side's late answer is refused. */
 	answered: Map<string, "device" | "host">;
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
-	linkEvents?: { conn: HostConnection; encoder: LinkEventEncoder };
+	linkEvents?: { conn: HostConnection; sender: LinkEventSender };
 	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
 	sessionId?: string;
 	title?: string;
@@ -1366,6 +1366,8 @@ export class LocalHostServices implements HostServices {
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
 			}
 		}
+		// A response the omp is about to give can follow frames held back for a batch: they leave first, as in the pool.
+		sidecar.on("beforeResponse", () => tab.linkEvents?.sender.flush());
 	}
 
 	/**
@@ -1520,17 +1522,35 @@ export class LocalHostServices implements HostServices {
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {
 		const { conn } = tab;
 		if (!conn) return;
-		sendTabEvent(conn, tab.rtab, name, conn.slimEvents ? this.#slimmed(tab, conn, name, arg) : arg);
+		if (!conn.slimEvents) {
+			this.#send(tab, conn, name, arg);
+			return;
+		}
+		const { sender } = this.#sender(tab, conn);
+		if (name === "events") sender.events(arg as AgentSessionEvent[]);
+		else if (name === "subagentFrame") sender.subagentFrame(arg as SubagentFrame);
+		else {
+			// The subagent frames held back for a batch came first and leave first.
+			sender.flush();
+			this.#send(tab, conn, name, arg);
+		}
 	}
 
-	/** `events` and `subagentFrame` as a device that asked for slim ones receives them (`link-events.ts`); one encoder per tab and connection. */
-	#slimmed(tab: HostTab, conn: HostConnection, name: TabEventName, arg: unknown): unknown {
-		if (name !== "events" && name !== "subagentFrame") return arg;
-		if (tab.linkEvents?.conn !== conn) tab.linkEvents = { conn, encoder: createLinkEventEncoder() };
-		const { encoder } = tab.linkEvents;
-		return name === "events"
-			? encoder.events(arg as AgentSessionEvent[])
-			: encoder.subagentFrame(arg as SubagentFrame);
+	/** One tab event on `conn`; false when some of it did not go out. A tab whose device has another connection by now sends nothing. */
+	#send(tab: HostTab, conn: HostConnection, name: TabEventName, arg: unknown): boolean {
+		return tab.conn !== conn || sendTabEvent(conn, tab.rtab, name, arg);
+	}
+
+	/** How `events` and `subagentFrame` reach a device that asked for slim ones (`link-events.ts`); one sender per tab and connection. */
+	#sender(tab: HostTab, conn: HostConnection): NonNullable<HostTab["linkEvents"]> {
+		if (tab.linkEvents?.conn === conn) return tab.linkEvents;
+		tab.linkEvents?.sender.dispose();
+		const sender = createLinkEventSender({
+			progress: conn.slimProgress === true,
+			send: (name, arg) => this.#send(tab, conn, name, arg),
+		});
+		tab.linkEvents = { conn, sender };
+		return tab.linkEvents;
 	}
 
 	async #command(peer: PeerInfo, params: z.infer<typeof CommandParams>): Promise<RpcResponse> {
@@ -1788,21 +1808,26 @@ function emitSafely(conn: HostConnection, event: string, data: unknown): void {
 }
 
 /**
- * Push a tab event. An `events` batch over the frame cap goes as several frames, in order: an older device gets every
- * `message_update` whole, so a burst of a long reply (an omp catching up, a fast provider) passed 16 MiB in one 32 ms
- * batch, and dropping it lost the turn's `agent_end` with it (the device's tab never left "running").
+ * Push a tab event; false when some of it did not go out. An `events` batch (or, for a device that asked for
+ * `slimProgress`, a flush of subagent frames) over the frame cap goes as several frames, in order: an older device gets
+ * every `message_update` whole, so a burst of a long reply (an omp catching up, a fast provider) passed 16 MiB in one
+ * 32 ms batch, and dropping it lost the turn's `agent_end` with it (the device's tab never left "running"). The
+ * halves leave in order, so a decoder that rebuilds from deltas sees the items in the order they were encoded.
  */
-function sendTabEvent(conn: HostConnection, rtab: string, name: TabEventName, arg: unknown): void {
+function sendTabEvent(conn: HostConnection, rtab: string, name: TabEventName, arg: unknown): boolean {
 	try {
 		conn.emit(TAB_EVENT, { rtab, name, arg } satisfies TabEventMessage);
+		return true;
 	} catch (error) {
-		if (error instanceof FrameTooLargeError && name === "events" && Array.isArray(arg) && arg.length > 1) {
+		const splittable = name === "events" || name === "subagentFrame";
+		if (error instanceof FrameTooLargeError && splittable && Array.isArray(arg) && arg.length > 1) {
 			const half = Math.ceil(arg.length / 2);
-			sendTabEvent(conn, rtab, name, arg.slice(0, half));
-			sendTabEvent(conn, rtab, name, arg.slice(half));
-			return;
+			const first = sendTabEvent(conn, rtab, name, arg.slice(0, half));
+			const second = sendTabEvent(conn, rtab, name, arg.slice(half));
+			return first && second;
 		}
 		console.warn(`[remote-host] dropped ${TAB_EVENT}: ${error instanceof Error ? error.message : String(error)}`);
+		return false;
 	}
 }
 
