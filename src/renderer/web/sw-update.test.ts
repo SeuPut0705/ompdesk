@@ -108,6 +108,8 @@ describe("UpdateWatcher", () => {
 		registration.found(worker);
 		worker.become("installing");
 		expect(watcher.available).toBe(false);
+		// The browser sets the registration's waiting worker before it dispatches "installed".
+		registration.waiting = worker;
 		worker.become("installed");
 		expect(watcher.available).toBe(true);
 		expect(changed).toHaveBeenCalledTimes(1);

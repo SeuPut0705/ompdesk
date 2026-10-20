@@ -205,7 +205,10 @@ export class UpdateWatcher {
 		registration.addEventListener("updatefound", () => {
 			const worker = registration.installing;
 			worker?.addEventListener("statechange", () => {
-				if (worker.state === "installed" && container.controller !== null) this.#setAvailable();
+				// Only a worker that waits behind another is an update. A first install's "installed" can reach the page
+				// after that worker already activated and took control (WebKit): nothing waits then.
+				if (worker.state === "installed" && registration.waiting === worker && container.controller !== null)
+					this.#setAvailable();
 			});
 		});
 		container.addEventListener("controllerchange", () => {
