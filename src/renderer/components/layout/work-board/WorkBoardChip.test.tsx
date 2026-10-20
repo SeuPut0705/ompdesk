@@ -148,6 +148,21 @@ describe("WorkBoardChip, the phone's work strip", () => {
 			expect(panel()).toBeNull();
 		});
 
+		it("stays open for a row that expands in place (the memory row), so its titles can show", async () => {
+			const expands = vi.fn();
+			useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
+			await mount(
+				<button className="omp-work-board-row" data-board-expands="" onClick={expands} type="button">
+					memory
+				</button>,
+			);
+			await click(strip());
+			await click(container.querySelector("button[data-board-expands]"));
+			expect(expands).toHaveBeenCalledOnce();
+			expect(panel()).not.toBeNull();
+			expect(strip()?.getAttribute("aria-expanded")).toBe("true");
+		});
+
 		it("collapses on a tap outside, and on the back gesture's layer", async () => {
 			await mountPlan();
 			await click(strip());

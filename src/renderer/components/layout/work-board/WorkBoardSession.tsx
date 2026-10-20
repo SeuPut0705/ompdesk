@@ -1,7 +1,7 @@
 /**
- * The work board's session rows, one line each: this checkout's uncommitted changes, the session's newest check (a
- * failed one is its own section at the top), the dev servers running, the other sessions in the checkout and the
- * memory the turn used. `useSessionBoard` reads them all once; the sections draw what it found.
+ * The work board's session rows, one line each: what the checkout changed since the session started, the session's
+ * newest check (a failed one is its own section at the top), the dev servers running, the other sessions in the
+ * checkout and the memory the turn used. `useSessionBoard` reads them all once; the sections draw what it found.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcGitChanges } from "../../../../shared/rpc-types";
@@ -47,8 +47,9 @@ export interface SessionBoard {
 }
 
 /**
- * The checkout's uncommitted changes, read through this tab's runtime (a paired host's tab reads its host) once on
- * mount and once each time a turn settles: no timer.
+ * What the checkout changed since the session started, its own commits included (`get_git_session_changes`: git from
+ * the newest commit before the session's first entry to the working tree), read through this tab's runtime (a paired
+ * host's tab reads its host) once on mount and once each time a turn settles: no timer.
  */
 function useChanges(): ChangesSummary | null {
 	const rpc = useTabRpc();
@@ -57,7 +58,7 @@ function useChanges(): ChangesSummary | null {
 	const read = useCallback(() => {
 		let current = true;
 		void rpc
-			.getGitChanges()
+			.getGitSessionChanges()
 			.then(response => {
 				if (current) setChanges(response.success ? summarizeChanges(response.data as RpcGitChanges) : null);
 			})
@@ -200,7 +201,7 @@ function RecallRow({ titles }: { titles: string[] }) {
 	return (
 		<>
 			<BoardRow
-				data={{ "data-board-session": "recall", "data-open": String(open) }}
+				data={{ "data-board-session": "recall", "data-open": String(open), "data-board-expands": "" }}
 				label={t("workBoard.session.recall.label", { title: first ?? "" })}
 				lead={<Dot tone="muted" />}
 				meta={rest.length > 0 ? `+${rest.length}` : undefined}

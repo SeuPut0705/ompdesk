@@ -389,6 +389,8 @@ export type RpcCommand =
 	// ~/.omp/wt/gui-<name>-<hash7> (prefix rules: shared/worktree-branch.ts); worktree_remove refuses dirty unless force.
 	| { id?: string; type: "get_git_status" }
 	| { id?: string; type: "get_git_changes" }
+	// Changes since the session started (its own commits included): the work board's "Changed" row. Answered in main.
+	| { id?: string; type: "get_git_session_changes" }
 	| { id?: string; type: "get_git_fingerprint"; root?: string }
 	| { id?: string; type: "get_git_diff"; path: string }
 	| {

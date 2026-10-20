@@ -282,6 +282,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_git_fingerprint":
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":
+			case "get_git_session_changes":
 				return respond(command, GIT_CHANGES);
 			case "get_checkout_peers":
 				return respond(command, BOARD_BUSY ? boardPeers() : { peers: null });

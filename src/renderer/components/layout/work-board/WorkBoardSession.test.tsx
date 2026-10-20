@@ -26,9 +26,9 @@ Object.assign(globalThis as Record<string, unknown>, {
 let rows: RpcJobRow[] = [];
 let changes: unknown = { isRepo: false, root: null, base: null, files: [], truncated: false };
 const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows } }));
-const getGitChanges = vi.fn(async () => ({ success: true, data: changes }));
+const getGitSessionChanges = vi.fn(async () => ({ success: true, data: changes }));
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGitChanges },
+	rpc: { getJobs, getGitSessionChanges },
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
 
@@ -126,7 +126,7 @@ function serverJob(label: string, resultPreview?: string): RpcJobRow {
 }
 
 beforeEach(() => {
-	getGitChanges.mockClear();
+	getGitSessionChanges.mockClear();
 });
 
 afterEach(async () => {
@@ -145,7 +145,7 @@ afterEach(async () => {
 });
 
 describe("Changed row", () => {
-	it("counts the checkout's changed files with their added and removed lines, and opens Changes", async () => {
+	it("counts what the checkout changed since the session started, with added and removed lines, and opens Changes", async () => {
 		changes = {
 			isRepo: true,
 			root: "/w",
@@ -183,19 +183,19 @@ describe("Changed row", () => {
 		vi.useFakeTimers();
 		try {
 			await mount();
-			expect(getGitChanges).toHaveBeenCalledTimes(1);
+			expect(getGitSessionChanges).toHaveBeenCalledTimes(1);
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(true, Date.now());
 			});
-			expect(getGitChanges).toHaveBeenCalledTimes(1);
+			expect(getGitSessionChanges).toHaveBeenCalledTimes(1);
 			await act(async () => {
 				vi.advanceTimersByTime(60_000);
 			});
-			expect(getGitChanges).toHaveBeenCalledTimes(1);
+			expect(getGitSessionChanges).toHaveBeenCalledTimes(1);
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(false);
 			});
-			expect(getGitChanges).toHaveBeenCalledTimes(2);
+			expect(getGitSessionChanges).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.useRealTimers();
 		}

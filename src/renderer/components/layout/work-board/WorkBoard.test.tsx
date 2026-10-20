@@ -62,9 +62,9 @@ Reflect.set(window, "omp", {
 		getGoal,
 		getUsage,
 		getSessionSpend,
-		getGitChanges: vi.fn(async () => ({
+		getGitSessionChanges: vi.fn(async () => ({
 			type: "response",
-			command: "get_git_changes",
+			command: "get_git_session_changes",
 			success: false,
 			error: "no git",
 		})),

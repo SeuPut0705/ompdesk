@@ -13,7 +13,7 @@ import type { BackgroundJobVerdict } from "../../chat/completion-events";
 import { type CheckKind, checkKind, summarizeChecks } from "../../chat/work/work-checks";
 import { workOutcomes } from "../../chat/work/work-view";
 
-/** The checkout's uncommitted changes. */
+/** What the checkout changed since the session started (`get_git_session_changes`). */
 export interface ChangesSummary {
 	files: number;
 	added: number;

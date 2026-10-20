@@ -50,7 +50,7 @@ Reflect.set(window, "omp", {
 		getGoal,
 		getUsage,
 		commandForTab,
-		getGitChanges: vi.fn(async () => ({ type: "response", success: false, error: "no git" })),
+		getGitSessionChanges: vi.fn(async () => ({ type: "response", success: false, error: "no git" })),
 	},
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
