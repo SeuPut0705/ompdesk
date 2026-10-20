@@ -31,6 +31,7 @@ import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
+import { setTurnStopLog } from "../turn-stop-log";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
 import {
@@ -1208,6 +1209,37 @@ describe("LocalHostServices", () => {
 
 		sidecar.emit("status", { status: "restarting", cwd: workDir });
 		expect(services.resumeFacts()[0]).toMatchObject({ running: false });
+	});
+
+	it("logs a paired device's Stop on this host with the device and its control, and omp never sees the origin", async () => {
+		const lines: Array<Record<string, string | number>> = [];
+		setTurnStopLog({ write: details => lines.push(details), sessionOf: () => undefined });
+		try {
+			const { services, sidecars } = setup();
+			const x = new FakeConnection(peer("device-x"));
+			await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+			await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+			sidecars[0]?.setStatus("ready");
+			await services.call(
+				x.peer,
+				"tab.command",
+				{ rtab: "t1", command: { type: "abort_and_restore_queue", origin: { surface: "esc" } } },
+				x,
+			);
+			expect(sidecars[0]?.commands).toEqual([{ type: "abort_and_restore_queue" }]);
+			expect(lines).toEqual([
+				{
+					command: "abort_and_restore_queue",
+					tab: "peer:device-x:t1",
+					by: "desktop-device",
+					surface: "esc",
+					device: "device-x",
+					session: "one.jsonl",
+				},
+			]);
+		} finally {
+			setTurnStopLog(null);
+		}
 	});
 
 	it("gives this computer's resume coordinator the hosted turns: facts, Stop, asks, the wait and its Cancel", async () => {
