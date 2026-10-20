@@ -67,6 +67,7 @@ import {
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
+import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { ExecutionGroup } from "./ExecutionGroup";
 import { WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
@@ -325,6 +326,11 @@ function SessionTranscript() {
 		shellMode === null ? null : { width: columnWidthRef.current ?? window.innerWidth, phone: shellMode === "phone" };
 	const rowSizesRef = useRef(new RowSizeLearner());
 	const placeRowsPendingRef = useRef(false);
+	// The row a reader who scrolled up keeps in place while a commit's changed rows are measured (content-anchor.ts),
+	// and the rows and keys the last commit showed, to tell which rows the next one changed.
+	const contentAnchorRef = useRef<ContentAnchor | null>(null);
+	const shownRowsRef = useRef<{ rows: readonly Row[]; keys: readonly string[] }>({ rows: [], keys: [] });
+	const contentHoldFrameRef = useRef(0);
 	const handleVirtualizerChange = useCallback(
 		(instance: Virtualizer<HTMLDivElement, Element>) => {
 			// Measurements land in the virtualizer's ResizeObserver callback, after layout
@@ -343,6 +349,14 @@ function SessionTranscript() {
 						const row = instance.elementsCache.get(item.key);
 						const transform = `translateY(${item.start}px)`;
 						if (row instanceof HTMLElement && row.style.transform !== transform) row.style.transform = transform;
+					}
+					// A commit changed rows under a reader who scrolled up: the row they read stays put through
+					// the measurements that follow, in the frame they land in (content-anchor.ts).
+					const anchor = contentAnchorRef.current;
+					const held = anchor ? instance.measurementsCache[anchor.index] : undefined;
+					if (anchor && held?.key === anchor.key) {
+						const target = held.start - anchor.offset;
+						if (Math.abs(target - (instance.scrollOffset ?? 0)) >= 0.5) instance.scrollToOffset(target);
 					}
 				});
 			}
@@ -610,6 +624,49 @@ function SessionTranscript() {
 		frame = requestAnimationFrame(restore);
 		return () => cancelAnimationFrame(frame);
 	}, [rowKeys, isLoadingPage, virtualizer, totalSize]);
+	// A commit that changed rows on screen while the reader is away from the live edge holds the row they read
+	// (content-anchor.ts) until its rows are measured: the measurement microtask above keeps it in place within the
+	// frame, and this loop lets go once two frames pass with it where it was. A gesture lets go at once.
+	useLayoutEffect(() => {
+		const shown = shownRowsRef.current;
+		shownRowsRef.current = { rows, keys: rowKeys };
+		const element = parentRef.current;
+		if (!element || viewRef.current.pinned || prependAnchorRef.current || shown.rows.length === 0) return;
+		// By content: a rebuild hands the rows of a split reply (its steps, its text) new objects even when nothing in
+		// them changed, and those are no reason to hold. Only rows the reader can see are compared.
+		const changed = (index: number) => {
+			const key = rowKeys[index];
+			const before = shown.rows[shown.keys[index] === key ? index : shown.keys.indexOf(key ?? "")];
+			const row = rows[index];
+			return before !== row && JSON.stringify(before) !== JSON.stringify(row);
+		};
+		const scrollOffset = virtualizer.scrollOffset ?? element.scrollTop;
+		const anchor = contentAnchor(virtualizer.getVirtualItems(), scrollOffset, element.clientHeight, changed);
+		if (!anchor) return;
+		// The loop outlives this commit: a streamed delta right after a re-read commits again before the re-read's rows
+		// are measured, and must not let go of the reader's row.
+		contentAnchorRef.current = anchor;
+		cancelAnimationFrame(contentHoldFrameRef.current);
+		let settled = 0;
+		const hold = () => {
+			if (contentAnchorRef.current !== anchor) return;
+			const held = virtualizer.measurementsCache[anchor.index];
+			const target = held?.key === anchor.key ? held.start - anchor.offset : undefined;
+			if (target === undefined) {
+				contentAnchorRef.current = null;
+				return;
+			}
+			if (Math.abs(target - (virtualizer.scrollOffset ?? 0)) < 0.5) settled++;
+			else {
+				settled = 0;
+				virtualizer.scrollToOffset(target);
+			}
+			if (settled >= 2) contentAnchorRef.current = null;
+			else contentHoldFrameRef.current = requestAnimationFrame(hold);
+		};
+		contentHoldFrameRef.current = requestAnimationFrame(hold);
+	}, [rows, rowKeys, virtualizer]);
+	useEffect(() => () => cancelAnimationFrame(contentHoldFrameRef.current), []);
 	useLayoutEffect(
 		() => () => {
 			const scrollOffset = virtualizer.scrollOffset ?? 0;
@@ -759,6 +816,7 @@ function SessionTranscript() {
 	// can hand it over again.
 	const beginGesture = useCallback((towardTail: GestureTowardTail) => {
 		prependAnchorRef.current = null;
+		contentAnchorRef.current = null;
 		userScrollIntentRef.current = true;
 		gestureAnchorRef.current = null;
 		gestureTowardTailRef.current = towardTail;
@@ -877,6 +935,7 @@ function SessionTranscript() {
 
 	const jumpToLatest = useCallback(() => {
 		prependAnchorRef.current = null;
+		contentAnchorRef.current = null;
 		userScrollIntentRef.current = false;
 		gestureAnchorRef.current = null;
 		gestureTowardTailRef.current = true;
