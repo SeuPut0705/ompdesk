@@ -5,7 +5,14 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { controlToolCaller as caller, exitApp, launchApp, openedSessions as opened, readRecords } from "./harness";
-import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
+import {
+	connectHost,
+	type LinkProxy,
+	launchRemote,
+	linkProxy,
+	makeRemoteProfile,
+	type RemoteInstance,
+} from "./remote-harness";
 
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
 // sessions read and reopened without a tab, a judged compare of two sessions, and sessions on a paired device: one
@@ -148,25 +155,58 @@ test.describe("on a paired device", () => {
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	});
 
-	/** Two apps, the client paired to the host as "PC-B"; `call` runs a control tool as the client's focused tab. */
-	async function pairApps() {
+	/**
+	 * Two apps, the client paired to the host as "PC-B"; `call` runs a control tool as the client's focused tab.
+	 * `blips`: the client reaches the host through a relay whose link the test can cut.
+	 */
+	async function pairApps(options: { blips?: boolean } = {}) {
 		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
+		const link: LinkProxy | undefined = options.blips ? await linkProxy(hostProfile.port) : undefined;
 		const clientProfile = await makeRemoteProfile(parent, "client", {
 			language: "en",
 			theme: "light",
-			port: hostProfile.port,
+			port: link ? Number(link.address.split(":")[1]) : hostProfile.port,
 		});
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const deviceId = await connectHost(host.page, client.page, "PC-B");
-		await expect
-			.poll(async () => (await client?.page.evaluate(() => window.omp.remote.getState()))?.hosts[0]?.state, {
-				timeout: 30_000,
-			})
-			.toBe("online");
+		const state = async () => (await client?.page.evaluate(() => window.omp.remote.getState()))?.hosts[0]?.state;
+		await expect.poll(state, { timeout: 30_000 }).toBe("online");
 		const call = await caller(client.page, clientProfile.record);
-		return { hostProfile, clientProfile, deviceId, call, client };
+		return { hostProfile, clientProfile, deviceId, call, client, link, state };
 	}
+
+	test("keeps answering through a blip of the device's link: reads and lists wait for it to come back", async () => {
+		test.setTimeout(240_000);
+		const { call, link, state, client: app } = await pairApps({ blips: true });
+		if (!link) throw new Error("no relay");
+		const open = await call("ompdesk_session_open", { device: "PC-B", message: "Title: blip work\nWork there" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+
+		/** `run` made while the link is down, which comes back 1.5 s later: it must wait for it, not fail. */
+		const throughBlip = async (run: () => Promise<{ text: string; isError: boolean }>) => {
+			await link.drop();
+			await expect.poll(state, { timeout: 30_000 }).not.toBe("online");
+			const pending = run();
+			// A real wait: the call has to be in flight while the real link is down (a fake clock cannot stand in for
+			// the reconnecting client and the relay).
+			await app.page.waitForTimeout(1_500);
+			await link.restore();
+			return pending;
+		};
+		const read = await throughBlip(() => call("ompdesk_session_read", { session: child }));
+		expect(read.isError, read.text).toBe(false);
+		expect(read.text).toContain("Work there");
+		const stored = await throughBlip(() => call("ompdesk_sessions", { scope: "stored", device: "PC-B" }));
+		expect(stored.isError, stored.text).toBe(false);
+		expect(stored.text).toContain("saved on PC-B");
+		const result = await throughBlip(() => call("ompdesk_session_result", { session: "blip work" }));
+		expect(result.isError, result.text).toBe(false);
+		expect(result.text).toContain("Local fixture reply");
+		await link.close();
+	});
 
 	test("opens a session on a paired device, waits for it there, and reads its saved transcript back", async () => {
 		test.setTimeout(240_000);

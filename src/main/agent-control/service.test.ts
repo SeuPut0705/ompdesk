@@ -300,6 +300,27 @@ function control(host: AgentControlHost, timers?: ConstructorParameters<typeof A
 	return new AgentControl(host, timers);
 }
 
+/** `call` on a fake clock moved until it settles, so a bounded wait for a device's link passes in no real time. */
+async function onFakeClock<T>(call: () => Promise<T>): Promise<T> {
+	vi.useFakeTimers();
+	try {
+		const pending = call();
+		let settled = false;
+		void pending.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
+		for (let step = 0; step < 400 && !settled; step++) await vi.advanceTimersByTimeAsync(250);
+		return await pending;
+	} finally {
+		vi.useRealTimers();
+	}
+}
+
 const select = (title: string, options: string[]): ControlAsk => ({
 	id: "req1",
 	request: { type: "extension_ui_request", id: "req1", method: "select", title, options } as ExtensionUIRequest,
@@ -747,8 +768,10 @@ describe("ompdesk_session_answer", () => {
 				],
 			},
 		);
-		const missing = await control(asked).run("main0001", T.answer, { session: "work0002", choice: "ts" });
-		expect(missing.text).toContain('pass `answers` ([{"id": "a", "selected": [');
+		// One question takes `choice` as its answer.
+		const picked = await control(asked).run("main0001", T.answer, { session: "work0002", choice: "ts" });
+		expect(picked.isError, picked.text).toBe(false);
+		expect(asked.answers[0]?.response).toMatchObject({ answers: [{ id: "a", selectedOptions: ["ts"] }] });
 	});
 
 	it("never approves another session's tool approval unless the user allowed it; deny always works", async () => {
@@ -1494,7 +1517,7 @@ describe("ompdesk_schedule", () => {
 			/folder is required: name an absolute folder on this computer/,
 		);
 		expect(host.scheduleDevices.at(-1)).toBeUndefined();
-		const offline = await service.run("main0001", T.schedule, { action: "list", device: "PC" });
+		const offline = await onFakeClock(() => service.run("main0001", T.schedule, { action: "list", device: "PC" }));
 		expect(offline.isError).toBe(true);
 		expect(offline.text).toMatch(/PC is offline/);
 	});
@@ -1687,7 +1710,9 @@ describe("ompdesk_autopilot", () => {
 		expect(service.childrenOf("main0001")).toEqual(["apr10000", "apr20000"]);
 
 		host.deviceList = [{ id: "dev1", name: "Mac", state: "offline" }];
-		const away = await service.run("main0001", T.autopilot, { action: "start", device: "Mac", folder: "/far" });
+		const away = await onFakeClock(() =>
+			service.run("main0001", T.autopilot, { action: "start", device: "Mac", folder: "/far" }),
+		);
 		expect(away.text).toMatch(/offline/);
 		expect(pilot.starts).toHaveLength(2);
 	});
@@ -2176,7 +2201,7 @@ describe("ompdesk_sessions scopes", () => {
 			.text;
 		expect(pc).toContain('1 session saved on DESKTOP-91ID999 matching "PC"');
 		expect(host.storedQueries.at(-1)).toEqual({ device: desktop.id, query: "PC" });
-		const off = await service.run("main0001", T.list, { scope: "stored", device: "Laptop" });
+		const off = await onFakeClock(() => service.run("main0001", T.list, { scope: "stored", device: "Laptop" }));
 		expect(off.isError).toBe(true);
 		expect(off.text).toContain("Laptop is offline");
 	});
@@ -2240,7 +2265,7 @@ describe("ompdesk_session_open on a device and reopen", () => {
 		const local = await service.run("main0001", T.open, { device: "local" });
 		expect(local.isError).toBe(false);
 		expect(host.spawned[1]?.device).toBeNull();
-		const off = await service.run("main0001", T.open, { device: "Laptop" });
+		const off = await onFakeClock(() => service.run("main0001", T.open, { device: "Laptop" }));
 		expect(off.isError).toBe(true);
 		expect(off.text).toContain("Laptop is offline");
 		expect(host.spawned).toHaveLength(2);
@@ -3012,5 +3037,407 @@ describe("after a relaunch: ids, titles, and messages a busy child waits for", (
 			];
 		const report = await service.run(kid, T.report, { kind: "done", text: "C done", dispatch: "d2" });
 		expect(report.text).toBe("Delivered.");
+	});
+});
+
+/**
+ * Every control tool in every situation an agent meets: a local tab, a paired device's tab, a deferred (not started)
+ * tab, a saved session no tab holds, a busy session, a device whose link is (re)connecting, a session hidden from
+ * agents; named by tab id, an id it had before a relaunch, its saved (stock) id, a unique id prefix and its title.
+ * An error that remains says what to do next.
+ */
+describe("situation matrix", () => {
+	const LOCAL_STOCK = "aaaaaaaa-1111-7000-8000-000000000001";
+	const file = (id: string) => `/s/p/2026-10-20T00-00-00-000Z_${id}.jsonl`;
+	const said = (text: string): AgentMessage[] => [
+		{ role: "assistant", content: [{ type: "text", text }], stopReason: "stop", timestamp: 1 } as AgentMessage,
+	];
+	const offline = (): RpcResponse =>
+		({
+			type: "response",
+			success: false,
+			error: "The device running this tab is offline",
+			code: "remote_offline",
+		}) as RpcResponse;
+
+	/** The fake as main behaves: a paired device's tab refuses while its link is down; stock's abort unwinds slowly. */
+	class MatrixHost extends FakeHost {
+		/** When stock's abort answers (ms after it is sent); null: never. The turn ends at the same moment. */
+		abortAfter: number | null = 12_000;
+		constructor(...tabs: Partial<FakeTab>[]) {
+			super(...tabs);
+			const base = this.command;
+			this.command = async (tabId, command, timeoutMs?: number) => {
+				const tab = this.tabsById.get(tabId);
+				const device = tab?.device ? this.deviceList.find(entry => entry.id === tab.device) : undefined;
+				if (device && device.state !== "online") {
+					this.sent.push({ tabId, command });
+					return offline();
+				}
+				if (command.type !== "abort") return base(tabId, command);
+				this.sent.push({ tabId, command });
+				const limit = timeoutMs ?? 8_000;
+				const answer = Promise.withResolvers<RpcResponse>();
+				// The turn unwinds `abortAfter` ms in; stock answers then, unless the RPC call timed out first.
+				if (this.abortAfter !== null)
+					setTimeout(() => {
+						if (tab) tab.busy = false;
+						this.emit();
+						answer.resolve(ok());
+					}, this.abortAfter);
+				setTimeout(() => answer.reject(new Error(`RPC timeout (${limit}ms): abort`)), limit);
+				return answer.promise;
+			};
+			const stored = this.storedMessages;
+			this.storedMessages = async row => {
+				const device = row.device ? this.deviceList.find(entry => entry.id === row.device) : undefined;
+				if (device && device.state !== "online") throw new Error(`[remote_offline] ${device.name} is offline`);
+				return stored(row);
+			};
+			this.deleteSession = async (_caller, tabId) => {
+				if (this.tabsById.get(tabId)?.busy) throw new Error("[session_running] That session is running a turn");
+				this.deleted.push(tabId);
+				this.tabsById.delete(tabId);
+			};
+		}
+	}
+
+	function world(): MatrixHost {
+		const host = new MatrixHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{
+				tabId: "loca1111",
+				title: "Local worker",
+				sessionPath: file(LOCAL_STOCK),
+				last: "local answer",
+				messages: said("local answer"),
+			},
+			{
+				tabId: "remo2222",
+				title: "Remote worker",
+				device: "pc",
+				deviceName: "PC",
+				sessionPath: "C:/s/2026-10-20T00-00-00-000Z_bbbbbbbb-2222.jsonl",
+				last: "remote answer",
+				messages: said("remote answer"),
+			},
+			{ tabId: "slep3333", title: "Sleeper", status: "asleep", sessionPath: file("eeeeeeee-3333") },
+			{ tabId: "busy4444", title: "Busy builder", busy: true, busySince: 1, sessionPath: file("ffffffff-4444") },
+			{
+				tabId: "blip5555",
+				title: "Blip worker",
+				device: "lap",
+				deviceName: "Laptop",
+				status: "error",
+				last: "blip answer",
+				messages: said("blip answer"),
+			},
+			{ tabId: "hide6666", title: "Hidden", hidden: true },
+			{ tabId: "relc7777", title: "Relaunched child", formerIds: ["gone8888"], messages: said("relaunched answer") },
+		);
+		host.full = true;
+		host.deviceList = [
+			{ id: "pc", name: "PC", state: "online" },
+			{ id: "lap", name: "Laptop", state: "connecting" },
+		];
+		host.storedRows = [
+			storedRow({ id: "cccccccc-3333", path: file("cccccccc-3333"), title: "Old notes" }),
+			storedRow({
+				id: "dddddddd-4444",
+				path: "L:/s/2026-10-20T00-00-00-000Z_dddddddd-4444.jsonl",
+				title: "Laptop notes",
+				device: "lap",
+				deviceName: "Laptop",
+			}),
+		];
+		host.storedTranscripts.set(file("cccccccc-3333"), said("stored answer"));
+		host.storedTranscripts.set("L:/s/2026-10-20T00-00-00-000Z_dddddddd-4444.jsonl", said("laptop answer"));
+		// The Laptop's link was blipping: it comes back two seconds in, and its tab re-attaches.
+		setTimeout(() => {
+			const lap = host.deviceList.find(device => device.id === "lap");
+			if (lap) lap.state = "online";
+			const blip = host.tabsById.get("blip5555");
+			if (blip) blip.status = "ready";
+			host.emit();
+		}, 2_000);
+		return host;
+	}
+
+	type Cell = {
+		tool: (typeof T)[keyof typeof T];
+		args: Record<string, unknown>;
+		/** What the answer says; `error` cells must also say what to do next. */
+		ok?: RegExp;
+		error?: RegExp;
+		setup?: (host: MatrixHost) => void;
+	};
+
+	const cells: Record<string, Cell> = {
+		"read · local tab id": { tool: T.read, args: { session: "loca1111" }, ok: /local answer/ },
+		"read · id prefix": { tool: T.read, args: { session: "loca" }, ok: /local answer/ },
+		"read · id from before a relaunch": { tool: T.read, args: { session: "gone8888" }, ok: /relaunched answer/ },
+		"read · saved id of an open tab": { tool: T.read, args: { session: LOCAL_STOCK }, ok: /local answer/ },
+		"read · saved id prefix of an open tab": { tool: T.read, args: { session: "aaaaaaaa" }, ok: /local answer/ },
+		"read · title": { tool: T.read, args: { session: "Local worker" }, ok: /local answer/ },
+		"read · title prefix, any case": { tool: T.read, args: { session: "local wor" }, ok: /local answer/ },
+		"read · paired device's tab": { tool: T.read, args: { session: "remo2222" }, ok: /remote answer/ },
+		"read · device reconnecting": { tool: T.read, args: { session: "blip5555" }, ok: /blip answer/ },
+		"read · saved only": { tool: T.read, args: { session: "cccccccc-3333" }, ok: /stored answer/ },
+		"read · saved on a reconnecting device, never listed": {
+			tool: T.read,
+			args: { session: "dddddddd-4444" },
+			ok: /laptop answer/,
+		},
+		"read · hidden": { tool: T.read, args: { session: "hide6666" }, error: /hid this session.*Ask them/ },
+		"read · unknown": { tool: T.read, args: { session: "nothing-like-it" }, error: /ompdesk_sessions/ },
+
+		"send · local": { tool: T.send, args: { session: "loca1111", message: "go" }, ok: /Sent to/ },
+		"send · title": { tool: T.send, args: { session: "Busy builder", message: "go" }, ok: /queued as a follow-up/ },
+		"send · saved id of an open tab": { tool: T.send, args: { session: LOCAL_STOCK, message: "go" }, ok: /Sent to/ },
+		"send · paired device": { tool: T.send, args: { session: "remo2222", message: "go" }, ok: /Sent to/ },
+		"send · device reconnecting": { tool: T.send, args: { session: "blip5555", message: "go" }, ok: /Sent to/ },
+		"send · deferred tab": { tool: T.send, args: { session: "slep3333", message: "go" }, ok: /Sent to/ },
+		"send · saved only": {
+			tool: T.send,
+			args: { session: "cccccccc-3333", message: "go" },
+			error: /not open.*"reopen":"cccccccc-3333"/,
+		},
+		"send · hidden": { tool: T.send, args: { session: "hide6666", message: "go" }, error: /hid this session/ },
+
+		"result · local": { tool: T.result, args: { session: "loca1111" }, ok: /idle[\s\S]*local answer/ },
+		"result · title": { tool: T.result, args: { session: "Remote worker" }, ok: /remote answer/ },
+		"result · device reconnecting": { tool: T.result, args: { session: "blip5555" }, ok: /idle[\s\S]*blip answer/ },
+		"result · deferred tab": { tool: T.result, args: { session: "slep3333" }, ok: /not started/ },
+		"result · saved only": {
+			tool: T.result,
+			args: { session: "cccccccc-3333" },
+			ok: /Old notes[\s\S]*stored answer/,
+		},
+
+		"answer · nothing asked": {
+			tool: T.answer,
+			args: { session: "loca1111", choice: "Yes" },
+			error: /not waiting for an answer.*ompdesk_session_result/,
+		},
+		"answer · device reconnecting": {
+			tool: T.answer,
+			args: { session: "blip5555", approve: true },
+			error: /not waiting for an answer/,
+		},
+		"answer · saved only": {
+			tool: T.answer,
+			args: { session: "cccccccc-3333", approve: true },
+			error: /not open.*"reopen":"cccccccc-3333"/,
+		},
+
+		"focus · title": { tool: T.focus, args: { session: "Sleeper" }, ok: /Showing/ },
+		"focus · saved only": {
+			tool: T.focus,
+			args: { session: "cccccccc-3333" },
+			error: /not open.*"reopen":"cccccccc-3333"/,
+		},
+
+		"stop · busy, abort slower than 8 s": { tool: T.stop, args: { session: "busy4444" }, ok: /^Stopped/ },
+		"stop · busy, abort never answers": {
+			tool: T.stop,
+			args: { session: "busy4444" },
+			ok: /has not confirmed.*"close": true/,
+			setup: host => {
+				host.abortAfter = null;
+			},
+		},
+		"stop · close busy, abort slower than 8 s": {
+			tool: T.stop,
+			args: { session: "busy4444", close: true },
+			ok: /^Closed/,
+		},
+		"stop · close busy, abort never answers": {
+			tool: T.stop,
+			args: { session: "busy4444", close: true },
+			ok: /^Closed/,
+			setup: host => {
+				host.abortAfter = null;
+			},
+		},
+		"stop · delete busy, abort slower than 8 s": {
+			tool: T.stop,
+			args: { session: "busy4444", delete: true },
+			ok: /deleted/,
+		},
+		"stop · close on a reconnecting device": {
+			tool: T.stop,
+			args: { session: "blip5555", close: true },
+			ok: /^Closed/,
+		},
+		"stop · saved only": { tool: T.stop, args: { session: "cccccccc-3333" }, ok: /not open in any tab/ },
+		"stop · hidden": { tool: T.stop, args: { session: "hide6666", close: true }, error: /hid this session/ },
+
+		"merge · saved only": { tool: T.merge, args: { session: "cccccccc-3333" }, error: /not open.*"reopen"/ },
+		"report · to a title": {
+			tool: T.report,
+			args: { to: "Local worker", kind: "note", text: "fyi" },
+			ok: /Delivered/,
+			setup: host => {
+				host.peers.set("boss0001", ["loca1111"]);
+			},
+		},
+
+		"sessions · stored on a reconnecting device": {
+			tool: T.list,
+			args: { scope: "stored", device: "Laptop" },
+			ok: /Laptop notes/,
+		},
+		"sessions · a reconnecting device's open tabs": {
+			tool: T.list,
+			args: { device: "Laptop" },
+			ok: /Blip worker[\s\S]*idle/,
+		},
+		"open · reopen a saved session of a reconnecting device, never listed": {
+			tool: T.open,
+			args: { reopen: "dddddddd-4444", device: "Laptop" },
+			ok: /Opened session/,
+		},
+		"open · on a reconnecting device": {
+			tool: T.open,
+			args: { message: "build it", device: "Laptop", folder: "L:/repo" },
+			ok: /Opened session/,
+		},
+		"schedule · list on a reconnecting device": {
+			tool: T.schedule,
+			args: { action: "list", device: "Laptop" },
+			ok: /schedule|No scheduled/i,
+		},
+	};
+
+	it.each(Object.entries(cells))("%s", async (_name, cell) => {
+		const outcome = await onFakeClock(() => {
+			const host = world();
+			cell.setup?.(host);
+			return control(host).run("boss0001", cell.tool, cell.args);
+		});
+		if (cell.error) {
+			expect(outcome.isError, outcome.text).toBe(true);
+			expect(outcome.text).toMatch(cell.error);
+		} else {
+			expect(outcome.isError, outcome.text).toBe(false);
+			expect(outcome.text).toMatch(cell.ok as RegExp);
+		}
+	});
+
+	it("waits a bounded moment only: a device that stays away fails within 20 s and says what to do", async () => {
+		const { outcome, waited } = await onFakeClock(async () => {
+			const host = world();
+			// The Laptop never comes back this time.
+			vi.clearAllTimers();
+			const lap = host.deviceList.find(device => device.id === "lap");
+			if (lap) lap.state = "offline";
+			const started = Date.now();
+			const result = await control(host).run("boss0001", T.list, { scope: "stored", device: "Laptop" });
+			return { outcome: result, waited: Date.now() - started };
+		});
+		expect(outcome.isError).toBe(true);
+		expect(waited).toBeLessThanOrEqual(20_000);
+		expect(outcome.text).toMatch(/Laptop is offline.*waited/);
+		expect(outcome.text).toMatch(/Settings › Devices/);
+	});
+});
+
+/** Every kind of card a session can wait on: what was given wrong is named with the field that answers it. */
+describe("answer matrix", () => {
+	const card = (request: Record<string, unknown>): ControlAsk => ({
+		id: "req1",
+		request: { type: "extension_ui_request", id: "req1", ...request } as ExtensionUIRequest,
+	});
+	const rows: [string, ControlAsk | null, Record<string, unknown>, { ok?: RegExp; error?: RegExp }][] = [
+		[
+			"select · no choice",
+			card({ method: "select", title: "Pick", options: ["Red", "Blue"] }),
+			{},
+			{ error: /`choice`.*"Red" \| "Blue"/ },
+		],
+		[
+			"select · approve on a plain choice",
+			card({ method: "select", title: "Pick", options: ["Red", "Blue"] }),
+			{ approve: true },
+			{ error: /`choice`.*"Red" \| "Blue"/ },
+		],
+		[
+			"select · prefix",
+			card({ method: "select", title: "Pick", options: ["Red", "Blue"] }),
+			{ choice: "bl" },
+			{ ok: /"Blue"/ },
+		],
+		[
+			"confirm · nothing",
+			card({ method: "confirm", title: "Go on?", message: "" }),
+			{},
+			{ error: /`approve`.*true or false/ },
+		],
+		[
+			"confirm · text only",
+			card({ method: "confirm", title: "Go on?", message: "" }),
+			{ text: "yes" },
+			{ ok: /yes to "Go on\?"/ },
+		],
+		[
+			"confirm · choice no",
+			card({ method: "confirm", title: "Go on?", message: "" }),
+			{ choice: "no" },
+			{ ok: /no to "Go on\?"/ },
+		],
+		["input · nothing", card({ method: "input", title: "Name?" }), {}, { error: /`text`/ }],
+		[
+			"input · choice instead of text",
+			card({ method: "input", title: "Name?" }),
+			{ choice: "Ada" },
+			{ ok: /text to "Name\?"/ },
+		],
+		["editor · nothing", card({ method: "editor", title: "Edit" }), { approve: true }, { error: /`text`/ }],
+		[
+			"ask · one question, choice",
+			card({
+				method: "ask",
+				questions: [{ id: "q1", question: "Which?", options: [{ label: "A" }, { label: "B" }] }],
+			}),
+			{ choice: "B" },
+			{ ok: /1 answer/ },
+		],
+		[
+			"ask · one question, text",
+			card({ method: "ask", questions: [{ id: "q1", question: "Which?", options: [{ label: "A" }] }] }),
+			{ text: "neither" },
+			{ ok: /1 answer/ },
+		],
+		[
+			"ask · two questions, choice",
+			card({
+				method: "ask",
+				questions: [
+					{ id: "q1", question: "Which?", options: [{ label: "A" }] },
+					{ id: "q2", question: "When?", options: [{ label: "Now" }] },
+				],
+			}),
+			{ choice: "A" },
+			{ error: /`answers`.*"q1".*"q2"/ },
+		],
+		["plan · nothing", null, {}, { error: /approve: true.*approve: false/ }],
+		["plan · execute", null, { choice: "execute", approve: true }, { error: /사용자 승인이 필요해요/ }],
+	];
+
+	it.each(rows)("%s", async (_name, ask, args, want) => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			ask
+				? { tabId: "wait0002", title: "Asker", asks: [ask] }
+				: { tabId: "wait0002", title: "Planner", plan: { title: "Plan", planFilePath: "/p.md" } },
+		);
+		const outcome = await control(host).run("main0001", T.answer, { session: "wait0002", ...args });
+		if (want.error) {
+			expect(outcome.isError, outcome.text).toBe(true);
+			expect(outcome.text).toMatch(want.error);
+		} else {
+			expect(outcome.isError, outcome.text).toBe(false);
+			expect(outcome.text).toMatch(want.ok as RegExp);
+		}
 	});
 });
