@@ -13,8 +13,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, type MockInstance, vi } from "vitest";
-import type { AgentSessionEvent } from "../../shared/rpc-types";
+import { afterEach, beforeAll, describe, expect, it, type MockInstance, vi } from "vitest";
+import type { AgentSessionEvent, SubagentFrame } from "../../shared/rpc-types";
 import type { MachineServices } from "../machine-services";
 import { createMessageUpdateSlimmer } from "../message-update-slim";
 import type { OmpResolution } from "../omp-runtime";
@@ -29,10 +29,18 @@ import { Link } from "./wire";
 const FRAME_OVERHEAD = 32;
 const MEASURE = process.env.OMP_GUI_LINK_TRAFFIC === "1";
 
+/** The scripted omp's task update `partialResult`. */
+interface TaskPartial {
+	details?: { progress?: Array<{ assignment?: unknown }> };
+}
+
 interface Row {
 	frames: number;
 	bytes: number;
 }
+
+/** What the device's hello says: `slimEventsOnly` was built before slim progress, `older` before slim events. */
+type DeviceKind = "current" | "slimEventsOnly" | "older";
 
 /** Counts every message a Link sends, split the way the report reads it. */
 class LinkRecorder {
@@ -41,15 +49,15 @@ class LinkRecorder {
 	readonly #methods = new Map<number, string>();
 	#spy: MockInstance | null = null;
 
-	/** `olderDevice`: the hello goes out without the capability a device built before slim events sent. */
-	start(olderDevice = false): void {
+	/** The hello goes out as the build `device` sent it; the host answers with the frames that build can read. */
+	start(device: DeviceKind = "current"): void {
 		const original = Link.prototype.send;
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
 		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, message: object) {
 			record(message);
-			if (olderDevice && "slimEvents" in message) {
-				const { slimEvents: _slim, ...older } = message;
-				return original.call(this, older);
+			if (device !== "current" && "slimEvents" in message) {
+				const { slimEvents, slimProgress: _progress, ...older } = message as { slimEvents: unknown };
+				return original.call(this, device === "older" ? older : { ...older, slimEvents });
 			}
 			return original.call(this, message);
 		});
@@ -107,9 +115,12 @@ class LinkRecorder {
 			for (const event of arg as Array<{ type?: string }>)
 				sized.push([`events/${event.type}`, Buffer.byteLength(JSON.stringify(event))]);
 		} else if (name === "subagentFrame" || name === "liveFrame" || name === "btwFrame") {
-			const frame = arg as { type?: string; payload?: { event?: { type?: string } } };
-			const nested = frame.payload?.event?.type;
-			sized.push([`${name}/${frame.type}${nested ? `/${nested}` : ""}`, Buffer.byteLength(JSON.stringify(arg))]);
+			// A host that batches sends an array of frames in one tab event.
+			const frames = (Array.isArray(arg) ? arg : [arg]) as Array<{ type?: string; payload?: { event?: { type?: string } } }>;
+			for (const frame of frames) {
+				const nested = frame.payload?.event?.type;
+				sized.push([`${name}/${frame.type}${nested ? `/${nested}` : ""}`, Buffer.byteLength(JSON.stringify(frame))]);
+			}
 		} else {
 			sized.push([name, Buffer.byteLength(JSON.stringify(arg ?? null))]);
 		}
@@ -151,10 +162,20 @@ function ompAt(bin: string): () => Promise<OmpResolution> {
 	});
 }
 
-function hostServices(bin: string, workDir: string): LocalHostServices {
+/** What the host's omp emitted before the host's encoder saw it. */
+interface RawTap {
+	events: AgentSessionEvent[];
+	frames: SubagentFrame[];
+}
+
+function hostServices(bin: string, workDir: string, raw: RawTap): LocalHostServices {
 	return new LocalHostServices({
-		createSidecar: (cwd, kind, fresh) =>
-			new SidecarManager({ omp: ompAt(bin), cwd, kind, fresh }) as unknown as SidecarLike,
+		createSidecar: (cwd, kind, fresh) => {
+			const sidecar = new SidecarManager({ omp: ompAt(bin), cwd, kind, fresh });
+			sidecar.on("events", (batch: AgentSessionEvent[]) => raw.events.push(...batch));
+			sidecar.on("subagentFrame", (frame: SubagentFrame) => raw.frames.push(frame));
+			return sidecar as unknown as SidecarLike;
+		},
 		hostName: () => "Studio",
 		sessionIndex: {
 			list: async () => [],
@@ -187,8 +208,11 @@ interface Session {
 	sidecar: RemoteSidecar;
 	recorder: LinkRecorder;
 	rig: DevicesRig;
-	/** Every omp event the device's sidecar delivered to its pool, in order. */
+	/** Every omp event and subagent frame the device's sidecar delivered to its pool, in order. */
 	events: Array<{ type: string; message?: { content?: unknown }; assistantMessageEvent?: { type: string } }>;
+	frames: SubagentFrame[];
+	/** What the host's omp emitted, as the host's encoder received it. */
+	raw: RawTap;
 	/** What the host wrote to its `remote-link` runtime log. */
 	hostLog: Array<{ message: string; details: Record<string, unknown> }>;
 	/** Runs one scripted turn and resolves when the host's omp settled it. */
@@ -199,7 +223,7 @@ interface Session {
 const rigs: DevicesRig[] = [];
 const recorders: LinkRecorder[] = [];
 
-async function openSession(options: { olderDevice?: boolean } = {}): Promise<Session> {
+async function openSession(options: { device?: DeviceKind } = {}): Promise<Session> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-link-traffic-"));
 	WORK_DIRS.push(dir);
 	const bin = await writeFakeOmp(
@@ -212,10 +236,11 @@ async function openSession(options: { olderDevice?: boolean } = {}): Promise<Ses
 	rigs.push(rig);
 	const recorder = new LinkRecorder();
 	recorders.push(recorder);
-	recorder.start(options.olderDevice === true);
+	recorder.start(options.device);
 	const hostLog: Session["hostLog"] = [];
+	const raw: RawTap = { events: [], frames: [] };
 	const { a, hostId } = await rig.connected({
-		services: hostServices(bin, workDir),
+		services: hostServices(bin, workDir, raw),
 		logLink: (message, details) => hostLog.push({ message, details }),
 	});
 	const sidecar = a.devices.createSidecar(hostId, "t1", workDir, "agent", true);
@@ -224,13 +249,17 @@ async function openSession(options: { olderDevice?: boolean } = {}): Promise<Ses
 		if (status === "ready") ready.resolve();
 	});
 	const events: Session["events"] = [];
+	const frames: SubagentFrame[] = [];
 	sidecar.on("events", (batch: Session["events"]) => events.push(...batch));
+	sidecar.on("subagentFrame", (frame: SubagentFrame) => frames.push(frame));
 	sidecar.start();
 	await ready.promise;
 	recorder.reset();
 	return {
 		sidecar,
 		events,
+		frames,
+		raw,
 		recorder,
 		rig,
 		hostLog,
@@ -343,31 +372,43 @@ describe("the host's traffic line over the real pipeline", () => {
 	}, 30_000);
 });
 
-/** A streamed assistant message as the device's sidecar delivers it to its pool (what `use-rpc-events` is fed). */
+/** A scripted turn as the device's sidecar delivers it to its pool (what `use-rpc-events` is fed), and what it cost. */
 interface Delivered {
 	/** `events` batches' contents, in order. */
 	events: Array<{ type: string; message?: { content?: unknown }; assistantMessageEvent?: { type: string } }>;
+	frames: SubagentFrame[];
+	raw: RawTap;
 	/** Wire bytes of the host's `events` frames and of its subagent `message_update` frames. */
 	eventBytes: number;
 	subagentUpdateBytes: number;
 	subagentUpdateFrames: number;
+	/** Wire bytes of every `tab.event` the host sent, and how many of them carried subagent frames. */
+	tabEventBytes: number;
+	subagentEnvelopes: number;
 }
 
-/** Runs one scripted turn on a fresh host and device (the device `olderDevice` or current) and tears both down. */
+/** Runs one scripted turn on a fresh host and device (the device as `device` says, current by default) and tears both down. */
 async function delivered(
 	scenario: object,
-	options: { olderDevice?: boolean; level?: "off" | "progress" | "events" } = {},
+	options: { device?: DeviceKind; level?: "off" | "progress" | "events" } = {},
 ): Promise<Delivered> {
 	const session = await openSession(options);
 	if (options.level) await session.setLevel(options.level);
 	session.recorder.reset();
 	await session.turn(scenario);
 	const subagent = session.recorder.inner.get("subagentFrame/subagent_event/message_update");
+	const { links } = session.recorder;
+	let tabEventBytes = 0;
+	for (const [kind, row] of links) if (kind.startsWith("B>A evt tab.event")) tabEventBytes += row.bytes;
 	const result: Delivered = {
 		events: session.events,
-		eventBytes: session.recorder.links.get("B>A evt tab.event events")?.bytes ?? 0,
+		frames: session.frames,
+		raw: session.raw,
+		eventBytes: links.get("B>A evt tab.event events")?.bytes ?? 0,
 		subagentUpdateBytes: subagent?.bytes ?? 0,
 		subagentUpdateFrames: subagent?.frames ?? 0,
+		tabEventBytes,
+		subagentEnvelopes: links.get("B>A evt tab.event subagentFrame")?.frames ?? 0,
 	};
 	session.recorder.stop();
 	await session.rig.dispose();
@@ -385,7 +426,7 @@ describe("a device that asks for slim events", () => {
 			// Unpaced: a byte count needs no wall clock (2 ms a token was 7 of the 1800-token case's 9.5 s), and a burst
 			// is what packs an older device's whole updates into frames past the link's cap.
 			const scenario = { kind: "stream", thinkingTokens, textTokens, tokenMs: 0 };
-			const older = await delivered(scenario, { olderDevice: true });
+			const older = await delivered(scenario, { device: "older" });
 			const current = await delivered(scenario);
 			const updates = (run: Delivered) => run.events.filter(event => event.type === "message_update").length;
 			// Nothing dropped on the way: an older device's batch past the frame cap once lost the turn, end included.
@@ -400,7 +441,7 @@ describe("a device that asks for slim events", () => {
 
 	it("receives a subagent's streamed messages in at most a tenth of the bytes an older device gets", async () => {
 		const scenario = { kind: "subagent", messages: 1, textTokens: 300, tokenMs: 0 };
-		const older = await delivered(scenario, { olderDevice: true, level: "events" });
+		const older = await delivered(scenario, { device: "older", level: "events" });
 		const current = await delivered(scenario, { level: "events" });
 		const perFrame = (bytes: number, frames: number): number => bytes / Math.max(1, frames);
 		expect(older.subagentUpdateFrames).toBeGreaterThan(100);
@@ -413,7 +454,7 @@ describe("a device that asks for slim events", () => {
 	it("still gets every message_update whole from a host that cannot tell the device is older", async () => {
 		const older = await delivered(
 			{ kind: "stream", thinkingTokens: 20, textTokens: 40, tokenMs: 0 },
-			{ olderDevice: true },
+			{ device: "older" },
 		);
 		const updates = older.events.filter(event => event.type === "message_update");
 		expect(updates.length).toBeGreaterThan(60);
@@ -422,13 +463,87 @@ describe("a device that asks for slim events", () => {
 
 	it("delivers the same stream to the renderer as an older device does", async () => {
 		const scenario = { kind: "tool-wait", seconds: 0 };
-		const rendered = async (options: { olderDevice?: boolean }) => {
+		const rendered = async (options: { device?: DeviceKind }) => {
 			// The pool's per-window slimmer turns what a sidecar delivers into what a window receives.
 			const slim = createMessageUpdateSlimmer();
 			return slim((await delivered(scenario, options)).events as AgentSessionEvent[]);
 		};
-		const older = await rendered({ olderDevice: true });
+		const older = await rendered({ device: "older" });
 		const current = await rendered({});
 		expect(current).toEqual(older);
 	}, 60_000);
+});
+
+describe("a device that asks for slim progress", () => {
+	const scenario = { kind: "subagent", seconds: 3, textTokens: 300, tokenMs: 2 };
+	const results = new Map<string, Delivered>();
+	const key = (device: DeviceKind, level: string): string => `${device} ${level}`;
+	const run = (device: DeviceKind, level: string): Delivered => results.get(key(device, level)) as Delivered;
+	/** The parent's `tool_execution_update`s the omp made: one progress snapshot each. */
+	const snapshots = (d: Delivered): number =>
+		Math.max(1, d.raw.events.filter(event => event.type === "tool_execution_update").length);
+	const perSnapshot = (bytes: number, d: Delivered): number => bytes / snapshots(d);
+	const ofKinds = <T extends { type: string }>(items: T[], types: string[]): T[] =>
+		items.filter(item => types.includes(item.type));
+
+	beforeAll(async () => {
+		for (const level of ["off", "progress", "events"] as const)
+			for (const device of ["current", "slimEventsOnly"] as const)
+				results.set(key(device, level), await delivered(scenario, { device, level }));
+		results.set(key("older", "events"), await delivered(scenario, { device: "older", level: "events" }));
+	}, 180_000);
+
+	it("sends the progress it reports, with the subscription off, in at most half the bytes", () => {
+		const current = perSnapshot(run("current", "off").tabEventBytes, run("current", "off"));
+		const before = perSnapshot(run("slimEventsOnly", "off").tabEventBytes, run("slimEventsOnly", "off"));
+		expect(current * 2, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(before);
+	});
+
+	it("sends the progress it reports, with the progress subscription, in at most a third of the bytes", () => {
+		const current = perSnapshot(run("current", "progress").tabEventBytes, run("current", "progress"));
+		const before = perSnapshot(run("slimEventsOnly", "progress").tabEventBytes, run("slimEventsOnly", "progress"));
+		expect(current * 3, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(before);
+	});
+
+	it("sends all of a subagent's events but its own messages in at most a third of the bytes", () => {
+		const rest = (d: Delivered): number => perSnapshot(d.tabEventBytes - d.subagentUpdateBytes, d);
+		const current = rest(run("current", "events"));
+		const before = rest(run("slimEventsOnly", "events"));
+		expect(current * 3, `${current.toFixed(0)} B a snapshot against ${before.toFixed(0)} B`).toBeLessThanOrEqual(before);
+	});
+
+	it("sends the frames of one flush in one tab event", () => {
+		const current = run("current", "events");
+		expect(current.raw.frames.length).toBeGreaterThan(100);
+		expect(
+			current.subagentEnvelopes * 2,
+			`${current.subagentEnvelopes} tab events for ${current.raw.frames.length} frames`,
+		).toBeLessThanOrEqual(current.raw.frames.length);
+	});
+
+	it("delivers the progress snapshots, lifecycle frames and task updates the host's omp emitted, unchanged", () => {
+		for (const level of ["off", "progress", "events"] as const) {
+			const current = run("current", level);
+			const updates = ofKinds(current.raw.events, ["tool_execution_update"]);
+			expect(updates.length).toBeGreaterThan(10);
+			expect(ofKinds(current.events as AgentSessionEvent[], ["tool_execution_update"])).toEqual(updates);
+			const frames = ofKinds(current.raw.frames, ["subagent_progress", "subagent_lifecycle"]);
+			expect(ofKinds(current.frames, ["subagent_progress", "subagent_lifecycle"])).toEqual(frames);
+			if (level !== "off") expect(frames.length).toBeGreaterThan(10);
+		}
+	});
+
+	it("still gets every frame and every snapshot whole, one tab event a frame, when it asked for neither", () => {
+		const older = run("older", "events");
+		expect(older.subagentEnvelopes).toBe(older.raw.frames.length);
+		const updates = ofKinds(older.events as AgentSessionEvent[], ["tool_execution_update"]);
+		expect(updates).toEqual(ofKinds(older.raw.events, ["tool_execution_update"]));
+		for (const update of updates) {
+			expect(update.type).toBe("tool_execution_update");
+			// The scripted omp's task update: its `partialResult` is `{ details: { progress: AgentProgress[] } }`.
+			const partial: TaskPartial = (update as Extract<AgentSessionEvent, { type: "tool_execution_update" }>)
+				.partialResult as TaskPartial;
+			expect(typeof partial.details?.progress?.[0]?.assignment).toBe("string");
+		}
+	});
 });

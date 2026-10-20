@@ -21,7 +21,7 @@ import type {
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
-import type { RpcCommand, RpcResponse, SidecarStatus } from "../../shared/rpc-types";
+import type { AgentProgress, RpcCommand, RpcResponse, SidecarStatus, SubagentFrame } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { MemoryPageCopy } from "../ai-memory/client";
@@ -49,8 +49,10 @@ import {
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
 import type { HostedTabView } from "./hosted-view";
+import { createLinkEventDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
+import { FrameTooLargeError } from "./wire";
 
 /** A SidecarManager stand-in for the host side. */
 class FakeHostSidecar extends EventEmitter {
@@ -2798,5 +2800,90 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 			/Invalid host.memory.conclusions.push/,
 		);
 		expect(store.writeConclusions).not.toHaveBeenCalled();
+	});
+});
+
+describe("LocalHostServices tab events past the link's frame cap", () => {
+	const CAP = 20_000;
+
+	/** A device's connection that asked for slim events and progress, and whose link refuses a frame over `CAP`. */
+	class CappedConnection extends FakeConnection {
+		readonly slimEvents = true;
+		readonly slimProgress = true;
+		override emit(event: string, data: unknown): void {
+			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
+			super.emit(event, data);
+		}
+	}
+
+	const progressFrame = (id: string, step: number, bytes: number): SubagentFrame => {
+		const progress = {
+			index: 0,
+			id,
+			agent: "explore",
+			agentSource: "bundled",
+			status: "running",
+			task: "task",
+			recentTools: [],
+			recentOutput: [`${step}`.repeat(bytes)],
+			toolCount: step,
+			requests: step,
+			tokens: step,
+			cost: 0,
+			durationMs: step,
+		} satisfies AgentProgress;
+		return {
+			type: "subagent_progress",
+			payload: { index: 0, agent: "explore", agentSource: "bundled", task: "task", progress },
+		};
+	};
+
+	async function connected() {
+		const context = setup();
+		const x = new CappedConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("no sidecar");
+		sidecar.setStatus("ready");
+		return { ...context, x, sidecar };
+	}
+
+	/** What the device's sidecar delivers for the host's `subagentFrame` tab events, in order. */
+	function delivered(x: FakeConnection): SubagentFrame[] {
+		const decoder = createLinkEventDecoder();
+		const out: SubagentFrame[] = [];
+		for (const event of x.tabEvents()) {
+			if (event.name !== "subagentFrame") continue;
+			const wire = JSON.parse(JSON.stringify(event.arg)) as WireSubagentFrame[];
+			for (const frame of wire) {
+				const decoded = decoder.subagentFrame(frame);
+				if (decoded) out.push(decoded);
+			}
+		}
+		return out;
+	}
+
+	it("sends a flush of subagent frames that passes the cap as several tab events, in order, and the device rebuilds them", async () => {
+		const { x, sidecar } = await connected();
+		const raw = Array.from({ length: 40 }, (_, step) => progressFrame("sa-1", step + 1, 1_000));
+		for (const frame of raw) sidecar.emit("subagentFrame", frame);
+		sidecar.emit("beforeResponse");
+
+		const sent = x.tabEvents().filter(event => event.name === "subagentFrame");
+		expect(sent.length).toBeGreaterThan(1);
+		expect(delivered(x)).toEqual(JSON.parse(JSON.stringify(raw)));
+	});
+
+	it("starts the next snapshot of a subagent over whole after one frame was too large to send", async () => {
+		const { x, sidecar } = await connected();
+		const huge = progressFrame("sa-1", 1, CAP * 2);
+		const next = progressFrame("sa-1", 2, 1_000);
+		sidecar.emit("subagentFrame", huge);
+		sidecar.emit("beforeResponse");
+		sidecar.emit("subagentFrame", next);
+		sidecar.emit("beforeResponse");
+
+		expect(delivered(x)).toEqual(JSON.parse(JSON.stringify([next])));
 	});
 });

@@ -40,6 +40,16 @@ describe("LinkTraffic", () => {
 		expect(window.batched).toEqual({ message_update: 2, message_end: 1 });
 	});
 
+	it("names a tab event that batches subagent frames one kind and counts its frames by type", () => {
+		const traffic = new LinkTraffic();
+		const batch = [{ type: "subagent_progress" }, { type: "subagent_event" }, { type: "subagent_event" }];
+		traffic.record("tx", tabEvent("subagentFrame", batch), 900);
+
+		const window = traffic.take();
+		expect(window.rows).toEqual([{ kind: "tx evt tab.event subagentFrame/batch", frames: 1, bytes: 900 }]);
+		expect(window.batched).toEqual({ subagent_progress: 1, subagent_event: 2 });
+	});
+
 	it("starts an empty window after take, and keeps no more kinds than a peer can inflate", () => {
 		const traffic = new LinkTraffic();
 		for (let method = 0; method < 1_000; method++)
