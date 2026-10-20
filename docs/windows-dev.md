@@ -9,6 +9,7 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
 3. Install stock omp: `bun install -g @oh-my-pi/pi-coding-agent` (or let the app's machine setup do it).
 4. Clone, then `bun install`. `.gitattributes` forces LF on checkout (`* text=auto eol=lf`), which biome needs; do not override it with `core.autocrlf`.
 5. Turn on **Developer Mode** (Settings › System › For developers). About 15 test files create file symlinks (`fs.symlinkSync` without `"junction"`: `open-path`, `server`, `models-config`, `cli-tools/detect`, `ext-update/mcp-owner`, `visuals`, `host-actions`, …), and Windows refuses them with `EPERM` otherwise. CI runners run as admin, so CI does not catch this. App code (worktree seeding) makes directory junctions and needs no privilege.
+6. Install the browsers the Playwright specs launch themselves: `bunx playwright install chromium webkit`. `chromium` is Playwright's own Chromium (`device-prefs`, `pwa-install` and the Pixel side of the phone specs); `webkit` serves the phone specs (`mobile-attach`, `mobile-composer`, `mobile-enter`, `mobile-notification-open`, `mobile-pages`, `mobile-panels`, `mobile-shell`, `mobile-work-strip`, `phone-day`, `phone-run-sheet`, `web-no-reload`, `web-perf`). Without WebKit every case of those fails with `browserType.launch: Executable doesn't exist at …\ms-playwright\webkit-<n>\Playwright.exe`, and `mobile-shell`, which launches it in `beforeAll`, fails its first case and skips the rest. Run it again after a Playwright upgrade.
 
 ## Shells
 
@@ -37,6 +38,7 @@ OMPdesk is built mostly on macOS. This page lists what a developer (or an agent)
   - Git for Windows sets `core.autocrlf=true` in its system config. The app's git runs under it (a merge writes CRLF checkouts that the user's git calls clean), so a spec that isolates its own git with `GIT_CONFIG_NOSYSTEM=1` must read the final `git status` without that isolation.
   - A shortcut written ⌘ is Ctrl on Windows and the Windows key is no chord: press `ControlOrMeta`, never `Meta`.
   - A press that must land on one caret offset (drag-select) aligns to a device pixel: `Math.round(v * devicePixelRatio) / devicePixelRatio`.
+- The phone specs launch WebKit as an iPhone and run on macOS CI only (`e2e-shards.yml`); no Windows job installs WebKit, so a Windows PC is the only place they run on Windows. Playwright's WebKit for Windows is not Safari: it has no `OffscreenCanvas` and no HEIC decoder, `navigator.platform` is `Win32`, Korean is Malgun Gothic (a syllable a full em wide) and its `resize` comes well after the page has set `data-kb`. A spec asks the page what the browser can do rather than skipping WebKit on `win32`; see AGENTS.md › Windows › Playwright's WebKit.
 
 ## Known limits
 
