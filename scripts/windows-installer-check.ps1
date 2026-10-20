@@ -191,6 +191,102 @@ function Stop-App {
 	Wait-Until { -not (Get-Process OMPdesk -ErrorAction SilentlyContinue) } 30 'OMPdesk to exit'
 }
 
+# Electron's main process is the one OMPdesk.exe without a `--type=` (renderer, GPU, utility) switch.
+function Get-MainPids {
+	@(Get-CimInstance Win32_Process -Filter "Name = 'OMPdesk.exe'" -ErrorAction SilentlyContinue |
+			Where-Object { $_.CommandLine -notmatch '--type=' } |
+			ForEach-Object { $_.ProcessId })
+}
+
+# A fresh install must not open and close by itself (v0.44.0: a GPU-fallback relaunch loop on a laptop): the
+# same single main process for 60 s, and no relaunch or safe mode in its runtime log.
+function Assert-StaysUp([int] $Seconds = 60) {
+	$first = Get-MainPids
+	if ($first.Count -ne 1) { Fail "expected one OMPdesk main process, found $($first.Count)" }
+	$deadline = (Get-Date).AddSeconds($Seconds)
+	while ((Get-Date) -lt $deadline) {
+		Start-Sleep -Seconds 2
+		$now = Get-MainPids
+		if ($now.Count -ne 1 -or $now[0] -ne $first[0]) {
+			Save-Screen 'app-restarted'
+			Fail "the OMPdesk main process changed within $Seconds s (was $($first[0]), now $($now -join ', ')): it restarted itself"
+		}
+	}
+	Ok "one OMPdesk main process ($($first[0])) stayed up for $Seconds s"
+	$log = Join-Path $env:APPDATA 'ompdesk\logs\gui-runtime.jsonl'
+	$lines = if (Test-Path -LiteralPath $log) { @(Get-Content -LiteralPath $log) } else { @() }
+	$gpu = @($lines | Where-Object { $_ -match '"source":"(gpu-fallback|launch-guard|child-process)"' })
+	foreach ($line in $gpu) { Write-Host "     $line" }
+	if (@($lines | Where-Object { $_ -match 'relaunching with software rendering' }).Count -ne 0) { Fail 'the GPU fallback relaunched the app' }
+	if (@($lines | Where-Object { $_ -match '"source":"launch-guard"' }).Count -ne 0) { Fail 'the app started in safe mode (crash loop)' }
+	Ok "no GPU relaunch and no safe mode in gui-runtime.jsonl ($($lines.Count) lines)"
+}
+
+# Ends the app's GPU process the way a driver crash does (exit code 0xC0000005, which Chromium reports as
+# "crashed"; Stop-Process's exit code 1 reads as "killed", which the fallback ignores).
+function Stop-GpuProcessAsCrash {
+	if (-not ('GpuCrash' -as [type])) {
+		Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class GpuCrash {
+	[DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+	[DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateProcess(IntPtr process, uint code);
+	[DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+	public static bool Crash(int pid) {
+		IntPtr handle = OpenProcess(0x0001, false, pid);
+		if (handle == IntPtr.Zero) return false;
+		try { return TerminateProcess(handle, 0xC0000005); } finally { CloseHandle(handle); }
+	}
+}
+'@
+	}
+	$gpu = @(Get-CimInstance Win32_Process -Filter "Name = 'OMPdesk.exe'" -ErrorAction SilentlyContinue |
+			Where-Object { $_.CommandLine -match '--type=gpu-process' })
+	if ($gpu.Count -eq 0) { return $false }
+	[GpuCrash]::Crash([int] $gpu[0].ProcessId) | Out-Null
+	return $true
+}
+
+# The loop a laptop hit on v0.44.0: a GPU crash in a hardware launch relaunches once into software rendering;
+# GPU crashes in that software launch must leave it running (Chromium restarts its GPU process itself).
+function Assert-NoGpuRelaunchLoop {
+	$first = Get-MainPids
+	if ($first.Count -ne 1) { Fail "expected one OMPdesk main process, found $($first.Count)" }
+	Wait-Until { Stop-GpuProcessAsCrash } 30 'a GPU process to crash'
+	Wait-Until {
+		$now = Get-MainPids
+		$now.Count -eq 1 -and $now[0] -ne $first[0]
+	} 60 'the one relaunch into software rendering'
+	$second = (Get-MainPids)[0]
+	Ok "a GPU crash in the hardware launch relaunched it once ($($first[0]) -> $second)"
+	Wait-Until { @(Get-Process OMPdesk -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }).Count -gt 0 } 60 'the relaunched window'
+	$crashes = 0
+	for ($i = 0; $i -lt 2; $i++) {
+		Start-Sleep -Seconds 5
+		if (Stop-GpuProcessAsCrash) { $crashes++ }
+	}
+	if ($crashes -eq 0) { Fail 'the software launch runs no GPU process to crash: the check proves nothing' }
+	Write-Host "     crashed the software launch's GPU process $crashes times"
+	$deadline = (Get-Date).AddSeconds(30)
+	while ((Get-Date) -lt $deadline) {
+		$now = Get-MainPids
+		if ($now.Count -eq 0) {
+			Fail "the software launch ($second) exited after $crashes GPU process crashes (Chromium gave up?)"
+		}
+		if ($now.Count -ne 1 -or $now[0] -ne $second) {
+			Save-Screen 'gpu-loop'
+			Fail "the software launch relaunched after a GPU crash ($second -> $($now -join ', ')): the relaunch loop"
+		}
+		Start-Sleep -Seconds 2
+	}
+	Ok "the software launch ($second) stayed up through $crashes GPU process crashes"
+	Stop-App
+	foreach ($file in 'gpu-fallback.json', 'launch-history.json') {
+		Remove-Item -LiteralPath (Join-Path $env:APPDATA "ompdesk\$file") -Force -ErrorAction SilentlyContinue
+	}
+}
+
 # Headless (no tray, no automatic machine setup); the CDP page list proves the window loaded its renderer.
 function Assert-Launches {
 	$env:OMP_GUI_HEADLESS = '1'
@@ -328,7 +424,9 @@ switch ($Mode) {
 		} 120 'OMPdesk to start on its own with a window'
 		Ok 'OMPdesk started on its own after the install'
 		Save-Screen 'app-started'
-		Stop-App
+		Assert-StaysUp 60
+		Save-Screen 'app-after-60s'
+		Assert-NoGpuRelaunchLoop
 		Uninstall-PerUser $entry
 	}
 	'legacy' {
