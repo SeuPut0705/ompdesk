@@ -66,7 +66,7 @@ export function GeneralSection() {
 	const panelTab = useUiStore(state => state.panelTab);
 	const panelSide = useUiStore(state => state.panelSide);
 	const [closeToTray, setCloseToTray] = useMainPreference(CLOSE_TO_TRAY_PREF, true);
-	const [keepAwake, setKeepAwake] = useMainPreference(KEEP_AWAKE_WORKING_PREF);
+	const [keepAwake, setKeepAwake] = useMainPreference(KEEP_AWAKE_WORKING_PREF, true);
 	const [resumeInterrupted, setResumeInterrupted] = useMainPreference(RESUME_INTERRUPTED_PREF, true);
 	const languageId = useId();
 	const panelId = useId();

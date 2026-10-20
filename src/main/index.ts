@@ -125,6 +125,8 @@ import { followSetupState } from "./omp-availability";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
+import type { LidAwake } from "./power/lid-awake";
+import { createLidAwake } from "./power/lid-awake-runtime";
 import { lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
@@ -444,6 +446,8 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
+/** A charging laptop's lid close never stops work a keep-awake blocker holds (src/main/power/lid-awake.ts). */
+let lidAwake: LidAwake | null = null;
 /** Disk care at launch and daily (src/main/disk/care.ts). */
 let diskCare: DiskCare | null = null;
 
@@ -819,6 +823,26 @@ app.whenReady().then(() => {
 				)
 			: null;
 	const tailnet = new Tailnet({ locate: locateTs, exec: execFileExecutor });
+	// A test launch never changes the machine's power settings (a killed test app would leave them changed), and a
+	// second instance must not undo the running one's hold as a leftover.
+	lidAwake =
+		process.env.OMP_GUI_HEADLESS === "1" || !gotLock
+			? null
+			: createLidAwake({
+					userData: app.getPath("userData"),
+					onAc: !powerMonitor.isOnBatteryPower(),
+					log: (message, details) => writeRuntimeLog({ source: "keep-awake", message, details }),
+				});
+	void lidAwake?.start();
+	powerMonitor.on("on-ac", () => lidAwake?.setOnAc(true));
+	powerMonitor.on("on-battery", () => lidAwake?.setOnAc(false));
+	const keepAwakeBlocker = (label: string) => {
+		const blocker = {
+			start: () => powerSaveBlocker.start("prevent-app-suspension"),
+			stop: (id: number) => powerSaveBlocker.stop(id),
+		};
+		return lidAwake ? lidAwake.wrap(blocker, label) : blocker;
+	};
 	const devices = new RemoteDevices({
 		userData: app.getPath("userData"),
 		appVersion: app.getVersion(),
@@ -839,10 +863,7 @@ app.whenReady().then(() => {
 		// leaves this computer's own to continue after the relaunch. With "Continue interrupted work" off the quit
 		// dialog counted those turns and promised to stop them, so their host tabs close as before.
 		keepHostTabsOnQuit: () => quitApproved() && prefs.get(RESUME_INTERRUPTED_PREF) !== false,
-		powerSaveBlocker: {
-			start: () => powerSaveBlocker.start("prevent-app-suspension"),
-			stop: id => powerSaveBlocker.stop(id),
-		},
+		powerSaveBlocker: keepAwakeBlocker("host"),
 		tailnet,
 		allowedUsers: () => mobileWebService?.allowedUsers() ?? [],
 		adoptLogin: login => mobileWebService?.adoptLogin(login),
@@ -1355,15 +1376,12 @@ app.whenReady().then(() => {
 		appNotification({ title: mainT("tray.keepsRunningTitle"), body: mainT("tray.keepsRunningBody") }).show();
 	};
 	const workAwake = new KeepAwakePolicy({
-		blocker: {
-			start: () => powerSaveBlocker.start("prevent-app-suspension"),
-			stop: id => powerSaveBlocker.stop(id),
-		},
+		blocker: keepAwakeBlocker("work"),
 	});
 	workAwakePolicy = workAwake;
 	const syncWorkAwake = () =>
 		workAwake.update({
-			enabled: prefs.get(KEEP_AWAKE_WORKING_PREF) === true,
+			enabled: prefs.get(KEEP_AWAKE_WORKING_PREF) !== false,
 			connected: false,
 			running: sidecarPool.tabInventory().some(tab => tab.inFlight),
 		});
@@ -1740,6 +1758,7 @@ installQuitGuard(
 			["github-auth", () => githubAuthService?.dispose()],
 			["schedules", () => scheduleService?.dispose()],
 			["work-awake", () => workAwakePolicy?.dispose()],
+			["lid-awake", () => lidAwake?.dispose()],
 			["disk-care", () => diskCare?.stop()],
 			["sidecars", () => sidecarPool?.disposeAll()],
 			["remote-devices", () => void remoteDevices?.dispose()],

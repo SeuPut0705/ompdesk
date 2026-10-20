@@ -186,7 +186,6 @@ for (const [language, theme] of variants(RUNS)) {
 		await settings.locator("#setting-gui-linkPreview").getByRole("switch").click();
 		await settings.locator("[data-settings-advanced] > summary").click();
 		await settings.locator("#setting-gui-panelSide select").selectOption("left");
-		await settings.locator("#setting-gui-keepAwakeWorking").getByRole("switch").click();
 		await sound.scrollIntoViewIfNeeded();
 		await capture(page, `general-window-${language}-${theme}`);
 		await expect
@@ -196,12 +195,11 @@ for (const [language, theme] of variants(RUNS)) {
 				notificationVolume: 40,
 				linkPreview: true,
 				panelSide: "left",
-				keepAwakeWhileWorking: true,
 			});
 		await page.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
 
-		// Keep awake: held while the turn runs, released at once when the switch goes off.
+		// Keep awake (on by default): held while the turn runs, released at once when the switch goes off.
 		const input = page.locator("textarea").first();
 		expect(await awake()).toBe(false);
 		await input.fill("fixture running");
@@ -211,6 +209,11 @@ for (const [language, theme] of variants(RUNS)) {
 		await openGeneralSettings(page);
 		await settings.locator("#setting-gui-keepAwakeWorking").getByRole("switch").click();
 		await expect.poll(awake).toBe(false);
+		await expect
+			.poll(
+				async () => JSON.parse(await fs.readFile(path.join(desktop, "prefs.json"), "utf8")).keepAwakeWhileWorking,
+			)
+			.toBe(false);
 		await page.keyboard.press("Escape");
 		await expect(settings).toHaveCount(0);
 

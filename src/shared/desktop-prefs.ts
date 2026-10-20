@@ -17,7 +17,10 @@ export function closeToTrayEnabled(stored: unknown): boolean {
 /** Set once the "keeps running in the tray" notice has been shown. */
 export const CLOSE_TO_TRAY_NOTICE_PREF = "closeToTrayNoticeShown";
 
-/** Hold off system sleep while any tab on this computer runs a turn (default off). */
+/**
+ * Hold off system sleep while any tab on this computer runs a turn, and on a charging laptop keep the work running
+ * through a lid close (src/main/power/lid-awake.ts). Default on; only a stored `false` turns it off.
+ */
 export const KEEP_AWAKE_WORKING_PREF = "keepAwakeWhileWorking";
 
 /** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default on; only `false` turns it off). */

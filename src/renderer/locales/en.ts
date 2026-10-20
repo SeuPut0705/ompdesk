@@ -2295,7 +2295,8 @@ export const en: Record<string, string> = {
 	"settings.gui.closeToTray": "Keep running in the tray when closed",
 	"settings.gui.closeToTrayDesc": "Tabs keep working; quit from the tray menu.",
 	"settings.gui.keepAwakeWorking": "Keep this computer awake while working",
-	"settings.gui.keepAwakeWorkingDesc": "The display can still turn off.",
+	"settings.gui.keepAwakeWorkingDesc":
+		"The display can still turn off. A laptop that is charging keeps working with its lid closed; on battery it sleeps as usual.",
 	"settings.gui.resumeInterrupted": "Continue interrupted work after relaunch",
 	"settings.gui.resumeInterruptedDesc":
 		"After a quit, crash or update, running work picks up where it stopped, so quitting doesn't ask. Turns you stopped stay stopped.",

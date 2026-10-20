@@ -2281,7 +2281,8 @@ export const ko: Record<string, string> = {
 	"settings.gui.closeToTray": "창을 닫아도 트레이에서 계속 실행",
 	"settings.gui.closeToTrayDesc": "탭은 계속 작업해요. 종료는 트레이 메뉴에서 해요.",
 	"settings.gui.keepAwakeWorking": "작업 중에는 잠자기 막기",
-	"settings.gui.keepAwakeWorkingDesc": "화면은 꺼질 수 있어요.",
+	"settings.gui.keepAwakeWorkingDesc":
+		"화면은 꺼질 수 있어요. 충전 중인 노트북은 덮개를 닫아도 작업을 이어 가고, 배터리로 쓸 때는 평소처럼 잠들어요.",
 	"settings.gui.resumeInterrupted": "다시 열 때 중단된 작업 이어서 하기",
 	"settings.gui.resumeInterruptedDesc":
 		"종료, 비정상 종료, 업데이트 뒤에 하던 작업이 멈춘 곳에서 이어져서 종료할 때 묻지 않아요. 직접 멈춘 턴은 그대로예요.",
