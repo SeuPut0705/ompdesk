@@ -1345,6 +1345,54 @@ mod tests {
         assert_eq!(install(&unit, &runner).unwrap(), ServiceChange::Updated);
         let plist = unit.path.to_string_lossy().into_owned();
         let target = "gui/501/com.github.akitaonrails.ai-memory";
+    /// OMPdesk keeps the macOS binary at one path (TCC keys an unbundled
+    /// program's privacy grants by its path, so a new path asks for Desktop,
+    /// Documents... all over again) and replaces the bytes on an update. The
+    /// unit names the bytes it runs, so the new binary changes the unit and
+    /// the loaded server is restarted on it instead of left `Unchanged` on
+    /// the old bytes.
+    #[test]
+    fn a_binary_replaced_in_place_restarts_the_launch_agent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let spec = spec(tmp.path());
+        std::fs::create_dir_all(spec.exe.parent().unwrap()).unwrap();
+        std::fs::write(&spec.exe, "old build").unwrap();
+        let old = render(ServiceManager::Launchd, &spec).unwrap();
+        write_unit(&old).unwrap();
+        assert_eq!(render(ServiceManager::Launchd, &spec).unwrap(), old);
+
+        std::fs::write(&spec.exe, "new build").unwrap();
+        let new = render(ServiceManager::Launchd, &spec).unwrap();
+        assert_ne!(new.contents, old.contents);
+        assert!(is_rendered_by_setup(&new.contents));
+        let runner = FakeRunner {
+            failing: vec!["launchctl print"],
+            once: RefCell::new(vec![("launchctl print", true)]),
+            stdout: vec![("id -u", "501\n")],
+            ..FakeRunner::default()
+        };
+        assert_eq!(install(&new, &runner).unwrap(), ServiceChange::Updated);
+        let plist = new.path.to_string_lossy().into_owned();
+        let calls = runner.calls.borrow().clone();
+        assert!(
+            calls.contains(
+                &"launchctl bootout gui/501/com.github.akitaonrails.ai-memory".to_owned()
+            )
+        );
+        assert!(calls.contains(&format!("launchctl bootstrap gui/501 {plist}")));
+        assert!(new.is_current());
+
+        #[cfg(target_os = "macos")]
+        {
+            let lint = std::process::Command::new("plutil")
+                .arg("-lint")
+                .arg(&new.path)
+                .output()
+                .unwrap();
+            assert!(lint.status.success(), "{lint:?}");
+        }
+    }
+
         assert_eq!(
             runner.calls.borrow().clone(),
             vec![
