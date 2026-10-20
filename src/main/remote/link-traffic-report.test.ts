@@ -14,7 +14,9 @@ import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import type { AgentSessionEvent } from "../../shared/rpc-types";
 import type { MachineServices } from "../machine-services";
+import { createMessageUpdateSlimmer } from "../message-update-slim";
 import type { OmpResolution } from "../omp-runtime";
 import { SidecarManager } from "../sidecar";
 import type { SidecarLike } from "../sidecar-types";
@@ -39,11 +41,16 @@ class LinkRecorder {
 	readonly #methods = new Map<number, string>();
 	#spy: MockInstance | null = null;
 
-	start(): void {
+	/** `olderDevice`: the hello goes out without the capability a device built before slim events sent. */
+	start(olderDevice = false): void {
 		const original = Link.prototype.send;
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
 		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, message: object) {
 			record(message);
+			if (olderDevice && "slimEvents" in message) {
+				const { slimEvents: _slim, ...older } = message;
+				return original.call(this, older);
+			}
 			return original.call(this, message);
 		});
 	}
@@ -180,6 +187,8 @@ interface Session {
 	sidecar: RemoteSidecar;
 	recorder: LinkRecorder;
 	rig: DevicesRig;
+	/** Every omp event the device's sidecar delivered to its pool, in order. */
+	events: Array<{ type: string; message?: { content?: unknown }; assistantMessageEvent?: { type: string } }>;
 	/** What the host wrote to its `remote-link` runtime log. */
 	hostLog: Array<{ message: string; details: Record<string, unknown> }>;
 	/** Runs one scripted turn and resolves when the host's omp settled it. */
@@ -190,7 +199,7 @@ interface Session {
 const rigs: DevicesRig[] = [];
 const recorders: LinkRecorder[] = [];
 
-async function openSession(): Promise<Session> {
+async function openSession(options: { olderDevice?: boolean } = {}): Promise<Session> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-link-traffic-"));
 	WORK_DIRS.push(dir);
 	const bin = await writeFakeOmp(
@@ -201,6 +210,9 @@ async function openSession(): Promise<Session> {
 	await fs.mkdir(workDir);
 	const rig = new DevicesRig();
 	rigs.push(rig);
+	const recorder = new LinkRecorder();
+	recorders.push(recorder);
+	recorder.start(options.olderDevice === true);
 	const hostLog: Session["hostLog"] = [];
 	const { a, hostId } = await rig.connected({
 		services: hostServices(bin, workDir),
@@ -211,13 +223,14 @@ async function openSession(): Promise<Session> {
 	sidecar.on("status", ({ status }: { status: string }) => {
 		if (status === "ready") ready.resolve();
 	});
+	const events: Session["events"] = [];
+	sidecar.on("events", (batch: Session["events"]) => events.push(...batch));
 	sidecar.start();
 	await ready.promise;
-	const recorder = new LinkRecorder();
-	recorders.push(recorder);
-	recorder.start();
+	recorder.reset();
 	return {
 		sidecar,
+		events,
 		recorder,
 		rig,
 		hostLog,
@@ -328,4 +341,88 @@ describe("the host's traffic line over the real pipeline", () => {
 		expect(details.events.message_update).toBeGreaterThan(400);
 		expect(JSON.stringify(details)).not.toContain("session transcript");
 	}, 30_000);
+});
+
+/** A streamed assistant message as the device's sidecar delivers it to its pool (what `use-rpc-events` is fed). */
+interface Delivered {
+	/** `events` batches' contents, in order. */
+	events: Array<{ type: string; message?: { content?: unknown }; assistantMessageEvent?: { type: string } }>;
+	/** Wire bytes of the host's `events` frames and of its subagent `message_update` frames. */
+	eventBytes: number;
+	subagentUpdateBytes: number;
+	subagentUpdateFrames: number;
+}
+
+/** Runs one scripted turn on a fresh host and device (the device `olderDevice` or current) and tears both down. */
+async function delivered(
+	scenario: object,
+	options: { olderDevice?: boolean; level?: "off" | "progress" | "events" } = {},
+): Promise<Delivered> {
+	const session = await openSession(options);
+	if (options.level) await session.setLevel(options.level);
+	session.recorder.reset();
+	await session.turn(scenario);
+	const subagent = session.recorder.inner.get("subagentFrame/subagent_event/message_update");
+	const result: Delivered = {
+		events: session.events,
+		eventBytes: session.recorder.links.get("B>A evt tab.event events")?.bytes ?? 0,
+		subagentUpdateBytes: subagent?.bytes ?? 0,
+		subagentUpdateFrames: subagent?.frames ?? 0,
+	};
+	session.recorder.stop();
+	await session.rig.dispose();
+	return result;
+}
+
+describe("a device that asks for slim events", () => {
+	it.each([
+		[150, 300],
+		[300, 600],
+		[600, 1200],
+	] as const)(
+		"streams a reply of %i thinking + %i text tokens in at most a tenth of the bytes an older device gets",
+		async (thinkingTokens, textTokens) => {
+			const scenario = { kind: "stream", thinkingTokens, textTokens, tokenMs: 2 };
+			const older = await delivered(scenario, { olderDevice: true });
+			const current = await delivered(scenario);
+			expect(current.eventBytes * 10, `${current.eventBytes} B against ${older.eventBytes} B`).toBeLessThanOrEqual(
+				older.eventBytes,
+			);
+		},
+		120_000,
+	);
+
+	it("receives a subagent's streamed messages in at most a tenth of the bytes an older device gets", async () => {
+		const scenario = { kind: "subagent", seconds: 3, textTokens: 300, tokenMs: 2 };
+		const older = await delivered(scenario, { olderDevice: true, level: "events" });
+		const current = await delivered(scenario, { level: "events" });
+		const perFrame = (bytes: number, frames: number): number => bytes / Math.max(1, frames);
+		expect(older.subagentUpdateFrames).toBeGreaterThan(100);
+		expect(
+			perFrame(current.subagentUpdateBytes, current.subagentUpdateFrames) * 10,
+			`${current.subagentUpdateBytes} B in ${current.subagentUpdateFrames} frames against ${older.subagentUpdateBytes} B in ${older.subagentUpdateFrames}`,
+		).toBeLessThanOrEqual(perFrame(older.subagentUpdateBytes, older.subagentUpdateFrames));
+	}, 120_000);
+
+	it("still gets every message_update whole from a host that cannot tell the device is older", async () => {
+		const older = await delivered(
+			{ kind: "stream", thinkingTokens: 20, textTokens: 40, tokenMs: 0 },
+			{ olderDevice: true },
+		);
+		const updates = older.events.filter(event => event.type === "message_update");
+		expect(updates.length).toBeGreaterThan(60);
+		for (const update of updates) expect(Array.isArray(update.message?.content)).toBe(true);
+	}, 30_000);
+
+	it("delivers the same stream to the renderer as an older device does", async () => {
+		const scenario = { kind: "tool-wait", seconds: 0 };
+		const rendered = async (options: { olderDevice?: boolean }) => {
+			// The pool's per-window slimmer turns what a sidecar delivers into what a window receives.
+			const slim = createMessageUpdateSlimmer();
+			return slim((await delivered(scenario, options)).events as AgentSessionEvent[]);
+		};
+		const older = await rendered({ olderDevice: true });
+		const current = await rendered({});
+		expect(current).toEqual(older);
+	}, 60_000);
 });
