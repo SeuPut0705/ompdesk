@@ -49,20 +49,26 @@ export function TurnErrorNotice({
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
 	const awaitingConnection = useAwaitingConnection();
+	const retrying = useSessionStore(state => state.retryInfo !== null);
 	const [pending, setPending] = useState<TurnErrorAction | null>(null);
 	const description = describeTurnError(errorMessage, stopReason);
-	const latest = useMessagesStore(state => timestamp !== undefined && state.messages.at(-1)?.timestamp === timestamp);
+	// A run's messages stay live (uncommitted) until its terminal end, and stock's retry saga is one run:
+	// its failed attempts are live messages, so both checks read the live tail before the committed one.
+	const latest = useMessagesStore(
+		state => timestamp !== undefined && (state.liveMessages.at(-1) ?? state.messages.at(-1))?.timestamp === timestamp,
+	);
 	// The turn went on after this failure without a new prompt (stock's auto-retry, Retry, the
 	// connection wait's retry, a restore): the failure is history, not the turn's outcome.
 	const retried = useMessagesStore(state => {
 		if (timestamp === undefined) return false;
 		let answeredSince = false;
-		for (let index = state.messages.length - 1; index >= 0; index--) {
-			const message = state.messages[index];
-			if (message?.timestamp === timestamp && message.role === "assistant") return answeredSince;
-			if (message?.role === "user") answeredSince = false;
-			else if (message?.role === "assistant") answeredSince = true;
-		}
+		for (const list of [state.liveMessages, state.messages])
+			for (let index = list.length - 1; index >= 0; index--) {
+				const message = list[index];
+				if (message?.timestamp === timestamp && message.role === "assistant") return answeredSince;
+				if (message?.role === "user") answeredSince = false;
+				else if (message?.role === "assistant") answeredSince = true;
+			}
 		return false;
 	});
 	const quota = description.kind === "rateLimit" && latest;
@@ -94,6 +100,9 @@ export function TurnErrorNotice({
 
 	// Waiting for the connection is not a failure: the status row says so and main continues the turn.
 	if (awaitingConnection !== null && latest) return null;
+	// Nor is a failure stock's own auto-retry is still working on: the status row shows the attempt with its Stop.
+	// A red card with "Try again" beside it read as a dead turn, and the Stop or Esc it invited ended the retry for good.
+	if (retrying && latest) return null;
 
 	if (retried) {
 		return (
