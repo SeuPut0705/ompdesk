@@ -1579,21 +1579,26 @@ export class LocalHostServices implements HostServices {
 	/**
 	 * This computer's own delete of `sessionPath` (ipc.ts, session-mutations.ts): the paired devices' tabs on it here
 	 * close as another window's tab does for a delete. Refused (`session_running`), with nothing closed, while one of
-	 * them runs a turn or compacts; otherwise each device hears the session was deleted (it drops the tab and its
-	 * saved layout entry at once, and records the delete), and this resolves once their omps have exited. A device
-	 * off the link learns it at its next `tab.open` (`session_deleted`).
+	 * them runs a turn or compacts; otherwise their tabs end (`exited`) and this resolves, once their omps have
+	 * exited, to the notice that the file is gone: the caller runs it only after the stored delete succeeded, so a
+	 * device never records a delete of a file still there. Then each device drops the tab and its saved layout entry
+	 * and records the delete. A device off the link learns it at its next `tab.open` (`session_deleted`).
 	 */
-	async closeSessionTabs(sessionPath: string): Promise<void> {
+	async closeSessionTabs(sessionPath: string): Promise<() => void> {
 		const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
 		if (held.some(tab => runBusy(tab.run)))
 			throw codedError("session_running", "A paired device is running this session");
+		// `#closeTab` forgets each tab's link: keep where to tell it.
+		const told = held.flatMap(tab => (tab.conn ? [{ conn: tab.conn, rtab: tab.rtab }] : []));
 		for (const tab of held) {
-			this.#emit(tab, "sessionDeleted", sessionPath);
-			// An older device drops the event name; this status still ends its tab.
-			this.#emit(tab, "status", this.#goneStatus(tab, "This session was deleted"));
+			this.#emit(tab, "status", this.#goneStatus(tab, "This session was closed on the host"));
 			this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		}
 		await this.#exiting.get(sessionPath);
+		return () => {
+			for (const { conn, rtab } of told)
+				emitSafely(conn, TAB_EVENT, { rtab, name: "sessionDeleted", arg: sessionPath } satisfies TabEventMessage);
+		};
 	}
 
 	/**

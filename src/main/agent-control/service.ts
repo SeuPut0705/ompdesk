@@ -1802,8 +1802,12 @@ export class AgentControl {
 	async #read(target: ControlTab, args: { limit?: number; before?: string }): Promise<string> {
 		const caller = { tabId: "" } as ControlTab;
 		this.#refuseHidden(target, caller);
-		if (target.status !== "ready" && target.status !== "running")
+		if (target.status !== "ready" && target.status !== "running") {
+			// A tab with no omp (deferred after a relaunch, asleep): its saved file on the computer it runs on answers,
+			// and nothing starts it.
+			if (target.sessionPath) return this.#readStored(this.#tabRow(target, target.sessionPath), args);
 			fail(`${label(target)} has not started; there is no transcript to read yet.`);
+		}
 		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
 		const page =
 			transcriptPage(
@@ -2565,23 +2569,29 @@ export class AgentControl {
 		};
 	}
 
+	/** A tab's saved session as a stored row, read on the computer the tab runs on. */
+	#tabRow(tab: ControlTab, path: string): StoredSession {
+		return {
+			id: tab.tabId,
+			path,
+			title: tab.title,
+			firstMessage: "",
+			cwd: tab.cwd,
+			modified: "",
+			messages: 0,
+			status: "",
+			hidden: tab.hidden,
+			tabId: tab.tabId,
+			...(tab.device ? { device: tab.device } : {}),
+			...(tab.deviceName ? { deviceName: tab.deviceName } : {}),
+		};
+	}
+
 	/** A child's newest messages: the saved file of one not started (on the computer it runs on), else its live omp. */
 	async #transcript(tab: ControlTab, asleep: boolean): Promise<AgentMessage[]> {
 		if (asleep) {
 			if (!tab.sessionPath) return [];
-			const row: StoredSession = {
-				id: tab.tabId,
-				path: tab.sessionPath,
-				title: tab.title,
-				firstMessage: "",
-				cwd: tab.cwd,
-				modified: "",
-				messages: 0,
-				status: "",
-				hidden: tab.hidden,
-				...(tab.device ? { device: tab.device } : {}),
-			};
-			return this.#host.storedMessages(row).catch(() => []);
+			return this.#host.storedMessages(this.#tabRow(tab, tab.sessionPath)).catch(() => []);
 		}
 		const response = await this.#host
 			.command(tab.tabId, { type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES }, STATE_TIMEOUT_MS)

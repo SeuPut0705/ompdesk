@@ -22,12 +22,14 @@ export type SessionTabs = Pick<
 
 /** The tabs this computer runs for paired devices (LocalHostServices), as this computer's own delete closes them. */
 export interface DeviceSessionTabs {
-	closeSessionTabs(sessionPath: string): Promise<void>;
+	/** Close them; resolves, once their omps exited, to the notice that the file is gone (run only after it is). */
+	closeSessionTabs(sessionPath: string): Promise<() => void>;
 }
 
 /**
  * `deviceTabs`: this computer's own delete of its own session. The paired devices' tabs on it here close first,
- * idle ones only, as another window's tab would; nothing closes while this computer's own tab runs it.
+ * idle ones only, as another window's tab would; nothing closes while this computer's own tab runs it. The devices
+ * hear the session was deleted (and record it) only once the stored file is gone.
  */
 export async function deleteSession(
 	tabs: SessionTabs,
@@ -36,15 +38,17 @@ export async function deleteSession(
 	deleteStored: () => Promise<unknown>,
 	deviceTabs?: DeviceSessionTabs,
 ): Promise<void> {
+	let tellDevices: (() => void) | undefined;
 	if (deviceTabs) {
 		if (tabs.sessionRunning(sessionPath, device)) throw codedError("session_running", "Session is currently running");
-		await deviceTabs.closeSessionTabs(sessionPath);
+		tellDevices = await deviceTabs.closeSessionTabs(sessionPath);
 	}
 	if (!(await tabs.closeSessionTab(sessionPath, device)))
 		throw codedError("session_running", "Session is currently running");
 	await deleteStored();
 	// Gone for good: no layout, marker, device or index may bring it back (deleted-sessions.ts).
 	deletedSessions().add(sessionPath, device);
+	tellDevices?.();
 }
 
 type SessionDeleteLog = (outcome: "deleted" | "refused" | "failed", details: Record<string, string>) => void;
