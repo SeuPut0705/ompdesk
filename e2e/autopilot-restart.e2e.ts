@@ -7,6 +7,7 @@
  * interrupted work" off with its Resume, a release marked in flight) are unit-tested in src/main/autopilot.test.ts
  * ("restart") and src/main/bridge-autopilot-core.test.ts.
  */
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
@@ -49,10 +50,24 @@ async function relaunch(profile: ApProfile): Promise<{ app: ElectronApplication;
 		args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${profile.desktop}`],
 		env,
 	});
-	const page = await app.firstWindow();
-	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
-	await page.waitForFunction(() => window.omp?.rpc != null);
-	return { app, page };
+	// What main printed, for a relaunch that never shows a window (nightly 39510409009: none within 30 s after a kill).
+	const output: string[] = [];
+	for (const stream of [app.process().stdout, app.process().stderr])
+		stream?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
+	try {
+		const page = await app.firstWindow();
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+		await page.waitForFunction(() => window.omp?.rpc != null);
+		return { app, page };
+	} catch (error) {
+		const runtime = await fs
+			.readFile(path.join(profile.desktop, "logs", "gui-runtime.jsonl"), "utf8")
+			.catch(() => "(no runtime log)");
+		await test.info().attach("relaunch-main-output.txt", { body: output.join("") || "(nothing)" });
+		await test.info().attach("relaunch-runtime-log.txt", { body: runtime.split("\n").slice(-60).join("\n") });
+		await exitApp(app);
+		throw error;
+	}
 }
 
 async function crashAndRelaunch(profile: ApProfile, app: ElectronApplication) {
