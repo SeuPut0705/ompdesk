@@ -162,6 +162,27 @@ describe("stageBinary", () => {
 		expect(await readFile(first, "utf8")).toBe(CONTENT);
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"keeps the macOS binary the service runs when its replacement cannot be put in place",
+		async () => {
+			const requirement = async () => null;
+			const dest = await stageBinary({ source, asset: MAC_ASSET, toolsDir, requirement });
+			const next = "#!/bin/sh\necho the next release\n";
+			await writeFile(source, next);
+			const folder = join(dest, "..");
+			await chmod(folder, 0o555);
+			try {
+				await expect(
+					stageBinary({ source, asset: { ...MAC_ASSET, binarySha256: sha(next) }, toolsDir, requirement }),
+				).rejects.toThrow();
+			} finally {
+				await chmod(folder, 0o755);
+			}
+			expect(await readFile(dest, "utf8")).toBe(CONTENT);
+			expect(await readdir(stagingRoot(toolsDir))).toEqual([MAC_STAGE_KEY]);
+		},
+	);
+
 	describe("macOS, where packaging re-signed the shipped file with OMPdesk's certificate", () => {
 		const SIGNED = "#!/bin/sh\necho ai-memory fake, re-signed by the packager\n";
 

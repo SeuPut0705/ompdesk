@@ -153,18 +153,24 @@ export async function stageBinary(options: {
 	}
 	if (staged === actual) return dest;
 	const root = stagingRoot(toolsDir);
+	const folder = join(root, stageKey(asset));
 	const temp = join(root, `.stage-${process.pid}-${Date.now()}`);
 	await mkdir(temp, { recursive: true });
 	try {
 		const copy = join(temp, asset.binary);
 		await copyFile(source, copy);
 		await chmod(copy, 0o755);
-		await rm(join(root, stageKey(asset)), { recursive: true, force: true });
-		await rename(temp, join(root, stageKey(asset)));
-	} catch (error) {
+		// One rename of the verified copy over the binary in use: the folder may be the one macOS keeps (`MAC_STAGE_KEY`),
+		// whose binary the service runs, so it is never deleted first; a failure here leaves the previous one in place.
+		await mkdir(folder, { recursive: true });
+		await rename(copy, dest);
+	} finally {
 		await rm(temp, { recursive: true, force: true }).catch(() => undefined);
-		throw error;
 	}
+	const strays = (await readdir(folder)).filter(name => name !== asset.binary);
+	await Promise.all(
+		strays.map(name => rm(join(folder, name), { recursive: true, force: true }).catch(() => undefined)),
+	);
 	return dest;
 }
 
