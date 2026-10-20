@@ -538,6 +538,12 @@ html[data-input="touch"]
 	align-items: center;
 }
 
+/* Rows sit 1 px apart: each reach stops halfway, so a docked board (an iPad sideways) never hands a tap meant for one
+   row to the next. */
+html[data-input="touch"] .omp-work-board-list {
+	--hit-gap-y: 1px;
+}
+
 /* ── Settings, centers and pickers (design §6, W-F) ──────────────────────────────────────────────────────── */
 /* The section list is a page of its own on a phone (SettingsPage `data-stacked`): full-width rows under the title
    and search, not the chip bar the narrow container rule of global.css builds. */

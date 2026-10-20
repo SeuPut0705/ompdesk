@@ -136,11 +136,15 @@ test("responsive smoke phone landscape: the session's controls keep their taps a
 /**
  * The work board with everything at once and long Korean content (?board=busy: long titles, an `omp/agent/…`
  * branch, an OpenRouter charge): docked beside a wide pane and inside the phone's expanded strip, it never scrolls
- * sideways and nothing on it escapes the screen. The matrix covers the strip at every phone and tablet width.
+ * sideways and nothing on it escapes the screen. An iPad Pro held sideways docks it beside a narrowed transcript
+ * (`workBoardDocks`); an iPad Air sideways with its sidebar open keeps the strip. The matrix covers the strip at every
+ * phone and tablet width.
  */
-const BOARD_LOOKS: readonly Look[] = [
-	{ width: 1600, height: 1000, dpr: 2, orientation: "landscape", theme: "light", lang: "ko" },
-	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "ko" },
+const BOARD_LOOKS: readonly (Look & { form: "docked" | "strip" })[] = [
+	{ width: 1600, height: 1000, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "docked" },
+	{ width: 1366, height: 1024, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "docked" },
+	{ width: 1180, height: 820, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "strip" },
+	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "ko", form: "strip" },
 ];
 
 for (const look of BOARD_LOOKS) {
@@ -149,13 +153,15 @@ for (const look of BOARD_LOOKS) {
 		const page = await openLook(browser, look, { origin, query: "&board=busy" });
 		const strip = SURFACES.find(surface => surface.id === "board-strip");
 		if (!strip) throw new Error("no board-strip surface");
-		if (look.width < 1000) {
-			await strip.open(page, look);
-			if (strip.ready) await page.locator(strip.ready).waitFor({ state: "visible" });
-		} else {
-			await page.locator("[data-work-board-panel] [data-board-section='waiting']").waitFor({ timeout: 15_000 });
-		}
+		await strip.open(page, look);
+		if (strip.ready) await page.locator(strip.ready).first().waitFor({ state: "visible" });
 		await page.waitForTimeout(600);
+		expect(await page.locator(".omp-work-board-slot [data-work-board-panel]").count(), "docked").toBe(
+			look.form === "docked" ? 1 : 0,
+		);
+		expect(await page.locator("[data-work-strip-panel]").count(), "strip expanded").toBe(
+			look.form === "strip" ? 1 : 0,
+		);
 		const board = page.locator("[data-work-board-panel]").first();
 		const widths = await board.evaluate(element => ({ scroll: element.scrollWidth, client: element.clientWidth }));
 		expect(widths.scroll, "the board's content width").toBeLessThanOrEqual(widths.client);

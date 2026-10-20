@@ -130,15 +130,16 @@ export const SURFACES: readonly Surface[] = [
 	{
 		id: "board-strip",
 		area: "A",
-		title: "Work board where it cannot dock: the status strip under the header, expanded (busy session, ?board=busy)",
+		title: "Work board (busy session, ?board=busy): docked beside the transcript where the pane holds it (an iPad sideways), else the status strip under the header, expanded",
 		query: "&board=busy",
 		open: async page => {
 			// The busy fixture's turn, question and goal land 1.5 s after boot (dev-harness/boot.ts).
 			const chip = page.locator("[data-work-chip][data-state='waiting']");
-			await chip.waitFor({ state: "visible", timeout: 15_000 });
-			if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+			const docked = page.locator(".omp-work-board-slot [data-board-section='waiting']");
+			await chip.or(docked).first().waitFor({ state: "visible", timeout: 15_000 });
+			if ((await chip.count()) > 0 && (await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
 		},
-		ready: "[data-work-strip-panel] [data-work-board-panel]",
+		ready: "[data-work-board-panel]",
 		settle: 600,
 	},
 	{

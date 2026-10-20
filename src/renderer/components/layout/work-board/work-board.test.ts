@@ -12,9 +12,11 @@ import {
 	transcriptColumnWidth,
 	WORK_BOARD_GAP,
 	WORK_BOARD_MIN_SPARE,
+	WORK_BOARD_MIN_TRANSCRIPT,
 	WORK_BOARD_WIDE_SPARE,
 	WORK_BOARD_WIDE_WIDTH,
 	WORK_BOARD_WIDTH,
+	workBoardDocks,
 	workBoardFits,
 	workBoardForm,
 	workBoardWidth,
@@ -56,6 +58,27 @@ describe("work board breakpoint", () => {
 		expect(first - transcriptColumnWidth(first)).toBeGreaterThanOrEqual(WORK_BOARD_WIDE_SPARE);
 		// The wide board and its gap still leave the transcript column all of its width.
 		expect(first - WORK_BOARD_WIDE_WIDTH - WORK_BOARD_GAP).toBeGreaterThanOrEqual(transcriptColumnWidth(first));
+	});
+
+	it("docks on a tablet held sideways beside a column narrowed to 600 px of text, never on a desktop", () => {
+		// Measured panes, web build, sidebar at its default 248 px: iPad Pro 12.9" sideways (1366 → 1118) and iPad Air
+		// sideways (1180 → 932); with the sidebar folded the pane is the whole width.
+		expect(workBoardFits(1118)).toBe(false);
+		expect(workBoardDocks(1118, "tablet-landscape")).toBe(true);
+		expect(workBoardWidth(1118)).toBe(WORK_BOARD_WIDTH);
+		expect(workBoardDocks(932, "tablet-landscape")).toBe(false);
+		expect(workBoardDocks(1180, "tablet-landscape")).toBe(true);
+		// The rule is a measurement: the narrowest pane that docks keeps at least 600 px of text.
+		let narrowest = 0;
+		while (!workBoardDocks(narrowest, "tablet-landscape")) narrowest++;
+		const text = (pane: number) =>
+			pane - WORK_BOARD_WIDTH - WORK_BOARD_GAP - 2 * Math.min(40, Math.max(16, pane * 0.03));
+		expect(text(narrowest)).toBeGreaterThanOrEqual(WORK_BOARD_MIN_TRANSCRIPT);
+		expect(text(narrowest - 1)).toBeLessThan(WORK_BOARD_MIN_TRANSCRIPT);
+		// A desktop window (no shell) and a portrait tablet keep the full column: the strip.
+		expect(workBoardDocks(1118, null)).toBe(false);
+		expect(workBoardDocks(1118, "tablet-portrait")).toBe(false);
+		expect(workBoardDocks(1137, null)).toBe(true);
 	});
 
 	it("shows the strip wherever it cannot dock, and nothing only with the pref off", () => {

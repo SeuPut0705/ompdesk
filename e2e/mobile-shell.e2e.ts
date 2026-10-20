@@ -30,12 +30,13 @@ test.describe.configure({ retries: 1 });
 type Shell = "phone" | "tablet-portrait" | "tablet-landscape";
 
 // `drawer`: the session list waits behind a menu button. A portrait tablet from 800 px (the iPad Pro 11's 834)
-// docks it as a second pane beside the transcript, as the landscape one does.
-const DEVICES: ReadonlyArray<{ name: string; shell: Shell; drawer: boolean }> = [
-	{ name: "iPhone 15", shell: "phone", drawer: true },
-	{ name: "Pixel 8", shell: "phone", drawer: true },
-	{ name: "iPad Pro 11", shell: "tablet-portrait", drawer: false },
-	{ name: "iPad Pro 11 landscape", shell: "tablet-landscape", drawer: false },
+// docks it as a second pane beside the transcript, as the landscape one does. `boardDocks`: the session pane is
+// wide enough for the docked work board (landscape only; the strip elsewhere).
+const DEVICES: ReadonlyArray<{ name: string; shell: Shell; drawer: boolean; boardDocks: boolean }> = [
+	{ name: "iPhone 15", shell: "phone", drawer: true, boardDocks: false },
+	{ name: "Pixel 8", shell: "phone", drawer: true, boardDocks: false },
+	{ name: "iPad Pro 11", shell: "tablet-portrait", drawer: false, boardDocks: false },
+	{ name: "iPad Pro 11 landscape", shell: "tablet-landscape", drawer: false, boardDocks: true },
 ];
 
 const ENGINES: ReadonlyArray<{ name: string; type: BrowserType }> = [
@@ -309,8 +310,16 @@ for (const { engine, device } of variants(
 
 		test("the work board is a strip that expands in place where it cannot dock", async () => {
 			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
-			// Every shell whose pane cannot dock the board (a landscape tablet's included) shows the strip: never nothing.
 			const chip = page.locator('[data-work-chip=""]');
+			if (device.boardDocks) {
+				// Sideways, the 946 px pane keeps 601 px of text beside a 264 px board (work-board.ts `workBoardDocks`):
+				// the board docks beside the transcript and no strip shows.
+				await expect(page.locator(".omp-work-board-slot [data-work-board-panel]")).toBeVisible();
+				await expect(page.locator(".omp-session-pane[data-work-board]")).toHaveCount(1);
+				await expect(chip).toHaveCount(0);
+				return;
+			}
+			// Every other shell's pane cannot dock the board, so it shows the strip: never nothing.
 			await expect(chip).toBeVisible();
 			// The strip sits right under the header (≤ 28 px + margins), says the plan's progress, and the dock's
 			// todo card is hidden beside it; the composer rests right above the bottom safe area.

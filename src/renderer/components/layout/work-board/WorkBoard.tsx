@@ -21,6 +21,7 @@ import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
+import { useShellMode } from "../../../hooks/use-shell-mode";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
@@ -60,7 +61,7 @@ import {
 	requestLabel,
 	type TodoBoard,
 	todoBoard,
-	workBoardFits,
+	workBoardDocks,
 	workBoardForm,
 	workBoardWidth,
 } from "./work-board";
@@ -696,7 +697,8 @@ export function WorkBoardHost() {
 		if (region) observer.observe(region);
 		return () => observer.disconnect();
 	}, []);
-	const form = workBoardForm({ enabled, panelOpen, fits: workBoardFits(paneWidth) });
+	const shell = useShellMode();
+	const form = workBoardForm({ enabled, panelOpen, fits: workBoardDocks(paneWidth, shell) });
 	const width = form === "docked" ? workBoardWidth(paneWidth) : null;
 	// The slot and the columns' reserve read the width from the pane (components.css `--omp-board-width`).
 	useLayoutEffect(() => {

@@ -76,6 +76,11 @@ export const lookTag = (look: Look): string =>
 const PHONE_WIDTHS = [320, 360, 390, 412] as const;
 const TABLET_WIDTHS = [768, 834, 1024] as const;
 const PHONE_HEIGHT: Record<number, number> = { 320: 640, 360: 740, 390: 844, 412: 915 };
+/** iPad Air 11" and iPad Pro 12.9" sideways. */
+const IPAD_LANDSCAPE = [
+	[1180, 820],
+	[1366, 1024],
+] as const;
 
 /** Every look the full matrix visits; `filter` narrows it by env (`OMP_GUI_RESPONSIVE_WIDTHS`, `_LANGS`, `_THEMES`). */
 export function looksFor(
@@ -98,6 +103,9 @@ export function looksFor(
 		add(width, Math.round(width * 1.4), "portrait", 2);
 		add(width, Math.round(width * 0.72), "landscape", 2);
 	}
+	// iPads held sideways: wide enough that the work board docks beside the transcript (work-board.ts
+	// `workBoardDocks`), so the docked board is measured at a tablet's touch sizes too.
+	for (const [width, height] of IPAD_LANDSCAPE) add(width, height, "landscape", 2);
 	return looks;
 }
 
