@@ -4,7 +4,6 @@
  * rpc-mode theme cases onto stock omp internals.
  */
 import path from "node:path";
-import { findAllNearestProjectConfigDirs, getConfigDirs } from "@oh-my-pi/pi-coding-agent/config";
 import { formatModelString } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import { type ParsedAgentFields, parseAgentFields } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
 import { createAgentsHubDeps } from "@oh-my-pi/pi-coding-agent/modes/agents-hub-deps";
@@ -23,7 +22,9 @@ import type { BridgeMethods } from "../types";
 import { paramsOf, requireString } from "./shared";
 
 /** Where omp's discovery reads `.omp` task agents for this session: the user dir and the nearest project dir (or where it would be). */
-function agentDirs(session: AgentSession): { user: string; project: string } {
+async function agentDirs(session: AgentSession): Promise<{ user: string; project: string }> {
+	// Dynamic: `config` is a source copy whose first import transpiles omp's source tree (~540 ms of omp's only thread), so it loads on use, not at startup.
+	const { findAllNearestProjectConfigDirs, getConfigDirs } = await import("@oh-my-pi/pi-coding-agent/config");
 	const cwd = path.resolve(session.sessionManager.getCwd());
 	const user = getConfigDirs("agents", { project: false }).find(entry => entry.source === ".omp")?.path;
 	if (!user) throw new Error("omp reports no user agents directory");
@@ -62,7 +63,7 @@ export const methods: BridgeMethods = {
 				session.settings.getModelRole("default"),
 			);
 			const agents = await hub.loadAgents();
-			const dirs = agentDirs(session);
+			const dirs = await agentDirs(session);
 			const scopeOf = (filePath: string | undefined) => {
 				if (!filePath) return undefined;
 				const parent = path.dirname(path.resolve(filePath));
@@ -139,7 +140,7 @@ export const methods: BridgeMethods = {
 			const hidden = new Set<string>(HIDDEN_TOOL_NAMES);
 			const registered = typeof session.getAllToolNames === "function" ? session.getAllToolNames() : [];
 			return {
-				dirs: agentDirs(session),
+				dirs: await agentDirs(session),
 				builtinTools: [...BUILTIN_TOOL_NAMES],
 				registeredTools: registered.filter(name => !hidden.has(name)),
 			};

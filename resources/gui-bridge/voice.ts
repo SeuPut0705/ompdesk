@@ -11,9 +11,6 @@ import { sttClient } from "@oh-my-pi/pi-coding-agent/stt/asr-client";
 import { downloadSttModel, isSttModelCached } from "@oh-my-pi/pi-coding-agent/stt/downloader";
 import { resolveSttModelSpec } from "@oh-my-pi/pi-coding-agent/stt/models";
 import { resolveSpeechCandidates } from "@oh-my-pi/pi-coding-agent/tools/tts";
-import { DEFAULT_TTS_VOICE, TTS_LOCAL_MODELS } from "@oh-my-pi/pi-coding-agent/tts/models";
-import { ttsClient } from "@oh-my-pi/pi-coding-agent/tts/tts-client";
-import { encodeWav } from "@oh-my-pi/pi-coding-agent/tts/wav";
 import { guard } from "./health";
 import { asRecord, requiredString } from "./params";
 import type { BridgeMethods } from "./types";
@@ -59,18 +56,27 @@ async function transcribe(session: AgentSession, audioBase64: string) {
  * `wantsMp3` false it is that function's own `resolveRoleChain` over `roleCandidatePool`): omp's bundle does not
  * export `tts/vocalizer`, and an import of it is a second copy whose role chain reads other settings' slots.
  */
-function localSpeechModelId(session: Pick<AgentSession, "settings" | "modelRegistry">): string {
+function localSpeechModelId(
+	session: Pick<AgentSession, "settings" | "modelRegistry">,
+	fallback: { key: string },
+): string {
 	const local = resolveSpeechCandidates(session.settings, session.modelRegistry, false).find(
 		candidate => candidate.model.api === "local-inference",
 	);
-	return local?.model.id ?? TTS_LOCAL_MODELS[0].key;
+	return local?.model.id ?? fallback.key;
 }
 
 async function synthesize(session: AgentSession, rawText: string) {
 	const text = rawText.trim();
 	if (!text) return { audioBase64: "", mimeType: "audio/wav" };
+	// Dynamic: `tts/*` is a source copy whose first import transpiles omp's source tree (~540 ms of omp's only thread), so it loads on use, not at startup.
+	const [{ DEFAULT_TTS_VOICE, TTS_LOCAL_MODELS }, { ttsClient }, { encodeWav }] = await Promise.all([
+		import("@oh-my-pi/pi-coding-agent/tts/models"),
+		import("@oh-my-pi/pi-coding-agent/tts/tts-client"),
+		import("@oh-my-pi/pi-coding-agent/tts/wav"),
+	]);
 	const voice = (lookup("speech.voice")?.get(session.settings) as string | undefined) || DEFAULT_TTS_VOICE;
-	const modelKey = localSpeechModelId(session);
+	const modelKey = localSpeechModelId(session, TTS_LOCAL_MODELS[0]);
 	const audio = await ttsClient.synthesize(modelKey, text, { voice });
 	if (!audio) throw new Error("Local TTS model is unavailable — download it from the TUI speech settings first");
 	return {
