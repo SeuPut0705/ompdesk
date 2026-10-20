@@ -1583,7 +1583,7 @@ export class AgentControl {
 					`The folder this saved session worked in no longer exists (${folder}) and nothing of it was saved, so it is not opened in any other folder. Its transcript stays readable with ompdesk_session_read {"session":"${args.reopen}"}.`,
 				);
 			fail(
-				`The folder this saved session worked in (${folder}) was removed by OMPdesk's disk care, which saved it first (saved worktree ${saved.id}${saved.branch ? `, branch ${saved.branch}` : ""}, removed ${new Date(saved.removedAt).toISOString()}). Put it back and open the session there with ompdesk_session_open ${JSON.stringify({ reopen: args.reopen, restore: true })}; the person can also restore it from Work tree › Saved worktrees.`,
+				`The folder this saved session worked in (${folder}) was removed by OMPdesk's disk care, which saved it first (saved worktree ${saved.id}${saved.branch ? `, branch ${saved.branch}` : ""}, removed ${new Date(saved.removedAt).toISOString()}). Put it back and open the session there with ompdesk_session_open ${JSON.stringify({ reopen: args.reopen, restore: true })}; the person can also restore it from Work tree › Saved worktrees on the computer that holds it.`,
 			);
 		} finally {
 			opened.delete(reservation);

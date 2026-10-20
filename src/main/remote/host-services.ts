@@ -88,6 +88,7 @@ import {
 } from "../sidecar-run-state";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { stockHelperRequest } from "../stock-helper";
+import { sessionFolderState } from "../tab-spawn";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
 import type { ResumeFact, ResumeMarker, TurnResume } from "../turn-resume";
@@ -314,6 +315,7 @@ const SideChannelParams = z.object({ rtab: Rtab, frame: z.object({}).passthrough
 const SessionsListParams = z.object({ scope: Scope, cwd: AbsolutePath.optional() });
 const SessionsSearchParams = z.object({ query: z.string(), scope: Scope, cwd: AbsolutePath.optional() });
 const SessionPathParams = z.object({ sessionPath: SessionPath });
+const SessionFolderParams = z.object({ sessionPath: SessionPath, restore: z.boolean().optional() });
 const RenameParams = z.object({ sessionPath: SessionPath, name: z.string() });
 const MoveParams = z.object({ sessionPath: SessionPath, cwd: AbsolutePath });
 /** fs reads root at the tab's cwd; `cwd` covers a tab the host has not opened yet. */
@@ -803,6 +805,19 @@ export class LocalHostServices implements HostServices {
 			}
 			case "sessions.kindFor":
 				return this.#deps.sessionIndex.kindFor(parse(SessionPathParams, method, params).sessionPath);
+			// Where a device's open of a stored session lands, read here (tab-spawn.ts `sessionFolderState`); `restore`
+			// puts back the worktree this computer's disk care saved, as the Restore the device's toast offers.
+			case "sessions.folder": {
+				const { sessionPath, restore } = parse(SessionFolderParams, method, params);
+				return sessionFolderState(
+					{
+						recordedCwd: path => this.#deps.sessionIndex.recordedCwd(path),
+						savedWorktrees: savedWorktreesForSpawn,
+					},
+					sessionPath,
+					restore === true,
+				);
+			}
 			case "sessions.delete":
 				return this.#deleteSession(peer, parse(SessionPathParams, method, params).sessionPath);
 			case "sessions.rename": {

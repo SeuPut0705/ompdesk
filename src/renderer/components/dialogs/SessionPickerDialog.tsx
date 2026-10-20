@@ -23,7 +23,18 @@ import { useSessionStore } from "../../stores/session";
 import { sessionListFeed } from "../../stores/session-list";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, IconButton, InlineNotice, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
+import {
+	Badge,
+	Button,
+	IconButton,
+	InlineNotice,
+	Kbd,
+	Modal,
+	SearchField,
+	SkeletonRows,
+	Spinner,
+	Tooltip,
+} from "../common";
 
 type SessionScope = "local" | "global";
 
@@ -352,9 +363,11 @@ export function SessionPickerDialog() {
 										)}
 									</span>
 									{projectNameOf(session.cwd, session.title).gone && (
-										<span className="shrink-0" data-session-folder-gone title={t("sessionFolder.goneTip")}>
-											<Badge variant="warning">{t("sessionFolder.gone")}</Badge>
-										</span>
+										<Tooltip content={t("sessionFolder.goneTip")}>
+											<span className="shrink-0" data-session-folder-gone>
+												<Badge variant="warning">{t("sessionFolder.gone")}</Badge>
+											</span>
+										</Tooltip>
 									)}
 									{contentOnly.has(session.path) && (
 										<Badge className="shrink-0" variant="info">

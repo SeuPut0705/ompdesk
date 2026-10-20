@@ -356,6 +356,59 @@ test.describe("on a paired device", () => {
 			.not.toContain(id);
 	});
 
+	test("restores a worktree the paired device's disk care saved and reopens the session there", async () => {
+		test.setTimeout(240_000);
+		const { hostProfile, call } = await pairApps();
+		const repo = hostProfile.project;
+		git(repo, "init", "-q", "-b", "main");
+		git(repo, "commit", "-q", "--allow-empty", "-m", "init");
+		const worktree = path.join(path.dirname(repo), "wt-host");
+		git(repo, "worktree", "add", "-q", "-b", "omp/agent/host", worktree);
+		const home = await fs.realpath(worktree);
+		const open = await call("ompdesk_session_open", { device: "PC-B", folder: home, message: "Host worktree work" });
+		expect(open.isError, open.text).toBe(false);
+		const [child] = opened(open.text);
+		await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
+		expect((await call("ompdesk_session_stop", { session: child, close: true })).isError).toBe(false);
+		let stored = "";
+		await expect
+			.poll(
+				async () => {
+					stored = (await call("ompdesk_sessions", { scope: "stored", device: "PC-B", query: "Host worktree" }))
+						.text;
+					return stored;
+				},
+				{ timeout: 30_000 },
+			)
+			.toMatch(/\n- \S+ "/);
+		const id = /\n- (\S+) "/.exec(stored)?.[1] ?? "";
+
+		// What the host's disk care leaves when it saves and removes an idle worktree: its record, the folder gone.
+		const head = git(home, "rev-parse", "HEAD");
+		git(repo, "worktree", "remove", home);
+		await fs.mkdir(path.join(hostProfile.desktop, "disk-care"), { recursive: true });
+		const saved = {
+			id: "hostsaved",
+			path: home,
+			repo,
+			branch: "omp/agent/host",
+			head,
+			savedBranch: null,
+			removedAt: Date.now(),
+			archivedFiles: 0,
+			archivedBytes: 0,
+		};
+		await fs.writeFile(path.join(hostProfile.desktop, "disk-care", "saved.json"), JSON.stringify([saved]));
+
+		const refused = await call("ompdesk_session_open", { reopen: id });
+		expect(refused.text).toContain("saved worktree hostsaved");
+		expect(refused.text).toContain(`{"reopen":"${id}","restore":true}`);
+		const restored = await call("ompdesk_session_open", { reopen: id, restore: true });
+		expect(restored.isError, restored.text).toBe(false);
+		expect(restored.text).toContain(`in ${home} on PC-B (reopened)`);
+		expect(git(home, "rev-parse", "--abbrev-ref", "HEAD")).toBe("omp/agent/host");
+	});
+
 	test("shows, notifies and reports from a session that runs on the paired device", async () => {
 		test.setTimeout(240_000);
 		const { hostProfile, call, client: app } = await pairApps();

@@ -33,7 +33,7 @@
 
 import { stat } from "node:fs/promises";
 import type { SavedWorktree } from "../shared/disk-care";
-import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
+import type { IpcSavedFolder, IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
 import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
 import type { SidecarPool } from "./sidecar-pool";
@@ -41,10 +41,59 @@ import type { SidecarLike } from "./sidecar-types";
 import { nextSnowflake } from "./snowflake";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 
+/** Where a stored session belongs and whether it can open there (`sessionFolderState`). */
+export interface SessionFolderState {
+	/** The folder its file records, or null when it records none. */
+	folder: string | null;
+	/** The recorded folder is gone (after a restore that was asked for, if any). */
+	missing: boolean;
+	/** With `missing`: disk care saved that folder before removing it. */
+	saved: IpcSavedFolder | null;
+}
+
+/** What `sessionFolderState` reads: this computer's session index and saved worktrees. */
+export interface SessionFolderSources {
+	recordedCwd(sessionPath: string): Promise<string | null>;
+	savedWorktrees?: SpawnTabDeps["savedWorktrees"];
+}
+
+/**
+ * The folder a stored session opens in, read on the computer that holds its file: this one for a local open, a paired
+ * host for its own (`sessions.folder` in remote/host-services.ts), so a device's open follows the same rule. A failed
+ * read throws (never "none recorded"); `restore` puts back a folder disk care saved before saying it is missing.
+ */
+export async function sessionFolderState(
+	sources: SessionFolderSources,
+	sessionPath: string,
+	restore: boolean,
+): Promise<SessionFolderState> {
+	const folder = await sources.recordedCwd(sessionPath);
+	if (!folder) return { folder: null, missing: false, saved: null };
+	const exists = () =>
+		stat(folder).then(
+			info => info.isDirectory(),
+			() => false,
+		);
+	if (await exists()) return { folder, missing: false, saved: null };
+	// Not knowing whether disk care saved it (its store not read yet) still refuses: only the offer is missing.
+	const saved = (await sources.savedWorktrees?.find(folder).catch(() => null)) ?? null;
+	if (saved && restore) {
+		await sources.savedWorktrees?.restore(saved.id);
+		if (await exists()) return { folder, missing: false, saved: null };
+	}
+	return {
+		folder,
+		missing: true,
+		saved: saved ? { id: saved.id, branch: saved.branch, removedAt: saved.removedAt } : null,
+	};
+}
+
 /** Host-side lookups for a tab on a paired device. */
 export interface SpawnTabRemote {
 	kindFor(device: string, sessionPath: string): Promise<SessionKind>;
 	defaultWorkspace(device: string): Promise<string>;
+	/** `sessionFolderState` on that host; rejects on a host too old to answer, whose own `tab.open` still refuses. */
+	sessionFolder?(device: string, sessionPath: string, restore: boolean): Promise<SessionFolderState>;
 }
 
 export type SpawnTabDeps = {
@@ -117,29 +166,29 @@ export async function spawnTabForWindow(
 			return { tabId: null, refusal: "kind-mismatch" };
 		}
 		kind = fileKind;
-		// A stored agent session runs where its file says, never where the caller happens to be (a host decides its own).
-		if (!device && kind !== "chat") {
-			const recorded = await deps.sessionIndex.recordedCwd(sessionPath);
-			if (recorded) {
-				const exists = () =>
-					stat(recorded).then(
-						info => info.isDirectory(),
-						() => false,
+		// A stored agent session runs where its file says, never where the caller happens to be: read on the computer
+		// that holds the file. A host too old to answer a plain lookup still refuses a gone folder in its own
+		// `tab.open`; a restore that fails or outlasts its wait opens nothing (its worktree may be half put back).
+		if (kind !== "chat") {
+			const restore = payload.restoreSaved === true;
+			const asked = device ? deps.remote.sessionFolder?.(device, sessionPath, restore) : undefined;
+			const state = device
+				? restore
+					? await asked
+					: await asked?.catch(() => null)
+				: await sessionFolderState(
+						{ recordedCwd: path => deps.sessionIndex.recordedCwd(path), savedWorktrees: deps.savedWorktrees },
+						sessionPath,
+						restore,
 					);
-				if (!(await exists())) {
-					const saved = (await deps.savedWorktrees?.find(recorded)) ?? null;
-					if (!saved || payload.restoreSaved !== true)
-						return {
-							tabId: null,
-							refusal: "folder-missing",
-							folder: recorded,
-							...(saved ? { saved: { id: saved.id, branch: saved.branch, removedAt: saved.removedAt } } : {}),
-						};
-					await deps.savedWorktrees?.restore(saved.id);
-					if (!(await exists())) return { tabId: null, refusal: "folder-missing", folder: recorded };
-				}
-				home = recorded;
-			}
+			if (state?.missing)
+				return {
+					tabId: null,
+					refusal: "folder-missing",
+					...(state.folder ? { folder: state.folder } : {}),
+					...(state.saved ? { saved: state.saved } : {}),
+				};
+			if (!device && state?.folder) home = state.folder;
 		}
 	}
 	const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;

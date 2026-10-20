@@ -115,6 +115,7 @@ import { getMainLanguage, mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
+import { WORKTREE_PREPARE_BUDGET_MS } from "./local/git/worktree-seed";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
@@ -144,7 +145,7 @@ import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
 import { stockHelperRequest } from "./stock-helper";
-import { spawnTabForWindow } from "./tab-spawn";
+import { type SessionFolderState, type SpawnTabRemote, spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
@@ -535,6 +536,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const remoteKindFor = (device: string, sessionPath: string) =>
 		remoteDevices.request<SessionKind>(device, "sessions.kindFor", { sessionPath });
 	const remoteDefaultWorkspace = (device: string) => remoteDevices.request<string>(device, "workspace.default", {});
+	const spawnRemote: SpawnTabRemote = {
+		kindFor: remoteKindFor,
+		defaultWorkspace: remoteDefaultWorkspace,
+		sessionFolder: (device, sessionPath, restore) =>
+			// A restore runs the repository's seeding and setup hook on the host before it answers.
+			remoteDevices.request<SessionFolderState>(
+				device,
+				"sessions.folder",
+				{ sessionPath, restore },
+				restore ? WORKTREE_PREPARE_BUDGET_MS : undefined,
+			),
+	};
 
 	// Log lines (batched by LogWatcher)
 	logWatcher.onLines = lines => {
@@ -944,7 +957,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					fallbackCwd: () => null,
 					initialCwd: deps.initialCwd,
 					defaultWorkspace: ensureDefaultWorkspace,
-					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+					remote: spawnRemote,
 					hosted: deps.hostedTabs,
 					savedWorktrees: savedWorktreesForSpawn,
 				},
@@ -1059,7 +1072,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					fallbackCwd: () => null,
 					initialCwd: deps.initialCwd,
 					defaultWorkspace: ensureDefaultWorkspace,
-					remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+					remote: spawnRemote,
 					hosted: deps.hostedTabs,
 					savedWorktrees: savedWorktreesForSpawn,
 				},
@@ -1273,7 +1286,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				fallbackCwd: device => cwdOnDevice(deps, caller, device),
 				initialCwd: deps.initialCwd,
 				defaultWorkspace: ensureDefaultWorkspace,
-				remote: { kindFor: remoteKindFor, defaultWorkspace: remoteDefaultWorkspace },
+				remote: spawnRemote,
 				hosted: deps.hostedTabs,
 				savedWorktrees: savedWorktreesForSpawn,
 				anyWindowViews: process.env.OMP_GUI_TEST_VIEWER_WINDOWS === "1",

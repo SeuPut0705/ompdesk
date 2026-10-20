@@ -28,6 +28,7 @@ import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
+import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
@@ -408,6 +409,47 @@ describe("LocalHostServices", () => {
 			.catch((error: unknown) => error);
 		expect(String(failed)).toContain("stock helper timed out");
 		expect(sidecars).toHaveLength(0);
+	});
+
+	it("tells a device where its saved session belongs and restores the worktree its own disk care saved", async () => {
+		const { services, recordedCwd } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const repo = join(workDir, "repo");
+		await initRepo(repo);
+		const worktree = join(workDir, "wt-saved");
+		gitSync(repo, "worktree", "add", "-q", "-b", "omp/agent/saved", worktree);
+		const head = gitSync(worktree, "rev-parse", "HEAD").trim();
+		gitSync(repo, "worktree", "remove", worktree);
+		recordedCwd.mockResolvedValue(worktree);
+		const ask = (restore: boolean) =>
+			services.call(x.peer, "sessions.folder", { sessionPath: join(workDir, "s.jsonl"), restore }, x);
+
+		// Disk care's store not read yet: still refused, only without an offer.
+		setSavedWorktreeStore(null as unknown as SavedWorktreeStore);
+		expect(await ask(false)).toEqual({ folder: worktree, missing: true, saved: null });
+
+		const store = new SavedWorktreeStore(join(workDir, "disk-care"));
+		setSavedWorktreeStore(store);
+		await store.update(() => [
+			{
+				id: "sv1",
+				path: worktree,
+				repo,
+				branch: "omp/agent/saved",
+				head,
+				savedBranch: null,
+				removedAt: 5,
+				archivedFiles: 0,
+				archivedBytes: 0,
+			},
+		]);
+		expect(await ask(false)).toEqual({
+			folder: worktree,
+			missing: true,
+			saved: { id: "sv1", branch: "omp/agent/saved", removedAt: 5 },
+		});
+		expect(await ask(true)).toEqual({ folder: worktree, missing: false, saved: null });
+		expect(gitSync(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("omp/agent/saved");
 	});
 
 	it("opens no tab for a device in a worktree a removal holds until git is done with it", async () => {

@@ -445,4 +445,62 @@ describe("spawnTabForWindow on a paired host", () => {
 
 		expect(result).toEqual({ tabId: expect.any(String), cwd: "/host/work" });
 	});
+
+	it("asks the host where a stored session belongs: a gone folder is refused with the host's saved worktree, Restore restores it there", async () => {
+		const { deps, acquire } = harness();
+		const sessionFolder = vi.fn(async (_device: string, _path: string, restore: boolean) =>
+			restore
+				? { folder: "C:/wt/gui-agent-x", missing: false, saved: null }
+				: {
+						folder: "C:/wt/gui-agent-x",
+						missing: true,
+						saved: { id: "sv9", branch: "omp/agent/x", removedAt: 1 },
+					},
+		);
+		deps.remote.sessionFolder = sessionFolder;
+		const refused = await spawnTabForWindow(deps, fakeWindow(), { device: "host-b", sessionPath: "C:/s/x.jsonl" });
+		expect(refused).toEqual({
+			tabId: null,
+			refusal: "folder-missing",
+			folder: "C:/wt/gui-agent-x",
+			saved: { id: "sv9", branch: "omp/agent/x", removedAt: 1 },
+		});
+		expect(acquire).not.toHaveBeenCalled();
+
+		await spawnTabForWindow(deps, fakeWindow(), {
+			device: "host-b",
+			sessionPath: "C:/s/x.jsonl",
+			restoreSaved: true,
+		});
+		expect(sessionFolder).toHaveBeenLastCalledWith("host-b", "C:/s/x.jsonl", true);
+		expect(acquire).toHaveBeenCalledTimes(1);
+
+		// A host too old to answer: its own tab.open still refuses a gone folder, so the open goes on.
+		sessionFolder.mockRejectedValueOnce(new Error("Unknown method: sessions.folder"));
+		await spawnTabForWindow(deps, fakeWindow(), { device: "host-b", sessionPath: "C:/s/y.jsonl" });
+		expect(acquire).toHaveBeenCalledTimes(2);
+
+		// A restore still running on the host (its setup hook) holds the open; one that fails or times out opens nothing.
+		const asked = Promise.withResolvers<void>();
+		const held = Promise.withResolvers<{ folder: string; missing: boolean; saved: null }>();
+		sessionFolder.mockImplementationOnce(() => {
+			asked.resolve();
+			return held.promise;
+		});
+		const holding = spawnTabForWindow(deps, fakeWindow(), {
+			device: "host-b",
+			sessionPath: "C:/s/x.jsonl",
+			restoreSaved: true,
+		});
+		await asked.promise;
+		expect(acquire).toHaveBeenCalledTimes(2);
+		held.resolve({ folder: "C:/wt/gui-agent-x", missing: false, saved: null });
+		await holding;
+		expect(acquire).toHaveBeenCalledTimes(3);
+		sessionFolder.mockRejectedValueOnce(new Error("Remote request timed out: sessions.folder"));
+		await expect(
+			spawnTabForWindow(deps, fakeWindow(), { device: "host-b", sessionPath: "C:/s/x.jsonl", restoreSaved: true }),
+		).rejects.toThrow("timed out");
+		expect(acquire).toHaveBeenCalledTimes(3);
+	});
 });
