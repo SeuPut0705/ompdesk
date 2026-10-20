@@ -229,6 +229,36 @@ describe("backfillConclusions", () => {
 		expect([...server.written.values()][0]?.title).toBe("로그인 점검");
 	});
 
+	it("copies a session an agent started only when its brief names the task with a Title: line", async () => {
+		const known = uuid();
+		const server = fakeServer({ sessions: [{ id: known, cwd: "/work/app", project: OMPDESK }] });
+		const at = Date.parse("2026-10-10T10:00:00Z");
+		const person = uuid();
+		const titled = uuid();
+		const plumbing = uuid();
+		const opened = uuid();
+		await journal("-work-app/p.jsonl", { id: person, cwd: "/work/app" }, [
+			user("왜 로그인이 안 돼?", at - 1000),
+			assistant("토큰 만료 검사가 빠져 있었어요.", at),
+		]);
+		await journal("-work-app/p/1-Task.jsonl", { id: titled, cwd: "/work/app" }, [
+			user("Complete assignment thoroughly:\nTitle: 로그인 점검\n\nlook at it", at - 1000),
+			assistant("Checked the token path.", at),
+		]);
+		await journal("-work-app/p/2-Task.jsonl", { id: plumbing, cwd: "/work/app" }, [
+			user("Complete assignment thoroughly:\n# Target\nRead history://FlakeHunt2 §1.", at - 1000),
+			assistant("Read it; nothing new.", at),
+		]);
+		await journal("-work-app/o.jsonl", { id: opened, cwd: "/work/app" }, [
+			user('<ompdesk-agent-message from="Boss">\nContinue Shell3\'s work.\n</ompdesk-agent-message>', at - 1000),
+			assistant("Continued.", at),
+		]);
+		const report = await backfillConclusions(deps(server.client));
+		expect(report).toMatchObject({ untitled: 2, written: 2 });
+		expect([...server.written.values()].map(row => row.sessionId).sort()).toEqual([person, titled].sort());
+		expect((await backfillConclusions(deps(server.client))).written).toBe(0);
+	});
+
 	it("maps by the folder only when every known session there belongs to one project, and counts what it skips", async () => {
 		const server = fakeServer({
 			sessions: [

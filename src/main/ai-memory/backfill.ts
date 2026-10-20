@@ -30,7 +30,9 @@ import { join, relative } from "node:path";
 import { z } from "zod";
 import {
 	conclusionExcerpt,
+	explicitTitle,
 	firstMeaningfulLine,
+	isAgentPrompt,
 	isJunkTitle,
 	promptTitle,
 } from "../../../resources/gui-bridge/memory-prompt";
@@ -78,6 +80,12 @@ export interface BackfillReport {
 	ambiguous: number;
 	/** A mapped journal stock could not read. */
 	unreadable: number;
+	/**
+	 * Read but not copied: an agent wrote the first prompt (a subagent's assignment, another session's message) and it
+	 * names no task with a `Title:` line. Such briefs ("Read history://X §1", "Continue Shell3's work") are the
+	 * orchestration's own plumbing; their replies were most of what recall injected wrongly.
+	 */
+	untitled: number;
 	/** Journals read this pass, and the turns of them still to be written (not native, before the cutoff). */
 	read: number;
 	turns: number;
@@ -313,6 +321,7 @@ export async function backfillConclusions(deps: BackfillDeps): Promise<BackfillR
 		unmapped: 0,
 		ambiguous: 0,
 		unreadable: 0,
+		untitled: 0,
 		read: 0,
 		turns: 0,
 		written: 0,
@@ -394,6 +403,12 @@ export async function backfillConclusions(deps: BackfillDeps): Promise<BackfillR
 			state.done[candidate.key] = candidate.size;
 			continue;
 		}
+		const first = firstPrompt(messages) ?? "";
+		if (isAgentPrompt(first) && !explicitTitle(first)) {
+			report.untitled++;
+			state.done[candidate.key] = FINAL;
+			continue;
+		}
 		const sessionId = sessionKey(candidate.header.id);
 		const limit = natives.firstBySession.get(sessionId) ?? cutoff;
 		const held = natives.textsBySession.get(sessionId);
@@ -402,7 +417,7 @@ export async function backfillConclusions(deps: BackfillDeps): Promise<BackfillR
 		if (turns.length > 0) {
 			const title =
 				(await titleOf(candidate.project, candidate.header.id)) ??
-				promptTitle(firstPrompt(messages) ?? "", { sessionName: candidate.header.title ?? undefined }) ??
+				promptTitle(first, { sessionName: candidate.header.title ?? undefined }) ??
 				firstMeaningfulLine(turns[0]?.body ?? "") ??
 				`Session ${candidate.header.id}`;
 			const items = turns.map(turn => ({
@@ -446,6 +461,7 @@ export async function backfillConclusions(deps: BackfillDeps): Promise<BackfillR
 		unmapped: ended.unmapped,
 		ambiguous: ended.ambiguous,
 		unreadable: ended.unreadable,
+		untitled: ended.untitled,
 		turns: ended.turns,
 		written: ended.written,
 		same: ended.same,
