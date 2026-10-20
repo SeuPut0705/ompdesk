@@ -27,8 +27,46 @@ export const SUPERVISOR_SPEC_ENV = "OMPDESK_SETUP_SPEC";
 /** Exit code the supervisor reports after it killed the installer for a stdin close. */
 export const SUPERVISOR_STOPPED_CODE = 130;
 
+/**
+ * Ends a process and everything below it without WMI (Toolhelp's process snapshot, which names each process's parent),
+ * for a Windows whose WMI answers "call cancelled" when loaded: `taskkill /T` then kills nothing. `ROOT` is the pid.
+ */
+const TREE_KILL_SCRIPT = [
+	'Add-Type -TypeDefinition @"',
+	"using System;",
+	"using System.Collections.Generic;",
+	"using System.Runtime.InteropServices;",
+	"public static class Tree {",
+	"  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]",
+	"  struct Entry { public uint size, usage, pid; public IntPtr heap; public uint module, threads, ppid; public int priority; public uint flags;",
+	"    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string exe; }",
+	'  [DllImport("kernel32.dll")] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint pid);',
+	'  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snapshot, ref Entry entry);',
+	'  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr snapshot, ref Entry entry);',
+	'  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);',
+	'  [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process, uint code);',
+	'  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);',
+	"  public static void Kill(uint root) {",
+	"    var parents = new Dictionary<uint, List<uint>>();",
+	"    IntPtr snapshot = CreateToolhelp32Snapshot(2, 0);",
+	"    var entry = new Entry(); entry.size = (uint)Marshal.SizeOf(entry);",
+	"    for (bool more = Process32FirstW(snapshot, ref entry); more; more = Process32NextW(snapshot, ref entry)) {",
+	"      if (!parents.ContainsKey(entry.ppid)) parents[entry.ppid] = new List<uint>();",
+	"      parents[entry.ppid].Add(entry.pid);",
+	"    }",
+	"    CloseHandle(snapshot);",
+	"    var tree = new List<uint> { root };",
+	"    for (int i = 0; i < tree.Count; i++) if (parents.ContainsKey(tree[i])) foreach (uint child in parents[tree[i]]) if (!tree.Contains(child)) tree.Add(child);",
+	"    foreach (uint pid in tree) { IntPtr handle = OpenProcess(1, false, pid); if (handle != IntPtr.Zero) { TerminateProcess(handle, 1); CloseHandle(handle); } }",
+	"  }",
+	"}",
+	'"@',
+	"[Tree]::Kill(ROOT)",
+].join("\n");
+
 export const SUPERVISOR_SOURCE = `
 const { spawn } = require("node:child_process");
+const TREE_KILL_SCRIPT = ${JSON.stringify(TREE_KILL_SCRIPT)};
 const fs = require("node:fs");
 const spec = JSON.parse(process.env.${SUPERVISOR_SPEC_ENV});
 delete process.env.${SUPERVISOR_SPEC_ENV};
@@ -36,6 +74,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 const windows = process.platform === "win32";
 const log = spec.log || null;
 let stopping = false;
+let exited = false;
 let child;
 function dropLog() {
 	if (log) try { fs.unlinkSync(log.path); } catch {}
@@ -56,8 +95,20 @@ try {
 function killTree(signal) {
 	if (!child.pid) return;
 	if (windows) {
+		if (exited) return;
+		// taskkill walks the tree through WMI and, with WMI down, exits 1 and kills nothing: the shim dies at best and
+		// the omp under it runs on, holding its folder. A failed taskkill falls back to a walk that needs no WMI.
+		const fallBack = () => {
+			if (exited) return;
+			const script = TREE_KILL_SCRIPT.replace("ROOT", String(child.pid));
+			const encoded = Buffer.from(script, "utf16le").toString("base64");
+			const walker = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { stdio: "ignore", windowsHide: true });
+			walker.on("error", () => child.kill());
+			walker.on("exit", code => { if (code !== 0) child.kill(); });
+		};
 		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		killer.on("error", () => child.kill());
+		killer.on("error", fallBack);
+		killer.on("exit", code => { if (code !== 0) fallBack(); });
 		return;
 	}
 	try { process.kill(-child.pid, signal); } catch {}
@@ -80,6 +131,7 @@ child.on("error", error => {
 	process.exit(127);
 });
 child.on("exit", (code, signal) => {
+	exited = true;
 	// A descendant that outlived the installer goes with its group.
 	if (!windows) killTree("SIGKILL");
 	const status = stopping ? ${SUPERVISOR_STOPPED_CODE} : code === null ? 1 : code;

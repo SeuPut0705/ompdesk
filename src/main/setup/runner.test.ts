@@ -1,7 +1,7 @@
 import { EventEmitter, once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
@@ -128,6 +128,40 @@ describe("SetupRunner", () => {
 	});
 });
 
+/** An installer that starts a long-lived grandchild is cancelled: the grandchild must be gone, run under `env`. */
+async function cancelKillsGrandchild(env: NodeJS.ProcessEnv): Promise<void> {
+	const dir = await mkdtemp(join(tmpdir(), "ompdesk-supervisor-"));
+	try {
+		const pidFile = join(dir, "grandchild.pid");
+		// The installer starts a long-lived grandchild, reports it, and waits.
+		const installer = [
+			"const { spawn } = require('node:child_process');",
+			"const fs = require('node:fs');",
+			`const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });`,
+			`fs.writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid));`,
+			"process.stdout.write('started\\n');",
+			"setInterval(() => {}, 1000);",
+		].join("\n");
+		const runner = new SetupRunner(spawnSupervised);
+		const { promise: started, resolve } = Promise.withResolvers<void>();
+		const run = runner.run({ file: process.execPath, args: ["-e", installer], shell: false }, env, chunk => {
+			if (chunk.includes("started")) resolve();
+		});
+		await started;
+		const grandchild = Number(await readFile(pidFile, "utf8"));
+		expect(runner.cancel()).toBe(true);
+		await expect(run).resolves.toEqual({ kind: "cancelled" });
+		await vi.waitFor(
+			() => {
+				expect(() => process.kill(grandchild, 0)).toThrow();
+			},
+			{ timeout: 10_000, interval: 50 },
+		);
+	} finally {
+		await rm(dir, RM_TEMP);
+	}
+}
+
 describe("supervisor", () => {
 	it("passes output and the exit code through", async () => {
 		const runner = new SetupRunner(spawnSupervised);
@@ -146,41 +180,25 @@ describe("supervisor", () => {
 	});
 
 	it("kills the installer's whole tree when its stdin closes", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "ompdesk-supervisor-"));
-		try {
-			const pidFile = join(dir, "grandchild.pid");
-			// The installer starts a long-lived grandchild, reports it, and waits.
-			const installer = [
-				"const { spawn } = require('node:child_process');",
-				"const fs = require('node:fs');",
-				`const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });`,
-				`fs.writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid));`,
-				"process.stdout.write('started\\n');",
-				"setInterval(() => {}, 1000);",
-			].join("\n");
-			const runner = new SetupRunner(spawnSupervised);
-			const { promise: started, resolve } = Promise.withResolvers<void>();
-			const run = runner.run(
-				{ file: process.execPath, args: ["-e", installer], shell: false },
-				{ ...process.env },
-				chunk => {
-					if (chunk.includes("started")) resolve();
-				},
-			);
-			await started;
-			const grandchild = Number(await readFile(pidFile, "utf8"));
-			expect(runner.cancel()).toBe(true);
-			await expect(run).resolves.toEqual({ kind: "cancelled" });
-			await vi.waitFor(
-				() => {
-					expect(() => process.kill(grandchild, 0)).toThrow();
-				},
-				{ timeout: 10_000, interval: 50 },
-			);
-		} finally {
-			await rm(dir, RM_TEMP);
-		}
+		await cancelKillsGrandchild({ ...process.env });
 	});
+
+	it.skipIf(process.platform !== "win32")(
+		"still kills the whole tree when taskkill fails, as it does while WMI, which it walks the tree through, is down",
+		async () => {
+			const fakeBin = await mkdtemp(join(tmpdir(), "ompdesk-taskkill-"));
+			try {
+				// ping.exe under taskkill's name: `/pid` is a bad option, so it exits 1 and kills nothing.
+				await copyFile(
+					join(process.env.SystemRoot ?? "C:\\Windows", "System32", "ping.exe"),
+					join(fakeBin, "taskkill.exe"),
+				);
+				await cancelKillsGrandchild({ ...process.env, PATH: `${fakeBin}${delimiter}${process.env.PATH}` });
+			} finally {
+				await rm(fakeBin, RM_TEMP);
+			}
+		},
+	);
 });
 
 describe("isolated commands", () => {
