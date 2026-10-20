@@ -108,6 +108,9 @@ export const TAB_EVENT_NAMES = [
 	"signIn",
 	// The tab views a window of the host (`TabOpenResult.viewing`) and that window closed it: the device's tab goes quietly.
 	"viewEnded",
+	// The host's own person deleted the tab's session (arg: its path): the device drops the tab and remembers the delete.
+	// An older device does not know the name and drops it; the "exited" status sent after it still ends its tab.
+	"sessionDeleted",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];

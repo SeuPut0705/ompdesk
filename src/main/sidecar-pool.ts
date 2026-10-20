@@ -643,10 +643,11 @@ export class SidecarPool {
 		return view;
 	}
 
-	/** Whether a paired device views the tab this computer's window has on `sessionPath` (a delete here is refused). */
-	deviceViewing(sessionPath: string): boolean {
-		const owner = this.#sessionOwners.get(sessionPath);
-		return (this.#byTabId.get(owner?.tabId ?? "")?.deviceViews?.size ?? 0) > 0;
+	/** Whether the tab holding `sessionPath` runs a turn or compacts: a delete waits for it (session-mutations.ts). */
+	sessionRunning(sessionPath: string, device?: string): boolean {
+		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
+		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
+		return entry !== undefined && runBusy(entry.run);
 	}
 
 	/**

@@ -171,6 +171,7 @@ function fakeLocalTabs() {
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
+		sessionRunning: () => false,
 		commandForSession: (_path, command) => tab.rpcClient.command(command),
 		closeSessionTab: async path => {
 			const owner = owned.get(path);
@@ -1798,6 +1799,8 @@ describe("LocalHostServices: a device opening a session a window of this compute
 
 	it("this computer's delete of the window's session tells the viewing device it is deleted", async () => {
 		const { services, view, x } = await viewing();
+		// A real view (HostedTabView) has no omp of its own to wait for; the fake's exit stands in for that.
+		view.exited.resolve();
 		await services.closeSessionTabs(SESSION);
 		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "sessionDeleted", arg: SESSION });
 		expect(view.disposed).toBe(true);

@@ -23,6 +23,10 @@
  * wait and go out once the host tab is re-attached (and are dropped when the
  * host started a new omp, which never made those calls); a `tab.close` is
  * handed to `deferClose` and sent when the link is back (`PendingTabCloses`).
+ *
+ * An app quit whose work continues after the relaunch (`keepOnHost`) closes nothing on the host: the host owns
+ * the turns it runs for this device, keeps the tab through its grace period, and the relaunched device's
+ * `tab.open` on the same session adopts it.
  */
 import { EventEmitter } from "node:events";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
@@ -63,6 +67,11 @@ export interface RemoteSidecarOptions {
 	onDispose?: () => void;
 	/** A `tab.close` the link could not carry: the owner sends it when the host is reachable again. */
 	deferClose: (rtab: string) => void;
+	/**
+	 * Read at dispose: true while an approved app quit leaves interrupted work to continue (Settings › General), so
+	 * the host's tab and its running turn outlive this process. Absent: dispose always closes the host's tab.
+	 */
+	keepOnHost?: () => boolean;
 	/** Status message when the host has not brought the tab up within `startTimeoutMs`, in the UI language. */
 	stalledMessage: (seconds: number) => string;
 	/** How long a start may take before the tab reports `stalledMessage`; default `REMOTE_START_TIMEOUT_MS`. */
@@ -134,6 +143,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #offlineMessage: () => string;
 	readonly #onDispose: (() => void) | undefined;
 	readonly #deferClose: (rtab: string) => void;
+	readonly #keepOnHost: () => boolean;
 	#cwd: string;
 	#status: SidecarStatus = "asleep";
 	#detail: StatusDetail = {};
@@ -178,6 +188,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#offlineMessage = options.offlineMessage;
 		this.#onDispose = options.onDispose;
 		this.#deferClose = options.deferClose;
+		this.#keepOnHost = options.keepOnHost ?? (() => false);
 		this.#stalledMessage = options.stalledMessage;
 		this.#startTimeoutMs = options.startTimeoutMs ?? REMOTE_START_TIMEOUT_MS;
 		this.#log = options.log;
@@ -304,7 +315,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 
 	dispose(): void {
 		if (this.#disposed) return;
-		if (this.#openedOnce) this.#closeOnHost();
+		if (this.#openedOnce && !this.#keepOnHost()) this.#closeOnHost();
 		this.#disposed = true;
 		this.#settle(null);
 		this.#queuedReplies = [];
@@ -357,6 +368,10 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				if (parsed.success) this.emit("signIn", parsed.data);
 				return;
 			}
+			// The host's person deleted the session this tab shows: the pool drops the tab and remembers the delete.
+			case "sessionDeleted":
+				if (typeof message.arg === "string") this.emit("sessionDeleted", message.arg);
+				return;
 			default:
 				this.emit(message.name, message.arg);
 		}

@@ -71,7 +71,7 @@ import type { BridgeClient } from "../local/types";
 import type { MachineServices } from "../machine-services";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
-import { deleteSession, moveSession, renameSession } from "../session-mutations";
+import { deleteSession, moveSession, recordSessionDelete, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
 import type { SidecarPool } from "../sidecar-pool";
 import {
@@ -189,7 +189,13 @@ export interface HostServicesDeps {
 	 */
 	localTabs: Pick<
 		SidecarPool,
-		"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "closeSessionTab" | "allSidecars" | "viewForDevice"
+		| "sessionOwner"
+		| "sessionOwnerIsLive"
+		| "sessionRunning"
+		| "commandForSession"
+		| "closeSessionTab"
+		| "allSidecars"
+		| "viewForDevice"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -1571,26 +1577,48 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/**
+	 * This computer's own delete of `sessionPath` (ipc.ts, session-mutations.ts): the paired devices' tabs on it here
+	 * close as another window's tab does for a delete. Refused (`session_running`), with nothing closed, while one of
+	 * them runs a turn or compacts; otherwise each device hears the session was deleted (it drops the tab and its
+	 * saved layout entry at once, and records the delete), and this resolves once their omps have exited. A device
+	 * off the link learns it at its next `tab.open` (`session_deleted`).
+	 */
+	async closeSessionTabs(sessionPath: string): Promise<void> {
+		const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
+		if (held.some(tab => runBusy(tab.run)))
+			throw codedError("session_running", "A paired device is running this session");
+		for (const tab of held) {
+			this.#emit(tab, "sessionDeleted", sessionPath);
+			// An older device drops the event name; this status still ends its tab.
+			this.#emit(tab, "status", this.#goneStatus(tab, "This session was deleted"));
+			this.#closeTab(this.#key(tab.peerId, tab.rtab));
+		}
+		await this.#exiting.get(sessionPath);
+	}
+
+	/**
 	 * This machine's sidebar policy (session-mutations.ts): a tab of this machine holding the session
 	 * closes, another device's live tab refuses. The asking device's own tabs on the file (the one it
 	 * just closed, one left from an earlier connection in its grace period, a duplicate) are its to
 	 * release: an idle one is closed and waited for, one running a turn refuses.
 	 */
 	async #deleteSession(peer: PeerInfo, sessionPath: string): Promise<null> {
-		// A window of this computer works in it: the device cannot take it away (the window's own delete can).
-		if (this.#deps.localTabs.sessionOwnerIsLive(sessionPath))
-			throw codedError("session_running", "Session is open on the host");
-		const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
-		if (held.some(tab => (tab.peerId !== peer.deviceId && tab.sidecar.processAlive) || runBusy(tab.run)))
-			throw codedError("session_running", "Session is open on the host");
-		for (const tab of held) {
-			this.#emit(tab, "status", this.#goneStatus(tab, "This session was deleted"));
-			this.#closeTab(this.#key(tab.peerId, tab.rtab));
-		}
-		await this.#exiting.get(sessionPath);
-		await deleteSession(this.#deps.localTabs, sessionPath, undefined, () =>
-			this.#deps.sessionIndex.deleteSession(sessionPath),
-		);
+		await recordSessionDelete({ sessionPath, by: peer.deviceId }, async () => {
+			// A window of this computer works in it: the device cannot take it away (the window's own delete can).
+			if (this.#deps.localTabs.sessionOwnerIsLive(sessionPath))
+				throw codedError("session_running", "Session is open on the host");
+			const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
+			if (held.some(tab => (tab.peerId !== peer.deviceId && tab.sidecar.processAlive) || runBusy(tab.run)))
+				throw codedError("session_running", "Session is open on the host");
+			for (const tab of held) {
+				this.#emit(tab, "status", this.#goneStatus(tab, "This session was deleted"));
+				this.#closeTab(this.#key(tab.peerId, tab.rtab));
+			}
+			await this.#exiting.get(sessionPath);
+			await deleteSession(this.#deps.localTabs, sessionPath, undefined, () =>
+				this.#deps.sessionIndex.deleteSession(sessionPath),
+			);
+		});
 		return null;
 	}
 

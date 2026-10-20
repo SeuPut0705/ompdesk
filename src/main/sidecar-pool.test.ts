@@ -2925,7 +2925,6 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		sidecar.emitHostUriRequest("u1");
 		expect(seen).toEqual(["events"]);
 		expect(pool.tabsForWindow(desktop.win)[0]).toMatchObject({ tabId: "tab-a", viewerCount: 1 });
-		expect(pool.deviceViewing("/s/a.jsonl")).toBe(true);
 		await view.rpcClient?.command({ type: "prompt", message: "hi" });
 		expect(sidecar.rpcCommands).toEqual([
 			{ type: "prompt_origin_set", origin: MAC, text: "hi" },
@@ -2935,7 +2934,7 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		view.removeAllListeners();
 		view.dispose();
 		expect(sidecar.disposed).toBe(false);
-		expect(pool.deviceViewing("/s/a.jsonl")).toBe(false);
+		expect(pool.tabsForWindow(desktop.win)[0]).not.toHaveProperty("viewerCount");
 	});
 
 	it("takes the first answer to an ask from the device or a window, and refuses the other's", async () => {

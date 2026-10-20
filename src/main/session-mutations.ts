@@ -9,7 +9,7 @@
  * `/move`. Callers keep their own path validation, device routing and peer
  * ownership checks.
  */
-import { codedError } from "../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { deletedSessions } from "./deleted-sessions";
 import type { RpcClient } from "./rpc-client";
@@ -17,20 +17,66 @@ import type { SidecarPool } from "./sidecar-pool";
 
 export type SessionTabs = Pick<
 	SidecarPool,
-	"sessionOwner" | "sessionOwnerIsLive" | "commandForSession" | "closeSessionTab"
+	"sessionOwner" | "sessionOwnerIsLive" | "sessionRunning" | "commandForSession" | "closeSessionTab"
 >;
 
+/** The tabs this computer runs for paired devices (LocalHostServices), as this computer's own delete closes them. */
+export interface DeviceSessionTabs {
+	closeSessionTabs(sessionPath: string): Promise<void>;
+}
+
+/**
+ * `deviceTabs`: this computer's own delete of its own session. The paired devices' tabs on it here close first,
+ * idle ones only, as another window's tab would; nothing closes while this computer's own tab runs it.
+ */
 export async function deleteSession(
 	tabs: SessionTabs,
 	sessionPath: string,
 	device: string | undefined,
 	deleteStored: () => Promise<unknown>,
+	deviceTabs?: DeviceSessionTabs,
 ): Promise<void> {
+	if (deviceTabs) {
+		if (tabs.sessionRunning(sessionPath, device)) throw codedError("session_running", "Session is currently running");
+		await deviceTabs.closeSessionTabs(sessionPath);
+	}
 	if (!(await tabs.closeSessionTab(sessionPath, device)))
 		throw codedError("session_running", "Session is currently running");
 	await deleteStored();
 	// Gone for good: no layout, marker, device or index may bring it back (deleted-sessions.ts).
 	deletedSessions().add(sessionPath, device);
+}
+
+type SessionDeleteLog = (outcome: "deleted" | "refused" | "failed", details: Record<string, string>) => void;
+let deleteLog: SessionDeleteLog | null = null;
+
+/** Where `recordSessionDelete` writes (index.ts: the runtime log, source `session-delete`); null stops it. */
+export function setSessionDeleteLog(log: SessionDeleteLog | null): void {
+	deleteLog = log;
+}
+
+/**
+ * Run one session delete and leave one line for it: the machine the file is on (`device`, `local` for this one), the
+ * paired device that asked (`by`), the file's name only, and the outcome, a refusal's code or a failure's message.
+ */
+export async function recordSessionDelete(
+	target: { sessionPath: string; device?: string; by?: string },
+	run: () => Promise<unknown>,
+): Promise<void> {
+	const details: Record<string, string> = {
+		device: target.device ?? "local",
+		...(target.by ? { by: target.by } : {}),
+		session: target.sessionPath.split(/[\\/]/).at(-1) ?? "",
+	};
+	try {
+		await run();
+	} catch (error) {
+		const code = ipcErrorCode(error);
+		if (code) deleteLog?.("refused", { ...details, reason: code });
+		else deleteLog?.("failed", { ...details, reason: error instanceof Error ? error.message : String(error) });
+		throw error;
+	}
+	deleteLog?.("deleted", details);
 }
 
 export interface RenameSessionOptions {

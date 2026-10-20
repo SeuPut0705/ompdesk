@@ -126,6 +126,8 @@ export interface RemoteDevicesDeps {
 	startTimeoutMs?: number;
 	/** A host tab's bring-up step, for the runtime log (`remote-tab`). */
 	logTab?: RemoteSidecarOptions["log"];
+	/** An approved quit leaves interrupted work to continue: host tabs are left running, not closed (`keepOnHost`). */
+	keepHostTabsOnQuit?: () => boolean;
 	/** Electron `powerSaveBlocker` held while devices use this computer. */
 	powerSaveBlocker: KeepAwakeBlocker;
 	tailnet: TailnetAccess;
@@ -499,6 +501,7 @@ export class RemoteDevices {
 				if (link.tabs.get(rtab) === sidecar) link.tabs.delete(rtab);
 			},
 			deferClose: closing => link.closes.defer(closing),
+			...(this.#deps.keepHostTabsOnQuit ? { keepOnHost: this.#deps.keepHostTabsOnQuit } : {}),
 			stalledMessage: seconds => this.#deps.stalledMessage(link.client.host.name, seconds),
 			...(this.#deps.startTimeoutMs === undefined ? {} : { startTimeoutMs: this.#deps.startTimeoutMs }),
 			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),

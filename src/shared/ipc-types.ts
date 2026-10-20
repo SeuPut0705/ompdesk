@@ -498,6 +498,12 @@ export type RuntimeErrorSource =
 	 * failed, `details` the device, rtab, `ms` since the bring-up began and, when it stalled or failed, the `step`.
 	 */
 	| "remote-tab"
+	/**
+	 * One stored-session delete (src/main/session-mutations.ts `recordSessionDelete`): `message` is deleted, refused
+	 * or failed; `details` the machine the file is on (`device`, `local`), the device that asked (`by`), the file's
+	 * name (`session`) and a refusal's code or a failure's message (`reason`).
+	 */
+	| "session-delete"
 	/** The GPU fallback (src/main/gpu-fallback.ts): software rendering, a relaunch or why none, a hardware trial. */
 	| "gpu-fallback"
 	/** The crash-loop guard (src/main/launch-guard.ts): this launch starts in safe mode. */

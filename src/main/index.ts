@@ -135,6 +135,7 @@ import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
+import { setSessionDeleteLog } from "./session-mutations";
 import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
 import { SetupService } from "./setup/service";
@@ -764,6 +765,8 @@ app.whenReady().then(() => {
 	});
 	// This computer as a host: paired devices' tabs run here through the same factory.
 	const prefs = prefsStore();
+	// One runtime-log line per stored-session delete, here or asked by a paired device (session-mutations.ts).
+	setSessionDeleteLog((outcome, details) => writeRuntimeLog({ source: "session-delete", message: outcome, details }));
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
 		// `devices` is created below; a host tab only opens once it serves connections.
@@ -822,6 +825,10 @@ app.whenReady().then(() => {
 			? { startTimeoutMs: Number(process.env.OMP_GUI_REMOTE_START_TIMEOUT_MS) }
 			: {}),
 		logTab: (step, details) => writeRuntimeLog({ source: "remote-tab", message: step, details }),
+		// A quit (update restart included) leaves the turns a paired host runs for this computer running there, as it
+		// leaves this computer's own to continue after the relaunch. With "Continue interrupted work" off the quit
+		// dialog counted those turns and promised to stop them, so their host tabs close as before.
+		keepHostTabsOnQuit: () => quitApproved() && prefs.get(RESUME_INTERRUPTED_PREF) !== false,
 		powerSaveBlocker: {
 			start: () => powerSaveBlocker.start("prevent-app-suspension"),
 			stop: id => powerSaveBlocker.stop(id),

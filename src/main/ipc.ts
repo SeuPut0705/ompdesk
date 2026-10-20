@@ -135,7 +135,7 @@ import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { tailLogLines } from "./runtime-log-core";
 import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
-import { deleteSession, moveSession, renameSession } from "./session-mutations";
+import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
@@ -202,6 +202,7 @@ export interface IpcDeps {
 		| "autopilotNotice"
 		| "attachRunLookup"
 		| "checkoutMembers"
+		| "closeSessionTabs"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
@@ -403,20 +404,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
 	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
 	/**
-	 * Delete a stored session (the sidebar, `/delete`, the control tools): the tab holding it closes. One a paired
-	 * device's tab on this computer runs is refused, as the host refuses a device the other's live tab.
+	 * Delete a stored session (the sidebar, `/delete`, the control tools): the tab holding it closes. On this computer
+	 * the paired devices' tabs on it here close too, as another window's tab would: refused only while one runs a turn
+	 * or compacts; the device drops its tab and remembers the delete. One line per delete in the runtime log.
 	 */
-	const deleteStoredSession = async (sessionPath: string, device: string | undefined): Promise<void> => {
-		const usedByDevice =
-			deps.hostedTabs.hostedSessions().some(session => session.sessionPath === sessionPath) ||
-			sidecarPool.deviceViewing(sessionPath);
-		if (!device && usedByDevice) throw codedError("session_running", "A paired device is using this session");
-		await deleteSession(sidecarPool, sessionPath, device, () =>
-			device
-				? remoteDevices.request(device, "sessions.delete", { sessionPath })
-				: sessionIndex.deleteSession(sessionPath),
+	const deleteStoredSession = (sessionPath: string, device: string | undefined): Promise<void> =>
+		recordSessionDelete({ sessionPath, ...(device ? { device } : {}) }, () =>
+			deleteSession(
+				sidecarPool,
+				sessionPath,
+				device,
+				() =>
+					device
+						? remoteDevices.request(device, "sessions.delete", { sessionPath })
+						: sessionIndex.deleteSession(sessionPath),
+				device ? undefined : deps.hostedTabs,
+			),
 		);
-	};
 
 	/**
 	 * The machine a Settings/Usage/Stats call acts on: `device` is the paired
