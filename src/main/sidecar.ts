@@ -388,12 +388,22 @@ export type SidecarStartGate = (bridge: BridgeClient, cwd: string) => Promise<st
 /**
  * Stop an omp. SIGTERM where signals exist. Windows has none: `kill` is TerminateProcess of the direct child only, and
  * omp starts through a `.cmd` or `.exe` shim whose real omp would be left running, so the whole tree goes (`taskkill
- * /T /F`, as the setup supervisor does).
+ * /T /F`, as the setup supervisor does). taskkill finds the tree through WMI and, with WMI down, exits 1 and kills
+ * nothing: the omp would then run on until the app exits, holding its folder. So a taskkill that failed while the child
+ * still runs falls back to ending its stdin (omp exits when it ends) and TerminateProcess of the shim.
  */
 function terminate(child: ChildProcess): void {
 	if (process.platform === "win32" && child.pid !== undefined) {
 		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		killer.once("error", () => child.kill());
+		const fallBack = () => {
+			if (child.exitCode !== null || child.signalCode !== null) return;
+			child.stdin?.end();
+			child.kill();
+		};
+		killer.once("error", fallBack);
+		killer.once("exit", code => {
+			if (code !== 0) fallBack();
+		});
 		return;
 	}
 	child.kill("SIGTERM");
