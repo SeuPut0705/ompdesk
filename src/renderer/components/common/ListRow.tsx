@@ -31,8 +31,9 @@ export interface ListRowProps {
 	/** How many actions show at most, so the title keeps clear of them (room for two when omitted). */
 	actionCount?: number;
 	/**
-	 * Actions show only on hover or focus-within, selected or not, and overlay the row's end on a fade (the
-	 * title keeps its full width at rest and never shifts). Meta stays until they appear.
+	 * Actions show only on hover or focus-within, selected or not, and overlay the row's end on a fade. They take the
+	 * meta's place while they show: the meta steps aside and the title runs on under the fade up to them, so a row
+	 * with one action (the sidebar's ⋯) reads more of its title on hover, not less. Nothing else moves.
 	 */
 	actionsOnHover?: boolean;
 	/**
@@ -75,11 +76,11 @@ const ACTION_ROOM = [
 ] as const;
 
 /**
- * Quiet actions: the title end fades out under the overlay instead of making room, so nothing shifts.
- * The fade starts where the overlay's reach (`--row-room`, less the meta that hides under it) begins.
+ * Quiet actions: the title end fades out just before the overlay (`--row-room` from the row's end) instead of
+ * making room, so nothing shifts.
  */
 const QUIET_FADE =
-	"group-hover/row:mask-[linear-gradient(to_right,#000_calc(100%-max(var(--row-room)-2.5rem,0.5rem)-1rem),transparent_calc(100%-max(var(--row-room)-2.5rem,0.5rem)))] group-focus-within/row:mask-[linear-gradient(to_right,#000_calc(100%-max(var(--row-room)-2.5rem,0.5rem)-1rem),transparent_calc(100%-max(var(--row-room)-2.5rem,0.5rem)))]";
+	"group-hover/row:mask-[linear-gradient(to_right,#000_calc(100%-var(--row-room)),transparent_calc(100%-var(--row-room)+0.75rem))] group-focus-within/row:mask-[linear-gradient(to_right,#000_calc(100%-var(--row-room)),transparent_calc(100%-var(--row-room)+0.75rem))]";
 
 export function ListRow({
 	title,
@@ -170,7 +171,7 @@ export function ListRow({
 						actions && !actionsAtRest
 							? cx(
 									actionsOnHover
-										? "group-focus-within/row:invisible group-hover/row:invisible [@media(hover:none)]:invisible"
+										? "group-focus-within/row:hidden group-hover/row:hidden [@media(hover:none)]:invisible"
 										: "group-focus-within/row:hidden group-hover/row:hidden [@media(hover:none)]:hidden",
 									selected && !actionsOnHover && "hidden",
 								)

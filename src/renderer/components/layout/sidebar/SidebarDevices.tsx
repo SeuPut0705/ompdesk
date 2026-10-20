@@ -386,47 +386,23 @@ function DeviceSessions({
 		];
 		return (
 			<ListRow
+				// One ⋯ on every input, so the title keeps its width; at rest under touch, on hover or focus elsewhere.
 				actions={
-					touchInput ? (
-						menuItems.length > 0 && (
-							<IconButton
-								data-sidebar-row-menu
-								icon={<MoreHorizontal />}
-								label={t("sidebar.sessionMenu")}
-								onClick={event => {
-									const rect = event.currentTarget.getBoundingClientRect();
-									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuItems, label: title });
-								}}
-								size="sm"
-								tabIndex={-1}
-							/>
-						)
-					) : (
-						<>
-							{tab && (
-								<IconButton
-									data-device-session-close
-									icon={<X />}
-									label={t("sidebar.menu.closeSession")}
-									onClick={closeSession}
-									size="sm"
-									tabIndex={-1}
-								/>
-							)}
-							{deletable && (
-								<IconButton
-									data-device-session-delete
-									icon={<Trash2 />}
-									label={t("sidebar.delete")}
-									onClick={() => setPendingDelete(session)}
-									size="sm"
-									tabIndex={-1}
-								/>
-							)}
-						</>
+					menuItems.length > 0 && (
+						<IconButton
+							data-sidebar-row-menu
+							icon={<MoreHorizontal />}
+							label={t("sidebar.sessionMenu")}
+							onClick={event => {
+								const rect = event.currentTarget.getBoundingClientRect();
+								setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuItems, label: title });
+							}}
+							size="sm"
+							tabIndex={-1}
+						/>
 					)
 				}
-				actionCount={touchInput ? Math.min(menuItems.length, 1) : Number(tab !== undefined) + Number(deletable)}
+				actionCount={1}
 				actionsAtRest={touchInput}
 				actionsOnHover={!touchInput}
 				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}

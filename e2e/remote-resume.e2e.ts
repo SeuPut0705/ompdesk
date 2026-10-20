@@ -475,7 +475,8 @@ test("a device deletes a host's session from its sidebar row: the host's omp let
 
 		const row = section.locator(`[data-device-session=${cssString(sessionPath)}]`);
 		await row.hover();
-		await row.locator("[data-device-session-delete]").click();
+		await row.locator("[data-sidebar-row-menu]").click();
+		await a.getByRole("menuitem", { name: "Delete session" }).click();
 		const dialog = a.getByRole("dialog");
 		await expect(dialog).toContainText("on Host B");
 		await dialog.getByRole("button", { name: "Delete", exact: true }).click();

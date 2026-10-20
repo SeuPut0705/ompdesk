@@ -226,6 +226,11 @@ function menuItem(label: string): Element {
 	return item;
 }
 
+/** Open a session row's ⋯ menu, the row's only action button. */
+async function openRowMenu(row: Element | TestElement | null | undefined): Promise<void> {
+	await fire(row?.querySelector("[data-sidebar-row-menu]") ?? null, "onClick");
+}
+
 /** The React props of a rendered element, to drive handlers `fire` does not cover. */
 function reactProps<T>(element: Element | TestElement): T {
 	const record = element as unknown as Record<string, unknown>;
@@ -1040,10 +1045,13 @@ describe("Sidebar menus and pinned ordering", () => {
 		useSessionStore.setState({ isStreaming: true });
 		await mount(<Sidebar />);
 
-		// The attached running task: rename stays available, delete stays protected.
+		// The attached running task: one ⋯, whose menu keeps rename available and delete protected.
 		const runningRow = rowFor("Session /work/alpha/mine");
-		expect(runningRow.querySelector('[aria-label="Rename session"]')).not.toBeNull();
+		expect(runningRow.querySelector('[aria-label="Rename session"]')).toBeNull();
 		expect(runningRow.querySelector('[aria-label="Delete session"]')).toBeNull();
+		await openRowMenu(runningRow);
+		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
 		await fire(runningRow, "onContextMenu");
 		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
 		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
@@ -1325,24 +1333,68 @@ describe("Sidebar menus and pinned ordering", () => {
 		const row = rowFor("Session /work/alpha/one");
 		const title = row.querySelector("button");
 		expect(title?.className).toContain("truncate");
-		const rename = row.querySelector('[aria-label="Rename session"]');
-		expect(rename).not.toBeNull();
-		// Hidden at rest and out of the pointer's way, but never display:none, so keyboard users keep them.
-		const actions = (rename?.parentNode as unknown as Element | null)?.className.split(/\s+/) ?? [];
+		// One ⋯ holds every action: no rename, archive or delete button of its own takes the title's width.
+		expect(row.querySelectorAll("[data-sidebar-row-menu]")).toHaveLength(1);
+		expect(row.querySelector('[aria-label="Rename session"]')).toBeNull();
+		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
+		expect(row.querySelector("[data-sidebar-archive]")).toBeNull();
+		const more = row.querySelector("[data-sidebar-row-menu]");
+		expect(more?.getAttribute("aria-label")).toBe("Session actions");
+		// Hidden at rest and out of the pointer's way, but never display:none, so keyboard users keep it.
+		const actions = (more?.parentNode as unknown as Element | null)?.className.split(/\s+/) ?? [];
 		expect(actions).toContain("opacity-0");
 		expect(actions).toContain("pointer-events-none");
 		expect(actions).toContain("group-hover/row:opacity-100");
 		expect(actions).toContain("group-focus-within/row:opacity-100");
 		expect(actions).not.toContain("hidden");
-		// The title keeps its full width at rest and while they show: no padding is reserved for them.
+		// The title keeps its full width at rest and while it shows: no padding is reserved for it.
 		const titleBox = (title?.parentNode as unknown as Element | null)?.className ?? "";
 		expect(titleBox).not.toMatch(/(^|\s)(group-[a-z-]+\/row:)?pr-\d+/);
 
-		// The current row does not keep them either.
+		// The current row does not keep it either.
 		const active = container.querySelector('[data-active="true"]') as unknown as Element | null;
-		const activeActions = active?.querySelector('[aria-label="Rename session"]')
-			?.parentNode as unknown as Element | null;
+		const activeActions = active?.querySelector("[data-sidebar-row-menu]")?.parentNode as unknown as Element | null;
 		if (activeActions) expect(activeActions.className.split(/\s+/)).not.toContain("opacity-100");
+	});
+
+	it("a row's ⋯ lists the row's own edits first, renames inline, and is the keyboard's next stop after the row", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+
+		await openRowMenu(rowFor("Session /work/alpha/one"));
+		expect(menuItemLabels().map(label => label.replace(/⌘.*$/, ""))).toEqual([
+			"Rename session",
+			"Pin to top",
+			"Move to project…",
+			"Archive",
+			"Delete",
+			"Open in new tab",
+			"Open in split view",
+			"Open in new window",
+			"Hide from other agents",
+			"Save diagnostic bundle",
+			"Save diagnostic bundle (anonymized)",
+			"Copy file path",
+			"Show in folder",
+		]);
+		await fire(menuItem("Rename"), "onClick");
+		await commitRenameInput("Session /work/alpha/one.jsonl", "Renamed from the menu");
+		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/one.jsonl", "Renamed from the menu");
+
+		// A right click keeps its own order (Open first).
+		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
+		expect(menuItemLabels()[0]).toBe("Open");
+
+		// Exactly one row is the list's tab stop, and its ⋯ is the next one; every other ⋯ stays out of the tab order.
+		const rowOf = (item: TestElement) => (item as unknown as Element).closest(".omp-list-row");
+		const stops = [...container.querySelectorAll("[data-roving-item]")].filter(
+			item => item.getAttribute("tabindex") === "0",
+		);
+		expect(stops).toHaveLength(1);
+		const stopRow = stops[0] ? rowOf(stops[0]) : null;
+		const menus = [...container.querySelectorAll("[data-sidebar-row-menu]")];
+		for (const menu of menus) expect(menu.getAttribute("tabindex")).toBe(rowOf(menu) === stopRow ? "0" : "-1");
 	});
 
 	it("a pinned project keeps its muted pin glyph; the ⋯ is hover/focus only and an unpinned one shows no pin", async () => {
@@ -1368,7 +1420,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		const row = rowFor("Session /work/alpha/one");
-		await fire(row.querySelector('[aria-label="Delete session"]') as Element, "onClick");
+		await openRowMenu(row);
+		await fire(menuItem("Delete"), "onClick");
 
 		// Queued, not executed: the trash click must never reach the hard delete.
 		expect(omp.sessions.delete).not.toHaveBeenCalled();
@@ -1381,7 +1434,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.sessions.delete).not.toHaveBeenCalled();
 		expect(document.body.querySelector('[role="dialog"]')).toBeNull();
 
-		await fire(row.querySelector('[aria-label="Delete session"]') as Element, "onClick");
+		await openRowMenu(row);
+		await fire(menuItem("Delete"), "onClick");
 		const confirm = [...document.body.querySelectorAll('[role="dialog"] button')].find(
 			b => (b.textContent ?? "").trim() === "Delete",
 		) as unknown as Element;
@@ -1413,10 +1467,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		await fire(
-			rowFor("Session /work/alpha/one").querySelector('[aria-label="Delete session"]') as Element,
-			"onClick",
-		);
+		await openRowMenu(rowFor("Session /work/alpha/one"));
+		await fire(menuItem("Delete"), "onClick");
 		await fire(
 			[...document.body.querySelectorAll('[role="dialog"] button')].find(
 				b => (b.textContent ?? "").trim() === "Delete",
@@ -2812,8 +2864,10 @@ describe("Sidebar device sections", () => {
 		await mount(<Sidebar />);
 
 		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`);
-		expect(row()?.querySelector("[data-device-session-close]")).not.toBeNull();
-		await fire(row()?.querySelector("[data-device-session-delete]") ?? null, "onClick");
+		expect(row()?.querySelectorAll("button[aria-label]:not([data-sidebar-row-menu])")).toHaveLength(0);
+		await openRowMenu(row());
+		expect(menuItem("Close session").hasAttribute("disabled")).toBe(false);
+		await fire(menuItem("Delete"), "onClick");
 		const dialog = document.body.querySelector('[role="dialog"]');
 		expect(dialog?.textContent).toContain("Remote fix on studio");
 		expect(omp.sessions.delete).not.toHaveBeenCalled();
@@ -2842,7 +2896,8 @@ describe("Sidebar archive and move", () => {
 		await mount(<Sidebar />);
 		expect(archivedSection()).toBeNull();
 
-		await fire(rowFor("Session /work/alpha/one").querySelector("[data-sidebar-archive]"), "onClick");
+		await openRowMenu(rowFor("Session /work/alpha/one"));
+		await fire(menuItem("Archive"), "onClick");
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["/work/alpha/one.jsonl"]);
 		expect(omp.prefs.set).toHaveBeenCalledWith(
 			"sidebar",
@@ -2856,9 +2911,9 @@ describe("Sidebar archive and move", () => {
 		await fire(archivedHeader(), "onClick");
 		const archivedRow = archivedSection()?.querySelector('[data-session-path="/work/alpha/one.jsonl"]');
 		expect(archivedRow).not.toBeNull();
-		expect(archivedRow?.querySelector("[data-sidebar-archive]")).toBeNull();
-
-		await fire(archivedRow?.querySelector("[data-sidebar-restore]") ?? null, "onClick");
+		await openRowMenu(archivedRow);
+		expect(menuItemLabels()).not.toContain("Archive");
+		await fire(menuItem("Restore"), "onClick");
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual([]);
 		expect(archivedSection()).toBeNull();
 		expect(groupRows("/work/alpha")).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
@@ -2902,7 +2957,6 @@ describe("Sidebar archive and move", () => {
 
 		expect(groupRows("/work/alpha")).toContain("/work/alpha/one.jsonl");
 		expect(archivedSection()).toBeNull();
-		expect(rowFor("Session /work/alpha/one").querySelector("[data-sidebar-archive]")).toBeNull();
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
 		expect(menuItem("Archive").hasAttribute("disabled")).toBe(true);
 		expect(menuItem("Move to project…").hasAttribute("disabled")).toBe(true);

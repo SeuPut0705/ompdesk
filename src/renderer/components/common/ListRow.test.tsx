@@ -35,8 +35,8 @@ describe("ListRow", () => {
 		expect(quiet).not.toMatch(/absolute inset-y-0[^"]* opacity-100[ "]/);
 		expect(quiet).toContain("group-focus-within/row:pointer-events-auto");
 		expect(quiet).toContain("--row-room:6rem");
-		// The meta steps aside while they show, keeping its box (no shift).
-		expect(quiet).toContain("group-hover/row:invisible");
+		// The meta gives the actions its place while they show, so the title runs on under the fade to them.
+		expect(quiet).toContain("group-hover/row:hidden");
 	});
 
 	it("with no hover (a finger) the actions show at rest and the title yields their room", () => {

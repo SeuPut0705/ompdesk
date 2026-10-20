@@ -14,8 +14,24 @@ import { exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harne
 import { resize } from "./shell-capture";
 
 const TEXT = {
-	en: { archived: "Archived (1)", done: "Done", stopped: "Stopped", newSchedule: "New schedule", create: "Create" },
-	ko: { archived: "보관함 (1)", done: "완료", stopped: "중단됨", newSchedule: "새 예약", create: "만들기" },
+	en: {
+		archived: "Archived (1)",
+		archive: "Archive",
+		restore: "Restore",
+		done: "Done",
+		stopped: "Stopped",
+		newSchedule: "New schedule",
+		create: "Create",
+	},
+	ko: {
+		archived: "보관함 (1)",
+		archive: "보관",
+		restore: "보관 해제",
+		done: "완료",
+		stopped: "중단됨",
+		newSchedule: "새 예약",
+		create: "만들기",
+	},
 } as const;
 
 for (const [language, theme] of variants([
@@ -79,7 +95,8 @@ for (const [language, theme] of variants([
 			const row = page.locator(`.omp-sidebar-session-row[data-session-path="${saved.sessionPath}"]`);
 			await expect(row).toBeVisible();
 			await row.hover();
-			await row.locator("[data-sidebar-archive]").click();
+			await row.locator("[data-sidebar-row-menu]").click();
+			await page.getByRole("menuitem", { name: text.archive, exact: true }).click();
 			await expect(row).toBeHidden();
 			const archived = page.locator("[data-sidebar-archived]");
 			await expect(archived).toContainText(text.archived);
@@ -88,7 +105,8 @@ for (const [language, theme] of variants([
 			await expect(row).toBeVisible();
 			await shot("archived-open");
 			await row.hover();
-			await row.locator("[data-sidebar-restore]").click();
+			await row.locator("[data-sidebar-row-menu]").click();
+			await page.getByRole("menuitem", { name: text.restore, exact: true }).click();
 			await expect(archived).toBeHidden();
 			await expect(row).toBeVisible();
 

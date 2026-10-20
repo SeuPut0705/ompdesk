@@ -232,23 +232,24 @@ function focusComposer(): void {
 	requestAnimationFrame(() => activeComposerInput()?.focus());
 }
 
-/** A session's own edits, in the order a touch sheet lists them first (delete last of them, set apart). */
-const TOUCH_SESSION_FIRST = ["session-rename", "session-pin", "session-move", "session-archive", "session-restore"];
+/** A session's own edits, in the order the row's ⋯ menu lists them first (delete last of them, set apart). */
+const ROW_MENU_FIRST = ["session-rename", "session-pin", "session-move", "session-archive", "session-restore"];
 
 /**
- * A session row's ⋯ sheet on a touch screen: a thumb reads it from the top and the sheet is taller than a phone,
- * so rename, pin, archive and delete come first (the desktop's order put delete below the fold, behind sixteen
- * items) and "Open" goes (tapping the row opens it). The rest follow in the desktop's order, set apart.
+ * A session row's ⋯ menu (a sheet on a touch screen): it is opened to act on the row, and the touch sheet is
+ * taller than a phone, so rename, pin, archive and delete come first (the right-click order put delete below the
+ * fold, behind sixteen items) and "Open" goes (clicking or tapping the row opens it). The rest follow in the
+ * right-click order, set apart. The same list on every input, so the desktop's ⋯ and the phone's sheet agree.
  */
-function touchSessionMenu(items: readonly ContextMenuItem[]): ContextMenuItem[] {
+function rowMenuItems(items: readonly ContextMenuItem[]): ContextMenuItem[] {
 	const byId = new Map(items.map(item => [item.id, item]));
-	const edits = TOUCH_SESSION_FIRST.flatMap(id => {
+	const edits = ROW_MENU_FIRST.flatMap(id => {
 		const item = byId.get(id);
 		return item ? [{ ...item, separatorBefore: false }] : [];
 	});
 	const remove = byId.get("session-delete");
 	const first = remove ? [...edits, { ...remove, separatorBefore: edits.length > 0 }] : edits;
-	const taken = new Set([...TOUCH_SESSION_FIRST, "session-delete", "session-open"]);
+	const taken = new Set([...ROW_MENU_FIRST, "session-delete", "session-open"]);
 	const rest = items.filter(item => !taken.has(item.id));
 	return [
 		...first,
@@ -529,9 +530,14 @@ export function Sidebar() {
 	const [workspaceDialog, setWorkspaceDialog] = useState<"switch" | "new-session" | null>(null);
 	const [renameDraft, setRenameDraft] = useState("");
 	const [groupMenu, setGroupMenu] = useState<{ anchor: ContextMenuAnchor; group: WorkspaceGroup } | null>(null);
-	const [sessionMenu, setSessionMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
-	// Under touch there is no hover to reveal a row's actions, so the open row would always show its rename,
-	// archive and delete buttons and the title would lose their width: one ⋯ opens the row's action sheet instead.
+	// `rowMenu`: opened from the row's ⋯ (its own order, `rowMenuItems`), not by a right click or Shift+F10.
+	const [sessionMenu, setSessionMenu] = useState<{
+		anchor: ContextMenuAnchor;
+		session: SidebarSession;
+		rowMenu?: boolean;
+	} | null>(null);
+	// A session row's actions are one ⋯ on every input, so the title keeps its width: at rest under touch (no hover
+	// to reveal it), on hover or keyboard focus elsewhere.
 	const touchInput = useShellInput() === "touch";
 
 	// "Move to project…": the second menu listing the projects a stored session can go to.
@@ -1496,7 +1502,8 @@ export function Sidebar() {
 		if (item) focusRovingItem(item);
 	};
 	// After render, exactly one roving item is tabbable: the remembered one,
-	// else the current session, else the first row.
+	// else the current session, else the first row. Its row's ⋯ is the next
+	// tab stop (focus-within reveals it), so Tab then Enter opens the menu.
 	useEffect(() => {
 		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
 		if (items.length === 0) return;
@@ -1504,7 +1511,11 @@ export function Sidebar() {
 			items.find(item => item.dataset.rovingItem === focusKey) ??
 			items.find(item => item.dataset.rovingItem === `session:${activeSessionKey}`) ??
 			items[0];
-		for (const item of items) item.tabIndex = item === preferred ? 0 : -1;
+		for (const item of items) {
+			item.tabIndex = item === preferred ? 0 : -1;
+			const menu = item.closest(".omp-list-row")?.querySelector<HTMLElement>("[data-sidebar-row-menu]");
+			if (menu) menu.tabIndex = item === preferred ? 0 : -1;
+		}
 	});
 	// Hand focus back to the list when the focused control goes away: a rename
 	// field ended by keyboard (back to its row), or a deleted row (on to its
@@ -1799,8 +1810,6 @@ export function Sidebar() {
 		const pinned = pinnedSessions.includes(session.path);
 		// Renaming is safe mid-run (stock applies it live); deleting is not.
 		const deletable = indexed && !busy;
-		// Archiving hides a stored session no tab holds (an open tab always keeps its row).
-		const archivable = indexed && tab === undefined && variant !== "archived";
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path)
 			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
@@ -1833,58 +1842,19 @@ export function Sidebar() {
 				<ListRow
 					actionsAtRest={touchInput}
 					actionsOnHover={!touchInput}
-					actionCount={
-						touchInput ? 1 : [true, archivable, variant === "archived", deletable].filter(Boolean).length
-					}
+					actionCount={1}
 					actions={
-						indexed && touchInput ? (
+						indexed ? (
 							<IconButton
 								data-sidebar-row-menu
 								icon={<MoreHorizontal />}
 								label={t("sidebar.sessionMenu")}
-								onClick={event => setSessionMenu({ anchor: anchorBelow(event.currentTarget), session })}
+								onClick={event =>
+									setSessionMenu({ anchor: anchorBelow(event.currentTarget), session, rowMenu: true })
+								}
 								size="sm"
 								tabIndex={-1}
 							/>
-						) : indexed ? (
-							<>
-								<IconButton
-									icon={<Pencil />}
-									label={t("sidebar.rename")}
-									onClick={() => startRename(session)}
-									size="sm"
-									tabIndex={-1}
-								/>
-								{archivable && (
-									<IconButton
-										data-sidebar-archive
-										icon={<Archive />}
-										label={t("sidebar.menu.archive")}
-										onClick={() => setArchived([session], true)}
-										size="sm"
-										tabIndex={-1}
-									/>
-								)}
-								{variant === "archived" && (
-									<IconButton
-										data-sidebar-restore
-										icon={<ArchiveRestore />}
-										label={t("sidebar.menu.restore")}
-										onClick={() => setArchived([session], false)}
-										size="sm"
-										tabIndex={-1}
-									/>
-								)}
-								{deletable && (
-									<IconButton
-										icon={<Trash2 />}
-										label={t("sidebar.delete")}
-										onClick={() => setPendingDelete({ kind: "session", session })}
-										size="sm"
-										tabIndex={-1}
-									/>
-								)}
-							</>
 						) : undefined
 					}
 					buttonProps={{
@@ -2854,7 +2824,7 @@ export function Sidebar() {
 							x={sessionMenu.anchor.x}
 							y={sessionMenu.anchor.y}
 							onClose={() => setSessionMenu(null)}
-							items={touchInput ? touchSessionMenu(items) : items}
+							items={touchInput || sessionMenu.rowMenu ? rowMenuItems(items) : items}
 						/>
 					);
 				})()}
