@@ -395,8 +395,11 @@ export function runRpcUi(): void {
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
 	let autoModeSuppressed = false;
-	/** Texts `modes.auto_mode_prefetch` asked about: their decision is answered at once, as stock's cache does. */
-	const autoModePrefetched = new Set<string>();
+	/**
+	 * Texts `modes.auto_mode_prefetch` asked about, with when their answer is in (the ask plus the judge's delay): a
+	 * decision of such a text joins it and lands then, or at once once it is in, as stock's cache does.
+	 */
+	const autoModePrefetched = new Map<string, number>();
 	/** Plan mode is on for one request (`set_plan_mode {auto}`): a plain rejection of its plan ends it. */
 	let autoPlan = false;
 	/** When the last turn ended: a session that ran one within the idle window is busy for the automatic choice. */
@@ -2249,15 +2252,18 @@ export function runRpcUi(): void {
 				return { mode: "none", reason: "classified_none", latencyMs: 12, model: "fixture/smol" };
 			};
 			const delayMs = Number(process.env.OMP_GUI_TEST_AUTO_MODE_DELAY_MS) || 0;
-			// The bridge answers a prefetched text from stock's judgment cache: at once.
-			if (delayMs <= 0 || autoModePrefetched.has(message)) return decide();
-			setTimeout(() => reply(decide()), delayMs);
+			const answeredAt = autoModePrefetched.get(message);
+			const waitMs = answeredAt === undefined ? delayMs : answeredAt - Date.now();
+			if (waitMs <= 0) return decide();
+			setTimeout(() => reply(decide()), waitMs);
 			return undefined;
 		},
 		// gui-bridge modes/auto-mode.ts `modes.auto_mode_prefetch`: the question asked while the user types (cached
 		// for the decision at Enter). Changes no mode.
 		"modes.auto_mode_prefetch": params => {
-			if (typeof params.message === "string") autoModePrefetched.add(params.message);
+			const delayMs = Number(process.env.OMP_GUI_TEST_AUTO_MODE_DELAY_MS) || 0;
+			if (typeof params.message === "string" && !autoModePrefetched.has(params.message))
+				autoModePrefetched.set(params.message, Date.now() + delayMs);
 			return { prefetched: true };
 		},
 		"modes.auto_mode_undo": params => {
