@@ -190,6 +190,22 @@ export class ServeProxy {
 	#link: LinkProfile | undefined;
 	#target: ServeSite;
 	readonly bytes: WireBytes = { httpDown: 0, httpRequests: 0, wsDown: 0, wsUp: 0, wsFramesDown: 0 };
+	readonly #started = Date.now();
+	readonly #requests: string[] = [];
+
+	/**
+	 * Each request as this proxy saw it, oldest first (newest 200): when it came, whether the host answered and how,
+	 * or whether it is still open. For a page whose navigation never completed (nightly 39510409009: WebKit's
+	 * `/pair` had no response for 234 s), this says whether the request reached the proxy and the host.
+	 */
+	requestLog(): string {
+		return this.#requests.join("\n");
+	}
+
+	#note(line: string): void {
+		this.#requests.push(`+${Date.now() - this.#started}ms ${line}`);
+		if (this.#requests.length > 200) this.#requests.shift();
+	}
 
 	private constructor(
 		server: http.Server,
@@ -295,6 +311,11 @@ export class ServeProxy {
 			return;
 		}
 		this.bytes.httpRequests++;
+		const asked = `${req.method} ${pathOnly}`;
+		this.#note(`asked ${asked}`);
+		res.on("close", () => {
+			if (!res.writableFinished) this.#note(`closed by the page before the answer ended: ${asked}`);
+		});
 		this.#sendUp(req.socket, 0, () => {
 			const upstream = http.request(
 				{
@@ -305,6 +326,7 @@ export class ServeProxy {
 					headers: this.#headers(req),
 				},
 				answer => {
+					this.#note(`host answered ${answer.statusCode} ${asked}`);
 					// The device cookie is `__Host-` and `Secure`; Chromium keeps it on `http://localhost`, WebKit does not.
 					const cookies = answer.headers["set-cookie"];
 					if (this.#plainCookie && cookies) {
@@ -328,7 +350,8 @@ export class ServeProxy {
 					answer.on("end", () => this.#sendDown(0, () => res.end()));
 				},
 			);
-			upstream.on("error", () => {
+			upstream.on("error", error => {
+				this.#note(`host unreachable (${error.message}) ${asked}`);
 				if (!res.headersSent) res.writeHead(502);
 				res.end();
 			});

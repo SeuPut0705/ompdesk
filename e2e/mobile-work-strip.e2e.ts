@@ -80,13 +80,16 @@ for (const engine of ENGINES)
 			const context = await browser.newContext({ ...engine.device });
 			const phone = await context.newPage();
 			const loads = recordPhoneLoads(phone);
-			await phone.goto(`${proxy.url}/`);
-			await phonePaired(phone);
 			try {
+				// A first load that never completes (nightly 39510409009: WebKit's /pair unanswered for 234 s) fails here
+				// with the proxy's view of every request, not at the test's timeout with nothing.
+				await phone.goto(`${proxy.url}/`, { timeout: 60_000 });
+				await phonePaired(phone);
 				await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd, kind: "agent" }), project);
-				await phone.reload();
+				await phone.reload({ timeout: 60_000 });
 			} catch (error) {
 				await loads.attach("phone-loads.txt");
+				await test.info().attach("serve-requests.txt", { body: proxy.requestLog() });
 				throw error;
 			}
 			await expect(phone.locator("[data-composer-input]").first()).toBeEditable({ timeout: 60_000 });
