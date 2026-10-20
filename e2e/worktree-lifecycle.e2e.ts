@@ -90,8 +90,12 @@ async function openTab() {
 	return ready;
 }
 
-function worktreeList(): string {
-	return git(project, "worktree", "list", "--porcelain");
+/** The checkouts git lists, as native paths: git prints `C:/x/wt` on Windows, the app and `path` use `C:\x\wt`. */
+function worktreeList(): string[] {
+	return git(project, "worktree", "list", "--porcelain")
+		.split("\n")
+		.filter(line => line.startsWith("worktree "))
+		.map(line => path.normalize(line.slice("worktree ".length).trim()));
 }
 
 test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
@@ -139,7 +143,7 @@ test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
 		expect(worktree?.branch).toMatch(/^wt\/\d{8}-\d{6}/);
 		expect(tab.cwd).toBe(worktree?.path);
 		expect(path.dirname(worktree?.path ?? "")).toBe(worktreeRoot);
-		expect(worktreeList()).toContain(`worktree ${worktree?.path}`);
+		expect(worktreeList()).toContain(worktree?.path);
 		expect(git(project, "branch", "--list", worktree?.branch ?? "")).toContain(worktree?.branch);
 		// A tab opened from it starts from the source checkout and gets its own worktree.
 		const second = await openTab();
@@ -154,7 +158,7 @@ test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
 		await page.evaluate(id => window.omp.tabs.close(id), tab.tabId);
 		for (const removed of [worktree, second.worktree]) {
 			await expect.poll(() => exists(removed?.path ?? ""), { timeout: 15_000 }).toBe(false);
-			expect(worktreeList()).not.toContain(removed?.path ?? "");
+			expect(worktreeList()).not.toContain(removed?.path);
 			expect(git(project, "branch", "--list", removed?.branch ?? "")).toBe("");
 		}
 		await expect(page.getByRole("dialog")).toHaveCount(0);
