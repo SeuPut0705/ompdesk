@@ -153,6 +153,7 @@ function hostServices(bin: string, workDir: string): LocalHostServices {
 			list: async () => [],
 			searchContent: async () => [],
 			kindFor: async () => "chat",
+			recordedCwd: async () => null,
 			deleteSession: async () => {},
 			moveSession: async (file: string) => file,
 			sessionsDir: path.join(workDir, "sessions"),
