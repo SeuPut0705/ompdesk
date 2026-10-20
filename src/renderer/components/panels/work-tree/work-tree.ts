@@ -10,9 +10,11 @@
  * with a depth, so a long tree renders as one list.
  */
 
+import type { Billing } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
 import type { IpcHostedSession } from "../../../../shared/ipc-types";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { type CostKinds, costKinds, NO_COST } from "../../../lib/spend";
 import type { SessionTab } from "../../../stores/tabs";
 import {
 	buildSubagentFamilyRows,
@@ -58,10 +60,8 @@ export interface WorkTreeFamily {
 	rows: WorkTreeNode[];
 	/** Descendants that finished (and everything under them), for the closed fold. */
 	finished: WorkTreeNode[];
-	/** The whole family's cost (`familySpend`): the session, its subagents at work, every session it opened. */
-	cost: number;
-	/** The models that cost was spent on, so its basis (a charge, or a subscription's estimate) can be named. */
-	models: string[];
+	/** The whole family's cost by kind (`familySpend`): the session, its subagents at work, every session it opened. */
+	cost: CostKinds;
 	running: number;
 	waiting: number;
 }
@@ -78,6 +78,8 @@ export interface WorkTreeInput {
 	/** Sessions paired devices run on this computer. */
 	hosted: readonly IpcHostedSession[];
 	deviceName: (deviceId: string) => string;
+	/** Provider → billing class (`session_spend`), to class a cost no host split; undefined until read. */
+	billing?: Readonly<Record<string, Billing>>;
 }
 
 const NO_AGENTS: ReadonlyMap<string, SubagentSnapshot> = new Map();
@@ -103,7 +105,7 @@ function hasOpenerHere(tab: SessionTab, tabs: readonly SessionTab[]): boolean {
 }
 
 export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
-	const { tabs, subagents, review, usage, closed, hosted, deviceName } = input;
+	const { tabs, subagents, review, usage, closed, hosted, deviceName, billing } = input;
 	const live = tabs.filter(tab => !tab.ghost);
 	const byId = new Map(live.map(tab => [tab.id, tab]));
 	const families: WorkTreeFamily[] = [];
@@ -125,8 +127,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			},
 			rows: [],
 			finished: [],
-			cost: 0,
-			models: [],
+			cost: NO_COST,
 			running: 0,
 			waiting: 0,
 		};
@@ -215,13 +216,12 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 		const opened = [...family.rows, ...family.finished].filter(
 			node => node.kind === "session" || node.kind === "worktree",
 		);
-		const spend = familySpend(
+		family.cost = familySpend(
 			usage[rootTab.sessionPath ?? rootTab.id],
 			(subagents.get(rootTab.id) ?? NO_AGENTS).values(),
 			opened,
+			billing,
 		);
-		family.cost = spend.cost;
-		family.models = spend.models;
 		if (family.rows.length > 0 || family.finished.length > 0) families.push(family);
 	}
 
@@ -250,8 +250,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			},
 			rows: [],
 			finished: [],
-			cost: 0,
-			models: [],
+			cost: NO_COST,
 			running: 0,
 			waiting: 0,
 		});
@@ -260,26 +259,30 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 }
 
 /**
- * What the whole family has cost and on which models: the session's own journal (stock puts a finished subagent's
- * spend there, with its task result), its subagents still at work, and every session it opened (each its own
- * journal), closed ones included, so nothing counts twice and the total never drops when a child ends.
+ * What the whole family has cost, kind by kind (a metered charge, a subscription's estimate, never one sum): the
+ * session's own journal (stock puts a finished subagent's spend there, with its task result), its subagents still at
+ * work, and every session it opened (each its own journal), closed ones included, so nothing counts twice and the
+ * total never drops when a child ends. A session's own split (classed on its host) is used whole; a subagent's cost
+ * is classed by its model's provider.
  */
 export function familySpend(
 	root: ChildUsage | undefined,
 	subagents: Iterable<SubagentSnapshot>,
 	opened: readonly { usage?: ChildUsage }[],
-): { cost: number; models: string[] } {
-	const models = new Set<string>();
-	// `|| 0`: a cost stock has not reported (absent, NaN) adds nothing.
-	let cost = 0;
-	const add = (usage: ChildUsage | undefined) => {
-		const spent = usage?.cost || 0;
-		cost += spent;
-		if (spent > 0 && usage?.model) models.add(usage.model);
-	};
-	add(root);
+	billing: Readonly<Record<string, Billing>> | undefined,
+): CostKinds {
+	let total = costKinds(root, billing);
 	for (const agent of subagents)
-		if (isLiveSubagentStatus(agent.status)) add({ model: agent.progress?.resolvedModel, cost: agent.progress?.cost });
-	for (const child of opened) add(child.usage);
-	return { cost, models: [...models] };
+		if (isLiveSubagentStatus(agent.status))
+			total = addKinds(
+				total,
+				costKinds({ model: agent.progress?.resolvedModel, cost: agent.progress?.cost }, billing),
+			);
+	for (const child of opened) total = addKinds(total, costKinds(child.usage, billing));
+	return total;
+}
+
+/** Two costs added kind by kind. */
+function addKinds(a: CostKinds, b: CostKinds): CostKinds {
+	return { charged: a.charged + b.charged, estimate: a.estimate + b.estimate, unknown: a.unknown + b.unknown };
 }

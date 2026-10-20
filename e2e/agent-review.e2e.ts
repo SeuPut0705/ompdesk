@@ -154,13 +154,14 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	await expect(page.locator("[data-review-child]")).toHaveCount(0);
 	await expect(page.getByText("Needs review")).toHaveCount(0);
 	await expect(page.locator(".omp-work-board-actions")).toHaveCount(0);
-	// Each child's row says what it costs, and its tooltip what it runs on (main's review push, AgentChildUsage).
+	// Each child's row says what it costs, and its tooltip what it runs on (main's review push, AgentChildUsage). Its
+	// journal was spent on a subscription (the child's own host split it): an estimate at API prices, marked "≈".
 	await expect(page.locator("[data-board-opened-cost]")).toHaveCount(3);
-	await expect(page.locator("[data-board-opened-cost]").first()).toHaveText("$0.25");
+	await expect(page.locator("[data-board-opened-cost]").first()).toHaveText("≈ $0.25");
 	for (const title of await page
 		.locator("[data-board-opened]")
 		.evaluateAll(rows => rows.map(row => row.getAttribute("title"))))
-		expect(title).toMatch(/\/local-fixture · \$0\.25/);
+		expect(title).toMatch(/\/local-fixture · Estimate at API prices \$0\.25/);
 
 	// The agent lands the first through the tool: with full control (the default) it merges at once, without a card.
 	const first = made[0] as { tabId: string; path: string; branch: string };

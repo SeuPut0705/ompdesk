@@ -28,7 +28,7 @@ import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
 import { useProjectNames } from "../../../lib/project-origin";
-import { costBasis } from "../../../lib/spend";
+import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
@@ -47,7 +47,6 @@ import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
 import { IconButton, Kbd } from "../../common";
-import { costWords } from "../../common/CostAmount";
 import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
@@ -336,8 +335,7 @@ function AgentRow({
 	const tokens = progress?.tokens ?? 0;
 	const provider = providerOf(progress?.resolvedModel);
 	const billing = useSessionSpend()?.billing;
-	const cost = progress?.cost && progress.cost > 0 ? progress.cost : 0;
-	const costLine = cost ? costWords(t, cost, costBasis(billing, [progress?.resolvedModel])) : "";
+	const costLine = costWords(t, costKinds({ model: progress?.resolvedModel, cost: progress?.cost }, billing));
 	return (
 		<BoardRow
 			exiting={exiting}

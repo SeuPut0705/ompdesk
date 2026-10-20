@@ -99,24 +99,48 @@ describe("buildWorkTree", () => {
 		expect([family?.running, family?.waiting]).toEqual([4, 0]);
 	});
 
-	it("folds what finished, at any depth; the head is the whole family's cost and the models it was spent on", () => {
-		const fixture = input();
+	it("folds what finished, at any depth; the head is the whole family's cost, each kind apart, never one sum", () => {
+		const fixture = input({
+			billing: { anthropic: "subscription", openai: "subscription", openrouter: "metered" },
+			usage: {
+				// The session's own journal as its host split it: replies on the subscription, the judge's calls metered.
+				"/s/boss.jsonl": { cost: 1, split: { charged: 0.0014, estimate: 0.9986 } },
+				// Runs on a subscription model now, but its journal also holds judge calls: its host's split wins.
+				"/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05, split: { charged: 0.01, estimate: 0.04 } },
+				// An older host: no split, no model; the figure stays unclassed.
+				"/s/done.jsonl": { cost: 0.02 },
+			},
+			closed: [
+				{
+					path: "/s/old.jsonl",
+					openedBySession: "/s/boss.jsonl",
+					title: "Old",
+					cwd: "/repo",
+					closedAt: 1,
+					model: "openrouter/qwen/qwen-4",
+					cost: 0.07,
+				},
+			],
+		});
 		const [family] = buildWorkTree(fixture);
 		expect(family?.finished.map(row => row.key)).toEqual(["agent:boss:b", "tab:done", "session:/s/old.jsonl"]);
 		expect(family?.finished[2]?.target).toEqual({ kind: "stored", sessionPath: "/s/old.jsonl", cwd: "/repo" });
-		// 1 (boss, its finished subagent inside) + 0.1 (its subagent at work) + 0.05 (kid) + 0.02 (done) + 0.07 (closed);
-		// far has no stats yet. The kid's own subagent counts once it finishes, in the kid's journal.
-		expect(family?.cost).toBeCloseTo(1.24, 10);
-		// What names the figure's basis (a subscription's estimate, or a charge): every model with a share in it.
-		expect(family?.models).toEqual(expect.arrayContaining(["anthropic/claude-x", "openai/gpt-z"]));
-		// A child row shows its own cost.
-		expect(family?.rows.find(row => row.key === "tab:kid")?.usage.cost).toBe(0.05);
+		// Charged: the boss's judge 0.0014 + the kid's 0.01 + the closed OpenRouter child 0.07. Estimate: the boss's
+		// 0.9986 + its subagent at work on Anthropic 0.1 + the kid's 0.04. The finished subagent is inside the boss's
+		// journal; far has no stats yet.
+		expect(family?.cost.charged).toBeCloseTo(0.0814, 10);
+		expect(family?.cost.estimate).toBeCloseTo(1.1386, 10);
+		expect(family?.cost.unknown).toBeCloseTo(0.02, 10);
 	});
 
 	it("counts nothing for a cost stock has not reported, rather than poisoning the sum", () => {
 		const running = { id: "x", index: 1, agent: "task", status: "running", lastUpdate: 0 } as SubagentSnapshot;
 		const unpriced = { ...running, progress: { cost: Number.NaN } as SubagentSnapshot["progress"] };
-		expect(familySpend({ cost: Number.NaN }, [unpriced], [{ usage: {} }, {}])).toEqual({ cost: 0, models: [] });
+		expect(familySpend({ cost: Number.NaN }, [unpriced], [{ usage: {} }, {}], {})).toEqual({
+			charged: 0,
+			estimate: 0,
+			unknown: 0,
+		});
 	});
 
 	it("lists a paired device's session at work on this computer as a root of its own, and nothing idle", () => {

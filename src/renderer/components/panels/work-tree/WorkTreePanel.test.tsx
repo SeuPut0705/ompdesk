@@ -172,9 +172,10 @@ beforeEach(() => {
 	useAgentReviewStore.setState({
 		byTab: {},
 		usage: {
-			"/s/boss.jsonl": { cost: 1 },
+			// The session's own journal as its host split it: replies on the subscription, the judge's calls metered.
+			"/s/boss.jsonl": { cost: 1, split: { charged: 0.01, estimate: 0.99 } },
 			"/s/kid.jsonl": { model: "openai/gpt-z", cost: 0.05 },
-			"C:\\s\\far.jsonl": { cost: 0.03 },
+			"C:\\s\\far.jsonl": { model: "openai/gpt-z", cost: 0.03 },
 		},
 	});
 	useClosedChildrenStore.setState({
@@ -185,6 +186,7 @@ beforeEach(() => {
 				title: "Old",
 				cwd: "/repo",
 				closedAt: 1,
+				model: "anthropic/claude-x",
 				cost: 0.07,
 			},
 		],
@@ -220,11 +222,15 @@ describe("WorkTreePanel", () => {
 		expect(title("tab:kid")).toContain(translate("cost.charged", { cost: "$0.05" }));
 		expect(cost("tab:kid")).toBe("$0.05");
 		expect(title("tab:far")).toContain("pc1");
-		// The whole family: 1 (the session, its finished subagent's 0.2 inside) + 0.1 at work + 0.05 + 0.03 + 0.07 (closed);
-		// part of it ran on the subscription, so the sum is an estimate.
-		const summary = container.querySelector("[data-work-tree-summary]");
-		expect(summary?.textContent).toBe("≈ $1.25");
-		expect(summary?.getAttribute("data-cost-basis")).toBe("estimate");
+		// The whole family, each kind apart and never one sum. Charged: the session's judge 0.01 + kid 0.05 + far 0.03.
+		// Estimate: the session's 0.99 + 0.1 at work + 0.07 (closed). The finished subagent's 0.2 is in the journal.
+		const summary = (kind: string) =>
+			container.querySelector(`[data-work-tree-summary] [data-cost-kind="${kind}"]`)?.textContent;
+		expect(summary("charged")).toBe("$0.09");
+		expect(summary("estimate")).toBe(" · ≈ $1.16");
+		expect(container.querySelector("[data-work-tree-summary]")?.getAttribute("title")).toBe(
+			`${translate("cost.charged", { cost: "$0.09" })} · ${translate("cost.estimate", { cost: "$1.16" })}`,
+		);
 
 		const fold = container.querySelector("[data-work-tree-finished]");
 		expect(fold?.getAttribute("aria-expanded")).toBe("false");
@@ -248,7 +254,7 @@ describe("WorkTreePanel", () => {
 		});
 		expect(rowKeys()).toEqual(["tab:boss", "tab:kid", "tab:far"]);
 		// Both finished: their spend is in the session's journal (main's next push), no longer counted on their own.
-		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$1.15");
+		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$0.09 · ≈ $1.06");
 	});
 
 	it("lists unused worktrees and removes only a landed one, after a confirm, then reads again", async () => {

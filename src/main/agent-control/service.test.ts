@@ -41,6 +41,8 @@ interface FakeTab extends ControlTab {
 	/** What the fake omp answers `get_state.model` and `get_session_stats.history.cost` with. */
 	model?: { provider: string; id: string };
 	cost?: number;
+	/** What the fake omp answers `get_session_spend.providers` with (its own host's billing); absent = an older omp. */
+	spend?: Record<string, { billing: string; cost: number; today: number }>;
 }
 
 class FakeHost implements AgentControlHost {
@@ -267,6 +269,8 @@ class FakeHost implements AgentControlHost {
 				});
 			case "get_session_stats":
 				return ok({ cost: 0.001, history: { cost: tab.cost ?? 0 } });
+			case "get_session_spend":
+				return tab.spend ? ok({ providers: tab.spend, billing: {} }) : bad("unsupported_omp");
 			case "get_last_assistant_text":
 				return ok({ text: tab.last ?? null });
 			case "get_subagents":
@@ -1243,6 +1247,11 @@ describe("the review queue", () => {
 		Object.assign(host.tabsById.get(ids[0]) as FakeTab, {
 			model: { provider: "anthropic", id: "claude-x" },
 			cost: 0.3,
+			// Its journal holds the judge's metered calls beside the subscription's replies: its host splits them.
+			spend: {
+				anthropic: { billing: "subscription", cost: 0.29, today: 0.29 },
+				openrouter: { billing: "metered", cost: 0.01, today: 0.01 },
+			},
 		});
 		Object.assign(host.tabsById.get(ids[1]) as FakeTab, { cost: 0.12 });
 		Object.assign(host.tabsById.get("main0001") as FakeTab, { cost: 1.5 });
@@ -1260,7 +1269,7 @@ describe("the review queue", () => {
 		expect(review.items.map(item => item.tabId)).toEqual([ids[1]]);
 		// The caller's own journal too (no session file in this fixture: by its tab id), the base of the family's cost.
 		expect(review.usage).toEqual({
-			"/s/kid0.jsonl": { model: "anthropic/claude-x", cost: 0.3 },
+			"/s/kid0.jsonl": { model: "anthropic/claude-x", cost: 0.3, split: { charged: 0.01, estimate: 0.29 } },
 			"/s/kid1.jsonl": { cost: 0.12 },
 			main0001: { cost: 1.5 },
 		});

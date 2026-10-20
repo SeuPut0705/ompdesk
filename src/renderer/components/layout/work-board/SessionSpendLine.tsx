@@ -7,8 +7,25 @@
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import { formatCost } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { splitSpend } from "../../../lib/spend";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
+
+interface ProviderCharge {
+	provider: string;
+	cost: number;
+	today: number;
+}
+
+/** The metered providers' charges, the largest first, and the subscriptions' estimate summed apart: never one sum. */
+function splitSpend(spend: SessionSpend): { charged: ProviderCharge[]; estimated: number } {
+	const charged: ProviderCharge[] = [];
+	let estimated = 0;
+	for (const [provider, row] of Object.entries(spend.providers)) {
+		if (row.billing === "metered" && row.cost > 0) charged.push({ provider, cost: row.cost, today: row.today });
+		else if (row.billing === "subscription" && row.cost > 0) estimated += row.cost;
+	}
+	charged.sort((a, b) => b.cost - a.cost);
+	return { charged, estimated };
+}
 
 /** Small charges are fractions of a cent (a judge call is about $0.00002): four decimals below a dollar. */
 const charge = (usd: number) => formatCost(usd, usd < 1 ? 4 : 2);
@@ -16,8 +33,7 @@ const charge = (usd: number) => formatCost(usd, usd < 1 ? 4 : 2);
 export function SessionSpendLine({ spend }: { spend: SessionSpend }) {
 	const t = useT();
 	const { charged, estimated } = splitSpend(spend);
-	const estimateNote =
-		estimated.cost > 0 ? t("workBoard.spend.estimate", { cost: formatCost(estimated.cost, 2) }) : "";
+	const estimateNote = estimated > 0 ? t("workBoard.spend.estimate", { cost: formatCost(estimated, 2) }) : "";
 	return (
 		<div className="omp-work-board-accounts" data-board-spend>
 			{charged.map(row => {

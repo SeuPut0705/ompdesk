@@ -1,41 +1,38 @@
 /**
- * A dollar figure that says what it is: a subscription's estimate at API prices reads "≈ $0.25" with the words in
- * its tooltip and accessible name; a metered provider's charge reads "$0.25" named as charged. With no basis known
- * (billing not read yet) the figure stands alone. Used by the work board and the Work tree, never the sidebar.
+ * A cost shown as its kinds, each its own figure and never added together: a metered provider's charge ("$0.09"), a
+ * subscription's estimate at API prices ("≈ $0.18") and, while no billing class has been read, the bare figure. The
+ * words ("Charged $0.09 · Estimate at API prices $0.18 (subscription, not charged)") are its tooltip and accessible
+ * name. Used by the work board and the Work tree, never the sidebar.
  */
 import { formatCost } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import type { CostBasis } from "../../lib/spend";
+import { COST_KINDS, type CostKinds, costWords } from "../../lib/spend";
 
-type Translate = (key: string, params?: Record<string, string | number>) => string;
-
-/** A cost in words: "Estimate at API prices $0.25", "Charged $0.25", or the bare figure while the basis is unknown. */
-export function costWords(t: Translate, cost: number, basis: CostBasis | undefined): string {
-	const amount = formatCost(cost, 2);
-	return basis ? t(`cost.${basis}`, { cost: amount }) : amount;
-}
-
-/** The figure as shown: an estimate carries "≈". */
-export function costFigure(cost: number, basis: CostBasis | undefined): string {
-	return `${basis === "estimate" ? "≈ " : ""}${formatCost(cost, 2)}`;
+/** Whether there is any cost to show. */
+export function hasCost(kinds: CostKinds): boolean {
+	return kinds.charged > 0 || kinds.estimate > 0 || kinds.unknown > 0;
 }
 
 export function CostAmount({
-	cost,
-	basis,
+	kinds,
 	className,
 	data,
 }: {
-	cost: number;
-	basis: CostBasis | undefined;
+	kinds: CostKinds;
 	className?: string;
 	data?: Record<`data-${string}`, string | boolean | undefined>;
 }) {
 	const t = useT();
-	const words = basis ? costWords(t, cost, basis) : undefined;
+	const words = costWords(t, kinds);
 	return (
-		<span aria-label={words} className={className} data-cost-basis={basis} title={words} {...data}>
-			{costFigure(cost, basis)}
+		<span aria-label={words} className={className} title={words} {...data}>
+			{COST_KINDS.filter(kind => kinds[kind] > 0).map((kind, index) => (
+				<span data-cost-kind={kind} key={kind}>
+					{index > 0 ? " · " : ""}
+					{kind === "estimate" ? "≈ " : ""}
+					{formatCost(kinds[kind], 2)}
+				</span>
+			))}
 		</span>
 	);
 }

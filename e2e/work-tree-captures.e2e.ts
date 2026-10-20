@@ -105,12 +105,15 @@ if (SHOTS) {
 						.evaluateAll(rows => rows.map(row => row.getAttribute("title") ?? ""));
 					expect(titles.length).toBeGreaterThan(2);
 					for (const title of titles) expect(title).toMatch(/\$\d/);
-					// A subscription's figure is an estimate (≈), a metered provider's a charge; the head mixes both: ≈.
+					// A subscription's figure is an estimate (≈), a metered provider's a charge.
 					await expect(page.locator('[data-work-tree-row="tab:kid1"] [data-work-tree-cost]')).toHaveText(
 						"≈ $0.18",
 					);
 					await expect(page.locator('[data-work-tree-row="tab:kid2"] [data-work-tree-cost]')).toHaveText("$0.09");
-					await expect(page.locator("[data-work-tree-summary]").first()).toHaveText(/^≈ \$\d/);
+					// The head keeps the kinds apart: the metered charge, then the subscription's estimate, never one sum.
+					const head = page.locator("[data-work-tree-summary]").first();
+					await expect(head.locator('[data-cost-kind="charged"]')).toHaveText("$0.09");
+					await expect(head.locator('[data-cost-kind="estimate"]')).toHaveText(" · ≈ $0.49");
 					await page.screenshot({ path: file("panel") });
 					await page.locator("[data-work-tree-finished]").first().click();
 					await page.screenshot({ path: file("panel-finished") });
@@ -178,7 +181,7 @@ async function seed(page: Page): Promise<void> {
 			},
 			usage: {
 				// The session itself: the base of the family's cost on its chip and its Work tree head.
-				[parentPath]: { cost: 0.21 },
+				[parentPath]: { cost: 0.21, split: { charged: 0.0014, estimate: 0.2086 } },
 				"/s/kid1.jsonl": { model: "openai/gpt-5.5-codex", cost: 0.18 },
 				"C:\\s\\kid2.jsonl": { model: "openrouter/qwen/qwen3-coder", cost: 0.09 },
 			},

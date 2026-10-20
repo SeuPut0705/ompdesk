@@ -162,6 +162,8 @@ export interface ClosedChild {
 	/** What it ran on and had cost when main closed it (an opener's family cost keeps counting it). */
 	model?: string;
 	cost?: number;
+	/** That cost split by billing on the child's own host (`get_session_spend`); absent from an older record or host. */
+	split?: CostSplit;
 }
 
 /** The stored list, tolerating anything else a hand-edited prefs file holds. */
@@ -170,7 +172,7 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 	const rows: ClosedChild[] = [];
 	for (const entry of value) {
 		if (!entry || typeof entry !== "object") continue;
-		const { path, openedBySession, title, cwd, closedAt, model, cost } = entry as Record<string, unknown>;
+		const { path, openedBySession, title, cwd, closedAt, model, cost, split } = entry as Record<string, unknown>;
 		if (typeof path !== "string" || !path || typeof openedBySession !== "string" || !openedBySession) continue;
 		rows.push({
 			path,
@@ -180,6 +182,7 @@ export function parseClosedChildren(value: unknown): ClosedChild[] {
 			closedAt: typeof closedAt === "number" ? closedAt : 0,
 			...(typeof model === "string" ? { model } : {}),
 			...(typeof cost === "number" ? { cost } : {}),
+			...(isCostSplit(split) ? { split } : {}),
 		});
 	}
 	return rows.slice(-MAX_CLOSED_CHILDREN);
@@ -228,14 +231,44 @@ export interface AgentReviewItem {
 }
 
 /**
+ * A session's spend as its two kinds, never one sum: what metered providers charged (API key, OpenRouter: judge
+ * calls included) and what a subscription's calls cost at API prices, an estimate nobody is billed. Classed on the
+ * host that runs the session (`get_session_spend`: its journal per provider, its own auth data), so a child's mixed
+ * journal (a model switch, the judge) splits correctly whatever model it runs on now.
+ */
+export interface CostSplit {
+	charged: number;
+	estimate: number;
+}
+
+function isCostSplit(value: unknown): value is CostSplit {
+	if (!value || typeof value !== "object") return false;
+	const { charged, estimate } = value as Record<string, unknown>;
+	return typeof charged === "number" && typeof estimate === "number";
+}
+
+/** `get_session_spend`'s providers folded into the two kinds (a free provider costs nothing). */
+export function costSplitOf(providers: Readonly<Record<string, { billing: string; cost: number }>>): CostSplit {
+	const split: CostSplit = { charged: 0, estimate: 0 };
+	for (const row of Object.values(providers)) {
+		if (!Number.isFinite(row.cost) || row.cost <= 0) continue;
+		if (row.billing === "metered") split.charged += row.cost;
+		else if (row.billing === "subscription") split.estimate += row.cost;
+	}
+	return split;
+}
+
+/**
  * What an opened session runs on and has cost so far (stock `get_state`'s model, `get_session_stats`' whole-journal
- * cost), by its session file (its tab id until it has one): every session the parent opened that has a tab, listed
- * on the board or not.
+ * cost, and that cost split by billing on its own host), by its session file (its tab id until it has one): every
+ * session the parent opened that has a tab, listed on the board or not.
  */
 export interface AgentChildUsage {
 	/** `provider/id`; absent until its omp answered. */
 	model?: string;
 	cost: number;
+	/** Absent while its omp cannot say (an older host): the renderer then classes `cost` by `model`'s provider. */
+	split?: CostSplit;
 }
 
 export interface AgentReviewEvent {

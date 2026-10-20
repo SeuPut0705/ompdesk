@@ -16,7 +16,7 @@ import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { costBasis } from "../../../lib/spend";
+import { costKinds, costWords } from "../../../lib/spend";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
@@ -26,7 +26,7 @@ import type { SubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { EmptyState } from "../../common";
-import { CostAmount, costFigure, costWords } from "../../common/CostAmount";
+import { CostAmount, hasCost } from "../../common/CostAmount";
 import { SettingInfo } from "../../common/SettingInfo";
 import { FamilyStatus } from "../../layout/sidebar/SidebarFamilyRow";
 import { childUsageText } from "../../layout/sidebar/sidebar-family";
@@ -81,7 +81,7 @@ function useRosters(tabIds: readonly string[]): ReadonlyMap<string, ReadonlyMap<
 	return rosters;
 }
 
-function useWorkTree(): WorkTreeFamily[] {
+function useWorkTree(billing: Readonly<Record<string, Billing>> | undefined): WorkTreeFamily[] {
 	const tabs = useTabsStore(state => state.tabs);
 	const review = useAgentReviewStore(state => state.byTab);
 	const usage = useAgentReviewStore(state => state.usage);
@@ -104,8 +104,9 @@ function useWorkTree(): WorkTreeFamily[] {
 				closed,
 				hosted,
 				deviceName: id => hosts?.find(host => host.deviceId === id)?.name ?? id,
+				billing,
 			}),
-		[tabs, rosters, review, usage, closed, hosted, hosts],
+		[tabs, rosters, review, usage, closed, hosted, hosts, billing],
 	);
 }
 
@@ -139,10 +140,8 @@ const TreeRow = memo(function TreeRow({
 					.filter(Boolean)
 					.join(" · ")
 			: "";
-	const cost = node.usage.cost && node.usage.cost > 0 ? node.usage.cost : 0;
-	const basis = cost ? costBasis(billing, [node.usage.model]) : undefined;
-	const costLine = cost ? costWords(t, cost, basis) : "";
-	const tooltip = [title, stateLabel, node.device, usage, costLine, branchNote].filter(Boolean).join("\n");
+	const kinds = costKinds(node.usage, billing);
+	const tooltip = [title, stateLabel, node.device, usage, costWords(t, kinds), branchNote].filter(Boolean).join("\n");
 	return (
 		<li>
 			<button
@@ -171,12 +170,11 @@ const TreeRow = memo(function TreeRow({
 						{node.device}
 					</span>
 				) : null}
-				{cost ? (
+				{hasCost(kinds) ? (
 					<CostAmount
-						basis={basis}
 						className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums"
-						cost={cost}
 						data={{ "data-work-tree-cost": true }}
+						kinds={kinds}
 					/>
 				) : null}
 				{node.state ? <FamilyStatus state={node.state} /> : null}
@@ -188,11 +186,10 @@ const TreeRow = memo(function TreeRow({
 function FamilyTree({ family, billing }: { family: WorkTreeFamily; billing?: Readonly<Record<string, Billing>> }) {
 	const t = useT();
 	const [finishedOpen, setFinishedOpen] = useState(false);
-	const basis = family.cost > 0 ? costBasis(billing, family.models) : undefined;
 	const summary = [
 		family.running > 0 ? t("sidebar.family.running", { count: family.running }) : "",
 		family.waiting > 0 ? t("sidebar.family.waiting", { count: family.waiting }) : "",
-		family.cost > 0 ? t("workTree.familyCost", { cost: costWords(t, family.cost, basis) }) : "",
+		hasCost(family.cost) ? t("workTree.familyCost", { cost: costWords(t, family.cost) }) : "",
 	]
 		.filter(Boolean)
 		.join(" · ");
@@ -205,14 +202,19 @@ function FamilyTree({ family, billing }: { family: WorkTreeFamily; billing?: Rea
 							<TreeRow billing={billing} node={family.root} />
 						</ul>
 					</div>
-					{summary ? (
+					{hasCost(family.cost) ? (
+						<CostAmount
+							className="shrink-0 pr-3 text-sc-xs text-(--sc-text-muted) tabular-nums"
+							data={{ "data-work-tree-summary": true }}
+							kinds={family.cost}
+						/>
+					) : summary ? (
 						<span
 							className="shrink-0 pr-3 text-sc-xs text-(--sc-text-muted) tabular-nums"
 							data-work-tree-summary
-							data-cost-basis={basis}
 							title={summary}
 						>
-							{family.cost > 0 ? costFigure(family.cost, basis) : summary}
+							{summary}
 						</span>
 					) : null}
 				</li>
@@ -256,8 +258,8 @@ function FamilyTree({ family, billing }: { family: WorkTreeFamily; billing?: Rea
 
 export function WorkTreePanel() {
 	const t = useT();
-	const families = useWorkTree();
 	const billing = useSessionSpend()?.billing;
+	const families = useWorkTree(billing);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-3" data-work-tree>
 			<h3 className="flex items-center gap-1 px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">

@@ -23,6 +23,7 @@
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
 import type {
 	AutopilotShipPreset,
 	AutopilotStartOptions,
@@ -38,6 +39,8 @@ import {
 	type AgentReviewResult,
 	agentTaskTitle,
 	type ClosedChild,
+	type CostSplit,
+	costSplitOf,
 	parseAgentMessage,
 	parseWorkerResult,
 	AGENT_CONTROL_TOOLS as T,
@@ -2222,9 +2225,13 @@ export class AgentControl {
 		// The session's own journal too: the family's cost (Work tree head) is it plus all it opened.
 		const caller = tabs.find(tab => tab.tabId === callerTabId);
 		const usageOf = async (tab: ControlTab, session?: SessionState): Promise<AgentChildUsage> => {
-			const [state, cost] = await Promise.all([session ?? this.#state(tab), this.#cost(tab)]);
+			const [state, cost, split] = await Promise.all([
+				session ?? this.#state(tab),
+				this.#cost(tab),
+				this.#split(tab),
+			]);
 			const model = state.state?.model;
-			return { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost };
+			return { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost, ...(split ? { split } : {}) };
 		};
 		const [rows, callerUsage] = await Promise.all([
 			Promise.all(
@@ -2254,6 +2261,19 @@ export class AgentControl {
 		const stats = response.data as { cost?: unknown; history?: { cost?: unknown } } | undefined;
 		const cost = typeof stats?.history?.cost === "number" ? stats.history.cost : stats?.cost;
 		return typeof cost === "number" && Number.isFinite(cost) && cost > 0 ? cost : 0;
+	}
+
+	/**
+	 * The session's spend split into a metered charge and a subscription's estimate, classed by its own host
+	 * (`get_session_spend`: its journal per provider, that computer's auth data); undefined while its omp cannot say.
+	 */
+	async #split(tab: ControlTab): Promise<CostSplit | undefined> {
+		if (tab.hidden || (tab.status !== "ready" && tab.status !== "running")) return undefined;
+		const response = await this.#host
+			.command(tab.tabId, { type: "get_session_spend" }, STATE_TIMEOUT_MS)
+			.catch(() => null);
+		const spend = response?.success ? (response.data as SessionSpend | undefined) : undefined;
+		return spend?.providers ? costSplitOf(spend.providers) : undefined;
 	}
 
 	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
@@ -2318,12 +2338,13 @@ export class AgentControl {
 		this.#closing.add(tab.tabId);
 		try {
 			// Read before the close: the closed record keeps them for the opener's family cost.
-			const [model, cost] = await Promise.all([
+			const [model, cost, split] = await Promise.all([
 				this.#host
 					.command(tab.tabId, { type: "get_state" }, STATE_TIMEOUT_MS)
 					.then(response => (response.success ? (response.data as RpcSessionState | undefined)?.model : null))
 					.catch(() => null),
 				this.#cost(tab),
+				this.#split(tab),
 			]);
 			this.#host.view(caller.tabId, { tabId: tab.tabId, how: "close", auto: true });
 			await this.#whenGone(caller.tabId, tab.tabId, AUTO_CLOSE_WAIT_MS);
@@ -2341,6 +2362,7 @@ export class AgentControl {
 				closedAt: Date.now(),
 				...(model ? { model: `${model.provider}/${model.id}` } : {}),
 				...(cost > 0 ? { cost } : {}),
+				...(split ? { split } : {}),
 			});
 		} finally {
 			this.#closing.delete(tab.tabId);

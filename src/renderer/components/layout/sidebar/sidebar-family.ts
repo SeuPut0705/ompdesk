@@ -4,7 +4,7 @@
  * Pure rules here; the rows and the disclosure are `SidebarSubagents.tsx`, the look `styles/sidebar.css`.
  */
 
-import { agentMessageSender } from "../../../../shared/agent-control";
+import { agentMessageSender, type CostSplit } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
@@ -185,6 +185,8 @@ export interface ChildUsage {
 	/** The model role a subagent's model came from (`@task` → "task"); sessions have none. */
 	role?: string;
 	cost?: number;
+	/** `cost` split by billing on the host that ran it (an opened session's, from main's push). */
+	split?: CostSplit;
 }
 
 /** The tooltip line a child's model and role read as ("anthropic/claude-x · @task"); "" when unknown. */
