@@ -99,6 +99,7 @@ import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from
 import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
+import type { TabRunArg } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import {
@@ -162,7 +163,8 @@ function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): Suba
  * A provider sign-in's own requests are never asks.
  */
 export type TabActivity =
-	| { type: "busy"; tabId: string }
+	/** `since`: when the run started, when it is older than this news (a paired host's turn the link hid). */
+	| { type: "busy"; tabId: string; since?: number }
 	| { type: "idle"; tabId: string; outcome: IpcTabRunOutcome | undefined }
 	| { type: "ask"; tabId: string; requestId: string; text: string }
 	| { type: "askClosed"; tabId: string; requestId: string }
@@ -252,6 +254,11 @@ interface PoolEntry extends RunTracking {
 	status: SidecarStatus;
 	/** Turn state from the sidecar's own events; `running` is the synthesized "running" status. */
 	run: RunState;
+	/**
+	 * A paired host's link dropped while this run was on: the reading is kept, since the host's omp may still run the
+	 * turn, until the host's `hostRun` (or, from an older host, its next status) says how it stands.
+	 */
+	runAcrossLink?: boolean;
 	/**
 	 * Session id, cached from session_info_update and from every `get_state`
 	 * the sidecar answers (an in-tab switch_session emits no session_info_update
@@ -444,10 +451,10 @@ export class SidecarPool {
 	}
 
 	/** The tab's turn started or settled: told after the resume rules have judged it (`onRunningChange`). */
-	#announceRun(entry: PoolEntry): void {
+	#announceRun(entry: PoolEntry, since?: number): void {
 		this.#announce(
 			runBusy(entry.run)
-				? { type: "busy", tabId: entry.tabId }
+				? { type: "busy", tabId: entry.tabId, ...(since !== undefined ? { since } : {}) }
 				: { type: "idle", tabId: entry.tabId, outcome: entry.lastRun },
 		);
 	}
@@ -713,7 +720,14 @@ export class SidecarPool {
 			// Windows ending the session is neither: the machine cut the turn off, and the next launch
 			// continues it from the marker these facts write, so they stay as they were.
 			if (payload.status !== "ready" && !payload.sessionEnded) {
-				entry.run = idleRun();
+				// A paired host's link blip is no exit: its omp likely runs the turn on, so the run stays as it read
+				// (the opener's board keeps its clock) until the host re-sends how it stands (`hostRun`).
+				if (sidecar.statusFromLink) {
+					if (runBusy(entry.run)) entry.runAcrossLink = true;
+				} else {
+					entry.run = idleRun();
+					entry.runAcrossLink = false;
+				}
 				if (!sidecar.statusFromLink) {
 					for (const [id, owner] of this.#requestOwners) {
 						if (owner !== entry) continue;
@@ -726,9 +740,32 @@ export class SidecarPool {
 					if (hostSignIn !== undefined) this.#signInEnded(entry, hostSignIn);
 					delete entry.planProposal;
 				}
+			} else if (entry.runAcrossLink && !sidecar.statusFromLink) {
+				// An older host re-sends no run state: its turn may have ended unseen, so it reads as over.
+				entry.runAcrossLink = false;
+				entry.run = idleRun();
 			}
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
 			this.onRunningChange?.();
+		});
+		// The host's reading of the turn on a re-attach (sent before its status): what the lost link hid of its start or end.
+		sidecar.on("hostRun", (arg: TabRunArg) => {
+			const wasBusy = runBusy(entry.run);
+			const kept = entry.run;
+			entry.runAcrossLink = false;
+			entry.run = {
+				running: arg.running,
+				turn: arg.turn,
+				// Background work still pending from the turn the device saw start.
+				awaitingSettled: arg.running && (!arg.turn || (wasBusy && kept.awaitingSettled)),
+				retrying: false,
+				endedWhileRetrying: false,
+				...(arg.compacting !== undefined ? { compacting: arg.compacting } : {}),
+			};
+			if (runBusy(entry.run) === wasBusy) return;
+			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			this.onRunningChange?.();
+			this.#announceRun(entry, arg.elapsedMs !== undefined ? Date.now() - arg.elapsedMs : undefined);
 		});
 		// A paired host deleted this session while the tab was away (`session_deleted`): it closes here as a delete
 		// from this device would, and stays deleted for every later restore.

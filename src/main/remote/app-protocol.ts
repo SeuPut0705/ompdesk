@@ -112,6 +112,9 @@ export const TAB_EVENT_NAMES = [
 	// The host's own person deleted the tab's session (arg: its path): the device drops the tab and remembers the delete.
 	// An older device does not know the name and drops it; the "exited" status sent after it still ends its tab.
 	"sessionDeleted",
+	// The turn the tab's omp runs (TabRunArg), sent just before the status on every re-attach: a device that lost the
+	// link meanwhile saw none of the turn's start or end. An older device drops the name and keeps its old reading.
+	"run",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
@@ -334,6 +337,18 @@ export const TabStatusArg = z.object({
 	omp: z.string().optional(),
 });
 export type TabStatusArg = z.infer<typeof TabStatusArg>;
+
+/** `run` event argument: the host's reading of the tab's turn (sidecar-run-state.ts), re-sent on every re-attach. */
+export const TabRunArg = z.object({
+	/** A run is on: a turn in front, or background work (subagents, async jobs) that keeps the session unsettled. */
+	running: z.boolean(),
+	/** A turn runs in front (`running` without it is background work). */
+	turn: z.boolean(),
+	compacting: z.boolean().optional(),
+	/** How long ago the run started, by the host's clock (no clock between the two computers is shared). */
+	elapsedMs: z.number().nonnegative().optional(),
+});
+export type TabRunArg = z.infer<typeof TabRunArg>;
 
 /** `session` event argument (SidecarSessionIdentity). */
 export const TabSessionArg = z.object({

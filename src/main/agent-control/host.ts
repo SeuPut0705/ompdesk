@@ -244,7 +244,7 @@ export class AgentControlRuntime {
 		this.#deps = deps;
 		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
-			if (activity.type === "busy") this.#busySince.set(activity.tabId, Date.now());
+			if (activity.type === "busy") this.#busySince.set(activity.tabId, activity.since ?? Date.now());
 			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
 			const parent = this.#openerOf(activity.tabId);
 			if (parent) this.#pushReview(parent);

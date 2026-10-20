@@ -42,6 +42,7 @@ import {
 	type TabEventMessage,
 	TabOpenAsksArg,
 	TabOpenResult,
+	TabRunArg,
 	TabSessionArg,
 	TabSignInArg,
 	TabStatusArg,
@@ -361,6 +362,12 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "openAsks": {
 				const parsed = TabOpenAsksArg.safeParse(message.arg);
 				if (parsed.success) this.emit("openAsks", parsed.data);
+				return;
+			}
+			// The host's reading of the turn on a re-attach: the pool keeps its own through the lost link and takes this.
+			case "run": {
+				const parsed = TabRunArg.safeParse(message.arg);
+				if (parsed.success) this.emit("hostRun", parsed.data);
 				return;
 			}
 			case "signIn": {
