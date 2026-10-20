@@ -723,13 +723,43 @@ test.describe("flow performance", () => {
 				await expect(cards).toHaveCount(4, { timeout: 60_000 });
 				for (const id of ids) await control(id, "fixture:work-stream");
 				const streamOutput = await measure(app, page, `grid-${subject.name}-${run}-stream-output`, 10);
+				// What the working cues cost while four panes stream: the same windows with every cue's animation
+				// running, then only the titles' shimmer (the composer boxes' sweeps paused), then none, then all again
+				// (the sweep and title shimmer are CSS animations; a build with the older border comet keeps its pills
+				// in each edge's shadow root and has no titles-only window).
+				const lights = (playing: "all" | "titles" | "none") =>
+					page.evaluate(playing => {
+						let count = 0;
+						for (const animation of document.getAnimations()) {
+							if (!(animation instanceof CSSAnimation) || !animation.animationName.startsWith("omp-live-"))
+								continue;
+							count++;
+							const title = animation.animationName === "omp-live-shine-text";
+							if (playing === "all" || (playing === "titles" && title)) animation.play();
+							else animation.pause();
+						}
+						for (const edge of document.querySelectorAll(".omp-live-edge"))
+							for (const animation of edge.shadowRoot?.getAnimations() ?? []) {
+								count++;
+								if (playing === "all") animation.play();
+								else animation.pause();
+							}
+						return count;
+					}, playing);
+				const lightWindows: Record<string, object[]> = { all: [], titles: [], none: [] };
+				let lightAnimations = 0;
+				for (const phase of ["all", "titles", "none", "all"] as const) {
+					lightAnimations = Math.max(lightAnimations, await lights(phase));
+					for (const id of ids) await control(id, "fixture:work-stream");
+					lightWindows[phase]?.push(await measure(app, page, `grid-${subject.name}-${run}-lights-${phase}`, 8));
+				}
 				for (const id of ids) for (let step = 0; step < 3; step++) await control(id, "fixture:work-next");
 				await page.waitForTimeout(1000);
 				for (const id of ids) await control(id, "fixture:work-output");
 				for (const id of ids) await control(id, "fixture:work-stream");
 				const streamAgents = await measure(app, page, `grid-${subject.name}-${run}-stream-agents`, 10);
 				for (const id of ids) await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "abort" }), id);
-				return { splitMs, split, streamOutput, streamAgents };
+				return { splitMs, split, streamOutput, lightAnimations, lightWindows, streamAgents };
 			} finally {
 				await exitApp(app);
 			}
