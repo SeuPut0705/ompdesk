@@ -359,6 +359,9 @@ test("removing an attachment, a card or a queued message, or cancelling a paste,
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(stop(page)).toBeVisible();
+		// Queue once the turn runs: the composer takes one submission at a time (Stop also shows for a prompt the
+		// automatic mode choice still holds back).
+		await expect(running(page)).toBeVisible();
 		await input.fill("queued one");
 		await input.press("Enter");
 		const pill = page.locator("[data-queue-pill]");
