@@ -547,8 +547,12 @@ export type UpdateStatus =
 	| { state: "checking" }
 	| { state: "available"; version: string; notes?: string; mode: UpdateInstallMode }
 	| { state: "downloading"; version: string; mode: UpdateInstallMode; percent: number }
-	/** `restartAt` (epoch ms): the app installs by itself then (Install updates automatically); "later" postpones it. */
-	| { state: "downloaded"; version: string; mode: UpdateInstallMode; restartAt?: number }
+	/**
+	 * `restartAt` (epoch ms): the app installs by itself then (Install updates automatically); "later" postpones it.
+	 * `installing`: the install is under way (the installer starts, then the app quits); the notice says so, and
+	 * "Restart & install" does nothing meanwhile.
+	 */
+	| { state: "downloaded"; version: string; mode: UpdateInstallMode; restartAt?: number; installing?: true }
 	| { state: "not-available"; version: string }
 	/** `message` is user-facing copy in the UI language; `detail` keeps the raw
 	 * technical cause (network/updater error text) for a secondary line or tooltip. */

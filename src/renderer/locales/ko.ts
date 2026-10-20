@@ -2312,6 +2312,9 @@ export const ko: Record<string, string> = {
 	"updater.card.autoRestart": "{seconds}초 뒤 업데이트를 설치하고 다시 시작해요",
 	"updater.card.autoRestartHint":
 		"{seconds}초 뒤 업데이트를 설치하고 다시 시작해요. 열어 둔 작업, 작성 중인 글, 화면 배치는 그대로 돌아와요. 지금 바로 다시 시작하거나, 나중에를 눌러 다음 한가한 때까지 미룰 수 있어요.",
+	"updater.card.installing": "{version} 업데이트 설치 중…",
+	"updater.card.installingHint":
+		"OMPdesk가 저절로 닫히고 업데이트를 설치한 뒤 다시 열려요. 열어 둔 작업, 작성 중인 글, 화면 배치는 그대로 돌아와요.",
 	"updates.appAuto": "업데이트 자동 설치",
 	"updates.appAutoDesc": "다운로드한 업데이트를, 작업 중인 탭이 없고 자리를 비웠을 때 60초 알림 후 재시작해 설치해요.",
 	"updates.appAutoManual":

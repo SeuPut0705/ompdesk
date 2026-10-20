@@ -28,16 +28,16 @@ export const UP_TO_DATE_MS = 4000;
 
 type RowTone = "update" | "busy" | "ok" | "error";
 
-interface RowModel {
+/** The X: hides this version ("Later"), or ends a manual check's report. None while the update installs: there is nothing to put off. */
+type RowClose = { onClose: () => void; closeLabel: string } | { onClose?: undefined; closeLabel?: undefined };
+
+type RowModel = RowClose & {
 	label: string;
 	description: string;
 	tone: RowTone;
 	action?: { label: string; icon: ReactElement; onClick: () => void; primary?: boolean };
 	progress?: number;
-	/** Close: hide this version ("Later"), or end a manual check's report. */
-	onClose: () => void;
-	closeLabel: string;
-}
+};
 
 function manualRow(
 	status: UpdateStatus,
@@ -129,7 +129,14 @@ export function SidebarUpdateCard() {
 	let row: RowModel | null = manualCheck ? manualRow(status, t, endManualCheck) : null;
 	// The automatic install's notice (Settings › Updates & about › Install updates automatically): never dismissed away, "Later" postpones.
 	const countingDown = status.state === "downloaded" && status.restartAt !== undefined;
-	if (!row && status.state === "downloaded" && countingDown) {
+	const installing = status.state === "downloaded" && status.installing === true;
+	if (!row && status.state === "downloaded" && status.installing) {
+		row = {
+			label: t("updater.card.installing", { version: status.version }),
+			description: t("updater.card.installingHint"),
+			tone: "busy",
+		};
+	} else if (!row && status.state === "downloaded" && countingDown) {
 		row = {
 			label: t("updater.card.autoRestart", { seconds: secondsLeft ?? 0 }),
 			description: t("updater.card.autoRestartHint", { seconds: secondsLeft ?? 0 }),
@@ -198,8 +205,9 @@ export function SidebarUpdateCard() {
 		};
 	}
 	if (!row) return null;
-	// A version the user put off stays hidden, unless they just asked to check.
-	if (!countingDown && !manualCheck && "version" in status && dismissedVersion === status.version) return null;
+	// A version the user put off stays hidden, unless they just asked to check, or it is counting down or installing.
+	if (!countingDown && !installing && !manualCheck && "version" in status && dismissedVersion === status.version)
+		return null;
 
 	const icon =
 		row.tone === "busy" && row.progress === undefined ? (
@@ -237,7 +245,9 @@ export function SidebarUpdateCard() {
 					variant={row.action.primary ? "primary" : "ghost"}
 				/>
 			)}
-			<IconButton className="shrink-0" icon={<X />} label={row.closeLabel} onClick={row.onClose} size="sm" />
+			{row.onClose && (
+				<IconButton className="shrink-0" icon={<X />} label={row.closeLabel} onClick={row.onClose} size="sm" />
+			)}
 			{row.progress !== undefined && (
 				<span
 					aria-hidden

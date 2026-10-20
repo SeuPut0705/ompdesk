@@ -133,6 +133,18 @@ describe("SidebarUpdateCard", () => {
 		expect(container.textContent).toContain("Update 0.8.6 ready");
 	});
 
+	it("says the update is installing, with nothing to press, even for a version put off with Later", async () => {
+		useUpdaterStore.setState({
+			status: { state: "downloaded", version: "0.8.5", mode: "automatic", installing: true },
+			dismissed: { version: "0.8.5" },
+		});
+		await mount(<SidebarUpdateCard />);
+		expect(card()?.getAttribute("aria-label")).toBe("Installing update 0.8.5…");
+		expect(card()?.getAttribute("title")).toContain("closes by itself");
+		expect(container.querySelectorAll("button")).toHaveLength(0);
+		expect(apply).not.toHaveBeenCalled();
+	});
+
 	describe("a check from the app menu", () => {
 		it("reports checking, then up to date in place, and fades out on its own", async () => {
 			vi.useFakeTimers();

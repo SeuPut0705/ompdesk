@@ -506,7 +506,12 @@ const UpdateStatusSchema: z.ZodType<UpdateStatus> = z.discriminatedUnion("state"
 	z.object({ state: z.literal("checking") }),
 	z.object({ state: z.literal("available"), version: z.string(), notes: z.string().optional(), mode: Mode }),
 	z.object({ state: z.literal("downloading"), version: z.string(), mode: Mode, percent: z.number() }),
-	z.object({ state: z.literal("downloaded"), version: z.string(), mode: Mode }),
+	z.object({
+		state: z.literal("downloaded"),
+		version: z.string(),
+		mode: Mode,
+		installing: z.literal(true).optional(),
+	}),
 	z.object({ state: z.literal("not-available"), version: z.string() }),
 	z.object({
 		state: z.literal("error"),

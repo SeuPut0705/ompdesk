@@ -81,6 +81,12 @@ export class AutoInstallScheduler {
 	#restartAt: number | undefined;
 	/** The wait reason last logged, so a tick that waits for the same reason writes nothing. */
 	#loggedWait: AutoInstallWaitReason | undefined;
+	/**
+	 * `install` ran: the restart is under way and nothing is left to decide. The app can stay busy for seconds
+	 * (Windows starts the installer before it quits), and a tick meanwhile must not announce or install again.
+	 * The update no longer being installable (the install failed) or the pref going off starts over.
+	 */
+	#installed = false;
 
 	constructor(options: AutoInstallOptions) {
 		this.#opts = options;
@@ -100,6 +106,7 @@ export class AutoInstallScheduler {
 			this.#reset(f.enabled ? "update not ready" : "pref off");
 			return;
 		}
+		if (this.#installed) return;
 		this.#waitingSince ??= at;
 		if (this.#restartAt !== undefined) {
 			if (at < this.#restartAt) return;
@@ -113,6 +120,7 @@ export class AutoInstallScheduler {
 				return;
 			}
 			this.#restartAt = undefined;
+			this.#installed = true;
 			this.#opts.log?.("install", { trigger: "auto" });
 			effects.install();
 			return;
@@ -148,8 +156,8 @@ export class AutoInstallScheduler {
 	}
 
 	#reset(reason: string): void {
+		this.#installed = false;
 		this.#waitingSince = undefined;
-		this.#loggedWait = undefined;
 		if (this.#restartAt === undefined) return;
 		this.#restartAt = undefined;
 		this.#opts.log?.("withdrawn", { reason });

@@ -2326,6 +2326,9 @@ export const en: Record<string, string> = {
 	"updater.card.autoRestart": "Installing the update and restarting in {seconds}s",
 	"updater.card.autoRestartHint":
 		"OMPdesk installs the update and restarts in {seconds}s. Open work, drafts and the layout come back. Choose Now to restart right away or Later to wait for the next quiet moment.",
+	"updater.card.installing": "Installing update {version}…",
+	"updater.card.installingHint":
+		"OMPdesk closes by itself, installs the update and opens again. Open work, drafts and the layout come back.",
 	"updates.appAuto": "Install updates automatically",
 	"updates.appAutoDesc":
 		"Restarts into a downloaded update when no tab is working and you are away, after a 60 s notice.",

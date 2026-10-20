@@ -33,7 +33,7 @@ import { execFile, spawn } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { app, BrowserWindow, net, powerMonitor, shell } from "electron";
-import type { UpdateInfo } from "electron-updater";
+import type { AppUpdater, UpdateInfo } from "electron-updater";
 import pkg from "electron-updater";
 // Not node:fs: Electron's fs treats `app.asar` as a directory, so a recursive rm
 // of a staged bundle fails with ENOTEMPTY and leaves the archive behind; every
@@ -47,6 +47,7 @@ import { confirmQuit, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "
 import { markMainStep } from "./hang-watchdog";
 import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
+import { OmpNsisUpdater } from "./nsis-updater";
 import { writeRuntimeLog } from "./runtime-log";
 import {
 	checkRepoAccess,
@@ -90,7 +91,8 @@ import {
 } from "./updater-state";
 import type { IpcRegistry } from "./web/ipc-registry";
 
-const { autoUpdater } = pkg;
+/** Windows: electron-updater's NSIS updater, its installer started off the main thread (nsis-updater.ts). */
+const autoUpdater: AppUpdater = process.platform === "win32" ? new OmpNsisUpdater() : pkg.autoUpdater;
 
 // Five minutes: a release reaches users within one interval. One GitHub API
 // call per check is 12 an hour, under the 60/h anonymous limit.
@@ -196,10 +198,17 @@ function noteInstallHelper(mode: InstallHelperMode, trigger: InstallTrigger, ext
 	logUpdate("swap", { event: "helper", mode, from: pending.from, to: pending.to, trigger, ...extra });
 }
 
-/** An install starts: remember who asked. The scheduler logs its own `auto` decision; the other two are logged here. */
+/**
+ * An install starts: remember who asked, and tell the window. Starting the installer and quitting take seconds
+ * the window cannot speak in (and a second click meanwhile started the install twice), so the status says
+ * "installing" first. The scheduler logs its own `auto` decision; the other two are logged here.
+ */
 function beginInstall(trigger: InstallTrigger): void {
 	installTrigger = trigger;
 	if (trigger !== "auto") logUpdate("scheduler", { event: "install", trigger });
+	if (current.state === "downloaded") {
+		broadcast({ state: "downloaded", version: current.version, mode: current.mode, installing: true });
+	}
 }
 
 /** An approved quit with an update staged installs it, though nothing asked: the quit is the trigger. */
@@ -526,7 +535,7 @@ function broadcast(status: UpdateStatus): void {
 	// A re-broadcast of the staged update (a manual re-check) keeps the countdown the notice shows.
 	const restartAt = autoInstall?.restartAt;
 	current =
-		status.state === "downloaded" && status.restartAt === undefined && restartAt !== undefined
+		status.state === "downloaded" && status.restartAt === undefined && !status.installing && restartAt !== undefined
 			? { ...status, restartAt }
 			: status;
 	for (const win of BrowserWindow.getAllWindows()) {
@@ -706,7 +715,7 @@ export function restartableUpdate(): boolean {
  * the quit; it stops every tab this computer runs.
  */
 export function restartIntoUpdate(trigger: InstallTrigger): void {
-	if (current.state !== "downloaded") return;
+	if (current.state !== "downloaded" || current.installing) return;
 	if (current.mode === "relaunch") {
 		if (!stagedApp || !ownBundle) {
 			broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });
@@ -718,8 +727,8 @@ export function restartIntoUpdate(trigger: InstallTrigger): void {
 		requestQuit();
 		return;
 	}
-	// Once approved, quitAndInstall() emits before-quit-for-update and the
-	// quit guard runs ⌘Q's teardown.
+	// quitAndInstall() starts the installer (off the main thread on Windows), then emits before-quit-for-update
+	// once it runs, and the quit guard runs ⌘Q's teardown.
 	if (current.mode === "automatic") {
 		markMainStep("update", "quit-and-install");
 		beginInstall(trigger);
@@ -757,7 +766,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 		effects: {
 			announce: () => broadcast(current),
 			withdraw: () => {
-				if (current.state === "downloaded")
+				if (current.state === "downloaded" && !current.installing)
 					broadcast({ state: "downloaded", version: current.version, mode: current.mode });
 			},
 			install: () => restartIntoUpdate("auto"),
@@ -879,7 +888,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	ipc.handle(IPC_COMMANDS.UPDATER_CHECK, () => checkForUpdate());
 	ipc.handle(IPC_COMMANDS.UPDATER_DOWNLOAD, () => downloadUpdate());
 	ipc.handle(IPC_COMMANDS.UPDATER_APPLY, async () => {
-		if (current.state !== "downloaded") return;
+		if (current.state !== "downloaded" || current.installing) return;
 		if (current.mode === "manual") {
 			if (!downloadedInstallerPath) {
 				broadcast({ state: "error", message: mainT("updates.installerMissing"), showInBanner: true });

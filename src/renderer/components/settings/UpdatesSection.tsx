@@ -233,6 +233,8 @@ export function UpdatesSection() {
 						</Button>
 					) : status.state === "downloading" ? (
 						<UpdateProgress label={t("updates.gui.downloading")} percent={status.percent} />
+					) : status.state === "downloaded" && status.installing ? (
+						<Spinner label={t("updater.card.installing", { version: status.version })} size="sm" />
 					) : status.state === "downloaded" ? (
 						<Button
 							icon={status.mode === "manual" ? <FolderOpen /> : <RotateCcw />}

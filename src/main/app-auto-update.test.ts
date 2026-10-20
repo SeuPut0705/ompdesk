@@ -102,6 +102,21 @@ describe("AutoInstallScheduler", () => {
 		expect(t.logs.map(line => line.split(" ")[0])).toEqual(["quiet", "countdown", "install"]);
 	});
 
+	it("starts over when the install failed and the update is ready again", () => {
+		const t = setup({ focused: false });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.facts.installable = false;
+		t.advance(1000);
+		t.facts.installable = true;
+		t.advance(1000);
+		expect(t.calls).toEqual([
+			`announce:${AUTO_INSTALL_COUNTDOWN_MS}`,
+			"install",
+			`announce:${AUTO_INSTALL_COUNTDOWN_MS}`,
+		]);
+	});
+
 	it("treats no input for two minutes as idle even while focused", () => {
 		const t = setup({ focused: true, idleMs: AUTO_INSTALL_IDLE_MS - 1 });
 		t.advance(0);
