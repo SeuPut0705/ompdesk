@@ -211,8 +211,9 @@ test("a running row wears the composer's light on its border and keeps the whole
 	}
 	await fixtureCommand(owner, "fixture:confirm");
 	await expect(ownerRow).toHaveAttribute("data-signal", "waiting");
-	// Waiting keeps its warning bar and never wears the light.
-	await expect(ownerRow.locator(".omp-live-edge")).toHaveCount(0);
+	// Waiting keeps its warning bar and never wears the travelling light: its edge holds a still warning tint.
+	await expect(ownerRow.locator(".omp-live-edge")).toHaveAttribute("data-live-edge", "waiting");
+	await expect(ownerRow.locator(".omp-live-pill")).toHaveCount(0);
 	for (const scheme of ["light", "dark"] as const) {
 		await page.emulateMedia({ colorScheme: scheme });
 		await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);

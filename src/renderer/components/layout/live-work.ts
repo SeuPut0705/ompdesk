@@ -2,7 +2,8 @@
  * Whether a session's work is going on, and where: the one rule behind every `LiveEdge` that shows a session (the
  * composer box, a sidebar session row, a split pane's header). `turn`: its own turn runs. `background`: the turn is
  * idle but work it started still runs behind it (its subagents, its background shells, the sessions its agent opened
- * that run now). A question or approval waiting on the person wins over both: that card owns the attention.
+ * that run now). `waiting`: a question or approval waits on the person; it wins over both, and the edge holds a still
+ * warning tint instead of the travelling light.
  */
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
 import type { LiveEdgeState } from "../common/LiveEdge";
@@ -23,7 +24,7 @@ export function liveWorkState(input: {
 	waiting: number;
 	background: number;
 }): LiveEdgeState | null {
-	if (input.waiting > 0) return null;
+	if (input.waiting > 0) return "waiting";
 	if (input.streaming) return "turn";
 	return input.background > 0 ? "background" : null;
 }

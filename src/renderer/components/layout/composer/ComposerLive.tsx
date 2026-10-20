@@ -1,9 +1,8 @@
 /**
- * The composer's "work is going on" cue. Two states, one light: while the main turn runs the box's
- * border carries a slow accent light (`turn`); between turns, while this tab's subagents or
- * background shells still run, the same light is fainter and slower and the Send button gets a ring
- * with a tooltip saying that sending starts a turn right away (`background`). A question or approval
- * waiting on the user wins: the warning card owns the attention and the cue stays off.
+ * The composer's "work is going on" cue. One light: while the main turn runs the box's border carries a soft accent
+ * comet (`turn`); between turns, while this tab's subagents or background shells still run, the same comet is dimmer
+ * and the Send button gets a still ring with a tooltip saying that sending starts a turn right away (`background`).
+ * A question or approval waiting on the user wins: the comet fades out and the edge holds a still warning tint.
  *
  * Everything is read from the stores the work board and the dock read (the run state, the subagent
  * store, the shared jobs poll); nothing here polls. The light itself is the shared `common/LiveEdge`
@@ -47,8 +46,7 @@ export function useComposerLive(): { state: LiveEdgeState | null; background: nu
 
 /** The light along the composer box's border; mount it first inside `.omp-composer-box`. */
 export function ComposerLiveEdge(): ReactElement | null {
-	const { state } = useComposerLive();
-	return state ? <LiveEdge state={state} /> : null;
+	return <LiveEdge state={useComposerLive().state} />;
 }
 
 /** Wraps the composer's action button: its tooltip and ring tell that background work runs and a send starts at once. */

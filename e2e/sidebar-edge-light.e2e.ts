@@ -6,12 +6,12 @@ import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
 import { exitApp, launchApp } from "./harness";
 
-// What the running rows' light costs (the shared `LiveEdge`, components.css `.omp-live-edge`): two transform
-// animations on two tiny layers per running row. 16 s of sampling, so it runs with the other performance measurements
-// (OMP_GUI_PERFORMANCE=1), not in every run. Three tabs run in the background while a fourth sits idle in front,
-// so the composer's own cue is not part of the number. Measured (1100x800, fake omp, mean of 4 s, three runs each):
-// the old left-edge bar's light 0.3-0.6 % GPU / 0.3-0.4 % renderer; a masked + clipped conic ring per row
-// 1.3-1.7 % GPU (so rows take the two-bar form, components.css); the two bars 0.3 % GPU / 0.2-0.3 % renderer.
+// What the running rows' light costs (the shared `LiveEdge`, components.css `.omp-live-edge`): a comet of tiny
+// pills per running row, one compositor transform animation each. 16 s of sampling, so it runs with the other
+// performance measurements (OMP_GUI_PERFORMANCE=1), not in every run. Three tabs run in the background while a
+// fourth sits idle in front, so the composer's own cue is not part of the number. Measured (1100x800, fake omp, mean
+// of 4 s, three runs each): the old left-edge bar's light 0.3-0.6 % GPU / 0.3-0.4 % renderer; a masked + clipped
+// conic ring per row 1.3-1.7 % GPU; the two straight bars that teleported 0.3 % GPU / 0.2-0.3 % renderer.
 
 /** Mean CPU % of the renderer and GPU processes over a window, from Electron's own process metrics. */
 async function cpu(app: ElectronApplication, ms: number): Promise<{ renderer: number; gpu: number }> {
@@ -81,8 +81,9 @@ test("three running rows add no visible renderer or GPU cost", async () => {
 		const software = (await page.locator("html").getAttribute("data-gpu")) === "software";
 
 		// The same three runs with the light stopped (the still 1 px edge stays): what the animation alone costs.
-		await page.addStyleTag({
-			content: ".omp-live-edge::before, .omp-live-edge::after { animation: none !important; }",
+		await page.evaluate(() => {
+			for (const edge of document.querySelectorAll(".omp-live-edge"))
+				for (const animation of edge.shadowRoot?.getAnimations() ?? []) animation.pause();
 		});
 		await page.waitForTimeout(1000);
 		const still = await cpu(app, 4000);

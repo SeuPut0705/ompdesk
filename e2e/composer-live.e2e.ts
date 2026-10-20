@@ -1,9 +1,10 @@
 /**
- * The composer's working cue on the fake omp: a slow accent light on the box's border while the main turn
- * runs (Stop), a fainter one plus a ring and tooltip on Send while the turn is idle but a subagent still
- * runs, and nothing while a question waits on the user. Also pins what the cue costs: its animation is one
- * transform on one layer, the renderer and GPU stay quiet beside it, and a reduced-motion user gets a still
- * indicator. Captures in light/dark × en/ko go to `OMP_GUI_COMPOSER_LIVE_CAPTURES` (default: the test output).
+ * The composer's working cue on the fake omp: a soft accent comet travelling the box's border while the main turn
+ * runs (Stop), a dimmer one plus a still ring and tooltip on Send while the turn is idle but a subagent still runs,
+ * and a still warning tint while a question waits on the user. Also pins what the cue costs: its only motion is
+ * the comet's pills' transforms (no repaint per frame), the renderer and GPU stay quiet beside it, and a
+ * reduced-motion user gets a still indicator. Captures in light/dark × en/ko go to `OMP_GUI_COMPOSER_LIVE_CAPTURES`
+ * (default: the test output). The light's own geometry and clock: `e2e/live-light.e2e.ts`.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -127,19 +128,17 @@ for (const language of variants(["en", "ko"] as const))
 				await page.waitForTimeout(700);
 				await capture("turn");
 
-				// The animation is one transform on one layer: nothing repaints per frame.
+				// The only motion is the comet's pills (in the edge's shadow root), one transform each: nothing repaints per
+				// frame, and nothing else in the box loops.
 				const software = await softwareMarked(app, page);
-				const animated = await page.evaluate(() =>
-					document
-						.getAnimations()
-						.filter(
-							animation =>
-								animation instanceof CSSAnimation &&
-								animation.animationName.startsWith("omp-live-edge-turn") &&
-								(animation.effect as KeyframeEffect).target?.closest(".omp-composer-box") != null,
-						)
+				const animated = await live.evaluate(edge =>
+					[
+						...(edge.shadowRoot?.getAnimations() ?? []),
+						...(edge.parentElement?.getAnimations({ subtree: true }) ?? []),
+					]
+						.filter(animation => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY)
 						.map(animation => ({
-							pseudo: (animation.effect as KeyframeEffect).pseudoElement,
+							pill: (animation.effect as KeyframeEffect).target?.getRootNode() === edge.shadowRoot,
 							props: [
 								...new Set(
 									(animation.effect as KeyframeEffect).getKeyframes().flatMap(frame => Object.keys(frame)),
@@ -150,14 +149,20 @@ for (const language of variants(["en", "ko"] as const))
 				);
 				// Software compositing (the app's own `html[data-gpu]` signal) draws the cue still: no animation at all.
 				if (software) expect(animated).toEqual([]);
-				else expect(animated).toEqual([{ pseudo: "::before", props: ["transform"], state: "running" }]);
+				else {
+					expect(animated.length).toBeGreaterThan(4);
+					for (const animation of animated)
+						expect(animation).toEqual({ pill: true, props: ["transform"], state: "running" });
+				}
 
 				// Typing quiets the light to a faint trace (never gone: a turn still runs); clearing the draft brings it back.
+				const gain = async () =>
+					Number(await live.evaluate(element => getComputedStyle(element).getPropertyValue("--live-gain").trim()));
 				const input = page.locator("textarea").first();
 				await input.fill("draft");
-				await expect(live).toHaveCSS("opacity", "0.25");
+				await expect.poll(gain).toBe(0.3);
 				await input.fill("");
-				await expect(live).not.toHaveCSS("opacity", "0.25");
+				await expect.poll(gain).toBe(1);
 
 				// The turn ends; no agents run: the cue leaves.
 				await fixture(page, "fixture:finish");
@@ -169,8 +174,7 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(live).toHaveAttribute("data-live-edge", "background");
 				await expect(ring).toHaveCount(1);
 				await expect(page.getByRole("button", { name: text.send })).toBeVisible();
-				const turnOpacity = 0.9;
-				expect(Number(await live.evaluate(element => getComputedStyle(element).opacity))).toBeLessThan(turnOpacity);
+				expect(Number(await gain())).toBeLessThan(1);
 				// Re-hover until the tooltip shows: under load the Send button can re-render under a single hover.
 				await expect(async () => {
 					await page.mouse.move(5, 5);
@@ -233,10 +237,11 @@ for (const language of variants(["en", "ko"] as const))
 					}
 				}
 
-				// A question waiting on the user wins over a running turn.
+				// A question waiting on the user wins over a running turn: the comet goes, a still warning tint stays.
 				await send(page, "fixture ask");
 				await expect(page.getByRole("dialog").or(page.locator(".omp-prompt-card")).first()).toBeVisible();
-				await expect(live).toHaveCount(0);
+				await expect(live).toHaveAttribute("data-live-edge", "waiting");
+				await expect(live.locator(".omp-live-pill")).toHaveCount(0);
 				await capture("asking", 260);
 				expect(errors).toEqual([]);
 			} finally {
@@ -253,35 +258,21 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 		await send(page, "fixture stream");
 		const live = page.locator(".omp-composer-box > .omp-live-edge");
 		await expect(live).toHaveAttribute("data-live-edge", "turn");
-		const running = await page.evaluate(
-			() =>
-				document
-					.getAnimations()
-					.filter(
-						animation =>
-							animation.playState === "running" &&
-							animation instanceof CSSAnimation &&
-							animation.animationName.startsWith("omp-live-edge"),
-					).length,
-		);
-		expect(running).toBe(0);
-		await expect(live).toHaveCSS("opacity", "0.4");
+		// The light's own loops (a turn's spinner keeps turning whatever the light does).
+		const loops = () =>
+			live.evaluate(edge => (edge.shadowRoot?.getAnimations() ?? []).map(animation => animation.playState));
+		expect(await loops()).toEqual([]);
+		await expect(live).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
 		await page.emulateMedia({ reducedMotion: "no-preference" });
-		// Software compositing keeps the still form whatever the media says; hardware gets the turning light.
+		// Software compositing keeps the still form whatever the media says; hardware gets the travelling comet.
 		const software = await softwareMarked(app, page);
-		await expect
-			.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationName))
-			.toBe(software ? "none" : "omp-live-edge-turn");
+		await expect.poll(async () => (await loops()).length > 0).toBe(!software);
 		await page.evaluate(() => {
 			Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
 			document.dispatchEvent(new Event("visibilitychange"));
 		});
 		await expect(live).toHaveAttribute("data-paused", "");
-		// Software compositing keeps `animation: none`, whose shorthand also resets the play state: nothing runs to pause.
-		if (!software)
-			await expect
-				.poll(() => live.evaluate(element => getComputedStyle(element, "::before").animationPlayState))
-				.toBe("paused");
+		await expect.poll(async () => (await loops()).every(state => state === "paused")).toBe(true);
 	} finally {
 		await exitApp(app);
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -301,19 +292,12 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 		await send(page, "fixture stream");
 		const live = page.locator(".omp-composer-box > .omp-live-edge");
 		await expect(live).toHaveAttribute("data-live-edge", "turn");
-		const running = await page.evaluate(
-			() =>
-				document
-					.getAnimations()
-					.filter(
-						animation =>
-							animation.playState === "running" &&
-							animation instanceof CSSAnimation &&
-							animation.animationName.startsWith("omp-live-edge"),
-					).length,
+		const running = await live.evaluate(
+			edge => (edge.shadowRoot?.getAnimations() ?? []).filter(animation => animation.playState === "running").length,
 		);
 		expect(running).toBe(0);
-		await expect(live).toHaveCSS("opacity", "0.4");
+		await expect(live.locator(".omp-live-pill")).toHaveCount(0);
+		await expect(live).not.toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
 		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent
 		// (10 s of sampling; with the other performance measurements, OMP_GUI_PERFORMANCE=1).
 		if (process.env.OMP_GUI_PERFORMANCE === "1") {

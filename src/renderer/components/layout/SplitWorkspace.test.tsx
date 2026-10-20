@@ -73,10 +73,9 @@ describe("split pane header light", () => {
 		expect(container.querySelector("header")?.getAttribute("data-pane-running")).toBe("true");
 	});
 
-	it("leaves idle, waiting and failed headers unlit; starting keeps the spinner", async () => {
+	it("leaves idle and failed headers unlit, tints a waiting one still; starting keeps the spinner", async () => {
 		for (const state of [
 			{ ...tab, status: "ready" as const },
-			{ ...tab, status: "running" as const, awaitingInput: "input" as const },
 			{ ...tab, status: "error" as const },
 		]) {
 			await mount(state);
@@ -84,6 +83,12 @@ describe("split pane header light", () => {
 			await act(async () => root?.unmount());
 			container.remove();
 		}
+		await mount({ ...tab, status: "running", awaitingInput: "input" });
+		expect(light()?.getAttribute("data-live-edge")).toBe("waiting");
+		expect(container.querySelector("header .omp-live-pill")).toBeNull();
+		expect(container.querySelector("header")?.getAttribute("data-pane-running")).not.toBe("true");
+		await act(async () => root?.unmount());
+		container.remove();
 		await mount({ ...tab, status: "starting" });
 		expect(light()).toBeNull();
 		expect(container.querySelector("[role='status']")).not.toBeNull();

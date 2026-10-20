@@ -1,11 +1,12 @@
 /**
  * The running state's light on the sidebar's session rows and the phone drawer's, on the dev harness (the renderer
  * in a browser over a fixture transport, `vite.harness.config.ts`; desktop and an iPhone 15, light and dark):
- * a running row wears the shared light (`LiveEdge`, two bars running its top and bottom edge, transform only), an
- * idle one and one that waits for an answer wear none, a session whose turn ended while its subagents still work
- * wears the fainter, slower form, the family chip's count and a running child's dot hold still, and under reduced
- * motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>` also writes the captures
- * (three frames of the light on the desktop, the phone drawer, the waiting and background states).
+ * a running row wears the shared light (`LiveEdge`, a comet of transform-only pills running its rounded edge), an
+ * idle one wears none and one that waits for an answer a still warning tint, a session whose turn ended while its
+ * subagents still work wears the dimmer form at the same pace, the family chip's count and a running child's dot hold
+ * still, and under reduced motion nothing moves and the edge stays as a still 1 px line. `OMP_GUI_ROW_GLOW=<dir>`
+ * also writes the captures (three frames of the light on the desktop, the phone drawer, the waiting and background
+ * states). The light's geometry and clock are measured by `e2e/live-light.e2e.ts`.
  */
 import * as fs from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
@@ -111,17 +112,20 @@ async function seedRunning(page: Page): Promise<void> {
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(2);
 }
 
-/** Every running CSS animation of the page: where it is, which properties it moves. */
+/** Every running loop of the page, the lights' pills (in each edge's shadow root) included; a fade is no loop. */
 async function runningAnimations(page: Page) {
 	return page.evaluate(() =>
-		document
-			.getAnimations()
-			.filter(animation => animation instanceof CSSAnimation && animation.playState === "running")
+		[
+			...document.getAnimations(),
+			...[...document.querySelectorAll(".omp-live-edge")].flatMap(edge => edge.shadowRoot?.getAnimations() ?? []),
+		]
+			.filter(animation => !(animation instanceof CSSTransition) && animation.playState === "running")
 			.map(animation => {
 				const effect = animation.effect as KeyframeEffect;
+				const inLight = effect.target?.getRootNode() instanceof ShadowRoot;
 				return {
-					name: (animation as CSSAnimation).animationName,
-					inLight: effect.target?.closest(".omp-live-edge") != null,
+					pill: inLight,
+					inLight,
 					props: [
 						...new Set(
 							effect
@@ -137,7 +141,7 @@ async function runningAnimations(page: Page) {
 
 for (const surface of SURFACES)
 	for (const theme of ["light", "dark"] as const)
-		test(`running rows wear the light, idle and waiting ones do not (${surface.name} ${theme})`, async () => {
+		test(`running rows wear the light, idle ones do not, a waiting one holds a still tint (${surface.name} ${theme})`, async () => {
 			test.setTimeout(120_000);
 			const page = await openHarness(surface, theme, false);
 			await seedRunning(page);
@@ -151,18 +155,20 @@ for (const surface of SURFACES)
 			// A running child is a plain row with a still dot: no box, no light; only the 2 top-level rows are lit.
 			const children = sidebar.locator("[data-sidebar-subagent]");
 			for (const child of await children.all()) await expect(child.locator(".omp-live-edge")).toHaveCount(0);
-			// Light = 2 bars per lit card, a transform each and nothing else; no other animation runs in the sidebar.
+			// Light = a comet of pills per lit card, a transform each and nothing else; no other loop runs in the sidebar.
 			const animations = await runningAnimations(page);
-			const lights = animations.filter(animation => animation.name === "omp-live-edge-run");
-			expect(lights.length).toBe(4);
+			const lights = animations.filter(animation => animation.pill);
+			expect(lights.length).toBeGreaterThan(8);
 			for (const light of lights) expect(light.props).toEqual(["transform"]);
-			const insideSidebar = await sidebar.evaluate(element =>
-				element
-					.getAnimations({ subtree: true })
-					.filter(animation => animation instanceof CSSAnimation && animation.playState === "running")
-					.map(animation => (animation as CSSAnimation).animationName),
+			// Nothing in the sidebar loops outside the lights (their pills live in the edges' shadow roots).
+			const insideSidebar = await sidebar.evaluate(
+				element =>
+					element
+						.getAnimations({ subtree: true })
+						.filter(animation => !(animation instanceof CSSTransition) && animation.playState === "running")
+						.length,
 			);
-			expect(insideSidebar.every(name => name === "omp-live-edge-run")).toBe(true);
+			expect(insideSidebar).toBe(0);
 			// The family chip shows its count once: the filled running pill with the kind glyph, no plain count beside it.
 			await expect(sidebar.locator("[data-family-running]")).toHaveCount(1);
 			await expect(sidebar.locator("[data-family-agents], [data-family-sessions]")).toHaveCount(0);
@@ -190,13 +196,15 @@ for (const surface of SURFACES)
 				});
 			});
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"]')).toHaveCount(1);
-			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"] .omp-live-edge')).toHaveCount(0);
+			const waitingEdge = sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"] .omp-live-edge');
+			await expect(waitingEdge).toHaveAttribute("data-live-edge", "waiting");
+			await expect(waitingEdge.locator(".omp-live-pill")).toHaveCount(0);
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"] .omp-live-edge')).toHaveCount(1);
 			if (CAPTURES)
 				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-waiting.png`) });
 
-			// The open session's turn ends while its two subagents still work: its row keeps the light, fainter and
-			// half as fast, and says nothing is running in front.
+			// The open session's turn ends while its two subagents still work: its row keeps the light, dimmer at the
+			// same pace, and says nothing is running in front.
 			await page.evaluate(() => {
 				const tabs = window.__stores?.tabs as unknown as {
 					getState(): { tabs: { id: string; status: string }[] };
@@ -210,12 +218,12 @@ for (const surface of SURFACES)
 			await expect(background).toHaveCount(1);
 			await expect(sidebar.locator('.omp-sidebar-session-row[data-signal="running"]')).toHaveCount(0);
 			const durations = await background.evaluate(element =>
-				element
-					.getAnimations({ subtree: true })
+				(element.shadowRoot?.getAnimations() ?? [])
+					.filter(animation => !(animation instanceof CSSTransition))
 					.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
 			);
-			expect(durations).toEqual([16_000, 16_000]);
-			// Fainter by colour, never by an opacity group (the card stays one cheap layer).
+			expect(new Set(durations)).toEqual(new Set([8000]));
+			// Dimmer by each pill's own opacity and the edge's colour, never by an opacity group on the card.
 			await expect(background).toHaveCSS("opacity", "1");
 			if (CAPTURES)
 				await sidebar.screenshot({ path: path.join(CAPTURES, `final2-${surface.name}-${theme}-background.png`) });
@@ -273,10 +281,6 @@ for (const surface of SURFACES)
 		await expect(edge).toHaveCount(1);
 		expect((await runningAnimations(page)).filter(animation => animation.inLight)).toEqual([]);
 		await expect(edge).toHaveCSS("border-top-width", "1px");
-		const bars = await edge.evaluate(element => [
-			getComputedStyle(element, "::before").display,
-			getComputedStyle(element, "::after").display,
-		]);
-		expect(bars).toEqual(["none", "none"]);
+		await expect(edge.locator(".omp-live-pill")).toHaveCount(0);
 		await page.context().close();
 	});

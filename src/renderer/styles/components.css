@@ -3925,119 +3925,72 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	transform: translate(-50%, -50%);
 }
 
-/* "Work is going on" light (common/LiveEdge.tsx): ONE look, two forms of the same accent light, both slow,
-   one-directional and compositor-only (a transform; nothing repaints per frame, nothing breathes by opacity).
-   - The composer box (one per window): a 1px ring, a static mask over the box's own edge, with a conic gradient
-     turning inside it. `turn` = the main turn runs; `background` = idle with agents or shells still working:
-     fainter and slower.
-   - A contained card (`data-live-edge-inside`: a sidebar session row, a split pane's header; there can be a dozen
-     in view): measured on this build, a masked + clipped ring costs the GPU ~0.5 % of a core PER ROW (three rows
-     1.4 %, against 0.3 % for the old left-edge bar), almost all of it the mask and the clip. So a card keeps its
-     border as a plain still 1px accent line and two short gradient bars on its top and bottom edge run in
-     opposite directions (the light circles it clockwise): no mask, no clip, two tiny layers, 0.3 % for three
-     rows. Inside its box so a row's `content-visibility: auto` never cuts it. */
+/* "Work is going on" light (common/LiveEdge.tsx, geometry and clock in common/live-light.ts): ONE soft accent comet
+   travelling the box's rounded edge clockwise at an even pace, the same on the composer box and on every card that
+   shows a working session (a sidebar row, a split pane's header).
+   - The comet is a chain of tiny pills; each pill runs the same closed path around the real rounded rectangle on
+     one compositor-only transform animation, a few px behind the one before, fading with its rank. No mask, no clip,
+     no opacity group, nothing repaints per frame (an SVG dash offset following the corners repainted every frame:
+     about 3x the GPU and renderer cost of this chain on a bench page).
+   - States crossfade, never retime: `turn` is the full comet; `background` the same comet at the same pace, dimmer,
+     its faint tail trimmed; `waiting` lets the comet fade out and holds a still warning tint on the edge; a light
+     whose work ended fades out (`data-leaving`) before it goes, and a new one fades in. Every pill's opacity is its
+     own (`--live-strength` × the state's gain), so a state change is one short opacity transition per pill.
+   - Edge: the composer's sits on the box's own border (`inset: -1px`); a card's inside its box (`inside`), so a
+     row's `content-visibility: auto` never cuts it, with a still 1 px accent line all round under the comet. */
 .omp-live-edge {
+	--live-fade: var(--sc-duration-slow);
+	--live-gain: 1;
+	--live-trim: 0;
 	position: absolute;
 	inset: -1px;
-	padding: 1px;
-	overflow: hidden;
+	box-sizing: border-box;
+	border: 1px solid transparent;
 	border-radius: inherit;
 	pointer-events: none;
-	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-	-webkit-mask-composite: xor;
-	mask-composite: exclude;
-	opacity: 0.9;
-	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
-}
-
-.omp-live-edge::before {
-	content: "";
-	position: absolute;
-	top: 50%;
-	left: 50%;
-	width: 170%;
-	aspect-ratio: 1;
-	translate: -50% -50%;
-	background: conic-gradient(
-		from 0deg,
-		transparent 0 58%,
-		color-mix(in srgb, var(--sc-accent) 70%, transparent) 84%,
-		var(--sc-accent) 94%,
-		transparent 100%
-	);
-	animation: omp-live-edge-turn 8s linear infinite; /* motion-ok: working signal */
-	will-change: transform;
-}
-
-.omp-live-edge[data-live-edge="background"] {
-	opacity: 0.45;
-}
-
-.omp-live-edge[data-live-edge="background"]::before {
-	animation-duration: 16s; /* motion-ok: working signal */
+	transition: border-color var(--live-fade) var(--sc-ease-standard);
 }
 
 .omp-live-edge[data-live-edge-inside] {
 	inset: 0;
-	padding: 0;
-	overflow: visible;
-	-webkit-mask: none;
-	mask: none;
-	opacity: 1;
-	border: 1px solid color-mix(in srgb, var(--sc-accent) 30%, transparent);
-	box-sizing: border-box;
+	border-color: color-mix(in srgb, var(--sc-accent) 30%, transparent);
 }
 
-.omp-live-edge[data-live-edge-inside]::before,
-.omp-live-edge[data-live-edge-inside]::after {
-	content: "";
-	position: absolute;
-	top: auto;
-	left: 0;
-	width: 30%;
-	height: 1px;
-	aspect-ratio: auto;
-	translate: none;
-	background: linear-gradient(90deg, transparent, var(--sc-accent), transparent);
-	animation: omp-live-edge-run 8s linear infinite; /* motion-ok: working signal */
-	will-change: transform;
+.omp-live-edge[data-live-edge="background"] {
+	--live-gain: 0.5;
+	--live-trim: 0.35;
 }
 
-.omp-live-edge[data-live-edge-inside]::before {
-	top: -1px;
-}
-
-.omp-live-edge[data-live-edge-inside]::after {
-	bottom: -1px;
-	animation-direction: reverse;
-}
-
-/* A card's `background` (its turn idle, its subagents, shells or opened sessions still working): the same light,
-   fainter and slower, drawn by colour and duration only so the card keeps no opacity group. */
 .omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
 	border-color: color-mix(in srgb, var(--sc-accent) 15%, transparent);
 }
 
-.omp-live-edge[data-live-edge-inside][data-live-edge="background"]::before,
-.omp-live-edge[data-live-edge-inside][data-live-edge="background"]::after {
-	background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--sc-accent) 55%, transparent), transparent);
-	animation-duration: 16s; /* motion-ok: working signal */
+.omp-live-edge[data-live-edge="waiting"],
+.omp-live-edge[data-live-edge-inside][data-live-edge="waiting"] {
+	--live-gain: 0;
+	border-color: color-mix(in srgb, var(--sc-warning) 45%, transparent);
 }
 
-/* Hidden window: the light rests (nothing animates for nobody). */
-.omp-live-edge[data-paused]::before,
-.omp-live-edge[data-paused]::after {
-	animation-play-state: paused;
+.omp-live-edge[data-leaving],
+.omp-live-edge[data-live-edge-inside][data-leaving] {
+	--live-gain: 0;
+	border-color: transparent;
 }
 
-/* A draft quiets the cue: while the field holds one (focused or not), the border light fades to a faint trace and
-   the Send ring steps out of the way (its tooltip still says that a send starts at once). */
+@starting-style {
+	.omp-live-edge,
+	.omp-live-edge[data-live-edge-inside] {
+		border-color: transparent;
+	}
+}
+
+/* A draft quiets the cue: while the field holds one (focused or not), the comet dims to a faint trace and the Send
+   ring steps out of the way (its tooltip still says that a send starts at once). */
 .omp-composer-box[data-composer-draft] .omp-live-edge {
-	opacity: 0.25;
+	--live-gain: 0.3;
 }
 
 .omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after {
-	animation: none;
 	opacity: 0;
 }
 
@@ -4045,20 +3998,7 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	display: none;
 }
 
-@keyframes omp-live-edge-turn {
-	to {
-		transform: rotate(360deg);
-	}
-}
-
-/* The card form's bars: each runs the width of its edge (30 % wide, so 233 % of itself is the other 70 %). */
-@keyframes omp-live-edge-run {
-	to {
-		transform: translateX(233.34%);
-	}
-}
-
-/* Background work: a ring on Send whose breathing is opacity only. */
+/* Background work: a still ring on Send (nothing on screen breathes). */
 .omp-composer-send-live {
 	position: relative;
 	display: inline-flex;
@@ -4072,98 +4012,43 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	border: 1px solid var(--sc-accent-border);
 	border-radius: inherit;
 	pointer-events: none;
-	animation: omp-composer-live-breathe 3.2s ease-in-out infinite; /* motion-ok: working signal */
+	transition: opacity var(--sc-duration-med) var(--sc-ease-standard);
 }
 
-@keyframes omp-composer-live-breathe {
-	50% {
-		opacity: 0.35;
-	}
-}
-
-/* Reduced motion: a still hint, not the permanent ring (which read like a focus ring and was louder than the
-   animation): the composer box gets one 1 px line on its top edge at ~40 %, ~25 % between turns, and a still
-   send ring; a contained card gets its whole 1 px edge at 45 %. */
+/* Reduced motion and software compositing (`html[data-gpu="software"]`: every animated frame costs real CPU there):
+   LiveEdge lays no comet and starts no animation, and the edge holds a still hint instead. The composer box gets one
+   1 px line on its top edge at ~40 %, ~25 % between turns; a contained card its whole 1 px edge at 45 % (a line on
+   its top alone would read as a separator there), 25 % for background work. Waiting keeps its warning tint. */
 @media (prefers-reduced-motion: reduce) {
-	.omp-live-edge {
-		opacity: 0.4;
+	.omp-live-edge[data-live-edge="turn"] {
+		border-top-color: color-mix(in srgb, var(--sc-accent) 40%, transparent);
 	}
 
 	.omp-live-edge[data-live-edge="background"] {
-		opacity: 0.25;
+		border-top-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
 	}
 
-	.omp-live-edge::before {
-		inset: 0 0 auto 0;
-		width: auto;
-		height: 1px;
-		aspect-ratio: auto;
-		translate: none;
-		background: var(--sc-accent);
-		animation: none;
-		will-change: auto;
-	}
-
-	/* A contained card (a row, a pane header) keeps its still 1 px accent edge all round, a little stronger, and
-	   loses the running bars: a line on its top alone would read as a separator there. */
-	.omp-live-edge[data-live-edge-inside] {
+	.omp-live-edge[data-live-edge-inside][data-live-edge="turn"] {
 		border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
 	}
 
 	.omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
-		opacity: 1;
 		border-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
-	}
-
-	.omp-live-edge[data-live-edge-inside]::before,
-	.omp-live-edge[data-live-edge-inside]::after {
-		display: none;
-	}
-
-	.omp-composer-send-live[data-composer-live]::after {
-		animation: none;
 	}
 }
 
-/* Software compositing (`html[data-gpu="software"]`, set from main's `?gpu=software`: no GPU, a crash fallback,
-   a CI runner): every animated frame costs real CPU there, so the cue takes the reduced-motion form. */
-html[data-gpu="software"] .omp-live-edge {
-	opacity: 0.4;
+html[data-gpu="software"] .omp-live-edge[data-live-edge="turn"] {
+	border-top-color: color-mix(in srgb, var(--sc-accent) 40%, transparent);
 }
 
 html[data-gpu="software"] .omp-live-edge[data-live-edge="background"] {
-	opacity: 0.25;
+	border-top-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
 }
 
-html[data-gpu="software"] .omp-live-edge::before {
-	inset: 0 0 auto 0;
-	width: auto;
-	height: 1px;
-	aspect-ratio: auto;
-	translate: none;
-	background: var(--sc-accent);
-	animation: none;
-	will-change: auto;
-}
-
-html[data-gpu="software"] .omp-live-edge[data-live-edge-inside] {
-	opacity: 1;
+html[data-gpu="software"] .omp-live-edge[data-live-edge-inside][data-live-edge="turn"] {
 	border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
 }
 
 html[data-gpu="software"] .omp-live-edge[data-live-edge-inside][data-live-edge="background"] {
 	border-color: color-mix(in srgb, var(--sc-accent) 25%, transparent);
-}
-
-html[data-gpu="software"] .omp-live-edge[data-live-edge-inside]::before,
-html[data-gpu="software"] .omp-live-edge[data-live-edge-inside]::after {
-	display: none;
-}
-
-html[data-gpu="software"] .omp-composer-box[data-composer-draft] .omp-live-edge {
-	opacity: 0.25;
-}
-
-html[data-gpu="software"] .omp-composer-send-live[data-composer-live]::after {
-	animation: none;
 }

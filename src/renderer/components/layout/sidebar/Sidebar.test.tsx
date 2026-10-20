@@ -816,9 +816,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		const failed = rowFor("Session /work/alpha/one");
 		expect(failed.getAttribute("data-signal")).toBe("error");
 		expect(failed.textContent).toContain("Failed");
-		// Idle rows carry no edge state; a waiting or failed one keeps its bar and never wears the light.
+		// Idle and failed rows carry no edge state; a waiting one keeps its bar and its edge holds a still warning
+		// tint, never the travelling light.
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
-		for (const row of [waiting, failed, rowFor("Session /work/alpha/two")])
+		expect(waiting.querySelector(".omp-live-edge")?.getAttribute("data-live-edge")).toBe("waiting");
+		expect(waiting.querySelector(".omp-live-pill")).toBeNull();
+		for (const row of [failed, rowFor("Session /work/alpha/two")])
 			expect(row.querySelector(".omp-live-edge")).toBeNull();
 	});
 
@@ -1781,7 +1784,8 @@ describe("Sidebar subagents", () => {
 
 		setSubagentStatus("aborted");
 		await flush();
-		expect(edge()).toBeNull();
+		// The work ended: the light fades out (and then goes).
+		expect(edge()?.hasAttribute("data-leaving")).toBe(true);
 	});
 
 	it("draws a running tab whose turn ended but whose background work keeps it unsettled in the background form", async () => {
@@ -2463,7 +2467,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 
 		// Nothing runs behind the idle boss any more (one waits, the other finished): no light.
 		await setTab("tc", { status: "ready" });
-		expect(edge()).toBeNull();
+		expect(boss().querySelector(".omp-live-edge:not([data-leaving])")).toBeNull();
 	});
 
 	it("lights the boss's row in a window viewing it while a session its agent opened runs as another window's tab", async () => {
@@ -2528,13 +2532,13 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		// It waits on the person: no light on the idle boss, the child keeps its warning look.
 		act(() => useAgentReviewStore.setState({ byTab: { t1: [{ ...item, waiting: true }] } }));
 		await flush();
-		expect(boss().querySelector(".omp-live-edge")).toBeNull();
+		expect(boss().querySelector(".omp-live-edge:not([data-leaving])")).toBeNull();
 		expect(child()?.getAttribute("data-child-status")).toBe("waiting");
 
 		// It finished and its work landed (main drops the item): nothing runs behind the boss.
 		act(() => useAgentReviewStore.setState({ byTab: { t1: [] } }));
 		await flush();
-		expect(boss().querySelector(".omp-live-edge")).toBeNull();
+		expect(boss().querySelector(".omp-live-edge:not([data-leaving])")).toBeNull();
 	});
 });
 

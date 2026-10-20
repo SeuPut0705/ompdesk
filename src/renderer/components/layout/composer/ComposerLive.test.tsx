@@ -90,9 +90,9 @@ describe("liveWorkState", () => {
 		expect(liveWorkState({ ...idle, background: 2 })).toBe("background");
 		// A running turn outranks background work.
 		expect(liveWorkState({ streaming: true, waiting: 0, background: 2 })).toBe("turn");
-		// A question or approval waiting on the user wins over both.
-		expect(liveWorkState({ streaming: true, waiting: 1, background: 0 })).toBeNull();
-		expect(liveWorkState({ streaming: false, waiting: 1, background: 3 })).toBeNull();
+		// A question or approval waiting on the user wins over both: the edge holds a still warning tint.
+		expect(liveWorkState({ streaming: true, waiting: 1, background: 0 })).toBe("waiting");
+		expect(liveWorkState({ streaming: false, waiting: 1, background: 3 })).toBe("waiting");
 	});
 
 	it("counts working subagents, not waiting or finished ones", () => {
@@ -154,7 +154,7 @@ describe("ComposerLiveEdge", () => {
 		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
 	});
 
-	it("stays off while a question waits on the user, whatever else runs", async () => {
+	it("lets the comet go while a question waits on the user, whatever else runs, and holds a still tint", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running")]);
 		await mount();
 		expect(edge()?.getAttribute("data-live-edge")).toBe("background");
@@ -167,9 +167,10 @@ describe("ComposerLiveEdge", () => {
 				options: ["Approve", "Deny"],
 			}),
 		);
-		expect(edge()).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("waiting");
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		expect(edge()).toBeNull();
+		expect(edge()?.getAttribute("data-live-edge")).toBe("waiting");
+		expect(sendWrap()?.hasAttribute("data-composer-live")).toBe(false);
 	});
 
 	it("rests while the window is hidden", async () => {
@@ -190,21 +191,20 @@ describe("the cue beside a draft", () => {
 		return start < 0 ? "" : css.slice(start, css.indexOf("}", start));
 	};
 
-	it("quiets to a faint trace beside a draft, focused or not, and steps the Send ring out of the way", () => {
+	it("dims to a faint trace beside a draft, focused or not, and steps the Send ring out of the way", () => {
 		// AGENTS.md: the cue steps back while the field holds a draft (DR-19: not gone: a faint trace stays).
-		expect(rule(".omp-composer-box[data-composer-draft] .omp-live-edge")).toMatch(/opacity: 0\.2\d?;/);
+		const gain = rule(".omp-composer-box[data-composer-draft] .omp-live-edge").match(/--live-gain: ([\d.]+);/)?.[1];
+		expect(Number(gain)).toBeGreaterThan(0);
+		expect(Number(gain)).toBeLessThan(0.5);
 		const ring = rule(".omp-composer-box[data-composer-draft] .omp-composer-send-live[data-composer-live]::after");
 		expect(ring).toContain("opacity: 0");
-		expect(ring).toContain("animation: none");
 	});
 
-	it("takes a still 1px line at ~40% under reduced motion, not a permanent ring", () => {
-		const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-edge {"));
+	it("takes a still 1px line on the box's top edge at ~40% under reduced motion, not a permanent ring", () => {
+		const block = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-live-edge"));
 		const reduced = block.slice(0, block.indexOf("\n}\n"));
-		expect(reduced).toMatch(/\.omp-live-edge \{\s*opacity: 0\.4;/);
-		expect(reduced).toContain("height: 1px");
-		expect(reduced).toContain("inset: 0 0 auto 0");
-		expect(reduced).toContain("animation: none");
-		expect(reduced).not.toContain("70%");
+		expect(reduced).toMatch(
+			/\.omp-live-edge\[data-live-edge="turn"\] \{\s*border-top-color: color-mix\(in srgb, var\(--sc-accent\) 40%/,
+		);
 	});
 });

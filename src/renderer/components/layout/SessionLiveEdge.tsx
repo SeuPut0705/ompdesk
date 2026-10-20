@@ -1,8 +1,8 @@
 /**
  * The light a card showing a session wears (a sidebar session row, a split pane's header): the composer's rule
- * (`live-work.ts`) read for that session. `turn` while its own turn runs; `background`, fainter and slower, while
- * the turn is idle and work it started still runs; nothing while it waits on the person (that card keeps its warning
- * look) or nothing works.
+ * (`live-work.ts`) read for that session. `turn` while its own turn runs; `background`, dimmer, while the turn is idle
+ * and work it started still runs; `waiting`, a still warning tint, while it waits on the person; nothing while nothing
+ * works (a light that was on fades out first).
  *
  * Background work is what already reaches every window, for a hidden tab and a paired host's tab alike, with no poll:
  * main's `settling` (stock's own word that its subagents, async shells or a queued wake keep the session unsettled
@@ -43,7 +43,7 @@ function Edge({
 		waiting: waiting ? 1 : 0,
 		background: background + (running && settling ? 1 : 0),
 	});
-	return state ? <LiveEdge inside state={state} /> : null;
+	return <LiveEdge inside state={state} />;
 }
 
 /** Inside the tab's runtime: its working subagents join the opened sessions. */

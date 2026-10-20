@@ -1,11 +1,11 @@
 /**
  * A session that works wears the composer's light on its card (`LiveEdge`): three tabs run on the fake omp while a
- * fourth sits idle in front. Their sidebar rows carry the light (two transform-only bars over a still 1 px accent
- * edge), the idle row does not; split with one of them, the running pane's header carries it and the idle pane's
- * does not; when that pane's turn ends while a subagent it started still works, its row and header keep the light in
- * its fainter, slower form until the subagents finish, and so does a tab stock reports unsettled after its turn
- * (`prompt_result.sessionSettled: false`, main's `settling`); under reduced motion nothing moves and the still edge
- * stays. `OMP_GUI_ROW_GLOW=<dir>` writes captures.
+ * fourth sits idle in front. Their sidebar rows carry the light (a comet of transform-only pills over a still 1 px
+ * accent edge), the idle row does not; split with one of them, the running pane's header carries it and the idle
+ * pane's does not; when that pane's turn ends while a subagent it started still works, its row and header keep the
+ * light in its dimmer form, at the same pace, until the subagents finish, and so does a tab stock reports unsettled
+ * after its turn (`prompt_result.sessionSettled: false`, main's `settling`); under reduced motion nothing moves and the
+ * still edge stays. `OMP_GUI_ROW_GLOW=<dir>` writes captures.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -16,34 +16,37 @@ import { captureTo, exitApp, launchApp } from "./harness";
 
 const CAPTURES = process.env.OMP_GUI_ROW_GLOW;
 
-/** Running CSS animations inside `scope`, with the properties each one moves. */
+/** The running loops inside `scope`, the lights' pills (in each edge's shadow root) included, with what each moves. */
 async function lightAnimations(page: Page, scope: string) {
 	return page.evaluate(selector => {
 		const root = document.querySelector(selector);
 		if (!root) return [];
-		return root
-			.getAnimations({ subtree: true })
+		return [
+			...root.getAnimations({ subtree: true }),
+			...[...root.querySelectorAll(".omp-live-edge")].flatMap(edge => edge.shadowRoot?.getAnimations() ?? []),
+		]
 			.filter(
 				animation =>
-					animation instanceof CSSAnimation &&
 					animation.playState === "running" &&
-					animation.animationName.startsWith("omp-live-edge"),
+					animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY,
 			)
-			.map(animation => ({
-				name: (animation as CSSAnimation).animationName,
-				owner:
-					(animation.effect as KeyframeEffect).target
-						?.closest("[data-session-path]")
-						?.getAttribute("data-session-path") ?? "",
-				props: [
-					...new Set(
-						(animation.effect as KeyframeEffect)
-							.getKeyframes()
-							.flatMap(frame => Object.keys(frame))
-							.filter(key => !["offset", "easing", "composite", "computedOffset"].includes(key)),
-					),
-				],
-			}));
+			.map(animation => {
+				const target = (animation.effect as KeyframeEffect).target;
+				const host =
+					target?.getRootNode() instanceof ShadowRoot ? (target.getRootNode() as ShadowRoot).host : target;
+				return {
+					pill: host?.classList.contains("omp-live-edge") === true,
+					owner: host?.closest("[data-session-path]")?.getAttribute("data-session-path") ?? "",
+					props: [
+						...new Set(
+							(animation.effect as KeyframeEffect)
+								.getKeyframes()
+								.flatMap(frame => Object.keys(frame))
+								.filter(key => !["offset", "easing", "composite", "computedOffset"].includes(key)),
+						),
+					],
+				};
+			});
 	}, scope);
 }
 
@@ -108,15 +111,16 @@ test("three running tabs light their rows and a split's running pane header, the
 		// No row wears the old left-edge bar or its light any more.
 		await expect(page.locator(".omp-sidebar-session-row[data-signal='running']")).toHaveCount(3);
 
-		// The light is two bars per card moving a transform and nothing else; software compositing keeps it still.
+		// The light is a comet of pills per card, each moving a transform and nothing else; software compositing keeps
+		// it still.
 		const moving = await lightAnimations(page, ".omp-session-sidebar");
 		if (software) expect(moving).toEqual([]);
 		else {
-			// Two bars per lit card, nothing else in the sidebar.
-			const owners = moving.map(animation => animation.owner);
-			expect(owners.toSorted()).toEqual(running.flatMap(id => [`tab:${id}`, `tab:${id}`]).toSorted());
-			for (const animation of moving)
-				expect(animation).toMatchObject({ name: "omp-live-edge-run", props: ["transform"] });
+			// Only the lit cards move, nothing else in the sidebar.
+			expect([...new Set(moving.map(animation => animation.owner))].toSorted()).toEqual(
+				running.map(id => `tab:${id}`).toSorted(),
+			);
+			for (const animation of moving) expect(animation).toMatchObject({ pill: true, props: ["transform"] });
 		}
 		for (const theme of ["light", "dark"] as const) {
 			await page.emulateMedia({ colorScheme: theme });
@@ -134,7 +138,7 @@ test("three running tabs light their rows and a split's running pane header, the
 		await captureTo(CAPTURES, page, "electron-split-header");
 
 		// The pane's turn ends while the subagents it started still work: its row and its header keep the light,
-		// fainter and half as fast; the subagents finishing put it out.
+		// dimmer at the same pace (a switch never retimes it); the subagents finishing put it out.
 		const behind = running[0] ?? "";
 		const fixture = (command: string) =>
 			page.evaluate(
@@ -149,14 +153,18 @@ test("three running tabs light their rows and a split's running pane header, the
 		await expect(header(behind).locator('.omp-live-edge[data-live-edge="background"]')).toHaveCount(1);
 		if (!software)
 			expect(
-				await row(page, behind)
-					.locator(".omp-live-edge")
-					.evaluate(element =>
-						element
-							.getAnimations({ subtree: true })
-							.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
-					),
-			).toEqual([16_000, 16_000]);
+				new Set(
+					await row(page, behind)
+						.locator(".omp-live-edge")
+						.evaluate(element =>
+							(element.shadowRoot?.getAnimations() ?? [])
+								.filter(
+									animation => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY,
+								)
+								.map(animation => (animation.effect as KeyframeEffect).getComputedTiming().duration),
+						),
+				),
+			).toEqual(new Set([8000]));
 		for (const theme of ["light", "dark"] as const) {
 			await page.emulateMedia({ colorScheme: theme });
 			await expect(page.locator("html")).toHaveAttribute("data-theme", theme);

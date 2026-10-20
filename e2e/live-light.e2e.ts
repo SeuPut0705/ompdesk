@@ -96,11 +96,10 @@ async function runSubagents(page: Page): Promise<void> {
 }
 
 /** One frame of the light's position: the fraction of its loop each of its looping animations has run (a fade's
- * opacity transition is no part of the travel). */
-async function phases(box: Locator): Promise<number[]> {
-	return box.evaluate(element =>
-		element
-			.getAnimations({ subtree: true })
+ * opacity transition is no part of the travel). The pills run inside the edge's shadow root. */
+async function phases(edge: Locator): Promise<number[]> {
+	return edge.evaluate(element =>
+		(element.shadowRoot?.getAnimations() ?? [])
 			.filter(animation => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY)
 			.map(animation => {
 				const duration = Number(animation.effect?.getComputedTiming().duration ?? 1);
@@ -167,7 +166,7 @@ async function walk(
 			.raw()
 			.toBuffer();
 	const period = await light.evaluate(element => {
-		const animations = element.getAnimations({ subtree: true });
+		const animations = element.shadowRoot?.getAnimations() ?? [];
 		for (const animation of animations) {
 			animation.pause();
 			(animation as Animation & { _start?: number })._start = Number(animation.currentTime ?? 0);
@@ -185,7 +184,7 @@ async function walk(
 	for (let step = 0; step < STEPS; step++) {
 		await light.evaluate(
 			(element, at) => {
-				for (const animation of element.getAnimations({ subtree: true })) {
+				for (const animation of element.shadowRoot?.getAnimations() ?? []) {
 					animation.currentTime = ((animation as Animation & { _start?: number })._start ?? 0) + at;
 				}
 			},
@@ -223,7 +222,7 @@ async function walk(
 		await strip.png().toFile(path.join(CAPTURES, `${name}-strip.png`));
 	}
 	await light.evaluate(element => {
-		for (const animation of element.getAnimations({ subtree: true })) animation.play();
+		for (const animation of element.shadowRoot?.getAnimations() ?? []) animation.play();
 	});
 	return { heads, perimeter: 2 * (clip.width + clip.height) };
 }
@@ -322,8 +321,8 @@ test("frame by frame, the light follows one clock through a state change, a wait
 		const started = performance.now();
 		const frame = () => {
 			const edge = document.querySelector(".omp-session-sidebar .omp-live-edge");
-			const loop = edge
-				?.getAnimations({ subtree: true })
+			const loop = edge?.shadowRoot
+				?.getAnimations()
 				.find(animation => animation.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY);
 			const duration = Number(loop?.effect?.getComputedTiming().duration ?? 1);
 			const time = Number(loop?.currentTime ?? 0);
