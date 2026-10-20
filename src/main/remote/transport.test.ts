@@ -507,7 +507,10 @@ describe("authenticated link", () => {
 });
 
 describe("a link that dropped or went silent", () => {
-	/** The host goes away; the client waits out 1, 2, 4 and 8 s of backoff with the next retry 16 s off. */
+	/**
+	 * The host goes away and something at its address drops every connection (a path that answers, an app that is
+	 * not it): the client waits out 1, 2, 4 and 8 s of backoff with the next retry 16 s off.
+	 */
 	async function backedOff(log?: RemoteClientOptions["log"]) {
 		const rig = await startHost();
 		const { a, hosts, paired } = await connectedClient(rig);
@@ -516,15 +519,23 @@ describe("a link that dropped or went silent", () => {
 		remote.connect();
 		await untilState(remote, "online");
 		await rig.host.stop();
+		const dropping = await listenFake(socket => socket.destroy(), rig.port);
 		await untilState(remote, "offline");
 		for (const delay of [1_000, 2_000, 4_000, 8_000]) await failedRetry(remote, delay);
-		return { rig, remote, paired };
+		return { rig, remote, paired, dropping };
+	}
+
+	async function hostBack(rig: HostRig, dropping: Server): Promise<void> {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		dropping.close(() => resolve());
+		await promise;
+		await startHost(rig.b, rig.port);
 	}
 
 	it("a wake connects at once, without waiting out the grown backoff", async () => {
 		const { lines, log } = linkLog();
-		const { rig, remote, paired } = await backedOff(log);
-		await startHost(rig.b, rig.port);
+		const { rig, remote, paired, dropping } = await backedOff(log);
+		await hostBack(rig, dropping.server);
 
 		remote.wake("resume");
 		await untilState(remote, "online");
@@ -603,10 +614,11 @@ describe("a link that dropped or went silent", () => {
 		await untilState(remote, "online");
 		await vi.advanceTimersByTimeAsync(2_000);
 		await rig.host.stop();
+		const dropping = await listenFake(socket => socket.destroy(), rig.port);
 		await untilState(remote, "offline");
 		await failedRetry(remote, 1_000);
 		await failedRetry(remote, 2_000);
-		await startHost(rig.b, rig.port);
+		await hostBack(rig, dropping.server);
 		await vi.advanceTimersByTimeAsync(4_000);
 		await untilState(remote, "online");
 
@@ -620,6 +632,47 @@ describe("a link that dropped or went silent", () => {
 			{ message: "attempt", details: { deviceId: id, n: 3, delayMs: 4_000, trigger: "backoff" } },
 			{ message: "up", details: { deviceId: id, outageMs: 7_000, attempts: 3 } },
 		]);
+	});
+
+	/** The host's app quit (an update, a restart): its computer answers every dial with a refusal. */
+	async function refused() {
+		const rig = await startHost();
+		const { a, hosts, paired } = await connectedClient(rig);
+		fakeLinkClock();
+		const remote = client(a, paired, hosts);
+		remote.connect();
+		await untilState(remote, "online");
+		await rig.host.stop();
+		await untilState(remote, "offline");
+		return { rig, remote };
+	}
+
+	it("dials a host that refuses every second while it restarts, and finds it within 2 s of its return", async () => {
+		const { rig, remote } = await refused();
+		for (let second = 0; second < 25; second++) await failedRetry(remote, 1_000);
+		await startHost(rig.b, rig.port);
+
+		await vi.advanceTimersByTimeAsync(2_000);
+
+		expect(remote.state).not.toBe("offline");
+		await untilState(remote, "online");
+	});
+
+	it("backs off again once the refusals have lasted a minute", async () => {
+		const { remote } = await refused();
+		let dials = 0;
+		remote.on("state", state => {
+			if (state === "connecting") dials++;
+		});
+		for (let second = 0; second < 60; second++) await failedRetry(remote, 1_000);
+		expect(dials).toBe(60);
+
+		await failedRetry(remote, 1_000);
+		expect(dials).toBe(61);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(dials).toBe(61);
+		await failedRetry(remote, 1_000);
+		expect(dials).toBe(62);
 	});
 
 	it("the host logs each connection's open and close with who, why and how long", async () => {
