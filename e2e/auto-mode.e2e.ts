@@ -109,11 +109,13 @@ test("a big change uses plan for that request only: a chip shows it, the Mode pi
 /** The real judge answers in about a second; the composer must be empty for all of it. */
 const SLOW_CHOICE = { OMP_GUI_TEST_AUTO_MODE_DELAY_MS: "800" };
 
-/** Press Enter and check the composer emptied at once, before the choice is in. */
+/**
+ * Press Enter and check the composer emptied at once. Whether the choice is in by then depends on the typing pause:
+ * a pause of 250 ms asked the judge ahead of Enter (use-auto-mode-prefetch.ts) and the cached answer lands at once.
+ */
 async function sendAndSeeItClear(page: Page): Promise<void> {
 	await composer(page).press("Enter");
 	await expect(composer(page)).toHaveValue("");
-	await expect(chip(page)).toHaveCount(0);
 }
 
 test("a typed prompt that starts a goal joins the goal's own turn and never comes back to the composer", async () => {
@@ -148,7 +150,7 @@ test("a goal the choice started ends with its chip and goal mode, and the next p
 		{
 			...SLOW_CHOICE,
 			...EVERY_PROMPT_IS_NEW,
-			OMP_GUI_TEST_GOAL_TURN: JSON.stringify({ holdMs: 1500, complete: true }),
+			OMP_GUI_TEST_GOAL_TURN: JSON.stringify({ holdMs: 3000, complete: true }),
 		},
 	);
 	const { page, record } = launched;
