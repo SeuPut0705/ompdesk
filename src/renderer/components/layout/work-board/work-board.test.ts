@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionUIRequest, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { translate } from "../../../lib/i18n";
 import {
+	goalMeta,
 	liveSubagents,
 	READING_COLUMN_PX,
 	requestLabel,
@@ -11,8 +12,12 @@ import {
 	transcriptColumnWidth,
 	WORK_BOARD_GAP,
 	WORK_BOARD_MIN_SPARE,
+	WORK_BOARD_WIDE_SPARE,
+	WORK_BOARD_WIDE_WIDTH,
 	WORK_BOARD_WIDTH,
 	workBoardFits,
+	workBoardForm,
+	workBoardWidth,
 } from "./work-board";
 
 const stylesheet = readFileSync(new URL("../../../styles/components.css", import.meta.url), "utf8");
@@ -39,6 +44,45 @@ describe("work board breakpoint", () => {
 
 	it("is too narrow for a split pane or a narrow window", () => {
 		for (const width of [0, 480, 800, 1000, 1135]) expect(workBoardFits(width)).toBe(false);
+	});
+
+	it("widens only where the margin holds the wide board with room to spare", () => {
+		// A 1440 px window beside the sidebar (pane 1196): 356 px of margin, the standard width.
+		expect(workBoardWidth(1196)).toBe(WORK_BOARD_WIDTH);
+		// A 1920 px window beside the sidebar (pane 1676): 828 px of margin, the wide board.
+		expect(workBoardWidth(1676)).toBe(WORK_BOARD_WIDE_WIDTH);
+		let first = 0;
+		while (workBoardWidth(first) === WORK_BOARD_WIDTH) first++;
+		expect(first - transcriptColumnWidth(first)).toBeGreaterThanOrEqual(WORK_BOARD_WIDE_SPARE);
+		// The wide board and its gap still leave the transcript column all of its width.
+		expect(first - WORK_BOARD_WIDE_WIDTH - WORK_BOARD_GAP).toBeGreaterThanOrEqual(transcriptColumnWidth(first));
+	});
+
+	it("shows the strip wherever it cannot dock, and nothing only with the pref off", () => {
+		expect(workBoardForm({ enabled: true, panelOpen: false, fits: true })).toBe("docked");
+		expect(workBoardForm({ enabled: true, panelOpen: false, fits: false })).toBe("strip");
+		expect(workBoardForm({ enabled: true, panelOpen: true, fits: true })).toBe("strip");
+		expect(workBoardForm({ enabled: false, panelOpen: false, fits: true })).toBe("off");
+		expect(workBoardForm({ enabled: false, panelOpen: true, fits: false })).toBe("off");
+	});
+});
+
+describe("goal row figure", () => {
+	it("names the larger share used of the budget and the time, else the time run", () => {
+		expect(goalMeta(null)).toBeUndefined();
+		expect(goalMeta({ enabled: true, tokenBudget: 200_000, tokensUsed: 50_000 } as never)).toBe("25%");
+		expect(
+			goalMeta({
+				enabled: true,
+				tokenBudget: 200_000,
+				tokensUsed: 50_000,
+				timeLimitSeconds: 100,
+				timeUsedSeconds: 90,
+			} as never),
+		).toBe("90%");
+		expect(goalMeta({ enabled: true, tokenBudget: 100, tokensUsed: 250 } as never)).toBe("100%");
+		expect(goalMeta({ enabled: true, timeUsedSeconds: 90 } as never)).toBe("1m 30s");
+		expect(goalMeta({ enabled: true } as never)).toBeUndefined();
 	});
 
 	it("never squeezes the transcript column: reserve and scrollbar fit inside the spare margin", () => {

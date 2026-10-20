@@ -21,7 +21,6 @@ import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
-import { isDrawerMode, useShellMode } from "../../../hooks/use-shell-mode";
 import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -49,16 +48,28 @@ import { workOutcomes } from "../../chat/work/work-view";
 import { IconButton, Kbd } from "../../common";
 import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
-import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
 import { childUsageText } from "../sidebar/sidebar-family";
-import { BoardRow, BoardSection, Dot } from "./board-parts";
+import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
 import { WorkBoardChip } from "./WorkBoardChip";
-import { liveSubagents, requestLabel, type TodoBoard, todoBoard, workBoardFits } from "./work-board";
+import {
+	goalMeta,
+	liveSubagents,
+	requestLabel,
+	type TodoBoard,
+	todoBoard,
+	workBoardFits,
+	workBoardForm,
+	workBoardWidth,
+} from "./work-board";
 
 /** The opened-session rows load when a session has such children: most never do. */
 const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
+/** The session rows (changes, last check, dev servers, same checkout, memory) and a failed check: a lazy chunk, since
+ * the phone's first screen (the strip) never draws them. */
+const FailedCheckSlot = lazy(() => import("./WorkBoardSession").then(module => ({ default: module.FailedCheckSlot })));
+const SessionSlot = lazy(() => import("./WorkBoardSession").then(module => ({ default: module.SessionSlot })));
 /** The metered-spend rows load when this session spent on a metered provider (most sessions run on subscriptions). */
 const SessionSpendLine = lazy(() =>
 	import("./SessionSpendLine").then(module => ({ default: module.SessionSpendLine })),
@@ -70,7 +81,7 @@ function hasCharge(spend: SessionSpend | null): spend is SessionSpend {
 }
 
 /** Steps the turn section lists: the newest few, oldest first, the live one last. */
-const TURN_STEPS = 4;
+const TURN_STEPS = 3;
 /** A call's clock and the turn's come from different events of one batch: a call within this of the start is the turn's. */
 const TURN_CLOCK_SLACK_MS = 500;
 
@@ -83,30 +94,6 @@ function SegmentBar({ segments, label }: { segments: TodoBoard["segments"]; labe
 				<span data-status={status} key={index} />
 			))}
 		</span>
-	);
-}
-
-function Meter({ label, value, text }: { label: string; value: number; text: string }) {
-	const percent = Math.round(Math.min(1, Math.max(0, value)) * 100);
-	return (
-		<div className="flex min-w-0 flex-col gap-1">
-			<span className="flex items-baseline justify-between gap-2 text-sc-xs text-(--sc-text-subtle)">
-				<span>{label}</span>
-				<span className="tabular-nums">{text}</span>
-			</span>
-			<span
-				aria-label={label}
-				aria-valuemax={100}
-				aria-valuemin={0}
-				aria-valuenow={percent}
-				aria-valuetext={text}
-				className="omp-work-board-meter"
-				data-hot={percent >= 90 || undefined}
-				role="progressbar"
-			>
-				<span style={{ width: `${percent}%` }} />
-			</span>
-		</div>
 	);
 }
 
@@ -207,11 +194,6 @@ function useTurnSteps(active: boolean, startedAt: number | null): ToolEntry[] {
 	}, [active, startedAt, tools, live, finishedVersion]);
 }
 
-function providerOf(model: string | undefined): { id: string; name: string } | null {
-	const id = model?.includes("/") ? model.slice(0, model.indexOf("/")) : "";
-	return id ? { id, name: id } : null;
-}
-
 function AgentRow({
 	agent,
 	now,
@@ -231,9 +213,9 @@ function AgentRow({
 	const progress = agent.progress;
 	const step = progress?.currentToolIntent ?? progress?.lastIntent ?? progress?.currentTool ?? status;
 	const tokens = progress?.tokens ?? 0;
-	const provider = providerOf(progress?.resolvedModel);
 	const billing = useSessionSpend()?.billing;
 	const costLine = costWords(t, costKinds({ model: progress?.resolvedModel, cost: progress?.cost }, billing));
+	// One line: what it is and how long it has run. What it does now, its tokens, model and cost are its tooltip.
 	return (
 		<BoardRow
 			exiting={exiting}
@@ -242,18 +224,13 @@ function AgentRow({
 			lead={waiting ? <Pause aria-hidden className="size-3 text-(--sc-text-subtle)" /> : <Dot tone="info" />}
 			meta={elapsed === null ? undefined : formatElapsed(elapsed)}
 			onClick={onOpen}
-			sub={
-				<>
-					{provider ? <ProviderMark className="omp-work-board-provider" provider={provider} /> : null}
-					<span className="min-w-0 flex-1 truncate">{waiting ? status : step}</span>
-					{tokens > 0 ? (
-						<span className="shrink-0 tabular-nums">
-							{t("workBoard.tokens", { tokens: formatTokens(tokens) })}
-						</span>
-					) : null}
-				</>
-			}
-			title={[label, status, childUsageText(progress?.resolvedModel, progress?.modelRole), costLine]
+			title={[
+				label,
+				waiting ? status : step,
+				tokens > 0 ? t("workBoard.tokens", { tokens: formatTokens(tokens) }) : null,
+				childUsageText(progress?.resolvedModel, progress?.modelRole),
+				costLine,
+			]
 				.filter(Boolean)
 				.join("\n")}
 		/>
@@ -383,9 +360,28 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 
 	return (
 		<aside aria-label={t("workBoard.label")} className="omp-work-board" data-work-board-panel>
+			{/* One line: the board's name, the plan's progress and its close; then the project of a linked worktree; then
+			   one line of meters, the subscription accounts' windows and a metered provider's charge side by side where
+			   they fit (each item's details are its tooltip). */}
 			<header className="omp-work-board-head">
 				<span aria-hidden className="omp-work-board-pulse" data-state={pulse} />
 				<h2 className="omp-work-board-name">{t("workBoard.label")}</h2>
+				{plan ? (
+					<span
+						className="omp-work-board-progress"
+						title={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
+					>
+						<SegmentBar
+							label={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
+							segments={plan.segments}
+						/>
+						<span aria-hidden>
+							{plan.done}/{plan.total}
+						</span>
+					</span>
+				) : (
+					<span />
+				)}
 				<IconButton
 					className="omp-work-board-hide"
 					icon={<X />}
@@ -400,28 +396,15 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						{projectLine.name}
 					</span>
 				) : null}
-				{plan ? (
-					<span className="omp-work-board-progress">
-						<SegmentBar
-							label={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
-							segments={plan.segments}
-						/>
-						<span aria-hidden>{t("workBoard.status.done", { done: plan.done, total: plan.total })}</span>
-					</span>
-				) : null}
-				<AccountLimit />
-				{hasCharge(spend) ? (
-					<Suspense fallback={null}>
-						<SessionSpendLine spend={spend} />
-					</Suspense>
-				) : null}
+				<div className="omp-work-board-meters">
+					<AccountLimit />
+					{hasCharge(spend) ? (
+						<Suspense fallback={null}>
+							<SessionSpendLine spend={spend} />
+						</Suspense>
+					) : null}
+				</div>
 			</header>
-
-			{autopilot && (
-				<BoardSection aside={autopilotText} id="autopilot" title={t("autopilot.name")}>
-					<AutopilotBoardRows />
-				</BoardSection>
-			)}
 
 			{waiting > 0 && (
 				<BoardSection
@@ -432,27 +415,34 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					title={t("workBoard.waiting")}
 					tone="warning"
 				>
-					{planProposal && (
-						<BoardRow
-							data={{ "data-board-waiting": "plan" }}
-							label={t("workBoard.planReview")}
-							lead={<Dot tone="warning" />}
-							onClick={() => focusPrompt(pane)}
-						/>
-					)}
-					{blocking.map(request => {
-						const label = requestLabel(request, t);
-						return (
+					<CappedRows
+						cap={SECTION_CAP.waiting}
+						items={[
+							...(planProposal ? [{ id: "plan", label: t("workBoard.planReview") }] : []),
+							...blocking.map(request => ({ id: request.id, label: requestLabel(request, t) })),
+						]}
+					>
+						{item => (
 							<BoardRow
-								data={{ "data-board-waiting": request.id }}
-								key={request.id}
-								label={label}
+								data={{ "data-board-waiting": item.id }}
+								key={item.id}
+								label={item.label}
 								lead={<Dot tone="warning" />}
 								onClick={() => focusPrompt(pane)}
-								title={label}
+								title={item.label}
 							/>
-						);
-					})}
+						)}
+					</CappedRows>
+				</BoardSection>
+			)}
+
+			<Suspense fallback={null}>
+				<FailedCheckSlot />
+			</Suspense>
+
+			{autopilot && (
+				<BoardSection aside={autopilotText} id="autopilot" title={t("autopilot.name")}>
+					<AutopilotBoardRows />
 				</BoardSection>
 			)}
 
@@ -502,29 +492,39 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			)}
 
 			{presentedAgents.length + presentedJobs.length > 0 && (
-				<BoardSection count={running} id="running" title={t("workBoard.running")}>
-					{presentedAgents.map(({ item: agent, exiting }) => (
-						<AgentRow
-							agent={agent}
-							exiting={exiting}
-							key={agent.id}
-							now={now}
-							onOpen={() => tabId && useUiStore.getState().openSubagentPanel({ tabId, agentId: agent.id })}
-						/>
-					))}
-					{presentedJobs.map(({ item: job, exiting }) => (
-						<BoardRow
-							data={{ "data-board-job": job.id }}
-							exiting={exiting}
-							key={job.id}
-							label={job.label}
-							lead={<Dot tone="info" />}
-							meta={clock(job.startTime)}
-							onClick={() => useUiStore.getState().openJobs()}
-							sub={t(`jobs.type.${job.type}`)}
-							title={job.label}
-						/>
-					))}
+				<BoardSection count={agents.length + jobs.length} id="running" title={t("workBoard.running")}>
+					<CappedRows
+						cap={SECTION_CAP.running}
+						items={[
+							...presentedAgents.map(entry => ({ ...entry, kind: "agent" as const })),
+							...presentedJobs.map(entry => ({ ...entry, kind: "job" as const })),
+						]}
+					>
+						{entry =>
+							entry.kind === "agent" ? (
+								<AgentRow
+									agent={entry.item}
+									exiting={entry.exiting}
+									key={entry.item.id}
+									now={now}
+									onOpen={() =>
+										tabId && useUiStore.getState().openSubagentPanel({ tabId, agentId: entry.item.id })
+									}
+								/>
+							) : (
+								<BoardRow
+									data={{ "data-board-job": entry.item.id }}
+									exiting={entry.exiting}
+									key={entry.item.id}
+									label={entry.item.label}
+									lead={<Dot tone="info" />}
+									meta={clock(entry.item.startTime)}
+									onClick={() => useUiStore.getState().openJobs()}
+									title={`${entry.item.label}\n${t(`jobs.type.${entry.item.type}`)}`}
+								/>
+							)
+						}
+					</CappedRows>
 				</BoardSection>
 			)}
 
@@ -599,51 +599,36 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				<BoardSection id="goal" title={t("workBoard.goal")} aside={goalNote(goalStatus, t)}>
 					<BoardRow
 						data={{ "data-board-goal": goalStatus ?? "" }}
-						label={
-							<span className="line-clamp-2 whitespace-normal">
-								{goal.objective?.trim() || t("input.goal.label")}
-							</span>
-						}
+						label={goal.objective?.trim() || t("input.goal.label")}
 						lead={
 							<Dot tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"} />
 						}
+						meta={goalMeta(goalDetail)}
 						onClick={() => useUiStore.getState().openModes("goal")}
-						sub={
-							goalDetail?.tokenBudget ||
-							goalDetail?.timeLimitSeconds ||
-							(goalDetail?.timeUsedSeconds ?? 0) > 0 ? (
-								<span className="flex min-w-0 flex-1 flex-col gap-1.5 pt-1">
-									{goalDetail?.tokenBudget ? (
-										<Meter
-											label={t("workBoard.goalBudgetLabel")}
-											text={t("workBoard.goalBudget", {
-												used: formatTokens(goalDetail.tokensUsed ?? 0),
-												budget: formatTokens(goalDetail.tokenBudget),
-											})}
-											value={(goalDetail.tokensUsed ?? 0) / goalDetail.tokenBudget}
-										/>
-									) : null}
-									{goalDetail?.timeLimitSeconds ? (
-										<Meter
-											label={t("workBoard.goalTimeLabel")}
-											text={t("workBoard.goalTime", {
-												used: formatDuration((goalDetail.timeUsedSeconds ?? 0) * 1000),
-												limit: formatDuration(goalDetail.timeLimitSeconds * 1000),
-											})}
-											value={(goalDetail.timeUsedSeconds ?? 0) / goalDetail.timeLimitSeconds}
-										/>
-									) : (goalDetail?.timeUsedSeconds ?? 0) > 0 ? (
-										<span className="tabular-nums">
-											{formatDuration((goalDetail?.timeUsedSeconds ?? 0) * 1000)}
-										</span>
-									) : null}
-								</span>
-							) : undefined
-						}
-						title={goal.objective}
+						title={[
+							goal.objective,
+							goalDetail?.tokenBudget
+								? `${t("workBoard.goalBudgetLabel")}: ${t("workBoard.goalBudget", {
+										used: formatTokens(goalDetail.tokensUsed ?? 0),
+										budget: formatTokens(goalDetail.tokenBudget),
+									})}`
+								: null,
+							goalDetail?.timeLimitSeconds
+								? `${t("workBoard.goalTimeLabel")}: ${t("workBoard.goalTime", {
+										used: formatDuration((goalDetail.timeUsedSeconds ?? 0) * 1000),
+										limit: formatDuration(goalDetail.timeLimitSeconds * 1000),
+									})}`
+								: null,
+						]
+							.filter(Boolean)
+							.join("\n")}
 					/>
 				</BoardSection>
 			)}
+
+			<Suspense fallback={null}>
+				<SessionSlot />
+			</Suspense>
 
 			{showsLast && lastTurn && (
 				<BoardSection id="last" title={t("workBoard.lastTurn")} aside={formatDuration(lastTurn.durationMs)}>
@@ -676,22 +661,22 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 }
 
 /**
- * Mount point inside a session pane's chat region. It owns the two gates — the user's pref and the
- * side panel (the board never sits beside it) — and the pane's width, which it watches itself: a
- * split pane or a narrow window is too narrow for the board exactly as `workBoardFits` says.
+ * Mount point inside a session pane's chat region. It owns the gates — the user's pref and the side panel (the board
+ * never sits beside it) — and the pane's width, which it watches itself (`workBoardFits`, `workBoardWidth`). Where the
+ * board cannot dock (a phone, a tablet, a narrow window, a split pane, the side panel open) the pane shows the status
+ * strip under its header instead, which expands into the same board: never nothing while the pref is on.
  */
 export function WorkBoardHost() {
 	const enabled = useUiStore(state => state.workBoard);
 	const panelOpen = useUiStore(state => state.panelVisible);
 	const slot = useRef<HTMLDivElement>(null);
 	const [pane, setPane] = useState<HTMLElement | null>(null);
-	const [fits, setFits] = useState(false);
-	const shellMode = useShellMode();
+	const [paneWidth, setPaneWidth] = useState(0);
 	useLayoutEffect(() => {
 		const element = slot.current?.closest<HTMLElement>(".omp-session-pane") ?? null;
 		setPane(element);
 		if (!element) return;
-		setFits(workBoardFits(element.clientWidth));
+		setPaneWidth(element.clientWidth);
 		if (typeof ResizeObserver === "undefined") return;
 		// The board sits beside the composer too, so its slot runs on past the chat region to the pane's foot.
 		const region = slot.current?.parentElement;
@@ -701,23 +686,31 @@ export function WorkBoardHost() {
 		};
 		const observer = new ResizeObserver(entries => {
 			const size = entries.find(entry => entry.target === element)?.contentRect.width;
-			if (size !== undefined) setFits(workBoardFits(size));
+			if (size !== undefined) setPaneWidth(size);
 			reachFoot();
 		});
 		observer.observe(element);
 		if (region) observer.observe(region);
 		return () => observer.disconnect();
 	}, []);
-	// Where the board cannot dock (a phone, a portrait tablet) it is a status chip over the composer and a sheet.
-	const chipPane = isDrawerMode(shellMode) && !fits && enabled ? pane : null;
+	const form = workBoardForm({ enabled, panelOpen, fits: workBoardFits(paneWidth) });
+	const width = form === "docked" ? workBoardWidth(paneWidth) : null;
+	// The slot and the columns' reserve read the width from the pane (components.css `--omp-board-width`).
+	useLayoutEffect(() => {
+		if (!pane || width === null) return;
+		pane.style.setProperty("--omp-board-width", `${width}px`);
+		return () => {
+			pane.style.removeProperty("--omp-board-width");
+		};
+	}, [pane, width]);
 	return (
 		<>
 			<div className="omp-work-board-slot" ref={slot}>
-				{enabled && !panelOpen && fits && pane ? <WorkBoard pane={pane} /> : null}
+				{form === "docked" && pane ? <WorkBoard pane={pane} /> : null}
 			</div>
-			{chipPane && (
+			{form === "strip" && pane && (
 				<WorkBoardChip>
-					<WorkBoard inline pane={chipPane} />
+					<WorkBoard inline pane={pane} />
 				</WorkBoardChip>
 			)}
 		</>

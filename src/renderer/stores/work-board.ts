@@ -4,12 +4,14 @@ import { create } from "zustand";
 export type WorkBoardSectionId =
 	| "autopilot"
 	| "waiting"
+	| "check"
 	| "review"
 	| "turn"
 	| "running"
 	| "opened"
 	| "todos"
 	| "goal"
+	| "session"
 	| "last";
 
 const PREF = "workBoardCollapsed";
@@ -42,12 +44,14 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 			const known: WorkBoardSectionId[] = [
 				"autopilot",
 				"waiting",
+				"check",
 				"review",
 				"turn",
 				"running",
 				"opened",
 				"todos",
 				"goal",
+				"session",
 				"last",
 			];
 			const collapsed = Object.fromEntries(

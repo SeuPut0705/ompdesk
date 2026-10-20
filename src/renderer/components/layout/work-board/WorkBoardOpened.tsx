@@ -12,7 +12,7 @@ import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useTabsStore } from "../../../stores/tabs";
 import { CostAmount, hasCost } from "../../common/CostAmount";
-import { BoardRow, BoardSection, Dot } from "./board-parts";
+import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
 import type { OpenedChildCounts, OpenedChildRow } from "./opened-children";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
@@ -50,7 +50,17 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				"data-status": status ?? "open",
 				...(row.report ? { "data-board-report": row.report.kind } : {}),
 			}}
-			label={title}
+			label={
+				<>
+					{title}
+					{row.device ? (
+						<span className="text-(--sc-text-subtle)">
+							{" · "}
+							<span data-board-device>{row.device}</span>
+						</span>
+					) : null}
+				</>
+			}
 			lead={
 				status === "done" ? (
 					<Check aria-hidden className="size-3 text-(--sc-success)" />
@@ -63,33 +73,19 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 					/>
 				)
 			}
-			meta={status === "running" && row.since ? formatElapsed(Math.max(0, now - row.since)) : undefined}
-			onClick={open}
-			sub={
-				<>
-					<span className="min-w-0 flex-1 truncate">{note}</span>
-					{row.device ? (
-						<span className="min-w-0 max-w-[40%] truncate" data-board-device>
-							{row.device}
-						</span>
-					) : null}
-					{branch ? (
-						<span className="min-w-0 max-w-[60%] truncate" data-board-branch>
-							{branch}
-						</span>
-					) : null}
-					{hasCost(kinds) ? (
-						<CostAmount
-							className="shrink-0 tabular-nums"
-							data={{ "data-board-opened-cost": true }}
-							kinds={kinds}
-						/>
-					) : null}
-				</>
+			// One line: the title (and the device it runs on), then how long it has run or what it cost. What it does now,
+			// its report, branch, model and cost in words are the tooltip.
+			meta={
+				status === "running" && row.since ? (
+					formatElapsed(Math.max(0, now - row.since))
+				) : hasCost(kinds) ? (
+					<CostAmount className="tabular-nums" data={{ "data-board-opened-cost": true }} kinds={kinds} />
+				) : undefined
 			}
+			onClick={open}
 			title={[
 				`${title}${row.device ? ` · ${row.device}` : ""}`,
-				statusLabel,
+				note || statusLabel,
 				branch,
 				[usage?.model, costWords(t, kinds)].filter(Boolean).join(" · "),
 			]
@@ -116,9 +112,9 @@ export function OpenedSection({
 			id="opened"
 			title={t("workBoard.opened")}
 		>
-			{rows.map(row => (
-				<OpenedRow key={row.key} now={now} row={row} />
-			))}
+			<CappedRows cap={SECTION_CAP.opened} items={rows}>
+				{row => <OpenedRow key={row.key} now={now} row={row} />}
+			</CappedRows>
 		</BoardSection>
 	);
 }

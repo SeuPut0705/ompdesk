@@ -294,7 +294,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			return false;
 		// A neighbouring control on top is a stolen tap, which the hit test reports; a layer on top hides the element.
 		const layer = top.closest(
-			"[role='presentation'], [data-drawer-scrim], [data-scrim], [aria-modal='true'], [role='dialog'], [role='menu'], [role='listbox'], [data-action-sheet]",
+			"[role='presentation'], [data-drawer-scrim], [data-scrim], [aria-modal='true'], [role='dialog'], [role='menu'], [role='listbox'], [data-action-sheet], [data-work-strip-panel]",
 		);
 		return (
 			!!layer ||

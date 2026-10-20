@@ -13,6 +13,7 @@ import type {
 	RpcSessionState,
 	SessionStats,
 } from "../../shared/rpc-types";
+import { BOARD_BUSY, boardTurnMessages } from "./fixture-board";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
 const MINUTE = 60_000;
@@ -374,11 +375,12 @@ function mailMessages(base: number): Record<string, unknown>[] {
 export function entriesFor(tabId: string): Entry[] {
 	if (tabId !== "tab-1") return entriesFixture(tabId).slice(0, 4);
 	const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
-	if (!params.has("stress") && !params.has("mail")) return entriesFixture(tabId);
+	if (!params.has("stress") && !params.has("mail") && !BOARD_BUSY) return entriesFixture(tabId);
 	const all = [
 		...entriesFixture(tabId).map(entry => entry.message),
 		...(params.has("stress") ? stressMessages(NOW - 20 * MINUTE) : []),
 		...(params.has("mail") ? mailMessages(NOW - 10 * MINUTE) : []),
+		...(BOARD_BUSY ? boardTurnMessages(NOW - 8 * MINUTE) : []),
 	];
 	return all.map((message, index) => ({
 		type: "message",

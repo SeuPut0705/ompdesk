@@ -1,5 +1,15 @@
 import { Bot, ChevronDown, GitBranch, SquareTerminal } from "lucide-react";
-import { type ReactNode, type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	lazy,
+	type ReactNode,
+	Suspense,
+	type TouchEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
@@ -19,6 +29,10 @@ const PANEL_ID = "omp-work-strip-panel";
 const LEAVE_MS = 160;
 /** An upward drag at least this long on the strip or the grip collapses the panel. */
 const SWIPE_UP_PX = 32;
+/** The session rows' rules (`WorkBoardSession.tsx`), loaded after the first screen: only whether the newest check failed. */
+const FailedCheckWatch = lazy(() =>
+	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
+);
 
 /**
  * The work board where it has no room beside the pane (a phone, a portrait tablet; design §6.3): one status strip
@@ -74,18 +88,23 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 
 	const waiting = blocking.length + (planProposal ? 1 : 0) + opened.counts.waiting;
 	const running = agents.length + jobs.length + opened.counts.running;
+	// A failed check is said right after what waits on the person: the board puts it at its top too. Its rules are the
+	// session rows' lazy chunk (the phone's first screen has no room), which reports here once loaded.
+	const [failed, setFailed] = useState(false);
 	const label =
 		waiting > 0
 			? t("workBoard.status.waiting", { count: waiting })
-			: plan
-				? t("workBoard.planProgress", { done: plan.done, total: plan.total })
-				: turnActive
-					? t("workBoard.step.working")
-					: running > 0
-						? `${t("workBoard.running")} · ${running}`
-						: goal
-							? t("workBoard.goal")
-							: null;
+			: failed
+				? t("workBoard.session.checkFailed")
+				: plan
+					? t("workBoard.planProgress", { done: plan.done, total: plan.total })
+					: turnActive
+						? t("workBoard.step.working")
+						: running > 0
+							? `${t("workBoard.running")} · ${running}`
+							: goal
+								? t("workBoard.goal")
+								: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {
 		if (label === null && open) close();
@@ -99,7 +118,12 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 		document.addEventListener("pointerdown", away);
 		return () => document.removeEventListener("pointerdown", away);
 	}, [open, close]);
-	if (label === null) return null;
+	const watch = (
+		<Suspense fallback={null}>
+			<FailedCheckWatch onChange={setFailed} />
+		</Suspense>
+	);
+	if (label === null) return watch;
 	const swipeStart = (event: TouchEvent<HTMLElement>) => {
 		swipe.current = event.touches[0]?.clientY ?? null;
 	};
@@ -112,6 +136,7 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 	const state = waiting > 0 ? "waiting" : turnActive || running > 0 ? "working" : "idle";
 	return (
 		<div className="omp-work-strip" data-work-strip="" ref={root}>
+			{watch}
 			<button
 				aria-controls={open || leaving ? PANEL_ID : undefined}
 				aria-expanded={open}
@@ -126,7 +151,7 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 			>
 				<span aria-hidden className="omp-work-board-pulse" data-state={state} />
 				<span aria-live="polite" className="omp-work-chip-label" role="status">
-					{plan && waiting === 0 ? (
+					{plan && waiting === 0 && !failed ? (
 						<>
 							<span className="sr-only">{label}</span>
 							<span aria-hidden className="omp-work-chip-plan">

@@ -46,7 +46,7 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
-import { BOARD_BUSY, boardJobs, boardReview, boardSubagents, boardUsage } from "./fixture-board";
+import { BOARD_BUSY, boardJobs, boardPeers, boardReview, boardSubagents, boardUsage } from "./fixture-board";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { memoryAnswer } from "./fixture-memory";
 import {
@@ -283,6 +283,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, { fingerprint: "harness" });
 			case "get_git_changes":
 				return respond(command, GIT_CHANGES);
+			case "get_checkout_peers":
+				return respond(command, BOARD_BUSY ? boardPeers() : { peers: null });
 			case "get_git_diff": {
 				const { path } = command;
 				return respond(command, { path, diff: GIT_DIFFS[path] ?? "", kind: "text", truncated: false });

@@ -309,12 +309,8 @@ for (const { engine, device } of variants(
 
 		test("the work board is a strip that expands in place where it cannot dock", async () => {
 			const page = await openHarness(browser, device.name, { theme: "light", lang: "en" });
+			// Every shell whose pane cannot dock the board (a landscape tablet's included) shows the strip: never nothing.
 			const chip = page.locator('[data-work-chip=""]');
-			if (device.shell === "tablet-landscape") {
-				await expect(chip).toHaveCount(0);
-				await page.context().close();
-				return;
-			}
 			await expect(chip).toBeVisible();
 			// The strip sits right under the header (≤ 28 px + margins), says the plan's progress, and the dock's
 			// todo card is hidden beside it; the composer rests right above the bottom safe area.

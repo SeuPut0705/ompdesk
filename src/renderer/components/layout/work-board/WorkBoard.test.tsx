@@ -56,7 +56,19 @@ const getSessionSpend = vi.fn(async () =>
 );
 const prefsSet = vi.fn(async () => {});
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGoal, getUsage, getSessionSpend },
+	// Not a repository: the session section's Changed row stays out of these tests (WorkBoardSession.test.tsx has it).
+	rpc: {
+		getJobs,
+		getGoal,
+		getUsage,
+		getSessionSpend,
+		getGitChanges: vi.fn(async () => ({
+			type: "response",
+			command: "get_git_changes",
+			success: false,
+			error: "no git",
+		})),
+	},
 	prefs: { get: vi.fn(async () => undefined), set: prefsSet },
 });
 
@@ -189,6 +201,8 @@ describe("WorkBoard visibility", () => {
 		await mount(1100);
 		expect(board()).toBeNull();
 		expect(pane.hasAttribute("data-work-board")).toBe(false);
+		// Too narrow to dock: the status strip says the same essentials and expands into the board.
+		expect(pane.querySelector("[data-work-strip]")).not.toBeNull();
 		await resize(1600);
 		expect(board()).not.toBeNull();
 		await resize(900);
@@ -203,10 +217,14 @@ describe("WorkBoard visibility", () => {
 		await act(async () => useUiStore.setState({ panelVisible: true }));
 		expect(board()).toBeNull();
 		expect(pane.hasAttribute("data-work-board")).toBe(false);
+		// The side panel open, the pane shows the status strip instead of nothing.
+		expect(pane.querySelector("[data-work-strip]")).not.toBeNull();
 		await act(async () => useUiStore.setState({ panelVisible: false }));
 		expect(board()).not.toBeNull();
+		expect(pane.querySelector("[data-work-strip]")).toBeNull();
 		await act(async () => useUiStore.getState().setWorkBoard(false));
 		expect(board()).toBeNull();
+		expect(pane.querySelector("[data-work-strip]")).toBeNull();
 	});
 
 	it("takes no room while it has nothing to show", async () => {
@@ -254,7 +272,7 @@ describe("WorkBoard header", () => {
 			"in_progress",
 			"pending",
 		]);
-		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toContain("1/3 done");
+		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toBe("1/3");
 	});
 
 	it("says it is idle when only the last turn is left", async () => {
@@ -291,11 +309,13 @@ describe("WorkBoard sections", () => {
 		expect(section("running")?.textContent).toContain("Running4");
 		expect(pane.querySelector('[data-board-job="j4"]')?.textContent).toContain("nested watch");
 		const first = pane.querySelector('[data-board-agent="a1"]');
+		// One line: its title and how long it has run; what it does now, its tokens and model are the tooltip.
 		expect(first?.textContent).toContain("Review the diff");
-		expect(first?.textContent).toContain("Reading the diff");
-		expect(first?.textContent).toContain("12.3k tokens");
+		expect(first?.textContent).not.toContain("Reading the diff");
 		expect(first?.textContent).toMatch(/1m/);
-		expect(first?.querySelector('[data-provider-mark="anthropic"]')).not.toBeNull();
+		expect(first?.getAttribute("title")).toContain("Reading the diff");
+		expect(first?.getAttribute("title")).toContain("12.3k tokens");
+		expect(first?.getAttribute("title")).toContain("anthropic/claude-sonnet-4-5");
 		expect(pane.querySelector('[data-board-agent="a2"]')?.getAttribute("data-status")).toBe("parked");
 		expect(pane.querySelector('[data-board-agent="a3"]')).toBeNull();
 		expect(pane.querySelector('[data-board-job="j1"]')?.textContent).toContain("bun run dev");
@@ -398,10 +418,12 @@ describe("WorkBoard sections", () => {
 		await mount();
 		const row = pane.querySelector("[data-board-goal]");
 		expect(row?.getAttribute("data-board-goal")).toBe("active");
+		// One line: the objective and the larger share used (25% of the budget, 5% of the time); both in words in the
+		// tooltip.
 		expect(row?.textContent).toContain("Ship the release");
-		expect(row?.textContent).toContain("50.0k / 200.0k tokens");
-		const meters = [...(row?.querySelectorAll('[role="progressbar"]') ?? [])];
-		expect(meters.map(meter => meter.getAttribute("aria-valuenow"))).toEqual(["25", "5"]);
+		expect(row?.querySelector(".omp-work-board-meta")?.textContent).toBe("25%");
+		expect(row?.getAttribute("title")).toContain("50.0k / 200.0k tokens");
+		expect(row?.getAttribute("title")).toContain("1m 30s / 30m");
 		expect(getGoal).toHaveBeenCalled();
 	});
 
@@ -575,15 +597,15 @@ describe("WorkBoard account limit", () => {
 		await mount();
 		const row = pane.querySelector("[data-board-account]");
 		expect(row?.getAttribute("data-board-account")).toBe("anthropic");
-		expect(row?.querySelector(".omp-work-board-account-name")?.textContent).toBe("work@example.com");
-		// Two gauges, shortest window first, each with its label and used share inside and its reset beneath.
+		// One line: the provider's mark and two gauges, shortest window first, label and used share inside; the
+		// address and the resets are the tooltip.
+		expect(row?.textContent).not.toContain("work@example.com");
 		const gauges = [...(row?.querySelectorAll(".omp-usage-gauge") ?? [])];
 		expect(gauges.map(gauge => gauge.querySelector(".omp-usage-gauge-text")?.textContent)).toEqual([
 			"5H62%",
 			"7D40%",
 		]);
-		expect(gauges[0]?.querySelector(".omp-usage-gauge-reset")?.textContent).toMatch(/^↻ 2h( 1m)?$/);
-		expect(gauges[0]?.querySelector(".omp-usage-gauge-reset")?.getAttribute("title")).toContain("resets in 2h");
+		expect(row?.querySelector(".omp-usage-gauge-reset")).toBeNull();
 		expect(gauges[0]?.getAttribute("data-state")).toBe("ok");
 		expect(gauges[0]?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("62");
 		expect(row?.querySelector("[data-provider-mark]")).not.toBeNull();
@@ -621,7 +643,8 @@ describe("WorkBoard account limit", () => {
 		await mount();
 		const rows = [...pane.querySelectorAll("[data-board-account]")];
 		expect(rows.map(row => row.getAttribute("data-board-account"))).toEqual(["anthropic", "openai-codex"]);
-		expect(rows.map(row => row.querySelector(".omp-work-board-account-name")?.textContent)).toEqual([
+		// One line each: the account's address is the tooltip's first line.
+		expect(rows.map(row => row.getAttribute("title")?.split("\n")[0])).toEqual([
 			"work@example.com",
 			"codex@example.com",
 		]);
@@ -692,9 +715,8 @@ describe("WorkBoard account limit", () => {
 			translate("workBoard.spend.charged", { provider: "OpenRouter", cost: "$0.0006", today: "$0.0001" }),
 		);
 		expect(rows[0]?.querySelector("[data-board-spend-cost]")?.textContent).toBe("$0.0006");
-		expect(rows[0]?.querySelector("[data-board-spend-today]")?.textContent).toBe(
-			translate("workBoard.spend.today", { cost: "$0.0001" }),
-		);
+		// Today's charge is in the words (accessible name and tooltip), not on the one-line item.
+		expect(rows[0]?.getAttribute("title")).toContain("$0.0001");
 		// The subscription's figure is named as an estimate apart, in the tooltip only; $12.50 never joins the charge.
 		const tip = rows[0]?.getAttribute("title") ?? "";
 		expect(tip).toContain(translate("workBoard.spend.estimate", { cost: "$12.50" }));

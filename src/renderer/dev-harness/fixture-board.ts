@@ -5,6 +5,8 @@
  * audit and the work board captures read it; `boardBusyStores` puts the turn, the waiting question and the goal into
  * the page's stores, which no transport answer carries.
  */
+
+import type { CheckoutPeers } from "../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { AgentReviewItem } from "../../shared/agent-control";
 import type { ExtensionUIRequest, RpcJobRow, SubagentSnapshot, UsageReport } from "../../shared/rpc-types";
 
@@ -107,6 +109,97 @@ export function boardJobs(): RpcJobRow[] {
 				label: "bunx vitest run src/renderer/components/layout/work-board --reporter=dot",
 				startTime: now - 50_000,
 			},
+		},
+	];
+}
+
+/** What `get_checkout_peers` answers under `?board=busy`: two sessions in this worktree, one with a very long title. */
+export function boardPeers(): { peers: CheckoutPeers } {
+	return {
+		peers: {
+			toplevel: "/Users/dev/projects/ompdesk",
+			commonDir: "/Users/dev/projects/ompdesk/.git",
+			canMessage: true,
+			worktree: [
+				{ id: "tab-2", title: text("Settings test race", "설정 화면 테스트가 가끔 실패하는 문제") },
+				{
+					id: "tab-9",
+					title: text(
+						"Move the checkout peers row into the work board and measure how it reads on a phone",
+						"같은 체크아웃의 다른 세션 줄을 작업 보드로 옮기고 휴대폰에서 읽히는지 길이를 재서 확인하기",
+					),
+					device: text("Seuput's iPhone", "스풋의 아이폰"),
+				},
+			],
+			repo: [],
+		},
+	};
+}
+
+/**
+ * The busy session's last turn, after its last prompt: three memories the bridge recalled (one with a long Korean
+ * title) and a failed `bun test`, so the memory row and the failed-check section show.
+ */
+export function boardTurnMessages(base: number): Record<string, unknown>[] {
+	const item = (title: string, kind: string, path: string) => ({ title, kind, path });
+	return [
+		{
+			role: "custom",
+			customType: "ompdesk-memory-recall",
+			content: "<memory-recall>\nNotes from earlier sessions…\n</memory-recall>",
+			display: true,
+			details: {
+				v: 1,
+				judged: true,
+				items: [
+					item(
+						text("Run tests with bun test, never npm", "테스트는 npm이 아니라 bun test로 돌린다"),
+						"rule",
+						"rules/tests.md",
+					),
+					item(
+						text("Sidebar rows paint a frame late", "사이드바 행은 한 프레임 늦게 그려진다"),
+						"gotcha",
+						"gotchas/sidebar.md",
+					),
+					item(
+						text(
+							"Why the work board waits for the first paint before it reads the checkout's changes",
+							"작업 보드가 첫 화면을 그린 뒤에야 체크아웃의 변경 사항을 읽는 이유와 그렇게 정한 배경 설명",
+						),
+						"decision",
+						"decisions/work-board.md",
+					),
+				],
+			},
+			timestamp: base,
+		},
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call-board-test",
+					name: "bash",
+					arguments: { command: "bun test src/renderer/components/layout/work-board" },
+				},
+			],
+			stopReason: "toolUse",
+			timestamp: base + 2_000,
+		},
+		{
+			role: "toolResult",
+			toolCallId: "call-board-test",
+			toolName: "bash",
+			content: [
+				{
+					type: "text",
+					text: "(fail) WorkBoard > shows the last check [3.20ms]\n 12 pass\n 2 fail\nCommand exited with code 1",
+				},
+			],
+			details: { exitCode: 1, wallTimeMs: 4200 },
+			isError: true,
+			timestamp: base + 6_000,
 		},
 	];
 }

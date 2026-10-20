@@ -132,7 +132,6 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "Work board where it cannot dock: the status strip under the header, expanded (busy session, ?board=busy)",
 		query: "&board=busy",
-		when: look => look.width < 1000 || look.orientation === "portrait",
 		open: async page => {
 			// The busy fixture's turn, question and goal land 1.5 s after boot (dev-harness/boot.ts).
 			const chip = page.locator("[data-work-chip][data-state='waiting']");

@@ -48,11 +48,13 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * sessions a viewed session's agent opened, a notification click that waits for its tab and the touch session
  * sheet's order, 2.3 KB; 3.285 MB (3,284,838) with the transcript's waiting lines for the reports a bridge holds until
  * the running turn ends, 3.8 KB; 3.289 MB (3,289,072) with stock's "Ask and remember" approval: its remembering
- * answers on the approval card (`approvalChoices`) and the mode in the composer's approval row): a build that grows
- * past it fails, so the next eager import is a decision, not an accident. The language chunk the entries load before
- * rendering is not in it.
+ * answers on the approval card (`approvalChoices`) and the mode in the composer's approval row; 3.292 MB (3,292,441)
+ * with the work board's strip wherever the board cannot dock (`workBoardForm`, `workBoardWidth`), its capped
+ * sections (`CappedRows`) and the `checkout_peers` frame in the session store (the session rows themselves are a
+ * lazy chunk), 3.4 KB): a build that grows past it fails, so the next eager import is a decision, not an accident.
+ * The language chunk the entries load before rendering is not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_292_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_293_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

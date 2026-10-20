@@ -3,16 +3,21 @@
  * rows are chosen. Pure, so the breakpoint and the sections are tested without a DOM.
  */
 
-import type { ExtensionUIRequest, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
+import type { ExtensionUIRequest, RpcGoalState, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { APPROVAL_TITLE_PREFIX } from "../../../../shared/tool-approval";
+import { formatDuration } from "../../../lib/format";
 import { isApprovalRequest } from "../../../stores/extension-ui";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** Width of the board and the gap between it and the transcript column (components.css `--omp-board-*`). */
 export const WORK_BOARD_WIDTH = 264;
+/** The board in a wide pane (a 1920 px window beside the sidebar): fewer titles cut, the transcript column unmoved. */
+export const WORK_BOARD_WIDE_WIDTH = 320;
 export const WORK_BOARD_GAP = 24;
 /** The margin the pane must leave beside the transcript column before the board takes it. */
 export const WORK_BOARD_MIN_SPARE = 300;
+/** The margin from which the board takes its wide width. */
+export const WORK_BOARD_WIDE_SPARE = 420;
 
 /** `--omp-column-reading` (48rem) and the clamp of `--omp-column-pad` (16px … 3cqw … 40px), components.css. */
 export const READING_COLUMN_PX = 768;
@@ -29,6 +34,41 @@ export function transcriptColumnWidth(paneWidth: number): number {
 /** Whether a pane this wide leaves at least `WORK_BOARD_MIN_SPARE` px beside the transcript column. */
 export function workBoardFits(paneWidth: number): boolean {
 	return paneWidth - transcriptColumnWidth(paneWidth) >= WORK_BOARD_MIN_SPARE;
+}
+
+/** The docked board's width in a pane this wide (`workBoardFits` first): wide where the margin has room for it. */
+export function workBoardWidth(paneWidth: number): number {
+	return paneWidth - transcriptColumnWidth(paneWidth) >= WORK_BOARD_WIDE_SPARE
+		? WORK_BOARD_WIDE_WIDTH
+		: WORK_BOARD_WIDTH;
+}
+
+/**
+ * How a session pane shows its work: docked beside the transcript where the margin holds it and the side panel is
+ * closed, else the status strip under the header (a phone, a tablet, a narrow window, a split pane, the side panel
+ * open), which expands into the same board. Never nothing while the user keeps the board on.
+ */
+export function workBoardForm(input: {
+	enabled: boolean;
+	panelOpen: boolean;
+	fits: boolean;
+}): "docked" | "strip" | "off" {
+	if (!input.enabled) return "off";
+	return input.fits && !input.panelOpen ? "docked" : "strip";
+}
+
+/**
+ * The goal row's one figure: the larger share of its token budget or time limit used ("62%"), else the time it has
+ * run; the budget and time in words are the row's tooltip.
+ */
+export function goalMeta(detail: RpcGoalState | null): string | undefined {
+	if (!detail) return undefined;
+	const shares = [
+		detail.tokenBudget ? (detail.tokensUsed ?? 0) / detail.tokenBudget : null,
+		detail.timeLimitSeconds ? (detail.timeUsedSeconds ?? 0) / detail.timeLimitSeconds : null,
+	].filter((share): share is number => share !== null);
+	if (shares.length > 0) return `${Math.round(Math.min(1, Math.max(...shares)) * 100)}%`;
+	return (detail.timeUsedSeconds ?? 0) > 0 ? formatDuration((detail.timeUsedSeconds ?? 0) * 1000) : undefined;
 }
 
 export interface TodoBoardRow {
@@ -51,7 +91,7 @@ export interface TodoBoard {
 }
 
 /** Rows the plan section lists before it folds the rest into a count. */
-export const TODO_BOARD_ROWS = 7;
+export const TODO_BOARD_ROWS = 5;
 
 /**
  * The plan's progress and the tasks from the first open one on; every finished task before it folds into a count.

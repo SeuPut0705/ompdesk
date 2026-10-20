@@ -6,22 +6,22 @@
 .omp-work-board {
 	display: flex;
 	flex-direction: column;
-	gap: var(--sc-space-4);
+	gap: var(--sc-space-3);
 	max-height: 100%;
 	overflow-y: auto;
 	overscroll-behavior: contain;
-	padding-block: var(--sc-space-6) var(--sc-space-3);
+	padding-block: var(--sc-space-4) var(--sc-space-3);
 	pointer-events: auto;
 	scrollbar-width: thin;
 }
 
-/* Head: the one-line status of the whole session. */
+/* Head: one line (pulse, name, plan progress, close), the project of a linked worktree, then the meters line. */
 .omp-work-board-head {
 	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-columns: auto auto minmax(0, 1fr) auto;
 	align-items: center;
 	column-gap: var(--sc-space-2);
-	row-gap: var(--sc-space-1-5);
+	row-gap: var(--sc-space-1);
 	padding-inline: var(--sc-space-1-5);
 	/* A touch reach stops at the head's padding: the ✕ at the board's edge reached past it and the board, a scroller,
 	   grew a horizontal scrollbar. */
@@ -66,17 +66,7 @@
 	color: var(--sc-text-subtle);
 }
 
-.omp-work-board-status {
-	grid-column: 1 / -1;
-	margin: 0;
-	font-size: var(--sc-font-md);
-	font-weight: 500;
-	color: var(--sc-text);
-	font-variant-numeric: tabular-nums;
-}
-
 .omp-work-board-segments {
-	grid-column: 1 / -1;
 	display: flex;
 	gap: 2px;
 	height: 4px;
@@ -102,12 +92,13 @@
 	background: var(--sc-warning);
 }
 
-/* Sections. */
+/* The plan's progress sits on the head's line, between the name and the close: a short bar and "1/3". */
 .omp-work-board-progress {
-	grid-column: 1 / -1;
 	display: flex;
+	min-width: 0;
 	align-items: center;
-	gap: var(--sc-space-2);
+	justify-content: flex-end;
+	gap: var(--sc-space-1-5);
 	font-size: var(--sc-font-xs);
 	color: var(--sc-text-subtle);
 	font-variant-numeric: tabular-nums;
@@ -115,8 +106,8 @@
 }
 
 .omp-work-board-progress > .omp-work-board-segments {
-	flex: 1 1 auto;
-	min-width: 0;
+	flex: 0 1 64px;
+	min-width: 24px;
 }
 
 .omp-work-board-title {
@@ -263,9 +254,23 @@ button.omp-work-board-row:hover {
 }
 
 .omp-work-board-more {
+	display: flex;
+	align-items: center;
+	width: 100%;
 	padding: 2px var(--sc-space-1-5) 2px 26px;
+	border-radius: var(--sc-radius-sm);
 	font-size: var(--sc-font-xs);
+	text-align: start;
 	color: var(--sc-text-subtle);
+}
+
+button.omp-work-board-more {
+	cursor: pointer;
+}
+
+button.omp-work-board-more:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
 }
 
 /* State dots. */
@@ -295,27 +300,6 @@ button.omp-work-board-row:hover {
 .omp-work-board-dot[data-ring] {
 	background: transparent;
 	box-shadow: inset 0 0 0 1px var(--sc-text-subtle);
-}
-
-/* Goal meters. */
-.omp-work-board-meter {
-	display: block;
-	height: 3px;
-	overflow: hidden;
-	border-radius: 99px;
-	background: var(--sc-divider);
-}
-
-.omp-work-board-meter > span {
-	display: block;
-	height: 100%;
-	border-radius: inherit;
-	background: var(--sc-text-muted);
-	transition: width var(--sc-duration-med) var(--sc-ease-standard);
-}
-
-.omp-work-board-meter[data-hot] > span {
-	background: var(--sc-warning);
 }
 
 /* What waits on the user comes first and wears the warning wash. */
@@ -382,25 +366,30 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	}
 }
 
-/* Account rows: one per provider company (AccountLimit.tsx) — the account it used last, its email, then one gauge
-   per usage window with its reset beneath. The provider this tab uses comes first with a quiet edge. */
-.omp-work-board-accounts {
+/* The head's meters line: the subscription accounts' gauges (AccountLimit.tsx) and a metered provider's charge
+   (SessionSpendLine.tsx) side by side, wrapping only when they do not fit. Each item's details are its tooltip. */
+.omp-work-board-meters {
 	grid-column: 1 / -1;
 	display: flex;
-	flex-direction: column;
-	gap: var(--sc-space-1);
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--sc-space-1) var(--sc-space-2);
+	min-width: 0;
+}
+
+.omp-work-board-meters:empty {
+	display: none;
 }
 
 .omp-work-board-account {
 	position: relative;
 	display: flex;
-	flex-direction: column;
+	min-width: 0;
+	align-items: center;
 	gap: var(--sc-space-1-5);
-	width: 100%;
-	padding: var(--sc-space-1) var(--sc-space-1-5);
+	padding: 2px var(--sc-space-1);
 	border-radius: var(--sc-radius-sm);
 	font-size: var(--sc-font-xs);
-	text-align: start;
 	color: var(--sc-text-muted);
 	cursor: pointer;
 }
@@ -414,21 +403,14 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	outline-offset: -1px;
 }
 
-.omp-work-board-account-name {
-	display: flex;
-	min-width: 0;
-	align-items: center;
-	gap: var(--sc-space-2);
-	color: var(--sc-text-secondary);
-}
-
-/* A metered provider's real charge (SessionSpendLine): one line, the account rows' inset and type. */
+/* A metered provider's real charge: its name gives way first, the amount never. */
 .omp-work-board-spend {
 	display: flex;
+	flex: 0 1 auto;
 	min-width: 0;
 	align-items: center;
-	gap: var(--sc-space-2);
-	padding: var(--sc-space-1) var(--sc-space-1-5);
+	gap: var(--sc-space-1-5);
+	padding: 2px var(--sc-space-1);
 	font-size: var(--sc-font-xs);
 	color: var(--sc-text-secondary);
 }

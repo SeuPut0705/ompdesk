@@ -3,9 +3,49 @@
  * one-line row. Look in styles/work-board.css.
  */
 import { ChevronRight } from "lucide-react";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work-board";
+
+/**
+ * Rows a section lists before the rest fold into one "+N more" row; a tap shows them all until the section remounts.
+ * The board stays a glance in every environment: a waiting question, the running work and a failure stay above the
+ * fold even beside a long plan. The plan folds its own rest (todoBoard), so it has no entry here.
+ */
+export const SECTION_CAP = { waiting: 3, running: 4, opened: 3 } as const;
+
+/** The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. */
+export function CappedRows<T>({
+	items,
+	cap,
+	children,
+}: {
+	items: readonly T[];
+	cap: number;
+	children: (item: T) => ReactNode;
+}) {
+	const t = useT();
+	const [all, setAll] = useState(false);
+	const shown = all || items.length <= cap ? items : items.slice(0, cap);
+	const hidden = items.length - shown.length;
+	return (
+		<>
+			{shown.map(children)}
+			{hidden > 0 && (
+				<li className="omp-work-board-item">
+					<button
+						className="omp-work-board-more"
+						data-board-more={hidden}
+						onClick={() => setAll(true)}
+						type="button"
+					>
+						{t("workBoard.moreTodos", { count: hidden })}
+					</button>
+				</li>
+			)}
+		</>
+	);
+}
 
 export function Dot({
 	tone,

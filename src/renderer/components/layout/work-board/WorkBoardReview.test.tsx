@@ -45,7 +45,13 @@ const getJobs = vi.fn(async () => ({ type: "response", success: true, data: { ro
 const getGoal = vi.fn(async () => ({ type: "response", success: true, data: { enabled: false } }));
 const getUsage = vi.fn(async () => ({ type: "response", success: true, data: { reports: [] } }));
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGoal, getUsage, commandForTab },
+	rpc: {
+		getJobs,
+		getGoal,
+		getUsage,
+		commandForTab,
+		getGitChanges: vi.fn(async () => ({ type: "response", success: false, error: "no git" })),
+	},
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
 
@@ -181,22 +187,31 @@ describe("work board opened sessions", () => {
 			}),
 		]);
 		expect(opened()?.textContent).toContain("Opened sessions");
-		const rows = [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
+		const listedRows = () => [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
+		// Three rows, waiting first; the fourth folds into one "+1 more" row until it is tapped.
+		expect(listedRows().map(row => row.getAttribute("data-board-opened"))).toEqual(["c-ask", "c-merge", "c-run"]);
+		expect(opened()?.querySelector("[data-board-more]")?.textContent).toBe("+1 more");
+		await act(async () => {
+			(opened()?.querySelector("[data-board-more]") as HTMLElement | null)?.click();
+		});
+		const rows = listedRows();
 		expect(rows.map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual([
 			["c-ask", "waiting"],
 			["c-merge", "problem"],
 			["c-run", "running"],
 			["c-done", "done"],
 		]);
+		expect(opened()?.querySelector("[data-board-more]")).toBeNull();
 		// Only the waiting child is marked; the list itself never takes the warning tone (it tinted every row).
 		expect(opened()?.hasAttribute("data-tone")).toBe(false);
+		// One line each: the title on the row; what it does now, its branch and merge state in the tooltip.
 		expect(rows[2]?.textContent).toContain("Run the suite");
-		expect(rows[2]?.textContent).toContain("running bash (vitest)");
-		expect(rows[1]?.textContent).toContain("omp/agent/m → main");
-		expect(rows[1]?.textContent).toContain("Not merged");
+		expect(rows[2]?.getAttribute("title")).toContain("running bash (vitest)");
+		expect(rows[1]?.getAttribute("title")).toContain("omp/agent/m → main");
+		expect(rows[1]?.getAttribute("title")).toContain("Not merged");
 	});
 
-	it("shows four running opened sessions as four one-line rows named by their task, none under Needs review", async () => {
+	it("shows four running opened sessions as one-line rows named by their task, none under Needs review", async () => {
 		const tasks = ["Fix upload", "Port the parser", "Write docs", "Audit deps"];
 		// Main pushes each running child with the stored title still empty.
 		listed = tasks.map((_, index) => item({ tabId: `c${index}`, title: "", state: "running", step: "running bash" }));
@@ -205,10 +220,11 @@ describe("work board opened sessions", () => {
 		expect(pane.textContent).not.toContain("Needs review");
 		expect(pane.textContent).not.toContain("Untitled session");
 		const rows = [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
-		expect(rows.map(row => row.getAttribute("data-status"))).toEqual(["running", "running", "running", "running"]);
-		expect(rows.map(row => row.textContent)).toEqual(tasks.map(task => expect.stringContaining(task)));
-		for (const row of rows) expect(row.textContent).toContain("running bash");
-		expect(opened()?.textContent).toContain("4");
+		expect(rows.map(row => row.getAttribute("data-status"))).toEqual(["running", "running", "running"]);
+		expect(rows.map(row => row.textContent)).toEqual(tasks.slice(0, 3).map(task => expect.stringContaining(task)));
+		for (const row of rows) expect(row.getAttribute("title")).toContain("running bash");
+		// The section's count names all four.
+		expect(opened()?.querySelector(".omp-work-board-count")?.textContent).toBe("4");
 	});
 
 	it("taps a row to show that session, and is absent without children", async () => {

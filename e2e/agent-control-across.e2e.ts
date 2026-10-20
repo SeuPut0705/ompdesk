@@ -318,7 +318,8 @@ test.describe("on a paired device", () => {
 		const report = await asChild("ompdesk_report", { kind: "progress", text: "Halfway on PC-B", dispatch: "d1" });
 		expect(report.isError, report.text).toBe(false);
 		await expect(row).toHaveAttribute("data-board-report", "progress", { timeout: 30_000 });
-		await expect(row).toContainText("Halfway on PC-B");
+		// One line per row: the report is the row's tooltip.
+		await expect(row).toHaveAttribute("title", /Halfway on PC-B/);
 
 		// The turn on the host ends: the row stops running and the opener's count drops.
 		await app.page.evaluate(
