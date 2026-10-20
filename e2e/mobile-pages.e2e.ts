@@ -321,9 +321,10 @@ for (const { engine, device } of variants(
 			// A long description sits behind an info glyph that opens on a tap.
 			const info = page.locator(".settings-content [data-setting-info]").first();
 			if ((await info.count()) > 0) {
-				// A small glyph with a finger-sized hit area.
+				// A small glyph with a 36 px hit area: lines 28 px apart sit 36 px tall on touch and its reach stops at its
+				// own line's edge, so it never takes the next line's taps (mobile.css, "An info glyph (16 px) heads …").
 				const [glyph] = await hitSizes(info);
-				expect(Math.min(glyph?.hit.width ?? 0, glyph?.hit.height ?? 0)).toBeGreaterThanOrEqual(43.5);
+				expect(Math.min(glyph?.hit.width ?? 0, glyph?.hit.height ?? 0)).toBeGreaterThanOrEqual(35.5);
 				expect(Math.max(glyph?.visual.width ?? 99, glyph?.visual.height ?? 99)).toBeLessThanOrEqual(32);
 				await info.tap();
 				await expect(page.getByRole("tooltip")).toBeVisible();
