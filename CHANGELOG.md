@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.44.0] - 2026-10-20
+
+ECC 스킬이 내장되고, 맥에서 업데이트할 때마다 권한 창이 다시 뜨던 문제를 고쳤어요.
+
+### 새로 생긴 것
+- ECC(Everything Claude Code)의 omp용 스킬 묶음을 내장했어요. 언어·프레임워크별 지식이 스킬 118개, 명령 24개로 들어 있고, 모델에게는 목차 하나만 보여서 세션마다 늘어나는 토큰은 60개 남짓이에요. pstack과 겹치는 14개는 뺐고, 설정 › 에이전트 동작에서 끌 수 있어요.
+- 작업현황에 OpenRouter처럼 쓴 만큼 내는 계정의 실제 청구액이 이 세션과 오늘 기준으로 보여요. 구독 계정의 추정 금액과는 따로 표시해요.
+
+### 바뀐 것
+- 사이드바 세션 줄에 금액을 표시하지 않아요.
+- 데스크톱에서도 세션 줄의 이름 바꾸기·삭제 버튼이 ⋯ 메뉴 하나로 합쳐져서 제목이 더 넓게 보여요.
+
+### 고친 것
+- 맥에서 메모리 서버가 업데이트마다 새 경로에 설치돼 권한 창이 다시 뜨던 문제를 고쳤어요. 이번 업데이트 뒤 한 번만 더 물어요.
+- 메모리 서버가 데스크톱 같은 보호 폴더를 직접 열어 보지 않아요.
+
+<!-- en -->
+
+ECC skills are built in, and the Mac no longer asks for permissions again after every update.
+
+### Added
+- ECC (Everything Claude Code)'s omp skill pack is built in: 118 language and framework skills and 24 commands. The model sees only one index, so each session costs about 60 more tokens. The 14 that overlap pstack are left out, and Settings › Agent behavior turns it off.
+- The work board shows the real charge of pay-per-use accounts such as OpenRouter, for this session and today, apart from the subscription accounts' estimates.
+
+### Changed
+- The sidebar's session rows show no money.
+- On the desktop too, a session row's rename and delete buttons are one ⋯ menu, so the title shows wider.
+
+### Fixed
+- The Mac memory server moved to a new path on every update, so permission prompts came back. It asks once more after this update, then stays.
+- The memory server no longer opens protected folders such as Desktop itself.
+
 ## [0.43.0] - 2026-10-20
 
 같은 폴더에서 동시에 일하는 세션끼리 서로 알고 조율해서, 남의 작업을 커밋하거나 지우지 않아요.
