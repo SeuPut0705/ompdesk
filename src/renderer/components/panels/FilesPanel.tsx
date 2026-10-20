@@ -142,7 +142,10 @@ function EntryNameField({
 		// A closing menu restores focus to its trigger in the same commit; take it back on the next frame.
 		const frame = requestAnimationFrame(() => {
 			const input = ref.current;
-			if (!input) return;
+			// The person already took the field (clicked into it, selected, typed) before this frame came, which a slow
+			// machine allows: their caret and text stand. Selecting the base name then replaced "made" in a selection
+			// they had made of the whole name, and "renamed.ts" became "renamed.ts.ts".
+			if (!input || focused.current) return;
 			input.focus();
 			// The base name is selected, so typing keeps the extension (mixdog's explorer does the same).
 			const dot = initial.lastIndexOf(".");
