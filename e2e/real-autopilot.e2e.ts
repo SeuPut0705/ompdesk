@@ -111,8 +111,13 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 		};
 		const origin = await mainTab(page);
 
-		// Run 1: "local only". Cycle 1 also gets a user instruction the guard must stop.
-		const first = await startRun(page, origin, { maxParallel: 0 });
+		// Run 1: "local only" (Automatic would push the run's own branch: the repository has a remote). Cycle 1 also
+		// gets a user instruction the guard must stop. The ceilings bound what an audit can spend if Stop never lands.
+		const first = await startRun(page, origin, {
+			preset: "local",
+			limits: { usd: 2, minutes: 20 },
+			maxParallel: 0,
+		});
 		const tab = await waitForRunTab(page);
 		expect(tab.tabId).toBe(first);
 		expect(tab.branch).toMatch(/^autopilot\/\d{4}-\d{2}-\d{2}/);
@@ -181,7 +186,11 @@ test("real omp autopilot: two cycles in a new worktree, guarded, local only, the
 		expect(approvalSeen, "an unattended run never shows an approval card").toBe(false);
 
 		// Run 2: the push level, one cycle, from the user's own tab. Only the autopilot branch may reach the remote.
-		const second = await startRun(page, origin, { preset: "push", limits: { cycles: 1 }, maxParallel: 0 });
+		const second = await startRun(page, origin, {
+			preset: "push",
+			limits: { cycles: 1, usd: 1, minutes: 10 },
+			maxParallel: 0,
+		});
 		const run2Tab = await page.evaluate(
 			id => window.omp.tabs.list().then(tabs => tabs.find(row => row.tabId === id)?.worktree?.branch),
 			second,
