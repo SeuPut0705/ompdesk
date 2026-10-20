@@ -1996,6 +1996,19 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(closes(host)).toHaveLength(1);
 	});
 
+	it("waits while a relaunch continues the opener's cut-off turn, until it has read the answer", async () => {
+		// TurnResume shows the opener's "continuing" row from launch until its turn runs again: the opener is about
+		// to read its children, so the seconds before the continuation starts are no idle opener.
+		const { host, service, child } = await finishedChild();
+		const opener = host.tabsById.get("main0001") as FakeTab;
+		opener.resuming = true;
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(0);
+		await service.run("main0001", T.result, { sessions: [child.tabId] });
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(1);
+	});
+
 	it("removes the worktree of a landed, clean branch and keeps a landed one with files left over open", async () => {
 		const merged = await finishedChild({ worktree: true });
 		merged.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
