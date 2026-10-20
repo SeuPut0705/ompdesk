@@ -1196,7 +1196,9 @@ test("daily flow f: settings, model, diagnostics bundle and autopilot chain with
 			const dialog = page.getByRole("dialog");
 			await dialog.getByRole("option", { name: /Sonnet 4\.5/ }).click();
 			await expect(dialog).toBeHidden();
-			await expect(page.locator("[data-model-chip]")).toContainText("Claude Sonnet 4.5");
+			// Beside the provider's mark the chip drops the brand word the mark draws (`chipModelName`).
+			await expect(page.locator("[data-model-chip]")).toContainText("Sonnet 4.5");
+			await expect(page.locator("[data-model-chip]")).toHaveAttribute("aria-label", /Claude Sonnet 4\.5/);
 			await expect.poll(() => flowFModelId(page, tabId)).toBe("claude-sonnet-4-5");
 		});
 
