@@ -41,6 +41,7 @@ import {
 	OMP_UPDATE_EVENT,
 	SCHEDULES_EVENT,
 	type TabEventMessage,
+	TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LocalHostServices } from "./host-services";
@@ -398,7 +399,14 @@ describe("LocalHostServices", () => {
 			{
 				rtab: "t1",
 				name: "status",
-				arg: { status: "ready", statusPayload: {}, processAlive: true, cwd: workDir, kind: "agent" },
+				arg: {
+					status: "ready",
+					statusPayload: {},
+					processAlive: true,
+					cwd: workDir,
+					kind: "agent",
+					omp: expect.any(String),
+				},
 			},
 			{ rtab: "t1", name: "events", arg: [{ type: "agent_start" }] },
 			{
@@ -417,6 +425,30 @@ describe("LocalHostServices", () => {
 			x,
 		);
 		expect(sidecar.sideFrames).toEqual([{ type: "host_tool_result", id: "ht-1" }]);
+	});
+
+	it("names the same omp to a device that re-attaches, and a new one once the tab's omp restarted", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: false }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		const ompOf = () => {
+			const status = x.tabEvents().findLast(event => event.name === "status");
+			return TabStatusArg.parse(status?.arg).omp;
+		};
+		sidecar.setStatus("ready");
+		const first = ompOf();
+		expect(first).toEqual(expect.any(String));
+
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: false }, x);
+		expect(ompOf()).toBe(first);
+
+		sidecar.setStatus("restarting");
+		sidecar.setStatus("starting");
+		sidecar.setStatus("ready");
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: false }, x);
+		expect(ompOf()).not.toBe(first);
 	});
 
 	it("runs commands on the tab and re-syncs every tab on this machine after a login", async () => {

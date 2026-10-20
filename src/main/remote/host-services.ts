@@ -36,6 +36,7 @@
  * setup research and account-rotation pref (machine-services.ts), one benchmark and
  * one research run per device, aborted when it drops.
  */
+import { randomUUID } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
@@ -209,6 +210,11 @@ interface HostTab extends RunTracking {
 	/** The tab's id for this computer's resume coordinator; kept when a relaunched device re-keys the tab. */
 	resumeId: string;
 	sidecar: SidecarLike;
+	/**
+	 * Names the omp process the tab's statuses come from, new with each one the sidecar starts: a device that
+	 * re-attaches after a lost link compares it with the last it saw to tell the same omp from a new one.
+	 */
+	omp: string;
 	/** The connection events go to; null while the device is away (grace period). */
 	conn: HostConnection | null;
 	/** Resumed by the first `tab.start`. */
@@ -1090,8 +1096,7 @@ export class LocalHostServices implements HostServices {
 			// gets the live status first. A never-started tab is not attached:
 			// the device still has to `tab.start` it.
 			const attached = existing.sidecar.status !== "asleep";
-			if (attached)
-				this.#emit(existing, "status", this.#statusArg(existing.sidecar, existing.sidecar.statusPayload));
+			if (attached) this.#emit(existing, "status", this.#statusArg(existing, existing.sidecar.statusPayload));
 			// Which sign-ins still run decides whether a re-sent code paste is the login panel's or a leftover,
 			// so it goes first.
 			this.#emit(existing, "signIn", { active: [...(existing.signIns ?? [])] } satisfies TabSignInArg);
@@ -1114,7 +1119,7 @@ export class LocalHostServices implements HostServices {
 			: null;
 		if (view && params.sessionPath) {
 			const tab = this.#createTab(peer, params.rtab, view.cwd, view.kind, false, params.sessionPath, conn, view);
-			this.#emit(tab, "status", this.#statusArg(view, view.statusPayload));
+			this.#emit(tab, "status", this.#statusArg(tab, view.statusPayload));
 			this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
 			this.#emit(tab, "awaitingConnection", false);
 			return { cwd: view.cwd, kind: view.kind, attached: true, viewing: true };
@@ -1209,6 +1214,7 @@ export class LocalHostServices implements HostServices {
 			rtab,
 			resumeId: resumeId(peer.deviceId, rtab),
 			sidecar,
+			omp: randomUUID(),
 			conn,
 			resumeSessionPath: sessionPath,
 			sessionFile: sessionPath,
@@ -1269,9 +1275,10 @@ export class LocalHostServices implements HostServices {
 		for (const name of TAB_EVENT_NAMES) {
 			switch (name) {
 				case "status":
-					sidecar.on(name, (payload: SidecarStatusPayload) =>
-						this.#emit(tab, name, this.#statusArg(sidecar, payload)),
-					);
+					sidecar.on(name, (payload: SidecarStatusPayload) => {
+						if (payload.status === "starting" || payload.status === "restarting") tab.omp = randomUUID();
+						this.#emit(tab, name, this.#statusArg(tab, payload));
+					});
 					break;
 				case "session":
 					sidecar.on(name, (identity: SidecarSessionIdentity) => {
@@ -1431,7 +1438,8 @@ export class LocalHostServices implements HostServices {
 		});
 	}
 
-	#statusArg(sidecar: SidecarLike, payload: SidecarStatusPayload): TabStatusArg {
+	#statusArg(tab: HostTab, payload: SidecarStatusPayload): TabStatusArg {
+		const { sidecar } = tab;
 		const { status, cwd: _cwd, ...detail } = payload;
 		return {
 			// A paired device has no setup screen for this computer: a tab waiting for omp here is its failure to show.
@@ -1440,6 +1448,7 @@ export class LocalHostServices implements HostServices {
 			processAlive: sidecar.processAlive,
 			cwd: sidecar.cwd,
 			kind: sidecar.kind,
+			omp: tab.omp,
 		};
 	}
 

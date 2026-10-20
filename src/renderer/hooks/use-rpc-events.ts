@@ -732,6 +732,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			}
 		};
 
+		/** Tabs whose `starting` was a paired host's re-attach (`reconnecting`): the page was kept, and the next `ready` catches up. */
+		const reattaching = new Set<string>();
 		const handleStatus = (payload: IpcSidecarStatusPayload, statusTabId: string) => {
 			if (disposed || closedTabFrame(statusTabId)) return;
 			// A tab whose runtime does not exist yet (a page that just loaded still shows the last load's ghosts) gets its
@@ -742,21 +744,34 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
 			if (payload.status === "starting") {
 				retryPendingTabs.delete(statusTabId);
-				withSessionRuntime(statusTabId, () => {
-					useMessagesStore.getState().reset();
-					useModelStore.getState().reset();
-					useSessionStore.getState().reset();
-					useSettingsStore.getState().reset();
-					useSubagentsStore.getState().reset();
-					useTodoStore.getState().reset();
-					useToolsStore.getState().reset();
-					useExtensionUiStore.getState().clearAll();
-					usePlanApprovalStore.getState().clearProposal();
-				});
+				// A paired host may still run the omp the page shows: transcript, cards and state stay on screen, and
+				// its `ready` reads only what was missed. A plain `starting` (any new omp) clears them.
+				if (payload.reconnecting && statusTabId !== "") reattaching.add(statusTabId);
+				else {
+					reattaching.delete(statusTabId);
+					withSessionRuntime(statusTabId, () => {
+						useMessagesStore.getState().reset();
+						useModelStore.getState().reset();
+						useSessionStore.getState().reset();
+						useSettingsStore.getState().reset();
+						useSubagentsStore.getState().reset();
+						useTodoStore.getState().reset();
+						useToolsStore.getState().reset();
+						useExtensionUiStore.getState().clearAll();
+						usePlanApprovalStore.getState().clearProposal();
+					});
+				}
 				withSessionRuntime(statusTabId, () => useSessionStore.getState().clearSidecarError());
 			}
 			withSessionRuntime(statusTabId, () => useSessionStore.getState().setStatus(payload.status, payload.cwd));
 
+			if (payload.status === "ready" && reattaching.delete(statusTabId)) {
+				// The same omp, still running on the host: one merge of what changed meanwhile (state, transcript tail,
+				// queue, subagents, goal, plan), as a web page's resync does; the boot checks below ran when it came up.
+				startHeartbeat();
+				void hydrateTabSession(statusTabId);
+				return;
+			}
 			if (payload.status === "ready") {
 				startHeartbeat();
 				if (payload.modelFallback) {

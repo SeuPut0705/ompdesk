@@ -322,6 +322,11 @@ export const TabStatusArg = z.object({
 	processAlive: z.boolean(),
 	cwd: z.string(),
 	kind: SessionKind,
+	/**
+	 * The omp process this status comes from, new with each one the host's tab starts. A device re-attaching after a
+	 * lost link keeps what it shows when this is the one it last saw; absent (an older host): treated as new.
+	 */
+	omp: z.string().optional(),
 });
 export type TabStatusArg = z.infer<typeof TabStatusArg>;
 

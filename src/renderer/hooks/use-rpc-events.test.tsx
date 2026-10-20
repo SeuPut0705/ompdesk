@@ -2101,6 +2101,44 @@ describe("useRpcEvents tab-scoped routing guards", () => {
 		expect(sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages).toContain(kept);
 	});
 
+	it("keeps a paired host's tab on screen through a re-attach and merges what it missed; a new omp starts it over", async () => {
+		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+		seedTwoTabs();
+		await mount(<RpcEventsProbe />);
+		await flush();
+		const kept = { role: "user", content: [{ type: "text", text: "keep me" }], timestamp: 1 } as AgentMessage;
+		const missed = {
+			role: "assistant",
+			content: [{ type: "text", text: "finished while away" }],
+			timestamp: 2,
+			stopReason: "stop",
+		} as AgentMessage;
+		const messages = () => sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().messages ?? [];
+		sessionRuntimeStore<MessagesStore>("t-live", "messages")?.getState().appendMessage(kept);
+		const base = commandForTab.getMockImplementation();
+		commandForTab.mockImplementation(async (tabId, command) =>
+			command.type === "get_transcript_page"
+				? success({ messages: [kept, missed], totalMessages: 2 })
+				: (base?.(tabId, command) ?? success({})),
+		);
+
+		await act(async () => {
+			emitTabStatus({ status: "starting", cwd: "/alpha", reconnecting: true }, "t-live");
+		});
+		expect(messages()).toContain(kept);
+
+		await act(async () => {
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-live");
+		});
+		await flush();
+		expect(messages().map(message => message.timestamp)).toEqual([1, 2]);
+
+		await act(async () => {
+			emitTabStatus({ status: "starting", cwd: "/alpha" }, "t-live");
+		});
+		expect(messages()).toEqual([]);
+	});
+
 	it("lands a ready status of a tab with no runtime yet in that tab, never in the focused pane", async () => {
 		// A page that just loaded hears a tab's `ready` before that tab's runtime exists, while main still counts that
 		// tab as the window's active one (the renderer's focus already moved on). The focused pane must keep its own

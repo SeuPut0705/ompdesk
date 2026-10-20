@@ -10,7 +10,10 @@
  * When it comes back, the tab re-opens on the host — the host still holds
  * the running sidecar for a while and re-sends its status and the asks its
  * omp still has open (`openAsks`, the pool's open set for the tab is replaced
- * by it); after that it starts a new one on the newest session file.
+ * by it); after that it starts a new one on the newest session file. The
+ * re-open reports `starting` with `reconnecting` while the host may still run
+ * the omp the page shows (the page keeps it and only reads what it missed),
+ * and a plain `starting` once the host's answer shows another omp.
  *
  * Nothing sent to the host vanishes while the link is down: a user's answer
  * (`extension_ui_response`) the host did not take — the link was down, dropped
@@ -68,7 +71,7 @@ export interface RemoteSidecarOptions {
 	log?: (step: RemoteTabLogStep, details: Record<string, string | number | boolean>) => void;
 }
 
-type StatusDetail = Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback">;
+type StatusDetail = Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback" | "reconnecting">;
 
 /**
  * A tab that has not come up this long after its bring-up began is reported, not left on the skeleton: the
@@ -138,6 +141,10 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#processAlive = false;
 	/** The host's last open said this tab views a tab one of its windows owns. */
 	#viewing = false;
+	/** The host's id of the omp the last status came from (`TabStatusArg.omp`); undefined until one said. */
+	#omp: string | undefined;
+	/** The current `starting` is a re-open after a lost link (`reconnecting`): the host's next status decides. */
+	#reattaching = false;
 	/** start()/restart() was called: the tab should run whenever the link is up. */
 	#wanted = false;
 	/** Session the host resumes when it has no live sidecar for this tab. */
@@ -317,6 +324,11 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				this.#offlineShown = false;
 				this.#processAlive = parsed.data.processAlive;
 				if (parsed.data.cwd) this.#cwd = parsed.data.cwd;
+				// The host re-attached another omp than the one the page shows (it restarted while the link was
+				// down; an older host does not say): the page starts over, as for any new omp.
+				if (this.#reattaching && (parsed.data.omp === undefined || parsed.data.omp !== this.#omp))
+					this.#setStatus("starting", {});
+				this.#omp = parsed.data.omp;
 				this.#setStatus(parsed.data.status, parsed.data.statusPayload, false);
 				return;
 			}
@@ -355,7 +367,8 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		if (this.#disposed) return;
 		if (state === "online") {
 			if (this.#wanted && !this.#opened) {
-				this.#setStatus("starting", {});
+				// The host may still run the omp this tab showed: the page keeps it until the host's status says.
+				this.#setStatus("starting", this.#omp === undefined ? {} : { reconnecting: true });
 				void this.#bringUp(null);
 			}
 			return;
@@ -424,6 +437,8 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 				if (this.#disposed) return;
 				this.#note("open", { attached: opened.attached, viewing: opened.viewing === true });
 				if (!opened.attached) {
+					// The host no longer held the tab: a new omp, so a re-attaching page starts over.
+					if (this.#reattaching) this.#setStatus("starting", {});
 					this.#advance("start");
 					await this.#link.request("tab.start", { rtab: this.#rtab });
 					this.#note("start", {});
@@ -578,6 +593,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		if (status !== "starting") this.#settle(status);
 		this.#status = status;
 		this.#detail = detail;
+		this.#reattaching = status === "starting" && detail.reconnecting === true;
 		this.#statusFromLink = fromLink;
 		this.emit("status", this.statusPayload);
 	}

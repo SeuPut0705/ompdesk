@@ -271,6 +271,41 @@ describe("RemoteSidecar", () => {
 		]);
 	});
 
+	describe("a re-attach after a lost link", () => {
+		/** Start on omp `first`, lose the link, re-attach (`attached`), and return what the page heard from then on. */
+		async function reattach(first: string | undefined, attached: boolean, again?: string): Promise<unknown[]> {
+			const { link, sidecar, statuses } = setup();
+			sidecar.start();
+			await settle();
+			sidecar.handleEvent(hostStatus("ready", first === undefined ? {} : { omp: first }));
+			link.state = "offline";
+			sidecar.linkStateChanged("offline");
+			const from = statuses.length;
+			link.state = "online";
+			link.attached = attached;
+			sidecar.linkStateChanged("online");
+			await settle();
+			if (again !== undefined) sidecar.handleEvent(hostStatus("ready", { omp: again }));
+			return statuses.slice(from).map(({ status, reconnecting }) => (reconnecting ? `${status} (kept)` : status));
+		}
+
+		it("keeps the page while the host re-sends the omp it shows", async () => {
+			expect(await reattach("omp-1", true, "omp-1")).toEqual(["starting (kept)", "ready"]);
+		});
+
+		it("starts the page over when the host's omp restarted while the link was down", async () => {
+			expect(await reattach("omp-1", true, "omp-2")).toEqual(["starting (kept)", "starting", "ready"]);
+		});
+
+		it("starts the page over when the host no longer held the tab", async () => {
+			expect(await reattach("omp-1", false)).toEqual(["starting (kept)", "starting"]);
+		});
+
+		it("starts the page over for a host that does not name its omp", async () => {
+			expect(await reattach(undefined, true, "omp-1")).toEqual(["starting", "ready"]);
+		});
+	});
+
 	it("reports a host's refusal to re-attach as the host's status, not a link blip", async () => {
 		const { link, sidecar } = setup();
 		const seen: Array<[string, boolean | undefined]> = [];

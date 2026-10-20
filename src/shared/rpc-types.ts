@@ -2762,4 +2762,9 @@ export interface SidecarStatusPayload {
 	restart?: SidecarRestartProgress;
 	/** On `ready`: the saved session model that could not be restored; the session resumed on the default model. */
 	modelFallback?: string;
+	/**
+	 * On `starting`: a paired host's tab coming back after its link dropped, while the host may still run the omp
+	 * the page shows. The page keeps its transcript, cards and state; a plain `starting` follows if that omp is gone.
+	 */
+	reconnecting?: true;
 }

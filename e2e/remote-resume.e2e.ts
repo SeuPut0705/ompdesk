@@ -42,7 +42,14 @@ import {
 test.describe.configure({ mode: "parallel" });
 
 /** What the catch-up probe on the device's page counted (10 ms samples). */
-const CatchUpProbe = z.object({ samples: z.number(), blank: z.number(), linkUpAt: z.number(), currentAt: z.number() });
+const CatchUpProbe = z.object({
+	samples: z.number(),
+	blank: z.number(),
+	remounted: z.number(),
+	drift: z.number(),
+	linkUpAt: z.number(),
+	currentAt: z.number(),
+});
 
 function translate(language: Language, key: string, vars: Record<string, string | number> = {}): string {
 	const template = (language === "ko" ? ko : en)[key];
@@ -389,18 +396,32 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 		// 100 ms each way from here: a page that reads the whole transcript again pays for it in round trips.
 		proxy.setLatency(100);
 
-		// From here: every 10 ms, is any transcript row on screen and is the reply there; and when the tab's status
-		// first leaves the link-down `error` (the link is back). The counts ride on <html data-catch-up> as JSON.
+		// The reader scrolled up to an older answer. From here, every 10 ms: is any transcript row on screen, is that
+		// answer's row still the same element (not mounted again) and where it sits, and is the reply there; and when
+		// the tab's status first leaves the link-down `error` (the link is back). Counts ride on <html data-catch-up>.
 		await a.evaluate(() => {
-			const probe = { samples: 0, blank: 0, linkDown: false, linkUpAt: 0, currentAt: 0 };
+			const older = [...document.querySelectorAll("[data-transcript-kind]")].find(row =>
+				row.textContent?.includes("History answer 591."),
+			);
+			if (!older) throw new Error("History answer 591 is not on screen");
+			older.scrollIntoView({ block: "center" });
+			let top = older.getBoundingClientRect().top;
+			// `drift`: how far the row moved from where it was when the link came back, until the reply is there.
+			const probe = { samples: 0, blank: 0, remounted: 0, drift: 0, linkDown: false, linkUpAt: 0, currentAt: 0 };
 			window.omp.events.onTabSidecarStatus(payload => {
 				if (payload.status === "error") probe.linkDown = true;
-				else if (probe.linkDown && !probe.linkUpAt) probe.linkUpAt = performance.now();
+				else if (probe.linkDown && !probe.linkUpAt) {
+					probe.linkUpAt = performance.now();
+					if (older.isConnected) top = older.getBoundingClientRect().top;
+				}
 			});
 			const timer = setInterval(() => {
 				const shown = document.querySelectorAll("[data-transcript-kind]");
 				probe.samples++;
 				if (shown.length === 0) probe.blank++;
+				if (!older.isConnected) probe.remounted++;
+				else if (probe.linkUpAt)
+					probe.drift = Math.max(probe.drift, Math.abs(older.getBoundingClientRect().top - top));
 				const last = [...shown].slice(-4);
 				if (probe.linkUpAt && last.some(row => row.textContent?.includes("Finished while you were away"))) {
 					probe.currentAt = performance.now();
@@ -433,13 +454,16 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 				caughtUpMs,
 				linkUpToCurrentMs,
 				blankSamples: probe.blank,
+				remountedSamples: probe.remounted,
+				driftPx: Math.round(probe.drift),
 				samples: probe.samples,
 			}),
 		});
 		console.log(
-			`[catch-up] link restored → reply shown ${caughtUpMs} ms; link back → reply shown ${linkUpToCurrentMs} ms; blank ~${probe.blank * 10} ms (${probe.blank}/${probe.samples} samples)`,
+			`[catch-up] link restored → reply shown ${caughtUpMs} ms; link back → reply shown ${linkUpToCurrentMs} ms; blank ~${probe.blank * 10} ms; older row remounted ${probe.remounted} samples, moved ${Math.round(probe.drift)} px (${probe.samples} samples)`,
 		);
 		expect(probe.blank).toBe(0);
+		expect(probe.remounted).toBe(0);
 		await expect(rows.filter({ hasText: "History answer 599." })).toHaveCount(1);
 		await expect(a.getByText("Working on it")).toHaveCount(0);
 		await expect(a.locator("textarea").first()).toHaveValue(draft);
