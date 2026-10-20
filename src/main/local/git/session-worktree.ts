@@ -10,8 +10,8 @@
  * user's clone.
  */
 import { createHash } from "node:crypto";
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import { LocalCommandError } from "../types";
 import { primaryRoot, repoRoot } from "./changes";
 import { gitRaw, withRepoLock } from "./exec";

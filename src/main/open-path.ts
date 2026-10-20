@@ -5,8 +5,9 @@
  * can link such a file, and one click would launch it with no prompt, so
  * launcher types are revealed in Finder / Explorer instead, never opened.
  */
-import { promises as fsp } from "node:fs";
+
 import path from "node:path";
+import { promises as fsp } from "original-fs";
 
 /**
  * Types that start code when opened, on any platform (a repo's `run.bat` is revealed on a Mac too). Scripts an

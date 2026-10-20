@@ -4,9 +4,9 @@
  * sit inside it. Read-only.
  */
 import { execFile } from "node:child_process";
-import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
 import { agentDir } from "../agent-paths";
 import { git, gitRaw } from "../local/git/exec";

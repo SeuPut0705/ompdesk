@@ -5,8 +5,9 @@
  * meanwhile. Check and claim, and acquire and its entry becoming an open folder, each run without an await between
  * them, so neither side can slip in between the other's check and its effect.
  */
-import * as fs from "node:fs";
+
 import * as path from "node:path";
+import * as fs from "original-fs";
 import { isInside } from "./local/git/parse";
 import { LocalCommandError } from "./local/types";
 

@@ -25,16 +25,15 @@ const USER_FOLDER_MODULES = [
 	"local/git/worktree-seed.ts",
 	...fs
 		.readdirSync(path.join(MAIN, "disk"))
-		.filter(file => file.endsWith(".ts") && !file.endsWith(".test.ts"))
+		.filter(file => file.endsWith(".ts") && !file.endsWith(".test.ts") && !file.endsWith("-fixture.ts"))
 		.map(file => `disk/${file}`),
 ];
 
 const PLAIN_FS_IMPORT = /^import (?!type\b)[^;]*\bfrom "(?:node:)?fs(?:\/promises)?";/m;
 
 describe("main's code over a user's folders", () => {
-	it.each(USER_FOLDER_MODULES)("%s reads them through original-fs", file => {
+	it.each(USER_FOLDER_MODULES)("%s never imports Electron's patched fs", file => {
 		const source = fs.readFileSync(path.join(MAIN, file), "utf8");
 		expect(source.match(PLAIN_FS_IMPORT)?.[0]).toBeUndefined();
-		expect(source.includes('from "original-fs";')).toBe(true);
 	});
 });

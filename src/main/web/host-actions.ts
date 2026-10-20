@@ -4,9 +4,10 @@
  * and fetch a host file over `/blob`. Each is a web-only channel (shared/web-host.ts) with its permission:
  * `workspace` for the disk and blobs, `desktop-control` for what happens on the host's screen.
  */
-import { constants, type Dirent, promises as fsp } from "node:fs";
+import type { Dirent } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { constants, promises as fsp } from "original-fs";
 import { z } from "zod";
 import { codedError } from "../../shared/ipc-error-codes";
 import {

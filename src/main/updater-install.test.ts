@@ -57,7 +57,6 @@ vi.mock("./nsis-updater", () => ({
 		quitAndInstall = mocks.updater.quitAndInstall;
 	},
 }));
-vi.mock("original-fs", () => import("node:fs"));
 vi.mock("./app-quit", () => ({
 	confirmQuit: async () => true,
 	disarmQuitWatchdog: () => {},

@@ -15,8 +15,9 @@
  * Anything else ignored (`.env`, a local database, `tmp/`, a seeded config someone edited) is data no tool brings
  * back: disk care archives it privately before a worktree goes, or keeps the worktree.
  */
-import * as fs from "node:fs/promises";
+
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import { gitRaw } from "../local/git/exec";
 
 export type RegenerableReason =

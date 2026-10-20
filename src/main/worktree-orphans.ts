@@ -11,9 +11,10 @@
  * `sweepLandedWorktrees` runs the same rule over every repository with a worktree under stock's worktree root, as
  * part of disk care (`src/main/disk/care.ts`): what the Work tree view's cleanup would offer goes by itself, branch kept.
  */
-import * as fs from "node:fs/promises";
+
 import * as os from "node:os";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import type {
 	OrphanWorktreeState,
 	RpcOrphanWorktree,

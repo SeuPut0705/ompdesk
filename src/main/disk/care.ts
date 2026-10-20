@@ -20,8 +20,8 @@
  * everything. Every action is one `disk-care` line in gui-runtime.jsonl.
  */
 import { execFile } from "node:child_process";
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import {
 	DISK_CARE_ARTIFACT_IDLE_DAYS,
 	DISK_CARE_REMOVE_IDLE_DAYS,

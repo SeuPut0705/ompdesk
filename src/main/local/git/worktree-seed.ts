@@ -18,8 +18,9 @@
  * Stock omp (18.12.1) has neither: no `worktreeinclude` and no worktree hook in its sources, and worktree creation
  * here is OMPdesk's own (`worktree.ts`), so nothing of stock is duplicated.
  */
-import * as fs from "node:fs/promises";
+
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import type { WorktreeSeedReport, WorktreeSetupReport } from "../../../shared/rpc-types";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "../../setup/supervisor";
 import { DEFAULT_TIMEOUT_MS, gitRaw } from "./exec";

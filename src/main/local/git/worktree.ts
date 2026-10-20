@@ -7,8 +7,9 @@
  * uncommitted changes. Removal deliberately retains branches; session exit safety
  * still runs in main after omp has gone, unlike stock removeExitWorktrees.
  */
-import * as fs from "node:fs/promises";
+
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
 import { worktreeBranchPrefix } from "../../../shared/worktree-branch";
 import { stockHelperRequest } from "../../stock-helper";

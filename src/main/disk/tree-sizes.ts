@@ -8,9 +8,9 @@
  * Measured on this Mac's ~/.omp/wt (924,219 files, 77,538 directories): a full walk (du) 17.7 s, this one 0.35 s when
  * nothing moved (one lstat per directory, no readdir).
  */
-import { existsSync } from "node:fs";
-import * as fs from "node:fs/promises";
+
 import * as path from "node:path";
+import { existsSync, promises as fs } from "original-fs";
 
 /**
  * One directory as last read: its mtime and inode, the bytes of its direct entries that have one link, those with

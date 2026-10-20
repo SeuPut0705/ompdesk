@@ -1,7 +1,7 @@
 /** `get_git_status`, `get_git_changes`, `get_git_diff` over the git CLI (port of fork rpc-git-diff.ts / buildRpcGitStatus). */
 import { createHash } from "node:crypto";
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint, RpcGitHead, RpcGitStatus } from "../../../shared/rpc-types";
 import { git, gitRaw } from "./exec";
 import {

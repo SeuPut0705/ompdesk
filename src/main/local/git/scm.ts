@@ -8,9 +8,10 @@
  * git_failed / push_rejected / no_remote / detached_head / nothing_staged /
  * commit_message_failed / branch_checked_out / dirty_worktree / commit_pushed.
  */
-import * as fs from "node:fs/promises";
+
 import * as os from "node:os";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import { isConflictStatus } from "../../../shared/git-status";
 import type {
 	RpcGitBranch,

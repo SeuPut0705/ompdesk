@@ -15,9 +15,9 @@
  *   committed), the archive copied back, then the repository's own seeding and setup hook.
  */
 import { randomBytes } from "node:crypto";
-import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promises as fs } from "original-fs";
 import type { SavedWorktree, SavedWorktreeRestore } from "../../shared/disk-care";
 import { discardNewWorktree, type WorktreeRef, type WorktreeRemoval } from "../agent-control/branches";
 import { git, gitRaw } from "../local/git/exec";

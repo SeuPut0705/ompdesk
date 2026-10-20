@@ -9,6 +9,9 @@ dropGitSelectors();
 const RENDERER = "src/renderer/**/*.{test,spec}.?(c|m)[jt]s?(x)";
 
 export default defineConfig({
+	// Electron's asar-unaware `fs` (`original-fs`, what main uses over a user's folders) exists only inside Electron;
+	// in plain Node it is the same module without the asar patch.
+	resolve: { alias: { "original-fs": "node:fs" } },
 	test: {
 		// Tests assert English UI text; pin the inferred UI language so a Korean or
 		// Chinese host locale (navigator.language follows the OS) cannot flip it.

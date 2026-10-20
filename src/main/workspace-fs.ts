@@ -8,10 +8,11 @@
  * confinement and caps. Never throws: every failure is an `ok: false` result
  * with a stable code.
  */
-import { type Dirent, promises as fsp } from "node:fs";
+import type { Dirent } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promises as fsp } from "original-fs";
 import { z } from "zod";
 import { codedError, type IpcErrorCode } from "../shared/ipc-error-codes";
 import type {
