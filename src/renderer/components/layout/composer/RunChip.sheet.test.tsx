@@ -10,8 +10,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AutopilotStatus } from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { useAutopilotStore } from "../../../stores/autopilot";
 import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSettingsStore } from "../../../stores/settings";
@@ -44,6 +46,7 @@ const rpc = {
 		}),
 	),
 	compactionLimits: vi.fn(async () => ok("compaction_limits", { models: [], roles: [] })),
+	getGitStatus: vi.fn(async () => ok("get_git_status", { isRepo: true })),
 };
 const events = new Proxy({}, { get: () => vi.fn(() => () => {}) });
 Object.assign(window as unknown as Record<string, unknown>, {
@@ -101,6 +104,7 @@ afterEach(async () => {
 	useModelStore.getState().reset();
 	useSettingsStore.getState().reset();
 	useSessionStore.getState().reset();
+	useAutopilotStore.getState().reset();
 	vi.clearAllMocks();
 });
 
@@ -172,5 +176,44 @@ describe("Advanced", () => {
 		);
 		expect(advanced?.getAttribute("aria-expanded")).toBe("false");
 		expect(advanced?.parentElement?.querySelector("[data-switch-grid]")).toBeNull();
+	});
+});
+
+describe("the Mode section opened before the tab's run state arrived", () => {
+	const running: AutopilotStatus = {
+		active: true,
+		state: "running",
+		cycle: 1,
+		now: { n: 1, area: "design", startedAt: 1 },
+		branch: "autopilot/2026-10-20",
+	};
+	const selectedTab = () => document.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? "";
+
+	it("shows the run once it is known, so its controls (open the screen, End) are there", async () => {
+		await openSheet({ openAdvanced: false });
+		expect(selectedTab()).toContain(translate("input.modes.tab.plan"));
+		await act(async () => useAutopilotStore.getState().apply(running));
+		expect(selectedTab()).toContain(translate("input.modes.tab.autopilot"));
+		expect(document.querySelector("[data-autopilot-open-screen]")).not.toBeNull();
+	});
+
+	it("moves on from the run's Goal, which shows until the Autopilot state arrives", async () => {
+		// A run is a Goal underneath: until its Autopilot state is known, the tab's mode reads as Goal.
+		useSessionStore.setState({ goal: { objective: "Autopilot: keep developing" }, goalState: { status: "active" } });
+		await openSheet({ openAdvanced: false });
+		expect(selectedTab()).toContain(translate("input.modes.tab.goal"));
+		await act(async () => useAutopilotStore.getState().apply(running));
+		expect(selectedTab()).toContain(translate("input.modes.tab.autopilot"));
+		expect(document.querySelector("[data-autopilot-open-screen]")).not.toBeNull();
+	});
+
+	it("keeps the tab the person picked meanwhile", async () => {
+		await openSheet({ openAdvanced: false });
+		const goal = Array.from(document.querySelectorAll('[role="tab"]')).find(tab =>
+			tab.textContent?.includes(translate("input.modes.tab.goal")),
+		) as HTMLElement | undefined;
+		await act(async () => goal?.click());
+		await act(async () => useAutopilotStore.getState().apply(running));
+		expect(selectedTab()).toContain(translate("input.modes.tab.goal"));
 	});
 });

@@ -241,10 +241,12 @@ describe("AgentControlRuntime", () => {
 		expect(runtime.parentOf("new00003")).toEqual({ callerTabId: "main0001" });
 	});
 
-	it("records the caller as the opener of a session the tool opens", async () => {
-		const { runtime, win, openers } = setup();
-		await runtime.run(win, "main0001", T.open, {});
+	it("records the caller as the opener of a session the tool opens, and hands the spawn its task", async () => {
+		const { runtime, win, openers, spawned } = setup();
+		await runtime.run(win, "main0001", T.open, { message: "Title: Fix the upload test\nIt times out." });
 		expect(openers).toHaveBeenCalledWith("new00003", "main0001");
+		// The tab is made with its task, so no window hears of it as "New session" first.
+		expect(spawned[0]).toMatchObject({ task: "Fix the upload test" });
 	});
 
 	it("brings a change nobody announced onto the work board: the sweep timer pushes the review list when it differs", async () => {

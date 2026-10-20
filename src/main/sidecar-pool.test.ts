@@ -1321,7 +1321,34 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(after.sidecars).toHaveLength(2);
 	});
 
-	it("carries the task an agent opened a tab for in its status and the window's tab list", () => {
+	it("carries the task an agent opened a tab for from the first status any window hears, and in the tab list", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire(
+			"/a",
+			fw.win,
+			"tab-a",
+			undefined,
+			"agent",
+			undefined,
+			true,
+			false,
+			false,
+			undefined,
+			undefined,
+			"Fix the flaky upload test",
+		);
+		// A status without it would paint the row "New session" until the next one (the phone read it, 1 in 60).
+		const statuses = fw
+			.sentTo(IPC_EVENTS.TAB_STATUS)
+			.map(sent => sent.data as IpcTabStatusPayload)
+			.filter(status => status.tabId === "tab-a");
+		expect(statuses.length).toBeGreaterThan(0);
+		for (const status of statuses) expect(status.task).toBe("Fix the flaky upload test");
+		expect(pool.tabsForWindow(fw.win)[0]?.task).toBe("Fix the flaky upload test");
+	});
+
+	it("names a tab that already exists (a relaunched one) in a status and the window's tab list", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");

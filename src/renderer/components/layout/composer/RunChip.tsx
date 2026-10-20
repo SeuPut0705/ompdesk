@@ -48,6 +48,11 @@ export function RunChip() {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const [open, setOpen] = useState(false);
 	const [tab, setTab] = useState<ComposerModeId>("plan");
+	// Opened from the chip, the section shows the tab's first mode and keeps following it until the person picks a
+	// tab: on a run's new tab the Autopilot state can arrive after the sheet opened (until then the tab shows no mode,
+	// or the run's underlying Goal), and a section left on Plan or Goal had none of the run's controls (open the
+	// screen, End).
+	const [followsModes, setFollowsModes] = useState(false);
 	const [confirmFullAccess, setConfirmFullAccess] = useState(false);
 	const delegation = useDelegation(open);
 
@@ -59,10 +64,14 @@ export function RunChip() {
 
 	const close = () => {
 		setOpen(false);
+		setFollowsModes(false);
 		if (useUiStore.getState().modesOpen) closeModes();
 	};
 
 	const first = modes.shown[0];
+	useEffect(() => {
+		if (open && followsModes && first) setTab(first);
+	}, [open, followsModes, first]);
 	const title = t("input.runSettings.title");
 	const ApprovalGlyph = APPROVAL_ICONS[approvalMode];
 	const delegationName = delegation.mode === null ? null : t(`input.delegation.mode.${delegation.mode}`);
@@ -109,6 +118,7 @@ export function RunChip() {
 							return;
 						}
 						setTab(first ?? "plan");
+						setFollowsModes(true);
 						setOpen(true);
 					}}
 					ref={triggerRef}
@@ -142,7 +152,15 @@ export function RunChip() {
 			>
 				<div className="flex flex-col gap-3 break-keep">
 					<h2 className="text-sc-sm font-semibold text-(--sc-text)">{title}</h2>
-					<ModesSection active={modes.active} onClose={close} onTabChange={setTab} tab={tab} />
+					<ModesSection
+						active={modes.active}
+						onClose={close}
+						onTabChange={next => {
+							setFollowsModes(false);
+							setTab(next);
+						}}
+						tab={tab}
+					/>
 					<ThinkingLevelField />
 					<ApprovalModeField
 						onRequestFullAccess={() => {

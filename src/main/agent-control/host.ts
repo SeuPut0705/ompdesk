@@ -534,6 +534,7 @@ export class AgentControlRuntime {
 			...(request.sessionPath ? { sessionPath: request.sessionPath } : {}),
 			...(worktree ? { worktree } : {}),
 			...(device ? { device } : {}),
+			...(request.task ? { task: request.task } : {}),
 		});
 		if (!result?.tabId) throw new Error("The new session could not be started.");
 		this.#windows.set(result.tabId, win);

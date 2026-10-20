@@ -182,6 +182,11 @@ export interface SpawnRequest {
 	sessionPath?: string;
 	/** Who asked for the session (Autopilot passes "autopilot-child"); the host records the caller tab as parent. */
 	tag?: string;
+	/**
+	 * What the session was opened for (its brief's `Title:` line, else its first line): its row reads it until stock
+	 * names the session. It rides the spawn, so no window ever hears of the tab without it.
+	 */
+	task?: string;
 }
 
 /** A session opened by `open`, handed to `beforeFirstPrompt` before its first message is sent. */
@@ -270,7 +275,7 @@ export interface AgentControlHost {
 	): Promise<{ tabId: string; worktree?: IpcTabWorktree; prepared?: string }>;
 	/** Start a tab that has no process yet (a restored, not yet shown tab). */
 	start(tabId: string): void;
-	/** What an opened session works on (`agentTaskTitle` of its first message): its row shows it until it has a title. */
+	/** Name a tab that already exists (a relaunched one, from its saved session); a new one gets its task at the spawn. */
 	setTask(tabId: string, task: string): void;
 	view(callerTabId: string, event: AgentControlViewEvent): void;
 	notify(callerTabId: string, title: string, body: string): void;
@@ -1381,6 +1386,8 @@ export class AgentControl {
 		let tabId: string;
 		let worktree: IpcTabWorktree | undefined;
 		let prepared: string | undefined;
+		// Its row reads as the work it was opened for from its first frame, not "New session" until stock names it.
+		const task = args.message && !sessionPath ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
 		try {
 			({ tabId, worktree, prepared } = await this.#host.spawn(caller.tabId, {
 				folder: args.folder,
@@ -1388,14 +1395,12 @@ export class AgentControl {
 				...(device !== undefined ? { device } : {}),
 				...(sessionPath ? { sessionPath } : {}),
 				...(tag ? { tag } : {}),
+				...(task ? { task } : {}),
 			}));
 		} finally {
 			opened.delete(reservation);
 		}
 		opened.add(tabId);
-		// Its row reads as the work it was opened for at once, not "New session" until stock names it.
-		const task = args.message && !sessionPath ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
-		if (task) this.#host.setTask(tabId, task);
 		try {
 			await this.#whenReady(tabId, caller.tabId);
 			const notes: string[] = [];

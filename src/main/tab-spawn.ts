@@ -129,6 +129,7 @@ export async function spawnTabForWindow(
 		false,
 		undefined,
 		device,
+		typeof payload?.task === "string" && payload.task ? payload.task : undefined,
 	)
 		? neutral
 			? { tabId, cwd }

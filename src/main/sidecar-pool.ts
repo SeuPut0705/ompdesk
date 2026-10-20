@@ -478,7 +478,8 @@ export class SidecarPool {
 	 *
 	 * `device` runs the tab on a paired host: the factory returns a
 	 * RemoteSidecar and the cwd is the host's path, so it is not resolved here
-	 * (the host canonicalizes it).
+	 * (the host canonicalizes it). `task`: what another session's agent opened it
+	 * for, on the entry before its first status reaches a window.
 	 */
 	acquire(
 		cwd: string,
@@ -492,6 +493,7 @@ export class SidecarPool {
 		deferStart = false,
 		title?: string,
 		device?: string,
+		task?: string,
 	): SidecarLike | null {
 		// A session the user deleted never comes back as a tab, whoever asks (a layout, a marker, a reopen).
 		if (deletedSessions().has(sessionPath, device)) return null;
@@ -518,6 +520,7 @@ export class SidecarPool {
 				full: null,
 			};
 			if (title) entry.title = title;
+			if (task) entry.task = task;
 			// Before anything can start it: the gate must be in place for the first `ready`.
 			const gate = this.worktreeStartGate?.(tabId, entry.winId, {
 				kind,
@@ -1979,7 +1982,7 @@ export class SidecarPool {
 		return entry.sidecar;
 	}
 
-	/** Name what another session's agent opened the tab for; its windows show it until the session has a title. */
+	/** Name a tab after it exists (a relaunched one, from its saved session); a new tab gets its task in `acquire`. */
 	setTabTask(tabId: string, task: string): void {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry || entry.task === task) return;
@@ -1992,7 +1995,6 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		return entry?.former && entry.former.file === entry.sessionFile ? entry.former.ids : [];
 	}
-
 	/**
 	 * Record that `openerTabId`'s agent opened `tabId` (`ompdesk_session_open`): the windows nest the session under
 	 * its opener, and the layout keeps the opener's session file so the family survives a relaunch.

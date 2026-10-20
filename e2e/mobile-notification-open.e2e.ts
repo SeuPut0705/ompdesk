@@ -12,10 +12,28 @@ import { devices, expect, type Page, test, webkit } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { ServeProxy, serveSites } from "./fixture/phone-serve";
-import { exitApp, fixtureOmp } from "./harness";
+import { cssString, exitApp, fixtureOmp } from "./harness";
 
 async function activeTab(page: Page): Promise<string | undefined> {
 	return (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
+}
+
+/**
+ * Pick a tab the way a person does on a phone: its row in the drawer. Not `tabs.setActive` behind the page's back:
+ * the page owns what its window shows, and its own pending switch (the notification's) could put the other tab back.
+ */
+async function pickTab(page: Page, tabId: string): Promise<void> {
+	const sessionPath = (await page.evaluate(() => window.omp.tabs.list())).find(
+		tab => tab.tabId === tabId,
+	)?.sessionPath;
+	await page.getByRole("button", { name: "Open menu" }).click();
+	const sidebar = page.locator("[data-drawer] .omp-session-sidebar");
+	for (const fold of await sidebar.locator('[data-workspace-group] button[aria-expanded="false"]').all())
+		await fold.click().catch(() => undefined);
+	await sidebar
+		.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath ?? `tab:${tabId}`)}]`)
+		.click();
+	await expect.poll(() => activeTab(page)).toBe(tabId);
 }
 
 /**
@@ -38,21 +56,21 @@ async function inUse(page: Page): Promise<void> {
 
 /** The strip the next start paints first (lib/tab-snapshot.ts) holds these tabs with `active` selected. */
 async function stripWritten(page: Page, tabs: string[], active: string): Promise<void> {
+	// The stored strips as `{active, ids}`, so a miss prints what the page did write.
+	const strips = () =>
+		page.evaluate(() =>
+			Object.keys(localStorage)
+				.filter(key => /^omp\.snap\.\d+\.tabs\./.test(key))
+				.map(key => {
+					const stored = JSON.parse(localStorage.getItem(key) ?? "null") as {
+						d?: { activeTabId?: string | null; tabs?: { id: string; ghost?: boolean }[] };
+					} | null;
+					return { active: stored?.d?.activeTabId ?? null, ids: (stored?.d?.tabs ?? []).map(tab => tab.id) };
+				}),
+		);
 	await expect
-		.poll(() =>
-			page.evaluate(
-				({ tabs, active }) =>
-					Object.keys(localStorage)
-						.filter(key => /^omp\.snap\.\d+\.tabs\./.test(key))
-						.map(key => localStorage.getItem(key) ?? "")
-						.some(
-							value =>
-								value.includes(`"activeTabId":"${active}"`) && tabs.every(tab => value.includes(`"${tab}"`)),
-						),
-				{ tabs, active },
-			),
-		)
-		.toBe(true);
+		.poll(strips, { message: "the tab strip snapshot", timeout: 30_000 })
+		.toContainEqual({ active, ids: expect.arrayContaining(tabs) });
 }
 
 test("a tapped notification opens its tab on a cold start, and the link is spent once routed", async () => {
@@ -123,7 +141,7 @@ test("a tapped notification opens its tab on a cold start, and the link is spent
 
 		// The person goes back to the first tab; a reload keeps them there.
 		await inUse(opened);
-		await opened.evaluate(id => window.omp.tabs.setActive(id), first);
+		await pickTab(opened, first);
 		await stripWritten(opened, [first, notified], first);
 		await opened.reload();
 		await inUse(opened);

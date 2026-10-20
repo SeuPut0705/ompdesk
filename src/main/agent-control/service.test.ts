@@ -101,6 +101,7 @@ class FakeHost implements AgentControlHost {
 		const tab = this.tabsById.get(tabId);
 		if (tab) tab.status = "ready";
 	};
+	/** What each tab was spawned for (`SpawnRequest.task`) or named afterwards (`setTask`). */
 	tasks = new Map<string, string>();
 	setTask = (tabId: string, task: string) => {
 		this.tasks.set(tabId, task);
@@ -251,6 +252,7 @@ class FakeHost implements AgentControlHost {
 				: {}),
 		});
 		this.parents.set(tab.tabId, caller);
+		if (request.task) this.tasks.set(tab.tabId, request.task);
 		return { tabId: tab.tabId, ...(tab.worktree ? { worktree: tab.worktree } : {}) };
 	};
 

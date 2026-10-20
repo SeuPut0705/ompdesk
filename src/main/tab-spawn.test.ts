@@ -90,6 +90,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			false,
 			...SPAWNED,
 			undefined,
+			undefined,
 		);
 	});
 
@@ -108,6 +109,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			undefined,
 			false,
 			...SPAWNED,
+			undefined,
 			undefined,
 		);
 	});
@@ -203,6 +205,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			true,
 			...SPAWNED,
 			undefined,
+			undefined,
 		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});
@@ -222,6 +225,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			true,
 			...SPAWNED,
 			undefined,
+			undefined,
 		);
 		expect(kindFor).not.toHaveBeenCalled();
 	});
@@ -240,6 +244,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			undefined,
 			true,
 			...SPAWNED,
+			undefined,
 			undefined,
 		);
 	});
@@ -264,6 +269,7 @@ describe("spawnTabForWindow refusal contracts", () => {
 			worktree,
 			true,
 			...SPAWNED,
+			undefined,
 			undefined,
 		);
 	});
@@ -293,6 +299,7 @@ describe("spawnTabForWindow on a paired host", () => {
 			false,
 			...SPAWNED,
 			"host-b",
+			undefined,
 		);
 	});
 
@@ -315,6 +322,7 @@ describe("spawnTabForWindow on a paired host", () => {
 			false,
 			...SPAWNED,
 			"host-b",
+			undefined,
 		);
 	});
 
@@ -343,6 +351,7 @@ describe("spawnTabForWindow on a paired host", () => {
 			true,
 			...SPAWNED,
 			"host-b",
+			undefined,
 		);
 	});
 

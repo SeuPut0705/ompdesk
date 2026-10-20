@@ -1457,6 +1457,8 @@ export interface IpcSpawnTabPayload {
 	worktree?: IpcTabWorktree;
 	/** Paired host deviceId to run the tab on; absent = this device. */
 	device?: string;
+	/** What another session's agent opened the tab for (`IpcTabInfo.task`): set before any window hears of the tab. */
+	task?: string;
 }
 
 /** Owner of a session file: the tab (and its window) currently attached to it. */
