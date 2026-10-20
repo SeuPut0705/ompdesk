@@ -177,6 +177,12 @@ describe("mac bundle configs", () => {
 				"pstack/adapter.md",
 				"pstack/skills/poteto-mode/SKILL.md",
 				"pstack/agents/pstack-agent.md",
+				"ecc/ecc-config.json",
+				"ecc/UPSTREAM-LICENSE",
+				"ecc/README.md",
+				"ecc/skills/ecc/SKILL.md",
+				"ecc/skills/golang-patterns/SKILL.md",
+				"ecc/commands/code-review.md",
 				"skills/ompdesk/SKILL.md",
 			]) {
 				expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin", name)), `${file} omits ${name}`).toBe(
@@ -185,6 +191,8 @@ describe("mac bundle configs", () => {
 			}
 		}
 		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/pstack/plugin.json"))).toBe(false);
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/ecc/plugin.json"))).toBe(false);
+		expect(fs.existsSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/ecc/package.json"))).toBe(false);
 		const declaration: unknown = JSON.parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/.mcp.json"), "utf8"),
 		);
@@ -196,7 +204,7 @@ describe("mac bundle configs", () => {
 	it("keeps OMPdesk's own extension root to its skill, so loading it never starts REA", () => {
 		// The control tools load `-e omp-builtin` on their own switch; REA is the separate `-e omp-builtin/rea`.
 		const root = path.join(PACKAGE_ROOT, "resources/omp-builtin");
-		expect(fs.readdirSync(root).sort()).toEqual(["pstack", "rea", "skills"]);
+		expect(fs.readdirSync(root).sort()).toEqual(["ecc", "pstack", "rea", "skills"]);
 		expect(fs.readdirSync(path.join(root, "skills"))).toEqual(["ompdesk"]);
 		const skill = fs.readFileSync(path.join(root, "skills/ompdesk/SKILL.md"), "utf8");
 		expect(skill).toMatch(/^---\nname: ompdesk\ndescription: \S/);

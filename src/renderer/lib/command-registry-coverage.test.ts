@@ -1,8 +1,11 @@
 /**
  * The command palette reaches every command the app has: each native menu
  * item and each remappable shortcut has a palette row, and the row shows the
- * chord that actually fires it (the user's remap, not the default).
+ * chord that actually fires it (the user's remap, not the default). And no
+ * prompt command of the built-in ECC pack shares a name with one of these.
  */
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MenuAction } from "../../shared/ipc-types";
 import { buildCommandMenu, type CommandMenuItem, type CommandRegistryContext } from "./command-registry";
@@ -238,5 +241,16 @@ describe("command palette coverage", () => {
 		} finally {
 			setLanguageOverride(null);
 		}
+	});
+});
+
+describe("built-in ECC prompt commands", () => {
+	it("share no name or alias with an OMPdesk command (the composer would run the GUI one)", () => {
+		const ecc = readdirSync(path.join(__dirname, "../../../resources/omp-builtin/ecc/commands")).map(file =>
+			file.replace(/\.md$/, ""),
+		);
+		const gui = buildCommandMenu(ctx).flatMap(item => [item.name, ...(item.aliases ?? [])]);
+		expect(gui).toContain("plan");
+		expect(ecc.filter(name => gui.includes(name))).toEqual([]);
 	});
 });

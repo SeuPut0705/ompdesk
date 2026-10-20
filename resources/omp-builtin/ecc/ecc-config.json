@@ -1,0 +1,72 @@
+{
+	"repo": "affaan-m/ECC",
+	"commit": "5af4395e5c52643b7f5ecc716079cd253504b354",
+	"path": "pi/core",
+	"version": "2.2.3",
+	"curation": {
+		"rule": "pstack's playbooks lead the workflow (planning, TDD, verification, review, decisions, parallel work); ECC supplies language, framework, tool and domain specifics. An ECC skill that only restates a pstack workflow is left out, and references to it in the skills kept point at pstack's counterpart (`leads`). Upstream's own exclusions are in CURATION.md.",
+		"droppedSkills": {
+			"tdd-workflow": {
+				"leads": "pstack-tdd",
+				"why": "generic red-green-refactor loop; pstack-tdd and the bug-fix and feature playbooks lead. Language TDD skills (django-tdd, laravel-tdd, springboot-tdd, quarkus-tdd, *-testing) stay."
+			},
+			"verification-loop": {
+				"leads": "principle-prove-it-works",
+				"why": "generic verify-the-session loop written for Claude Code; pstack's prove-it-works leads. Framework verification loops (django-, laravel-, quarkus-, springboot-verification) stay."
+			},
+			"change-impact": {
+				"leads": "blast-radius",
+				"why": "pre-change impact analysis; pstack's blast-radius covers it and proves the claim by running code."
+			},
+			"codebase-onboarding": {
+				"leads": "how",
+				"why": "explains an unfamiliar codebase and writes a starter CLAUDE.md; pstack's how skill and investigation playbook lead."
+			},
+			"benchmark-optimization-loop": {
+				"leads": "skill://poteto-mode/playbooks/hillclimb.md",
+				"why": "measured optimization loop; pstack's hillclimb and perf-issue playbooks lead."
+			},
+			"blueprint": {
+				"leads": "skill://poteto-mode/playbooks/multi-phase-plan.md",
+				"why": "multi-session construction plan; pstack's multi-phase-plan playbook and figure-it-out lead."
+			},
+			"intent-driven-development": {
+				"leads": "figure-it-out",
+				"why": "acceptance criteria before implementation; the feature playbook and figure-it-out lead."
+			},
+			"agentic-engineering": {
+				"leads": "poteto-mode",
+				"why": "eval-first decomposition and model routing; poteto-mode itself."
+			},
+			"ai-first-engineering": {
+				"leads": "poteto-mode",
+				"why": "team operating model for AI-written code; poteto-mode and its principles."
+			},
+			"agent-self-evaluation": {
+				"leads": "principle-prove-it-works",
+				"why": "self-rating after every task contradicts prove-it-works (evidence over self-assessment) and ships hook integration."
+			},
+			"parallel-execution-optimizer": {
+				"leads": "swarm",
+				"why": "parallel lane planning; pstack's swarm skill and the feature playbook's throughput checkpoint lead."
+			},
+			"ecc-council": {
+				"leads": "interrogate",
+				"why": "four-voice decision council; pstack's interrogate (multi-model adversarial) leads."
+			},
+			"dev-team": {
+				"leads": "arena",
+				"why": "simulated role personas debating one problem; interrogate and arena lead."
+			},
+			"conventional-commit-review": {
+				"leads": "technical-writing",
+				"why": "commit message drafting; repo rules, technical-writing and the opening-a-pr playbook lead."
+			}
+		},
+		"renamedCommands": {
+			"plan": { "to": "ecc-plan", "why": "/plan is stock omp's plan mode and OMPdesk's Plan command." }
+		},
+		"commands": "Prompt commands run only when the user types them, so they never compete with pstack's routing (an invoked command outranks the pstack section); all 24 are kept.",
+		"hidden": "Every kept skill has disable-model-invocation: true (read as skill://<name>); only the generated index skill `ecc` is listed to the model."
+	}
+}
