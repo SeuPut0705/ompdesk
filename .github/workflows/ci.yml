@@ -335,11 +335,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+        # Releases before v0.42.0 were removed from GitHub: without the assisted-installer release the
+        # all-users step is skipped with a warning instead of failing every other check.
         run: |
           set -euo pipefail
           cp "dist/ompdesk-$(node -p 'require("./package.json").version')-setup.exe" ompdesk-windows-setup.exe
-          gh release download "${{ inputs.legacy_tag }}" --pattern ompdesk-windows-setup.exe --output legacy-setup.exe
-          ls -l ompdesk-windows-setup.exe legacy-setup.exe
+          if gh release download "${{ inputs.legacy_tag }}" --pattern ompdesk-windows-setup.exe --output legacy-setup.exe; then
+            ls -l ompdesk-windows-setup.exe legacy-setup.exe
+          else
+            echo "::warning::release ${{ inputs.legacy_tag }} not found: the all-users install step is skipped"
+          fi
       - name: Silent install
         shell: pwsh
         run: ./scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode silent
@@ -347,6 +352,7 @@ jobs:
         shell: pwsh
         run: ./scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode ui -Captures installer-captures
       - name: Over an all-users install
+        if: hashFiles('legacy-setup.exe') != ''
         shell: pwsh
         run: ./scripts/windows-installer-check.ps1 -Setup ompdesk-windows-setup.exe -Mode legacy -LegacySetup legacy-setup.exe
       - if: always()
