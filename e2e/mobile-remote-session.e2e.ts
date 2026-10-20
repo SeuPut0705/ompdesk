@@ -143,7 +143,7 @@ interface Rig {
 	parent: string;
 	hostProfile: RemoteProfile;
 	clientProfile: RemoteProfile;
-	/** The host's agent dir: Windows-shaped, `…/C:\Users\admin\.omp\agent`. */
+	/** The host's agent dir: Windows-shaped (`…/C:\Users\admin\.omp\agent` on POSIX; Windows paths are that already). */
 	hostAgent: string;
 	host: RemoteInstance | undefined;
 	client: RemoteInstance | undefined;
@@ -179,7 +179,11 @@ async function rig(
 		],
 	});
 	const hostPort = await freePort();
-	const hostAgent = path.join(parent, "host-home", "C:\\Users\\admin\\.omp\\agent");
+	// POSIX plays a Windows host with one folder named like its agent dir. A drive letter cannot name a folder on Windows.
+	const hostAgent =
+		process.platform === "win32"
+			? path.join(parent, "host-home", ".omp", "agent")
+			: path.join(parent, "host-home", "C:\\Users\\admin\\.omp\\agent");
 	await fs.mkdir(hostAgent, { recursive: true });
 	const hostProfile = await makeRemoteProfile(parent, "host", {
 		language: "en",
@@ -261,7 +265,6 @@ async function hostRow(setup: Rig, sessionPath: string) {
 }
 
 test("a paired phone opens and works in sessions of a remote host this computer is paired with", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
 	test.setTimeout(240_000);
 	const sessions = { stored: "", macHeld: "", hostHeld: "", hostAsleep: "", local: "" };
 	let setup: Rig | undefined;
@@ -451,7 +454,6 @@ test("a paired phone opens and works in sessions of a remote host this computer 
 });
 
 test("a host that never starts the session is named on the phone, logged, and the tab comes up once it can", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
 	test.setTimeout(180_000);
 	let stored = "";
 	let setup: Rig | undefined;
@@ -511,7 +513,6 @@ test("a host that never starts the session is named on the phone, logged, and th
 });
 
 test("the phone's work strip shows a host session's running turn, its todos and its subagents", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
 	test.setTimeout(180_000);
 	let stored = "";
 	let setup: Rig | undefined;
