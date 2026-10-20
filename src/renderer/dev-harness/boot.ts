@@ -14,9 +14,12 @@ import { setWebRuntime } from "../web/runtime";
 import { BOARD_BUSY, boardBusyStores } from "./fixture-board";
 import { createHarnessTransport } from "./transport";
 
-document.documentElement.dataset.platform = "web";
-
 const query = new URLSearchParams(location.search);
+
+// `?platform=darwin|win32` paints the page as an Electron window of that OS would (desktop layout, no mobile shell,
+// the OS's title-bar room): the responsive audit's desktop looks. Without it the page is the web client.
+const platform = query.get("platform");
+document.documentElement.dataset.platform = platform === "darwin" || platform === "win32" ? platform : "web";
 
 // `?rail=all` pins Agents and Stats under the session list, the way the footer shortcut toggles do.
 const prefs: Record<string, unknown> = {};

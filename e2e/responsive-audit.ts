@@ -7,9 +7,10 @@ import { type Browser, devices, expect, type Page } from "@playwright/test";
 // into <dir>/report.json + <dir>/summary.md. Registered by e2e/responsive-audit.e2e.ts only with
 // OMP_GUI_RESPONSIVE=<dir>; the default run's one smoke (e2e/responsive-smoke.e2e.ts) reuses `openLook`/`measure`.
 //
-// A "look" is one viewport × theme × language. Widths 320, 360, 390, 412 (DPR 3.5) are portrait phones; 768, 834
-// and 1024 are tablets in portrait (height = 1.4 × width) and landscape (height = 0.72 × width), so a short
-// viewport at the same width is exercised too. Dark is run at 390 only.
+// A "look" is one viewport × theme × language × device. Widths 320, 360, 390, 412 (DPR 3.5) are portrait phones; 768,
+// 834 and 1024 are tablets in portrait (height = 1.4 × width) and landscape (height = 0.72 × width), 1133, 1180 and
+// 1366 iPads held sideways, all with touch; 1100, 1280, 1440 and 1920 are desktop windows with a mouse, once as the
+// web client and once painted as an Electron window. Dark is run at 390 and 1280.
 
 export type IssueKind =
 	| "overflow-page" // the document scrolls sideways
@@ -68,10 +69,22 @@ export interface Look {
 	orientation: "portrait" | "landscape";
 	theme: "light" | "dark";
 	lang: "en" | "ko";
+	/**
+	 * What draws the page: `touch` (default) a phone or tablet browser, `web` the web client in a desktop browser with
+	 * a mouse, `electron` the harness painted as an Electron window (`?platform=darwin`: desktop layout, no mobile
+	 * shell). Hit areas and safe areas are touch rules, so the two desktop devices are not measured for them.
+	 */
+	device?: "touch" | "web" | "electron";
 }
 
+const DEVICE_MARK: Record<NonNullable<Look["device"]>, string> = { touch: "", web: "W", electron: "E" };
+
+/** The look's column in the summary: width, then L (touch landscape), W (desktop web) or E (Electron window). */
+export const lookColumn = (look: Look): string =>
+	`${look.width}${look.device && look.device !== "touch" ? DEVICE_MARK[look.device] : look.orientation === "landscape" ? "L" : ""}`;
+
 export const lookTag = (look: Look): string =>
-	`${look.width}${look.orientation === "landscape" ? "L" : "P"}-${look.theme}-${look.lang}`;
+	`${look.width}${look.device && look.device !== "touch" ? DEVICE_MARK[look.device] : look.orientation === "landscape" ? "L" : "P"}-${look.theme}-${look.lang}`;
 
 const PHONE_WIDTHS = [320, 360, 390, 412] as const;
 const TABLET_WIDTHS = [768, 834, 1024] as const;
@@ -82,21 +95,43 @@ const IPAD_LANDSCAPE = [
 	[1180, 820],
 	[1366, 1024],
 ] as const;
+/** Desktop windows, each as the web client in a desktop browser and as an Electron window. */
+const DESKTOP = [
+	[1100, 800],
+	[1280, 800],
+	[1440, 900],
+	[1920, 1080],
+] as const;
+/** Widths that also run dark: a phone and a desktop window. */
+const DARK_WIDTHS = new Set([390, 1280]);
 
 /** Every look the full matrix visits; `filter` narrows it by env (`OMP_GUI_RESPONSIVE_WIDTHS`, `_LANGS`, `_THEMES`). */
 export function looksFor(
-	filter: { widths?: number[]; langs?: Look["lang"][]; themes?: Look["theme"][]; orientations?: string[] } = {},
+	filter: {
+		widths?: number[];
+		langs?: Look["lang"][];
+		themes?: Look["theme"][];
+		orientations?: string[];
+		devices?: string[];
+	} = {},
 ): Look[] {
 	const looks: Look[] = [];
 	const langs = filter.langs ?? ["en", "ko"];
 	const themes = filter.themes ?? ["light", "dark"];
-	const add = (width: number, height: number, orientation: Look["orientation"], dpr: number) => {
+	const add = (
+		width: number,
+		height: number,
+		orientation: Look["orientation"],
+		dpr: number,
+		device: NonNullable<Look["device"]> = "touch",
+	) => {
 		if (filter.widths && !filter.widths.includes(width)) return;
 		if (filter.orientations && !filter.orientations.includes(orientation)) return;
+		if (filter.devices && !filter.devices.includes(device)) return;
 		for (const theme of themes) {
-			// Dark is run at 390 only.
-			if (theme === "dark" && width !== 390) continue;
-			for (const lang of langs) looks.push({ width, height, dpr, orientation, theme, lang });
+			if (theme === "dark" && !DARK_WIDTHS.has(width)) continue;
+			for (const lang of langs)
+				looks.push({ width, height, dpr, orientation, theme, lang, ...(device === "touch" ? {} : { device }) });
 		}
 	};
 	for (const width of PHONE_WIDTHS) add(width, PHONE_HEIGHT[width] ?? 844, "portrait", width === 412 ? 3.5 : 3);
@@ -107,13 +142,21 @@ export function looksFor(
 	// iPads held sideways: wide enough that the work board docks beside the transcript (work-board.ts
 	// `workBoardDocks`), so the docked board is measured at a tablet's touch sizes too.
 	for (const [width, height] of IPAD_LANDSCAPE) add(width, height, "landscape", 2);
+	for (const [width, height] of DESKTOP) {
+		add(width, height, "landscape", 2, "web");
+		add(width, height, "landscape", 2, "electron");
+	}
 	return looks;
 }
 
+/** Whether the look's main input is a finger: hit areas and the hardware insets are measured only then. */
+export const touchLook = (look: Look): boolean => (look.device ?? "touch") === "touch";
+
 /** Safe-area insets a device of this size has (CSS px): an iPhone's notch and home bar, an iPad's rounded corners. */
 export function safeInsets(look: Look): { t: number; r: number; b: number; l: number } {
+	if (!touchLook(look)) return { t: 0, r: 0, b: 0, l: 0 };
 	if (look.width < 600) return { t: 47, r: 0, b: 34, l: 0 };
-	return look.orientation === "portrait" ? { t: 24, r: 0, b: 20, l: 0 } : { t: 24, r: 0, b: 20, l: 0 };
+	return { t: 24, r: 0, b: 20, l: 0 };
 }
 
 export interface OpenOptions {
@@ -125,12 +168,13 @@ export interface OpenOptions {
 
 /** A fresh page of the harness at `look`, with the device's safe areas applied, once the shell has painted. */
 export async function openLook(browser: Browser, look: Look, options: OpenOptions): Promise<Page> {
+	const touch = touchLook(look);
 	const context = await browser.newContext({
-		...devices["iPhone 15"],
+		...(touch ? devices["iPhone 15"] : devices["Desktop Chrome"]),
 		viewport: { width: look.width, height: look.height },
 		deviceScaleFactor: look.dpr,
-		isMobile: true,
-		hasTouch: true,
+		isMobile: touch,
+		hasTouch: touch,
 		reducedMotion: "reduce",
 	});
 	const page = await context.newPage();
@@ -144,7 +188,7 @@ export async function openLook(browser: Browser, look: Look, options: OpenOption
 	});
 	Object.assign(page, { auditErrors: errors });
 	await page.goto(
-		`${options.origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all&stress=1${options.query ?? ""}`,
+		`${options.origin}/harness.html?theme=${look.theme}&lang=${look.lang}&rail=all&stress=1${look.device === "electron" ? "&platform=darwin" : ""}${options.query ?? ""}`,
 		{ timeout: 90_000 },
 	);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
@@ -223,11 +267,11 @@ export async function measure(page: Page, look: Look): Promise<Issue[]> {
 		}
 		window.scrollTo(0, 0);
 	});
-	return page.evaluate(measureInPage, { safe: safeInsets(look) });
+	return page.evaluate(measureInPage, { safe: safeInsets(look), touch: touchLook(look) });
 }
 
 /** Runs in the page (serialized by Playwright): nothing outside this function is in scope there. */
-function measureInPage(options: { safe: { t: number; r: number; b: number; l: number } }): Issue[] {
+function measureInPage(options: { safe: { t: number; r: number; b: number; l: number }; touch: boolean }): Issue[] {
 	const issues: Issue[] = [];
 	const vw = document.documentElement.clientWidth;
 	const vh = window.innerHeight;
@@ -508,7 +552,8 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			field,
 		};
 	};
-	for (const element of controls) {
+	// A mouse needs no 44 px reach: hit areas and stolen taps are measured for touch looks only.
+	for (const element of options.touch ? controls : []) {
 		// A link inside a sentence is exempt.
 		if (element instanceof HTMLAnchorElement && style(element).display === "inline") continue;
 		const hit = hitBox(element);
@@ -560,7 +605,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	}
 	// Stolen taps: nine points across each control's hit box (the visual box grown by its ::after, centred); a point
 	// that resolves to another control, or to nothing, is a tap the user aims at this control and loses.
-	for (const element of controls) {
+	for (const element of options.touch ? controls : []) {
 		if ((cap["stolen-tap"] ?? 0) >= CAP) break;
 		if (element instanceof HTMLAnchorElement && style(element).display === "inline") continue;
 		const hit = hitBox(element);
@@ -791,14 +836,14 @@ export async function mergeReport(
 		if (result.failed) entry.failed++;
 		for (const [kind, count] of Object.entries(result.counts))
 			entry.kinds[kind] = (entry.kinds[kind] ?? 0) + (count ?? 0);
-		const key = `${result.look.width}${result.look.orientation === "landscape" ? "L" : ""}`;
+		const key = lookColumn(result.look);
 		entry.widths.set(key, (entry.widths.get(key) ?? 0) + totalOf(result));
 		bySurface.set(result.surface, entry);
 	}
 	const ranked = [...bySurface.entries()].sort((a, b) => b[1].score - a[1].score);
-	const widthKeys = [
-		...new Set(results.map(result => `${result.look.width}${result.look.orientation === "landscape" ? "L" : ""}`)),
-	].sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10) || a.localeCompare(b));
+	const widthKeys = [...new Set(results.map(result => lookColumn(result.look)))].sort(
+		(a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10) || a.localeCompare(b),
+	);
 	const lines = [
 		`# Responsive audit — ${new Date().toISOString()}`,
 		"",
@@ -808,7 +853,9 @@ export async function mergeReport(
 			.map(([area, count]) => `${area} ${count}`)
 			.join(", ")}.`,
 		"",
-		`Weights: ${ISSUE_KINDS.map(kind => `${kind} ${KIND_WEIGHT[kind]}`).join(", ")}. A cell is the issue count at that width (portrait; L = landscape), light and dark, en and ko added.`,
+		`By kind: ${ISSUE_KINDS.map(kind => `${kind} ${results.reduce((sum, result) => sum + (result.counts[kind] ?? 0), 0)}`).join(", ")}.`,
+		"",
+		`Weights: ${ISSUE_KINDS.map(kind => `${kind} ${KIND_WEIGHT[kind]}`).join(", ")}. A cell is the issue count at that width (portrait; L = touch landscape; W = desktop web client; E = Electron window), light and dark, en and ko added. Desktop looks measure no hit areas and no safe areas (mouse input).`,
 		"",
 		`| surface | area | score | total | ${widthKeys.join(" | ")} | top kinds |`,
 		`| --- | --- | ---: | ---: | ${widthKeys.map(() => "---:").join(" | ")} | --- |`,

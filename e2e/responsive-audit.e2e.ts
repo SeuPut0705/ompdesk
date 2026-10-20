@@ -22,8 +22,8 @@ import { type Surface, surfacesFor } from "./responsive-surfaces";
 // The full responsive matrix: every surface of e2e/responsive-surfaces.ts at every look of e2e/responsive-audit.ts.
 // Registered only with OMP_GUI_RESPONSIVE=<dir> (it writes <dir>/report.json, <dir>/summary.md, <dir>/looks/*.json
 // and captures under <dir>/shots). Narrow it with OMP_GUI_RESPONSIVE_WIDTHS=390,834, _LANGS=en, _THEMES=light,
-// _ORIENT=portrait, _AREA=A|B, _ONLY=<regex of surface ids>, and OMP_GUI_RESPONSIVE_SHOTS=all|none (default: 390
-// and 834, en, light). Run it under `bun run locked`.
+// _ORIENT=portrait, _DEVICE=touch|web|electron, _AREA=A|B, _ONLY=<regex of surface ids>, and
+// OMP_GUI_RESPONSIVE_SHOTS=all|none (default: 390, 834 and 1280, en, light). Run it under `bun run locked`.
 
 const dir = process.env.OMP_GUI_RESPONSIVE;
 const list = (name: string): string[] | undefined => process.env[name]?.split(",").filter(Boolean);
@@ -47,7 +47,7 @@ async function shouldShoot(look: Look): Promise<boolean> {
 	const mode = process.env.OMP_GUI_RESPONSIVE_SHOTS;
 	if (mode === "none") return false;
 	if (mode === "all") return true;
-	return look.lang === "en" && look.theme === "light" && (look.width === 390 || look.width === 834);
+	return look.lang === "en" && look.theme === "light" && [390, 834, 1280].includes(look.width);
 }
 
 if (dir) {
@@ -75,6 +75,7 @@ if (dir) {
 		langs: list("OMP_GUI_RESPONSIVE_LANGS") as Look["lang"][] | undefined,
 		themes: list("OMP_GUI_RESPONSIVE_THEMES") as Look["theme"][] | undefined,
 		orientations: list("OMP_GUI_RESPONSIVE_ORIENT"),
+		devices: list("OMP_GUI_RESPONSIVE_DEVICE"),
 	});
 	const only = process.env.OMP_GUI_RESPONSIVE_ONLY ? new RegExp(process.env.OMP_GUI_RESPONSIVE_ONLY) : undefined;
 	const surfaces = surfacesFor({ area: process.env.OMP_GUI_RESPONSIVE_AREA, only });
