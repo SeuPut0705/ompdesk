@@ -764,6 +764,9 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			return ownerTabId;
 		}
 		const { tabId } = result;
+		// This window already let the tab go while main answered (the start tab gave way to a real tab the list pushed
+		// ahead of this answer): it is gone, not a tab to re-add and switch to.
+		if (isTabClosed(tabId)) return null;
 		ensureTabRuntime(tabId);
 		const resolvedCwd = result.cwd ?? cwd;
 		// Attached as a viewer of a session another window holds: the tab is already running there, so its
