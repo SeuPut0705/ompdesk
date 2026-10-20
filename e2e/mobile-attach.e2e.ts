@@ -128,6 +128,23 @@ function bubblePictures(phone: Page): Promise<number> {
 		.evaluateAll(images => images.filter(image => (image as HTMLImageElement).naturalWidth > 0).length);
 }
 
+/**
+ * What the phone's browser does with a picture, asked of the page: the engine under test is not always the phone it
+ * stands in for. Safari on an iPhone draws a HEIC and has `OffscreenCanvas` (16.4 and later), which scales a photo
+ * down before it goes up; Chromium draws no HEIC, and Playwright's WebKit on Windows, a build of its own, has neither.
+ */
+function pictureSupport(phone: Page, heic: Buffer): Promise<{ drawsHeic: boolean; scales: boolean }> {
+	return phone.evaluate(async base64 => {
+		const image = new Image();
+		image.src = `data:image/heic;base64,${base64}`;
+		const drawsHeic = await image.decode().then(
+			() => image.naturalWidth > 0,
+			() => false,
+		);
+		return { drawsHeic, scales: typeof OffscreenCanvas === "function" && typeof createImageBitmap === "function" };
+	}, heic.toString("base64"));
+}
+
 interface Host {
 	app: ElectronApplication;
 	proxy: ServeProxy;
@@ -199,10 +216,11 @@ for (const engine of ENGINES)
 		try {
 			({ app, proxy } = await startHost(engine, profile));
 
+			const heic = await fs.readFile("e2e/media/photo.heic");
 			const pictures: Picture[] = [
 				{ name: "camera.jpg", mimeType: "image/jpeg", buffer: await cameraJpeg(app, 24, 92) },
 				{ name: "big.jpg", mimeType: "image/jpeg", buffer: await cameraJpeg(app, 40, 100) },
-				{ name: "photo.heic", mimeType: "image/heic", buffer: await fs.readFile("e2e/media/photo.heic") },
+				{ name: "photo.heic", mimeType: "image/heic", buffer: heic },
 			];
 			const [camera, big] = pictures;
 			expect(camera?.buffer.length).toBeGreaterThan(3 * 1024 * 1024);
@@ -218,8 +236,9 @@ for (const engine of ENGINES)
 			// A web window starts with no tab of its own: open one in the project, as the phone's sidebar would.
 			await openPhonePage(phone, proxy, profile.project);
 			const field = phone.locator("[data-composer-input]").first();
-			// A picture this browser draws is a thumbnail; one it cannot (a HEIC in Chromium) is the photo chip with its
-			// format and size (ComposerThumbnail), while the computer converts it for the model.
+			const support = await pictureSupport(phone, heic);
+			// A picture this browser draws is a thumbnail; one it cannot (a HEIC where nothing decodes it) is the photo
+			// chip with its format and size (ComposerThumbnail), while the computer converts it for the model.
 			const thumbnails = phone.locator('ul[aria-label="Attached images"] li :is(img, [data-composer-photo-chip])');
 			const drawn = phone.locator('ul[aria-label="Attached images"] li img');
 
@@ -227,7 +246,7 @@ for (const engine of ENGINES)
 				const message = `look at ${picture.name}`;
 				await phone.locator('input[type="file"]').first().setInputFiles(picture);
 				await expect(thumbnails).toHaveCount(1, { timeout: 30_000 });
-				if (picture.mimeType === "image/heic" && engine.name === "chromium") {
+				if (picture.mimeType === "image/heic" && !support.drawsHeic) {
 					await expect(phone.locator("[data-composer-photo-chip]")).toHaveAttribute("aria-label", "HEIC photo");
 					await expect(drawn).toHaveCount(0);
 				} else {
@@ -253,9 +272,12 @@ for (const engine of ENGINES)
 				expect(image?.mimeType).toBe("image/jpeg");
 				expect(image?.data.length ?? 0).toBeGreaterThan(1000);
 				if (picture.mimeType === "image/jpeg") {
-					// Scaled down on the phone (IMAGE_MAX_SIDE) and still a JPEG; larger than a frame as base64.
 					expect(image?.mimeType).toBe("image/jpeg");
-					expect(Buffer.from(image?.data ?? "", "base64").length).toBeLessThan(picture.buffer.length);
+					const sent = Buffer.from(image?.data ?? "", "base64").length;
+					// Scaled down on the phone (IMAGE_MAX_SIDE) and still a JPEG, larger than a frame as base64; a browser
+					// without OffscreenCanvas sends the picture as it was taken.
+					if (support.scales) expect(sent).toBeLessThan(picture.buffer.length);
+					else expect(sent).toBe(picture.buffer.length);
 				}
 				await expect(thumbnails).toHaveCount(0);
 				// The bubble shows the picture omp journaled (the HEIC as the computer's JPEG, in every browser).

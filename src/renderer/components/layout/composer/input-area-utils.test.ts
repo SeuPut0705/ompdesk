@@ -81,6 +81,22 @@ describe("fileToImage", () => {
 		expect(gif.content.mimeType).toBe("image/gif");
 		expect(drawn).toEqual([]);
 	});
+
+	it("sends a picture as it was where the browser has no OffscreenCanvas or cannot decode it", async () => {
+		vi.stubGlobal("OffscreenCanvas", undefined);
+		const withoutCanvas = await fileToImage(new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" }));
+		expect(withoutCanvas.content).toEqual({ type: "image", data: "AQID", mimeType: "image/png" });
+		vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas);
+		vi.stubGlobal(
+			"createImageBitmap",
+			vi.fn(async () => {
+				throw new Error("cannot decode");
+			}),
+		);
+		const undecodable = await fileToImage(new File([new Uint8Array([1, 2, 3])], "b.jpg", { type: "image/jpeg" }));
+		expect(undecodable.content).toEqual({ type: "image", data: "AQID", mimeType: "image/jpeg" });
+		expect(drawn).toEqual([]);
+	});
 });
 
 describe("mentionToken", () => {
