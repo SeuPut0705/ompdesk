@@ -136,7 +136,7 @@ function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
 			retired.push({
 				project: input.project,
 				path: input.path,
-				successor: input.successor,
+				successor: input.successor ?? "",
 				at: input.at.toISOString(),
 			});
 			return "retired";

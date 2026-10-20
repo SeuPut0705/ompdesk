@@ -626,6 +626,33 @@ describe("AiMemoryClient (Memory page)", () => {
 		});
 	});
 
+	it("retirePage without a successor names the reason and tags the page retired", async () => {
+		const at = new Date("2026-10-20T08:00:00Z");
+		routes[`${BASE}/pages/decisions/pairing.md`] = json({
+			id: "pg-1",
+			body_markdown: "# 페어링 코드\n",
+			frontmatter: { title: "페어링 코드", tags: ["remote"] },
+		});
+		routes["/mcp"] = mcp({ page_id: "pg-2" });
+		expect(
+			await client.retirePage({
+				...PROJECT,
+				path: "decisions/pairing.md",
+				reason: "names files  that are gone",
+				at,
+			}),
+		).toBe("retired");
+		expect(sent.at(-1)?.body).toMatchObject({
+			params: {
+				arguments: {
+					body: "# 페어링 코드\n\n_Retired on 2026-10-20 (memory upkeep): names files that are gone._\n",
+					tags: ["remote", "retired"],
+					expires_at: "2026-10-20T08:00:00.000Z",
+				},
+			},
+		});
+	});
+
 	it("retirePage leaves a pinned page alone and says when the page is not the version the caller judged", async () => {
 		const ref = { ...PROJECT, path: "a.md", successor: "b.md", at: new Date() };
 		routes[`${BASE}/pages/a.md`] = json({ id: "pg-1", pinned: true, body_markdown: "# A", frontmatter: {} });

@@ -306,9 +306,16 @@ export class AiMemoryClient {
 		};
 	}
 
-	/** The project's sessions, newest first (`limit` more than the page shows, for a job that walks them all). */
-	async sessions(project: AiMemoryProjectRef, limit = SESSION_LIMIT): Promise<AiMemorySession[]> {
-		const body = record(await this.#get(`${this.#projectPath(project)}/sessions?limit=${limit}&include_open=true`));
+	/**
+	 * The project's sessions, newest first. The server answers at most 100 a call (api.rs `SESSION_LIST_MAX_LIMIT`), so a
+	 * job that walks them all pages with `offset`.
+	 */
+	async sessions(project: AiMemoryProjectRef, limit = SESSION_LIMIT, offset = 0): Promise<AiMemorySession[]> {
+		const body = record(
+			await this.#get(
+				`${this.#projectPath(project)}/sessions?limit=${limit}&include_open=true${offset ? `&offset=${offset}` : ""}`,
+			),
+		);
 		return rows(body.sessions).map(sessionRow);
 	}
 
@@ -464,7 +471,7 @@ export class AiMemoryClient {
 	 * before the delete when the tree had unsaved changes, else the newest one, read before the call).
 	 */
 	async deletePage(ref: AiMemoryProjectRef & { path: string; title?: string }): Promise<AiMemoryDeleted> {
-		const head = str(rows(await this.#get("/admin/checkpoints?limit=1"))[0]?.oid);
+		const head = await this.headCheckpoint();
 		const body = record(await this.#post("/admin/delete-page", { ...projectOf(ref), path: ref.path }));
 		const rev = str(body.pre_checkpoint) || head;
 		if (!rev) throw new Error("Memory kept no checkpoint of this page");
@@ -477,11 +484,20 @@ export class AiMemoryClient {
 		};
 	}
 
+	/** The newest wiki checkpoint ("" before the first one): `restorePage` brings a page back as it stood there. */
+	async headCheckpoint(): Promise<string> {
+		return str(rows(await this.#get("/admin/checkpoints?limit=1"))[0]?.oid);
+	}
+
 	async restorePage(ref: AiMemoryProjectRef & { path: string }, rev: string): Promise<void> {
 		await this.#post("/admin/restore-page", { ...projectOf(ref), path: ref.path, rev });
 	}
 
-	async feedback(ref: AiMemoryProjectRef & { path: string }, signal: AiMemoryFeedback): Promise<void> {
+	/** `stale` and `wrong` also floor the page's salience and list it in the next lint (memory upkeep's flag). */
+	async feedback(
+		ref: AiMemoryProjectRef & { path: string },
+		signal: AiMemoryFeedback | "stale" | "wrong",
+	): Promise<void> {
 		await this.#tool("memory_feedback", { ...projectOf(ref), path: ref.path, signal });
 	}
 
@@ -560,19 +576,26 @@ export class AiMemoryClient {
 	}
 
 	/**
-	 * Takes a page out of default recall, because a newer page replaces it: the same page again through
+	 * Takes a page out of default recall, because a newer page replaces it or it went stale: the same page again through
 	 * `memory_write_page` with `expires_at` now. The server keeps that frontmatter key as the page's TTL (wiki.rs
 	 * `parse_expires_at`) and hides an expired page from `memory_query`, search, recent and the page list by default
 	 * (`not_expired`, reader.rs:51; `include_expired` is false unless asked, server.rs:2721; api.rs:178), while an exact
 	 * read still answers. The write replaces all metadata, so what the write path takes of the page's own goes back
 	 * (title, kind, abstract, entities, relations, tags; not `summary` or profile keys), plus the tag `superseded` and a
-	 * closing line naming the successor (the write path takes no free frontmatter key, so no `superseded_by:`).
+	 * closing line naming the successor, or, when no page replaces it, the tag `retired` and the reason (the write path
+	 * takes no free frontmatter key, so no `superseded_by:`).
 	 * ai-memory's daily forget sweep later hard-deletes an expired page (sweep.rs:11-15); only the wiki's git
 	 * checkpoints keep it then. A pinned page is the owner's and is never retired. `changed` when the page is no longer
 	 * the version `expectedPageId` names (the one the caller judged), or moved on during the write.
 	 */
 	async retirePage(
-		ref: AiMemoryProjectRef & { path: string; successor: string; at: Date; expectedPageId?: string },
+		ref: AiMemoryProjectRef & {
+			path: string;
+			at: Date;
+			expectedPageId?: string;
+			successor?: string;
+			reason?: string;
+		},
 	): Promise<"retired" | "pinned" | "changed"> {
 		const path = ref.path.split("/").map(encodeURIComponent).join("/");
 		const row = record(await this.#get(`${this.#projectPath(ref)}/pages/${path}`));
@@ -588,7 +611,10 @@ export class AiMemoryClient {
 				.filter(([, targets]) => targets.length > 0),
 		);
 		const abstract = str(frontmatter.abstract);
-		const note = `_Superseded by [[${ref.successor}]] on ${ref.at.toISOString().slice(0, 10)} (memory upkeep)._`;
+		const day = ref.at.toISOString().slice(0, 10);
+		const note = ref.successor
+			? `_Superseded by [[${ref.successor}]] on ${day} (memory upkeep)._`
+			: `_Retired on ${day} (memory upkeep): ${(ref.reason ?? "out of date").replaceAll(/\s+/g, " ").trim()}._`;
 		try {
 			await this.#tool("memory_write_page", {
 				...projectOf(ref),
@@ -600,7 +626,7 @@ export class AiMemoryClient {
 				...(abstract && abstract.length <= 1024 ? { abstract } : {}),
 				...(strings(frontmatter.entities).length ? { entities: strings(frontmatter.entities).slice(0, 10) } : {}),
 				...(Object.keys(relations).length ? { relations } : {}),
-				tags: [...new Set([...strings(frontmatter.tags), "superseded"])],
+				tags: [...new Set([...strings(frontmatter.tags), ref.successor ? "superseded" : "retired"])],
 				expires_at: ref.at.toISOString(),
 				expected_page_id: id,
 			});
