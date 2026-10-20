@@ -347,6 +347,9 @@ for (const { engine, device } of variants(
 			await expect(chip).toHaveAttribute("aria-expanded", "true");
 			await expect(panel).toBeVisible();
 			await expect(panel.locator("[data-board-turn], [data-todo-status]").first()).toBeVisible();
+			// The harness session's own rows (a lazy chunk, git changes) land after the panel opens and grow it: measure
+			// the panel once they are in, or a tap "below" it lands inside.
+			await expect(panel.locator("[data-board-section='session']")).toBeVisible();
 			await expect(page.locator("[data-sheet-placement]")).toHaveCount(0);
 			const panelBox = await settledBox(panel);
 			const openColumns = await columns();

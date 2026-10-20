@@ -136,14 +136,15 @@ test("responsive smoke phone landscape: the session's controls keep their taps a
 /**
  * The work board with everything at once and long Korean content (?board=busy: long titles, an `omp/agent/…`
  * branch, an OpenRouter charge): docked beside a wide pane and inside the phone's expanded strip, it never scrolls
- * sideways and nothing on it escapes the screen. An iPad Pro held sideways docks it beside a narrowed transcript
- * (`workBoardDocks`); an iPad Air sideways with its sidebar open keeps the strip. The matrix covers the strip at every
- * phone and tablet width.
+ * sideways and nothing on it escapes the screen. A tablet held sideways docks it beside a narrowed transcript
+ * (`workBoardDocks`): an iPad Pro 12.9" and an iPad mini with their sidebars open; a 1024 px tablet with its sidebar
+ * open keeps the strip. The matrix covers the strip at every phone and tablet width.
  */
 const BOARD_LOOKS: readonly (Look & { form: "docked" | "strip" })[] = [
 	{ width: 1600, height: 1000, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "docked" },
 	{ width: 1366, height: 1024, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "docked" },
-	{ width: 1180, height: 820, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "strip" },
+	{ width: 1133, height: 744, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "docked" },
+	{ width: 1024, height: 768, dpr: 2, orientation: "landscape", theme: "light", lang: "ko", form: "strip" },
 	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "ko", form: "strip" },
 ];
 

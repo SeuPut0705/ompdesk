@@ -39,15 +39,21 @@ export function workBoardFits(paneWidth: number): boolean {
 	return paneWidth - transcriptColumnWidth(paneWidth) >= WORK_BOARD_MIN_SPARE;
 }
 
-/** The transcript text width a narrowed column keeps beside the board (the user's floor for a readable transcript). */
-export const WORK_BOARD_MIN_TRANSCRIPT = 600;
+/**
+ * The narrowest transcript a sideways tablet keeps beside the docked board. Picked by what still reads (20 Oct 2026,
+ * dev harness `?stress=1`, ko, 1 px steps): the composer's toolbar is the box less its 2 px border, and at 500 px
+ * (`@container omp-toolbar (max-width: 500px)`, components.css) the model chip loses its name, so the box needs
+ * 503. At 504 px the five-column table still fits without scrolling sideways (notes wrap to 3 lines; 5 at 466,
+ * 8 at 419), a diff's 61-column paths fit, the work card's head stays one line and the toolbar one row.
+ */
+export const WORK_BOARD_MIN_TRANSCRIPT = 503;
 
 /**
  * Whether the board docks in a pane this wide when the transcript column may narrow (below its 48rem) to make room:
  * the text keeps at least `WORK_BOARD_MIN_TRANSCRIPT` px after the board, its gap and the column's paddings.
- * Measured (20 Oct 2026, web build, sidebar at its default 248 px): iPad Pro 12.9" sideways (1366) leaves a 1118 px
- * pane, 763 px of text: docks; iPad Air sideways (1180) leaves 932 px, 588 px: the strip, until the sidebar folds
- * (1180 px pane, which the full rule already docks).
+ * Measured (web build, sidebar at its default 248 px): with the sidebar open, iPad Pro 12.9" sideways (1366) keeps
+ * 763 px of text, iPad Pro 11" (1194) 601, iPad Air (1180) 588 and iPad mini (1133) 544, so all dock; a 1024 px
+ * tablet (776 px pane, 441 px) keeps the strip until its sidebar folds.
  */
 export function workBoardFitsNarrowed(paneWidth: number): boolean {
 	return paneWidth - WORK_BOARD_WIDTH - WORK_BOARD_GAP - 2 * columnPad(paneWidth) >= WORK_BOARD_MIN_TRANSCRIPT;

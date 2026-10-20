@@ -76,8 +76,9 @@ export const lookTag = (look: Look): string =>
 const PHONE_WIDTHS = [320, 360, 390, 412] as const;
 const TABLET_WIDTHS = [768, 834, 1024] as const;
 const PHONE_HEIGHT: Record<number, number> = { 320: 640, 360: 740, 390: 844, 412: 915 };
-/** iPad Air 11" and iPad Pro 12.9" sideways. */
+/** iPad mini, iPad Air 11" and iPad Pro 12.9" sideways. */
 const IPAD_LANDSCAPE = [
+	[1133, 744],
 	[1180, 820],
 	[1366, 1024],
 ] as const;

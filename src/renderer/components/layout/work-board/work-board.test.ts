@@ -60,15 +60,27 @@ describe("work board breakpoint", () => {
 		expect(first - WORK_BOARD_WIDE_WIDTH - WORK_BOARD_GAP).toBeGreaterThanOrEqual(transcriptColumnWidth(first));
 	});
 
-	it("docks on a tablet held sideways beside a column narrowed to 600 px of text, never on a desktop", () => {
-		// Measured panes, web build, sidebar at its default 248 px: iPad Pro 12.9" sideways (1366 → 1118) and iPad Air
-		// sideways (1180 → 932); with the sidebar folded the pane is the whole width.
+	it("docks on a tablet held sideways beside a column narrowed to what still reads, never on a desktop", () => {
+		// Measured panes, web build, sidebar at its default 248 px: iPad Pro 12.9" (1366 → 1118), iPad Air (1180 → 932)
+		// and iPad mini (1133 → 885) sideways, all docked; a 1024 px tablet (776) keeps the strip until its sidebar
+		// folds (1024).
 		expect(workBoardFits(1118)).toBe(false);
 		expect(workBoardDocks(1118, "tablet-landscape")).toBe(true);
 		expect(workBoardWidth(1118)).toBe(WORK_BOARD_WIDTH);
-		expect(workBoardDocks(932, "tablet-landscape")).toBe(false);
-		expect(workBoardDocks(1180, "tablet-landscape")).toBe(true);
-		// The rule is a measurement: the narrowest pane that docks keeps at least 600 px of text.
+		expect(workBoardDocks(932, "tablet-landscape")).toBe(true);
+		expect(workBoardDocks(885, "tablet-landscape")).toBe(true);
+		expect(workBoardDocks(776, "tablet-landscape")).toBe(false);
+		expect(workBoardDocks(1024, "tablet-landscape")).toBe(true);
+		// The floor is the composer toolbar's label fold: the toolbar (the box less its 2 px border) must stay wider
+		// than components.css's `omp-toolbar` 500 px rule, or the model chip loses its name.
+		const fold = Number(
+			/@container omp-toolbar \(max-width: (\d+)px\)\s*\{[^}]*\}\s*\.omp-composer-fold-4 :is\(\.omp-composer-model-label/.exec(
+				stylesheet,
+			)?.[1],
+		);
+		expect(fold).toBe(500);
+		expect(WORK_BOARD_MIN_TRANSCRIPT - 2).toBe(fold + 1);
+		// The rule is a measurement: the narrowest pane that docks keeps at least the floor of text.
 		let narrowest = 0;
 		while (!workBoardDocks(narrowest, "tablet-landscape")) narrowest++;
 		const text = (pane: number) =>
