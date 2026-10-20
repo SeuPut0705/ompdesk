@@ -13,9 +13,11 @@
  *   shows no stale card, not even after a reload.
  * - A loses B while a provider sign-in runs on its tab: B's login goes on, so the re-sent code paste
  *   is the login panel's (no chat card), which shows the sign-in again until it connects.
- * - A loses B while a reply streams on a long session: the transcript, draft and scroll stay on screen
- *   through the outage, and once the link is back the finished reply is there within about one round
- *   trip (no blank page, no reload of the whole transcript); the times go to the test's annotations.
+ * - A loses B while a reply streams on a long session and the reader has wheeled up to an older answer: the
+ *   transcript and draft stay on screen through the outage, the answer the reader is on stays within 2 px of
+ *   where it was in its scroller (the re-read adds a "from Host B" line to every earlier prompt, since A's prompt
+ *   was the session's second device), and once the link is back the finished reply is there within about one
+ *   round trip (no blank page, no reload of the whole transcript); the times go to the test's annotations.
  * Captures in the test output directory.
  */
 import { execFileSync } from "node:child_process";
@@ -49,6 +51,7 @@ const CatchUpProbe = z.object({
 	drift: z.number(),
 	linkUpAt: z.number(),
 	currentAt: z.number(),
+	frames: z.array(z.string()),
 });
 
 function translate(language: Language, key: string, vars: Record<string, string | number> = {}): string {
@@ -396,39 +399,85 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 		// 100 ms each way from here: a page that reads the whole transcript again pays for it in round trips.
 		proxy.setLatency(100);
 
-		// The reader scrolled up to an older answer. From here, every 10 ms: is any transcript row on screen, is that
-		// answer's row still the same element (not mounted again) and where it sits, and is the reply there; and when
-		// the tab's status first leaves the link-down `error` (the link is back). Counts ride on <html data-catch-up>.
+		// The reader scrolls up with the wheel until an older answer is in view, as a person would.
+		const older = rows.filter({ hasText: "History answer 591." });
+		const scroller = a.locator(".omp-transcript-scroll").first();
+		const box = await scroller.boundingBox();
+		if (!box) throw new Error("no transcript scroller");
+		await a.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		const inView = async () => {
+			const at = await older.boundingBox().catch(() => null);
+			return at !== null && at.y > box.y + 40 && at.y + at.height < box.y + box.height - 40;
+		};
+		for (let step = 0; step < 60 && !(await inView()); step++) {
+			await a.mouse.wheel(0, -120);
+			await a.waitForTimeout(50);
+		}
+		expect(await inView()).toBe(true);
+		await a.mouse.move(box.x + box.width / 2, box.y + box.height - 4);
+		await a.waitForTimeout(500);
+
+		// From here, every frame: is any transcript row on screen, is that answer's row still the same element, where it
+		// sits inside the scroller (apart from the scroller's own place on the page, which a banner moves), and is the
+		// reply there; and when the tab's status first leaves the link-down `error` (the link is back). Every frame where
+		// something moved goes to `frames`. Counts ride on <html data-catch-up>.
 		await a.evaluate(() => {
-			const older = [...document.querySelectorAll("[data-transcript-kind]")].find(row =>
-				row.textContent?.includes("History answer 591."),
+			const row = [...document.querySelectorAll("[data-transcript-kind]")].find(entry =>
+				entry.textContent?.includes("History answer 591."),
 			);
-			if (!older) throw new Error("History answer 591 is not on screen");
-			older.scrollIntoView({ block: "center" });
-			let top = older.getBoundingClientRect().top;
-			// `drift`: how far the row moved from where it was when the link came back, until the reply is there.
-			const probe = { samples: 0, blank: 0, remounted: 0, drift: 0, linkDown: false, linkUpAt: 0, currentAt: 0 };
+			const view = document.querySelector(".omp-transcript-scroll");
+			if (!row || !view) throw new Error("History answer 591 or the scroller is not on screen");
+			const inScroller = () => row.getBoundingClientRect().top - view.getBoundingClientRect().top;
+			const start = inScroller();
+			const probe = {
+				samples: 0,
+				blank: 0,
+				remounted: 0,
+				drift: 0,
+				linkDown: false,
+				linkUpAt: 0,
+				currentAt: 0,
+				status: "",
+				frames: [] as string[],
+			};
 			window.omp.events.onTabSidecarStatus(payload => {
+				probe.status = `${payload.status}${payload.reconnecting ? "(kept)" : ""}`;
 				if (payload.status === "error") probe.linkDown = true;
-				else if (probe.linkDown && !probe.linkUpAt) {
-					probe.linkUpAt = performance.now();
-					if (older.isConnected) top = older.getBoundingClientRect().top;
-				}
+				else if (probe.linkDown && !probe.linkUpAt) probe.linkUpAt = performance.now();
 			});
-			const timer = setInterval(() => {
+			let last = "";
+			const frame = () => {
 				const shown = document.querySelectorAll("[data-transcript-kind]");
 				probe.samples++;
 				if (shown.length === 0) probe.blank++;
-				if (!older.isConnected) probe.remounted++;
-				else if (probe.linkUpAt)
-					probe.drift = Math.max(probe.drift, Math.abs(older.getBoundingClientRect().top - top));
-				const last = [...shown].slice(-4);
-				if (probe.linkUpAt && last.some(row => row.textContent?.includes("Finished while you were away"))) {
+				if (!row.isConnected) probe.remounted++;
+				else probe.drift = Math.max(probe.drift, Math.abs(inScroller() - start));
+				const pane = view.closest(".omp-session-pane");
+				const parts = [...(pane?.children ?? [])].map(child => Math.round(child.getBoundingClientRect().height));
+				const line = [
+					probe.status,
+					`scrollTop ${Math.round(view.scrollTop)}`,
+					`scrollHeight ${view.scrollHeight}`,
+					`viewTop ${Math.round(view.getBoundingClientRect().top)}`,
+					`viewH ${view.clientHeight}`,
+					`row ${row.isConnected ? Math.round(inScroller()) : "gone"}`,
+					`rows ${shown.length}`,
+					`pane [${parts.join(",")}]`,
+					`heights [${[...shown].map(entry => Math.round(entry.getBoundingClientRect().height)).join(",")}]`,
+				].join(" · ");
+				if (line !== last) probe.frames.push(`${Math.round(performance.now())} ${line}`);
+				last = line;
+				const tail = [...shown].slice(-4);
+				if (
+					!probe.currentAt &&
+					probe.linkUpAt &&
+					tail.some(entry => entry.textContent?.includes("Finished while you were away"))
+				)
 					probe.currentAt = performance.now();
-					clearInterval(timer);
-				}
 				document.documentElement.dataset.catchUp = JSON.stringify(probe);
-			}, 10);
+				if (!probe.currentAt || performance.now() - probe.currentAt < 1500) requestAnimationFrame(frame);
+			};
+			requestAnimationFrame(frame);
 		});
 
 		await proxy.drop();
@@ -446,6 +495,8 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 		const readProbe = async () =>
 			CatchUpProbe.parse(JSON.parse((await a.locator("html").getAttribute("data-catch-up")) ?? "null"));
 		await expect.poll(async () => (await readProbe()).currentAt > 0).toBe(true);
+		// The probe keeps watching 1.5 s past the reply, for a late reflow.
+		await a.waitForTimeout(1600);
 		const probe = await readProbe();
 		const linkUpToCurrentMs = Math.round(probe.currentAt - probe.linkUpAt);
 		test.info().annotations.push({
@@ -460,10 +511,13 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 			}),
 		});
 		console.log(
-			`[catch-up] link restored → reply shown ${caughtUpMs} ms; link back → reply shown ${linkUpToCurrentMs} ms; blank ~${probe.blank * 10} ms; older row remounted ${probe.remounted} samples, moved ${Math.round(probe.drift)} px (${probe.samples} samples)`,
+			`[catch-up] link restored → reply shown ${caughtUpMs} ms; link back → reply shown ${linkUpToCurrentMs} ms; blank frames ${probe.blank}, older row remounted ${probe.remounted} frames, moved ${Math.round(probe.drift)} px in its scroller (${probe.samples} frames)`,
 		);
+		if (probe.drift > 2) console.log(probe.frames.join("\n"));
 		expect(probe.blank).toBe(0);
 		expect(probe.remounted).toBe(0);
+		// The reader's place: the row they scrolled to stays where it was in the scroller.
+		expect(probe.drift).toBeLessThanOrEqual(2);
 		await expect(rows.filter({ hasText: "History answer 599." })).toHaveCount(1);
 		await expect(a.getByText("Working on it")).toHaveCount(0);
 		await expect(a.locator("textarea").first()).toHaveValue(draft);
