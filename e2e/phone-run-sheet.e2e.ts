@@ -162,7 +162,7 @@ async function ownShare(locator: Locator): Promise<number> {
 }
 
 /**
- * The composer's row: nothing of the sideways scroller reaches under Stop/Send (the reserved cluster outside it), every
+ * The composer's row: nothing of the sideways scroller reaches under the Send/Stop button (outside it), every
  * control keeps its own taps, and the model chip ellipsizes inside its own box.
  */
 async function expectRowClear(page: Page, what: string): Promise<void> {
@@ -219,7 +219,7 @@ for (const width of WIDTHS) {
 					"idle row needs no scroll",
 				).toBeLessThanOrEqual(width === 360 ? 8 : 1);
 				await setRunning(page, true);
-				await expect(page.locator("[data-slot=steer]")).not.toHaveAttribute("data-off", "");
+				await expect(page.locator("[data-send-mode]")).toBeVisible();
 				await expectRowClear(page, "running");
 			} finally {
 				await page.context().close();

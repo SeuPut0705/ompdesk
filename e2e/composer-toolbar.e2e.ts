@@ -1,8 +1,9 @@
 /**
- * The composer toolbar, measured (Run chip + reserved slots + toolbar-owned label ladder):
+ * The composer toolbar, measured (Run chip + one Send/Stop button + toolbar-owned label ladder):
  * - the toolbar is the same height idle, running and running with a draft, at 1000/760/560/420 px windows;
- * - the controls left of the send cluster (+, Run chip) never move on a turn starting, a draft being typed, or the
- *   turn ending, and Steer/Stop/Send keep their boxes (Stop left, Send right);
+ * - nothing moves on a turn starting, a draft being typed, or the turn ending: +, the Run chip, the model chip, the
+ *   context ring and the one action button keep their boxes (the lane chip takes the free room before the cluster);
+ * - while idle nothing waits beside the action button (no gap held for Stop or the lane chip);
  * - an active mode paints the Run chip accent (computed colour, light and dark), a quiet chip does not;
  * - Tab leaves a popover: it closes and focus moves on (never to the top of the app);
  * - the context ring opens on click/Enter, never on keyboard focus.
@@ -56,12 +57,13 @@ const slot = (page: Page, name: string) => page.locator(`[data-slot="${name}"]`)
 async function startTurn(page: Page): Promise<void> {
 	await field(page).fill("fixture running");
 	await field(page).press("Enter");
-	await expect(slot(page, "stop")).not.toHaveAttribute("data-off", "");
+	await expect(slot(page, "send").getByRole("button")).toHaveAttribute("data-send-state", "stop");
 }
 
 async function stopTurn(page: Page): Promise<void> {
-	await slot(page, "stop").getByRole("button").click();
-	await expect(slot(page, "stop")).toHaveAttribute("data-off", "");
+	await slot(page, "send").getByRole("button").click();
+	await expect(page.locator("[data-send-mode]")).toHaveCount(0);
+	await expect(slot(page, "send").getByRole("button")).toHaveAttribute("data-send-state", "send");
 }
 
 async function snapshot(page: Page) {
@@ -69,8 +71,7 @@ async function snapshot(page: Page) {
 		toolbar: await boxOf(toolbar(page)),
 		plus: await boxOf(toolbar(page).getByRole("button").first()),
 		run: await boxOf(runChip(page)),
-		steer: await boxOf(slot(page, "steer")),
-		stop: await boxOf(slot(page, "stop")),
+		model: await boxOf(page.locator("[data-model-chip]").first()),
 		send: await boxOf(slot(page, "send")),
 	};
 }
@@ -101,13 +102,19 @@ for (const language of variants(["en", "ko"] as const))
 						["ended", ended],
 					] as const) {
 						expect(state.toolbar.height, `${width}px ${name}: toolbar height`).toBe(idle.toolbar.height);
-						for (const key of ["plus", "run", "steer", "stop", "send"] as const) {
+						for (const key of ["plus", "run", "model", "send"] as const) {
 							expect(state[key].x, `${width}px ${name}: ${key} x`).toBeCloseTo(idle[key].x, 0);
 							expect(state[key].y, `${width}px ${name}: ${key} y`).toBeCloseTo(idle[key].y, 0);
 						}
 					}
-					// Stop sits left of Send in its own box.
-					expect(idle.stop.x + idle.stop.width).toBeLessThanOrEqual(idle.send.x + 1);
+					// Idle, nothing waits between the control before the action button (ring, mic or model) and it.
+					const gap = await page.evaluate(() => {
+						const actions = document.querySelector(".omp-composer-actions");
+						const before = actions?.previousElementSibling?.getBoundingClientRect();
+						const send = document.querySelector('[data-slot="send"]')?.getBoundingClientRect();
+						return before && send ? send.left - before.right : null;
+					});
+					expect(gap, `${width}px: gap before the action button`).toBeLessThan(16);
 					// Nothing leaves the composer box.
 					const edge = await page.evaluate(() => {
 						const box = document.querySelector(".omp-composer-box")?.getBoundingClientRect();

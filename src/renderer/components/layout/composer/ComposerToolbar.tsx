@@ -1,19 +1,21 @@
 /**
  * The composer's toolbar row: + (attach, photos, history, expand, goal, skills), the Run chip (modes, thinking,
- * approval, delegation) and its
- * conditional extras, the `!`/`$` and queue badges, then the send cluster: the model chip (`Model · Thinking`), the
- * context ring, mic, and the Steer/Follow-up chip, Stop and Send in RESERVED slots. A slot never unmounts: while off it
- * is `inert` and `visibility: hidden`, so a turn starting or ending, or a draft appearing, moves nothing (Stop left,
- * Send right). Label levels fold by the toolbar's own width (components.css `omp-toolbar` container), never by the
- * window's.
+ * approval, delegation) and its conditional extras, the `!`/`$` and queue badges, the Steer/Follow-up chip while a turn
+ * runs (it takes the free room before the send cluster, so it appearing moves nothing), then the send cluster: the
+ * model chip (`Model · Thinking`), the context ring, mic, and ONE action button. Send and Stop share that button
+ * (`send-slot.ts`): Stop while a turn runs with an empty draft, Send otherwise; nothing is reserved beside it, and a
+ * state change swaps its icon and name in the same box. While a turn runs and the button is Send, a long press (touch)
+ * or right click opens a one-item menu whose Stop keeps the draft, and a small ■ on the button says so; Esc still stops
+ * from the keyboard (double Esc with a draft). Label levels fold by the toolbar's own width (components.css
+ * `omp-toolbar` container), never by the window's.
  *
  * On a phone the composer is always open: the field is a full-width row and this toolbar is one compact row under it,
  * inside the box, with every control the tablet has (+, the Run chip for mode, thinking, approval and delegation, the
- * model chip, the context ring, Stop/Send), labels folded to icons by the toolbar's width and any overflow scrolling
- * sideways inside the row (mobile.css); nothing folds the composer away. The empty Send slot is the
- * mic while dictation is on. Touch controls keep focus in the field (`keepFocus`: a cancelled `mousedown`, never
- * `pointerdown`). Memoised: its props are scalars and stable callbacks, so a keystroke in the field re-renders it only
- * when what it shows changes.
+ * model chip, the context ring, Send/Stop), labels folded to icons by the toolbar's width and any overflow scrolling
+ * sideways inside the row (mobile.css); nothing folds the composer away. The idle, empty button is the mic while
+ * dictation is on (while Stop holds the button the mic moves into the row). Touch controls keep focus in the field
+ * (`keepFocus`: a cancelled `mousedown`, never `pointerdown`). Memoised: its props are scalars and stable callbacks,
+ * so a keystroke in the field re-renders it only when what it shows changes.
  */
 import {
 	ArrowUp,
@@ -34,7 +36,7 @@ import {
 	Square,
 	Target,
 } from "lucide-react";
-import { type ChangeEvent, memo, type ReactNode, type RefObject } from "react";
+import { type ChangeEvent, type MouseEvent, memo, type ReactNode, type RefObject, useId, useState } from "react";
 import { useShellMode } from "../../../hooks/use-shell-mode";
 import { useT } from "../../../lib/i18n";
 import type { ComposerInputMode } from "../../../lib/input-modes";
@@ -45,8 +47,18 @@ import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSettingsStore } from "../../../stores/settings";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Button, IconButton, MenuButton, Tooltip } from "../../common";
+import {
+	anchorFromEvent,
+	Badge,
+	Button,
+	ContextMenu,
+	type ContextMenuAnchor,
+	IconButton,
+	MenuButton,
+	Tooltip,
+} from "../../common";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
+import { chipModelName } from "../../settings/providers/provider-marks";
 import { ComposerSend } from "./ComposerLive";
 import { ComposerModeExtras } from "./ComposerModes";
 import { ContextUsagePopover } from "./ContextUsagePopover";
@@ -54,6 +66,8 @@ import type { DictationPhase } from "./DictationOverlay";
 import { keepFocus } from "./keep-focus";
 import { RunChip } from "./RunChip";
 import { useThinkingName } from "./RunSettings";
+import { sendSlot } from "./send-slot";
+import { useThinkingSelector } from "./ThinkingControl";
 
 /** Settings row of the stock `stt.enabled` switch; the + menu's Dictation item opens it while dictation is off (stock owns the setting, nothing here writes it). */
 const STT_SETTING_TARGET = "agent:setting-stt.enabled";
@@ -86,12 +100,12 @@ export interface ComposerToolbarProps {
 	onToggleSendMode: () => void;
 	/** Something Stop ends: the run, or a prompt not yet sent. */
 	stoppable: boolean;
-	/** Send shows (else Stop takes its slot). */
-	showSend: boolean;
+	/** The draft holds text or a picture: while a turn runs the button is Send, else Stop. */
+	hasDraft: boolean;
 	sendDisabled: boolean;
 	onStop: () => void;
 	onSend: () => void;
-	/** The queue pill (QueueImpl): rendered before Stop; `null` when nothing is queued, so it reserves no width. */
+	/** The queue pill (QueueImpl): rendered before the action button; `null` when nothing is queued, so it reserves no width. */
 	queueSlot?: ReactNode;
 	/** A queued message is being edited: Send saves it (a check) and the lane chip steps aside (QueueImpl). */
 	editingQueued?: boolean;
@@ -117,7 +131,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	followUp,
 	onToggleSendMode,
 	stoppable,
-	showSend,
+	hasDraft,
 	sendDisabled,
 	onStop,
 	onSend,
@@ -141,39 +155,60 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const stopping = useComposerStore(s => s.stopping);
 	const thinkingName = useThinkingName();
+	const supportsThinking = useModelStore(s => s.availableThinkingLevels.length > 0);
 	// While first-run setup runs, the live model is whatever omp fell back to
 	// (e.g. a tiny on-device model); show the neutral prompt instead.
 	const modelLabel = model && !settingUp ? model.name || model.id : t("input.chooseModel");
-	// Send's tooltip names the lane a running turn sends into and the chord of the other one.
+	// The chip beside the provider's mark leaves the brand word out ("Claude Opus 5.5" → "Opus 5.5") and names Auto
+	// alone, not the effort Auto picked; the tooltip, the accessible name and the picker keep both in full.
+	const chipLabel =
+		model && !settingUp ? chipModelName({ id: model.provider, name: model.provider }, modelLabel) : modelLabel;
+	const thinking = useThinkingSelector();
+	const chipThinking = thinking === "auto" && supportsThinking ? t("input.thinking.name.auto") : thinkingName;
+	const slot = sendSlot({
+		recording: dictationPhase === "recording",
+		editingQueued,
+		stoppable,
+		hasDraft,
+		micOffered: phone && sttEnabled && !recording,
+	});
+	const stopHintId = useId();
+	/** The long press / right click menu of the button while a turn runs, at the pointer (a bottom sheet on touch). */
+	const [stopMenu, setStopMenu] = useState<ContextMenuAnchor | null>(null);
+	const openStopMenu = slot.stopHint
+		? (event: MouseEvent<HTMLElement>) => setStopMenu(anchorFromEvent(event))
+		: undefined;
+	/** What a long press or right click offers while the button is not Stop: the button is named, and wears a small ■. */
+	const stopHintProps = slot.stopHint ? { "aria-describedby": stopHintId, onContextMenu: openStopMenu } : {};
+	const withStopHint = (glyph: ReactNode) =>
+		slot.stopHint ? (
+			<>
+				{glyph}
+				<span aria-hidden className="omp-send-stop-hint" data-send-stop-hint />
+			</>
+		) : (
+			glyph
+		);
+	// The button's tooltip names the lane a running turn sends into and the chord of the other one; on the desktop it
+	// also says how to stop without losing the draft.
+	const laneTip = followUp
+		? t("input.send.tipFollowUp")
+		: t("input.send.tipSteer", { chord: formatShortcut(composerFollowUpChord()) });
 	const sendTip = !isStreaming
 		? t("input.send")
-		: followUp
-			? t("input.send.tipFollowUp")
-			: t("input.send.tipSteer", { chord: formatShortcut(composerFollowUpChord()) });
-	const sendChord = isStreaming || touchInput ? undefined : "↵";
-	/** Dictation: the desktop button, or on a phone the Send slot's mic while the field is empty (1 tap). */
-	const micAtOldSpot = sttEnabled && (!phone || recording);
-	const micInSlot = phone && sttEnabled && !recording && sendDisabled && !editingQueued;
+		: slot.stopHint && !touchInput
+			? `${laneTip} · ${t("input.send.stopHintDesktop")}`
+			: laneTip;
+	/** Dictation: the desktop button, or on a phone the empty button's mic (1 tap); while Stop holds the button, the row. */
+	const micAtOldSpot = sttEnabled && (!phone || recording || slot.state === "stop");
+	const stopState = slot.state === "stop";
 
-	/** Stop, Send and the queue pill. A phone keeps them outside the row's sideways scroller, so they never move or scroll away. */
+	/** The queue pill and the one action button. A phone keeps them outside the row's sideways scroller, so they never move or scroll away. */
 	const actions = (
 		<div className="omp-composer-actions ml-1 flex items-center gap-1.5">
 			{queueSlot}
-			<span className="omp-composer-slot" data-off={stoppable ? undefined : ""} data-slot="stop" inert={!stoppable}>
-				<IconButton
-					{...hold}
-					className="omp-composer-action"
-					disabled={!routeReady}
-					icon={<Square className="omp-composer-stop-glyph" fill="currentColor" />}
-					label={t("input.abort")}
-					loading={stopping}
-					onClick={onStop}
-					shortcut="Esc"
-					variant={showSend ? "secondary" : "primary"}
-				/>
-			</span>
-			<span className="omp-composer-slot" data-slot="send">
-				{micInSlot ? (
+			<span className="inline-flex items-center" data-slot="send">
+				{slot.state === "mic" ? (
 					<IconButton
 						{...hold}
 						className="omp-composer-action omp-composer-mic"
@@ -183,34 +218,85 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						onClick={onMic}
 						variant="secondary"
 					/>
-				) : dictationPhase === "recording" ? (
+				) : slot.state === "dictation" ? (
 					<IconButton
 						{...hold}
-						className="omp-composer-action"
+						{...stopHintProps}
+						className="omp-composer-action relative"
 						data-dictation-send
 						disabled={!routeReady}
-						icon={<ArrowUp strokeWidth={2.25} />}
+						icon={withStopHint(<ArrowUp strokeWidth={2.25} />)}
 						label={t("voice.dictation.stopAndSend")}
 						onClick={onStopAndSend}
 						variant="primary"
 					/>
 				) : (
-					<ComposerSend label={editingQueued ? t("composerQueue.editSave") : sendTip} shortcut={sendChord}>
+					<ComposerSend
+						cue={!stopState}
+						label={stopState ? t("input.abort") : slot.state === "save" ? t("composerQueue.editSave") : sendTip}
+						shortcut={stopState ? "Esc" : isStreaming || touchInput ? undefined : "↵"}
+					>
 						<IconButton
 							{...hold}
-							className="omp-composer-action"
-							data-send-lane={isStreaming ? (followUp ? "followUp" : "steer") : undefined}
-							data-send-editing={editingQueued || undefined}
-							disabled={sendDisabled || !showSend}
-							icon={editingQueued ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />}
-							label={editingQueued ? t("composerQueue.editSave") : t("input.send")}
-							onClick={onSend}
+							{...stopHintProps}
+							className="omp-composer-action relative"
+							data-send-editing={slot.state === "save" || undefined}
+							data-send-lane={isStreaming && !stopState ? (followUp ? "followUp" : "steer") : undefined}
+							data-send-state={slot.state}
+							disabled={stopState ? !routeReady : sendDisabled}
+							icon={
+								stopState ? (
+									<Square className="omp-composer-stop-glyph" fill="currentColor" />
+								) : (
+									withStopHint(
+										slot.state === "save" ? <Check strokeWidth={2.25} /> : <ArrowUp strokeWidth={2.25} />,
+									)
+								)
+							}
+							label={
+								stopState
+									? t("input.abort")
+									: slot.state === "save"
+										? t("composerQueue.editSave")
+										: t("input.send")
+							}
+							loading={stopState && stopping}
+							onClick={stopState ? onStop : onSend}
 							tooltip={false}
-							variant={showSend ? "primary" : "secondary"}
+							variant="primary"
 						/>
 					</ComposerSend>
 				)}
 			</span>
+			{slot.stopHint && (
+				<span className="sr-only" id={stopHintId}>
+					{touchInput ? t("input.send.stopHintTouch") : t("input.send.stopHintDesktop")}
+				</span>
+			)}
+			{stopMenu && slot.stopHint && (
+				<ContextMenu
+					align="end"
+					ariaLabel={t("input.stopMenu")}
+					items={[
+						{
+							id: "stop",
+							label: t("input.abort"),
+							description: t("input.stopKeepsDraft"),
+							icon: Square,
+							onSelect: () => {
+								setStopMenu(null);
+								onStop();
+							},
+						},
+					]}
+					keepFocus={touchInput}
+					onClose={() => setStopMenu(null)}
+					side="above"
+					above={stopMenu.y}
+					x={stopMenu.x}
+					y={stopMenu.y}
+				/>
+			)}
 		</div>
 	);
 	/** Everything before Stop/Send: the whole row on the desktop, the sideways scroller on a phone. */
@@ -318,12 +404,37 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 					</span>
 				</Tooltip>
 			)}
+			{/* While a turn runs: the lane Send goes to. It takes the free room before the send cluster, so it appearing
+			    moves nothing and nothing waits for it while idle. */}
+			{isStreaming && !editingQueued && (
+				<Tooltip content={t("input.sendModeHint")} shortcut={followUp ? undefined : composerFollowUpChord()}>
+					<Button
+						{...hold}
+						aria-label={t("input.sendModeLabel", { mode: modeLabel })}
+						className="omp-composer-chip omp-composer-fold-1"
+						data-send-mode={followUp ? "followUp" : "steer"}
+						disabled={!routeReady}
+						icon={followUp ? <ListPlus aria-hidden /> : <CornerDownRight aria-hidden />}
+						onClick={onToggleSendMode}
+						size="sm"
+						variant="ghost"
+					>
+						<span className="omp-composer-control-label">{modeLabel}</span>
+					</Button>
+				</Tooltip>
+			)}
 
 			<div className="flex-1" />
 
 			<div className="omp-composer-send-cluster flex shrink-0 items-center gap-1">
 				<Tooltip
-					content={model ? t("input.modelTooltip", { id: model.id }) : t("input.model")}
+					content={
+						model
+							? settingUp
+								? t("input.modelTooltip", { id: model.id })
+								: t("input.modelTooltipThinking", { name: modelLabel, id: model.id, level: thinkingName })
+							: t("input.model")
+					}
 					shortcut={actionKbd("model.select", keymapOverrides)}
 				>
 					<Button
@@ -349,10 +460,10 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						trailingIcon={<ChevronDown aria-hidden className="omp-composer-chevron text-(--sc-text-subtle)" />}
 						variant="ghost"
 					>
-						<span className="omp-composer-model-label truncate">{modelLabel}</span>
+						<span className="omp-composer-model-label truncate">{chipLabel}</span>
 						{model && !settingUp && (
 							<span className="omp-composer-effort shrink-0 font-normal text-(--sc-text-muted)">
-								· {thinkingName}
+								· {chipThinking}
 							</span>
 						)}
 					</Button>
@@ -380,30 +491,6 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						size="sm"
 					/>
 				)}
-				{/* Reserved slots: a control that is not on screen keeps its box, inert and invisible, so a turn
-				    starting or ending moves nothing. The steer/follow-up chip first, then Stop (left) and Send (right). */}
-				<span
-					className="omp-composer-slot"
-					data-off={isStreaming && !editingQueued ? undefined : ""}
-					data-slot="steer"
-					inert={!isStreaming || editingQueued}
-				>
-					<Tooltip content={t("input.sendModeHint")} shortcut={followUp ? undefined : composerFollowUpChord()}>
-						<Button
-							{...hold}
-							aria-label={t("input.sendModeLabel", { mode: modeLabel })}
-							className="omp-composer-chip omp-composer-fold-1"
-							data-send-mode={followUp ? "followUp" : "steer"}
-							disabled={!routeReady}
-							icon={followUp ? <ListPlus aria-hidden /> : <CornerDownRight aria-hidden />}
-							onClick={onToggleSendMode}
-							size="sm"
-							variant="ghost"
-						>
-							<span className="omp-composer-control-label">{modeLabel}</span>
-						</Button>
-					</Tooltip>
-				</span>
 				{!phone && actions}
 			</div>
 		</>

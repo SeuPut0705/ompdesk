@@ -51,20 +51,23 @@ export function ComposerLiveEdge(): ReactElement | null {
 	return state ? <LiveEdge state={state} /> : null;
 }
 
-/** Wraps the Send button: its tooltip and ring tell that background work runs and a send starts at once. */
+/** Wraps the composer's action button: its tooltip and ring tell that background work runs and a send starts at once. */
 export function ComposerSend({
 	label,
 	shortcut,
+	cue = true,
 	children,
 }: {
 	label: string;
 	/** macOS-spelled chord shown after the tooltip text. */
 	shortcut?: string;
+	/** The button sends (false while it is Stop, which the background cue does not describe). */
+	cue?: boolean;
 	children: ComponentProps<typeof Tooltip>["children"];
 }): ReactNode {
 	const t = useT();
 	const { state, background } = useComposerLive();
-	const live = state === "background";
+	const live = cue && state === "background";
 	return (
 		<span className="omp-composer-send-live" data-composer-live={live ? "background" : undefined}>
 			<Tooltip content={live ? t("input.live.background", { count: background }) : label} shortcut={shortcut}>

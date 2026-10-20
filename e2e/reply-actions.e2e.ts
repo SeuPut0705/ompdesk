@@ -1,8 +1,8 @@
 /**
  * Reply actions on the fake omp with the stock PTY natives. One turn (stock
  * auto thinking classifies it high) answers with a web, a mail and a path
- * link, Korean glued to bold and to a bare URL, and a bash fence. The run
- * settings chip reads "Auto · High"; the bold survives and the URL stops
+ * link, Korean glued to bold and to a bare URL, and a bash fence. The model
+ * chip reads "Auto" and its name "Auto · High"; the bold survives and the URL stops
  * before the Korean; right-clicking each link offers its menu (Preview and
  * Open act); "Run in terminal" types the fence into the tab's terminal. In
  * the composer, `$` offers the fixture's skill and inserts stock's
@@ -106,7 +106,11 @@ for (const language of variants(["en", "ko"] as const))
 				await input.press("Enter");
 				const reply = page.locator(".omp-transcript-content .markdown-body").filter({ hasText: "0.118%" });
 				await expect(reply).toBeVisible({ timeout: 30_000 });
-				await expect(page.locator("[data-model-chip] .omp-composer-effort")).toHaveText(`· ${text.autoHigh}`);
+				// The chip shows Auto alone; the effort Auto picked stays in its accessible name.
+				await expect(page.locator("[data-model-chip] .omp-composer-effort")).toHaveText(
+					`· ${text.autoHigh.split(" · ")[0]}`,
+				);
+				await expect(page.locator("[data-model-chip]")).toHaveAttribute("aria-label", new RegExp(text.autoHigh));
 
 				// CJK: the bold survives glued Korean; the bare URL stops before it.
 				await expect(reply.locator("strong", { hasText: "0.118%" })).toHaveCount(1);

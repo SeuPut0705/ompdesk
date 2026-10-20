@@ -501,10 +501,10 @@ describe("InputArea queue shorthand submit", () => {
 		const autoModeEnd = vi.fn(async () => ok({}));
 		Reflect.set(window.omp.rpc, "autoModeDecide", autoModeDecide);
 		Reflect.set(window.omp.rpc, "autoModeEnd", autoModeEnd);
-		// The Stop slot is always in the toolbar: off, it is inert and hidden.
+		// The action button turns Stop while a prompt is held back with nothing typed.
 		const stop = () =>
 			document.querySelector(
-				`[data-slot="stop"]:not([data-off]) button[aria-label="${translate("input.abort")}"]`,
+				`[data-slot="send"] button[aria-label="${translate("input.abort")}"]`,
 			) as unknown as TestElement | null;
 		const request = "refactor the whole settings module across all files";
 		await typeInto(findTextarea(), request);
@@ -1079,18 +1079,20 @@ describe("InputArea next-prompt suggestion", () => {
 		expect(placeholder()).not.toBe(SUGGESTION);
 	});
 
-	it("shows Stop (primary) beside a disabled Send while a turn streams with nothing typed, and neither moves", async () => {
+	it("turns the one action button into Stop while a turn streams with nothing typed, and back into Send on typing", async () => {
 		await mount();
-		const stop = () => document.querySelector('[data-slot="stop"]');
-		const send = () => document.querySelector('button[aria-label="Send"]') as unknown as HTMLButtonElement | null;
-		// The slots are always rendered; a typed draft changes only what is enabled.
-		expect(stop()?.hasAttribute("data-off")).toBe(false);
-		expect(send()?.disabled).toBe(true);
-		expect(send()?.className).not.toContain("bg-(--sc-accent)");
+		const button = () => document.querySelector('[data-slot="send"] button') as unknown as HTMLButtonElement | null;
+		const node = button();
+		expect(node?.getAttribute("aria-label")).toBe("Stop");
+		expect(node?.disabled).toBe(false);
+		expect(document.querySelectorAll('[data-slot="send"] button').length).toBe(1);
 		await typeInto(findTextarea(), "steer this");
-		expect(send()?.disabled).toBe(false);
-		expect(stop()?.hasAttribute("data-off")).toBe(false);
-		expect(document.querySelector('button[aria-label="Stop"]')).not.toBeNull();
+		// Same node: nothing came or went, so nothing moved.
+		expect(button()).toBe(node);
+		expect(node?.getAttribute("aria-label")).toBe("Send");
+		expect(node?.disabled).toBe(false);
+		expect(node?.querySelector("[data-send-stop-hint]")).not.toBeNull();
+		expect(document.querySelector('button[aria-label="Stop"]')).toBeNull();
 	});
 });
 
@@ -1606,16 +1608,19 @@ describe("InputArea run settings and modes", () => {
 		await mount();
 	});
 
-	it("names the effort auto picked for the latest turn on the model chip", async () => {
+	it("shows Auto alone on the model chip; the effort Auto picked stays in its name, a fixed level shows itself", async () => {
 		useModelStore.setState({ model: { provider: "acme", id: "acme-opus-5", name: "Acme Opus 5" } });
 		await mount();
-		const chip = () => document.querySelector("button[data-model-chip]")?.textContent;
+		const chip = () => document.querySelector("button[data-model-chip]") as unknown as TestElement | null;
+		const effort = () => document.querySelector("button[data-model-chip] .omp-composer-effort")?.textContent;
 		await act(async () => useModelStore.setState({ thinkingConfigured: "auto" }));
-		expect(chip()).toContain(`· ${translate("input.thinking.name.auto")}`);
+		expect(effort()).toBe(`· ${translate("input.thinking.name.auto")}`);
 		await act(async () => useModelStore.setState({ thinkingAutoResolved: "xhigh" }));
-		expect(chip()).toContain(
-			translate("input.thinking.autoResolved", { level: translate("input.thinking.name.xhigh") }),
-		);
+		expect(effort()).toBe(`· ${translate("input.thinking.name.auto")}`);
+		const resolved = translate("input.thinking.autoResolved", { level: translate("input.thinking.name.xhigh") });
+		expect(chip()?.getAttribute("aria-label" as never)).toContain(resolved);
+		await act(async () => useModelStore.setState({ thinkingConfigured: "high" }));
+		expect(effort()).toBe(`· ${translate("input.thinking.name.high")}`);
 	});
 
 	it("names the composer field for assistive tech", async () => {

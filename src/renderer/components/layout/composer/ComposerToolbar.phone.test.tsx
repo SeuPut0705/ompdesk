@@ -1,7 +1,8 @@
 /**
  * The toolbar on a phone: one row under the full-width field, every control inside the box (+, the Run chip, the model
- * chip, the context ring, Stop/Send) and no ⋯ fold toggle; Thinking and Delegation live in the Run sheet, never as
- * icons of their own; the empty Send slot is the mic while dictation is on (1 tap); every touch control keeps focus
+ * chip, the context ring, the one Send/Stop button) and no ⋯ fold toggle; Thinking and Delegation live in the Run
+ * sheet, never as icons of their own; the idle, empty button is the mic while dictation is on (1 tap); a long press on
+ * Send while a turn runs stops it and keeps the draft (touch has no Esc); every touch control keeps focus
  * in the field (a cancelled `mousedown`). The layout itself (grid, 44 px reach) is
  * measured in e2e/mobile-composer.e2e.ts.
  */
@@ -72,7 +73,7 @@ const baseProps: ComposerToolbarProps = {
 	followUp: false,
 	onToggleSendMode: () => {},
 	stoppable: false,
-	showSend: true,
+	hasDraft: false,
 	sendDisabled: true,
 	onStop: () => {},
 	onSend: () => {},
@@ -127,7 +128,7 @@ describe("phone toolbar", () => {
 		await act(async () => mic.click());
 		expect(onMic).toHaveBeenCalledTimes(1);
 
-		await render({ sendDisabled: false, onMic });
+		await render({ hasDraft: true, sendDisabled: false, onMic });
 		expect(slot("send").querySelector(".omp-composer-mic")).toBeNull();
 		expect(slot("send").querySelector(`[aria-label="${translate("input.send")}"]`)).not.toBeNull();
 	});
@@ -141,17 +142,43 @@ describe("phone toolbar", () => {
 	it("keeps focus in the field: +, Send, Stop, the lane chip and the mic cancel their mousedown", async () => {
 		useSettingsStore.setState({ sttEnabled: true });
 		useSessionStore.setState({ isStreaming: true });
-		await render({ stoppable: true, sendDisabled: false });
+		await render({ stoppable: true, hasDraft: true, sendDisabled: false });
 		expect(await cancelsMouseDown(q(".omp-composer-scroll > :first-child, [aria-haspopup='menu']"))).toBe(true);
 		expect(await cancelsMouseDown(slot("send").querySelector("button"))).toBe(true);
-		expect(await cancelsMouseDown(slot("stop").querySelector("button"))).toBe(true);
 		expect(await cancelsMouseDown(q("[data-send-mode]"))).toBe(true);
-		await render({ stoppable: true, sendDisabled: true });
-		expect(await cancelsMouseDown(slot("send").querySelector(".omp-composer-mic"))).toBe(true);
+		// Empty draft: the button is Stop and the mic moves into the row.
+		await render({ stoppable: true, hasDraft: false, sendDisabled: true });
+		const stop = slot("send").querySelector("button");
+		expect(stop?.getAttribute("aria-label")).toBe(translate("input.abort"));
+		expect(await cancelsMouseDown(stop)).toBe(true);
+		const mic = q(".omp-composer-scroll .omp-composer-mic");
+		expect(mic).not.toBeNull();
+		expect(await cancelsMouseDown(mic)).toBe(true);
 		// Never on pointerdown: WebKit would drop the click that follows.
 		const pointer = new Event("pointerdown", { bubbles: true, cancelable: true });
 		await act(async () => slot("send").querySelector("button")?.dispatchEvent(pointer));
 		expect((pointer as unknown as { defaultPrevented: boolean }).defaultPrevented).toBe(false);
+	});
+
+	it("stops a running turn from a long press on Send, keeping the field focused and the draft unsent", async () => {
+		const onStop = vi.fn();
+		const onSend = vi.fn();
+		useSessionStore.setState({ isStreaming: true });
+		await render({ stoppable: true, hasDraft: true, sendDisabled: false, onStop, onSend });
+		const send = slot("send").querySelector("button") as unknown as HTMLElement;
+		expect(send.getAttribute("aria-label")).toBe(translate("input.send"));
+		expect(send.querySelector("[data-send-stop-hint]")).not.toBeNull();
+		// The shell turns a long press into `contextmenu` (lib/long-press-menu.ts).
+		await act(async () => send.dispatchEvent(new Event("contextmenu", { bubbles: true, cancelable: true })));
+		const sheet = document.querySelector("[data-action-sheet]");
+		expect(sheet).not.toBeNull();
+		expect(await cancelsMouseDown(sheet)).toBe(true);
+		const stop = document.querySelector("[data-action-sheet] [data-menu-item]") as unknown as HTMLElement;
+		expect(stop.textContent).toContain(translate("input.abort"));
+		await act(async () => stop.click());
+		expect(onStop).toHaveBeenCalledTimes(1);
+		expect(onSend).not.toHaveBeenCalled();
+		expect(document.querySelector("[data-action-sheet]")).toBeNull();
 	});
 
 	const plus = () => q("[aria-haspopup='menu']") as unknown as HTMLElement;

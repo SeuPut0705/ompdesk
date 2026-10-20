@@ -446,7 +446,7 @@ for (const engine of ENGINES) {
 					}
 				});
 
-				test("keeps the field focused through +, the Run chip, Send, Stop, the lane chip and the mic", async () => {
+				test("keeps the field focused through +, the Run chip, Send, Stop, the lane chip and the mic; a long press on Send stops and keeps the draft", async () => {
 					const page = await openPhone(engine, { lang, theme, stt: true });
 					try {
 						await field(page).focus();
@@ -466,10 +466,52 @@ for (const engine of ENGINES) {
 						await field(page).fill("and also lint it");
 						await page.locator("[data-send-mode]").tap();
 						expect(await focusedIsField(page), "lane chip").toBe(true);
-						await page.locator("[data-slot='stop'] button").tap();
+						// Touch has no Esc: a long press on Send (lib/long-press-menu.ts turns a still finger into
+						// `contextmenu`) opens a sheet whose Stop ends the turn and leaves the draft in the field.
+						const button = sendSlot(page).getByRole("button");
+						await expect(button).toHaveAttribute("data-send-state", "send");
+						await expect(button.locator("[data-send-stop-hint]")).toHaveCount(1);
+						await button.evaluate(element => {
+							const box = element.getBoundingClientRect();
+							element.dispatchEvent(
+								new PointerEvent("pointerdown", {
+									bubbles: true,
+									clientX: box.left + box.width / 2,
+									clientY: box.top + box.height / 2,
+									isPrimary: true,
+									pointerId: 11,
+									pointerType: "touch",
+								}),
+							);
+						});
+						const stop = page.locator("[data-action-sheet] [data-menu-item]");
+						await expect(stop).toHaveCount(1);
+						await button.evaluate(element =>
+							element.dispatchEvent(
+								new PointerEvent("pointerup", {
+									bubbles: true,
+									isPrimary: true,
+									pointerId: 11,
+									pointerType: "touch",
+								}),
+							),
+						);
+						await capture(page, "running-long-press", engine, theme, lang);
+						await stop.tap();
+						await expect(stop).toHaveCount(0);
+						await expect.poll(() => called(page, "abort_and_restore_queue")).toBe(true);
+						await expect(field(page)).toHaveValue("and also lint it");
 						expect(await focusedIsField(page), "stop").toBe(true);
 						await sendSlot(page).locator("button:not([disabled])").tap();
 						expect(await focusedIsField(page), "send").toBe(true);
+						// An empty draft while the turn runs: the button is Stop, one tap. (The harness has no omp to end
+						// the first Stop's turn: a fresh run clears its "stopping".)
+						await setRunning(page, false);
+						await setRunning(page, true);
+						await field(page).fill("");
+						await expect(button).toHaveAttribute("data-send-state", "stop");
+						await button.tap();
+						expect(await focusedIsField(page), "stop button").toBe(true);
 					} finally {
 						await page.context().close();
 					}

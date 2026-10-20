@@ -3076,6 +3076,19 @@ button.omp-file-chip-name:hover {
 	height: 10px;
 }
 
+/* While a turn runs and the button is Send, a small ■ inside its disc says a long press (touch) or right click still
+   stops the turn. Decorative and absolutely placed: it moves nothing and takes no tap. */
+.omp-send-stop-hint {
+	position: absolute;
+	right: 4px;
+	bottom: 4px;
+	width: 5px;
+	height: 5px;
+	border-radius: 1px;
+	background: currentColor;
+	pointer-events: none;
+}
+
 /* Attachment remove: a 28px disc on the thumbnail's corner (36px reach), always visible so removal never hides
    behind hover. */
 .omp-composer-attachment-remove {
@@ -3439,17 +3452,6 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	font-variant-numeric: tabular-nums;
 }
 
-/* Reserved slots: a control that is not on screen yet keeps its box, so a turn starting or ending, or a draft
-   appearing, moves nothing. Off = inert (no focus, no pointer) and invisible. */
-.omp-composer-slot {
-	display: inline-flex;
-	align-items: center;
-}
-
-.omp-composer-slot[data-off] {
-	visibility: hidden;
-}
-
 /* The ladder. Labels give way in order of how much the icon alone still says, by the TOOLBAR's width:
    860 steer/follow-up and the auto-mode chip, 740 the Run chip (a count badge keeps two modes countable), 620 the
    Run chip's glyphs and the model's effort, 500 the model name (last). */
@@ -3504,14 +3506,11 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	}
 }
 
-/* Below this a reserved slot costs the row its Send (a pane split in four, a 200 % zoom): the slots that are off give
-   their room back, and only there does the row move when a turn starts. The bash/python and queue badges go too
-   (wider up, they truncate): the draft's own `!`/`->` prefix still says it, and Stop and Send stay in the box.
-   A row still too narrow for its controls (a 200 % zoom beside the docked sidebar leaves ~110 px) wraps instead of
-   pushing Send past the window's edge: a row that fits is unchanged, and the send cluster keeps Send last, at the
-   right. */
+/* Below this the bash/python and queue badges give their room back (wider up, they truncate): the draft's own
+   `!`/`->` prefix still says it, and the action button stays in the box. A row still too narrow for its controls (a
+   200 % zoom beside the docked sidebar leaves ~110 px) wraps instead of pushing the button past the window's edge: a
+   row that fits is unchanged, and the send cluster keeps the button last, at the right. */
 @container omp-toolbar (max-width: 440px) {
-	.omp-composer-slot[data-off],
 	.omp-composer-badge {
 		display: none;
 	}

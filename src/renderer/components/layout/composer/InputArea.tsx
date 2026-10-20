@@ -389,8 +389,8 @@ export function InputArea() {
 	/** Tab-accept hint chip: only while the suggestion is the visible placeholder. */
 	const showSuggestionHint = shownPrompt !== undefined && text === "";
 	const menuId = useId();
-	/** Streaming with nothing to send: Stop takes the send slot instead of a dead Send. */
-	const showSend = !stoppable || text.trim() !== "" || images.length > 0 || queueEdit.editing !== null;
+	/** While a turn runs, an empty draft makes the action button Stop (send-slot.ts). */
+	const hasDraft = text.trim() !== "" || images.length > 0;
 
 	return (
 		<div
@@ -551,7 +551,7 @@ export function InputArea() {
 							queueSlot={queueSlot}
 							routeReady={routeReady}
 							sendDisabled={sendDisabled}
-							showSend={showSend}
+							hasDraft={hasDraft}
 							stoppable={stoppable}
 							touchInput={touchInput}
 						/>

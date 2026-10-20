@@ -68,8 +68,8 @@ test("@smoke a message sent while a turn runs steers it from Enter, the Send but
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-		// The turn itself runs once the send-mode chip shows (its reserved slot is invisible until then; before it,
-		// Stop only withdraws the pending prompt, and a message sent now is a prompt, not a steer).
+		// The turn itself runs once the send-mode chip shows (it shows only while a turn runs; before it, Stop only
+		// withdraws the pending prompt, and a message sent now is a prompt, not a steer).
 		await expect(page.locator("[data-send-mode]")).toBeVisible();
 		// The chip reads Steer: nothing has switched it to follow-ups.
 		await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
@@ -145,7 +145,7 @@ for (const language of ["en", "ko"] as const) {
 			const input = page.locator("textarea").first();
 			await input.fill("fixture running");
 			await input.press("Enter");
-			// The turn itself runs once the send-mode chip shows (its reserved slot is invisible until then).
+			// The turn itself runs once the send-mode chip shows (it shows only while a turn runs).
 			await expect(page.locator("[data-send-mode]")).toBeVisible();
 			await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
 
@@ -219,7 +219,7 @@ test("queued messages sit in one toolbar pill: the transcript and the composer n
 		await input.fill("fixture running");
 		await input.press("Enter");
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
-		// The turn itself runs once the send-mode chip shows (its reserved slot is invisible until then).
+		// The turn itself runs once the send-mode chip shows (it shows only while a turn runs).
 		await expect(page.locator("[data-send-mode]")).toBeVisible();
 		await expect(page.locator("[data-send-mode]")).toHaveAttribute("data-send-mode", "steer");
 
@@ -299,8 +299,10 @@ test("queued messages sit in one toolbar pill: the transcript and the composer n
 		await input.press("Escape");
 		await expect(page.locator("[data-queue-edit-banner]")).toHaveCount(0);
 		await expect(input).toHaveValue("my half-typed draft");
-		// The turn went on: Esc in the edit never reached the app-wide Stop.
-		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+		// The turn went on: Esc in the edit never reached the app-wide Stop (the lane chip shows only while it runs; with
+		// a draft the one action button is Send).
+		await expect(page.locator("[data-send-mode]")).toBeVisible();
+		await expect(page.locator('[data-slot="send"] button')).toHaveAttribute("data-send-state", "send");
 		expect(await geometry()).toEqual(empty);
 
 		// Saving re-queues the message at the end of its lane and brings the draft back.

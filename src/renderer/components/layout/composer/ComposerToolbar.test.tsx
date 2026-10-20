@@ -1,8 +1,9 @@
 /**
- * The toolbar's own contracts: Steer/Follow-up, Stop and Send live in RESERVED slots that never unmount (a turn
- * starting or ending, or a draft appearing, moves nothing), the dictation "Stop and send" arrow takes the Send
- * slot, the model chip says `Model · Thinking`, and the tooltips carry their chords. The pixel claims (height,
- * x/y of the left controls, accent colour) are measured in e2e/composer-toolbar.e2e.ts.
+ * The toolbar's own contracts: Send and Stop are ONE button in one slot (send-slot.ts), whose node stays while a turn
+ * starts or ends or a draft appears, and nothing waits beside it; while a turn runs with a draft its right click (a
+ * long press on touch) offers a Stop that keeps the draft; the Steer/Follow-up chip shows only while a turn runs; the
+ * dictation "Stop and send" arrow takes the button's place; the model chip says `Model · Thinking`; and the tooltips
+ * carry their chords. The pixel claims are measured in e2e/composer-toolbar.e2e.ts.
  */
 
 import { parseHTML } from "linkedom";
@@ -65,7 +66,7 @@ const baseProps: ComposerToolbarProps = {
 	followUp: false,
 	onToggleSendMode: () => {},
 	stoppable: false,
-	showSend: true,
+	hasDraft: true,
 	sendDisabled: false,
 	onStop: () => {},
 	onSend: () => {},
@@ -88,7 +89,8 @@ async function render(props: Partial<ComposerToolbarProps> = {}): Promise<void> 
 }
 
 const slot = (name: string) => container.querySelector(`[data-slot="${name}"]`) as unknown as HTMLElement;
-const SLOTS = ["steer", "stop", "send"] as const;
+const button = () => slot("send").querySelector("button") as unknown as HTMLButtonElement;
+const lane = () => container.querySelector("[data-send-mode]");
 
 afterEach(async () => {
 	await act(async () => root?.unmount());
@@ -112,50 +114,133 @@ async function tooltipOf(element: Element | null | undefined): Promise<string> {
 	return document.querySelector('[role="tooltip"]')?.textContent ?? "";
 }
 
-describe("reserved slots", () => {
-	it("keeps steer, Stop and Send mounted, and the same nodes, while a turn starts and ends", async () => {
-		await render();
-		const before = SLOTS.map(slot);
-		expect(before.every(Boolean)).toBe(true);
-		// Idle: steer and Stop are off (inert and hidden), Send is on.
-		expect(slot("steer").hasAttribute("data-off")).toBe(true);
-		expect(slot("steer").hasAttribute("inert")).toBe(true);
-		expect(slot("stop").hasAttribute("data-off")).toBe(true);
-		expect(slot("stop").hasAttribute("inert")).toBe(true);
-		expect(slot("send").hasAttribute("data-off")).toBe(false);
+async function contextMenu(element: Element): Promise<void> {
+	await act(async () => {
+		element.dispatchEvent(new Event("contextmenu", { bubbles: true, cancelable: true }));
+	});
+}
 
-		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		await render({ stoppable: true, showSend: false, sendDisabled: true });
-		expect(SLOTS.map(slot)).toEqual(before);
-		for (const name of ["steer", "stop"]) {
-			expect(slot(name).hasAttribute("data-off")).toBe(false);
-			expect(slot(name).hasAttribute("inert")).toBe(false);
+interface Row {
+	name: string;
+	streaming: boolean;
+	props: Partial<ComposerToolbarProps>;
+	label: string;
+	disabled: boolean;
+	state: string;
+	stopHint: boolean;
+}
+
+const STATES: Row[] = [
+	{
+		name: "idle, empty draft: a disabled Send",
+		streaming: false,
+		props: { hasDraft: false, sendDisabled: true },
+		label: "input.send",
+		disabled: true,
+		state: "send",
+		stopHint: false,
+	},
+	{
+		name: "typing: Send",
+		streaming: false,
+		props: { hasDraft: true, sendDisabled: false },
+		label: "input.send",
+		disabled: false,
+		state: "send",
+		stopHint: false,
+	},
+	{
+		name: "a turn runs, empty draft: Stop",
+		streaming: true,
+		props: { stoppable: true, hasDraft: false, sendDisabled: true },
+		label: "input.abort",
+		disabled: false,
+		state: "stop",
+		stopHint: false,
+	},
+	{
+		name: "a turn runs with a draft: Send, which still offers Stop",
+		streaming: true,
+		props: { stoppable: true, hasDraft: true, sendDisabled: false },
+		label: "input.send",
+		disabled: false,
+		state: "send",
+		stopHint: true,
+	},
+];
+
+describe("one action button", () => {
+	it.each(STATES)("$name", async row => {
+		await act(async () => useSessionStore.setState({ isStreaming: row.streaming }));
+		await render(row.props);
+		expect(button().getAttribute("aria-label")).toBe(translate(row.label));
+		expect(button().disabled).toBe(row.disabled);
+		expect(button().getAttribute("data-send-state")).toBe(row.state);
+		expect(button().querySelector("[data-send-stop-hint]") !== null).toBe(row.stopHint);
+		expect(button().hasAttribute("aria-describedby")).toBe(row.stopHint);
+		// The lane chip is there only while a turn runs; no slot is held for it (or for Stop) while idle.
+		expect(lane() !== null).toBe(row.streaming);
+		expect(slot("send").querySelectorAll("button").length).toBe(1);
+		expect(container.querySelector('[data-slot="stop"], [data-slot="steer"], .omp-composer-slot')).toBeNull();
+	});
+
+	it("is the same node through idle, typing, a running turn and typing during it", async () => {
+		await render({ hasDraft: false, sendDisabled: true });
+		const node = button();
+		for (const row of STATES) {
+			await act(async () => useSessionStore.setState({ isStreaming: row.streaming }));
+			await render(row.props);
+			expect(button()).toBe(node);
 		}
-
-		await act(async () => useSessionStore.setState({ isStreaming: false }));
-		await render();
-		expect(SLOTS.map(slot)).toEqual(before);
-		expect(slot("stop").hasAttribute("data-off")).toBe(true);
 	});
 
-	it("keeps Send in its slot, disabled and secondary, while Stop shows with nothing typed", async () => {
+	it("runs Stop as Stop and Send as Send", async () => {
+		const onStop = vi.fn();
+		const onSend = vi.fn();
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		await render({ stoppable: true, showSend: false, sendDisabled: true });
-		const send = slot("send").querySelector("button") as unknown as HTMLButtonElement;
-		expect(send.getAttribute("aria-label")).toBe(translate("input.send"));
-		expect(send.disabled).toBe(true);
-		const stop = slot("stop").querySelector("button") as unknown as HTMLElement;
-		expect(stop.getAttribute("aria-label")).toBe(translate("input.abort"));
-
-		// A draft appears: Send turns on and primary, Stop steps back; no node came or went.
-		const nodes = [send, stop];
-		await render({ stoppable: true, showSend: true, sendDisabled: false });
-		expect(slot("send").querySelector("button")).toBe(nodes[0]);
-		expect(slot("stop").querySelector("button")).toBe(nodes[1]);
-		expect(send.disabled).toBe(false);
+		await render({ stoppable: true, hasDraft: false, sendDisabled: true, onStop, onSend });
+		await act(async () => button().dispatchEvent(new Event("click", { bubbles: true })));
+		expect(onStop).toHaveBeenCalledTimes(1);
+		await render({ stoppable: true, hasDraft: true, sendDisabled: false, onStop, onSend });
+		await act(async () => button().dispatchEvent(new Event("click", { bubbles: true })));
+		expect(onSend).toHaveBeenCalledTimes(1);
+		expect(onStop).toHaveBeenCalledTimes(1);
 	});
 
-	it("puts the dictation 'Stop and send' arrow in the Send slot", async () => {
+	it.each([false, true])(
+		"offers Stop on a long press / right click while a turn runs with a draft, never sending (touch %s)",
+		async touchInput => {
+			const onStop = vi.fn();
+			const onSend = vi.fn();
+			await act(async () => useSessionStore.setState({ isStreaming: true }));
+			await render({ stoppable: true, hasDraft: true, sendDisabled: false, onStop, onSend, touchInput });
+			const hint = document.getElementById(button().getAttribute("aria-describedby") ?? "");
+			expect(hint?.textContent).toBe(
+				translate(touchInput ? "input.send.stopHintTouch" : "input.send.stopHintDesktop"),
+			);
+			await contextMenu(button());
+			const items = Array.from(document.querySelectorAll("[data-menu-item]")) as unknown as HTMLElement[];
+			expect(items.length).toBe(1);
+			expect(items[0]?.textContent).toContain(translate("input.abort"));
+			expect(items[0]?.textContent).toContain(translate("input.stopKeepsDraft"));
+			await act(async () => items[0]?.dispatchEvent(new Event("click", { bubbles: true })));
+			expect(onStop).toHaveBeenCalledTimes(1);
+			expect(onSend).not.toHaveBeenCalled();
+			expect(document.querySelector("[data-menu-item]")).toBeNull();
+		},
+	);
+
+	it("has no long-press menu while it is Stop or no turn runs", async () => {
+		await render({ hasDraft: true });
+		await contextMenu(button());
+		expect(document.querySelector("[data-menu-item]")).toBeNull();
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await render({ stoppable: true, hasDraft: false, sendDisabled: true });
+		await contextMenu(button());
+		expect(document.querySelector("[data-menu-item]")).toBeNull();
+	});
+
+	it("puts the dictation 'Stop and send' arrow in the button's place", async () => {
 		await render({ dictationPhase: "recording" });
 		const dictation = slot("send").querySelector("[data-dictation-send]");
 		expect(dictation).not.toBeNull();
@@ -180,34 +265,59 @@ describe("model chip", () => {
 			translate("input.modelLabelThinking", { model: "Sonnet 5.5", level: translate("input.thinking.name.auto") }),
 		);
 	});
+
+	it("drops the brand word the mark draws and shows Auto alone; name and tooltip keep both in full", async () => {
+		useModelStore.setState({
+			model: { provider: "anthropic", id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
+			availableThinkingLevels: ["low", "medium", "high"],
+			thinkingLevel: "high",
+			thinkingConfigured: "auto",
+			thinkingAutoResolved: "high",
+		});
+		await render();
+		const chip = container.querySelector("button[data-model-chip]") as unknown as HTMLElement;
+		expect(chip.querySelector(".omp-composer-model-label")?.textContent).toBe("Sonnet 5.5");
+		expect(chip.querySelector(".omp-composer-effort")?.textContent).toBe(
+			`· ${translate("input.thinking.name.auto")}`,
+		);
+		const resolved = translate("input.thinking.autoResolved", { level: translate("input.thinking.name.high") });
+		expect(chip.getAttribute("aria-label")).toBe(
+			translate("input.modelLabelThinking", { model: "Claude Sonnet 5.5", level: resolved }),
+		);
+		const tip = await tooltipOf(chip);
+		expect(tip).toContain("Claude Sonnet 5.5");
+		expect(tip).toContain(resolved);
+	});
 });
 
 describe("tooltips with chords", () => {
 	it("names Steer and the follow-up chord on Send while a turn runs; the follow-up lane says so", async () => {
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		await render({ stoppable: true, showSend: true });
+		await render({ stoppable: true });
 		const send = slot("send").querySelector("button");
 		expect(await tooltipOf(send)).toContain(
 			translate("input.send.tipSteer", { chord: formatShortcut(composerFollowUpChord()) }),
 		);
 		await act(async () => send?.dispatchEvent(new Event("pointerout", { bubbles: true })));
-		await render({ followUp: true, stoppable: true, showSend: true });
+		await render({ followUp: true, stoppable: true });
 		expect(await tooltipOf(slot("send").querySelector("button"))).toContain(translate("input.send.tipFollowUp"));
+	});
+
+	it("says on the desktop how to stop without losing the draft", async () => {
+		await act(async () => useSessionStore.setState({ isStreaming: true }));
+		await render({ stoppable: true });
+		expect(await tooltipOf(button())).toContain(translate("input.send.stopHintDesktop"));
 	});
 
 	it("shows Stop's Esc, the model's ⌥M, and the plan and thinking-cycle chords on the Run chip", async () => {
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		await render({ stoppable: true, showSend: true });
+		await render({ stoppable: true, hasDraft: false, sendDisabled: true });
 		expect(await tooltipOf(container.querySelector("button[data-model-chip]"))).toContain(formatShortcut("⌥M"));
 		await act(async () =>
 			container.querySelector("button[data-model-chip]")?.dispatchEvent(new Event("pointerout", { bubbles: true })),
 		);
-		expect(await tooltipOf(slot("stop").querySelector("button"))).toContain(formatShortcut("Esc"));
-		await act(async () =>
-			slot("stop")
-				.querySelector("button")
-				?.dispatchEvent(new Event("pointerout", { bubbles: true })),
-		);
+		expect(await tooltipOf(button())).toContain(formatShortcut("Esc"));
+		await act(async () => button().dispatchEvent(new Event("pointerout", { bubbles: true })));
 		const run = await tooltipOf(container.querySelector("button[data-run-settings-trigger]"));
 		// ⌃T hides thinking BLOCKS (thinking.toggle); the chip names the chords of what it controls.
 		expect(run).not.toContain(formatShortcut("⌃T"));
@@ -265,16 +375,15 @@ describe("+ menu Dictation item", () => {
 describe("editing a queued message", () => {
 	it("turns Send into a check named Save changes, in the same slot, and steps the lane chip aside", async () => {
 		await act(async () => useSessionStore.setState({ isStreaming: true }));
-		await render({ stoppable: true, showSend: true });
-		const send = slot("send").querySelector("button") as unknown as HTMLElement;
+		await render({ stoppable: true });
+		const send = button();
 		expect(send.getAttribute("aria-label")).toBe(translate("input.send"));
-		expect(slot("steer").hasAttribute("data-off")).toBe(false);
+		expect(lane()).not.toBeNull();
 
-		await render({ stoppable: true, showSend: true, editingQueued: true });
-		expect(slot("send").querySelector("button")).toBe(send);
+		await render({ stoppable: true, editingQueued: true });
+		expect(button()).toBe(send);
 		expect(send.getAttribute("aria-label")).toBe(translate("composerQueue.editSave"));
 		expect(send.querySelector("svg")?.getAttribute("class")).toContain("lucide-check");
-		expect(slot("steer").hasAttribute("data-off")).toBe(true);
-		expect(slot("steer").hasAttribute("inert")).toBe(true);
+		expect(lane()).toBeNull();
 	});
 });

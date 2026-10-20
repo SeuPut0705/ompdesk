@@ -84,6 +84,8 @@ async function ready(page: Page): Promise<void> {
 
 const composer = (page: Page) => page.locator(".omp-composer-input").first();
 const stop = (page: Page) => page.getByRole("button", { name: "Stop", exact: true });
+/** The lane chip shows exactly while a turn runs; with a draft the one action button is Send, so Stop is not the cue. */
+const running = (page: Page) => page.locator("[data-send-mode]");
 const composerFocused = (page: Page) =>
 	page.evaluate(() => document.activeElement?.classList.contains("omp-composer-input") === true);
 
@@ -421,9 +423,9 @@ test("Esc with a draft only arms the stop; an empty field stops at once; a doubl
 		await page.waitForTimeout(400);
 		// A stray Esc never kills a turn that has a draft.
 		expect(await aborts(dirs)).toBe(0);
-		await expect(stop(page)).toBeVisible();
+		await expect(running(page)).toBeVisible();
 		await input.press("Escape");
-		await expect(stop(page)).toHaveCount(0);
+		await expect(running(page)).toHaveCount(0);
 		expect(await aborts(dirs)).toBe(1);
 		await expect(input).toHaveValue("my unsent draft");
 
@@ -435,10 +437,10 @@ test("Esc with a draft only arms the stop; an empty field stops at once; a doubl
 		await input.press("Escape");
 		await page.waitForTimeout(400);
 		expect(await aborts(dirs)).toBe(1);
-		await expect(stop(page)).toBeVisible();
+		await expect(running(page)).toBeVisible();
 		// That Esc armed again; the next one inside its window stops.
 		await input.press("Escape");
-		await expect(stop(page)).toHaveCount(0);
+		await expect(running(page)).toHaveCount(0);
 		expect(await aborts(dirs)).toBe(2);
 
 		// An empty field stops with the first Esc, and two Esc in one tick send one command.
@@ -448,7 +450,7 @@ test("Esc with a draft only arms the stop; an empty field stops at once; a doubl
 			for (let press = 0; press < 2; press++)
 				document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		});
-		await expect(stop(page)).toHaveCount(0);
+		await expect(running(page)).toHaveCount(0);
 		await page.waitForTimeout(400);
 		expect(await aborts(dirs)).toBe(3);
 
@@ -459,7 +461,7 @@ test("Esc with a draft only arms the stop; an empty field stops at once; a doubl
 			(button as HTMLElement).click();
 		});
 		await expect.poll(() => aborts(dirs)).toBe(4);
-		await expect(stop(page)).toHaveCount(0);
+		await expect(running(page)).toHaveCount(0);
 		await page.waitForTimeout(400);
 		expect(await aborts(dirs)).toBe(4);
 		expect(errors).toEqual([]);
@@ -485,8 +487,10 @@ test("Stop with queued messages pauses the queue: separate chips in one row, the
 		}
 		await expect(page.locator("[data-queue-pill]")).toContainText("2 queued");
 		await input.fill("my half-typed draft");
-		await stop(page).click();
-		await expect(stop(page)).toHaveCount(0);
+		// With a draft the button is Send: its right click offers the Stop that keeps the draft.
+		await page.locator('[data-slot="send"] button').click({ button: "right" });
+		await page.locator("[data-menu-item]").filter({ hasText: "Stop" }).click();
+		await expect(running(page)).toHaveCount(0);
 
 		// The draft stays the user's own; the queued messages come back as their own chips, oldest first.
 		await expect(input).toHaveValue("my half-typed draft");
@@ -678,7 +682,7 @@ test("dictation leaves the draft in view, Esc discards the take without stopping
 		await expect(bar).toHaveCount(0);
 		await page.waitForTimeout(400);
 		expect(await aborts(dirs)).toBe(0);
-		await expect(stop(page)).toBeVisible();
+		await expect(running(page)).toBeVisible();
 		await expect(input).toHaveValue("my draft");
 
 		// The fake omp cannot transcribe: the failure is a plain sentence, the raw error sits behind Details.
@@ -690,6 +694,8 @@ test("dictation leaves the draft in view, Esc discards the take without stopping
 		await expect(failure).toBeVisible({ timeout: 20_000 });
 		await expect(failure).toContainText("Dictation failed. Try again.");
 		await expect(failure).not.toContainText("transcribe_audio");
+		// The pointer still rests on the mic: its tooltip would cover Details.
+		await page.mouse.move(0, 0);
 		await failure.getByRole("button", { name: "Details" }).click();
 		await expect(failure.locator("[data-error-detail]")).not.toBeEmpty();
 		await failure.getByRole("button", { name: "Dismiss" }).click();

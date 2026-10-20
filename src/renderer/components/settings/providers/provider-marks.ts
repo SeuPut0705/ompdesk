@@ -256,6 +256,29 @@ export function providerBrand(provider: { id: string; name: string }): ProviderB
 	return known ? { company: known.company, mark: known.mark } : { company: provider.name, mark: null };
 }
 
+/**
+ * The model family a symbol stands for, where it is not the company's own name: the mark says it already, so a chip
+ * beside the mark can leave it out. Only names the vendors print on their own models (Anthropic's Claude, Google's
+ * Gemini, xAI's Grok); OpenAI's GPT is a model line, not a brand the mark draws, so it stays.
+ */
+const MARK_FAMILY: Partial<Record<MarkId, string>> = { anthropic: "Claude", gemini: "Gemini", xai: "Grok" };
+
+/**
+ * A model's name for a chip that already shows its provider's mark: a leading word equal to the brand the mark draws
+ * (the company's first word, or its model family) is dropped when what follows still starts with a word ("Claude Opus
+ * 5.5" → "Opus 5.5"), never when only a number would be left ("Gemini 3 Pro", "Grok 5" stay whole). No mark, or no
+ * such word: the name as stock gives it. Pickers and tooltips keep the full name.
+ */
+export function chipModelName(provider: { id: string; name: string }, name: string): string {
+	const { company, mark } = providerBrand(provider);
+	if (mark === null) return name;
+	const brands = [company.split(" ")[0], MARK_FAMILY[mark]].filter((word): word is string => !!word);
+	const match = /^(\S+?):?\s+(\p{L}.*)$/u.exec(name.trim());
+	if (!match) return name;
+	const [, lead = "", rest = ""] = match;
+	return brands.some(word => word.localeCompare(lead, undefined, { sensitivity: "base" }) === 0) ? rest : name;
+}
+
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
 /**
