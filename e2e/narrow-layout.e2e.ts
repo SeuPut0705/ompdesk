@@ -53,7 +53,7 @@ for (const language of variants(["en", "ko"] as const, language => language === 
 			await settings.locator('[data-settings-section="general"]').click();
 			await expect(content.locator("#setting-gui-language")).toBeVisible();
 			const rowHeights = await content.evaluate(() =>
-				["setting-gui-language", "setting-gui-notifications", "setting-gui-panelSide"].map(
+				["setting-gui-language", "setting-gui-notifications", "setting-gui-linkPreview"].map(
 					id => document.getElementById(id)?.getBoundingClientRect().height ?? 0,
 				),
 			);

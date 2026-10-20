@@ -1,6 +1,7 @@
 /**
  * Settings › Appearance: theme (inline swatches), text size and density,
- * and how conversations render. Every control applies immediately.
+ * and how conversations render; the follow-agent-theme switch and the paste
+ * threshold fold under Advanced. Every control applies immediately.
  */
 
 import {
@@ -36,7 +37,7 @@ import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { webRuntime } from "../../web/runtime";
 import { Button, Input, Select, SettingInfo } from "../common";
-import { SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
 import { ThemePicker } from "./ThemePicker";
 
 const FONT_SIZES = [12, 13, 14, 15, 16, 17, 18, 20] as const;
@@ -159,14 +160,6 @@ export function AppearanceSection() {
 			<ThisDeviceNote />
 			<SettingsSection title={t("settings.appearance.theme")}>
 				<ThemePicker />
-				<SettingsSwitchRow
-					checked={followAgentTheme}
-					description={t("settings.gui.followAgentThemeDesc")}
-					icon={<Palette />}
-					id="setting-gui-followAgentTheme"
-					label={t("settings.gui.followAgentTheme")}
-					onCheckedChange={value => applyStorePreference("followAgentTheme", value)}
-				/>
 			</SettingsSection>
 
 			<SettingsSection title={t("settings.appearance.text")}>
@@ -297,29 +290,43 @@ export function AppearanceSection() {
 						onCheckedChange={next => void setDisplayPreference("mobileEnterSends", next)}
 					/>
 				</SettingsTiles>
-				<SettingsRow
-					control={
-						<Input
-							id={pasteId}
-							min={0}
-							onBlur={commitPasteThreshold}
-							onChange={event => setPasteThresholdDraft(event.target.value)}
-							onKeyDown={event => {
-								if (isImeKeyEvent(event)) return;
-								if (event.key === "Enter") event.currentTarget.blur();
-							}}
-							step={1}
-							type="number"
-							value={pasteThresholdDraft ?? String(pasteMenuThreshold)}
-						/>
-					}
-					description={t("settings.display.pasteMenuThresholdDesc")}
-					htmlFor={pasteId}
-					icon={<ClipboardPaste />}
-					id="setting-gui-pasteMenuThreshold"
-					label={t("settings.display.pasteMenuThreshold")}
-				/>
 			</SettingsSection>
+			<SettingsAdvanced>
+				<SettingsSection title={t("settings.appearance.theme")}>
+					<SettingsSwitchRow
+						checked={followAgentTheme}
+						description={t("settings.gui.followAgentThemeDesc")}
+						icon={<Palette />}
+						id="setting-gui-followAgentTheme"
+						label={t("settings.gui.followAgentTheme")}
+						onCheckedChange={value => applyStorePreference("followAgentTheme", value)}
+					/>
+				</SettingsSection>
+				<SettingsSection title={t("settings.appearance.input")}>
+					<SettingsRow
+						control={
+							<Input
+								id={pasteId}
+								min={0}
+								onBlur={commitPasteThreshold}
+								onChange={event => setPasteThresholdDraft(event.target.value)}
+								onKeyDown={event => {
+									if (isImeKeyEvent(event)) return;
+									if (event.key === "Enter") event.currentTarget.blur();
+								}}
+								step={1}
+								type="number"
+								value={pasteThresholdDraft ?? String(pasteMenuThreshold)}
+							/>
+						}
+						description={t("settings.display.pasteMenuThresholdDesc")}
+						htmlFor={pasteId}
+						icon={<ClipboardPaste />}
+						id="setting-gui-pasteMenuThreshold"
+						label={t("settings.display.pasteMenuThreshold")}
+					/>
+				</SettingsSection>
+			</SettingsAdvanced>
 		</>
 	);
 }

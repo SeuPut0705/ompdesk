@@ -35,8 +35,9 @@ const AGENT_GROUPS: readonly { group: AgentSettingsGroup; titleKey: string }[] =
 
 /**
  * Settings › Agent behavior: the curated rows of messages & execution, modes,
- * and context & memory; every other stock agent setting folds under Advanced,
- * still grouped the same way (search breadcrumbs keep those group names).
+ * and context & memory; the panels that open by themselves and every other
+ * stock agent setting fold under Advanced, the stock ones grouped the same way
+ * (search breadcrumbs keep those group names).
  */
 export function AgentSection() {
 	const t = useT();
@@ -66,8 +67,6 @@ export function AgentSection() {
 				<AutoTitleRow />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-automation" scope="app" title={t("settings.agent.automation")}>
-				<AutoPreviewRow />
-				<AutoChangesRow />
 				<JudgeAssistRow />
 				<AutoModeRow />
 				<PstackRow />
@@ -81,15 +80,17 @@ export function AgentSection() {
 				<SchemaField path="compaction.enabled" />
 				<CompactionLimitsSection />
 			</SettingsSection>
-			{AGENT_GROUPS.some(({ group }) => stockGroups[group]) && (
-				<SettingsAdvanced>
-					{AGENT_GROUPS.filter(({ group }) => stockGroups[group]).map(({ group, titleKey }) => (
-						<SettingsSection id={`settings-agent-${group}-more`} key={group} title={t(titleKey)}>
-							<OwnedSchemaSettings group={group} section="agent" />
-						</SettingsSection>
-					))}
-				</SettingsAdvanced>
-			)}
+			<SettingsAdvanced>
+				<SettingsSection id="settings-agent-automation-more" title={t("settings.agent.automation")}>
+					<AutoPreviewRow />
+					<AutoChangesRow />
+				</SettingsSection>
+				{AGENT_GROUPS.filter(({ group }) => stockGroups[group]).map(({ group, titleKey }) => (
+					<SettingsSection id={`settings-agent-${group}-more`} key={group} title={t(titleKey)}>
+						<OwnedSchemaSettings group={group} section="agent" />
+					</SettingsSection>
+				))}
+			</SettingsAdvanced>
 		</>
 	);
 }

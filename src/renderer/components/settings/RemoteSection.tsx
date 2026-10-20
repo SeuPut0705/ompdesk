@@ -54,7 +54,7 @@ import { LINK_BADGE } from "../remote/DeviceChip";
 import { DeviceNameField } from "./DeviceNameField";
 import { MobileWebAllowedUsers, MobileWebBlocked } from "./MobileWebDevices";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
-import { SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTipOnly } from "./SettingsLayout";
 
 /** Apply a mutation's reply, or toast why it failed. */
 async function mutate(action: () => Promise<RemoteState>, failureTitle: string): Promise<void> {
@@ -542,72 +542,72 @@ export function RemoteSection() {
 			{host.enabled && mobileWeb && <MobileWebAllowedUsers state={mobileWeb} />}
 			{host.enabled && blocked && blocked.length > 0 && <MobileWebBlocked blocked={blocked} />}
 
-			<SettingsSection description={t("remote.hosts.desc")} title={t("remote.hosts.title")}>
-				{hosts.length > 0 ? (
-					<div className="flex flex-col gap-px py-2" data-remote-hosts>
-						{hosts.map(entry => (
-							<ListRow
-								actions={
-									<RenameButton
-										name={entry.name}
-										offline={entry.state !== "online"}
-										onClick={() => setRenaming(`host:${entry.deviceId}`)}
-									/>
-								}
-								description={
-									entry.home ? (
-										// The row truncates the host's folder; hover names it in full.
-										<span className="font-mono" title={entry.home}>
-											{entry.home}
-										</span>
-									) : undefined
-								}
-								key={entry.deviceId}
-								leading={<Monitor aria-hidden />}
-								meta={
-									<Badge dot pulse={entry.state === "connecting"} variant={LINK_BADGE[entry.state]}>
-										{t(`remote.state.${entry.state}`)}
-									</Badge>
-								}
-								rowProps={{ "data-remote-host": entry.deviceId }}
-								title={
-									renaming === `host:${entry.deviceId}` ? (
-										<DeviceNameField
+			<SettingsTipOnly value>
+				<SettingsSection description={t("remote.hosts.desc")} title={t("remote.hosts.title")}>
+					{hosts.length > 0 && (
+						<div className="flex flex-col gap-px py-2" data-remote-hosts>
+							{hosts.map(entry => (
+								<ListRow
+									actions={
+										<RenameButton
 											name={entry.name}
-											onDone={() => setRenaming(null)}
-											onSave={next =>
-												void mutate(
-													() => window.omp.remote.renameHost(entry.deviceId, next),
-													t("remote.renameFailed"),
-												)
-											}
+											offline={entry.state !== "online"}
+											onClick={() => setRenaming(`host:${entry.deviceId}`)}
 										/>
-									) : (
-										entry.name
-									)
-								}
-								titleText={entry.name}
-								trailing={
-									<Button
-										aria-label={t("remote.removeLabel", { name: entry.name })}
-										onClick={() =>
-											setPendingRemove({ kind: "host", deviceId: entry.deviceId, name: entry.name })
-										}
-										size="sm"
-										variant="ghost"
-									>
-										{t("remote.remove")}
-									</Button>
-								}
-							/>
-						))}
-					</div>
-				) : (
-					<p className="py-3 text-sc-sm text-(--sc-text-muted)">{t("remote.hosts.empty")}</p>
-				)}
-				<TailnetComputers ready={state.tailnet === "ready"} />
-				<HostAppearanceRow />
-			</SettingsSection>
+									}
+									description={
+										entry.home ? (
+											// The row truncates the host's folder; hover names it in full.
+											<span className="font-mono" title={entry.home}>
+												{entry.home}
+											</span>
+										) : undefined
+									}
+									key={entry.deviceId}
+									leading={<Monitor aria-hidden />}
+									meta={
+										<Badge dot pulse={entry.state === "connecting"} variant={LINK_BADGE[entry.state]}>
+											{t(`remote.state.${entry.state}`)}
+										</Badge>
+									}
+									rowProps={{ "data-remote-host": entry.deviceId }}
+									title={
+										renaming === `host:${entry.deviceId}` ? (
+											<DeviceNameField
+												name={entry.name}
+												onDone={() => setRenaming(null)}
+												onSave={next =>
+													void mutate(
+														() => window.omp.remote.renameHost(entry.deviceId, next),
+														t("remote.renameFailed"),
+													)
+												}
+											/>
+										) : (
+											entry.name
+										)
+									}
+									titleText={entry.name}
+									trailing={
+										<Button
+											aria-label={t("remote.removeLabel", { name: entry.name })}
+											onClick={() =>
+												setPendingRemove({ kind: "host", deviceId: entry.deviceId, name: entry.name })
+											}
+											size="sm"
+											variant="ghost"
+										>
+											{t("remote.remove")}
+										</Button>
+									}
+								/>
+							))}
+						</div>
+					)}
+					<TailnetComputers ready={state.tailnet === "ready"} />
+					<HostAppearanceRow />
+				</SettingsSection>
+			</SettingsTipOnly>
 			<ConfirmDialog
 				confirmLabel={t(pendingRemove?.kind === "block" ? "remote.block" : "remote.remove")}
 				message={t(

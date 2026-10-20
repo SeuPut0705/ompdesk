@@ -13,6 +13,8 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
 import { useUiStore } from "../../stores/ui";
+import { AgentSection } from "./AgentSection";
+import { AppearanceSection } from "./AppearanceSection";
 import { GeneralSection } from "./GeneralSection";
 import { OwnedSchemaSettings } from "./OwnedSchemaSettings";
 import { SchemaSettingRow } from "./SchemaSettingRow";
@@ -429,5 +431,49 @@ describe("searchSettings", () => {
 		expect(search("proxy").some(result => result.target === "general")).toBe(true);
 		expect(search("mcp").some(result => result.key === "section:tools")).toBe(true);
 		expect(search("")).toEqual([]);
+	});
+});
+
+describe("rows folded under Advanced", () => {
+	const afterAdvanced = (html: string, id: string) => {
+		const advanced = html.indexOf("data-settings-advanced");
+		expect(advanced, "an Advanced disclosure").toBeGreaterThan(-1);
+		expect(html.indexOf(`id="${id}"`), id).toBeGreaterThan(advanced);
+	};
+
+	it("General keeps the side panel and terminal shell under Advanced, and shows no Dock row", () => {
+		const html = renderToStaticMarkup(withData([], {}, <GeneralSection />));
+		for (const id of ["setting-gui-panelDefault", "setting-gui-panelSide", "setting-gui-terminalShell"])
+			afterAdvanced(html, id);
+		expect(html).not.toContain("setting-gui-closeToDock");
+	});
+
+	it("Agent behavior renders Advanced always, with the auto panels in it", () => {
+		const html = renderToStaticMarkup(withData([], {}, <AgentSection />));
+		afterAdvanced(html, "setting-gui-autoPreviewDevServer");
+		afterAdvanced(html, "setting-gui-autoOpenChanges");
+		expect(html).toContain('id="settings-agent-automation-more"');
+	});
+
+	it("Appearance folds the agent-theme switch and the paste threshold under Advanced", () => {
+		const html = renderToStaticMarkup(withData([], {}, <AppearanceSection />));
+		afterAdvanced(html, "setting-gui-followAgentTheme");
+		afterAdvanced(html, "setting-gui-pasteMenuThreshold");
+	});
+
+	it.each([
+		["panelSide", "general"],
+		["autoOpenChanges", "agent"],
+		["pasteMenuThreshold", "appearance"],
+	])("search for %s lands on its row in %s", (query, section) => {
+		const [hit] = searchSettings({
+			query,
+			t: key => translate(key),
+			entries: [],
+			values: {},
+			schemaTabLabel: id => id,
+			schemaLabel: entry => entry.path,
+		});
+		expect(hit).toMatchObject({ target: section, rowId: `setting-gui-${query}` });
 	});
 });

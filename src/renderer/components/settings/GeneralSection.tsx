@@ -1,10 +1,10 @@
 /**
  * Settings › General: language, conversation language and reply style;
  * notifications (and their chime); the profile the agent addresses (name,
- * development experience); the window (side panel default and edge, terminal
- * shell, how reply links open, window close, sleep, title and Dock status);
- * the sidebar's pinned shortcuts; the GitHub account; and, folded under
- * Advanced, this device's network proxy. All of it is this device's.
+ * development experience); the window (how reply links open, window close,
+ * sleep, title and Dock status); the sidebar's pinned shortcuts; the GitHub
+ * account; and, folded under Advanced, the side panel's default and edge, the
+ * terminal shell and this device's network proxy. All of it is this device's.
  */
 
 import {
@@ -158,42 +158,6 @@ export function GeneralSection() {
 			</SettingsSection>
 			<ProfileSection />
 			<SettingsSection title={t("settings.general.window")}>
-				<SettingsRow
-					control={
-						<Select
-							id={panelId}
-							onChange={event => {
-								const next = event.target.value as PanelTab;
-								void saveGuiPreference("defaultPanelTab", next, () => useUiStore.getState().setPanelTab(next));
-							}}
-							options={PANEL_TABS.map(value => ({ value, label: t(`panel.tabs.${value}`) }))}
-							value={migrateDefaultPanelTab(panelTab)}
-						/>
-					}
-					htmlFor={panelId}
-					icon={<LayoutPanelLeft />}
-					id="setting-gui-panelDefault"
-					label={t("settings.gui.panelDefault")}
-				/>
-				<SettingsRow
-					control={
-						<Select
-							id={panelSideId}
-							onChange={event => {
-								const next = event.target.value === "left" ? "left" : "right";
-								void saveGuiPreference("panelSide", next, () => useUiStore.setState({ panelSide: next }));
-							}}
-							options={PANEL_SIDES.map(value => ({ value, label: t(`settings.gui.panelSide.${value}`) }))}
-							value={panelSide}
-						/>
-					}
-					description={t("settings.gui.panelSideDesc")}
-					htmlFor={panelSideId}
-					icon={<PanelRight />}
-					id="setting-gui-panelSide"
-					label={t("settings.gui.panelSide")}
-				/>
-				<TerminalShellRow />
 				<SettingsSwitchRow
 					checked={linkPreview}
 					description={t("settings.gui.linkPreviewDesc")}
@@ -212,14 +176,6 @@ export function GeneralSection() {
 						id="setting-gui-closeToTray"
 						label={t("settings.gui.closeToTray")}
 						onCheckedChange={setCloseToTray}
-					/>
-				)}
-				{PLATFORM === "mac" && (
-					<SettingsRow
-						description={t("settings.gui.closeToDockDesc")}
-						icon={<Power />}
-						id="setting-gui-closeToDock"
-						label={t("settings.gui.closeToDock")}
 					/>
 				)}
 				<SettingsSwitchRow
@@ -246,6 +202,44 @@ export function GeneralSection() {
 			<SidebarShortcutsSection />
 			<GithubAccountSection />
 			<SettingsAdvanced>
+				<SettingsSection title={t("settings.general.window")}>
+					<SettingsRow
+						control={
+							<Select
+								id={panelId}
+								onChange={event => {
+									const next = event.target.value as PanelTab;
+									void saveGuiPreference("defaultPanelTab", next, () => useUiStore.getState().setPanelTab(next));
+								}}
+								options={PANEL_TABS.map(value => ({ value, label: t(`panel.tabs.${value}`) }))}
+								value={migrateDefaultPanelTab(panelTab)}
+							/>
+						}
+						htmlFor={panelId}
+						icon={<LayoutPanelLeft />}
+						id="setting-gui-panelDefault"
+						label={t("settings.gui.panelDefault")}
+					/>
+					<SettingsRow
+						control={
+							<Select
+								id={panelSideId}
+								onChange={event => {
+									const next = event.target.value === "left" ? "left" : "right";
+									void saveGuiPreference("panelSide", next, () => useUiStore.setState({ panelSide: next }));
+								}}
+								options={PANEL_SIDES.map(value => ({ value, label: t(`settings.gui.panelSide.${value}`) }))}
+								value={panelSide}
+							/>
+						}
+						description={t("settings.gui.panelSideDesc")}
+						htmlFor={panelSideId}
+						icon={<PanelRight />}
+						id="setting-gui-panelSide"
+						label={t("settings.gui.panelSide")}
+					/>
+					<TerminalShellRow />
+				</SettingsSection>
 				<SettingsSection title={t("settings.general.network")}>
 					<ProxyRow />
 				</SettingsSection>

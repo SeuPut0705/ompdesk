@@ -184,6 +184,7 @@ for (const [language, theme] of variants(RUNS)) {
 		await expect(volume).toContainText("40%");
 
 		await settings.locator("#setting-gui-linkPreview").getByRole("switch").click();
+		await settings.locator("[data-settings-advanced] > summary").click();
 		await settings.locator("#setting-gui-panelSide select").selectOption("left");
 		await settings.locator("#setting-gui-keepAwakeWorking").getByRole("switch").click();
 		await sound.scrollIntoViewIfNeeded();

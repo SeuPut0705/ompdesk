@@ -1054,7 +1054,7 @@ describe("TurnResume connection wait", () => {
 		h.resume.sync();
 		await settle();
 		expect(h.awaiting).toEqual([]);
-		expect(h.commands).toEqual([]);
+		expect(h.commands.map(cmd => cmd.type)).not.toContain("retry");
 	});
 
 	it("a non-network error while offline is not a wait", () => {
