@@ -132,13 +132,20 @@ interface Listing {
 	inUse: string[];
 }
 
-/** `only`: the real path of the one worktree to read (a removal re-reads just that one). */
-async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Listing> {
+interface Candidates {
+	primary: string;
+	root: string;
+	candidates: { path: string; branch: string | null }[];
+	inUse: string[];
+}
+
+/** OMPdesk's linked worktrees of `cwd`'s repository, unread: one `git worktree list`. */
+async function candidatesOf(cwd: string, deps: OrphanDeps, only?: string): Promise<Candidates> {
 	if (!(await repoRoot(cwd))) throw new LocalCommandError(`Not a git repository: ${cwd}`, "not_a_repo");
 	const primary = await primaryRoot(cwd);
 	const location = await stockWorktreeLocation(deps.bridge, primary);
 	const root = await fs.realpath(location.root).catch(() => null);
-	if (!root) return { primary, root: location.root, worktrees: [], inUse: [] };
+	if (!root) return { primary, root: location.root, candidates: [], inUse: [] };
 
 	const [, ...linked] = parseWorktreeList(await git(primary, ["worktree", "list", "--porcelain", "-z"]));
 	const open = deps.openFolders().map(realFolder);
@@ -155,7 +162,12 @@ async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Li
 		}
 		candidates.push({ path: real, branch: entry.branch });
 	}
+	return { primary, root, candidates, inUse };
+}
 
+/** `only`: the real path of the one worktree to read (a removal re-reads just that one). */
+async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Listing> {
+	const { primary, root, candidates, inUse } = await candidatesOf(cwd, deps, only);
 	const inspected: (RpcOrphanWorktree | null)[] = new Array(candidates.length).fill(null);
 	let next = 0;
 	const worker = async (): Promise<void> => {
@@ -199,6 +211,14 @@ async function inspect(
 		dirtyFiles: standing.dirtyFiles,
 		modifiedAt: (Number(committed.trim()) || 0) * 1000,
 	};
+}
+
+/**
+ * The real paths of the OMPdesk-made linked worktrees of `cwd`'s repository that no open session uses, without reading
+ * them (no state): for a caller that reads each one itself.
+ */
+export async function orphanWorktreePaths(cwd: string, deps: OrphanDeps): Promise<string[]> {
+	return (await candidatesOf(cwd, deps)).candidates.map(candidate => candidate.path);
 }
 
 /** The OMPdesk-made linked worktrees of `cwd`'s repository that no open session uses, newest commit first. */
@@ -312,24 +332,51 @@ export async function orphanRepositories(deps: OrphanDeps): Promise<{ root: stri
 	return { root, repos: [...repos] };
 }
 
+/** Every repository's orphaned worktrees under stock's worktree root, read once; a listing that failed says why. */
+export interface OrphanListing {
+	root: string;
+	repos: { repo: string; worktrees: RpcOrphanWorktree[]; error?: string }[];
+}
+
+/** `listOrphanWorktrees` of each repository `orphanRepositories` finds (or already found: `found`). */
+export async function listAllOrphans(
+	deps: OrphanDeps,
+	found?: { root: string; repos: readonly string[] },
+): Promise<OrphanListing> {
+	const { root, repos } = found ?? (await orphanRepositories(deps));
+	const listed: OrphanListing["repos"] = [];
+	for (const repo of repos) {
+		listed.push(
+			await listOrphanWorktrees(repo, deps).then(
+				result => ({ repo, worktrees: result.worktrees }),
+				(error: unknown) => ({
+					repo,
+					worktrees: [],
+					error: error instanceof Error ? error.message : String(error),
+				}),
+			),
+		);
+	}
+	return { root, repos: listed };
+}
+
 /**
  * Remove every orphaned worktree under stock's worktree root whose work is landed (or never begun), keeping its
  * branch: each repository of `orphanRepositories` listed and removed by `listOrphanWorktrees` / `removeOrphanWorktree`,
  * so in use, dirty, unlanded, locked, the primary checkout and anything outside the repository's own root stay.
  * `prepare` runs before each removal (disk care's archive). `dryRun` removes nothing and reports what would go.
+ * `listed`: a listing the caller already read (`listAllOrphans`); it only picks candidates, since each removal reads
+ * its worktree again under the repository lock and the removal claim.
  */
 export async function sweepLandedWorktrees(
 	deps: OrphanDeps,
-	options: { dryRun?: boolean; prepare?: BeforeRemove } = {},
+	options: { dryRun?: boolean; prepare?: BeforeRemove; listed?: OrphanListing } = {},
 ): Promise<SweepReport> {
-	const { root, repos } = await orphanRepositories(deps);
+	const { root, repos } = options.listed ?? (await listAllOrphans(deps));
 	const report: SweepReport = { root, removed: [], kept: [], failed: [] };
-	for (const repo of repos) {
-		const listed = await listOrphanWorktrees(repo, deps).catch((error: unknown) => {
-			report.failed.push({ path: repo, error: error instanceof Error ? error.message : String(error) });
-			return null;
-		});
-		for (const worktree of listed?.worktrees ?? []) {
+	for (const { repo, worktrees, error: listError } of repos) {
+		if (listError !== undefined) report.failed.push({ path: repo, error: listError });
+		for (const worktree of worktrees) {
 			const swept: SweptWorktree = {
 				path: worktree.path,
 				repo: worktree.repo,

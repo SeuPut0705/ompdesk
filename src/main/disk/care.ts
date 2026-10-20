@@ -35,7 +35,14 @@ import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { RpcOrphanWorktree } from "../../shared/rpc-types";
 import { git, withRepoLock } from "../local/git/exec";
 import type { IpcRegistry } from "../web/ipc-registry";
-import { listOrphanWorktrees, type OrphanDeps, orphanRepositories, sweepLandedWorktrees } from "../worktree-orphans";
+import {
+	listAllOrphans,
+	type OrphanDeps,
+	type OrphanListing,
+	orphanRepositories,
+	orphanWorktreePaths,
+	sweepLandedWorktrees,
+} from "../worktree-orphans";
 import { withRemovalClaim } from "../worktree-removals";
 import {
 	archiveBeforeRemove,
@@ -91,6 +98,13 @@ function runText(command: string, args: string[]): Promise<string | null> {
 		resolve(error ? null : String(stdout)),
 	);
 	return promise;
+}
+
+/** What the artifacts step read of a worktree before any claim. */
+interface PreRead {
+	files: WorktreeFiles;
+	/** Days idle, when read and nothing was dropped since. */
+	idleDays?: number;
 }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -197,9 +211,13 @@ export class DiskCare {
 			const { root, repos } = await orphanRepositories(this.#deps);
 			worktreeRoot = root;
 			if (!this.#deps.worktrees) return;
-			await this.#artifacts(repos, folders, tally);
-			await this.#landed(folders, tally);
-			await this.#saveIdle(repos, folders, tally);
+			const preRead = await this.#artifacts(repos, folders, tally);
+			// One reading of every orphan's state for both steps after the artifacts went (dropping them can leave a
+			// worktree clean): it only picks candidates, each removal reads its worktree again under its locks.
+			const listed = await listAllOrphans(this.#deps, { root, repos });
+			const removed = await this.#landed(listed, folders, tally);
+			const left = listed.repos.flatMap(entry => entry.worktrees).filter(orphan => !removed.has(orphan.path));
+			await this.#saveIdle(left, preRead, folders, tally);
 		});
 		await step("http-cache", () => this.#httpCache(tally));
 		await step("bun-cache", () => this.#bunCache(tally));
@@ -238,55 +256,68 @@ export class DiskCare {
 		return (this.#now() - (await lastActivity(worktree, files))) / DAY_MS;
 	}
 
-	async #orphans(repos: readonly string[]): Promise<RpcOrphanWorktree[]> {
-		const all: RpcOrphanWorktree[] = [];
-		for (const repo of repos)
-			all.push(...((await listOrphanWorktrees(repo, this.#deps).catch(() => null))?.worktrees ?? []));
-		return all;
-	}
-
-	async #artifacts(repos: readonly string[], folders: string[] | null, tally: RunTally): Promise<void> {
-		for (const orphan of await this.#orphans(repos)) {
+	/**
+	 * Drops idle orphans' regenerable output. Returns what it read of each worktree before any claim, for the save step's
+	 * pre-filter: the files, and the idle days when nothing was dropped (a drop writes the worktree's folder).
+	 */
+	async #artifacts(
+		repos: readonly string[],
+		folders: string[] | null,
+		tally: RunTally,
+	): Promise<Map<string, PreRead>> {
+		const preRead = new Map<string, PreRead>();
+		const paths: string[] = [];
+		for (const repo of repos) paths.push(...((await orphanWorktreePaths(repo, this.#deps).catch(() => null)) ?? []));
+		for (const worktree of paths) {
+			// A worktree git cannot read (a broken checkout) is left alone, as the orphan listing leaves it out.
+			const files = await readWorktreeFiles(worktree).catch(() => null);
+			if (!files) continue;
+			const read: PreRead = { files };
+			preRead.set(worktree, read);
 			try {
-				const files = await readWorktreeFiles(orphan.path);
 				if (![...files.ignored, ...files.untracked].some(entry => entry.regenerable)) continue;
-				if ((await this.#idleDays(orphan.path, files)) < DISK_CARE_ARTIFACT_IDLE_DAYS) continue;
-				if (processInside(orphan.path, folders)) {
-					this.#kept(tally, orphan.path, folders === null ? "process check unavailable" : "a process works in it");
+				read.idleDays = await this.#idleDays(worktree, files);
+				if (read.idleDays < DISK_CARE_ARTIFACT_IDLE_DAYS) continue;
+				if (processInside(worktree, folders)) {
+					this.#kept(tally, worktree, folders === null ? "process check unavailable" : "a process works in it");
 					continue;
 				}
-				const dropped = await withRemovalClaim(orphan.path, this.#deps.openFolders, async () => {
+				const dropped = await withRemovalClaim(worktree, this.#deps.openFolders, async () => {
 					// Read again under the claim: what a tab or tool changed since is judged afresh.
-					const operation = await inProgressOperation(orphan.path);
+					const operation = await inProgressOperation(worktree);
 					if (operation) throw new KeepWorktree(`a git operation is half done (${operation})`);
-					const fresh = await readWorktreeFiles(orphan.path);
-					if ((await this.#idleDays(orphan.path, fresh)) < DISK_CARE_ARTIFACT_IDLE_DAYS) return [];
-					return dropArtifacts(orphan.path, fresh);
+					const fresh = await readWorktreeFiles(worktree);
+					if ((await this.#idleDays(worktree, fresh)) < DISK_CARE_ARTIFACT_IDLE_DAYS) return [];
+					return dropArtifacts(worktree, fresh);
 				});
 				if (dropped.length === 0) continue;
+				read.idleDays = undefined;
 				const bytes = dropped.reduce((sum, entry) => sum + entry.bytes, 0);
 				tally.add("artifacts", bytes);
 				this.#deps.log("artifacts", {
-					path: orphan.path,
+					path: worktree,
 					bytes,
 					entries: dropped.map(entry => `${entry.path} (${entry.reason})`).join(", "),
 				});
 			} catch (error) {
+				read.idleDays = undefined;
 				if (error instanceof KeepWorktree) {
-					this.#kept(tally, orphan.path, error.message);
+					this.#kept(tally, worktree, error.message);
 					continue;
 				}
 				tally.failed++;
-				this.#deps.log("failed", { step: "artifacts", path: orphan.path, error: errorText(error) });
+				this.#deps.log("failed", { step: "artifacts", path: worktree, error: errorText(error) });
 			}
 		}
+		return preRead;
 	}
 
-	async #landed(folders: string[] | null, tally: RunTally): Promise<void> {
+	/** The landed sweep over `listed`; returns the paths it removed. */
+	async #landed(listed: OrphanListing, folders: string[] | null, tally: RunTally): Promise<Set<string>> {
 		const bytesByPath = new Map<string, number>();
 		// The landed sweep keeps its shipped rule where processes cannot be told (Windows); git never forces it.
 		const prepare = archiveBeforeRemove(this.#deps.saved, folders, bytesByPath);
-		const report = await sweepLandedWorktrees(this.#deps, { prepare });
+		const report = await sweepLandedWorktrees(this.#deps, { prepare, listed });
 		for (const worktree of report.removed) {
 			const bytes = bytesByPath.get(worktree.path) ?? 0;
 			tally.add("worktree-landed", bytes);
@@ -297,14 +328,24 @@ export class DiskCare {
 			tally.failed++;
 			this.#deps.log("failed", { step: "worktree-landed", ...failure });
 		}
+		return new Set(report.removed.map(worktree => worktree.path));
 	}
 
-	async #saveIdle(repos: readonly string[], folders: string[] | null, tally: RunTally): Promise<void> {
-		for (const orphan of await this.#orphans(repos)) {
+	async #saveIdle(
+		orphans: readonly RpcOrphanWorktree[],
+		preRead: ReadonlyMap<string, PreRead>,
+		folders: string[] | null,
+		tally: RunTally,
+	): Promise<void> {
+		for (const orphan of orphans) {
 			if (orphan.state !== "unlanded" && orphan.state !== "dirty") continue;
 			try {
-				const files = await readWorktreeFiles(orphan.path);
-				if ((await this.#idleDays(orphan.path, files)) < DISK_CARE_REMOVE_IDLE_DAYS) continue;
+				// A pre-filter only: the claimed read below judges again.
+				const read = preRead.get(orphan.path);
+				const idleDays =
+					read?.idleDays ??
+					(await this.#idleDays(orphan.path, read?.files ?? (await readWorktreeFiles(orphan.path))));
+				if (idleDays < DISK_CARE_REMOVE_IDLE_DAYS) continue;
 				if (processInside(orphan.path, folders)) {
 					this.#kept(tally, orphan.path, folders === null ? "process check unavailable" : "a process works in it");
 					continue;

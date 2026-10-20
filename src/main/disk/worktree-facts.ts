@@ -24,6 +24,8 @@ export interface WorktreeFiles {
 	untrackedFiles: string[];
 	/** Tracked paths with changes (modified, added, deleted, renamed). */
 	changed: string[];
+	/** Every tracked path (`git ls-files`), read in the same pass. */
+	tracked: string[];
 	/** `git status` as printed: equal before and after means nothing moved in between. */
 	fingerprint: string;
 }
@@ -64,6 +66,7 @@ export async function readWorktreeFiles(worktree: string): Promise<WorktreeFiles
 		untracked: await classifyIgnored(parsed.untracked, evidence),
 		untrackedFiles: others.stdout.toString("utf8").split("\0").filter(Boolean),
 		changed: parsed.changed,
+		tracked: [...evidence.tracked],
 		fingerprint,
 	};
 }
@@ -71,9 +74,22 @@ export async function readWorktreeFiles(worktree: string): Promise<WorktreeFiles
 /** Markers git leaves while a rebase, merge, cherry-pick, revert or bisect waits to be finished. */
 const IN_PROGRESS = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"];
 
+/**
+ * The worktree's git dir, as `git rev-parse --git-dir` names it, read from its `.git`: the folder itself, or the file a
+ * linked worktree has (`gitdir: <path>`, absolute or relative to the worktree). Git itself when neither is there.
+ */
+export async function gitDirOf(worktree: string): Promise<string> {
+	const dotGit = path.join(worktree, ".git");
+	const stat = await fs.stat(dotGit).catch(() => null);
+	if (stat?.isDirectory()) return dotGit;
+	const named = stat?.isFile() ? /^gitdir: (.+)$/m.exec(await fs.readFile(dotGit, "utf8"))?.[1]?.trim() : undefined;
+	if (named) return path.resolve(worktree, named);
+	return path.resolve(worktree, (await git(worktree, ["rev-parse", "--git-dir"])).trim());
+}
+
 /** The half-done git operation in the worktree, or null. */
 export async function inProgressOperation(worktree: string): Promise<string | null> {
-	const gitDir = path.resolve(worktree, (await git(worktree, ["rev-parse", "--git-dir"])).trim());
+	const gitDir = await gitDirOf(worktree);
 	for (const marker of IN_PROGRESS) {
 		if (await fs.stat(path.join(gitDir, marker)).catch(() => null)) return marker;
 	}
@@ -108,10 +124,9 @@ function sessionFolder(worktree: string): string {
  * `Infinity` when an ignored tree is too big to read.
  */
 export async function lastActivity(worktree: string, files: WorktreeFiles): Promise<number> {
-	const [committed, gitDir, tracked] = await Promise.all([
+	const [committed, gitDir] = await Promise.all([
 		git(worktree, ["log", "-1", "--format=%ct", "HEAD"]).catch(() => "0"),
-		git(worktree, ["rev-parse", "--git-dir"]).then(dir => path.resolve(worktree, dir.trim())),
-		gitRaw(worktree, ["ls-files", "-z"], { maxBytes: 64 * 1024 * 1024 }),
+		gitDirOf(worktree),
 	]);
 	let newest = (Number(committed.trim()) || 0) * 1000;
 	const stamps = [
@@ -119,7 +134,7 @@ export async function lastActivity(worktree: string, files: WorktreeFiles): Prom
 		path.join(gitDir, "HEAD"),
 		path.join(gitDir, "index"),
 		path.join(gitDir, "logs", "HEAD"),
-		...tracked.stdout.toString("utf8").split("\0").filter(Boolean),
+		...files.tracked,
 		...files.untrackedFiles,
 	];
 	for (const stamp of stamps) {
