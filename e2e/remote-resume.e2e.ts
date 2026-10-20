@@ -13,6 +13,9 @@
  *   shows no stale card, not even after a reload.
  * - A loses B while a provider sign-in runs on its tab: B's login goes on, so the re-sent code paste
  *   is the login panel's (no chat card), which shows the sign-in again until it connects.
+ * - A loses B while a reply streams on a long session: the transcript, draft and scroll stay on screen
+ *   through the outage, and once the link is back the finished reply is there within about one round
+ *   trip (no blank page, no reload of the whole transcript); the times go to the test's annotations.
  * Captures in the test output directory.
  */
 import { execFileSync } from "node:child_process";
@@ -20,6 +23,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { z } from "zod";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { capture, cssString, exitApp, readRecords, variants } from "./harness";
@@ -36,6 +40,9 @@ import {
 } from "./remote-harness";
 
 test.describe.configure({ mode: "parallel" });
+
+/** What the catch-up probe on the device's page counted (10 ms samples). */
+const CatchUpProbe = z.object({ samples: z.number(), blank: z.number(), linkUpAt: z.number(), currentAt: z.number() });
 
 function translate(language: Language, key: string, vars: Record<string, string | number> = {}): string {
 	const template = (language === "ko" ? ko : en)[key];
@@ -347,6 +354,104 @@ for (const [language, theme] of variants([
 			await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 		}
 	});
+
+test("a host's tab back after a lost link keeps its page and catches up in place", async () => {
+	test.setTimeout(240_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-catchup-")));
+	const hostPort = await freePort();
+	const proxy = await linkProxy(hostPort);
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: hostPort,
+			env: { OMP_GUI_TEST_HISTORY: "600", OMP_GUI_TEST_LATER_MS: "4000" },
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: Number(proxy.address.split(":")[1]),
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const a = client.page;
+		const b = host.page;
+		const deviceId = await connectHost(b, a, "Host B");
+		await openHostFolder(a, deviceId, hostProfile.project);
+		const rows = a.locator("[data-transcript-kind]");
+		await expect(rows.filter({ hasText: "History answer 599." })).toHaveCount(1, { timeout: 30_000 });
+		await send(a, "fixture later");
+		await expect(a.getByText("Working on it")).toBeVisible({ timeout: 30_000 });
+		const draft = "a draft typed before the link went";
+		await a.locator("textarea").first().fill(draft);
+		// 100 ms each way from here: a page that reads the whole transcript again pays for it in round trips.
+		proxy.setLatency(100);
+
+		// From here: every 10 ms, is any transcript row on screen and is the reply there; and when the tab's status
+		// first leaves the link-down `error` (the link is back). The counts ride on <html data-catch-up> as JSON.
+		await a.evaluate(() => {
+			const probe = { samples: 0, blank: 0, linkDown: false, linkUpAt: 0, currentAt: 0 };
+			window.omp.events.onTabSidecarStatus(payload => {
+				if (payload.status === "error") probe.linkDown = true;
+				else if (probe.linkDown && !probe.linkUpAt) probe.linkUpAt = performance.now();
+			});
+			const timer = setInterval(() => {
+				const shown = document.querySelectorAll("[data-transcript-kind]");
+				probe.samples++;
+				if (shown.length === 0) probe.blank++;
+				const last = [...shown].slice(-4);
+				if (probe.linkUpAt && last.some(row => row.textContent?.includes("Finished while you were away"))) {
+					probe.currentAt = performance.now();
+					clearInterval(timer);
+				}
+				document.documentElement.dataset.catchUp = JSON.stringify(probe);
+			}, 10);
+		});
+
+		await proxy.drop();
+		await expect(a.locator(`[data-remote-reconnecting="${deviceId}"]`)).toBeVisible({ timeout: 30_000 });
+		// The host's omp finishes the reply while the device is away.
+		await expect
+			.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).map(entry => entry.status), {
+				timeout: 30_000,
+			})
+			.toEqual(["ready"]);
+		const restoredAt = Date.now();
+		await proxy.restore();
+		await expect(rows.filter({ hasText: "Finished while you were away" })).toHaveCount(1, { timeout: 60_000 });
+		const caughtUpMs = Date.now() - restoredAt;
+		const readProbe = async () =>
+			CatchUpProbe.parse(JSON.parse((await a.locator("html").getAttribute("data-catch-up")) ?? "null"));
+		await expect.poll(async () => (await readProbe()).currentAt > 0).toBe(true);
+		const probe = await readProbe();
+		const linkUpToCurrentMs = Math.round(probe.currentAt - probe.linkUpAt);
+		test.info().annotations.push({
+			type: "catch-up",
+			description: JSON.stringify({
+				caughtUpMs,
+				linkUpToCurrentMs,
+				blankSamples: probe.blank,
+				samples: probe.samples,
+			}),
+		});
+		console.log(
+			`[catch-up] link restored → reply shown ${caughtUpMs} ms; link back → reply shown ${linkUpToCurrentMs} ms; blank ~${probe.blank * 10} ms (${probe.blank}/${probe.samples} samples)`,
+		);
+		expect(probe.blank).toBe(0);
+		await expect(rows.filter({ hasText: "History answer 599." })).toHaveCount(1);
+		await expect(a.getByText("Working on it")).toHaveCount(0);
+		await expect(a.locator("textarea").first()).toHaveValue(draft);
+		await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await proxy.close();
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
 
 test("a sign-in open on a host's tab when the link drops and returns never becomes a chat card", async () => {
 	test.setTimeout(300_000);

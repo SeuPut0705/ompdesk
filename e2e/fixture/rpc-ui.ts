@@ -4365,6 +4365,35 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}
 			endTurn([user, call, spawned, answer]);
 			write({ type: "prompt_result", sessionSettled: false });
+		} else if (message === "fixture later") {
+			// A reply still streaming when a paired device loses its host, finished while the device is away
+			// (`OMP_GUI_TEST_LATER_MS`, default 3000).
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text: "Working on it" }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+			};
+			write({ type: "message_start", message: answer });
+			write({
+				type: "message_update",
+				message: answer,
+				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Working on it", partial: answer },
+			});
+			setTimeout(
+				() => {
+					const done: AgentMessage = {
+						...answer,
+						content: [{ type: "text", text: "Finished while you were away" }],
+						stopReason: "stop",
+					};
+					appendMessage(done);
+					write({ type: "message_end", message: done });
+					endTurn([user, done]);
+				},
+				Number(process.env.OMP_GUI_TEST_LATER_MS ?? 3000),
+			);
 		} else if (message !== "fixture running") {
 			if (message === "fixture reply actions") {
 				// Stock auto thinking names the effort it classified for this turn.

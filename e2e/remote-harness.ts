@@ -56,16 +56,22 @@ export async function freePort(): Promise<number> {
 	return address.port;
 }
 
-/** A TCP relay A pairs through: `drop()` cuts the link (and refuses new ones) until `restore()`. */
+/**
+ * A TCP relay A pairs through: `drop()` cuts the link (and refuses new ones) until `restore()`. `setLatency(ms)`
+ * holds every chunk that long in each direction (in order) from then on, as a link between two computers far
+ * apart would.
+ */
 export interface LinkProxy {
 	/** The address A pairs with (and keeps dialing). */
 	readonly address: string;
 	drop(): Promise<void>;
 	restore(): Promise<void>;
+	setLatency(ms: number): void;
 	close(): Promise<void>;
 }
 
 export async function linkProxy(targetPort: number): Promise<LinkProxy> {
+	let latency = 0;
 	const port = await freePort();
 	const sockets = new Set<net.Socket>();
 	let server: net.Server | null = null;
@@ -83,7 +89,15 @@ export async function linkProxy(targetPort: number): Promise<LinkProxy> {
 					sockets.delete(socket);
 					peer.destroy();
 				});
-				socket.pipe(peer);
+				socket.on("data", (chunk: Buffer) => {
+					if (latency === 0) {
+						if (!peer.destroyed) peer.write(chunk);
+						return;
+					}
+					setTimeout(() => {
+						if (!peer.destroyed) peer.write(chunk);
+					}, latency);
+				});
 			}
 		});
 		const listening = Promise.withResolvers<void>();
@@ -103,7 +117,15 @@ export async function linkProxy(targetPort: number): Promise<LinkProxy> {
 		await closed.promise;
 	};
 	await listen();
-	return { address: `127.0.0.1:${port}`, drop: stop, restore: listen, close: stop };
+	return {
+		address: `127.0.0.1:${port}`,
+		drop: stop,
+		restore: listen,
+		setLatency: ms => {
+			latency = ms;
+		},
+		close: stop,
+	};
 }
 
 /** A fake Tailscale on which this app is node `n-<name>`, signed in as `REMOTE_LOGIN`, with one peer at 127.0.0.1. */
