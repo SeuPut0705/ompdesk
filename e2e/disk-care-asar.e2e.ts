@@ -13,7 +13,13 @@ import { exitApp, launchApp, readRecords } from "./harness";
 // folder's archive undeletable until OMPdesk quit. A real app, a real archive, real git; on macOS nothing locks and it
 // passes anyway. The Bun cache is a private one: the user's would be walked in full (3 GB here).
 
+/** Where the planted archives sit, as in a Windows project's checkout. */
 const ARCHIVE = path.join("node_modules", "electron", "dist", "resources", "default_app.asar");
+/** This machine's copy of the same archive: macOS keeps it inside Electron.app (nightly 39510409009 failed ENOENT). */
+const SOURCE =
+	process.platform === "darwin"
+		? path.join("node_modules", "electron", "dist", "Electron.app", "Contents", "Resources", "default_app.asar")
+		: ARCHIVE;
 
 function git(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -28,7 +34,7 @@ const exists = (file: string) =>
 async function plantArchive(folder: string, relative: string): Promise<void> {
 	const target = path.join(folder, relative);
 	await fs.mkdir(path.dirname(target), { recursive: true });
-	await fs.copyFile(path.resolve(ARCHIVE), target);
+	await fs.copyFile(path.resolve(SOURCE), target);
 }
 
 test("disk care removes landed worktrees holding an .asar and leaves other folders' archives deletable", async () => {
