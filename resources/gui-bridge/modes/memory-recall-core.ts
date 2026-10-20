@@ -11,9 +11,11 @@
 import { AGENT_MESSAGE_START } from "../agent-control-contracts";
 import { isJunkTitle, promptTitle } from "../memory-prompt";
 import {
+	MEMORY_RECALL_MESSAGE_TYPE,
 	type MemoryRecallDetails,
 	type MemoryRecallItem,
 	type MemoryRecallKind,
+	memoryRecallDetails,
 	RECALL_JUDGE_MIN,
 	RECALL_MAX_ITEMS,
 	RECALL_MAX_TOKENS,
@@ -316,6 +318,34 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 		});
 	}
 	return [...pages, ...conclusions].map((candidate, order) => ({ ...candidate, order }));
+}
+
+/** One note's identity across recalls: its page, else the session it concluded. */
+function recallKey(item: { path?: string; sessionId?: string; title: string }): string {
+	if (item.path) return `page:${item.path}`;
+	return item.sessionId ? `session:${item.sessionId}` : `title:${item.title}`;
+}
+
+/**
+ * The candidates the model does not already have. This session's own conclusion never: its turns are in the context
+ * (one long session's conclusions matched nearly every prompt typed in it, so every turn recalled the session to
+ * itself). Nor a note an earlier recall of this branch gave, unless a compaction since replaced the turn holding it
+ * (`branch` is the session's journal branch, oldest first).
+ */
+export function freshCandidates(
+	candidates: readonly RecallCandidate[],
+	sessionId: string,
+	branch: readonly unknown[],
+): RecallCandidate[] {
+	const given = new Set<string>();
+	for (const entry of branch) {
+		const type = field(entry, "type");
+		if (type === "compaction") given.clear();
+		else if (type === "custom_message" && field(entry, "customType") === MEMORY_RECALL_MESSAGE_TYPE) {
+			for (const item of memoryRecallDetails(field(entry, "details"))?.items ?? []) given.add(recallKey(item));
+		}
+	}
+	return candidates.filter(candidate => candidate.sessionId !== sessionId && !given.has(recallKey(candidate)));
 }
 
 // ---------------------------------------------------------------------------------------------

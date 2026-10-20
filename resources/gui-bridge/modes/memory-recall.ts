@@ -33,6 +33,7 @@ import {
 } from "./memory-recall-contracts";
 import {
 	field,
+	freshCandidates,
 	type RecallCandidate,
 	type RecallScope,
 	type RecallTermStats,
@@ -171,15 +172,19 @@ export function install(pi: RecallHost): void {
 				pi.logger.debug("gui-bridge: memory recall skipped", { reason: "scope not matched to this session" });
 				return undefined;
 			}
-			const candidates = recallCandidates(
-				// `conclusions` is ignored by a server without it (its arguments take unknown keys): page hits only then.
-				await callTool(env, headers, signal, "memory_query", {
-					query,
-					workspace: scope.workspace,
-					project: scope.project,
-					limit: RECALL_QUERY_LIMIT,
-					conclusions: true,
-				}),
+			const candidates = freshCandidates(
+				recallCandidates(
+					// `conclusions` is ignored by a server without it (its arguments take unknown keys): page hits only then.
+					await callTool(env, headers, signal, "memory_query", {
+						query,
+						workspace: scope.workspace,
+						project: scope.project,
+						limit: RECALL_QUERY_LIMIT,
+						conclusions: true,
+					}),
+				),
+				sessionId,
+				ctx.sessionManager.getBranch(),
 			);
 			const stats = await readTermStats(stateFile);
 			const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;

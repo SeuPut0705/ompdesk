@@ -261,3 +261,56 @@ describe("memory recall hook, term corpus", () => {
 		expect(await run()).toMatchObject({ message: { customType: MEMORY_RECALL_MESSAGE_TYPE } });
 	});
 });
+
+describe("memory recall hook, what the session already has", () => {
+	const own = {
+		session_id: "omp-session-1",
+		title: "원격 연결 정리",
+		excerpt: "테일스케일 신원으로만 연결하고 페어링 코드는 삭제했다",
+		created_at: "2026-10-01T00:00:00Z",
+	};
+	const other = { ...own, session_id: "s-other", title: "다른 세션의 연결 정리" };
+	const given = (items: unknown[]) => ({
+		type: "custom_message",
+		customType: MEMORY_RECALL_MESSAGE_TYPE,
+		content: "<memory-recall>…</memory-recall>",
+		display: true,
+		details: { v: 1, items, judged: false },
+	});
+	const run = async (answer: unknown, branch: unknown[] = []) => {
+		reply = body =>
+			toolName(body) === "memory_status"
+				? toolResult({ scope: { workspace: "default", project: "ompdesk", resolved_by: "session" } })
+				: toolResult(answer);
+		return (await hook()({ prompt: PROMPT }, ctx("main", branch))) as
+			| { message: { details: { items: { sessionId?: string; path?: string }[] } } }
+			| undefined;
+	};
+
+	it("never recalls this session's own conclusion: its turns are already in the context", async () => {
+		expect(await run({ hits: [], conclusion_hits: [own] })).toBeUndefined();
+		const result = await run({ hits: [], conclusion_hits: [own, other] });
+		expect(result?.message.details.items.map(item => item.sessionId)).toEqual(["s-other"]);
+	});
+
+	it("never gives a note again that an earlier recall in this session gave", async () => {
+		const page = {
+			title: "원격 기기 공유는 테일스케일 신원 기반으로",
+			kind: "decision",
+			path: "decisions/remote-sharing.md",
+		};
+		expect(await run(ANSWER, [given([page])])).toBeUndefined();
+		const conclusion = { title: "다른 세션의 연결 정리", kind: "conclusion", sessionId: "s-other" };
+		expect(await run({ hits: [], conclusion_hits: [other] }, [given([conclusion])])).toBeUndefined();
+	});
+
+	it("gives a note again once a compaction replaced the turn that had it", async () => {
+		const page = {
+			title: "원격 기기 공유는 테일스케일 신원 기반으로",
+			kind: "decision",
+			path: "decisions/remote-sharing.md",
+		};
+		const result = await run(ANSWER, [given([page]), { type: "compaction", summary: "…" }]);
+		expect(result?.message.details.items.map(item => item.path)).toEqual(["decisions/remote-sharing.md"]);
+	});
+});
