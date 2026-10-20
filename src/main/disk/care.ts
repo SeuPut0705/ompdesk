@@ -51,6 +51,7 @@ import {
 	type SavedWorktreeStore,
 	saveAndRemoveWorktree,
 } from "./saved-worktrees";
+import { TreeSizes } from "./tree-sizes";
 import { bunCacheDir, diskBytes, measureDiskUsage } from "./usage";
 import {
 	inProgressOperation,
@@ -219,12 +220,26 @@ export class DiskCare {
 			const left = listed.repos.flatMap(entry => entry.worktrees).filter(orphan => !removed.has(orphan.path));
 			await this.#saveIdle(left, preRead, folders, tally);
 		});
-		await step("http-cache", () => this.#httpCache(tally));
-		await step("bun-cache", () => this.#bunCache(tally));
+		// One reading of the measured folders per run, kept for the next: what did not change is not read again.
+		const sizes = new TreeSizes(path.join(this.#deps.userData, "disk-care", "sizes.json"), this.#now);
+		await sizes.load();
+		await step("http-cache", () => this.#httpCache(sizes, tally));
+		await step("bun-cache", () => this.#bunCache(sizes, tally));
 		await step("usage", async () => {
-			this.#usage = await measureDiskUsage({
-				userData: this.#deps.userData,
-				worktreeRoot: worktreeRoot ?? path.join(this.#deps.userData, "no-worktrees"),
+			const started = performance.now();
+			this.#usage = await measureDiskUsage(
+				{
+					userData: this.#deps.userData,
+					worktreeRoot: worktreeRoot ?? path.join(this.#deps.userData, "no-worktrees"),
+				},
+				sizes,
+			);
+			await sizes.save();
+			this.#deps.log("usage", {
+				ms: Math.round(performance.now() - started),
+				reused: sizes.reused,
+				lstat: sizes.work.lstat,
+				readdir: sizes.work.readdir,
 			});
 		});
 		const actions = [...tally.actions].map(([kind, total]) => ({ kind, ...total }));
@@ -408,17 +423,18 @@ export class DiskCare {
 		}
 	}
 
-	async #httpCache(tally: RunTally): Promise<void> {
-		const bytes = await diskBytes(path.join(this.#deps.userData, "Cache"));
+	async #httpCache(sizes: TreeSizes, tally: RunTally): Promise<void> {
+		// Chromium rewrites its cache index in place: read in full (it is inside userData, which is too).
+		const bytes = await sizes.bytes(path.join(this.#deps.userData, "Cache"), { reuse: false });
 		if (bytes <= HTTP_CACHE_MAX_BYTES) return;
 		await this.#deps.clearHttpCache();
 		tally.add("http-cache", bytes);
 		this.#deps.log("http-cache", { bytes });
 	}
 
-	async #bunCache(tally: RunTally): Promise<void> {
+	async #bunCache(sizes: TreeSizes, tally: RunTally): Promise<void> {
 		const dir = bunCacheDir();
-		const bytes = await diskBytes(dir);
+		const bytes = await sizes.bytes(dir);
 		if (bytes <= BUN_CACHE_MAX_BYTES) return;
 		const bun = this.#deps.bunBin();
 		if (!bun) return;

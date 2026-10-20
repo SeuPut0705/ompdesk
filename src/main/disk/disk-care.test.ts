@@ -4,10 +4,39 @@ import { describe, expect, it } from "vitest";
 import { gitSync } from "../local/git/test-repos";
 import { DAY_MS, diskCareWorld, exists, SLOW, write } from "./disk-care-fixture";
 import { listSavedWorktrees, restoreSavedWorktree } from "./saved-worktrees";
+import { TreeSizes } from "./tree-sizes";
 
 const w = diskCareWorld();
 
 describe("disk care", () => {
+	it(
+		"measures the disk again from the last run's reading, with the same parts a full walk finds",
+		async () => {
+			await w.busyWorktree("measured");
+			await write(
+				path.join(w.root, "home", ".bun", "install", "cache", "pkg@1.0.0"),
+				"index.js",
+				"x".repeat(50_000),
+			);
+			const first = await w.care().run("user");
+			await write(
+				path.join(w.root, "home", ".bun", "install", "cache", "pkg@2.0.0"),
+				"index.js",
+				"y".repeat(80_000),
+			);
+			const second = await w.care().run("user");
+			const usageLines = w.logs.filter(([message]) => message === "usage").map(([, details]) => details.reused);
+			expect(usageLines).toEqual([false, true]);
+			for (const id of ["worktrees", "bunCache"] as const) {
+				const part = second.usage?.parts.find(entry => entry.id === id);
+				expect(part?.bytes, id).toBe(await new TreeSizes(null).bytes(part?.path ?? ""));
+			}
+			const bun = (state: typeof first) => state.usage?.parts.find(entry => entry.id === "bunCache")?.bytes ?? 0;
+			expect(bun(second)).toBeGreaterThan(bun(first) + 70_000);
+		},
+		SLOW,
+	);
+
 	it(
 		"drops a lockfile-backed node_modules and the build tool's out/, keeps a hand-made dist/ and the .env",
 		async () => {

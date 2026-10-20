@@ -1,35 +1,17 @@
 /**
- * How much of the disk a folder or file takes: allocated blocks where the platform reports them (`du -sk`, so a
- * sparse file counts what it holds and a copy-on-write clone counts in full), else the sum of file sizes.
+ * How much of the disk a folder or file takes: allocated blocks where the platform reports them (as `du -sk` counts:
+ * a sparse file counts what it holds, a copy-on-write clone counts in full, a hard-linked file once per target), else
+ * the sum of file sizes. Measured by `TreeSizes` (`tree-sizes.ts`).
  */
-import { execFile } from "node:child_process";
-import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DiskPartId, DiskUsage } from "../../shared/disk-care";
 import { agentDir } from "../agent-paths";
+import { TreeSizes } from "./tree-sizes";
 
-async function walkBytes(target: string): Promise<number> {
-	const stat = await fs.lstat(target).catch(() => null);
-	if (!stat) return 0;
-	if (!stat.isDirectory()) return stat.size;
-	let total = 0;
-	for (const name of await fs.readdir(target).catch(() => [] as string[]))
-		total += await walkBytes(path.join(target, name));
-	return total;
-}
-
-/** Bytes `target` takes (0 when it is missing). */
-export async function diskBytes(target: string): Promise<number> {
-	if (!(await fs.lstat(target).catch(() => null))) return 0;
-	if (process.platform === "win32") return walkBytes(target);
-	const { promise, resolve } = Promise.withResolvers<number>();
-	// `du` exits non-zero when it could not read part of the tree; what it printed still counts.
-	execFile("du", ["-sk", target], { timeout: 10 * 60_000 }, (_error, stdout) => {
-		const kib = Number(String(stdout).split(/\s/)[0]);
-		resolve(Number.isFinite(kib) ? kib * 1024 : 0);
-	});
-	return promise;
+/** Bytes `target` takes now (0 when it is missing), read in full. */
+export function diskBytes(target: string): Promise<number> {
+	return new TreeSizes(null).bytes(target);
 }
 
 /** Bun's install cache: `BUN_INSTALL_CACHE_DIR`, else `<BUN_INSTALL or ~/.bun>/install/cache`. */
@@ -52,11 +34,24 @@ export function diskParts(options: { userData: string; worktreeRoot: string }): 
 	};
 }
 
-export async function measureDiskUsage(options: { userData: string; worktreeRoot: string }): Promise<DiskUsage> {
+/**
+ * The parts whose files are written once (extracted packages; git and installs add files, they rarely rewrite one in
+ * place): reused from the last run where their directories did not change. The others are appended to in place
+ * (session journals, logs, the stats database, the app's own files), so they are read in full: they are small (21 Oct
+ * 2026: this Mac's 8,208 entries in 64 ms, the Windows PC's 656 in 18 ms).
+ */
+const REUSED_PARTS: Partial<Record<DiskPartId, true>> = { worktrees: true, bunCache: true };
+
+/** Every part's bytes; `sizes` reuses an earlier run's reading of what did not change (`TreeSizes`). */
+export async function measureDiskUsage(
+	options: { userData: string; worktreeRoot: string },
+	sizes: TreeSizes = new TreeSizes(null),
+): Promise<DiskUsage> {
 	const parts = await Promise.all(
 		Object.entries(diskParts(options)).map(async ([id, paths]) => {
+			const reuse = REUSED_PARTS[id as DiskPartId] === true;
 			let bytes = 0;
-			for (const target of paths) bytes += await diskBytes(target);
+			for (const target of paths) bytes += await sizes.bytes(target, { reuse });
 			return { id: id as DiskPartId, bytes, path: paths[0] ?? "" };
 		}),
 	);
