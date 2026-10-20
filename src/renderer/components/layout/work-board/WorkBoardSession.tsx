@@ -86,9 +86,13 @@ function useTurnChanges(turn: TurnWindow | null): ChangesSummary | null {
 	}, [turn?.start, turn?.end, tools, cwd, finishedVersion]);
 }
 
+/** While a turn runs, a finished call (a commit, an edit) reads the branch again at most this often. */
+const UNLANDED_REREAD_MS = 5_000;
+
 /**
  * What the session's branch has not landed in main yet (`get_git_unlanded`; null on main itself), read through this
- * tab's runtime (a paired host's tab reads its host) once on mount and once each time a turn settles: no timer.
+ * tab's runtime (a paired host's tab reads its host) on mount, each time a turn settles, and while one runs at most
+ * every {@link UNLANDED_REREAD_MS} after one of its calls finished (a commit mid-turn): no timer of its own.
  */
 function useUnlanded(): UnlandedSummary | null {
 	const rpc = useTabRpc();
@@ -110,6 +114,19 @@ function useUnlanded(): UnlandedSummary | null {
 		};
 	}, [rpc]);
 	useEffect(() => read(), [read]);
+	const finishedVersion = useToolsStore(state => state.finishedVersion);
+	const reread = useRef<number | null>(null);
+	const seenVersion = useRef(finishedVersion);
+	useEffect(() => {
+		if (finishedVersion === seenVersion.current) return;
+		seenVersion.current = finishedVersion;
+		if (!turnActive || reread.current) return;
+		reread.current = window.setTimeout(() => {
+			reread.current = null;
+			read();
+		}, UNLANDED_REREAD_MS);
+	}, [finishedVersion, turnActive, read]);
+	useEffect(() => () => window.clearTimeout(reread.current ?? undefined), []);
 	const wasActive = useRef(turnActive);
 	useEffect(() => {
 		const settled = wasActive.current && !turnActive;

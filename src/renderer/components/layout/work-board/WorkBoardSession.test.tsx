@@ -242,7 +242,7 @@ describe("Changed row", () => {
 		expect(row("unlanded")?.textContent).not.toContain("+1000");
 	});
 
-	it("reads once on mount and once when a turn settles, never on a timer", async () => {
+	it("reads on mount, when a turn settles, and while it runs only after its calls finish, at most every 5 s", async () => {
 		vi.useFakeTimers();
 		try {
 			await mount();
@@ -250,15 +250,28 @@ describe("Changed row", () => {
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(true, Date.now());
 			});
-			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+			// A running turn that finishes no call reads nothing: no timer of its own.
 			await act(async () => {
 				vi.advanceTimersByTime(60_000);
 			});
 			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+			// A commit mid-turn: the calls that finish read the branch once, 5 s on.
+			await act(async () => {
+				useToolsStore.setState(state => ({ finishedVersion: state.finishedVersion + 1 }));
+			});
+			await act(async () => {
+				vi.advanceTimersByTime(1_000);
+				useToolsStore.setState(state => ({ finishedVersion: state.finishedVersion + 1 }));
+			});
+			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+			await act(async () => {
+				vi.advanceTimersByTime(4_000);
+			});
+			expect(getGitUnlanded).toHaveBeenCalledTimes(2);
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(false);
 			});
-			expect(getGitUnlanded).toHaveBeenCalledTimes(2);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(3);
 		} finally {
 			vi.useRealTimers();
 		}
