@@ -24,7 +24,7 @@ export const LOADING_PROBE = `(() => {
 	if (window.__nl) return;
 	const now = () => performance.now();
 	const nl = (window.__nl = {
-		fcp: null, lcp: null, bootAt: null, shellAt: null, splashUntil: null, titleAt: null, selectedAt: null, bootShift: null, bootDetail: null, composerAt: null, composerResponsiveAt: null, rowAt: null,
+		fcp: null, lcp: null, bootAt: null, shellAt: null, shellFrame: null, splashUntil: null, titleAt: null, titleFrame: null, selectedAt: null, selectedFrame: null, bootShift: null, bootDetail: null, composerAt: null, composerResponsiveAt: null, rowAt: null,
 		cls: 0, shifts: [], spinnerMs: 0, spinnerFrames: 0, spinnerFirstAt: null, skeletonMs: 0, skeletonFrames: 0,
 		blankFrames: 0, transcriptEmptyFrames: 0, frames: 0, samples: [], spinners: [],
 	});
@@ -68,9 +68,9 @@ export const LOADING_PROBE = `(() => {
 		const shell = !!document.querySelector(".omp-shell");
 		if (boot && nl.bootAt === null) nl.bootAt = t;
 		if (boot) bootRects = GEOMETRY.map(([b]) => rectOf(b));
-		if (shell && nl.shellAt === null) nl.shellAt = t;
-		if (shell && nl.titleAt === null) { const id = document.querySelector(".omp-shell .omp-titlebar-identity"); if (id && (id.textContent || "").trim()) nl.titleAt = t; }
-		if (shell && nl.selectedAt === null && document.querySelector(".omp-shell .omp-session-sidebar [data-session-path][data-current]")) nl.selectedAt = t;
+		if (shell && nl.shellAt === null) { nl.shellAt = t; nl.shellFrame = nl.frames; }
+		if (shell && nl.titleAt === null) { const id = document.querySelector(".omp-shell .omp-titlebar-identity"); if (id && (id.textContent || "").trim()) { nl.titleAt = t; nl.titleFrame = nl.frames; } }
+		if (shell && nl.selectedAt === null && document.querySelector(".omp-shell .omp-session-sidebar [data-session-path][data-current]")) { nl.selectedAt = t; nl.selectedFrame = nl.frames; }
 		if (shell && nl.bootShift === null && bootRects) {
 			const reactRects = GEOMETRY.map(([, r]) => rectOf(r));
 			// The composer box mounts a frame after the shell: wait for it; the sidebar is absent on a phone (both).
@@ -107,6 +107,10 @@ export interface LoadingReading {
 	lcp: number | null;
 	bootAt: number | null;
 	shellAt: number | null;
+	/** Which sampled frame (1-based) `shellAt`, `titleAt` and `selectedAt` fell on: a slow machine's frames are long, their order is not. */
+	shellFrame: number | null;
+	titleFrame: number | null;
+	selectedFrame: number | null;
 	splashUntil: number | null;
 	titleAt: number | null;
 	selectedAt: number | null;
