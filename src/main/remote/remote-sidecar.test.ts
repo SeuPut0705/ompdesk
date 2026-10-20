@@ -50,7 +50,7 @@ function hostStatus(status: TabStatusArg["status"], extra: Partial<TabStatusArg>
 	};
 }
 
-function setup(options: { startTimeoutMs?: number } = {}): {
+function setup(options: { startTimeoutMs?: number; keepOnHost?: () => boolean } = {}): {
 	link: FakeLink;
 	sidecar: RemoteSidecar;
 	statuses: SidecarStatusPayload[];
@@ -606,6 +606,44 @@ describe("RemoteSidecar", () => {
 		unopened.link.state = "offline";
 		unopened.sidecar.dispose();
 		expect(unopened.deferredCloses).toEqual([]);
+	});
+
+	it("leaves its host tab running when the app quits with its work to continue, and closes it otherwise", async () => {
+		let quitting = true;
+		const online = setup({ keepOnHost: () => quitting });
+		online.sidecar.start();
+		await settle();
+		online.sidecar.handleEvent(hostStatus("ready"));
+		online.sidecar.dispose();
+		await settle();
+		// The host owns the turn it runs: it keeps the tab through its grace period and the relaunched device adopts it.
+		expect(online.link.methods()).not.toContain("tab.close");
+		expect(online.deferredCloses).toEqual([]);
+
+		const offline = setup({ keepOnHost: () => quitting });
+		offline.sidecar.start();
+		await settle();
+		offline.link.state = "offline";
+		offline.sidecar.linkStateChanged("offline");
+		offline.sidecar.dispose();
+		expect(offline.deferredCloses).toEqual([]);
+
+		quitting = false;
+		const closed = setup({ keepOnHost: () => quitting });
+		closed.sidecar.start();
+		await settle();
+		closed.sidecar.dispose();
+		await settle();
+		expect(closed.link.methods().at(-1)).toBe("tab.close");
+	});
+
+	it("passes on the host's delete of its session", () => {
+		const { sidecar } = setup();
+		const deleted: Array<string | null> = [];
+		sidecar.on("sessionDeleted", (path: string | null) => deleted.push(path));
+		sidecar.handleEvent({ rtab: "tab-1", name: "sessionDeleted", arg: "/s/one.jsonl" });
+		sidecar.handleEvent({ rtab: "tab-1", name: "sessionDeleted", arg: 7 });
+		expect(deleted).toEqual(["/s/one.jsonl"]);
 	});
 
 	it("resumes when the link returns: re-attaches a running host tab, or restarts on the newest session", async () => {

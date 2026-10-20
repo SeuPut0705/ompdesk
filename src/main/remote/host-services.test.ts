@@ -882,6 +882,36 @@ describe("LocalHostServices", () => {
 		expect(deleteSession).not.toHaveBeenCalled();
 	});
 
+	it("this computer's own delete closes an idle device tab on the session, tells the device, and waits for its omp", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t" }, x);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
+
+		// A turn runs: the person here must wait, as for another window's running tab.
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
+		const refused = await services.closeSessionTabs("/s/x.jsonl").catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_running");
+		expect(sidecars[0]?.disposed).toBe(false);
+
+		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
+		let closed = false;
+		const closing = services.closeSessionTabs("/s/x.jsonl").then(() => {
+			closed = true;
+		});
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecars[0]?.disposed).toBe(true);
+		// The device drops its tab and saved layout entry at once, and records the session deleted.
+		expect(x.tabEvents()).toContainEqual({ rtab: "t", name: "sessionDeleted", arg: "/s/x.jsonl" });
+		expect(services.hostedSessions()).toEqual([]);
+		expect(closed).toBe(false);
+		sidecars[0]?.exited.resolve();
+		await closing;
+		expect(closed).toBe(true);
+	});
+
 	it("resumes the requested session on start and works out its kind on the host", async () => {
 		const { services, sidecars } = setup();
 		const x = new FakeConnection(peer("device-x"));
@@ -1764,6 +1794,13 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		const ask = { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "?", message: "" };
 		view.emit("openAsks", [ask]);
 		expect(x.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "openAsks", arg: [ask] });
+	});
+
+	it("this computer's delete of the window's session tells the viewing device it is deleted", async () => {
+		const { services, view, x } = await viewing();
+		await services.closeSessionTabs(SESSION);
+		expect(x.tabEvents()).toContainEqual({ rtab: "t1", name: "sessionDeleted", arg: SESSION });
+		expect(view.disposed).toBe(true);
 	});
 });
 
