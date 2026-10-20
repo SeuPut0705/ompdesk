@@ -75,6 +75,7 @@ export const FEATURES = {
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
+	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -447,6 +448,10 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/** advisor-stats.ts: stock's advisor stats and branch. It imports nothing from omp, so health.ts has no LOADERS entry for it. */
 	advisorStats: {
 		session: ["getAdvisorStats()", "isAdvisorUsingSubscription()", "sessionManager.getBranch()"],
+	},
+	/** todo-reminder.ts: wraps the session's `sendCustomMessage` for stock's `todo-error-reminder`. Imports nothing from omp. */
+	todoReminder: {
+		session: ["sendCustomMessage()", "isStreaming"],
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits

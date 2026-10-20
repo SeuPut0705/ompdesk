@@ -4315,6 +4315,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.desktopSlot": "Screen turns between sessions",
 	"bridgeHealth.feature.sessionDump": "Save diagnostic bundle (session dump)",
 	"bridgeHealth.feature.advisorStats": "Advisor spend and advisories (Run popover, Insights)",
+	"bridgeHealth.feature.todoReminder": "A refused todo call's reminder in its own turn, so the turn reads finished",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",

@@ -95,6 +95,7 @@ const AREAS: readonly Area[] = [
 	{ name: "desktop-slot", features: ["desktopSlot"], load: () => import("./desktop-slot") },
 	{ name: "session-dump", features: ["sessionDump"], load: () => import("./session-dump") },
 	{ name: "advisor-stats", features: ["advisorStats"], load: () => import("./advisor-stats") },
+	{ name: "todo-reminder", features: ["todoReminder"], load: () => import("./todo-reminder") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {
