@@ -284,9 +284,10 @@ const CONVERTING_ATTRIBUTE = /(^|\s)-?(text|eol|crlf|filter|working-tree-encodin
 /**
  * Losing nothing means the restore writes the very bytes the folder holds now, for every tracked file, changed or not.
  * Git rewrites bytes on add and checkout when line-ending or filter settings apply (core.autocrlf true/input, Git for
- * Windows' default; core.eol; a filter driver; .gitattributes text/eol/filter/working-tree-encoding/ident), so an LF
+ * Windows' default; core.eol; .gitattributes text/eol/filter/working-tree-encoding/ident), so an LF
  * file in such a repo comes back CRLF. Without any of them, add stores and checkout writes bytes as they are. So a repo
- * with any such setting keeps its worktree: the reason, or null when bytes round-trip.
+ * with any such setting keeps its worktree (a configured filter driver, git-lfs on most machines, acts only where an
+ * attribute names it, so the attributes decide): the reason, or null when bytes round-trip.
  */
 async function rewritesBytes(worktree: string): Promise<string | null> {
 	const config = async (key: string): Promise<string> =>
@@ -295,8 +296,6 @@ async function rewritesBytes(worktree: string): Promise<string | null> {
 	if (autocrlf === "true" || autocrlf === "input")
 		return `core.autocrlf is ${autocrlf}: a restore could change line endings`;
 	if (await config("core.eol")) return "core.eol is set: a restore could change line endings";
-	const filters = await gitRaw(worktree, ["config", "--get-regexp", "^filter\\."]);
-	if (filters.stdout.length > 0) return "a git filter driver is configured: a restore could rewrite files";
 	const attributeFiles = (await gitRaw(worktree, ["ls-files", "-z", "--", ":(glob)**/.gitattributes"])).stdout
 		.toString("utf8")
 		.split("\0")
