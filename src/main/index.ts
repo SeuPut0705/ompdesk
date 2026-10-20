@@ -102,6 +102,8 @@ import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-wa
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { type IpcDeps, registerIpcHandlers } from "./ipc";
+import { markLaunchStable, startLaunchGuard } from "./launch-guard";
+import { CRASH_LOOP_LAUNCHES, STABLE_AFTER_MS } from "./launch-guard-core";
 import { migrateLegacyUserData } from "./legacy-user-data";
 import { tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
@@ -201,10 +203,6 @@ if (userDataDirectory) {
 	}
 }
 
-// Software-rendering escape hatch (must precede whenReady): a crashed GPU
-// process leaves every window black — the marker relaunches without it.
-applyGpuFallbackIfNeeded();
-
 // Players stream audio/video through `omp-media://` (range requests); the agent's visuals load in the Preview
 // through `omp-visual://` (main/preview/visuals.ts; handled on the preview's visual session only). Privileges
 // must precede whenReady.
@@ -228,6 +226,26 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
 	app.quit();
 }
+
+// Crash-loop guard (launch-guard-core.ts): when the last launches all ended within seconds, this one starts in
+// safe mode (software rendering, no automatic relaunch, machine setup and memory setup paused). Packaged runs
+// only (a dev run restarts main on every edit, e2e kills apps on purpose); OMP_GUI_LAUNCH_GUARD=1 forces it.
+// A second instance quits at once and is never recorded.
+const launchGuardOn =
+	gotLock && ((app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") || process.env.OMP_GUI_LAUNCH_GUARD === "1");
+const safeMode = launchGuardOn
+	? startLaunchGuard(join(app.getPath("userData"), "launch-history.json")).safeMode
+	: false;
+if (safeMode) {
+	writeRuntimeLog({
+		source: "launch-guard",
+		message: `Safe mode: the last ${CRASH_LOOP_LAUNCHES} launches ended within ${STABLE_AFTER_MS / 1000} s of starting; software rendering, no automatic relaunch, setup paused`,
+	});
+}
+
+// Software-rendering escape hatch (must precede whenReady): a crashed GPU
+// process leaves every window black — the marker relaunches without it, once.
+applyGpuFallbackIfNeeded(safeMode);
 
 // Test runs (OMP_GUI_HEADLESS=1, set by playwright.config.ts) must not cover
 // or take focus from the desktop. Hidden windows would stop rendering
@@ -569,6 +587,12 @@ app.whenReady().then(() => {
 	if (gotLock) {
 		reportPreviousHang();
 		installHangWatchdog();
+		// A launch that ran this long, or quits cleanly sooner, ends no crash loop. A GPU relaunch's `app.exit`
+		// and a crash skip both, so those launches stay unstable.
+		if (launchGuardOn) {
+			setTimeout(markLaunchStable, STABLE_AFTER_MS).unref();
+			app.on("will-quit", markLaunchStable);
+		}
 	}
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
@@ -869,7 +893,8 @@ app.whenReady().then(() => {
 		toolsDir,
 		bunInstall: bunInstallDir(process.env, homedir()),
 		statePath: join(app.getPath("userData"), "setup-state.json"),
-		automatic: testInstaller !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1"),
+		// Safe mode pauses automatic installs; Retry still runs one.
+		automatic: !safeMode && (testInstaller !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1")),
 		testInstaller,
 		testDownload:
 			testInstaller && process.env.OMP_GUI_TEST_DOWNLOAD
@@ -1069,7 +1094,7 @@ app.whenReady().then(() => {
 	const aiMemory = new AiMemoryService({
 		platform,
 		arch: process.arch,
-		automatic: aiMemoryBinary !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1"),
+		automatic: !safeMode && (aiMemoryBinary !== null || (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1")),
 		toolsDir,
 		bundledDir: app.isPackaged
 			? join(process.resourcesPath, "ai-memory-bin")

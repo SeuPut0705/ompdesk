@@ -1,9 +1,16 @@
 /**
  * Software-rendering escape hatch. When the Chromium GPU process crashes on a
  * machine (typical on Windows 10 with old Intel graphics drivers), every
- * window goes black while the app keeps running — the classic blank-screen
- * failure. Relaunching once with hardware acceleration disabled is the
- * standard recovery.
+ * window can go black while the app keeps running. Relaunching once with
+ * hardware acceleration disabled is the recovery.
+ *
+ * Never twice: with hardware acceleration off Chromium still runs a GPU
+ * process (SwiftShader, WARP on Windows), restarts it itself when it dies and
+ * falls back further on its own. Relaunching from such a launch only started
+ * the same software launch again, so a laptop whose software GPU process also
+ * died opened and closed OMPdesk forever (v0.44.0). `gpuRelaunchDecision`
+ * (launch-guard-core.ts) allows a relaunch only from a hardware launch outside
+ * safe mode, at most once per 10 minutes across processes.
  *
  * The marker must live on disk and be read before `app.whenReady()` —
  * `app.disableHardwareAcceleration()` is only legal that early.
@@ -11,6 +18,8 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
+import { launchHistory, launchSafeMode, noteGpuRelaunch } from "./launch-guard";
+import { gpuRelaunchDecision } from "./launch-guard-core";
 import { writeRuntimeLog } from "./runtime-log";
 
 const MARKER_FILENAME = "gpu-fallback.json";
@@ -20,13 +29,15 @@ function markerPath(): string {
 }
 
 /**
- * Call before `app.whenReady()`: disables GPU compositing when a previous GPU
+ * Call before `app.whenReady()`: disables GPU compositing in safe mode, when a previous GPU
  * crash tripped the fallback, or when the user passed --disable-gpu /
  * --enable-gpu explicitly (the latter clears a stale marker).
  */
-export function applyGpuFallbackIfNeeded(): boolean {
-	let disabled = false;
-	if (app.commandLine.hasSwitch("enable-gpu")) {
+export function applyGpuFallbackIfNeeded(safeMode = false): boolean {
+	let disabled = safeMode;
+	if (safeMode) {
+		// Safe mode renders in software whatever the switches or the marker say.
+	} else if (app.commandLine.hasSwitch("enable-gpu")) {
 		try {
 			rmSync(markerPath(), { force: true });
 		} catch {
@@ -50,15 +61,21 @@ export function applyGpuFallbackIfNeeded(): boolean {
 			}
 		}
 	}
+	softwareLaunch = disabled;
 	if (disabled) {
 		app.disableHardwareAcceleration();
 		writeRuntimeLog({
 			source: "gpu-fallback",
-			message: "Hardware acceleration disabled (crash marker or --disable-gpu)",
+			message: safeMode
+				? "Hardware acceleration disabled (safe mode)"
+				: "Hardware acceleration disabled (crash marker or --disable-gpu)",
 		});
 	}
 	return disabled;
 }
+
+/** This launch turned hardware acceleration off before ready. */
+let softwareLaunch = false;
 
 /**
  * Whether this launch composites in software: the crash marker or `--disable-gpu` turned hardware
@@ -86,7 +103,7 @@ export function softwareCompositing(): Promise<boolean> {
 
 let softwareCompositingResult: Promise<boolean> | undefined;
 
-let relaunchedForGpu = false;
+let gpuCrashHandled = false;
 
 /**
  * GPU-process exits that mean compositing is dead. clean-exit is lifecycle; killed is an outside
@@ -108,26 +125,41 @@ export function markerForcesSoftware(marker: string): boolean {
 }
 
 /**
- * Called from the `child-process-gone` handler. A dead GPU process is
- * unrecoverable in place — mark software rendering and relaunch once so the
- * user gets a usable window back instead of a black screen.
+ * Called from the `child-process-gone` handler. A hardware launch whose GPU process dies writes the marker and
+ * relaunches into software rendering, once; every other launch leaves recovery to Chromium.
  */
 export function handleGpuProcessGone(details: { type: string; reason: string; exitCode: number | undefined }): void {
-	if (!isGpuProcessCrash(details) || relaunchedForGpu) return;
-	relaunchedForGpu = true;
-	try {
-		writeFileSync(
-			markerPath(),
-			JSON.stringify({ at: new Date().toISOString(), reason: details.reason, exitCode: details.exitCode ?? null }),
-		);
-	} catch {
-		// Without the marker the relaunch just retries hardware acceleration.
+	if (!isGpuProcessCrash(details) || gpuCrashHandled) return;
+	gpuCrashHandled = true;
+	const exit = { reason: details.reason, exitCode: details.exitCode ?? null };
+	const now = Date.now();
+	const decision = gpuRelaunchDecision({
+		software: softwareLaunch,
+		safeMode: launchSafeMode(),
+		history: launchHistory(),
+		now,
+	});
+	if (!softwareLaunch) {
+		try {
+			writeFileSync(markerPath(), JSON.stringify({ at: new Date(now).toISOString(), ...exit }));
+		} catch {
+			// Without the marker the next launch just retries hardware acceleration.
+		}
+	}
+	if (!decision.relaunch) {
+		writeRuntimeLog({
+			source: "gpu-fallback",
+			message: `GPU process exited (${details.reason}): no relaunch (${decision.why}); Chromium restarts it`,
+			details: { ...exit, why: decision.why, lastRelaunchAt: decision.lastRelaunchAt ?? null },
+		});
+		return;
 	}
 	writeRuntimeLog({
 		source: "gpu-fallback",
-		message: `GPU process exited (${details.reason}) — relaunching with software rendering`,
-		details: { reason: details.reason, exitCode: details.exitCode ?? null },
+		message: `GPU process exited (${details.reason}): relaunching with software rendering`,
+		details: exit,
 	});
+	noteGpuRelaunch(now);
 	app.relaunch();
 	app.exit(0);
 }

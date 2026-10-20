@@ -32,11 +32,16 @@ vi.mock("electron", () => ({
 
 const crash = { type: "GPU", reason: "crashed", exitCode: -1073741819 };
 
-/** A fresh module per "launch": its per-process state must not carry over, so a static import cannot stand in. */
+/**
+ * One launch as index.ts runs it: the launch guard, then the GPU fallback. A fresh module graph per launch, so
+ * per-process state never carries over; a static import cannot stand in.
+ */
 async function launch(): Promise<typeof GpuFallback> {
 	vi.resetModules();
+	const guard = await import("./launch-guard");
 	const gpu = await import("./gpu-fallback");
-	gpu.applyGpuFallbackIfNeeded();
+	const { safeMode } = guard.startLaunchGuard(join(electron.userData, "launch-history.json"));
+	gpu.applyGpuFallbackIfNeeded(safeMode);
 	return gpu;
 }
 
@@ -86,5 +91,31 @@ describe("GPU crash relaunch", () => {
 		second.handleGpuProcessGone(crash);
 		expect(electron.relaunches).toBe(1);
 		expect(electron.exits).toBe(1);
+	});
+
+	it("relaunches at most once per 10 minutes, even when the user turns hardware acceleration back on", async () => {
+		(await launch()).handleGpuProcessGone(crash);
+		expect(electron.relaunches).toBe(1);
+
+		// --enable-gpu clears the marker, so this launch is a hardware one again; its GPU process dies too.
+		electron.switches.add("enable-gpu");
+		const again = await launch();
+		expect(electron.softwareCalls).toBe(0);
+		again.handleGpuProcessGone(crash);
+		expect(electron.relaunches).toBe(1);
+		expect(electron.exits).toBe(1);
+		// The marker is written, so the next plain launch renders in software.
+		electron.switches.clear();
+		await launch();
+		expect(electron.softwareCalls).toBe(1);
+	});
+
+	it("never relaunches in safe mode, which renders in software whatever the switches say", async () => {
+		electron.switches.add("enable-gpu");
+		for (let i = 0; i < 3; i++) await launch(); // three launches that never became stable
+		const safe = await launch();
+		expect(electron.softwareCalls).toBe(1);
+		safe.handleGpuProcessGone(crash);
+		expect(electron.relaunches).toBe(0);
 	});
 });
