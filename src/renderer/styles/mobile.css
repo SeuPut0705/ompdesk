@@ -1181,6 +1181,26 @@ html[data-shell] .omp-topbar:not(.omp-titlebar) {
 	--hit-gap-y: 16px;
 }
 
+/* A phone's bar is 36 px: a 28 px control (26 inside its border) reaches 5 px up and down, so its reach is the bar's
+   height and never lies over the page scrolled under it. */
+html[data-shell="phone"] .omp-topbar:not(.omp-titlebar) {
+	--hit-gap-y: 10px;
+}
+
+/* The page's own back control in that bar (MasterDetailBack) is drawn 28 px like the bar's icons, so it is a 36 px
+   target inside the bar too. */
+html[data-shell="phone"] .omp-topbar [data-master-detail-back] {
+	min-height: 28px;
+}
+
+/* Models & accounts' connected providers: each row's ⋯ (24 px, 22 inside its border) reaches 7 px up and down, a
+   36 px target inside its row, and the list keeps 8 px under it, so neither the section's Refresh above nor "Add a
+   provider" below lose taps to it. */
+html[data-input="touch"] [data-provider-list] {
+	--hit-gap-y: 14px;
+	margin-bottom: 8px;
+}
+
 html[data-shell] [data-figure-header] {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
@@ -1366,6 +1386,26 @@ html[data-shell="phone"] .settings-content .settings-field-row-compact {
 	--hit-gap-y: initial;
 }
 
+/* An info glyph (16 px) heads a section, a group and the row under it, lines 28 px apart: its 44 px reach covered the
+   glyph or button on the next line, which took those taps. On touch the glyph reaches 10 px each way (a 36 px
+   target) and the line that holds it is 36 px tall, so its reach ends at its own line's edge. */
+html[data-input="touch"] .settings-content [data-setting-info] {
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
+}
+
+html[data-input="touch"] .settings-content :is(div, span, h2, h3).flex:has(> [data-setting-info]) {
+	min-height: 36px;
+}
+
+/* A section's actions (Reset all shortcuts, Refresh, Add custom endpoint…) wrap under its title on a narrow screen,
+   4 px below the title line: on touch they sit 20 px below it and reach 7 px up and down (a 24 px button is a 36 px
+   target), so the title's info glyph keeps its line and the list under the head keeps its own taps. */
+html[data-input="touch"] [data-settings-section-head] {
+	row-gap: 20px;
+	--hit-gap-y: 14px;
+}
+
 /* The update notice and the What's new card are one-line bars right above the work strip: on touch their buttons are
    34 px (32 inside the border) and reach 4 px each way, inside the bar, instead of 10 px over the strip below and the
    button beside them. */
@@ -1396,14 +1436,17 @@ html[data-input="touch"] :is([data-context-actions]:not(.flex-col), div:has(> [d
 }
 
 /* Settings' clusters of buttons on one line (a schedule's Stop / Run now / ⋯, Preview beside Save diagnostic bundle,
-   the copy buttons of the addresses) sit 10 px apart on touch, each reach ending half way to its neighbour, and a
-   cluster that wraps keeps its rows 10 px apart the same way. The Memory reader's actions keep their own spacing. */
+   the copy buttons of the addresses) sit 10 px apart on touch, each reach ending half way to its neighbour; a 24 px
+   button reaches 7 px up and down (a 36 px target) and a cluster that wraps keeps its rows 14 px apart for that. The
+   Memory reader's actions and a section head's actions keep their own spacing. */
 html[data-input="touch"]
 	.settings-content
-	:is(div, span, li).flex:not(.flex-col, [data-memory-actions]):has(> button + button) {
-	gap: 10px;
+	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-settings-section-head] > *):has(
+		> button + button
+	) {
+	gap: 14px 10px;
 	--hit-gap-x: 10px;
-	--hit-gap-y: 10px;
+	--hit-gap-y: 14px;
 }
 
 /* Dialogs and sheets: 16 px side padding, a tight header, a title one step smaller, a footer that hugs the home

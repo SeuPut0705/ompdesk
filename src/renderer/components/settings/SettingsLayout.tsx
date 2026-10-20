@@ -91,7 +91,7 @@ export function SettingsSection({
 			id={id}
 		>
 			{(showTitle || description || actions) && (
-				<div className="mb-1 flex flex-wrap items-end gap-x-3 gap-y-1">
+				<div className="mb-1 flex flex-wrap items-end gap-x-3 gap-y-1" data-settings-section-head>
 					{/* Wide actions wrap under the text instead of squeezing it into a column. */}
 					<div className="min-w-[min(100%,12rem)] flex-1">
 						{showTitle && (

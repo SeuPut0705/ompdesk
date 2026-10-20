@@ -192,8 +192,9 @@ async function show(page: Page, look: Look, id: string): Promise<void> {
  * What a finger aims at, it gets: on a phone and a portrait tablet no control loses part of its hit area to a
  * neighbour, an edge strip or a layer (tabs over the content below, sheet items over the next item, the sidebar's
  * project ⋯ over the title, the composer's last chip under Send, a notice's buttons over the work strip, wrapped
- * section pills), nothing sits under the home indicator (a full-screen sheet's footer), a work card's summary never
- * cuts a figure, and a docked tablet sidebar's controls are 36 px targets. The matrix measures every surface.
+ * section pills, a Settings info glyph over the glyph or button on the next line), nothing sits under the home
+ * indicator (a full-screen sheet's footer), a work card's summary never cuts a figure, and a docked tablet sidebar's
+ * controls are 36 px targets. The matrix measures every surface.
  */
 const TOUCH_LOOKS: readonly Look[] = [
 	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "en" },
@@ -209,6 +210,8 @@ const TAP_SURFACES = [
 	"agents-prs",
 	"settings-general",
 	"settings-memory-search",
+	"settings-models",
+	"settings-keyboard",
 	"panel-files",
 ];
 const HOST_SURFACES = ["host-path-actions", "host-browser-folder"];

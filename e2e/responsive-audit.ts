@@ -308,10 +308,15 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	};
 
 	const style = (element: Element) => getComputedStyle(element);
-	/** In the layout and painted: sized, not display:none, not visibility:hidden, not transparent. */
+	/**
+	 * In the layout and painted: sized, not display:none, not visibility:hidden, not transparent, and not inside a
+	 * skipped subtree (a closed `<details>` keeps its content laid out under `content-visibility: hidden`, so a closed
+	 * Advanced section's rows had boxes no one can see or tap).
+	 */
 	const shown = (element: Element): boolean => {
 		const rect = element.getBoundingClientRect();
 		if (rect.width === 0 && rect.height === 0) return false;
+		if (!element.checkVisibility()) return false;
 		for (let node: Element | null = element; node; node = node.parentElement) {
 			const computed = style(node);
 			if (computed.display === "none" || computed.visibility === "hidden" || computed.opacity === "0") return false;
