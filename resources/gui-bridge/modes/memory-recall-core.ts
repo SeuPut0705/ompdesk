@@ -199,6 +199,8 @@ export interface RecallCandidate {
 	/** The page snippet (marks removed) or the conclusion excerpt. */
 	text: string;
 	path?: string;
+	/** A page version's id: an edited page is a new note. */
+	version?: string;
 	sessionId?: string;
 	at?: string;
 	/** Position in the server's answer (its own relevance order), conclusions after pages. */
@@ -293,11 +295,13 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 		const title = candidateTitle(field(hit, "title"), snippet || path.replace(/^.*\//, "").replace(/\.md$/, ""));
 		if (!title) continue;
 		seen.add(path);
+		const version = text(field(hit, "id"));
 		pages.push({
 			kind: FOLDER_KINDS[path.split("/", 1)[0]] ?? "note",
 			title,
 			text: snippet,
 			path,
+			...(version ? { version } : {}),
 			order: pages.length,
 		});
 	}
@@ -320,17 +324,20 @@ export function recallCandidates(response: unknown): RecallCandidate[] {
 	return [...pages, ...conclusions].map((candidate, order) => ({ ...candidate, order }));
 }
 
-/** One note's identity across recalls: its page, else the session it concluded. */
-function recallKey(item: { path?: string; sessionId?: string; title: string }): string {
-	if (item.path) return `page:${item.path}`;
-	return item.sessionId ? `session:${item.sessionId}` : `title:${item.title}`;
+/**
+ * One note's identity across recalls: a page's version, else the turn a session concluded (its `Stop` time), so an
+ * edited page or a session's later conclusion is new to the model.
+ */
+function recallKey(item: { path?: string; version?: string; sessionId?: string; at?: string; title: string }): string {
+	if (item.path) return `page:${item.path}#${item.version ?? ""}`;
+	return item.sessionId ? `session:${item.sessionId}@${item.at ?? ""}` : `title:${item.title}`;
 }
 
 /**
  * The candidates the model does not already have. This session's own conclusion never: its turns are in the context
  * (one long session's conclusions matched nearly every prompt typed in it, so every turn recalled the session to
- * itself). Nor a note an earlier recall of this branch gave, unless a compaction since replaced the turn holding it
- * (`branch` is the session's journal branch, oldest first).
+ * itself). Nor the same version of a note an earlier recall of this branch gave, unless a compaction since replaced
+ * the turn holding it (`branch` is stock's `getBranch()`: root to leaf, oldest first).
  */
 export function freshCandidates(
 	candidates: readonly RecallCandidate[],
@@ -592,6 +599,7 @@ export function recallDetails(items: readonly RecallCandidate[], judged: boolean
 		items: items.map(item => {
 			const entry: MemoryRecallItem = { title: item.title, kind: item.kind };
 			if (item.path) entry.path = item.path;
+			if (item.version) entry.version = item.version;
 			if (item.sessionId) entry.sessionId = item.sessionId;
 			if (item.at) entry.at = item.at;
 			return entry;

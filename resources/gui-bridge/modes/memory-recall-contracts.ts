@@ -84,6 +84,8 @@ export interface MemoryRecallItem {
 	kind: MemoryRecallKind;
 	/** A page's path in its project's wiki. */
 	path?: string;
+	/** The page version's id (the server's `PageId`): an edited page has a new one. */
+	version?: string;
 	/** A conclusion's session. */
 	sessionId?: string;
 	/** When it was recorded (ISO-8601), when the server says. */
@@ -120,7 +122,7 @@ export function memoryRecallDetails(details: unknown): MemoryRecallDetails | und
 		const kind = Reflect.get(entry, "kind");
 		if (typeof title !== "string" || !title || typeof kind !== "string" || !Object.hasOwn(KINDS, kind)) continue;
 		const item: MemoryRecallItem = { title, kind: kind as MemoryRecallKind };
-		for (const key of ["path", "sessionId", "at"] as const) {
+		for (const key of ["path", "version", "sessionId", "at"] as const) {
 			const value = Reflect.get(entry, key);
 			if (typeof value === "string" && value) item[key] = value;
 		}

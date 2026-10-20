@@ -257,6 +257,7 @@ describe("what the model and the transcript get", () => {
 					title: "원격 기기 공유는 테일스케일 신원 기반으로",
 					kind: "decision",
 					path: "decisions/remote-sharing.md",
+					version: "p2",
 				},
 				{ title: "기기 연결 작업", kind: "conclusion", sessionId: "s-remote", at: "2026-10-18T10:12:00Z" },
 			],

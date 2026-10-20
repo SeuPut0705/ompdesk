@@ -300,7 +300,12 @@ describe("memory recall hook, what the session already has", () => {
 			path: "decisions/remote-sharing.md",
 		};
 		expect(await run(ANSWER, [given([page])])).toBeUndefined();
-		const conclusion = { title: "다른 세션의 연결 정리", kind: "conclusion", sessionId: "s-other" };
+		const conclusion = {
+			title: "다른 세션의 연결 정리",
+			kind: "conclusion",
+			sessionId: "s-other",
+			at: "2026-10-01T00:00:00Z",
+		};
 		expect(await run({ hits: [], conclusion_hits: [other] }, [given([conclusion])])).toBeUndefined();
 	});
 
@@ -312,5 +317,15 @@ describe("memory recall hook, what the session already has", () => {
 		};
 		const result = await run(ANSWER, [given([page]), { type: "compaction", summary: "…" }]);
 		expect(result?.message.details.items.map(item => item.path)).toEqual(["decisions/remote-sharing.md"]);
+	});
+
+	it("gives a page again once it was edited (a new version), and another session's later conclusion", async () => {
+		const page = { ...ANSWER.hits[0], id: "page-v2" };
+		const before = { title: page.title, kind: "decision", path: page.path, version: "page-v1" };
+		const edited = await run({ hits: [page], conclusion_hits: [] }, [given([before])]);
+		expect(edited?.message.details.items.map(item => item.path)).toEqual([page.path]);
+		const earlier = { title: other.title, kind: "conclusion", sessionId: "s-other", at: "2026-09-30T00:00:00Z" };
+		const later = await run({ hits: [], conclusion_hits: [other] }, [given([earlier])]);
+		expect(later?.message.details.items.map(item => item.sessionId)).toEqual(["s-other"]);
 	});
 });
