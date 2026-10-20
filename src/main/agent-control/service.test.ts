@@ -1405,6 +1405,21 @@ describe("the review queue", () => {
 			main0001: { cost: 1.5 },
 		});
 	});
+
+	it("keeps a child's last read cost and split while its omp cannot answer (restarting, its link down)", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		const child = host.tabsById.get(ids[1]) as FakeTab;
+		Object.assign(child, {
+			sessionPath: "/s/kid1.jsonl",
+			cost: 0.4,
+			spend: { anthropic: { billing: "subscription", cost: 0.4, today: 0.4 } },
+		});
+		const first = await service.review("main0001");
+		expect(first.usage["/s/kid1.jsonl"]).toMatchObject({ cost: 0.4, split: { charged: 0, estimate: 0.4 } });
+		child.status = "starting";
+		const again = await service.review("main0001");
+		expect(again.usage["/s/kid1.jsonl"]).toMatchObject({ cost: 0.4, split: { charged: 0, estimate: 0.4 } });
+	});
 });
 
 describe("ompdesk_schedule", () => {

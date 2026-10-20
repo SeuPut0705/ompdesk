@@ -892,6 +892,8 @@ export class AgentControl {
 	readonly #inflight = new Map<string, Promise<string>>();
 	/** The question cards of each child its opener was already told of (request ids), so a re-announced card stays one message. */
 	readonly #cardsTold = new Map<string, Set<string>>();
+	/** Each session's last read cost and split, which stand while its omp cannot answer (`#cost`, `#split`). */
+	readonly #lastSpend = new Map<string, { cost: number; split?: CostSplit }>();
 
 	readonly #app: AppControl | null;
 
@@ -973,6 +975,7 @@ export class AgentControl {
 		this.#conflicts.delete(tabId);
 		this.#mailbox.forget(tabId);
 		this.#cardsTold.delete(tabId);
+		this.#lastSpend.delete(tabId);
 		this.#queuedFollowUp.delete(tabId);
 		for (const key of this.#reportedAt.keys()) if (key.split("\n").includes(tabId)) this.#reportedAt.delete(key);
 	}
@@ -2801,29 +2804,40 @@ export class AgentControl {
 		return { items: rows.flatMap(row => (row.item ? [row.item] : [])), usage };
 	}
 
-	/** What a session has cost over its whole journal (the title bar's figure), 0 while its omp cannot say. */
+	/**
+	 * What a session has cost over its whole journal (the title bar's figure). While its omp cannot say (restarting, a
+	 * paired device's link down, a read past its timeout) the last figure read stands: a cost never drops to nothing.
+	 */
 	async #cost(tab: ControlTab): Promise<number> {
-		if (tab.hidden || (tab.status !== "ready" && tab.status !== "running")) return 0;
-		const response = await this.#host
-			.command(tab.tabId, { type: "get_session_stats" }, STATE_TIMEOUT_MS)
-			.catch(() => null);
-		if (!response?.success) return 0;
+		if (tab.hidden) return 0;
+		const response =
+			tab.status === "ready" || tab.status === "running"
+				? await this.#host.command(tab.tabId, { type: "get_session_stats" }, STATE_TIMEOUT_MS).catch(() => null)
+				: null;
+		if (!response?.success) return this.#lastSpend.get(tab.tabId)?.cost ?? 0;
 		const stats = response.data as { cost?: unknown; history?: { cost?: unknown } } | undefined;
-		const cost = typeof stats?.history?.cost === "number" ? stats.history.cost : stats?.cost;
-		return typeof cost === "number" && Number.isFinite(cost) && cost > 0 ? cost : 0;
+		const read = typeof stats?.history?.cost === "number" ? stats.history.cost : stats?.cost;
+		const cost = typeof read === "number" && Number.isFinite(read) && read > 0 ? read : 0;
+		this.#lastSpend.set(tab.tabId, { ...this.#lastSpend.get(tab.tabId), cost });
+		return cost;
 	}
 
 	/**
 	 * The session's spend split into a metered charge and a subscription's estimate, classed by its own host
-	 * (`get_session_spend`: its journal per provider, that computer's auth data); undefined while its omp cannot say.
+	 * (`get_session_spend`: its journal per provider, that computer's auth data); the last split read while its omp
+	 * cannot say.
 	 */
 	async #split(tab: ControlTab): Promise<CostSplit | undefined> {
-		if (tab.hidden || (tab.status !== "ready" && tab.status !== "running")) return undefined;
-		const response = await this.#host
-			.command(tab.tabId, { type: "get_session_spend" }, STATE_TIMEOUT_MS)
-			.catch(() => null);
+		if (tab.hidden) return undefined;
+		const response =
+			tab.status === "ready" || tab.status === "running"
+				? await this.#host.command(tab.tabId, { type: "get_session_spend" }, STATE_TIMEOUT_MS).catch(() => null)
+				: null;
 		const spend = response?.success ? (response.data as SessionSpend | undefined) : undefined;
-		return spend?.providers ? costSplitOf(spend.providers) : undefined;
+		if (!spend?.providers) return this.#lastSpend.get(tab.tabId)?.split;
+		const split = costSplitOf(spend.providers);
+		this.#lastSpend.set(tab.tabId, { cost: this.#lastSpend.get(tab.tabId)?.cost ?? 0, split });
+		return split;
 	}
 
 	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
