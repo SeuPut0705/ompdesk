@@ -219,6 +219,28 @@ describe("health.ts loaders", () => {
 		}
 		expect(unlisted).toEqual([]);
 	});
+
+	it("keeps the stock source copies that pull a large module graph off the startup path", () => {
+		// Measured on Windows (omp 18.12.3, bun 1.4.3, warm): the first static import of any of these makes bun
+		// transpile omp's source tree inside the omp process, ~540 ms of its only thread before `ready`; with a cold
+		// transpiler cache the same load takes seconds. Every area module loads at startup, so these load on use.
+		const heavy = [
+			"@oh-my-pi/pi-coding-agent/config",
+			"@oh-my-pi/pi-coding-agent/tts/models",
+			"@oh-my-pi/pi-coding-agent/tts/tts-client",
+			"@oh-my-pi/pi-coding-agent/tts/wav",
+		];
+		const outside = new Set(["stock-helper", "stats-host.ts", "boot-model.ts", "health.ts"]);
+		const eager: string[] = [];
+		for (const entry of fs.readdirSync(BRIDGE_DIR, { recursive: true, encoding: "utf8" })) {
+			if (!entry.endsWith(".ts") || outside.has(entry.split(path.sep)[0] ?? "")) continue;
+			const source = fs.readFileSync(path.join(BRIDGE_DIR, entry), "utf8");
+			for (const match of source.matchAll(/^import\s+(?!type\b)[^;]*?from\s+"(@oh-my-pi\/[^"]+)"/gms)) {
+				if (heavy.includes(match[1] ?? "")) eager.push(`${entry}: ${match[1]}`);
+			}
+		}
+		expect(eager).toEqual([]);
+	});
 });
 
 describe("separate copies of stock", () => {
