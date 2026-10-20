@@ -18,6 +18,43 @@ async function activeTab(page: Page): Promise<string | undefined> {
 	return (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
 }
 
+/**
+ * The page is paired and its host answers. The title bar says nothing: a new device's first `/` renders the app
+ * before `/api/session` refuses it and the page moves to `/pair`. Then a tap, as a person's, ends the launch moment
+ * (sw-update.ts `ResumeGate`), so no update or failed-chunk reload lands on the page while the test works in it.
+ */
+async function inUse(page: Page): Promise<void> {
+	await expect
+		.poll(
+			() =>
+				page
+					.evaluate(async () => location.pathname === "/" && Array.isArray(await window.omp.tabs.list()))
+					.catch(() => false),
+			{ timeout: 60_000 },
+		)
+		.toBe(true);
+	await page.locator("[data-composer-input]").first().click();
+}
+
+/** The strip the next start paints first (lib/tab-snapshot.ts) holds these tabs with `active` selected. */
+async function stripWritten(page: Page, tabs: string[], active: string): Promise<void> {
+	await expect
+		.poll(() =>
+			page.evaluate(
+				({ tabs, active }) =>
+					Object.keys(localStorage)
+						.filter(key => /^omp\.snap\.\d+\.tabs\./.test(key))
+						.map(key => localStorage.getItem(key) ?? "")
+						.some(
+							value =>
+								value.includes(`"activeTabId":"${active}"`) && tabs.every(tab => value.includes(`"${tab}"`)),
+						),
+				{ tabs, active },
+			),
+		)
+		.toBe(true);
+}
+
 test("a tapped notification opens its tab on a cold start, and the link is spent once routed", async () => {
 	test.setTimeout(180_000);
 	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-notify-open-")));
@@ -63,7 +100,7 @@ test("a tapped notification opens its tab on a cold start, and the link is spent
 		const context = await browser.newContext({ ...devices["iPhone 15"] });
 		const phone = await context.newPage();
 		await phone.goto(`${proxy.url}/`);
-		await expect(phone.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 60_000 });
+		await inUse(phone);
 		const spawn = () =>
 			phone.evaluate(async cwd => (await window.omp.tabs.spawn({ cwd, kind: "agent" }))?.tabId ?? null, project);
 		const first = await spawn();
@@ -71,10 +108,10 @@ test("a tapped notification opens its tab on a cold start, and the link is spent
 		if (!first || !notified) throw new Error("no tabs");
 		await phone.evaluate(id => window.omp.tabs.setActive(id), first);
 		await phone.reload();
-		await expect(phone.locator("[data-composer-input]").first()).toBeEditable({ timeout: 60_000 });
+		await inUse(phone);
 		await expect.poll(() => activeTab(phone)).toBe(first);
-		// The strip is the next start's first frame (ghosts), written 500 ms after it last changed.
-		await phone.waitForTimeout(1000);
+		// The strip is the next start's first frame (ghosts).
+		await stripWritten(phone, [first, notified], first);
 		await phone.close();
 
 		// The worker's openWindow: a new page at the notification's link, the strip still last run's.
@@ -85,11 +122,13 @@ test("a tapped notification opens its tab on a cold start, and the link is spent
 		await expect.poll(() => opened.evaluate(() => location.hash)).toBe("");
 
 		// The person goes back to the first tab; a reload keeps them there.
+		await inUse(opened);
 		await opened.evaluate(id => window.omp.tabs.setActive(id), first);
+		await stripWritten(opened, [first, notified], first);
 		await opened.reload();
-		await expect(opened.locator("[data-composer-input]").first()).toBeEditable({ timeout: 60_000 });
-		await opened.waitForTimeout(1000);
-		expect(await activeTab(opened)).toBe(first);
+		await inUse(opened);
+		expect(await opened.evaluate(() => location.hash)).toBe("");
+		await expect.poll(() => activeTab(opened)).toBe(first);
 	} finally {
 		await browser.close().catch(() => undefined);
 		await proxy?.close().catch(() => undefined);

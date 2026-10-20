@@ -53,6 +53,20 @@ export class ResumeGate {
 	}
 }
 
+/** `sessionStorage` key: when the page last reloaded because a chunk would not load. */
+export const CHUNK_RELOAD_KEY = "omp.web.chunk-reload-at";
+/** A chunk failing again this soon after a reload for one: that reload did not help. */
+export const CHUNK_RELOAD_LOOP_MS = 30_000;
+
+/**
+ * The page reloaded for a failed chunk less than {@link CHUNK_RELOAD_LOOP_MS} ago and a chunk failed again: its
+ * launch moment is not taken (a chunk neither the host nor its archive has once reloaded the page at every launch,
+ * four times a second), and the reload waits for the next return after being hidden.
+ */
+export function chunkReloadRepeats(storage: Pick<Storage, "getItem">, now: number): boolean {
+	return now - Number(storage.getItem(CHUNK_RELOAD_KEY) ?? 0) < CHUNK_RELOAD_LOOP_MS;
+}
+
 /** What the page is doing right now; every reading is live. */
 export interface SafeMoment {
 	/** The page is in the foreground (a reload of a hidden page is invisible, and the next one is the safe one). */

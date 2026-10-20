@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	appGoneMoment,
+	CHUNK_RELOAD_KEY,
+	CHUNK_RELOAD_LOOP_MS,
+	chunkReloadRepeats,
 	PURGE_CLEANUP_MS,
 	purgeAndReload,
 	RESUME_AFTER_HIDDEN_MS,
@@ -195,6 +198,25 @@ describe("ResumeGate (an update or last-resort reload lands only while the page 
 		expect(gate.open(11)).toBe(false);
 		gate.hidden(25_000);
 		expect(gate.shown(10 + RESUME_AFTER_HIDDEN_MS)).toBe(true);
+	});
+});
+
+describe("chunkReloadRepeats (a chunk that keeps failing never reloads the page at every launch)", () => {
+	const storage = (value: string | null) => ({ getItem: (key: string) => (key === CHUNK_RELOAD_KEY ? value : null) });
+
+	it("is false for a page that never reloaded for a chunk", () => {
+		expect(chunkReloadRepeats(storage(null), 1_000_000)).toBe(false);
+	});
+
+	it("is true while the last reload for a chunk is recent, and false once it is old", () => {
+		const at = 1_000_000;
+		expect(chunkReloadRepeats(storage(String(at)), at + 250)).toBe(true);
+		expect(chunkReloadRepeats(storage(String(at)), at + CHUNK_RELOAD_LOOP_MS - 1)).toBe(true);
+		expect(chunkReloadRepeats(storage(String(at)), at + CHUNK_RELOAD_LOOP_MS)).toBe(false);
+	});
+
+	it("reads a damaged value as no reload", () => {
+		expect(chunkReloadRepeats(storage("garbage"), 1_000_000)).toBe(false);
 	});
 });
 

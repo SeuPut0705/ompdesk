@@ -26,6 +26,8 @@ import { fetchTicket } from "./session";
 import { createWebOmp } from "./shim";
 import {
 	appGoneMoment,
+	CHUNK_RELOAD_KEY,
+	chunkReloadRepeats,
 	purgeAndReload,
 	ResumeGate,
 	reloadWhenUnused,
@@ -172,7 +174,9 @@ async function bootApp(): Promise<void> {
 		location.reload();
 	};
 	const purgeNow = (): Promise<boolean> => {
-		noteReason(chunkStale && transport.state !== "outdated" ? "chunk-load-failed" : "outdated");
+		const forChunk = chunkStale && transport.state !== "outdated";
+		noteReason(forChunk ? "chunk-load-failed" : "outdated");
+		if (forChunk) sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
 		return purge(() => !moment || safeToReload(moment));
 	};
 
@@ -289,6 +293,8 @@ async function bootApp(): Promise<void> {
 		if (!failed || !current) return;
 		if (!chunkStale) {
 			chunkStale = true;
+			// The reload that led here was for a chunk too and did not help: not this launch, only after a return.
+			if (chunkReloadRepeats(sessionStorage, Date.now())) gate.used();
 			pwa.update?.markOutdated();
 			applyUpdate();
 		}
