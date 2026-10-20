@@ -708,6 +708,14 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			toast({ variant: "error", title: translate("tabs.newFailed"), message: translate("tabs.kindMismatch") });
 			return null;
 		}
+		if (result.tabId === null && result.refusal === "folder-missing") {
+			toast({
+				variant: "error",
+				title: translate("tabs.newFailed"),
+				message: translate("tabs.folderMissing", { folder: result.folder ?? "" }),
+			});
+			return null;
+		}
 		// F-OWN belt guard: the session file is already attached to a tab, so
 		// main refused the double-attach. Owner lives in THIS window → switch
 		// to it (a tab main holds for this window that the list here does not

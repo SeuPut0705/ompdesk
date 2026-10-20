@@ -91,6 +91,7 @@ export const ko: Record<string, string> = {
 	// Session tab strip (TabBar)
 	"tabs.kindMismatch":
 		"이 세션은 유형이 달라요. 에이전트 세션과 채팅 세션은 서로 변환할 수 없으니 세션 목록에서 여세요.",
+	"tabs.folderMissing": "이 세션이 속한 폴더가 없어졌어요 ({folder}). 다른 폴더에서는 열지 않아요.",
 	"tabs.menu.splitRight": "오른쪽으로 분할",
 	"tabs.menu.splitBottom": "아래로 분할",
 	"tabs.menu.removeSplit": "분할 보기 종료",
@@ -1656,6 +1657,7 @@ export const ko: Record<string, string> = {
 	"ipcError.session_starting": "세션이 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
 	"ipcError.session_owned_elsewhere": "이 세션은 이미 다른 탭에서 열려 있어요.",
 	"ipcError.session_deleted": "삭제된 세션이에요.",
+	"ipcError.session_folder_missing": "이 세션이 속한 폴더가 없어졌어요.",
 	"ipcError.worktree_removing": "그 워크트리를 지우는 중이에요. 잠시 뒤 다시 해 주세요.",
 	"ipcError.session_not_open": "이 세션은 탭으로 열려 있지 않아요.",
 	"ipcError.no_messages": "아직 저장할 내용이 없어요. 먼저 메시지를 보내 주세요.",

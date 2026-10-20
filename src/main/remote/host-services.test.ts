@@ -370,7 +370,7 @@ describe("LocalHostServices", () => {
 			const opened = await services.call(
 				x.peer,
 				"tab.open",
-				{ rtab: "t1", cwd: workDir, sessionPath: join(workDir, "worktree-session.jsonl") },
+				{ rtab: "t1", cwd: workDir, kind: "agent", sessionPath: join(workDir, "worktree-session.jsonl") },
 				x,
 			);
 			expect(opened).toMatchObject({ cwd: realpathSync(home), attached: false });
@@ -385,7 +385,12 @@ describe("LocalHostServices", () => {
 		const x = new FakeConnection(peer("device-x"));
 		recordedCwd.mockResolvedValue(join(workDir, "removed-worktree"));
 		const refused = await services
-			.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: join(workDir, "orphan.jsonl") }, x)
+			.call(
+				x.peer,
+				"tab.open",
+				{ rtab: "t1", cwd: workDir, kind: "agent", sessionPath: join(workDir, "orphan.jsonl") },
+				x,
+			)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("session_folder_missing");
 		expect(sidecars).toHaveLength(0);

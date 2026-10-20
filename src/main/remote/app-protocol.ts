@@ -38,6 +38,7 @@
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
  *   and a `merge-tree` prediction of its merge), `host.git.landing {worktree}` → LandingFacts, `host.git.merge
  *   {worktree, label}` → MergeOutcome (never pushed), `host.git.removeWorktree {worktree}` → WorktreeRemoval,
+ *   `host.git.discardWorktree {worktree}` → WorktreeRemoval (a failed open's unused worktree and branch),
  *   `host.git.worktreeCreate {baseCwd, name, branchPrefix?, baseRef}` → RpcWorktreeCreateResult. Free: no model
  *   call, no quota.
  * - Memory shared between the person's computers (ai-memory/sync.ts; durable pages only, `isDurablePath`):
@@ -148,6 +149,7 @@ export const GIT_METHODS = {
 	landing: "host.git.landing",
 	merge: "host.git.merge",
 	removeWorktree: "host.git.removeWorktree",
+	discardWorktree: "host.git.discardWorktree",
 	worktreeCreate: "host.git.worktreeCreate",
 } as const;
 /** A merge or a removal runs git for up to two minutes a step on the host: more than the link's default 30 s. */

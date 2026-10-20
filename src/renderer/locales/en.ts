@@ -94,6 +94,8 @@ export const en: Record<string, string> = {
 	// Session tab strip (TabBar)
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted, so open it from the session list instead.",
+	"tabs.folderMissing":
+		"The folder this session belongs in no longer exists ({folder}), so it isn't opened anywhere else.",
 	"tabs.menu.splitRight": "Split right",
 	"tabs.menu.splitBottom": "Split below",
 	"tabs.menu.removeSplit": "Exit split view",
@@ -1672,6 +1674,7 @@ export const en: Record<string, string> = {
 	"ipcError.session_starting": "The session is still starting. Try again in a moment.",
 	"ipcError.session_owned_elsewhere": "This session is already open in another tab.",
 	"ipcError.session_deleted": "This session was deleted.",
+	"ipcError.session_folder_missing": "The folder this session belongs in no longer exists.",
 	"ipcError.worktree_removing": "That worktree is being removed. Try again in a moment.",
 	"ipcError.session_not_open": "That session isn't open in a tab.",
 	"ipcError.no_messages": "There's nothing to save yet. Send a message first.",

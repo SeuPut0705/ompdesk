@@ -1532,9 +1532,12 @@ export interface IpcSpawnTabResult {
 	/**
 	 * Why the spawn was refused (tabId null). `owned` = the session file is
 	 * already attached elsewhere (F-OWN); `kind-mismatch` = the requested kind
-	 * disagrees with the target session file's stamped kind.
+	 * disagrees with the target session file's stamped kind; `folder-missing` =
+	 * the folder the session file records (`folder`) no longer exists.
 	 */
-	refusal?: "owned" | "kind-mismatch";
+	refusal?: "owned" | "kind-mismatch" | "folder-missing";
+	/** With `folder-missing`: the folder the session belongs in. */
+	folder?: string;
 	/** The session was already open in another window's tab, and this window now views that tab (`tabId`). */
 	attached?: true;
 }

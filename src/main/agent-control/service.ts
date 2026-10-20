@@ -303,6 +303,8 @@ export interface AgentControlHost {
 	landing(worktree: WorktreeRef, device?: string): Promise<LandingFacts>;
 	/** Remove a clean worktree on `device` whose branch tip is in the parent's HEAD or upstream, and its branch (never forced). */
 	removeSafeWorktree(worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval>;
+	/** Take back on `device` a worktree and branch an open made and nobody used (a failed open; never forced). */
+	discardWorktree(worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval>;
 	/** Remember a session closed after its work landed, so its opener's family still lists it. */
 	recordClosed(child: ClosedChild): void;
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
@@ -350,6 +352,12 @@ export interface ToolOutcome {
 
 /** A started tab is ready within this; a paired host's first spawn takes longer than a local one. */
 const READY_TIMEOUT_MS = 90_000;
+/**
+ * The first command a just-started child answers: before it, the local handler learns the session from stock
+ * `get_state`, connects to the bridge and waits for the bridge's modules to load, all queued behind omp's own startup.
+ * With several sessions working that took past the default 8 s and failed an open whose omp was fine (v0.46.0).
+ */
+const FIRST_COMMAND_TIMEOUT_MS = 60_000;
 /** A wait re-reads the session at least this often even when no tab event arrives. */
 const POLL_MS = 3_000;
 const STATE_TIMEOUT_MS = 5_000;
@@ -1561,10 +1569,11 @@ export class AgentControl {
 			if (sessionPath) notes.push("reopened");
 			else
 				responseData(
-					await this.#host.command(tabId, {
-						type: "agent_control_worker",
-						from: caller.title || "another session",
-					}),
+					await this.#host.command(
+						tabId,
+						{ type: "agent_control_worker", from: caller.title || "another session" },
+						FIRST_COMMAND_TIMEOUT_MS,
+					),
 					"Marking the session as a worker",
 				);
 			if (args.model) {
@@ -1618,10 +1627,20 @@ export class AgentControl {
 			}
 			return { tabId, notes, worktree: worktree?.branch, started: args.message !== undefined };
 		} catch (error) {
-			// A child that cannot be set up does not linger half-configured.
+			// A child that cannot be set up does not linger half-configured, nor does the worktree made for it.
 			opened.delete(tabId);
+			const tabDevice = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === tabId)?.device;
 			this.#host.view(caller.tabId, { tabId, how: "close" });
-			throw error;
+			if (!worktree) throw error;
+			const made = worktree;
+			const removal = await this.#host.discardWorktree(made, tabDevice).catch(() => null);
+			if (removal === "removed") throw error;
+			const message = error instanceof Error ? error.message : String(error);
+			throw new Error(
+				removal === "branch-kept"
+					? `${message} (its worktree ${made.path} was removed; git kept the branch ${made.branch})`
+					: `${message} (git kept its worktree ${made.path} and branch ${made.branch}: something changed there)`,
+			);
 		}
 	}
 

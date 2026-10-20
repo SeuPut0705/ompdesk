@@ -59,7 +59,14 @@ import {
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
 import type { TerminalOperation } from "../../shared/terminal-types";
-import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
+import {
+	branchEvidence,
+	branchFacts,
+	discardNewWorktree,
+	landingFacts,
+	mergeBranch,
+	removeSafeWorktree,
+} from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import type { CheckoutMember } from "../checkout-peers";
@@ -172,7 +179,14 @@ export interface HostServicesDeps {
 	hostName: () => string;
 	sessionIndex: Pick<
 		SessionIndex,
-		"list" | "searchContent" | "kindFor" | "deleteSession" | "moveSession" | "sessionsDir" | "readMessages"
+		| "list"
+		| "searchContent"
+		| "kindFor"
+		| "recordedCwd"
+		| "deleteSession"
+		| "moveSession"
+		| "sessionsDir"
+		| "readMessages"
 	>;
 	/** Session files this computer's user hid from agents (Sidebar › Hide from other agents); a device's agent never reads them. */
 	agentHidden?: () => ReadonlySet<string>;
@@ -941,6 +955,8 @@ export class LocalHostServices implements HostServices {
 				return landingFacts(parse(GitWorktreeParams, method, params).worktree);
 			case GIT_METHODS.removeWorktree:
 				return removeSafeWorktree(parse(GitWorktreeParams, method, params).worktree);
+			case GIT_METHODS.discardWorktree:
+				return discardNewWorktree(parse(GitWorktreeParams, method, params).worktree);
 			case GIT_METHODS.merge: {
 				const { worktree, label } = parse(GitMergeParams, method, params);
 				return mergeBranch(worktree, label);
@@ -1136,9 +1152,22 @@ export class LocalHostServices implements HostServices {
 		let cwd: string;
 		let kind: "agent" | "chat";
 		try {
-			cwd = await directory(params.cwd);
 			kind =
 				params.kind ?? (params.sessionPath ? await this.#deps.sessionIndex.kindFor(params.sessionPath) : "agent");
+			// A stored agent session runs in the folder its file records here, never in the folder the device guessed
+			// (tab-spawn.ts does the same for this computer's own windows); a folder that is gone is refused.
+			const recorded =
+				params.sessionPath && kind === "agent"
+					? await this.#deps.sessionIndex.recordedCwd(params.sessionPath)
+					: null;
+			cwd = recorded
+				? await directory(recorded).catch(() => {
+						throw codedError(
+							"session_folder_missing",
+							`The folder this session belongs in no longer exists: ${recorded}`,
+						);
+					})
+				: await directory(params.cwd);
 		} finally {
 			const left = (this.#opening.get(key) ?? 1) - 1;
 			if (left > 0) this.#opening.set(key, left);

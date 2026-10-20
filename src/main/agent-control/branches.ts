@@ -477,6 +477,27 @@ export async function removeSafeWorktree(
 	return branch.code === 0 ? "removed" : "branch-kept";
 }
 
+/**
+ * Take back a worktree and branch an open just made and nobody used: a registered linked worktree with no uncommitted
+ * or untracked file (`worktree remove` without `--force`), and the branch only while its reflog still holds just the
+ * entry that created it, deleted with `update-ref -d` against that very commit, so a branch something moved meanwhile
+ * stays. Unlike `removeSafeWorktree` it does not ask whether the tip landed in the parent's HEAD: a branch cut from the
+ * default branch is ahead of a parent checkout that was not pulled, and `branch -d` kept it (v0.46.0).
+ */
+export async function discardNewWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
+	const ref = `refs/heads/${worktree.branch}`;
+	const log = await gitRaw(worktree.baseCwd, ["reflog", "show", "--format=%H", ref]);
+	if (log.code !== 0) return null;
+	const entries = log.stdout.toString("utf8").split("\n").filter(Boolean);
+	if (entries.length !== 1) return null;
+	const tip = entries[0] as string;
+	if ((await text(worktree.path, ["rev-parse", "HEAD"]).catch(() => "")) !== tip) return null;
+	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
+	if (!primary) return null;
+	const deleted = await gitRaw(primary, ["update-ref", "-d", ref, tip]);
+	return deleted.code === 0 ? "removed" : "branch-kept";
+}
+
 /** Why a merge of this branch cannot go ahead (what it would lose or tangle), or null. */
 export function mergeProblem(worktree: WorktreeRef, facts: BranchFacts): string | null {
 	if (!facts.baseBranch)

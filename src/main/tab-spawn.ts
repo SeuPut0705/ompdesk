@@ -3,11 +3,16 @@
  * are directly testable without an Electron runtime. The handler stays a
  * thin shell: the caller's window + this call.
  *
- * Two refusal codes, mirroring the F-OWN shape:
+ * Three refusal codes, mirroring the F-OWN shape:
  * - `owned` — the session file is already attached to a tab (double-attach).
  * - `kind-mismatch` — the payload's requested kind disagrees with the file's
  *   stamped kind (I3: reject, never degrade). When the payload omits `kind`,
  *   the file's kind wins instead of refusing.
+ * - `folder-missing` — a stored session opens in the folder its file records
+ *   (stock's header cwd), whatever folder the caller is in; when that folder
+ *   is gone it is refused (`folder`) instead of opening anywhere else. Stock
+ *   would relocate a removed worktree's session into the launch folder, the
+ *   repository's main checkout (v0.46.0 reopened one there).
  *
  * When a paired web device's window is involved (the caller or the owner),
  * an owned session is not refused: the caller's window views the owner's tab
@@ -26,6 +31,7 @@
  * a remote tab), exactly like an explicit `defaultWorkspace` request.
  */
 
+import { stat } from "node:fs/promises";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult, SessionKind } from "../shared/ipc-types";
 import { canonicalCwd } from "./canonical-cwd";
 import type { SessionIndex } from "./session-index";
@@ -42,7 +48,7 @@ export interface SpawnTabRemote {
 
 export type SpawnTabDeps = {
 	sidecarPool: Pick<SidecarPool, "sessionOwner" | "acquire" | "attachViewer" | "acquireHostedView">;
-	sessionIndex: Pick<SessionIndex, "kindFor">;
+	sessionIndex: Pick<SessionIndex, "kindFor" | "recordedCwd">;
 	/**
 	 * The caller's cwd when its tab runs on `device` (undefined = this
 	 * machine), else null; a local spawn then falls back to the app's initial cwd.
@@ -71,6 +77,7 @@ export async function spawnTabForWindow(
 	const sessionPath =
 		typeof payload?.sessionPath === "string" && payload.sessionPath ? payload.sessionPath : undefined;
 	let kind: SessionKind = payload?.kind === "chat" ? "chat" : "agent";
+	let home: string | undefined;
 	if (sessionPath) {
 		// F-OWN first: a live owner wins over every other consideration.
 		const owner = deps.sidecarPool.sessionOwner(sessionPath, device);
@@ -103,6 +110,18 @@ export async function spawnTabForWindow(
 			return { tabId: null, refusal: "kind-mismatch" };
 		}
 		kind = fileKind;
+		// A stored agent session runs where its file says, never where the caller happens to be (a host decides its own).
+		if (!device && kind !== "chat") {
+			const recorded = await deps.sessionIndex.recordedCwd(sessionPath);
+			if (recorded) {
+				const exists = await stat(recorded).then(
+					info => info.isDirectory(),
+					() => false,
+				);
+				if (!exists) return { tabId: null, refusal: "folder-missing", folder: recorded };
+				home = recorded;
+			}
+		}
 	}
 	const requested = typeof payload?.cwd === "string" && payload.cwd.length > 0 ? payload.cwd : undefined;
 	const neutral = payload.defaultWorkspace === true || kind === "chat";
@@ -113,7 +132,7 @@ export async function spawnTabForWindow(
 		? neutral
 			? await deps.remote.defaultWorkspace(device)
 			: (requested ?? callerCwd ?? (await deps.remote.defaultWorkspace(device)))
-		: canonicalCwd(neutral ? deps.defaultWorkspace() : (requested ?? callerCwd ?? deps.initialCwd()));
+		: canonicalCwd(neutral ? deps.defaultWorkspace() : (home ?? requested ?? callerCwd ?? deps.initialCwd()));
 	const tabId = nextSnowflake();
 	// A no-path tab is an explicit New Tab action. It must start empty even
 	// when the CLI's persistent autoResume setting is enabled for the project.

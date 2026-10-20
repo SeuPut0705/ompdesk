@@ -185,6 +185,16 @@ export class SessionIndex {
 		}
 	}
 
+	/** The folder a stored session belongs in: the cwd its file records (stock's header), or null when it records none. */
+	async recordedCwd(sessionPath: string): Promise<string | null> {
+		try {
+			const infos = await this.#store.listDirectory(sessionPath);
+			return infos.find(row => resolve(row.path) === resolve(sessionPath))?.cwd || null;
+		} catch {
+			return null;
+		}
+	}
+
 	async deleteSession(sessionPath: string): Promise<void> {
 		const target = resolve(sessionPath);
 		const root = `${resolve(this.#sessionsDir)}${sep}`;

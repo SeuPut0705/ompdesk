@@ -85,6 +85,7 @@ import {
 	type BranchFacts,
 	branchEvidence,
 	branchFacts,
+	discardNewWorktree,
 	type LandingFacts,
 	landingFacts,
 	type MergeOutcome,
@@ -546,7 +547,20 @@ export class AgentControlRuntime {
 			...(device ? { device } : {}),
 			...(request.task ? { task: request.task } : {}),
 		});
-		if (!result?.tabId) throw new Error("The new session could not be started.");
+		if (!result?.tabId) {
+			// The worktree made for a session that never started goes with it (git's own commands, never forced).
+			if (worktree) {
+				const made = worktree;
+				await this.#git<WorktreeRemoval>(device, GIT_METHODS.discardWorktree, { worktree: gitRef(made) }, () =>
+					discardNewWorktree(made),
+				).catch(() => null);
+			}
+			if (result?.refusal === "folder-missing")
+				throw new Error(
+					`The folder this saved session belongs in no longer exists (${result.folder}); it is not opened in any other folder.`,
+				);
+			throw new Error("The new session could not be started.");
+		}
 		this.#windows.set(result.tabId, win);
 		this.#parents.set(result.tabId, { callerTabId, ...(request.tag ? { tag: request.tag } : {}) });
 		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener.
@@ -849,6 +863,10 @@ export class AgentControlRuntime {
 			removeSafeWorktree: (worktree, device) =>
 				this.#git<WorktreeRemoval>(device, GIT_METHODS.removeWorktree, { worktree: gitRef(worktree) }, () =>
 					removeSafeWorktree(worktree),
+				),
+			discardWorktree: (worktree, device) =>
+				this.#git<WorktreeRemoval>(device, GIT_METHODS.discardWorktree, { worktree: gitRef(worktree) }, () =>
+					discardNewWorktree(worktree),
 				),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: device => {
