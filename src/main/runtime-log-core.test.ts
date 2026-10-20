@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { RuntimeErrorSource } from "../shared/ipc-types";
 import { appendRuntimeLogAtPath, normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 
 const tempDirs: string[] = [];
@@ -78,19 +79,25 @@ describe("runtime crash log", () => {
 		expect(report).toMatchObject({ source: "remote-link", message: "down", details: { reason: "dead" } });
 	});
 
-	it.each(["setup", "keep-awake", "remote", "memory-sync", "settle-watch", "sidecar-restart", "goal-time-limit", "slow-bridge-call"])(
-		"writes a main-side line under its own source %s, not unknown",
-		async source => {
-			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-log-"));
-			tempDirs.push(dir);
-			const filePath = path.join(dir, "gui-runtime.jsonl");
+	it.each<RuntimeErrorSource>([
+		"setup",
+		"keep-awake",
+		"remote",
+		"memory-sync",
+		"settle-watch",
+		"sidecar-restart",
+		"goal-time-limit",
+		"slow-bridge-call",
+	])("writes a main-side line under its own source %s, not unknown", async source => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-log-"));
+		tempDirs.push(dir);
+		const filePath = path.join(dir, "gui-runtime.jsonl");
 
-			appendRuntimeLogAtPath(filePath, { source, message: "m" } as never, { appVersion: "1", platform: "win32", pid: 1 });
+		appendRuntimeLogAtPath(filePath, { source, message: "m" }, { appVersion: "1", platform: "win32", pid: 1 });
 
-			const entry = JSON.parse((await fs.readFile(filePath, "utf8")).trim()) as { source: string };
-			expect(entry.source).toBe(source);
-		},
-	);
+		const entry = JSON.parse((await fs.readFile(filePath, "utf8")).trim()) as { source: string };
+		expect(entry.source).toBe(source);
+	});
 });
 
 describe("tailLogLines", () => {

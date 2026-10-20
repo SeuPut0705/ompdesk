@@ -523,6 +523,25 @@ export type RuntimeErrorSource =
 	| "launch-guard"
 	/** The pre-rename profile moved into userData (src/main/legacy-user-data.ts). */
 	| "user-data-migration"
+	/**
+	 * Machine setup (src/main/setup/detect.ts, service.ts): `message` names the finding or the Git Mandatory ASLR
+	 * override and its outcome; `details.level` is `warn` or `info`.
+	 */
+	| "setup"
+	/** The lid-awake hold (src/main/keep-awake, wired in index.ts): `message` is held, released, skipped, recovered or failed. */
+	| "keep-awake"
+	/** A paired-host event outside the link and tab sources (src/main/remote/devices.ts `log`): `message` is the event. */
+	| "remote"
+	/** Memory shared between paired computers (src/main/ai-memory/sync.ts): `message` is conflict, round or failed. */
+	| "memory-sync"
+	/** A turn that ended but still reads running (src/main/settle-watch.ts): `message` is "still settling", `details` stock's state. */
+	| "settle-watch"
+	/** An omp sidecar that exited and is restarting (src/main/sidecar-factory.ts): `message` is the reason, `details` the attempt and stderr. */
+	| "sidecar-restart"
+	/** A goal's time-limit update that failed (src/main/sidecar-factory.ts): `message` is the error. */
+	| "goal-time-limit"
+	/** A bridge call that was slow or timed out (src/main/local/slow-bridge-call.ts): `details` is where the time went. */
+	| "slow-bridge-call"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */

@@ -9,39 +9,51 @@ const MAX_URL_LENGTH = 4_096;
 const MAX_DETAIL_KEYS = 24;
 const MAX_DETAIL_VALUE_LENGTH = 4_096;
 
-const RUNTIME_ERROR_SOURCES = new Set<RuntimeErrorSource>([
-	"react-render",
-	"react-uncaught",
-	"react-recoverable",
-	"window-error",
-	"unhandled-rejection",
-	"renderer-console",
-	"renderer-load",
-	"preload",
-	"renderer-process",
-	"renderer-unresponsive",
-	"application-resources",
-	"child-process",
-	"main-uncaught",
-	"main-unhandled-rejection",
-	"error-toast",
-	"background-task",
-	"startup-timing",
-	"turn-resume",
-	"app-update",
-	"ai-memory",
-	"disk-care",
-	"main-thread-hang",
-	"web-reload",
-	"remote-tab",
-	"session-delete",
-	"turn-stop",
-	"remote-link",
-	"gpu-fallback",
-	"launch-guard",
-	"user-data-migration",
-	"unknown",
-]);
+/** Every source, keyed by the union: a source added to `RuntimeErrorSource` without a row here fails tsc. */
+const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
+	"react-render": true,
+	"react-uncaught": true,
+	"react-recoverable": true,
+	"window-error": true,
+	"unhandled-rejection": true,
+	"renderer-console": true,
+	"renderer-load": true,
+	preload: true,
+	"renderer-process": true,
+	"renderer-unresponsive": true,
+	"application-resources": true,
+	"child-process": true,
+	"main-uncaught": true,
+	"main-unhandled-rejection": true,
+	"error-toast": true,
+	"background-task": true,
+	"startup-timing": true,
+	"turn-resume": true,
+	"app-update": true,
+	"ai-memory": true,
+	"disk-care": true,
+	"main-thread-hang": true,
+	"web-reload": true,
+	"remote-tab": true,
+	"session-delete": true,
+	"turn-stop": true,
+	"remote-link": true,
+	"gpu-fallback": true,
+	"launch-guard": true,
+	"user-data-migration": true,
+	setup: true,
+	"keep-awake": true,
+	remote: true,
+	"memory-sync": true,
+	"settle-watch": true,
+	"sidecar-restart": true,
+	"goal-time-limit": true,
+	"slow-bridge-call": true,
+	unknown: true,
+};
+
+/** What main writes: the source is checked by the compiler; `details` values are bounded when written. */
+export type RuntimeLogReport = Omit<RuntimeErrorReport, "details"> & { details?: object };
 
 export interface RuntimeLogContext {
 	appVersion: string;
@@ -64,8 +76,9 @@ function finiteNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** Untrusted input only (a renderer's IPC payload): a name outside the union becomes "unknown". */
 function source(value: unknown): RuntimeErrorSource {
-	return typeof value === "string" && RUNTIME_ERROR_SOURCES.has(value as RuntimeErrorSource)
+	return typeof value === "string" && Object.hasOwn(RUNTIME_ERROR_SOURCE_TABLE, value)
 		? (value as RuntimeErrorSource)
 		: "unknown";
 }
@@ -106,7 +119,7 @@ export function normalizeRuntimeErrorReport(value: unknown): RuntimeErrorReport 
  * events may be the last useful callback before shutdown, so queued async writes
  * are not reliable enough here. Each write is a single bounded JSON line.
  */
-export function appendRuntimeLogAtPath(filePath: string, report: unknown, context: RuntimeLogContext): void {
+export function appendRuntimeLogAtPath(filePath: string, report: RuntimeLogReport, context: RuntimeLogContext): void {
 	try {
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
 		try {

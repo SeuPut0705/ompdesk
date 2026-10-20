@@ -39,13 +39,13 @@ function parse(raw: string): TermsFile | undefined {
 export class RecallTermsIndex {
 	readonly #store: Pick<MemoryStore, "conclusions">;
 	readonly #file: string;
-	readonly #log: ((message: string, details?: unknown) => void) | undefined;
+	readonly #log: ((message: string, details?: object) => void) | undefined;
 	#running: Promise<void> | undefined;
 
 	constructor(deps: {
 		store: Pick<MemoryStore, "conclusions">;
 		file: string;
-		log?: (message: string, details?: unknown) => void;
+		log?: (message: string, details?: object) => void;
 	}) {
 		this.#store = deps.store;
 		this.#file = deps.file;

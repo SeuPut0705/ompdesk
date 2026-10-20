@@ -134,7 +134,7 @@ import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
-import { tailLogLines } from "./runtime-log-core";
+import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
@@ -559,7 +559,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// ========================================================================
 	ipc.on(IPC_COMMANDS.RUNTIME_ERROR_REPORT, (caller, report: unknown) => {
 		const win = caller.win;
-		writeRuntimeLog(report, {
+		writeRuntimeLog(normalizeRuntimeErrorReport(report), {
 			windowId: win?.webContents.id,
 			cwd: win ? windowManager.recordFor(win)?.cwd : undefined,
 		});

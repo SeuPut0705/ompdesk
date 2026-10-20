@@ -122,10 +122,9 @@ async function detectGit(platform: SetupPlatform, pathEnv: string, env: NodeJS.P
 		if (found.kind !== "present") return found;
 		if (gitShell) {
 			writeRuntimeLog({
-				level: "warn",
 				source: "setup",
 				message: "Git's sh cannot start a child process",
-				details: { root, ...gitShell },
+				details: { level: "warn", root, ...gitShell },
 			});
 		}
 		return {
