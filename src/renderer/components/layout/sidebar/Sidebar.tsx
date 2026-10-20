@@ -991,6 +991,16 @@ export function Sidebar() {
 			}
 			return entry;
 		};
+		// git realpaths a main checkout (macOS /var → /private/var), the sessions keep the folder as typed: a worktree's
+		// session goes to the group of the folder that IS its main checkout under another spelling (the same path, or the
+		// root ending in it), never to a subfolder's group.
+		const groupOfRoot = new Map<string, string>();
+		for (const session of codeSessions) {
+			const shown = projectName(session.cwd);
+			if (!shown.worktree && (shown.root === session.cwd || shown.root.endsWith(session.cwd)))
+				groupOfRoot.set(shown.root, session.cwd);
+		}
+		const keyOfRoot = (root: string) => groupOfRoot.get(root) ?? root;
 		for (const session of codeSessions) {
 			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them),
 			// unless a tab still holds the session: one of this window's or a paired device's tab here.
@@ -1007,15 +1017,16 @@ export function Sidebar() {
 			if (foldedRootOf.has(session.path)) continue;
 			// An Autopilot child goes where its run goes.
 			const shown = projectName(runParentOf.get(session.path) ?? session.cwd);
-			const entry = groupFor(shown.worktree ? shown.root : session.cwd);
+			const entry = groupFor(shown.worktree ? keyOfRoot(shown.root) : session.cwd);
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
 			entry.sessions.push(session);
 		}
 		for (const session of codeSessions) {
 			const root = foldedRootOf.get(session.path);
 			if (root === undefined) continue;
-			const entry = groupFor(root);
-			if (!entry.members.includes(root)) entry.members.push(root);
+			const key = keyOfRoot(root);
+			const entry = groupFor(key);
+			if (!entry.members.includes(key)) entry.members.push(key);
 			entry.folded.push(session);
 		}
 		const result: WorkspaceGroup[] = [...byKey.values()].map(entry => {

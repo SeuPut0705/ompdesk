@@ -3405,6 +3405,46 @@ describe("Sidebar worktree sessions", () => {
 		expect(rowsOf("/elsewhere/beta").map(row => row.mark)).toEqual(["autopilot"]);
 	});
 
+	it("puts a worktree's session in its project's group when the project's folder is spelled through a symlink", async () => {
+		// macOS: the session says /var/…, git's main checkout (realpath'd) is /private/var/…; a subfolder keeps its own group.
+		const omp = installMockOmp([
+			session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3", created: "2026-02-03T00:00:00Z" }),
+			session("/var/w/alpha/mine.jsonl", "/var/w/alpha", { title: "Own row" }),
+			session("/var/w/alpha/sub/s.jsonl", "/var/w/alpha/sub", { title: "Sub row" }),
+		]);
+		const real = { project: "alpha", root: "/private/var/w/alpha", worktree: null };
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === AUTOPILOT
+							? {
+									project: "alpha",
+									root: "/private/var/w/alpha",
+									worktree: { kind: "autopilot", branch: "autopilot/x", slug: "x" },
+								}
+							: cwd.startsWith("/var/w/alpha")
+								? real
+								: null,
+					]),
+				),
+			),
+		};
+		seedStores();
+		useSessionStore.setState({ cwd: "/var/w/alpha" });
+		await mount(<Sidebar />);
+		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+			(element as unknown as Element).getAttribute("data-workspace-group"),
+		);
+		expect(groups).not.toContain("/private/var/w/alpha");
+		expect(groups).toContain("/var/w/alpha/sub");
+		expect(rowsOf("/var/w/alpha").map(row => row.text)).toEqual([
+			expect.stringContaining("Cycle 3"),
+			expect.stringContaining("Own row"),
+		]);
+	});
+
 	it("shows the folder without its gui-…-hash dressing while git has not answered", async () => {
 		const omp = installMockOmp([session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3" })]);
 		(omp as unknown as Record<string, unknown>).projectOrigins = {
