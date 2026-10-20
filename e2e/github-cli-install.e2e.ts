@@ -78,7 +78,10 @@ function pathWithoutGh(): string {
 
 for (const language of variants(["en", "ko"] as const)) {
 	test(`connecting GitHub installs the missing GitHub CLI, then signs in (${language})`, async () => {
-		test.skip(process.platform === "win32", "the fake gh and the stand-in login shell are shebang scripts");
+		test.skip(
+			process.platform === "win32",
+			"Windows installs gh through winget only (selectMethod in src/main/setup/plans.ts): no archive download, no byte progress, no managed tools/gh/bin, which is the install this spec drives",
+		);
 		test.setTimeout(120_000);
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-gh-install-${language}-`));
 		const home = path.join(root, "home");
