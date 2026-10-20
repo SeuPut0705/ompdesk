@@ -2,7 +2,7 @@
 
 ## [0.44.0] - 2026-10-20
 
-ECC 스킬이 내장되고, 맥에서 업데이트할 때마다 권한 창이 다시 뜨던 문제를 고쳤어요.
+ECC 스킬이 내장되고, 데스크톱 세션 줄이 ⋯ 메뉴 하나로 정리됐어요.
 
 ### 새로 생긴 것
 - ECC(Everything Claude Code)의 omp용 스킬 묶음을 내장했어요. 언어·프레임워크별 지식이 스킬 118개, 명령 24개로 들어 있고, 모델에게는 목차 하나만 보여서 세션마다 늘어나는 토큰은 60개 남짓이에요. pstack과 겹치는 14개는 뺐고, 설정 › 에이전트 동작에서 끌 수 있어요.
@@ -13,12 +13,12 @@ ECC 스킬이 내장되고, 맥에서 업데이트할 때마다 권한 창이 �
 - 데스크톱에서도 세션 줄의 이름 바꾸기·삭제 버튼이 ⋯ 메뉴 하나로 합쳐져서 제목이 더 넓게 보여요.
 
 ### 고친 것
-- 맥에서 메모리 서버가 업데이트마다 새 경로에 설치돼 권한 창이 다시 뜨던 문제를 고쳤어요. 이번 업데이트 뒤 한 번만 더 물어요.
-- 메모리 서버가 데스크톱 같은 보호 폴더를 직접 열어 보지 않아요.
+- 맥에서 메모리 서버가 업데이트마다 새 경로에 설치되던 것을 한 경로로 고정했어요. 맥이 권한을 프로그램 경로로 기억하기 때문이에요. 이 버전으로 넘어갈 때 경로가 한 번 바뀌어요.
+- omp가 프로젝트 위치를 알려 줘서, 메모리 서버가 데스크톱 같은 보호 폴더를 직접 열어 보는 일이 줄었어요.
 
 <!-- en -->
 
-ECC skills are built in, and the Mac no longer asks for permissions again after every update.
+ECC skills are built in, and a desktop session row's actions are one ⋯ menu.
 
 ### Added
 - ECC (Everything Claude Code)'s omp skill pack is built in: 118 language and framework skills and 24 commands. The model sees only one index, so each session costs about 60 more tokens. The 14 that overlap pstack are left out, and Settings › Agent behavior turns it off.
@@ -29,8 +29,8 @@ ECC skills are built in, and the Mac no longer asks for permissions again after 
 - On the desktop too, a session row's rename and delete buttons are one ⋯ menu, so the title shows wider.
 
 ### Fixed
-- The Mac memory server moved to a new path on every update, so permission prompts came back. It asks once more after this update, then stays.
-- The memory server no longer opens protected folders such as Desktop itself.
+- On the Mac, the memory server now stays at one path across updates instead of a new one each time; macOS remembers permissions by a program's path. The path changes once with this version.
+- omp now tells the memory server where the project is, so the server opens protected folders such as Desktop itself less often.
 
 ## [0.43.0] - 2026-10-20
 
