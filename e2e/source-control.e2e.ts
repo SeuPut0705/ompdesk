@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { writeFakeGh } from "./fixture/fake-gh";
 import { exitApp, fixtureOmp, openDestination } from "./harness";
 import { capturer, type Finding, resize } from "./shell-capture";
 
@@ -59,8 +60,8 @@ async function seed(name: string): Promise<Seeded> {
 	await fs.writeFile(path.join(bin, "list.json"), JSON.stringify([pr]));
 	await fs.writeFile(path.join(bin, "view.json"), JSON.stringify({ ...pr, body: "Adds the login screen." }));
 	await fs.writeFile(path.join(bin, "comments.json"), JSON.stringify({ comments: [], reviews: [] }));
-	await fs.writeFile(
-		path.join(bin, "gh"),
+	await writeFakeGh(
+		bin,
 		[
 			"#!/bin/sh",
 			'case "$1 $2" in',
@@ -73,7 +74,6 @@ async function seed(name: string): Promise<Seeded> {
 			"esac",
 			"",
 		].join("\n"),
-		{ mode: 0o755 },
 	);
 	return { root, project: await fs.realpath(project), remote, bin };
 }
@@ -234,7 +234,7 @@ test("stage, commit, push, history and a squash merge", async () => {
 	}
 });
 
-// What the Windows smoke run covers (the stand-in `gh` is a shell script): stage a file, commit it
+// What the Windows smoke run covers (it needs no `gh`): stage a file, commit it
 // through the panel and push it to the bare remote, all with the real git.
 test("@smoke stage, commit and push from the Changes panel", async () => {
 	test.setTimeout(120_000);
