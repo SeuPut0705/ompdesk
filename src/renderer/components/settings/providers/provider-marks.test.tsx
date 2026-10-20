@@ -54,6 +54,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"groq",
 	"helmcode",
 	"huggingface",
+	"inception",
 	"kagi",
 	"kilo",
 	"kimi-code",

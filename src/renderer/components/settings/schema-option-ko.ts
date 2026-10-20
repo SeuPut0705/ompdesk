@@ -909,6 +909,8 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"Server compaction": "서버 압축",
 	"Use provider-native server compaction (OpenAI Responses compact, Anthropic compaction beta) when the active route supports it":
 		"현재 경로가 지원하면 프로바이더 자체 서버 압축(OpenAI Responses compact, Anthropic compaction beta)을 써요",
+	"Use provider-native server compaction (OpenAI Responses compact, Anthropic compaction beta, including on Bedrock) when the active route supports it":
+		"현재 경로가 지원하면 프로바이더 자체 서버 압축(OpenAI Responses compact, Bedrock을 포함한 Anthropic compaction beta)을 써요",
 	"1/8 of a 200K window": "200K 창의 1/8",
 	"1/4 of a 200K window": "200K 창의 1/4",
 	"1/2 of a 200K window": "200K 창의 1/2",

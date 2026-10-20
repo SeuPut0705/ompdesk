@@ -34,6 +34,7 @@ import githubcopilot from "../../../assets/provider-marks/githubcopilot.svg?raw"
 import gmicloud from "../../../assets/provider-marks/gmicloud.svg?raw";
 import groq from "../../../assets/provider-marks/groq.svg?raw";
 import huggingface from "../../../assets/provider-marks/huggingface.svg?raw";
+import inception from "../../../assets/provider-marks/inception.svg?raw";
 import kagi from "../../../assets/provider-marks/kagi.svg?raw";
 import kilocode from "../../../assets/provider-marks/kilocode.svg?raw";
 import kimi from "../../../assets/provider-marks/kimi.svg?raw";
@@ -91,6 +92,7 @@ export const MARK_SOURCES = {
 	gmicloud,
 	groq,
 	huggingface,
+	inception,
 	kagi,
 	kilocode,
 	kimi,
@@ -183,6 +185,7 @@ export const PROVIDER_BRANDS: Readonly<Record<string, Brand>> = {
 	google: brand("gemini", "Google"),
 	groq: brand("groq", "Groq"),
 	huggingface: brand("huggingface", "Hugging Face"),
+	inception: brand("inception", "Inception"),
 	kagi: brand("kagi", "Kagi"),
 	kilo: brand("kilocode", "Kilo Code"),
 	meta: brand("meta", "Meta"),
