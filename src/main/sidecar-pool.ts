@@ -357,6 +357,8 @@ export class SidecarPool {
 	 * for it, so a closing process can no longer write the file it removes.
 	 */
 	#exiting = new Map<string, Promise<void>>();
+	/** Tab id → the exit of its omp once the tab is released: what a folder the tab worked in waits for. */
+	#exitingTabs = new Map<string, Promise<void>>();
 	/**
 	 * Pending renderer-facing request id → entry that raised it (F-UI-ORIGIN).
 	 * Registered when a tab forwards an extension_ui request to its window; a
@@ -1148,7 +1150,8 @@ export class SidecarPool {
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = entry.sidecar.whenExited?.() ?? Promise.resolve();
 		entry.sidecar.dispose();
-		if (sessionFile !== undefined) this.#noteExiting(ownerKey(entry.device, sessionFile), exited);
+		this.#noteExiting(this.#exitingTabs, entry.tabId, exited);
+		if (sessionFile !== undefined) this.#noteExiting(this.#exiting, ownerKey(entry.device, sessionFile), exited);
 		if (entry.device === undefined && !entry.hostedView) noteOmpExit(entry.sidecar.cwd, exited);
 		this.onTabReleased?.(entry.tabId, exited);
 		this.#leaveWindowView(entry.tabId, entry.winId, entry.win);
@@ -1580,11 +1583,20 @@ export class SidecarPool {
 		return true;
 	}
 
-	#noteExiting(key: string, exited: Promise<void>): void {
-		this.#exiting.set(key, exited);
+	#noteExiting(exiting: Map<string, Promise<void>>, key: string, exited: Promise<void>): void {
+		exiting.set(key, exited);
 		void exited.finally(() => {
-			if (this.#exiting.get(key) === exited) this.#exiting.delete(key);
+			if (exiting.get(key) === exited) exiting.delete(key);
 		});
+	}
+
+	/**
+	 * Resolves once the omp of a tab released a moment ago has exited (at once when none is exiting, and for a tab of a
+	 * paired device, whose omp is not a process here). A closed tab leaves the lists before its process is gone, and on
+	 * Windows that process keeps its working folder from being removed until it is.
+	 */
+	whenTabExited(tabId: string): Promise<void> {
+		return this.#exitingTabs.get(tabId) ?? Promise.resolve();
 	}
 
 	/** Make `tabId` the window's active tab (moves full event forwarding). False when unknown/foreign. */

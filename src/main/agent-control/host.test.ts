@@ -101,6 +101,7 @@ function setup(
 			},
 			tabWindows: () => (otherTabs.length ? [win, win2] : [win]),
 			sessionOwner: () => null,
+			whenTabExited: async () => {},
 		},
 		sessions: options.sessions,
 		remote: options.remote,

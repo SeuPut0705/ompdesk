@@ -286,6 +286,8 @@ export interface AgentControlHost {
 	/** Name a tab that already exists (a relaunched one, from its saved session); a new one gets its task at the spawn. */
 	setTask(tabId: string, task: string): void;
 	view(callerTabId: string, event: AgentControlViewEvent): void;
+	/** Resolves once the omp of a tab the window closed has exited (at once when none is exiting, and for a paired device's tab). */
+	exited(tabId: string): Promise<void>;
 	notify(callerTabId: string, title: string, body: string): void;
 	/** A confirmation card on the calling tab; resolves false on refusal, dismissal or failure. */
 	confirm(callerTabId: string, title: string, message: string): Promise<boolean>;
@@ -399,6 +401,8 @@ const ABORT_BEFORE_CLOSE_MS = 3_000;
 const STOP_WAIT_MS = 30_000;
 /** A close is confirmed by the window dropping the tab within this. */
 const CLOSE_WAIT_MS = 5_000;
+/** After the tab is gone, its omp gets this long to exit before the close is reported anyway. */
+const OMP_EXIT_WAIT_MS = 5_000;
 /** A title names a session by a prefix this long or longer. */
 const TITLE_PREFIX_MIN = 3;
 
@@ -1667,11 +1671,9 @@ export class AgentControl {
 			if (!worktree) throw error;
 			const made = worktree;
 			const message = error instanceof Error ? error.message : String(error);
-			// Its worktree goes only once the tab is gone: a tab still open (the window kept it, or it is slow to
-			// close) works there, so the worktree stays and is named.
-			const deadline = Date.now() + CLOSE_WAIT_MS;
-			while (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
-				await this.#nextChange(Math.min(500, deadline - Date.now()));
+			// Its worktree goes only once the tab is gone and its omp has exited (it works there until then): a tab
+			// still open (the window kept it, or it is slow to close) works there, so the worktree stays and is named.
+			await this.#whenGone(caller.tabId, tabId, CLOSE_WAIT_MS);
 			if (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === tabId))
 				throw new Error(
 					`${message} (its tab is still open, so its worktree ${made.path} and branch ${made.branch} were kept)`,
@@ -2922,11 +2924,17 @@ export class AgentControl {
 		return split;
 	}
 
-	/** Resolves once the tab is out of the caller's window, or after a few seconds. */
+	/**
+	 * Resolves once the tab is out of the caller's window and its omp has exited, or after a few seconds. The omp
+	 * outlives its tab by a moment, and where it works is no folder to remove or hand on while it does (Windows).
+	 */
 	async #whenGone(callerTabId: string, tabId: string, waitMs = 10_000): Promise<void> {
 		const deadline = Date.now() + waitMs;
 		while (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
 			await this.#nextChange(Math.min(500, deadline - Date.now()));
+		// The window kept the tab: its omp runs on.
+		if (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId)) return;
+		await this.#within(this.#host.exited(tabId), OMP_EXIT_WAIT_MS);
 	}
 
 	/**

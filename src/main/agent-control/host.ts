@@ -137,6 +137,7 @@ export interface AgentControlHostDeps {
 		| "windowsShowingTab"
 		| "tabWindows"
 		| "sessionOwner"
+		| "whenTabExited"
 	>;
 	/** This computer's session index (stored sessions the control tools list, search and read). */
 	sessions?: {
@@ -863,6 +864,7 @@ export class AgentControlRuntime {
 				const win = deps.pool.windowOfTab(event.tabId) ?? this.#win(callerTabId);
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_VIEW, event);
 			},
+			exited: tabId => deps.pool.whenTabExited(tabId),
 			notify: (callerTabId, title, body) => {
 				const win = this.#win(callerTabId);
 				if (win && !win.isDestroyed()) deps.notify(win, callerTabId, title, body);
