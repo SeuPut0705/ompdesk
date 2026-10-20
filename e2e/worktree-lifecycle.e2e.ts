@@ -58,6 +58,9 @@ async function launch(policy: string, language: "en" | "ko" = "en"): Promise<voi
 	page.on("pageerror", error => errors.push(error.message));
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+	// The tab's omp can be ready before React mounted (a hosted runner: sidecar-ready 2568 ms, renderer-mounted
+	// 2750 ms), and a ⌘T pressed meanwhile reaches no keydown listener.
+	await expect(page.locator("[data-composer-input]").first()).toBeVisible({ timeout: 30_000 });
 }
 
 test.afterEach(async () => {
@@ -75,22 +78,7 @@ async function openTab() {
 	const before = (await tabs()).map(tab => tab.tabId);
 	// Sent once (⌘T opens a tab each time it lands); the new tab may be slow to appear on a hosted runner.
 	await page.keyboard.press("ControlOrMeta+t");
-	try {
-		await expect.poll(async () => (await tabs()).length, { timeout: 30_000 }).toBe(before.length + 1);
-	} catch (error) {
-		// Seen on hosted runners only (no new tab 29 s after ⌘T): keep what the window showed for the next look.
-		await test.info().attach("window-after-cmd-t.png", { body: await page.screenshot(), contentType: "image/png" });
-		const state = await page.evaluate(() => ({
-			focus: document.activeElement?.outerHTML.slice(0, 200) ?? null,
-			dialogs: [...document.querySelectorAll('[role="dialog"], [role="alert"], [role="status"]')].map(node =>
-				(node.textContent ?? "").trim().slice(0, 200),
-			),
-		}));
-		await test.info().attach("window-after-cmd-t.json", { body: JSON.stringify(state, null, 2) });
-		const log = await fs.readFile(path.join(profile, "desktop", "logs", "gui-runtime.jsonl"), "utf8").catch(() => "");
-		await test.info().attach("gui-runtime.jsonl", { body: log.split("\n").slice(-80).join("\n") });
-		throw error;
-	}
+	await expect.poll(async () => (await tabs()).length, { timeout: 30_000 }).toBe(before.length + 1);
 	const created = (await tabs()).find(tab => !before.includes(tab.tabId));
 	if (!created) throw new Error("No new tab");
 	await expect
