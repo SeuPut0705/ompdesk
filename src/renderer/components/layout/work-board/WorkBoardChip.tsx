@@ -1,18 +1,9 @@
 import { Bot, ChevronDown, GitBranch, SquareTerminal } from "lucide-react";
-import {
-	lazy,
-	type ReactNode,
-	Suspense,
-	type TouchEvent,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, Suspense, type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
@@ -31,7 +22,7 @@ const LEAVE_MS = 160;
 /** An upward drag at least this long on the strip or the grip collapses the panel. */
 const SWIPE_UP_PX = 32;
 /** The session rows' rules (`WorkBoardSession.tsx`), loaded after the first screen: only whether the newest check failed. */
-const FailedCheckWatch = lazy(() =>
+const FailedCheckWatch = lazyChunk(() =>
 	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
 );
 

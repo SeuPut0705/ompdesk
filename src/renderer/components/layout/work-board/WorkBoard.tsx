@@ -21,6 +21,7 @@ import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
+import { lazyChunk } from "../../../lib/chunk-load";
 import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -68,8 +69,10 @@ import {
 const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
 /** The session rows (changes, last check, dev servers, same checkout, memory) and a failed check: a lazy chunk, since
  * the phone's first screen (the strip) never draws them. */
-const FailedCheckSlot = lazy(() => import("./WorkBoardSession").then(module => ({ default: module.FailedCheckSlot })));
-const SessionSlot = lazy(() => import("./WorkBoardSession").then(module => ({ default: module.SessionSlot })));
+const FailedCheckSlot = lazyChunk(() =>
+	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckSlot })),
+);
+const SessionSlot = lazyChunk(() => import("./WorkBoardSession").then(module => ({ default: module.SessionSlot })));
 /** The metered-spend rows load when this session spent on a metered provider (most sessions run on subscriptions). */
 const SessionSpendLine = lazy(() =>
 	import("./SessionSpendLine").then(module => ({ default: module.SessionSpendLine })),
