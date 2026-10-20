@@ -237,6 +237,21 @@ describe("judge availability probe", () => {
 		expect(deps.capture).not.toHaveBeenCalled();
 	});
 
+	it("still checks when a busy omp answers the probe after a second, as a slow machine's does", async () => {
+		vi.useFakeTimers();
+		const { deps, flagged } = fakeDeps({
+			available: () => new Promise<boolean>(resolve => setTimeout(() => resolve(true), 1200)),
+			judge: judgedAs("error"),
+		});
+		let verdict: string | null | undefined;
+		void checkVisualPage(deps, "v", 1).then(result => {
+			verdict = result;
+		});
+		await vi.advanceTimersByTimeAsync(PREVIEW_CHECK_TOTAL_MS);
+		expect(verdict).toBe("error");
+		expect(flagged).toEqual([["v", 1, "error"]]);
+	});
+
 	it("asks the probe first, with its own bound, before the page is waited for", async () => {
 		const order: string[] = [];
 		const { deps } = fakeDeps({
