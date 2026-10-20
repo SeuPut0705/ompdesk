@@ -521,12 +521,12 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					id="todos"
 					title={t("dock.todo")}
 				>
-					{plan.folded > 0 && (
+					{plan.done > 0 && (
 						<BoardRow
 							data={{ "data-board-done-folded": "" }}
 							label={
 								<span className="text-(--sc-text-subtle)">
-									{t("workBoard.doneFolded", { count: plan.folded })}
+									{t("workBoard.doneFolded", { count: plan.done })}
 								</span>
 							}
 							lead={<Check aria-hidden className="size-3 text-(--sc-success)" />}
