@@ -690,6 +690,79 @@ describe("AgentControlRuntime", () => {
 		}
 	});
 
+	it("closes a child restored after a relaunch whose branch was pushed straight to main, and removes its worktree", async () => {
+		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-host-relaunch-")));
+		try {
+			const origin = path.join(root, "origin.git");
+			const repo = path.join(root, "repo");
+			gitSync(root, "init", "-q", "--bare", "-b", "main", origin);
+			await initRepo(repo);
+			gitSync(repo, "remote", "add", "origin", origin);
+			gitSync(repo, "push", "-q", "-u", "origin", "main");
+			const worktree = { name: "w", branch: "omp/agent/w", baseCwd: repo, path: path.join(root, "wt-w") };
+			gitSync(repo, "worktree", "add", "-q", "-b", worktree.branch, worktree.path);
+			await fs.writeFile(path.join(worktree.path, "fix.txt"), "fixed\n");
+			gitSync(worktree.path, "add", "fix.txt");
+			gitSync(worktree.path, "commit", "-q", "-m", "fix");
+			// What the child did: its commits went to origin's main; the parent's own main stayed behind.
+			gitSync(worktree.path, "push", "-q", "origin", "HEAD:main");
+			// After the relaunch every tab has a new id: the child names its opener by session file only, and this
+			// launch never saw it opened.
+			const { win, deps, tabs } = setup({
+				tabs: [
+					{ tabId: "main0001", sessionPath: "/s/boss.jsonl" },
+					{
+						tabId: "kid00002",
+						title: "Kid",
+						sessionPath: "/s/kid.jsonl",
+						openedBySession: "/s/boss.jsonl",
+						worktree,
+						lastRun: { stopReason: "stop" },
+					},
+				],
+				sweepMs: 50,
+			});
+			deps.pool.sessionOwner = sessionPath =>
+				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
+			deps.dispatch = async (_target, _sidecar, _tabId, command) =>
+				command.type === "get_state"
+					? ok({ isStreaming: false })
+					: command.type === "get_last_assistant_text"
+						? ok({ text: "Pushed to main.\nResult: ok" })
+						: ok();
+			await expect
+				.poll(
+					() =>
+						win.sent.some(
+							([channel, event]) =>
+								channel === AGENT_CONTROL_VIEW &&
+								typeof event === "object" &&
+								event !== null &&
+								"how" in event &&
+								event.how === "close",
+						),
+					{ timeout: 10_000 },
+				)
+				.toBe(true);
+			tabs.splice(
+				tabs.findIndex(tab => tab.tabId === "kid00002"),
+				1,
+			);
+			await expect
+				.poll(
+					() =>
+						fs.stat(worktree.path).then(
+							() => true,
+							() => false,
+						),
+					{ timeout: 10_000 },
+				)
+				.toBe(false);
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
+	}, 30_000);
+
 	it("lists and reads saved sessions of this computer and of a paired device", async () => {
 		const row = {
 			path: "/s/p/a.jsonl",

@@ -1917,6 +1917,112 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(host.closedRecords).toEqual([]);
 		expect(host.removed).toEqual([]);
 	});
+
+	/** A child's final turn as stock journals it: the opener's brief, a `done` report through the device, the answer. */
+	const finalTurn = (answer: string, extra: AgentMessage[] = []): AgentMessage[] => [
+		{ role: "user", content: [{ type: "text", text: wrapAgentMessage("fix the parser", "Boss") }] },
+		{
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call-report",
+					name: "write",
+					arguments: { path: "xd://ompdesk_report", content: JSON.stringify({ kind: "done", text: "Pushed." }) },
+				},
+			],
+			stopReason: "toolUse",
+		},
+		{ role: "toolResult", toolCallId: "call-report", toolName: "write", content: [{ type: "text", text: "ok" }] },
+		{ role: "assistant", content: [{ type: "text", text: answer }], stopReason: "stop" },
+		...extra,
+	];
+
+	it("closes a child whose answer has no verdict line but whose last report for its current work is done", async () => {
+		const { host, service } = await finishedChild({
+			patch: { last: "Pushed to main.", messages: finalTurn("Pushed to main.") },
+		});
+		await service.autoClose("main0001");
+		expect(closes(host)).toHaveLength(1);
+
+		// New work after that report: the done no longer speaks for it.
+		const again = await finishedChild({
+			patch: {
+				last: "Looked again.",
+				messages: finalTurn("Pushed to main.", [
+					{ role: "user", content: [{ type: "text", text: wrapAgentMessage("one more thing", "Boss") }] },
+					{ role: "assistant", content: [{ type: "text", text: "Looked again." }], stopReason: "stop" },
+				]),
+			},
+		});
+		await again.service.autoClose("main0001");
+		expect(closes(again.host)).toHaveLength(0);
+	});
+
+	it("closes a child restored after a relaunch from its transcript: started, not started, or on a paired host", async () => {
+		// Started again but no turn of this launch: no lastRun, the transcript says how it ended.
+		const started = await finishedChild({
+			patch: { restored: true, lastRun: undefined, messages: finalTurn("Done.\nResult: ok") },
+		});
+		await started.service.autoClose("main0001");
+		expect(closes(started.host)).toHaveLength(1);
+
+		// Not started at all (a deferred tab): no omp to ask, the saved transcript answers, on its own computer.
+		for (const device of [undefined, "dev-win-1"]) {
+			const asleep = await finishedChild({
+				worktree: true,
+				patch: {
+					restored: true,
+					status: "asleep",
+					lastRun: undefined,
+					last: undefined,
+					...(device ? { device, deviceName: "DESKTOP-91ID999" } : {}),
+				},
+			});
+			asleep.host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+			const reads: { path: string; device: string | undefined }[] = [];
+			asleep.host.storedMessages = async row => {
+				reads.push({ path: row.path, device: row.device });
+				return finalTurn("Done.\nResult: ok");
+			};
+			await asleep.service.autoClose("main0001");
+			expect(closes(asleep.host), String(device)).toHaveLength(1);
+			expect(asleep.host.removed).toEqual(["omp/agent/w"]);
+			expect(reads).toEqual([{ path: "/s/kid.jsonl", device }]);
+			expect(asleep.host.closedRecords[0]).toMatchObject({ path: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" });
+		}
+	});
+
+	it("keeps a restored child its transcript shows typed into, failed or unfinished, and never calls it running", async () => {
+		const person: AgentMessage = { role: "user", content: [{ type: "text", text: "also check the README" }] };
+		const endings: AgentMessage[][] = [
+			finalTurn("Done.\nResult: ok", [
+				person,
+				{ role: "assistant", content: "Checked.\nResult: ok", stopReason: "stop" },
+			]),
+			[...finalTurn("Done."), { role: "assistant", content: "Result: ok", stopReason: "error" }],
+			finalTurn("Done.\nResult: problem — tests failed"),
+			// Cut off mid-turn: its last message is a tool call, not an answer.
+			[
+				...finalTurn("Done.\nResult: ok"),
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "c9", name: "bash", arguments: { command: "ls" } }],
+					stopReason: "toolUse",
+				},
+			],
+		];
+		for (const messages of endings) {
+			const { host, service } = await finishedChild({
+				patch: { restored: true, status: "asleep", lastRun: undefined, last: undefined },
+			});
+			host.storedTranscripts.set("/s/kid.jsonl", messages);
+			await service.autoClose("main0001");
+			expect(closes(host), JSON.stringify(messages.at(-1))).toHaveLength(0);
+			const [item] = await service.reviewItems("main0001");
+			expect(item?.state).not.toBe("running");
+		}
+	});
 });
 
 const desktop: ControlDevice = { id: "dev-win-1", name: "DESKTOP-91ID999", state: "online" };
