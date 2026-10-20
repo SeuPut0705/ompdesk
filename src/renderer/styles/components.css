@@ -3946,6 +3946,14 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	--live-delay: 0ms;
 }
 
+/* A title's light moves in 50 steps over its 2.1 s crossing (about 24 a second, the same on window and copy so the
+   letters never shift): the masked window is drawn again only when it steps, and the compositor draws nothing
+   between steps (24.7 frames a second instead of 47.7 on the harness; idle GPU about halved). The band is soft and
+   half a title wide, so a step of 3 % of the title's width reads as motion, not a jump. */
+.omp-live-text {
+	--live-steps: steps(50);
+}
+
 .omp-live-text:is([data-working="turn"], [data-working="background"]) {
 	--live-band: rgb(0 0 0 / 28%);
 	position: relative;
@@ -3989,7 +3997,7 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	height: 100%;
 	mask-image: linear-gradient(100deg, #000 40%, var(--live-band) 50%, #000 60%);
 	transform: translateX(-60%);
-	animation: omp-live-shine-text var(--live-period) linear var(--live-delay) infinite;
+	animation: omp-live-shine-text var(--live-period) var(--live-steps) var(--live-delay) infinite;
 }
 
 .omp-live-shine-words {
@@ -4001,7 +4009,7 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	width: 40%;
 	height: 100%;
 	transform: translateX(150%);
-	animation: omp-live-shine-text-hold var(--live-period) linear var(--live-delay) infinite;
+	animation: omp-live-shine-text-hold var(--live-period) var(--live-steps) var(--live-delay) infinite;
 }
 
 .omp-live-shine-words::before {

@@ -16,7 +16,7 @@ import { exitApp, launchApp } from "./harness";
 // background-clip: text 0.6-0.7 % GPU / 0.6 % renderer (and it drew no words in Electron); as the masked window that
 // slides over a counter-moving copy 0.8-0.9 % GPU / 0.2 % renderer, 0 paints. The GPU share is the masked layer drawn
 // again every frame because its content moves inside the mask: without the mask 0.3 % GPU, the window's size barely
-// matters (100 % wide 0.8 %).
+// matters (100 % wide 0.8 %). Stepped (`steps(50)`, the masked layer drawn about 24 times a second): 0.5-0.6 % GPU.
 
 /** Mean CPU % of the renderer and GPU processes over a window, from Electron's own process metrics. */
 async function cpu(app: ElectronApplication, ms: number): Promise<{ renderer: number; gpu: number }> {
