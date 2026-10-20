@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test";
-import { dropGitSelectors } from "./src/shared/git-env";
 import { pinSnapshot } from "./scripts/out-snapshot";
+import { dropGitSelectors } from "./src/shared/git-env";
 
 // Every suite launches Electron with `...process.env`; keep its windows off the
 // user's screen (see OMP_GUI_HEADLESS in src/main/index.ts). Set to 0 to watch.
