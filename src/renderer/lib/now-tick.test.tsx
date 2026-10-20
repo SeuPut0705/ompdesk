@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useNowTick } from "./now-tick";
+import { useNowTick, useTimeAgo } from "./now-tick";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -64,5 +64,28 @@ describe("useNowTick", () => {
 		expect(renders).toBe(mounted + 4);
 		await seconds(1);
 		expect(renders).toBe(mounted + 5);
+	});
+});
+
+describe("useTimeAgo", () => {
+	it("moves a row's age on as minutes pass, rendering only when the text changes", async () => {
+		let label = "";
+		let ageRenders = 0;
+		function Age({ iso }: { iso: string }) {
+			label = useTimeAgo(iso);
+			ageRenders++;
+			return null;
+		}
+		const iso = new Date(Date.now() - 90_000).toISOString();
+		await act(async () => root.render(<Age iso={iso} />));
+		expect(label).toBe("1m");
+		const mounted = ageRenders;
+		await seconds(29);
+		// Still "1m": the clock ticked, nothing rendered.
+		expect(label).toBe("1m");
+		expect(ageRenders).toBe(mounted);
+		await seconds(1);
+		expect(label).toBe("2m");
+		expect(ageRenders).toBe(mounted + 1);
 	});
 });

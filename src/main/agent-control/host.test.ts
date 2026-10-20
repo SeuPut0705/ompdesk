@@ -10,6 +10,7 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
+	type AgentReviewEvent,
 	type AgentReviewResult,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";

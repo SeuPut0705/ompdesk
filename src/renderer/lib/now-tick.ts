@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { formatTimeAgo } from "./format";
 
 type ClockListener = (now: number) => void;
 
@@ -53,4 +54,18 @@ export function useNowTick(active: boolean | undefined): number {
 		return subscribe(setNow);
 	}, [active]);
 	return now;
+}
+
+/**
+ * {@link formatTimeAgo} of `iso`, kept current on the same shared clock: the caller re-renders only when the text
+ * changes ("3m" → "4m"), so a list's ages move without a render a second per row.
+ */
+export function useTimeAgo(iso: string | undefined | null): string {
+	const [label, setLabel] = useState(() => formatTimeAgo(iso));
+	useEffect(() => {
+		setLabel(formatTimeAgo(iso));
+		if (!iso) return;
+		return subscribe(() => setLabel(formatTimeAgo(iso)));
+	}, [iso]);
+	return label;
 }

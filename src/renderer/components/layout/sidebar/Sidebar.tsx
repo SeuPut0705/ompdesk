@@ -124,6 +124,7 @@ import {
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
 import { SwapText } from "../../common/SwapText";
+import { TimeAgo } from "../../common/TimeAgo";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
@@ -1845,9 +1846,7 @@ export function Sidebar() {
 				{waitingLabel}
 			</Badge>
 		) : indexed ? (
-			<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
-				{formatTimeAgo(session.modified)}
-			</time>
+			<TimeAgo className="text-(--sc-text-subtle)" iso={session.modified} />
 		) : null;
 		const openTabId = tab?.id;
 		return (

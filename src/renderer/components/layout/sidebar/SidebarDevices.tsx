@@ -29,7 +29,7 @@ import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { basename, cx, formatTimeAgo } from "../../../lib/format";
+import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
@@ -43,6 +43,7 @@ import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
+import { TimeAgo } from "../../common/TimeAgo";
 import { TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
@@ -352,11 +353,7 @@ function DeviceSessions({
 		// glyph sits at the end before the age, and a tab open elsewhere is said in words only.
 		const openElsewhere = tab !== undefined && !current && !inVisibleSplit;
 		const chat = session.kind === "chat" ? <MessageCircle aria-hidden className="size-(--sc-icon-sm)" /> : null;
-		const age = indexed ? (
-			<time className="text-(--sc-text-subtle)" dateTime={session.modified}>
-				{formatTimeAgo(session.modified)}
-			</time>
-		) : null;
+		const age = indexed ? <TimeAgo className="text-(--sc-text-subtle)" iso={session.modified} /> : null;
 		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
 		const deletable = !session.path.startsWith("tab:") && !signal?.running;
 		const closeSession = () => {
