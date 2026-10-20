@@ -395,6 +395,19 @@ describe("LocalHostServices", () => {
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("session_folder_missing");
 		expect(sidecars).toHaveLength(0);
+
+		// A failed read of the recorded folder opens nothing either: never the folder the device guessed.
+		recordedCwd.mockRejectedValue(new Error("stock helper timed out"));
+		const failed = await services
+			.call(
+				x.peer,
+				"tab.open",
+				{ rtab: "t2", cwd: workDir, kind: "agent", sessionPath: join(workDir, "unread.jsonl") },
+				x,
+			)
+			.catch((error: unknown) => error);
+		expect(String(failed)).toContain("stock helper timed out");
+		expect(sidecars).toHaveLength(0);
 	});
 
 	it("opens no tab for a device in a worktree a removal holds until git is done with it", async () => {

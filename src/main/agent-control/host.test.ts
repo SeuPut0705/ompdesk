@@ -865,6 +865,44 @@ describe("AgentControlRuntime", () => {
 		expect(request).toHaveBeenCalledWith("dev-1", "sessions.messages", { sessionPath: "C:/s/b.jsonl" });
 	});
 
+	it("names the saved worktree of a reopen whose folder is gone, and restore: true restores it and opens there", async () => {
+		const row = {
+			path: "/s/p/w.jsonl",
+			id: "cccc3333-z",
+			title: "Worktree child",
+			cwd: "/wt/gui-agent-z",
+			created: "2026-10-01T00:00:00Z",
+			modified: "2026-10-02T00:00:00Z",
+			messageCount: 2,
+			size: 10,
+			status: "complete" as const,
+			firstMessage: "hi",
+		};
+		const { runtime, win, deps, spawned } = setup({
+			sessions: { list: async () => [row], search: async () => [], read: async () => [] },
+		});
+		deps.spawnTab = async (_win, payload) => {
+			spawned.push(payload);
+			return payload.restoreSaved
+				? { tabId: "new00003" }
+				: {
+						tabId: null,
+						refusal: "folder-missing",
+						folder: "/wt/gui-agent-z",
+						saved: { id: "sv1", branch: "omp/agent/z", removedAt: Date.UTC(2026, 9, 20) },
+					};
+		};
+		await runtime.run(win, "main0001", T.list, { scope: "stored" });
+		const refused = await runtime.run(win, "main0001", T.open, { reopen: "cccc3333-z" });
+		expect(refused.text).toContain("/wt/gui-agent-z");
+		expect(refused.text).toContain("omp/agent/z");
+		expect(refused.text).toContain('{"reopen":"cccc3333-z","restore":true}');
+
+		const restored = await runtime.run(win, "main0001", T.open, { reopen: "cccc3333-z", restore: true });
+		expect(restored.isError, restored.text).toBe(false);
+		expect(spawned.at(-1)).toMatchObject({ sessionPath: "/s/p/w.jsonl", restoreSaved: true });
+	});
+
 	it("sends an app action of a session on a paired host to that host's route, and of a local session to this computer's", async () => {
 		const invoke = vi.fn(async (_win: ClientWindow, _channel: string, _args: readonly unknown[]) => ({
 			mode: "quota",

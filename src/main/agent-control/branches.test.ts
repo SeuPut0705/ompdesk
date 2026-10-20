@@ -3,7 +3,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { archiveBeforeRemove, restoreSavedWorktree, SavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
+import type { BeforeRemove } from "../worktree-orphans";
 import {
 	BranchError,
 	boundDiff,
@@ -277,6 +279,8 @@ describe("removeSafeWorktree", () => {
 });
 
 describe("discardNewWorktree", () => {
+	const archive = () => archiveBeforeRemove(new SavedWorktreeStore(path.join(root, "care")), null);
+
 	it("takes back a worktree and branch nobody used, even when the parent's main is behind the branch's base", async () => {
 		await staleParentMain();
 		// What `worktree_create` with base "default" makes: a branch off origin/main, which the parent's main lacks.
@@ -286,7 +290,7 @@ describe("discardNewWorktree", () => {
 		gitSync(repo, "worktree", "add", "-q", target, branch);
 		const wt = { path: target, branch, baseCwd: repo };
 		// The safe removal of a finished child's worktree keeps that branch (`branch -d` against the stale main).
-		expect(await discardNewWorktree(wt)).toBe("removed");
+		expect(await discardNewWorktree(wt, archive())).toBe("removed");
 		await expect(fs.stat(target)).rejects.toThrow();
 		expect(gitSync(repo, "branch", "--list", branch)).toBe("");
 	});
@@ -294,16 +298,40 @@ describe("discardNewWorktree", () => {
 	it("keeps a worktree with files in it and a branch that moved since it was made", async () => {
 		const dirty = await agentWorktree("busy");
 		await fs.writeFile(path.join(dirty.path, "scratch.txt"), "unsaved");
-		expect(await discardNewWorktree(dirty)).toBeNull();
+		expect(await discardNewWorktree(dirty, archive())).toBeNull();
 		expect(await fs.readFile(path.join(dirty.path, "scratch.txt"), "utf8")).toBe("unsaved");
 
 		const moved = await agentWorktree("moved");
 		await commitIn(moved.path, "a.ts", "a\n");
-		expect(await discardNewWorktree(moved)).toBeNull();
+		expect(await discardNewWorktree(moved, archive())).toBeNull();
 		await fs.stat(moved.path);
 		expect(gitSync(repo, "branch", "--list", moved.branch)).toContain(moved.branch);
 
-		expect(await discardNewWorktree({ path: repo, branch: "main", baseCwd: repo })).toBeNull();
+		expect(await discardNewWorktree({ path: repo, branch: "main", baseCwd: repo }, archive())).toBeNull();
+	});
+
+	it("archives ignored data git would delete before it removes the worktree, and keeps it when the archive refuses", async () => {
+		const wt = await agentWorktree("seeded");
+		// A seeded `.env` the setup edited: ignored, so `git worktree remove` would delete it without asking.
+		await fs.writeFile(path.join(wt.path, ".env"), "TOKEN=edited\n");
+		const store = new SavedWorktreeStore(path.join(root, "care"));
+		expect(await discardNewWorktree(wt, archiveBeforeRemove(store, null))).toBe("removed");
+		await expect(fs.stat(wt.path)).rejects.toThrow();
+		const [record] = await store.list();
+		expect(record).toMatchObject({
+			path: await fs.realpath(path.dirname(wt.path)).then(dir => path.join(dir, "wt-seeded")),
+			archivedFiles: 1,
+		});
+		const restored = await restoreSavedWorktree(record?.id ?? "", store);
+		expect(await fs.readFile(path.join(restored.path, ".env"), "utf8")).toBe("TOKEN=edited\n");
+
+		const kept = await agentWorktree("kept");
+		const refusing: BeforeRemove = async () => {
+			throw new Error("keep it");
+		};
+		expect(await discardNewWorktree(kept, refusing)).toBeNull();
+		await fs.stat(kept.path);
+		expect(gitSync(repo, "branch", "--list", kept.branch)).toContain(kept.branch);
 	});
 });
 

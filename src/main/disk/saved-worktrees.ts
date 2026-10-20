@@ -19,6 +19,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SavedWorktree, SavedWorktreeRestore } from "../../shared/disk-care";
+import { discardNewWorktree, type WorktreeRef, type WorktreeRemoval } from "../agent-control/branches";
 import { git, gitRaw } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
@@ -478,6 +479,11 @@ export function archiveBeforeRemove(
 			if (record) await settleArchive(saved, record, removed);
 		};
 	};
+}
+
+/** A failed open's unused worktree and branch (`discardNewWorktree`), with what no tool makes again archived first. */
+export function discardOpenedWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
+	return discardNewWorktree(worktree, archiveBeforeRemove(savedWorktreeStore(), null));
 }
 
 /** The saved worktrees of `cwd`'s repository, newest removal first. */

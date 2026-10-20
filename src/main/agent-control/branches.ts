@@ -9,6 +9,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { git, gitRaw } from "../local/git/exec";
+import type { BeforeRemove } from "../worktree-orphans";
 
 /** The worktree binding of a tab (`IpcTabWorktree`): the checkout, its branch and the repo it forked from. */
 export interface WorktreeRef {
@@ -483,8 +484,12 @@ export async function removeSafeWorktree(
  * entry that created it, deleted with `update-ref -d` against that very commit, so a branch something moved meanwhile
  * stays. Unlike `removeSafeWorktree` it does not ask whether the tip landed in the parent's HEAD: a branch cut from the
  * default branch is ahead of a parent checkout that was not pulled, and `branch -d` kept it (v0.46.0).
+ *
+ * `git worktree remove` deletes ignored files without asking (a seeded `.env` someone edited, a setup hook's
+ * database), so `prepare` runs first, as before every removal (disk care's `archiveBeforeRemove`): what no tool makes
+ * again is archived and listed under Saved worktrees; a `prepare` that throws keeps the worktree.
  */
-export async function discardNewWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
+export async function discardNewWorktree(worktree: WorktreeRef, prepare: BeforeRemove): Promise<WorktreeRemoval> {
 	const ref = `refs/heads/${worktree.branch}`;
 	const log = await gitRaw(worktree.baseCwd, ["reflog", "show", "--format=%H", ref]);
 	if (log.code !== 0) return null;
@@ -492,7 +497,25 @@ export async function discardNewWorktree(worktree: WorktreeRef): Promise<Worktre
 	if (entries.length !== 1) return null;
 	const tip = entries[0] as string;
 	if ((await text(worktree.path, ["rev-parse", "HEAD"]).catch(() => "")) !== tip) return null;
+	const listed = await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]);
+	const repo = /^worktree (.+)$/m.exec(listed)?.[1] ?? worktree.baseCwd;
+	const path = await realpath(worktree.path).catch(() => worktree.path);
+	let settle: (removed: boolean) => Promise<void>;
+	try {
+		settle = await prepare({
+			path,
+			branch: worktree.branch,
+			repo,
+			state: "untouched",
+			commitsAhead: 0,
+			dirtyFiles: 0,
+			modifiedAt: Date.now(),
+		});
+	} catch {
+		return null;
+	}
 	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
+	await settle(primary !== null);
 	if (!primary) return null;
 	const deleted = await gitRaw(primary, ["update-ref", "-d", ref, tip]);
 	return deleted.code === 0 ? "removed" : "branch-kept";

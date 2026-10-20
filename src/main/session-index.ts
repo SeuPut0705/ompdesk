@@ -185,14 +185,14 @@ export class SessionIndex {
 		}
 	}
 
-	/** The folder a stored session belongs in: the cwd its file records (stock's header), or null when it records none. */
+	/**
+	 * The folder a stored session belongs in: the cwd its file records (stock's header), or null when the file records
+	 * none. A failed read throws: an opener that took it for "none" would fall back to another folder (the main
+	 * checkout), the one thing a reopen must never do.
+	 */
 	async recordedCwd(sessionPath: string): Promise<string | null> {
-		try {
-			const infos = await this.#store.listDirectory(sessionPath);
-			return infos.find(row => resolve(row.path) === resolve(sessionPath))?.cwd || null;
-		} catch {
-			return null;
-		}
+		const infos = await this.#store.listDirectory(sessionPath);
+		return infos.find(row => resolve(row.path) === resolve(sessionPath))?.cwd || null;
 	}
 
 	async deleteSession(sessionPath: string): Promise<void> {

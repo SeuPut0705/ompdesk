@@ -66,6 +66,7 @@ import type {
 	SchedulesRequest,
 	SchedulesState,
 } from "../../shared/schedules";
+import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { describePreparation } from "../local/git/worktree-seed";
 import {
@@ -85,7 +86,6 @@ import {
 	type BranchFacts,
 	branchEvidence,
 	branchFacts,
-	discardNewWorktree,
 	type LandingFacts,
 	landingFacts,
 	type MergeOutcome,
@@ -581,7 +581,7 @@ export class AgentControlRuntime {
 			if (worktree) {
 				const made = worktree;
 				await this.#git<WorktreeRemoval>(device, GIT_METHODS.discardWorktree, { worktree: gitRef(made) }, () =>
-					discardNewWorktree(made),
+					discardOpenedWorktree(made),
 				).catch(() => null);
 			}
 			if (result?.refusal === "folder-missing")
@@ -895,7 +895,7 @@ export class AgentControlRuntime {
 				),
 			discardWorktree: (worktree, device) =>
 				this.#git<WorktreeRemoval>(device, GIT_METHODS.discardWorktree, { worktree: gitRef(worktree) }, () =>
-					discardNewWorktree(worktree),
+					discardOpenedWorktree(worktree),
 				),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: device => {

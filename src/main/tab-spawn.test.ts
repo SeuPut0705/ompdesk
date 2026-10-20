@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, type Mock, vi } from "vitest";
@@ -315,6 +315,47 @@ describe("spawnTabForWindow reopening a stored session", () => {
 		await spawnTabForWindow(deps, fakeWindow(), { cwd: "/Users/me/project", sessionPath: "/s/old.jsonl" });
 
 		expect(acquire.mock.calls[0]?.[0]).toBe("/Users/me/project");
+	});
+
+	it("opens nothing when reading the recorded folder fails, rather than taking another folder", async () => {
+		const { deps, acquire, recordedCwd } = harness();
+		recordedCwd.mockRejectedValue(new Error("stock helper timed out"));
+		await expect(
+			spawnTabForWindow(deps, fakeWindow(), { cwd: "/Users/me/main-checkout", sessionPath: "/s/x.jsonl" }),
+		).rejects.toThrow("stock helper timed out");
+		expect(acquire).not.toHaveBeenCalled();
+	});
+
+	it("offers the saved worktree disk care made of the missing folder, and restores it before opening when asked", async () => {
+		const gone = join(await realpath(tmpdir()), `omp-spawn-saved-${process.pid}-${Date.now()}`);
+		const { deps, acquire, recordedCwd } = harness();
+		recordedCwd.mockResolvedValue(gone);
+		const record = { id: "sv1", path: gone, branch: "omp/agent/x", removedAt: 1_800_000_000_000 };
+		const restore = vi.fn(async (_id: string) => {
+			await mkdir(gone, { recursive: true });
+		});
+		deps.savedWorktrees = { find: async folder => (folder === gone ? record : null), restore };
+		try {
+			const refused = await spawnTabForWindow(deps, fakeWindow(), { sessionPath: "/s/saved.jsonl" });
+			expect(refused).toEqual({
+				tabId: null,
+				refusal: "folder-missing",
+				folder: gone,
+				saved: { id: "sv1", branch: "omp/agent/x", removedAt: 1_800_000_000_000 },
+			});
+			expect(restore).not.toHaveBeenCalled();
+			expect(acquire).not.toHaveBeenCalled();
+
+			const opened = await spawnTabForWindow(deps, fakeWindow(), {
+				sessionPath: "/s/saved.jsonl",
+				restoreSaved: true,
+			});
+			expect(restore).toHaveBeenCalledWith("sv1");
+			expect(opened).toEqual({ tabId: expect.any(String) });
+			expect(acquire.mock.calls[0]?.[0]).toBe(gone);
+		} finally {
+			await rm(gone, { recursive: true, force: true });
+		}
 	});
 });
 

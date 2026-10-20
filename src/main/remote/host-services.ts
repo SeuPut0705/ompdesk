@@ -59,18 +59,12 @@ import {
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
 import type { TerminalOperation } from "../../shared/terminal-types";
-import {
-	branchEvidence,
-	branchFacts,
-	discardNewWorktree,
-	landingFacts,
-	mergeBranch,
-	removeSafeWorktree,
-} from "../agent-control/branches";
+import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
 import type { CheckoutMember } from "../checkout-peers";
 import { deletedSessions } from "../deleted-sessions";
+import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
@@ -959,7 +953,7 @@ export class LocalHostServices implements HostServices {
 			case GIT_METHODS.removeWorktree:
 				return removeSafeWorktree(parse(GitWorktreeParams, method, params).worktree);
 			case GIT_METHODS.discardWorktree:
-				return discardNewWorktree(parse(GitWorktreeParams, method, params).worktree);
+				return discardOpenedWorktree(parse(GitWorktreeParams, method, params).worktree);
 			case GIT_METHODS.merge: {
 				const { worktree, label } = parse(GitMergeParams, method, params);
 				return mergeBranch(worktree, label);
