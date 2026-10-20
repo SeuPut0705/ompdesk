@@ -110,6 +110,11 @@ export interface ControlTab {
 	status: TabStatus;
 	/** A turn runs (stock run state as the pool tracks it). */
 	busy: boolean;
+	/**
+	 * A relaunch is continuing its cut-off turn (TurnResume's "continuing" row): it runs again in a moment, so an
+	 * opener in this state is not idle.
+	 */
+	resuming?: boolean;
 	/** Open asks and approvals that wait for the person. */
 	asks: ControlAsk[];
 	/** A plan proposal that waits for approval (plan mode); answered like an ask with `ompdesk_session_answer`. */
@@ -2937,7 +2942,7 @@ export class AgentControl {
 		if (!tabs || !caller?.sessionPath) return;
 		this.#sweeping.add(callerTabId);
 		try {
-			const openerIdle = !caller.busy && !waits(caller);
+			const openerIdle = !caller.busy && caller.resuming !== true && !waits(caller);
 			for (const tab of tabs) {
 				if (!this.#openedBy(callerTabId, tabs).has(tab.tabId) || this.#closing.has(tab.tabId)) continue;
 				if (tab.busy || waits(tab)) {

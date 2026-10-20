@@ -506,6 +506,7 @@ export class AgentControlRuntime {
 			...(info.device ? { device: info.device, deviceName: this.#deps.deviceName(info.device) } : {}),
 			status: info.status,
 			busy: facts?.busy === true,
+			...(info.resuming ? { resuming: true } : {}),
 			asks,
 			...(plan ? { plan } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
