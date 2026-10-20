@@ -703,6 +703,62 @@ describe("a link that dropped or went silent", () => {
 	});
 });
 
+describe("the host's traffic line", () => {
+	/** Fake time on the host's side of a connected client, with what the host wrote to `remote-link`. */
+	async function connectedLink() {
+		const { lines, log } = linkLog();
+		const rig = await startHost(side(), 0, [LOOPBACK], log);
+		const { a, hosts, paired } = await connectedClient(rig);
+		fakeLinkClock();
+		const remote = client(a, paired, hosts);
+		remote.connect();
+		await untilState(remote, "online");
+		lines.length = 0;
+		return { lines, remote, deviceId: a.identity.deviceId };
+	}
+
+	/** The fake clock, a second at a time so pings and pongs on the real sockets keep the link alive. */
+	async function minutePasses(seconds = 60): Promise<void> {
+		for (let second = 0; second < seconds; second++) await vi.advanceTimersByTimeAsync(1_000);
+	}
+
+	it("says once a minute what a busy link sent and received, by kind, with no payload", async () => {
+		const { lines, remote, deviceId } = await connectedLink();
+		const pad = "x".repeat(300_000);
+		await remote.request("push", { pad });
+		await minutePasses();
+
+		const traffic = lines.filter(line => line.message === "traffic");
+		expect(traffic).toHaveLength(1);
+		const { details } = traffic[0] as LinkLine;
+		expect(details).toMatchObject({ deviceId, ms: 60_000 });
+		const top = details.top as Array<{ kind: string; frames: number; bytes: number }>;
+		expect(top.map(row => row.kind)).toEqual(expect.arrayContaining(["rx req push", "tx evt pushed", "tx res push"]));
+		const bytesOf = (kind: string) => top.find(row => row.kind === kind)?.bytes ?? 0;
+		expect(bytesOf("rx req push")).toBeGreaterThan(300_000);
+		expect(bytesOf("rx req push")).toBeLessThan(301_000);
+		expect(bytesOf("tx evt pushed")).toBeGreaterThan(300_000);
+		expect(bytesOf("tx evt pushed")).toBeLessThan(301_000);
+		expect(details.rx as number).toBeGreaterThanOrEqual(bytesOf("rx req push"));
+		expect(details.tx as number).toBeGreaterThanOrEqual(bytesOf("tx evt pushed"));
+		expect(JSON.stringify(details)).not.toContain("xxxx");
+	});
+
+	it("writes nothing for a link that only pinged", async () => {
+		const { lines } = await connectedLink();
+		await minutePasses(130);
+		expect(lines.filter(line => line.message === "traffic")).toEqual([]);
+	});
+
+	it("writes what a link sent before it closed inside the minute", async () => {
+		const { lines, remote } = await connectedLink();
+		await remote.request("push", { pad: "x".repeat(300_000) });
+		remote.close();
+		await vi.waitFor(() => expect(lines.some(line => line.message === "closed")).toBe(true));
+		expect(lines.filter(line => line.message === "traffic")).toHaveLength(1);
+	});
+});
+
 describe("protocol versions", () => {
 	it("the host answers another handshake version (a code-pairing release's) with a protocol error", async () => {
 		const rig = await startHost();
