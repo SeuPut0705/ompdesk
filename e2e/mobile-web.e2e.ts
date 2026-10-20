@@ -284,7 +284,6 @@ async function phoneRoundTrip(
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
 		test(`${language === "en" && theme === "light" ? "@smoke " : ""}Mobile web walks from signed out to a link and QR, a phone connects on its first visit through the serve prefix and is blocked and unblocked, and off removes only its own serve (${language} ${theme})`, async () => {
-			test.skip(process.platform === "win32", "the fake Tailscale is a shebang script run by bun");
 			test.setTimeout(180_000);
 			const t = (key: string, vars?: Record<string, string | number>) => translate(language, key, vars);
 			const { app, page, tailscale, root, opened } = await launch(language, theme, { backendState: "NeedsLogin" });

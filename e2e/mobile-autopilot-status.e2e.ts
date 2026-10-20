@@ -16,7 +16,6 @@ import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { exitApp, fixtureOmp } from "./harness";
 
 test("a phone says a live run's state once: the strip, not the dock row or the Run chip", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
 	test.setTimeout(180_000);
 	const ap = await makeApProfile({ script: { cycleMs: 8000 } });
 	const tailscale = await fixtureTailscale(ap.root, { backendState: "Running" });

@@ -627,7 +627,6 @@ const dBash = (phone: Page, tabId: string, command: string) =>
 	] as const);
 
 test("daily flow d: a notification click opens its tab on the phone, a steer arrives once, and a reload keeps the draft", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
 	test.setTimeout(240_000);
 	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-daily-d-")));
 	const project = path.join(root, "project");

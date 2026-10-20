@@ -121,7 +121,6 @@ function duplicates(record: Record<string, number>): string[] {
 }
 
 test("a phone's Autopilot run lists its children under the run with their task, and every session once, across a reconnect and a restart", async () => {
-	test.skip(process.platform === "win32", "the fake Tailscale is a bun shebang script");
 	test.setTimeout(300_000);
 	const ap = await makeApProfile({ script: { cycleMs: 6000, cycle: { children: 2 } } });
 	const tailscale = await fixtureTailscale(ap.root, { backendState: "Running" });
