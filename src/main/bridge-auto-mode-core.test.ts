@@ -15,7 +15,6 @@ import {
 	modeFromAnswer,
 	OBJECTIVE_MAX_CHARS,
 	PREVIOUS_MAX_CHARS,
-	PrefetchSlot,
 	previousExchange,
 } from "../../resources/gui-bridge/modes/auto-mode-core";
 import {
@@ -212,61 +211,5 @@ describe("contracts", () => {
 		expect(autoModeFromPref("no")).toBe(true);
 		expect(autoModeFromPref(false)).toBe(false);
 		expect(AUTO_MODE_TIMEOUT_MS).toBeLessThanOrEqual(2000);
-	});
-});
-
-describe("PrefetchSlot (the question asked while typing)", () => {
-	function deferred() {
-		const { promise, resolve, reject } = Promise.withResolvers<string>();
-		return { promise, resolve, reject };
-	}
-
-	it("joins a question about the same text and withdraws one about an older text", async () => {
-		const slot = new PrefetchSlot<string>();
-		const first = deferred();
-		const signals: AbortSignal[] = [];
-		const asked = (answer: Promise<string>) => (signal: AbortSignal) => {
-			signals.push(signal);
-			return answer;
-		};
-		const a = slot.run("fix the tests", asked(first.promise));
-		expect(slot.run("fix the tests", asked(Promise.resolve("again")))).toBe(a);
-		expect(signals).toHaveLength(1);
-		const second = deferred();
-		void slot.run("fix the tests and the build", asked(second.promise));
-		expect(signals[0]?.aborted).toBe(true);
-		expect(signals[1]?.aborted).toBe(false);
-		first.reject(new Error("aborted"));
-		second.resolve("none");
-	});
-
-	it("lets the decision at Enter wait for a question about its own text only, and never past its deadline", async () => {
-		const slot = new PrefetchSlot<string>();
-		const pending = deferred();
-		void slot.run("migrate everything", () => pending.promise);
-		let settled = false;
-		const waiting = slot.settle("migrate everything").then(() => {
-			settled = true;
-		});
-		await slot.settle("something else");
-		await Promise.resolve();
-		expect(settled).toBe(false);
-		pending.resolve("plan");
-		await waiting;
-		expect(settled).toBe(true);
-
-		const stuck = deferred();
-		void slot.run("a question that never answers", () => stuck.promise);
-		const deadline = new AbortController();
-		const wait = slot.settle("a question that never answers", deadline.signal);
-		deadline.abort();
-		await expect(wait).resolves.toBeUndefined();
-	});
-
-	it("a failed question is settled too: the decision then asks for itself", async () => {
-		const slot = new PrefetchSlot<string>();
-		const failing = slot.run("x", () => Promise.reject(new Error("offline")));
-		await expect(failing).rejects.toThrow("offline");
-		await expect(slot.settle("x")).resolves.toBeUndefined();
 	});
 });

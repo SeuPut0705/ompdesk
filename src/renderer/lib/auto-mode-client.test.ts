@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AutoModeDecision } from "../../../resources/gui-bridge/modes/auto-mode-contracts";
 import type { RpcResponse } from "../../shared/rpc-types";
 import { createSessionStore } from "../stores/session";
-import { endAutoGoal, prefetchAutoMode, runAutoMode } from "./auto-mode-client";
+import { endAutoGoal, runAutoMode } from "./auto-mode-client";
 import { planComposerSubmit } from "./composer-submit";
 
 const BIG = "refactor the whole settings module across all files";
@@ -326,86 +326,5 @@ describe("planComposerSubmit and the automatic choice", () => {
 			if (plan.kind === "send") await plan.request();
 		}
 		expect(beforePrompt).not.toHaveBeenCalled();
-	});
-});
-
-describe("asking while the user types", () => {
-	function typing() {
-		const session = createSessionStore();
-		session.setState({ sessionId: "s1" });
-		const autoModePrefetch = vi.fn(async (_message?: string) => ok({ prefetched: true }));
-		return { session, autoModePrefetch, rpc: { autoModePrefetch } };
-	}
-
-	it("asks the question the send will ask, with the text the send will carry", async () => {
-		const { session, rpc, autoModePrefetch } = typing();
-		await prefetchAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => true });
-		expect(autoModePrefetch).toHaveBeenCalledWith(BIG);
-	});
-
-	it("asks nothing where the send would ask nothing: pref off, mid-run, slash, bash, chat-length, a mode the user picked", async () => {
-		const { session, rpc, autoModePrefetch } = typing();
-		const cases: Array<{ message: string; isStreaming?: boolean; pref?: boolean; plan?: boolean }> = [
-			{ message: BIG, pref: false },
-			{ message: BIG, isStreaming: true },
-			{ message: "/compact the whole thing please" },
-			{ message: "!ls -la /tmp/somewhere" },
-			{ message: "ok thanks" },
-			{ message: BIG, plan: true },
-		];
-		for (const input of cases) {
-			session.setState({ planModeEnabled: input.plan === true });
-			await prefetchAutoMode({
-				message: input.message,
-				isStreaming: input.isStreaming ?? false,
-				session,
-				rpc,
-				readPref: async () => input.pref ?? true,
-			});
-		}
-		expect(autoModePrefetch).not.toHaveBeenCalled();
-	});
-
-	it("never throws: a refused or failed request changes nothing", async () => {
-		const { session } = typing();
-		const rpc = { autoModePrefetch: vi.fn(async () => Promise.reject(new Error("offline"))) };
-		await expect(
-			prefetchAutoMode({ message: BIG, isStreaming: false, session, rpc, readPref: async () => true }),
-		).resolves.toBeUndefined();
-		expect(session.getState().autoMode ?? null).toBeNull();
-		expect(session.getState().planModeEnabled).toBe(false);
-	});
-});
-
-describe("the mode is in place before the prompt leaves", () => {
-	const rpc = { compact: vi.fn(), followUp: vi.fn(), steer: vi.fn(), prompt: vi.fn(async () => ok({})) };
-	const base = { images: [], commands: [], mode: "prompt" as const, rpc };
-
-	it("a plan decision has put the session in plan mode when the prompt is sent", async () => {
-		const plan = rig(planned);
-		let planAtPrompt: boolean | undefined;
-		rpc.prompt.mockImplementationOnce(async () => {
-			planAtPrompt = plan.session.getState().planModeEnabled;
-			return ok({});
-		});
-		const submit = planComposerSubmit({
-			...base,
-			message: BIG,
-			isStreaming: false,
-			beforePrompt: () =>
-				runAutoMode({
-					message: BIG,
-					isStreaming: false,
-					session: plan.session,
-					rpc: plan.rpc,
-					readPref: async () => true,
-				}),
-		});
-		if (submit.kind !== "send") throw new Error("expected send");
-		await submit.request();
-		// The decision's round trip (main applies stock's plan mode before it answers) ends before the prompt.
-		expect(plan.autoModeDecide).toHaveBeenCalledBefore(rpc.prompt);
-		expect(planAtPrompt).toBe(true);
-		expect(rpc.prompt).toHaveBeenLastCalledWith(BIG, []);
 	});
 });

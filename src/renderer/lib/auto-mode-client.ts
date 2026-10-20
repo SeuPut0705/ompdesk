@@ -138,38 +138,3 @@ export async function runAutoMode(input: RunAutoModeInput): Promise<AutoModeDeci
 		if (deciding) input.onDeciding?.(false);
 	}
 }
-
-/** A typing pause this long sends the draft's question ahead of Enter. */
-export const AUTO_MODE_PREFETCH_DEBOUNCE_MS = 250;
-
-export interface PrefetchAutoModeInput {
-	/** The draft as the send will carry it (trimmed, paste markers and emoticons expanded). */
-	message: string;
-	isStreaming: boolean;
-	session: StoreApi<SessionStore>;
-	rpc: Pick<TabRpc, "autoModePrefetch">;
-	readPref?: () => Promise<unknown>;
-}
-
-/**
- * Ask the host now what `runAutoMode` will ask at Enter, so the judge's round trip happens during the typing pause
- * (the host caches the answer; the decision at Enter reads it, or joins the question still asked). The same guards as
- * the send: nothing is asked where the send would ask nothing. It changes no mode and never throws.
- */
-export async function prefetchAutoMode(input: PrefetchAutoModeInput): Promise<void> {
-	try {
-		const enabled = autoModeFromPref(await (input.readPref ?? (() => window.omp.prefs.get(AUTO_MODE_PREF)))());
-		const state = input.session.getState();
-		const skip = autoModeSkip({
-			text: input.message,
-			enabled,
-			streaming: input.isStreaming,
-			active: { plan: state.planModeEnabled, goal: goalIsActive(state) },
-			suppressed: false,
-		});
-		if (skip) return;
-		await input.rpc.autoModePrefetch(input.message);
-	} catch {
-		// A prefetch that fails only means the decision at Enter asks for itself.
-	}
-}

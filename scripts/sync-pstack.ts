@@ -152,19 +152,6 @@ const RULES: Rule[] = [
 		/Spawn all N workers in one message with `subagent_type: generalPurpose`[^\n]*\n\nWhen a worker must start from a non-default pushed branch, pass `cloud_base_branch`\./,
 		"Spawn all N workers in one `task` call (a `tasks[]` batch) with the step 4 model. A worker that writes files and needs its own checkout runs as an OMPdesk session instead: `ompdesk_session_open` with `worktree: true` (at most 4 per call), compared with `ompdesk_compare`. A worker that must start from another branch gets that base in the session brief.",
 	),
-	// Fan-out only pays for items of minutes each (measured 20 Oct 2026, see feature-delegate-speed).
-	rule(
-		"swarm-size",
-		/^swarm\/SKILL\.md$/,
-		/## Start\n\n/,
-		"## Start\n\nSwarm only items that each take minutes of work: a worker starts from nothing and takes a minute or more before its first edit, so a few small edits finish sooner as parallel tool calls in one response, even when the request asks for parallel work.\n\n",
-	),
-	rule(
-		"mode-fanout-size",
-		/^poteto-mode\/SKILL\.md$/,
-		"- Parallel fan-out → the **swarm** skill",
-		"- Parallel fan-out of items that each take minutes → the **swarm** skill (a few small edits go as parallel tool calls in one response instead)",
-	),
 	rule(
 		"why-models",
 		/^why\/SKILL\.md$/,
@@ -329,15 +316,6 @@ const RULES: Rule[] = [
 		"Pick the wake mechanism. OMPdesk's Goal mode or Autopilot already wakes the session, so do not build another loop. An event to watch (CI, a merge, a ref advancing) is a `wait` on a background job or `gh_run_watch`, with a long time-based heartbeat as fallback. No event gets a fixed-interval heartbeat sized to when the result is worth re-checking (`/loop` in the omp TUI).",
 	),
 	rule("auto-ask", /^poteto-mode\/playbooks\/autonomous-run\.md$/, "`AskQuestion`", "`ask`"),
-	// Delegation for speed only when it is faster (measured 20 Oct 2026: three small independent edits fanned out to
-	// three subagents took 96–152 s on GPT-6.1 against 39–52 s solo on Claude Code and Codex). The review separation
-	// the playbook wants stays: a small item's own author reviews its diff fresh before verifying.
-	rule(
-		"feature-delegate-speed",
-		/^poteto-mode\/playbooks\/feature\.md$/,
-		"Mandatory: no skip-with-reason escape, and Laziness Protocol does not override it (the gain is review separation, not lines saved).",
-		"Delegate whenever an item takes minutes of writing; Laziness Protocol does not override that (the gain is review separation, not lines saved). An item you finish in a response or two (a few edits, a test, a help line) is faster written by you, several of them as parallel tool calls in one response: then reread your own diff against the source, as you would review a delegate's, before you verify.",
-	),
 	rule(
 		"visual-loop",
 		/^poteto-mode\/playbooks\/visual-parity\.md$/,

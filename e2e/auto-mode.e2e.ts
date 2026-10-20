@@ -15,7 +15,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import { exitApp, launchApp, readRecords, recordsOfType } from "./harness";
+import { exitApp, launchApp, recordsOfType } from "./harness";
 
 interface Launched {
 	app: ElectronApplication;
@@ -193,65 +193,6 @@ test("Stop ends a goal the choice started; it never stays as the session's goal"
 		expect((await page.evaluate(() => window.omp.rpc.getGoal())).data).toMatchObject({ enabled: false });
 		// Ending it is not an undo: the session still gets automatic choices.
 		expect(await recordsOfType(record, "modes.auto_mode_undo")).toHaveLength(0);
-	} finally {
-		await finish(launched);
-	}
-});
-
-/** Where in the command record the first record matching `pick` sits (-1 when none). */
-async function recordIndex(record: string, pick: (frame: Record<string, unknown>) => boolean): Promise<number> {
-	return (await readRecords(record)).findIndex(pick);
-}
-
-const PREFETCH_ENV = {
-	...SLOW_CHOICE,
-	...EVERY_PROMPT_IS_NEW,
-	OMP_GUI_TEST_GOAL_TURN: JSON.stringify({ holdMs: 600 }),
-};
-
-/** Type `message` and wait until the composer asked the host about it, as a person's typing pause does. */
-async function typeAndRest(page: Page, record: string, message: string): Promise<void> {
-	await composer(page).fill(message);
-	await expect
-		.poll(async () => (await recordsOfType(record, "modes.auto_mode_prefetch")).map(frame => frame.message))
-		.toContain(message);
-}
-
-test("a plan asked about while typing is still in plan mode before its prompt leaves", async () => {
-	const launched = await launch({}, PREFETCH_ENV);
-	const { page, record } = launched;
-	try {
-		await typeAndRest(page, record, PLAN_PROMPT);
-		await composer(page).press("Enter");
-		await expect(chip(page)).toHaveText("This request: Plan");
-		await expect(page.getByText("Local fixture reply")).toHaveCount(1, { timeout: 30_000 });
-		const decided = await recordIndex(record, frame => frame.type === "modes.auto_mode_decide");
-		const planOn = await recordIndex(record, frame => frame.type === "modes.set_plan_mode" && frame.enabled === true);
-		const prompt = await recordIndex(record, frame => frame.type === "prompt" && frame.message === PLAN_PROMPT);
-		expect(decided).toBeGreaterThanOrEqual(0);
-		expect(planOn).toBeGreaterThan(decided);
-		expect(prompt).toBeGreaterThan(planOn);
-	} finally {
-		await finish(launched);
-	}
-});
-
-test("a goal asked about while typing still joins the goal's own turn as a steer", async () => {
-	const launched = await launch({}, PREFETCH_ENV);
-	const { page, record } = launched;
-	try {
-		await typeAndRest(page, record, GOAL_PROMPT);
-		await composer(page).press("Enter");
-		await expect(chip(page)).toHaveText("This request: Goal");
-		await expect(page.getByText("Local fixture reply")).toHaveCount(1, { timeout: 30_000 });
-		const created = await recordIndex(record, frame => frame.type === "goal" && frame.op === "create");
-		const prompt = await recordIndex(record, frame => frame.type === "prompt" && frame.message === GOAL_PROMPT);
-		expect(created).toBeGreaterThanOrEqual(0);
-		expect(prompt).toBeGreaterThan(created);
-		expect((await recordsOfType(record, "prompt")).filter(frame => frame.message === GOAL_PROMPT)).toMatchObject([
-			{ streamingBehavior: "steer" },
-		]);
-		await expect(page.getByText("Message not sent")).toHaveCount(0);
 	} finally {
 		await finish(launched);
 	}

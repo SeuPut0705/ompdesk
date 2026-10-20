@@ -35,14 +35,6 @@ export const handlers: Record<string, LocalHandler> = {
 		}
 		return decision;
 	},
-	/** Typing ahead of `auto_mode_decide`: the bridge asks the same question now (its answer is cached); nothing changes. */
-	auto_mode_prefetch: async (command, ctx) => {
-		try {
-			return await ctx.bridge.request("modes.auto_mode_prefetch", { message: text(command.message) });
-		} catch {
-			return { prefetched: false };
-		}
-	},
 	/** The chip's undo: leaves the mode the app entered and stops deciding for this session. */
 	auto_mode_undo: async (command, ctx) => {
 		const mode = command.mode === "goal" ? "goal" : "plan";

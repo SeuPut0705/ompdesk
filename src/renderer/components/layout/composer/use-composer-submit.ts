@@ -36,7 +36,6 @@ import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-ru
 import { restoreTabComposer, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { webRuntime } from "../../../web/runtime";
-import { useAutoModePrefetch } from "./use-auto-mode-prefetch";
 
 type SendMode = "prompt" | "steer" | "followUp";
 
@@ -76,12 +75,6 @@ export function useComposerSubmit({
 	const contextTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const runtimeTabId = contextTabId ?? activeTabId;
-	// The send's own expansion (below), so a question asked while typing is the one the send asks.
-	const expandProse = useCallback(
-		(draft: string) => (emojiAutocomplete ? expandEmoticons(expandPasteMarkers(draft)) : expandPasteMarkers(draft)),
-		[emojiAutocomplete],
-	);
-	useAutoModePrefetch({ text, isStreaming, status, tabId: runtimeTabId, rpc, expand: expandProse });
 	const send = useCallback(
 		// `overrideText` sends a freshly computed value (voice dictation submit
 		// trigger) instead of the rendered `text` state, which lags a setText.
@@ -155,8 +148,9 @@ export function useComposerSubmit({
 			// Which path a message takes is read from the draft as the user sees it, markers folded: a pasted
 			// block that happens to start with `!`, `$ `, `/` or `->` stays a prompt, and the badge the
 			// composer showed is the path it takes. Emoticon expansion runs at submit time over the prose
-			// (input-controller.ts:617 — Enter without a trailing space after `:)`), never in a shell command
-			// (`expandProse` above).
+			// (input-controller.ts:617 — Enter without a trailing space after `:)`), never in a shell command.
+			const expandProse = (draft: string) =>
+				emojiAutocomplete ? expandEmoticons(expandPasteMarkers(draft)) : expandPasteMarkers(draft);
 			const expandedMessage = expandProse(message);
 
 			// ↑ history is a record of what the model received, so it is written only
@@ -514,7 +508,7 @@ export function useComposerSubmit({
 			mode,
 			queuedMessageCount,
 			commands,
-			expandProse,
+			emojiAutocomplete,
 			routeReady,
 			rpc,
 			runtimeTabId,

@@ -392,8 +392,6 @@ export function runRpcUi(): void {
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
 	let autoModeSuppressed = false;
-	/** Texts `modes.auto_mode_prefetch` asked about: their decision is answered at once, as stock's cache does. */
-	const autoModePrefetched = new Set<string>();
 	/** Plan mode is on for one request (`set_plan_mode {auto}`): a plain rejection of its plan ends it. */
 	let autoPlan = false;
 	/** When the last turn ended: a session that ran one within the idle window is busy for the automatic choice. */
@@ -2236,16 +2234,9 @@ export function runRpcUi(): void {
 				return { mode: "none", reason: "classified_none", latencyMs: 12, model: "fixture/smol" };
 			};
 			const delayMs = Number(process.env.OMP_GUI_TEST_AUTO_MODE_DELAY_MS) || 0;
-			// The bridge answers a prefetched text from stock's judgment cache: at once.
-			if (delayMs <= 0 || autoModePrefetched.has(message)) return decide();
+			if (delayMs <= 0) return decide();
 			setTimeout(() => reply(decide()), delayMs);
 			return undefined;
-		},
-		// gui-bridge modes/auto-mode.ts `modes.auto_mode_prefetch`: the question asked while the user types (cached
-		// for the decision at Enter). Changes no mode.
-		"modes.auto_mode_prefetch": params => {
-			if (typeof params.message === "string") autoModePrefetched.add(params.message);
-			return { prefetched: true };
 		},
 		"modes.auto_mode_undo": params => {
 			autoModeSuppressed = true;

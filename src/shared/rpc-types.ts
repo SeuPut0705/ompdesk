@@ -103,8 +103,6 @@ export type RpcCommand =
 	// The automatic Plan/Goal choice before a typed prompt, the chip's undo, and the end of the request it was used
 	// for; gui-bridge modes/auto-mode.ts
 	| { id?: string; type: "auto_mode_decide"; message: string }
-	// While the user types: the question `auto_mode_decide` will ask at Enter (its answer is cached)
-	| { id?: string; type: "auto_mode_prefetch"; message: string }
 	| { id?: string; type: "auto_mode_undo"; mode: "plan" | "goal" }
 	| { id?: string; type: "auto_mode_end"; mode: "plan" | "goal" }
 	// Judge-model assists (gui-bridge modes/judge-assist.ts): does a capture of a page the agent opened show an error

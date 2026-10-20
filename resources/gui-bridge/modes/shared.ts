@@ -23,11 +23,6 @@ export function bindEnv(env: BridgeEnv): void {
 	attachedEnv = env;
 }
 
-/** The env index.ts bound at start (or the latest modes call's), for work a stock hook starts with no request. */
-export function boundEnv(): BridgeEnv | undefined {
-	return attachedEnv;
-}
-
 /** Push a frame to the GUI through the env of the latest modes call. */
 export function emit(event: BridgeEvent): void {
 	attachedEnv?.emit(event);

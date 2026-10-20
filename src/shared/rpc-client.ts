@@ -134,8 +134,6 @@ export interface SessionRpcClient {
 	setSessionName(name: string): Promise<RpcResponse>;
 	regenerateSessionTitle(): Promise<RpcResponse>;
 	autoModeDecide(message: string): Promise<RpcResponse>;
-	/** Ask while the user types what `autoModeDecide(message)` will ask at Enter; changes nothing. */
-	autoModePrefetch(message: string): Promise<RpcResponse>;
 	autoModeUndo(mode: "plan" | "goal"): Promise<RpcResponse>;
 	autoModeEnd(mode: "plan" | "goal"): Promise<RpcResponse>;
 	setEntryLabel(entryId: string, label?: string): Promise<RpcResponse>;
@@ -520,7 +518,6 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		setSessionName: name => rpcCommand({ type: "set_session_name", name }),
 		regenerateSessionTitle: () => rpcCommand({ type: "regenerate_session_title" }),
 		autoModeDecide: message => rpcCommand({ type: "auto_mode_decide", message }),
-		autoModePrefetch: message => rpcCommand({ type: "auto_mode_prefetch", message }),
 		autoModeUndo: mode => rpcCommand({ type: "auto_mode_undo", mode }),
 		autoModeEnd: mode => rpcCommand({ type: "auto_mode_end", mode }),
 		setEntryLabel: (entryId, label) => rpcCommand({ type: "set_entry_label", entryId, label }),
