@@ -319,6 +319,9 @@ function goalPatchFromEvent(
 	return { goal: { objective: goalInfo.objective }, goalState: { status } };
 }
 
+/** Failed liveness probes in a row, with no frame between them, before a tab's omp is called unresponsive. */
+const WEDGE_PROBES = 2;
+
 /**
  * Subscribes to batched RPC events from the sidecar and dispatches
  * them to the appropriate stores. Call once in App.tsx.
@@ -332,8 +335,14 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		const focusedTabId = () => useTabsStore.getState().activeTabId ?? "";
 		let disposed = false;
 		let statusVersion = 0;
+		/** When each tab's omp last sent a frame, and how many liveness probes in a row it has missed since. */
+		const lastEventAt = new Map<string, number>();
+		const missedProbes = new Map<string, number>();
 		const unsubscribe = window.omp.events.onTabBatch(reduceEvents);
 		function reduceEvents(events: AgentSessionEvent[], tabId: string): void {
+			// Any frame from the tab's omp proves its loop runs: a probe that timed out meanwhile was slow, not wedged.
+			lastEventAt.set(tabId, performance.now());
+			missedProbes.delete(tabId);
 			// Incoming session events belong to the target sidecar. Drop them
 			// during an in-place session switch, but never suppress the other pane.
 			if (sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().switchPending) return;
@@ -669,6 +678,9 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// that post-boot brick and surfaces the SidecarBanner (with Restart),
 		// which the one-shot boot health check cannot catch. A hidden window has
 		// no banner to show, so it skips the probe until it is back in view.
+		// A wedge is persistent: one get_state that missed its deadline while omp's loop was busy (a large session's
+		// transcript work, a phone's dropped socket) is not one, and the banner showed on a live, working session. So a
+		// tab is called unresponsive only after WEDGE_PROBES failed probes in a row with no frame from it in between.
 		let heartbeat: ReturnType<typeof setInterval> | null = null;
 		const probing = new Set<string>();
 		const startHeartbeat = () => {
@@ -685,19 +697,26 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 					probing.add(probeTabId);
 					const command = runtime?.command ?? activeTabCommand;
 					const current = () => !disposed && !closedTabFrame(probeTabId) && sessionRuntime(probeTabId) === runtime;
+					const sentAt = performance.now();
+					const missed = () => {
+						if (!current()) return;
+						if ((lastEventAt.get(probeTabId) ?? 0) > sentAt) return;
+						const misses = (missedProbes.get(probeTabId) ?? 0) + 1;
+						missedProbes.set(probeTabId, misses);
+						if (misses >= WEDGE_PROBES) session.getState().setSidecarError(translate("events.sidecarNoResponse"));
+					};
 					void command({ type: "get_state" })
 						.then(res => {
-							if (!current()) return;
 							if (!res.success) {
-								session.getState().setSidecarError(translate("events.sidecarNoResponse"));
+								missed();
 								return;
 							}
+							if (!current()) return;
+							missedProbes.delete(probeTabId);
 							session.getState().clearSidecarError();
 							if (res.data != null) applyUsageSnapshot(res.data as RpcSessionState, probeTabId);
 						})
-						.catch(() => {
-							if (current()) session.getState().setSidecarError(translate("events.sidecarNoResponse"));
-						})
+						.catch(missed)
 						.finally(() => probing.delete(probeTabId));
 				}
 			}, heartbeatMs);

@@ -669,6 +669,68 @@ describe("useRpcEvents context usage sync", () => {
 		expect(first.getState().sidecarError).toBeNull();
 		expect(useTabsStore.getState().activeTabId).toBe("t-first");
 	});
+
+	describe("liveness probe", () => {
+		async function wait(ms: number): Promise<void> {
+			await act(async () => {
+				const { promise, resolve } = Promise.withResolvers<void>();
+				setTimeout(resolve, ms);
+				await promise;
+			});
+		}
+		function failGetState(
+			commandForTab: ReturnType<typeof installTabRoutedMockOmp>["commandForTab"],
+			fail: () => boolean,
+		) {
+			const original = commandForTab.getMockImplementation()!;
+			commandForTab.mockImplementation((tabId, command) =>
+				command.type === "get_state" && fail()
+					? Promise.reject(new Error("RPC timeout (8000ms): get_state"))
+					: original(tabId, command),
+			);
+		}
+
+		it("does not call omp unresponsive for one slow answer that the next probe gets", async () => {
+			const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+			const session = seedReadyTab("t-slow");
+			await mount(<RpcEventsProbe heartbeatMs={25} />);
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-slow");
+			await flush();
+			let failures = 1;
+			const seen: (string | null)[] = [];
+			const off = session.subscribe(state => seen.push(state.sidecarError));
+			failGetState(commandForTab, () => failures-- > 0);
+			await wait(120);
+			off();
+			expect(seen.filter(Boolean)).toEqual([]);
+			expect(session.getState().sidecarError).toBeNull();
+		});
+
+		it("does not call omp unresponsive while its events keep arriving", async () => {
+			const { emitTabStatus, emitTabBatch, commandForTab } = installTabRoutedMockOmp();
+			const session = seedReadyTab("t-busy");
+			await mount(<RpcEventsProbe heartbeatMs={25} />);
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-busy");
+			await flush();
+			failGetState(commandForTab, () => true);
+			for (let i = 0; i < 6; i++) {
+				await act(async () => emitTabBatch([{ type: "turn_start" } as never], "t-busy"));
+				await wait(20);
+			}
+			expect(session.getState().sidecarError).toBeNull();
+		});
+
+		it("still calls a wedged omp unresponsive: probes keep failing and nothing arrives", async () => {
+			const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
+			const session = seedReadyTab("t-wedged");
+			await mount(<RpcEventsProbe heartbeatMs={25} />);
+			emitTabStatus({ status: "ready", cwd: "/alpha" }, "t-wedged");
+			await flush();
+			failGetState(commandForTab, () => true);
+			await wait(150);
+			expect(session.getState().sidecarError).toBe(translate("events.sidecarNoResponse"));
+		});
+	});
 });
 
 describe("useRpcEvents snapshot churn", () => {
