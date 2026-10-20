@@ -98,7 +98,7 @@ import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
-import { Autopilot, type AutopilotCommand, validAutopilotBranchPref } from "./autopilot";
+import { Autopilot, type AutopilotCommand, type AutopilotNotice, validAutopilotBranchPref } from "./autopilot";
 import {
 	CHECKOUT_PEERS_SWEEP_MS,
 	type CheckoutMember,
@@ -198,6 +198,7 @@ export interface IpcDeps {
 		| "chargeRun"
 		| "runEvents"
 		| "endRun"
+		| "autopilotNotice"
 		| "attachRunLookup"
 		| "checkoutMembers"
 	>;
@@ -224,6 +225,8 @@ export interface IpcDeps {
 	promptOrigins?: { of(win: ClientWindow): PromptOrigin | null; hostName(): string };
 	/** Autopilot's coordinator, built in `registerIpcHandlers` (it needs the RPC dispatcher) and published here for the sidecar factory and TurnResume. */
 	autopilotRef: { current: Autopilot | null };
+	/** Web Push's share of an Autopilot notice (paired phones), set once the web host exists. */
+	webAutopilotNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** How a tab whose omp came up with an autopilot run `running` goes on (TurnResume's `relaunchContinuation`). */
@@ -862,6 +865,35 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 	};
 
+	/**
+	 * An Autopilot notice as this computer's OS banner on the window that holds `tabId`, batched like any tab
+	 * notification; nothing while General › Notifications is off.
+	 */
+	const notifyTab = (tabId: string, notice: AutopilotNotice): void => {
+		if (prefsStore.get("notifications") === false) return;
+		const windowId = sidecarPool.tabInventory().find(tab => tab.tabId === tabId)?.windowId;
+		if (windowId === undefined) return;
+		if (!notifyBatchedWindows.has(windowId)) {
+			const owner = windowManager.getAllWindows().find(candidate => candidate.webContents.id === windowId);
+			if (owner) {
+				notifyBatchedWindows.add(windowId);
+				owner.once("closed", () => {
+					notifyBatchedWindows.delete(windowId);
+					notificationBatcher.dropWindow(windowId);
+				});
+			}
+		}
+		notificationBatcher.notify(windowId, { title: notice.title, body: notice.body, tabId, kind: notice.kind });
+	};
+	// A paired host's run this device started or shows: on the tab that shows its session, else a plain banner.
+	deps.remoteDevices.onAutopilotNotice((host, notice) => {
+		const shown = notice.sessionPath
+			? sidecarPool.resumeFacts().find(fact => fact.device === host && fact.sessionFile === notice.sessionPath)
+			: undefined;
+		if (shown) notifyTab(shown.tabId, notice);
+		else if (prefsStore.get("notifications") !== false)
+			appNotification({ title: notice.title, body: notice.body }).show();
+	});
 	const autopilot: Autopilot = new Autopilot({
 		// A paired device's tab here can be a run's source (it starts the run from its folder): the coordinator reads it
 		// by its resume id. Runs themselves are always this computer's window tabs.
@@ -893,21 +925,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				payload,
 			),
 		prefs: { get: key => prefsStore.get(key) },
-		// Batched like any tab notification (notification-batch.ts); a click opens the tab.
+		// The host's own banner (batched like any tab notification, notification-batch.ts; a click opens the tab), the
+		// paired device that started the run or shows it (`host.autopilotNotice`) and paired phones (Web Push).
 		notify: (tabId, notice) => {
-			const windowId = sidecarPool.tabInventory().find(tab => tab.tabId === tabId)?.windowId;
-			if (windowId === undefined) return;
-			if (!notifyBatchedWindows.has(windowId)) {
-				const owner = windowManager.getAllWindows().find(candidate => candidate.webContents.id === windowId);
-				if (owner) {
-					notifyBatchedWindows.add(windowId);
-					owner.once("closed", () => {
-						notifyBatchedWindows.delete(windowId);
-						notificationBatcher.dropWindow(windowId);
-					});
-				}
-			}
-			notificationBatcher.notify(windowId, { title: notice.title, body: notice.body, tabId, kind: notice.kind });
+			notifyTab(tabId, notice);
+			const sessionPath = sidecarPool.resumeFacts().find(fact => fact.tabId === tabId)?.sessionFile;
+			deps.hostedTabs.autopilotNotice({ root: autopilot.runRootOf(tabId), sessionPath }, notice);
+			deps.webAutopilotNotice.current?.(tabId, notice);
 		},
 		text: (key, params) => mainT(key, undefined, params),
 		// A run a paired device started stops counting against that device once it ends (hosted-autopilot.ts).

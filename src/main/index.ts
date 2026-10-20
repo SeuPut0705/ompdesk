@@ -101,7 +101,7 @@ import { applyGpuFallbackIfNeeded, handleGpuProcessGone } from "./gpu-fallback";
 import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
-import { registerIpcHandlers } from "./ipc";
+import { type IpcDeps, registerIpcHandlers } from "./ipc";
 import { migrateLegacyUserData } from "./legacy-user-data";
 import { tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
@@ -608,6 +608,7 @@ app.whenReady().then(() => {
 	};
 	// Autopilot's coordinator is built in ipc.ts (it needs the RPC dispatcher); the factory and TurnResume read it from here.
 	const autopilotRef: { current: Autopilot | null } = { current: null };
+	const webAutopilotNotice: IpcDeps["webAutopilotNotice"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// Memory's address for the bridge's recall in every omp this computer runs (src/main/ai-memory/recall-state.ts).
@@ -1390,6 +1391,7 @@ app.whenReady().then(() => {
 		windowManager,
 		remoteDevices: devices,
 		hostedTabs: hostServices,
+		webAutopilotNotice,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
@@ -1449,6 +1451,7 @@ app.whenReady().then(() => {
 	});
 	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
 	sidecarPool.observeTabs(activity => webHost?.tabActivity(activity));
+	webAutopilotNotice.current = (tabId, notice) => webHost?.autopilotNotice(tabId, notice);
 	webHost.devices.onRevoked(deviceId => webTabLayouts.drop(deviceId));
 	const host = webHost;
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published

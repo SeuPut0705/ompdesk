@@ -40,6 +40,8 @@ import type { ResumeMarker } from "../turn-resume";
 import type { WebBlocks } from "../web/blocks-store";
 import { formatAddress, parseAddress, remotePortCandidates } from "./address";
 import {
+	AUTOPILOT_NOTICE_EVENT,
+	AutopilotNoticeEvent,
 	DEVICE_RENAME_EVENT,
 	DeviceNameSchema,
 	HOST_NAME_EVENT,
@@ -180,6 +182,7 @@ export class RemoteDevices {
 	/** This computer's name on the tailnet: the device name until the user picks one. */
 	#tailnetName: string | null = null;
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
+	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
@@ -266,6 +269,12 @@ export class RemoteDevices {
 	}
 
 	/** Called each time a link to a host comes up. */
+	/** A paired host's Autopilot run this device started or shows stopped, ended or released. */
+	onAutopilotNotice(listener: (hostId: string, notice: AutopilotNoticeEvent) => void): () => void {
+		this.#autopilotNotices.add(listener);
+		return () => this.#autopilotNotices.delete(listener);
+	}
+
 	onHostOnline(listener: (deviceId: string) => void): () => void {
 		this.#hostOnline.add(listener);
 		return () => this.#hostOnline.delete(listener);
@@ -825,6 +834,11 @@ export class RemoteDevices {
 					const update: IpcHostSchedules = { device: deviceId, state: state.data };
 					this.#deps.broadcast(IPC_EVENTS.HOST_SCHEDULES_STATE, update);
 				}
+				return;
+			}
+			if (event === AUTOPILOT_NOTICE_EVENT) {
+				const notice = AutopilotNoticeEvent.safeParse(data);
+				if (notice.success) for (const listener of this.#autopilotNotices) listener(deviceId, notice.data);
 				return;
 			}
 			if (event === HOST_NAME_EVENT || event === DEVICE_RENAME_EVENT) {

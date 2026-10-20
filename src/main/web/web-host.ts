@@ -274,6 +274,11 @@ export class WebHost {
 		if (this.server.port !== null) this.notifier.handle(activity);
 	}
 
+	/** An Autopilot run of tab `tabId` stopped, ended or released: paired phones hear it while the server runs. */
+	autopilotNotice(tabId: string, notice: { kind: "completion" | "error"; title: string; body: string }): void {
+		if (this.server.port !== null) this.notifier.notice(tabId, notice);
+	}
+
 	/** The device a web window's prompts come from, as its name stands now; null for any other window. */
 	promptOrigin(win: ClientWindow): { deviceId: string; name: string } | null {
 		if (!(win instanceof WebClientWindow)) return null;

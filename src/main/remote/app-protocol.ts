@@ -120,6 +120,19 @@ export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
 export const SCHEDULES_EVENT = "host.schedules.changed";
 /** This computer's device name changed (data: `{name}`); sent to every connected device. */
 export const HOST_NAME_EVENT = "host.name";
+/**
+ * An Autopilot run of the host stopped, ended or released (data: {@link AutopilotNoticeEvent}): sent to the device that
+ * started it and to every device with a tab on the run's session, so its person hears of it like of the host's own.
+ */
+export const AUTOPILOT_NOTICE_EVENT = "host.autopilotNotice";
+export const AutopilotNoticeEvent = z.object({
+	kind: z.enum(["completion", "error"]),
+	title: z.string().max(200),
+	body: z.string().max(2000),
+	/** The run's session on the host, so the device can name the tab that shows it. */
+	sessionPath: z.string().max(4096).optional(),
+});
+export type AutopilotNoticeEvent = z.infer<typeof AutopilotNoticeEvent>;
 /** The host asks this connected device to rename itself (data: `{name}`). */
 export const DEVICE_RENAME_EVENT = "device.rename";
 /** Device-name requests the host serves itself: the device names itself, or renames the host. */

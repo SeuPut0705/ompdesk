@@ -34,6 +34,7 @@ import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
 import {
+	AUTOPILOT_NOTICE_EVENT,
 	decodeBinaryRead,
 	MemoryConclusionPullReply,
 	MemoryPullReply,
@@ -1882,6 +1883,28 @@ describe("LocalHostServices: Autopilot of a device's tab", () => {
 		view.emit("events", reply);
 		context.services.runEvents("/wt/run", reply as never);
 		expect(stored.get("device-x")?.usage).toMatchObject({ tokens: 700 });
+	});
+
+	it("an Autopilot notice reaches the device that started the run with no view of it, and each viewing device once", async () => {
+		const context = setup();
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set("/s/run.jsonl", view);
+		// The starter left the run's view: its only tab here is another session.
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "x1", cwd: workDir }, x);
+		const y = new FakeConnection(peer("device-y"));
+		await context.services.call(y.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/run.jsonl" }, y);
+		const z = new FakeConnection(peer("device-z"));
+		await context.services.call(z.peer, "tab.open", { rtab: "z1", cwd: workDir }, z);
+		context.services.chargeRun("/wt/run", "device-x", "/s/run.jsonl");
+		const notice = { kind: "error" as const, title: "Autopilot paused", body: "The repository folder is gone." };
+		context.services.autopilotNotice({ root: "/wt/run", sessionPath: "/s/run.jsonl" }, notice);
+		const notices = (conn: FakeConnection) =>
+			conn.events.filter(entry => entry.event === AUTOPILOT_NOTICE_EVENT).map(entry => entry.data);
+		expect(notices(x)).toEqual([{ ...notice, sessionPath: "/s/run.jsonl" }]);
+		expect(notices(y)).toEqual([{ ...notice, sessionPath: "/s/run.jsonl" }]);
+		expect(notices(z)).toEqual([]);
 	});
 
 	it("counts a run's child's reply once while the device views the child: through the run, not the view", async () => {

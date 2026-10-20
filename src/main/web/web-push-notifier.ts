@@ -118,6 +118,14 @@ export class WebPushNotifier {
 		}
 	}
 
+	/**
+	 * An Autopilot run of tab `tabId` stopped, ended or released (main's notice, which no turn event carries): every
+	 * device that wants the kind hears it, like a turn of that tab.
+	 */
+	notice(tabId: string, notice: { kind: "completion" | "error"; title: string; body: string }): void {
+		this.#feed(notice.kind, tabId, notice.title, notice.body);
+	}
+
 	/** A device was revoked: its pending summary has nobody to go to. */
 	dropDevice(deviceId: string): void {
 		const key = this.#keyOf.get(deviceId);

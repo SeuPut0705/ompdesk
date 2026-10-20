@@ -101,6 +101,8 @@ import {
 import { searchWorkspace } from "../workspace-search";
 import { removalHolds } from "../worktree-removals";
 import {
+	AUTOPILOT_NOTICE_EVENT,
+	type AutopilotNoticeEvent,
 	BenchmarkOptionsSchema,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
@@ -374,6 +376,8 @@ export class LocalHostServices implements HostServices {
 	readonly #tabs = new Map<string, HostTab>();
 	/** Live connections that have talked to us; `sessions.changed` goes to each. */
 	readonly #conns = new Set<HostConnection>();
+	/** Each connected device's latest connection, for events meant for one device. */
+	readonly #connOf = new Map<string, HostConnection>();
 	#sessionsTimer: NodeJS.Timeout | undefined;
 	/**
 	 * Session file → the exit of the omp a device tab closed here ran it in: the device closes its tab
@@ -483,6 +487,27 @@ export class LocalHostServices implements HostServices {
 		let tokens = 0;
 		for (const event of events) tokens += assistantTokens(event);
 		if (tokens > 0) this.#quota?.record(charge.device, { tokens });
+	}
+
+	/**
+	 * An Autopilot notice of a run here (a stop, its end, a release): the device that started it (its charge, whether
+	 * or not it still shows the run) and every device with a tab on the run's session hear it once each.
+	 */
+	autopilotNotice(
+		run: { root?: string; sessionPath?: string },
+		notice: Omit<AutopilotNoticeEvent, "sessionPath">,
+	): void {
+		const charge = run.root ? this.#charges().get(run.root) : undefined;
+		const sessionPath = run.sessionPath ?? charge?.session;
+		const devices = new Set<string>(charge ? [charge.device] : []);
+		if (sessionPath)
+			for (const tab of this.#tabs.values())
+				if ((tab.sessionFile ?? tab.resumeSessionPath) === sessionPath) devices.add(tab.peerId);
+		const event: AutopilotNoticeEvent = { ...notice, ...(sessionPath ? { sessionPath } : {}) };
+		for (const deviceId of devices) {
+			const conn = this.#connOf.get(deviceId);
+			if (conn) emitSafely(conn, AUTOPILOT_NOTICE_EVENT, event);
+		}
 	}
 
 	/** The run at `root` ended: nothing of it counts any more. */
@@ -695,6 +720,7 @@ export class LocalHostServices implements HostServices {
 
 	async call(peer: PeerInfo, method: string, params: unknown, conn: HostConnection): Promise<unknown> {
 		this.#conns.add(conn);
+		this.#connOf.set(peer.deviceId, conn);
 		switch (method) {
 			case "tab.open":
 				return this.#open(peer, parse(OpenParams, method, params), conn);
@@ -933,6 +959,7 @@ export class LocalHostServices implements HostServices {
 
 	disconnected(peer: PeerInfo, conn: HostConnection): void {
 		this.#conns.delete(conn);
+		if (this.#connOf.get(peer.deviceId) === conn) this.#connOf.delete(peer.deviceId);
 		// Nobody is left to read the result.
 		void this.#deps.machine.abortBenchmark(benchCaller(peer.deviceId));
 		void this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));

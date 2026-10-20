@@ -1038,14 +1038,16 @@ describe("stop requests from the bridge", () => {
 		expect(notices.at(-1)?.kind).toBe("completion");
 	});
 
-	it("the user's own pause says nothing, and the app's notification switch off silences everything", async () => {
+	it("the user's own pause says nothing; this computer's notifications switch does not silence the other routes", async () => {
+		// The switch rules this computer's banner only (ipc.ts); the device that started the run and phones decide their own.
 		build({ prefs: { notifications: false } });
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "ban_violation", detail: "x" });
 		await autopilot.idle();
-		expect(notices).toEqual([]);
+		expect(notices.map(notice => notice.kind)).toEqual(["error"]);
 		build();
+		notices = [];
 		await start();
 		const second = world.sidecars.get("ap-2") as unknown as SidecarLike;
 		autopilot.frame(second, { type: "autopilot_stop_requested", reason: "user_pause" });

@@ -1482,9 +1482,11 @@ export class Autopilot {
 	// Notifications
 	// ----------------------------------------------------------------------------------------
 
-	/** Stops, ends and release outcomes: what a person away from the screen must know, unless the app's own switch is off. */
+	/**
+	 * Stops, ends and release outcomes: what a person away from the screen must know. Where it goes (this computer's
+	 * banner under its own notifications switch, the paired device that started or shows the run, phones) is `notify`'s.
+	 */
 	#notify(run: Run, notice: AutopilotNotice): void {
-		if (this.#deps.prefs.get("notifications") === false) return;
 		this.#deps.notify(run.tabId, notice);
 	}
 

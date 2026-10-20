@@ -67,6 +67,8 @@ export interface Computer {
 	/** The person's answer to "approve new devices", and who was asked about. */
 	confirm: { answer: boolean; asked: string[] };
 	allowed: string[];
+	/** The fake host services: `call`'s 4th argument is the connection a device's request came on. */
+	services: { call: ReturnType<typeof vi.fn> };
 }
 
 export class DevicesRig {
@@ -138,7 +140,7 @@ export class DevicesRig {
 			loopback: true,
 		});
 		this.#running.push(devices);
-		return { devices, listeners, tailnet, prefs, userData: dir, fake, blocks, confirm, allowed };
+		return { devices, listeners, tailnet, prefs, userData: dir, fake, blocks, confirm, allowed, services };
 	}
 
 	/** A host B sharing itself and a device A that sees it as node `nSTUDIO`; B sees A as node `nLAPTOP`. */

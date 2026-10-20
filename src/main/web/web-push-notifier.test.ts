@@ -105,6 +105,25 @@ function rig(options: { language?: UiLanguage } = {}) {
 
 const done = (reply = "Fixed the parser and added two tests."): IpcTabRunOutcome => ({ stopReason: "stop", reply });
 
+describe("autopilot notices", () => {
+	it("pushes a run's stop at once to a hidden phone that wants errors, never to one looking at its page", () => {
+		const r = rig();
+		const hidden = r.phone("iPhone");
+		const looking = r.phone("iPad");
+		const noErrors = r.phone("Pixel", { categories: ["completion"] });
+		r.visible.add(looking);
+		r.notifier.notice("t9", { kind: "error", title: "Autopilot paused", body: "The repository folder is gone." });
+		expect(r.sent.map(entry => entry.deviceId)).toEqual([hidden]);
+		expect(r.sent[0]?.payload).toMatchObject({
+			kind: "error",
+			title: "Autopilot paused",
+			body: "The repository folder is gone.",
+			tabId: "t9",
+		});
+		expect(noErrors).not.toBe(hidden);
+	});
+});
+
 describe("completion", () => {
 	it("pushes a finished turn once, a debounce after it settled, with the tab's title and the reply's opening", () => {
 		const r = rig();
