@@ -1384,6 +1384,7 @@ async fn should_drop_subagent(
     let Ok((workspace_id, project_id)) = resolve_project_ids_inner(
         state,
         env.cwd.as_deref(),
+        env.checkout.as_ref(),
         env.workspace_override.as_deref(),
         env.project_override.as_deref(),
         env.project_strategy,
@@ -1483,6 +1484,11 @@ pub struct HandoffQuery {
     pub identity_style: Option<String>,
     /// Compact JSON array of former project names from the local marker.
     pub aliases: Option<String>,
+    /// The sender's checkout root; see [`crate::payload::HookQuery::repo_root`].
+    pub repo_root: Option<String>,
+    /// The sender's main repository root; see
+    /// [`crate::payload::HookQuery::main_repo_root`].
+    pub main_repo_root: Option<String>,
     /// The marker's `[profile] contribute`. An explicit falsy value keeps the
     /// project out of profile harvesting; absent or anything else keeps it in.
     pub profile_contribute: Option<String>,
@@ -1512,6 +1518,14 @@ impl HandoffQuery {
             .as_deref()
             .and_then(ai_memory_core::repository_identity::IdentityStyle::from_str_opt)
             .unwrap_or_default()
+    }
+
+    /// The checkout the sender resolved, or `None` to probe the disk.
+    fn checkout(&self) -> Option<crate::payload::ClientCheckout> {
+        crate::payload::client_checkout_from_wire(
+            self.repo_root.as_deref(),
+            self.main_repo_root.as_deref(),
+        )
     }
 }
 
@@ -1596,6 +1610,7 @@ async fn fetch_and_accept_handoff_at(
     let (ws, proj) = resolve_project_ids_inner(
         state,
         query.cwd.as_deref(),
+        query.checkout().as_ref(),
         query.workspace.as_deref(),
         query.project.as_deref(),
         ProjectStrategy::parse(query.project_strategy.as_deref()),
@@ -2889,6 +2904,54 @@ fn has_publishable_scope_hint(cwd: Option<&str>, project_override: Option<&str>)
     cwd.is_some_and(|value| !value.is_empty()) || project_override.is_some()
 }
 
+/// The `(project name, repo_path)` the resolver's disk probe would find,
+/// derived from the checkout the event's sender resolved instead: the same
+/// rules (`derive_project_from_cwd`, `repo_path_from_project_override`), with
+/// the sender's roots standing in for git discovery and canonicalization. The
+/// sender spells its roots in the cwd's namespace, so plain normalized string
+/// comparison replaces `canonicalize`.
+fn project_from_checkout(
+    project_override: Option<&str>,
+    cwd: Option<&str>,
+    strategy: ProjectStrategy,
+    checkout: &crate::payload::ClientCheckout,
+) -> Option<(String, Option<String>)> {
+    let basename = |path: &str| {
+        ai_memory_consolidate::derive_project_name(
+            std::path::Path::new(path),
+            ai_memory_consolidate::ProjectNameStrategy::Basename,
+        )
+        .map(|(name, _)| name)
+    };
+    // A checkout root is recorded only when the cwd IS that root (#103).
+    let root_at_cwd = |cwd: &str| {
+        checkout
+            .repo_root
+            .as_deref()
+            .map(normalize_project_path_key)
+            .filter(|root| *root == normalize_project_path_key(cwd))
+    };
+    let main_root = checkout
+        .main_repo_root
+        .as_deref()
+        .filter(|_| matches!(strategy, ProjectStrategy::RepoRoot));
+    match (project_override, cwd) {
+        (Some(project), Some(cwd)) => {
+            let repo_path = main_root
+                .filter(|root| basename(root).as_deref() == Some(project))
+                .map(normalize_project_path_key)
+                .or_else(|| root_at_cwd(cwd));
+            Some((project.to_owned(), repo_path))
+        }
+        (Some(project), None) => Some((project.to_owned(), None)),
+        (None, Some(cwd)) => match main_root.and_then(|root| Some((basename(root)?, root))) {
+            Some((name, root)) => Some((name, Some(normalize_project_path_key(root)))),
+            None => basename(cwd).map(|name| (name, root_at_cwd(cwd))),
+        },
+        (None, None) => None,
+    }
+}
+
 /// Resolve the `(workspace_id, project_id)` pair for a hook event without
 /// publishing it as active. Callers decide separately whether the event is a
 /// foreground interaction allowed to advance fallback routing.
@@ -2909,6 +2972,7 @@ fn has_publishable_scope_hint(cwd: Option<&str>, project_override: Option<&str>)
 async fn resolve_project_ids_inner(
     state: &HookState,
     cwd: Option<&str>,
+    checkout: Option<&crate::payload::ClientCheckout>,
     workspace_override: Option<&str>,
     project_override: Option<&str>,
     project_strategy: ProjectStrategy,
@@ -2969,36 +3033,43 @@ async fn resolve_project_ids_inner(
     // stickiness is unaffected, and `derive_project_from_cwd` re-normalizes the
     // repo_path it returns regardless of the input casing.
     //
-    // Both probes read the disk (git discovery, canonicalize) and run on the
-    // blocking pool: an `open()` there can wait indefinitely (on macOS, a
-    // launchd-run server reaching into a TCC-protected folder whose prompt is
-    // unanswered), and on a runtime worker enough such waits held every
-    // worker, so the server stopped answering anything, `/healthz` included.
-    let probe_override = project_override.map(str::to_owned);
-    let probe_raw = cwd_raw.map(str::to_owned);
-    let probe_norm = cwd_norm.clone();
-    let probed = tokio::task::spawn_blocking(move || {
-        match (
-            probe_override.as_deref(),
-            probe_raw.as_deref(),
-            probe_norm.as_deref(),
-        ) {
-            (Some(p), _, Some(c)) => Some((
-                p.to_string(),
-                repo_path_from_project_override(c, p, project_strategy),
-            )),
-            (Some(p), _, None) => Some((p.to_string(), None)),
-            (None, Some(raw), Some(_)) => derive_project_from_cwd(raw, project_strategy),
-            // The early-return at the top of the function guards against a
-            // cwd-less, override-less event; the explicit fallback here keeps
-            // the resolver panic-free if that guard ever moves or gets
-            // refactored. Same effect as `unreachable!`, but visible at
-            // compile time instead of inside the panic message.
-            _ => None,
-        }
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("project probe for the event's cwd failed: {e}"))?;
+    // A checkout the sender resolved (beside the agent, under the access the
+    // agent already has) answers both probes from strings: the server touches
+    // no folder of the event's. Without one, both probes read the disk (git
+    // discovery, canonicalize) and run on the blocking pool: an `open()` there
+    // can wait indefinitely (on macOS, a launchd-run server reaching into a
+    // TCC-protected folder whose prompt is unanswered), and on a runtime
+    // worker enough such waits held every worker, so the server stopped
+    // answering anything, `/healthz` included.
+    let probed = if let Some(checkout) = checkout {
+        project_from_checkout(project_override, cwd_raw, project_strategy, checkout)
+    } else {
+        let probe_override = project_override.map(str::to_owned);
+        let probe_raw = cwd_raw.map(str::to_owned);
+        let probe_norm = cwd_norm.clone();
+        tokio::task::spawn_blocking(move || {
+            match (
+                probe_override.as_deref(),
+                probe_raw.as_deref(),
+                probe_norm.as_deref(),
+            ) {
+                (Some(p), _, Some(c)) => Some((
+                    p.to_string(),
+                    repo_path_from_project_override(c, p, project_strategy),
+                )),
+                (Some(p), _, None) => Some((p.to_string(), None)),
+                (None, Some(raw), Some(_)) => derive_project_from_cwd(raw, project_strategy),
+                // The early-return at the top of the function guards against a
+                // cwd-less, override-less event; the explicit fallback here keeps
+                // the resolver panic-free if that guard ever moves or gets
+                // refactored. Same effect as `unreachable!`, but visible at
+                // compile time instead of inside the panic message.
+                _ => None,
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("project probe for the event's cwd failed: {e}"))?
+    };
     let Some((project_name, repo_path)) = probed else {
         return Ok((state.workspace_id, state.project_id));
     };
@@ -3303,6 +3374,7 @@ async fn resolve_project_ids(
     let ids = resolve_project_ids_inner(
         state,
         cwd,
+        None,
         workspace_override,
         project_override,
         project_strategy,
@@ -3791,6 +3863,7 @@ async fn process_authorized(
             resolve_project_ids_inner(
                 state,
                 env.cwd.as_deref(),
+                env.checkout.as_ref(),
                 env.workspace_override.as_deref(),
                 env.project_override.as_deref(),
                 env.project_strategy,
@@ -3952,6 +4025,7 @@ async fn process_authorized(
                 (ws, proj) = resolve_project_ids_inner(
                     state,
                     env.cwd.as_deref(),
+                    env.checkout.as_ref(),
                     env.workspace_override.as_deref(),
                     env.project_override.as_deref(),
                     env.project_strategy,
@@ -5126,6 +5200,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd.to_string()),
             workspace: Some("default".into()),
@@ -5771,6 +5847,7 @@ pub(crate) mod tests {
         let handoff = resolve_project_ids_inner(
             &state,
             Some("/repo"),
+            None,
             Some("default"),
             Some("acme-api"),
             ProjectStrategy::Basename,
@@ -5796,6 +5873,7 @@ pub(crate) mod tests {
         let capture = resolve_project_ids_inner(
             &state,
             Some("/repo"),
+            None,
             Some("default"),
             Some("acme-api"),
             ProjectStrategy::Basename,
@@ -5865,6 +5943,7 @@ pub(crate) mod tests {
         let resolved = resolve_project_ids_inner(
             &state,
             env.cwd.as_deref(),
+            env.checkout.as_ref(),
             Some("default"),
             env.project_override.as_deref(),
             env.project_strategy,
@@ -5889,6 +5968,123 @@ pub(crate) mod tests {
                 .as_deref(),
             Some("identity-project")
         );
+    }
+
+    /// Resolve an event the way the ingest path does, with the checkout its
+    /// sender put on the query string.
+    async fn resolve_sent(
+        state: &HookState,
+        cwd: &str,
+        strategy: Option<&str>,
+        repo_root: &str,
+        main_repo_root: Option<&str>,
+    ) -> (WorkspaceId, ProjectId) {
+        let env = HookEnvelope::from_query_and_body(
+            HookQuery {
+                event: "user-prompt".into(),
+                agent: Some("omp".into()),
+                project_strategy: strategy.map(str::to_owned),
+                repo_root: Some(repo_root.to_owned()),
+                main_repo_root: main_repo_root.map(str::to_owned),
+                ..Default::default()
+            },
+            serde_json::json!({ "sessionID": "s", "cwd": cwd }),
+        );
+        assert!(env.checkout.is_some(), "the sender's checkout was refused");
+        resolve_project_ids_inner(
+            state,
+            env.cwd.as_deref(),
+            env.checkout.as_ref(),
+            env.workspace_override.as_deref(),
+            env.project_override.as_deref(),
+            env.project_strategy,
+            env.identity.as_ref(),
+            env.identity_style,
+            &env.aliases,
+            env.project_source,
+            true,
+            None,
+        )
+        .await
+        .unwrap()
+    }
+
+    /// A launchd-run server is its own macOS privacy identity: its git
+    /// discovery of a folder under Desktop asks the user for that folder. An
+    /// event whose sender already resolved the checkout routes from the strings
+    /// alone. The folders here do not exist, so anything the disk could have
+    /// said is absent: each answer can only have come from the event.
+    #[tokio::test]
+    async fn a_checkout_the_sender_resolved_routes_without_reading_the_disk() {
+        let tmp = TempDir::new().unwrap();
+        let state = make_state(&tmp).await;
+        let absent = tmp.path().join("absent").join("Desktop");
+        let path = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+
+        // The cwd is the checkout's root: it becomes the project's repo_path,
+        // so a later event deeper in the tree finds it as the parent.
+        let api = path(absent.join("api"));
+        let (ws, proj) = resolve_sent(&state, &api, None, &api, None).await;
+        assert_eq!(
+            state
+                .reader
+                .project_name_by_id(ws, proj)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("api")
+        );
+        let nested = path(absent.join("api").join("src"));
+        let parent = state
+            .reader
+            .find_project_by_cwd_prefix(ws, normalize_project_path_key(&nested), None)
+            .await
+            .unwrap();
+        assert_eq!(parent.map(|(id, _)| id), Some(proj));
+
+        // repo-root names the project after the main checkout of a linked
+        // worktree, which only the sender saw.
+        let worktree = path(absent.join("wt").join("feature"));
+        let main = path(absent.join("main").join("acme"));
+        let (ws, proj) =
+            resolve_sent(&state, &worktree, Some("repo-root"), &worktree, Some(&main)).await;
+        assert_eq!(
+            state
+                .reader
+                .project_name_by_id(ws, proj)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("acme")
+        );
+    }
+
+    /// "No checkout here" from the sender is believed too: a cwd that is a
+    /// repository on the server's disk still records no repo_path.
+    #[tokio::test]
+    async fn a_sender_that_found_no_checkout_is_not_second_guessed_from_disk() {
+        let tmp = TempDir::new().unwrap();
+        let state = make_state(&tmp).await;
+        let repo = tmp.path().join("notes");
+        init_repo_with_commit(&repo);
+        let cwd = repo.to_string_lossy().into_owned();
+        let (ws, proj) = resolve_sent(&state, &cwd, None, "", None).await;
+        assert_eq!(
+            state
+                .reader
+                .project_name_by_id(ws, proj)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("notes")
+        );
+        let nested = repo.join("deep").to_string_lossy().into_owned();
+        let parent = state
+            .reader
+            .find_project_by_cwd_prefix(ws, normalize_project_path_key(&nested), None)
+            .await
+            .unwrap();
+        assert_eq!(parent, None);
     }
 
     #[test]
@@ -14070,6 +14266,8 @@ pub(crate) mod tests {
                     profile_contribute: None,
                     profile_consume: None,
                     profile_digest: None,
+                    repo_root: None,
+                    main_repo_root: None,
                     agent: Some("claude-code".into()),
                     cwd: Some(tmp.path().to_string_lossy().into_owned()),
                     workspace: Some("default".into()),
@@ -14690,6 +14888,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd.clone()),
             workspace: Some("default".into()),
@@ -14779,6 +14979,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd.clone()),
             workspace: Some("default".into()),
@@ -14887,6 +15089,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd),
             workspace: Some("default".into()),
@@ -15073,6 +15277,8 @@ pub(crate) mod tests {
                     profile_contribute: None,
                     profile_consume: None,
                     profile_digest: None,
+                    repo_root: None,
+                    main_repo_root: None,
                     agent: Some("claude-code".into()),
                     cwd: Some(cwd.to_string()),
                     workspace: Some("default".into()),
@@ -16082,6 +16288,8 @@ pub(crate) mod tests {
                 profile_contribute: None,
                 profile_consume: None,
                 profile_digest: None,
+                repo_root: None,
+                main_repo_root: None,
                 agent: Some("codex".into()),
                 cwd: Some(cwd.into()),
                 workspace: Some("acme".into()),
@@ -16165,6 +16373,8 @@ pub(crate) mod tests {
                 profile_contribute: None,
                 profile_consume: None,
                 profile_digest: None,
+                repo_root: None,
+                main_repo_root: None,
                 agent: Some("codex".into()),
                 cwd: Some("/repo/api/".into()),
                 workspace: Some("default".into()),
@@ -16234,6 +16444,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("codex".into()),
             cwd: Some(cwd.clone()),
             workspace: Some("default".into()),
@@ -16389,6 +16601,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("codex".into()),
             cwd: Some(cwd),
             workspace: Some("default".into()),
@@ -16511,6 +16725,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd.into()),
             workspace: None,
@@ -16595,6 +16811,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd.into()),
             workspace: None,
@@ -16663,6 +16881,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("claude-code".into()),
             cwd: Some(cwd.into()),
             workspace: None,
@@ -16827,6 +17047,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some("kimi-code".into()),
             cwd: Some("/repo".into()),
             workspace: Some("default".into()),
@@ -17653,6 +17875,8 @@ pub(crate) mod tests {
                 profile_contribute: None,
                 profile_consume: None,
                 profile_digest: None,
+                repo_root: None,
+                main_repo_root: None,
                 agent: Some("codex".into()),
                 cwd: Some(cwd.into()),
                 workspace: None,
@@ -20684,6 +20908,8 @@ pub(crate) mod tests {
             profile_contribute: None,
             profile_consume: None,
             profile_digest: None,
+            repo_root: None,
+            main_repo_root: None,
             agent: Some(agent.into()),
             cwd: Some(cwd.into()),
             workspace: None,

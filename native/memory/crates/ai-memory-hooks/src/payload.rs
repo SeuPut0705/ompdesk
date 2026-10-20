@@ -131,6 +131,14 @@ pub struct HookQuery {
     /// Compact JSON array of validated former project names from the local
     /// marker. Accepted only with a full git-remote identity.
     pub aliases: Option<String>,
+    /// Working-tree root of the checkout that holds `cwd`, as the sender found
+    /// it with git, spelled in `cwd`'s own namespace. Present but empty: the
+    /// sender looked and `cwd` is in no checkout. Absent (older senders): the
+    /// server discovers it from disk. See [`ClientCheckout`].
+    pub repo_root: Option<String>,
+    /// Root of the main repository of that checkout (a linked worktree's
+    /// main checkout), spelled like `repo_root`. Read only with `repo_root`.
+    pub main_repo_root: Option<String>,
 }
 
 /// Coalesced view of an incoming hook event after light parsing of the
@@ -168,6 +176,9 @@ pub struct HookEnvelope {
     pub identity_style: ai_memory_core::repository_identity::IdentityStyle,
     /// Validated, normalized former project names supplied by the local marker.
     pub aliases: ai_memory_core::repository_identity::MarkerAliases,
+    /// What the sender already found out about `cwd`'s checkout; `None` makes
+    /// the server probe the disk as it did before senders carried it.
+    pub checkout: Option<ClientCheckout>,
     /// Whether an alias query was malformed or lacked a git-remote identity.
     pub aliases_invalid: bool,
     /// Whether this project opted into `drop_subagent_captures` via its
@@ -544,6 +555,67 @@ pub struct HookPayloadContext {
     pub cwd: Option<String>,
 }
 
+/// The checkout around an event's `cwd` as the sender resolved it.
+///
+/// The sender runs beside the agent, as the user, under whatever access the
+/// agent already has; the server may be a separate process (on macOS a launchd
+/// job, its own privacy-permission identity), so its own git discovery of a
+/// folder under Desktop, Documents or Downloads asks the user for that folder.
+/// With this the server derives the project from strings alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ClientCheckout {
+    /// Working-tree root of the checkout holding `cwd`; `None` when `cwd` is
+    /// in no checkout.
+    pub repo_root: Option<String>,
+    /// Main repository root of that checkout; equals `repo_root` outside a
+    /// linked worktree. `None` exactly when `repo_root` is.
+    pub main_repo_root: Option<String>,
+}
+
+/// Read [`ClientCheckout`] from the `repo_root` / `main_repo_root` query
+/// parameters. `None` (probe the disk) when the sender sent none or sent a
+/// root that is not an absolute, non-root path: a malformed answer is ignored
+/// rather than trusted.
+#[must_use]
+pub fn client_checkout_from_wire(
+    repo_root: Option<&str>,
+    main_repo_root: Option<&str>,
+) -> Option<ClientCheckout> {
+    let repo_root = repo_root?;
+    if repo_root.is_empty() {
+        return Some(ClientCheckout {
+            repo_root: None,
+            main_repo_root: None,
+        });
+    }
+    let repo_root = checkout_root(repo_root)?;
+    let main_repo_root = match main_repo_root.filter(|root| !root.is_empty()) {
+        Some(root) => checkout_root(root)?,
+        None => repo_root.clone(),
+    };
+    Some(ClientCheckout {
+        repo_root: Some(repo_root),
+        main_repo_root: Some(main_repo_root),
+    })
+}
+
+/// An absolute path with a final component: POSIX `/a`, Windows `C:\a`, UNC
+/// `\\host\share\a`. A filesystem root never names a repository.
+fn checkout_root(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let absolute = raw.starts_with('/')
+        || raw.starts_with('\\')
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'));
+    let named = raw
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
+        .is_some_and(|segment| !segment.ends_with(':'));
+    (absolute && named && !raw.contains('\0')).then(|| raw.to_owned())
+}
+
 /// Extract the session and checkout exactly as [`HookEnvelope`] does.
 #[must_use]
 pub fn hook_payload_context(raw: &serde_json::Value) -> HookPayloadContext {
@@ -643,6 +715,8 @@ impl HookEnvelope {
         } else {
             aliases.unwrap_or_default()
         };
+        let checkout =
+            client_checkout_from_wire(query.repo_root.as_deref(), query.main_repo_root.as_deref());
         let drop_subagent_requested = query_flag_truthy(query.drop_subagent.as_deref());
         let recall_default_global_requested = query_flag_truthy(query.default_global.as_deref());
         let all_owners_requested = query_flag_truthy(query.all_owners.as_deref());
@@ -729,6 +803,7 @@ impl HookEnvelope {
             identity,
             identity_style,
             aliases,
+            checkout,
             aliases_invalid,
             drop_subagent_requested,
             recall_default_global_requested,
@@ -1417,6 +1492,42 @@ mod tests {
         assert!(ProjectSource::RepoRoot.yields_to_session());
         assert!(!ProjectSource::Marker.yields_to_session());
         assert!(!ProjectSource::Unspecified.yields_to_session());
+    }
+
+    #[test]
+    fn a_sent_checkout_is_read_only_when_it_names_absolute_roots() {
+        let some = |repo: &str, main: &str| ClientCheckout {
+            repo_root: Some(repo.into()),
+            main_repo_root: Some(main.into()),
+        };
+        // Older senders send nothing: the server probes as before.
+        assert_eq!(client_checkout_from_wire(None, Some("/x/main")), None);
+        // Present but empty: the sender looked and found no checkout.
+        assert_eq!(
+            client_checkout_from_wire(Some(""), Some("/ignored")),
+            Some(ClientCheckout {
+                repo_root: None,
+                main_repo_root: None,
+            })
+        );
+        // Outside a linked worktree the main root is the checkout itself.
+        assert_eq!(
+            client_checkout_from_wire(Some("/u/Desktop/api"), None),
+            Some(some("/u/Desktop/api", "/u/Desktop/api"))
+        );
+        assert_eq!(
+            client_checkout_from_wire(Some(r"C:\Users\u\api"), Some(r"C:\Users\u\main")),
+            Some(some(r"C:\Users\u\api", r"C:\Users\u\main"))
+        );
+        // A relative path or a filesystem root is no checkout root: probe.
+        for bad in ["api", "/", r"C:\", "C:", "./api"] {
+            assert_eq!(client_checkout_from_wire(Some(bad), None), None, "{bad}");
+            assert_eq!(
+                client_checkout_from_wire(Some("/u/api"), Some(bad)),
+                None,
+                "{bad}"
+            );
+        }
     }
 
     #[test]

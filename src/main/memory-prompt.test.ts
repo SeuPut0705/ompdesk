@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	CHECKOUT_REV_PARSE_ARGS,
+	type CheckoutProbe,
 	CONCLUSION_MAX_BYTES,
+	checkoutParams,
 	childMarker,
 	conclusionExcerpt,
 	firstMeaningfulLine,
@@ -207,5 +210,56 @@ describe("conclusionExcerpt", () => {
 		expect(excerpt).not.toContain("\uFFFD");
 		expect(excerpt.startsWith("결론결론")).toBe(true);
 		expect(new TextEncoder().encode(excerpt).length).toBeGreaterThan(1990);
+	});
+});
+
+describe("checkoutParams", () => {
+	/** A machine where `links` maps a path to where it really is and git answers `git` for a folder. */
+	const machine = (git: Record<string, string | null>, links: Record<string, string> = {}): CheckoutProbe => ({
+		revParse: cwd => (cwd in git ? git[cwd] : undefined),
+		realpath: path => {
+			for (const [link, target] of Object.entries(links)) {
+				if (path === link || path.startsWith(`${link}/`)) return target + path.slice(link.length);
+			}
+			return path;
+		},
+	});
+
+	it("asks git for the work tree and the shared git dir, as absolute paths", () => {
+		expect(CHECKOUT_REV_PARSE_ARGS).toEqual([
+			"rev-parse",
+			"--path-format=absolute",
+			"--show-toplevel",
+			"--git-common-dir",
+		]);
+	});
+
+	it("spells the checkout root the way the cwd spells it, as the server's canonicalize did", () => {
+		const cwd = "/var/u/Desktop/app/src";
+		const probe = machine(
+			{ [cwd]: "/private/var/u/Desktop/app\n/private/var/u/Desktop/app/.git\n" },
+			{ "/var": "/private/var" },
+		);
+		expect(checkoutParams(cwd, probe)).toEqual({
+			repo_root: "/var/u/Desktop/app",
+			main_repo_root: "/var/u/Desktop/app",
+		});
+	});
+
+	it("names a linked worktree's main checkout where git puts it", () => {
+		const cwd = "/w/feature";
+		expect(checkoutParams(cwd, machine({ [cwd]: "/w/feature\n/m/acme/.git\n" }))).toEqual({
+			repo_root: "/w/feature",
+			main_repo_root: "/m/acme",
+		});
+	});
+
+	it("says there is no checkout when git ran and found none", () => {
+		expect(checkoutParams("/u/Desktop/notes", machine({ "/u/Desktop/notes": null }))).toEqual({ repo_root: "" });
+	});
+
+	it("sends nothing when git could not run or answered something else, so the server looks itself", () => {
+		expect(checkoutParams("/u/api", machine({}))).toBeUndefined();
+		expect(checkoutParams("/u/api", machine({ "/u/api": "/u/api\n" }))).toBeUndefined();
 	});
 });

@@ -5680,6 +5680,7 @@ fn build_omp_extension(
 
 import {{ execFileSync }} from "node:child_process";
 import {{ closeSync, existsSync, opendirSync, openSync, readFileSync as readMarkerText, readSync, readdirSync, statSync }} from "node:fs";
+import {{ realpathSync }} from "node:fs";
 import {{ basename, dirname, join, resolve, sep }} from "node:path";
 import {{ homedir }} from "node:os";
 
@@ -5818,6 +5819,38 @@ function tomlKey(text: string, key: string): string | undefined {{
 {TS_REPO_ROOT_PROJECT}
 {apply_marker_params}
 
+// The checkout around each cwd, resolved here (inside omp, with the access the agent already has) so the server
+// routes by `repo_root` / `main_repo_root` and never runs git in the event's folder itself. One git run per cwd for
+// the life of the process: a folder that becomes a checkout later is seen after omp restarts.
+const CHECKOUT_PROBE: CheckoutProbe = {{
+  revParse(cwd: string): string | null | undefined {{
+    try {{
+      return execFileSync("git", ["-C", cwd, ...CHECKOUT_REV_PARSE_ARGS], {{
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 3000,
+        windowsHide: true,
+      }});
+    }} catch (error: any) {{
+      return typeof error?.status === "number" ? null : undefined;
+    }}
+  }},
+  realpath(path: string): string | undefined {{
+    try {{
+      return realpathSync.native(path);
+    }} catch (_e) {{
+      return undefined;
+    }}
+  }},
+}};
+const checkoutCache = new Map<string, Record<string, string> | undefined>();
+
+function applyCheckoutParams(url: URL, cwd: string | undefined): void {{
+  if (!cwd) return;
+  if (!checkoutCache.has(cwd)) checkoutCache.set(cwd, checkoutParams(cwd, CHECKOUT_PROBE));
+  for (const [key, value] of Object.entries(checkoutCache.get(cwd) ?? {{}})) url.searchParams.set(key, value);
+}}
+
 function sessionID(ctx: any): string | undefined {{
   const id = ctx?.sessionManager?.getSessionId?.();
   return typeof id === "string" && id.length > 0 ? id : undefined;
@@ -5896,8 +5929,10 @@ function postHook(event: string, payload: Record<string, unknown>, captureAssist
   url.searchParams.set("event", event);
   url.searchParams.set("agent", AGENT);
   if (captureAssistant) url.searchParams.set("capture_assistant", "1");
-  if (!applyMarkerParams(url, typeof payload.cwd === "string" ? payload.cwd : undefined)) return;
-  const policy = capturePolicy(payload, typeof payload.cwd === "string" ? payload.cwd : undefined);
+  const cwd = typeof payload.cwd === "string" ? payload.cwd : undefined;
+  if (!applyMarkerParams(url, cwd)) return;
+  applyCheckoutParams(url, cwd);
+  const policy = capturePolicy(payload, cwd);
   if (policy.disposition === "drop") return;
   try {{
     enqueueHook(event, url, policy.payload);
@@ -5917,6 +5952,7 @@ async function fetchHandoff(cwd: string, id: string | undefined): Promise<string
   url.searchParams.set("cwd", cwd);
   if (id) url.searchParams.set("session_id", id);
   if (!applyMarkerParams(url, cwd)) return undefined;
+  applyCheckoutParams(url, cwd);
   try {{
     const response = await fetch(url, {{
       headers: authHeaders(),
@@ -12365,9 +12401,7 @@ model = "gpt-5"
         assert!(extension.contains("function declaresSettings"));
         assert!(extension.contains("let marker = findSettingsMarker(cwd);"));
         assert!(extension.contains("if (declaresSettings(text)) return marker;"));
-        assert!(extension.contains(
-            "if (!applyMarkerParams(url, typeof payload.cwd === \"string\" ? payload.cwd : undefined)) return;"
-        ));
+        assert!(extension.contains("if (!applyMarkerParams(url, cwd)) return;"));
         assert!(extension.contains("if (!applyMarkerParams(url, cwd)) return undefined;"));
         assert!(extension.contains("Bearer ${token}"));
         assert!(extension.contains("tok"));
@@ -12380,7 +12414,8 @@ model = "gpt-5"
         assert!(extension.contains("import { execFileSync } from \"node:child_process\";"));
         assert!(extension.contains("function repoRootProject"));
         assert!(extension.contains("repoProjectCache.set(cwd, project);"));
-        assert_eq!(extension.matches("windowsHide: true").count(), 3);
+        // Two for repo-root naming, one for remote identity, one for the checkout probe.
+        assert_eq!(extension.matches("windowsHide: true").count(), 4);
         assert!(extension.contains("--git-common-dir"));
         assert!(
             extension
@@ -13194,6 +13229,129 @@ process.exit(0);
             assert_eq!(run["unscoped"], serde_json::Value::Null, "{run}");
             assert_eq!(run["scoped"], "OTHER-PROJECT-HANDOFF", "{run}");
         }
+
+        /// Drives `before_agent_start` for a folder inside a git checkout and
+        /// for one outside any, and records the checkout parameters every
+        /// `/handoff` and `/hook` request carried, keyed by its `cwd`.
+        const CHECKOUT_HARNESS: &str = r#"import { createServer } from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
+
+const [inside, outside] = process.argv.slice(2);
+const seen: Record<string, Record<string, string | null>> = {};
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  req.resume();
+  const cwd = url.searchParams.get("cwd");
+  if (cwd) {
+    seen[`${url.pathname} ${cwd}`] = {
+      repo_root: url.searchParams.get("repo_root"),
+      main_repo_root: url.searchParams.get("main_repo_root"),
+    };
+  }
+  res.writeHead(url.pathname === "/handoff" ? 200 : 204);
+  res.end();
+});
+await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+const port = (server.address() as any).port;
+writeFileSync(
+  "./ext.ts",
+  readFileSync("./ext.template.ts", "utf8").replace("http://127.0.0.1:65535", `http://127.0.0.1:${port}`),
+);
+const { default: AiMemoryExtension } = await import("./ext.ts");
+const handlers: Record<string, any> = {};
+AiMemoryExtension({ on: (name: string, fn: any) => { handlers[name] = fn; } });
+const ctx = (id: string, cwd: string) => ({ sessionManager: { getSessionId: () => id }, cwd });
+await handlers["before_agent_start"]({ prompt: "fix the login" }, ctx("s-inside", inside));
+await handlers["before_agent_start"]({ prompt: "fix the login" }, ctx("s-outside", outside));
+const deadline = Date.now() + 10000;
+while (Date.now() < deadline && !(`/hook ${inside}` in seen && `/hook ${outside}` in seen)) {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+console.log(JSON.stringify(seen));
+process.exit(0);
+"#;
+
+        /// The server never runs git in an event's folder (a launchd-run
+        /// server under macOS privacy rules asks for Desktop and the like), so
+        /// the extension sends the checkout it resolved: the root spelled as
+        /// the cwd spells it (`/var/…` on a Mac, where git prints
+        /// `/private/var/…`), and an empty root outside any checkout.
+        #[test]
+        fn omp_extension_sends_the_checkout_it_resolved() {
+            if !Command::new("node")
+                .args(["--experimental-strip-types", "--version"])
+                .output()
+                .is_ok_and(|output| output.status.success())
+            {
+                eprintln!("skipping: node lacks --experimental-strip-types");
+                return;
+            }
+            let tmp = TempDir::new().unwrap();
+            let project = tmp.path().join("project");
+            let inside = project.join("src");
+            let outside = tmp.path().join("plain");
+            fs::create_dir_all(&inside).unwrap();
+            fs::create_dir(&outside).unwrap();
+            let init = Command::new("git")
+                .args(["init", "-q"])
+                .arg(&project)
+                .env("GIT_CONFIG_GLOBAL", tmp.path().join("absent-gitconfig"))
+                .env("GIT_CONFIG_SYSTEM", tmp.path().join("absent-gitconfig"))
+                .status()
+                .unwrap();
+            assert!(init.success());
+            let extension = build_omp_extension(PLACEHOLDER_SERVER, None, None, "denylist")
+                .replacen(
+                    "signal: timeoutSignal(1000)",
+                    "signal: timeoutSignal(5000)",
+                    1,
+                );
+            fs::write(tmp.path().join("ext.template.ts"), extension).unwrap();
+            fs::write(tmp.path().join("harness.ts"), CHECKOUT_HARNESS).unwrap();
+            let mut command = Command::new("node");
+            for (key, _) in std::env::vars_os() {
+                let key_text = key.to_string_lossy();
+                if key_text.starts_with("AI_MEMORY_") || key_text.starts_with("GIT_") {
+                    command.env_remove(&key);
+                }
+            }
+            let output = command
+                .args(["--experimental-strip-types", "--no-warnings", "harness.ts"])
+                .arg(&inside)
+                .arg(&outside)
+                .current_dir(tmp.path())
+                .env("HOME", tmp.path())
+                .env("USERPROFILE", tmp.path())
+                .env("AI_MEMORY_HOME", tmp.path())
+                .env("AI_MEMORY_DATA_DIR", tmp.path().join("data"))
+                .env("GIT_CONFIG_GLOBAL", tmp.path().join("absent-gitconfig"))
+                .env("GIT_CONFIG_SYSTEM", tmp.path().join("absent-gitconfig"))
+                .env("GIT_CEILING_DIRECTORIES", tmp.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "harness failed\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let seen: serde_json::Value = serde_json::from_slice(
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .last()
+                    .unwrap()
+                    .as_bytes(),
+            )
+            .unwrap();
+            let root = project.to_string_lossy();
+            let checkout = serde_json::json!({ "repo_root": root, "main_repo_root": root });
+            let none = serde_json::json!({ "repo_root": "", "main_repo_root": null });
+            for path in ["/handoff", "/hook"] {
+                let at = |cwd: &std::path::Path| format!("{path} {}", cwd.to_string_lossy());
+                assert_eq!(seen[at(&inside)], checkout, "{path}: {seen}");
+                assert_eq!(seen[at(&outside)], none, "{path}: {seen}");
+            }
+        }
     }
 
     #[test]
@@ -13270,7 +13428,7 @@ process.exit(0);
         assert!(extension.contains("import { execFileSync } from \"node:child_process\";"));
         assert!(!extension.contains(".omp"));
         assert!(extension.contains("repoProjectCache.set(cwd, project);"));
-        assert_eq!(extension.matches("windowsHide: true").count(), 3);
+        assert_eq!(extension.matches("windowsHide: true").count(), 4);
         assert!(!extension.contains("serve --transport stdio"));
         assert!(!extension.contains("serve --stdio"));
         // #676: the pi string-transform (api.on( -> pi.on() must still

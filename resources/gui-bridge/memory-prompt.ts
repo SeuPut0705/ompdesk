@@ -1,7 +1,7 @@
 /**
  * What the memory extension and the app both need to know about a session: what the session is about (the title a
  * session page is filed under), whether the session is a child (a subagent, or a session another agent opened) that
- * must neither create nor consume a handoff, and the conclusion a turn ended on.
+ * must neither create nor consume a handoff, the conclusion a turn ended on, and the checkout its folder belongs to.
  *
  * Imports only `./redactor` on purpose: the ai-memory build embeds both files into the omp extension it generates
  * (`native/memory` `install_hooks.rs`, `include_str!`; the extension drops this one import line, the redactor sits
@@ -191,4 +191,64 @@ export function conclusionExcerpt(messages: readonly unknown[]): string | undefi
 		return excerpt || undefined;
 	}
 	return undefined;
+}
+
+/** The git command `checkoutParams` reads: the work tree's root and the git dir every worktree of it shares. */
+export const CHECKOUT_REV_PARSE_ARGS = [
+	"rev-parse",
+	"--path-format=absolute",
+	"--show-toplevel",
+	"--git-common-dir",
+] as const;
+
+/** What `checkoutParams` asks of the machine; the extension answers with git and `realpathSync`. */
+export interface CheckoutProbe {
+	/**
+	 * `git -C <cwd> <CHECKOUT_REV_PARSE_ARGS>`'s output; null when git ran and found no work tree there, undefined when
+	 * git could not run.
+	 */
+	revParse(cwd: string): string | null | undefined;
+	/** `path` with every link resolved, or undefined when it cannot be read. */
+	realpath(path: string): string | undefined;
+}
+
+/** The folder holding `path`; undefined when that is a filesystem root (`/`, `C:`), which never holds a checkout. */
+function checkoutParent(path: string): string | undefined {
+	const trimmed = path.replace(/[\\/]+$/, "");
+	const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+	if (cut <= 0) return undefined;
+	const parent = trimmed.slice(0, cut);
+	return /^[A-Za-z]:$/.test(parent) ? undefined : parent;
+}
+
+/** `root` as the cwd spells it (the cwd's ancestor that is really `root`), else as git printed it. */
+function checkoutInCwdSpelling(cwd: string, root: string, probe: CheckoutProbe): string {
+	const real = probe.realpath(root);
+	if (real === undefined) return root;
+	for (let dir: string | undefined = cwd.replace(/[\\/]+$/, ""); dir; dir = checkoutParent(dir)) {
+		if (probe.realpath(dir) === real) return dir;
+	}
+	return root;
+}
+
+/**
+ * The `repo_root` / `main_repo_root` query parameters ai-memory's server routes an event by, so it never runs git in
+ * the event's folder itself: on macOS the server is a launchd job with its own privacy permissions, and its look into
+ * a project under Desktop, Documents or Downloads asked the person for that folder after every update. The extension
+ * runs inside omp, under the access OMPdesk already has. Roots are spelled in the cwd's namespace (the server compares
+ * strings: `/var/…` and `/private/var/…` are the same folder on a Mac), and the main root is the parent of the shared
+ * git dir, as the server's own discovery reads it. `{repo_root: ""}` says the cwd is in no checkout; undefined (git
+ * missing, an answer it cannot read) lets the server look as before.
+ */
+export function checkoutParams(cwd: string, probe: CheckoutProbe): Record<string, string> | undefined {
+	const output = probe.revParse(cwd);
+	if (output === undefined) return undefined;
+	if (output === null) return { repo_root: "" };
+	const [top, common] = output.split(/\r?\n/).map(line => line.trim());
+	const main = common ? checkoutParent(common) : undefined;
+	if (!top || !main) return undefined;
+	return {
+		repo_root: checkoutInCwdSpelling(cwd, top, probe),
+		main_repo_root: checkoutInCwdSpelling(cwd, main, probe),
+	};
 }
