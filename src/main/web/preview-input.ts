@@ -43,6 +43,11 @@ export const previewStreamBatchSchema = z.array(previewStreamInputSchema).max(IN
 export interface InputSurface {
 	width: number;
 	height: number;
+	/**
+	 * Window DIPs per CSS px of the frame the viewer shows (`profile.dpr / host screen scale`, host.ts
+	 * `placeStreamed`): a wheel delta arrives in the frame's CSS px and the page's zoom divides by the same.
+	 */
+	scale: number;
 }
 
 export type InputOp =
@@ -143,8 +148,8 @@ export class InputMapper {
 						event: {
 							type: "mouseWheel",
 							...at,
-							deltaX: flipWheel(input.dx),
-							deltaY: flipWheel(input.dy),
+							deltaX: flipWheel(input.dx * surface.scale),
+							deltaY: flipWheel(input.dy * surface.scale),
 							hasPreciseScrollingDeltas: true,
 							canScroll: true,
 						},

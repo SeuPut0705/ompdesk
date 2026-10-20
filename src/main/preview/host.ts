@@ -150,6 +150,8 @@ interface PreviewPage {
 	stream: PageStream | null;
 	/** A web viewer's gesture state (a drag in progress). */
 	mapper: InputMapper;
+	/** A web viewer's window DIPs per frame CSS px (`placeStreamed`): a wheel delta in frame px is scaled by it. */
+	streamScale: number;
 }
 
 interface AgentLink {
@@ -319,6 +321,7 @@ export function registerPreviewHost(
 		const fitted = fitPreviewFrame(layout.bounds, PREVIEW_VIEWPORTS[page.state.viewport]);
 		const profile = streamProfile(fitted.bounds.width, layout.dpr);
 		const scale = profile.dpr / Math.max(0.5, viewers?.hostScale() ?? 1);
+		page.streamScale = scale;
 		const width = Math.max(1, Math.min(MAX_STREAM_DIP, Math.round(fitted.bounds.width * scale)));
 		const height = Math.max(1, Math.min(MAX_STREAM_DIP, Math.round(fitted.bounds.height * scale)));
 		const [currentWidth, currentHeight] = osr.getContentSize();
@@ -476,6 +479,7 @@ export function registerPreviewHost(
 			lastInput: 0,
 			stream,
 			mapper: new InputMapper(),
+			streamScale: 1,
 		};
 		if (stream) {
 			// The page's dialogs wait for the viewer (preview-dialog.ts); leaving a page is never a question.
@@ -959,7 +963,7 @@ export function registerPreviewHost(
 		if (page.state.crashed || osr.isDestroyed()) return;
 		const [width, height] = osr.getContentSize();
 		for (const input of batch.data) {
-			for (const op of page.mapper.map(input, { width, height })) {
+			for (const op of page.mapper.map(input, { width, height, scale: page.streamScale })) {
 				if (op.op === "event") page.contents.sendInputEvent(op.event);
 				else if (op.op === "text") void page.contents.insertText(op.text).catch(() => {});
 				else {
