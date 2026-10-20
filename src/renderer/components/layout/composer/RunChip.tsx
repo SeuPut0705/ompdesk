@@ -100,6 +100,7 @@ export function RunChip() {
 					className="omp-composer-chip omp-composer-fold-2"
 					data-active={modes.shown.length > 0 ? "" : undefined}
 					data-approval={approvalMode}
+					data-mode={first}
 					data-run-settings-trigger
 					icon={first ? MODE_ICONS[first] : <SlidersHorizontal aria-hidden />}
 					onClick={() => {
