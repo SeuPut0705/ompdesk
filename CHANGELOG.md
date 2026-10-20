@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.48.0] - 2026-10-21
+
+노트북이 충전 중이면 덮개를 닫아도 작업이 멈추지 않고, Windows에서 디스크 정리와 세션 닫기가 제대로 동작해요.
+
+### 새로 생긴 것
+- 노트북이 충전 중이면 덮개를 닫아도 OMPdesk가 하던 작업을 계속해요. 배터리로 바뀌면 평소처럼 잠들어요. 맥과 Windows 노트북 모두 되고, 설정은 따로 없어요. "작업 중에는 잠자기 막기"가 이제 기본으로 켜져 있어요.
+
+### 고친 것
+- 작업이 끝났는데 "정리 중"에 계속 머물던 문제를 고쳤어요(할 일 목록 오류 뒤에 생기던 문제).
+- 에이전트가 일을 시작할 때 절차 문서를 읽느라 한 번 더 왕복하지 않아서, 응답이 조금 빨라졌어요.
+- 앱을 다시 켠 뒤 부모 세션이 이어서 진행 중인데 하위 세션이 먼저 닫히던 문제를 고쳤어요.
+- 다른 컴퓨터의 하위 에이전트가 돌 때 오가는 데이터를 3~7분의 1로 줄였어요. 데이터가 한꺼번에 몰리면 작업이 "작업 중"에 멈춰 있던 문제도 고쳤어요.
+- 휴대폰에서 새로고침하면 "탭을 쓸 수 없어요" 알림이 뜨던 문제, 휴대폰에 처음 설치한 직후 페이지가 다시 로드되던 문제를 고쳤어요.
+- 말풍선 설명이 그 아래 버튼의 클릭을 가로채던 문제를 고쳤어요.
+- 디스크 사용량을 재는 시간이 크게 줄었어요(맥 18초 → 0.4초, Windows 30초 → 0.4초).
+- 업데이트 확인이 네트워크가 멈췄을 때 계속 "확인 중"에 머물지 않아요.
+
+### 고친 것 (Windows)
+- 디스크 정리가 Electron이 들어 있는 작업 폴더를 지우지 못하던 문제를 고쳤어요(앱이 그 파일을 붙잡고 있었어요).
+- 세션을 닫거나 지울 때 omp가 완전히 끝난 뒤에 폴더를 정리해요. Windows가 바쁠 때 닫은 세션의 omp가 남아 있던 문제도 고쳤어요.
+
+<!-- en -->
+
+A charging laptop keeps working with its lid closed, and disk care and session closing work properly on Windows.
+
+### New
+- While a laptop is charging, closing its lid no longer stops OMPdesk's work; on battery it sleeps as usual. On Mac and Windows laptops, with no setting of its own: "Keep awake while working" is now on by default.
+
+### Fixed
+- A turn that had finished no longer stays "settling" (it happened after a refused todo call).
+- The agent no longer spends a round trip reading its playbook on its own, so replies start a little sooner.
+- After a relaunch, a session's children no longer close while their parent is still being continued.
+- A paired computer's subagents send 3 to 7 times less data, and a burst of data no longer leaves a session stuck "running".
+- A phone reload no longer shows "This tab is no longer available", and a phone's first install no longer reloads the page after pairing.
+- A tooltip no longer takes the clicks of the control under it.
+- Measuring disk usage is much faster (Mac 18 s → 0.4 s, Windows 30 s → 0.4 s).
+- An update check no longer stays "checking" when the network stalls.
+
+### Fixed (Windows)
+- Disk care can delete worktrees that contain Electron again (the app was holding their files open).
+- Closing or deleting a session waits until its omp has exited before cleaning up its folder, and a closed session's omp no longer lingers when Windows is busy.
+
 ## [0.47.0] - 2026-10-21
 
 다른 컴퓨터에서 돌리는 세션이 끊김 없이 실시간으로 이어지고, 작업현황이 늘 최신 상태를 보여줘요.
