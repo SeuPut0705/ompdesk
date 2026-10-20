@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import {
+	MAX_FORMER_TAB_IDS,
 	MAX_PERSISTED_TITLE,
 	sanitizePersistedTabLayout,
 	sanitizePersistedTabLayouts,
@@ -91,6 +92,28 @@ describe("persisted tab layout", () => {
 		);
 
 		expect(layout?.tabs.map(tab => tab.openedBy)).toEqual(["/s/boss.jsonl", undefined, undefined, undefined]);
+	});
+
+	it("keeps a tab's earlier ids, bounded, and drops anything that is not one", () => {
+		const many = Array.from({ length: 12 }, (_, index) => `15ad${index}`);
+		const layout = sanitizePersistedTabLayout(
+			{
+				version: 1,
+				activeIndex: 0,
+				tabs: [
+					{ cwd: "/a", kind: "agent", sessionPath: "/s/a.jsonl", formerIds: many },
+					{
+						cwd: "/b",
+						kind: "agent",
+						sessionPath: "/s/b.jsonl",
+						formerIds: ["ok-1", 7, "", "a b", "x".repeat(65)],
+					},
+					{ cwd: "/c", kind: "agent", formerIds: "15ad1" },
+				],
+			},
+			pathChecks(["/a", "/b", "/c"], ["/s/a.jsonl", "/s/b.jsonl"]),
+		);
+		expect(layout?.tabs.map(tab => tab.formerIds)).toEqual([many.slice(0, MAX_FORMER_TAB_IDS), ["ok-1"], undefined]);
 	});
 
 	it("remaps and clamps a restored two-pane layout after invalid tabs are dropped", () => {

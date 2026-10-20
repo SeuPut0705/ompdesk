@@ -2813,3 +2813,88 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 		expect([one.text, two.text].some(text => text.includes("nothing sent again"))).toBe(true);
 	});
 });
+
+describe("after a relaunch: ids, titles, and messages a busy child waits for", () => {
+	it("resolves an id the agent was given before a relaunch to the same session, never another", async () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			// The relaunch gave the child a new id; its tab remembers the ones it had (the saved tab layout).
+			{ tabId: "kidnew02", title: "Fix the parser", sessionPath: "/s/kid.jsonl", formerIds: ["kidold02"] },
+			{ tabId: "else0003", title: "Other", sessionPath: "/s/else.jsonl" },
+		);
+		host.parents.set("kidnew02", "boss0001");
+		const service = control(host);
+		const sent = await service.run("boss0001", T.send, { session: "kidold02", message: "carry on" });
+		expect(sent.isError).toBe(false);
+		expect(prompts(host, "kidnew02")).toHaveLength(1);
+		expect(prompts(host, "else0003")).toHaveLength(0);
+		expect((await service.run("boss0001", T.result, { session: "kidold02" })).text).toContain("[kidnew02]");
+		expect((await service.run("boss0001", T.send, { session: "kidold99", message: "x" })).text).toMatch(/No session/);
+	});
+
+	it("names a restored or reopened child by its saved title, else the task of its first message", async () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss" },
+			{ tabId: "kid00002", sessionPath: "/s/kid.jsonl", cwd: "/wt/gui-agent-abc" },
+			{ tabId: "named003", sessionPath: "/s/named.jsonl", cwd: "/wt/gui-agent-def" },
+		);
+		host.storedRows = [
+			storedRow({
+				id: "aaaa",
+				path: "/s/kid.jsonl",
+				title: "",
+				firstMessage: wrapAgentMessage("Title: Fix the parser\nparse.ts drops a field.", "Boss"),
+			}),
+			storedRow({ id: "bbbb", path: "/s/named.jsonl", title: "Ship the release" }),
+		];
+		const service = control(host);
+		const listed = await service.run("boss0001", T.list, {});
+		expect(listed.text).toContain('"Fix the parser"');
+		expect(listed.text).toContain('"Ship the release"');
+		expect(listed.text).not.toContain("untitled");
+		// The pool learns it too, so the sidebar, the board and the next call read it.
+		expect(host.tasks.get("kid00002")).toBe("Fix the parser");
+		expect((await service.run("boss0001", T.send, { session: "kid00002", message: "x" })).text).toContain(
+			'"Fix the parser"',
+		);
+	});
+
+	it("tells a busy child that reports of a follow-up queued for it, and steers the next one", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		const service = control(host);
+		const opened = await service.run("boss0001", T.open, { message: "Title: part A\nDo A" });
+		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		// The child works (its first prompt made it busy); the opener queues more work behind its turn.
+		const queued = await service.run("boss0001", T.send, { session: kid, message: "Also do C" });
+		expect(queued.text).toContain("queued as a follow-up");
+		// It reports done and would keep waiting in the same turn: the report must say a message waits for it.
+		const report = await service.run(kid, T.report, { kind: "done", text: "A done", dispatch: "d2" });
+		expect(report.text).toMatch(/d2/);
+		expect(report.text).toMatch(/waiting for you|waits for you/);
+		expect(report.text).toMatch(/end (this|your) turn/i);
+		// A message sent after it reported in this turn reaches it between its steps.
+		const next = await service.run("boss0001", T.send, { session: kid, message: "And D" });
+		expect(next.text).toContain("steer");
+		const last = host.sent.filter(entry => entry.tabId === kid && entry.command.type === "prompt").at(-1)?.command;
+		expect(last?.type === "prompt" ? last.streamingBehavior : undefined).toBe("steer");
+	});
+
+	it("says nothing about a follow-up the child already read", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
+		const service = control(host);
+		const opened = await service.run("boss0001", T.open, { message: "Do A" });
+		const kid = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
+		await service.run("boss0001", T.send, { session: kid, message: "Also do C" });
+		const tab = host.tabsById.get(kid);
+		if (tab)
+			tab.messages = [
+				{
+					role: "user",
+					content: [{ type: "text", text: prompts(host, kid).at(-1) as string }],
+					timestamp: 1,
+				} as AgentMessage,
+			];
+		const report = await service.run(kid, T.report, { kind: "done", text: "C done", dispatch: "d2" });
+		expect(report.text).toBe("Delivered.");
+	});
+});

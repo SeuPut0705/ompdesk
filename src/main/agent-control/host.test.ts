@@ -85,6 +85,7 @@ function setup(
 			sidecarOf: tabId => (sidecars.get(tabId) ?? { cwd: "/repo" }) as never,
 			startTab: vi.fn(() => null),
 			setTabTask: vi.fn(),
+			formerTabIds: () => [],
 			setTabOpener: openers,
 			hasDraft: () => false,
 			windowOfTab: tabId =>

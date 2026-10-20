@@ -782,6 +782,7 @@ describe("SidecarPool tabs", () => {
 			kind: "agent",
 			sessionPath: "/sessions/a.jsonl",
 			title: "Fix races",
+			formerIds: [pool.tabsForWindow(fw.win)[0]?.tabId],
 		});
 	});
 
@@ -827,7 +828,7 @@ describe("SidecarPool tabs", () => {
 			version: 1,
 			activeIndex: 1,
 			tabs: [
-				{ cwd: "/agent", kind: "agent", sessionPath: "/sessions/a.jsonl" },
+				{ cwd: "/agent", kind: "agent", sessionPath: "/sessions/a.jsonl", formerIds: [restoredIds[0]] },
 				{ cwd: "/chat", kind: "chat" },
 			],
 			split: { axis: "rows", first: { tabId: "0" }, second: { tabId: "1" }, ratio: 0.6 },
@@ -850,8 +851,8 @@ describe("SidecarPool tabs", () => {
 			version: 1,
 			activeIndex: 1,
 			tabs: [
-				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/a.jsonl" },
-				{ cwd: "/moved", kind: "chat", sessionPath: "/sessions/b.jsonl" },
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/a.jsonl", formerIds: ["tab-a"] },
+				{ cwd: "/moved", kind: "chat", sessionPath: "/sessions/b.jsonl", formerIds: ["tab-b"] },
 			],
 		});
 
@@ -859,7 +860,7 @@ describe("SidecarPool tabs", () => {
 		expect(snapshots.at(-1)).toEqual({
 			version: 1,
 			activeIndex: 0,
-			tabs: [{ cwd: "/a", kind: "agent", sessionPath: "/sessions/a.jsonl" }],
+			tabs: [{ cwd: "/a", kind: "agent", sessionPath: "/sessions/a.jsonl", formerIds: ["tab-a"] }],
 		});
 	});
 
@@ -1361,6 +1362,33 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(boss?.openedBySession).toBeUndefined();
 		// Written out again, so a second relaunch still knows.
 		expect(after.pool.tabLayoutForWindow(restoredWindow.win)?.tabs[1]?.openedBy).toBe("/sessions/boss.jsonl");
+	});
+
+	it("remembers a session's earlier tab ids through relaunches, and only while the tab holds that session", () => {
+		const first = fakePool();
+		const fw = fakeWindow(1);
+		first.pool.acquire("/wt/x", fw.win, "tab-launch1", "/sessions/child.jsonl");
+		const layout1 = first.pool.tabLayoutForWindow(fw.win);
+		if (!layout1) throw new Error("expected a layout");
+
+		const second = fakePool();
+		const w2 = fakeWindow(2);
+		second.pool.restoreLayout(w2.win, layout1);
+		const id2 = second.pool.tabsForWindow(w2.win)[0]?.tabId as string;
+		expect(id2).not.toBe("tab-launch1");
+		expect(second.pool.formerTabIds(id2)).toEqual(["tab-launch1"]);
+		const layout2 = second.pool.tabLayoutForWindow(w2.win);
+		if (!layout2) throw new Error("expected a layout");
+
+		const third = fakePool();
+		const w3 = fakeWindow(3);
+		third.pool.restoreLayout(w3.win, layout2);
+		const id3 = third.pool.tabsForWindow(w3.win)[0]?.tabId as string;
+		expect(third.pool.formerTabIds(id3)).toEqual([id2, "tab-launch1"]);
+		// Moved onto another session, the old ids name that one no longer.
+		third.pool.noteSessionFile(id3, "/sessions/other.jsonl");
+		expect(third.pool.formerTabIds(id3)).toEqual([]);
+		expect(third.pool.tabLayoutForWindow(w3.win)?.tabs[0]?.formerIds).toEqual([id3]);
 	});
 
 	it("ignores an opener it does not hold", () => {
