@@ -381,10 +381,10 @@ for (const engine of ENGINES)
 				await expect(field).toHaveValue("", { timeout: 30_000 });
 			}
 
-			// A photo from the gallery or the camera: `accept="image/*"` makes a phone offer those.
+			// A photo goes through the same single attach item: no `accept` filter, so the phone offers gallery, camera and files.
 			await markPage(phone);
-			const chooser = await choose(phone, "Photos");
-			expect(await chooser.element().getAttribute("accept")).toBe("image/*");
+			const chooser = await choose(phone, "Attach files");
+			expect(await chooser.element().getAttribute("accept")).toBeNull();
 			await setVisibility(phone, "hidden");
 			await replyWhileHidden(phone, profile.record, "busy while picking a photo");
 			await setVisibility(phone, "visible");

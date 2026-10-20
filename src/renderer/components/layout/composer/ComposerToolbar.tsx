@@ -24,7 +24,6 @@ import {
 	CornerDownRight,
 	Cpu,
 	History,
-	ImageIcon,
 	ListPlus,
 	Mic,
 	MicOff,
@@ -72,10 +71,10 @@ const STT_SETTING_TARGET = "agent:setting-stt.enabled";
 export interface ComposerToolbarProps {
 	/** The tab's route exists: without it the row is inert and busy. */
 	routeReady: boolean;
-	/** Touch input: the + menu also offers Photos. */
+	/** Touch input: no shortcut hints, and the + menu keeps the field's focus. */
 	touchInput: boolean;
-	/** Open the file chooser (`accept`: what it offers; none = any file). */
-	onOpenFilePicker: (accept?: string) => void;
+	/** Open the file chooser for any file (a phone's chooser also offers its photo library and camera). */
+	onOpenFilePicker: () => void;
 	fileInputRef: RefObject<HTMLInputElement | null>;
 	onFilesPicked: (event: ChangeEvent<HTMLInputElement>) => void;
 	onOpenHistory: () => void;
@@ -301,19 +300,8 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 				keepFocus={touchInput}
 				icon={<Plus />}
 				items={[
-					// A phone offers its gallery and camera only for pictures (`image/*`); any file opens its
-					// file manager, which lists no gallery.
-					...(touchInput
-						? [
-								{
-									id: "photos",
-									label: t("input.attachPhotos"),
-									description: t("input.attachPhotosDesc"),
-									icon: ImageIcon,
-									onSelect: () => onOpenFilePicker("image/*"),
-								},
-							]
-						: []),
+					// One item for every kind of file: with no `accept` filter a phone offers its photo library, camera and files
+					// in one chooser.
 					{
 						id: "attach",
 						label: t("input.attach"),

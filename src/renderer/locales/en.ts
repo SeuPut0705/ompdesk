@@ -332,8 +332,6 @@ export const en: Record<string, string> = {
 	"input.placeholder.chat": "Ask anything",
 	"tabs.kind.chat": "Chat session (no project)",
 	"input.attach": "Attach files",
-	"input.attachPhotos": "Photos",
-	"input.attachPhotosDesc": "From the gallery or the camera",
 	"input.model": "Change model",
 	"input.thinking.failed": "Couldn't change thinking level",
 	"input.thinking.unsupported": "The current model does not support reasoning.",

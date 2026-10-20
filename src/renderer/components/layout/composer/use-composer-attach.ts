@@ -152,11 +152,9 @@ export function useComposerAttach({
 		}
 	};
 
-	const openFilePicker = useCallback((accept?: string) => {
+	const openFilePicker = useCallback(() => {
 		const input = fileInputRef.current;
 		if (!input) return;
-		if (accept) input.accept = accept;
-		else input.removeAttribute("accept");
 		endPickRef.current?.();
 		endPickRef.current = trackFilePick(input);
 		input.click();
