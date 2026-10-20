@@ -349,20 +349,30 @@ for (const engine of ENGINES) {
 					try {
 						const sentence = "그리고 변경사항같은거 자동으로 열리는건 별로야";
 						await field(page).fill(sentence);
-						const metrics = await field(page).evaluate(element => {
+						const metrics = await field(page).evaluate((element, text) => {
 							const area = element as HTMLTextAreaElement;
 							const style = getComputedStyle(area);
 							const line = Number.parseFloat(style.lineHeight);
 							const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
 							const wrapper = area.parentElement as HTMLElement;
+							const ruler = document.createElement("canvas").getContext("2d");
+							if (!ruler) throw new Error("no canvas to measure the sentence with");
+							ruler.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
 							return {
 								client: area.clientWidth,
 								wrapper: wrapper.clientWidth,
 								lines: Math.round((area.scrollHeight - padding) / line),
+								drawn: ruler.measureText(text).width,
 							};
-						});
+						}, sentence);
 						expect(metrics.client, "field spans its cell").toBeGreaterThanOrEqual(metrics.wrapper - 26);
-						expect(metrics.lines, "a 30-character Korean sentence fits one line at 390").toBe(1);
+						// How wide a Korean syllable is depends on the face the machine draws it with: Malgun Gothic (Windows) sets
+						// it a full em, so this sentence is 354 px against the 340 px field at 390. One line exactly when the
+						// sentence is no wider than the field, so it wraps there and never sooner.
+						expect(
+							metrics.lines === 1,
+							`a ${metrics.drawn} px sentence in a ${metrics.client} px field drew ${metrics.lines} lines`,
+						).toBe(metrics.drawn <= metrics.client);
 						await field(page).fill(`${sentence} ${sentence} ${sentence}`);
 						expect(await field(page).evaluate(element => element.clientWidth)).toBe(metrics.client);
 						await capture(page, "korean-wrap", engine, theme, lang);
