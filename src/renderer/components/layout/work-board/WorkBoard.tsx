@@ -122,11 +122,15 @@ const GOAL_STATUS_KEY: Record<string, string> = {
 	dropped: "modesPanel.goal.statusValue.dropped",
 };
 
-/** Budget and time the goal has used: stock's `get_goal`, read again whenever the goal or a turn changes. */
-function useGoalDetail(objective: string | undefined, status: string | undefined, turnActive: boolean) {
+/**
+ * Budget and time the goal has used: stock's `get_goal`, read again whenever the goal changes, a turn starts or ends,
+ * and on each of stock's `goal_updated` frames (`frame`, a new object every frame), which follow every tool call a
+ * goal turn makes: a long turn's budget moves as it runs.
+ */
+function useGoalDetail(objective: string | undefined, frame: unknown, turnActive: boolean) {
 	const rpc = useTabRpc();
 	const [detail, setDetail] = useState<RpcGoalState | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: objective, status and the turn are the re-read triggers.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: objective, each goal frame and the turn are the re-read triggers.
 	useEffect(() => {
 		if (objective === undefined) {
 			setDetail(null);
@@ -142,7 +146,7 @@ function useGoalDetail(objective: string | undefined, status: string | undefined
 		return () => {
 			cancelled = true;
 		};
-	}, [rpc, objective, status, turnActive]);
+	}, [rpc, objective, frame, turnActive]);
 	return detail;
 }
 
@@ -250,8 +254,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const plan = useMemo(() => (planVisible ? todoBoard(phases) : null), [phases, planVisible]);
 
 	const goal = useSessionStore(state => state.goal);
-	const goalStatus = useSessionStore(state => state.goalState?.status);
-	const goalDetail = useGoalDetail(goal?.objective, goalStatus, turnActive);
+	const goalState = useSessionStore(state => state.goalState);
+	const goalStatus = goalState?.status;
+	const goalDetail = useGoalDetail(goal?.objective, goalState, turnActive);
 	const autopilot = useAutopilotStore(isLiveAutopilot);
 	const autopilotText = useAutopilotStateText();
 

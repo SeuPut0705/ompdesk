@@ -427,6 +427,27 @@ describe("WorkBoard sections", () => {
 		expect(getGoal).toHaveBeenCalled();
 	});
 
+	it("moves the goal's budget as stock's goal frames arrive inside a turn", async () => {
+		useSessionStore.setState({ goal: { objective: "Ship the release" }, goalState: { status: "active" } });
+		goal = {
+			enabled: true,
+			status: "active",
+			objective: "Ship the release",
+			tokenBudget: 200_000,
+			tokensUsed: 50_000,
+		};
+		await mount();
+		const meta = () => pane.querySelector("[data-board-goal] .omp-work-board-meta")?.textContent;
+		expect(meta()).toBe("25%");
+		// A tool call of the running turn: stock flushes the usage and sends goal_updated (the same status).
+		goal = { ...goal, tokensUsed: 150_000 };
+		await act(async () => {
+			useSessionStore.setState({ goalState: { status: "active" } });
+		});
+		await act(async () => {});
+		expect(meta()).toBe("75%");
+	});
+
 	it("puts the questions waiting on the user first and announces them politely", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		useExtensionUiStore.getState().pushRequest({
