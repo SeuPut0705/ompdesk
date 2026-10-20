@@ -35,3 +35,11 @@ export function sessionDisplayTitle(session: Pick<SessionInfo, "title" | "firstM
 export function sessionHasContent(session: Pick<SessionInfo, "title" | "firstMessage" | "messageCount">): boolean {
 	return session.messageCount > 0 || Boolean(session.title?.trim() || firstPrompt(session));
 }
+
+/**
+ * The sidebar's lane rule, one for this computer's list and a paired host's: a chat, or a session in that machine's
+ * no-project workspace (`~/.omp/work`), sits in the Chat lane; everything else in Code.
+ */
+export function inChatLane(session: Pick<SessionInfo, "kind" | "cwd">, workspace: string | null): boolean {
+	return session.kind === "chat" || (workspace !== null && session.cwd === workspace);
+}

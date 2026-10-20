@@ -652,7 +652,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			restart: (payload?: IpcSidecarRestartPayload) => transport.invoke(IPC_COMMANDS.SIDECAR_RESTART, payload),
 			selectProject: () => transport.invoke(IPC_COMMANDS.SIDECAR_SELECT_PROJECT),
 			setProject: (cwd: string) => transport.invoke(IPC_COMMANDS.SIDECAR_SET_PROJECT, { cwd }),
-			defaultWorkspace: () => transport.invoke(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE) as Promise<string>,
+			defaultWorkspace: (device?: string) =>
+				transport.invoke(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, device) as Promise<string>,
 			getStatus: () => transport.invoke(IPC_COMMANDS.SIDECAR_STATUS_GET),
 		},
 

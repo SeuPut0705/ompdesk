@@ -1740,7 +1740,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return true;
 	});
 
-	ipc.handle(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, () => ensureDefaultWorkspace());
+	ipc.handle(IPC_COMMANDS.SIDECAR_DEFAULT_WORKSPACE, (_caller, device?: unknown) => {
+		const host = deviceOf(device);
+		return host ? remoteDefaultWorkspace(host) : ensureDefaultWorkspace();
+	});
 
 	// models.yml custom providers of the machine the caller's focused tab runs on.
 	ipc.handle(IPC_COMMANDS.MODELS_PROVIDERS_LIST, (caller, device?: unknown) =>

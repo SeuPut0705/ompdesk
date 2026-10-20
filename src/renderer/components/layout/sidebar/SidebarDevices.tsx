@@ -21,7 +21,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -31,8 +31,9 @@ import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
+import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
@@ -56,6 +57,9 @@ interface RemoteOpenArgs {
 	sessionPath?: string;
 	kind?: SessionKind;
 }
+
+/** Snapshot key (`panel` kind, the host's namespace) of a host's no-project workspace. */
+const WORKSPACE_KEY = "sidebar:default-workspace";
 
 const DOT_CLASS: Record<HostView["state"], string> = {
 	online: "bg-(--sc-success)",
@@ -245,6 +249,27 @@ function DeviceSessions({
 		[allTabs, host.deviceId, nested],
 	);
 
+	// The host's own lane rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session
+	// opened there without a folder starts) sits in its Chat lane, so it does here too. Its last answer paints first.
+	const [hostWorkspace, setHostWorkspace] = useState(
+		() => snapshots().read<string>("panel", snapshotNs(host.deviceId), WORKSPACE_KEY)?.value ?? null,
+	);
+	useEffect(() => {
+		if (!read) return;
+		let current = true;
+		window.omp.sidecar.defaultWorkspace(host.deviceId).then(
+			workspace => {
+				snapshots().write("panel", snapshotNs(host.deviceId), WORKSPACE_KEY, workspace);
+				if (current) setHostWorkspace(workspace);
+			},
+			// No answer: the kind alone decides the lane until the next read.
+			() => undefined,
+		);
+		return () => {
+			current = false;
+		};
+	}, [host.deviceId, read]);
+
 	const rows = useMemo<DeviceSession[]>(() => {
 		// A file stock wrote before the first message is not a conversation yet (see Sidebar).
 		const listed = sessions.filter(session => sessionHasContent(session) && !nested?.has(session.path));
@@ -274,7 +299,7 @@ function DeviceSessions({
 			}));
 		const needle = query.toLocaleLowerCase();
 		return [...listed, ...live]
-			.filter(session => (mode === "chat" ? session.kind === "chat" : session.kind !== "chat"))
+			.filter(session => inChatLane(session, hostWorkspace) === (mode === "chat"))
 			.filter(
 				session =>
 					!needle ||
@@ -282,7 +307,7 @@ function DeviceSessions({
 					session.cwd.toLocaleLowerCase().includes(needle),
 			)
 			.toSorted((a, b) => createdAt(b) - createdAt(a));
-	}, [sessions, hostTabs, host.deviceId, mode, query, nested]);
+	}, [sessions, hostTabs, host.deviceId, mode, query, nested, hostWorkspace]);
 
 	const groups = useMemo(() => {
 		if (mode === "chat") return [];

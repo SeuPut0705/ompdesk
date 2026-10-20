@@ -2074,7 +2074,8 @@ export interface OmpApi {
 		restart(payload?: IpcSidecarRestartPayload): Promise<void>;
 		selectProject(): Promise<string | null>;
 		setProject(cwd: string): Promise<boolean>;
-		defaultWorkspace(): Promise<string>;
+		/** The no-project workspace of this computer, or of the paired host `device` (its sessions there sit in Chat). */
+		defaultWorkspace(device?: string): Promise<string>;
 		getStatus(): Promise<IpcSidecarStatusPayload>;
 	};
 	tray: {

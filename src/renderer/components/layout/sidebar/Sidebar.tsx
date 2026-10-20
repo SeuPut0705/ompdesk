@@ -81,7 +81,7 @@ import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
 import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
-import { sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { performTabClose } from "../../../lib/tab-close";
@@ -775,7 +775,7 @@ export function Sidebar() {
 	);
 	const agentSessions = useMemo(() => allSessions.filter(session => session.kind !== "chat"), [allSessions]);
 	const codeSessions = useMemo(
-		() => agentSessions.filter(session => !defaultWorkspace || session.cwd !== defaultWorkspace),
+		() => agentSessions.filter(session => !inChatLane(session, defaultWorkspace)),
 		[agentSessions, defaultWorkspace],
 	);
 	const projectName = useProjectNames(
@@ -961,9 +961,7 @@ export function Sidebar() {
 	const chatLaneSessions = useMemo(
 		() =>
 			allSessions
-				.filter(
-					session => session.kind === "chat" || (defaultWorkspace !== null && session.cwd === defaultWorkspace),
-				)
+				.filter(session => inChatLane(session, defaultWorkspace))
 				.filter(matchesFilter)
 				.toSorted(byPinThenRecency),
 		[allSessions, defaultWorkspace, matchesFilter, byPinThenRecency],
@@ -977,8 +975,15 @@ export function Sidebar() {
 			Omit<WorkspaceGroup, "name" | "tooltip" | "root" | "worktree"> & { shown: ProjectName }
 		>();
 		for (const session of codeSessions) {
-			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them).
-			if (projectName(session.cwd).gone && session.liveTabId === undefined) continue;
+			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them),
+			// unless a tab still holds the session: one of this window's or a paired device's tab here.
+			if (
+				projectName(session.cwd).gone &&
+				session.liveTabId === undefined &&
+				!heldByTab.has(session.path) &&
+				!heldByTab.has(session.id)
+			)
+				continue;
 			// A session another session's agent opened lives in that session's family, whatever its folder.
 			if (familyRootOf.has(session.path)) continue;
 			// One no opener holds folds into its project's group, below.
@@ -1055,6 +1060,7 @@ export function Sidebar() {
 		runParentOf,
 		familyRootOf,
 		foldedRootOf,
+		heldByTab,
 	]);
 	// A session matches when it does or when something it opened does: its family shows with it.
 	const matchesFamilyFilter = useCallback(
@@ -1086,8 +1092,7 @@ export function Sidebar() {
 				sessionHasContent(session) &&
 				!heldByTab.has(session.path) &&
 				!heldByTab.has(session.id) &&
-				(session.kind === "chat" || (defaultWorkspace !== null && session.cwd === defaultWorkspace)) ===
-					(mode === "chat"),
+				inChatLane(session, defaultWorkspace) === (mode === "chat"),
 		)
 		.filter(matchesFilter)
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
