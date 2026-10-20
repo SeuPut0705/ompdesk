@@ -989,6 +989,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
 		isStopping: callerTabId => autopilot.isStopping(callerTabId),
 		beforeFirstPrompt: child => autopilot.beforeFirstPrompt(child),
+		isAutopilotRun: tabId => autopilot.runRootOf(tabId) !== undefined,
 		autopilot: {
 			command: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
 		},

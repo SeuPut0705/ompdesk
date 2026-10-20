@@ -170,6 +170,8 @@ export interface AgentControlHostDeps {
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
 	isStopping?: (callerTabId: string) => boolean;
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
+	/** A run tab Autopilot coordinates (`Autopilot.runRootOf`): it ends with its run, never by the opened-session rules. */
+	isAutopilotRun?: (tabId: string) => boolean;
 	/** Autopilot's coordinator (`Autopilot.handleCommand`); absent where there is none. */
 	autopilot?: {
 		command: (
@@ -237,7 +239,7 @@ export class AgentControlRuntime {
 		deps.pool.observeTabs(activity => {
 			if (activity.type === "busy") this.#busySince.set(activity.tabId, Date.now());
 			else if (activity.type === "idle") this.#busySince.delete(activity.tabId);
-			const parent = this.#parents.get(activity.tabId)?.callerTabId;
+			const parent = this.#openerOf(activity.tabId);
 			if (parent) this.#pushReview(parent);
 			// A turn that ended changed the session's own cost, the base of its family's (sidebar chip, Work tree).
 			if (activity.type === "idle") this.#pushReview(activity.tabId);
@@ -265,13 +267,36 @@ export class AgentControlRuntime {
 
 	/** A person (not an agent) sent `tabId` a prompt: its session never closes by itself again. */
 	noteUserPrompt(tabId: string): void {
-		if (this.#parents.has(tabId)) this.#userPrompted.add(tabId);
+		if (this.#openerOf(tabId)) this.#userPrompted.add(tabId);
 	}
 
-	/** Opened by the control tools' `ompdesk_session_open` (not Autopilot's child or run, not the person). */
-	#autoClosable(tabId: string): boolean {
-		const parent = this.#parents.get(tabId);
-		return parent !== undefined && parent.tag === undefined && !this.#autopilotRuns.has(tabId);
+	/**
+	 * The tab that opened `tabId`: the one this launch saw open it, else the opener the pool kept across a relaunch
+	 * (its tab id, or, as tab ids are new after a relaunch, the tab now holding the opener's session file).
+	 */
+	#openerOf(tabId: string): string | undefined {
+		const known = this.#parents.get(tabId)?.callerTabId;
+		if (known) return known;
+		const win = this.#win(tabId);
+		const info = win ? this.#deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
+		return info ? this.#restoredOpener(info) : undefined;
+	}
+
+	#restoredOpener(info: IpcTabInfo): string | undefined {
+		const { pool } = this.#deps;
+		if (info.openedBy && pool.sidecarOf(info.openedBy)) return info.openedBy;
+		return info.openedBySession ? (pool.sessionOwner(info.openedBySession)?.tabId ?? undefined) : undefined;
+	}
+
+	/**
+	 * Opened by the control tools' `ompdesk_session_open` (not Autopilot's child or run, not the person). After a
+	 * relaunch only the pool knows the opener: an Autopilot child has none there (it nests under its run), and a run
+	 * an agent started is told by the coordinator.
+	 */
+	#autoClosable(info: IpcTabInfo): boolean {
+		if (this.#autopilotRuns.has(info.tabId) || this.#deps.isAutopilotRun?.(info.tabId)) return false;
+		const parent = this.#parents.get(info.tabId);
+		return parent ? parent.tag === undefined : this.#restoredOpener(info) !== undefined;
 	}
 
 	/** Look for sessions to close shortly (one pass absorbs a burst of activity). */
@@ -292,7 +317,14 @@ export class AgentControlRuntime {
 	 */
 	#sweepAll(): void {
 		const openers = new Set<string>();
-		for (const [childId, parent] of this.#parents) if (this.#autoClosable(childId)) openers.add(parent.callerTabId);
+		const { pool } = this.#deps;
+		for (const win of pool.tabWindows()) {
+			if (win.isDestroyed()) continue;
+			for (const info of pool.tabsForWindow(win)) {
+				const opener = this.#autoClosable(info) ? this.#openerOf(info.tabId) : undefined;
+				if (opener) openers.add(opener);
+			}
+		}
 		for (const opener of openers) {
 			this.#sweepSoon(opener);
 			void this.control.review(opener).then(
@@ -401,6 +433,7 @@ export class AgentControlRuntime {
 
 	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
 		const plan = this.#deps.pool.pendingPlan(info.tabId);
+		const autoClosable = this.#autoClosable(info);
 		return {
 			tabId: info.tabId,
 			// Until stock names an opened session, it reads as the work it was opened for (`IpcTabInfo.task`).
@@ -417,7 +450,8 @@ export class AgentControlRuntime {
 			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
 			...(info.task ? { task: info.task } : {}),
 			...(info.lastRun ? { lastRun: info.lastRun } : {}),
-			autoClosable: this.#autoClosable(info.tabId),
+			autoClosable,
+			...(autoClosable && !this.#parents.has(info.tabId) ? { restored: true } : {}),
 			looked: info.active === true || info.visible === true || (info.viewerCount ?? 0) > 0,
 			userTouched: this.#userPrompted.has(info.tabId) || this.#deps.pool.hasDraft(info.tabId),
 			...(this.#busySince.has(info.tabId) ? { busySince: this.#busySince.get(info.tabId) } : {}),
@@ -630,16 +664,7 @@ export class AgentControlRuntime {
 			checkoutPeers: tabId => deps.checkoutPeers?.(tabId) ?? [],
 			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
 			// after a relaunch) the tab now holding the opener's session file.
-			parentOf: tabId => {
-				const known = this.#parents.get(tabId)?.callerTabId;
-				if (known) return known;
-				const win = this.#win(tabId);
-				const info = win ? deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
-				if (info?.openedBy && deps.pool.sidecarOf(info.openedBy)) return info.openedBy;
-				return info?.openedBySession
-					? (deps.pool.sessionOwner(info.openedBySession)?.tabId ?? undefined)
-					: undefined;
-			},
+			parentOf: tabId => this.#openerOf(tabId),
 			mail: async (tabId, content, details, delivery) => {
 				const response = await this.#hostCommand(tabId, {
 					type: "agent_control_mail",

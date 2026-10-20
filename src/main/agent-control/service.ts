@@ -130,6 +130,11 @@ export interface ControlTab {
 	looked?: boolean;
 	/** The person typed a draft into it or sent it a prompt of their own. */
 	userTouched?: boolean;
+	/**
+	 * Opened by an agent before this launch (its opener is known only from the tab layout the relaunch restored): this
+	 * launch saw neither its turns nor a person's prompt to it, so its transcript says how it ended.
+	 */
+	restored?: boolean;
 	/** When its current turn started (epoch ms). */
 	busySince?: number;
 }
@@ -684,6 +689,65 @@ export function checksRun(messages: readonly AgentMessage[]): CheckRun[] {
 		}
 	}
 	return checks;
+}
+
+/** How a child's transcript ends: what `autoClose` reads where this launch saw nothing of its turns. */
+export interface TranscriptEnding {
+	/** The final answer: the text of the last assistant message; null when that message has none (a cut-off turn). */
+	last: string | null;
+	/** How the last assistant message ended (stock's `stopReason`). */
+	stopReason?: string;
+	/** An `ompdesk_report` of kind `done` to its opener since the last prompt it was given, not refused. */
+	reportedDone: boolean;
+	/** A prompt the person typed (neither an agent's wrapped message nor stock's synthetic one). */
+	personPrompted: boolean;
+}
+
+/** `ompdesk_report {kind: "done"}` to the opener: as the tool itself, or written to its device (`xd://ompdesk_report`). */
+function isDoneReport(name: string, args: Record<string, unknown>): boolean {
+	let report: unknown = args;
+	if (name === "write" && args.path === "xd://ompdesk_report" && typeof args.content === "string") {
+		try {
+			report = JSON.parse(args.content);
+		} catch {
+			return false;
+		}
+	} else if (name !== T.report) return false;
+	// A report to a sibling (`to`) is a note, not the end of the work it was given.
+	return (
+		typeof report === "object" && report !== null && "kind" in report && report.kind === "done" && !("to" in report)
+	);
+}
+
+export function transcriptEnding(messages: readonly AgentMessage[]): TranscriptEnding {
+	let last: string | null = null;
+	let stopReason: string | undefined;
+	let personPrompted = false;
+	let reports = new Set<string>();
+	const refused = new Set<string>();
+	for (const message of messages) {
+		if (message.role === "user") {
+			if (message.synthetic === true || message.attribution === "agent") continue;
+			const text = contentText(message.content).trim();
+			if (!text) continue;
+			// New work: a done report before it no longer speaks for what the session does now.
+			reports = new Set();
+			if (!parseAgentMessage(text)) personPrompted = true;
+		} else if (message.role === "assistant") {
+			last = contentText(message.content).trim() || null;
+			stopReason = message.stopReason;
+			if (Array.isArray(message.content))
+				for (const block of message.content)
+					if (block.type === "toolCall" && isDoneReport(block.name, block.arguments)) reports.add(block.id);
+		} else if (message.role === "toolResult" && message.isError && message.toolCallId)
+			refused.add(message.toolCallId);
+	}
+	return {
+		last,
+		...(stopReason ? { stopReason } : {}),
+		reportedDone: [...reports].some(id => !refused.has(id)),
+		personPrompted,
+	};
 }
 
 function errorText(error: unknown): string {
@@ -2157,7 +2221,9 @@ export class AgentControl {
 	 * no answer. A landed child with files left over lists only those files.
 	 */
 	async #reviewItem(tab: ControlTab, session: SessionState): Promise<AgentReviewItem | null> {
-		const running = tab.busy || waits(tab) || (tab.status !== "ready" && tab.status !== "running");
+		// A tab restored but not started (asleep) runs nothing; one starting or restarting may still be working.
+		const running =
+			tab.busy || waits(tab) || (tab.status !== "ready" && tab.status !== "running" && tab.status !== "asleep");
 		const conflict = this.#conflicts.get(tab.tabId);
 		const item: AgentReviewItem = {
 			tabId: tab.tabId,
@@ -2302,7 +2368,11 @@ export class AgentControl {
 					this.#collected.delete(tab.tabId);
 					continue;
 				}
-				if (!tab.autoClosable || tab.hidden || tab.status !== "ready" || !tab.lastRun) continue;
+				if (!tab.autoClosable || tab.hidden) continue;
+				// A child restored after a relaunch is judged by its transcript: not started (asleep), or started and
+				// not run yet this launch (no lastRun). One this launch opened waits for its first turn to end.
+				if (tab.status !== "ready" && !(tab.restored && tab.status === "asleep")) continue;
+				if (!tab.lastRun && !tab.restored) continue;
 				const decision = autoCloseDecision(await this.#autoCloseFacts(tab, openerIdle));
 				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
 			}
@@ -2312,25 +2382,58 @@ export class AgentControl {
 	}
 
 	async #autoCloseFacts(tab: ControlTab, openerIdle: boolean): Promise<AutoCloseFacts> {
-		const session = await this.#state(tab);
+		const asleep = tab.status === "asleep";
+		const session = asleep ? null : await this.#state(tab);
+		// The transcript speaks where this launch saw nothing (restored, asleep) and for an answer without a verdict
+		// line, whose final `done` report may stand for it.
+		const ending =
+			asleep || tab.restored || !parseWorkerResult(session?.last ?? null)
+				? transcriptEnding(await this.#transcript(tab, asleep))
+				: null;
+		const last = session?.last ?? ending?.last ?? null;
 		const branch = tab.worktree
 			? await this.#host
 					.landing(tab.worktree, tab.device)
 					.catch(() => ({ hasWork: false, landed: false, clean: false }))
 			: null;
+		const stopReason = tab.lastRun?.stopReason ?? ending?.stopReason;
 		return {
 			openedByAgent: tab.autoClosable === true,
 			stored: typeof tab.sessionPath === "string",
-			idle: session.state !== null && session.state.isStreaming !== true,
-			settled: session.state?.isSettled !== false,
-			answered: (session.last ?? "").trim() !== "",
-			ended: tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted" ? "failed" : "ok",
-			result: parseWorkerResult(session.last)?.kind ?? "missing",
+			idle: asleep || (session?.state != null && session.state.isStreaming !== true),
+			settled: asleep || session?.state?.isSettled !== false,
+			answered: (last ?? "").trim() !== "",
+			ended: stopReason === "error" || stopReason === "aborted" ? "failed" : "ok",
+			result: parseWorkerResult(last)?.kind ?? (ending?.reportedDone ? "ok" : "missing"),
 			branch,
 			looked: tab.looked === true,
-			userTouched: tab.userTouched === true,
+			userTouched: tab.userTouched === true || (tab.restored === true && ending?.personPrompted === true),
 			collected: openerIdle || this.#collected.has(tab.tabId),
 		};
+	}
+
+	/** A child's newest messages: the saved file of one not started (on the computer it runs on), else its live omp. */
+	async #transcript(tab: ControlTab, asleep: boolean): Promise<AgentMessage[]> {
+		if (asleep) {
+			if (!tab.sessionPath) return [];
+			const row: StoredSession = {
+				id: tab.tabId,
+				path: tab.sessionPath,
+				title: tab.title,
+				firstMessage: "",
+				cwd: tab.cwd,
+				modified: "",
+				messages: 0,
+				status: "",
+				hidden: tab.hidden,
+				...(tab.device ? { device: tab.device } : {}),
+			};
+			return this.#host.storedMessages(row).catch(() => []);
+		}
+		const response = await this.#host
+			.command(tab.tabId, { type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES }, STATE_TIMEOUT_MS)
+			.catch(() => null);
+		return (response?.success ? transcriptPage(response.data)?.messages : null) ?? [];
 	}
 
 	async #autoCloseTab(caller: ControlTab, tab: ControlTab, removeWorktree: boolean): Promise<void> {
