@@ -58,11 +58,13 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * merged main, 3,295,148 before) with the transcript holding a scrolled-up reader's row while a commit's changed rows
  * are measured (`contentAnchor`, ChatStream.tsx), 2.2 KB; 3.299 MB (3,298,084, 3,297,610 on main before) with a
  * paired host's sidebar rows and focused tab taking that host's own Chat/Code lane (`useHostWorkspace`, both lists
- * are on the first screen), 0.5 KB): a build that grows past it fails,
+ * are on the first screen), 0.5 KB; 3.300 MB (3,299,739 on the merged main) with the composer asking the automatic
+ * mode choice's question while the user types (`useAutoModePrefetch`, `prefetchAutoMode`; the web page skips it, but
+ * the composer is the first screen), 0.7 KB): a build that grows past it fails,
  * so the next eager import is a decision, not an accident. The language chunk the entries load before rendering is
  * not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_299_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_300_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

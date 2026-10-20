@@ -1092,7 +1092,12 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"setPlanModeState()",
 		],
 		modules: {
-			[`${AGENT}/judgment`]: ["resolveJudge()", "sharedJudgmentCache()", "journalJudgmentUsage()"],
+			[`${AGENT}/judgment`]: [
+				"resolveJudge()",
+				"sharedJudgmentCache()",
+				"journalJudgmentUsage()",
+				"hasNativeJudge()",
+			],
 			[`${AGENT}/tiny/message-preproc`]: ["preprocessTinyMessage()"],
 			[`${AGENT}/plan-mode/settings`]: ["cfgPlanEnabled.get()"],
 			[`${AGENT}/config/registry`]: ["lookup()"],
