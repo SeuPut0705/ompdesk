@@ -726,6 +726,18 @@ html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data
 	min-height: var(--sc-row-touch);
 }
 
+/* The answers sit 4 px apart: each one's reach ends half way to the next (a 39 px answer's 44 px reach lay 1 px over
+   the next answer). */
+html[data-input="touch"] [data-choice-list] {
+	--hit-gap-y: 4px;
+}
+
+/* A work card's step chips sit 2 px apart in portrait: their reach stops in that gap instead of covering the next chip
+   (a phone held sideways spaces them 12 px apart, below). */
+html[data-shell] .omp-live-work-chips {
+	--hit-gap-x: 2px;
+}
+
 /* ── Phone density: smaller and denser than the desktop, like a phone chat app ────────────────────────────── */
 /* A phone is read at arm's length on 390 px: type, controls, gutters and the chrome around the transcript shrink so
    the conversation keeps the screen. Only `data-shell="phone"` (web build) gets this; a tablet keeps the desktop
@@ -1376,6 +1388,17 @@ html[data-input="touch"] .omp-message-actions {
    touch 10 px apart each way, so a button's reach ends half way to the next row's instead of covering it. The phone's
    context sheet stacks its actions as 44 px rows of its own. */
 html[data-input="touch"] :is([data-context-actions]:not(.flex-col), div:has(> [data-schedule-day])) {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
+}
+
+/* Settings' clusters of buttons on one line (a schedule's Stop / Run now / ⋯, Preview beside Save diagnostic bundle,
+   the copy buttons of the addresses) sit 10 px apart on touch, each reach ending half way to its neighbour, and a
+   cluster that wraps keeps its rows 10 px apart the same way. The Memory reader's actions keep their own spacing. */
+html[data-input="touch"]
+	.settings-content
+	:is(div, span, li).flex:not(.flex-col, [data-memory-actions]):has(> button + button) {
 	gap: 10px;
 	--hit-gap-x: 10px;
 	--hit-gap-y: 10px;
