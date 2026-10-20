@@ -81,7 +81,7 @@ export function AgentSection() {
 				<CompactionLimitsSection />
 			</SettingsSection>
 			<SettingsAdvanced>
-				<SettingsSection id="settings-agent-automation-more" title={t("settings.agent.automation")}>
+				<SettingsSection id="settings-agent-automation-more" scope="app" title={t("settings.agent.automation")}>
 					<AutoPreviewRow />
 					<AutoChangesRow />
 				</SettingsSection>
