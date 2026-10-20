@@ -14,10 +14,14 @@ function isStatus(value: unknown): value is AutopilotStatus {
 	return typeof value === "object" && value !== null && "active" in value && typeof value.active === "boolean";
 }
 
-function newTabId(value: unknown): string | null {
-	return typeof value === "object" && value !== null && "tabId" in value && typeof value.tabId === "string"
-		? value.tabId
-		: null;
+/** A start's answer: the run's new tab (this computer's), and on a paired host the run's session file there. */
+function startedRun(value: unknown): { tabId?: string; sessionPath?: string } {
+	if (typeof value !== "object" || value === null) return {};
+	const { tabId, sessionPath } = value as Record<string, unknown>;
+	return {
+		...(typeof tabId === "string" ? { tabId } : {}),
+		...(typeof sessionPath === "string" ? { sessionPath } : {}),
+	};
 }
 
 /** Main spawns the run's worktree tab and focuses nothing: show it as soon as this window's tab list has it. */
@@ -42,8 +46,9 @@ function focusWhenListed(tabId: string): void {
 /**
  * The Autopilot controls of the tab this component sits in: one `set_autopilot` call at a time, a failure shown as a
  * toast with the coordinator's own words (main refuses a start with a readable reason). `start` answers with the new
- * worktree tab, which is focused; every other answer that is the whole status goes straight to the store (the
- * `autopilot_update` frame follows either way).
+ * worktree tab, which is focused; on a paired host's tab the run is a tab of the host's window, so this device opens
+ * the run's session (a view of that tab: one omp). Every other answer that is the whole status goes straight to the
+ * store (the `autopilot_update` frame follows either way).
  */
 export function useAutopilotActions(): {
 	pending: AutopilotAction["action"] | null;
@@ -60,8 +65,11 @@ export function useAutopilotActions(): {
 				const response = await rpc.setAutopilot(action);
 				if (!response.success) throw new Error(response.error);
 				if (action.action === "start") {
-					const started = newTabId(response.data);
-					if (started) focusWhenListed(started);
+					const started = startedRun(response.data);
+					const device = useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.device;
+					if (device && started.sessionPath) {
+						await useTabsStore.getState().openTab({ sessionPath: started.sessionPath, device });
+					} else if (started.tabId) focusWhenListed(started.tabId);
 				} else if (isStatus(response.data)) {
 					tabAutopilotStore(tabId).getState().apply(response.data);
 				}

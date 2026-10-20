@@ -548,7 +548,7 @@ describe("start", () => {
 		});
 	});
 
-	it("refuses with a readable sentence: not a repository, detached HEAD, plan on, a goal, a device tab", async () => {
+	it("refuses with a readable sentence: not a repository, detached HEAD, a device tab", async () => {
 		const outside = world.addTab("outside", tmp);
 		const refused = async (sidecar: FakeSidecar, tab = sidecar.tabId) =>
 			errorOf(
@@ -562,12 +562,6 @@ describe("start", () => {
 			);
 		expect(await refused(outside)).toMatch(/git repository/);
 		const inMain = world.addTab("m", main);
-		world.plan = true;
-		expect(await refused(inMain)).toMatch(/Plan mode/);
-		world.plan = false;
-		world.goal = { enabled: true, status: "active" };
-		expect(await refused(inMain)).toMatch(/already has a goal/);
-		world.goal = { enabled: false };
 		const device = world.addTab("d", main);
 		device.device = "phone";
 		expect(await refused(device)).toMatch(/this computer/);
@@ -575,6 +569,15 @@ describe("start", () => {
 		expect(await refused(inMain)).toMatch(/Check out a branch/);
 		expect(world.calls.some(call => call.name === AUTOPILOT_BRIDGE_METHODS.arm)).toBe(false);
 		expect(nextTab).toBe(0);
+	});
+
+	it("starts from a tab in Plan mode or with its own Goal: the run is a new tab, the source tab is left as it is", async () => {
+		world.plan = true;
+		world.goal = { enabled: true, status: "active" };
+		const { response } = await start();
+		expect(response.success, JSON.stringify(response)).toBe(true);
+		expect(world.stock("parent", "set_plan_mode")).toEqual([]);
+		expect(world.stock("parent", "set_goal")).toEqual([]);
 	});
 
 	it("refuses a release start without a release procedure, and allows it with one", async () => {

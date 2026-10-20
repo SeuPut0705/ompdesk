@@ -596,13 +596,6 @@ export class Autopilot {
 		}
 		const checkoutBranch = await this.#gitText(cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
 		if (!checkoutBranch) throw new AutopilotError(text("autopilot.err.detached"), "autopilot_detached");
-		const plan = await this.#stock<{ enabled?: boolean }>(tabId, { type: "get_plan_mode" }).catch(() => null);
-		if (plan?.enabled === true) throw new AutopilotError(text("autopilot.err.planOn"), "autopilot_plan_on");
-		const goal = await this.#stock<{ status?: string }>(tabId, { type: "get_goal" }).catch(() => null);
-		// A goal in any state but finished or dropped counts: a paused one reads `enabled: false` yet still holds the session's one goal.
-		if (goal?.status !== undefined && !["complete", "dropped"].includes(goal.status)) {
-			throw new AutopilotError(text("autopilot.err.goalExists"), "autopilot_goal_exists");
-		}
 		const stored = this.#storedSettings();
 		const remoteChosen = options.ship?.remote ?? stored.ship?.remote ?? (await this.#detectRemote(cwd));
 		const shipUndecided =

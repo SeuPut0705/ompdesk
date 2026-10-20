@@ -183,21 +183,6 @@ export function presetOfPolicy(policy: AutopilotShipPolicy): AutopilotShipPreset
 	return policy.autoPush ? "push" : "local";
 }
 
-export type StartBlock = "remote" | "notRepo" | "plan" | "goal";
-
-/** Why Autopilot cannot start in this session, or null: a paired device's tab, no repository, Plan on, or a Goal already set. */
-export function startBlock(input: {
-	remote: boolean;
-	isRepo: boolean | null;
-	planMode: boolean;
-	hasGoal: boolean;
-}): StartBlock | null {
-	if (input.remote) return "remote";
-	if (input.isRepo === false) return "notRepo";
-	if (input.planMode) return "plan";
-	return input.hasGoal ? "goal" : null;
-}
-
 /**
  * An Autopilot tab's approval card stays out of sight for this long: main's approver answers it at once, so the
  * card would only flash. One that is still waiting after it shows, so a failed approver never leaves a silent stall.

@@ -13,7 +13,6 @@ import {
 	overnightSummary,
 	presetOfPolicy,
 	ratePrediction,
-	startBlock,
 	toolStep,
 } from "./autopilot-view";
 
@@ -247,25 +246,6 @@ describe("presetOfPolicy", () => {
 		expect(presetOfPolicy({ autoPush: false, autoRelease: { on: false, cadence }, remote: "origin" })).toBe("local");
 		expect(presetOfPolicy({ autoPush: true, autoRelease: { on: false, cadence }, remote: "origin" })).toBe("push");
 		expect(presetOfPolicy({ autoPush: true, autoRelease: { on: true, cadence }, remote: "origin" })).toBe("release");
-	});
-});
-
-describe("startBlock", () => {
-	const ok = { remote: false, isRepo: true, planMode: false, hasGoal: false };
-
-	it("allows a start in a repository with no Plan and no Goal", () => {
-		expect(startBlock(ok)).toBeNull();
-	});
-
-	it("still allows it while the repository check is unanswered", () => {
-		expect(startBlock({ ...ok, isRepo: null })).toBeNull();
-	});
-
-	it("names the first reason: a paired device, no repository, Plan on, an existing Goal", () => {
-		expect(startBlock({ ...ok, remote: true, isRepo: false })).toBe("remote");
-		expect(startBlock({ ...ok, isRepo: false, planMode: true })).toBe("notRepo");
-		expect(startBlock({ ...ok, planMode: true, hasGoal: true })).toBe("plan");
-		expect(startBlock({ ...ok, hasGoal: true })).toBe("goal");
 	});
 });
 

@@ -19,6 +19,8 @@ import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useQuotaResumeStore } from "../../../stores/quota-resume";
 import { useSessionStore } from "../../../stores/session";
+import { setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
+import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { ComposerModeExtras } from "./ComposerModes";
 import { RunChip } from "./RunChip";
@@ -336,18 +338,50 @@ describe("Autopilot start sheet", () => {
 		expect(sheet.querySelector("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
-	it("says why it cannot start and keeps Start disabled: no repository, Plan on, an existing Goal", async () => {
+	it("holds Start back only outside a git repository: Plan mode or a Goal in this tab does not touch the run's own new tab", async () => {
 		installMockOmp();
 		gitStatus.isRepo = false;
 		await mount(<ComposerModes />);
 		await openSheet();
 		expect(document.body.textContent).toContain(translate("autopilot.sheet.blocked.notRepo"));
 		expect($("button[data-autopilot-start]")?.disabled).toBe(true);
+		await act(async () => root.unmount());
 
 		gitStatus.isRepo = true;
-		await act(async () => useSessionStore.setState({ planModeEnabled: true }));
-		await flush();
-		expect($("button[data-autopilot-start]")?.disabled).toBe(true);
+		useSessionStore.setState({
+			planModeEnabled: true,
+			goal: { objective: "ship it" },
+			goalState: { status: "active" },
+		});
+		await mount(<ComposerModes />);
+		await openSheet();
+		expect($("button[data-autopilot-start]")?.disabled).toBe(false);
+	});
+
+	it("starts from a paired host's tab: the host runs it and this device opens the run's session", async () => {
+		installMockOmp();
+		setAutopilot.mockImplementation(async () =>
+			success({ active: true, tabId: "host-tab", sessionPath: "/host/sessions/run.jsonl" }),
+		);
+		const openTab = vi.fn(async () => "view-tab");
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/host/repo", status: "ready", kind: "agent", unreadDone: false, device: "host-1" }],
+			activeTabId: "t1",
+			openTab,
+		} as never);
+		setFocusedSessionRuntime("t1");
+		try {
+			await mount(<ComposerModes />);
+			await openSheet();
+			expect(document.body.textContent).not.toContain("paired");
+			expect($("button[data-autopilot-start]")?.disabled).toBe(false);
+			await act(async () => $("button[data-autopilot-start]")?.click());
+			await flush();
+			expect(setAutopilot).toHaveBeenCalledTimes(1);
+			expect(openTab).toHaveBeenCalledWith({ sessionPath: "/host/sessions/run.jsonl", device: "host-1" });
+		} finally {
+			setFocusedSessionRuntime(null);
+		}
 	});
 
 	interface FieldHandlers {

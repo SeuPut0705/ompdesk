@@ -26,9 +26,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
-import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import {
 	Button,
@@ -44,7 +42,7 @@ import {
 import { FocusChips } from "../panels/autopilot/AreaMix";
 import { useAutopilotStateText } from "../panels/autopilot/AutopilotBoardCard";
 import { AutopilotPauseButton, AutopilotStopButtons } from "../panels/autopilot/AutopilotControls";
-import { presetOfPolicy, startBlock } from "../panels/autopilot/autopilot-view";
+import { presetOfPolicy } from "../panels/autopilot/autopilot-view";
 import { useAutopilotActions } from "../panels/autopilot/use-autopilot-actions";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
@@ -243,9 +241,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const detected = useAutopilotStore(s => s.status.ship);
 	const guide = useAutopilotStore(s => s.status.guide);
 	const rpc = useTabRpc();
-	const remote = useTabsStore(s => Boolean(s.tabs.find(tab => tab.id === tabId)?.device));
-	const planMode = useSessionStore(s => s.planModeEnabled);
-	const hasGoal = useSessionStore(s => s.goal !== null);
 	const isRepo = useIsRepo();
 	const storedShip = useStoredShip();
 	const branches = useAutopilotStore(s => s.status.branches);
@@ -270,7 +265,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 
 	// A repo with no guide gets one drafted, once per sheet: one cheap smol request in the bridge, the template on failure.
 	useEffect(() => {
-		if (live || remote || isRepo !== true || !guide || guide.exists || guide.text || draftAsked.current) return;
+		if (live || isRepo !== true || !guide || guide.exists || guide.text || draftAsked.current) return;
 		draftAsked.current = true;
 		setDrafting(true);
 		void rpc
@@ -281,7 +276,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			})
 			.catch(() => {})
 			.finally(() => setDrafting(false));
-	}, [live, remote, isRepo, guide, rpc, tabId]);
+	}, [live, isRepo, guide, rpc, tabId]);
 
 	// The shipping level Settings stored seeds the sheet once it is read; what the user then picks is theirs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the read lands once.
@@ -291,7 +286,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 
 	// The branch list is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
 	useEffect(() => {
-		if (live || remote || isRepo !== true) return;
+		if (live || isRepo !== true) return;
 		let current = true;
 		try {
 			void Promise.resolve(rpc.getAutopilot())
@@ -307,7 +302,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 		return () => {
 			current = false;
 		};
-	}, [live, remote, isRepo, rpc, tabId]);
+	}, [live, isRepo, rpc, tabId]);
 
 	// The remembered choice (or a new branch) seeds the picker once per repository; what the user then picks is theirs.
 	useEffect(() => {
@@ -322,7 +317,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const guideKey = guideHintKey(guide, drafting);
 	const guideHint = guideKey ? t(guideKey) : undefined;
 
-	const block = startBlock({ remote, isRepo, planMode, hasGoal });
+	const block = isRepo === false ? "notRepo" : null;
 	const procedure = detected?.releaseProcedure;
 	const releaseUnavailable = !procedure || detected?.releaseBlocked !== undefined;
 	const shipNote =

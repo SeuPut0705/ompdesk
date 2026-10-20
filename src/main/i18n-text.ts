@@ -210,14 +210,6 @@ export const MAIN_TEXT = {
 		en: "This run works on or pushes to the default branch itself: there is nothing to merge or open a pull request for.",
 		ko: "이 실행은 기본 브랜치에서 돌거나 기본 브랜치로 푸시해요. 병합하거나 PR을 열 것이 없어요.",
 	},
-	"autopilot.err.planOn": {
-		en: "Turn Plan mode off before starting Autopilot.",
-		ko: "오토파일럿을 시작하기 전에 계획 모드를 끄세요.",
-	},
-	"autopilot.err.goalExists": {
-		en: "This session already has a goal. Drop it before starting Autopilot.",
-		ko: "이 세션에는 이미 목표가 있어요. 오토파일럿을 시작하기 전에 목표를 삭제하세요.",
-	},
 	"autopilot.err.running": {
 		en: "This session is already an Autopilot run.",
 		ko: "이 세션은 이미 오토파일럿 실행 중이에요.",
