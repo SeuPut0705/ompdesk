@@ -62,6 +62,17 @@ describe("promptTitle", () => {
 		expect(promptTitle("<context>\n---\n이제 업데이트 완료했어\n</context>")).toBe("이제 업데이트 완료했어");
 	});
 
+	it("names a brief that opens with a one-word section heading by the line under it, never 'Target'", () => {
+		expect(
+			promptTitle(stock("# Target\nUpdate README.md and docs/DETAILS.md for the new picker.\n\n# Change\n…")),
+		).toBe("Update README.md and docs/DETAILS.md for the new picker.");
+		expect(promptTitle(stock("## 목표:\n\n사이드바 줄 높이 맞추기"))).toBe("사이드바 줄 높이 맞추기");
+		expect(promptTitle(stock("# Fix 1: duplicate name under caption\nbody"))).toBe(
+			"Fix 1: duplicate name under caption",
+		);
+		expect(promptTitle(stock("# Target"))).toBe("Target");
+	});
+
 	it("keeps a person's own prompt as it is (first line)", () => {
 		expect(promptTitle("그리고 상단바에 눈깔표시는 뭐야?")).toBe("그리고 상단바에 눈깔표시는 뭐야?");
 		expect(promptTitle("첫 줄\n둘째 줄")).toBe("첫 줄");

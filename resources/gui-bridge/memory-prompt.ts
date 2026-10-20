@@ -72,15 +72,27 @@ function bareLine(line: string): string {
 		.trim();
 }
 
+/**
+ * A heading of a single word (`# Target`, `## Context`, `# 목표`) labels a section of a brief, it names no task; the
+ * line under it does.
+ */
+const SECTION_LABEL = /^[ \t]*#{1,6}[ \t]+[^\s#]+[ \t]*:?[ \t]*$/;
+
 /** The first line of `text` that says something about the task, or undefined. */
 export function firstMeaningfulLine(text: string): string | undefined {
+	let label: string | undefined;
 	for (const raw of text.split(/\r?\n/)) {
 		const line = raw.trim();
 		if (!line || NOISE_LINE.test(line)) continue;
 		const bare = bareLine(line);
-		if (bare && !NOISE_LINE.test(bare)) return clip(bare);
+		if (!bare || NOISE_LINE.test(bare)) continue;
+		if (SECTION_LABEL.test(line)) {
+			label ??= clip(bare.replace(/:$/, ""));
+			continue;
+		}
+		return clip(bare);
 	}
-	return undefined;
+	return label;
 }
 
 /** A page title that names no task: the wrapper's tag, stock's prefix, the preamble, or the id the page fell back to. */
@@ -98,18 +110,23 @@ export interface PromptTitleOptions {
 	sessionName?: string;
 }
 
+/** The assignment's own `Title:` line (the task named in the person's language), or undefined. */
+export function explicitTitle(prompt: string): string | undefined {
+	const title = TITLE_LINE.exec(unwrapPrompt(prompt).body)?.[1];
+	return title && title.length <= TITLE_MAX ? title : undefined;
+}
+
 /**
  * What a prompt is about, in the order of how sure we are: the assignment's own `Title:` line, else the omp session's
  * title, else the first meaningful line once the wrapper and the known prefixes are stripped. Undefined for a prompt
  * that has nothing to say (the wrapper alone, an empty text).
  */
 export function promptTitle(prompt: string, options: PromptTitleOptions = {}): string | undefined {
-	const { body } = unwrapPrompt(prompt);
-	const explicit = TITLE_LINE.exec(body)?.[1];
-	if (explicit && explicit.length <= TITLE_MAX) return explicit;
+	const explicit = explicitTitle(prompt);
+	if (explicit) return explicit;
 	const name = options.sessionName?.trim();
 	if (name && !isJunkTitle(name)) return clip(name);
-	return firstMeaningfulLine(body);
+	return firstMeaningfulLine(unwrapPrompt(prompt).body);
 }
 
 /** An agent (not a person) wrote this prompt: another session's wrapped message, or a subagent's assignment. */
