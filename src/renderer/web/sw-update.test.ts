@@ -85,6 +85,20 @@ describe("UpdateWatcher", () => {
 		expect(watcher.available).toBe(false);
 	});
 
+	it("is not available when a first install's 'installed' event arrives after the worker already took control", () => {
+		// A first install's "installed" event can reach the page after the worker activated and claimed it. Nothing
+		// waits then; taking it as an update reloads a phone's first visit right after pairing.
+		const registration = new FakeRegistration();
+		const container = new FakeContainer();
+		container.controller = null;
+		const watcher = new UpdateWatcher(registration, container, () => {});
+		const worker = new FakeWorker();
+		registration.found(worker);
+		container.controller = worker;
+		worker.become("installed");
+		expect(watcher.available).toBe(false);
+	});
+
 	it("becomes available when a new worker finishes installing, and tells listeners", () => {
 		const registration = new FakeRegistration();
 		const watcher = new UpdateWatcher(registration, new FakeContainer(), () => {});
