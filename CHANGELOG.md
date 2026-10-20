@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.46.0] - 2026-10-20
+
+원격 연결이 돌아와도 대화가 비지 않고 바로 이어지며, 디스크와 메모리를 앱이 알아서 정리해요.
+
+### 새로 생긴 것
+- 디스크 자동 정리: 3일 넘게 안 쓴 작업 폴더의 다시 만들 수 있는 빌드 결과물을 지우고, 반영된 작업 폴더는 git이 무시하는 파일을 비공개 보관함에 먼저 저장한 뒤 지워요. 14일 넘게 안 쓴 미반영 작업은 브랜치에 저장하고 복원할 수 있어요. 설정 › 업데이트 및 정보에 "디스크" 줄과 정리 버튼이 있어요.
+- 메모리 자동 정리: 업데이트 뒤 한 번과 매일, 낡거나 겹치는 기억을 정리하고 사라진 파일을 가리키는 기억을 표시해요. 예전 대화의 결론도 채워요. 바뀐 내용은 설정 › 메모리에 한 줄로 남고 되돌릴 수 있어요.
+
+### 고친 것
+- 다른 컴퓨터 세션의 연결이 돌아오면 화면을 지우고 대화를 처음부터 다시 받던 문제를 고쳤어요. 이제 놓친 부분만 이어 붙이고, 읽던 위치도 그대로예요.
+- 잘 동작하는 세션에 "omp를 사용할 수 없어요"가 잘못 뜨던 문제를 고쳤어요. 확인이 한 번 늦은 것만으로는 띄우지 않고, 다시 반응하면 저절로 사라져요.
+- 하위 세션(다른 컴퓨터 포함)에 질문 카드가 뜨면 이를 연 세션에 바로 알려요.
+- 앱을 다시 켜도 하위 세션의 이름과 번호가 유지되고, 바쁜 하위 세션에 보낸 메시지가 늦게 도착하지 않아요.
+- 휴대폰에서 입력하던 글이 가끔 지워지던 문제와, 앱을 연 직후 메뉴(☰)가 안 열리던 문제를 고쳤어요.
+- 휴대폰·태블릿에서 옆 버튼의 터치를 가로채거나 노치·홈바에 가리던 곳을 크게 줄였어요(문제 점수 −69%).
+- 작업 중 테두리 빛이 순간이동하거나 옆면을 건너뛰지 않고, 둥근 테두리를 같은 속도로 돌아요.
+- 작업현황의 "바뀐 파일"이 다른 세션의 커밋까지 세던 문제를 고쳤어요. 사용량 칩은 "5H 64%"처럼 띄워 보여요.
+- 다른 컴퓨터 세션을 다시 시작하면 원래 대화가 아니라 빈 세션으로 켜지던 문제를 고쳤어요.
+
+### 바뀐 것
+- 입력창 + 메뉴에서 "입력창 크게 펼치기"와 "목표 정하기"를 뺐어요(⌃G와 모드 버튼은 그대로). 휴대폰의 "사진"과 "파일 첨부"는 "첨부파일" 하나로 합쳤어요.
+
+<!-- en -->
+
+A paired computer's session continues at once when its link comes back, and the app tidies its disk and memory by itself.
+
+### New
+- Disk care: build output that can be made again is removed from worktrees idle 3+ days; a landed worktree's ignored files go to a private archive before it is removed; unlanded work idle 14+ days is saved to a branch and can be restored. Settings › Updates & about has a Disk row with Clean up.
+- Memory care: after each update and daily, memory retires stale or repeated notes, flags notes naming files that are gone, and fills in conclusions from older conversations. Each change is one undoable line in Settings › Memory.
+
+### Fixed
+- A paired computer's tab no longer goes blank and reloads its whole transcript when the link comes back; it merges what it missed and keeps the reader's place.
+- "omp isn't responding" no longer shows on a working session after one slow check, and it clears itself when omp answers again.
+- A child session's question card (on a paired computer too) now tells the session that opened it.
+- Child sessions keep their names and ids across a relaunch, and a message to a busy child no longer arrives late.
+- Text typed on a phone was sometimes wiped, and the ☰ menu sometimes did not open right after loading.
+- Far fewer touch targets on phones and tablets steal a neighbour's tap or sit under the notch or home bar (−69% audit score).
+- The working light runs the rounded border at an even pace instead of jumping or skipping the sides.
+- Work board "Changed" no longer counts other sessions' commits; usage chips read "5H 64%".
+- Restarting a paired computer's tab reopens its own conversation instead of an empty session.
+
+### Changed
+- The composer's + menu no longer has Expand composer or Set a goal (⌃G and the Mode button remain). On phones, Photos and Attach files are one Attach item.
+
 ## [0.45.0] - 2026-10-20
 
 일부 Windows 노트북에서 창이 켜졌다 꺼졌다 반복하던 문제를 고쳤어요.
