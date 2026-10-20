@@ -111,8 +111,9 @@ test("Check for Updates… from the app menu reports in the sidebar without open
 	const card = page.locator("[data-sidebar-update]");
 	await expect(card).toBeVisible();
 	await expect(page.locator("[data-settings-page]")).toHaveCount(0);
-	// The outcome depends on the runner's GitHub access; it settles past "checking" either way.
-	await expect(card).not.toHaveAttribute("data-update-tone", "busy", { timeout: 30_000 });
+	// The outcome depends on the runner's GitHub access; it settles past "checking" either way, a stalled connection
+	// included: `gh auth token` 5 s, the release lookup 15 s, the repository probe 10 s (update-provider.ts).
+	await expect(card).not.toHaveAttribute("data-update-tone", "busy", { timeout: 45_000 });
 	await card.getByRole("button", { name: /Close|Later/ }).click();
 	await expect(card).toHaveCount(0);
 });

@@ -87,9 +87,15 @@ export function resolveUpdateToken(): Promise<ResolvedUpdateToken | undefined> {
 }
 
 /** Whether the release repo is readable with `token`, or anonymously without one. */
+/** The repository probe's deadline: a connection that never answers reads as a network failure. */
+const REPO_ACCESS_TIMEOUT_MS = 10_000;
+
 export async function checkRepoAccess(token: string | undefined): Promise<UpdateAccess> {
 	try {
-		const response = await net.fetch(GITHUB_API_REPO, { headers: githubApiHeaders(token) });
+		const response = await net.fetch(GITHUB_API_REPO, {
+			headers: githubApiHeaders(token),
+			signal: AbortSignal.timeout(REPO_ACCESS_TIMEOUT_MS),
+		});
 		return classifyRepoAccess(response.status, response.headers.get("x-ratelimit-remaining") === "0");
 	} catch {
 		return "network";

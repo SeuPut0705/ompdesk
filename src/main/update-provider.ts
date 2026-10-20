@@ -34,7 +34,7 @@ export interface ReleaseFeed {
 	apiHeaders: Record<string, string>;
 	/** `application/octet-stream` headers for the asset download (same rule). */
 	downloadHeaders: Record<string, string>;
-	fetch: (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
+	fetch: (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 	/** The release a check resolved, before electron-updater compares versions. */
 	onResolved: (release: PlatformRelease) => void;
 }
@@ -53,10 +53,31 @@ export function releaseUpdateInfo(release: PlatformRelease): UpdateInfo {
 	};
 }
 
+/**
+ * How long the release lookup may go unanswered. A stalled connection (a captive portal, Wi-Fi that dropped
+ * mid-request) never answers and never fails, and the check read "Checking for updates…" until the app quit.
+ */
+export const RELEASE_LOOKUP_TIMEOUT_MS = 15_000;
+
 async function fetchRelease(feed: ReleaseFeed): Promise<unknown> {
 	// GitHub lists newest first; one page reaches any pre-release worth testing.
 	const url = feed.allowPrerelease ? `${feed.apiRepo}/releases?per_page=30` : `${feed.apiRepo}/releases/latest`;
-	const response = await feed.fetch(url, { headers: feed.apiHeaders });
+	const abort = new AbortController();
+	const late = Promise.withResolvers<never>();
+	const timer = setTimeout(() => {
+		abort.abort();
+		late.reject(
+			new ReleaseFeedError(
+				RELEASE_LOOKUP_ERROR,
+				`GitHub did not answer within ${RELEASE_LOOKUP_TIMEOUT_MS / 1000} s (${url})`,
+			),
+		);
+	}, RELEASE_LOOKUP_TIMEOUT_MS);
+	// The race holds whether or not the fetch honours the signal.
+	const response = await Promise.race([
+		feed.fetch(url, { headers: feed.apiHeaders, signal: abort.signal }),
+		late.promise,
+	]).finally(() => clearTimeout(timer));
 	// 404 is also what a token without access sees; runCheck asks the repo
 	// endpoint before trusting "no release".
 	if (response.status === 404) throw new ReleaseFeedError(NO_RELEASE_ERROR, `No published release (${url})`);
