@@ -15,6 +15,7 @@ import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-c
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { agentControlEnabled } from "../shared/agent-control";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
+import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
 import { bootModelSelector } from "./boot-model";
@@ -39,6 +40,8 @@ export interface LocalSidecarDeps {
 	agentControlPref?: () => unknown;
 	/** Settings › Agent behavior › pstack engineering mode (`pstack`, default on), read per spawn; absent = off (tests only). */
 	pstackPref?: () => unknown;
+	/** Settings › Agent behavior › ECC language and framework skills (`ecc`, default on), read per spawn; absent = off (tests only). */
+	eccPref?: () => unknown;
 	/** A tab's session became ready (every time; the caller keeps what it needs). */
 	onReady?: () => void;
 	/** Proxy env per spawn (GUI pref → inherited env → system proxy). */
@@ -133,9 +136,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					deps.agentControlPref && agentControlEnabled(deps.agentControlPref()) ? ["-e", deps.builtinDir] : [];
 				const pstackRoot = join(deps.builtinDir, "pstack");
 				const pstack = deps.pstackPref && pstackEnabled(deps.pstackPref()) ? ["-e", pstackRoot] : [];
+				const ecc = deps.eccPref && eccEnabled(deps.eccPref()) ? ["-e", join(deps.builtinDir, "ecc")] : [];
 				const memory = (await deps.aiMemoryExtensionArgs?.()) ?? [];
 				return {
-					args: [...own, ...rea, ...pstack, ...memory],
+					args: [...own, ...rea, ...pstack, ...ecc, ...memory],
 					...(rea.length ? { root: reaRoot } : {}),
 					// A chat (no project) keeps the pack's root but not its section text.
 					env: {

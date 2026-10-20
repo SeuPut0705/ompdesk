@@ -34,7 +34,7 @@ export function covers(granted: GrantedTier, needed: Tier): boolean {
  * names them.
  */
 export const POWER_PREF =
-	/^(agentControl|approval|autoApprove|yolo|pstack|aiMemory|memory|computer|sidebar)|token|secret|password|passphrase|credential|api[-_]?key/i;
+	/^(agentControl|approval|autoApprove|yolo|pstack|ecc|aiMemory|memory|computer|sidebar)|token|secret|password|passphrase|credential|api[-_]?key/i;
 
 /** Stock settings with the same role: approvals, secrets handling, security, memory and computer use. */
 export const POWER_SETTING =
@@ -50,6 +50,7 @@ export const FULL_CONTROL_PREFS: Readonly<Record<string, true>> = {
 	agentControlManage: true,
 	agentControlApprove: true,
 	pstack: true,
+	ecc: true,
 	aiMemoryLearn: true,
 };
 export const FULL_CONTROL_SETTINGS: Readonly<Record<string, true>> = {

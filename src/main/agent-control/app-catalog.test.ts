@@ -85,7 +85,7 @@ describe("action registry", () => {
 	it("offers no setting that gates the agent's own power", () => {
 		for (const row of SETTINGS) {
 			const key = row.kind === "pref" ? row.key : row.path;
-			expect(key, row.id).not.toMatch(/agentControl|approval|approve|secrets|memory|computer|pstack|yolo/i);
+			expect(key, row.id).not.toMatch(/agentControl|approval|approve|secrets|memory|computer|pstack|ecc|yolo/i);
 		}
 	});
 });

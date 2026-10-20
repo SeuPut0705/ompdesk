@@ -6,6 +6,7 @@ import { AutopilotSettingsRows } from "./AutopilotRows";
 import { AutoTitleRow } from "./AutoTitleRow";
 import { BatchNotificationsRow } from "./BatchNotificationsRow";
 import { CompactionLimitsSection } from "./CompactionLimitsSection";
+import { EccRow } from "./EccRow";
 import { JudgeAssistRow } from "./JudgeAssistRow";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
@@ -74,6 +75,7 @@ export function AgentSection() {
 				<JudgeAssistRow />
 				<AutoModeRow />
 				<PstackRow />
+				<EccRow />
 				<AutopilotSettingsRows />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>

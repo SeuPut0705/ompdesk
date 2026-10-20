@@ -5,7 +5,10 @@
  * - on by default: the spawn carries the pack root, the skill list shows the pstack skills (hidden from the model's
  *   list, readable by `skill://`), no stock-named `tdd`/`teach`, and a Code session's main agent has the section;
  * - Plan mode and an Autopilot run leave the full section out; Solo delegation flips its delegation paragraph;
- * - the switch off (pref `pstack`): no pack root, no pstack skills, no section.
+ * - the switch off (pref `pstack`): no pack root, no pstack skills, no section;
+ * - the ECC pack (`resources/omp-builtin/ecc`) rides its own switch (pref `ecc`): its root and its listed index skill
+ *   with every other ECC skill hidden, gone when off. What the real omp does with that root is
+ *   `src/main/ecc/ecc-stock.test.ts`.
  * The same gating on the real bridge code is `src/main/bridge-pstack.test.ts` (subagents included).
  */
 import * as fs from "node:fs/promises";
@@ -161,5 +164,29 @@ test("an Autopilot run gets the condensed section, never the full one", async ()
 	} finally {
 		await exitApp(app);
 		await cleanupAp(profile);
+	}
+});
+
+test("the ECC pack: loaded by default with only its index listed, off by its own switch whatever pstack says", async () => {
+	test.setTimeout(120_000);
+	const eccRoot = path.join("omp-builtin", "ecc");
+	const on = await launch({ pstack: false });
+	try {
+		expect((await spawnArgv(on.record)).some(arg => arg.endsWith(eccRoot))).toBe(true);
+		const skills = await skillsOf(on.page, on.tab);
+		expect(skills.find(skill => skill.name === "ecc")?.hidden).toBe(false);
+		expect(skills.find(skill => skill.name === "golang-patterns")?.hidden).toBe(true);
+		expect(skills.map(skill => skill.name)).not.toContain("tdd-workflow");
+	} finally {
+		await exitApp(on.app);
+	}
+	const off = await launch({ ecc: false });
+	try {
+		expect((await spawnArgv(off.record)).some(arg => arg.endsWith(eccRoot))).toBe(false);
+		const names = (await skillsOf(off.page, off.tab)).map(skill => skill.name);
+		expect(names).toContain("poteto-mode");
+		expect(names.filter(name => name === "ecc" || name === "golang-patterns")).toEqual([]);
+	} finally {
+		await exitApp(off.app);
 	}
 });

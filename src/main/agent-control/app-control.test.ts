@@ -305,6 +305,7 @@ describe("what agents can never reach, by any route", () => {
 		"agentControlApprove",
 		"approvalMode",
 		"pstack",
+		"ecc",
 		"aiMemory",
 		"computer",
 		"sidebar",

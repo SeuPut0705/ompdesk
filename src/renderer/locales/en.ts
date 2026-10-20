@@ -5811,6 +5811,9 @@ export const en: Record<string, string> = {
 	"settings.gui.pstack": "pstack engineering mode",
 	"settings.gui.pstackDesc":
 		"Engineering playbooks and principles (pstack by Lauren Tan, MIT) in every conversation. Trivial questions still get a plain answer. Off: no pstack skills or rules.",
+	"settings.gui.ecc": "ECC language and framework skills",
+	"settings.gui.eccDesc":
+		"Language, framework and tool skills from ECC (Affaan Mustafa, MIT), read only when a task needs them. pstack's playbooks still lead the workflow. Off: no ECC skills or commands.",
 	"settings.gui.autoMode": "Auto mode",
 	"settings.gui.autoModeDesc": "Uses Plan or Goal for one new request, never changes your mode",
 	"settings.gui.autopilotShip": "Autopilot shipping",

@@ -256,6 +256,13 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"pstack engineering mode playbooks principles skills rules poteto 엔지니어링 모드 플레이북 원칙 스킬 규칙",
 	},
 	{
+		id: "ecc",
+		section: "agent",
+		labelKey: "settings.gui.ecc",
+		aliases:
+			"ecc everything claude code language framework skills go rust python java kotlin swift react 언어 프레임워크 스킬",
+	},
+	{
 		id: "autoTitle",
 		section: "agent",
 		labelKey: "settings.gui.autoTitle",

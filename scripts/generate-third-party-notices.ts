@@ -190,6 +190,11 @@ function vendoredSections(): string {
 	const aiMemoryLicense = read("LICENSES/ai-memory-LICENSE");
 	const reaLicense = read("resources/omp-builtin/rea/skills/reverse-engineer-anything/LICENSE");
 	const pstackLicense = read("LICENSES/MIT-pstack.txt");
+	const eccLicense = read("LICENSES/MIT-ecc.txt");
+	const eccPin = JSON.parse(read("resources/omp-builtin/ecc/ecc-config.json")) as {
+		commit: string;
+		version: string;
+	};
 	const pstackPin = JSON.parse(read("resources/omp-builtin/pstack/pstack-config.json")) as {
 		commit: string;
 		version: string;
@@ -240,6 +245,12 @@ function vendoredSections(): string {
 			"The license text is also in resources/omp-builtin/pstack/UPSTREAM-LICENSE.",
 			"",
 			pstackLicense,
+		].join("\n"),
+		[
+			"ECC skills (https://github.com/affaan-m/ECC)",
+			`Copyright (c) 2026 Affaan Mustafa, licensed under the MIT License. Skills and prompt commands copied from the ecc-pi-core ${eccPin.version} profile (pi/core, commit ${eccPin.commit}) into resources/omp-builtin/ecc/ by scripts/sync-ecc.ts. Changes: every skill is hidden from the model's skill list and reached through one generated index skill (ecc); the plan command is renamed ecc-plan; skills that duplicate the built-in pstack workflow are left out, references to them point at pstack's counterparts; Claude Code names and paths are replaced by omp ones. The license text is also in resources/omp-builtin/ecc/UPSTREAM-LICENSE.`,
+			"",
+			eccLicense,
 		].join("\n"),
 		[
 			"AI provider brand symbols of @lobehub/icons (@lobehub/icons-static-svg 1.95.1,",

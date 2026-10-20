@@ -60,6 +60,7 @@ import {
 	RESUME_INTERRUPTED_PREF,
 	SCHEDULED_RETRY_PREF,
 } from "../shared/desktop-prefs";
+import { ECC_PREF } from "../shared/ecc";
 import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
@@ -624,6 +625,7 @@ app.whenReady().then(() => {
 		builtinReaPref: () => prefsStore().get(REA_PREF),
 		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),
 		pstackPref: () => prefsStore().get(PSTACK_PREF),
+		eccPref: () => prefsStore().get(ECC_PREF),
 		onReady: () => firstTabReady.resolve(),
 		proxyEnv: resolveProxyEnvForSpawn,
 		bridgeHealth,

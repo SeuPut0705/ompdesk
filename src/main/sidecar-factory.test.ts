@@ -185,6 +185,36 @@ describe("localSidecarFactory", () => {
 		expect(mcp?.env).toEqual({ OMP_GUI_PSTACK: flag });
 	});
 
+	it.each([
+		[undefined, "agent", true],
+		[true, "chat", true],
+		[false, "agent", false],
+		[false, "chat", false],
+	] as const)("loads the ECC root only while its switch is on (pref %s, %s)", async (stored, kind, on) => {
+		created.length = 0;
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => false,
+			eccPref: () => stored,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+		});
+		create("/w/alpha", kind, false);
+		const mcp = await created[0]?.builtinMcp?.();
+		expect(mcp?.args).toEqual(on ? ["-e", path.join("/builtin", "ecc")] : []);
+	});
+
 	it("hands every spawn ai-memory's extension root while memory is on, read at each spawn (tabs and hosted tabs alike)", async () => {
 		let args: string[] = ["-e", "/ud/ai-memory/omp-ext"];
 		created.length = 0;

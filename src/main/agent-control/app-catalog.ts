@@ -246,6 +246,7 @@ const POWER_SWITCHES: Record<
 		key: "agentControlApprove",
 	},
 	pstack: { en: "Engineering mode (pstack)", ko: "엔지니어링 모드 (pstack)", kind: "pref", key: "pstack" },
+	ecc: { en: "ECC skills", ko: "ECC 스킬", kind: "pref", key: "ecc" },
 	aiMemoryLearn: { en: "Learn from conversations", ko: "대화에서 배우기", kind: "pref", key: "aiMemoryLearn" },
 	aiMemory: {
 		en: "Memory",
