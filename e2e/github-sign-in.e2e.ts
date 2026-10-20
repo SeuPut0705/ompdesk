@@ -15,7 +15,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { seedFakeGh, writeFakeGh } from "../src/main/github-auth/test-fake-gh";
+import { seedFakeGh } from "../src/main/github-auth/test-fake-gh";
+import { fixtureGhDir } from "./fixture/fake-gh-install";
 import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
 
 for (const [language, theme] of variants([
@@ -25,7 +26,6 @@ for (const [language, theme] of variants([
 	["ko", "dark"],
 ] as const)) {
 	test(`GitHub sign-in from Settings › General (${language} ${theme})`, async () => {
-		test.skip(process.platform === "win32", "the fake gh is a shebang script; PATH lookup wants gh.exe on Windows");
 		test.setTimeout(120_000);
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-github-${language}-${theme}-`));
 		const home = path.join(root, "home");
@@ -37,7 +37,7 @@ for (const [language, theme] of variants([
 			path.join(desktop, "prefs.json"),
 			JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 		);
-		const gh = await writeFakeGh(root);
+		const ghDir = await fixtureGhDir(root);
 		const ghState = path.join(root, "gh-state.json");
 		await seedFakeGh(ghState, []);
 		const gitConfig = path.join(home, ".gitconfig");
@@ -50,7 +50,7 @@ for (const [language, theme] of variants([
 		await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
 		const env = {
 			...process.env,
-			PATH: [path.dirname(gh), process.env.PATH].join(path.delimiter),
+			PATH: [ghDir, process.env.PATH].join(path.delimiter),
 			HOME: home,
 			GIT_CONFIG_GLOBAL: gitConfig,
 			GIT_CONFIG_NOSYSTEM: "1",
