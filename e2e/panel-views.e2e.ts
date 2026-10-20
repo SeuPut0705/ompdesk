@@ -55,7 +55,15 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await options.focus();
 			await page.keyboard.press("Enter");
 			const menu = page.getByRole("menu", { name: "View options" });
-			await expect(menu.getByRole("menuitemcheckbox")).toHaveCount(6);
+			await expect(menu.getByRole("menuitemcheckbox")).toHaveText([
+				"Background tasks",
+				"Plan",
+				"Logs",
+				"Queue",
+				"Tree",
+				"Work tree",
+				"Memory",
+			]);
 			await page.screenshot({ animations: "disabled", path: test.info().outputPath(`menu-${theme}.png`) });
 			await page.keyboard.press("ArrowDown");
 			await page.keyboard.press("Enter");
