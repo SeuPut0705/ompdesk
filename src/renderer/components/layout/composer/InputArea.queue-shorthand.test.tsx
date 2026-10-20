@@ -1097,13 +1097,12 @@ describe("InputArea next-prompt suggestion", () => {
 });
 
 describe("InputArea expanded composer", () => {
-	// ⌃G alone was undiscoverable, so the + menu offers it too. Both grow the
-	// same field in place: no second editor, no modal over the session.
-	it("expands in place from the + menu and from ⌃G, and Esc collapses without aborting", async () => {
+	// ⌃G grows the same field in place: no second editor, no modal over the session. The + menu no longer offers it.
+	it("expands in place from ⌃G, and Esc collapses without aborting", async () => {
 		await mount();
 		expect(isExpanded()).toBe(false);
 
-		await openAddMenuItem("Expand composer");
+		await pressKey({ key: "g", ctrlKey: true });
 		expect(isExpanded()).toBe(true);
 
 		await pressKey({ key: "g", ctrlKey: true });
@@ -1540,7 +1539,8 @@ describe("InputArea composer keys", () => {
 		if (!add) throw new Error("+ menu trigger missing");
 		await click(add);
 		const labels = Array.from(document.querySelectorAll("[data-menu-item]")).map(item => item.textContent ?? "");
-		expect(labels).toHaveLength(6);
+		expect(labels).toHaveLength(4);
+		expect(labels.some(label => label.includes("Expand composer") || label.includes("Set a goal"))).toBe(false);
 		// Dictation is off here: the menu still lists it, and says where to turn it on.
 		expect(labels.some(label => label.includes(translate("voice.menu.off")))).toBe(true);
 		expect(labels.some(label => label.includes("Review a change"))).toBe(false);
@@ -1555,11 +1555,6 @@ describe("InputArea composer keys", () => {
 		expect(useComposerStore.getState().draft).toBe("fix this /skill:review ");
 		expect(document.querySelector("[data-skill-picker]")).toBeNull();
 
-		// The goal tab of the modes popover listens to session events.
-		Object.assign(window.omp.events, { onBatch: vi.fn(() => () => {}) });
-		await openAddMenuItem("Set a goal");
-		expect(useUiStore.getState()).toMatchObject({ modesOpen: true, modesTab: "goal" });
-		await act(async () => useUiStore.setState({ modesOpen: false }));
 		await openAddMenuItem("Use a skill");
 		const manage = document.querySelector("[data-skill-manage]") as unknown as TestElement | null;
 		if (!manage) throw new Error("manage button missing");

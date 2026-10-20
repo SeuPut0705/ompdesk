@@ -533,7 +533,6 @@ export function InputArea() {
 							composerExcluded={composerMode?.excluded}
 							dictationPhase={dictation.phase}
 							editingQueued={editingQueued !== null}
-							expanded={expanded}
 							fileInputRef={fileInputRef}
 							followUp={mode === "followUp"}
 							onFilesPicked={filesPicked}
@@ -544,7 +543,6 @@ export function InputArea() {
 							onSend={sendFromToolbar}
 							onStop={stopFromToolbar}
 							onStopAndSend={dictation.stopAndSend}
-							onToggleExpanded={toggleExpandedFromMenu}
 							onToggleSendMode={toggleSendMode}
 							queueSplitCount={queueSplitCount}
 							queued={queueBody !== undefined}

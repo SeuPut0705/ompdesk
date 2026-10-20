@@ -654,12 +654,8 @@ for (const engine of ENGINES) {
 				test("fills the screen with a column when expanded (head, field, footer with +/Send) and has no $EDITOR button", async () => {
 					const page = await openPhone(engine, { lang, theme });
 					try {
-						await plus(page).tap();
-						await page
-							.locator("[data-action-sheet] [data-menu-item]")
-							.filter({ hasText: /Expand|확대|펼치|확장/ })
-							.first()
-							.tap();
+						await page.locator("[data-composer-input]").first().focus();
+						await page.keyboard.press("Control+g");
 						const region = page.locator(".omp-composer-region--expanded");
 						await expect(region).toBeVisible();
 						await expect(runChip(page)).toBeVisible();

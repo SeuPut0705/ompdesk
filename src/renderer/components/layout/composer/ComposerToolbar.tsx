@@ -26,15 +26,12 @@ import {
 	History,
 	ImageIcon,
 	ListPlus,
-	Maximize2,
 	Mic,
 	MicOff,
-	Minimize2,
 	Paperclip,
 	Plus,
 	Sparkles,
 	Square,
-	Target,
 } from "lucide-react";
 import { type ChangeEvent, type MouseEvent, memo, type ReactNode, type RefObject, useId, useState } from "react";
 import { useShellMode } from "../../../hooks/use-shell-mode";
@@ -77,8 +74,6 @@ export interface ComposerToolbarProps {
 	routeReady: boolean;
 	/** Touch input: the + menu also offers Photos. */
 	touchInput: boolean;
-	expanded: boolean;
-	onToggleExpanded: () => void;
 	/** Open the file chooser (`accept`: what it offers; none = any file). */
 	onOpenFilePicker: (accept?: string) => void;
 	fileInputRef: RefObject<HTMLInputElement | null>;
@@ -114,8 +109,6 @@ export interface ComposerToolbarProps {
 export const ComposerToolbar = memo(function ComposerToolbar({
 	routeReady,
 	touchInput,
-	expanded,
-	onToggleExpanded,
 	onOpenFilePicker,
 	fileInputRef,
 	onFilesPicked,
@@ -143,7 +136,6 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 	const model = useModelStore(s => s.model);
 	const settingUp = useFirstRunStore(s => s.phase !== "idle");
 	const openModelPicker = useUiStore(s => s.openModelPicker);
-	const openModes = useUiStore(s => s.openModes);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
 	const sttEnabled = useSettingsStore(s => s.sttEnabled);
 	/** Phone: model, mode, approval, delegation and context live in the ⋯ sheet inside the box (`ComposerRunMenu`). */
@@ -336,13 +328,6 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						shortcut: "⌃R",
 						onSelect: onOpenHistory,
 					},
-					{
-						id: "expand",
-						label: expanded ? t("input.expanded.collapse") : t("input.expanded.open"),
-						icon: expanded ? Minimize2 : Maximize2,
-						shortcut: "⌃G",
-						onSelect: onToggleExpanded,
-					},
 					...(sttEnabled
 						? []
 						: [
@@ -354,14 +339,6 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 									onSelect: () => useUiStore.getState().openSettings(STT_SETTING_TARGET),
 								},
 							]),
-					{
-						id: "goal",
-						label: t("input.addMenu.goal"),
-						description: t("input.addMenu.goalDesc"),
-						icon: Target,
-						separatorBefore: true,
-						onSelect: () => openModes("goal"),
-					},
 					{
 						id: "skills",
 						label: t("input.addMenu.skills"),

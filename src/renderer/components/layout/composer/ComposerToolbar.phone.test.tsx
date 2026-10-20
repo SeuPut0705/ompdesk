@@ -57,8 +57,6 @@ let root: Root;
 const baseProps: ComposerToolbarProps = {
 	routeReady: true,
 	touchInput: true,
-	expanded: false,
-	onToggleExpanded: () => {},
 	onOpenFilePicker: () => {},
 	fileInputRef: { current: null },
 	onFilesPicked: () => {},
