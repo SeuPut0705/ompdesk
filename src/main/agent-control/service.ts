@@ -1769,13 +1769,19 @@ export class AgentControl {
 		}
 	}
 
-	/** The work board's view of a child's mail: its last report, and whether its question waits. */
-	#reportFields(tabId: string): Pick<AgentReviewItem, "report" | "waiting"> {
-		const state = this.#mailbox.state(tabId);
+	/**
+	 * The work board's view of a child's mail to its opener: its last report, and whether its question waits. A
+	 * question to a sibling or a checkout peer waits on that session, not here; one the child carried on from (a turn
+	 * that started after it, e.g. the person answered in its own tab) waits no longer.
+	 */
+	#reportFields(tab: ControlTab): Pick<AgentReviewItem, "report" | "waiting"> {
+		const opener = this.#host.parentOf(tab.tabId);
+		const state = opener ? this.#mailbox.state(tab.tabId, opener) : undefined;
 		if (!state) return {};
+		const carriedOn = tab.busy && (tab.busySince ?? 0) > state.last.at;
 		return {
 			report: { kind: state.last.kind, text: oneLine(state.last.text, 240), at: state.last.at },
-			...(state.waiting ? { waiting: true as const } : {}),
+			...(state.waiting && !carriedOn ? { waiting: true as const } : {}),
 		};
 	}
 
@@ -2720,7 +2726,7 @@ export class AgentControl {
 				? { failed: true as const }
 				: {}),
 			...(conflict ? { note: conflict.join(", ") } : {}),
-			...this.#reportFields(tab.tabId),
+			...this.#reportFields(tab),
 			// Its plan waits for approval, or a question card of its own waits for an answer: the opener (or the person)
 			// answers it, nothing is left to review.
 			...(tab.plan || tab.asks.some(entry => !askTitle(entry.request).startsWith(AGENT_CARD_PREFIX))

@@ -130,20 +130,21 @@ export interface MailboxDeps {
 	deliver: (mail: Mail) => Promise<void>;
 }
 
-/** The last report of each sender, and the questions still waiting on their receiver. */
+/** A sender's last report to one receiver, and whether its question still waits on that receiver. */
 export interface MailState {
 	last: Mail;
-	/** A question or blocked report its receiver has not answered (sent the sender anything) since. */
+	/** A question or blocked report this receiver has not answered (sent the sender new work) since. */
 	waiting: boolean;
 }
 
 /**
- * Per sender: the dispatch it currently works on, its last report and whether a question waits. Coalesces progress,
- * drops a report from a superseded dispatch, delivers each report id once.
+ * Per sender: the dispatch it currently works on, and per receiver its last report and whether a question waits on
+ * that receiver. Coalesces progress, drops a report from a superseded dispatch, delivers each report id once.
  */
 export class Mailbox {
 	readonly #deps: MailboxDeps;
 	readonly #dispatch = new Map<string, { n: number; id: string }>();
+	/** Keyed `from>to`: a question to a sibling waits on the sibling, never on the opener's board. */
 	readonly #state = new Map<string, MailState>();
 	readonly #seen = new Set<string>();
 	readonly #pending = new Map<string, { mail: Mail; timer: unknown }>();
@@ -152,13 +153,12 @@ export class Mailbox {
 		this.#deps = deps;
 	}
 
-	/** The receiver gave `child` new work: a new dispatch id, and any waiting question counts as answered. */
+	/** The opener gave `child` new work: a new dispatch id, and its waiting question counts as answered. */
 	dispatch(child: string): string {
 		const n = (this.#dispatch.get(child)?.n ?? 0) + 1;
 		const id = `d${n}`;
 		this.#dispatch.set(child, { n, id });
-		const state = this.#state.get(child);
-		if (state) state.waiting = false;
+		for (const [key, state] of this.#state) if (key.startsWith(`${child}>`)) state.waiting = false;
 		return id;
 	}
 
@@ -179,8 +179,9 @@ export class Mailbox {
 		if (n > (this.#dispatch.get(child)?.n ?? 0)) this.#dispatch.set(child, { n, id: `d${n}` });
 	}
 
-	state(child: string): MailState | undefined {
-		return this.#state.get(child);
+	/** `child`'s last report to `receiver`. */
+	state(child: string, receiver: string): MailState | undefined {
+		return this.#state.get(`${child}>${receiver}`);
 	}
 
 	/**
@@ -194,11 +195,11 @@ export class Mailbox {
 		// Marked seen only once delivered: a delivery that failed (the receiver's omp restarting, a paired device's link
 		// down) leaves the id free, so the sender's retry with the same id goes through.
 		const stamped = { ...mail, ...(current ? { dispatch: current } : {}) };
-		this.#state.set(mail.from, {
+		const key = `${mail.from}>${mail.to}`;
+		this.#state.set(key, {
 			last: stamped,
 			waiting: mail.kind === "question" || mail.kind === "blocked",
 		});
-		const key = `${mail.from}>${mail.to}`;
 		const pending = this.#pending.get(key);
 		if (mail.kind === "progress") {
 			const merged = pending ? (pending.mail.merged ?? 0) + 1 : 0;
@@ -235,7 +236,8 @@ export class Mailbox {
 	/** A closed session leaves nothing behind. */
 	forget(tab: string): void {
 		this.#dispatch.delete(tab);
-		this.#state.delete(tab);
+		for (const key of this.#state.keys())
+			if (key.startsWith(`${tab}>`) || key.endsWith(`>${tab}`)) this.#state.delete(key);
 		for (const [key, pending] of this.#pending)
 			if (key.startsWith(`${tab}>`) || key.endsWith(`>${tab}`)) {
 				this.#deps.clearTimer(pending.timer);
