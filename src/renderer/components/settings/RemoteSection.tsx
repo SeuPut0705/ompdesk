@@ -20,13 +20,19 @@
 import {
 	Ban,
 	Coffee,
+	Gauge,
 	Monitor,
 	MonitorSmartphone,
+	MoreHorizontal,
 	Network,
 	Palette,
 	Pencil,
 	RefreshCw,
+	Router,
 	ShieldCheck,
+	Tag,
+	Trash2,
+	Users,
 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { RemoteHostState, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
@@ -48,6 +54,7 @@ import {
 	IconButton,
 	Input,
 	ListRow,
+	MenuButton,
 	SkeletonRows,
 } from "../common";
 import { LINK_BADGE } from "../remote/DeviceChip";
@@ -161,7 +168,7 @@ function TailnetComputers({ ready }: { ready: boolean }) {
 		}
 	};
 	return (
-		<SettingsRow description={t("remote.tailnet.desc")} label={t("remote.tailnet.title")} tipOnly>
+		<SettingsRow description={t("remote.tailnet.desc")} icon={<Router />} label={t("remote.tailnet.title")} tipOnly>
 			{!ready ? null : computers === null ? (
 				<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.tailnet.searching")}</p>
 			) : computers.length === 0 ? (
@@ -254,6 +261,7 @@ function DeviceNameRow({ name }: { name: string }) {
 				/>
 			}
 			htmlFor={inputId}
+			icon={<Tag />}
 			label={t("remote.host.name")}
 		/>
 	);
@@ -380,7 +388,7 @@ export function RemoteSection() {
 
 	const { host, hosts } = state;
 	return (
-		<div className="flex flex-col gap-8" data-remote-section>
+		<div data-remote-section>
 			<ForgottenNotice names={state.forgotten} />
 			<SettingsSection title={t("remote.host.title")}>
 				<TailscaleRow phase={state.tailnet} />
@@ -403,7 +411,12 @@ export function RemoteSection() {
 				{host.enabled && (
 					<>
 						<KeepAwakeRow host={host} />
-						<SettingsRow description={t("remote.host.addressesDesc")} tipOnly label={t("remote.host.addresses")}>
+						<SettingsRow
+							description={t("remote.host.addressesDesc")}
+							icon={<Network />}
+							label={t("remote.host.addresses")}
+							tipOnly
+						>
 							{host.listenError ? (
 								<p className="text-sc-sm text-(--sc-warning)" data-remote-port-in-use role="status">
 									{t("remote.host.portInUse", {
@@ -434,7 +447,7 @@ export function RemoteSection() {
 								void mutate(() => window.omp.remote.setConfirmNewDevices(on), t("remote.host.confirmNewFailed"))
 							}
 						/>
-						<SettingsRow label={t("remote.host.peers")}>
+						<SettingsRow icon={<Users />} label={t("remote.host.peers")}>
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>
 									{host.peers.map(peer => {
@@ -487,46 +500,44 @@ export function RemoteSection() {
 												}
 												titleText={peer.name}
 												trailing={
-													<div className="flex items-center gap-1">
-														<Button
-															aria-label={t("remote.limits.label", { name: peer.name })}
-															onClick={() => setLimitsFor(peer.deviceId)}
-															size="sm"
-															variant="ghost"
-														>
-															{t("remote.limits.button")}
-														</Button>
-														<Button
-															aria-label={t("remote.removeLabel", { name: peer.name })}
-															onClick={() =>
-																setPendingRemove({
-																	kind: "peer",
-																	deviceId: peer.deviceId,
-																	name: peer.name,
-																})
-															}
-															size="sm"
-															variant="ghost"
-														>
-															{t("remote.remove")}
-														</Button>
-														<Button
-															aria-label={t("remote.blockLabel", { name: peer.name })}
-															data-remote-peer-block={peer.deviceId}
-															icon={<Ban />}
-															onClick={() =>
-																setPendingRemove({
-																	kind: "block",
-																	deviceId: peer.deviceId,
-																	name: peer.name,
-																})
-															}
-															size="sm"
-															variant="ghost"
-														>
-															{t("remote.block")}
-														</Button>
-													</div>
+													// Secondary actions sit behind one overflow button, like every collection in Settings.
+													<MenuButton
+														align="end"
+														icon={<MoreHorizontal />}
+														items={[
+															{
+																id: "limits",
+																label: t("remote.limits.button"),
+																icon: Gauge,
+																onSelect: () => setLimitsFor(peer.deviceId),
+															},
+															{
+																id: "remove",
+																label: t("remote.remove"),
+																icon: Trash2,
+																onSelect: () =>
+																	setPendingRemove({
+																		kind: "peer",
+																		deviceId: peer.deviceId,
+																		name: peer.name,
+																	}),
+															},
+															{
+																id: "block",
+																label: t("remote.block"),
+																icon: Ban,
+																danger: true,
+																onSelect: () =>
+																	setPendingRemove({
+																		kind: "block",
+																		deviceId: peer.deviceId,
+																		name: peer.name,
+																	}),
+															},
+														]}
+														label={t("remote.peerMenu", { name: peer.name })}
+														size="sm"
+													/>
 												}
 											/>
 										);
@@ -566,7 +577,7 @@ export function RemoteSection() {
 									key={entry.deviceId}
 									leading={<Monitor aria-hidden />}
 									meta={
-										<Badge dot pulse={entry.state === "connecting"} variant={LINK_BADGE[entry.state]}>
+										<Badge dot variant={LINK_BADGE[entry.state]}>
 											{t(`remote.state.${entry.state}`)}
 										</Badge>
 									}

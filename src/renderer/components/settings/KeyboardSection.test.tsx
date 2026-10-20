@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { KEYMAP_ACTIONS, RESERVED_CHORDS } from "../../lib/keymap";
 import { useUiStore } from "../../stores/ui";
 import { KeyboardSection } from "./KeyboardSection";
@@ -68,6 +68,8 @@ describe("KeyboardSection", () => {
 			expect(rows, action.id).toHaveLength(1);
 			const displayed = [...rows[0]!.querySelectorAll("kbd")].map(chip => chip.textContent ?? "").join(" / ");
 			expect(displayed, action.id).toBe(action.defaults.join(" / "));
+			// An action with no chord names that in words: an empty key box reads as a broken shortcut.
+			if (action.defaults.length === 0) expect(rows[0]!.textContent, action.id).toBe(translate("hotkeys.unbound"));
 		}
 		for (const entry of RESERVED_CHORDS) {
 			expect(

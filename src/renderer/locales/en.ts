@@ -203,7 +203,7 @@ export const en: Record<string, string> = {
 		"Use letters, digits, . _ - and /, end with /, - or _, and don't start a folder with a dot.",
 	"settings.agentWorktrees": "Agent worktrees",
 	"settings.agentWorktrees.desc":
-		"Worktrees omp made under ~/.omp/wt for PR checkouts and isolated tasks (omp worktree list). Clean up removes only the orphaned ones. Agent worktrees whose work has landed are removed by themselves at launch and every 6 hours.",
+		"Worktrees omp made under ~/.omp/wt for PR checkouts and isolated tasks (omp worktree list). Clean up removes only the orphaned ones. Agent worktrees whose work has landed are removed by themselves once a day.",
 	"settings.agentWorktrees.clear": "Clean up now",
 	"settings.agentWorktrees.refresh": "Refresh agent worktrees",
 	"settings.agentWorktrees.none": "No agent worktrees.",
@@ -2499,6 +2499,8 @@ export const en: Record<string, string> = {
 	"workspaceDirs.moveTitle": "Move session",
 	"workspaceDirs.moveDesc": "Move this session to another folder; that folder becomes its new working folder.",
 	"workspaceDirs.move": "Move session…",
+	"workspaceDirs.moveChoose": "Choose folder…",
+	"workspaceDirs.title": "Project folders",
 	"workspaceDirs.moved": "Moved to {path}",
 	"workspaceDirs.busy": "Unavailable while a response is in progress.",
 
@@ -3325,6 +3327,7 @@ export const en: Record<string, string> = {
 	// Keyboard shortcuts (Settings › Keyboard)
 	"hotkeys.description": "Click a pencil, then press the new keys.",
 	"hotkeys.empty": "No matching shortcuts",
+	"hotkeys.unbound": "Not set",
 	"hotkeys.group.input": "Input",
 	"hotkeys.group.generation": "Generation",
 	"hotkeys.group.view": "View",
@@ -5721,8 +5724,8 @@ export const en: Record<string, string> = {
 	"remote.copy": "Copy {value}",
 	"remote.remove": "Remove",
 	"remote.removeLabel": "Remove {name}",
+	"remote.peerMenu": "Actions for {name}",
 	"remote.limits.button": "Limits",
-	"remote.limits.label": "Model limits for {name}",
 	"remote.limits.title": "Model limits for {name}",
 	"remote.limits.desc":
 		"How much of this computer's models the device may use per day. Leave a field empty for no limit. A turn already running finishes; the next request is refused.",
@@ -5744,7 +5747,6 @@ export const en: Record<string, string> = {
 		"{name} can no longer open sessions on this computer. It can connect again while its Tailscale account is allowed; Block keeps it out.",
 	"remote.removeHostBody": "This device stops running sessions on {name}. Connect again from the tailnet list.",
 	"remote.block": "Block",
-	"remote.blockLabel": "Block {name}",
 	"remote.blockTitle": "Block {name}?",
 	"remote.blockBody":
 		"{name} is disconnected and its Tailscale device can't use this computer, nor the phone page, until you unblock it.",
@@ -6549,7 +6551,6 @@ export const en: Record<string, string> = {
 	"mobileWeb.devices.rename": "Rename {name}",
 	"mobileWeb.devices.renameFailed": "Couldn't rename the device",
 	"mobileWeb.devices.revoke": "Block",
-	"mobileWeb.devices.revokeLabel": "Block {name}",
 	"mobileWeb.devices.revokeTitle": "Block {name}?",
 	"mobileWeb.devices.revokeBody":
 		"{name} can no longer open OMPdesk until you unblock it. Your other devices keep working.",

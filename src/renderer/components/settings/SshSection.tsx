@@ -18,7 +18,6 @@ import {
 	Button,
 	ConfirmDialog,
 	CopyButton,
-	EmptyState,
 	ErrorDetail,
 	IconButton,
 	Input,
@@ -28,7 +27,7 @@ import {
 	SwitchField,
 	TextArea,
 } from "../common";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingsRow, SettingsSection } from "./SettingsLayout";
 import { SshAgentRow, SshForwardsPanel } from "./SshTools";
 
 interface HostDraft extends RpcSshHostInput {
@@ -270,13 +269,16 @@ export function SshSection() {
 			{t("ssh.add")}
 		</Button>
 	);
+	// One row like the rest of Settings, not a centered empty card: the purpose sits behind its info glyph.
 	const emptyState = empty && (
-		<EmptyState
-			actions={creating ? undefined : addButton}
+		<SettingsRow
+			compactControl
+			control={creating ? undefined : addButton}
 			description={t("ssh.empty.description")}
 			icon={<Server />}
-			size="sm"
-			title={t("ssh.empty.title")}
+			id="settings-ssh-empty"
+			label={<span className="text-(--sc-text-muted)">{t("ssh.empty.title")}</span>}
+			tipOnly
 		/>
 	);
 

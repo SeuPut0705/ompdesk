@@ -122,6 +122,18 @@ function buttonLabeled(label: string): HTMLButtonElement | undefined {
 	);
 }
 
+/** A device row's secondary actions sit behind its overflow menu: open it, then pick the item. */
+async function pickPeerAction(name: string, item: string): Promise<void> {
+	await act(async () => {
+		buttonLabeled(translate("remote.peerMenu", { name }))?.click();
+	});
+	await act(async () => {
+		(Array.from(document.body.querySelectorAll('[role="menuitem"]')) as HTMLElement[])
+			.find(entry => (entry.textContent ?? "").trim() === item)
+			?.click();
+	});
+}
+
 /** linkedom never fires React's change event: set the value, then call the field's own onChange. */
 function setInputValue(input: HTMLInputElement, value: string): void {
 	const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
@@ -249,9 +261,7 @@ describe("RemoteSection", () => {
 
 	it("blocks a device through blockPeer once the block is confirmed", async () => {
 		await mount();
-		await act(async () => {
-			buttonLabeled(translate("remote.blockLabel", { name: "laptop" }))?.click();
-		});
+		await pickPeerAction("laptop", translate("remote.block"));
 		expect(document.body.textContent).toContain(translate("remote.blockBody", { name: "laptop" }));
 		await act(async () => {
 			const dialog = document.body.querySelector('[role="dialog"], [role="alertdialog"]');
@@ -279,9 +289,7 @@ describe("RemoteSection", () => {
 	it("revokes a paired device through revokePeer once the removal is confirmed", async () => {
 		await mount();
 
-		await act(async () => {
-			buttonLabeled(translate("remote.removeLabel", { name: "laptop" }))?.click();
-		});
+		await pickPeerAction("laptop", translate("remote.remove"));
 		expect(remote.revokePeer).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(translate("remote.removeTitle", { name: "laptop" }));
 		expect(document.body.textContent).toContain(translate("remote.removePeerBody", { name: "laptop" }));
@@ -382,9 +390,7 @@ describe("RemoteSection", () => {
 		expect(usage?.textContent).toContain(
 			translate("remote.limits.todayOf", { requests: 12, requestsLimit: 50, tokens: "48.3k", tokensLimit: "∞" }),
 		);
-		await act(async () => {
-			buttonLabeled(translate("remote.limits.label", { name: "laptop" }))?.click();
-		});
+		await pickPeerAction("laptop", translate("remote.limits.button"));
 		const fields = Array.from(document.body.querySelectorAll("[data-peer-limits] input")) as HTMLInputElement[];
 		expect(fields.map(field => field.value)).toEqual(["50", ""]);
 		await act(async () => {

@@ -33,7 +33,7 @@ import {
 } from "../../lib/keymap";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ConfirmDialog, EmptyState, IconButton, Kbd } from "../common";
+import { Badge, Button, ConfirmDialog, EmptyState, IconButton, Kbd, SettingInfo } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 interface StaticHotkeyRow {
@@ -218,28 +218,24 @@ export function KeyboardSection({ query }: { query: string }) {
 	const hasOverrides = Object.keys(overrides).length > 0;
 
 	return (
-		<div className="flex flex-col gap-6">
-			{groups.length === 0 && <EmptyState icon={<Keyboard />} size="sm" title={t("hotkeys.empty")} />}
-			{groups.map((group, index) => (
-				<SettingsSection
-					actions={
-						index === 0 ? (
-							<Button
-								disabled={!hasOverrides}
-								icon={<RotateCcw />}
-								onClick={() => setConfirmingResetAll(true)}
-								size="sm"
-								variant="ghost"
-							>
-								{t("hotkeys.remap.resetAll")}
-							</Button>
-						) : undefined
-					}
-					description={index === 0 ? t("hotkeys.description") : undefined}
-					id={`keyboard-${group.id}`}
-					key={group.id}
-					title={t(group.titleKey)}
+		<div>
+			{/* Reset all and the how-to belong to the page, not to its first group. 20 px apart on every input: on
+			    touch the glyph and the button each reach 10 px, and never each other's. */}
+			<div className="mb-2 flex items-center justify-end gap-5 [--hit-gap-x:20px]" data-hotkeys-toolbar>
+				<SettingInfo text={t("hotkeys.description")} />
+				<Button
+					disabled={!hasOverrides}
+					icon={<RotateCcw />}
+					onClick={() => setConfirmingResetAll(true)}
+					size="sm"
+					variant="ghost"
 				>
+					{t("hotkeys.remap.resetAll")}
+				</Button>
+			</div>
+			{groups.length === 0 && <EmptyState icon={<Keyboard />} size="sm" title={t("hotkeys.empty")} />}
+			{groups.map(group => (
+				<SettingsSection id={`keyboard-${group.id}`} key={group.id} title={t(group.titleKey)}>
 					{group.rows.map(row => {
 						const actionId = row.actionId;
 						const hasOverride = actionId ? overrides[actionId] !== undefined : false;
@@ -272,7 +268,12 @@ export function KeyboardSection({ query }: { query: string }) {
 											</>
 										)}
 										<span className="ml-1" data-hotkey-keys="" data-hotkey-action={actionId ?? undefined}>
-											<Kbd shortcut={row.shortcut} />
+											{/* An action with no chord says so in words, never an empty key box. */}
+											{row.shortcut ? (
+												<Kbd shortcut={row.shortcut} />
+											) : (
+												<span className="text-sc-xs text-(--sc-text-muted)">{t("hotkeys.unbound")}</span>
+											)}
 										</span>
 									</span>
 								}

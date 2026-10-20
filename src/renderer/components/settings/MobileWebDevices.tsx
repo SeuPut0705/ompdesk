@@ -6,7 +6,7 @@
  * identity: the confirm says so). Main owns the lists; every action answers with the whole new list (devices,
  * blocks) or state (users).
  */
-import { Ban, Pencil, Smartphone } from "lucide-react";
+import { Ban, Gauge, MoreHorizontal, Pencil, Smartphone } from "lucide-react";
 import { useId, useState } from "react";
 import type { PeerView } from "../../../shared/ipc-types";
 import {
@@ -22,7 +22,7 @@ import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../../stores/mobile-web";
-import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, Select, Switch } from "../common";
+import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, MenuButton, Select, Switch } from "../common";
 import { DeviceNameField } from "./DeviceNameField";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
 import { SettingsSection } from "./SettingsLayout";
@@ -120,25 +120,17 @@ function DeviceRow({
 				}
 				titleText={device.name}
 				trailing={
-					<div className="flex items-center gap-1">
-						<Button
-							aria-label={t("remote.limits.label", { name: device.name })}
-							onClick={onLimits}
-							size="sm"
-							variant="ghost"
-						>
-							{t("remote.limits.button")}
-						</Button>
-						<Button
-							aria-label={t("mobileWeb.devices.revokeLabel", { name: device.name })}
-							data-web-device-revoke
-							onClick={onRevoke}
-							size="sm"
-							variant="ghost"
-						>
-							{t("mobileWeb.devices.revoke")}
-						</Button>
-					</div>
+					// Limits and Block sit behind one overflow button, like every collection in Settings.
+					<MenuButton
+						align="end"
+						icon={<MoreHorizontal />}
+						items={[
+							{ id: "limits", label: t("remote.limits.button"), icon: Gauge, onSelect: onLimits },
+							{ id: "block", label: t("mobileWeb.devices.revoke"), icon: Ban, danger: true, onSelect: onRevoke },
+						]}
+						label={t("remote.peerMenu", { name: device.name })}
+						size="sm"
+					/>
 				}
 			/>
 			<div className="flex min-w-0 flex-col gap-1 pr-2 pb-2 pl-9">

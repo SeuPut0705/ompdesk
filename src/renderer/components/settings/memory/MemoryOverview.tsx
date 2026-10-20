@@ -3,7 +3,7 @@
  * disk size, the console, the terminal omp and the privacy line. One line a row; every explanation is a tooltip.
  * The switch is not a prefs write: main installs or removes the wiring and the service and pushes the state back.
  */
-import { Brain, FolderOpen, GraduationCap, KeyRound, RefreshCw, SquareTerminal } from "lucide-react";
+import { Activity, Brain, FolderOpen, GraduationCap, KeyRound, Lock, RefreshCw, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 import type {
 	AiMemoryOverview,
@@ -15,7 +15,7 @@ import type {
 import { AI_MEMORY_LEARN_PREF } from "../../../../shared/ai-memory";
 import { formatBytes, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, CopyButton, InlineNotice, Spinner } from "../../common";
+import { Badge, Button, CopyButton, InlineNotice, SettingInfo, Spinner } from "../../common";
 import { useMainPreference } from "../GeneralSection";
 import { SettingsRow, SettingsSwitchRow } from "../SettingsLayout";
 import { projectLabel } from "./MemorySection";
@@ -124,10 +124,15 @@ export function MemoryOverview({
 					</span>
 				}
 				footer={
-					state.detail && (problem || unsupported) ? (
+					// "Unavailable here" carries its reason as a sentence: the badge already names the phase, so the
+					// notice says only why. A failure keeps its raw cause under the phase.
+					state.detail && unsupported ? (
+						<InlineNotice title={state.detail} tone="danger" />
+					) : state.detail && problem ? (
 						<InlineNotice detail={state.detail} title={t(`memory.phase.${state.phase}`)} tone="danger" />
 					) : undefined
 				}
+				icon={<Activity />}
 				id="setting-aiMemory-status"
 				label={t("memory.overview.status")}
 			/>
@@ -301,15 +306,15 @@ export function MemoryOverview({
 					tipOnly
 				/>
 			)}
+			{/* The privacy line is the row's visible note under its label; the full account sits behind the glyph. */}
 			<SettingsRow
-				tipOnly
-				compactControl
-				control={
-					<span className="text-sc-sm text-(--sc-text-secondary)" data-memory-privacy>
+				badge={<SettingInfo text={t("memory.overview.privacy.info")} />}
+				description={
+					<span className="text-(--sc-text-secondary)" data-memory-privacy>
 						{t("memory.overview.privacy.line")}
 					</span>
 				}
-				description={t("memory.overview.privacy.info")}
+				icon={<Lock />}
 				id="settings-memory-privacy"
 				label={t("memory.overview.privacy")}
 			/>

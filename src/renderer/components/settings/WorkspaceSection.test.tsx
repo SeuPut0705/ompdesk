@@ -267,7 +267,7 @@ describe("WorkspaceSection", () => {
 	it("moves the session to the picked directory, toasts, and rehydrates", async () => {
 		const omp = installMockOmp({ pickedPath: EXTRA });
 		await mount(<WorkspaceSection />);
-		await click(findButton("Move session"));
+		await click(findButton("Choose folder"));
 		await flush();
 		expect(omp.rpc.moveSession).toHaveBeenCalledWith(EXTRA);
 		// hydrateSession pulled the session state, and the section refetched folders.

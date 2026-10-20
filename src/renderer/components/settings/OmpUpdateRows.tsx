@@ -5,7 +5,7 @@
  * and that the next check retries. OMPdesk's own update stays manual (the
  * section above).
  */
-import { RefreshCcw, RefreshCw } from "lucide-react";
+import { RefreshCcw, RefreshCw, SquareTerminal } from "lucide-react";
 import { useEffect } from "react";
 import { OMP_AUTO_UPDATE_PREF, type OmpUpdateFailure, type OmpUpdateState } from "../../../shared/omp-update";
 import { saveGuiPreference } from "../../lib/display-preferences";
@@ -76,10 +76,11 @@ export function OmpUpdateRows() {
 						{t("ompUpdate.now")}
 					</Button>
 				}
+				icon={<SquareTerminal />}
 				id="setting-omp-update-now"
 				label={t("ompUpdate.nowLabel")}
 			>
-				<p className="text-sc-sm break-words text-(--sc-text-secondary)" data-testid="omp-update-status">
+				<p className="text-sc-xs break-words text-(--sc-text-muted)" data-testid="omp-update-status">
 					{state ? statusText(t, state) : t("ompUpdate.status.notChecked")}
 				</p>
 				{state && <OmpUpdateFailureNotice state={state} />}

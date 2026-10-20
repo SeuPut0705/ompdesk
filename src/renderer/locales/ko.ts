@@ -199,7 +199,7 @@ export const ko: Record<string, string> = {
 		"영문, 숫자, . _ - /만 쓰고 /, -, _ 중 하나로 끝내세요. 폴더 이름은 점으로 시작할 수 없어요.",
 	"settings.agentWorktrees": "에이전트 워크트리",
 	"settings.agentWorktrees.desc":
-		"omp가 PR 체크아웃과 격리 작업을 위해 ~/.omp/wt에 만든 워크트리예요(omp worktree list). 정리하면 남은 것만 지워요. 작업이 반영된 에이전트 워크트리는 실행할 때와 6시간마다 저절로 지워져요.",
+		"omp가 PR 체크아웃과 격리 작업을 위해 ~/.omp/wt에 만든 워크트리예요(omp worktree list). 정리하면 남은 것만 지워요. 작업이 반영된 에이전트 워크트리는 하루에 한 번 저절로 지워져요.",
 	"settings.agentWorktrees.clear": "지금 정리",
 	"settings.agentWorktrees.refresh": "에이전트 워크트리 새로고침",
 	"settings.agentWorktrees.none": "에이전트 워크트리가 없어요.",
@@ -2484,6 +2484,8 @@ export const ko: Record<string, string> = {
 	"workspaceDirs.moveTitle": "세션 이동",
 	"workspaceDirs.moveDesc": "이 세션을 다른 폴더로 옮겨요. 옮긴 폴더가 새 기본 폴더가 돼요.",
 	"workspaceDirs.move": "세션 이동…",
+	"workspaceDirs.moveChoose": "폴더 고르기…",
+	"workspaceDirs.title": "프로젝트 폴더",
 	"workspaceDirs.moved": "이동했어요: {path}",
 	"workspaceDirs.busy": "응답이 진행 중일 때는 사용할 수 없어요.",
 
@@ -3310,6 +3312,7 @@ export const ko: Record<string, string> = {
 	// Keyboard shortcuts (Settings › Keyboard)
 	"hotkeys.description": "연필을 누르고 새 키를 누르세요.",
 	"hotkeys.empty": "일치하는 단축키가 없어요",
+	"hotkeys.unbound": "지정 안 됨",
 	"hotkeys.group.input": "입력",
 	"hotkeys.group.generation": "생성",
 	"hotkeys.group.view": "보기",
@@ -5708,8 +5711,8 @@ export const ko: Record<string, string> = {
 	"remote.copy": "{value} 복사",
 	"remote.remove": "제거",
 	"remote.removeLabel": "{name} 제거",
+	"remote.peerMenu": "{name} 메뉴",
 	"remote.limits.button": "한도",
-	"remote.limits.label": "{name} 모델 사용 한도",
 	"remote.limits.title": "{name} 모델 사용 한도",
 	"remote.limits.desc":
 		"이 기기가 하루에 이 컴퓨터의 모델을 얼마나 쓸 수 있는지 정해요. 비워 두면 한도가 없어요. 이미 실행 중인 턴은 끝까지 진행되고, 다음 요청부터 거절돼요.",
@@ -5732,7 +5735,6 @@ export const ko: Record<string, string> = {
 	"remote.removeHostBody":
 		"이 기기에서 더 이상 {name}의 세션을 실행하지 않아요. 테일넷 목록에서 다시 연결할 수 있어요.",
 	"remote.block": "차단",
-	"remote.blockLabel": "{name} 차단",
 	"remote.blockTitle": "{name} 기기를 차단할까요?",
 	"remote.blockBody":
 		"{name} 기기의 연결을 끊고, 차단을 풀 때까지 그 Tailscale 기기는 이 컴퓨터와 모바일 웹을 쓸 수 없어요.",
@@ -6528,7 +6530,6 @@ export const ko: Record<string, string> = {
 	"mobileWeb.devices.rename": "{name} 이름 변경",
 	"mobileWeb.devices.renameFailed": "기기 이름을 바꾸지 못했어요",
 	"mobileWeb.devices.revoke": "차단",
-	"mobileWeb.devices.revokeLabel": "{name} 차단",
 	"mobileWeb.devices.revokeTitle": "{name} 기기를 차단할까요?",
 	"mobileWeb.devices.revokeBody":
 		"차단을 풀기 전에는 {name}에서 OMPdesk를 열 수 없어요. 다른 기기는 그대로 쓸 수 있어요.",

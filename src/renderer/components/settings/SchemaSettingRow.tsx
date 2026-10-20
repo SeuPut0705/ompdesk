@@ -8,7 +8,28 @@
  * (Advanced only) reveals where a configured value comes from.
  */
 
-import { Check, ChevronRight, Eye, EyeOff } from "lucide-react";
+import {
+	Brain,
+	Check,
+	ChevronRight,
+	Eye,
+	EyeOff,
+	KeyRound,
+	Lightbulb,
+	ListChecks,
+	ListPlus,
+	type LucideIcon,
+	MessageSquarePlus,
+	OctagonX,
+	RotateCw,
+	ScrollText,
+	ShieldCheck,
+	ShieldQuestion,
+	Shrink,
+	Shuffle,
+	Target,
+	Workflow,
+} from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SettingEntry, SettingProvenance } from "../../../shared/rpc-types";
 import { useLang, useT } from "../../lib/i18n";
@@ -41,6 +62,28 @@ const COMMON_SHELLS: readonly ModelValueGroup[] = [
 		].map(path => ({ value: path })),
 	},
 ];
+
+/**
+ * The glyph a curated row wears, so it lines up with the GUI rows of its group (icon + label + control). Raw stock
+ * rows under Advanced have none: none of them do.
+ */
+const CURATED_ICONS: Readonly<Record<string, LucideIcon>> = {
+	steeringMode: MessageSquarePlus,
+	followUpMode: ListPlus,
+	interruptMode: OctagonX,
+	"compaction.enabled": Shrink,
+	"tui.renderMermaid": Workflow,
+	defaultThinkingLevel: Brain,
+	"retry.modelFallback": Shuffle,
+	"retry.maxRetries": RotateCw,
+	"tools.approvalMode": ShieldCheck,
+	"tools.approval": ShieldQuestion,
+	"secrets.enabled": KeyRound,
+	"plan.enabled": ListChecks,
+	"goal.enabled": Target,
+	"ttsr.enabled": ScrollText,
+	"advisor.enabled": Lightbulb,
+};
 
 function SettingStatus({ dirty, saving, saved }: { dirty: boolean; saving: boolean; saved: boolean }) {
 	const t = useT();
@@ -290,6 +333,8 @@ function SchemaSettingRow({
 		</>
 	);
 	const rowId = `setting-${entry.path}`;
+	const CuratedIcon = CURATED_ICONS[entry.path];
+	const icon = CuratedIcon ? <CuratedIcon /> : undefined;
 
 	// Boolean settings write immediately; the switch position is the feedback.
 	if (entry.type === "boolean") {
@@ -301,6 +346,7 @@ function SchemaSettingRow({
 				description={description}
 				disabled={saving}
 				footer={footer}
+				icon={icon}
 				id={rowId}
 				label={<span title={entry.path}>{label}</span>}
 				onCheckedChange={next => void commit(next)}
@@ -449,6 +495,7 @@ function SchemaSettingRow({
 				badge={badge}
 				description={description}
 				footer={footer}
+				icon={icon}
 				id={rowId}
 				label={<span title={entry.path}>{label}</span>}
 			>
@@ -566,6 +613,7 @@ function SchemaSettingRow({
 			badge={badge}
 			control={control}
 			description={description}
+			icon={icon}
 			footer={footer}
 			htmlFor={controlId}
 			id={rowId}

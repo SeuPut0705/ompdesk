@@ -9,6 +9,7 @@
  */
 import {
 	CalendarClock,
+	CalendarPlus,
 	ChevronDown,
 	ChevronRight,
 	MoreHorizontal,
@@ -19,7 +20,7 @@ import {
 	Square,
 	Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type {
 	Schedule,
 	ScheduleDraft,
@@ -40,18 +41,15 @@ import {
 	Banner,
 	Button,
 	ConfirmDialog,
-	EmptyState,
 	ErrorDetail,
 	IconButton,
-	InlineNotice,
 	MenuButton,
 	SkeletonRows,
 	Spinner,
 	Switch,
-	SwitchField,
 } from "../common";
 import { ScheduleDialog, weekdayNames } from "./ScheduleDialog";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 /** Runs listed before "Show all". */
 const RUNS_SHOWN = 20;
@@ -92,6 +90,7 @@ export function SchedulesSection() {
 	const [deleting, setDeleting] = useState<Schedule | null>(null);
 	const [openLog, setOpenLog] = useState<string | null>(null);
 	const [showAllRuns, setShowAllRuns] = useState(false);
+	const masterId = useId();
 
 	const load = useCallback(async () => {
 		setLoadError(null);
@@ -172,19 +171,36 @@ export function SchedulesSection() {
 	return (
 		<>
 			<SettingsSection actions={state.schedules.length > 0 ? newButton : undefined} id="settings-schedules-list">
-				<InlineNotice title={t("schedules.note")} tone="info" />
-				<SwitchField
-					checked={!state.paused}
-					data-schedules-master
-					description={t("schedules.masterDesc")}
-					infoOnly
+				{/* The "only while OMPdesk is open" rule sits behind the master row's info glyph, not as a paragraph. */}
+				<SettingsRow
+					compactControl
+					control={
+						<Switch
+							checked={!state.paused}
+							data-schedules-master
+							id={masterId}
+							onCheckedChange={checked => void send({ action: "setPaused", paused: !checked })}
+						/>
+					}
+					description={`${t("schedules.note")} ${t("schedules.masterDesc")}`}
+					htmlFor={masterId}
+					icon={<CalendarClock />}
 					label={t("schedules.master")}
-					onCheckedChange={checked => void send({ action: "setPaused", paused: !checked })}
+					tipOnly
 				/>
 				{state.schedules.length === 0 ? (
-					<EmptyState actions={newButton} icon={<CalendarClock />} size="sm" title={t("schedules.empty")} />
+					<SettingsRow
+						compactControl
+						control={newButton}
+						icon={<CalendarPlus />}
+						id="settings-schedules-empty"
+						label={<span className="text-(--sc-text-muted)">{t("schedules.empty")}</span>}
+					/>
 				) : (
-					<ul className="flex flex-col divide-y divide-(--sc-divider)" data-schedule-list>
+					<ul
+						className="flex flex-col divide-y divide-(--sc-divider) border-t border-(--sc-divider)"
+						data-schedule-list
+					>
 						{state.schedules.map(schedule => {
 							const active = running.get(schedule.id);
 							const last = lastRun(schedule.id);
