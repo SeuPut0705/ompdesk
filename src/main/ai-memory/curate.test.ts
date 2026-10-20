@@ -217,6 +217,36 @@ describe("curateMemory", () => {
 		expect(memory.retired.map(item => item.path)).toEqual([copy.path]);
 	});
 
+	it("never calls two long pages one because their first 600 characters match", async () => {
+		const opening = `${"Release steps for the desktop app, checked every time before a tag. ".repeat(10)}`;
+		const mac: Seed = {
+			project: PROJECT,
+			path: "procedures/release-mac.md",
+			title: "Release steps",
+			body: `${opening}Then sign the DMG with the pinned certificate and verify the designated requirement.`,
+			at: "2026-10-18T05:00:00Z",
+		};
+		const windows: Seed = {
+			...mac,
+			path: "procedures/release-windows.md",
+			body: `${opening}Then build the NSIS setup on the Windows runner and never sign with the Mac certificate.`,
+			at: "2026-10-19T05:00:00Z",
+		};
+		const code = setup([mac, windows]);
+		await code.run({ judge: null });
+		expect(code.memory.retired).toEqual([]);
+		const judged = setup([mac, windows]);
+		const report = await judged.run({ judge: says("duplicate") });
+		expect(judged.memory.retired).toEqual([]);
+		expect(report.undecided).toBe(1);
+	});
+
+	it("still lets a judge retire when both pages fit in what it read", async () => {
+		const { memory, run } = setup([OLD_CODE, NEW_TAILSCALE]);
+		await run({ judge: says("duplicate") });
+		expect(memory.retired.map(item => item.path)).toEqual([OLD_CODE.path]);
+	});
+
 	it("never retires a pinned page, whether the list says so or the server answers pinned", async () => {
 		const pinned = setup([{ ...OLD_CODE, pinned: true }, NEW_TAILSCALE]);
 		const first = await pinned.run({ judge: says("a_outdated") });

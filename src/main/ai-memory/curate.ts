@@ -22,7 +22,15 @@ import type { AiMemoryPage, AiMemoryPageRef, AiMemoryProjectRef } from "../../sh
 import { isDurablePath } from "../remote/app-protocol";
 import type { AiMemoryClient } from "./client";
 import { GLOBAL_PROJECT } from "./distill";
-import { type PageDigest, type PagePair, type PairJudge, type PairVerdict, pageText } from "./memory-judge";
+import {
+	bodyText,
+	PAGE_CHARS,
+	type PageDigest,
+	type PagePair,
+	type PairJudge,
+	type PairVerdict,
+	pageText,
+} from "./memory-judge";
 import { contentTerms, readRulesText, rulesOutline } from "./rules-file";
 
 export type CurateClient = Pick<AiMemoryClient, "projects" | "pages" | "page" | "retirePage">;
@@ -110,9 +118,13 @@ export function pairKey(a: Pick<AiMemoryPage, "workspace" | "project" | "path" |
 
 const pageKey = (page: AiMemoryPage) => `${page.workspace}/${page.project}/${page.path}`;
 
+/** Terms of the whole page: the code rule calls a duplicate only on what both pages say in full. */
 function termsOf(page: AiMemoryPage): Set<string> {
-	return contentTerms(`${page.title}\n${page.title}\n${pageText(page.markdown)}`);
+	return contentTerms(`${page.title}\n${page.title}\n${bodyText(page.markdown)}`);
 }
+
+/** The judge read this page cut at `PAGE_CHARS`: what it said may hang on the part it never saw. */
+const cutForJudge = (page: CuratePage) => bodyText(page.page.markdown).length > PAGE_CHARS;
 
 async function readInBatches<T, R>(items: readonly T[], read: (item: T) => Promise<R | null>): Promise<R[]> {
 	const out: R[] = [];
@@ -317,7 +329,12 @@ export async function curateMemory(deps: CurateDeps): Promise<CurateReport> {
 			if (!report.models.includes(judgment.model)) report.models.push(judgment.model);
 		}
 		group.forEach((pair, index) => {
-			const modelVerdict = judgment?.verdicts[index] ?? null;
+			const answered = judgment?.verdicts[index] ?? null;
+			// A judge that saw only the start of a long page may call two pages one; that never retires a page by itself.
+			const modelVerdict =
+				answered && answered.relation !== "unrelated" && (cutForJudge(pair.a) || cutForJudge(pair.b))
+					? null
+					: answered;
 			const verdict = modelVerdict ?? codeVerdict(pair);
 			const by: CurateBy = modelVerdict && judgment ? judgment.by : "code";
 			if (!verdict) {

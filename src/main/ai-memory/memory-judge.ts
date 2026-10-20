@@ -84,14 +84,18 @@ const JEV_CONCURRENCY = 4;
 const JEV_RUN_TIMEOUT_MS = 180_000;
 const HOST_POLL_MS = 100;
 
-/** The page body as a judge reads it: no H1 (the title is shown), no `_Source:` line, whitespace folded. */
-export function pageText(markdown: string): string {
+/** The page body whole: no H1 (the title is shown), no `_Source:` line, whitespace folded. */
+export function bodyText(markdown: string): string {
 	return markdown
 		.replace(/^# .*\n+/, "")
 		.replace(/\n*_Source:[^\n]*\s*$/, "")
 		.replaceAll(/\s+/g, " ")
-		.trim()
-		.slice(0, PAGE_CHARS);
+		.trim();
+}
+
+/** The page body as a judge reads it: the whole body cut at {@link PAGE_CHARS}. */
+export function pageText(markdown: string): string {
+	return bodyText(markdown).slice(0, PAGE_CHARS);
 }
 
 const QUESTION = {
