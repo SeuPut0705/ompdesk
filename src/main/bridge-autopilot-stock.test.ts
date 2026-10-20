@@ -27,8 +27,8 @@ import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge
  * Autopilot on the installed stock omp, with the real bridge and a scripted OpenAI-compatible provider on
  * loopback (no credentials, no model spend): the `autopilot` tool is registered `essential` and reaches the
  * model; the protocol section rides every goal-continuation turn byte for byte; the `tool_call` guard blocks
- * a push, an edit outside the worktree and an `eval`; the cycle record, the frames and the stop rule
- * (two unreported cycles) arrive; disarm restores the tool set.
+ * a push, an edit outside the worktree and an `eval`; the cycle record and the frames arrive, and two unreported
+ * cycles in a row do not stop the run; disarm restores the tool set.
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
