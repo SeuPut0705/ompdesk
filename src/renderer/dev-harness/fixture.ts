@@ -95,6 +95,28 @@ export const MODEL = {
 	maxTokens: 64_000,
 };
 
+/**
+ * `?todos=mixed`: a plan whose agent finished some steps out of order (the user's report: done steps after the one in
+ * progress), so the board's todo section shows how it folds finished steps wherever they sit.
+ */
+const MIXED_TODOS: Array<[string, "completed" | "in_progress" | "pending"]> | null =
+	typeof location !== "undefined" && new URLSearchParams(location.search).get("todos") === "mixed"
+		? [
+				["Read the board's code", "completed"],
+				["Reproduce the report", "completed"],
+				["Write the failing test", "completed"],
+				["Fold every finished step", "in_progress"],
+				["Update the harness", "completed"],
+				["Capture before and after", "completed"],
+				["Run the checks", "pending"],
+				["Update AGENTS.md", "completed"],
+				["Commit the test", "completed"],
+				["Commit the fix", "pending"],
+				["Push to main", "pending"],
+				["Report back", "pending"],
+			]
+		: null;
+
 export function stateFixture(tabId: string): RpcSessionState {
 	const seed = SEEDS.find(candidate => candidate.tabId === tabId) ?? SEEDS[0];
 	return {
@@ -118,16 +140,23 @@ export function stateFixture(tabId: string): RpcSessionState {
 		autoRetryEnabled: true,
 		messageCount: seed.messageCount,
 		queuedMessageCount: 0,
-		todoPhases: [
-			{
-				name: "Fix the test",
-				tasks: [
-					{ content: "Reproduce the flake", status: "completed" },
-					{ content: "Wait for the row to mount before asserting", status: "in_progress" },
-					{ content: "Run the sidebar suite ten times", status: "pending" },
+		todoPhases: MIXED_TODOS
+			? [
+					{
+						name: "Ship the board",
+						tasks: MIXED_TODOS.map(([content, status]) => ({ content, status })),
+					},
+				]
+			: [
+					{
+						name: "Fix the test",
+						tasks: [
+							{ content: "Reproduce the flake", status: "completed" },
+							{ content: "Wait for the row to mount before asserting", status: "in_progress" },
+							{ content: "Run the sidebar suite ten times", status: "pending" },
+						],
+					},
 				],
-			},
-		],
 		contextUsage: { tokens: 38_400, contextWindow: 1_000_000, percent: 3.8 },
 		planModeEnabled: false,
 		agentsPaused: false,
