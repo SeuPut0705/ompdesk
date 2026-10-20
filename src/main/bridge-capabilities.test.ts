@@ -93,6 +93,12 @@ describe("missingFor", () => {
 		expect(missingFor({ session: ["navigateTree()"] }, sources({ session: undefined }))).toEqual([]);
 	});
 
+	it("takes a module whose file is there but was not evaluated as present, and still names one that is gone", () => {
+		const lazy = { modules: { "mod/sdk": ["discoverAuthStorage()"], "mod/gone": ["anything()"] } };
+		expect(missingFor(lazy, sources())).toEqual(["mod/sdk", "mod/gone"]);
+		expect(missingFor(lazy, sources({ unloaded: new Set(["mod/sdk"]) }))).toEqual(["mod/gone"]);
+	});
+
 	it("reports hidden labels as missing even when present", () => {
 		const hidden = parseHidden(" AgentSession.setPlanModeState , mod/btw#getBtwTurns,,");
 		expect([...hidden]).toEqual(["AgentSession.setPlanModeState", "mod/btw#getBtwTurns"]);
