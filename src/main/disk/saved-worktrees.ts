@@ -198,15 +198,8 @@ async function freeBranchName(primary: string, folder: string): Promise<string> 
 	}
 }
 
-/**
- * Bytes in, the same bytes out: with `core.autocrlf` (Git for Windows' default is true) `add` stores a CRLF file as LF
- * and the restore's checkout writes CRLF into a file that had LF, so a saved worktree came back changed.
- */
-const BYTE_EXACT = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.autocrlf", GIT_CONFIG_VALUE_0: "false" };
-
 /** Disk care's own identity on its commits; no hook runs and nothing is signed (`commit-tree --no-gpg-sign`). */
 const SAVE_ENV = {
-	...BYTE_EXACT,
 	GIT_AUTHOR_NAME: "OMPdesk disk care",
 	GIT_AUTHOR_EMAIL: "disk-care@ompdesk.invalid",
 	GIT_COMMITTER_NAME: "OMPdesk disk care",
@@ -285,6 +278,48 @@ async function saveCommit(worktree: string, head: string, exclude: readonly stri
 	}
 }
 
+/** Attribute words that make a checkout write other bytes than the blob holds. */
+const CONVERTING_ATTRIBUTE = /(^|\s)-?(text|eol|crlf|filter|working-tree-encoding|ident)(=|\s|$)/m;
+
+/**
+ * Losing nothing means the restore writes the very bytes the folder holds now, for every tracked file, changed or not.
+ * Git rewrites bytes on add and checkout when line-ending or filter settings apply (core.autocrlf true/input, Git for
+ * Windows' default; core.eol; a filter driver; .gitattributes text/eol/filter/working-tree-encoding/ident), so an LF
+ * file in such a repo comes back CRLF. Without any of them, add stores and checkout writes bytes as they are. So a repo
+ * with any such setting keeps its worktree: the reason, or null when bytes round-trip.
+ */
+async function rewritesBytes(worktree: string): Promise<string | null> {
+	const config = async (key: string): Promise<string> =>
+		(await gitRaw(worktree, ["config", "--get", key])).stdout.toString("utf8").trim().toLowerCase();
+	const autocrlf = await config("core.autocrlf");
+	if (autocrlf === "true" || autocrlf === "input")
+		return `core.autocrlf is ${autocrlf}: a restore could change line endings`;
+	if (await config("core.eol")) return "core.eol is set: a restore could change line endings";
+	const filters = await gitRaw(worktree, ["config", "--get-regexp", "^filter\\."]);
+	if (filters.stdout.length > 0) return "a git filter driver is configured: a restore could rewrite files";
+	const attributeFiles = (await gitRaw(worktree, ["ls-files", "-z", "--", ":(glob)**/.gitattributes"])).stdout
+		.toString("utf8")
+		.split("\0")
+		.filter(Boolean)
+		.map(file => path.join(worktree, file));
+	attributeFiles.push(
+		path.resolve(worktree, (await git(worktree, ["rev-parse", "--git-path", "info/attributes"])).trim()),
+	);
+	const global = await config("core.attributesfile");
+	attributeFiles.push(
+		global
+			? global.replace(/^~(?=\/|\\)/, os.homedir())
+			: path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "git", "attributes"),
+	);
+	for (const file of attributeFiles) {
+		const text = await fs.readFile(file, "utf8").catch(() => "");
+		const rules = text.split("\n").filter(line => !line.trimStart().startsWith("#"));
+		if (rules.some(line => CONVERTING_ATTRIBUTE.test(line)))
+			return `${path.basename(file)} sets line-ending or filter attributes: a restore could rewrite files`;
+	}
+	return null;
+}
+
 export interface SaveTarget {
 	path: string;
 	primary: string;
@@ -314,6 +349,9 @@ export async function saveAndRemoveWorktree(
 	}
 	if (commitBytes > SAVE_COMMIT_MAX_BYTES)
 		throw new KeepWorktree(`its untracked files take ${commitBytes} bytes, more than a saved commit takes`);
+
+	const rewrites = await rewritesBytes(target.path);
+	if (rewrites) throw new KeepWorktree(rewrites);
 
 	// HEAD → what was staged → the working tree: the index and the working tree each come back as they were.
 	const staged = await stagedCommit(target.path, head);
@@ -524,7 +562,7 @@ export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore
 		onBranch
 			? ["worktree", "add", record.path, record.branch as string]
 			: ["worktree", "add", "--detach", record.path, record.head],
-		{ timeoutMs: 300_000, env: BYTE_EXACT },
+		{ timeoutMs: 300_000 },
 	);
 	if (added.code !== 0) throw new Error(`git worktree add failed: ${added.stderr.trim()}`);
 	if (record.savedBranch) {
@@ -533,8 +571,7 @@ export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore
 			// Two-tree read-tree moves the working tree from HEAD to the saved commit (deletions too); the reset puts
 			// the index back on HEAD, so the saved work is uncommitted again; then what was staged goes back into the
 			// index alone (read-tree without -u leaves the working tree as it is).
-			const moved = await gitRaw(record.path, ["read-tree", "-m", "-u", "HEAD", savedSha], { env: BYTE_EXACT });
-			if (moved.code !== 0) throw new Error(`git read-tree failed in ${record.path}: ${moved.stderr.trim()}`);
+			await git(record.path, ["read-tree", "-m", "-u", "HEAD", savedSha]);
 			await git(record.path, ["reset", "-q"]);
 			if (record.staged) await git(record.path, ["read-tree", record.staged]);
 		}

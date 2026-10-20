@@ -60,6 +60,9 @@ beforeEach(async () => {
 	processes = [];
 	logs = [];
 	await initRepo(repo);
+	// Disk care keeps any worktree whose repo converts line endings (Git for Windows' default core.autocrlf=true), so
+	// the tests that save and remove one pin plain bytes; the eol test turns conversion on.
+	gitSync(repo, "config", "core.autocrlf", "false");
 	// A project whose dependencies come from a lockfile and whose build writes `out/`.
 	await fs.writeFile(
 		path.join(repo, "package.json"),
@@ -188,6 +191,35 @@ describe("disk care", () => {
 			// Uncommitted again, as it was: changed in the working tree, nothing staged.
 			expect(gitSync(dir, "diff", "--name-only")).toBe("README.md");
 			expect(gitSync(dir, "diff", "--cached", "--name-only")).toBe("");
+			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+		},
+		SLOW,
+	);
+
+	it(
+		"keeps a worktree whose files a restore would not bring back byte for byte (core.autocrlf=true, an LF file)",
+		async () => {
+			const dir = await busyWorktree("eol");
+			// Git for Windows' default: a checkout of this repo writes CRLF, so the edited LF README would come back CRLF.
+			gitSync(dir, "config", "core.autocrlf", "true");
+			await care().run("user");
+			expect(await exists(dir)).toBe(true);
+			expect(listed()).toContain(dir);
+			expect(await fs.readFile(path.join(dir, "README.md"), "utf8")).toBe("hello, edited\n");
+			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
+		},
+		SLOW,
+	);
+
+	it(
+		"keeps a worktree whose repo has a .gitattributes line-ending rule, even with nothing changed by it",
+		async () => {
+			const dir = await busyWorktree("attrs");
+			await write(dir, ".gitattributes", "* text=auto\n");
+			gitSync(dir, "add", ".gitattributes");
+			gitSync(dir, "commit", "-q", "-m", "attrs");
+			await care().run("user");
+			expect(await exists(dir)).toBe(true);
 			expect(await listSavedWorktrees(repo, saved)).toEqual([]);
 		},
 		SLOW,
