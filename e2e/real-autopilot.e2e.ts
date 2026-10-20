@@ -14,11 +14,11 @@ import {
 	setAutopilot,
 	startRun,
 	status,
-	survivors,
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
 import { exitApp } from "./harness";
+import { survivors } from "./process-tree";
 import { field, realOmpProfile, spentIn } from "./real-omp";
 
 // Explicit opt-in (OMP_GUI_REAL_WORK=1): these audits spend model tokens on the user's `smol` role in a private

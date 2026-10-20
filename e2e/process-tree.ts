@@ -40,7 +40,10 @@ export function survivors(root: string): string[] {
 		const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${root.replaceAll("'", "''")}') } | ForEach-Object { "$($_.ProcessId) ppid=$($_.ParentProcessId) threads=$($_.ThreadCount) $($_.Name) $($_.CommandLine)" }`;
 		for (let attempt = 1; ; attempt++) {
 			try {
-				return execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { encoding: "utf8", stdio: "pipe" })
+				return execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {
+					encoding: "utf8",
+					stdio: "pipe",
+				})
 					.split(/\r?\n/)
 					.filter(Boolean);
 			} catch (error) {
