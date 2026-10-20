@@ -116,7 +116,25 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(card).toContainText("Goal objective");
 				await expect(card.locator("[data-prompt-waiting]")).toHaveText(text.waiting(2));
 				const status = page.locator(".omp-below-editor-dock [data-extension-status]");
-				await expect(status).toHaveText("Indexer ready·✓ 128 tests");
+				try {
+					await expect(status).toHaveText("Indexer ready·✓ 128 tests");
+				} catch (error) {
+					// Seen once on a hosted runner (the card came, the status line never did): what the dock and main held.
+					await test.info().attach("dock.json", {
+						body: JSON.stringify(
+							{
+								dock: await page
+									.locator(".omp-below-editor-dock")
+									.evaluateAll(nodes => nodes.map(n => n.outerHTML.slice(0, 2000))),
+								open: await page.evaluate(() => window.omp.ui.openRequests()),
+								tabs: await page.evaluate(() => window.omp.tabs.list()),
+							},
+							null,
+							2,
+						),
+					});
+					throw error;
+				}
 				await expect(page.locator(".omp-below-editor-dock")).toContainText("2 files changed since the last review");
 				await expect(page.getByText("Fixture index failed to refresh")).toBeVisible();
 				await expect.poll(() => page.title()).toContain("Fixture extension title");
