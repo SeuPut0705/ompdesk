@@ -77,6 +77,8 @@ export interface ModelSetupFacts {
 /** One provider's share of a session's journal (`session_spend`, RPC `get_session_spend`). */
 export interface ProviderSessionSpend {
 	billing: Billing;
+	/** Stock's display name (the provider registry's, the one Settings' provider rows show), else the id. */
+	name: string;
 	/** USD over the whole journal: a metered provider's charge, a subscription's API-price estimate. */
 	cost: number;
 	/** USD of the entries since the host's local midnight. */

@@ -673,9 +673,9 @@ describe("WorkBoard account limit", () => {
 		// The judge's OpenRouter calls and an Anthropic subscription's replies, as `session_spend` answers them.
 		sessionSpend = {
 			providers: {
-				openrouter: { billing: "metered", cost: 0.000624, today: 0.000146 },
-				anthropic: { billing: "subscription", cost: 12.5, today: 3 },
-				ollama: { billing: "free", cost: 0, today: 0 },
+				openrouter: { billing: "metered", name: "OpenRouter", cost: 0.000624, today: 0.000146 },
+				anthropic: { billing: "subscription", name: "Anthropic (Claude Pro/Max)", cost: 12.5, today: 3 },
+				ollama: { billing: "free", name: "Ollama", cost: 0, today: 0 },
 			},
 			billing: { openrouter: "metered", anthropic: "subscription", ollama: "free" },
 		};
@@ -685,6 +685,12 @@ describe("WorkBoard account limit", () => {
 		await vi.waitFor(() => expect(pane.querySelector("[data-board-spend-provider]")).not.toBeNull());
 		const rows = [...pane.querySelectorAll("[data-board-spend-provider]")];
 		expect(rows.map(row => row.getAttribute("data-board-spend-provider"))).toEqual(["openrouter"]);
+		// Named as Settings' provider rows name it: stock's display name and the brand mark, never the raw id.
+		expect(rows[0]?.querySelector("[data-board-spend-name]")?.textContent).toBe("OpenRouter");
+		expect(rows[0]?.querySelector("[data-provider-mark]")?.getAttribute("data-provider-mark")).toBe("openrouter");
+		expect(rows[0]?.getAttribute("aria-label")).toBe(
+			translate("workBoard.spend.charged", { provider: "OpenRouter", cost: "$0.0006", today: "$0.0001" }),
+		);
 		expect(rows[0]?.querySelector("[data-board-spend-cost]")?.textContent).toBe("$0.0006");
 		expect(rows[0]?.querySelector("[data-board-spend-today]")?.textContent).toBe(
 			translate("workBoard.spend.today", { cost: "$0.0001" }),
@@ -695,10 +701,27 @@ describe("WorkBoard account limit", () => {
 		expect(pane.textContent).not.toContain("12.5");
 	});
 
+	it("names a metered provider an older host sent no display name for by its id", async () => {
+		usageReports = [report()];
+		sessionSpend = {
+			providers: { "acme-gateway": { billing: "metered", cost: 0.5, today: 0.5 } },
+			billing: { "acme-gateway": "metered" },
+		};
+		withAgent();
+		await mount();
+		await vi.waitFor(() => expect(pane.querySelector("[data-board-spend-name]")).not.toBeNull());
+		expect(pane.querySelector("[data-board-spend-name]")?.textContent).toBe("acme-gateway");
+		expect(pane.querySelector("[data-board-spend] [data-provider-mark]")?.getAttribute("data-provider-mark")).toBe(
+			"fallback",
+		);
+	});
+
 	it("shows no spend line when nothing metered was spent", async () => {
 		usageReports = [report()];
 		sessionSpend = {
-			providers: { anthropic: { billing: "subscription", cost: 12.5, today: 3 } },
+			providers: {
+				anthropic: { billing: "subscription", name: "Anthropic (Claude Pro/Max)", cost: 12.5, today: 3 },
+			},
 			billing: { anthropic: "subscription" },
 		};
 		withAgent();

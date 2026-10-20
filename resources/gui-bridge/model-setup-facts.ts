@@ -157,7 +157,9 @@ export function modelSetupFacts(session: AgentSession): ModelSetupFacts {
 /**
  * This session's spend per provider with each provider's billing class: what a metered provider charged and what a
  * subscription's calls would cost at API prices, never added together. Read from the live journal (`getEntries`),
- * whole-journal like stock's own tally; judge calls are in it because stock journals them into the session they served.
+ * whole-journal like stock's own tally; judge calls are in it because stock journals them into the session they served
+ * (the stats server's standalone judge has no session ledger, so its calls are not). Each provider carries stock's
+ * display name (`getProviderDefinition`, the registry Settings' provider rows read through `getOAuthProviders`).
  */
 export function sessionSpend(session: AgentSession, now: number): SessionSpend {
 	const spend = spendByProvider(session.sessionManager.getEntries(), dayStart(now));
@@ -165,7 +167,11 @@ export function sessionSpend(session: AgentSession, now: number): SessionSpend {
 	const billings = providerBillings(session, known);
 	const providers: SessionSpend["providers"] = {};
 	for (const [provider, row] of Object.entries(spend))
-		providers[provider] = { billing: billings[provider]?.billing ?? "metered", ...row };
+		providers[provider] = {
+			billing: billings[provider]?.billing ?? "metered",
+			name: getProviderDefinition(provider)?.name ?? provider,
+			...row,
+		};
 	const billing: SessionSpend["billing"] = {};
 	for (const [provider, row] of Object.entries(billings)) billing[provider] = row.billing;
 	return { providers, billing };

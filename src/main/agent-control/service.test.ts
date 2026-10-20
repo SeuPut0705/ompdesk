@@ -42,7 +42,7 @@ interface FakeTab extends ControlTab {
 	model?: { provider: string; id: string };
 	cost?: number;
 	/** What the fake omp answers `get_session_spend.providers` with (its own host's billing); absent = an older omp. */
-	spend?: Record<string, { billing: string; cost: number; today: number }>;
+	spend?: Record<string, { billing: string; name?: string; cost: number; today: number }>;
 }
 
 class FakeHost implements AgentControlHost {

@@ -142,8 +142,8 @@ export const MODEL_SETUP_FACTS: ModelSetupFacts = {
  */
 export const SESSION_SPEND: SessionSpend = {
 	providers: {
-		anthropic: { billing: "subscription", cost: 35.627, today: 35.627 },
-		openrouter: { billing: "metered", cost: 0.00142, today: 0.00142 },
+		anthropic: { billing: "subscription", name: "Anthropic (Claude Pro/Max)", cost: 35.627, today: 35.627 },
+		openrouter: { billing: "metered", name: "OpenRouter", cost: 0.00142, today: 0.00142 },
 	},
 	billing: Object.fromEntries(
 		Object.entries(MODEL_SETUP_FACTS.providers).map(([provider, row]) => [provider, row.billing]),

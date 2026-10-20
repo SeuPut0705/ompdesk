@@ -19,7 +19,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 });
 
 const spendOf = (cost: number): SessionSpend => ({
-	providers: { openrouter: { billing: "metered", cost, today: cost } },
+	providers: { openrouter: { billing: "metered", name: "OpenRouter", cost, today: cost } },
 	billing: { openrouter: "metered" },
 });
 

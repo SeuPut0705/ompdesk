@@ -2308,6 +2308,7 @@ export function runRpcUi(): void {
 					? {
 							anthropic: {
 								billing: "subscription",
+								name: "Anthropic (Claude Pro/Max)",
 								cost: Number(process.env.OMP_GUI_TEST_SESSION_COST),
 								today: Number(process.env.OMP_GUI_TEST_SESSION_COST),
 							},
