@@ -13,6 +13,12 @@ import type { Page } from "playwright";
 import { exitApp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 import { resize } from "./shell-capture";
 
+// Windows moves the chords whose ⌘ form is taken there (keymap windowsDefaults): Ctrl+P and Ctrl+Alt+T are the
+// model cycle and the thinking toggle.
+const MAC = process.platform === "darwin";
+const QUICK_OPEN = MAC ? "Meta+p" : "Control+Alt+p";
+const REOPEN_TAB = MAC ? "Alt+Meta+t" : "Control+Alt+Shift+t";
+
 for (const [language, theme] of variants([
 	["en", "light"],
 	["en", "dark"],
@@ -129,7 +135,7 @@ for (const [language, theme] of variants([
 			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(ids[0]);
 			await page.keyboard.press("ControlOrMeta+w");
 			await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(2);
-			await page.keyboard.press("Alt+ControlOrMeta+t");
+			await page.keyboard.press(REOPEN_TAB);
 			await expect
 				.poll(async () =>
 					(await page.evaluate(() => window.omp.tabs.list())).some(
@@ -141,7 +147,7 @@ for (const [language, theme] of variants([
 
 			// ⌘P: rank by file name, open the pick in the Files viewer.
 			const quickOpen = page.locator("[data-quick-open]");
-			await pressShortcutUntilVisible(page, "ControlOrMeta+p", quickOpen);
+			await pressShortcutUntilVisible(page, QUICK_OPEN, quickOpen);
 			await page.keyboard.type("gamma");
 			const pick = quickOpen.locator('[data-path$="gamma.ts"]');
 			await expect(pick).toBeVisible();
@@ -169,7 +175,7 @@ for (const [language, theme] of variants([
 				await page.keyboard.press("Escape");
 				await page.keyboard.press("Escape");
 				await expect(picker).toBeHidden();
-				await pressShortcutUntilVisible(page, "ControlOrMeta+p", quickOpen);
+				await pressShortcutUntilVisible(page, QUICK_OPEN, quickOpen);
 				// Reopened ⌘P starts empty: typing lands on a fresh query, not "gamma".
 				const field = quickOpen.getByRole("searchbox");
 				await expect(field).toHaveValue("");
