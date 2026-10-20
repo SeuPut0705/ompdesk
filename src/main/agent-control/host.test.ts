@@ -839,4 +839,31 @@ describe("AgentControlRuntime", () => {
 		expect(invoke).toHaveBeenCalledWith(win, "prefs:set", [{ key: "accountRotation", value: "even" }]);
 		expect(invoke).not.toHaveBeenCalledWith(win, "account-rotation:set", expect.anything());
 	});
+
+	it("tells the opener when a session it opened on a paired device shows a question card", async () => {
+		const request: ExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "q1",
+			method: "select",
+			title: "Which wording appeared?",
+			options: ["omp is unavailable", "Other (type your own)"],
+		};
+		const { activity, commands, sidecars } = setup({
+			tabs: [
+				{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+				{ tabId: "remo0004", title: "Remote", device: "dev-1", openedBy: "main0001" },
+			],
+			requests: [{ tabId: "remo0004", request }],
+		});
+		sidecars.set("remo0004", { cwd: "C:\\work", device: "dev-1" });
+		for (const observer of activity) observer({ type: "ask", tabId: "remo0004", requestId: "q1" } as never);
+		await vi.waitFor(() => expect(commands.some(entry => entry.command.type === "agent_control_mail")).toBe(true));
+		const mail = commands.find(entry => entry.command.type === "agent_control_mail");
+		expect(mail?.tabId).toBe("main0001");
+		expect(mail?.command).toMatchObject({
+			triggerTurn: true,
+			deliverAs: "aside",
+			details: { kind: "question", from: "remo0004" },
+		});
+	});
 });

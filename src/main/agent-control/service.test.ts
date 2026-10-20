@@ -689,6 +689,42 @@ describe("ompdesk_session_answer", () => {
 		expect(host.marked).toEqual(["Boss"]);
 	});
 
+	it("says which field to use when a choice card gets no choice, instead of calling the answer wrong", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "work0002", asks: [select("Where?", ["top bar", "dialog", "Other (type your own)"])] },
+		);
+		const service = control(host);
+		const bare = await service.run("main0001", T.answer, { session: "work0002" });
+		expect(bare.isError).toBe(true);
+		expect(bare.text).toContain("No choice given: pass `choice` with one of");
+		expect(bare.text).not.toMatch(/is not one of/);
+		const typed = await service.run("main0001", T.answer, { session: "work0002", text: "the window title" });
+		expect(typed.text).toContain("No choice given");
+		expect(typed.text).toContain("`text` answers a text prompt");
+		expect(typed.text).toContain('choose "Other (type your own)"');
+		expect(host.answers).toHaveLength(0);
+		const asked = new FakeHost(
+			{ tabId: "main0001" },
+			{
+				tabId: "work0002",
+				asks: [
+					{
+						id: "q1",
+						request: {
+							type: "extension_ui_request",
+							id: "q1",
+							method: "ask",
+							questions: [{ id: "a", question: "Lang?", options: [{ label: "ts" }, { label: "py" }] }],
+						} as ExtensionUIRequest,
+					},
+				],
+			},
+		);
+		const missing = await control(asked).run("main0001", T.answer, { session: "work0002", choice: "ts" });
+		expect(missing.text).toContain('pass `answers` ([{"id": "a", "selected": [');
+	});
+
 	it("never approves another session's tool approval unless the user allowed it; deny always works", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001" },
@@ -2596,6 +2632,58 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		await service.run("boss0001", T.send, { session: a, message: "Keep it." });
 		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBeUndefined();
 		expect(prompts(host, a).at(-1)).toContain("dispatch d2");
+	});
+
+	it("tells the opener when a child shows a question card, once, and lists the child as waiting until it is answered", async () => {
+		const { host, service, a, b } = await family();
+		const child = host.tabsById.get(a);
+		if (!child) throw new Error("no child");
+		child.asks = [
+			{
+				id: "q1",
+				request: {
+					type: "extension_ui_request",
+					id: "q1",
+					method: "select",
+					title: "어떤 문구가 어디에 떴나요?",
+					options: ['"omp를 사용할 수 없어요" (상단 띠)', "다른 문구", "Other (type your own)"],
+				} as ExtensionUIRequest,
+			},
+		];
+		await service.childAsked("boss0001", a, "q1");
+		expect(host.mails).toHaveLength(1);
+		const mail = host.mails[0];
+		expect(mail?.to).toBe("boss0001");
+		expect(mail?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
+		expect(mail?.details).toMatchObject({ kind: "question", from: a, id: `ask-${a}-q1` });
+		expect(mail?.content).toContain("어떤 문구가 어디에 떴나요?");
+		expect(mail?.content).toContain('"omp를 사용할 수 없어요" (상단 띠)');
+		expect(mail?.content).toContain("ompdesk_session_answer");
+		expect(host.reviewChanged).toHaveBeenCalledWith("boss0001");
+		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBe(true);
+		// The same card announced again (a re-attached link) is not a second message.
+		await service.childAsked("boss0001", a, "q1");
+		expect(host.mails).toHaveLength(1);
+		// Answered: no longer waiting.
+		await service.run("boss0001", T.answer, { session: a, choice: "다른 문구" });
+		expect((await service.reviewItems("boss0001")).find(item => item.tabId === a)?.waiting).toBeUndefined();
+		// A session it did not open, or a card that is gone, tells nobody.
+		await service.childAsked(b, a, "q1");
+		await service.childAsked("boss0001", a, "gone");
+		expect(host.mails).toHaveLength(1);
+	});
+
+	it("never mails the opener about OMPdesk's own confirmation card or a session hidden from agents", async () => {
+		const { host, service, a, b } = await family();
+		const first = host.tabsById.get(a);
+		const second = host.tabsById.get(b);
+		if (!first || !second) throw new Error("no children");
+		first.asks = [select("[OMPdesk] Delete a session?", ["Yes", "No"])];
+		second.asks = [select("Pick one", ["x", "y"])];
+		second.hidden = true;
+		await service.childAsked("boss0001", a, "req1");
+		await service.childAsked("boss0001", b, "req1");
+		expect(host.mails).toHaveLength(0);
 	});
 
 	it("ignores a report for a superseded dispatch and delivers a repeated report id once", async () => {
