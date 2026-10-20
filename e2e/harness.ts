@@ -323,11 +323,34 @@ export interface HitSize {
 }
 
 /**
+ * Wait until no finite animation runs on the matched elements or their ancestors. A popover's pop-in (`omp-pop-in`,
+ * scale 0.95) and a dialog's (`omp-scale-in`, 0.93) shrink every box inside it until they end, and a loaded runner
+ * can hold that first frame longer than a "settled box" poll waits: a 44 px row measured 41.8. Endless cues (the
+ * working shimmer) are left out; a stalled animation is waited for 3 s at most.
+ */
+export async function animationsDone(locator: Locator): Promise<void> {
+	await locator.evaluateAll(async nodes => {
+		const running = new Set<Animation>();
+		for (const node of nodes)
+			for (let element: Element | null = node; element; element = element.parentElement)
+				for (const animation of element.getAnimations())
+					if (Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))) running.add(animation);
+		const cap = Promise.withResolvers<void>();
+		setTimeout(cap.resolve, 3000);
+		await Promise.race([
+			Promise.all([...running].map(animation => animation.finished.catch(() => undefined))),
+			cap.promise,
+		]);
+	});
+}
+
+/**
  * The mobile shell keeps controls small and gives each an invisible `::after` that reaches `--sc-touch-target`
  * (mobile.css): every visible match's drawn box next to the larger of it and that pseudo-element (a stretched row
  * link's `::after` covers its row), so a test can pin "dense to look at, 44 px to hit".
  */
 export async function hitSizes(locator: Locator): Promise<HitSize[]> {
+	await animationsDone(locator);
 	return locator.evaluateAll(nodes =>
 		nodes.flatMap(node => {
 			const box = node.getBoundingClientRect();

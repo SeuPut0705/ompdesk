@@ -13,7 +13,7 @@ import {
 	webkit,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
-import { hitSizes, variants } from "./harness";
+import { animationsDone, hitSizes, variants } from "./harness";
 
 // Settings, the centers and the model picker on a phone and a portrait tablet (mobile web, design §6/§9 W-F) in
 // Chromium and WebKit device emulation, on the dev harness (src/renderer/dev-harness): a phone pushes Settings'
@@ -442,6 +442,8 @@ for (const { engine, device } of variants(
 			await expect(options.first()).toBeVisible({ timeout: 15_000 });
 			const viewport = page.viewportSize() ?? { width: 0, height: 0 };
 			const panel = await settled(dialog);
+			// The dialog's pop-in scales every row inside it until it ends (harness.ts `animationsDone`).
+			await animationsDone(options);
 			expect((panel?.x ?? -1) + (panel?.width ?? 0)).toBeLessThanOrEqual(viewport.width + 0.5);
 			if (device.phone) {
 				await expect(page.locator('[data-presentation="sheet"]')).toBeVisible();
