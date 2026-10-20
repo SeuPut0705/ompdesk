@@ -7,11 +7,14 @@
  * - every visible tab's session: state, transcript tail, queue, subagents, goal and settings (`hydrateTabSession`
  *   merges into what is shown and runs while a reply streams); a background tab reads its own when shown;
  * - the asks and approvals main still holds (`settleTabExtensionUiRequests`: missed ones appear, answered ones go);
- * - the paired-host snapshot, the sessions paired devices' tabs run on the computer and the shown session lists.
+ * - the paired-host snapshot, the sessions paired devices' tabs run on the computer and the shown session lists;
+ * - each visible tab's opened sessions (`agent_control_review`): main's pushes of that list were lost with the socket,
+ *   and a phone holds no tab of those sessions, so the list is all its board and strip have of them.
  *
  * Imported dynamically by web-boot.ts once the app has loaded (it reads the stores).
  */
 import { hydrateTabSession } from "../hooks/session-hydration";
+import { useAgentReviewStore } from "../stores/agent-review";
 import { loadHostedSessions } from "../stores/hosted-sessions";
 import { loadRemoteState } from "../stores/remote";
 import { refreshHeldSessionLists } from "../stores/session-list";
@@ -29,6 +32,7 @@ export async function resyncPage(): Promise<boolean> {
 		window.omp.ui.openRequests(),
 		loadRemoteState(),
 		loadHostedSessions(),
+		...visibleTabIds(state).map(tabId => useAgentReviewStore.getState().refresh(tabId)),
 		...sessions,
 	]);
 	settleTabExtensionUiRequests(open);

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	settle: vi.fn(),
 	loadRemoteState: vi.fn(async () => {}),
 	refreshHeldSessionLists: vi.fn(),
+	refreshReview: vi.fn(async (_tabId: string) => {}),
 }));
 
 vi.mock("../stores/tabs", () => ({
@@ -21,6 +22,9 @@ vi.mock("../stores/tabs", () => ({
 vi.mock("../hooks/session-hydration", () => ({ hydrateTabSession: mocks.hydrateTabSession }));
 vi.mock("../stores/remote", () => ({ loadRemoteState: mocks.loadRemoteState }));
 vi.mock("../stores/session-list", () => ({ refreshHeldSessionLists: mocks.refreshHeldSessionLists }));
+vi.mock("../stores/agent-review", () => ({
+	useAgentReviewStore: { getState: () => ({ refresh: mocks.refreshReview }) },
+}));
 
 const { resyncPage } = await import("./resync-page");
 
@@ -49,6 +53,8 @@ describe("resyncPage (one in-place catch-up pass after a reconnect that missed e
 		expect(mocks.settle).toHaveBeenCalledWith([{ tabId: "a", request: { id: "ask-1" } }]);
 		expect(mocks.loadRemoteState).toHaveBeenCalledOnce();
 		expect(mocks.refreshHeldSessionLists).toHaveBeenCalledOnce();
+		// The sessions each shown tab opened: main's pushes of that list went down with the socket.
+		expect(mocks.refreshReview.mock.calls.map(call => call[0])).toEqual(["a", "b", "c"]);
 	});
 
 	it("fails without reading anything else when the host cannot list the tabs (the link dropped again)", async () => {
