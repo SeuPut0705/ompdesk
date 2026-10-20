@@ -71,6 +71,7 @@ import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from 
 import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
 import type { BridgeClient } from "../local/types";
 import type { MachineServices } from "../machine-services";
+import { noteOmpExit } from "../omp-exits";
 import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "../session-mutations";
@@ -1744,6 +1745,7 @@ export class LocalHostServices implements HostServices {
 		tab.sidecar.removeAllListeners();
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = tab.sidecar.whenExited?.() ?? Promise.resolve();
+		if (!tab.viewsWindow) noteOmpExit(tab.sidecar.cwd, exited);
 		tab.sidecar.dispose();
 		const { sessionFile } = tab;
 		if (sessionFile !== undefined) {

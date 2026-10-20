@@ -10,6 +10,7 @@ import {
 	SavedWorktreeStore,
 } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
+import { noteOmpExit } from "../omp-exits";
 import type { BeforeRemove } from "../worktree-orphans";
 import { removalHolds } from "../worktree-removals";
 import {
@@ -367,7 +368,7 @@ describe("discardNewWorktree", () => {
 		).rejects.toThrow("in use");
 		await fs.stat(open.path);
 
-		// The closed tab's omp never leaves it (or the platform cannot tell): kept after the wait.
+		// A process still works in it (a job the closed omp left): kept after the wait.
 		const busy = await agentWorktree("busy-omp");
 		const real = await fs.realpath(busy.path);
 		const pauses: number[] = [];
@@ -382,10 +383,28 @@ describe("discardNewWorktree", () => {
 		expect(kept).toBeNull();
 		expect(pauses.length).toBeGreaterThan(0);
 		await fs.stat(busy.path);
-		expect(
-			await discardOpenedWorktree(busy, { openFolders: () => [], processes: async () => null, store: () => store }),
-		).toBeNull();
-		await fs.stat(busy.path);
+	});
+
+	it("on Windows, where no process folder can be read, removes it once the closed omp's exit is confirmed, else keeps it", async () => {
+		const store = new SavedWorktreeStore(path.join(root, "care"));
+		const windows = { openFolders: () => [], processes: async () => null, store: () => store };
+
+		// The closed tab's omp is still running there: kept.
+		const running = await agentWorktree("win-running");
+		const { promise: never } = Promise.withResolvers<void>();
+		noteOmpExit(running.path, never);
+		expect(await discardOpenedWorktree(running, { ...windows, ompsExited: async () => false })).toBeNull();
+		await fs.stat(running.path);
+
+		// Its exit noted and settled: removed, branch and all.
+		const exited = await agentWorktree("win-exited");
+		const gone = Promise.withResolvers<void>();
+		noteOmpExit(exited.path, gone.promise);
+		const discarding = discardOpenedWorktree(exited, windows);
+		gone.resolve();
+		expect(await discarding).toBe("removed");
+		await expect(fs.stat(exited.path)).rejects.toThrow();
+		expect(gitSync(repo, "branch", "--list", exited.branch)).toBe("");
 	});
 });
 

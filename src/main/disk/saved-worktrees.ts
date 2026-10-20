@@ -23,6 +23,7 @@ import { discardNewWorktree, type WorktreeRef, type WorktreeRemoval } from "../a
 import { git, gitRaw } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
+import { ompsExitedIn } from "../omp-exits";
 import type { BeforeRemove } from "../worktree-orphans";
 import { realFolder, withRemovalClaim } from "../worktree-removals";
 import { diskBytes } from "./usage";
@@ -482,24 +483,27 @@ export function archiveBeforeRemove(
 	};
 }
 
-/** How a discard waits for the closed tab's omp to leave the worktree before it keeps it instead. */
+/** How long a discard waits for the closed tab's omp (and, where readable, any process) to leave the worktree. */
 const DISCARD_EXIT_WAIT_MS = 5_000;
 const DISCARD_EXIT_POLL_MS = 250;
 
 export interface DiscardDeps {
 	/** Every folder a session of this computer has open (windows' tabs and those run for paired devices). */
 	openFolders: () => readonly string[];
-	/** The working folders of running processes; null where the platform cannot tell (then nothing is removed). */
+	/** The working folders of running processes; null where the platform cannot tell (Windows). */
 	processes?: () => Promise<string[] | null>;
+	/** Whether every omp this computer stopped in the folder has exited (`ompsExitedIn`). */
+	ompsExited?: (folder: string, timeoutMs: number) => Promise<boolean>;
 	store?: () => SavedWorktreeStore;
 	pause?: (ms: number) => Promise<void>;
 }
 
 /**
  * A failed open's unused worktree and branch (`discardNewWorktree`), removed under the removal claim every removal
- * takes (`withRemovalClaim`: no session of this computer may have it open, and none starts there meanwhile), once no
- * process works in it any more (the closed tab's omp may still be exiting; still there after a few seconds, or a
- * platform that cannot tell, keeps it), with what no tool makes again archived first.
+ * takes (`withRemovalClaim`: no session of this computer may have it open, and none starts there meanwhile), once the
+ * closed tab's omp has exited (`omp-exits.ts`, the signal that holds on every platform) and, where process folders
+ * can be read, no other process works in it; either still there after a few seconds keeps it. What no tool makes
+ * again is archived first.
  */
 export function discardOpenedWorktree(worktree: WorktreeRef, deps: DiscardDeps): Promise<WorktreeRemoval> {
 	const processes = deps.processes ?? processWorkingFolders;
@@ -511,6 +515,7 @@ export function discardOpenedWorktree(worktree: WorktreeRef, deps: DiscardDeps):
 			return promise;
 		});
 	return withRemovalClaim(worktree.path, deps.openFolders, async () => {
+		if (!(await (deps.ompsExited ?? ompsExitedIn)(worktree.path, DISCARD_EXIT_WAIT_MS))) return null;
 		let folders = await processes();
 		for (
 			let waited = 0;
@@ -520,7 +525,7 @@ export function discardOpenedWorktree(worktree: WorktreeRef, deps: DiscardDeps):
 			waited += DISCARD_EXIT_POLL_MS;
 			folders = await processes();
 		}
-		if (folders === null || processInside(worktree.path, folders)) return null;
+		if (folders !== null && processInside(worktree.path, folders)) return null;
 		return discardNewWorktree(worktree, archiveBeforeRemove((deps.store ?? savedWorktreeStore)(), folders));
 	});
 }

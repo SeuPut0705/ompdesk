@@ -97,6 +97,7 @@ import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "./extension-reload";
 import { createMessageUpdateSlimmer } from "./message-update-slim";
+import { noteOmpExit } from "./omp-exits";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
 import { HostedTabView } from "./remote/hosted-view";
@@ -1148,6 +1149,7 @@ export class SidecarPool {
 		const exited = entry.sidecar.whenExited?.() ?? Promise.resolve();
 		entry.sidecar.dispose();
 		if (sessionFile !== undefined) this.#noteExiting(ownerKey(entry.device, sessionFile), exited);
+		if (entry.device === undefined && !entry.hostedView) noteOmpExit(entry.sidecar.cwd, exited);
 		this.onTabReleased?.(entry.tabId, exited);
 		this.#leaveWindowView(entry.tabId, entry.winId, entry.win);
 		const viewers = [...entry.viewers];
