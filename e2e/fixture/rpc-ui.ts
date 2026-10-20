@@ -5731,6 +5731,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}
 			case "steer":
 			case "follow_up":
+				// Stock (`AgentSession#scheduleQueuedMessageDrain`): a steer or follow-up that finds the session idle is
+				// queued and drained at once, so it starts a turn. One that left a window as its turn ended (the window had
+				// not heard `agent_end` yet) waited here forever, which stock never does (nightly 39513238308,
+				// workbench-shortcuts; 39474605589, remote-resume).
+				if (!isStreaming && !goalTurnRunning && text("message")) {
+					prompt(text("message"), ok, Array.isArray(command.images) ? (command.images as ImageContent[]) : []);
+					break;
+				}
 				// Stock's `queueChipText`: a picture-only message waits as "[Image]" (the lanes carry text only).
 				lanes[type === "steer" ? "steering" : "followUp"].push(
 					text("message") || (Array.isArray(command.images) && command.images.length > 0 ? "[Image]" : ""),
