@@ -27,7 +27,7 @@ import {
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
-import { capture, captureTo, cssString, exitApp, variants } from "./harness";
+import { capture, captureTo, exitApp, variants } from "./harness";
 
 const TEXT = {
 	en: { running: /Cycle \d/, close: "Close side panel", autopilot: "Autopilot", docOnly: "docs only" },
@@ -116,20 +116,27 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator("[data-titlebar-worktree]")).toHaveText(TEXT[language].autopilot);
 				await expect(page.locator(".omp-titlebar-project").first()).toHaveText(project);
 				await expect(page.locator("[data-board-project]")).toHaveText(worktreeName);
-				await expect(page.locator(`[data-worktree-group=${cssString(project)}]`).first()).toHaveText(
-					TEXT[language].autopilot,
-				);
+				// The run is a row of its project's own group, marked as a run; no group of its own.
+				const runRow = page.locator(".omp-sidebar-session-row").filter({
+					has: page.locator('[data-sidebar-worktree="autopilot"]'),
+				});
+				await expect(runRow).toHaveCount(1);
+				expect(
+					await runRow.evaluate(row => {
+						const key = row.closest("[data-session-group]")?.getAttribute("data-session-group");
+						return [...document.querySelectorAll("[data-workspace-group]")]
+							.find(header => header.getAttribute("data-workspace-group") === key)
+							?.textContent?.trim();
+					}),
+				).toBe(project);
+				await expect(page.locator("[data-workspace-group]", { hasText: TEXT[language].autopilot })).toHaveCount(0);
 				await expect.poll(() => page.title()).toContain(worktreeName);
 				const visible = await page.locator("body").innerText();
 				expect(visible).not.toMatch(/gui-2026|gui-agent/);
 				expect(await page.title()).not.toMatch(/gui-2026|gui-agent/);
-				expect(
-					await page
-						.locator(`[data-worktree-group=${cssString(project)}]`)
-						.first()
-						.locator("button[title]")
-						.getAttribute("title"),
-				).toContain(cwd);
+				expect(await runRow.locator("button[title]").first().getAttribute("title")).toContain(
+					TEXT[language].autopilot,
+				);
 				await capture(page, `${language}-${theme}-board`);
 
 				// The overrides were applied to this session only: ask is gone, approvals are yolo, config.yml is untouched.

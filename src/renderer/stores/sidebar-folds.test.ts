@@ -88,23 +88,22 @@ describe("remembered folds", () => {
 		const state = folds.getState();
 		state.setGroupFolded("/work/live", true);
 		state.setGroupFolded("/work/gone", true);
-		state.setGroupFolded("/repo#agent", false);
 		state.setDeviceFolded(LOCAL_DEVICE, true);
 		state.setDeviceFolded("dev-live", true);
 		state.setDeviceFolded("dev-gone", true);
 		state.setDeviceGroupFolded("dev-live", "/a", true);
 		state.setDeviceGroupFolded("dev-gone", "/b", true);
 
-		const exists = (key: string) => ["/work/live", "/repo"].includes(key.replace(/#agent$/, ""));
+		const exists = (key: string) => ["/work/live", "/repo"].includes(key);
 		folds.getState().pruneGroups(exists);
 		folds.getState().syncHosts([{ id: "dev-live", name: "live" }]);
 
-		expect(folds.getState().groups).toEqual({ "/work/live": true, "/repo#agent": false });
+		expect(folds.getState().groups).toEqual({ "/work/live": true });
 		expect(folds.getState().devices).toEqual({ [LOCAL_DEVICE]: true, "dev-live": true });
 		expect(folds.getState().deviceGroups).toEqual({ "dev-live\n/a": true });
 		// The pruned record is what the next start reads.
 		const next = await launch();
-		expect(next.folds.getState().groups).toEqual({ "/work/live": true, "/repo#agent": false });
+		expect(next.folds.getState().groups).toEqual({ "/work/live": true });
 		expect(next.folds.getState().devices).toEqual({ [LOCAL_DEVICE]: true, "dev-live": true });
 	});
 

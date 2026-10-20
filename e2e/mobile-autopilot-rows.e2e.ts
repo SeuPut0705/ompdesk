@@ -49,10 +49,10 @@ interface Rows {
 	groups: string[];
 	/**
 	 * The run's children: the sessions its agent opened (`ompdesk_session_open`), one line each in the run's family
-	 * (`data-sidebar-opened-session`, sidebar-family.ts), or a row `data-session-run-child` marks; with the group they
-	 * sit in and whether that group is a worktree's.
+	 * (`data-sidebar-opened-session`, sidebar-family.ts), or a row `data-session-run-child` marks; with the name of
+	 * the group they sit in.
 	 */
-	childRows: Array<{ path: string; text: string; group: string; worktreeGroup: boolean }>;
+	childRows: Array<{ path: string; text: string; group: string }>;
 	text: string;
 }
 
@@ -88,13 +88,17 @@ async function readRows(phone: Page): Promise<Rows> {
 			perPath[rowPath] = (perPath[rowPath] ?? 0) + 1;
 			if (row.getAttribute("data-session-run-child") !== "true" && !row.hasAttribute("data-sidebar-opened-session"))
 				continue;
-			const key = row.closest("[data-session-group]")?.getAttribute("data-session-group");
-			const header = headers.find(candidate => candidate.getAttribute("data-workspace-group") === key);
 			childRows.push({
 				path: rowPath,
 				text: row.textContent ?? "",
-				group: header?.textContent?.trim() ?? "",
-				worktreeGroup: header?.hasAttribute("data-worktree-group") === true,
+				group:
+					headers
+						.find(
+							header =>
+								header.getAttribute("data-workspace-group") ===
+								row.closest("[data-session-group]")?.getAttribute("data-session-group"),
+						)
+						?.textContent?.trim() ?? "",
 			});
 		}
 		const groups = [...element.querySelectorAll("[data-workspace-group]")].map(
@@ -183,8 +187,8 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		for (const child of during.childRows) {
 			expect(child.text).toContain("Autopilot child");
 			expect(child.text).not.toContain("New session");
-			// Under the run's own row, in the run's group (the worktree group labelled Autopilot), not the project's.
-			expect(child).toMatchObject({ group: "Autopilot", worktreeGroup: true });
+			// Under the run's own row, among the project's own rows: a worktree has no group of its own.
+			expect(child.group).toBe(path.basename(ap.project));
 		}
 		expect(duplicates(during.perPath)).toEqual([]);
 		await closeDrawer(phone);
@@ -278,7 +282,7 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		const after = await readRows(phone);
 		expect(duplicates(after.perPath)).toEqual([]);
 		expect(after.groups.filter(name => /^\d{4}-\d{2}-\d{2}/.test(name))).toEqual([]);
-		for (const child of after.childRows) expect(child).toMatchObject({ group: "Autopilot", worktreeGroup: true });
+		for (const child of after.childRows) expect(child.group).toBe(path.basename(ap.project));
 		if (CAPTURES) await phone.screenshot({ path: path.join(CAPTURES, "after-restart.png") });
 		// The desktop took no copy of the phone's own sessions.
 		const desktopPaths = desktopAfter.map(tab => tab.path);

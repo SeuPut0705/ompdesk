@@ -299,7 +299,6 @@ async function flowBLaunch(root: string): Promise<FlowBLaunched> {
 // row). The deleted one appears nowhere. After a relaunch the opener is a new session, so nothing is listed.
 async function flowBExpectClean(page: Page, merged: boolean): Promise<void> {
 	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(0);
-	await expect(page.locator("[data-worktree-group]")).toHaveCount(0);
 	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
 	const rows = page.locator('[data-board-section="opened"] [data-board-opened]');
 	await expect(rows).toHaveCount(merged ? 1 : 0);

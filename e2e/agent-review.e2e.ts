@@ -125,7 +125,7 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 		git(child.path, "commit", "-q", "-m", `add ${file}`);
 	}
 
-	// Sessions an agent opened live in its opener's family, whatever their folder: no "Parallel work" group, and the
+	// Sessions an agent opened live in its opener's family, whatever their folder: no row of their own, and the
 	// children's folders (`gui-agent-<id>-<hash>`) never show. A finished child is listed only while it has work to
 	// look at (its commits not landed): before the commits above, a finished, untouched child is done and leaves the
 	// list once its review item lands (a hosted runner showed one row of three).
@@ -136,7 +136,6 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	await expect(family).toHaveCount(3, { timeout: 30_000 });
 	for (const label of ["attempt a", "attempt b", "attempt c"])
 		await expect(family.filter({ hasText: label })).toHaveCount(1);
-	await expect(page.locator("[data-worktree-group]")).toHaveCount(0);
 	await expect.poll(async () => page.locator("body").innerText()).not.toMatch(/gui-2026|gui-agent/);
 
 	const compared = await call("ompdesk_compare");

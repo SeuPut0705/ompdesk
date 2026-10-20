@@ -43,6 +43,7 @@ import {
 	PinOff,
 	Plus,
 	RefreshCw,
+	Rocket,
 	Rows2,
 	Search,
 	SearchX,
@@ -65,7 +66,7 @@ import {
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
-import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
+import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -79,7 +80,7 @@ import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
-import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
+import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
@@ -163,21 +164,13 @@ import "../../../styles/sidebar.css";
 type SidebarSession = SessionInfo & { liveTabId?: string };
 
 interface WorkspaceGroup {
-	/** The group's id: its folder, or `<project>#agent` for the parallel children of one project. */
+	/** The group's id and where "new session here" starts: the folder, or a linked worktree's main checkout. */
 	cwd: string;
-	/** Every folder whose sessions the group holds. */
+	/** Every folder whose sessions the group holds (the project's worktrees among them). */
 	members: string[];
-	/** Where "new session here" starts: the group's folder, or the project for a parallel group. */
-	newCwd: string;
 	name: string;
-	/** The full path (for a linked worktree also its project): the group header's tooltip. */
+	/** The full path: the group header's tooltip. */
 	tooltip: string;
-	/** The main checkout the folder belongs to (the folder itself when git says nothing else). */
-	root: string;
-	/** Set when the folder is a linked worktree: where it comes from and what it is for. */
-	worktree: ProjectOrigin | null;
-	/** A worktree group shown right under its project's group. */
-	attached?: boolean;
 	sessions: SidebarSession[];
 	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): listed only while they need a look. */
 	folded: SidebarSession[];
@@ -984,12 +977,20 @@ export function Sidebar() {
 	);
 
 	// Code sessions stay grouped by project: pinned first, then the order the user
-	// dragged, with projects they never placed on top by recency.
+	// dragged, with projects they never placed on top by recency. A linked worktree's
+	// sessions (an Autopilot run, parallel work, a branch of the user's) are rows of
+	// their project's own group, never a group of their own; a project whose own folder
+	// has no session gets its group from them, named after the project.
 	const allGroups = useMemo<WorkspaceGroup[]>(() => {
-		const byKey = new Map<
-			string,
-			Omit<WorkspaceGroup, "name" | "tooltip" | "root" | "worktree"> & { shown: ProjectName }
-		>();
+		const byKey = new Map<string, Omit<WorkspaceGroup, "name" | "tooltip">>();
+		const groupFor = (key: string) => {
+			let entry = byKey.get(key);
+			if (!entry) {
+				entry = { cwd: key, members: [], sessions: [], folded: [] };
+				byKey.set(key, entry);
+			}
+			return entry;
+		};
 		for (const session of codeSessions) {
 			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them),
 			// unless a tab still holds the session: one of this window's or a paired device's tab here.
@@ -1004,66 +1005,47 @@ export function Sidebar() {
 			if (familyRootOf.has(session.path)) continue;
 			// One no opener holds folds into its project's group, below.
 			if (foldedRootOf.has(session.path)) continue;
-			const runCwd = runParentOf.get(session.path);
-			const shown = projectName(runCwd ?? session.cwd);
-			// The parallel children of one project share ONE group; a run of Autopilot keeps its own, children included.
-			const merged = runCwd === undefined && shown.worktree?.worktree?.kind === "agent";
-			const key = runCwd ?? (merged ? `${shown.root}#agent` : session.cwd);
-			let entry = byKey.get(key);
-			if (!entry) {
-				entry = { cwd: key, members: [], newCwd: merged ? shown.root : key, sessions: [], folded: [], shown };
-				byKey.set(key, entry);
-			}
+			// An Autopilot child goes where its run goes.
+			const shown = projectName(runParentOf.get(session.path) ?? session.cwd);
+			const entry = groupFor(shown.worktree ? shown.root : session.cwd);
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
 			entry.sessions.push(session);
 		}
 		for (const session of codeSessions) {
 			const root = foldedRootOf.get(session.path);
 			if (root === undefined) continue;
-			let entry = byKey.get(root);
-			if (!entry) {
-				entry = { cwd: root, members: [root], newCwd: root, sessions: [], folded: [], shown: projectName(root) };
-				byKey.set(root, entry);
-			}
+			const entry = groupFor(root);
+			if (!entry.members.includes(root)) entry.members.push(root);
 			entry.folded.push(session);
 		}
-		// A linked worktree reads as its project + what it is for; the folder name (`gui-<name>-<hash>`) never shows.
-		const result: WorkspaceGroup[] = [...byKey.values()].map(({ shown, ...entry }) => ({
-			...entry,
-			name: groupAliases[entry.cwd] ?? shown.name,
-			tooltip: entry.cwd === entry.newCwd || !shown.worktree ? shown.tooltip : shown.worktree.root,
-			root: shown.root,
-			worktree: shown.worktree,
-			// The run's own rows first, then its children (one step further in).
-			sessions: entry.sessions.toSorted(
-				(a, b) => Number(runParentOf.has(a.path)) - Number(runParentOf.has(b.path)) || byPinThenRecency(a, b),
-			),
-			folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
-		}));
-		const ordered = orderProjects(result, {
+		const result: WorkspaceGroup[] = [...byKey.values()].map(entry => {
+			const shown = projectName(entry.cwd);
+			// The project's own order; an Autopilot run's children follow its row, newest first.
+			const sorted = entry.sessions.toSorted(byPinThenRecency);
+			const sessions = sorted.filter(session => !runParentOf.has(session.path));
+			const children = sorted.filter(session => runParentOf.has(session.path));
+			const placed = new Set<string>();
+			for (let index = sessions.length - 1; index >= 0; index--) {
+				const run = sessions[index] as SidebarSession;
+				const own = children.filter(child => runParentOf.get(child.path) === run.cwd);
+				if (own.length === 0 || sessions.slice(0, index).some(earlier => earlier.cwd === run.cwd)) continue;
+				placed.add(run.cwd);
+				sessions.splice(index + 1, 0, ...own);
+			}
+			// A child whose run has no row here still lists, at the end.
+			sessions.push(...children.filter(child => !placed.has(runParentOf.get(child.path) ?? "")));
+			return {
+				...entry,
+				name: groupAliases[entry.cwd] ?? shown.name,
+				tooltip: shown.tooltip,
+				sessions,
+				folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
+			};
+		});
+		return orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
 			recency: group => Math.max(...[...group.sessions, ...group.folded].map(createdAt)),
-		});
-		// A worktree's group sits right under its project's group when that one is listed.
-		const mainRoots = new Set(ordered.filter(group => !group.worktree).map(group => group.root));
-		const placed = new Set<string>();
-		return ordered.flatMap(group => {
-			if (group.worktree) return mainRoots.has(group.root) ? [] : [group];
-			if (placed.has(group.root)) return [group];
-			placed.add(group.root);
-			const attached = ordered
-				.filter(other => other.worktree && other.root === group.root)
-				// Under its project the group only needs what the worktree is for; elsewhere it names the project too.
-				.map(other => ({
-					...other,
-					attached: true,
-					name:
-						groupAliases[other.cwd] ??
-						(other.worktree ? worktreeLabel(other.worktree, kindLabels) : null) ??
-						other.name,
-				}));
-			return [group, ...attached];
 		});
 	}, [
 		codeSessions,
@@ -1072,7 +1054,6 @@ export function Sidebar() {
 		groupOrder,
 		byPinThenRecency,
 		projectName,
-		kindLabels,
 		runParentOf,
 		familyRootOf,
 		foldedRootOf,
@@ -1149,15 +1130,9 @@ export function Sidebar() {
 	// which holds the newest rows only) and a loaded host list say what still exists.
 	useEffect(() => {
 		if (!listLive) return;
-		const folders = new Set<string>();
-		for (const group of allGroups) {
-			folders.add(group.cwd);
-			folders.add(group.root);
-			folders.add(group.newCwd);
-			for (const member of group.members) folders.add(member);
-		}
+		const folders = new Set(allGroups.map(group => group.cwd));
 		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
-		useSidebarFolds.getState().pruneGroups(key => folders.has(key) || folders.has(key.replace(/#agent$/, "")));
+		useSidebarFolds.getState().pruneGroups(key => folders.has(key));
 		// A session an open tab holds stays known even before the index lists its file.
 		const known = new Set([...sessions.map(session => session.path), ...heldByTab]);
 		useSidebarSubagentsStore.getState().pruneFamilies(key => !isRememberedSession(key) || known.has(key));
@@ -1834,17 +1809,41 @@ export function Sidebar() {
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path)
 			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
+		// What a session in a linked worktree is for (an Autopilot run, parallel work, a branch): it lists among its
+		// project's rows, so its mark and tooltip say it. git's answer, else (a worktree being made) the tab's binding.
+		// An Autopilot child reads as its run's, under the run's row.
+		const worktreeOrigin =
+			session.kind === "chat" || runChild
+				? null
+				: (projectName(session.cwd).worktree ??
+					(tab?.worktree
+						? {
+								project: "",
+								root: tab.worktree.baseCwd,
+								worktree: {
+									kind: worktreeKindOf(tab.worktree.branch),
+									branch: tab.worktree.branch,
+									slug: tab.worktree.name,
+								},
+							}
+						: null));
+		const worktree = worktreeOrigin?.worktree
+			? { kind: worktreeOrigin.worktree.kind, label: worktreeLabel(worktreeOrigin, kindLabels) }
+			: null;
 		// The state is the row's own title sweeping (`SessionLiveTitle`) or its left-edge bar (sidebar.css `data-signal`), its words the
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
-		// alone; else a chat, a pin or a fork.
+		// alone; else a chat, a pin, a worktree's kind or a fork.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
+		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
 		) : pinned ? (
 			<Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" />
+		) : worktree ? (
+			<WorktreeMark aria-hidden className="size-(--sc-icon-sm)" data-sidebar-worktree={worktree.kind} />
 		) : fork ? (
 			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
 		) : null;
@@ -1952,10 +1951,11 @@ export function Sidebar() {
 							</SessionLiveTitle>
 							{fork?.parentTitle && <ForkParent name={fork.parentTitle} />}
 							{fork && <span className="sr-only">, {fork.label}</span>}
+							{worktree?.label && <span className="sr-only">, {worktree.label}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>
 					}
-					titleText={[title, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
+					titleText={[title, worktree?.label, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
 					trailing={
 						openTabId || opened.length > 0 ? (
 							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
@@ -1991,12 +1991,8 @@ export function Sidebar() {
 				{dragHandle => (
 					<>
 						<div
-							className={cx(
-								"group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)",
-								group.attached && "ml-3",
-							)}
+							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 							data-workspace-group={group.cwd}
-							data-worktree-group={group.worktree ? group.worktree.project : undefined}
 							onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 							{...dragHandle}
 						>
@@ -2059,20 +2055,11 @@ export function Sidebar() {
 									) : (
 										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 									)}
-									{group.worktree ? (
-										<GitBranch
-											aria-hidden
-											className="size-(--sc-icon-sm) shrink-0"
-											data-sidebar-workspace-icon
-											data-sidebar-worktree-icon
-										/>
-									) : (
-										<FolderIcon
-											aria-hidden
-											className="size-(--sc-icon-sm) shrink-0"
-											data-sidebar-workspace-icon
-										/>
-									)}
+									<FolderIcon
+										aria-hidden
+										className="size-(--sc-icon-sm) shrink-0"
+										data-sidebar-workspace-icon
+									/>
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
 									{pinned && (
 										<Pin
@@ -2109,7 +2096,7 @@ export function Sidebar() {
 										label={t("sidebar.menu.newAgentHere")}
 										onClick={() => {
 											useUiStore.getState().closeDestination();
-											void openTab({ cwd: group.newCwd });
+											void openTab({ cwd: group.cwd });
 										}}
 										size="sm"
 										tabIndex={-1}
@@ -2121,11 +2108,7 @@ export function Sidebar() {
 				    hundreds of sessions must not build the full DOM per
 				    debounced refresh just to hide it. */}
 						{!groupCollapsed && (
-							<div
-								className={cx("space-y-px", group.attached && "ml-3")}
-								data-session-group={group.cwd}
-								data-state="expanded"
-							>
+							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
 								{group.sessions.map(session => renderSessionRow(session, true))}
 								<SidebarLooseChildren foldKey={`group:${group.cwd}`} opened={loose} />
 							</div>
@@ -2498,7 +2481,7 @@ export function Sidebar() {
 									onSelect: () => {
 										setGroupMenu(null);
 										useUiStore.getState().closeDestination();
-										void openTab({ cwd: groupMenu.group.newCwd });
+										void openTab({ cwd: groupMenu.group.cwd });
 									},
 								},
 								{
@@ -2507,7 +2490,7 @@ export function Sidebar() {
 									icon: GitBranchPlus,
 									onSelect: () => {
 										setGroupMenu(null);
-										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.newCwd });
+										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
 									},
 								},
 								{

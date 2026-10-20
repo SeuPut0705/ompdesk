@@ -1934,13 +1934,11 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		...container.querySelectorAll(`[data-sidebar-family="${BOSS}"] [data-sidebar-opened-session]`),
 	];
 
-	it("nests each opened session under its opener, one line each, and drops the worktree group", async () => {
+	it("nests each opened session under its opener, one line each, never as a project row", async () => {
 		mountFamily();
 		await mount(<Sidebar />);
 
-		// Nobody lists them in a group of their own: not the worktrees, not the project's rows.
-		expect(container.querySelectorAll("[data-worktree-group]").length).toBe(0);
-		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
+		// Nobody lists them as rows of their own: not the worktrees, not the project's rows.
 		const sessionRows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("Plain helper"))).toBe(false);
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
@@ -2292,8 +2290,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		});
 		await flush();
 
-		expect(container.querySelector("[data-worktree-group]")).toBeNull();
-		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
 		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
 		expect(container.textContent).not.toContain("Landed task");
@@ -2313,7 +2309,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		});
 		await flush();
 
-		expect(container.querySelector("[data-worktree-group]")).toBeNull();
 		expect(rowFor("Session /work/alpha/two").querySelector("[data-sidebar-subagents-toggle]")).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
 		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
@@ -2349,8 +2344,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		await mount(<Sidebar />);
 
 		// /wt/a names a sender nobody here is titled as; /wt/b has no brief and only its `omp/agent/…` branch.
-		expect(container.querySelector("[data-worktree-group]")).toBeNull();
-		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
 		expect(doneFold("group:/work/alpha")).toBeNull();
 		expect(container.querySelector("[data-sidebar-loose-children]")).toBeNull();
@@ -3229,7 +3222,7 @@ describe("Sidebar with a split on screen", () => {
 	});
 });
 
-describe("Sidebar worktree groups", () => {
+describe("Sidebar worktree sessions", () => {
 	const AUTOPILOT = "/home/me/.omp/wt/h1/gui-2026-10-17-1ccaba4";
 	const CHILD = "/home/me/.omp/wt/h1/gui-agent-5wxp8i-23abcde";
 	const origin = (branch: string, kind: "autopilot" | "agent", slug: string) => ({
@@ -3277,29 +3270,42 @@ describe("Sidebar worktree groups", () => {
 			tabs: [...state.tabs, { id, cwd, status: "ready", kind: "agent", unreadDone: false, sessionPath }] as never,
 		}));
 
-	it("sits a worktree right under its project, labelled by what it is for", async () => {
+	const rowsOf = (group: string) =>
+		[...container.querySelectorAll(`[data-session-group="${group}"] .omp-sidebar-session-row`)].map(row => ({
+			text: row.textContent ?? "",
+			mark: row.querySelector("[data-sidebar-worktree]")?.getAttribute("data-sidebar-worktree") ?? null,
+			tooltip: row.querySelector("button[title]")?.getAttribute("title") ?? "",
+			child: row.getAttribute("data-session-run-child") === "true",
+		}));
+
+	it("lists a worktree's sessions among its project's own rows, each marked by what it is for", async () => {
 		mountWithWorktrees();
-		// A parallel child no opener row holds keeps its group while a tab holds it.
+		// A parallel child no opener row holds stays a row while a tab holds it.
 		openTab("tch", CHILD, "/wt/child.jsonl");
 		await mount(<Sidebar />);
 
-		const order = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+		// No group of their own: the project's group is the only one alpha has.
+		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
 			(element as unknown as Element).getAttribute("data-workspace-group"),
 		);
-		expect(order.indexOf(AUTOPILOT)).toBe(order.indexOf("/work/alpha") + 1);
-		expect(order.indexOf("/work/alpha#agent")).toBe(order.indexOf("/work/alpha") + 2);
+		expect(groups).not.toContain(AUTOPILOT);
+		expect(groups).not.toContain(CHILD);
+		expect(groups).not.toContain("/work/alpha#agent");
 
-		const header = (cwd: string) => container.querySelector(`[data-workspace-group="${cwd}"]`) as unknown as Element;
-		expect(header(AUTOPILOT).textContent?.trim()).toBe("Autopilot");
-		expect(header("/work/alpha#agent").textContent?.trim()).toBe("Parallel work");
-		expect(header(AUTOPILOT).getAttribute("data-worktree-group")).toBe("alpha");
-		expect(header("/work/alpha").getAttribute("data-worktree-group")).toBeNull();
-		// The folder names stay out of the sidebar; the full path is the tooltip.
+		// In the project's order (newest first), the worktree rows among the others.
+		const rows = rowsOf("/work/alpha").filter(row => !row.text.includes("New session"));
+		expect(rows.map(row => row.text)).toEqual([
+			expect.stringContaining("Cycle 3"),
+			expect.stringContaining("Approach A"),
+			expect.stringContaining("Session /work/alpha/one"),
+			expect.stringContaining("Session /work/alpha/two"),
+		]);
+		expect(rows.map(row => row.mark)).toEqual(["autopilot", "agent", null, null]);
+		expect(rows[0]?.tooltip).toContain("Autopilot");
+		expect(rows[1]?.tooltip).toContain("Parallel work");
+		// The folder names stay out of the sidebar.
 		expect(container.textContent).not.toContain("gui-2026");
 		expect(container.textContent).not.toContain("gui-agent");
-		const tooltip = header(AUTOPILOT).querySelector("button[aria-expanded]")?.getAttribute("title");
-		expect(tooltip).toContain(AUTOPILOT);
-		expect(tooltip).toContain("alpha");
 	});
 
 	it("holds the parallel children of one project in ONE group and drops a discarded one", async () => {
@@ -3329,10 +3335,7 @@ describe("Sidebar worktree groups", () => {
 		openTab("ta", CHILD, "/wt/a.jsonl");
 		openTab("tb", CHILD_B, "/wt/b.jsonl");
 		await mount(<Sidebar />);
-		const groups = [...container.querySelectorAll("[data-worktree-group]")];
-		expect(groups).toHaveLength(1);
-		expect(groups[0]?.textContent?.trim()).toBe("Parallel work");
-		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		const rows = rowsOf("/work/alpha").map(row => row.text);
 		expect(rows.some(text => text.includes("Approach A"))).toBe(true);
 		expect(rows.some(text => text.includes("Approach B"))).toBe(true);
 		expect(rows.some(text => text.includes("Approach C"))).toBe(false);
@@ -3369,7 +3372,7 @@ describe("Sidebar worktree groups", () => {
 		expect(rows.some(text => text.includes("Held here"))).toBe(true);
 	});
 
-	it("names the project too when its own group is not listed", async () => {
+	it("names the group after the project, not the worktree, when only worktree sessions exist", async () => {
 		const omp = installMockOmp([session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3" })]);
 		(omp as unknown as Record<string, unknown>).projectOrigins = {
 			get: vi.fn(async (cwds: string[]) =>
@@ -3389,8 +3392,17 @@ describe("Sidebar worktree groups", () => {
 		};
 		seedStores();
 		await mount(<Sidebar />);
-		const header = container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`);
-		expect(header?.textContent?.trim()).toBe("beta · Autopilot");
+		expect(container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`)).toBeNull();
+		const header = container.querySelector('[data-workspace-group="/elsewhere/beta"]');
+		expect(header?.textContent?.trim()).toBe("beta");
+		// A new session from its + starts in the project's own checkout.
+		expect(header?.querySelector("[data-sidebar-group-new]")?.getAttribute("data-sidebar-group-new")).toBe(
+			"/elsewhere/beta",
+		);
+		await act(async () => {
+			(header?.querySelector("button[aria-expanded]") as unknown as HTMLButtonElement | null)?.click();
+		});
+		expect(rowsOf("/elsewhere/beta").map(row => row.mark)).toEqual(["autopilot"]);
 	});
 
 	it("shows the folder without its gui-…-hash dressing while git has not answered", async () => {
@@ -3465,22 +3477,20 @@ describe("Sidebar worktree groups", () => {
 		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
 			(element as unknown as Element).getAttribute("data-workspace-group"),
 		);
-		for (const child of [DOCS, TESTS, BUGS]) expect(groups).not.toContain(child);
-		expect(container.textContent).not.toMatch(/c2-docs|c2-tests|c3-bugs/);
+		for (const folder of [AUTOPILOT, DOCS, TESTS, BUGS]) expect(groups).not.toContain(folder);
+		expect(container.textContent).not.toMatch(/c2-docs|c3-bugs|c2-tests/);
 
-		const rows = [...container.querySelectorAll(`[data-session-group="${AUTOPILOT}"] .omp-sidebar-session-row`)].map(
-			row => ({
-				text: row.textContent ?? "",
-				child: row.getAttribute("data-session-run-child") === "true",
-			}),
-		);
-		// The run's own row first, then its children, newest first, each one step further in.
-		expect(rows.map(row => row.child)).toEqual([false, true, true, true]);
+		// In the project's group: the run's row where its recency puts it, its children right under it, newest first,
+		// one step in and with no mark of their own; then the project's older rows.
+		const rows = rowsOf("/work/alpha").filter(row => !row.text.includes("New session"));
+		expect(rows.map(row => row.child)).toEqual([false, true, true, true, false, false]);
 		expect(rows[0]?.text).toContain("Cycle 3");
+		expect(rows[0]?.mark).toBe("autopilot");
 		expect(rows[1]?.text).toContain("Fix the flaky upload test");
 		expect(rows[2]?.text).toContain("Cover the upload retry");
 		expect(rows[3]?.text).toContain("Docs pass");
-		expect(rows.filter(row => row.text.includes("New session"))).toEqual([]);
+		expect(rows.slice(1, 4).map(row => row.mark)).toEqual([null, null, null]);
+		expect(rows[4]?.text).toContain("Session /work/alpha/one");
 	});
 });
 
