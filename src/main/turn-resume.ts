@@ -20,6 +20,7 @@ import type { RpcResponse } from "../shared/rpc-types";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import type { SidecarLike } from "./sidecar-types";
+import { recordTurnStop } from "./turn-stop-log";
 
 export type ResumeReason =
 	/** A turn was running. */
@@ -134,13 +135,6 @@ export type RelaunchContinuation = "after_restore" | "now" | "off";
 export function launchAction(marker: ResumeMarker): ResumeAction {
 	return marker.reason === "network" ? "retry" : "restore";
 }
-
-/** The user's Stop (RPC command types): the turn it ends is never continued (`noteStopped`). */
-export const STOP_COMMANDS: Record<string, true> = {
-	abort: true,
-	abort_and_prompt: true,
-	abort_and_restore_queue: true,
-};
 
 /**
  * Commands that change which session, or which branch of it, a tab shows (RPC command types): a
@@ -816,6 +810,7 @@ export class TurnResume {
 	async stopResumed(tabId: string): Promise<void> {
 		this.#deps.pool.noteStopped(tabId);
 		this.cancelWait(tabId);
+		recordTurnStop({ command: "abort", tab: tabId, by: "turn-resume", surface: "resuming-row" });
 		await this.#deps.pool
 			.startTab(tabId)
 			?.rpcClient?.command({ type: "abort" })

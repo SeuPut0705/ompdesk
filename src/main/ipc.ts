@@ -148,7 +148,8 @@ import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
 import { aggregateTrayStatus } from "./tray-labels";
-import { type RelaunchContinuation, STOP_COMMANDS, TOUCH_COMMANDS } from "./turn-resume";
+import { type RelaunchContinuation, TOUCH_COMMANDS } from "./turn-resume";
+import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
 import type { ClientWindow } from "./web/client-window";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
@@ -629,6 +630,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		sidecar: SidecarLike | null,
 		issuerTabId: string | null,
 		payload: IpcRpcCommandPayload,
+		/** The IPC channel the command came in on; main's own callers leave it out. */
+		channel?: string,
 	) => {
 		// The desktop slot is app-wide, not a tab's: answered here, whatever the tab's omp is doing.
 		const slotCommand = payload.command.type;
@@ -815,7 +818,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				if (origin)
 					await client.command({ type: "prompt_origin_set", origin, text: cmd.message }).catch(() => undefined);
 			}
-			let response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			// Every Stop leaves one line naming who asked (turn-stop-log.ts); omp gets it without that origin, while a
+			// paired host's tab gets it with, so the host logs it too.
+			const outgoing = dispatchedCommand({ ...cmd, id: _id } as RpcCommand, {
+				tab: issuerTabId ?? "none",
+				session: issuerTabId ? sidecarPool.sessionFileOf(issuerTabId) : undefined,
+				window: win.webContents.id,
+				webDevice: deps.promptOrigins?.of(win)?.deviceId,
+				host: sidecar.device,
+				channel,
+			});
+			let response = await client.command(outgoing, payload.timeoutMs);
 			if (cmd.type === "get_transcript_page" && response.success && !sidecar.device) {
 				response = { ...response, data: localizeTranscript(response.data, win) };
 			}
@@ -1089,7 +1102,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!win)
 			return { id: payload.command.id, type: "response", success: false, error: "No window", code: "no_window" };
 		const issuerTabId = sidecarPool.activeTabForWindow(win);
-		return dispatchRpcCommand(win, sidecarPool.sidecarForWindow(win), issuerTabId, payload);
+		return dispatchRpcCommand(win, sidecarPool.sidecarForWindow(win), issuerTabId, payload, IPC_COMMANDS.RPC_COMMAND);
 	});
 
 	// RPC addressed at a specific tab. Split panes use this for every command;
@@ -1100,7 +1113,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!win)
 			return { id: payload?.command?.id, type: "response", success: false, error: "No window", code: "no_window" };
 		const sidecar = sidecarPool.sidecarForTab(win, payload.tabId);
-		return dispatchRpcCommand(win, sidecar, payload.tabId, payload);
+		return dispatchRpcCommand(win, sidecar, payload.tabId, payload, IPC_COMMANDS.RPC_COMMAND_FOR_TAB);
 	});
 
 	// Extension UI respond — F-UI-ORIGIN: route to the sidecar that RAISED the

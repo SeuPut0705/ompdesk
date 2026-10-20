@@ -12,6 +12,7 @@ import { DesktopSlot } from "./desktop-slot";
 import { DESKTOP_SLOT_BRIDGE_METHODS } from "./local/desktop-slot";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
+import { recordTurnStop } from "./turn-stop-log";
 
 /** What the host reads of the pool. */
 export interface DesktopSlotPool {
@@ -105,6 +106,7 @@ export class DesktopSlotHost {
 		const holder = this.#slot.state().holder;
 		if (!holder) return;
 		this.#deps.pool.noteStopped(holder.tabId);
+		recordTurnStop({ command: "abort", tab: holder.tabId, by: "desktop-slot", surface: "screen-stop" });
 		this.#sidecars
 			.get(holder.tabId)
 			?.rpcClient?.command({ type: "abort" })
@@ -129,6 +131,7 @@ export class DesktopSlotHost {
 		const exited = sidecar.whenExited?.();
 		if (!exited) return false;
 		this.#deps.pool.noteStopped(id);
+		recordTurnStop({ command: "abort", tab: id, by: "desktop-slot", surface: "screen-kill" });
 		sidecar.rpcClient?.command({ type: "abort" }).catch(() => undefined);
 		// Ends the child with SIGTERM and starts the tab's omp afresh, as the tab's own restart does.
 		sidecar.restart();

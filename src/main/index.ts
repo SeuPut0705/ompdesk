@@ -155,6 +155,7 @@ import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
+import { recordTurnStop, setTurnStopLog } from "./turn-stop-log";
 import {
 	appAutoUpdatePrefChanged,
 	appVersion,
@@ -767,6 +768,12 @@ app.whenReady().then(() => {
 	const prefs = prefsStore();
 	// One runtime-log line per stored-session delete, here or asked by a paired device (session-mutations.ts).
 	setSessionDeleteLog((outcome, details) => writeRuntimeLog({ source: "session-delete", message: outcome, details }));
+	// One runtime-log line per Stop that reaches an omp, naming who asked (turn-stop-log.ts).
+	setTurnStopLog({
+		write: details => writeRuntimeLog({ source: "turn-stop", message: String(details.by), details }),
+		sessionOf: tab =>
+			sidecarPool.sessionFileOf(tab) ?? hostServices.resumeFacts().find(fact => fact.tabId === tab)?.sessionFile,
+	});
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
 		// `devices` is created below; a host tab only opens once it serves connections.
@@ -1749,6 +1756,7 @@ installQuitGuard(
 				const sidecar = sidecarPool.sidecarOf(tabId);
 				if (!sidecar) return;
 				// Stock stops the turn first, so the questions describe a worktree nothing still writes to.
+				recordTurnStop({ command: "abort", tab: tabId, by: "quit", surface: "worktree-finalize" });
 				await sidecar.rpcClient?.command({ type: "abort" }).catch(() => undefined);
 				await lifecycle.refreshExitPolicy(tabId, () => readLiveLifecycleSettings(sidecar));
 			},

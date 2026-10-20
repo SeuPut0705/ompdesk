@@ -2301,7 +2301,11 @@ export class AgentControl {
 			// Stock answers an abort once the turn unwound; a close never waits on that (closing ends the omp), a stop
 			// and a delete (which needs the turn over) wait a bounded while and say what they saw.
 			if (running)
-				confirmed = await this.#abort(target, args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS);
+				confirmed = await this.#abort(
+					caller,
+					target,
+					args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS,
+				);
 			if (args.close || args.delete)
 				await this.#within(this.#journalClose(caller, target, args.delete === true), ABORT_BEFORE_CLOSE_MS);
 			if (args.delete) await this.#deleteWhenIdle(caller, target);
@@ -2332,9 +2336,9 @@ export class AgentControl {
 	}
 
 	/** Stock's abort, answered within `waitMs` (true) or not yet (false); it is sent either way and never fails. */
-	async #abort(target: ControlTab, waitMs: number): Promise<boolean> {
+	async #abort(caller: ControlTab, target: ControlTab, waitMs: number): Promise<boolean> {
 		const answered = this.#host
-			.command(target.tabId, { type: "abort" }, waitMs)
+			.command(target.tabId, { type: "abort", origin: { agentControl: caller.tabId } }, waitMs)
 			.then(response => response.success)
 			.catch(() => false);
 		return (await this.#within(answered, waitMs)) === true;

@@ -1886,6 +1886,11 @@ export class SidecarPool {
 		});
 	}
 
+	/** The session file a live tab shows, if it has one yet. */
+	sessionFileOf(tabId: string): string | undefined {
+		return this.#byTabId.get(tabId)?.sessionFile;
+	}
+
 	/** The user pressed Stop on this tab's run. */
 	noteStopped(tabId: string): void {
 		const entry = this.#byTabId.get(tabId);

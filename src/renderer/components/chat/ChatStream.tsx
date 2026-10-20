@@ -1646,7 +1646,7 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 				<div className="flex flex-wrap items-center gap-2 ps-6">
 					<Button
 						disabled={compactionInfo.cancelling === true}
-						onClick={() => void abortActiveTurn(rpc, tabId)}
+						onClick={() => void abortActiveTurn(rpc, tabId, "status-row")}
 						size="sm"
 						variant="ghost"
 					>
@@ -1659,7 +1659,7 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 					<Button onClick={() => useUiStore.getState().openModelPicker()} size="sm" variant="secondary">
 						{t("turnError.action.changeModel")}
 					</Button>
-					<Button onClick={() => void abortActiveTurn(rpc, tabId)} size="sm" variant="ghost">
+					<Button onClick={() => void abortActiveTurn(rpc, tabId, "status-row")} size="sm" variant="ghost">
 						{t("chat.status.stop")}
 					</Button>
 				</div>

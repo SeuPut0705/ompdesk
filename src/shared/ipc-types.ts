@@ -505,6 +505,13 @@ export type RuntimeErrorSource =
 	 */
 	| "session-delete"
 	/**
+	 * One Stop that reached an omp (src/main/turn-stop-log.ts): `message` is who asked (`window`, `web-device`,
+	 * `desktop-device`, `agent-control`, `autopilot`, `desktop-slot`, `quit`, `turn-resume`); `details` the command,
+	 * `tab`, the session file's name and whatever names the asker (`surface`, `window`, `device`, `caller`, `host`,
+	 * `channel`). No message text.
+	 */
+	| "turn-stop"
+	/**
 	 * A host link's transitions (src/main/remote/client.ts, host-server.ts): `message` is `down` (`reason`,
 	 * `wasOnlineMs`), `attempt` (`n`, `delayMs`, `trigger`), `up` (`outageMs`, `attempts`) on the client, `open` and
 	 * `closed` (`reason`, `ms`) on the host; `details.deviceId` names the other computer.

@@ -60,7 +60,7 @@ export function HandoffDialog() {
 		}
 		if (stage !== "summary" || cancelling) return;
 		setCancelling(true);
-		void abortActiveTurn(tabRpc, originTabId);
+		void abortActiveTurn(tabRpc, originTabId, "handoff");
 	};
 
 	const blockedReason = isStreaming

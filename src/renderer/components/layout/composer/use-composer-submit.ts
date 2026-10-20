@@ -375,14 +375,14 @@ export function useComposerSubmit({
 						signal: withdraw.signal,
 						onDeciding: deciding => originComposer.getState().setDecidingMode(deciding),
 						onLateDecision: late => {
-							if (late.mode === "goal") void abortActiveTurn(rpc, originTabId);
+							if (late.mode === "goal") void abortActiveTurn(rpc, originTabId, "auto-mode");
 							void rpc.autoModeEnd(late.mode === "goal" ? "goal" : "plan").catch(() => {});
 						},
 					});
 					if (!withdraw.signal.aborted) left = true;
 					else if (choice?.mode === "plan") await endAutoPlan(session, rpc);
 					// Stock's `goal create` already started the goal's own turn: stopping it ends the goal too.
-					else if (choice?.mode === "goal") await abortActiveTurn(rpc, originTabId);
+					else if (choice?.mode === "goal") await abortActiveTurn(rpc, originTabId, "auto-mode");
 					return choice;
 				},
 			});

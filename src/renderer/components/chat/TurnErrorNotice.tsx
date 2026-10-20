@@ -101,7 +101,7 @@ export function TurnErrorNotice({
 	// Waiting for the connection is not a failure: the status row says so and main continues the turn.
 	if (awaitingConnection !== null && latest) return null;
 	// Nor is a failure stock's own auto-retry is still working on: the status row shows the attempt with its Stop.
-	// A red card with "Try again" beside it read as a dead turn, and the Stop or Esc it invited ended the retry for good.
+	// A red card with "Try again" beside it reads as a dead turn while the retry is still on, and a Stop then ends it for good.
 	if (retrying && latest) return null;
 
 	if (retried) {

@@ -27,20 +27,42 @@ export type { DesktopSlotState };
 // RPC Commands (GUI → omp stdin)
 // ============================================================================
 
+/** The renderer control a Stop came from. */
+export type StopSurface =
+	| "stop-button"
+	| "send-menu"
+	| "esc"
+	| "status-row"
+	| "palette"
+	| "agents-page"
+	| "handoff"
+	| "auto-mode"
+	| "retry";
+
+/**
+ * Who asked for a Stop (`abort`, `abort_and_restore_queue`, `abort_and_prompt`): main writes it to the runtime log
+ * (src/main/turn-stop-log.ts) and takes it off before the command reaches omp. `agentControl` is the calling tab of
+ * an OMPdesk control tool.
+ */
+export interface StopOrigin {
+	surface?: StopSurface;
+	agentControl?: string;
+}
+
 export type RpcCommand =
 	| { id?: string; type: "negotiate_protocol"; protocolVersion: number }
 	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" }
 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
 	| { id?: string; type: "follow_up"; message: string; images?: ImageContent[] }
-	| { id?: string; type: "abort" }
-	| { id?: string; type: "abort_and_prompt"; message: string; images?: ImageContent[] }
+	| { id?: string; type: "abort"; origin?: StopOrigin }
+	| { id?: string; type: "abort_and_prompt"; message: string; images?: ImageContent[]; origin?: StopOrigin }
 	// Stock queue edits (queued messages are identified by chip text + lane, as
 	// in `queue_update`); the renderer reaches them through the id-keyed
 	// queue_* commands below, which main resolves to chip text.
 	| { id?: string; type: "remove_queued_message"; message: string; queue: "steering" | "followUp" }
 	| { id?: string; type: "promote_queued_message"; message: string }
 	// TUI Esc parity: withdraw queued user input, then abort; returns the input.
-	| { id?: string; type: "abort_and_restore_queue" }
+	| { id?: string; type: "abort_and_restore_queue"; origin?: StopOrigin }
 	| { id?: string; type: "new_session"; parentSession?: string }
 	| { id?: string; type: "get_state" }
 	| { id?: string; type: "get_last_assistant_text" }

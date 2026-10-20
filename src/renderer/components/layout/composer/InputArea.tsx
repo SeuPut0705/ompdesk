@@ -347,8 +347,8 @@ export function InputArea() {
 		// typing focus in the composer like Enter does.
 		textareaRef.current?.focus();
 	});
-	const stopFromToolbar = useStableCallback(() => {
-		void abortActiveTurn(rpc, runtimeTabId);
+	const stopFromToolbar = useStableCallback((surface: "stop-button" | "send-menu") => {
+		void abortActiveTurn(rpc, runtimeTabId, surface);
 		// The button leaves with the run: typing goes on in the field, never on <body>.
 		textareaRef.current?.focus();
 	});

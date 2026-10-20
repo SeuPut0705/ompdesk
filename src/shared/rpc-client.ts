@@ -12,6 +12,7 @@ import type {
 	RpcSecurityDispositionStatus,
 	RpcSecurityTargetInput,
 	RpcSshHostInput,
+	StopOrigin,
 	ThinkingLevel,
 	TodoPhase,
 } from "./rpc-types";
@@ -23,10 +24,11 @@ export interface SessionRpcClient {
 	prompt(message: string, images?: ImageContent[], streamingBehavior?: "steer" | "followUp"): Promise<RpcResponse>;
 	steer(message: string, images?: ImageContent[]): Promise<RpcResponse>;
 	followUp(message: string, images?: ImageContent[]): Promise<RpcResponse>;
-	abort(): Promise<RpcResponse>;
-	abortAndPrompt(message: string): Promise<RpcResponse>;
+	/** `origin`: who asked for the Stop, for main's log (never sent to omp). */
+	abort(origin?: StopOrigin): Promise<RpcResponse>;
+	abortAndPrompt(message: string, origin?: StopOrigin): Promise<RpcResponse>;
 	/** Stop the turn the TUI Esc way: the queued user input comes back (RpcAbortAndRestoreQueueResult). */
-	abortAndRestoreQueue(): Promise<RpcResponse>;
+	abortAndRestoreQueue(origin?: StopOrigin): Promise<RpcResponse>;
 	newSession(parentSession?: string): Promise<RpcResponse>;
 	switchSession(sessionPath: string, model?: SessionModelOverride): Promise<RpcResponse>;
 	branch(entryId: string): Promise<RpcResponse>;
@@ -421,9 +423,9 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "prompt", message, images, streamingBehavior }),
 		steer: (message, images) => rpcCommand({ type: "steer", message, images }),
 		followUp: (message, images) => rpcCommand({ type: "follow_up", message, images }),
-		abort: () => rpcCommand({ type: "abort" }),
-		abortAndPrompt: message => rpcCommand({ type: "abort_and_prompt", message }),
-		abortAndRestoreQueue: () => rpcCommand({ type: "abort_and_restore_queue" }),
+		abort: origin => rpcCommand({ type: "abort", origin }),
+		abortAndPrompt: (message, origin) => rpcCommand({ type: "abort_and_prompt", message, origin }),
+		abortAndRestoreQueue: origin => rpcCommand({ type: "abort_and_restore_queue", origin }),
 		newSession: parentSession => rpcCommand({ type: "new_session", parentSession }),
 		switchSession: (sessionPath, model) => rpcCommand({ type: "switch_session", sessionPath, ...model }),
 		branch: entryId => rpcCommand({ type: "branch", entryId }),

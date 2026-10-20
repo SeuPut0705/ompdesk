@@ -87,7 +87,8 @@ import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { stockHelperRequest } from "../stock-helper";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
-import { type ResumeFact, type ResumeMarker, STOP_COMMANDS, type TurnResume } from "../turn-resume";
+import type { ResumeFact, ResumeMarker, TurnResume } from "../turn-resume";
+import { dispatchedCommand, STOP_COMMANDS } from "../turn-stop-log";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -1469,8 +1470,13 @@ export class LocalHostServices implements HostServices {
 		const client = tab.sidecar.rpcClient;
 		if (!client) throw codedError("sidecar_not_connected", "Sidecar not connected");
 		// The client device forwards its renderer's RpcCommand verbatim; omp and
-		// the local handlers validate the command itself.
-		const command = params.command as unknown as RpcCommand;
+		// the local handlers validate the command itself. A Stop is logged with the device and the control it named,
+		// and reaches omp without that origin.
+		const command = dispatchedCommand(params.command as unknown as RpcCommand, {
+			tab: tab.resumeId,
+			session: tab.sessionFile ?? tab.resumeSessionPath,
+			peer: peer.deviceId,
+		});
 		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
 		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
 		// A provider sign-in runs here whether or not the device keeps its link: the device is told what is

@@ -8,6 +8,7 @@ import type {
 	RpcRestoredQueuedMessage,
 	RpcSessionTreeNode,
 	RpcSessionTreeResult,
+	StopSurface,
 } from "../../shared/rpc-types";
 import { draftKeys, saveDraft } from "../components/layout/composer/draft-persistence";
 import { hydrateSession, resetRetryPending } from "../hooks/use-rpc-events";
@@ -97,7 +98,7 @@ export async function retryLastTurn(
 		onEmpty();
 		return;
 	}
-	const response = streaming ? await rpc.abortAndPrompt(text) : await rpc.prompt(text);
+	const response = streaming ? await rpc.abortAndPrompt(text, { surface: "retry" }) : await rpc.prompt(text);
 	if (!response.success) throw new Error(response.error);
 }
 
@@ -377,6 +378,8 @@ export async function abortActiveTurn(
 	rpc: Pick<TabRpc, "abortAndRestoreQueue" | "abortRetry" | "abortMaintenance"> &
 		Partial<Pick<TabRpc, "autoModeEnd">> = window.omp.rpc,
 	tabId?: string | null,
+	/** The control the user stopped with; main logs it (src/main/turn-stop-log.ts). */
+	surface?: StopSurface,
 ): Promise<RpcResponse> {
 	// Bind the composer before any await: the user may switch tabs meanwhile.
 	const composer =
@@ -404,7 +407,7 @@ export async function abortActiveTurn(
 				// Generic abort below also cancels retry server-side.
 			}
 		}
-		const response = await rpc.abortAndRestoreQueue();
+		const response = await rpc.abortAndRestoreQueue({ surface });
 		if (!response.success) {
 			composer.setStopping(false);
 			return response;
@@ -437,7 +440,7 @@ export function stopFromEscape(now = Date.now()): "armed" | "stopping" {
 		return "armed";
 	}
 	composer.disarmStop();
-	void abortActiveTurn();
+	void abortActiveTurn(undefined, undefined, "esc");
 	return "stopping";
 }
 

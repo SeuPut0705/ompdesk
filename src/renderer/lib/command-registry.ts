@@ -738,7 +738,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		description: t("cmd.stop.desc"),
 		category: "session",
 		shortcut: "Esc",
-		affordance: { kind: "action", run: () => abortActiveTurn() },
+		affordance: { kind: "action", run: () => abortActiveTurn(undefined, undefined, "palette") },
 	});
 	add({
 		name: "history",

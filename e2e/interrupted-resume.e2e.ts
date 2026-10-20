@@ -110,6 +110,15 @@ async function markers(profile: Profile): Promise<MarkerFile[]> {
 	}
 }
 
+/** The `turn-stop` lines of the runtime log. */
+async function stopLines(profile: Profile): Promise<Array<Record<string, unknown>>> {
+	const text = await fs.readFile(path.join(profile.desktop, "logs", "gui-runtime.jsonl"), "utf8").catch(() => "");
+	return text
+		.split("\n")
+		.filter(line => line.includes('"turn-stop"'))
+		.map(line => (JSON.parse(line) as { details: Record<string, unknown> }).details);
+}
+
 /** The saved layout names the tab's session file: what a relaunch reopens. */
 async function layoutHasSession(profile: Profile): Promise<boolean> {
 	try {
@@ -402,6 +411,12 @@ test("a turn the user stopped is not resumed after a crash", async () => {
 		await startLongTurn(profile, first.page);
 		await first.page.getByRole("button", { name: "Stop", exact: true }).first().click();
 		await expect.poll(() => markers(profile), { timeout: 15_000 }).toEqual([]);
+		// The Stop's origin is on record (src/main/turn-stop-log.ts): the window and the control that sent it.
+		await expect
+			.poll(() => stopLines(profile))
+			.toEqual([
+				expect.objectContaining({ command: "abort_and_restore_queue", by: "window", surface: "stop-button" }),
+			]);
 		await crash(first.app);
 
 		const second = await launch(profile);
@@ -511,10 +526,12 @@ test("a socket closed mid-reply while offline takes stock's retry over, shows no
 
 		const wait = page.locator("[data-connection-wait]");
 		await expect(wait).toBeVisible({ timeout: 30_000 });
-		// Stock's retry saga runs 3 attempts 1.5 s apart: none of them may show the failure card while the wait holds.
-		await page.waitForTimeout(5_000);
+		// The wait takes stock's saga over (`abort_retry`): the run ends, held, with no failure card on screen.
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).map(tab => tab.status))
+			.toEqual(["ready"]);
 		await expect(wait).toBeVisible();
-		await expect(page.locator(".omp-message-error")).toHaveCount(0);
+		expect(await page.locator(".omp-message-error").count()).toBe(0);
 
 		await page.evaluate(() => window.dispatchEvent(new Event("online")));
 		await expect(page.getByText("Back online: the turn went on.")).toBeVisible({ timeout: 30_000 });

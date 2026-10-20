@@ -84,6 +84,7 @@ import { detectReleaseProcedure } from "./release-detect";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import type { GoalSettlement, RelaunchContinuation } from "./turn-resume";
+import { recordTurnStop } from "./turn-stop-log";
 import type { ClientWindow } from "./web/client-window";
 
 const READY_TIMEOUT_MS = 120_000;
@@ -561,6 +562,7 @@ export class Autopilot {
 				break;
 			case "abort":
 				this.#deps.pool.noteStopped(tabId);
+				recordTurnStop({ command: "abort", tab: tabId, by: "autopilot", surface: "stop-now" });
 				await this.#stock(tabId, { type: "abort" }).catch(() => undefined);
 				await this.aborted(tabId);
 				break;
@@ -853,6 +855,7 @@ export class Autopilot {
 			[...run.children.keys()].map(async child => {
 				if (!this.#deps.pool.tabFacts(child)?.busy) return;
 				this.#deps.pool.noteStopped(child);
+				recordTurnStop({ command: "abort", tab: child, by: "autopilot", surface: "run-stopped", caller: tabId });
 				await this.#stock(child, { type: "abort" }).catch(() => undefined);
 			}),
 		);
@@ -1380,6 +1383,7 @@ export class Autopilot {
 			usd += stats?.cost ?? 0;
 			if (this.#deps.pool.tabFacts(child.tabId)?.busy) {
 				this.#deps.pool.noteStopped(child.tabId);
+				recordTurnStop({ command: "abort", tab: child.tabId, by: "autopilot", surface: "run-ended" });
 				await this.#stock(child.tabId, { type: "abort" }).catch(() => undefined);
 			}
 			this.#childRuns.delete(child.tabId);

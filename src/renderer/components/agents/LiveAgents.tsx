@@ -176,7 +176,7 @@ export function LiveAgents() {
 		if (!ready) return;
 		setStopping(true);
 		try {
-			const res = await abortActiveTurn();
+			const res = await abortActiveTurn(undefined, undefined, "agents-page");
 			if (!res.success) toastError({ title: t("agentHub.hub.abortFailed"), error: res });
 		} catch (cause) {
 			toastError({ title: t("agentHub.hub.abortFailed"), error: cause });

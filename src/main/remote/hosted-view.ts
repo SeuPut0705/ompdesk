@@ -35,7 +35,7 @@ import type {
 } from "../../shared/rpc-types";
 import type { RpcClient } from "../rpc-client";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
-import { STOP_COMMANDS } from "../turn-resume";
+import { STOP_COMMANDS } from "../turn-stop-log";
 
 /** The hosted omp's events a window shows. `hostToolCall` and `hostUriRequest` stay the device's to answer. */
 const VIEW_EVENTS = [

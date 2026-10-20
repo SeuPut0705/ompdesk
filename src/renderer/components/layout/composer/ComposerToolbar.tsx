@@ -97,7 +97,8 @@ export interface ComposerToolbarProps {
 	/** The draft holds text or a picture: while a turn runs the button is Send, else Stop. */
 	hasDraft: boolean;
 	sendDisabled: boolean;
-	onStop: () => void;
+	/** Which control stopped: the button itself, or its right-click / long-press menu. */
+	onStop: (surface: "stop-button" | "send-menu") => void;
 	onSend: () => void;
 	/** The queue pill (QueueImpl): rendered before the action button; `null` when nothing is queued, so it reserves no width. */
 	queueSlot?: ReactNode;
@@ -255,7 +256,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 										: t("input.send")
 							}
 							loading={stopState && stopping}
-							onClick={stopState ? onStop : onSend}
+							onClick={stopState ? () => onStop("stop-button") : onSend}
 							tooltip={false}
 							variant="primary"
 						/>
@@ -279,7 +280,7 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 							icon: Square,
 							onSelect: () => {
 								setStopMenu(null);
-								onStop();
+								onStop("send-menu");
 							},
 						},
 					]}
