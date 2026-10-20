@@ -3,9 +3,15 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { archiveBeforeRemove, restoreSavedWorktree, SavedWorktreeStore } from "../disk/saved-worktrees";
+import {
+	archiveBeforeRemove,
+	discardOpenedWorktree,
+	restoreSavedWorktree,
+	SavedWorktreeStore,
+} from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { BeforeRemove } from "../worktree-orphans";
+import { removalHolds } from "../worktree-removals";
 import {
 	BranchError,
 	boundDiff,
@@ -332,6 +338,54 @@ describe("discardNewWorktree", () => {
 		expect(await discardNewWorktree(kept, refusing)).toBeNull();
 		await fs.stat(kept.path);
 		expect(gitSync(repo, "branch", "--list", kept.branch)).toContain(kept.branch);
+	});
+
+	it("holds the removal claim while it archives, so no session starts there, and keeps a worktree something uses", async () => {
+		const store = new SavedWorktreeStore(path.join(root, "care"));
+		const wt = await agentWorktree("claimed");
+		const asked = Promise.withResolvers<void>();
+		const listing = Promise.withResolvers<string[]>();
+		const discarding = discardOpenedWorktree(wt, {
+			openFolders: () => [],
+			processes: () => {
+				asked.resolve();
+				return listing.promise;
+			},
+			store: () => store,
+		});
+		await asked.promise;
+		// Mid-discard a tab cannot open there (SidecarPool.acquire and a device's tab.open ask this).
+		expect(removalHolds(wt.path)).toBe(true);
+		listing.resolve([]);
+		expect(await discarding).toBe("removed");
+		expect(removalHolds(wt.path)).toBe(false);
+
+		// A session of this computer still has it open: refused, nothing removed.
+		const open = await agentWorktree("open");
+		await expect(
+			discardOpenedWorktree(open, { openFolders: () => [open.path], processes: async () => [], store: () => store }),
+		).rejects.toThrow("in use");
+		await fs.stat(open.path);
+
+		// The closed tab's omp never leaves it (or the platform cannot tell): kept after the wait.
+		const busy = await agentWorktree("busy-omp");
+		const real = await fs.realpath(busy.path);
+		const pauses: number[] = [];
+		const kept = await discardOpenedWorktree(busy, {
+			openFolders: () => [],
+			processes: async () => [real],
+			store: () => store,
+			pause: async ms => {
+				pauses.push(ms);
+			},
+		});
+		expect(kept).toBeNull();
+		expect(pauses.length).toBeGreaterThan(0);
+		await fs.stat(busy.path);
+		expect(
+			await discardOpenedWorktree(busy, { openFolders: () => [], processes: async () => null, store: () => store }),
+		).toBeNull();
+		await fs.stat(busy.path);
 	});
 });
 

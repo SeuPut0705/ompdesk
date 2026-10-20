@@ -24,12 +24,13 @@ import { git, gitRaw } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
 import type { BeforeRemove } from "../worktree-orphans";
-import { realFolder } from "../worktree-removals";
+import { realFolder, withRemovalClaim } from "../worktree-removals";
 import { diskBytes } from "./usage";
 import {
 	inProgressOperation,
 	looksSecret,
 	processInside,
+	processWorkingFolders,
 	readWorktreeFiles,
 	SECRET_SCAN_MAX_BYTES,
 	secretIn,
@@ -481,9 +482,47 @@ export function archiveBeforeRemove(
 	};
 }
 
-/** A failed open's unused worktree and branch (`discardNewWorktree`), with what no tool makes again archived first. */
-export function discardOpenedWorktree(worktree: WorktreeRef): Promise<WorktreeRemoval> {
-	return discardNewWorktree(worktree, archiveBeforeRemove(savedWorktreeStore(), null));
+/** How a discard waits for the closed tab's omp to leave the worktree before it keeps it instead. */
+const DISCARD_EXIT_WAIT_MS = 5_000;
+const DISCARD_EXIT_POLL_MS = 250;
+
+export interface DiscardDeps {
+	/** Every folder a session of this computer has open (windows' tabs and those run for paired devices). */
+	openFolders: () => readonly string[];
+	/** The working folders of running processes; null where the platform cannot tell (then nothing is removed). */
+	processes?: () => Promise<string[] | null>;
+	store?: () => SavedWorktreeStore;
+	pause?: (ms: number) => Promise<void>;
+}
+
+/**
+ * A failed open's unused worktree and branch (`discardNewWorktree`), removed under the removal claim every removal
+ * takes (`withRemovalClaim`: no session of this computer may have it open, and none starts there meanwhile), once no
+ * process works in it any more (the closed tab's omp may still be exiting; still there after a few seconds, or a
+ * platform that cannot tell, keeps it), with what no tool makes again archived first.
+ */
+export function discardOpenedWorktree(worktree: WorktreeRef, deps: DiscardDeps): Promise<WorktreeRemoval> {
+	const processes = deps.processes ?? processWorkingFolders;
+	const pause =
+		deps.pause ??
+		((ms: number) => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, ms);
+			return promise;
+		});
+	return withRemovalClaim(worktree.path, deps.openFolders, async () => {
+		let folders = await processes();
+		for (
+			let waited = 0;
+			folders !== null && processInside(worktree.path, folders) && waited < DISCARD_EXIT_WAIT_MS;
+		) {
+			await pause(DISCARD_EXIT_POLL_MS);
+			waited += DISCARD_EXIT_POLL_MS;
+			folders = await processes();
+		}
+		if (folders === null || processInside(worktree.path, folders)) return null;
+		return discardNewWorktree(worktree, archiveBeforeRemove((deps.store ?? savedWorktreeStore)(), folders));
+	});
 }
 
 /** What the tab spawn asks of this computer's saved worktrees (`SpawnTabDeps.savedWorktrees`). */

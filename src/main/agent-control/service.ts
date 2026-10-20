@@ -1661,13 +1661,22 @@ export class AgentControl {
 			this.#host.view(caller.tabId, { tabId, how: "close" });
 			if (!worktree) throw error;
 			const made = worktree;
+			const message = error instanceof Error ? error.message : String(error);
+			// Its worktree goes only once the tab is gone: a tab still open (the window kept it, or it is slow to
+			// close) works there, so the worktree stays and is named.
+			const deadline = Date.now() + CLOSE_WAIT_MS;
+			while (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
+				await this.#nextChange(Math.min(500, deadline - Date.now()));
+			if (this.#host.tabs(caller.tabId)?.some(tab => tab.tabId === tabId))
+				throw new Error(
+					`${message} (its tab is still open, so its worktree ${made.path} and branch ${made.branch} were kept)`,
+				);
 			const removal = await this.#host.discardWorktree(made, tabDevice).catch(() => null);
 			if (removal === "removed") throw error;
-			const message = error instanceof Error ? error.message : String(error);
 			throw new Error(
 				removal === "branch-kept"
 					? `${message} (its worktree ${made.path} was removed; git kept the branch ${made.branch})`
-					: `${message} (git kept its worktree ${made.path} and branch ${made.branch}: something changed there)`,
+					: `${message} (git kept its worktree ${made.path} and branch ${made.branch}: something changed there or it is in use)`,
 			);
 		}
 	}

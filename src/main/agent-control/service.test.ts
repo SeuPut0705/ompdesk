@@ -484,6 +484,18 @@ describe("ompdesk_session_open", () => {
 		expect(plain.discarded).toEqual([]);
 	});
 
+	it("keeps a failed open's worktree while its tab is still open, and names it", async () => {
+		const host = new FakeHost({ tabId: "main0001" });
+		host.beforeFirstPromptError = new Error("guard failed");
+		// The window keeps the tab (a draft, unsaved files): the close never lands.
+		host.view = (_caller, event) => {
+			host.views.push(event);
+		};
+		const result = await onFakeClock(() => control(host).run("main0001", T.open, { message: "go", worktree: true }));
+		expect(result.text).toContain("its tab is still open, so its worktree /wt/w and branch omp/agent/w were kept");
+		expect(host.discarded).toEqual([]);
+	});
+
 	it("names each opened session's task (its Title: line, else its first line) for the sidebar until it has a title", async () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		await control(host).run("main0001", T.open, {

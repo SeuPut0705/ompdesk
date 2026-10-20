@@ -80,6 +80,7 @@ import type { ScheduleService } from "../schedules";
 import type { SidecarPool } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import type { ClientWindow } from "../web/client-window";
+import { sessionOpenFolders } from "../worktree-orphans";
 import type { AppPorts } from "./app-control";
 import {
 	type BranchEvidence,
@@ -583,7 +584,7 @@ export class AgentControlRuntime {
 			if (worktree) {
 				const made = worktree;
 				await this.#git<WorktreeRemoval>(device, GIT_METHODS.discardWorktree, { worktree: gitRef(made) }, () =>
-					discardOpenedWorktree(made),
+					discardOpenedWorktree(made, { openFolders: sessionOpenFolders }),
 				).catch(() => null);
 			}
 			if (result?.refusal === "folder-missing")
@@ -895,7 +896,7 @@ export class AgentControlRuntime {
 				),
 			discardWorktree: (worktree, device) =>
 				this.#git<WorktreeRemoval>(device, GIT_METHODS.discardWorktree, { worktree: gitRef(worktree) }, () =>
-					discardOpenedWorktree(worktree),
+					discardOpenedWorktree(worktree, { openFolders: sessionOpenFolders }),
 				),
 			recordClosed: child => this.#recordClosed(child),
 			schedules: device => {

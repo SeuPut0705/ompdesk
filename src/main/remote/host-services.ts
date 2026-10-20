@@ -105,6 +105,7 @@ import {
 	statWorkspacePath,
 } from "../workspace-fs";
 import { searchWorkspace } from "../workspace-search";
+import { sessionOpenFolders } from "../worktree-orphans";
 import { removalHolds } from "../worktree-removals";
 import {
 	AUTOPILOT_NOTICE_EVENT,
@@ -968,7 +969,9 @@ export class LocalHostServices implements HostServices {
 			case GIT_METHODS.removeWorktree:
 				return removeSafeWorktree(parse(GitWorktreeParams, method, params).worktree);
 			case GIT_METHODS.discardWorktree:
-				return discardOpenedWorktree(parse(GitWorktreeParams, method, params).worktree);
+				return discardOpenedWorktree(parse(GitWorktreeParams, method, params).worktree, {
+					openFolders: sessionOpenFolders,
+				});
 			case GIT_METHODS.merge: {
 				const { worktree, label } = parse(GitMergeParams, method, params);
 				return mergeBranch(worktree, label);
