@@ -693,3 +693,130 @@ test("a device deletes a host's session from its sidebar row: the host's omp let
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 });
+
+/** Quit the app the way ⌘Q does, and wait for its process to end (interrupted-resume.e2e.ts). */
+async function quit(app: ElectronApplication): Promise<void> {
+	await app.evaluate(({ app: electronApp, dialog }) => {
+		dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as never;
+		setImmediate(() => electronApp.quit());
+	});
+	const child = app.process();
+	const exited = Promise.withResolvers<void>();
+	if (child.exitCode !== null || child.signalCode !== null) exited.resolve();
+	else child.once("exit", () => exited.resolve());
+	await exited.promise;
+}
+
+test("a device quitting mid-turn leaves the turn running on the host, and its relaunch adopts it", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-quit-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await openHostFolder(client.page, deviceId, hostProfile.project);
+		await send(client.page, "fixture running");
+		await expect.poll(() => markers(hostProfile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => remoteStatus(client?.page as Page, deviceId)).toBe("running");
+		const omps = ompPids(hostProfile).length;
+
+		// An update restart is such a quit: before, it closed every tab on the host and the turn was journaled aborted.
+		await quit(client.app);
+		client = null;
+		// The host has seen the link end: a tab.close sent by the quit would have reached it before.
+		await expect
+			.poll(
+				async () =>
+					(await host?.page.evaluate(() => window.omp.remote.getState()))?.host.peers.some(peer => peer.online),
+				{ timeout: 30_000 },
+			)
+			.toBe(false);
+		expect(await markers(hostProfile)).toMatchObject([{ reason: "running" }]);
+		if (process.platform !== "win32") expect(ompPids(hostProfile).length).toBe(omps);
+
+		client = await launchRemote(clientProfile, { project: false, ready: false });
+		const a = client.page;
+		await expect.poll(() => remoteStatus(a, deviceId), { timeout: 60_000 }).toMatch(/^(ready|running)$/);
+		// The relaunched tab is the running turn's, in the omp that runs it.
+		await expect(a.getByRole("button", { name: "Stop", exact: true })).toBeVisible({ timeout: 30_000 });
+		if (process.platform !== "win32") expect(ompPids(hostProfile).length).toBe(omps);
+		await a.getByRole("button", { name: "Stop", exact: true }).click();
+		await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toEqual([]);
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
+
+test("the host deletes a session a device has open: the device's tab and saved layout drop it", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-host-delete-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await openHostFolder(client.page, deviceId, hostProfile.project);
+		const a = client.page;
+		await send(a, "remote hello");
+		await expect(a.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
+		const firstRow = a.locator(`[data-sidebar-device="${deviceId}"] [data-device-session]`).first();
+		await expect(firstRow).toHaveAttribute("data-device-session", /\.jsonl$/, { timeout: 30_000 });
+		const sessionPath = (await firstRow.getAttribute("data-device-session")) ?? "";
+		const exists = () =>
+			fs.stat(sessionPath).then(
+				() => true,
+				() => false,
+			);
+
+		// The person at the host deletes it while the device's tab is idle: before, "A paired device is using this session".
+		const b = host.page;
+		await b.evaluate(path => window.omp.sessions.delete(path), sessionPath);
+		await expect.poll(exists, { timeout: 20_000 }).toBe(false);
+		await expect.poll(() => remoteStatus(a, deviceId)).toBeUndefined();
+		const log = await fs.readFile(path.join(hostProfile.desktop, "logs", "gui-runtime.jsonl"), "utf8");
+		expect(log).toContain('"source":"session-delete"');
+		expect(log).toContain(`"session":"${path.basename(sessionPath)}"`);
+
+		// The device's relaunch restores no tab on it.
+		await exitApp(client.app);
+		client = await launchRemote(clientProfile, { project: false, ready: false });
+		await expect(client.page.locator(`[data-sidebar-device="${deviceId}"]`)).toHaveAttribute(
+			"data-device-state",
+			"online",
+			{ timeout: 60_000 },
+		);
+		await expect(client.page.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(0);
+		expect(await remoteStatus(client.page, deviceId)).toBeUndefined();
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
