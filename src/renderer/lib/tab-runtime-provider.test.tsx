@@ -4,7 +4,7 @@
  * the side panel) never keep commanding the retired runtime.
  */
 import { parseHTML } from "linkedom";
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { type SessionStore, useSessionStore } from "../stores/session";
@@ -15,7 +15,7 @@ import {
 	useTabCommand,
 } from "../stores/session-runtime-context";
 import { replaceTabRuntime } from "../stores/tab-runtime";
-import { TabRuntimeProvider } from "./tab-runtime-provider";
+import { FocusedRuntimeProvider, TabRuntimeProvider } from "./tab-runtime-provider";
 
 const { document, window, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -53,6 +53,27 @@ describe("TabRuntimeProvider", () => {
 		});
 
 		expect(container.textContent).toBe("replacement");
+		expect(seenCommand).toBe(sessionRuntime("t1")?.command);
+	});
+});
+
+describe("FocusedRuntimeProvider", () => {
+	it("keeps the app surface mounted when the first tab list names the focused tab", async () => {
+		// The whole surface used to remount here (its wrapper changed type), so a phone drawer opened right after the
+		// page loaded closed again: AppShell's drawer sync ran anew and put the session list away.
+		let mounts = 0;
+		function Surface() {
+			useEffect(() => {
+				mounts++;
+			}, []);
+			return <Probe />;
+		}
+		container = document.createElement("div") as unknown as HTMLElement;
+		document.body.appendChild(container);
+		root = createRoot(container as unknown as Element);
+		await act(async () => root.render(<FocusedRuntimeProvider tabId={null}>{<Surface />}</FocusedRuntimeProvider>));
+		await act(async () => root.render(<FocusedRuntimeProvider tabId="t1">{<Surface />}</FocusedRuntimeProvider>));
+		expect(mounts).toBe(1);
 		expect(seenCommand).toBe(sessionRuntime("t1")?.command);
 	});
 });

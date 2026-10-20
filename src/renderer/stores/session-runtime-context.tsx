@@ -59,7 +59,7 @@ export interface SessionRuntime {
 	recovering?: boolean;
 }
 
-const SessionRuntimeContext = createContext<SessionRuntime | null>(null);
+export const SessionRuntimeContext = createContext<SessionRuntime | null>(null);
 const runtimes = new Map<string, SessionRuntime>();
 const focusedListeners = new Set<() => void>();
 let focusedTabId: string | null = null;

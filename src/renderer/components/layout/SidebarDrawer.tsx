@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useBackLayer } from "../../hooks/use-back-layer";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
-import { useTabsStore } from "../../stores/tabs";
+import { type TabsStore, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
 import { Sidebar } from "./sidebar/Sidebar";
 
@@ -15,6 +15,20 @@ const TAP_SLOP_PX = 10;
 
 function closeDrawer(): void {
 	useUiStore.setState({ sidebarVisible: false });
+}
+
+/**
+ * Whether the window left the session it showed (the person picked another): the drawer closes then. The page settling
+ * is not that: the first tab list naming the active tab (none before it) and a real tab taking over its ghost from the
+ * last launch (`SessionTab.ghost`) both move `activeTabId` with no pick, and a tap on ☰ right after a phone page
+ * loaded used to open the drawer and close it again at once.
+ */
+export function leftActiveSession(
+	previous: Pick<TabsStore, "activeTabId" | "tabs">,
+	next: Pick<TabsStore, "activeTabId">,
+) {
+	if (next.activeTabId === previous.activeTabId || previous.activeTabId === null) return false;
+	return previous.tabs.find(tab => tab.id === previous.activeTabId)?.ghost !== true;
 }
 
 /**
@@ -32,7 +46,7 @@ export function SidebarDrawer() {
 	useEffect(() => {
 		if (!open) return;
 		const unsubscribeTabs = useTabsStore.subscribe((next, previous) => {
-			if (next.activeTabId !== previous.activeTabId) closeDrawer();
+			if (leftActiveSession(previous, next)) closeDrawer();
 		});
 		const unsubscribeUi = useUiStore.subscribe((next, previous) => {
 			if (next.destination !== previous.destination) closeDrawer();

@@ -75,7 +75,7 @@ import { followActivationFocus } from "./lib/tab-focus";
 import { installTabHistory, navigateHistory } from "./lib/tab-history";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
 import { focusedTabRpc } from "./lib/tab-rpc";
-import { TabRuntimeProvider } from "./lib/tab-runtime-provider";
+import { FocusedRuntimeProvider, TabRuntimeProvider } from "./lib/tab-runtime-provider";
 import { applyFontSize, watchSystemTheme } from "./lib/theme";
 import {
 	applyThemeByName,
@@ -949,5 +949,5 @@ export function App() {
 			<ToastStack />
 		</div>
 	);
-	return activeTabId ? <TabRuntimeProvider tabId={activeTabId}>{surface}</TabRuntimeProvider> : surface;
+	return <FocusedRuntimeProvider tabId={activeTabId}>{surface}</FocusedRuntimeProvider>;
 }
