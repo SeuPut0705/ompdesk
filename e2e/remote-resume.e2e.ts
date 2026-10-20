@@ -290,21 +290,25 @@ for (const [language, theme] of variants([
 			const reconnecting = a.locator(`[data-remote-reconnecting="${deviceId}"]`);
 			const openAsks = () =>
 				a.evaluate(() => window.omp.ui.openRequests().then(open => open.map(o => o.request.id)));
-			/** Cut the link, run `meanwhile` while A is away, then let A back in. */
-			const away = async (name: string, meanwhile?: () => Promise<void>) => {
+			/**
+			 * Cut the link, run `meanwhile` while A is away, then let A back in. The tab reads the host's state once
+			 * re-attached: its turn still `running` while the question waits, `ready` once the host's omp restarted
+			 * without it (the host's `run` tab event, c36f617ea).
+			 */
+			const away = async (name: string, status: "running" | "ready", meanwhile?: () => Promise<void>) => {
 				await proxy.drop();
 				await expect(reconnecting).toBeVisible({ timeout: 30_000 });
 				await capture(a, `${language}-${theme}-${name}-link-lost`);
 				await meanwhile?.();
 				await proxy.restore();
 				await expect(reconnecting).toHaveCount(0, { timeout: 60_000 });
-				await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe("ready");
+				await expect.poll(() => remoteStatus(a, deviceId), { timeout: 30_000 }).toBe(status);
 			};
 
 			await test.step("the host's omp still asks: the card is back once the link is, and its answer lands", async () => {
 				await send(a, "fixture ask");
 				await expect(card).toBeVisible({ timeout: 30_000 });
-				await away("still-open");
+				await away("still-open", "running");
 				await expect(card).toBeVisible({ timeout: 30_000 });
 				await expect(card).toHaveCount(1);
 				expect(await openAsks()).toEqual(["fixture-ask"]);
@@ -338,7 +342,7 @@ for (const [language, theme] of variants([
 				const [hostedOmp, ...others] = ompPids(hostProfile).filter(pid => !hostOwn.includes(pid));
 				expect(others).toEqual([]);
 				if (hostedOmp === undefined) throw new Error("expected the host tab's omp");
-				await away("restarted", async () => {
+				await away("restarted", "ready", async () => {
 					process.kill(hostedOmp, "SIGKILL");
 					// The host's SidecarManager starts the tab's omp again, without the question.
 					await expect
