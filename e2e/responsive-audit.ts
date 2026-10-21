@@ -613,14 +613,15 @@ function measureInPage(
 		if (style(element).pointerEvents === "none") continue;
 		controls.push(element);
 	}
+	/** A checkbox or radio inside its label is the label's target: the label carries the box and reach (mobile.css). */
+	const tapLabel = (element: Element): HTMLLabelElement | null =>
+		element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? element.closest("label") : null;
 	const hitBox = (element: Element): { width: number; height: number; row: boolean; field: boolean } => {
 		const row = element.closest(".omp-list-row") ?? (element.matches('[role="option"]') ? element : null);
 		// The composer's textarea is one target with the box around it.
 		const composer = element.matches("[data-composer-input]") ? element.closest(".omp-composer-box") : null;
+		const label = tapLabel(element);
 		// A text editor (CodeMirror's contenteditable) is a field too: a tap anywhere on its scroller focuses it.
-		const label =
-			element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? element.closest("label") : null;
-		// A checkbox or radio inside its label is the label's target: the label carries the reach (mobile.css).
 		const field =
 			(element instanceof HTMLInputElement && !label) ||
 			element instanceof HTMLSelectElement ||
@@ -714,10 +715,8 @@ function measureInPage(
 		if (element instanceof HTMLAnchorElement && style(element).display === "inline") continue;
 		const hit = hitBox(element);
 		if (hit.row) continue;
-		// A checkbox or radio is tapped through its label: the label's box and reach are its own.
 		const label = element.closest("label");
-		const target =
-			label && element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? label : element;
+		const target = tapLabel(element) ?? element;
 		const own = target.getBoundingClientRect();
 		const clip = visibleRect(target);
 		if (!clip) continue;
