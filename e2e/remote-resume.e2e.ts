@@ -706,7 +706,7 @@ test("a device deletes a host's session from its sidebar row: the host's omp let
 	}
 });
 
-test("a device deletes a host's session the host's own window has open and idle: the window's tab closes and the file goes", async () => {
+test("a device deletes a host's session the host's own window has open: refused with Stop while a turn runs, then the window's tab closes and the file goes", async () => {
 	// 21 Oct 2026: such a delete was refused for good ("Session is open on the host"), with nothing the device could close.
 	test.setTimeout(300_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-delete-window-")));
@@ -737,13 +737,30 @@ test("a device deletes a host's session the host's own window has open and idle:
 			.toMatch(/\.jsonl$/);
 		const deviceId = await connectHost(b, client.page, "Host B");
 		const a = client.page;
+		const hostStatus = async () =>
+			(await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.sessionPath === sessionPath)?.status;
 
 		const row = a.locator(`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessionPath)}]`);
 		await expect(row).toHaveCount(1, { timeout: 30_000 });
-		await row.hover();
-		await row.locator("[data-sidebar-row-menu]").click();
-		await a.getByRole("menuitem", { name: "Delete session" }).click();
-		await a.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+		const remove = async () => {
+			await row.hover();
+			await row.locator("[data-sidebar-row-menu]").click();
+			await a.getByRole("menuitem", { name: "Delete session" }).click();
+			await a.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+		};
+
+		// A turn runs in the host's window: the delete is refused, and Stop (the user's click) stops it there.
+		await send(b, "fixture running");
+		await expect.poll(hostStatus, { timeout: 30_000 }).toBe("running");
+		await remove();
+		const refusal = a.getByText("This session is running on Host B. Stop it, then delete it again.");
+		await expect(refusal).toBeVisible({ timeout: 20_000 });
+		expect(await fs.stat(sessionPath).then(() => true)).toBe(true);
+		await a.locator("[data-toast-stack] [data-toast-action]").filter({ hasText: "Stop" }).click();
+		await expect.poll(hostStatus, { timeout: 30_000, message: "the host's turn stops" }).not.toBe("running");
+
+		// Stop opened the session here; the delete closes that tab and the host's window tab.
+		await remove();
 
 		await expect
 			.poll(
