@@ -1227,6 +1227,15 @@ html[data-input="touch"] [data-choice-row] [role="radiogroup"] {
 	--hit-gap-x: 2px;
 }
 
+/* A choice row's (i) ends the row with room to its right and above and below: as in Settings' content it reaches 10 px
+   each way (a 36 px target; the row's 4 px bound cut it to 20), and 12 px more beside the segments keeps that reach
+   half way to the last segment. */
+html[data-input="touch"] [data-choice-row] > [data-setting-info] {
+	margin-inline-start: 12px;
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
+}
+
 html[data-input="touch"] [data-switch-tile] {
 	min-height: var(--sc-row-touch);
 }

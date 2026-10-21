@@ -182,6 +182,14 @@ describe("controls close enough to take each other's taps", () => {
 		declares("../components/common/Tabs.tsx", "data-segmented={segmented || undefined}");
 	});
 
+	it("gives a Run sheet choice row's (i) room for a 36 px reach beside its segments", () => {
+		const glyph = rule('html[data-input="touch"] [data-choice-row] > [data-setting-info]');
+		expect(glyph).toMatch(/margin-inline-start:\s*12px/);
+		expect(glyph).toMatch(/--hit-gap-x:\s*20px/);
+		expect(glyph).toMatch(/--hit-gap-y:\s*20px/);
+		expect(read("../components/layout/composer/ChoiceRow.tsx")).toContain("items-center gap-2 py-0.5");
+	});
+
 	it("declares the gap of the wrapping rows and clusters the audit found", () => {
 		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-run-actions");
 		declares("../components/settings/RemoteSection.tsx", "data-remote-addresses");
