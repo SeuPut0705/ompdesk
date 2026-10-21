@@ -60,6 +60,7 @@ export function Tabs({ tabs, activeId, onChange, variant = "underline", compact,
 	return (
 		<div
 			aria-label={ariaLabel}
+			data-segmented={segmented || undefined}
 			className={cx(
 				segmented
 					? "inline-flex items-center gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-3) p-0.5"

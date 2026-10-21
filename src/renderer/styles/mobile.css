@@ -1242,6 +1242,11 @@ html[data-input="touch"] [role="tablist"] > [role="tab"] {
 	min-height: var(--sc-row-touch);
 }
 
+/* A segmented bar's tabs sit 2 px apart: half of 4 px reached into the neighbour's own reach, which took the taps. */
+html[data-input="touch"] [role="tablist"][data-segmented] {
+	--hit-gap-x: 2px;
+}
+
 /* A session's family rows are stacked 1 px apart and the chip sits inside its parent row: no hit area may grow past
    its own row (the global 44 px reach would cover the neighbour). */
 html[data-shell] .omp-session-sidebar :is([data-sidebar-family], .omp-family-chip) {

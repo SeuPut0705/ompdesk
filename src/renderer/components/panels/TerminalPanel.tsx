@@ -21,6 +21,7 @@ import {
 	type TerminalSnapshot,
 } from "../../../shared/terminal-types";
 import { currentShellMode, useCompactShell, useShellInput } from "../../hooks/use-shell-mode";
+import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import {
 	applyModifiers,
@@ -498,7 +499,12 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	};
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-(--sc-surface-1)">
-			<div className="flex min-h-(--sc-space-10) min-w-0 shrink-0 items-center gap-1 border-b border-(--sc-divider) px-3 py-2">
+			<div
+				className={cx(
+					"flex min-h-(--sc-space-10) min-w-0 shrink-0 items-center border-b border-(--sc-divider) px-3 py-2",
+					touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1",
+				)}
+			>
 				<div
 					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
 					ref={tabsRef}

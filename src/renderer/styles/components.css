@@ -1231,6 +1231,11 @@
 	min-height: var(--sc-row-touch);
 }
 
+/* The rows sit flush: no row's reach grows into its neighbour's. */
+:where(html[data-input="touch"]) .omp-children-at-work > ul {
+	--hit-gap-y: 0px;
+}
+
 .omp-children-at-work-dot {
 	width: 6px;
 	height: 6px;
