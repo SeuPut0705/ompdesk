@@ -160,7 +160,24 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await capture(aside, "queue-populated");
 			await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
 			await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(780, 900));
-			await expect(aside).toHaveCount(0);
+			try {
+				await expect(aside).toHaveCount(0);
+			} catch (error) {
+				// Nightly 39521754163: the panel stayed docked 10 s after the resize, once. Whether the window resized,
+				// what the page measured and whether it was drawing at all (an occluded window runs no frames, so no media
+				// query change is delivered).
+				const native = await app.evaluate(({ BrowserWindow }) => {
+					const win = BrowserWindow.getAllWindows()[0];
+					return { bounds: win?.getBounds(), visible: win?.isVisible(), focused: win?.isFocused() };
+				});
+				const measured = await page.evaluate(() => ({
+					inner: [innerWidth, innerHeight],
+					visibility: document.visibilityState,
+					shell: document.documentElement.dataset.shell ?? null,
+				}));
+				await test.info().attach("resize-state.json", { body: JSON.stringify({ native, measured }, null, 2) });
+				throw error;
+			}
 			const sheet = page.getByRole("dialog", { name: "Side panel", exact: true });
 			await pressShortcutUntilVisible(page, "ControlOrMeta+j", sheet);
 			await expect(sheet).toBeVisible();
