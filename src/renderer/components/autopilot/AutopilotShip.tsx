@@ -12,7 +12,7 @@ import { useAutopilotStore } from "../../stores/autopilot";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
 import { Badge, type BadgeVariant, Button, ConfirmDialog, IconButton, Select, SwitchField } from "../common";
-import { BoardSection, Dot } from "../layout/work-board/board-parts";
+import { BoardRow, BoardSection, Dot } from "../layout/work-board/board-parts";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
 const QUEUE_BADGE: Record<ShipQueueItem["state"], BadgeVariant> = {
@@ -84,26 +84,22 @@ export function ShipLandRow() {
 			);
 	return (
 		<>
-			<li className="omp-work-board-item">
-				<div
-					className="omp-work-board-row"
-					data-ship-land={policy.land ? (landing ? "pr" : "default") : undefined}
-					title={landing?.reason ? `${text}\n${landing.reason}` : text}
-				>
-					<span className="omp-work-board-lead">
-						<Dot tone={landing ? "warning" : "muted"} />
-					</span>
-					<span className="min-w-0 flex-1 truncate text-(--sc-text-muted)">{text}</span>
-					{landing?.url && (
+			<BoardRow
+				action={
+					landing?.url ? (
 						<IconButton
 							icon={<ExternalLink />}
 							label={t("autopilot.ship.openPr")}
 							onClick={() => openExternal(landing.url as string)}
 							size="sm"
 						/>
-					)}
-				</div>
-			</li>
+					) : undefined
+				}
+				data={policy.land ? { "data-ship-land": landing ? "pr" : "default" } : undefined}
+				label={<span className="text-(--sc-text-muted)">{text}</span>}
+				lead={<Dot tone={landing ? "warning" : "muted"} />}
+				title={landing?.reason ? `${text}\n${landing.reason}` : text}
+			/>
 			{(policy.land || policy.automatic) && (ship.inFlight?.kind === "release" || ship.release) && (
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-row">

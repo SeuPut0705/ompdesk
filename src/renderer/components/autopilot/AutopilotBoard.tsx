@@ -317,13 +317,9 @@ function AutopilotFollowupsSection() {
 		<BoardSection count={followups.length} id="followups" title={t("autopilot.followups")}>
 			<CappedRows cap={SECTION_CAP.followups} items={followups}>
 				{text => (
-					<li className="omp-work-board-item" key={text}>
-						<div className="omp-work-board-row" data-autopilot-followup="" title={text}>
-							<span className="omp-work-board-lead">
-								<Dot ring tone="muted" />
-							</span>
-							<span className="min-w-0 flex-1 truncate">{text}</span>
-							{!ended && !pinned.has(sameItem(text)) && (
+					<BoardRow
+						action={
+							!ended && !pinned.has(sameItem(text)) ? (
 								<IconButton
 									data-autopilot-followup-pin=""
 									disabled={pending === "backlog_add"}
@@ -332,9 +328,14 @@ function AutopilotFollowupsSection() {
 									onClick={() => void run({ action: "backlog_add", text })}
 									size="sm"
 								/>
-							)}
-						</div>
-					</li>
+							) : undefined
+						}
+						data={{ "data-autopilot-followup": "" }}
+						key={text}
+						label={text}
+						lead={<Dot ring tone="muted" />}
+						title={text}
+					/>
 				)}
 			</CappedRows>
 		</BoardSection>
@@ -370,27 +371,24 @@ function AutopilotBacklogSection() {
 			title={t("autopilot.backlog")}
 		>
 			{items.map(item => (
-				<li className="omp-work-board-item" key={item.id}>
-					<div className="omp-work-board-row" data-backlog-item={item.id} title={item.text}>
-						<span className="omp-work-board-lead">
-							<Dot tone={item.done ? "success" : "muted"} />
-						</span>
-						<span className={`min-w-0 flex-1 truncate ${item.done ? "text-(--sc-text-muted)" : ""}`}>
-							{item.text}
-						</span>
-						{item.done && item.cycle !== undefined ? (
-							<span className="omp-work-board-meta">{t("autopilot.cycleN", { n: item.cycle })}</span>
-						) : null}
-						{!item.done && !ended && (
+				<BoardRow
+					action={
+						!item.done && !ended ? (
 							<IconButton
 								icon={<X />}
 								label={t("autopilot.backlogRemove")}
 								onClick={() => void run({ action: "backlog_remove", id: item.id })}
 								size="sm"
 							/>
-						)}
-					</div>
-				</li>
+						) : undefined
+					}
+					data={{ "data-backlog-item": item.id }}
+					key={item.id}
+					label={<span className={item.done ? "text-(--sc-text-muted)" : undefined}>{item.text}</span>}
+					lead={<Dot tone={item.done ? "success" : "muted"} />}
+					meta={item.done && item.cycle !== undefined ? t("autopilot.cycleN", { n: item.cycle }) : undefined}
+					title={item.text}
+				/>
 			))}
 			{!ended && (
 				<>

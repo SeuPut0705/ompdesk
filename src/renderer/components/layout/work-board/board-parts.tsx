@@ -109,13 +109,17 @@ export function BoardSection({
 	);
 }
 
-/** One row: a lead mark, a label that truncates, a muted figure and an optional second line. */
+/**
+ * One row: a lead mark, a label that truncates, a muted figure and an optional second line. A row that is not itself a
+ * button may end in its own button (`action`: a backlog item's ✕, a follow-up's pin, a pull request's link).
+ */
 export function BoardRow({
 	lead,
 	label,
 	meta,
 	sub,
 	onClick,
+	action,
 	title,
 	data,
 	exiting = false,
@@ -124,11 +128,10 @@ export function BoardRow({
 	label: ReactNode;
 	meta?: ReactNode;
 	sub?: ReactNode;
-	onClick?: () => void;
 	title?: string;
 	data?: Record<string, string>;
 	exiting?: boolean;
-}) {
+} & ({ onClick?: () => void; action?: never } | { onClick?: never; action?: ReactNode })) {
 	const body = (
 		<>
 			<span className="omp-work-board-lead">{lead}</span>
@@ -151,6 +154,7 @@ export function BoardRow({
 			) : (
 				<div className="omp-work-board-row" title={title} {...data}>
 					{body}
+					{action}
 				</div>
 			)}
 		</li>
