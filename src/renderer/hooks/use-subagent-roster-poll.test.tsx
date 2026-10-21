@@ -60,10 +60,16 @@ function Poller() {
 	return null;
 }
 
+/** The hook's default schedule (pollWhileVisible) on a 25 ms interval. */
+function DefaultPoller() {
+	useSubagentRosterPoll(25);
+	return null;
+}
+
 let container: HTMLElement;
 let root: Root;
 
-async function mount(): Promise<void> {
+async function mount(Component: () => null = Poller): Promise<void> {
 	useTabsStore.setState({
 		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
 		activeTabId: "t1",
@@ -75,7 +81,7 @@ async function mount(): Promise<void> {
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
-		root.render(<Poller />);
+		root.render(<Component />);
 	});
 }
 
@@ -133,9 +139,9 @@ describe("useSubagentRosterPoll", () => {
 		try {
 			useSubagentsStore.getState().setSnapshots([snap({ id: "a1", status: "running" })]);
 			useSessionStore.setState({ isStreaming: true });
-			await mount();
-			await act(async () => tick());
-			await act(async () => tick());
+			vi.useFakeTimers();
+			await mount(DefaultPoller);
+			await act(async () => vi.advanceTimersByTime(100));
 			expect(getSubagents).not.toHaveBeenCalled();
 
 			visibility = "visible";
@@ -145,6 +151,7 @@ describe("useSubagentRosterPoll", () => {
 			expect(getSubagents).toHaveBeenCalledTimes(1);
 		} finally {
 			Reflect.deleteProperty(document, "visibilityState");
+			vi.useRealTimers();
 		}
 	});
 });
