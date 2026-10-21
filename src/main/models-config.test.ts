@@ -28,6 +28,7 @@ import { ompPackageRoot, systemOmp } from "./omp-runtime";
 import { CustomProviderInputSchema } from "./remote/app-protocol";
 import * as stockHelper from "./stock-helper";
 import { stopStockHelper } from "./stock-helper";
+import { holdOpen } from "./test-hold-open";
 
 const stock = await systemOmp();
 const available = stock.ok && ompPackageRoot(stock.runtime.bin) !== null;
@@ -358,4 +359,39 @@ describe("models.yml as a symlink, with a stand-in stock roster", () => {
 			}
 		},
 	);
+});
+
+describe("models.yml saved while another process reads it, with a stand-in stock roster", () => {
+	test("a save survives a reader that holds the file open (Windows refuses a rename over an open file)", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "omp-models-held-"));
+		const original = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = dir;
+		writeFileSync(modelsPath(), "providers: {}\n");
+		const request = vi.spyOn(stockHelper, "stockHelperRequest").mockImplementation(async (method, params) => {
+			if (method === "catalog.roster")
+				return {
+					builtinProviders: ["anthropic"],
+					apis: ["openai-completions"],
+					auth: ["apiKey"],
+					discovery: ["none"],
+					thinkingModes: ["none"],
+					efforts: ["low"],
+				};
+			if (method === "models.validate" && typeof params === "object" && params !== null && "config" in params)
+				return { config: params.config };
+			throw new Error(`unexpected ${method}`);
+		});
+		try {
+			const reader = await holdOpen(modelsPath(), 150);
+			await upsertModelsProvider(minimal);
+			await reader.closed;
+			expect(readFileSync(modelsPath(), "utf8")).toContain("test-provider:");
+			expect(readdirSync(dir)).toEqual(["models.yml"]);
+		} finally {
+			request.mockRestore();
+			if (original === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = original;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });
