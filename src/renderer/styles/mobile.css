@@ -1439,6 +1439,13 @@ html[data-shell="phone"] .settings-content :is([data-setting-row], .settings-fie
 	--hit-gap-y: 8px;
 }
 
+/* A stacked row's own buttons (Update now, Set up automatically, Run check) reach 7 px up and down, a 24 px button (22
+   inside its border) a 36 px target: the glyph's reach ends at its own 36 px line, so the 8 px under that line is no one's
+   but the button's. A compact row keeps its own, unbounded reach. */
+html[data-shell="phone"] .settings-content .settings-field-row:not(.settings-field-row-compact) > .settings-field-control {
+	--hit-gap-y: 14px;
+}
+
 /* A compact row (a switch or one button beside its label) centres its controls in a 36 px line between the row's
    4 px paddings, so a 44 px reach ends at the row's own edge and no bound is needed; the 8 px one left a switch a
    32 px target with 12 px between it and the next row's switch that no tap reached. */

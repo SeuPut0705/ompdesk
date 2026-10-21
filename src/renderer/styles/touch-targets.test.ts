@@ -210,6 +210,14 @@ describe("controls close enough to take each other's taps", () => {
 		expect(phone.slice(0, phone.indexOf("}"))).toMatch(/column-gap:\s*14px;[^}]*--hit-gap-x:\s*14px/);
 	});
 
+	it("lets a stacked Settings row's buttons reach 7 px up and down on a phone, under the label's info line", () => {
+		expect(
+			rule(
+				'html[data-shell="phone"] .settings-content .settings-field-row:not(.settings-field-row-compact) > .settings-field-control',
+			),
+		).toMatch(/--hit-gap-y:\s*14px/);
+	});
+
 	it("declares the gap of the wrapping rows and clusters the audit found", () => {
 		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-run-actions");
 		declares("../components/settings/RemoteSection.tsx", "data-remote-addresses");
