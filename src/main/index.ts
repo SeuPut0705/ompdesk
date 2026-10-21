@@ -82,7 +82,7 @@ import { AiMemoryService } from "./ai-memory/service";
 import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
 import { pidFileControl } from "./ai-memory/unit";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
-import { appIconPath, appNotification } from "./app-icon";
+import { appIconPath, appNotification, holdTestNotifications } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -284,6 +284,7 @@ if (process.env.OMP_GUI_HEADLESS === "1") {
 		win.setSkipTaskbar(true);
 		win.setFocusable(false);
 	});
+	holdTestNotifications();
 }
 
 /**
