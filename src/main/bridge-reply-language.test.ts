@@ -56,6 +56,8 @@ describe("gui-bridge reply language", () => {
 			'the first line of each task assignment, written as "Title: <a short Korean sentence>"',
 		);
 		expect(lines[2]).toContain("short Korean sentence");
+		// The Autopilot timeline shows a cycle's title, summary and follow-ups as the agent wrote them in the autopilot tool.
+		expect(lines[2]).toContain("the `title`, `summary` and `followups` you give the autopilot tool");
 		expect(lines[2]).toContain("Your thinking, the rest of every assignment");
 		expect(lines[2]).toContain("code, identifiers and file contents stay as they are");
 	});
