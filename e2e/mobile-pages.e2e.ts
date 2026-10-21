@@ -310,10 +310,14 @@ for (const { engine, device } of variants(
 			// A switch is drawn small (a 32 × 28 button around an 18 px track) and hit at 44 × 44 through its ::after.
 			const found = await hitSizes(switches);
 			expect(found.length).toBeGreaterThan(0);
-			for (const { visual, hit } of found) {
-				expect(hit.width).toBeGreaterThanOrEqual(43.5);
-				expect(hit.height).toBeGreaterThanOrEqual(43.5);
-				expect(visual.height).toBeLessThanOrEqual(32);
+			// Which switch, and whether the page counted itself as touch then (nightly 39519261585: one tablet switch
+			// was hit at its drawn 32 px once; 10 local runs were 44).
+			const input = await page.evaluate(() => document.documentElement.dataset.input ?? "unset");
+			for (const { label, visual, hit } of found) {
+				const where = `${label} (data-input ${input}, hit ${hit.width}×${hit.height})`;
+				expect(hit.width, where).toBeGreaterThanOrEqual(43.5);
+				expect(hit.height, where).toBeGreaterThanOrEqual(43.5);
+				expect(visual.height, where).toBeLessThanOrEqual(32);
 			}
 			// "Advanced" stays folded until it is opened.
 			const advanced = page.locator("[data-settings-advanced]").first();
