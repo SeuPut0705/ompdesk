@@ -137,8 +137,14 @@ let relaunchAfterSwap = false;
 let swapLaunched = false;
 /** Token the last check authenticated with, if any; the macOS asset download reuses it. */
 let updateToken: string | undefined;
-/** A check's failure is classified by runCheck, so the updater's own error event stays quiet. */
-let checkInFlight = false;
+/**
+ * The check under way. A second request (Check for Updates during the background poll) joins it instead of running
+ * beside it on the one shared status; a check's failure is classified by `checkOnce`, so the updater's own error event
+ * stays quiet while it runs.
+ */
+let checkRun: Promise<void> | null = null;
+/** Someone asked for the check under way: its outcome is shown, a failure or "no result" included. */
+let checkAsked = false;
 /** The macOS DMG download; a second one would append to the same `.partial`. */
 const macTransfer = new SingleTransfer();
 /** Installs a downloaded update by itself at a quiet moment (Settings › Updates & about); null before `setupUpdater`. */
@@ -576,64 +582,74 @@ function notesOf(info: { releaseNotes?: unknown }): string | undefined {
 }
 
 /**
- * One update check, anonymous unless a token is configured. `manual` checks
- * surface failures in the banner; background polls only update Settings.
+ * One update check at a time, anonymous unless a token is configured. A check someone asked for surfaces its
+ * failures in the banner; background polls only update Settings. Asked during a background poll, the poll is the
+ * check and settles as asked.
  */
-async function runCheck(manual: boolean): Promise<void> {
+function runCheck(manual: boolean): Promise<void> {
+	if (manual) checkAsked = true;
+	checkRun ??= checkOnce().finally(() => {
+		checkRun = null;
+		checkAsked = false;
+	});
+	return checkRun;
+}
+
+async function checkOnce(): Promise<void> {
 	let token = (await resolveUpdateToken())?.token;
 	const configuredToken = token;
 	let rejected = false;
-	checkInFlight = true;
-	try {
-		updateToken = token;
-		let failure = await attemptCheck(token);
-		// GitHub answers 401 to a bad token even for public data (an expired
-		// GH_TOKEN, a stale `gh` login). The repo is public, so ask again
-		// without it instead of blocking updates on the stale credential.
-		if (failure && token && (await checkRepoAccess(token)) === "invalid") {
-			rejected = true;
-			token = undefined;
-			updateToken = undefined;
-			failure = await attemptCheck(undefined);
-		}
-		if (!failure) {
-			const settled = settleIncompleteUpdateCheck(current, manual, mainT("updates.noResult"));
-			if (settled !== current) {
-				logUpdate("check", { event: "error", kind: "no-result", manual });
-				broadcast(settled);
-			}
-			return;
-		}
-		const error = failure.error;
-		let access = await checkRepoAccess(token);
-		// An anonymous request GitHub answers "not found" means the repo is
-		// private again: a token is needed (or the one tried was rejected).
-		if (access === "denied" && !token) access = rejected ? "invalid" : "missing";
-		const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
-		const detail = error instanceof Error ? error.message : String(error);
-		// A release without usable metadata is no update, but never a silent one.
-		const message =
-			code === UPDATE_METADATA_ERROR
-				? mainT("updates.releaseInvalid")
-				: code === UPDATE_PLATFORM_ERROR
-					? mainT("updates.installerMissing")
-					: mainT("updates.checkFailed");
-		const settled = settleFailedUpdateCheck(access, code, message, appVersion(), manual, detail);
-		// A repo with no release yet is the same answer as "no update"; the rest is an error with its kind.
-		if (settled.state === "not-available") {
-			logUpdate("check", { event: "no-update", current: appVersion(), manual, note: "no release published" });
-		} else {
-			logUpdate("check", {
-				event: "error",
-				kind: settled.state === "auth-required" ? `auth-required:${settled.reason}` : (code ?? "check-failed"),
-				manual,
-				reason: scrubUpdateText(detail, [configuredToken, updateToken]),
-			});
-		}
-		broadcast(settled);
-	} finally {
-		checkInFlight = false;
+	updateToken = token;
+	let failure = await attemptCheck(token);
+	// GitHub answers 401 to a bad token even for public data (an expired
+	// GH_TOKEN, a stale `gh` login). The repo is public, so ask again
+	// without it instead of blocking updates on the stale credential.
+	if (failure && token && (await checkRepoAccess(token)) === "invalid") {
+		rejected = true;
+		token = undefined;
+		updateToken = undefined;
+		failure = await attemptCheck(undefined);
 	}
+	if (!failure) {
+		const settled = settleIncompleteUpdateCheck(current, checkAsked, mainT("updates.noResult"));
+		if (settled !== current) {
+			logUpdate("check", { event: "error", kind: "no-result", manual: checkAsked });
+			broadcast(settled);
+		}
+		return;
+	}
+	const error = failure.error;
+	let access = await checkRepoAccess(token);
+	// An anonymous request GitHub answers "not found" means the repo is
+	// private again: a token is needed (or the one tried was rejected).
+	if (access === "denied" && !token) access = rejected ? "invalid" : "missing";
+	const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
+	const detail = error instanceof Error ? error.message : String(error);
+	// A release without usable metadata is no update, but never a silent one.
+	const message =
+		code === UPDATE_METADATA_ERROR
+			? mainT("updates.releaseInvalid")
+			: code === UPDATE_PLATFORM_ERROR
+				? mainT("updates.installerMissing")
+				: mainT("updates.checkFailed");
+	const settled = settleFailedUpdateCheck(access, code, message, appVersion(), checkAsked, detail);
+	// A repo with no release yet is the same answer as "no update"; the rest is an error with its kind.
+	if (settled.state === "not-available") {
+		logUpdate("check", {
+			event: "no-update",
+			current: appVersion(),
+			manual: checkAsked,
+			note: "no release published",
+		});
+	} else {
+		logUpdate("check", {
+			event: "error",
+			kind: settled.state === "auth-required" ? `auth-required:${settled.reason}` : (code ?? "check-failed"),
+			manual: checkAsked,
+			reason: scrubUpdateText(detail, [configuredToken, updateToken]),
+		});
+	}
+	broadcast(settled);
 }
 
 /** Points electron-updater at the release feed with `token` (none = anonymous) and checks once. */
@@ -877,7 +893,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	autoUpdater.on("error", error => {
 		// A quitAndInstall() that failed natively leaves the app running: the committed quit is off.
 		disarmQuitWatchdog("update");
-		if (checkInFlight) return;
+		if (checkRun) return;
 		installTrigger = undefined;
 		if (nsisDownloadStartedAt !== undefined) {
 			nsisDownloadStartedAt = undefined;
