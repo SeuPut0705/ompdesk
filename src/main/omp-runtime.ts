@@ -165,6 +165,24 @@ export function ompPackageRoot(bin: string): string | null {
 	return null;
 }
 
+/**
+ * The version of the package a symlinked `bin` runs (bun's and npm's global install on macOS: `<root>/dist/cli.js`),
+ * read from its package.json; null for any other layout. Measured on an M4 Mac (omp 18.12.5): `omp --version`
+ * takes 0.3 s, all of it in front of the first session's start, and the manifest is what it prints. Only the file the
+ * bin resolves to counts, never a layout guess (`ompPackageRoot`'s): a guess could name a package this bin does not run.
+ */
+function installedVersion(bin: string): string | null {
+	try {
+		const root = dirname(dirname(realpathSync(bin)));
+		const manifest: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+		if (typeof manifest !== "object" || manifest === null) return null;
+		const { name, version } = manifest as { name?: unknown; version?: unknown };
+		return name === "@oh-my-pi/pi-coding-agent" && typeof version === "string" ? parseOmpVersion(version) : null;
+	} catch {
+		return null;
+	}
+}
+
 function runOmp(
 	bin: string,
 	args: string[],
@@ -222,25 +240,28 @@ export async function resolveOmp(): Promise<OmpResolution> {
 				}
 			: { ok: false, error: `omp not found. ${INSTALL_HINT}`, reason: { kind: "not-found" } };
 	}
-	let output: { code: number; stdout: string; stderr: string };
-	try {
-		output = await runOmp(bin, ["--version"], { timeoutMs: VERSION_TIMEOUT_MS }, basePath);
-	} catch (err) {
-		const detail = err instanceof Error ? err.message : String(err);
-		return {
-			ok: false,
-			error: `omp at ${bin} could not run: ${detail}`,
-			reason: { kind: "cannot-run", bin, detail },
-		};
-	}
-	const version = output.code === 0 ? parseOmpVersion(output.stdout) : null;
+	let version = installedVersion(bin);
 	if (!version) {
-		const detail = (output.stderr || output.stdout).trim().split("\n")[0] ?? "";
-		return {
-			ok: false,
-			error: `omp at ${bin} failed \`omp --version\`${detail ? `: ${detail}` : ""}. ${INSTALL_HINT}`,
-			reason: { kind: "cannot-run", bin, detail },
-		};
+		let output: { code: number; stdout: string; stderr: string };
+		try {
+			output = await runOmp(bin, ["--version"], { timeoutMs: VERSION_TIMEOUT_MS }, basePath);
+		} catch (err) {
+			const detail = err instanceof Error ? err.message : String(err);
+			return {
+				ok: false,
+				error: `omp at ${bin} could not run: ${detail}`,
+				reason: { kind: "cannot-run", bin, detail },
+			};
+		}
+		version = output.code === 0 ? parseOmpVersion(output.stdout) : null;
+		if (!version) {
+			const detail = (output.stderr || output.stdout).trim().split("\n")[0] ?? "";
+			return {
+				ok: false,
+				error: `omp at ${bin} failed \`omp --version\`${detail ? `: ${detail}` : ""}. ${INSTALL_HINT}`,
+				reason: { kind: "cannot-run", bin, detail },
+			};
+		}
 	}
 	if (isNewer(MIN_OMP_VERSION, version)) {
 		return {

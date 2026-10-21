@@ -72,7 +72,7 @@ renderer (React) ── IPC ──▶ main (Electron)
 
 ### omp runtime and version floor
 
-- `src/main/omp-runtime.ts` finds omp (`OMP_GUI_OMP` override → login-shell `PATH` → `~/.bun/bin/omp`, `/opt/homebrew/bin/omp`, `/usr/local/bin/omp`; Windows `%USERPROFILE%\.bun\bin\omp.exe`, `omp.cmd`/`omp.exe` on `PATH`) and enforces `MIN_OMP_VERSION` (18.12.3, for the `always-ask-cached` approval mode; it only moves with a newer requirement or an audit). Every bridge feature in `capabilities.ts` is required at that version. When a feature needs a newer omp, raise `MIN_OMP_VERSION` instead of carrying an older-omp fallback. The fake omp (`e2e/sidecar-fixture.ts`) reports the minimum.
+- `src/main/omp-runtime.ts` finds omp (`OMP_GUI_OMP` override → login-shell `PATH` → `~/.bun/bin/omp`, `/opt/homebrew/bin/omp`, `/usr/local/bin/omp`; Windows `%USERPROFILE%\.bun\bin\omp.exe`, `omp.cmd`/`omp.exe` on `PATH`) and enforces `MIN_OMP_VERSION` (18.12.3, for the `always-ask-cached` approval mode; it only moves with a newer requirement or an audit). A bin that links to `<package>/dist/cli.js` (a bun or npm global install) is versioned from that package's `package.json` (`installedVersion`); any other layout runs `omp --version`, which cost 0.3 s of every launch in front of the first session. Every bridge feature in `capabilities.ts` is required at that version. When a feature needs a newer omp, raise `MIN_OMP_VERSION` instead of carrying an older-omp fallback. The fake omp (`e2e/sidecar-fixture.ts`) reports the minimum.
 
 ### Stock helper workers
 

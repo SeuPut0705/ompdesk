@@ -14,6 +14,7 @@ import {
 	resolveOmp,
 } from "./omp-runtime";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+import { itWithFileSymlinks } from "./test-symlinks";
 
 const originalOverride = process.env.OMP_GUI_OMP;
 
@@ -162,6 +163,29 @@ describe("resolveOmp", () => {
 				error: expect.stringContaining("omp update"),
 				reason: { kind: "too-old", version: "18.6.3", minimum: MIN_OMP_VERSION, bin },
 			});
+		} finally {
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
+
+	itWithFileSymlinks("reads a bun or npm install's version from its package, never starting omp for it", async () => {
+		// A global bun or npm install links `bin/omp` to `<package>/dist/cli.js`; `omp --version` cost 0.3 s per launch.
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-"));
+		try {
+			const pkg = path.join(dir, "node_modules", "@oh-my-pi", "pi-coding-agent");
+			await fs.mkdir(path.join(pkg, "dist"), { recursive: true });
+			await fs.writeFile(
+				path.join(pkg, "package.json"),
+				JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", version: MIN_OMP_VERSION }),
+			);
+			// Never run: it would print another version and fail.
+			await fs.writeFile(path.join(pkg, "dist", "cli.js"), "#!/bin/sh\necho omp/1.0.0; exit 1\n", { mode: 0o755 });
+			const bin = path.join(dir, "omp");
+			await fs.symlink(path.join(pkg, "dist", "cli.js"), bin);
+			process.env.OMP_GUI_OMP = bin;
+			const resolution = await resolveOmp();
+			if (!resolution.ok) throw new Error(resolution.error);
+			expect(resolution.runtime).toMatchObject({ bin, version: MIN_OMP_VERSION });
 		} finally {
 			await fs.rm(dir, RM_TEMP);
 		}
