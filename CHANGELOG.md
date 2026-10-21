@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.51.0] - 2026-10-21
+
+GitHub 화면이 GitHub 영어 대신 화면 언어로 보이고, 오토파일럿이 결과를 main에 더 안정적으로 반영해요.
+
+### 새로 생긴 것
+- 사이드바 너비를 키보드로 조절할 수 있어요. 경계선에 초점을 두고 화살표, Home, End를 눌러요.
+- 워크플로 실행 창에서 브랜치를 비워 두면 저장소의 기본 브랜치에서 실행해요.
+
+### 고친 것
+- GitHub Actions의 실행 결과, 실행을 시작한 이벤트, 알림의 종류와 이유가 영어 대신 화면 언어로 보여요.
+- 결과가 "중립"인 Actions 실행에 "실패한 작업 다시 실행" 버튼이 나오던 문제를 고쳤어요. GitHub에서 꺼진 워크플로는 실행 버튼이 왜 꺼졌는지 알려 줘요.
+- 오토파일럿 작업현황에 누를 일이 없는 내보내기 버튼, 다음 사이클 지시 칸, "초록 사이클마다 푸시" 스위치가 더는 나오지 않아요. 다음 사이클에 줄 말은 채팅으로 보내요. 작업현황이 좌우로 스크롤되던 문제도 고쳤어요.
+- 오토파일럿이 Finder로 연 앱에서 main 반영 전 검사를 돌리지 못하던 문제(`bun`을 찾지 못함), 평범한 fetch 뒤에 "금지된 작업"으로 멈추던 문제를 고쳤어요.
+- 오토파일럿의 main 반영이 거절되면 검사의 첫 오류를 알려 주고, 끝낸 후속 작업을 다시 하라고 하지 않아요.
+- 다른 컴퓨터가 업데이트로 재시작해도 그 컴퓨터에서 돌던 세션의 턴이 멈추지 않아요.
+- 다른 기기가 세션을 지울 때 그 세션이 쉬고 있는 탭에 열려 있으면 탭을 닫고 지워요. 예전에는 계속 거절됐어요.
+- 피드백에 붙는 오류 기록이 넘칠 때 가장 최근 오류가 아니라 가장 오래된 오류를 빼요.
+- 화면이 소프트웨어 렌더링으로 그려질 때 반복 애니메이션이 한 번만 돌고 멈춰요.
+- 작업현황 카드의 높이 조절 손잡이가 스크린 리더에 높이를 알려 주고 Home·End로 움직여요.
+
+<!-- en -->
+
+The GitHub screens read in the UI's language instead of GitHub's English, and Autopilot lands its results on main more reliably.
+
+### New
+- The sidebar's width can be changed from the keyboard: focus its edge and use the arrows, Home and End.
+- Run workflow starts on the repository's default branch when the branch field is left empty.
+
+### Fixed
+- GitHub Actions run results, the event that started a run, and a notification's kind and reason read in the UI's language instead of GitHub's English.
+- A "neutral" Actions run no longer offers "Re-run failed jobs", and a workflow turned off on GitHub says why Run workflow is off.
+- Autopilot's work board no longer shows shipping buttons nobody needs to press, a next-cycle instruction field or a "push after every green cycle" switch; tell the next cycle what to do in the chat. The board no longer scrolls sideways.
+- Autopilot's check before landing on main now runs in an app opened from Finder (it could not find `bun`), and a plain fetch no longer pauses a run as a forbidden action.
+- A refused landing names the check's first error, and Autopilot no longer sends the agent back to follow-ups it finished.
+- A session running on a paired computer keeps its turn going when that computer restarts for an update.
+- Deleting a session from another device closes an idle tab holding it and deletes it, instead of being refused for good.
+- The error log attached to feedback drops the oldest errors when it is over its size, not the newest.
+- Under software rendering every looping animation plays once and rests.
+- The work board card's height handle tells screen readers its height and moves with Home and End.
+
 ## [0.50.0] - 2026-10-21
 
 오토파일럿 화면이 작업현황으로 옮겨졌고, 업데이트나 재시작 뒤에도 하던 일이 끊기지 않고 이어져요.
