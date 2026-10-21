@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileAtomic, writeFileAtomicDeferred, writeFileAtomicSync } from "./atomic-file";
 import { holdOpen } from "./test-hold-open";
-
+// Windows refuses to rename over a file another handle has open. Elsewhere nothing is refused: the waiting cases hold
+// there too, the one that needs a refused rename runs on Windows only.
 // Windows refuses to rename over a file another handle has open. Elsewhere nothing is refused, and these hold too.
 describe("atomic file writes", () => {
 	let dir: string;
@@ -39,18 +40,29 @@ describe("atomic file writes", () => {
 		expect(readdirSync(dir)).toEqual(["state.json"]);
 	});
 
-	it("the async variant drops a write its caller no longer wants, even while a reader holds the file", async () => {
-		const reader = openSync(file, "r");
-		let wanted = true;
-		const done = writeFileAtomic(file, "stale", { commitIf: () => wanted });
-		setTimeout(() => {
-			wanted = false;
-			closeSync(reader);
-		}, 60);
-		await done;
+	it("the async variant drops a write its caller no longer wants before the rename", async () => {
+		await writeFileAtomic(file, "stale", { commitIf: () => false });
 		expect(readFileSync(file, "utf8")).toBe("old");
 		expect(readdirSync(dir)).toEqual(["state.json"]);
 	});
+
+	// Only Windows refuses the rename while the reader holds the file; elsewhere the first attempt already commits
+	// (main's ci.yml on macOS and Linux read "stale").
+	it.skipIf(process.platform !== "win32")(
+		"the async variant drops a write its caller no longer wants, even while a reader holds the file",
+		async () => {
+			const reader = openSync(file, "r");
+			let wanted = true;
+			const done = writeFileAtomic(file, "stale", { commitIf: () => wanted });
+			setTimeout(() => {
+				wanted = false;
+				closeSync(reader);
+			}, 60);
+			await done;
+			expect(readFileSync(file, "utf8")).toBe("old");
+			expect(readdirSync(dir)).toEqual(["state.json"]);
+		},
+	);
 
 	it("the deferred variant writes at once when nothing holds the file", () => {
 		writeFileAtomicDeferred(file, "new");
