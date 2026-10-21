@@ -486,7 +486,7 @@ describe("TitleBar", () => {
 		expect(panel).toBeDefined();
 		await act(async () => panel?.click());
 		expect(useUiStore.getState().panelVisible).toBe(true);
-		useUiStore.setState({ panelVisible: false });
+		await act(async () => useUiStore.setState({ panelVisible: false }));
 
 		const actions = named("Session actions");
 		expect(actions).toBeDefined();

@@ -86,8 +86,10 @@ describe("WorkBoardChip, the phone's work strip", () => {
 			expect(label).toContain("Autopilot");
 			expect(label).toContain("Cycle 3");
 		} finally {
-			useAutopilotStore.getState().reset();
-			useSessionStore.getState().reset();
+			await act(async () => {
+				useAutopilotStore.getState().reset();
+				useSessionStore.getState().reset();
+			});
 		}
 	});
 

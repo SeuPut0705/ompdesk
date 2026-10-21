@@ -212,8 +212,10 @@ describe("AgentsPage", () => {
 			expect(github.api.startLogin).toHaveBeenCalledOnce();
 			expect(omp.openExternal).not.toHaveBeenCalled();
 		} finally {
-			useGithubAuthStore.getState().reset();
-			useMachineSetupStore.getState().reset();
+			await act(async () => {
+				useGithubAuthStore.getState().reset();
+				useMachineSetupStore.getState().reset();
+			});
 		}
 	});
 

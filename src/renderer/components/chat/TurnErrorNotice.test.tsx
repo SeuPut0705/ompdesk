@@ -156,9 +156,11 @@ describe("TurnErrorNotice while stock's own retry runs", () => {
 		timestamp,
 	});
 
-	afterEach(() => {
-		useSessionStore.setState({ retryInfo: null });
-		useMessagesStore.setState({ liveMessages: [] });
+	afterEach(async () => {
+		await act(async () => {
+			useSessionStore.setState({ retryInfo: null });
+			useMessagesStore.setState({ liveMessages: [] });
+		});
 	});
 
 	it("is no failure card while the saga retries the latest failure, and the card once stock gives up", async () => {

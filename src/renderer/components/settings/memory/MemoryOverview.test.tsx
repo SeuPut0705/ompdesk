@@ -116,7 +116,7 @@ describe("Memory › Overview › Learn from conversations", () => {
 		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
 		expect(text("#setting-aiMemory-learn")).toContain("Learn from conversations");
 		expect(q("#setting-aiMemory-learn [role=switch]")?.getAttribute("aria-checked")).toBe("true");
-		cleanup();
+		await cleanup();
 		await mount(
 			<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState({ enabled: false, phase: "off" })} />,
 		);

@@ -125,7 +125,7 @@ describe("WorkspaceIsland", () => {
 			expect(segment("agents")).not.toBeNull();
 			expect(container.querySelector("[data-island-needs-you]")).toBeNull();
 		} finally {
-			useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} });
+			await act(async () => useExtensionUiStore.setState({ inlineLogins: 0, loginRequestIds: {} }));
 		}
 	});
 

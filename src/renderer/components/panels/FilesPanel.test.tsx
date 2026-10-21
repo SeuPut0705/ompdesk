@@ -186,8 +186,7 @@ it("opens a clicked file as the preview tab and keeps it on a double-click, Keep
 	expect(useUiStore.getState().fileTabs).toEqual([{ path: "a.ts", preview: false }]);
 	expect(container.querySelector("nav[data-file-tabs]")).toBeNull();
 
-	useUiStore.getState().openFilePreview("c.ts");
-	await act(async () => {});
+	await act(async () => useUiStore.getState().openFilePreview("c.ts"));
 	await press(button(container, "Edit"), "click");
 	expect(useUiStore.getState().fileTabs).toEqual([
 		{ path: "a.ts", preview: false },

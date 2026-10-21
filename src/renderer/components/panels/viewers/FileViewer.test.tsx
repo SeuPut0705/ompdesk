@@ -266,7 +266,7 @@ describe("document modes", () => {
 		installFs({ read: async () => textResult("# Title\n\nbody\n") });
 		await mount(view("README.md", 3));
 		expect(container.querySelector("[data-target-line]")?.textContent).toContain("body");
-		root?.unmount();
+		await act(async () => root?.unmount());
 		root = null;
 		container.remove();
 
@@ -443,9 +443,11 @@ describe("binary fallback", () => {
 			expect(card?.textContent).not.toContain("Open with default app");
 			expect(card?.querySelector("a, button")).toBeNull();
 		} finally {
-			setFocusedSessionRuntime(null);
-			useTabsStore.setState({ activeTabId: null, tabs: [] });
-			useRemoteStore.getState().reset();
+			await act(async () => {
+				setFocusedSessionRuntime(null);
+				useTabsStore.setState({ activeTabId: null, tabs: [] });
+				useRemoteStore.getState().reset();
+			});
 		}
 	});
 });
@@ -550,7 +552,7 @@ describe("office views", () => {
 		});
 		await mount(view("deck.pptx"));
 		expect(container.querySelector("[data-viewer-fallback]")?.textContent).toContain("too large to preview");
-		root?.unmount();
+		await act(async () => root?.unmount());
 		root = null;
 		container.remove();
 

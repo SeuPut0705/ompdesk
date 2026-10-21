@@ -164,17 +164,19 @@ function limitInput(): TestElement {
 }
 
 async function pickModel(selector: string): Promise<void> {
-	useModelStore.setState({
-		refreshAvailableModels: async (): Promise<AvailableModelsResult> => ({
-			models: [
-				{ provider: "openai", id: "gpt-5", name: "GPT-5" },
-				{ provider: "anthropic", id: "claude", name: "Claude" },
-			],
-			discoveryStates: [],
-			refreshPending: false,
-			generation: 1,
+	await act(async () =>
+		useModelStore.setState({
+			refreshAvailableModels: async (): Promise<AvailableModelsResult> => ({
+				models: [
+					{ provider: "openai", id: "gpt-5", name: "GPT-5" },
+					{ provider: "anthropic", id: "claude", name: "Claude" },
+				],
+				discoveryStates: [],
+				refreshPending: false,
+				generation: 1,
+			}),
 		}),
-	});
+	);
 	await act(async () => button(byLabel(translate("compactionLimits.model"))).click());
 	await act(async () => {});
 	const option = [...document.body.querySelectorAll('[role="option"]')].find(row =>

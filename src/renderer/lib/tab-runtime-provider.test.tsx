@@ -43,8 +43,7 @@ describe("TabRuntimeProvider", () => {
 		document.body.appendChild(container);
 		root = createRoot(container as unknown as Element);
 		await act(async () => root.render(<TabRuntimeProvider tabId="t1">{<Probe />}</TabRuntimeProvider>));
-		sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ sessionId: "deleted" });
-		await act(async () => {});
+		await act(async () => sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ sessionId: "deleted" }));
 		expect(container.textContent).toBe("deleted");
 
 		await act(async () => {

@@ -752,7 +752,10 @@ describe("WorkBoard account limit", () => {
 		};
 		withAgent();
 		await mount();
-		// The rows are a lazy chunk, loaded once the session spent on a metered provider.
+		// The rows are a lazy chunk, loaded once the session spent on a metered provider: it resolves inside act.
+		await act(async () => {
+			await import("./SessionSpendLine");
+		});
 		await vi.waitFor(() => expect(pane.querySelector("[data-board-spend-provider]")).not.toBeNull());
 		const rows = [...pane.querySelectorAll("[data-board-spend-provider]")];
 		expect(rows.map(row => row.getAttribute("data-board-spend-provider"))).toEqual(["openrouter"]);

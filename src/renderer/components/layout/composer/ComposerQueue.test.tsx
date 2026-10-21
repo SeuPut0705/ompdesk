@@ -279,14 +279,18 @@ describe("ComposerQueuePill", () => {
 
 	it("tells where an edit landed: the pill reads Edited · now last and the row carries the note", async () => {
 		await mount([], [queued("f1", "one"), queued("f2", "two")]);
-		useQueueStore.getState().noteMoved({ id: "f1", lane: "followUp", position: 2, count: 2, kind: "edit" });
+		await act(async () =>
+			useQueueStore.getState().noteMoved({ id: "f1", lane: "followUp", position: 2, count: 2, kind: "edit" }),
+		);
 		await flush();
 		expect(pill()?.textContent).toContain("Edited · now last");
 		await openPopover();
 		expect(document.querySelector("[data-queue-moved-note]")?.textContent).toBe(
 			"Edited · now last in “After this turn”",
 		);
-		useQueueStore.getState().noteMoved({ id: "f2", lane: "followUp", position: 2, count: 2, kind: "lane" });
+		await act(async () =>
+			useQueueStore.getState().noteMoved({ id: "f2", lane: "followUp", position: 2, count: 2, kind: "lane" }),
+		);
 		await flush();
 		expect(document.querySelector("[data-queue-moved-note]")?.textContent).toBe(
 			"Moved · now last in “After this turn”",

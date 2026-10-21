@@ -253,7 +253,7 @@ describe("JobsPanel", () => {
 			const headings = Array.from(container.querySelectorAll("h3")).map(heading => heading.textContent);
 			expect(headings).toEqual(["Running4", "Recent2"]);
 		} finally {
-			useSubagentsStore.getState().reset();
+			await act(async () => useSubagentsStore.getState().reset());
 		}
 	});
 });

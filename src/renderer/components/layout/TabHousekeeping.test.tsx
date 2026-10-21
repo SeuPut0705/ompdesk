@@ -294,7 +294,11 @@ describe("TabHousekeeping", () => {
 		});
 		await mount(<TabHousekeeping confirmCloseMs={25} />);
 
-		expect(closeActiveTab()).toBe("armed");
+		let armed: unknown;
+		await act(async () => {
+			armed = closeActiveTab();
+		});
+		expect(armed).toBe("armed");
 		await act(async () => {
 			const { promise, resolve } = Promise.withResolvers<void>();
 			setTimeout(resolve, 60);
