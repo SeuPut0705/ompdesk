@@ -218,15 +218,35 @@ export class AiMemoryClient {
 	async projects(): Promise<AiMemoryProject[]> {
 		const projects = rows(await this.#get("/api/v1/projects")).map(row => {
 			const identity = str(row.identity);
+			const id = str(row.project_id);
 			return {
 				workspace: str(row.workspace_name),
 				project: str(row.project_name),
 				pages: num(row.page_count),
 				lastUpdated: str(row.last_updated) || null,
+				...(id ? { id } : {}),
 				...(identity ? { identity } : {}),
 			};
 		});
 		return projects.sort((a, b) => ((a.lastUpdated ?? "") < (b.lastUpdated ?? "") ? 1 : -1));
+	}
+
+	/**
+	 * How the server resolves a project name (`/admin/project-coordinate`): `ambiguous` when the name is one project's
+	 * name and another's canonical or legacy key, so every name read of it is refused.
+	 */
+	async nameStatus(ref: AiMemoryProjectRef): Promise<string> {
+		const params = new URLSearchParams({ workspace: ref.workspace, project: ref.project });
+		return str(record(await this.#get(`/admin/project-coordinate?${params}`)).status);
+	}
+
+	/**
+	 * Renames by id a project no checkout ever captured into (`/admin/rename-unclaimed-project`: no repository identity,
+	 * no repo path, no session, checked in the rename; else 409). The name only, no file moves; reversible. A server
+	 * without the route answers 404, never an unguarded rename.
+	 */
+	async renameUnclaimedProject(workspace: string, projectId: string, to: string): Promise<void> {
+		await this.#post("/admin/rename-unclaimed-project", { workspace, project_id: projectId, to });
 	}
 
 	async search(query: string, project?: AiMemoryProjectRef): Promise<AiMemoryPageRef[]> {

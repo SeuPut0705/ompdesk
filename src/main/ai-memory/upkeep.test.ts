@@ -117,6 +117,8 @@ function fakeClient(sessions: FakeSession[], existing: FakePage[] = []) {
 		writeSessionPage: async () => undefined,
 		handoffs: async () => [],
 		cancelHandoff: async () => undefined,
+		nameStatus: async () => "resolved",
+		renameUnclaimedProject: async () => undefined,
 		createPage: async input => {
 			const key = `${input.project}/${input.path}`;
 			if (taken.has(key)) return false;
@@ -552,6 +554,9 @@ describe("MemoryUpkeep.repair", () => {
 			throw new Error("Memory is not running");
 		};
 		expect(await upkeep(client).repair()).toBeNull();
-		expect(logs).toEqual([{ message: "failed", details: { step: "retitle", detail: "Memory is not running" } }]);
+		expect(logs).toEqual([
+			{ message: "failed", details: { step: "rename", detail: "Memory is not running" } },
+			{ message: "failed", details: { step: "retitle", detail: "Memory is not running" } },
+		]);
 	});
 });

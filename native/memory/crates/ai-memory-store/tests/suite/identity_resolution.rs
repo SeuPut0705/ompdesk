@@ -17,7 +17,7 @@ use ai_memory_core::{
 };
 use ai_memory_store::{
     AccessMode, GrantLevel, IdentityResolution, ProjectAccess, ProjectCoordinateCollisionReason,
-    ProjectCoordinateStatus, ProjectPrincipal, ScopeName, ScopeResolutionError, Store,
+    ProjectCoordinateStatus, ProjectPrincipal, ScopeName, ScopeResolutionError, Store, StoreError,
     create_explicit_scope_guarded, lookup_existing_scope, lookup_existing_scope_guarded,
     resolve_many_existing_scopes,
 };
@@ -696,6 +696,73 @@ async fn the_project_listing_names_each_projects_repository_identity() {
     };
     assert_eq!(identity_of(claimed), Some("github.com/acme/api".to_owned()));
     assert_eq!(identity_of(plain), None);
+}
+
+/// OMPdesk's repair of an ambiguous name renames a project only while no
+/// checkout ever captured into it: a plain project a sync wrote pages into is
+/// renamed; one a repository claimed, one with a folder, and one with a
+/// session keep their names, and the check holds inside the rename.
+#[tokio::test]
+async fn renaming_an_unclaimed_project_refuses_one_a_checkout_captured_into() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let store = Store::open(tmp.path()).unwrap();
+    let ws = workspace(&store).await;
+    let synced = store
+        .writer
+        .get_or_create_project(ws, "acme-api", None)
+        .await
+        .unwrap();
+    let folder = store
+        .writer
+        .get_or_create_project(ws, "folder", Some("/work/folder".to_owned()))
+        .await
+        .unwrap();
+    let (claimed, _) = resolve_styled(
+        &store,
+        ws,
+        &remote("github.com/acme/web"),
+        IdentityStyle::Path,
+        "web",
+        None,
+    )
+    .await;
+    let with_session = store
+        .writer
+        .get_or_create_project(ws, "notes", None)
+        .await
+        .unwrap();
+    rusqlite::Connection::open(store.db_path())
+        .unwrap()
+        .execute(
+            "INSERT INTO sessions (id, workspace_id, project_id, agent_kind, cwd, started_at) \
+             VALUES (?1, ?2, ?3, 'claude-code', '/tmp/notes', 1)",
+            rusqlite::params![&[7u8; 16][..], ws.as_bytes(), with_session.as_bytes()],
+        )
+        .unwrap();
+
+    for (project, name) in [
+        (folder, "folder"),
+        (claimed, "acme-web"),
+        (with_session, "notes"),
+    ] {
+        let error = store
+            .writer
+            .rename_unclaimed_project(ws, project, format!("{name}-unclaimed"), None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, StoreError::InvalidState(_)),
+            "{name}: {error}"
+        );
+        assert_eq!(row(&store, project).0, name, "{name} kept its name");
+    }
+
+    store
+        .writer
+        .rename_unclaimed_project(ws, synced, "acme-api-unclaimed", None)
+        .await
+        .unwrap();
+    assert_eq!(row(&store, synced).0, "acme-api-unclaimed");
 }
 
 /// The style only renames what has a host to drop: a declared identity keeps

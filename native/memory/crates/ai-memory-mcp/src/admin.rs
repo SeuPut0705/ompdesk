@@ -705,6 +705,10 @@ pub fn admin_router_with_sweep_tuning(
         .route("/admin/purge-project", post(handle_purge_project))
         .route("/admin/purge-session", post(handle_purge_session))
         .route("/admin/rename-project", post(handle_rename_project))
+        .route(
+            "/admin/rename-unclaimed-project",
+            post(handle_rename_unclaimed_project),
+        )
         .route("/admin/move-project", post(handle_move_project))
         .route("/admin/move-session", post(handle_move_session))
         .route(
@@ -5960,10 +5964,32 @@ pub struct RenameProjectSummary {
 }
 
 async fn handle_rename_project(
+    state: State<Arc<AdminState>>,
+    author_ext: Option<axum::Extension<ai_memory_core::UserId>>,
+    req: Json<RenameProjectRequest>,
+) -> impl IntoResponse {
+    rename_project_route(state, author_ext, req, false).await
+}
+
+/// `POST /admin/rename-unclaimed-project` (OMPdesk): as `rename-project`, only
+/// while no checkout ever captured into the project (no repository identity,
+/// no repo path, no session), checked in the rename's transaction; else 409
+/// and nothing changes. Its own route, never a flag on `rename-project`: a
+/// server without it answers 404 instead of renaming unguarded.
+async fn handle_rename_unclaimed_project(
+    state: State<Arc<AdminState>>,
+    author_ext: Option<axum::Extension<ai_memory_core::UserId>>,
+    req: Json<RenameProjectRequest>,
+) -> impl IntoResponse {
+    rename_project_route(state, author_ext, req, true).await
+}
+
+async fn rename_project_route(
     State(state): State<Arc<AdminState>>,
     author_ext: Option<axum::Extension<ai_memory_core::UserId>>,
     Json(req): Json<RenameProjectRequest>,
-) -> impl IntoResponse {
+    only_unclaimed: bool,
+) -> (StatusCode, Json<serde_json::Value>) {
     let author_id = author_ext.map(|axum::Extension(u)| u);
     // Look up workspace + source project; 404 if either is absent.
     let (ws_id, proj_id, project_name) = match resolve_target_for_admin(
@@ -5984,16 +6010,24 @@ async fn handle_rename_project(
     // `purge-project` deleted the row between the lookup above and
     // this UPDATE. Map it to 404 so the caller sees an honest failure
     // instead of the previous false-200.
-    if let Err(e) = state
-        .writer
-        .rename_project(ws_id, proj_id, req.to.clone(), author_id)
-        .await
-    {
+    let renamed = if only_unclaimed {
+        state
+            .writer
+            .rename_unclaimed_project(ws_id, proj_id, req.to.clone(), author_id)
+            .await
+    } else {
+        state
+            .writer
+            .rename_project(ws_id, proj_id, req.to.clone(), author_id)
+            .await
+    };
+    if let Err(e) = renamed {
         let status = match &e {
             StoreError::ProjectNameTaken(_) | StoreError::InvalidProjectName(_) => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
             StoreError::NotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::InvalidState(_) => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         return (status, Json(serde_json::json!({ "error": e.to_string() })));

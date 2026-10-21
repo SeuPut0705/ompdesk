@@ -19,6 +19,7 @@
 import { readFile } from "node:fs/promises";
 import type { AiMemoryPageRef, AiMemoryProjectRef, AiMemorySession } from "../../shared/ai-memory";
 import { writeFileAtomic } from "../atomic-file";
+import { renameAmbiguousProjects } from "./ambiguous-names";
 import type { AiMemoryClient } from "./client";
 import {
 	buildDigest,
@@ -52,9 +53,10 @@ const SCAN_SESSIONS = 100;
 /** The first tick waits so the first tab and the wiring have the machine to themselves. */
 const FIRST_TICK_MS = 2 * 60_000;
 
-export type UpkeepClient = RetitleClient & Pick<AiMemoryClient, "sessions" | "createPage" | "retirePage">;
+export type UpkeepClient = RetitleClient &
+	Pick<AiMemoryClient, "sessions" | "createPage" | "retirePage" | "nameStatus" | "renameUnclaimedProject">;
 
-export type UpkeepLogMessage = "retitle" | "learn" | "failed";
+export type UpkeepLogMessage = "retitle" | "learn" | "failed" | "renamed";
 export type UpkeepLogDetails = Record<string, string | number | boolean | null>;
 
 export interface UpkeepDeps {
@@ -197,6 +199,14 @@ export class MemoryUpkeep {
 
 	/** The repair: logs what it did, nothing when there was nothing to do. Never rejects. */
 	async repair(): Promise<RetitleReport | null> {
+		// First, so every later read (retitle, learning, care, the sync) can name each project again.
+		try {
+			for (const renamed of await renameAmbiguousProjects(this.#deps.client)) {
+				this.#deps.log("renamed", { ...renamed });
+			}
+		} catch (error) {
+			this.#deps.log("failed", { step: "rename", detail: error instanceof Error ? error.message : String(error) });
+		}
 		try {
 			const report = await retitleSessionPages(this.#deps.client, { dryRun: false });
 			if (report.retitled.length || report.childHandoffs || report.failed.length || report.unresolved.length) {

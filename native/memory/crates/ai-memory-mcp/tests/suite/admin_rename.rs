@@ -699,3 +699,55 @@ async fn rename_project_refuses_both_from_and_project_id() {
         "an ambiguous request must not rename anything"
     );
 }
+
+/// OMPdesk: `rename-unclaimed-project` renames a plain project a sync wrote
+/// into, and answers 409 with the name untouched for one a folder routes to.
+#[tokio::test]
+async fn rename_unclaimed_project_refuses_a_captured_project() {
+    let tmp = TempDir::new().unwrap();
+    let (state, store) = make_state(&tmp).await;
+    seed_page(&store, &state.wiki, "synced").await;
+    let ws = store
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    store
+        .writer
+        .get_or_create_project(ws, "folder", Some("/work/folder".to_owned()))
+        .await
+        .unwrap();
+
+    let refused = post(
+        state.clone(),
+        "/admin/rename-unclaimed-project",
+        json!({ "workspace": "default", "from": "folder", "to": "folder-unclaimed" }),
+    )
+    .await;
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    assert!(
+        store
+            .reader
+            .find_project(ws, "folder".into())
+            .await
+            .unwrap()
+            .is_some(),
+        "a captured project keeps its name"
+    );
+
+    let renamed = post(
+        state,
+        "/admin/rename-unclaimed-project",
+        json!({ "workspace": "default", "from": "synced", "to": "synced-unclaimed" }),
+    )
+    .await;
+    assert_eq!(renamed.status(), StatusCode::OK);
+    assert!(
+        store
+            .reader
+            .find_project(ws, "synced-unclaimed".into())
+            .await
+            .unwrap()
+            .is_some()
+    );
+}

@@ -590,6 +590,8 @@ pub(crate) enum WriteCmd {
         /// Authenticated operator recorded in the `audit_log` row (NULL when
         /// single-user / unauthenticated).
         author_id: Option<ai_memory_core::UserId>,
+        /// Only while no checkout ever captured into the project.
+        only_unclaimed: bool,
         reply: oneshot::Sender<StoreResult<()>>,
     },
     /// One-shot in-place OKF conformance of every latest page row.
@@ -2656,12 +2658,44 @@ impl WriterHandle {
         new_name: impl Into<String>,
         author_id: Option<ai_memory_core::UserId>,
     ) -> StoreResult<()> {
+        self.rename(workspace_id, project_id, new_name.into(), author_id, false)
+            .await
+    }
+
+    /// [`Self::rename_project`], only while no checkout ever captured into the
+    /// project (no repository identity, no `repo_path`, no session), checked in
+    /// the rename's own transaction; otherwise
+    /// [`crate::error::StoreError::InvalidState`] and nothing changes.
+    /// OMPdesk's repair of a name the server refuses as ambiguous.
+    ///
+    /// # Errors
+    /// As [`Self::rename_project`], plus `InvalidState` for a captured project.
+    pub async fn rename_unclaimed_project(
+        &self,
+        workspace_id: WorkspaceId,
+        project_id: ProjectId,
+        new_name: impl Into<String>,
+        author_id: Option<ai_memory_core::UserId>,
+    ) -> StoreResult<()> {
+        self.rename(workspace_id, project_id, new_name.into(), author_id, true)
+            .await
+    }
+
+    async fn rename(
+        &self,
+        workspace_id: WorkspaceId,
+        project_id: ProjectId,
+        new_name: String,
+        author_id: Option<ai_memory_core::UserId>,
+        only_unclaimed: bool,
+    ) -> StoreResult<()> {
         let (tx, rx) = oneshot::channel();
         self.send(WriteCmd::RenameProject {
             workspace_id,
             project_id,
-            new_name: new_name.into(),
+            new_name,
             author_id,
+            only_unclaimed,
             reply: tx,
         })
         .await?;
@@ -4522,15 +4556,15 @@ fn worker_loop(mut conn: Connection, mut rx: mpsc::Receiver<WriteCmd>) {
                 project_id,
                 new_name,
                 author_id,
+                only_unclaimed,
                 reply,
             } => {
-                let result = ops::rename_project(
-                    &mut conn,
-                    &workspace_id,
-                    &project_id,
-                    &new_name,
-                    author_id,
-                );
+                let rename = if only_unclaimed {
+                    ops::rename_unclaimed_project
+                } else {
+                    ops::rename_project
+                };
+                let result = rename(&mut conn, &workspace_id, &project_id, &new_name, author_id);
                 send_or_warn(reply, result, "rename_project");
             }
             WriteCmd::OkfMigrateLatestPages { reply } => {

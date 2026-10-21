@@ -5494,7 +5494,53 @@ pub fn rename_project(
     new_name: &str,
     author_id: Option<ai_memory_core::UserId>,
 ) -> StoreResult<()> {
+    rename_project_checked(conn, workspace_id, project_id, new_name, author_id, false)
+}
+
+/// [`rename_project`], only while no checkout ever captured into the project
+/// (no repository identity, no `repo_path`, no session), checked in the
+/// rename's own transaction. OMPdesk's repair of a name the server refuses as
+/// ambiguous: a project a repository or a folder routes to keeps its name.
+///
+/// # Errors
+/// As [`rename_project`], plus [`StoreError::InvalidState`] for a project a
+/// checkout captured into.
+pub fn rename_unclaimed_project(
+    conn: &mut Connection,
+    workspace_id: &WorkspaceId,
+    project_id: &ProjectId,
+    new_name: &str,
+    author_id: Option<ai_memory_core::UserId>,
+) -> StoreResult<()> {
+    rename_project_checked(conn, workspace_id, project_id, new_name, author_id, true)
+}
+
+fn rename_project_checked(
+    conn: &mut Connection,
+    workspace_id: &WorkspaceId,
+    project_id: &ProjectId,
+    new_name: &str,
+    author_id: Option<ai_memory_core::UserId>,
+    only_unclaimed: bool,
+) -> StoreResult<()> {
     let tx = conn.transaction()?;
+    if only_unclaimed {
+        let claimed: bool = tx
+            .query_row(
+                "SELECT identity <> '' OR COALESCE(repo_path, '') <> '' \
+                     OR EXISTS (SELECT 1 FROM sessions s WHERE s.project_id = p.id) \
+                 FROM projects p WHERE p.workspace_id = ?1 AND p.id = ?2",
+                params![workspace_id.as_bytes(), project_id.as_bytes()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| StoreError::NotFound(format!("project {project_id}")))?;
+        if claimed {
+            return Err(StoreError::InvalidState(format!(
+                "project {project_id} was captured into; it is not renamed"
+            )));
+        }
+    }
     rename_project_in_tx(
         &tx,
         workspace_id,
