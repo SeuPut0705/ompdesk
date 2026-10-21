@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
-import type { MailKind } from "./agent-control/mail";
+import { deliveryFor, type MailKind } from "./agent-control/mail";
+import { MailOutbox, redeliverMail } from "./agent-control/mail-outbox";
 import {
 	atEnd,
 	HOLD,
@@ -10,20 +11,22 @@ import {
 	omp,
 	type Provider,
 	runCleanups,
+	sessionFiles,
 	startOmp,
 	startProvider,
 	TOOL,
 } from "./bridge-agent-mail-stock-harness";
 
 /**
- * What stock omp does with a report its bridge accepted while a turn runs, when the omp is closed the way a quit closes
- * it (stdin ends and stock disposes the session), measured on the installed omp with a scripted provider on loopback.
+ * What stock omp does with a report its bridge accepted while a turn runs, when the omp then ends, measured on the
+ * installed omp with a scripted provider on loopback.
  *
  * Reported on 21 Oct 2026: a child's `done` to its parent, inside a long tool call, was never journaled after an update
- * restart. It went as a `followUp`, which stock keeps in an in-memory queue until it starts the turn that answers it,
- * so closing the omp dropped it. Every report a busy receiver gets is now an `aside` (`deliveryFor`, and the bridge for
- * a no-turn one), and stock journals a queued aside when the session is disposed: no report main accepted is lost to a
- * quit, so main keeps no copy of its own.
+ * restart (it went as a `followUp`, which stock keeps in memory until the turn that answers it). Every report a busy
+ * receiver gets is now an `aside`. A quit (stdin ends, stock disposes the session) journals a queued aside; a SIGKILL
+ * (a crash, a force-quit of OMPdesk) before the next step boundary loses it. So main keeps every accepted report
+ * (`agent-control/mail-outbox.ts`) until the receiver's journal holds its id and sends it again, with the same id, to
+ * the omp that replaces the killed one; the bridge answers whether an id is journaled or only queued.
  */
 afterAll(runCleanups);
 
@@ -63,4 +66,50 @@ describe.skipIf(!existsSync(omp))("a report accepted by a busy receiver whose om
 			expect(journaledMail(session.isolated)).toEqual([`m-${kind}`]);
 		}, 120_000);
 	}
+
+	it("a done SIGKILL cut before the step boundary reaches the replacing omp's journal once, through the outbox", async () => {
+		const { provider, session } = await busyOmp(TOOL);
+		const outbox = new MailOutbox(null);
+		const report = mail("done", "killed-done");
+		// What main does when the receiver accepts a report: keep it until the journal holds it.
+		expect(await session.bridge.request("agent_control.mail", report)).toEqual({});
+		outbox.keep({
+			id: "killed-done",
+			sessionPath: "/s/receiver.jsonl",
+			content: report.content,
+			details: report.details,
+			delivery: deliveryFor("done"),
+			at: Date.now(),
+		});
+		await session.kill();
+		expect(journaledMail(session.isolated)).toEqual([]);
+
+		// The relaunch: the same session file in a new omp.
+		const [file] = sessionFiles(session.isolated);
+		const again = await startOmp(provider, {
+			isolated: session.isolated,
+			root: session.root,
+			session: file as string,
+		});
+		const asked: unknown[] = [];
+		const pass = () =>
+			redeliverMail(outbox, {
+				tabOf: () => "tab",
+				send: async (_tab, entry) => {
+					const answer = await again.bridge.request<{ duplicate?: boolean; journaled?: boolean }>(
+						"agent_control.mail",
+						{ content: entry.content, details: entry.details, ...entry.delivery },
+					);
+					asked.push(answer);
+					return answer;
+				},
+			});
+		await pass();
+		await expect.poll(() => journaledMail(session.isolated), { timeout: 30_000 }).toEqual(["killed-done"]);
+		await pass();
+		await pass();
+		expect(asked).toEqual([{}, { duplicate: true, journaled: true }]);
+		expect(outbox.pending()).toEqual([]);
+		expect(journaledMail(session.isolated)).toEqual(["killed-done"]);
+	}, 180_000);
 });

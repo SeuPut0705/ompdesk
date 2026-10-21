@@ -55,10 +55,12 @@ describe("agent_control.mail", () => {
 		});
 		expect(await mail?.({ content: "x", details: { id: "m2" }, triggerTurn: true }, journaled)).toEqual({
 			duplicate: true,
+			journaled: true,
 		});
 		await mail?.({ content: "x", details: { id: "m3" }, triggerTurn: false }, env());
 		expect(await mail?.({ content: "x", details: { id: "m3" }, triggerTurn: false }, env())).toEqual({
 			duplicate: true,
+			journaled: false,
 		});
 		expect(sendMessage).toHaveBeenCalledTimes(1);
 	});

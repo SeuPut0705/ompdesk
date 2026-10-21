@@ -180,6 +180,8 @@ export interface Omp {
 	root: string;
 	/** Closes stdin the way a quit does (stock disposes its session then) and resolves once the process is gone. */
 	stop(): Promise<void>;
+	/** SIGKILL, as a crash or a force-quit ends it: stock disposes nothing. */
+	kill(): Promise<void>;
 	send(command: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
@@ -277,6 +279,10 @@ export async function startOmp(
 		root,
 		stop: async () => {
 			child.stdin.end();
+			await exited;
+		},
+		kill: async () => {
+			child.kill("SIGKILL");
 			await exited;
 		},
 		send: command => {

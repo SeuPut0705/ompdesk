@@ -1306,7 +1306,8 @@ export function runRpcUi(): void {
 			const asStock = entries.map(entry =>
 				entry.type === "message" ? { ...(entry.message as AgentMessage), type: "custom_message" } : entry,
 			);
-			if (typeof details.id === "string" && hasMailEntry(asStock, details.id)) return { duplicate: true };
+			if (typeof details.id === "string" && hasMailEntry(asStock, details.id))
+				return { duplicate: true, journaled: true };
 			const mail = {
 				role: "custom",
 				customType: "ompdesk.mail",

@@ -113,9 +113,11 @@ export const methods: BridgeMethods = {
 		const details = (record.details ?? {}) as Record<string, unknown>;
 		const id = typeof details.id === "string" ? details.id : undefined;
 		// Idempotent across restarts of either side: the journal is the record of what arrived, and until stock's loop
-		// takes a queued aside this process remembers it.
+		// takes a queued aside this process remembers it. `journaled` tells main which of the two it is: main keeps a
+		// report until the receiver's journal holds it (a killed omp loses an aside it still queued).
 		const branch = env.session().sessionManager.getBranch();
-		if (id && (hasMailEntry(branch, id) || queuedMail.has(id))) return { duplicate: true };
+		const journaled = id !== undefined && hasMailEntry(branch, id);
+		if (id && (journaled || queuedMail.has(id))) return { duplicate: true, journaled };
 		if (id) queuedMail.add(id);
 		const message = { customType: MAIL_CUSTOM_TYPE, content, display: true, details };
 		// Idle, an aside starts a turn (stock), so a no-turn report keeps stock's plain idle delivery: shown at once.
