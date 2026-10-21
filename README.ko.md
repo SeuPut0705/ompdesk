@@ -38,7 +38,7 @@
 
 <table>
 <tr>
-<td width="50%" valign="top"><b>오토파일럿</b><br>자기 Git 워크트리에서 감사 → 구현 → 검증 → 커밋을 사이클마다 반복해요. 기본값으로 검증을 통과한 사이클은 기본 브랜치에 바로 올라가요(보호된 브랜치면 PR 하나). 원격 저장소가 없으면 커밋은 로컬에 남고, 고급에서 다른 단계를 고를 수 있어요. 프로젝트별 <code>AUTOPILOT.md</code>를 알아서 만들어 방향을 정해요.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="실행 칩에서 오토파일럿을 시작하면 사이클 1, 2, 3이 실행 기록 옆 작업 현황에 초록으로 쌓이는 모습" width="100%"></a></td>
+<td width="50%" valign="top"><b>오토파일럿</b><br>자기 Git 워크트리에서 감사 → 구현 → 검증 → 커밋을 사이클마다 반복해요. 기본값으로 검증을 통과한 사이클은 기본 브랜치에 바로 올라가요(보호된 브랜치면 PR 하나). 원격 저장소가 없으면 커밋은 로컬에 남고, 고급에서 다른 단계를 고를 수 있어요. 프로젝트별 <code>AUTOPILOT.md</code>를 알아서 만들어 방향을 정해요. <a href="docs/autopilot.ko.md">작동 방식</a>.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="실행 칩에서 오토파일럿을 시작하면 사이클 1, 2, 3이 실행 기록 옆 작업 현황에 초록으로 쌓이는 모습" width="100%"></a></td>
 <td width="50%" valign="top"><b>병렬 세션과 조율</b><br>에이전트가 각자 워크트리의 세션을 열고, 작업 현황에서 지켜보고, 브랜치를 비교해 가장 좋은 것을 스스로 병합해요. 푸시는 하지 않아요.<br><a href="docs/media/fan-out.webp"><img src="docs/media/fan-out.webp" alt="워크트리 세션 셋이 작업 현황의 하위 세션으로 보이고, 에이전트가 비교한 뒤 하나는 병합하고 하나는 닫는 모습" width="100%"></a></td>
 </tr>
 <tr>
@@ -93,6 +93,7 @@ OMPdesk, omp, 연결한 계정의 도구 CLI, omp의 플러그인·스킬·MCP �
 
 ## 문서
 
+- [오토파일럿](docs/autopilot.ko.md): 실행을 시작하고, 작업 현황에서 방향을 잡고, 멈추는 법과 작업이 어디로 가는지
 - [모바일 웹](docs/mobile-web.ko.md): 휴대폰에서 Tailscale로 실행 중인 작업에 추가 지시를 보내요.
 - [원격 기기](docs/remote-devices.ko.md): 다른 컴퓨터에서 세션을 실행해요.
 - [업데이트](docs/updates.ko.md): 무엇이 스스로 업데이트되는지, 끄는 방법.

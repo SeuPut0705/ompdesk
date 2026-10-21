@@ -38,7 +38,7 @@
 
 <table>
 <tr>
-<td width="50%" valign="top"><b>Autopilot</b><br>An endless run in its own git worktree: audit, implement, verify, commit, every cycle. By default a green cycle lands on your default branch (one pull request if the branch is protected); without a remote, commits stay local, and Advanced picks another level. A per-project <code>AUTOPILOT.md</code>, written for you, sets its direction.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="Autopilot started from the Run chip: cycles 1, 2 and 3 land green on the work board beside the run's transcript" width="100%"></a></td>
+<td width="50%" valign="top"><b>Autopilot</b><br>An endless run in its own git worktree: audit, implement, verify, commit, every cycle. By default a green cycle lands on your default branch (one pull request if the branch is protected); without a remote, commits stay local, and Advanced picks another level. A per-project <code>AUTOPILOT.md</code>, written for you, sets its direction. <a href="docs/autopilot.md">How it works</a>.<br><a href="docs/media/autopilot.webp"><img src="docs/media/autopilot.webp" alt="Autopilot started from the Run chip: cycles 1, 2 and 3 land green on the work board beside the run's transcript" width="100%"></a></td>
 <td width="50%" valign="top"><b>Parallel sessions and orchestration</b><br>An agent opens sessions in their own worktrees, follows them on the work board, compares the branches and merges the winner itself. Nothing is pushed.<br><a href="docs/media/fan-out.webp"><img src="docs/media/fan-out.webp" alt="Three worktree sessions listed as child sessions on the work board; the agent compares them, merges one and closes another" width="100%"></a></td>
 </tr>
 <tr>
@@ -93,6 +93,7 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 
 ## Docs
 
+- [Autopilot](docs/autopilot.md): start a run, steer it from its work board, stop it, and where its work goes.
 - [Mobile web](docs/mobile-web.md): steer a running task from your phone over Tailscale.
 - [Remote devices](docs/remote-devices.md): run sessions on another computer.
 - [Updates](docs/updates.md): what updates itself, and how to turn it off.
