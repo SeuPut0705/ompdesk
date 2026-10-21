@@ -2,15 +2,17 @@
  * Settings › Updates & about › Install updates automatically (pref `appAutoUpdate`), end to end in relaunch
  * mode on a stand-in bundle: `OMP_DEV_UPDATE_MODE=relaunch` with `OMP_DEV_UPDATE_BUNDLE` (the bundle the
  * swap replaces) and `OMP_DEV_UPDATE_STAGED` (a verified update already staged, no release needed).
- * With the pref on, main announces the restart (a quiet notice with a countdown, `restartAt` in the status),
- * then quits through the update path and the detached helper swaps the stand-in for the staged bundle,
- * all without a click. With the pref off (the default) the same staged update just waits for a click.
+ * With the pref on (the default), main announces the restart (a quiet notice with a countdown, `restartAt` in the
+ * status), then quits through the update path and the detached helper swaps the stand-in for the staged bundle,
+ * all without a click. With the pref stored off the same staged update just waits for a click. An Autopilot run
+ * that runs across such an update continues after it: autopilot-restart.e2e.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
+import { stagedUpdateEnv } from "./fixture/stand-in-bundle";
 import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 test.skip(process.platform !== "darwin", "The relaunch install mode is macOS's");
@@ -27,38 +29,13 @@ interface Launched {
 	swapLog: string;
 }
 
-/** A minimal bundle `open` can start: an Info.plist and an executable. `marker` tells the two apart. */
-async function writeBundle(bundle: string, marker: string): Promise<void> {
-	await fs.mkdir(path.join(bundle, "Contents", "MacOS"), { recursive: true });
-	await fs.mkdir(path.join(bundle, "Contents", "Resources"), { recursive: true });
-	await fs.writeFile(
-		path.join(bundle, "Contents", "Info.plist"),
-		`<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>stand-in</string>
-<key>CFBundleIdentifier</key><string>com.seuput.ompdesk.e2e-stand-in</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-</dict></plist>
-`,
-	);
-	await fs.writeFile(path.join(bundle, "Contents", "MacOS", "stand-in"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-	await fs.writeFile(path.join(bundle, "Contents", "Resources", "marker"), marker);
-}
-
 async function launch(name: string, prefs: Record<string, unknown>): Promise<Launched> {
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), `omp-gui-app-update-${name}-`));
 	const project = path.join(root, "project");
 	const desktop = path.join(root, "desktop");
 	const agent = path.join(root, "agent");
-	const ownBundle = path.join(root, "apps", "Stand-in.app");
-	const staged = path.join(desktop, "updates", VERSION, "Stand-in.app");
-	await Promise.all([
-		fs.mkdir(project),
-		fs.mkdir(agent),
-		fs.mkdir(path.join(desktop, "updates", VERSION), { recursive: true }),
-	]);
-	await writeBundle(ownBundle, "old");
-	await writeBundle(staged, "new");
+	await Promise.all([fs.mkdir(project), fs.mkdir(agent), fs.mkdir(desktop)]);
+	const update = await stagedUpdateEnv(root, desktop, VERSION, COUNTDOWN_MS);
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
 		JSON.stringify({ firstRunComplete: true, language: "en", ...prefs }),
@@ -68,17 +45,11 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		desktop,
 		agent,
 		profile: root,
-		env: {
-			OMP_DEV_UPDATE_MODE: "relaunch",
-			OMP_DEV_UPDATE_BUNDLE: ownBundle,
-			OMP_DEV_UPDATE_STAGED: staged,
-			OMP_DEV_UPDATE_STAGED_VERSION: VERSION,
-			OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS: String(COUNTDOWN_MS),
-		},
+		env: update.env,
 	});
 	const page = await app.firstWindow();
 	await page.waitForFunction(() => window.omp?.updater != null);
-	return { app, page, root, ownBundle, swapLog: path.join(desktop, "updates", "swap.log") };
+	return { app, page, root, ownBundle: update.ownBundle, swapLog: update.swapLog };
 }
 
 async function close(launched: Launched): Promise<void> {
@@ -90,9 +61,9 @@ async function close(launched: Launched): Promise<void> {
 const status = (page: Page) => page.evaluate(() => window.omp.updater.getStatus());
 const read = (file: string) => fs.readFile(file, "utf8").catch(() => "");
 
-test("with the pref on, a staged update announces itself and installs without a click", async () => {
+test("with the pref on (the default), a staged update announces itself and installs without a click", async () => {
 	test.setTimeout(90_000);
-	const launched = await launch("on", { appAutoUpdate: true });
+	const launched = await launch("on", {});
 	try {
 		const { page, app } = launched;
 		const exited = new Promise<void>(resolve => app.process().once("exit", () => resolve()));
@@ -112,9 +83,9 @@ test("with the pref on, a staged update announces itself and installs without a 
 	}
 });
 
-test("with the pref off (the default) the staged update waits for a click", async () => {
+test("with the pref stored off the staged update waits for a click", async () => {
 	test.setTimeout(90_000);
-	const launched = await launch("off", {});
+	const launched = await launch("off", { appAutoUpdate: false });
 	try {
 		const { page, app } = launched;
 		await expect.poll(async () => (await status(page)).state, { timeout: 15_000 }).toBe("downloaded");

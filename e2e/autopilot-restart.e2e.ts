@@ -1,11 +1,11 @@
 /**
- * Autopilot across an OMPdesk crash (SIGKILL, no hook runs), the pattern of interrupted-resume.e2e.ts on the fake
- * omp: the run lives in the session journal (the fake's session file), so a relaunch restores it. The fake does
- * what stock does when OMPdesk goes away mid-turn (fixture/autopilot.ts): the turn is journaled aborted with no
- * `session_exit`, the next process pauses the goal and remembers its startup tool set, and the run continues by
- * itself, armed with its own tools. The other restart rules (a normal quit, a kill between turns, "Continue
- * interrupted work" off with its Resume, a release marked in flight) are unit-tested in src/main/autopilot.test.ts
- * ("restart") and src/main/bridge-autopilot-core.test.ts.
+ * Autopilot across an OMPdesk crash (SIGKILL, no hook runs) and across an automatic update restart, the pattern of
+ * interrupted-resume.e2e.ts on the fake omp: the run lives in the session journal (the fake's session file), so a
+ * relaunch restores it. The fake does what stock does when OMPdesk goes away mid-turn (fixture/autopilot.ts): the turn
+ * is journaled aborted with no `session_exit`, the next process pauses the goal and remembers its startup tool set,
+ * and the run continues by itself, armed with its own tools. The other restart rules (a normal quit, a kill between
+ * turns, "Continue interrupted work" off with its Resume, a release marked in flight) are unit-tested in
+ * src/main/autopilot.test.ts ("restart") and src/main/bridge-autopilot-core.test.ts.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -29,6 +29,7 @@ import {
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
+import { stagedUpdateEnv } from "./fixture/stand-in-bundle";
 import { exitApp, fixtureOmp } from "./harness";
 import { survivors } from "./process-tree";
 
@@ -120,6 +121,58 @@ test("a cycle running when OMPdesk is killed resumes by itself on the next launc
 		expect(await setAutopilot(second.page, restored.tabId, { action: "pause" })).toMatchObject({ success: true });
 		await waitForStatus(second.page, restored.tabId, s => s.state === "paused", "paused by the user", 30_000);
 		expectArmedTools(await activeTools(second.page, restored.tabId));
+	} finally {
+		await exitApp(current);
+		await cleanupAp(profile);
+	}
+});
+
+test("a cycle running when an automatic update installs resumes after the relaunch", async () => {
+	test.skip(process.platform !== "darwin", "The relaunch install mode is macOS's");
+	test.setTimeout(240_000);
+	// The switch starts off so the run can start before the staged update is offered; turning it on is the default.
+	const profile = await makeApProfile({ script: { cycleMs: 6_000 }, prefs: { appAutoUpdate: false } });
+	const update = await stagedUpdateEnv(profile.root, profile.desktop, "99.0.0", 2_000);
+	const { app, page } = await launchAp({ ...profile, env: { ...profile.env, ...update.env } });
+	let current: ElectronApplication = app;
+	try {
+		const tabId = await startRun(page, await mainTab(page));
+		await waitForStatus(
+			page,
+			tabId,
+			s => (s.cycles?.length ?? 0) >= 1 && s.now?.n === 2,
+			"cycle 2 is running",
+			90_000,
+		);
+		await expect.poll(() => markers(profile.desktop), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => layoutSessions(profile.desktop), { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+		const { promise: exited, resolve: onExit } = Promise.withResolvers<void>();
+		app.process().once("exit", () => onExit());
+		// A running turn holds nothing back: with Continue interrupted work on the update installs at once.
+		await page.evaluate(() => window.omp.prefs.set("appAutoUpdate", true));
+		await exited;
+		await expect
+			.poll(() => fs.readFile(update.swapLog, "utf8").catch(() => ""), { timeout: 30_000 })
+			.toContain("installed");
+		const log = await fs.readFile(path.join(profile.desktop, "logs", "gui-runtime.jsonl"), "utf8");
+		expect(log).toMatch(/"event":"safe"[^\n]*"running":true/);
+		expect(log).toMatch(/"event":"install","trigger":"auto"/);
+		expect(await markers(profile.desktop)).toMatchObject([{ reason: "running" }]);
+
+		// What the swap's relaunch opens is this app again, without the staged update.
+		const second = await relaunch(profile);
+		current = second.app;
+		const restored = await waitForRunTab(second.page);
+		const run = await waitForStatus(
+			second.page,
+			restored.tabId,
+			s => (s.cycles?.length ?? 0) >= 2 && s.state === "running",
+			"the run resumed",
+			90_000,
+		);
+		expect(run.cycles?.map(cycle => cycle.n).slice(0, 2)).toEqual([1, 2]);
+		const arms = (await recorded(profile, "fixture_autopilot_session")).filter(entry => entry.action === "arm");
+		expect(arms.at(-1)).toMatchObject({ resume: true, role: "parent" });
 	} finally {
 		await exitApp(current);
 		await cleanupAp(profile);

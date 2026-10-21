@@ -1,5 +1,5 @@
 /**
- * Settings › Updates & about › OMPdesk › Install updates automatically: off by default, writes the
+ * Settings › Updates & about › OMPdesk › Install updates automatically: on by default, writes the
  * `appAutoUpdate` pref when turned on, shows the stored choice, and in the manual install mode
  * (read-only location, App Translocation) is disabled and says why.
  */
@@ -59,13 +59,21 @@ afterEach(async () => {
 });
 
 describe("AppAutoUpdateRow", () => {
-	it("is off by default and writes the pref when turned on", async () => {
+	it("is on by default and writes the pref when turned off", async () => {
 		await mount();
 		expect(document.body.textContent).toContain(translate("updates.appAuto"));
+		expect(toggle().getAttribute("aria-checked")).toBe("true");
+		await act(async () => toggle().click());
+		expect(prefsSet).toHaveBeenCalledWith("appAutoUpdate", false);
+		expect(toggle().getAttribute("aria-checked")).toBe("false");
+	});
+
+	it("shows a stored choice that is off", async () => {
+		stored.value = false;
+		await mount();
 		expect(toggle().getAttribute("aria-checked")).toBe("false");
 		await act(async () => toggle().click());
 		expect(prefsSet).toHaveBeenCalledWith("appAutoUpdate", true);
-		expect(toggle().getAttribute("aria-checked")).toBe("true");
 	});
 
 	it("shows a stored choice that is on", async () => {

@@ -104,6 +104,7 @@ beforeAll(() => {
 		resumes: () => true,
 		busy: () => false,
 		asking: () => false,
+		compacting: () => false,
 	});
 });
 
@@ -164,7 +165,7 @@ describe("Restart & install on Windows", () => {
 		vi.setSystemTime(countdown.restartAt + 5600);
 		appAutoUpdatePrefChanged();
 		const logged = mocks.runtimeLog.flatMap(report => (report.message === "scheduler" ? [report.details.event] : []));
-		expect(logged).toEqual(["quiet", "countdown", "install"]);
+		expect(logged).toEqual(["safe", "countdown", "install"]);
 		expect(mocks.sent.at(-1)).toMatchObject({ state: "downloaded", installing: true });
 		expect(mocks.updater.quitAndInstall).toHaveBeenCalledTimes(1);
 	});
