@@ -374,11 +374,16 @@ describe("the host's traffic line over the real pipeline", () => {
 
 		const traffic = hostLog.filter(line => line.message === "traffic");
 		expect(traffic).toHaveLength(1);
-		const details = traffic[0]?.details as { top: string; events: string };
+		const details = traffic[0]?.details as { top: string; events: string; eventBytes: string };
 		const top = JSON.parse(details.top) as Array<{ kind: string }>;
 		const events = JSON.parse(details.events) as Record<string, number>;
+		const eventBytes = JSON.parse(details.eventBytes) as Record<string, number>;
 		expect(top[0]?.kind).toBe("tx evt tab.event events");
 		expect(events.message_update).toBeGreaterThan(1500);
+		// Each type weighed on its own: a slim stream's updates are a couple of hundred bytes each, and the message_end
+		// that carries the whole reply once is told apart from them.
+		expect((eventBytes.message_update ?? 0) / (events.message_update ?? 1)).toBeLessThan(400);
+		expect(eventBytes.message_end ?? 0).toBeGreaterThan(1200);
 		expect(JSON.stringify(details)).not.toContain("session transcript");
 	}, 30_000);
 });

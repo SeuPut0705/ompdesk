@@ -58,6 +58,25 @@ describe("LinkTraffic", () => {
 		expect(window.batched).toEqual({ message_update: 2, message_end: 1 });
 	});
 
+	it("weighs each event type of a batch by its own JSON, so one big message_end is told from many small updates", () => {
+		const traffic = new LinkTraffic();
+		const update = { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "a" } };
+		const end = {
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: "가".repeat(1_000) }] },
+		};
+		traffic.record("tx", tabEvent("events", [update, update, update, end]), 4_000);
+
+		const { batched, batchedBytes } = traffic.take();
+		expect(batched).toEqual({ message_update: 3, message_end: 1 });
+		expect(batchedBytes).toEqual({
+			message_update: 3 * Buffer.byteLength(JSON.stringify(update)),
+			message_end: Buffer.byteLength(JSON.stringify(end)),
+		});
+		// UTF-8 bytes, not characters: a Korean syllable is three.
+		expect(batchedBytes.message_end).toBeGreaterThan(3_000);
+	});
+
 	it("names a tab event that batches subagent frames one kind and counts its frames by type", () => {
 		const traffic = new LinkTraffic();
 		const batch = [{ type: "subagent_progress" }, { type: "subagent_event" }, { type: "subagent_event" }];
@@ -73,6 +92,6 @@ describe("LinkTraffic", () => {
 		for (let method = 0; method < 1_000; method++)
 			traffic.record("rx", { t: "req", id: method, method: `m${method}` }, 10);
 		expect(traffic.take().rows.length).toBeLessThanOrEqual(128);
-		expect(traffic.take()).toEqual({ tx: 0, rx: 0, rows: [], batched: {} });
+		expect(traffic.take()).toEqual({ tx: 0, rx: 0, rows: [], batched: {}, batchedBytes: {} });
 	});
 });

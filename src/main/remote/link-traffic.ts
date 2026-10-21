@@ -30,10 +30,24 @@ export interface TrafficWindow {
 	rows: TrafficRow[];
 	/** omp events inside `tab.event events` batches and subagent frames inside batched `subagentFrame` ones, by type. */
 	batched: Record<string, number>;
+	/**
+	 * Their JSON size by type (the item alone, without the frame around it): a batch's wire bytes are one figure for
+	 * every type in it, so a busy minute (2.15 MB in 21 Oct 2026's log) could not say which events made it.
+	 */
+	batchedBytes: Record<string, number>;
 }
 
 /** Tab events whose `arg` names its own frame type; the type belongs in the kind (`subagentFrame/subagent_progress`). */
 const TYPED_TAB_EVENTS: Record<string, true> = { subagentFrame: true, liveFrame: true, btwFrame: true };
+
+/** An item's JSON size in UTF-8 bytes; 0 for one JSON cannot write (it never reaches the wire either). */
+function jsonBytes(item: unknown): number {
+	try {
+		return Buffer.byteLength(JSON.stringify(item) ?? "");
+	} catch {
+		return 0;
+	}
+}
 
 function name(value: unknown): string {
 	return typeof value === "string" ? value.slice(0, MAX_NAME_CHARS) : "?";
@@ -42,6 +56,7 @@ function name(value: unknown): string {
 export class LinkTraffic {
 	readonly #rows = new Map<string, TrafficRow>();
 	readonly #batched = new Map<string, number>();
+	readonly #batchedBytes = new Map<string, number>();
 	/** Methods of requests seen, by id, until their answer passes: an answer is sized under its request's method. */
 	readonly #methods = new Map<number, string>();
 	#tx = 0;
@@ -68,9 +83,11 @@ export class LinkTraffic {
 			rx: this.#rx,
 			rows: [...this.#rows.values()].sort((a, b) => b.bytes - a.bytes),
 			batched: Object.fromEntries(this.#batched),
+			batchedBytes: Object.fromEntries(this.#batchedBytes),
 		};
 		this.#rows.clear();
 		this.#batched.clear();
+		this.#batchedBytes.clear();
 		this.#tx = 0;
 		this.#rx = 0;
 		return window;
@@ -112,6 +129,7 @@ export class LinkTraffic {
 			for (const item of arg) {
 				const type = name((item as { type?: unknown } | null)?.type);
 				this.#batched.set(type, (this.#batched.get(type) ?? 0) + 1);
+				this.#batchedBytes.set(type, (this.#batchedBytes.get(type) ?? 0) + jsonBytes(item));
 			}
 			// A flush of subagent frames (`slimProgress`) holds frames of several types: one kind, each type counted.
 			return tabEvent === "events" ? base : `${base}/batch`;
@@ -141,6 +159,9 @@ export function logLinkTraffic(
 		const events = Object.entries(window.batched)
 			.sort((a, b) => b[1] - a[1])
 			.slice(0, TOP);
+		const eventBytes = Object.entries(window.batchedBytes)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, TOP);
 		// As JSON text: the runtime log keeps only primitive details, and drops an array or object whole (every
 		// traffic line until 21 Oct 2026 read `ms`, `tx`, `rx` and nothing of what the bytes were).
 		options.log({
@@ -149,6 +170,7 @@ export function logLinkTraffic(
 			rx: window.rx,
 			top: JSON.stringify(window.rows.slice(0, TOP)),
 			events: JSON.stringify(Object.fromEntries(events)),
+			eventBytes: JSON.stringify(Object.fromEntries(eventBytes)),
 		});
 	};
 	const timer = setInterval(flush, options.everyMs ?? TRAFFIC_LOG_MS);
