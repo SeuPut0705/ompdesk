@@ -12,7 +12,8 @@ import { SURFACES } from "./responsive-surfaces";
 // responsive pass of 20 Oct 2026 fixed, so they cannot come back: every tap reaches its own control (no stolen taps,
 // nothing under the home indicator, 36 px targets in a docked tablet sidebar, whole summary figures on a work card),
 // a tap on the drawer's edge strip reaches the control under it, and a 1100 px desktop window keeps Memory's tabs clear
-// of its project picker and cuts no Run popover choice. The full matrix (every surface × width × orientation × theme ×
+// of its project picker and cuts no Run popover choice. An Autopilot run's board (an iPad mini sideways, docked; a
+// phone's strip) never scrolls sideways, its controls are 36 px targets, and the goal bar's buttons keep their taps. The full matrix (every surface × width × orientation × theme ×
 // language × touch, web and Electron desktop) is e2e/responsive-audit.e2e.ts, behind OMP_GUI_RESPONSIVE=<dir>.
 
 const LOOKS: readonly Look[] = [
@@ -172,6 +173,54 @@ for (const look of BOARD_LOOKS) {
 		const hard = (await measure(page, look)).filter(issue => HARD.has(issue.kind));
 		expect(hard).toEqual([]);
 		await page.context().close();
+	});
+}
+
+/**
+ * An Autopilot run's board (its controls, the log's copy, follow-ups with their pins, the backlog's ✕) docked beside
+ * an iPad mini held sideways and in the phone's expanded strip: it never scrolls sideways (a row button's reach once
+ * did, by 2 px) and each of its controls is a 36 px target that takes only its own taps (24 to 28 px before 22 Oct
+ * 2026). Beside it the goal dock bar, whose Pause handed its right edge's taps to Edit on that iPad.
+ */
+const AUTOPILOT_LOOKS: readonly (Look & { form: "docked" | "strip" })[] = [
+	{ width: 1133, height: 744, dpr: 2, orientation: "landscape", theme: "light", lang: "en", form: "docked" },
+	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "ko", form: "strip" },
+];
+const AUTOPILOT_PARTS = ["omp-work-board", "data-autopilot", "data-goal-dock"];
+
+for (const look of AUTOPILOT_LOOKS) {
+	test(`responsive smoke ${lookTag(look)}: the Autopilot board and the goal bar keep their taps`, async () => {
+		if (!browser) throw new Error("the browser is not up");
+		const found: string[] = [];
+		// One page each: once the Autopilot board shows, the tab is a run's and its board has no waiting section.
+		for (const id of ["board-strip", "autopilot-board"]) {
+			const query = SURFACES.find(surface => surface.id === id)?.query ?? "";
+			const page = await openLook(browser, look, { origin, query });
+			await show(page, look, id);
+			if (id === "autopilot-board") {
+				const board = page.locator("[data-work-board-panel]").first();
+				expect(await board.locator("[data-autopilot-followup-pin]").count(), "a follow-up's pin").toBeGreaterThan(
+					0,
+				);
+				expect(await page.locator(".omp-work-board-slot [data-work-board-panel]").count(), "docked").toBe(
+					look.form === "docked" ? 1 : 0,
+				);
+				const widths = await board.evaluate(element => ({
+					scroll: element.scrollWidth,
+					client: element.clientWidth,
+				}));
+				expect(widths.scroll, "the board's content width").toBeLessThanOrEqual(widths.client);
+			}
+			for (const issue of await measure(page, look)) {
+				// The composer's own chips (the run's chip among them) are the composer's rules, not the board's.
+				const ours =
+					AUTOPILOT_PARTS.some(part => issue.at.includes(part)) && !issue.at.includes("omp-composer-toolbar");
+				if (ours && ["stolen-tap", "small-target", "overflow-sideways", "overlap"].includes(issue.kind))
+					found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
+			}
+			await page.context().close();
+		}
+		expect(found).toEqual([]);
 	});
 }
 
