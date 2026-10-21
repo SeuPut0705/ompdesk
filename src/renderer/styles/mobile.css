@@ -791,6 +791,14 @@ html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data
 	min-height: var(--sc-row-touch);
 }
 
+/* A multi-question card's step tabs sit 10 px apart on touch and each reaches half way to the next: a one-digit tab
+   ("2", 31 px wide, 29 inside its border) becomes a 39 px target and no tab covers its neighbour (4 px apart, a bare
+   digit reached 31). Doubled to outrank the tab bars' own 4 px bound below. */
+html[data-input="touch"] [data-ask-steps][role="tablist"] {
+	gap: 10px;
+	--hit-gap-x: 10px;
+}
+
 /* The answers sit 4 px apart: each one's reach ends half way to the next (a 39 px answer's 44 px reach lay 1 px over
    the next answer). */
 html[data-input="touch"] [data-choice-list] {
@@ -1292,6 +1300,17 @@ html[data-input="touch"] [data-figure-header] {
 
 html[data-input="touch"] [data-figure-header] :is([data-figure-actions], [data-figure-mode]) {
 	gap: 10px;
+}
+
+/* A phone draws those buttons 24 px (22 inside the border): 14 px apart, reaching 7 px each way, they are 36 px
+   targets (10 px apart they were 32). */
+html[data-shell="phone"][data-input="touch"] [data-figure-header] {
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-figure-header] :is([data-figure-actions], [data-figure-mode]) {
+	gap: 14px;
 }
 
 /* The Run sheet's one-line rows (layout/composer/ChoiceRow.tsx, common/Switch.tsx SwitchTile in a `data-switch-grid`):

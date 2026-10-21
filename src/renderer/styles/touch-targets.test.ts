@@ -305,6 +305,20 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] [data-feedback-include] [data-setting-info]')).toMatch(
 			/--hit-gap-x:\s*20px;[^}]*--hit-gap-y:\s*20px/,
 		);
+		// A multi-question card's step tabs 10 px apart, outranking the tab bars' 4 px bound; a phone's figure header
+		// buttons (24 px) 14 px apart.
+		declares("../components/dialogs/ExtensionDialog.tsx", "data-ask-steps");
+		expect(rule('html[data-input="touch"] [data-ask-steps][role="tablist"]')).toMatch(
+			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px/,
+		);
+		expect(rule('html[data-shell="phone"][data-input="touch"] [data-figure-header]')).toMatch(
+			/--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
+		expect(
+			rule(
+				'html[data-shell="phone"][data-input="touch"] [data-figure-header] :is([data-figure-actions], [data-figure-mode])',
+			),
+		).toMatch(/gap:\s*14px/);
 		declares("../components/dialogs/WorktreeDialog.tsx", "data-worktree-base");
 		expect(rule('html[data-input="touch"] [data-worktree-base]')).toMatch(/--hit-gap-y:\s*6px/);
 		expect(rule('html[data-input="touch"] [data-worktree-base] > label')).toMatch(
