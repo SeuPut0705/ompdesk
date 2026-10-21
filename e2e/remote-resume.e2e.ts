@@ -782,7 +782,11 @@ test("a device quitting with the host's running tab in the background: its relau
 	let host: RemoteInstance | null = null;
 	let client: RemoteInstance | null = null;
 	try {
-		const hostProfile = await makeRemoteProfile(parent, "b", { language: "en", theme: "light", port: await freePort() });
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+		});
 		const clientProfile = await makeRemoteProfile(parent, "a", {
 			language: "en",
 			theme: "light",
