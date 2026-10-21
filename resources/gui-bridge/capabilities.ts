@@ -562,7 +562,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"MCPManager.prototype.prepareConfig()",
 				"MCPManager.prototype.getAllServerNames()",
 				"MCPManager.prototype.disconnectServer()",
-				"MCPManager.prototype.addConnectionStatusListener()",
+				"MCPManager.prototype.waitForStartup()",
 			],
 			[`${AGENT}/mcp/oauth-credentials`]: [
 				"hasMcpAuthorizationHeader()",

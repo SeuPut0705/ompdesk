@@ -9,7 +9,6 @@
  * reload and reauth details (mcp-command-controller.ts in omp 18.6).
  */
 import * as path from "node:path";
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import {
 	isForeignUserProvider,
 	isProviderEnabled,
@@ -47,7 +46,6 @@ import {
 	mcpOAuthCredentialId,
 } from "@oh-my-pi/pi-coding-agent/mcp/oauth-flow";
 import { cfgMcpEnableProjectConfig } from "@oh-my-pi/pi-coding-agent/mcp/settings";
-import type { McpConnectionStatusEvent } from "@oh-my-pi/pi-coding-agent/mcp/startup-events";
 import type { MCPServerConfig, MCPServerConnection } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import { applyMcpToggleRuntime } from "@oh-my-pi/pi-coding-agent/modes/components/extensions/mcp-runtime";
 import { MCPCommandController } from "@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller";
@@ -140,84 +138,50 @@ export function serializeMcpReload<T>(reload: () => Promise<T>): Promise<T> {
 	return result;
 }
 
-/** MCPCommandController.reloadServers: full rediscovery with startup's filters, then a tool rebind. */
-function reloadMcpServers(session: AgentSession): Promise<void> {
+/**
+ * MCPCommandController.reloadServers: full rediscovery with startup's filters, then a tool rebind. A server that
+ * fails to connect (a 401 asking for a sign-in, one offline) is no failure of the reload: stock's TUI shows it as a
+ * warning after the reload ran, and the config change or credential that led here is already saved. The warning
+ * text is returned and the server's state stays readable in the list (`lastError`, `authState`).
+ */
+function reloadMcpServers(session: AgentSession): Promise<string | undefined> {
 	return serializeMcpReload(async () => {
 		const manager = MCPManager.instance();
 		if (!manager) throw new Error("MCP manager not available.");
-		// reloadServers reads only these context members. Its terminal error
-		// output becomes a rejected bridge call, never a discarded UI no-op.
+		let warning: string | undefined;
+		// reloadServers reads only these context members; its only output is the connection-error warning.
 		const context = {
 			mcpManager: manager,
 			session,
 			settings: session.settings,
-			presentCommandOutput: (output: Component): never => {
-				throw new Error(output.render(120).join("\n"));
+			presentCommandOutput: (output: Component): void => {
+				warning = output.render(120).join("\n").trim();
 			},
 		} as InteractiveModeContext;
 		await new MCPCommandController(context).reloadServers();
+		return warning;
 	});
 }
 
-// ── Connection failures ─────────────────────────────────────────────────────
-// The TUI keeps the failed servers of stock's connection status events for its status line; an RPC host keeps
-// none, so a server that answered 401 with an OAuth challenge read as "disconnected" with no reason. The bridge
-// keeps the last failure per server for this process (one MCPManager per omp).
-
-const failures = new Map<string, string>();
-const watched = new WeakSet<MCPManager>();
-
-function noteStatus(event: McpConnectionStatusEvent): void {
-	switch (event.type) {
-		case "connecting":
-			for (const name of event.serverNames) failures.delete(name);
-			return;
-		case "connected":
-			failures.delete(event.serverName);
-			return;
-		case "failed":
-			failures.set(event.serverName, event.error);
-			return;
-		case "reconnecting":
-			return;
-	}
-}
-
-/** Attach once per manager: at session start (before stock's deferred discovery connects) and on every list. */
-function watchFailures(): void {
-	const manager = MCPManager.instance();
-	if (!manager || watched.has(manager)) return;
-	watched.add(manager);
-	manager.addConnectionStatusListener(noteStatus);
-}
-
 /**
- * Stock sets the process-global manager while it builds the session and starts the GUI's deferred MCP discovery
- * only after that, so watching from the moment the manager exists sees the first connect's failures; an RPC
- * host's `session_start` can come after a fast 401. Rebinds for subagents install again: `watched` keeps it once.
+ * The last connect failure of each server, as stock keeps them (`MCPManager.waitForStartup`'s `failed`, the TUI's
+ * status line source): an RPC host shows none, so a server that answered 401 with an OAuth challenge read as
+ * "disconnected" with no reason. A 1 ms bound: never waits on a server still connecting.
  */
-export function install(pi: ExtensionAPI): void {
-	const startedAt = Date.now();
-	const poll = setInterval(() => {
-		watchFailures();
-		const manager = MCPManager.instance();
-		if ((manager && watched.has(manager)) || Date.now() - startedAt > WATCH_FOR_MANAGER_MS) clearInterval(poll);
-	}, 10);
-	poll.unref?.();
-	pi.on("session_start", () => watchFailures());
+async function connectFailures(manager: MCPManager | undefined): Promise<Map<string, string>> {
+	if (!manager) return new Map();
+	const status = await manager.waitForStartup(1);
+	return new Map(status.failed.map(failure => [failure.name, failure.error]));
 }
-
-const WATCH_FOR_MANAGER_MS = 60_000;
 
 /** Stock's own reading of an auth failure (`/mcp add` and the TUI reconnect start OAuth on it). */
-function challenged(name: string, url: string | undefined): boolean {
-	const failure = failures.get(name);
+function challenged(failure: string | undefined, url: string | undefined): boolean {
 	return failure !== undefined && analyzeAuthError(new Error(failure), url).requiresAuth;
 }
 
 /** Union of user config, project config, disabled markers and runtime-discovered servers (`/mcp list`). */
 async function listMcpServers(session: AgentSession) {
-	watchFailures();
+	const failures = await connectFailures(MCPManager.instance());
 	const cwd = session.sessionManager.getCwd();
 	const manager = MCPManager.instance();
 	const enableProjectConfig = cfgMcpEnableProjectConfig.get(session.settings);
@@ -268,7 +232,7 @@ async function listMcpServers(session: AgentSession) {
 			credential: credential ? { valid: credential.credential.expires > Date.now() } : undefined,
 			headerAuth,
 			declaresOAuth: config?.auth?.type === "oauth" || config?.oauth !== undefined,
-			challenged: challenged(name, url),
+			challenged: challenged(failures.get(name), url),
 		});
 		const enabled = Object.hasOwn(active.configs, name);
 		const source = server?._source;
@@ -426,7 +390,9 @@ async function adoptServer(session: AgentSession, name: string) {
 		action: "adopt" as const,
 		from: foreign._source.providerName,
 		status: manager?.getConnectionStatus(name) ?? "disconnected",
-		...(result.failed.includes(name) ? { error: failures.get(name) ?? "connect failed" } : {}),
+		...(result.failed.includes(name)
+			? { error: (await connectFailures(manager)).get(name) ?? "connect failed" }
+			: {}),
 	};
 }
 
@@ -443,7 +409,6 @@ async function syncMcpServers(session: AgentSession, names?: readonly string[]):
 	const manager = MCPManager.instance();
 	const result: McpSyncResult = { connected: [], disconnected: [], unchanged: [], failed: [] };
 	if (!manager) return result;
-	watchFailures();
 	// Another process wrote the files and the credential row: stock caches both per process.
 	clearFsCache();
 	await session.modelRegistry.authStorage.credentials.reload();
@@ -866,10 +831,11 @@ export const methods: BridgeMethods = guard("mcp", {
 		const session = env.session();
 		const filePath = getMCPConfigPath(optScope(p) ?? "project", session.sessionManager.getCwd());
 		await addMCPServer(filePath, name, inputToServerConfig(p.config));
-		await reloadMcpServers(session);
+		// A server that does not connect (needs a sign-in, offline) was still added: its row says why.
+		const warning = await reloadMcpServers(session);
 		const server = (await listMcpServers(session)).find(entry => entry.name === name);
 		if (!server) throw new Error(`Server "${name}" was added but is not visible in the refreshed server list.`);
-		return { added: true, server };
+		return { added: true, server, ...(warning ? { warning } : {}) };
 	},
 
 	/** Never throws: every outcome rides `{ ok, error }`. */
@@ -953,7 +919,7 @@ export const methods: BridgeMethods = guard("mcp", {
 	mcp_reload: async (_params, env) => {
 		clearFsCache();
 		await env.session().modelRegistry.authStorage.credentials.reload();
-		await reloadMcpServers(env.session());
-		return { servers: await listMcpServers(env.session()) };
+		const warning = await reloadMcpServers(env.session());
+		return { servers: await listMcpServers(env.session()), ...(warning ? { warning } : {}) };
 	},
 });

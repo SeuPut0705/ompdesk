@@ -20,8 +20,13 @@ import { INSTALLED_OMP } from "./test-bridge-probe";
 const installed = fs.existsSync(INSTALLED_OMP);
 const TOKEN = "good-token-0123456789";
 
-/** Answers stock's streamable HTTP client: 401 with a challenge until it carries the token, then one tool. */
-function fakeOAuthMcp(): Promise<{ url: string; close: () => void }> {
+/**
+ * Answers stock's streamable HTTP client at /mcp: 401 with an OAuth challenge at once until a request carries the
+ * token, then one tool. With `oauth`, it is also its own authorization server (RFC 9728 resource metadata, RFC 8414
+ * server metadata, dynamic client registration, an authorize endpoint that approves at once, a token endpoint), so
+ * the bridge's real sign-in runs end to end; without it nothing ever signs it in.
+ */
+function fakeOAuthMcp(oauth = true): Promise<{ url: string; close: () => void }> {
 	const server = http.createServer((req, res) => {
 		let body = "";
 		req.on("data", chunk => {
@@ -29,15 +34,41 @@ function fakeOAuthMcp(): Promise<{ url: string; close: () => void }> {
 		});
 		req.on("end", () => {
 			const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-			if (req.headers.authorization !== `Bearer ${TOKEN}`) {
-				// Late enough that a watcher attached at session start sees it, as a remote server's would be.
-				setTimeout(() => {
-					res.writeHead(401, {
-						"WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
-						"Content-Type": "application/json",
-					});
-					res.end(JSON.stringify({ error: "invalid_token" }));
-				}, 300);
+			const url = new URL(req.url ?? "/", origin);
+			const json = (status: number, value: unknown) => {
+				res.writeHead(status, { "Content-Type": "application/json" });
+				res.end(JSON.stringify(value));
+			};
+			if (oauth && url.pathname.startsWith("/.well-known/oauth-protected-resource"))
+				return json(200, { resource: `${origin}/mcp`, authorization_servers: [origin] });
+			if (oauth && url.pathname.startsWith("/.well-known/oauth-authorization-server"))
+				return json(200, {
+					issuer: origin,
+					authorization_endpoint: `${origin}/authorize`,
+					token_endpoint: `${origin}/token`,
+					registration_endpoint: `${origin}/register`,
+					response_types_supported: ["code"],
+					grant_types_supported: ["authorization_code", "refresh_token"],
+					code_challenge_methods_supported: ["S256"],
+					token_endpoint_auth_methods_supported: ["none"],
+				});
+			if (oauth && url.pathname === "/register")
+				return json(201, { client_id: "fake-client", ...(JSON.parse(body || "{}") as object) });
+			if (oauth && url.pathname === "/authorize") {
+				const back = new URL(url.searchParams.get("redirect_uri") ?? "");
+				back.searchParams.set("code", "fake-code");
+				back.searchParams.set("state", url.searchParams.get("state") ?? "");
+				res.writeHead(302, { Location: back.toString() }).end();
+				return;
+			}
+			if (oauth && url.pathname === "/token")
+				return json(200, { access_token: TOKEN, token_type: "Bearer", expires_in: 3600, refresh_token: "refresh" });
+			if (!oauth || req.headers.authorization !== `Bearer ${TOKEN}`) {
+				res.writeHead(401, {
+					"WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+					"Content-Type": "application/json",
+				});
+				res.end(JSON.stringify({ error: "invalid_token" }));
 				return;
 			}
 			if (req.method !== "POST") {
@@ -59,18 +90,14 @@ function fakeOAuthMcp(): Promise<{ url: string; close: () => void }> {
 					: message.method === "tools/list"
 						? { tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: {} } }] }
 						: {};
-			res.writeHead(200, { "Content-Type": "application/json" });
-			res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+			json(200, { jsonrpc: "2.0", id: message.id, result });
 		});
 	});
-	return new Promise(resolve => {
-		server.listen(0, "127.0.0.1", () => {
-			resolve({
-				url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`,
-				close: () => server.close(),
-			});
-		});
+	const { promise, resolve } = Promise.withResolvers<{ url: string; close: () => void }>();
+	server.listen(0, "127.0.0.1", () => {
+		resolve({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`, close: () => server.close() });
 	});
+	return promise;
 }
 
 const STDIO_SERVER = `
@@ -89,7 +116,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
 
 /** The live session's view: the bridge's row for `name` and the session's tools that name it. */
 const PROBE_HELPERS = `
-import { install, methods as mcp } from "./extensions/mcp";
+import { methods as mcp } from "./extensions/mcp";
 const until = async (check, ms) => {
 	const end = Date.now() + ms;
 	while (Date.now() < end) {
@@ -108,7 +135,6 @@ const view = async (env, session, name) => ({
 function signInProbe(report: string, go: string): string {
 	return `${PROBE_HELPERS}
 export default function (pi) {
-	install(pi);
 	pi.on("session_start", async (_event, ctx) => {
 		const out = {};
 		try {
@@ -121,6 +147,36 @@ export default function (pi) {
 			out.sync = await mcp.mcp_sync({ names: ["fake"] }, env);
 			await until(async () => (await view(env, session, "fake")).row?.status === "connected", 15_000);
 			out.after = await view(env, session, "fake");
+		} catch (error) {
+			out.error = error.stack ?? String(error);
+		}
+		await Bun.write(${JSON.stringify(report)}, JSON.stringify(out));
+	});
+}
+`;
+}
+
+/**
+ * The real add and sign-in paths: `mcp_add` of a server that answers 401 at once, then `mcp_reauth` while another
+ * server still refuses. The open_url frame the flow emits is followed as a browser would.
+ */
+function addAndSignInProbe(report: string, url: string): string {
+	return `${PROBE_HELPERS}
+export default function (pi) {
+	pi.on("session_start", async (_event, ctx) => {
+		const out = { opened: 0 };
+		try {
+			const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;
+			const emit = frame => {
+				if (frame.method !== "open_url") return;
+				out.opened++;
+				void fetch(frame.url, { redirect: "follow" }).catch(error => { out.browser = String(error); });
+			};
+			const env = { pi, session: () => session, context: () => ctx, emit };
+			out.add = await mcp.mcp_add({ name: "fake", scope: "user", config: { transport: "http", url: ${JSON.stringify(url)} } }, env);
+			out.reauth = await mcp.mcp_reauth({ name: "fake" }, env);
+			await until(async () => (await view(env, session, "fake")).row?.status === "connected", 15_000);
+			out.after = { fake: await view(env, session, "fake"), other: await view(env, session, "other") };
 		} catch (error) {
 			out.error = error.stack ?? String(error);
 		}
@@ -151,7 +207,6 @@ function adoptProbe(report: string): string {
 import { isUserSourceEnabled } from "@oh-my-pi/pi-coding-agent/capability";
 import { loadAllExtensions } from "@oh-my-pi/pi-coding-agent/modes/components/extensions/state-manager";
 export default function (pi) {
-	install(pi);
 	pi.on("session_start", async (_event, ctx) => {
 		const out = {};
 		try {
@@ -287,6 +342,30 @@ describe.skipIf(!installed)("MCP servers on the installed omp", () => {
 		expect(after.row).toMatchObject({ status: "connected", authState: "authorized", toolCount: 1 });
 		expect(after.row.lastError).toBeUndefined();
 		expect(after.tools.length).toBeGreaterThan(0);
+	}, 150_000);
+
+	it("adds a server that answers 401 at once and signs in to it while another server still refuses", async () => {
+		const profile = makeProfile();
+		const fake = await fakeOAuthMcp();
+		const other = await fakeOAuthMcp(false);
+		cleanups.push(fake.close, other.close);
+		fs.writeFileSync(
+			path.join(profile.agentDir, "mcp.json"),
+			JSON.stringify({ mcpServers: { other: { type: "http", url: other.url } } }),
+		);
+		const report = path.join(profile.root, "add-signin.json");
+		const out = await runLive(profile, addAndSignInProbe(report, fake.url), report);
+		// The add is saved and answered, the 401 is the server's state, not a failed add.
+		expect(out.add).toMatchObject({ added: true, server: { name: "fake", enabled: true, authState: "required" } });
+		expect(String((out.add as { warning?: string }).warning)).toContain("fake");
+		// The sign-in succeeds although `other` still fails to connect in the same reload.
+		expect(out.reauth).toEqual({ ok: true });
+		expect(out.opened).toBe(1);
+		type View = { row: Record<string, unknown>; tools: string[] };
+		const after = out.after as { fake: View; other: View };
+		expect(after.fake.row).toMatchObject({ status: "connected", authState: "authorized", toolCount: 1 });
+		expect(after.fake.tools.length).toBeGreaterThan(0);
+		expect(after.other.row).toMatchObject({ status: "disconnected", authState: "required" });
 	}, 150_000);
 
 	it("uses one server Codex declares without reading the rest of Codex's config", async () => {
