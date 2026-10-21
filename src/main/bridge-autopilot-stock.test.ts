@@ -558,6 +558,57 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		await h.stop();
 	}, 120_000);
 
+	it("records nothing while a call beside `end` still runs past the wait, and takes the commit from the next end", async () => {
+		// A wait that ran out is no settlement: reading HEAD then would record a cycle without the running commit.
+		const commit =
+			"sleep 3 && echo more >> a.txt && git add a.txt && git -c user.name=t -c user.email=t@t commit -qm second";
+		const end = {
+			tool: "autopilot",
+			args: {
+				op: "end",
+				area: "tests",
+				title: "end before its commit finished",
+				summary: "the first end ran out of patience",
+				verify: "skipped",
+				commit: "abc1234",
+			},
+		};
+		let turns = 0;
+		const provider = await startProvider(requests => {
+			const latest = requests.at(-1);
+			if (!latest) return { text: "?" };
+			if (latest.inTurn === 0) turns++;
+			if (turns > 1) return { hang: true };
+			if (latest.inTurn === 0) return { tool: "autopilot", args: { op: "begin" } };
+			if (latest.inTurn === 1) return { calls: [{ tool: "bash", args: { command: commit } }, end] };
+			if (latest.inTurn === 3) return end;
+			return { text: "cycle done" };
+		});
+		cleanups.push(() => provider.close());
+		const previous = process.env.OMP_GUI_TEST_AUTOPILOT_SIBLING_WAIT_MS;
+		process.env.OMP_GUI_TEST_AUTOPILOT_SIBLING_WAIT_MS = "500";
+		const h = await startOmp(provider).finally(() => {
+			if (previous === undefined) delete process.env.OMP_GUI_TEST_AUTOPILOT_SIBLING_WAIT_MS;
+			else process.env.OMP_GUI_TEST_AUTOPILOT_SIBLING_WAIT_MS = previous;
+		});
+		await h.bridge.request<AutopilotStatus>(M.arm, {
+			role: "parent",
+			root: h.root,
+			run: "2026-10-22",
+			branch: "autopilot/2026-10-22",
+			baseBranch: "main",
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
+		});
+		await h.send({ type: "goal", op: "create", objective: "Autopilot: test objective" });
+		await h.waitFrame(frame => frame.type === "autopilot_cycle_end");
+		const results = provider.requests.flatMap(request => request.toolResults);
+		expect(results.some(text => text.includes('"recorded": false') && text.includes("bash"))).toBe(true);
+		const record = h.frames.find(frame => frame.type === "autopilot_cycle_end")?.record as AutopilotCycleRecord;
+		const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: h.root, encoding: "utf8" }).trim();
+		expect(record).toMatchObject({ n: 1, title: "end before its commit finished", commit: head });
+		await h.stop();
+	}, 120_000);
+
 	it("follows the journal after a restart: the guard is on before arm, and the resumed run continues at the next cycle number", async () => {
 		const first = await startProvider(createScript({ hangAfterFirst: true }));
 		cleanups.push(() => first.close());

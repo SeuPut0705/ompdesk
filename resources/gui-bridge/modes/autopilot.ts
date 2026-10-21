@@ -160,42 +160,50 @@ let pendingToolRestore: { excluded: string[]; mounted: string[] } | undefined;
 /** Woken on every tool event of the live cycle (`settledBeside`). */
 const toolEvents = new Set<() => void>();
 
-/** How long `end` waits for the calls running beside it; a bash call goes to the background after a minute anyway. */
-const SIBLING_WAIT_MS = 5 * 60_000;
+/**
+ * How long `end` waits for the calls running beside it; a bash call goes to the background after a minute anyway.
+ * `OMP_GUI_TEST_AUTOPILOT_SIBLING_WAIT_MS` shortens it for tests.
+ */
+function siblingWaitMs(): number {
+	return Number(process.env.OMP_GUI_TEST_AUTOPILOT_SIBLING_WAIT_MS) || 5 * 60_000;
+}
 /** How long `end` waits for stock's event stream to report its own start (it lags the call by a millisecond or so). */
 const OWN_START_WAIT_MS = 2_000;
 
-/** Resolves once `ready()` holds, re-checked on every tool event, or after `ms`. */
-function untilToolEvents(ready: () => boolean, ms: number): Promise<void> {
-	if (ready()) return Promise.resolve();
+/** True once `ready()` holds, re-checked on every tool event; false when `ms` passed first. */
+function untilToolEvents(ready: () => boolean, ms: number): Promise<boolean> {
+	if (ready()) return Promise.resolve(true);
 	return new Promise(done => {
-		const finish = () => {
+		const finish = (settled: boolean) => {
 			clearTimeout(timer);
 			toolEvents.delete(check);
-			done();
+			done(settled);
 		};
 		const check = () => {
-			if (ready()) finish();
+			if (ready()) finish(true);
 		};
-		const timer = setTimeout(finish, ms);
+		const timer = setTimeout(() => finish(false), ms);
 		timer.unref?.();
 		toolEvents.add(check);
 	});
 }
 
 /**
- * Resolves once no tool call of the cycle but this `end` runs. Stock runs a message's tool calls side by side, so an
- * `end` sent in the same message as the commit or the check it reports read HEAD and the ledger before either
- * finished: the cycle had no commit and was never landed (cycle 90 of this repository's run). Stock reports a call's
- * start through an event stream that lags its execution, so this first waits for its own start: every call stock
- * launched before it has been reported by then.
+ * Waits until no tool call of the cycle but this `end` runs, and answers the ones still running when the wait ran out
+ * (empty once they all finished). Stock runs a message's tool calls side by side, so an `end` sent in the same message
+ * as the commit or the check it reports read HEAD and the ledger before either finished: the cycle had no commit and
+ * was never landed (cycle 90 of this repository's run). Stock reports a call's start through an event stream that
+ * lags its execution, so this first waits for its own start: every call stock launched before it has been reported
+ * by then.
  */
-async function settledBeside(state: LiveState, callId: string | undefined): Promise<void> {
+async function settledBeside(state: LiveState, callId: string | undefined): Promise<string[]> {
 	if (callId) await untilToolEvents(() => state.pending.has(callId), OWN_START_WAIT_MS);
 	// An autopilot call never waits for another (or for itself, reached as its `xd://` device).
 	const ours = (id: string, call: { tool: string; args: unknown }) =>
 		id === callId || call.tool === "autopilot" || String(record(call.args).path ?? "").startsWith("xd://autopilot");
-	await untilToolEvents(() => [...state.pending].every(([id, call]) => ours(id, call)), SIBLING_WAIT_MS);
+	const running = () => [...state.pending].filter(([id, call]) => !ours(id, call)).map(([, call]) => call.tool);
+	await untilToolEvents(() => running().length === 0, siblingWaitMs());
+	return running();
 }
 
 function now(): number {
@@ -717,7 +725,15 @@ async function runTool(
 		}
 		case "end": {
 			const parsed = endReportOrThrow(params);
-			await settledBeside(current, callId);
+			const running = await settledBeside(current, callId);
+			if (running.length > 0) {
+				// Reading HEAD and the ledger now would record a cycle without what those calls do: nothing is recorded.
+				return toolText({
+					recorded: false,
+					running,
+					next: "Tool calls you made beside this end are still running. Wait for them to finish (`wait` for a background job), then call end again.",
+				});
+			}
 			if (current.report && !current.amendable) {
 				// The first report stands: a later `end` (a stop steer, a second thought) only adds what the first left out.
 				current.report = mergeRepeatedEnd(current.report, parsed);
