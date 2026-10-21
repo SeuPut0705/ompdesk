@@ -192,6 +192,30 @@ describe("followActivationFocus", () => {
 		view.stop();
 	});
 
+	it("hands focus over at the first typed key when that comes before the frame, and leaves modified keys alone", () => {
+		const view = setup();
+		document.body.insertAdjacentHTML(
+			"beforeend",
+			'<div class="omp-session-pane" data-active="false"><textarea id="old" data-composer-input></textarea></div>',
+		);
+		view.focusOn(view.byId("old"));
+		useTabsStore.setState({ activeTabId: "t1" });
+		const key = (init: { key: string; metaKey?: boolean }) => {
+			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+			Object.assign(event, { ctrlKey: false, altKey: false, metaKey: false, ...init });
+			view.byId("old").dispatchEvent(event);
+		};
+		key({ key: "1", metaKey: true });
+		expect(view.active()).toBe(view.byId("old"));
+		key({ key: "s" });
+		expect(view.active()).toBe(view.byId("composer"));
+		// The frame that follows finds nothing left to do.
+		view.focusOn(view.byId("row"));
+		runFrames();
+		expect(view.active()).toBe(view.byId("row"));
+		view.stop();
+	});
+
 	it("keeps the keyboard down on a touch device", () => {
 		globals.matchMedia = () => ({ matches: true });
 		const view = setup();

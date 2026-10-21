@@ -38,23 +38,47 @@ function verdict(): "take" | "wait" | "leave" {
 /** Returns the unsubscribe. */
 export function followActivationFocus(): () => void {
 	let frame = 0;
+	/** A hand-off is waiting for its frame. */
+	let pending = false;
+	/** Hand focus over now: true once it is where it should be (or should stay where it is). */
+	const take = (): "done" | "again" => {
+		const decision = verdict();
+		if (decision === "leave") return "done";
+		if (decision === "take") {
+			const field = activeComposerInput();
+			field?.focus();
+			if (field && document.activeElement === field) return "done";
+		}
+		return "again";
+	};
 	const schedule = () => {
 		cancelAnimationFrame(frame);
+		pending = true;
 		let started: number | null = null;
 		// After React commits the pane (its `data-active` and field), as `omp:fill-composer` waits a frame.
 		const attempt = (now: number) => {
+			if (!pending) return;
 			started ??= now;
-			const decision = verdict();
-			if (decision === "leave") return;
-			if (decision === "take") {
-				const field = activeComposerInput();
-				field?.focus();
-				if (field && document.activeElement === field) return;
+			if (take() === "done" || now - started >= RETRY_MS) {
+				pending = false;
+				return;
 			}
-			if (now - started < RETRY_MS) frame = requestAnimationFrame(attempt);
+			frame = requestAnimationFrame(attempt);
 		};
 		frame = requestAnimationFrame(attempt);
 	};
+	// A key typed before that frame (a person typing straight after ⌘T, or a window whose frames run late) would land
+	// in the hidden pane's composer or on <body>: hand focus over first, so the character lands in the new composer
+	// (nightly 39516053875, composer-flows: "second tab text" read "econd tab text").
+	const onKeyDown = (event: KeyboardEvent) => {
+		if (!pending || event.ctrlKey || event.metaKey || event.altKey) return;
+		if (!((event.key.length === 1 && event.key !== " ") || event.key === "Process")) return;
+		if (take() === "done") {
+			pending = false;
+			cancelAnimationFrame(frame);
+		}
+	};
+	window.addEventListener("keydown", onKeyDown, true);
 	const stopTabs = useTabsStore.subscribe((next, previous) => {
 		if (next.activeTabId && next.activeTabId !== previous.activeTabId) schedule();
 	});
@@ -64,6 +88,7 @@ export function followActivationFocus(): () => void {
 	});
 	return () => {
 		cancelAnimationFrame(frame);
+		window.removeEventListener("keydown", onKeyDown, true);
 		stopTabs();
 		stopSession();
 	};
