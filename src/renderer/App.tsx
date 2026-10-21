@@ -100,7 +100,7 @@ import { usePreviewVisualEvents } from "./stores/preview-visuals";
 import { useRemoteStateSync } from "./stores/remote";
 import { useSessionStore } from "./stores/session";
 import { useSettingsStore } from "./stores/settings";
-import { useActiveTabKind, useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
+import { steppingFromTabId, useActiveTabKind, useSessionTabs, useTabsStore, visibleTabIds } from "./stores/tabs";
 import { toast, toastError } from "./stores/toast";
 import { isSidebarDrawerMode, migrateDefaultPanelTab, useUiStore } from "./stores/ui";
 import { checkForUpdatesInPlace, subscribeUpdaterStatus } from "./stores/updater";
@@ -503,12 +503,17 @@ export function App() {
 					closeActiveTab();
 					return;
 				case "tab.next":
-				case "tab.prev": {
+				case "tab.prev":
+				case "pane.next":
+				case "pane.prev": {
+					// ⇧⌘] steps the strip (the panes while a split shows); ⌥⌘] the panes only.
 					const state = useTabsStore.getState();
+					if (actionId.startsWith("pane") && !state.split) return;
 					const ids = state.split ? visibleTabIds(state) : state.tabs.map(tab => tab.id);
 					if (ids.length < 2) return;
-					const index = state.activeTabId ? ids.indexOf(state.activeTabId) : -1;
-					const step = actionId === "tab.next" ? 1 : -1;
+					const from = steppingFromTabId(state);
+					const index = from ? ids.indexOf(from) : -1;
+					const step = actionId.endsWith("next") ? 1 : -1;
 					void state.switchTab(ids[(index + step + ids.length) % ids.length]);
 					return;
 				}
@@ -527,16 +532,6 @@ export function App() {
 				case "nav.forward":
 					void navigateHistory(actionId === "nav.back" ? -1 : 1);
 					return;
-				case "pane.next":
-				case "pane.prev": {
-					const state = useTabsStore.getState();
-					if (!state.split) return;
-					const ids = visibleTabIds(state);
-					const index = state.activeTabId ? ids.indexOf(state.activeTabId) : -1;
-					const step = actionId === "pane.next" ? 1 : -1;
-					void state.switchTab(ids[(index + step + ids.length) % ids.length]);
-					return;
-				}
 				case "pane.focusUp":
 				case "pane.focusDown":
 				case "pane.focusLeft":

@@ -190,6 +190,17 @@ let routingChain: Promise<void> = Promise.resolve();
 let ratioFlushTimer: ReturnType<typeof setTimeout> | null = null;
 /** Bumped by every `switchTab`: a switch still waiting on its tab's session yields to a newer one. */
 let switchRequest = 0;
+/** The tab the latest `switchTab` is on its way to, until it lands or gives way. */
+let pickedTabId: string | null = null;
+
+/**
+ * The tab a step (⇧⌘], ⇧⌘[) starts from: the one the latest switch is on its way to, else the active one. Switching to
+ * a tab that ran out of view first waits for its present (`RETURN_HYDRATION_WAIT_MS`), so a second step pressed in
+ * that wait started from the tab both saw and landed where the first one did (runtime.e2e under load).
+ */
+export function steppingFromTabId(state: Pick<TabsStore, "activeTabId">): string | null {
+	return pickedTabId ?? state.activeTabId;
+}
 /** How long a switch to a tab that ran out of view waits for its present before painting anyway. */
 const RETURN_HYDRATION_WAIT_MS = 100;
 
@@ -819,48 +830,53 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		if (!target || target.ghost) return;
 		ensureTabRuntime(id);
 		const request = ++switchRequest;
-		// Main forwards session events only for visible tabs, so a tab that ran out of view
-		// still holds the moment it was left. Fetch its present before it paints (one short
-		// wait at most): the run shows where it is, not its old step and then a jump.
-		let early: Promise<void> | undefined;
-		if (
-			!visibleTabIds(before).includes(id) &&
-			(target.status === "running" || sessionRuntimeStore<SessionStore>(id, "session")?.getState().isStreaming)
-		) {
-			let landed = false;
-			const { promise: waited, resolve: stopWaiting } = Promise.withResolvers<void>();
-			const cap = setTimeout(stopWaiting, RETURN_HYDRATION_WAIT_MS);
-			const hydration = hydrateTabSession(id).then(
-				() => {
-					landed = true;
-				},
-				() => undefined,
+		pickedTabId = id;
+		try {
+			// Main forwards session events only for visible tabs, so a tab that ran out of view
+			// still holds the moment it was left. Fetch its present before it paints (one short
+			// wait at most): the run shows where it is, not its old step and then a jump.
+			let early: Promise<void> | undefined;
+			if (
+				!visibleTabIds(before).includes(id) &&
+				(target.status === "running" || sessionRuntimeStore<SessionStore>(id, "session")?.getState().isStreaming)
+			) {
+				let landed = false;
+				const { promise: waited, resolve: stopWaiting } = Promise.withResolvers<void>();
+				const cap = setTimeout(stopWaiting, RETURN_HYDRATION_WAIT_MS);
+				const hydration = hydrateTabSession(id).then(
+					() => {
+						landed = true;
+					},
+					() => undefined,
+				);
+				void hydration.then(stopWaiting);
+				await waited;
+				clearTimeout(cap);
+				const now = get();
+				// A geometry change (a divider drag, a ratio step) rebuilds `split` without changing what it shows:
+				// only a newer pick or a change of the panes on screen supersedes this one.
+				const panes = (state: TabsStore) => (state.split ? splitTabIds(state.split).join("\n") : "");
+				if (request !== switchRequest || now.activeTabId !== before.activeTabId || panes(now) !== panes(before))
+					return;
+				if (!landed) early = hydration;
+			}
+			const state = get();
+			const outgoingStreaming = useSessionStore.getState().isStreaming;
+			await focusTab(
+				state.activeTabId,
+				id,
+				viewAfterPick({ split: state.split, remembered: state.rememberedSplits }, id),
+				state.tabs.map(tab => {
+					if (tab.id === id) return { ...tab, unreadDone: false };
+					return tab.id === state.activeTabId && outgoingStreaming ? { ...tab, status: "running" } : tab;
+				}),
 			);
-			void hydration.then(stopWaiting);
-			await waited;
-			clearTimeout(cap);
-			const now = get();
-			// A geometry change (a divider drag, a ratio step) rebuilds `split` without changing what it shows:
-			// only a newer pick or a change of the panes on screen supersedes this one.
-			const panes = (state: TabsStore) => (state.split ? splitTabIds(state.split).join("\n") : "");
-			if (request !== switchRequest || now.activeTabId !== before.activeTabId || panes(now) !== panes(before))
-				return;
-			if (!landed) early = hydration;
+			// A fetch still in flight when the route attached began before it: events in between
+			// never reached this tab, and the route's attach joined that fetch instead of starting one.
+			if (early && get().activeTabId === id) await hydrateTabSession(id);
+		} finally {
+			if (request === switchRequest) pickedTabId = null;
 		}
-		const state = get();
-		const outgoingStreaming = useSessionStore.getState().isStreaming;
-		await focusTab(
-			state.activeTabId,
-			id,
-			viewAfterPick({ split: state.split, remembered: state.rememberedSplits }, id),
-			state.tabs.map(tab => {
-				if (tab.id === id) return { ...tab, unreadDone: false };
-				return tab.id === state.activeTabId && outgoingStreaming ? { ...tab, status: "running" } : tab;
-			}),
-		);
-		// A fetch still in flight when the route attached began before it: events in between
-		// never reached this tab, and the route's attach joined that fetch instead of starting one.
-		if (early && get().activeTabId === id) await hydrateTabSession(id);
 	},
 
 	splitTab: async (id, placement, targetTabId) => {
