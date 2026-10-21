@@ -66,9 +66,11 @@
 	color: var(--sc-text-subtle);
 }
 
+/* Each segment's gap is at most 2 px and never more than half of its share of the bar, so a long plan in a narrow
+   head still fits (30 segments' fixed 2 px gaps alone were 58 px, wider than the bar at large text). */
 .omp-work-board-segments {
 	display: flex;
-	gap: 2px;
+	gap: min(2px, calc(100% / (var(--segments, 1) * 2)));
 	height: 4px;
 }
 

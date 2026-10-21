@@ -186,6 +186,55 @@ for (const language of variants(["en", "ko"] as const))
 			}
 		});
 
+test("a 30-task plan's bar stays left of its count, and the count and close stay in the head, narrow and with large text (en light)", async () => {
+	test.setTimeout(180_000);
+	const { app, page, root } = await launch("en", "light");
+	try {
+		// The docked board itself (a narrow pane shows a chip and sheet instead, which have no head line).
+		const board = page.locator("aside[data-work-board-panel]").first();
+		await send(page, "hello");
+		await fixture(page, "fixture:todo 30");
+		await expect(board.locator(".omp-work-board-progress")).toContainText("15/30");
+		// A window just wide enough for the board to dock, and a wide one; then each again with large text.
+		for (const fontSize of [15, 20])
+			for (const width of [1400, 1920]) {
+				await page.evaluate(size => {
+					const scaled = `${size}px`;
+					document.body.style.fontSize = scaled;
+					document.documentElement.style.setProperty("--gui-font-size", scaled);
+				}, fontSize);
+				await resize(app, width, 900);
+				await expect(board, `board docked at ${width} px, ${fontSize} px text`).toBeVisible();
+				const geometry = await board.locator(".omp-work-board-head").evaluate(head => {
+					const box = (selector: string) => head.querySelector(selector)?.getBoundingClientRect();
+					const bar = head.querySelector(".omp-work-board-segments");
+					const count = head.querySelector(".omp-work-board-progress > span[aria-hidden]")?.getBoundingClientRect();
+					const close = box(".omp-work-board-hide");
+					const name = box(".omp-work-board-name");
+					const headBox = head.getBoundingClientRect();
+					const last = bar?.lastElementChild?.getBoundingClientRect();
+					return {
+						barClearOfCount: !!last && !!count && last.right <= count.left,
+						barAfterName: !!bar && !!name && bar.getBoundingClientRect().left >= name.right,
+						countInHead: !!count && count.right <= headBox.right,
+						closeInHead: !!close && close.right <= headBox.right + 0.5,
+					};
+				});
+				expect({ fontSize, width, ...geometry }).toEqual({
+					fontSize,
+					width,
+					barClearOfCount: true,
+					barAfterName: true,
+					countInHead: true,
+					closeInHead: true,
+				});
+			}
+	} finally {
+		await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
 		test(`the sidebar's usage block: one gauge line per provider with its last-used account's email, in use marked, a click opens accounts (${language} ${theme})`, async () => {

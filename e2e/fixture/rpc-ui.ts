@@ -5700,12 +5700,15 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					break;
 				}
 				// A todo tool call settling mid-run: the workspace dock appears above
-				// the composer and takes height from the transcript viewport.
-				if (line === "fixture:todo") {
+				// the composer and takes height from the transcript viewport. `fixture:todo <n>` lists n tasks
+				// (default 6), the first half done and the next one in progress.
+				if (line === "fixture:todo" || line.startsWith("fixture:todo ")) {
 					const tool = { toolCallId: `todo-${Date.now()}`, toolName: "todo" };
-					const tasks = Array.from({ length: 6 }, (_, index) => ({
+					const count = Number(line.split(" ")[1] ?? 6);
+					const doneCount = line === "fixture:todo" ? 0 : Math.floor(count / 2);
+					const tasks = Array.from({ length: count }, (_, index) => ({
 						content: `Fixture task ${index + 1}`,
-						status: index === 0 ? "in_progress" : "pending",
+						status: index < doneCount ? "completed" : index === doneCount ? "in_progress" : "pending",
 					}));
 					write({ type: "tool_execution_start", ...tool, args: {} });
 					write({

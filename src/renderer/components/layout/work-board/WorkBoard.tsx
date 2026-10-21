@@ -14,7 +14,7 @@
  */
 
 import { Check, Pause, X } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
@@ -97,7 +97,12 @@ const WAITING_AGENT: Record<string, true> = { parked: true, idle: true };
 
 function SegmentBar({ segments, label }: { segments: TodoBoard["segments"]; label: string }) {
 	return (
-		<span aria-label={label} className="omp-work-board-segments" role="img">
+		<span
+			aria-label={label}
+			className="omp-work-board-segments"
+			role="img"
+			style={{ "--segments": segments.length } as CSSProperties}
+		>
 			{segments.map((status, index) => (
 				<span data-status={status} key={index} />
 			))}
