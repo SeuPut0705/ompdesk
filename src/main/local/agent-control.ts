@@ -43,11 +43,13 @@ export const handlers: Record<string, LocalHandler> = {
 		const { system, user } = judgeCommand.parse(command);
 		return ctx.bridge.request("agent_control.judge", { system, user });
 	},
-	/** A report another session sent this one (`ompdesk_report`): its bridge hands it to stock `sendMessage`. */
+	/**
+	 * A report another session sent this one (`ompdesk_report`): its bridge hands it to stock `sendMessage`. Answers
+	 * what the bridge did (`{duplicate, journaled}` for an id it already holds or queued).
+	 */
 	agent_control_mail: async (command, ctx) => {
 		const mail = mailCommand.parse(command);
-		await ctx.bridge.request("agent_control.mail", mail);
-		return {};
+		return ctx.bridge.request("agent_control.mail", mail);
 	},
 	/** The no-turn reports this session's bridge holds until its running turn ends (the transcript's waiting lines). */
 	get_pending_mail: async (_command, ctx) => ctx.bridge.request("agent_control.mail_pending", {}),

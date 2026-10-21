@@ -54,16 +54,18 @@ describe("agent_control.mail", () => {
 		);
 	});
 
-	it("drops a report the journal already holds, and one this process already queued", async () => {
+	it("drops a report the journal already holds, and one this process already queued, and says which", async () => {
 		const journaled = env({
 			branch: [{ type: "custom_message", customType: MAIL_CUSTOM_TYPE, details: { id: "m2" } }],
 		});
 		expect(await mail?.({ content: "x", details: { id: "m2" }, triggerTurn: true }, journaled)).toEqual({
 			duplicate: true,
+			journaled: true,
 		});
 		await mail?.({ content: "x", details: { id: "m3" }, triggerTurn: false }, env());
 		expect(await mail?.({ content: "x", details: { id: "m3" }, triggerTurn: false }, env())).toEqual({
 			duplicate: true,
+			journaled: false,
 		});
 		expect(sendMessage).toHaveBeenCalledTimes(1);
 	});

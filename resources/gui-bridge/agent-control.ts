@@ -153,8 +153,12 @@ export const methods: BridgeMethods = {
 		const details = (record.details ?? {}) as Record<string, unknown>;
 		const id = typeof details.id === "string" ? details.id : undefined;
 		// Idempotent across restarts of either side: the journal is the record of what arrived (and, until stock
-		// journals a queued one, this process remembers it).
-		if (id && (queuedMail.has(id) || hasMail(env, id))) return { duplicate: true };
+		// journals a queued one, this process remembers it). `journaled` tells main which of the two it is: a report
+		// main keeps for a receiver that may be cut by a quit stays kept until the journal holds it.
+		if (id) {
+			const journaled = hasMail(env, id);
+			if (journaled || queuedMail.has(id)) return { duplicate: true, journaled };
+		}
 		if (id) queuedMail.add(id);
 		const message = { customType: MAIL_CUSTOM_TYPE, content, display: true, details };
 		const deliverAs = record.deliverAs === "followUp" || record.deliverAs === "aside" ? record.deliverAs : undefined;
