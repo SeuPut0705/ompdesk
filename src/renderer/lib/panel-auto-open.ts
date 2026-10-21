@@ -124,7 +124,13 @@ async function prefOn(key: string): Promise<boolean> {
 	}
 }
 
-function install(): void {
+/**
+ * Watch the panel (the store and the touches that mark it in use). Once per app, at its start (useRpcEvents): a first
+ * install from the first event batch came at an unforeseeable moment, so the document's listener set changed in the
+ * middle of the app's life (nightly 39539556435, desktop.e2e's listener audit: four capture listeners "added by the
+ * cycles" whenever no batch had arrived before its baseline).
+ */
+export function installPanelAutoOpen(): void {
 	if (installed) return;
 	installed = true;
 	useUiStore.subscribe((next, previous) => {
@@ -272,7 +278,7 @@ function offerAutopilotScreen(tabId: string, status: AutopilotStatus): void {
 
 /** Feed one tab's event batch: the focused tab's dev servers and edits may open the side panel. */
 export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessionEvent[]): void {
-	install();
+	installPanelAutoOpen();
 	for (const event of events) {
 		switch (event.type) {
 			case "agent_start":
