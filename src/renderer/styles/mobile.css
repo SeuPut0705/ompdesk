@@ -1351,6 +1351,36 @@ html[data-input="touch"]
 	--hit-gap-y: 12px;
 }
 
+/* On a phone the same icons draw 24 px behind a 1 px border, their ::after starting from the 22 px inside: 14 px apart
+   and bounded at 14 each reaches 36 (10 and 12 left the terminal's, the Files view's and the Preview's 32×34). */
+html[data-shell="phone"][data-input="touch"]
+	:is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector)
+	:is(div, span, form).flex:not(.flex-col, [data-staged], [data-terminal-keybar], [data-terminal-keybar] *):has(
+		> button + button
+	) {
+	column-gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+/* Lone buttons of a side panel view, each with room around it that no neighbour claims: the terminal's New terminal
+   (its 40 px head leaves 8 px above and below it), the Files viewer's Back (beside its file's name) and an empty
+   state's actions (Preview's Enter URL). The panel's 4 px bound left them 26-32 px. */
+html[data-input="touch"] :is([data-terminal-head], [data-file-viewer-head]) {
+	--hit-gap-x: 10px;
+	--hit-gap-y: 14px;
+}
+
+html[data-shell="phone"][data-input="touch"] :is([data-terminal-head], [data-file-viewer-head]) {
+	column-gap: 14px;
+	--hit-gap-x: 14px;
+}
+
+html[data-input="touch"] [data-empty-actions] {
+	--hit-gap-x: 8px;
+	--hit-gap-y: initial;
+}
+
 /* A Changes row (stage box, file, discard) is a list row: a row tall and flush with the next, so its reach stays in it
    (the file button's reach lay 1 px over the next row's). */
 html[data-input="touch"] .omp-changes [data-staged][data-staged] {

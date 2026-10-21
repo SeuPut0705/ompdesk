@@ -52,7 +52,11 @@ export function EmptyState({ icon, title, description, actions, size = "md", cla
 					</p>
 				)}
 			</div>
-			{actions && <div className="mt-1 flex flex-wrap items-center justify-center gap-2">{actions}</div>}
+			{actions && (
+				<div className="mt-1 flex flex-wrap items-center justify-center gap-2" data-empty-actions>
+					{actions}
+				</div>
+			)}
 		</div>
 	);
 }

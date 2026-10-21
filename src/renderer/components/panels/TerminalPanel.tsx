@@ -504,6 +504,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					"flex min-h-(--sc-space-10) min-w-0 shrink-0 items-center border-b border-(--sc-divider) px-3 py-2",
 					touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1",
 				)}
+				data-terminal-head
 			>
 				<div
 					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
