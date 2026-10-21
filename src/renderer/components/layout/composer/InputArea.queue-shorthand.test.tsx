@@ -1456,7 +1456,7 @@ describe("InputArea composer keys", () => {
 		await pressKey({ key: "Escape" });
 		await pressKey({ key: "Escape" });
 		await flush();
-		expect(useUiStore.getState().panelTab).toBe("tree");
+		expect(useUiStore.getState().viewSheet?.view).toBe("tree");
 	});
 
 	it("moves through the completion menu with Home, End, PageUp and PageDown", async () => {

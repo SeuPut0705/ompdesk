@@ -338,7 +338,7 @@ describe("WorkBoard sections", () => {
 		rows = [jobRow({ id: "j1", type: "bash", status: "running", label: "watch", startTime: Date.now() })];
 		await mount();
 		await click('[data-board-job="j1"]');
-		expect(useUiStore.getState().panelTab).toBe("jobs");
+		expect(useUiStore.getState().viewSheet?.view).toBe("jobs");
 	});
 
 	it("shows the todo list with its active item, folds the done ones and scrolls to the card on a click", async () => {

@@ -1,7 +1,7 @@
 /**
  * Every user-facing entry point captured for a UX review: the session window
  * (sidebar, title bar, composer chips), the composer's + menu, the help menu,
- * the session menu, the command palette, the side panel with ⋮ View options,
+ * the session menu, the command palette, the side panel and a session-view sheet (Background tasks),
  * and every Settings section (scrolled page by page), in light/dark × en/ko
  * plus a narrow window. Opt-in: `OMP_GUI_UX_CAPTURES=<dir>`; on the fake omp
  * unless `OMP_GUI_UX_REAL=1`, which runs the system omp on an empty agent dir
@@ -22,7 +22,7 @@ const LABELS = {
 		add: "Attach and more",
 		help: "Help",
 		actions: "Session actions",
-		viewOptions: "View options",
+		jobs: "Background tasks",
 		setup: "Set up OMPdesk",
 		later: "Set up later",
 	},
@@ -30,7 +30,7 @@ const LABELS = {
 		add: "첨부 및 더 보기",
 		help: "도움말",
 		actions: "세션 메뉴",
-		viewOptions: "보기 옵션",
+		jobs: "백그라운드 작업",
 		setup: "OMPdesk 시작하기",
 		later: "나중에 설정",
 	},
@@ -149,15 +149,25 @@ for (const language of ["en", "ko"] as const)
 					await page.keyboard.press("Escape");
 					await expect(page.getByRole("dialog")).toHaveCount(0);
 
-					// The narrow window floats the panel over the session; its menu is the same.
+					// The narrow window floats the panel over the session; its views are the same.
 					if (mode === "wide") {
 						await page.keyboard.press("Meta+j");
 						const aside = page.locator("aside[data-docked]");
 						await expect(aside).toBeVisible();
-						await aside.getByRole("button", { name: label.viewOptions, exact: true }).click();
-						await expect(page.getByRole("menu")).toBeVisible();
 						await shot(`${mode}-06-panel-views`);
+						await page.keyboard.press("Meta+k");
+						const search = page.getByRole("dialog").getByRole("searchbox");
+						await expect(search).toBeVisible();
+						await search.fill(label.jobs);
+						await page
+							.getByRole("dialog")
+							.locator("button[data-palette-index]", { hasText: label.jobs })
+							.first()
+							.click();
+						await expect(page.locator('[data-view-sheet="jobs"]')).toBeVisible();
+						await shot(`${mode}-07-view-sheet`);
 						await page.keyboard.press("Escape");
+						await expect(page.locator('[data-view-sheet="jobs"]')).toHaveCount(0);
 						await page.keyboard.press("Meta+j");
 						await expect(aside).toHaveCount(0);
 					}

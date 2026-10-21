@@ -86,16 +86,6 @@ function seedActiveTab(kind: "agent" | "chat"): void {
 	});
 }
 
-async function openViewMenu(): Promise<void> {
-	const button = document.querySelector('button[aria-label="View options"]') as HTMLElement;
-	button.getBoundingClientRect = () => ({ left: 0, right: 32, bottom: 48 }) as DOMRect;
-	await act(async () => {
-		const event = new Event("click", { bubbles: true });
-		Object.defineProperty(event, "eventPhase", { value: 0, writable: true });
-		button.dispatchEvent(event);
-	});
-}
-
 function dispatchPointer(element: Element, type: string, clientX: number): void {
 	const event = new Event(type, { bubbles: true, cancelable: true });
 	Object.defineProperties(event, {
@@ -117,56 +107,40 @@ function FileLinkHarness({ content = "[report](docs/report.md)" }: { content?: s
 
 describe("PanelContainer", () => {
 	for (const kind of ["agent", "chat"] as const) {
-		it(`renders every side panel view in an ${kind} tab, labelled as one region`, async () => {
+		it(`shows four views and no View options list in an ${kind} tab, labelled as one region`, async () => {
 			seedActiveTab(kind);
 			useUiStore.setState({ panelTab: "files", panelVisible: true });
 			await mount(<PanelContainer />);
-			expect(document.querySelector(".omp-panel-topbar")?.querySelectorAll("button")).toHaveLength(6);
+			// The four views and the close button; nothing more in the header.
+			expect(document.querySelector(".omp-panel-topbar")?.querySelectorAll("button")).toHaveLength(5);
+			expect(document.querySelector('button[aria-label="View options"]')).toBeNull();
 			expect(document.querySelector(".omp-panel-topbar")?.querySelector('[aria-label="Refresh"]')).toBeNull();
 			expect(document.querySelector("[data-panel-actions]")).not.toBeNull();
-
-			await openViewMenu();
-			const views = [...document.querySelectorAll('[role="menuitemcheckbox"]')].map(button =>
-				button.textContent?.trim(),
-			);
-			expect(views).toEqual(["Background tasks", "Plan", "Logs", "Queue", "Tree", "Work tree", "Memory"]);
 			for (const label of ["Terminal", "Changes", "Preview", "Files"]) {
 				const button = document.querySelector(`button[aria-label="${label}"]`);
 				expect(button).not.toBeNull();
 				expect(button?.getAttribute("aria-pressed")).toBe(String(label === "Files"));
 			}
-			const tree = document.querySelectorAll('[role="menuitemcheckbox"]')[4]!;
-			await act(async () => {
-				const event = new Event("click", { bubbles: true });
-				Object.defineProperty(event, "eventPhase", { value: 0, writable: true });
-				tree.dispatchEvent(event);
-			});
-			expect(useUiStore.getState().panelTab).toBe("tree");
-			expect(document.querySelector(".omp-panel-topbar")?.textContent).toContain("Tree");
-			await openViewMenu();
-			expect(document.querySelectorAll('[role="menuitemcheckbox"]')[4]?.getAttribute("aria-checked")).toBe("true");
 			expect(document.querySelector("aside")?.getAttribute("aria-label")).toBe("Side panel");
 			expect(document.querySelector('button[aria-label="Close side panel"]')).not.toBeNull();
 		});
 	}
 
-	it("opens Queue, Tree and Jobs through the store like the other views", async () => {
+	it("opens Jobs and the session tree as sheets and the panel's views in the panel", async () => {
 		seedActiveTab("agent");
-		useUiStore.setState({ panelVisible: false });
+		useUiStore.setState({ panelVisible: false, viewSheet: null });
 		useUiStore.getState().openJobs();
-		expect(useUiStore.getState()).toMatchObject({ panelVisible: true, panelTab: "jobs" });
+		expect(useUiStore.getState().viewSheet?.view).toBe("jobs");
 		useUiStore.getState().openSessionTree();
-		expect(useUiStore.getState().panelTab).toBe("tree");
-		seedActiveTab("chat");
-		useUiStore.getState().setPanelTab("diff");
-		expect(useUiStore.getState().panelTab).toBe("diff");
-		useUiStore.getState().setPanelTab("queue");
-		expect(useUiStore.getState().panelTab).toBe("queue");
+		expect(useUiStore.getState().viewSheet?.view).toBe("tree");
+		expect(useUiStore.getState().panelVisible).toBe(false);
+		useUiStore.getState().closeViewSheet();
 		useUiStore.getState().openPreview("http://localhost:3000");
 		expect(useUiStore.getState()).toMatchObject({
 			panelTab: "preview",
 			panelVisible: true,
 			previewUrl: "http://localhost:3000",
+			viewSheet: null,
 		});
 	});
 
@@ -174,22 +148,6 @@ describe("PanelContainer", () => {
 		for (const view of PANEL_TABS) expect(migrateDefaultPanelTab(view)).toBe(view);
 		expect(migrateDefaultPanelTab("retired")).toBe("diff");
 		expect(migrateDefaultPanelTab(null)).toBe("diff");
-	});
-
-	it("reaches secondary views with menu keyboard navigation", async () => {
-		seedActiveTab("agent");
-		useUiStore.setState({ panelTab: "files" });
-		await mount(<PanelContainer />);
-		await openViewMenu();
-		const menu = document.querySelector('[role="menu"]')!;
-		for (const key of ["ArrowDown", "Enter"]) {
-			await act(async () => {
-				const event = new Event("keydown", { bubbles: true, cancelable: true });
-				Object.defineProperty(event, "key", { value: key });
-				menu.dispatchEvent(event);
-			});
-		}
-		expect(useUiStore.getState().panelTab).toBe("plan");
 	});
 
 	it("defaults to the docked 360–460px range on wide windows", async () => {

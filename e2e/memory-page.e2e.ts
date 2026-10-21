@@ -130,17 +130,12 @@ test("the Memory page: search, read, edit, delete, restore and cancel a handoff 
 			await expect(section.locator("[data-memory-observation]")).toHaveCount(10);
 		});
 
-		await test.step("the side panel is a glance that opens this page", async () => {
+		await test.step("closing Settings and reopening the Memory page from the palette lists the pages again", async () => {
 			await page.keyboard.press("Escape");
 			await expect(page.locator("[data-settings-page]")).toHaveCount(0);
-			const aside = page.locator("aside[data-docked]");
-			await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
-			await aside.getByRole("button", { name: "View options", exact: true }).click();
-			await page.getByRole("menuitemcheckbox", { name: "Memory", exact: true }).click();
-			const panel = aside.locator("[data-ai-memory-panel]");
-			await expect(panel.locator("[data-ai-memory-recent]")).toContainText("Keep functions short");
-			await panel.locator("[data-memory-open]").click();
-			await expect(page.locator("[data-settings-page] #settings-memory")).toBeVisible();
+			const reopened = await openMemory(page);
+			await reopened.getByRole("tab", { name: "Pages" }).click();
+			await expect(reopened.locator('[data-memory-page="decisions/0007-db.md"]')).toBeVisible();
 		});
 
 		expect(current.errors).toEqual([]);

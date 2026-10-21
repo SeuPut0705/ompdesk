@@ -156,8 +156,8 @@ describe("ComposerQueuePill", () => {
 		expect(pill()?.getAttribute("aria-expanded")).toBe("true");
 		const heads = Array.from(document.querySelectorAll("[data-lane-head]")) as unknown as TestElement[];
 		expect(heads.map(head => head.textContent)).toEqual([
-			"After next step1· arrive together",
-			"After this turn2· sent one by one",
+			"After next step1· arrive togetherClear",
+			"After this turn2· sent one by oneClear",
 		]);
 		const rows = Array.from(document.querySelectorAll("[data-queue-row]")) as unknown as TestElement[];
 		expect(rows.map(row => row.getAttribute("data-lane"))).toEqual(["steering", "followUp", "followUp"]);
@@ -266,6 +266,15 @@ describe("ComposerQueuePill", () => {
 		expect(queueClear).toHaveBeenCalledWith("steering");
 		expect(queueClear).toHaveBeenCalledWith("followUp");
 		expect(settled).toHaveBeenCalledTimes(1);
+	});
+
+	it("clears one lane from its heading and keeps the other", async () => {
+		await mount([queued("s1", "one")], [queued("f1", "two")]);
+		await openPopover();
+		const clear = document.querySelector('[data-lane-clear="followUp"]') as unknown as TestElement;
+		await click(clear);
+		expect(queueClear).toHaveBeenCalledWith("followUp");
+		expect(queueClear).not.toHaveBeenCalledWith("steering");
 	});
 
 	it("tells where an edit landed: the pill reads Edited · now last and the row carries the note", async () => {

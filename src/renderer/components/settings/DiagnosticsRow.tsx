@@ -4,14 +4,16 @@
  * details hidden by `resources/gui-bridge/redactor.ts`) with a Copy button for the clipboard. The report is read
  * again every time the preview opens, so it holds what happened since. Nothing is uploaded. The download menu
  * beside Preview saves a diagnostic bundle of the focused tab (lib/diagnostic-bundle.ts): stock's `/dump` zip
- * plus this same text, anonymized with Option/Alt or its own item.
+ * plus this same text, anonymized with Option/Alt or its own item. Live log opens the Logs sheet (the app's log as it
+ * is written, with search and a level filter).
  */
-import { Check, ClipboardList, Copy, Download } from "lucide-react";
+import { Check, ClipboardList, Copy, Download, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { saveFocusedDiagnosticBundle } from "../../lib/diagnostic-bundle";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
+import { useUiStore } from "../../stores/ui";
 import { Button, InlineNotice, MenuButton } from "../common";
 import { SettingsRow } from "./SettingsLayout";
 
@@ -100,6 +102,15 @@ export function DiagnosticsRow() {
 						size="sm"
 						variant="secondary"
 					/>
+					<Button
+						data-diagnostics-live-log
+						icon={<ScrollText aria-hidden />}
+						onClick={() => useUiStore.getState().openViewSheet("logs")}
+						size="sm"
+						variant="secondary"
+					>
+						{t("about.liveLog")}
+					</Button>
 				</div>
 			}
 			description={t("about.diagnosticsDesc")}

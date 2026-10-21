@@ -122,12 +122,17 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 
 	const aside = page.locator("aside[data-docked]");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
-	await aside.getByRole("button", { name: "View options", exact: true }).click();
-	for (const name of ["Background tasks", "Plan", "Logs", "Queue", "Tree", "Memory"]) {
-		await expect(page.getByRole("menuitemcheckbox", { name, exact: true })).toBeVisible();
+	await expect(aside.getByRole("button", { name: "View options", exact: true })).toHaveCount(0);
+	for (const name of ["Terminal", "Changes", "Preview", "Files"]) {
+		await expect(aside.locator(".omp-panel-topbar").getByRole("button", { name, exact: true })).toBeVisible();
 	}
-	await page.getByRole("menuitemcheckbox", { name: "Tree", exact: true }).click();
-	await expect(aside.locator(".omp-panel-topbar")).toContainText("Tree");
+	// The other views are modal sheets, reached from the command palette.
+	const palette = page.getByRole("dialog").getByRole("searchbox");
+	await pressShortcutUntilVisible(page, "ControlOrMeta+k", palette);
+	await palette.fill("Session tree");
+	await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: "Session tree" }).first().click();
+	await expect(page.getByRole("dialog", { name: "Session tree" })).toBeVisible();
+	await expect(page.locator('[data-view-sheet="tree"]')).toBeVisible();
 	expect(errors).toEqual([]);
 });
 

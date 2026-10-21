@@ -1,4 +1,4 @@
-/** Dev harness: the unused worktrees `get_orphan_worktrees` lists (Work tree view), one of each state. */
+/** Dev harness: the unused worktrees `get_orphan_worktrees` lists (Work tree sheet), one of each state. */
 import type { DiskCareState, SavedWorktree, SavedWorktreeRestore } from "../../shared/disk-care";
 import type { RpcOrphanWorktrees } from "../../shared/rpc-types";
 

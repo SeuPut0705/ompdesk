@@ -64,7 +64,7 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 		const aside = page.locator("aside[data-docked]");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
 		await aside.getByRole("button", { name: "Preview", exact: true }).click();
-		await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(6);
+		await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(5);
 		await expect(aside.locator("form").getByRole("button", { name: "Open in browser", exact: true })).toBeVisible();
 		await page.getByRole("textbox", { name: "Preview URL" }).fill(url);
 		await page.getByRole("textbox", { name: "Preview URL" }).press("Enter");
@@ -86,7 +86,15 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 		});
 		expect(security).toEqual({ title: "Local preview fixture", node: "undefined", ipc: "undefined" });
 		expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused())).toBe(false);
-		await page.getByRole("button", { name: "View options", exact: true }).click();
+		const palette = page.getByRole("dialog").getByRole("searchbox");
+		await pressShortcutUntilVisible(page, "ControlOrMeta+k", palette);
+		await palette.fill("Background tasks");
+		await page
+			.getByRole("dialog")
+			.locator("button[data-palette-index]", { hasText: "Background tasks" })
+			.first()
+			.click();
+		await expect(page.locator('[data-view-sheet="jobs"]')).toBeVisible();
 		await expect
 			.poll(() =>
 				app.evaluate(({ BrowserWindow }) =>

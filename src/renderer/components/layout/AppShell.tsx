@@ -34,6 +34,7 @@ import { Sidebar } from "./sidebar/Sidebar";
 import { TabHousekeeping } from "./TabHousekeeping";
 import { TitleBar } from "./TitleBar";
 import { UpdateBanner } from "./UpdateBanner";
+import { ViewSheetHost } from "./ViewSheetHost";
 import { WhatsNewCard } from "./WhatsNewCard";
 
 const AgentsPage = lazyChunk(() => import("../agents/AgentsPage").then(m => ({ default: m.AgentsPage })));
@@ -392,6 +393,7 @@ export function AppShell() {
 			</main>
 
 			{panelOpen && panelSide === "right" && <PanelContainer />}
+			<ViewSheetHost />
 		</div>
 	);
 }

@@ -78,6 +78,24 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 	},
 ];
 
+/**
+ * Side panel views the panel no longer holds (21 Oct 2026: they open as sheets, live on the work board, Settings ›
+ * Memory or the composer's queue popover). A default view among them is forgotten (the panel opens on Changes) and
+ * their `panel.<view>` shortcuts are dropped from `keymapOverrides`. Its keys hold dots, so the object is rewritten
+ * whole: a dotted path would name a nested value.
+ */
+const RETIRED_PANEL_VIEWS = ["jobs", "plan", "logs", "queue", "tree", "work", "memory"];
+
+function retirePanelViews(store: PrefsLike): void {
+	if (RETIRED_PANEL_VIEWS.includes(store.get("defaultPanelTab") as string)) store.delete("defaultPanelTab");
+	const overrides = store.get("keymapOverrides");
+	if (!overrides || typeof overrides !== "object") return;
+	const kept = Object.fromEntries(
+		Object.entries(overrides).filter(([id]) => !RETIRED_PANEL_VIEWS.some(view => id === `panel.${view}`)),
+	);
+	if (Object.keys(kept).length !== Object.keys(overrides).length) store.set("keymapOverrides", kept);
+}
+
 export function migrateRetiredPrefs(store: PrefsLike): void {
 	for (const merge of MERGES) {
 		if (store.has(merge.into) && !merge.from.includes(merge.into)) continue;
@@ -85,4 +103,5 @@ export function migrateRetiredPrefs(store: PrefsLike): void {
 		if (value !== undefined) store.set(merge.into, value);
 	}
 	for (const { key } of RETIRED_PREFS) store.delete(key);
+	retirePanelViews(store);
 }

@@ -154,12 +154,6 @@ const SHORTCUT_ROWS: Record<KeymapActionId, string | null> = {
 	"panel.diff": "git",
 	"panel.preview": "preview",
 	"panel.files": "files",
-	"panel.jobs": "jobs",
-	"panel.plan": "plan-panel",
-	"panel.logs": "logs",
-	"panel.queue": "queue-panel",
-	"panel.tree": "tree-panel",
-	"panel.memory": "memory-panel",
 	hotkeys: "hotkeys",
 };
 

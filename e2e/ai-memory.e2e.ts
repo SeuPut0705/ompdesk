@@ -7,7 +7,7 @@
  * against a scratch agent dir, then the three generators `install-hooks|install-mcp|install-skills` into OMPdesk's own
  * extension root `<userData>/ai-memory/omp-ext`; OMPdesk writes nothing by hand). Nothing lands in omp's agent dir. A new
  * session's omp is spawned with `-e <root>`, Settings shows exactly one Memory (ai-memory) section and no stock memory
- * rows, and the side panel's Memory view reads the server. "Also use in the terminal omp" runs ai-memory's own
+ * rows, and Settings › Memory reads the server. "Also use in the terminal omp" runs ai-memory's own
  * `setup --agent omp` into the agent dir (new sessions then stop loading the root: no double capture) and its reverse
  * removes just that extension and MCP entry. Delete-all-memory stops the server, wipes wiki/db/raw itself and sets up
  * again. The switch off NEVER runs `uninstall --apply`: the root is gone, new sessions get no `-e`, the planted
@@ -143,22 +143,25 @@ test("ai-memory loads through an app-owned root, shows one memory section, and i
 			expect(argv.join(" ")).toContain(`-e ${rig.extRoot}`);
 		});
 
-		await test.step("the side panel's Memory view shows the server's data", async () => {
-			const aside = page.locator("aside[data-docked]");
-			await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
-			await aside.getByRole("button", { name: "View options", exact: true }).click();
-			await page.getByRole("menuitemcheckbox", { name: "Memory", exact: true }).click();
-			const panel = aside.locator("[data-ai-memory-panel]");
-			await expect(panel).toBeVisible();
-			await expect(panel.locator("[data-ai-memory-header]")).toContainText(/4 pages · 2 sessions · 17 observations/);
-			await expect(panel.locator("[data-ai-memory-recent]")).toContainText("Session: fix the cache");
-			await expect(panel.locator("[data-ai-memory-recent]")).toContainText("Use SQLite for the cache");
-			await expect(panel.locator("[data-ai-memory-handoffs]")).toContainText(
+		await test.step("Settings › Memory shows the server's data: counts, pages, handoffs", async () => {
+			const search = page.getByRole("dialog").getByRole("searchbox");
+			await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
+			await search.fill("memory");
+			await page
+				.getByRole("dialog")
+				.locator("button[data-palette-index]", { hasText: "Open the Memory page" })
+				.click();
+			const section = page.locator("[data-settings-page] #settings-memory");
+			await expect(section).toBeVisible();
+			await expect(section.locator("[data-memory-counts]")).toHaveText("4 pages · 2 sessions · 17 observations");
+			await section.getByRole("tab", { name: "Pages" }).click();
+			await expect(section).toContainText("Keep functions short");
+			await expect(section).toContainText("Use SQLite for the cache");
+			await section.getByRole("tab", { name: "Handoffs" }).click();
+			await expect(section.locator("[data-memory-handoffs-list]")).toContainText(
 				"Cache fix half done; next: add the eviction test.",
 			);
-			// The panel is a glance: its button and its rows open the Memory page in Settings.
-			await panel.locator("[data-memory-open]").click();
-			await expect(page.locator("[data-settings-page] #settings-memory")).toBeVisible();
+			await section.getByRole("tab", { name: "Overview" }).click();
 			await page.keyboard.press("Escape");
 			await expect(page.locator("[data-settings-page]")).toHaveCount(0);
 		});

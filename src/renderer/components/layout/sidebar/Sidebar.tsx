@@ -280,7 +280,7 @@ const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { ic
 	diff: { icon: RAIL_PIN_ICONS.diff, open: () => showPanelView("diff") },
 	preview: { icon: RAIL_PIN_ICONS.preview, open: () => showPanelView("preview") },
 	files: { icon: RAIL_PIN_ICONS.files, open: () => showPanelView("files") },
-	jobs: { icon: RAIL_PIN_ICONS.jobs, open: () => showPanelView("jobs") },
+	jobs: { icon: RAIL_PIN_ICONS.jobs, open: () => useUiStore.getState().openJobs() },
 	schedules: { icon: RAIL_PIN_ICONS.schedules, open: () => useUiStore.getState().openSettings("schedules") },
 };
 

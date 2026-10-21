@@ -2,10 +2,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "../../lib/i18n";
-import { useSessionStore } from "../../stores/session";
-import { useTabsStore } from "../../stores/tabs";
-import { PlanPanel } from "./PlanPanel";
+import { I18nProvider } from "../../../lib/i18n";
+import { useSessionStore } from "../../../stores/session";
+import { useTabsStore } from "../../../stores/tabs";
+import { PlanDockCard } from "./PlanDockCard";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -40,13 +40,13 @@ async function mount(content: string | null) {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<PlanPanel />
+				<PlanDockCard presentation="sheet" />
 			</I18nProvider>,
 		);
 	});
 }
 
-describe("PlanPanel", () => {
+describe("the plan document sheet", () => {
 	it("renders the current plan steps and their completed state", async () => {
 		await mount("# Delivery\n- [x] Read stock state\n- [ ] Implement view\n");
 		expect(container.textContent).toContain("Read stock state");

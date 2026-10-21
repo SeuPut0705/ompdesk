@@ -1428,7 +1428,7 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		shortcut: kbd("panel.diff"),
 		affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab("diff") },
 	});
-	for (const view of ["terminal", "preview", "files", "logs"] as const) {
+	for (const view of ["terminal", "preview", "files"] as const) {
 		add({
 			name: view,
 			label: t(`panel.tabs.${view}`),
@@ -1438,15 +1438,18 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 			affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab(view) },
 		});
 	}
-	// `plan`, `queue`, `tree` and `memory` already name commands; their panel views take a suffix.
-	for (const view of ["plan", "queue", "tree", "memory"] as const) {
+	// The session views that open as sheets (`jobs` and `tree` are their own commands above and below).
+	for (const [name, view] of [
+		["logs", "logs"],
+		["plan-document", "plan"],
+		["work-tree", "work"],
+	] as const) {
 		add({
-			name: `${view}-panel`,
-			label: t(`panel.tabs.${view}`),
-			description: t("panel.title"),
+			name,
+			label: t(`viewSheet.${view}`),
+			description: t(`viewSheet.${view}.desc`),
 			category: "panel",
-			shortcut: kbd(`panel.${view}`),
-			affordance: { kind: "window", open: () => useUiStore.getState().setPanelTab(view) },
+			affordance: { kind: "window", open: () => useUiStore.getState().openViewSheet(view) },
 		});
 	}
 	add({
@@ -1587,7 +1590,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		label: t("cmd.jobs"),
 		description: t("cmd.jobs.desc"),
 		category: "panel",
-		shortcut: kbd("panel.jobs"),
 		affordance: { kind: "window", open: () => useUiStore.getState().openJobs() },
 	});
 	add({

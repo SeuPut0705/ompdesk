@@ -94,25 +94,16 @@ export const AGENT_CONTROL_TOOLS = {
 export const AGENT_CONTROL_APP = "agent-control:app";
 
 /** The side panel's views an agent may open (mirrors `PANEL_TABS` of the renderer's ui store; a test keeps them equal). */
-export const AGENT_PANEL_TABS = [
-	"terminal",
-	"diff",
-	"preview",
-	"files",
-	"jobs",
-	"plan",
-	"logs",
-	"queue",
-	"tree",
-	"work",
-	"memory",
-] as const;
+export const AGENT_PANEL_TABS = ["terminal", "diff", "preview", "files"] as const;
+
+/** The session views an agent may open as a sheet (mirrors `VIEW_SHEETS` of the renderer's ui store; a test keeps them equal). */
+export const AGENT_VIEW_SHEETS = ["jobs", "plan", "logs", "tree", "work"] as const;
 
 /** What one step back restores: a stored preference or a stock setting, as the user's own Settings control writes it. */
 export type AppUndo = { kind: "pref"; key: string; value: unknown } | { kind: "setting"; path: string; value: unknown };
 
 export type AgentAppEvent =
-	| { kind: "panel"; tab: (typeof AGENT_PANEL_TABS)[number] | null }
+	| { kind: "panel"; tab: (typeof AGENT_PANEL_TABS)[number] | (typeof AGENT_VIEW_SHEETS)[number] | null }
 	| { kind: "settings"; section: string; sub?: string }
 	| { kind: "pref"; key: string; value: unknown }
 	| { kind: "toast"; message: string; undo?: AppUndo };

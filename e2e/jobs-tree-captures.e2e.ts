@@ -1,5 +1,5 @@
 /**
- * Capture of Background tasks with stock's jobs tree (the fake omp's `OMP_GUI_TEST_JOB_TREE=1` rows plus the
+ * Capture of the Background tasks sheet (opened from the work board's job row) with stock's jobs tree (the fake omp's `OMP_GUI_TEST_JOB_TREE=1` rows plus the
  * `fixture:subagents` roster) in Korean on a desktop window: a subagent's shells and its nested subagent's shell
  * under it, the roster's titles on the task rows, a header for a subagent whose task job is gone, and Cancel only on
  * the session's own jobs. Registered only with `OMP_GUI_JOBS_TREE_SHOTS=<dir>`.
@@ -38,20 +38,20 @@ if (shots) {
 			expect(roster.success).toBe(true);
 
 			await page.locator('[data-board-job="dev"]').click();
-			const aside = page.locator("aside[data-docked]");
-			await expect(aside.locator('[data-job-id="sh-locales"]')).toBeVisible({ timeout: 15_000 });
+			const sheet = page.locator('[data-view-sheet="jobs"]');
+			await expect(sheet.locator('[data-job-id="sh-locales"]')).toBeVisible({ timeout: 15_000 });
 
-			const depth = (id: string) => aside.locator(`[data-job-id="${id}"]`).getAttribute("data-job-depth");
+			const depth = (id: string) => sheet.locator(`[data-job-id="${id}"]`).getAttribute("data-job-depth");
 			expect([
 				await depth("sa-explore"),
 				await depth("sh-rg"),
 				await depth("sa-nested"),
 				await depth("sh-locales"),
 			]).toEqual(["0", "1", "1", "2"]);
-			await expect(aside.locator('[data-job-id="sa-explore"]')).toContainText("Map the settings code");
-			await expect(aside.locator('[data-job-id="sa-nested"]')).toContainText("Read locale files");
-			await expect(aside.locator('[data-job-agent-id="sa-evicted"]')).toHaveText("sa-evicted");
-			const cancels = (id: string) => aside.locator(`[data-job-id="${id}"] button`, { hasText: "취소" }).count();
+			await expect(sheet.locator('[data-job-id="sa-explore"]')).toContainText("Map the settings code");
+			await expect(sheet.locator('[data-job-id="sa-nested"]')).toContainText("Read locale files");
+			await expect(sheet.locator('[data-job-agent-id="sa-evicted"]')).toHaveText("sa-evicted");
+			const cancels = (id: string) => sheet.locator(`[data-job-id="${id}"] button`, { hasText: "취소" }).count();
 			expect([
 				await cancels("dev"),
 				await cancels("sa-explore"),
@@ -61,7 +61,9 @@ if (shots) {
 
 			await page.mouse.move(0, 0);
 			await captureTo(shots, page, "jobs-tree-ko-desktop");
-			await aside.screenshot({ animations: "disabled", path: path.join(shots, "jobs-tree-ko-panel.png") });
+			await page
+				.getByRole("dialog", { name: "백그라운드 작업" })
+				.screenshot({ animations: "disabled", path: path.join(shots, "jobs-tree-ko-panel.png") });
 		} finally {
 			await exitApp(app);
 		}

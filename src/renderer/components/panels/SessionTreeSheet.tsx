@@ -1,5 +1,5 @@
 /**
- * Side panel › Tree: visual branch graph of the session from the
+ * The Session tree sheet (palette, session menus, native menu): visual branch graph of the session from the
  * `get_session_tree` RPC (nodes with parent links, roles, timestamps,
  * active-branch + leaf markers).
  *
@@ -7,10 +7,9 @@
  * depth rows top→bottom, parents centered on children, HTML cards over an
  * SVG edge layer, no graph dependency.
  *
- * The panel renders the tree inline; the toolbar's "open wide view" shows the
- * same tree in a large Sheet. Both views share one data controller (model,
- * selection, filter, label edit, drag offsets); each keeps its own camera.
- * Only one view owns the keyboard at a time — the Sheet's while it is open.
+ * The sheet reads the session of the tab focused when it opened (ViewSheetHost gives it that tab's runtime), so a
+ * paired host's tab shows the host's session. One data controller (model, selection, filter, label edit, drag
+ * offsets) and one camera; the sheet owns the keyboard while it is open.
  *
  * Interactions: drag the canvas to pan, wheel to zoom, drag a node to
  * rearrange it visually (cosmetic, kept per session in memory — the wire has
@@ -23,14 +22,8 @@
  * and keyboard navigation (↑/↓ select, Enter switch, L edit label).
  */
 
-import { GitBranch, GitFork, Maximize, Maximize2, RotateCcw, RotateCw, Tag, ZoomIn, ZoomOut } from "lucide-react";
-import type {
-	Dispatch,
-	MouseEvent as ReactMouseEvent,
-	ReactNode,
-	PointerEvent as ReactPointerEvent,
-	SetStateAction,
-} from "react";
+import { GitBranch, GitFork, Maximize, RotateCcw, RotateCw, Tag, ZoomIn, ZoomOut } from "lucide-react";
+import type { Dispatch, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcForkFromResult, RpcSwitchLeafResult } from "../../../shared/rpc-types";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
@@ -504,25 +497,16 @@ function useSessionTreeController(onNavigated: () => void): SessionTreeControlle
  * docked panel must not steal ↑/↓ from the transcript), `document` takes the
  * whole window (the modal wide view), `null` disables it.
  */
-type KeyboardScope = "element" | "document" | null;
 
-/** Toolbar + canvas + footer for one view of the tree. Each view owns its camera. */
-function SessionTreeView({
-	tree,
-	keyboardScope,
-	toolbarAction,
-}: {
-	tree: SessionTreeController;
-	keyboardScope: KeyboardScope;
-	toolbarAction?: ReactNode;
-}) {
+/** Toolbar + canvas + footer of the tree. */
+/** `active`: the sheet is open and the tree takes the document's keys. */
+function SessionTreeView({ tree, active }: { tree: SessionTreeController; active: boolean }) {
 	const t = useT();
 	const { model, layout, nodeById, offsets, selectedId, sidecarReady, branching } = tree;
 	const [transform, setTransform] = useState<ViewTransform>({ x: 0, y: 0, k: 1 });
 	const [size, setSize] = useState({ w: 0, h: 0 });
 	const [activeDrag, setActiveDrag] = useState<"pan" | "node" | null>(null);
 
-	const rootRef = useRef<HTMLDivElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const dragRef = useRef<DragState | null>(null);
 	const transformRef = useRef(transform);
@@ -741,9 +725,8 @@ function SessionTreeView({
 	// first), L opens the label editor. Skips text inputs, native button
 	// activation, and keys a menu or field already claimed.
 	useEffect(() => {
-		if (!keyboardScope || !canvasReady) return;
-		const target = keyboardScope === "document" ? document : rootRef.current;
-		if (!target) return;
+		if (!active || !canvasReady) return;
+		const target = document;
 		const onKeyDown = (raw: Event) => {
 			const event = raw as KeyboardEvent;
 			if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -775,7 +758,7 @@ function SessionTreeView({
 		};
 		target.addEventListener("keydown", onKeyDown);
 		return () => target.removeEventListener("keydown", onKeyDown);
-	}, [keyboardScope, canvasReady, ensureNodeVisible]);
+	}, [active, canvasReady, ensureNodeVisible]);
 
 	// Effective (post-drag) node positions + viewport culling, all in world coordinates.
 	const positions = new Map<string, { x: number; y: number }>();
@@ -826,7 +809,7 @@ function SessionTreeView({
 	}, []);
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col" ref={rootRef}>
+		<div className="flex min-h-0 flex-1 flex-col">
 			<PanelToolbar className="flex-col items-stretch">
 				<div className="flex min-w-0 items-center gap-2">
 					<span
@@ -835,7 +818,6 @@ function SessionTreeView({
 					>
 						{tree.sessionName ?? t("sessionTree.untitled")}
 					</span>
-					{toolbarAction && <div className="flex shrink-0 items-center">{toolbarAction}</div>}
 				</div>
 				{model && model.entries.length > 0 && (
 					<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1030,7 +1012,7 @@ function SessionTreeView({
 						<div className="min-w-0 flex-1">
 							<Input
 								aria-label={t("sessionTree.editLabel")}
-								autoFocus={keyboardScope !== null}
+								autoFocus={active}
 								controlSize="sm"
 								onChange={event => tree.setLabelDraft(event.target.value)}
 								onKeyDown={event => {
@@ -1128,36 +1110,22 @@ function SessionTreeView({
 	);
 }
 
-/** Side panel › Tree, with a wide view in a large Sheet. */
-export function SessionTreePanel() {
+/** The Session tree sheet; a switch or a branch that moves the session closes it. */
+export function SessionTreeSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const t = useT();
-	const [wideOpen, setWideOpen] = useState(false);
-	// A switch / branch moved the session: close the wide view; the panel stays.
-	const tree = useSessionTreeController(() => setWideOpen(false));
+	const tree = useSessionTreeController(onClose);
 	return (
-		<div className="flex min-h-0 flex-1 flex-col">
-			<SessionTreeView
-				keyboardScope={wideOpen ? null : "element"}
-				toolbarAction={
-					<IconButton
-						icon={<Maximize2 />}
-						label={t("sessionTree.openWide")}
-						onClick={() => setWideOpen(true)}
-						size="sm"
-					/>
-				}
-				tree={tree}
-			/>
-			<Sheet
-				bodyClassName="flex flex-col"
-				// Escape / scrim while a label is being edited cancels the edit first.
-				onClose={() => (tree.labelEditId ? tree.cancelLabelEdit() : setWideOpen(false))}
-				open={wideOpen}
-				size="lg"
-				title={t("sessionTree.title")}
-			>
-				<SessionTreeView keyboardScope={wideOpen ? "document" : null} tree={tree} />
-			</Sheet>
-		</div>
+		<Sheet
+			bodyClassName="flex flex-col"
+			// Escape / scrim while a label is being edited cancels the edit first.
+			onClose={() => (tree.labelEditId ? tree.cancelLabelEdit() : onClose())}
+			open={open}
+			size="lg"
+			title={t("sessionTree.title")}
+		>
+			<div className="flex min-h-0 flex-1 flex-col" data-view-sheet="tree">
+				<SessionTreeView active={open} tree={tree} />
+			</div>
+		</Sheet>
 	);
 }

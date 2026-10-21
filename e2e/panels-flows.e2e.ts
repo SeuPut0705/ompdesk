@@ -722,33 +722,55 @@ for (const [language, theme] of [
 			);
 			rec.notes.push(`four-digit gutter heights: ${gutters.join(",")}`);
 			await rec.shoot("changes-big-diff-end");
-			// Background tasks: cancel the running one; it turns cancelled in place.
-			const options = aside.getByRole("button", { name: /View options|보기 옵션/ });
-			await options.click();
-			await page.getByRole("menuitemcheckbox").first().click();
-			const watch = aside.locator('[data-job-id="watch"]');
+			// Background tasks (a sheet from the palette): cancel the running one; it turns cancelled in place.
+			const sheets = {
+				jobs: language === "ko" ? "백그라운드 작업" : "Background tasks",
+				plan: language === "ko" ? "계획 문서" : "Plan document",
+				logs: language === "ko" ? "로그" : "Logs",
+				tree: language === "ko" ? "세션 트리" : "Session tree",
+				work: language === "ko" ? "작업 트리" : "Work tree",
+			};
+			const openSheet = async (id: keyof typeof sheets) => {
+				const search = page.getByRole("dialog").getByRole("searchbox");
+				await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
+				await search.fill(sheets[id]);
+				await page
+					.getByRole("dialog")
+					.locator("button[data-palette-index]", { hasText: sheets[id] })
+					.first()
+					.click();
+				const sheet = page.locator(`[data-view-sheet="${id}"]`);
+				await expect(sheet).toBeVisible();
+				return sheet;
+			};
+			const closeSheet = async (id: keyof typeof sheets) => {
+				await page
+					.getByRole("dialog", { name: sheets[id] })
+					.getByRole("button", { name: /^(Close|닫기)$/ })
+					.click();
+				await expect(page.locator(`[data-view-sheet="${id}"]`)).toHaveCount(0);
+			};
+			const jobs = await openSheet("jobs");
+			const watch = jobs.locator('[data-job-id="watch"]');
 			await expect(watch).toBeVisible();
 			await rec.shoot("jobs");
 			await watch
 				.getByRole("button")
 				.filter({ hasText: /Cancel|취소/ })
 				.click();
-			await expect(aside.locator('[data-job-id="watch"]')).toBeVisible();
+			await expect(jobs.locator('[data-job-id="watch"]')).toBeVisible();
 			await page.waitForTimeout(400);
 			rec.notes.push(
-				`watch job after cancel: ${(await aside.locator('[data-job-id="watch"]').innerText()).replace(/\s+/g, " ")}`,
+				`watch job after cancel: ${(await jobs.locator('[data-job-id="watch"]').innerText()).replace(/\s+/g, " ")}`,
 			);
 			await rec.shoot("jobs-cancelled");
-			// The remaining views from View options.
-			const items = page.getByRole("menuitemcheckbox");
-			await options.click();
-			const count = await items.count();
-			await page.keyboard.press("Escape");
-			for (let index = 1; index < count; index++) {
-				await options.click();
-				await items.nth(index).click();
+			await closeSheet("jobs");
+			// The remaining sheets.
+			for (const [index, id] of (["plan", "logs", "tree", "work"] as const).entries()) {
+				await openSheet(id);
 				await page.waitForTimeout(400);
-				await rec.shoot(`panel-option-${index}`);
+				await rec.shoot(`panel-option-${index + 1}`);
+				await closeSheet(id);
 			}
 			expect(instance.errors).toEqual([]);
 		} finally {

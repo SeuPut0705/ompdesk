@@ -4,7 +4,7 @@
  * quiet toast ("Agent changed: Theme → Nord") with one step back. Undo is the person's own click: it writes the
  * previous value through the same `prefs.set` / `set_setting` Settings uses.
  */
-import { AGENT_PANEL_TABS, type AgentAppEvent, type AppUndo } from "../../shared/agent-control";
+import { AGENT_VIEW_SHEETS, type AgentAppEvent, type AppUndo } from "../../shared/agent-control";
 import { toast } from "../stores/toast";
 import { migrateDefaultPanelTab, useUiStore } from "../stores/ui";
 import { translate } from "./i18n";
@@ -53,6 +53,11 @@ async function undo(step: AppUndo): Promise<void> {
 	await window.omp.rpc.command({ type: "set_setting", path: step.path, value: step.value });
 }
 
+/** A view the agent named that opens as a sheet rather than in the side panel. */
+function isViewSheet(tab: string): tab is (typeof AGENT_VIEW_SHEETS)[number] {
+	return (AGENT_VIEW_SHEETS as readonly string[]).includes(tab);
+}
+
 export function applyAgentAppEvent(event: AgentAppEvent): void {
 	switch (event.kind) {
 		case "pref":
@@ -60,7 +65,8 @@ export function applyAgentAppEvent(event: AgentAppEvent): void {
 			return;
 		case "panel":
 			if (event.tab === null) useUiStore.setState({ panelVisible: false });
-			else if (AGENT_PANEL_TABS.includes(event.tab)) useUiStore.getState().setPanelTab(event.tab);
+			else if (isViewSheet(event.tab)) useUiStore.getState().openViewSheet(event.tab);
+			else useUiStore.getState().setPanelTab(event.tab);
 			return;
 		case "settings":
 			useUiStore.getState().openSettings(event.sub ? `${event.section}:${event.sub}` : event.section);

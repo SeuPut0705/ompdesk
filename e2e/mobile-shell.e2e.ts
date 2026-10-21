@@ -281,7 +281,7 @@ for (const { engine, device } of variants(
 			if (device.shell === "phone") {
 				const sheet = page.locator('[data-sheet-placement="full"] [data-sheet-panel]');
 				await expect(sheet).toBeVisible();
-				await expect(page.locator("[data-panel-tabbar] button")).toHaveCount(5);
+				await expect(page.locator("[data-panel-tabbar] button")).toHaveCount(4); // The four views; no More menu.
 				const box = await settledBox(sheet);
 				const viewport = page.viewportSize();
 				expect(box.width).toBeCloseTo(viewport?.width ?? 0, 0);

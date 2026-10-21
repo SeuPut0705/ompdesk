@@ -210,10 +210,10 @@ describe("dev server → Preview", () => {
 	});
 	it("takes a passive view only after it sat idle", async () => {
 		vi.useFakeTimers();
-		useUiStore.setState({ panelVisible: true, panelTab: "jobs" });
+		useUiStore.setState({ panelVisible: true, panelTab: "diff" });
 		handleAutoOpenEvents(TAB, [bashUpdate("Local: http://localhost:5001/")]);
 		await settle();
-		expect(useUiStore.getState().panelTab).toBe("jobs");
+		expect(useUiStore.getState().panelTab).toBe("diff");
 		vi.advanceTimersByTime(PANEL_IDLE_MS + 1);
 		handleAutoOpenEvents(TAB, [bashUpdate("Local: http://localhost:5002/")]);
 		await settle();

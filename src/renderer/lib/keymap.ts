@@ -630,15 +630,13 @@ export const KEYMAP_ACTIONS = [
 		overlaySafe: true,
 		hotkeyGroup: "view",
 	},
-	...(["terminal", "diff", "preview", "files", "jobs", "plan", "logs", "queue", "tree", "memory"] as const).map(
-		view => ({
-			id: `panel.${view}` as const,
-			labelKey: `panel.tabs.${view}`,
-			defaults: [],
-			overlaySafe: true,
-			hotkeyGroup: "view" as const,
-		}),
-	),
+	...(["terminal", "diff", "preview", "files"] as const).map(view => ({
+		id: `panel.${view}` as const,
+		labelKey: `panel.tabs.${view}`,
+		defaults: [],
+		overlaySafe: true,
+		hotkeyGroup: "view" as const,
+	})),
 	{ id: "hotkeys", labelKey: "hotkeys.row.hotkeys", defaults: ["⌘/", "⌃/"], overlaySafe: true, hotkeyGroup: "view" },
 ] as const satisfies readonly KeymapAction[];
 

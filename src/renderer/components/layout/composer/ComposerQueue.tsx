@@ -313,7 +313,18 @@ export function ComposerQueuePill({ onSettled }: { onSettled: () => void }) {
 							({ lane, items }) =>
 								items.length > 0 && (
 									<section aria-label={t(`composerQueue.lane.${lane}`)} key={lane}>
-										<QueueLaneHeading count={items.length} lane={lane} />
+										<QueueLaneHeading
+											count={items.length}
+											lane={lane}
+											onClear={
+												actions.ready
+													? () => {
+															actions.clearLane(lane);
+															if (items.length === total) emptied();
+														}
+													: undefined
+											}
+										/>
 										<ul>
 											{items.map(item => (
 												<QueueRow

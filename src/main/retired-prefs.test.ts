@@ -87,4 +87,17 @@ describe("migrateRetiredPrefs", () => {
 		migrateRetiredPrefs(store);
 		expect(store.data).toEqual({ displayPreferences: { showTokenUsage: true } });
 	});
+
+	it("forgets a default side panel view and the shortcuts of the views the panel no longer holds", () => {
+		const store = memoryStore({
+			defaultPanelTab: "jobs",
+			keymapOverrides: { "panel.jobs": ["⌥1"], "panel.memory": ["⌥2"], "panel.terminal": ["⌥3"] },
+		});
+		migrateRetiredPrefs(store);
+		migrateRetiredPrefs(store);
+		expect(store.data).toEqual({ keymapOverrides: { "panel.terminal": ["⌥3"] } });
+		const kept = memoryStore({ defaultPanelTab: "files" });
+		migrateRetiredPrefs(kept);
+		expect(kept.data).toEqual({ defaultPanelTab: "files" });
+	});
 });

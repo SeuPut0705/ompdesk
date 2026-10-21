@@ -262,6 +262,33 @@ async function openView(page: Page, label: string): Promise<Locator> {
 		.first();
 }
 
+const SHEET_TITLES = {
+	en: { jobs: "Background tasks", plan: "Plan document", logs: "Logs", tree: "Session tree", work: "Work tree" },
+	ko: { jobs: "백그라운드 작업", plan: "계획 문서", logs: "로그", tree: "세션 트리", work: "작업 트리" },
+} as const;
+type SheetId = keyof (typeof SHEET_TITLES)["en"];
+
+/** Opens a session-view sheet the way a user does: through the command palette. */
+async function openSheet(page: Page, language: Language, id: SheetId): Promise<void> {
+	const title = SHEET_TITLES[language][id];
+	const search = page.getByRole("dialog").getByRole("searchbox");
+	await expect(async () => {
+		if (!(await search.isVisible())) await page.keyboard.press("ControlOrMeta+k");
+		await expect(search).toBeVisible({ timeout: 2_000 });
+	}).toPass({ timeout: 30_000 });
+	await search.fill(title);
+	await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: title }).first().click();
+	await expect(page.locator(`[data-view-sheet="${id}"]`)).toBeVisible();
+}
+
+async function closeSheet(page: Page, language: Language, id: SheetId): Promise<void> {
+	await page
+		.getByRole("dialog", { name: SHEET_TITLES[language][id] })
+		.getByRole("button", { name: /^(Close|닫기)$/ })
+		.click();
+	await expect(page.locator(`[data-view-sheet="${id}"]`)).toHaveCount(0);
+}
+
 async function setSize(app: ElectronApplication, page: Page, size: readonly [number, number]): Promise<void> {
 	await resize(app, size[0], size[1]);
 	await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(size[0]);
@@ -713,7 +740,7 @@ for (const [language, theme] of RUNS) {
 					await fs.writeFile(path.join(root, "unused"), "");
 				},
 			},
-			async ({ page, app, shoot, step, notes, errors }) => {
+			async ({ page, app, shoot, step, errors }) => {
 				await buildSplit(page, 4);
 				await shoot("grid");
 				for (const [name, size] of [
@@ -735,17 +762,12 @@ for (const [language, theme] of RUNS) {
 						await topbar.getByRole("button").first().click();
 						await page.waitForTimeout(800);
 						await shoot(`${name}-terminal`);
-						const options = panel.getByRole("button", { name: /View options|보기 옵션/ });
-						const items = page.getByRole("menuitemcheckbox");
-						await options.click();
-						const count = await items.count();
-						await page.keyboard.press("Escape");
-						notes.push(`${name}: ${count} extra views`);
-						for (let index = 0; index < count; index++) {
-							await options.click();
-							await items.nth(index).click();
+						await expect(panel.getByRole("button", { name: /View options|보기 옵션/ })).toHaveCount(0);
+						for (const id of ["jobs", "plan", "logs", "tree", "work"] as const) {
+							await openSheet(page, language, id);
 							await page.waitForTimeout(350);
-							await shoot(`${name}-view-${index}`);
+							await shoot(`${name}-sheet-${id}`);
+							await closeSheet(page, language, id);
 						}
 						if (name === "narrow") await page.keyboard.press("Escape");
 					});
@@ -839,14 +861,11 @@ for (const [language, theme] of RUNS) {
 							await page.keyboard.press("Escape");
 						});
 						await step(`plan-and-jobs-${name}`, async () => {
-							const panel = await openView(page, t.files);
-							const options = panel.getByRole("button", { name: /View options|보기 옵션/ });
-							const items = page.getByRole("menuitemcheckbox");
-							for (const index of [0, 1]) {
-								await options.click();
-								await items.nth(index).click();
+							for (const id of ["plan", "jobs"] as const) {
+								await openSheet(page, language, id);
 								await page.waitForTimeout(400);
-								await shoot(`${name}-view-${index}`);
+								await shoot(`${name}-sheet-${id}`);
+								await closeSheet(page, language, id);
 							}
 						});
 						if (name === "narrow") await page.keyboard.press("Escape");

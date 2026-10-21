@@ -603,12 +603,6 @@ export function App() {
 				case "panel.diff":
 				case "panel.preview":
 				case "panel.files":
-				case "panel.jobs":
-				case "panel.plan":
-				case "panel.logs":
-				case "panel.queue":
-				case "panel.tree":
-				case "panel.memory":
 					ui.setPanelTab(migrateDefaultPanelTab(actionId.slice("panel.".length)));
 					return;
 				case "hotkeys":

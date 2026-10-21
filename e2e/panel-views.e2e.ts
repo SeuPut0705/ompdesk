@@ -46,71 +46,59 @@ for (const theme of variants(["light", "dark"] as const)) {
 				.toBe("ready");
 			const aside = page.locator("aside[data-docked]");
 			await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
-			await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(6);
+			await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(5);
+			const openSheet = async (id: string, title: string) => {
+				const search = page.getByRole("dialog").getByRole("searchbox");
+				await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
+				await search.fill(title);
+				await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: title }).first().click();
+				await expect(page.getByRole("dialog", { name: title })).toBeVisible();
+				await expect(page.locator(`[data-view-sheet="${id}"]`)).toBeVisible();
+			};
+			const closeSheet = async (title: string) => {
+				await page.getByRole("dialog", { name: title }).getByRole("button", { name: "Close", exact: true }).click();
+				await expect(page.getByRole("dialog", { name: title })).toHaveCount(0);
+			};
 			await expect(aside.getByRole("searchbox", { name: "Search files" })).toBeVisible();
 			for (const label of ["Terminal", "Changes", "Preview", "Files"])
 				await expect(aside.getByRole("button", { name: label, exact: true })).toBeVisible();
 			await aside.screenshot({ animations: "disabled", path: test.info().outputPath(`header-${theme}.png`) });
-			const options = aside.getByRole("button", { name: "View options", exact: true });
-			await options.focus();
-			await page.keyboard.press("Enter");
-			const menu = page.getByRole("menu", { name: "View options" });
-			await expect(menu.getByRole("menuitemcheckbox")).toHaveText([
-				"Background tasks",
-				"Plan",
-				"Logs",
-				"Queue",
-				"Tree",
-				"Work tree",
-				"Memory",
-			]);
-			await page.screenshot({ animations: "disabled", path: test.info().outputPath(`menu-${theme}.png`) });
-			await page.keyboard.press("ArrowDown");
-			await page.keyboard.press("Enter");
-			await expect(aside).toContainText("Ship the right-panel views");
-			await expect(aside.locator(".line-through")).toContainText("Inspect stock session APIs");
-			await expect(aside.getByRole("button", { name: "Approve plan", exact: true })).toBeEnabled();
+			await expect(aside.getByRole("button", { name: "View options", exact: true })).toHaveCount(0);
+			await expect(aside.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+			await openSheet("plan", "Plan document");
+			const planSheet = page.getByRole("dialog", { name: "Plan document" });
+			await expect(planSheet).toContainText("Ship the right-panel views");
+			await expect(planSheet.locator(".line-through")).toContainText("Inspect stock session APIs");
+			await expect(planSheet.getByRole("button", { name: "Approve plan", exact: true })).toBeEnabled();
 			await page.mouse.move(0, 0);
-			await aside.screenshot({ animations: "disabled", path: test.info().outputPath(`plan-${theme}.png`) });
-			await options.click();
-			await expect(page.getByRole("menuitemcheckbox", { name: "Plan", exact: true })).toBeChecked();
-			await page.getByRole("menuitemcheckbox", { name: "Background tasks", exact: true }).click();
-			await expect(aside).toContainText("Completed local job");
-			await aside.locator('[data-job-id="done"]').getByText("Result / error", { exact: true }).click();
-			await expect(aside).toContainText("Compiled renderer");
-			await expect(aside.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
-			await expect(aside).toContainText("Build completed successfully.");
+			await planSheet.screenshot({ animations: "disabled", path: test.info().outputPath(`plan-${theme}.png`) });
+			await planSheet.getByRole("button", { name: "Close", exact: true }).click();
+			await expect(planSheet).toHaveCount(0);
+			await openSheet("jobs", "Background tasks");
+			const jobsSheet = page.getByRole("dialog", { name: "Background tasks" });
+			await expect(jobsSheet).toContainText("Completed local job");
+			await jobsSheet.locator('[data-job-id="done"]').getByText("Result / error", { exact: true }).click();
+			await expect(jobsSheet).toContainText("Compiled renderer");
+			await expect(jobsSheet.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+			await expect(jobsSheet).toContainText("Build completed successfully.");
 			await page.mouse.move(0, 0);
-			await aside.screenshot({ animations: "disabled", path: test.info().outputPath(`jobs-${theme}.png`) });
+			await jobsSheet.screenshot({ animations: "disabled", path: test.info().outputPath(`jobs-${theme}.png`) });
+			await jobsSheet.getByRole("button", { name: "Close", exact: true }).click();
+			await expect(jobsSheet).toHaveCount(0);
 			const capture = async (panel: Locator, name: string) => {
 				await page.mouse.move(0, 0);
 				await panel.screenshot({ animations: "disabled", path: test.info().outputPath(`${name}-${theme}.png`) });
 			};
 			const selectView = async (panel: Locator, label: string) => {
-				if (["Terminal", "Changes", "Preview", "Files"].includes(label)) {
-					await panel.locator(".omp-panel-topbar").getByRole("button", { name: label, exact: true }).click();
-				} else {
-					await panel.getByRole("button", { name: "View options", exact: true }).click();
-					await page.getByRole("menuitemcheckbox", { name: label, exact: true }).click();
-				}
+				await panel.locator(".omp-panel-topbar").getByRole("button", { name: label, exact: true }).click();
 				await expect(panel.locator(".omp-panel-topbar")).toContainText(label);
 			};
 			await aside.getByRole("separator", { name: "Resize side panel" }).focus();
 			await page.keyboard.press("Home");
 			await expect(aside).toHaveCSS("width", "360px");
-			for (const label of [
-				"Terminal",
-				"Changes",
-				"Preview",
-				"Files",
-				"Background tasks",
-				"Plan",
-				"Logs",
-				"Queue",
-				"Tree",
-			]) {
+			for (const label of ["Terminal", "Changes", "Preview", "Files"]) {
 				await selectView(aside, label);
-				await capture(aside, `${label.toLowerCase().replaceAll(" ", "-")}-min`);
+				await capture(aside, `${label.toLowerCase()}-min`);
 				if (label === "Changes") {
 					const source = aside.getByRole("combobox", { name: "Changes", exact: true });
 					for (const mode of ["repository", "current", "timeline", "artifacts"]) {
@@ -135,6 +123,15 @@ for (const theme of variants(["light", "dark"] as const)) {
 					await aside.getByRole("button", { name: "Back to files", exact: true }).click();
 				}
 			}
+			for (const [id, title] of [
+				["jobs", "Background tasks"],
+				["plan", "Plan document"],
+				["logs", "Logs"],
+			] as const) {
+				await openSheet(id, title);
+				await capture(page.getByRole("dialog", { name: title }), `${id}-sheet-min`);
+				await closeSheet(title);
+			}
 			await page.evaluate(() => window.omp.rpc.command({ type: "prompt", message: "fixture panel edits" }));
 			await selectView(aside, "Changes");
 			const source = aside.getByRole("combobox", { name: "Changes", exact: true });
@@ -145,9 +142,9 @@ for (const theme of variants(["light", "dark"] as const)) {
 				await expect(aside).toContainText(mode === "artifacts" ? "review.md" : "module-");
 				await capture(aside, `changes-${mode}-populated`);
 			}
-			await selectView(aside, "Tree");
-			await expect(aside.getByRole("application")).toBeVisible();
-			await capture(aside, "tree-populated");
+			await openSheet("tree", "Session tree");
+			await expect(page.locator('[data-view-sheet="tree"]').getByRole("application")).toBeVisible();
+			await capture(page.getByRole("dialog", { name: "Session tree" }), "tree-populated");
 			await page.evaluate(() =>
 				window.omp.rpc.command({
 					type: "steer",
@@ -155,9 +152,13 @@ for (const theme of variants(["light", "dark"] as const)) {
 						"Review this long queued message and preserve its complete text while keeping the row actions aligned in a narrow panel.",
 				}),
 			);
-			await selectView(aside, "Queue");
-			await expect(aside).toContainText("Review this long queued message");
-			await capture(aside, "queue-populated");
+			await closeSheet("Session tree");
+			await page.locator("[data-queue-pill]").click();
+			const lanes = page.locator("[data-lane-clear]");
+			await expect(page.getByText("Review this long queued message")).toBeVisible();
+			await page.screenshot({ animations: "disabled", path: test.info().outputPath(`queue-popover-${theme}.png`) });
+			await page.locator('[data-lane-clear="steering"]').click();
+			await expect(lanes).toHaveCount(0);
 			await page.evaluate(() => window.omp.rpc.command({ type: "abort" }));
 			await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(780, 900));
 			try {
@@ -181,20 +182,11 @@ for (const theme of variants(["light", "dark"] as const)) {
 			const sheet = page.getByRole("dialog", { name: "Side panel", exact: true });
 			await pressShortcutUntilVisible(page, "ControlOrMeta+j", sheet);
 			await expect(sheet).toBeVisible();
-			for (const label of [
-				"Terminal",
-				"Changes",
-				"Preview",
-				"Files",
-				"Background tasks",
-				"Plan",
-				"Logs",
-				"Queue",
-				"Tree",
-			]) {
+			for (const label of ["Terminal", "Changes", "Preview", "Files"]) {
 				await selectView(sheet, label);
-				await capture(sheet, `${label.toLowerCase().replaceAll(" ", "-")}-sheet`);
+				await capture(sheet, `${label.toLowerCase()}-sheet`);
 			}
+			await expect(sheet.getByRole("button", { name: "View options", exact: true })).toHaveCount(0);
 		} finally {
 			await exitApp(app);
 			await fs.rm(profile, { recursive: true, force: true });

@@ -58,7 +58,7 @@ beforeEach(async () => {
 	await act(async () =>
 		root.render(
 			<I18nProvider>
-				<PlanDockCard presentation="panel" />
+				<PlanDockCard presentation="sheet" />
 			</I18nProvider>,
 		),
 	);

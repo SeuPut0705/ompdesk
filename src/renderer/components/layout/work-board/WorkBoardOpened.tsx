@@ -1,10 +1,11 @@
 /**
  * The work board's rows for the sessions an agent opened: status only (working, waiting, failed), no buttons. The
  * opener's agent reviews and lands its children with its tools; a click on a row focuses the child. The finished ones
- * fold into one "n done" row like the plan's. Loaded on demand by `WorkBoard.tsx` (the phone's first screen never
+ * fold into one "n done" row like the plan's, and the last row opens the Work tree sheet (every family of the window,
+ * finished children and unused worktrees too). Loaded on demand by `WorkBoard.tsx` (the phone's first screen never
  * needs them).
  */
-import { Check, X } from "lucide-react";
+import { Check, Network, X } from "lucide-react";
 import { useState } from "react";
 import { useLiveReview } from "../../../hooks/use-live-review";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
@@ -16,6 +17,7 @@ import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
+import { useUiStore } from "../../../stores/ui";
 import { CostAmount, hasCost } from "../../common/CostAmount";
 import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
 import { childActivity, type OpenedChildRow } from "./opened-children";
@@ -152,6 +154,12 @@ export function OpenedSection({ rows, now }: { rows: readonly OpenedChildRow[]; 
 				/>
 			)}
 			{doneOpen && done.map(row => <OpenedRow key={row.key} now={now} row={row} />)}
+			<BoardRow
+				data={{ "data-board-work-tree": "" }}
+				label={<span className="text-(--sc-text-muted)">{t("workBoard.opened.workTree")}</span>}
+				lead={<Network aria-hidden className="size-3.5 text-(--sc-text-subtle)" />}
+				onClick={() => useUiStore.getState().openViewSheet("work")}
+			/>
 		</BoardSection>
 	);
 }

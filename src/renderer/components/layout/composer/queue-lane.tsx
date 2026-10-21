@@ -1,7 +1,7 @@
 /**
  * What every view of the queue shares: the lane names ("After next step" / "After this turn"), the heading above a
- * lane's rows, and how a row is named for assistive tech. The composer's queue popover and the side panel's Queue tab
- * both draw from here, so the two never call the same lane differently (DR-7).
+ * lane's rows (with its Clear), and how a row is named for assistive tech, so the composer's queue popover and its
+ * edit-in-field never call the same lane differently (DR-7).
  */
 
 import { Image as ImageIcon } from "lucide-react";
@@ -19,8 +19,8 @@ export function queueRowName(text: string, imageCount = 0): string {
 	return label.length > ROW_NAME_CHARS ? `${label.slice(0, ROW_NAME_CHARS - 1)}…` : label;
 }
 
-/** The lane's heading: its name, how many wait in it and how they are delivered. */
-export function QueueLaneHeading({ lane, count }: { lane: QueueLane; count: number }) {
+/** The lane's heading: its name, how many wait in it, how they are delivered, and `onClear` empties only this lane. */
+export function QueueLaneHeading({ lane, count, onClear }: { lane: QueueLane; count: number; onClear?: () => void }) {
 	const t = useT();
 	return (
 		<div
@@ -30,7 +30,18 @@ export function QueueLaneHeading({ lane, count }: { lane: QueueLane; count: numb
 		>
 			<span className="shrink-0">{t(`composerQueue.lane.${lane}`)}</span>
 			<span className="shrink-0 tabular-nums">{count}</span>
-			<span className="min-w-0 truncate font-normal">· {t(`composerQueue.laneSub.${lane}`)}</span>
+			<span className="min-w-0 flex-1 truncate font-normal">· {t(`composerQueue.laneSub.${lane}`)}</span>
+			{onClear ? (
+				<button
+					aria-label={t("composerQueue.clearLane", { lane: t(`composerQueue.lane.${lane}`) })}
+					className="shrink-0 rounded-(--sc-radius-xs) px-1 font-normal text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"
+					data-lane-clear={lane}
+					onClick={onClear}
+					type="button"
+				>
+					{t("queuePanel.clearLane")}
+				</button>
+			) : null}
 		</div>
 	);
 }

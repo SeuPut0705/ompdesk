@@ -1,5 +1,5 @@
 /**
- * `?jobs=tree`: the Background tasks view with stock's jobs tree. A subagent (`sa-explore`) runs a shell and a
+ * `?jobs=tree`: the Background tasks sheet with stock's jobs tree. A subagent (`sa-explore`) runs a shell and a
  * nested subagent (`sa-nested`) that runs one too; `sa-review` settled; `sa-evicted` lost its task job and shows as a
  * header. Only the session's own jobs offer Cancel. The roster names two of the subagents, as the sidebar would.
  */

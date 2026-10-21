@@ -1,5 +1,5 @@
 /**
- * Opt-in captures of the family and its cost (`OMP_GUI_WORK_TREE_SHOTS=<dir>`), on the dev harness
+ * Opt-in captures of the family and its cost (the Work tree sheet) (`OMP_GUI_WORK_TREE_SHOTS=<dir>`), on the dev harness
  * (`vite.harness.config.ts`): a session with running and finished subagents (each with a model, role and cost), two
  * sessions its agent opened (one on a paired device, on a metered provider), and the harness's unused
  * worktrees (`dev-harness/fixture-work-tree.ts`). Writes `<surface>-<view>-<theme>-<lang>.png` for desktop
@@ -96,8 +96,14 @@ if (SHOTS) {
 						await page.setViewportSize(surface.viewport);
 					}
 
-					await page.evaluate(() => window.__stores?.ui.setState({ panelVisible: true, panelTab: "work" }));
-					await expect(page.locator("[data-work-tree]")).toBeVisible();
+					await page.evaluate(() => {
+						const ui = window.__stores?.ui as unknown as
+							| { getState: () => { openViewSheet: (view: string) => void } }
+							| undefined;
+						if (!ui) throw new Error("no stores");
+						ui.getState().openViewSheet("work");
+					});
+					await expect(page.locator('[data-view-sheet="work"] [data-work-tree]')).toBeVisible();
 					await expect(page.locator("[data-orphan-worktree]")).toHaveCount(5);
 					// Every child row names its model and cost.
 					const titles = await page

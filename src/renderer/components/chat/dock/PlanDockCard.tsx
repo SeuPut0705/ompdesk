@@ -136,7 +136,7 @@ interface StepFeedbackState {
 	sending: boolean;
 }
 
-export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" | "panel" }) {
+export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" | "sheet" }) {
 	const t = useT();
 	const rpc = useTabRpc();
 	const tabId = useRuntimeTabId();
@@ -227,7 +227,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 
 	// Initial load + reset when plan mode flips.
 	useEffect(() => {
-		if (planModeEnabled || presentation === "panel") {
+		if (planModeEnabled || presentation === "sheet") {
 			void load();
 		} else {
 			setPlanFilePath(null);
@@ -351,7 +351,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 
 	if (!planModeEnabled && presentation === "dock") return null;
 
-	const Frame = presentation === "panel" ? PlanPanelFrame : DockCard;
+	const Frame = presentation === "sheet" ? PlanSheetFrame : DockCard;
 	return (
 		<Frame
 			actions={
@@ -399,7 +399,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 					</Button>
 				</div>
 			) : content == null ? (
-				presentation === "panel" ? (
+				presentation === "sheet" ? (
 					<EmptyState icon={<ClipboardList />} size="sm" title={t("planPanel.emptyTitle")} />
 				) : (
 					<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
@@ -582,7 +582,7 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 }
 
 /** Reuse the dock's stock plan data and review actions without duplicate polling logic. */
-function PlanPanelFrame({ actions, children }: ComponentProps<typeof DockCard>) {
+function PlanSheetFrame({ actions, children }: ComponentProps<typeof DockCard>) {
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-2">
 			<PanelActions>{actions}</PanelActions>

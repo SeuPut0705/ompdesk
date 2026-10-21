@@ -1,20 +1,4 @@
-import {
-	Bot,
-	Brain,
-	ClipboardList,
-	Files,
-	GitCompareArrows,
-	GitFork,
-	Globe,
-	Hourglass,
-	ListOrdered,
-	MoreHorizontal,
-	MoreVertical,
-	Network,
-	ScrollText,
-	Terminal,
-	X,
-} from "lucide-react";
+import { Bot, Files, GitCompareArrows, Globe, Terminal, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useActiveTabRouteReady } from "../../hooks/use-active-tab-route";
@@ -26,7 +10,7 @@ import { actionShortcut } from "../../lib/keymap";
 import { SessionRuntimeProvider, sessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { CLOSED_FILE_VIEW, type PanelTab, useUiStore } from "../../stores/ui";
-import { ContextMenu, IconButton, MenuButton, PanelErrorBoundary, Sheet } from "../common";
+import { IconButton, PanelErrorBoundary, Sheet } from "../common";
 import { PanelActionsContext } from "../panels/PanelChrome";
 import type { PanelView as LoadedPanelView, PanelViewProps } from "./PanelViews";
 
@@ -68,18 +52,15 @@ function defaultPanelWidth(): number {
 	return Math.min(DEFAULT_MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(viewportWidth * 0.28)));
 }
 
+/**
+ * The panel's four views. Every other session view opens as a sheet (`ViewSheetHost`) or lives on the work board,
+ * Settings or the composer, so the panel has no View options list.
+ */
 const VIEWS = [
 	{ id: "terminal", labelKey: "panel.tabs.terminal", icon: Terminal },
 	{ id: "diff", labelKey: "panel.tabs.diff", icon: GitCompareArrows },
 	{ id: "preview", labelKey: "panel.tabs.preview", icon: Globe },
 	{ id: "files", labelKey: "panel.tabs.files", icon: Files },
-	{ id: "jobs", labelKey: "panel.tabs.jobs", icon: Hourglass },
-	{ id: "plan", labelKey: "panel.tabs.plan", icon: ClipboardList },
-	{ id: "logs", labelKey: "panel.tabs.logs", icon: ScrollText },
-	{ id: "queue", labelKey: "panel.tabs.queue", icon: ListOrdered },
-	{ id: "tree", labelKey: "panel.tabs.tree", icon: GitFork },
-	{ id: "work", labelKey: "panel.tabs.work", icon: Network },
-	{ id: "memory", labelKey: "panel.tabs.memory", icon: Brain },
 ] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
 /** Not one of the switchable views: a dragged or menu-opened subagent row puts it in the panel. */
 const SUBAGENT_VIEW = { id: "subagent", labelKey: "panel.tabs.subagent", icon: Bot } as const;
@@ -96,34 +77,18 @@ function PanelHeader({ bare }: { bare?: boolean }) {
 				{t(current.labelKey)}
 			</span>
 			{!bare && (
-				<>
-					<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
-						{VIEWS.slice(0, 4).map(view => (
-							<IconButton
-								key={view.id}
-								icon={<view.icon />}
-								label={t(view.labelKey)}
-								aria-pressed={panelTab === view.id}
-								onClick={() => setPanelTab(view.id)}
-								size="sm"
-							/>
-						))}
-					</div>
-					<MenuButton
-						className="no-drag shrink-0"
-						icon={<MoreVertical />}
-						label={t("panel.viewOptions")}
-						size="sm"
-						align="end"
-						items={VIEWS.slice(4).map(view => ({
-							id: view.id,
-							label: t(view.labelKey),
-							icon: view.icon,
-							checked: panelTab === view.id,
-							onSelect: () => setPanelTab(view.id),
-						}))}
-					/>
-				</>
+				<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
+					{VIEWS.map(view => (
+						<IconButton
+							key={view.id}
+							icon={<view.icon />}
+							label={t(view.labelKey)}
+							aria-pressed={panelTab === view.id}
+							onClick={() => setPanelTab(view.id)}
+							size="sm"
+						/>
+					))}
+				</div>
 			)}
 			<IconButton
 				className="no-drag shrink-0"
@@ -137,20 +102,14 @@ function PanelHeader({ bare }: { bare?: boolean }) {
 	);
 }
 
-/**
- * The phone's view switcher: the four primary views, then a "More" sheet holding the rest. It sits at the
- * bottom of the full-screen panel, where a thumb is.
- */
+/** The phone's view switcher: the four views, at the bottom of the full-screen panel, where a thumb is. */
 function PanelTabBar() {
 	const t = useT();
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
-	const [moreAnchor, setMoreAnchor] = useState<{ x: number; y: number; above: number } | null>(null);
-	const secondary = VIEWS.slice(4);
-	const inMore = secondary.some(view => view.id === panelTab) || panelTab === "subagent";
 	return (
 		<nav aria-label={t("panel.primaryViews")} className="omp-panel-tabbar" data-panel-tabbar="">
-			{VIEWS.slice(0, 4).map(view => (
+			{VIEWS.map(view => (
 				<button
 					aria-current={panelTab === view.id ? "page" : undefined}
 					key={view.id}
@@ -161,39 +120,6 @@ function PanelTabBar() {
 					<span>{t(view.labelKey)}</span>
 				</button>
 			))}
-			<button
-				aria-current={inMore ? "page" : undefined}
-				aria-expanded={moreAnchor !== null}
-				aria-haspopup="menu"
-				onClick={event => {
-					const rect = event.currentTarget.getBoundingClientRect();
-					setMoreAnchor({ x: rect.left, y: rect.bottom, above: rect.top });
-				}}
-				type="button"
-			>
-				<MoreHorizontal aria-hidden />
-				<span>{t("panel.more")}</span>
-			</button>
-			{moreAnchor && (
-				<ContextMenu
-					above={moreAnchor.above}
-					ariaLabel={t("panel.viewOptions")}
-					items={secondary.map(view => ({
-						id: view.id,
-						label: t(view.labelKey),
-						icon: view.icon,
-						checked: panelTab === view.id,
-						onSelect: () => {
-							setMoreAnchor(null);
-							setPanelTab(view.id);
-						},
-					}))}
-					onClose={() => setMoreAnchor(null)}
-					side="above"
-					x={moreAnchor.x}
-					y={moreAnchor.y}
-				/>
-			)}
 		</nav>
 	);
 }

@@ -16,7 +16,7 @@ import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { routeCommands } from "../../test-support/route-commands";
-import { SessionTreePanel } from "./SessionTreePanel";
+import { SessionTreeSheet } from "./SessionTreeSheet";
 import type { SessionTreeResult } from "./session-tree-layout";
 
 const { document, window, Event, CustomEvent, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -115,6 +115,7 @@ function installMockOmp(overrides: Partial<MockRpc> = {}): MockRpc {
 
 let container: TestElement;
 let root: Root;
+const closed = vi.fn();
 
 beforeEach(() => {
 	useSessionStore.setState({ status: "ready" });
@@ -241,13 +242,14 @@ afterEach(async () => {
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
+	closed.mockClear();
 });
 
-describe("SessionTreePanel", () => {
+describe("SessionTreeSheet", () => {
 	it("preserves the empty state", async () => {
 		installMockOmp();
 		seedSession("tree-empty");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		expect(document.body.textContent).toContain("No messages in this session yet.");
 	});
 
@@ -262,7 +264,7 @@ describe("SessionTreePanel", () => {
 			),
 		});
 		seedSession("tree-chain");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		expect(rpc.getSessionTree).toHaveBeenCalledTimes(1);
 		// Root anchor + three cards + three edges (root→m1→m2→m3), HEAD on the last.
 		expect(document.body.textContent).toContain("session start");
@@ -281,7 +283,7 @@ describe("SessionTreePanel", () => {
 			),
 		});
 		seedSession("tree-textless");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m2");
 		expect(card?.querySelector("[data-tree-node-empty]")?.textContent).toBe("No text, only tool calls or thinking");
 		const filled = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
@@ -333,7 +335,7 @@ describe("SessionTreePanel", () => {
 		};
 		installMockOmp({ getSessionTree: vi.fn(async () => success(tree)) });
 		seedSession("tree-fork");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		expect(nodeCards()).toHaveLength(4);
 		// Edges: root→a, a→b, b→c, b→d (the fork).
 		expect(edgePaths()).toHaveLength(4);
@@ -357,7 +359,7 @@ describe("SessionTreePanel", () => {
 			),
 		});
 		seedSession("tree-drag");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
 		if (!card) throw new Error("card m1 not found");
 		const before = card.getAttribute("style") ?? "";
@@ -381,7 +383,7 @@ describe("SessionTreePanel", () => {
 			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		seedSession("tree-pan");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const world = queryAll("div").find(el => el.getAttribute("style")?.includes("scale("));
 		if (!world) throw new Error("world transform div not found");
 		const before = world.getAttribute("style") ?? "";
@@ -399,7 +401,7 @@ describe("SessionTreePanel", () => {
 			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		seedSession("tree-zoom");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		expect(document.body.textContent).toContain("100%");
 		const wheel = new Event("wheel", { bubbles: true, cancelable: true });
 		(wheel as unknown as { deltaY: number }).deltaY = -100;
@@ -419,7 +421,7 @@ describe("SessionTreePanel", () => {
 			branch: vi.fn(async () => success({ text: "restored branch draft", cancelled: false })),
 		});
 		seedSession("tree-branch");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		let restoredDraft: string | undefined;
 		window.addEventListener(
 			"omp:fill-composer",
@@ -456,7 +458,7 @@ describe("SessionTreePanel", () => {
 			branch: vi.fn(async () => failure("nope")),
 		});
 		seedSession("tree-branch-fail");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
 		if (!card) throw new Error("card m1 not found");
 		const circleButton = card.querySelector("button");
@@ -477,7 +479,7 @@ describe("SessionTreePanel", () => {
 			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "choose again" }])),
 		});
 		seedSession("tree-switch");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
 		if (!card) throw new Error("card m1 not found");
 		const actionButton = card.querySelector("button");
@@ -501,7 +503,7 @@ describe("SessionTreePanel", () => {
 			switchLeaf: vi.fn(async () => ({ ...failure("Sidecar not ready"), code: "sidecar_not_ready" })),
 		});
 		seedSession("tree-switch-coded");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "m1");
 		if (!card) throw new Error("card m1 not found");
 		const actionButton = card.querySelector("button");
@@ -533,7 +535,7 @@ describe("SessionTreePanel", () => {
 			bundles: new Map(),
 		});
 		seedSession("tree-owned");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		await triggerSwitchToThisPoint("m1");
 
 		expect(getSessionOwner).toHaveBeenCalledWith("/sessions/x.jsonl");
@@ -557,7 +559,7 @@ describe("SessionTreePanel", () => {
 			bundles: new Map(),
 		});
 		seedSession("tree-foreign-owned");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		await triggerSwitchToThisPoint("m1");
 
 		expect(getSessionOwner).toHaveBeenCalledWith("/sessions/x.jsonl");
@@ -580,7 +582,7 @@ describe("SessionTreePanel", () => {
 			bundles: new Map(),
 		});
 		seedSession("tree-self-owned");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		await triggerSwitchToThisPoint("m1");
 
 		expect(rpc.switchLeaf).toHaveBeenCalledWith("m1", undefined);
@@ -588,21 +590,17 @@ describe("SessionTreePanel", () => {
 		expect(queryAll(CANVAS)).toHaveLength(1);
 	});
 
-	it("opens the wide view in a Sheet and closes it after a switch, keeping the panel", async () => {
+	it("is one dialog named Session tree with one canvas, and closes after a switch", async () => {
 		const rpc = installMockOmp({
 			getSessionTree: vi.fn(async () => linearTree([{ entryId: "m1", text: "alpha" }])),
 		});
 		seedSession("tree-wide");
-		await mount(<SessionTreePanel />);
-		const openWide = queryAll("button").find(button => button.getAttribute("aria-label") === "Open wide view");
-		if (!openWide) throw new Error("wide view button not found");
-		await click(openWide);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		await flush();
 		const sheet = queryAll('[role="dialog"]')[0];
-		if (!sheet) throw new Error("wide view sheet not rendered");
+		if (!sheet) throw new Error("tree sheet not rendered");
 		expect(sheet.textContent).toContain("Session tree");
-		// Both views render the same tree: the panel's canvas and the sheet's.
-		expect(queryAll(CANVAS)).toHaveLength(2);
+		expect(queryAll(CANVAS)).toHaveLength(1);
 		const sheetCard = sheet.querySelector('[data-tree-node="m1"]');
 		if (!sheetCard) throw new Error("sheet node card not found");
 		const actionButton = sheetCard.querySelector("button");
@@ -614,8 +612,7 @@ describe("SessionTreePanel", () => {
 		await flush();
 		await flush();
 		expect(rpc.switchLeaf).toHaveBeenCalledWith("m1", undefined);
-		expect(queryAll('[role="dialog"]')).toHaveLength(0);
-		expect(nodeCards().some(card => card.getAttribute("data-tree-node") === "m1")).toBe(true);
+		expect(closed).toHaveBeenCalled();
 	});
 
 	it("edits a label with L and cancels it on Escape without leaking the key", async () => {
@@ -635,7 +632,7 @@ describe("SessionTreePanel", () => {
 		};
 		installMockOmp({ getSessionTree: vi.fn(async () => success(tree)) });
 		seedSession("tree-label");
-		await mount(<SessionTreePanel />);
+		await mount(<SessionTreeSheet onClose={closed} open />);
 		const card = nodeCards().find(el => el.getAttribute("data-tree-node") === "a");
 		if (!card) throw new Error("card a not found");
 		await pointer(card, "pointerdown", 100, 100);

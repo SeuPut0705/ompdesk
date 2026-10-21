@@ -8,7 +8,7 @@
  */
 
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
-import { AGENT_PANEL_TABS } from "../../shared/agent-control";
+import { AGENT_PANEL_TABS, AGENT_VIEW_SHEETS } from "../../shared/agent-control";
 import type { DiagnosticBundleResult } from "../../shared/diagnostic-bundle";
 import type { DiskCareState } from "../../shared/disk-care";
 import { type HostView, IPC_COMMANDS, type RemoteState, type TailnetComputer } from "../../shared/ipc-types";
@@ -450,13 +450,24 @@ export const APP_ACTIONS: readonly AppAction[] = [
 	{
 		id: "ui.panel",
 		area: "ui",
-		description: "Open a view in the side panel (preview, diff, files, terminal, ...) or close the panel.",
-		args: objectSchema({ tab: { type: "string", enum: [...AGENT_PANEL_TABS, "close"] } }, ["tab"]),
+		description:
+			"Open a side panel view (terminal, diff, preview, files), open a session view as a sheet (jobs = background tasks, plan = the plan document, logs, tree = the session tree, work = the work tree), or close the panel.",
+		args: objectSchema({ tab: { type: "string", enum: [...AGENT_PANEL_TABS, ...AGENT_VIEW_SHEETS, "close"] } }, [
+			"tab",
+		]),
 		tier: "change",
 		run: async (ctx, args) => {
-			const tab = args.tab as (typeof AGENT_PANEL_TABS)[number] | "close";
+			const tab = args.tab as (typeof AGENT_PANEL_TABS)[number] | (typeof AGENT_VIEW_SHEETS)[number] | "close";
 			ctx.ui({ kind: "panel", tab: tab === "close" ? null : tab });
-			return { text: tab === "close" ? "Side panel closed." : `Side panel shows ${tab}.` };
+			const sheet = (AGENT_VIEW_SHEETS as readonly string[]).includes(tab);
+			return {
+				text:
+					tab === "close"
+						? "Side panel closed."
+						: sheet
+							? `The ${tab} sheet is open.`
+							: `Side panel shows ${tab}.`,
+			};
 		},
 	},
 	{

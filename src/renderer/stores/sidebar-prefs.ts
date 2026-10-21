@@ -56,7 +56,7 @@ export const RAIL_PIN_LABEL_KEYS: Record<RailPin, string> = {
 	diff: "panel.tabs.diff",
 	preview: "panel.tabs.preview",
 	files: "panel.tabs.files",
-	jobs: "panel.tabs.jobs",
+	jobs: "viewSheet.jobs",
 	schedules: "settings.section.schedules",
 };
 

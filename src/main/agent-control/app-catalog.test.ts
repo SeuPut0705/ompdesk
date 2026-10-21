@@ -10,8 +10,8 @@ import {
 	GUI_SEARCH_ITEMS,
 	SETTINGS_SECTION_IDS,
 } from "../../renderer/components/settings/settings-catalog";
-import { PANEL_TABS } from "../../renderer/stores/ui";
-import { AGENT_PANEL_TABS } from "../../shared/agent-control";
+import { PANEL_TABS, VIEW_SHEETS } from "../../renderer/stores/ui";
+import { AGENT_PANEL_TABS, AGENT_VIEW_SHEETS } from "../../shared/agent-control";
 import { IPC_POLICY } from "../web/ipc-policy";
 import { ACTION_BY_ID, APP_ACTIONS, SETTINGS_SECTIONS } from "./app-catalog";
 import { AGENT_CHANNELS } from "./app-channels";
@@ -63,6 +63,7 @@ describe("action registry", () => {
 
 	it("keeps its copies of the renderer's lists equal", () => {
 		expect([...AGENT_PANEL_TABS]).toEqual([...PANEL_TABS]);
+		expect([...AGENT_VIEW_SHEETS]).toEqual([...VIEW_SHEETS]);
 		expect([...SETTINGS_SECTIONS]).toEqual([...SETTINGS_SECTION_IDS]);
 	});
 

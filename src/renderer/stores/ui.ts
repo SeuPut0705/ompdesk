@@ -5,24 +5,19 @@ import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { readSidebarVisible, writeSidebarVisible } from "../lib/sidebar-memory";
 import { readPrepaintThemeMode, type ThemeMode } from "../lib/theme";
 import { transitionView } from "../lib/view-transition";
+import { focusedRuntimeTabId } from "./session-runtime-context";
 
 export type { ThemeMode };
 
-/** Primary and secondary session inspector views. */
-export const PANEL_TABS = [
-	"terminal",
-	"diff",
-	"preview",
-	"files",
-	"jobs",
-	"plan",
-	"logs",
-	"queue",
-	"tree",
-	"work",
-	"memory",
-] as const;
+/** The side panel's views: the four the panel's header shows. */
+export const PANEL_TABS = ["terminal", "diff", "preview", "files"] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
+/**
+ * The session views that open as a sheet instead of the side panel (the user's call, 21 Oct 2026: the panel held too
+ * much). Each is the component the panel used to hold, over the runtime of the tab focused when it opened.
+ */
+export const VIEW_SHEETS = ["jobs", "plan", "logs", "tree", "work"] as const;
+export type ViewSheetId = (typeof VIEW_SHEETS)[number];
 /** The Files view with nothing open: what a session switch (or the end of edits that outlived one) leaves. */
 export const CLOSED_FILE_VIEW: Pick<
 	UiStore,
@@ -333,8 +328,12 @@ interface UiStore {
 	closeActiveTools: () => void;
 	openShareSession: () => void;
 	closeShareSession: () => void;
-	/** Side panel › Jobs. */
+	/** The Background tasks sheet of the focused tab. */
 	openJobs: () => void;
+	/** A view sheet and the tab it reads (the one focused when it opened); null while none is open. */
+	viewSheet: { view: ViewSheetId; tabId: string | null } | null;
+	openViewSheet: (view: ViewSheetId) => void;
+	closeViewSheet: () => void;
 	openForceTool: () => void;
 	closeForceTool: () => void;
 	openBtw: (question: string) => void;
@@ -360,7 +359,7 @@ interface UiStore {
 	closeSessionPicker: () => void;
 	openBranchPicker: () => void;
 	closeBranchPicker: () => void;
-	/** Side panel › Tree. */
+	/** The Session tree sheet of the focused tab. */
 	openSessionTree: () => void;
 	requestSessionSwitch: (session: SessionInfo) => void;
 	closeSessionSwitch: () => void;
@@ -650,7 +649,10 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	shareSessionOpen: false,
 	openShareSession: () => set({ shareSessionOpen: true }),
 	closeShareSession: () => set({ shareSessionOpen: false }),
-	openJobs: () => get().setPanelTab("jobs"),
+	openJobs: () => get().openViewSheet("jobs"),
+	viewSheet: null,
+	openViewSheet: view => set({ viewSheet: { view, tabId: focusedRuntimeTabId() } }),
+	closeViewSheet: () => set({ viewSheet: null }),
 	forceToolOpen: false,
 	openForceTool: () => set({ forceToolOpen: true }),
 	closeForceTool: () => set({ forceToolOpen: false }),
@@ -693,7 +695,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	branchPickerOpen: false,
 	openBranchPicker: () => set({ branchPickerOpen: true }),
 	closeBranchPicker: () => set({ branchPickerOpen: false }),
-	openSessionTree: () => get().setPanelTab("tree"),
+	openSessionTree: () => get().openViewSheet("tree"),
 	sessionSwitchPrompt: null as SessionInfo | null,
 	requestSessionSwitch: session => set({ sessionSwitchPrompt: session }),
 	closeSessionSwitch: () => set({ sessionSwitchPrompt: null }),

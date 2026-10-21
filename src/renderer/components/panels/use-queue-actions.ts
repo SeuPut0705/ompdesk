@@ -1,6 +1,5 @@
 /**
- * Queue mutations shared by the side-panel QueuePanel and the composer's
- * queued-message tray: edit (omp re-queues the text at the end of its lane),
+ * Queue mutations of the composer's queue popover and its edit-in-field: edit (omp re-queues the text at the end of its lane),
  * cross-lane move (queue_move with toLane, appended to the target lane's end),
  * per-item remove (queue_remove) and per-lane clear (queue_clear). omp cannot
  * reorder within a lane. Every mutation applies optimistically, rolls back on

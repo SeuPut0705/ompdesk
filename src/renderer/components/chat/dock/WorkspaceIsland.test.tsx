@@ -142,6 +142,6 @@ describe("WorkspaceIsland", () => {
 		expect(shells?.textContent).toBe("Shells 3 running");
 		expect(segment("agents")).toBeNull();
 		await act(async () => shells?.click());
-		expect(useUiStore.getState().panelTab).toBe("jobs");
+		expect(useUiStore.getState().viewSheet?.view).toBe("jobs");
 	});
 });
