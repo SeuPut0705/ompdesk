@@ -103,12 +103,16 @@ afterEach(async () => {
 
 /** Hover the element past the tooltip delay and return the bubble's text. */
 async function tooltipOf(element: Element | null | undefined): Promise<string> {
-	await act(async () => {
-		element?.dispatchEvent(new Event("pointerover", { bubbles: true }));
-		const { promise, resolve } = Promise.withResolvers<void>();
-		setTimeout(resolve, 520);
-		await promise;
-	});
+	// Past the hover delay on fake time: a real 520 ms wait made this file's slowest test 1.6 s.
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		await act(async () => {
+			element?.dispatchEvent(new Event("pointerover", { bubbles: true }));
+			await vi.advanceTimersByTimeAsync(520);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
 	return document.querySelector('[role="tooltip"]')?.textContent ?? "";
 }
 

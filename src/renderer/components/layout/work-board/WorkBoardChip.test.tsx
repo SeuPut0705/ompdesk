@@ -155,12 +155,17 @@ describe("WorkBoardChip, the phone's work strip", () => {
 			expect(container.querySelector("[data-work-strip]")?.contains(panel())).toBe(true);
 			expect(document.querySelector("[data-sheet-placement], [data-sheet-overlay], [data-scrim]")).toBeNull();
 			expect(document.querySelector('[role="dialog"], [aria-modal="true"]')).toBeNull();
-			await click(strip());
-			expect(strip()?.getAttribute("aria-expanded")).toBe("false");
-			// It leaves the DOM once its exit transition is over.
-			await act(async () => {
-				await new Promise(resolve => setTimeout(resolve, 220));
-			});
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				await click(strip());
+				expect(strip()?.getAttribute("aria-expanded")).toBe("false");
+				// It leaves the DOM once its exit transition is over.
+				await act(async () => {
+					await vi.advanceTimersByTimeAsync(220);
+				});
+			} finally {
+				vi.useRealTimers();
+			}
 			expect(container.querySelector("[data-work-strip-panel]")).toBeNull();
 		});
 
