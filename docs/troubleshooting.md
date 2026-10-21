@@ -49,6 +49,8 @@ Required items finish first; optional ones install in the background. Status and
 
 **Settings › Updates & about › Copy diagnostics** puts the versions, the setup state and the last 100 entries of OMPdesk's log (a repeated line shows once, with its count) on the clipboard with secrets, addresses and your user folder hidden (**Preview** shows exactly what is copied; nothing is uploaded). Prefer it to the raw files, which can hold file paths, addresses and other details of your machine: remove anything private before you paste lines from them.
 
+When one session misbehaves, **Save diagnostic bundle** in that session's menu (right-click its row, or the row's ⋯) writes a zip of its transcript, its subagents' transcripts and the last request it sent, plus the **Copy diagnostics** text, to a place you pick. Secrets, addresses and your user folder are hidden in every file, but the bundle still holds the conversation; **Save diagnostic bundle (anonymized)** (or holding Option/Alt) turns the conversation's text into size markers and its paths into mock ones, keeping metadata such as model names and timings. Nothing is uploaded: read the zip before you attach it to an issue.
+
 ## Still stuck
 
 Open an [issue](https://github.com/SeuPut0705/ompdesk/issues) with the steps to reproduce, `omp --version` and the **Copy diagnostics** text (or the OMPdesk version, your OS and the relevant lines of the [logs](#logs)).
