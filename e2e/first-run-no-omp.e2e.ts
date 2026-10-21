@@ -313,10 +313,13 @@ test("first-run: two launches downloading omp at once do not share a download", 
 		for (const launched of apps) {
 			launched.finishDownload();
 			await expect
-				.poll(async () => fs.readFile(path.join(launched.root, "installer", "installs.log"), "utf8").catch(() => ""), {
-					message: `the installer of ${path.basename(launched.root)} ran, so its download finished and verified`,
-					timeout: 15_000,
-				})
+				.poll(
+					async () => fs.readFile(path.join(launched.root, "installer", "installs.log"), "utf8").catch(() => ""),
+					{
+						message: `the installer of ${path.basename(launched.root)} ran, so its download finished and verified`,
+						timeout: 15_000,
+					},
+				)
 				.toMatch(/^omp /m);
 		}
 	} finally {
