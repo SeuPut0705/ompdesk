@@ -70,6 +70,8 @@ describe("SidebarProjects", () => {
 			{ path: "/work/beta", addedAt: Date.parse("2026-10-02T00:00:00Z") },
 		]);
 		expect(h.pushes).toHaveLength(1);
+		// The worktree's folder is named with its project, for a paired device that cannot ask this computer's git.
+		expect(h.projects.state().worktrees).toEqual({ "/home/me/.omp/wt/gui-alpha-1234567": "/work/alpha" });
 		// Kept across a relaunch.
 		expect(paths(h.reopen())).toEqual(["/work/alpha", "/work/beta"]);
 	});
@@ -88,13 +90,13 @@ describe("SidebarProjects", () => {
 		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z")]);
 		await h.projects.sync();
 		await h.projects.command({ action: "remove", path: "/work/alpha" });
-		expect(h.projects.state()).toEqual({ projects: [], removed: ["/work/alpha"] });
+		expect(h.projects.state()).toMatchObject({ projects: [], removed: ["/work/alpha"] });
 		// Its sessions are still there: they do not bring it back.
 		await h.projects.sync();
 		expect(paths(h.reopen())).toEqual([]);
 		// Opening the folder (or one of its worktrees) does.
 		await h.projects.command({ action: "add", path: "/home/me/.omp/wt/gui-alpha-1234567" });
-		expect(h.projects.state()).toEqual({ projects: [{ path: "/work/alpha", addedAt: 5_000 }], removed: [] });
+		expect(h.projects.state()).toMatchObject({ projects: [{ path: "/work/alpha", addedAt: 5_000 }], removed: [] });
 	});
 
 	it("adds a folder the person opened, empty or not, but never the Work workspace", async () => {
@@ -121,6 +123,24 @@ describe("SidebarProjects", () => {
 			projects: [{ path: "/a", addedAt: 1 }, { path: "" }, "x", { path: "/a" }],
 			removed: [3, "/b"],
 		});
-		expect(h.projects.state()).toEqual({ projects: [{ path: "/a", addedAt: 1 }], removed: ["/b"] });
+		expect(h.projects.state()).toEqual({ projects: [{ path: "/a", addedAt: 1 }], removed: ["/b"], worktrees: {} });
+	});
+
+	it("never drops a project or forgets a removal, however long the lists grow", async () => {
+		const many = Array.from({ length: 600 }, (_, index) => `/work/p${index}`);
+		const h = harness({
+			projects: many.map(path => ({ path, addedAt: 1 })),
+			removed: many.map(path => `${path}-removed`),
+		});
+		expect(h.projects.state().projects).toHaveLength(600);
+		await h.projects.command({ action: "add", path: "/work/p600" });
+		await h.projects.command({ action: "remove", path: "/work/p0" });
+		// The oldest empty project is still there and no earlier removal came back after a sync and a relaunch.
+		h.setSessions(many.map(path => session(`${path}-removed`, "2026-10-01T00:00:00Z")));
+		await h.projects.sync();
+		const reopened = h.reopen().state();
+		expect(reopened.projects.map(entry => entry.path)).toEqual([...many.slice(1), "/work/p600"]);
+		expect(reopened.removed).toHaveLength(601);
+		expect(reopened.removed).toContain("/work/p0");
 	});
 });

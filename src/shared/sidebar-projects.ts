@@ -13,9 +13,6 @@ export const SIDEBAR_PROJECTS_COMMAND = "sidebar-projects:command";
 export const SIDEBAR_PROJECTS_STATE = "sidebar-projects:state";
 export const SIDEBAR_PROJECTS_PREF = "sidebarProjects";
 
-/** Most projects (and removed folders) a list keeps; the oldest go first past it. */
-export const SIDEBAR_PROJECTS_MAX = 500;
-
 export interface SidebarProject {
 	path: string;
 	/** When it entered the list (ms; a folder found with sessions: its newest session's start): an empty project's
@@ -32,6 +29,11 @@ export interface SidebarProjectsState {
 	 * folder again (a session found there later does not bring it back).
 	 */
 	removed: string[];
+	/**
+	 * Each session folder that is a linked worktree → the project it was cut from, as git on that computer says (a
+	 * paired device cannot ask the host's git): its sessions are rows of that project, never a project of their own.
+	 */
+	worktrees: Record<string, string>;
 }
 
 export type SidebarProjectsRequest =
@@ -52,9 +54,12 @@ export interface SidebarProjectsApi {
 	onState(callback: (update: IpcSidebarProjects) => void): () => void;
 }
 
-export const EMPTY_SIDEBAR_PROJECTS: SidebarProjectsState = { projects: [], removed: [] };
+export const EMPTY_SIDEBAR_PROJECTS: SidebarProjectsState = { projects: [], removed: [], worktrees: {} };
 
-/** A stored value read back: anything malformed falls away, duplicates keep their first entry, bounds hold. */
+/**
+ * A stored value read back: anything malformed falls away, duplicates keep their first entry. Nothing is trimmed: a
+ * project leaves only by the person's Remove, and a removed one must stay removed.
+ */
 export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	const record = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 	const seen = new Set<string>();
@@ -77,5 +82,10 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 			),
 		),
 	];
-	return { projects: projects.slice(-SIDEBAR_PROJECTS_MAX), removed: removed.slice(-SIDEBAR_PROJECTS_MAX) };
+	const worktrees: Record<string, string> = {};
+	const rawWorktrees = record.worktrees;
+	if (rawWorktrees && typeof rawWorktrees === "object" && !Array.isArray(rawWorktrees))
+		for (const [cwd, project] of Object.entries(rawWorktrees))
+			if (cwd && typeof project === "string" && project) worktrees[cwd] = project;
+	return { projects, removed, worktrees };
 }

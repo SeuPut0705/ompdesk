@@ -63,6 +63,7 @@ export const useSidebarProjects = create<SidebarProjectsStore>((set, get) => {
 			const before = get().lists[keyOf(device)] ?? EMPTY_SIDEBAR_PROJECTS;
 			// The row leaves at once; a refused write puts it back.
 			apply(device, {
+				...before,
 				projects: before.projects.filter(entry => entry.path !== path),
 				removed: [...before.removed.filter(entry => entry !== path), path],
 			});

@@ -636,11 +636,11 @@ export const ProjectsCommandParams: z.ZodType<{ request: SidebarProjectsRequest 
 });
 
 /** `host.projects.command` reply and `host.projects.changed` event. */
-export const SidebarProjectsStateSchema: z.ZodType<SidebarProjectsState> = z.object({
-	projects: z
-		.array(z.object({ path: ProjectPath, addedAt: z.number(), missing: z.literal(true).optional() }))
-		.max(1000),
-	removed: z.array(ProjectPath).max(1000),
+export const SidebarProjectsStateSchema: z.ZodType<SidebarProjectsState, z.ZodTypeDef, unknown> = z.object({
+	projects: z.array(z.object({ path: ProjectPath, addedAt: z.number(), missing: z.literal(true).optional() })),
+	removed: z.array(ProjectPath),
+	// An older host sends none: its sessions then group by their own folder, as before.
+	worktrees: z.record(ProjectPath, ProjectPath).default({}),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

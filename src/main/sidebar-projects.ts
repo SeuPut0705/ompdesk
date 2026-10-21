@@ -11,7 +11,6 @@ import { promises as fs } from "original-fs";
 import type { SessionInfo } from "../shared/ipc-types";
 import {
 	parseSidebarProjects,
-	SIDEBAR_PROJECTS_MAX,
 	type SidebarProject,
 	type SidebarProjectsRequest,
 	type SidebarProjectsState,
@@ -82,7 +81,7 @@ export class SidebarProjects {
 		if (request.action === "add") await this.add(request.path);
 		else if (request.action === "remove") this.remove(request.path);
 		// A read also notices a folder that went (or came back) since the last pass.
-		else await this.#checkFolders([]);
+		else await this.#checkFolders([], this.#state.worktrees);
 		return this.#state;
 	}
 
@@ -153,6 +152,8 @@ export class SidebarProjects {
 			newest.set(session.cwd, Math.max(newest.get(session.cwd) ?? 0, Number.isNaN(created) ? 0 : created));
 		}
 		const found = new Map<string, number>();
+		// A linked worktree's folder → its project: a paired device groups the host's sessions by it (git runs here).
+		const worktrees: Record<string, string> = {};
 		for (const [cwd, created] of newest) {
 			let project = this.#resolved.get(cwd);
 			if (project === undefined) {
@@ -160,6 +161,7 @@ export class SidebarProjects {
 				this.#resolved.set(cwd, project);
 			}
 			if (project === null || project === workspace) continue;
+			if (project !== cwd) worktrees[cwd] = project;
 			found.set(project, Math.max(found.get(project) ?? 0, created));
 		}
 		if (this.#disposed) return;
@@ -169,11 +171,11 @@ export class SidebarProjects {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
 			added.push({ path, addedAt: addedAt || this.#now() });
 		}
-		await this.#checkFolders(added);
+		await this.#checkFolders(added, worktrees);
 	}
 
 	/** Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added`. */
-	async #checkFolders(added: readonly SidebarProject[]): Promise<void> {
+	async #checkFolders(added: readonly SidebarProject[], worktrees: Record<string, string>): Promise<void> {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
 		const checked = await Promise.all(
@@ -185,15 +187,14 @@ export class SidebarProjects {
 		// Something else changed the list meanwhile: the next pass checks again.
 		if (this.#disposed || this.#state !== before) return;
 		const changed =
-			added.length > 0 || checked.some((entry, index) => entry.missing !== before.projects[index]?.missing);
-		if (changed) this.#commit({ projects: checked, removed: before.removed });
+			added.length > 0 ||
+			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
+			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees);
+		if (changed) this.#commit({ projects: checked, worktrees });
 	}
 
-	#commit(next: SidebarProjectsState): void {
-		this.#state = {
-			projects: next.projects.slice(-SIDEBAR_PROJECTS_MAX),
-			removed: next.removed.slice(-SIDEBAR_PROJECTS_MAX),
-		};
+	#commit(next: Partial<SidebarProjectsState>): void {
+		this.#state = { ...this.#state, ...next };
 		this.#deps.write(this.#state);
 		this.#deps.onState(this.#state);
 	}

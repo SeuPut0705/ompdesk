@@ -267,7 +267,11 @@ function fakeMachine() {
 			}),
 		),
 		sidebarProjects: vi.fn(
-			async (_request: SidebarProjectsRequest): Promise<SidebarProjectsState> => ({ projects: [], removed: [] }),
+			async (_request: SidebarProjectsRequest): Promise<SidebarProjectsState> => ({
+				projects: [],
+				removed: [],
+				worktrees: {},
+			}),
 		),
 	} satisfies MachineServices;
 }
@@ -2484,11 +2488,12 @@ describe("LocalHostServices host.* calls", () => {
 		await expect(services.call(x.peer, "host.projects.command", { request: { action: "get" } }, x)).resolves.toEqual({
 			projects: [{ path: "/srv/app", addedAt: 1 }],
 			removed: [],
+			worktrees: {},
 		});
 		await services.call(y.peer, "host.projects.command", { request: { action: "get" } }, y);
 		await services.call(x.peer, "host.projects.command", { request: { action: "add", path: "/srv/new" } }, x);
 		await services.call(y.peer, "host.projects.command", { request: { action: "remove", path: "/srv/app" } }, y);
-		const latest = { projects: [{ path: "/srv/new", addedAt: 7 }], removed: ["/srv/app"] };
+		const latest = { projects: [{ path: "/srv/new", addedAt: 7 }], removed: ["/srv/app"], worktrees: {} };
 		expect(list.state()).toEqual(latest);
 		for (const conn of [x, y])
 			expect(conn.events.filter(entry => entry.event === PROJECTS_EVENT).map(entry => entry.data)).toEqual([
@@ -2498,6 +2503,7 @@ describe("LocalHostServices host.* calls", () => {
 						{ path: "/srv/new", addedAt: 7 },
 					],
 					removed: [],
+					worktrees: {},
 				},
 				latest,
 			]);

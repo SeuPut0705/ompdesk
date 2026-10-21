@@ -321,17 +321,19 @@ function DeviceSessions({
 		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, DeviceSession[]>();
 		for (const session of rows) {
+			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
+			const project = projectList.worktrees[session.cwd] ?? session.cwd;
 			// A project removed from the sidebar takes its sessions with it, unless a tab holds one.
 			if (
-				removed.has(session.cwd) &&
+				removed.has(project) &&
 				session.liveTabId === undefined &&
 				!held.has(session.path) &&
 				!held.has(session.id)
 			)
 				continue;
-			const list = byCwd.get(session.cwd) ?? [];
+			const list = byCwd.get(project) ?? [];
 			list.push(session);
-			byCwd.set(session.cwd, list);
+			byCwd.set(project, list);
 		}
 		const result = [...byCwd.entries()].map(([cwd, groupSessions]) => ({
 			cwd,

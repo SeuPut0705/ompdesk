@@ -111,6 +111,7 @@ export const projectsFixture = (): SidebarProjectsState => {
 			...extra,
 		],
 		removed: [],
+		worktrees: {},
 	};
 };
 

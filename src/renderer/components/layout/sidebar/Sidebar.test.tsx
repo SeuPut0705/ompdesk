@@ -165,16 +165,18 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 			command: vi.fn(async (request, device) => {
 				const lists = omp.sidebarProjects.lists;
 				const key = device ?? "local";
-				const list = lists[key] ?? { projects: [], removed: [] };
+				const list = lists[key] ?? { projects: [], removed: [], worktrees: {} };
 				if (request.action === "add" && !list.projects.some(entry => entry.path === request.path))
 					lists[key] = {
 						projects: [...list.projects, { path: request.path, addedAt: 1 }],
 						removed: list.removed.filter(entry => entry !== request.path),
+						worktrees: list.worktrees,
 					};
 				if (request.action === "remove")
 					lists[key] = {
 						projects: list.projects.filter(entry => entry.path !== request.path),
 						removed: [...list.removed, request.path],
+						worktrees: list.worktrees,
 					};
 				return lists[key] ?? list;
 			}),
@@ -1563,6 +1565,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				{ path: "/work/beta", addedAt: 1 },
 			],
 			removed: [],
+			worktrees: {},
 		};
 		const deleted = new Set<string>();
 		omp.sessions.delete.mockImplementation(async (path: string) => {
@@ -1617,6 +1620,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				{ path: "/work/empty", addedAt: Date.parse("2026-01-05T00:00:00Z") },
 			],
 			removed: [],
+			worktrees: {},
 		};
 		seedStores();
 		await mount(<Sidebar />);
@@ -1643,7 +1647,11 @@ describe("Sidebar menus and pinned ordering", () => {
 
 	it("dims a project whose folder is gone and keeps offering Remove", async () => {
 		const omp = installMockOmp([]);
-		omp.sidebarProjects.lists.local = { projects: [{ path: "/work/gone", addedAt: 1, missing: true }], removed: [] };
+		omp.sidebarProjects.lists.local = {
+			projects: [{ path: "/work/gone", addedAt: 1, missing: true }],
+			removed: [],
+			worktrees: {},
+		};
 		seedStores();
 		await mount(<Sidebar />);
 
@@ -2774,6 +2782,36 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector("[data-device-group]")).toBeNull();
 	});
 
+	it("puts a host worktree's session under its project, as the host's git says, and removes them together", async () => {
+		const omp = installWithRemote();
+		const WT = "/Users/kim/.omp/wt/gui-agent-a1b2c3-0a1b2c3";
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio"
+				? [...REMOTE, session("/Users/kim/.omp/agent/sessions/wt/two.jsonl", WT, { title: "Worktree fix", device })]
+				: LIST,
+		);
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [{ path: "/Users/kim/code/app", addedAt: 1 }],
+			removed: [],
+			worktrees: { [WT]: "/Users/kim/code/app" },
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.querySelector(`[data-device-group="${WT}"]`)).toBeNull();
+		const app = section?.querySelector('[data-device-group="/Users/kim/code/app"]');
+		expect(app?.textContent).toContain("Remote fix");
+		expect(app?.textContent).toContain("Worktree fix");
+		expect(section?.querySelectorAll("[data-device-group]")).toHaveLength(1);
+
+		await fire(app?.querySelector(".group\\/head") ?? null, "onContextMenu");
+		await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+		expect(section?.querySelector("[data-device-group]")).toBeNull();
+		expect(section?.textContent).not.toContain("Worktree fix");
+	});
+
 	it("shows the host's own project list, empty projects too, and removes one there", async () => {
 		const omp = installWithRemote();
 		omp.sidebarProjects.lists["dev-studio"] = {
@@ -2782,6 +2820,7 @@ describe("Sidebar device sections", () => {
 				{ path: "/Users/kim/code/empty", addedAt: 2 },
 			],
 			removed: [],
+			worktrees: {},
 		};
 		seedStores();
 		pairHost("online");

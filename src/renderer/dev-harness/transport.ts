@@ -214,11 +214,16 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	const harnessProjects = (request: SidebarProjectsRequest) => {
 		if (request.action === "remove")
 			projects = {
+				...projects,
 				projects: projects.projects.filter(entry => entry.path !== request.path),
 				removed: [...projects.removed, request.path],
 			};
 		if (request.action === "add" && !projects.projects.some(entry => entry.path === request.path))
-			projects = { projects: [...projects.projects, { path: request.path, addedAt: Date.now() }], removed: [] };
+			projects = {
+				...projects,
+				projects: [...projects.projects, { path: request.path, addedAt: Date.now() }],
+				removed: projects.removed.filter(entry => entry !== request.path),
+			};
 		return projects;
 	};
 
