@@ -275,9 +275,7 @@ describe("an Autopilot run on the work board", () => {
 		await act(async () => $("[data-ship-button='pr']")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "ship", kind: "pr" });
 
-		await act(async () => $("[data-ship-auto='push'] , button[data-ship-auto='push']")?.click());
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "ship", kind: "auto_push", enabled: true });
-
+		expect($("[data-ship-auto='push']")).toBeNull();
 		await act(async () => $("[data-autopilot-pause]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "pause" });
 		await act(async () => $("[data-autopilot-stop]")?.click());
@@ -337,22 +335,39 @@ describe("an Autopilot run on the work board", () => {
 			useAutopilotStore.getState().apply({ ...status, state: "ended", reason: "user", now: undefined }),
 		);
 		expect($("[data-autopilot-pause]")).toBeNull();
-		expect($("[data-autopilot-note]")).toBeNull();
+		expect($("[data-autopilot-controls]")).toBeNull();
 	});
 
-	it("adds a backlog item and a note for the next cycle", async () => {
+	it("adds a backlog item, and has no field for the next cycle (the composer says it)", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
 		await mount();
 		expect($("button[data-autopilot-send='backlog_add']")?.disabled).toBe(true);
+		expect(all("[data-board-section='autopilot'] input")).toHaveLength(0);
 
 		await typeInto("[data-autopilot-backlog-input]", "Fix the tab close race");
 		await submit("[data-autopilot-backlog-input]");
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "backlog_add", text: "Fix the tab close race" });
+	});
 
-		await typeInto("[data-autopilot-note]", "Prefer small diffs");
-		await submit("[data-autopilot-note]");
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "note", text: "Prefer small diffs" });
+	it("has no shipping section for a run that lands, and keeps its release under the run's rows", async () => {
+		installMockOmp();
+		const ship = status.ship as NonNullable<AutopilotStatus["ship"]>;
+		useAutopilotStore.getState().apply({
+			...status,
+			ship: {
+				...ship,
+				policy: { ...ship.policy, land: true, autoRelease: { on: true, cadence: { kind: "agent" } } },
+				release: { version: "0.51.0", state: "success", runUrl: "https://github.com/o/r/actions/runs/9" },
+			},
+		});
+		await mount();
+		expect($('[data-board-section="ship"]')).toBeNull();
+		expect($("[data-ship-button]")).toBeNull();
+		expect($("[data-ship-land]")?.getAttribute("data-ship-land")).toBe("default");
+		expect($('[data-board-section="autopilot"] [data-ship-release]')?.getAttribute("data-ship-release")).toBe(
+			"success",
+		);
 	});
 
 	it("opens a commit from its sha in the Changes commits view", async () => {

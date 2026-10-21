@@ -1065,15 +1065,9 @@ export class Autopilot {
 
 	async #shipAction(run: Run, action: Extract<AutopilotAction, { action: "ship" }>): Promise<void> {
 		const kind = action.kind;
-		if (kind === "auto_push" || kind === "auto_release") {
-			const enabled = action.enabled === true;
+		if (kind === "auto_release") {
 			const current = run.settings.ship;
-			await this.#configure(
-				run,
-				kind === "auto_push"
-					? { ship: { autoPush: enabled } }
-					: { ship: { autoRelease: { ...current.autoRelease, on: enabled } } },
-			);
+			await this.#configure(run, { ship: { autoRelease: { ...current.autoRelease, on: action.enabled === true } } });
 			return;
 		}
 		if (kind === "release") {

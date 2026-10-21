@@ -521,7 +521,7 @@ export type AutopilotAction =
 	| { action: "backlog_remove"; id: string }
 	| {
 			action: "ship";
-			kind: ShipKind | "auto_push" | "auto_release";
+			kind: ShipKind | "auto_release";
 			enabled?: boolean;
 			cycle?: number;
 			mode?: "ff" | "merge_commit";

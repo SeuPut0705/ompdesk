@@ -207,7 +207,7 @@ describe("an Autopilot tab's work board", () => {
 		expect($("[data-board-autopilot-text]")?.textContent).toBe(
 			translate("autopilot.cycleArea", { n: 8, area: translate("autopilot.area.performance") }),
 		);
-		expect(sections().slice(0, 4)).toEqual(["autopilot", "cycles", "ship", "backlog"]);
+		expect(sections().slice(0, 3)).toEqual(["autopilot", "cycles", "backlog"]);
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain("Cache the session list's first read");
 		expect($("[data-autopilot-child]")).not.toBeNull();
 		expect($("[data-autopilot-red-streak]")?.getAttribute("data-autopilot-red-streak")).toBe("2");
@@ -248,10 +248,7 @@ describe("an Autopilot tab's work board", () => {
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "stop" });
 		await click("[data-autopilot-abort]");
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "abort" });
-		await click('[data-ship-button="push"]');
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "ship", kind: "push" });
-		await typeAndSubmit("[data-autopilot-note]", "Prefer the tests area");
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "note", text: "Prefer the tests area" });
+		expect($('[data-ship-button="push"]')).toBeNull();
 		await typeAndSubmit("[data-autopilot-backlog-input]", "README screenshots");
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "backlog_add", text: "README screenshots" });
 	});

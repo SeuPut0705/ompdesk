@@ -1820,19 +1820,9 @@ describe("ship actions from the screen", () => {
 		expect(dataOf<AutopilotStatus>(cancelled).ship?.queue).toEqual([]);
 	});
 
-	it("the auto toggles configure the bridge, and auto release needs a procedure", async () => {
+	it("the auto release toggle configures the bridge only with a procedure", async () => {
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
-		await autopilot.handleCommand(
-			win,
-			sidecar,
-			"ap-1",
-			{ type: "set_autopilot", action: "ship", kind: "auto_push", enabled: true },
-			"1",
-		);
-		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.configure).at(-1)?.params).toEqual({
-			ship: { autoPush: true },
-		});
 		const refused = await autopilot.handleCommand(
 			win,
 			sidecar,

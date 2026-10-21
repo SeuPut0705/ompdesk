@@ -1,4 +1,4 @@
-import { Plus, Send, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { AutopilotChildLive } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { formatCost, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
@@ -177,7 +177,7 @@ function ChildRow({ child }: { child: AutopilotChildLive }) {
 	);
 }
 
-/** One text field and its button under the run's rows (the next cycle's instruction, a backlog item). */
+/** One text field and its button under the run's rows (a backlog item). */
 function SendField({
 	action,
 	label,
@@ -186,13 +186,13 @@ function SendField({
 	icon,
 	field,
 }: {
-	action: "note" | "backlog_add";
+	action: "backlog_add";
 	label: string;
 	placeholder: string;
 	button: string;
 	icon: ReactNode;
-	/** The field's test hook (`data-autopilot-note`, `data-autopilot-backlog-input`). */
-	field: "data-autopilot-note" | "data-autopilot-backlog-input";
+	/** The field's test hook (`data-autopilot-backlog-input`). */
+	field: "data-autopilot-backlog-input";
 }) {
 	const { pending, run } = useAutopilotActions();
 	const [value, setValue] = useState("");
@@ -233,8 +233,8 @@ function SendField({
 
 /**
  * The run's first board section: the cycle in flight (its item, or "Picking an item…", with the step it is in), the
- * cycle's child sessions, the red streak from two on, where green cycles go, the controls and the next cycle's
- * instruction. An ended run keeps only what it did.
+ * cycle's child sessions, the red streak from two on, where green cycles go and the controls. What the next cycle
+ * should do is typed into the tab's own composer, as in any session. An ended run keeps only what it did.
  */
 function AutopilotRunSection() {
 	const t = useT();
@@ -295,16 +295,6 @@ function AutopilotRunSection() {
 						<AutopilotStopButtons />
 					</div>
 				</li>
-			)}
-			{!ended && (
-				<SendField
-					action="note"
-					button={t("autopilot.note.send")}
-					field="data-autopilot-note"
-					icon={<Send aria-hidden />}
-					label={t("autopilot.note.label")}
-					placeholder={t("autopilot.note.placeholder")}
-				/>
 			)}
 		</BoardSection>
 	);

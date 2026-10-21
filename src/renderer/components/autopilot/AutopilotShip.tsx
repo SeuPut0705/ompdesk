@@ -64,7 +64,8 @@ function QueueRow({ item, onCancel }: { item: ShipQueueItem; onCancel: () => voi
 
 /**
  * Where a run's green cycles go, one line in its first board section: landing on the default branch, the one pull
- * request a protected branch asked for (with its link), or the shipping level (`board.ship*`).
+ * request a protected branch asked for (with its link), or the shipping level (`board.ship*`). A run that lands has
+ * no shipping section, so a release under way or its last release shows here too.
  */
 export function ShipLandRow() {
 	const t = useT();
@@ -81,33 +82,80 @@ export function ShipLandRow() {
 						: "autopilot.board.shipLocal",
 			);
 	return (
-		<li className="omp-work-board-item">
-			<div
-				className="omp-work-board-row"
-				data-ship-land={policy.land ? (landing ? "pr" : "default") : undefined}
-				title={landing?.reason ? `${text}\n${landing.reason}` : text}
-			>
-				<span className="omp-work-board-lead">
-					<Dot tone={landing ? "warning" : "muted"} />
-				</span>
-				<span className="min-w-0 flex-1 truncate text-(--sc-text-muted)">{text}</span>
-				{landing?.url && (
-					<IconButton
-						icon={<ExternalLink />}
-						label={t("autopilot.ship.openPr")}
-						onClick={() => void window.omp.system.openExternal(landing.url as string)}
-						size="sm"
-					/>
-				)}
-			</div>
-		</li>
+		<>
+			<li className="omp-work-board-item">
+				<div
+					className="omp-work-board-row"
+					data-ship-land={policy.land ? (landing ? "pr" : "default") : undefined}
+					title={landing?.reason ? `${text}\n${landing.reason}` : text}
+				>
+					<span className="omp-work-board-lead">
+						<Dot tone={landing ? "warning" : "muted"} />
+					</span>
+					<span className="min-w-0 flex-1 truncate text-(--sc-text-muted)">{text}</span>
+					{landing?.url && (
+						<IconButton
+							icon={<ExternalLink />}
+							label={t("autopilot.ship.openPr")}
+							onClick={() => void window.omp.system.openExternal(landing.url as string)}
+							size="sm"
+						/>
+					)}
+				</div>
+			</li>
+			{policy.land && (ship.inFlight?.kind === "release" || ship.release) && (
+				<li className="omp-work-board-item">
+					<div className="omp-work-board-row">
+						<span className="omp-work-board-lead">
+							<Dot tone={ship.inFlight ? "warning" : ship.release?.state === "failure" ? "danger" : "muted"} />
+						</span>
+						<ReleaseStatus />
+					</div>
+				</li>
+			)}
+		</>
+	);
+}
+
+/** A release under way, or the last one's version, state and run link. */
+function ReleaseStatus() {
+	const t = useT();
+	const ship = useAutopilotStore(s => s.status.ship);
+	if (ship?.inFlight?.kind === "release") {
+		return (
+			<span className="min-w-0 flex-1 truncate text-sc-xs text-(--sc-warning)" data-ship-inflight="release">
+				{t("autopilot.ship.inFlightRelease")}
+			</span>
+		);
+	}
+	const release = ship?.release;
+	if (!release) return null;
+	return (
+		<span
+			className="flex min-w-0 flex-1 items-center gap-1.5 text-sc-xs text-(--sc-text-secondary)"
+			data-ship-release={release.state}
+		>
+			<span className="min-w-0 truncate">{t("autopilot.ship.lastRelease", { version: release.version })}</span>
+			<Badge variant={release.state === "success" ? "success" : release.state === "failure" ? "error" : "info"}>
+				{t(`autopilot.ship.releaseState.${release.state}`)}
+			</Badge>
+			{release.runUrl && (
+				<IconButton
+					icon={<ExternalLink />}
+					label={t("autopilot.ship.openRun")}
+					onClick={() => void window.omp.system.openExternal(release.runUrl as string)}
+					size="sm"
+				/>
+			)}
+		</span>
 	);
 }
 
 /**
- * The run's shipping section on the work board: push, pull request, merge into the base branch (each runs at the end
- * of the turn in progress, in order), release (the agent follows the repository's own procedure), the two automatic
- * switches and the queue's progress.
+ * The run's shipping section on the work board, for a run that does not land (a level picked at start): push, pull
+ * request, merge into the base branch (each runs at the end of the turn in progress, in order), release (the agent
+ * follows the repository's own procedure), automatic release and the queue's progress. A run that lands every green
+ * cycle by itself has none: nothing here is the person's to do (`ShipLandRow` says where its cycles go).
  */
 export function AutopilotShipSection() {
 	const t = useT();
@@ -125,7 +173,7 @@ export function AutopilotShipSection() {
 	const [merging, setMerging] = useState(false);
 	const [mergeCommit, setMergeCommit] = useState(false);
 	const [releasing, setReleasing] = useState(false);
-	if (!ship) return null;
+	if (!ship || ship.policy.land) return null;
 	const live = state !== undefined && state !== "ended";
 	const policy = ship.policy;
 	const procedure = ship.releaseProcedure;
@@ -191,17 +239,7 @@ export function AutopilotShipSection() {
 						</Button>
 					</div>
 					<SwitchField
-						checked={policy.autoPush}
-						className="-mx-2"
-						data-ship-auto="push"
-						disabled={pending === "ship"}
-						label={t("autopilot.ship.autoPush")}
-						onCheckedChange={enabled => void run({ action: "ship", kind: "auto_push", enabled })}
-						size="sm"
-					/>
-					<SwitchField
 						checked={policy.autoRelease.on}
-						className="-mx-2"
 						data-ship-auto="release"
 						description={releaseReason}
 						disabled={releaseOff || pending === "ship"}
@@ -255,33 +293,7 @@ export function AutopilotShipSection() {
 							)}
 						</p>
 					)}
-					{ship.release && (
-						<p
-							className="flex items-center gap-1.5 text-sc-xs text-(--sc-text-secondary)"
-							data-ship-release={ship.release.state}
-						>
-							<span>{t("autopilot.ship.lastRelease", { version: ship.release.version })}</span>
-							<Badge
-								variant={
-									ship.release.state === "success"
-										? "success"
-										: ship.release.state === "failure"
-											? "error"
-											: "info"
-								}
-							>
-								{t(`autopilot.ship.releaseState.${ship.release.state}`)}
-							</Badge>
-							{ship.release.runUrl && (
-								<IconButton
-									icon={<ExternalLink />}
-									label={t("autopilot.ship.openRun")}
-									onClick={() => void window.omp.system.openExternal(ship.release?.runUrl as string)}
-									size="sm"
-								/>
-							)}
-						</p>
-					)}
+					{ship.release && ship.inFlight?.kind !== "release" && <ReleaseStatus />}
 					<ConfirmDialog
 						busy={pending === "ship"}
 						confirmLabel={t("autopilot.ship.mergeConfirm.action")}
