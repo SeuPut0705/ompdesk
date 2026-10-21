@@ -128,12 +128,14 @@ export function logLinkTraffic(
 		const events = Object.entries(window.batched)
 			.sort((a, b) => b[1] - a[1])
 			.slice(0, TOP);
+		// As JSON text: the runtime log keeps only primitive details, and drops an array or object whole (every
+		// traffic line until 21 Oct 2026 read `ms`, `tx`, `rx` and nothing of what the bytes were).
 		options.log({
 			ms,
 			tx: window.tx,
 			rx: window.rx,
-			top: window.rows.slice(0, TOP),
-			events: Object.fromEntries(events),
+			top: JSON.stringify(window.rows.slice(0, TOP)),
+			events: JSON.stringify(Object.fromEntries(events)),
 		});
 	};
 	const timer = setInterval(flush, options.everyMs ?? TRAFFIC_LOG_MS);

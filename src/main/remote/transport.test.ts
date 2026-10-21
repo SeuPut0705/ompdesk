@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
+import { normalizeRuntimeErrorReport } from "../runtime-log-core";
 import { connectFirst, type LinkState, probeHost, RemoteClient, type RemoteClientOptions, RemoteError } from "./client";
 import { authKeys, dh, generateKeyPair } from "./crypto";
 import {
@@ -730,9 +731,14 @@ describe("the host's traffic line", () => {
 
 		const traffic = lines.filter(line => line.message === "traffic");
 		expect(traffic).toHaveLength(1);
-		const { details } = traffic[0] as LinkLine;
+		// As the runtime log keeps it (`remote-link` lines go through it): only primitive details survive.
+		const details = normalizeRuntimeErrorReport({
+			source: "remote-link",
+			message: "traffic",
+			details: (traffic[0] as LinkLine).details,
+		}).details as Record<string, unknown>;
 		expect(details).toMatchObject({ deviceId, ms: expect.any(Number) });
-		const top = details.top as Array<{ kind: string; frames: number; bytes: number }>;
+		const top = JSON.parse(String(details.top)) as Array<{ kind: string; frames: number; bytes: number }>;
 		expect(top.map(row => row.kind)).toEqual(expect.arrayContaining(["rx req push", "tx evt pushed"]));
 		const bytesOf = (kind: string) => top.find(row => row.kind === kind)?.bytes ?? 0;
 		expect(bytesOf("rx req push")).toBeGreaterThan(300_000);

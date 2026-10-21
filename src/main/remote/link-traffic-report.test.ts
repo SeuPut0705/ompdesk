@@ -373,12 +373,11 @@ describe("the host's traffic line over the real pipeline", () => {
 
 		const traffic = hostLog.filter(line => line.message === "traffic");
 		expect(traffic).toHaveLength(1);
-		const details = traffic[0]?.details as {
-			top: Array<{ kind: string }>;
-			events: Record<string, number>;
-		};
-		expect(details.top[0]?.kind).toBe("tx evt tab.event events");
-		expect(details.events.message_update).toBeGreaterThan(1500);
+		const details = traffic[0]?.details as { top: string; events: string };
+		const top = JSON.parse(details.top) as Array<{ kind: string }>;
+		const events = JSON.parse(details.events) as Record<string, number>;
+		expect(top[0]?.kind).toBe("tx evt tab.event events");
+		expect(events.message_update).toBeGreaterThan(1500);
 		expect(JSON.stringify(details)).not.toContain("session transcript");
 	}, 30_000);
 });
