@@ -23,6 +23,8 @@ Object.assign(window, {
 const { createRoot } = await import("react-dom/client");
 const { LiveStepPeek } = await import("../LiveStepPeek");
 const { ChildrenAtWork } = await import("./ChildrenAtWork");
+/** The rows are a lazy chunk (the phone's first screen never shows them): let React take the loaded module. */
+const rowsLoaded = () => act(async () => void (await import("./ChildrenAtWorkList")));
 
 const NOW = 1_000_000;
 const tab = (over: Partial<SessionTab>): SessionTab => ({
@@ -107,6 +109,7 @@ describe("the parent's live work card while it waits on its children", () => {
 				</I18nProvider>,
 			),
 		);
+		await rowsLoaded();
 	}
 
 	it("lists each running child with its step and clock, and no session it did not open", async () => {
@@ -135,6 +138,7 @@ describe("the parent's live work card while it waits on its children", () => {
 				</I18nProvider>,
 			),
 		);
+		await rowsLoaded();
 		await act(async () => vi.advanceTimersByTime(2_000));
 		expect(command.mock.calls.filter(([sent]) => sent.type === "agent_control_review" && sent.live)).toHaveLength(1);
 	});
@@ -149,6 +153,7 @@ describe("between the parent's turns", () => {
 				</I18nProvider>,
 			),
 		);
+		await rowsLoaded();
 		expect(rows()).toHaveLength(2);
 		await act(async () => {
 			useTabsStore.setState(state => ({

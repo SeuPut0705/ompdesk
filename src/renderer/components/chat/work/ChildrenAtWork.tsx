@@ -4,17 +4,20 @@
  * opening the work board. The live work card shows them while the parent's agent waits on its children
  * (`ompdesk_session_result`); between the parent's turns the transcript's status row does. Same rows and live steps as
  * the board's "Child sessions" (`useOpenedChildren`, main's review push); nothing polls beyond the board's own ask.
+ * The rows themselves (ChildrenAtWorkList.tsx) load only once a session has children at work: the phone's first screen
+ * never shows them (scripts/check-main-bundle.ts).
  */
-import { useMemo } from "react";
-import { useLiveReview } from "../../../hooks/use-live-review";
+import { Suspense, useMemo } from "react";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
-import { cx, formatElapsed } from "../../../lib/format";
-import { useT } from "../../../lib/i18n";
-import { useNowTick } from "../../../lib/now-tick";
+import { lazyChunk } from "../../../lib/chunk-load";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import type { ToolEntry } from "../../../stores/tools";
-import { childActivity, type OpenedChildRow } from "../../layout/work-board/opened-children";
+import type { OpenedChildRow } from "../../layout/work-board/opened-children";
+
+const ChildrenAtWorkList = lazyChunk(() =>
+	import("./ChildrenAtWorkList").then(module => ({ default: module.ChildrenAtWorkList })),
+);
 
 /** The control tool whose `wait` blocks the parent's turn on its children, called directly or as stock's `xd://` device. */
 const CHILDREN_WAIT_TOOL = "ompdesk_session_result";
@@ -41,50 +44,12 @@ export function useChildrenAtWork(): { tabId: string | null; rows: OpenedChildRo
 	return { tabId, rows: atWork };
 }
 
-function ChildLine({ row, now }: { row: OpenedChildRow; now: number }) {
-	const t = useT();
-	const title = row.title || t("workBoard.review.untitled");
-	const activity = childActivity(row) ?? (row.status === "waiting" ? t("workBoard.opened.status.waiting") : null);
-	const clock = row.status === "running" && row.since ? formatElapsed(Math.max(0, now - row.since)) : "";
-	return (
-		<li>
-			<button
-				className="omp-children-at-work-row"
-				data-child-at-work={row.key}
-				data-status={row.status ?? "open"}
-				onClick={() => {
-					if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
-				}}
-				title={[title, activity].filter(Boolean).join("\n")}
-				type="button"
-			>
-				<span aria-hidden className="omp-children-at-work-dot" data-status={row.status ?? "open"} />
-				<span className="omp-children-at-work-title">{title}</span>
-				{activity ? <span className="omp-children-at-work-step">{activity}</span> : null}
-				{clock ? <span className="omp-children-at-work-clock">{clock}</span> : null}
-			</button>
-		</li>
-	);
-}
-
 export function ChildrenAtWork({ className }: { className?: string }) {
-	const t = useT();
-	const { tabId, rows } = useChildrenAtWork();
-	const running = rows.some(row => row.status === "running");
-	useLiveReview(tabId, running);
-	const now = useNowTick(running);
+	const { rows } = useChildrenAtWork();
 	if (rows.length === 0) return null;
 	return (
-		<section
-			aria-label={t("workBoard.opened")}
-			className={cx("omp-children-at-work", className)}
-			data-children-at-work
-		>
-			<ul>
-				{rows.map(row => (
-					<ChildLine key={row.key} now={now} row={row} />
-				))}
-			</ul>
-		</section>
+		<Suspense fallback={null}>
+			<ChildrenAtWorkList className={className} />
+		</Suspense>
 	);
 }
