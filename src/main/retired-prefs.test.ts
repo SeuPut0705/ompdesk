@@ -1,30 +1,90 @@
 import { describe, expect, it } from "vitest";
-import { dropRetiredPrefs, RETIRED_PREFS } from "./retired-prefs";
+import { migrateRetiredPrefs, RETIRED_PREFS } from "./retired-prefs";
 
+/** electron-store's semantics: a dotted key names a nested value. */
 function memoryStore(initial: Record<string, unknown>) {
-	const data = { ...initial };
-	return { data, delete: (key: string) => void delete data[key] };
+	const data: Record<string, unknown> = structuredClone(initial);
+	const parent = (key: string, create: boolean) => {
+		const parts = key.split(".");
+		let node: Record<string, unknown> | undefined = data;
+		for (const part of parts.slice(0, -1)) {
+			if (node[part] === undefined && create) node[part] = {};
+			node = node[part] as Record<string, unknown> | undefined;
+			if (!node || typeof node !== "object") return { node: undefined, last: parts.at(-1) ?? "" };
+		}
+		return { node, last: parts.at(-1) ?? "" };
+	};
+	return {
+		data,
+		has: (key: string) => {
+			const { node, last } = parent(key, false);
+			return node !== undefined && last in node;
+		},
+		get: (key: string) => parent(key, false).node?.[parent(key, false).last],
+		set: (key: string, value: unknown) => {
+			const { node, last } = parent(key, true);
+			if (node) node[last] = value;
+		},
+		delete: (key: string) => {
+			const { node, last } = parent(key, false);
+			if (node) delete node[last];
+		},
+	};
 }
 
-describe("dropRetiredPrefs", () => {
+describe("migrateRetiredPrefs", () => {
 	it.each(RETIRED_PREFS.map(entry => entry.key))("drops %s and keeps a live pref", key => {
-		const store = memoryStore({ [key]: false, language: "en" });
-		dropRetiredPrefs(store);
-		expect(store.data).toEqual({ language: "en" });
-		dropRetiredPrefs(store);
-		expect(store.data).toEqual({ language: "en" });
+		const store = memoryStore({ language: "en" });
+		store.set(key, false);
+		migrateRetiredPrefs(store);
+		migrateRetiredPrefs(store);
+		expect(store.has(key)).toBe(false);
+		expect(store.get("language")).toBe("en");
 	});
 
-	it("covers the six retired prefs", () => {
-		expect(RETIRED_PREFS.map(entry => entry.key).sort()).toEqual(
-			[
-				"autopilotNotify",
-				"autopilotShip",
-				"batchNotifications",
-				"modelPool",
-				"scheduledRetry",
-				"worktreeAutoClean",
-			].sort(),
-		);
+	it("keeps tools up to date unless all three update switches were off", () => {
+		const allOff = memoryStore({ ompAutoUpdate: false, cliAutoUpdate: false, extensionAutoUpdate: false });
+		migrateRetiredPrefs(allOff);
+		expect(allOff.data).toEqual({ toolsAutoUpdate: false });
+
+		const oneOn = memoryStore({ ompAutoUpdate: false, cliAutoUpdate: true, extensionAutoUpdate: false });
+		migrateRetiredPrefs(oneOn);
+		expect(oneOn.data).toEqual({});
+
+		const twoOffOneUnset = memoryStore({ ompAutoUpdate: false, cliAutoUpdate: false });
+		migrateRetiredPrefs(twoOffOneUnset);
+		expect(twoOffOneUnset.data).toEqual({});
+
+		const chosen = memoryStore({
+			toolsAutoUpdate: true,
+			ompAutoUpdate: false,
+			cliAutoUpdate: false,
+			extensionAutoUpdate: false,
+		});
+		migrateRetiredPrefs(chosen);
+		expect(chosen.data).toEqual({ toolsAutoUpdate: true });
+	});
+
+	it("asks before new devices when either approval switch was on", () => {
+		const remoteOn = memoryStore({ remote: { confirmNewDevices: true, keepAwake: false } });
+		migrateRetiredPrefs(remoteOn);
+		expect(remoteOn.data).toEqual({ remote: { keepAwake: false }, mobileWeb: { confirmNewDevices: true } });
+
+		const webOn = memoryStore({ remote: { confirmNewDevices: false }, mobileWeb: { confirmNewDevices: true } });
+		migrateRetiredPrefs(webOn);
+		expect(webOn.data).toEqual({ remote: {}, mobileWeb: { confirmNewDevices: true } });
+
+		const bothOff = memoryStore({ remote: { confirmNewDevices: false } });
+		migrateRetiredPrefs(bothOff);
+		expect(bothOff.get("mobileWeb.confirmNewDevices")).toBeUndefined();
+	});
+
+	it("drops the run-state and progress switches and the work board switch, keeping other display preferences", () => {
+		const store = memoryStore({
+			workBoard: false,
+			displayPreferences: { titleState: false, showProgress: true, showTokenUsage: true },
+		});
+		migrateRetiredPrefs(store);
+		expect(store.data).toEqual({ displayPreferences: { showTokenUsage: true } });
 	});
 });

@@ -29,6 +29,8 @@ export interface OpenedChildRow {
 	merge?: "unmerged" | "merged";
 	/** Its last report to this session (`ompdesk_report`). */
 	report?: { kind: string; text: string; at: number };
+	/** The question its open card asks (main's review item), when it waits on one. */
+	question?: string;
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
 }
@@ -100,6 +102,7 @@ export function openedChildRows(input: {
 			...(item?.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : tab.worktree && !item ? { merge: "merged" as const } : {}),
 			...(item?.report ? { report: item.report } : {}),
+			...(item?.question ? { question: item.question } : {}),
 			...(tab.device ? { device: deviceName?.(tab.device) ?? tab.device } : {}),
 		});
 	}
@@ -129,6 +132,7 @@ export function openedChildRows(input: {
 			...(item.baseBranch !== undefined ? { base: item.baseBranch } : {}),
 			...(unmerged ? { merge: "unmerged" as const } : {}),
 			...(item.report ? { report: item.report } : {}),
+			...(item.question ? { question: item.question } : {}),
 		});
 	}
 	for (const child of closed) {
@@ -158,4 +162,30 @@ export function openedChildCounts(rows: readonly OpenedChildRow[]): OpenedChildC
 		else if (row.status === "done") counts.done++;
 	}
 	return counts;
+}
+
+/** A report or step as one line, cut at a word near this many characters (the row truncates it further). */
+const ACTIVITY_CHARS = 120;
+
+function oneLine(text: string): string {
+	const line = text.replace(/\s+/g, " ").trim();
+	if (line.length <= ACTIVITY_CHARS) return line;
+	const cut = line.slice(0, ACTIVITY_CHARS);
+	return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), ACTIVITY_CHARS / 2)).trimEnd()}…`;
+}
+
+/**
+ * What a child is doing, in its own words, for the line under its title: a running one's current step (its open tool
+ * call or last action, main's live push) or, before the first step, its progress report; a waiting one's open card's
+ * question, else the question or blocker it reported; a finished one's report. Null when it has said nothing yet.
+ */
+export function childActivity(row: OpenedChildRow): string | null {
+	const report = row.report?.text.trim() ? row.report : undefined;
+	if (row.status === "running") return row.step ? oneLine(row.step) : report ? oneLine(report.text) : null;
+	if (row.status === "waiting") {
+		// An open card (a stock `ask`) is what it waits on now; else the question or blocker it reported.
+		if (row.question?.trim()) return oneLine(row.question);
+		return report && (report.kind === "question" || report.kind === "blocked") ? oneLine(report.text) : null;
+	}
+	return report ? oneLine(report.text) : null;
 }

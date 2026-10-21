@@ -210,7 +210,9 @@ export function ThemePicker() {
 		groupRef.current?.querySelector<HTMLElement>(`[data-theme-option="${next}"]`)?.focus();
 	};
 
-	const selected = current ?? "system";
+	// Until the stored choice is read, the store's scheme says whether it is System (no row flashes in or out).
+	const uiTheme = useUiStore(state => state.theme);
+	const selected = current ?? (uiTheme === "system" ? "system" : null);
 	const card = (name: ThemeName) => (
 		<ThemeCard
 			key={name}
@@ -266,7 +268,7 @@ export function ThemePicker() {
 					</section>
 				</div>
 			</div>
-			<SystemThemeRows onChange={() => setPair(getSystemThemePair())} pair={pair} />
+			{selected === "system" && <SystemThemeRows onChange={() => setPair(getSystemThemePair())} pair={pair} />}
 		</>
 	);
 }

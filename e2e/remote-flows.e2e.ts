@@ -498,7 +498,8 @@ for (const language of variants(["en", "ko"] as const))
 					await b.keyboard.press("ControlOrMeta+Comma");
 					await b.locator('[data-settings-page] [data-settings-section="connections"]').click();
 					const row = b.locator(`[data-remote-peer="${peer.deviceId}"]`);
-					await row.getByRole("button", { name: tb("remote.limits.label", { name: "Laptop A" }) }).click();
+					await row.getByRole("button", { name: tb("remote.peerMenu", { name: "Laptop A" }) }).click();
+					await b.getByRole("menuitem", { name: tb("remote.limits.button") }).click();
 					const dialog = b.getByRole("dialog", { name: tb("remote.limits.title", { name: "Laptop A" }) });
 					await dialog.getByLabel(tb("remote.limits.requests")).fill(String(limit));
 					await dialog.getByRole("button", { name: tb("common.save"), exact: true }).click();

@@ -30,7 +30,7 @@ import type { IpcRegistry } from "./web/ipc-registry";
 export interface OmpUpdaterDeps {
 	/** This launch checks on a timer: a packaged app, or a test launch that opts in. Dev and test launches never do. */
 	scheduled: boolean;
-	/** The pref `ompAutoUpdate` (default on). */
+	/** The pref `toolsAutoUpdate` (default on), shared with the tool CLIs and extensions. */
 	enabled: () => boolean;
 	/** The newest omp for the installed one (stock `omp update --check`); rejects with the reason it could not tell. */
 	fetchLatest: () => Promise<string>;

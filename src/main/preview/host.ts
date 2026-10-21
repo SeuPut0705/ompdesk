@@ -44,7 +44,7 @@ import { applyAcceptLanguages, seedSpellchecker } from "../system-languages";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { DIALOG_CHANNEL, dialogRequestSchema, dialogReturnValue } from "../web/preview-dialog";
-import { InputMapper, previewStreamBatchSchema } from "../web/preview-input";
+import { InputMapper, InputSequence, previewStreamBatchSchema } from "../web/preview-input";
 import { streamProfile } from "../web/preview-pacer";
 import { type OsrPage, PageStream, POLL_MAX_WAIT_MS } from "../web/preview-stream";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
@@ -65,11 +65,6 @@ const REGION_MAX_WIDTH = 1600;
 /** The Preview check looks for its page this often, and gives `capturePage` at least this long. */
 const CAPTURE_POLL_MS = 50;
 const CAPTURE_MIN_MS = 500;
-/**
- * `reveal` reaches the renderer, which then asks for the page: a visual that no window shows within this long after
- * the tool opened it is not going to be shown now (panel hidden, tab not in front), so the check gives up.
- */
-const CAPTURE_APPEAR_MS = 400;
 /** A viewer's poll for a page that does not exist yet (the panel asks before its first layout) is answered after this. */
 const NO_PAGE_RETRY_MS = 500;
 /** The most selected text, and the largest PDF, a viewer is sent. */
@@ -150,6 +145,8 @@ interface PreviewPage {
 	stream: PageStream | null;
 	/** A web viewer's gesture state (a drag in progress). */
 	mapper: InputMapper;
+	/** The order a viewer's events and committed text reach the page in. */
+	input: InputSequence;
 	/** A web viewer's window DIPs per frame CSS px (`placeStreamed`): a wheel delta in frame px is scaled by it. */
 	streamScale: number;
 }
@@ -479,6 +476,7 @@ export function registerPreviewHost(
 			lastInput: 0,
 			stream,
 			mapper: new InputMapper(),
+			input: new InputSequence(),
 			streamScale: 1,
 		};
 		if (stream) {
@@ -963,15 +961,17 @@ export function registerPreviewHost(
 		if (page.state.crashed || osr.isDestroyed()) return;
 		const [width, height] = osr.getContentSize();
 		for (const input of batch.data) {
-			for (const op of page.mapper.map(input, { width, height, scale: page.streamScale })) {
-				if (op.op === "event") page.contents.sendInputEvent(op.event);
-				else if (op.op === "text") void page.contents.insertText(op.text).catch(() => {});
-				else {
-					page.state = { ...page.state, zoom: clampPreviewZoom(page.state.zoom * op.scale) };
+			page.input.push(page.mapper.map(input, { width, height, scale: page.streamScale }), {
+				event: event => page.contents.sendInputEvent(event),
+				text: text => page.contents.insertText(text),
+				roundTrip: () => runOnPage(page, "0"),
+				pinch: scale => {
+					if (page.contents.isDestroyed()) return;
+					page.state = { ...page.state, zoom: clampPreviewZoom(page.state.zoom * scale) };
 					place(host);
 					publish(host, page);
-				}
-			}
+				},
+			});
 		}
 	});
 	ipc.handle(PREVIEW_STREAM_DIALOG, (caller, raw: unknown) => {
@@ -1101,7 +1101,7 @@ export function registerPreviewHost(
 				return picked as { value: string; text: string };
 			}
 		},
-		async capture(visualId, version, budgetMs) {
+		async capture(visualId, version, budgetMs, appearMs) {
 			const started = Date.now();
 			const deadline = started + budgetMs;
 			for (;;) {
@@ -1117,8 +1117,8 @@ export function registerPreviewHost(
 						);
 						return picture ? judgeImage(picture) : null;
 					}
-				} else if (!onScreenVisualPage(visualId, version) && Date.now() - started >= CAPTURE_APPEAR_MS) {
-					// Nobody shows it (the panel is hidden, another tab is in front): waiting longer would only delay the tool.
+				} else if (!onScreenVisualPage(visualId, version) && Date.now() - started >= appearMs) {
+					// No window has put it on screen within what the caller allows (preview-check.ts): waiting longer would only delay the tool.
 					return null;
 				}
 				if (Date.now() + CAPTURE_POLL_MS >= deadline) return null;

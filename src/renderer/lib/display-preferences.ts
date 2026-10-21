@@ -3,25 +3,26 @@ import { toastError } from "../stores/toast";
 import { type GuiDisplayPreferences, useUiStore } from "../stores/ui";
 import { translate } from "./i18n";
 
-export const GUI_DISPLAY_BOOL_FIELDS = [
-	"hideThinkingBlock",
-	"proseOnlyThinking",
-	"showTokenUsage",
-	"collapseCompacted",
-	"titleState",
-	"goalStatusInFooter",
-	"showProgress",
-	"emojiAutocomplete",
-] as const;
+/**
+ * Display preferences OMPdesk keeps itself, each with the omp setting it reads until set here. The run state in the
+ * window title and progress on the app icon are always on (omp's `tui.titleState`/`terminal.showProgress` do not
+ * reach the GUI), so they are not preferences.
+ */
+export const GUI_DISPLAY_BOOL_PATHS = {
+	hideThinkingBlock: "hideThinkingBlock",
+	proseOnlyThinking: "proseOnlyThinking",
+	showTokenUsage: "display.showTokenUsage",
+	collapseCompacted: "display.collapseCompacted",
+	goalStatusInFooter: "goal.statusInFooter",
+	emojiAutocomplete: "emojiAutocomplete",
+} as const;
+export type GuiDisplayBoolField = keyof typeof GUI_DISPLAY_BOOL_PATHS;
+export const GUI_DISPLAY_BOOL_FIELDS = Object.keys(GUI_DISPLAY_BOOL_PATHS) as GuiDisplayBoolField[];
+/** omp settings the GUI covers with its own preference or fixed behaviour; the raw stock list leaves them out. */
 export const GUI_DISPLAY_LEGACY_PATHS = [
-	"hideThinkingBlock",
-	"proseOnlyThinking",
-	"display.showTokenUsage",
-	"display.collapseCompacted",
+	...Object.values(GUI_DISPLAY_BOOL_PATHS),
 	"tui.titleState",
-	"goal.statusInFooter",
 	"terminal.showProgress",
-	"emojiAutocomplete",
 	"paste.largeMenuThreshold",
 ];
 

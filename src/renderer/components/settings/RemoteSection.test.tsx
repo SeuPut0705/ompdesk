@@ -11,8 +11,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PeerLimits, PeerView, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
+import { useMobileWebStore } from "../../stores/mobile-web";
 import { useRemoteStore } from "../../stores/remote";
 import { useToastStore } from "../../stores/toast";
+import { readyMobileWebState } from "../../test-support/mobile-web";
 import { RemoteSection } from "./RemoteSection";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -50,7 +52,6 @@ function hostOn(overrides: Partial<RemoteState["host"]> = {}, rest: Partial<Remo
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
-			confirmNewDevices: false,
 			...overrides,
 		},
 		hosts: [],
@@ -78,7 +79,6 @@ const remote = {
 	),
 	revokePeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
 	blockPeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
-	setConfirmNewDevices: vi.fn(async (on: boolean): Promise<RemoteState> => hostOn({ confirmNewDevices: on })),
 	setPeerLimits: vi.fn(async (_deviceId: string, _limits: PeerLimits): Promise<RemoteState> => hostOn()),
 	removeHost: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn()),
 	renameHost: vi.fn(async (_deviceId: string, _name: string): Promise<RemoteState> => hostOn()),
@@ -96,6 +96,9 @@ const mobileWeb = {
 		throw new Error("not under test");
 	}),
 	devices: { list: vi.fn(async () => []), blocked: vi.fn(async () => []) },
+	command: vi.fn(async (request: { action: string; on?: boolean }) =>
+		readyMobileWebState({ confirmNewDevices: request.on === true }),
+	),
 };
 Object.assign(window as unknown as Record<string, unknown>, { omp: { remote, mobileWeb } });
 
@@ -120,6 +123,18 @@ function buttonLabeled(label: string): HTMLButtonElement | undefined {
 	return (Array.from(document.body.querySelectorAll("button")) as HTMLButtonElement[]).find(
 		button => button.getAttribute("aria-label") === label || (button.textContent ?? "").trim() === label,
 	);
+}
+
+/** A device row's secondary actions sit behind its overflow menu: open it, then pick the item. */
+async function pickPeerAction(name: string, item: string): Promise<void> {
+	await act(async () => {
+		buttonLabeled(translate("remote.peerMenu", { name }))?.click();
+	});
+	await act(async () => {
+		(Array.from(document.body.querySelectorAll('[role="menuitem"]')) as HTMLElement[])
+			.find(entry => (entry.textContent ?? "").trim() === item)
+			?.click();
+	});
 }
 
 /** linkedom never fires React's change event: set the value, then call the field's own onChange. */
@@ -158,10 +173,23 @@ afterEach(async () => {
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
 	useToastStore.setState({ toasts: [] });
 	useRemoteStore.getState().reset();
+	useMobileWebStore.getState().reset();
 	vi.clearAllMocks();
 });
 
 describe("RemoteSection", () => {
+	it("holds the one approval switch, shared with Mobile web, while sharing is on", async () => {
+		await mount();
+		await act(async () => useMobileWebStore.getState().applyState(readyMobileWebState()));
+		const toggle = () =>
+			document.body.querySelector('#settings-mobile-web-confirm [role="switch"]') as HTMLButtonElement | null;
+		expect(document.body.querySelector("#settings-remote-confirm-new")).toBeNull();
+		expect(toggle()?.getAttribute("aria-checked")).toBe("false");
+		await act(async () => toggle()?.click());
+		expect(mobileWeb.command).toHaveBeenCalledWith({ action: "set-confirm-new-devices", on: true });
+		expect(toggle()?.getAttribute("aria-checked")).toBe("true");
+	});
+
 	it("keeps this computer's name editable while sharing is off", async () => {
 		remote.getState.mockImplementation(async () => hostOn({ enabled: false, peers: [] }));
 		await mount();
@@ -249,9 +277,7 @@ describe("RemoteSection", () => {
 
 	it("blocks a device through blockPeer once the block is confirmed", async () => {
 		await mount();
-		await act(async () => {
-			buttonLabeled(translate("remote.blockLabel", { name: "laptop" }))?.click();
-		});
+		await pickPeerAction("laptop", translate("remote.block"));
 		expect(document.body.textContent).toContain(translate("remote.blockBody", { name: "laptop" }));
 		await act(async () => {
 			const dialog = document.body.querySelector('[role="dialog"], [role="alertdialog"]');
@@ -279,9 +305,7 @@ describe("RemoteSection", () => {
 	it("revokes a paired device through revokePeer once the removal is confirmed", async () => {
 		await mount();
 
-		await act(async () => {
-			buttonLabeled(translate("remote.removeLabel", { name: "laptop" }))?.click();
-		});
+		await pickPeerAction("laptop", translate("remote.remove"));
 		expect(remote.revokePeer).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(translate("remote.removeTitle", { name: "laptop" }));
 		expect(document.body.textContent).toContain(translate("remote.removePeerBody", { name: "laptop" }));
@@ -382,9 +406,7 @@ describe("RemoteSection", () => {
 		expect(usage?.textContent).toContain(
 			translate("remote.limits.todayOf", { requests: 12, requestsLimit: 50, tokens: "48.3k", tokensLimit: "∞" }),
 		);
-		await act(async () => {
-			buttonLabeled(translate("remote.limits.label", { name: "laptop" }))?.click();
-		});
+		await pickPeerAction("laptop", translate("remote.limits.button"));
 		const fields = Array.from(document.body.querySelectorAll("[data-peer-limits] input")) as HTMLInputElement[];
 		expect(fields.map(field => field.value)).toEqual(["50", ""]);
 		await act(async () => {

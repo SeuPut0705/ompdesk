@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, readRecords } from "./harness";
+import { exitApp, launchApp, readRecords, recordsOfType } from "./harness";
 
 // `ompdesk_app_list` / `ompdesk_app` (src/main/agent-control/app-*.ts): the main agent changes OMPdesk itself.
 // The fake omp calls a host tool with `fixture:host-tool:<name> <json>` and records the result it gets. "Give agents
@@ -88,18 +88,27 @@ test("the agent lists actions, changes the theme with a toast and undo, opens th
 	expect(listed.text).toContain("ui.panel [change]");
 	expect(listed.text).toContain('"tab"');
 
+	// A toast leaves 5 s after it opens and `call` polls for the agent's result, which a loaded machine stretches
+	// past that: the page is watched from before the call, never after it.
 	// First write: nothing was stored before, so no undo is offered.
-	expect((await app_("settings.theme", { value: "dark" })).isError).toBe(false);
+	const [dark] = await Promise.all([
+		app_("settings.theme", { value: "dark" }),
+		expect(page.getByText("Agent changed: Theme → dark")).toBeVisible({ timeout: 90_000 }),
+	]);
+	expect(dark.isError).toBe(false);
 	await expect.poll(themeName).toBe("dark");
-	await expect(page.getByText("Agent changed: Theme → dark")).toBeVisible();
 
-	const changed = await app_("settings.theme", { value: "nord" });
+	const [changed] = await Promise.all([
+		app_("settings.theme", { value: "nord" }),
+		(async () => {
+			await expect.poll(themeName, { timeout: 90_000 }).toBe("nord");
+			expect(await storedPref("themeName")).toBe("nord");
+			await expect(page.getByText("Agent changed: Theme → nord")).toBeVisible();
+			await page.getByRole("button", { name: "Undo" }).click();
+		})(),
+	]);
 	expect(changed.isError).toBe(false);
 	expect(changed.text).toContain("Theme is now nord");
-	await expect.poll(themeName).toBe("nord");
-	expect(await storedPref("themeName")).toBe("nord");
-	await expect(page.getByText("Agent changed: Theme → nord")).toBeVisible();
-	await page.getByRole("button", { name: "Undo" }).click();
 	await expect.poll(themeName).toBe("dark");
 	await expect.poll(() => storedPref("themeName")).toBe("dark");
 
@@ -112,13 +121,15 @@ test("the agent lists actions, changes the theme with a toast and undo, opens th
 	expect(usage.text).toMatch(/usage|%|No provider usage/);
 
 	// The change is journaled in the agent's own session.
-	await expect(page.getByText("Agent changed: Theme → nord").first()).toBeVisible();
+	expect(await recordsOfType(record, "agent_control.note")).toContainEqual(
+		expect.objectContaining({ text: "Agent changed: Theme → nord" }),
+	);
 });
 
 test("with full control and manage stored off a sensitive action asks with the card and runs only when approved; agent-power switches are never reachable", async () => {
 	test.setTimeout(150_000);
 	await start({ agentControlFull: false, agentControlManage: false });
-	const denied = app_("settings.cliAutoUpdate", { value: false });
+	const denied = app_("settings.toolsAutoUpdate", { value: false });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -128,9 +139,9 @@ test("with full control and manage stored off a sensitive action asks with the c
 	const refused = await denied;
 	expect(refused.isError).toBe(true);
 	expect(refused.text).toContain("The user declined");
-	expect(await storedPref("cliAutoUpdate")).not.toBe(false);
+	expect(await storedPref("toolsAutoUpdate")).not.toBe(false);
 
-	const approved = app_("settings.cliAutoUpdate", { value: false });
+	const approved = app_("settings.toolsAutoUpdate", { value: false });
 	await page
 		.getByRole("button", { name: /Needs input/ })
 		.first()
@@ -141,7 +152,7 @@ test("with full control and manage stored off a sensitive action asks with the c
 		.first()
 		.click();
 	expect((await approved).isError).toBe(false);
-	await expect.poll(() => storedPref("cliAutoUpdate")).toBe(false);
+	await expect.poll(() => storedPref("toolsAutoUpdate")).toBe(false);
 
 	for (const [action, args] of [
 		["agent_power.set", { switch: "agentControlFull", on: true }],
@@ -161,9 +172,9 @@ test("with full control stored off a sensitive action runs without a card, a del
 	test.setTimeout(150_000);
 	await start({ agentControlFull: false });
 	// Nothing stored: "Let agents manage other sessions" is on, so this needs no card.
-	const changed = await app_("settings.cliAutoUpdate", { value: false });
+	const changed = await app_("settings.toolsAutoUpdate", { value: false });
 	expect(changed.isError).toBe(false);
-	await expect.poll(() => storedPref("cliAutoUpdate")).toBe(false);
+	await expect.poll(() => storedPref("toolsAutoUpdate")).toBe(false);
 	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);
 
 	// Erasing a saved session asks whatever the switch says; a refusal runs nothing.
@@ -185,7 +196,7 @@ test("with full control stored off a sensitive action runs without a card, a del
 test("by default (full control) erasing and sensitive actions run without a card and the agent may change its own switches, never answer a card", async () => {
 	test.setTimeout(150_000);
 	await start();
-	expect((await app_("settings.cliAutoUpdate", { value: false })).isError).toBe(false);
+	expect((await app_("settings.toolsAutoUpdate", { value: false })).isError).toBe(false);
 	const erased = await app_("sessions.delete", { sessionPath: path.join(profile, "agent", "never-saved.jsonl") });
 	expect(erased.text).not.toContain("declined");
 	const power = await app_("agent_power.set", { switch: "agentControlApprove", on: true });

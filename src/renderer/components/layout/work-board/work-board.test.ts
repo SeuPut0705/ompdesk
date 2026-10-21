@@ -149,15 +149,45 @@ describe("todoBoard", () => {
 		expect(board?.rows[0]?.content).toBe("t9");
 		expect(board?.hidden).toBe(20 - 9 - TODO_BOARD_ROWS);
 		expect(board?.active).toBeNull();
-		expect(board?.doneBefore).toBe(9);
+		expect(board?.done).toBe(9);
 		expect(board?.segments).toHaveLength(20);
 	});
 
-	it("shows the tail of a finished list", () => {
-		const tasks = Array.from({ length: 10 }, (_, index) => task(`t${index}`, "completed"));
-		const board = todoBoard([{ tasks }]);
-		expect(board?.rows.at(-1)?.content).toBe("t9");
-		expect(board?.hidden).toBe(0);
+	it("folds a finished list whole: no struck-through rows, short or long", () => {
+		for (const length of [3, 10]) {
+			const tasks = Array.from({ length }, (_, index) => task(`t${index}`, "completed"));
+			expect(todoBoard([{ tasks }])).toMatchObject({ rows: [], hidden: 0, done: length });
+		}
+	});
+
+	it("folds every finished task into one count wherever it sits, and lists the unfinished ones in order", () => {
+		// The user's report: three done before the task in progress folded, two done after it stayed listed.
+		const board = todoBoard([
+			{
+				tasks: [
+					task("a", "completed"),
+					task("b", "completed"),
+					task("c", "completed"),
+					task("d", "in_progress"),
+					task("e", "completed"),
+					task("f", "completed"),
+					task("g", "pending"),
+				],
+			},
+			{ tasks: [task("h", "completed"), task("i", "pending")] },
+		]);
+		expect(board?.rows.map(row => row.content)).toEqual(["d", "g", "i"]);
+		expect(board?.rows.every(row => row.status !== "completed")).toBe(true);
+		expect(board).toMatchObject({ hidden: 0, done: 6, total: 9 });
+	});
+
+	it("counts the unfinished tasks past the row cap, never a finished one", () => {
+		const statuses = ["pending", "completed", "pending", "pending", "completed", "pending", "pending", "pending"];
+		const board = todoBoard([
+			{ tasks: statuses.map((status, index) => task(`t${index}`, status as TodoTask["status"])) },
+		]);
+		expect(board?.rows.map(row => row.content)).toEqual(["t0", "t2", "t3", "t5", "t6"]);
+		expect(board).toMatchObject({ done: 2, hidden: 1 });
 	});
 });
 

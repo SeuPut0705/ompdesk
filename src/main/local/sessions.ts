@@ -8,6 +8,7 @@ import type {
 	RpcSessionTreeResult,
 	RpcSwitchLeafResult,
 } from "../../shared/rpc-types";
+import { isTurnPrompt, type RpcTurnEdits, turnEdits } from "../../shared/turn-edits";
 import { handlers as extraHandlers } from "./session-extras";
 import { renameStoredSession } from "./session-files";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
@@ -120,6 +121,28 @@ export const handlers: Record<string, LocalHandler> = {
 			result.nextCursor = encodeCursor({ v: 1, leafId: page.leafId, total: page.total, offset: end });
 		}
 		return result;
+	},
+
+	/**
+	 * The newest turn's file-changing calls (shared/turn-edits.ts), read back page by page to the prompt that started
+	 * it (a steer joins the running turn), however long the turn: a count cut short would read as exact. Only those
+	 * calls and their results leave, never the turn's reads or command output.
+	 */
+	get_turn_edits: async (_command, ctx): Promise<RpcTurnEdits> => {
+		const head = await transcriptPage(ctx, 0, 0);
+		const tail: AgentMessage[] = [];
+		let end = head.total;
+		let prompted = false;
+		while (end > 0 && !prompted) {
+			const offset = Math.max(0, end - MAX_PAGE_LIMIT);
+			const page = await transcriptPage(ctx, offset, end - offset);
+			if (page.leafId !== head.leafId || page.total !== head.total)
+				throw new LocalCommandError("Transcript changed while it was read", "stale_cursor");
+			prompted = page.messages.some(isTurnPrompt);
+			tail.unshift(...page.messages);
+			end = offset;
+		}
+		return turnEdits(tail, ctx.cwd);
 	},
 
 	/**

@@ -66,6 +66,7 @@ import type {
 	SchedulesRequest,
 	SchedulesState,
 } from "../../shared/schedules";
+import type { FamilyEdits } from "../../shared/turn-edits";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { describePreparation } from "../local/git/worktree-seed";
@@ -432,6 +433,13 @@ export class AgentControlRuntime {
 		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
 		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [], usage: {} };
 		return this.control.review(callerTabId);
+	}
+
+	/** What the sessions this one opened changed (the work board's "Changed" row; read-only). */
+	async familyEdits(win: ClientWindow, callerTabId: string, since?: number): Promise<FamilyEdits> {
+		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
+		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { members: [] };
+		return this.control.familyEdits(callerTabId, since);
 	}
 
 	/**
@@ -912,6 +920,7 @@ export class AgentControlRuntime {
 					discardOpenedWorktree(worktree, { openFolders: sessionOpenFolders }),
 				),
 			recordClosed: child => this.#recordClosed(child),
+			closedChildren: () => parseClosedChildren(deps.prefs.get(AGENT_CLOSED_CHILDREN_PREF)),
 			schedules: device => {
 				// The machine that runs the schedules: this computer's service, or a paired host's own over the link
 				// (`host.schedules.*`), which checks the draft the same way.

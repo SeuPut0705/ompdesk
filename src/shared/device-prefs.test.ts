@@ -20,7 +20,6 @@ describe("device-local preferences", () => {
 			"followAgentTheme",
 			"transcriptDetail",
 			"thinkingExpanded",
-			"workBoard",
 			"codeLineNumbers",
 			"sidebarWidth",
 			"sidebarVisible",

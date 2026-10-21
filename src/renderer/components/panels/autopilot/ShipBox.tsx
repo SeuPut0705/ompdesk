@@ -184,6 +184,22 @@ export function ShipBox() {
 					value={cadenceValue(cadence)}
 				/>
 			)}
+			{policy.land && (
+				<p
+					className="flex items-center gap-1.5 text-sc-xs text-(--sc-text-muted)"
+					data-ship-land={ship.landing ? "pr" : "default"}
+				>
+					<span>{t(ship.landing ? "autopilot.ship.landPr" : "autopilot.ship.land")}</span>
+					{ship.landing?.url && (
+						<IconButton
+							icon={<ExternalLink />}
+							label={t("autopilot.ship.openPr")}
+							onClick={() => void window.omp.system.openExternal(ship.landing?.url as string)}
+							size="sm"
+						/>
+					)}
+				</p>
+			)}
 			{procedure && (
 				<p className="text-sc-xs text-(--sc-text-muted)" data-ship-procedure>
 					{t("autopilot.ship.procedure", { file: procedure.file, anchors: procedure.anchors.join(" › ") })}

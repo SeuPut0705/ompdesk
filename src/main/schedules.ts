@@ -14,7 +14,7 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { createWriteStream, existsSync, renameSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
@@ -30,6 +30,7 @@ import {
 	type SchedulesState,
 	scheduleDraftProblem,
 } from "../shared/schedules";
+import { writeFileAtomic, writeFileAtomicSync } from "./atomic-file";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
@@ -221,9 +222,7 @@ export class ScheduleService {
 			this.#active.delete(scheduleId);
 		}
 		try {
-			const temp = `${this.#options.file}.quit.tmp`;
-			writeFileSync(temp, JSON.stringify(this.#stored(), null, 2));
-			renameSync(temp, this.#options.file);
+			writeFileAtomicSync(this.#options.file, JSON.stringify(this.#stored(), null, 2));
 		} catch (error) {
 			console.error("[schedules] couldn't save on quit:", error);
 		}
@@ -424,19 +423,12 @@ export class ScheduleService {
 		const snapshot = JSON.stringify(this.#stored(), null, 2);
 		const file = this.#options.file;
 		this.#writes = this.#writes
-			.then(async () => {
-				// dispose() writes the final state synchronously; an older snapshot must not land after it. The check
-				// runs again once the temp file is written, and the rename is synchronous, so a quit that comes while
-				// this write is in flight cannot slip between the check and the rename.
-				if (this.#disposed) return;
-				const temp = `${file}.tmp`;
-				await writeFile(temp, snapshot);
-				if (this.#disposed) {
-					await rm(temp, { force: true });
-					return;
-				}
-				renameSync(temp, file);
-			})
+			// dispose() writes the final state synchronously; an older snapshot must not land after it. `commitIf` is
+			// asked right before every rename, which runs in the same tick, so a quit that comes while this write is
+			// in flight (or waits out a reader of the file) cannot slip between the check and the rename.
+			.then(() =>
+				this.#disposed ? undefined : writeFileAtomic(file, snapshot, { commitIf: () => !this.#disposed }),
+			)
 			.catch(error => console.error("[schedules] couldn't save:", error));
 		this.#options.onState(this.state());
 	}

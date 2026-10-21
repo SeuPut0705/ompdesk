@@ -53,12 +53,7 @@ import { startAgentAppEvents } from "./lib/agent-app";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { lazyChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
-import {
-	hydrateDisplayPreferences,
-	readDisplayPreference,
-	setDisplayPreference,
-	useDisplayPreference,
-} from "./lib/display-preferences";
+import { hydrateDisplayPreferences, readDisplayPreference, setDisplayPreference } from "./lib/display-preferences";
 import { exportSessionHtml } from "./lib/export-session";
 import { useLang, useT } from "./lib/i18n";
 import { isImeKeyEvent } from "./lib/ime";
@@ -73,7 +68,12 @@ import { writeSidebarVisible } from "./lib/sidebar-memory";
 import { closeActiveTab } from "./lib/tab-close";
 import { followActivationFocus } from "./lib/tab-focus";
 import { installTabHistory, navigateHistory } from "./lib/tab-history";
-import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
+import {
+	acceptsActiveTabEvents,
+	onActiveTabRouteSettled,
+	onActiveTabRouteState,
+	waitForActiveTab,
+} from "./lib/tab-routing";
 import { focusedTabRpc } from "./lib/tab-rpc";
 import { FocusedRuntimeProvider, TabRuntimeProvider } from "./lib/tab-runtime-provider";
 import { applyFontSize, watchSystemTheme } from "./lib/theme";
@@ -121,14 +121,13 @@ const ModelSetupDialog = lazyChunk(() =>
 function FocusedSessionEffects() {
 	useTraySync();
 	useWorkspaceRecency();
-	const titleRunState = useDisplayPreference("titleState");
+	// The run state in the window title and progress on the app icon are always on (no setting).
 	const titleStreaming = useSessionStore(s => s.isStreaming);
 	const titleSessionName = useSessionStore(s => s.sessionName);
 	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window
 	// while its tab is in front; each tab keeps its own.
 	const titleExtension = useExtensionUiStore(s => s.title);
 	const titleAwaiting = useAwaitedInput();
-	const progressEnabled = useDisplayPreference("showProgress");
 	const progressStreaming = useSessionStore(s => s.isStreaming);
 	const progressAwaiting = useAwaitedInput();
 	const compactDensity = useUiStore(s => s.compactDensity);
@@ -146,21 +145,15 @@ function FocusedSessionEffects() {
 	useEffect(() => {
 		const base = titleExtension ?? titleSessionName ?? "OMPdesk";
 		const name = titleProject ? `${base} — ${titleProject}` : base;
-		document.title = !titleRunState ? name : titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
-	}, [titleRunState, titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
+		document.title = titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
+	}, [titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {
-		const state: RunProgressState = !progressEnabled
-			? "idle"
-			: progressAwaiting
-				? "waiting"
-				: progressStreaming
-					? "working"
-					: "idle";
+		const state: RunProgressState = progressAwaiting ? "waiting" : progressStreaming ? "working" : "idle";
 		const timer = setTimeout(() => window.omp.progress.set(state), 200);
 		return () => clearTimeout(timer);
-	}, [progressEnabled, progressAwaiting, progressStreaming]);
+	}, [progressAwaiting, progressStreaming]);
 	useEffect(() => {
 		document.documentElement.dataset.density = compactDensity ? "tight" : "comfortable";
 		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";
@@ -275,7 +268,6 @@ export function App() {
 				"linkPreview",
 				"panelSide",
 				"thinkingExpanded",
-				"workBoard",
 				"transcriptDetail",
 				"panelTab",
 				"sidebarVisible",
@@ -328,9 +320,6 @@ export function App() {
 				}
 				if (typeof prefs.thinkingExpanded === "boolean" && !changedPreferences.has("thinkingExpanded")) {
 					useUiStore.setState({ thinkingExpanded: prefs.thinkingExpanded });
-				}
-				if (typeof prefs.workBoard === "boolean" && !changedPreferences.has("workBoard")) {
-					useUiStore.setState({ workBoard: prefs.workBoard });
 				}
 				if (
 					(prefs.transcriptDetail === "compact" || prefs.transcriptDetail === "full") &&
@@ -447,9 +436,9 @@ export function App() {
 		// One dispatch switch keyed by actionId: the compiled-map lookup below and
 		// the default chords share these handlers (they were the hardcoded chains).
 		const dispatchKeymapAction = (actionId: KeymapActionId) => {
-			// The visible tab changes before main finishes moving the RPC/event route.
-			// Never let a shortcut mutate the outgoing sidecar during that gap.
-			if (!acceptsActiveTabEvents()) return;
+			// While a new tab opens and main moves the RPC/event route to it, a shortcut reaches neither the tab being
+			// left nor nothing (⌘W right after ⌘T closed the old tab: nightly 39525167897); it waits (waitForActiveTab).
+			if (waitForActiveTab(() => dispatchKeymapAction(actionId))) return;
 			const ui = useUiStore.getState();
 			switch (actionId) {
 				case "model.cycleForward":
@@ -838,9 +827,9 @@ export function App() {
 				ui.openDebug();
 				return;
 			}
-			// Menu commands below read or mutate the selected sidecar. Ignore the
-			// short selected-vs-routed gap instead of sending them to the old tab.
-			if (!acceptsActiveTabEvents()) return;
+			// Menu commands below read or mutate the selected sidecar: after a new tab main has not answered yet, and in
+			// the short selected-vs-routed gap, they wait instead of reaching the old tab or being dropped.
+			if (waitForActiveTab(() => void run(action, payload))) return;
 			if (action === "close-tab") {
 				closeActiveTab();
 				return;

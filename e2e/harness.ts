@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -305,8 +306,15 @@ const EXIT_GRACE_MS = 10_000;
  * period is killed.
  */
 export async function exitApp(app: ElectronApplication): Promise<void> {
-	const child = app.process();
-	if (child.exitCode !== null || child.signalCode !== null) return;
+	// A killed app (a spec's crash) has closed its Playwright connection: `process()` then throws, and a `finally`
+	// that cleans up after it would replace the test's own error with that one (nightly 39510409009).
+	let child: ChildProcess;
+	try {
+		child = app.process();
+	} catch {
+		return;
+	}
+	if (!child || child.exitCode !== null || child.signalCode !== null) return;
 	const owned = child.pid === undefined ? [] : processesBelow(child.pid);
 	const exited = Promise.withResolvers<void>();
 	child.once("exit", () => exited.resolve());
@@ -320,6 +328,10 @@ export async function exitApp(app: ElectronApplication): Promise<void> {
 			quit.catch(() => undefined);
 			child.kill("SIGKILL");
 		}
+	} catch (error) {
+		// A spec that killed the app (SIGKILL) and then failed ends here with the app gone: wait for the launcher below
+		// rather than let "Target closed" replace the spec's own failure in the report.
+		if (!String(error).includes("has been closed")) throw error;
 	} finally {
 		clearTimeout(timer);
 	}

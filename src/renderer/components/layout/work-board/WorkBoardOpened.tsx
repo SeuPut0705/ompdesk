@@ -4,19 +4,19 @@
  * by `WorkBoard.tsx` (the phone's first screen never needs them).
  */
 import { Check, X } from "lucide-react";
-import { useEffect } from "react";
+import { useLiveReview } from "../../../hooks/use-live-review";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
-import { useTabRpc } from "../../../lib/tab-rpc";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
+import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { CostAmount, hasCost } from "../../common/CostAmount";
 import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
-import type { OpenedChildCounts, OpenedChildRow } from "./opened-children";
+import { childActivity, type OpenedChildCounts, type OpenedChildRow } from "./opened-children";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
 function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
@@ -45,6 +45,7 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	const storedCwd = !row.tabId && row.sessionPath ? row.cwd : undefined;
 	const projectName = useProjectNames(storedCwd ? [storedCwd] : []);
 	const gone = storedCwd !== undefined && projectName(storedCwd).gone;
+	const activity = childActivity(row);
 	const open = () => {
 		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
 		else if (row.sessionPath)
@@ -86,8 +87,9 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 					/>
 				)
 			}
-			// One line: the title (and the device it runs on), then how long it has run or what it cost. What it does now,
-			// its report, branch, model and cost in words are the tooltip.
+			// Title first (and the device it runs on), then how long it has run or what it cost; under it, muted, what it
+			// does now (its step), the question it waits on or its last report. Branch, model and cost in words are the
+			// tooltip.
 			meta={
 				status === "running" && row.since ? (
 					formatElapsed(Math.max(0, now - row.since))
@@ -96,6 +98,13 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				) : undefined
 			}
 			onClick={open}
+			sub={
+				activity ? (
+					<span className="min-w-0 truncate" data-board-child-activity>
+						{activity}
+					</span>
+				) : undefined
+			}
 			title={[
 				`${title}${row.device ? ` · ${row.device}` : ""}`,
 				note || statusLabel,
@@ -109,30 +118,6 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	);
 }
 
-/** While a child runs, a shown board asks main for its step and cost this often (main pushes them only when they moved). */
-export const LIVE_REVIEW_MS = 2_000;
-
-/**
- * Main reads a running child's step and cost again only while a board showing them is mounted and its window is in
- * view: this asks for them (`agent_control_review {live: true}`); the answer comes as main's review push.
- */
-function useLiveReview(running: boolean): void {
-	const rpc = useTabRpc();
-	useEffect(() => {
-		if (!running) return;
-		const ask = () => {
-			if (document.visibilityState === "hidden") return;
-			void rpc.command({ type: "agent_control_review", live: true }).catch(() => undefined);
-		};
-		const timer = window.setInterval(ask, LIVE_REVIEW_MS);
-		document.addEventListener("visibilitychange", ask);
-		return () => {
-			window.clearInterval(timer);
-			document.removeEventListener("visibilitychange", ask);
-		};
-	}, [rpc, running]);
-}
-
 export function OpenedSection({
 	rows,
 	counts,
@@ -143,7 +128,12 @@ export function OpenedSection({
 	now: number;
 }) {
 	const t = useT();
-	useLiveReview(rows.some(row => row.status === "running"));
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	useLiveReview(
+		runtimeTabId ?? activeTabId,
+		rows.some(row => row.status === "running"),
+	);
 	return (
 		<BoardSection
 			aside={counts.closed > 0 ? t("workBoard.opened.closed", { count: counts.closed }) : null}

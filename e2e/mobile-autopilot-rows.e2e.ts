@@ -49,10 +49,10 @@ interface Rows {
 	groups: string[];
 	/**
 	 * The run's children: the sessions its agent opened (`ompdesk_session_open`), one line each in the run's family
-	 * (`data-sidebar-opened-session`, sidebar-family.ts), or a row `data-session-run-child` marks; with the group they
-	 * sit in and whether that group is a worktree's.
+	 * (`data-sidebar-opened-session`, sidebar-family.ts), or a row `data-session-run-child` marks; with the name of
+	 * the group they sit in.
 	 */
-	childRows: Array<{ path: string; text: string; group: string; worktreeGroup: boolean }>;
+	childRows: Array<{ path: string; text: string; group: string }>;
 	text: string;
 }
 
@@ -88,13 +88,17 @@ async function readRows(phone: Page): Promise<Rows> {
 			perPath[rowPath] = (perPath[rowPath] ?? 0) + 1;
 			if (row.getAttribute("data-session-run-child") !== "true" && !row.hasAttribute("data-sidebar-opened-session"))
 				continue;
-			const key = row.closest("[data-session-group]")?.getAttribute("data-session-group");
-			const header = headers.find(candidate => candidate.getAttribute("data-workspace-group") === key);
 			childRows.push({
 				path: rowPath,
 				text: row.textContent ?? "",
-				group: header?.textContent?.trim() ?? "",
-				worktreeGroup: header?.hasAttribute("data-worktree-group") === true,
+				group:
+					headers
+						.find(
+							header =>
+								header.getAttribute("data-workspace-group") ===
+								row.closest("[data-session-group]")?.getAttribute("data-session-group"),
+						)
+						?.textContent?.trim() ?? "",
 			});
 		}
 		const groups = [...element.querySelectorAll("[data-workspace-group]")].map(
@@ -160,12 +164,24 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.locator("[data-autopilot-start]").click();
 		// The screen does not open by itself here: the running Run settings offer it, so open it from there
 		// (a screen that did open is the sheet over everything, as before); close it to reach the drawer.
+		// Once the run's status lands, the still-open Run settings show "Open screen"; before that they show the
+		// start form. Clicking the trigger then closed the popover it meant to open, and the unbounded click on a
+		// button never shown again waited out the 5 min test (nightly 39539556435).
 		const screen = phone.locator("[data-autopilot-panel]");
-		if (!(await screen.isVisible())) {
-			if (!(await phone.locator("[data-autopilot-open-screen]").isVisible()))
-				await phone.locator("[data-run-settings-trigger]").click();
-			await phone.locator("[data-autopilot-open-screen]").click();
-		}
+		const openScreen = phone.locator("[data-autopilot-open-screen]");
+		const trigger = phone.locator("[data-run-settings-trigger]").first();
+		await expect
+			.poll(
+				async () => {
+					if (await screen.isVisible()) return "screen";
+					if (await openScreen.isVisible()) return "button";
+					if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click({ timeout: 10_000 });
+					return "waiting";
+				},
+				{ timeout: 60_000, message: "the run screen or its Open screen button" },
+			)
+			.not.toBe("waiting");
+		if (!(await screen.isVisible())) await openScreen.click({ timeout: 10_000 });
 		await expect(screen).toBeVisible({ timeout: 60_000 });
 		await phone.getByRole("button", { name: "Close side panel" }).first().click();
 		await expect(phone.locator("[data-autopilot-panel]")).toHaveCount(0);
@@ -183,8 +199,8 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		for (const child of during.childRows) {
 			expect(child.text).toContain("Autopilot child");
 			expect(child.text).not.toContain("New session");
-			// Under the run's own row, in the run's group (the worktree group labelled Autopilot), not the project's.
-			expect(child).toMatchObject({ group: "Autopilot", worktreeGroup: true });
+			// Under the run's own row, among the project's own rows: a worktree has no group of its own.
+			expect(child.group).toBe(path.basename(ap.project));
 		}
 		expect(duplicates(during.perPath)).toEqual([]);
 		await closeDrawer(phone);
@@ -278,7 +294,7 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		const after = await readRows(phone);
 		expect(duplicates(after.perPath)).toEqual([]);
 		expect(after.groups.filter(name => /^\d{4}-\d{2}-\d{2}/.test(name))).toEqual([]);
-		for (const child of after.childRows) expect(child).toMatchObject({ group: "Autopilot", worktreeGroup: true });
+		for (const child of after.childRows) expect(child.group).toBe(path.basename(ap.project));
 		if (CAPTURES) await phone.screenshot({ path: path.join(CAPTURES, "after-restart.png") });
 		// The desktop took no copy of the phone's own sessions.
 		const desktopPaths = desktopAfter.map(tab => tab.path);

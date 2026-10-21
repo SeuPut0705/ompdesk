@@ -480,10 +480,16 @@ export class SetupService {
 			);
 			const images = action === "fix" ? fixed.map(image => image.path) : restored;
 			writeRuntimeLog({
-				level: outcome.kind === "succeeded" ? "info" : "warn",
 				source: "setup",
 				message: `Git Mandatory ASLR override ${action}: ${outcome.kind}`,
-				details: { root, action, outcome: outcome.kind, images, output: updateDetail(output) ?? null },
+				details: {
+					level: outcome.kind === "succeeded" ? "info" : "warn",
+					root,
+					action,
+					outcome: outcome.kind,
+					images,
+					output: updateDetail(output) ?? null,
+				},
 			});
 			await this.#detect();
 			resolve(

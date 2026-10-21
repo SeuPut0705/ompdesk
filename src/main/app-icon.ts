@@ -17,3 +17,14 @@ export function appIconPath(): string {
 export function appNotification(options: Electron.NotificationConstructorOptions): Notification {
 	return new Notification(process.platform === "win32" ? { icon: appIconPath(), ...options } : options);
 }
+
+/**
+ * A test launch (OMP_GUI_HEADLESS) posts no OS notification. Its Electron is node_modules' Electron.app, so macOS
+ * filed each one under com.github.Electron and the user's Notification Center showed it with the Electron logo
+ * (e2e's "Autopilot ended", "From PC-B"). `show` stays on the prototype, as a no-op, so a spec that wraps
+ * `Notification.prototype.show` still sees every notification.
+ */
+export function holdTestNotifications(): void {
+	if (process.env.OMP_GUI_HEADLESS !== "1") return;
+	Notification.prototype.show = function show() {};
+}

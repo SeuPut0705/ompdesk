@@ -14,7 +14,6 @@ import path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell } from "electron";
 import Store from "electron-store";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
-import { AUTOPILOT_BRANCH_PREF } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../resources/gui-bridge/modes/next-prompt-contracts";
@@ -94,11 +93,12 @@ import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type SchedulesRequest } from "../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
 import { requestQuit } from "./app-quit";
-import { Autopilot, type AutopilotCommand, type AutopilotNotice, validAutopilotBranchPref } from "./autopilot";
+import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
 import { routeHostAutopilotNotice } from "./autopilot-notice-route";
 import {
 	CHECKOUT_PEERS_SWEEP_MS,
@@ -134,11 +134,12 @@ import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
-import { tailLogLines } from "./runtime-log-core";
+import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
@@ -222,6 +223,8 @@ export interface IpcDeps {
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
 	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
+	/** This computer's sidebar project list: it looks for new folders when the session index changes. */
+	sidebarProjects?: Pick<SidebarProjects, "schedule">;
 	/**
 	 * Who typed a prompt, for the tabs several windows show (bridge prompt-origin.ts): `of` is the paired
 	 * device a window belongs to (null for a desktop window, whose prompts are the host's own), `hostName`
@@ -504,6 +507,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				// The Preview check judges the page through this tab's own omp, only while the judgeAssist pref is on.
 				check: createTabCheck({
 					enabled: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
+					// The renderer opens the Preview only for the tab in front (stores/preview-visuals.ts).
+					inFront: () => sidecarPool.activeTabForWindow(tab.win) === tab.tabId,
 					pages: visualPages,
 					rpc: sidecar.rpcClient,
 				}),
@@ -526,6 +531,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sessionIndex.onChange = () => {
 		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, undefined);
 		remoteDevices.hostSessionsChanged();
+		deps.sidebarProjects?.schedule();
 	};
 	// The sessions this computer runs for paired devices are every window's sidebar rows too.
 	deps.hostedTabs.onHostedSessionsChange(() =>
@@ -559,7 +565,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// ========================================================================
 	ipc.on(IPC_COMMANDS.RUNTIME_ERROR_REPORT, (caller, report: unknown) => {
 		const win = caller.win;
-		writeRuntimeLog(report, {
+		writeRuntimeLog(normalizeRuntimeErrorReport(report), {
 			windowId: win?.webContents.id,
 			cwd: win ? windowManager.recordFor(win)?.cwd : undefined,
 		});
@@ -735,6 +741,29 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					success: false,
 					error: err instanceof Error ? err.message : String(err),
 					code: "agent_control_review_failed",
+				};
+			}
+		}
+		// The work board's "Changed" row: what the sessions this one opened changed (src/main/agent-control).
+		if (cmd.type === "agent_control_family_edits") {
+			if (!issuerTabId)
+				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
+			try {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: true,
+					data: await agentControl.familyEdits(win, issuerTabId, cmd.since),
+				};
+			} catch (err) {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
+					code: "agent_control_family_edits_failed",
 				};
 			}
 		}
@@ -981,6 +1010,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// A run a paired device started stops counting against that device once it ends (hosted-autopilot.ts).
 		runEnded: root => deps.hostedTabs.endRun(root),
 		relaunchContinuation: deps.relaunchContinuation,
+		runLog: (message, details) => writeRuntimeLog({ source: "autopilot", message, details }),
 	});
 	deps.autopilotRef.current = autopilot;
 	// A paired device's get/set_autopilot on its tab here are this coordinator's (src/main/remote/hosted-autopilot.ts).
@@ -1162,6 +1192,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.EXTENSION_UI_OPEN, caller => {
 		const win = caller.win;
 		return win ? sidecarPool.openRequests(win) : [];
+	});
+
+	ipc.handle(IPC_COMMANDS.EXTENSION_UI_STATE, caller => {
+		const win = caller.win;
+		return win ? sidecarPool.extensionUiState(win) : [];
 	});
 
 	// Sessions. `device` names the paired host whose session index answers;
@@ -1640,9 +1675,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (payload.key === DELEGATION_PREF && !isDelegationMode(payload.value)) {
 			throw codedError("invalid_preference_key", "Invalid delegation strength");
 		}
-		if (payload.key === AUTOPILOT_BRANCH_PREF && !validAutopilotBranchPref(payload.value)) {
-			throw codedError("invalid_preference_key", "Invalid autopilot preference");
-		}
 		if (payload.key === ACCOUNT_ROTATION_PREF) {
 			if (!isAccountRotationMode(payload.value)) {
 				throw codedError("invalid_preference_key", "Invalid account rotation");
@@ -1755,6 +1787,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// the window record in sync (menu "New Window" reads cwd from it).
 		windowManager.setRecordCwd(win, cwd);
 		sidecar.restart(cwd);
+		// The folder the person picked is a project of the sidebar from now on (src/main/sidebar-projects.ts).
+		void deps.machine.sidebarProjects({ action: "add", path: cwd }).catch(() => undefined);
 		return cwd;
 	});
 
@@ -1775,6 +1809,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				return false;
 			}
 			target.sidecar.restart(cwd);
+			void machineFor(caller, target.device)
+				.sidebarProjects({ action: "add", path: cwd })
+				.catch(() => undefined);
 			return true;
 		}
 		try {
@@ -1786,6 +1823,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const win = caller.win;
 		if (win) windowManager.setRecordCwd(win, cwd);
 		target.sidecar.restart(cwd);
+		void deps.machine.sidebarProjects({ action: "add", path: cwd }).catch(() => undefined);
 		return true;
 	});
 
@@ -1872,6 +1910,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(SCHEDULES_LOG, (caller, runId: unknown, device?: unknown) => {
 		if (typeof runId !== "string") throw new Error("Invalid run id");
 		return machineFor(caller, device).scheduleLog(runId);
+	});
+	// The sidebar's project list of the machine a section shows: this computer's, or a paired host's own.
+	ipc.handle(SIDEBAR_PROJECTS_COMMAND, (caller, request: unknown, device?: unknown) => {
+		if (typeof request !== "object" || request === null) throw new Error("Invalid project list request");
+		const { action, path } = request as { action?: unknown; path?: unknown };
+		if (action === "get") return machineFor(caller, device).sidebarProjects({ action });
+		if ((action === "add" || action === "remove") && typeof path === "string" && path.length > 0)
+			return machineFor(caller, device).sidebarProjects({ action, path } satisfies SidebarProjectsRequest);
+		throw new Error("Invalid project list request");
 	});
 
 	// "Edit config" — open the agent's models.yml in the system editor. The
@@ -2117,9 +2164,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	);
 	ipc.handle(IPC_COMMANDS.REMOTE_REVOKE_PEER, (_caller, deviceId: unknown) => remoteDevices.revokePeer(deviceId));
 	ipc.handle(IPC_COMMANDS.REMOTE_BLOCK_PEER, (_caller, deviceId: unknown) => remoteDevices.blockPeer(deviceId));
-	ipc.handle(IPC_COMMANDS.REMOTE_SET_CONFIRM_NEW_DEVICES, (_caller, on: unknown) =>
-		remoteDevices.setConfirmNewDevices(on),
-	);
 	ipc.handle(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, (_caller, payload: unknown) => remoteDevices.setPeerLimits(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_HOST, (_caller, payload: unknown) => remoteDevices.renameHost(payload));
 	ipc.handle(IPC_COMMANDS.REMOTE_RENAME_PEER, (_caller, payload: unknown) => remoteDevices.renamePeer(payload));

@@ -76,6 +76,7 @@ export const FEATURES = {
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
+	todoStale: "A todo list left from earlier work is named to the agent when a new request starts a turn",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -452,6 +453,13 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	/** todo-reminder.ts: wraps the session's `sendCustomMessage` for stock's `todo-error-reminder`. Imports nothing from omp. */
 	todoReminder: {
 		session: ["sendCustomMessage()", "isStreaming"],
+	},
+	/** todo-stale.ts: stock's journal todo readers, the session's active tools and plan state, at each turn's start. */
+	todoStale: {
+		session: ["getActiveToolNames()", "getPlanModeState()", "sessionManager.getBranch()"],
+		modules: {
+			[`${AGENT}/tools/todo`]: ["getLatestTodoPhasesFromEntries()", "getLatestTodoSnapshotIdentity()"],
+		},
 	},
 	/**
 	 * desktop-slot.ts: patches stock's `ComputerSupervisor.prototype.run` (a read-only run passes, an acting run waits

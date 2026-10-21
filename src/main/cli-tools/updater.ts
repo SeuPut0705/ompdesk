@@ -47,7 +47,7 @@ const CHECK_TIMEOUT_MS = 120_000;
 export interface CliUpdaterDeps {
 	/** This launch checks on a timer: a packaged app, or a test launch that opts in. */
 	scheduled: boolean;
-	/** The pref `cliAutoUpdate` (default on). */
+	/** The pref `toolsAutoUpdate` (default on), shared with omp and extensions. */
 	enabled: () => boolean;
 	platform: CliPlatform;
 	toolsDir: string;

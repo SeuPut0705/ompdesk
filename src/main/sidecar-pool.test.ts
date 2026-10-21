@@ -5,7 +5,13 @@ import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
-import type { RpcCommand, RpcResponse, SessionInfoUpdateFrame, SidecarStatus } from "../shared/rpc-types";
+import type {
+	ExtensionUIRequest,
+	RpcCommand,
+	RpcResponse,
+	SessionInfoUpdateFrame,
+	SidecarStatus,
+} from "../shared/rpc-types";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
@@ -1951,6 +1957,39 @@ describe("SidecarPool background tabs", () => {
 		a?.emitUiRequest({ id: "cancel-1", method: "cancel", targetId: "confirm-a" });
 		expect(pool.openRequests(fw.win)).toEqual([]);
 		expect(pool.openRequests(other.win).map(open => open.request.id)).toEqual(["ask-b"]);
+	});
+
+	it("keeps a tab's status texts, widgets and title for a window that loaded late: no later frame repeats them", () => {
+		// Nightly 39539556435 (extension-ui-rpc): a status set before the page's listener existed was gone for good,
+		// while the one set 24 ms later showed. A reloaded window, a new window or a phone loses them the same way.
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		const [a] = sidecars;
+		a?.emitUiRequest({ id: "s1", method: "setStatus", statusKey: "b-tests", statusText: "128 tests" });
+		a?.emitUiRequest({ id: "s2", method: "setStatus", statusKey: "a-index", statusText: "Indexer ready" });
+		a?.emitUiRequest({ id: "s3", method: "setStatus", statusKey: "gone", statusText: "x" });
+		a?.emitUiRequest({ id: "s4", method: "setStatus", statusKey: "gone" });
+		a?.emitUiRequest({ id: "w1", method: "setWidget", widgetKey: "review", widgetLines: ["2 files"] });
+		a?.emitUiRequest({ id: "t1", method: "setTitle", title: "First" });
+		a?.emitUiRequest({ id: "t2", method: "setTitle", title: "Fixture title" });
+		a?.emitUiRequest({ id: "c1", method: "confirm", title: "Go?", message: "?" });
+		const shown = (win = fw.win) =>
+			pool.extensionUiState(win).map(({ tabId, request }) => {
+				const { id: _id, type: _type, ...rest } = request as ExtensionUIRequest & { id: string };
+				return [tabId, rest];
+			});
+		expect(shown()).toEqual([
+			["tab-a", { method: "setStatus", statusKey: "b-tests", statusText: "128 tests" }],
+			["tab-a", { method: "setStatus", statusKey: "a-index", statusText: "Indexer ready" }],
+			["tab-a", { method: "setWidget", widgetKey: "review", widgetLines: ["2 files"] }],
+			["tab-a", { method: "setTitle", title: "Fixture title" }],
+		]);
+		// Another window's page gets none of them.
+		expect(pool.extensionUiState(fakeWindow(2).win)).toEqual([]);
+		// A new omp never set them: they go with the old one.
+		a?.emitStatus("starting");
+		expect(shown()).toEqual([]);
 	});
 
 	it("marks a provider sign-in's own requests, so a reloaded window gives them back to its login panel", () => {

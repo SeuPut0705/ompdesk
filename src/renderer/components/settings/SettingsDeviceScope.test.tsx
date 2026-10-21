@@ -77,7 +77,6 @@ function remoteState(state: RemoteLinkState): RemoteState {
 			keepAwake: true,
 			keepingAwake: false,
 			usedBy: [],
-			confirmNewDevices: false,
 		},
 		hosts,
 		forgotten: [],

@@ -357,15 +357,16 @@ describe("GeneralSection", () => {
 		const html = renderToStaticMarkup(withData([entry({ path: "compaction.enabled" })], {}, <GeneralSection />));
 		expect(html).not.toContain('id="setting-compaction.enabled"');
 		expect(html).toContain('id="setting-gui-proxy"');
-		expect(html).toContain('id="setting-gui-titleState"');
+		// The run state in the window title and progress on the app icon are always on: no switches.
+		expect(html).not.toContain('id="setting-gui-titleState"');
+		expect(html).not.toContain('id="setting-gui-showProgress"');
 	});
 
-	it("offers every sidebar shortcut and folds the proxy under Advanced", () => {
+	it("has no sidebar shortcut switches (they live in the sidebar) and folds the proxy under Advanced", () => {
 		const html = renderToStaticMarkup(withData([], {}, <GeneralSection />));
-		for (const pin of ["usage", "terminal", "diff", "preview", "files", "jobs", "schedules"])
-			expect(html).toContain(`id="setting-gui-railPin-${pin}"`);
+		expect(html).not.toContain("setting-gui-railPin");
 		const advanced = html.indexOf("data-settings-advanced");
-		expect(advanced).toBeGreaterThan(html.indexOf('id="setting-gui-railPins"'));
+		expect(advanced).toBeGreaterThan(-1);
 		expect(html.indexOf('id="setting-gui-proxy"')).toBeGreaterThan(advanced);
 		// The machine setup list moved to Updates & about.
 		expect(html).not.toContain('id="setting-machine-setup"');

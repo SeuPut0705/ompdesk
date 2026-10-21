@@ -99,7 +99,12 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 	const path = setupPresencePath(item);
 	const purpose = item.id === "git" && windows ? "gitWindows" : item.id;
 	return (
-		<div className="settings-row min-w-0 py-1.5" data-phase={item.phase} data-setup-item={item.id}>
+		<div
+			className="settings-row min-w-0 py-1.5"
+			data-phase={item.phase}
+			data-setting-row="true"
+			data-setup-item={item.id}
+		>
 			<div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
 				<div className="min-w-0 flex-1">
 					<div className="flex min-h-(--sc-control-sm) flex-wrap items-center gap-x-2 gap-y-0.5">

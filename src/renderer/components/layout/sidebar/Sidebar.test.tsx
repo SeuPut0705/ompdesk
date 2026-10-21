@@ -16,10 +16,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { wrapAgentMessage } from "../../../../shared/agent-control";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
+import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { resetLastReadForTest } from "../../../lib/last-read";
 import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
@@ -34,6 +36,7 @@ import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { useSidebarProjects } from "../../../stores/sidebar-projects";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import type { SubagentsStore } from "../../../stores/subagents";
 import { ensureTabRuntime } from "../../../stores/tab-runtime";
@@ -98,6 +101,12 @@ interface MockOmp {
 		revealPath: Mock<(path: string) => Promise<{ ok: boolean }>>;
 	};
 	rpc: Record<string, Mock<(...args: unknown[]) => Promise<unknown>>>;
+	/** This computer's project list as main keeps it (src/main/sidebar-projects.ts), per device. */
+	sidebarProjects: {
+		lists: Record<string, SidebarProjectsState>;
+		command: Mock<(request: SidebarProjectsRequest, device?: string) => Promise<SidebarProjectsState>>;
+		onState: Mock<() => () => void>;
+	};
 }
 
 function installMockOmp(sessionList: SessionInfo[]): MockOmp {
@@ -151,6 +160,28 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 				return (target as Record<string | symbol, unknown>)[prop];
 			},
 		}),
+		sidebarProjects: {
+			lists: {},
+			command: vi.fn(async (request, device) => {
+				const lists = omp.sidebarProjects.lists;
+				const key = device ?? "local";
+				const list = lists[key] ?? { projects: [], removed: [], worktrees: {} };
+				if (request.action === "add" && !list.projects.some(entry => entry.path === request.path))
+					lists[key] = {
+						projects: [...list.projects, { path: request.path, addedAt: 1 }],
+						removed: list.removed.filter(entry => entry !== request.path),
+						worktrees: list.worktrees,
+					};
+				if (request.action === "remove")
+					lists[key] = {
+						projects: list.projects.filter(entry => entry.path !== request.path),
+						removed: [...list.removed, request.path],
+						worktrees: list.worktrees,
+					};
+				return lists[key] ?? list;
+			}),
+			onState: vi.fn(() => () => {}),
+		},
 	};
 	(window as unknown as { omp: MockOmp }).omp = omp;
 	return omp;
@@ -277,6 +308,8 @@ afterEach(async () => {
 		reveal: null,
 	});
 	useSidebarPrefs.getState().reset();
+	useSidebarProjects.getState().reset();
+	resetLastReadForTest();
 	useSidebarFolds.getState().reset();
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
@@ -385,16 +418,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		await fire(shortcuts as Element, "onClick");
 		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "keyboard" });
-		// The pins live in Settings › General, where search finds them.
+		// Customize sidebar opens its own sheet, not Settings.
 		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
-		const customize = [...document.body.querySelectorAll('[role="menu"] button')].find(button =>
-			(button.textContent ?? "").includes("Customize sidebar…"),
-		);
-		await fire(customize as Element, "onClick");
-		expect(useUiStore.getState()).toMatchObject({
-			destination: "settings",
-			settingsTab: "general:setting-gui-railPins",
-		});
+		await fire(menuItem("Customize sidebar…"), "onClick");
+		expect(document.body.querySelector("[data-sidebar-pins]")).not.toBeNull();
+		expect(useUiStore.getState()).toMatchObject({ destination: "settings", settingsTab: "keyboard" });
 	});
 
 	it("pins only the usage block by default (it draws nothing without a subscription account); other pinned ones sit above the destinations in a fixed order and open their view", async () => {
@@ -429,6 +457,40 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		await pin("files");
 		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "schedules"]);
+	});
+
+	it("Help › Customize sidebar opens a sheet whose switches pin and unpin; a pinned row's menu unpins", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const footer = container.querySelector("[data-sidebar-destinations]");
+		expect(document.body.querySelector("[data-sidebar-pins]")).toBeNull();
+
+		await fire(footer?.querySelector('[aria-label="Help"]') ?? null, "onClick");
+		await fire(menuItem("Customize sidebar…"), "onClick");
+		const sheet = document.body.querySelector("[data-sidebar-pins]");
+		expect(sheet?.querySelectorAll('[role="switch"]')).toHaveLength(9);
+		const switchFor = (pin: string) => document.body.querySelector(`#sidebar-pin-${pin}`);
+		expect(switchFor("usage")?.getAttribute("aria-checked")).toBe("true");
+		expect(switchFor("files")?.getAttribute("aria-checked")).toBe("false");
+
+		await fire(switchFor("files"), "onClick");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "files"]);
+		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ railPins: ["usage", "files"] }));
+		expect(switchFor("files")?.getAttribute("aria-checked")).toBe("true");
+		expect(footer?.querySelector('[data-rail-pin="files"]')).not.toBeNull();
+
+		await fire(footer?.querySelector('[data-rail-pin="files"]') ?? null, "onContextMenu");
+		expect(menuItemLabels()).toEqual(["Unpin from sidebar", "Customize sidebar…"]);
+		await fire(menuItem("Unpin from sidebar"), "onClick");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage"]);
+		expect(footer?.querySelector('[data-rail-pin="files"]')).toBeNull();
+
+		await fire(switchFor("agents"), "onClick");
+		await fire(footer?.querySelector('[data-destination="agents"]') ?? null, "onContextMenu");
+		await fire(menuItem("Unpin from sidebar"), "onClick");
+		expect(useSidebarPrefs.getState().railPins).toEqual(["usage"]);
 	});
 
 	it("opens the command palette from the header and selecting a session returns from a page", async () => {
@@ -912,8 +974,9 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels.some(label => label.includes("Move down"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
 		expect(labels.some(label => label.includes("Archive all"))).toBe(true);
+		expect(labels.some(label => label.includes("Remove from sidebar"))).toBe(true);
 		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(8);
+		expect(labels).toHaveLength(9);
 	});
 
 	it("each project header offers + in place of a count, and Move moves the project", async () => {
@@ -1493,8 +1556,17 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rows.some(text => text.includes("/work/alpha/one"))).toBe(false);
 	});
 
-	it("closes the project's tabs and deletes its sessions so the project leaves the list", async () => {
+	it("closes the project's tabs and deletes its sessions; the project stays listed, empty", async () => {
 		const omp = installMockOmp(LIST);
+		// Main lists every folder sessions ran in (src/main/sidebar-projects.ts).
+		omp.sidebarProjects.lists.local = {
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 1 },
+			],
+			removed: [],
+			worktrees: {},
+		};
 		const deleted = new Set<string>();
 		omp.sessions.delete.mockImplementation(async (path: string) => {
 			deleted.add(path);
@@ -1532,7 +1604,76 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
-		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();
+		// The project and its sessions are two things: the folder keeps its header, with + and no rows.
+		const kept = container.querySelector('[data-workspace-group="/work/alpha"]');
+		expect(kept).not.toBeNull();
+		expect(kept?.querySelector("[data-sidebar-group-new]")).not.toBeNull();
+		expect(container.querySelectorAll('[data-session-path^="/work/alpha/"]')).toHaveLength(0);
+	});
+
+	it("lists a project with no session, and Remove from sidebar takes it out without deleting anything", async () => {
+		const omp = installMockOmp(LIST);
+		omp.sidebarProjects.lists.local = {
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 1 },
+				{ path: "/work/empty", addedAt: Date.parse("2026-01-05T00:00:00Z") },
+			],
+			removed: [],
+			worktrees: {},
+		};
+		seedStores();
+		await mount(<Sidebar />);
+
+		const header = () => container.querySelector('[data-workspace-group="/work/empty"]');
+		expect(header()?.textContent).toContain("empty");
+		// Newest by when it entered the list: above beta and alpha, whose sessions are older.
+		const order = [...container.querySelectorAll("[data-workspace-group]")].map(group =>
+			group.getAttribute("data-workspace-group"),
+		);
+		expect(order.slice(0, 3)).toEqual(["/work/empty", "/work/beta", "/work/alpha"]);
+
+		// Removing a project that still has sessions takes them off the sidebar too; nothing is deleted.
+		for (const cwd of ["/work/empty", "/work/beta"]) {
+			await fire(container.querySelector(`[data-workspace-group="${cwd}"]`), "onContextMenu");
+			await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+			expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "remove", path: cwd }, undefined);
+			expect(container.querySelector(`[data-workspace-group="${cwd}"]`)).toBeNull();
+		}
+		expect(container.querySelector('[data-session-path="/work/beta/three.jsonl"]')).toBeNull();
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).not.toBeNull();
+	});
+
+	it("dims a project whose folder is gone and keeps offering Remove", async () => {
+		const omp = installMockOmp([]);
+		omp.sidebarProjects.lists.local = {
+			projects: [{ path: "/work/gone", addedAt: 1, missing: true }],
+			removed: [],
+			worktrees: {},
+		};
+		seedStores();
+		await mount(<Sidebar />);
+
+		const header = container.querySelector('[data-workspace-group="/work/gone"]');
+		expect(header?.getAttribute("data-project-missing")).toBe("");
+		expect(header?.textContent).toContain(translate("sidebar.project.missing"));
+		expect(header?.querySelector("[data-sidebar-group-new]")?.getAttribute("disabled")).not.toBeNull();
+		await fire(header, "onContextMenu");
+		expect(menuItemLabels()).toContain(translate("sidebar.menu.removeProject"));
+	});
+
+	it("adds the folder of a session started in it to the project list", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+		omp.tabs.spawn.mockResolvedValueOnce({ tabId: "t-new", cwd: "/work/fresh" });
+		await act(async () => {
+			await useTabsStore.getState().openTab({ cwd: "/work/fresh" });
+		});
+		await flush();
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "add", path: "/work/fresh" }, undefined);
+		expect(container.querySelector('[data-workspace-group="/work/fresh"]')).not.toBeNull();
 	});
 
 	it("marks a fork the way stock's resume list does, naming the session it came from", async () => {
@@ -1934,13 +2075,11 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		...container.querySelectorAll(`[data-sidebar-family="${BOSS}"] [data-sidebar-opened-session]`),
 	];
 
-	it("nests each opened session under its opener, one line each, and drops the worktree group", async () => {
+	it("nests each opened session under its opener, one line each, never as a project row", async () => {
 		mountFamily();
 		await mount(<Sidebar />);
 
-		// Nobody lists them in a group of their own: not the worktrees, not the project's rows.
-		expect(container.querySelectorAll("[data-worktree-group]").length).toBe(0);
-		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
+		// Nobody lists them as rows of their own: not the worktrees, not the project's rows.
 		const sessionRows = [...container.querySelectorAll("[data-session-group] .omp-sidebar-session-row")];
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("Plain helper"))).toBe(false);
 		expect(sessionRows.some(row => (row.textContent ?? "").includes("OMPdesk 사이드바 정리"))).toBe(false);
@@ -2009,7 +2148,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],
@@ -2065,7 +2203,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [
 				{ deviceId: "dev-studio", name: "studio", state: "online" },
@@ -2106,7 +2243,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [
 				{ deviceId: "dev-studio", name: "studio", state: "online" },
@@ -2292,8 +2428,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		});
 		await flush();
 
-		expect(container.querySelector("[data-worktree-group]")).toBeNull();
-		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
 		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
 		expect(container.textContent).not.toContain("Landed task");
@@ -2313,7 +2447,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		});
 		await flush();
 
-		expect(container.querySelector("[data-worktree-group]")).toBeNull();
 		expect(rowFor("Session /work/alpha/two").querySelector("[data-sidebar-subagents-toggle]")).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
 		expect(container.querySelector(`[data-sidebar-family="${BOSS}"]`)).toBeNull();
@@ -2349,8 +2482,6 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		await mount(<Sidebar />);
 
 		// /wt/a names a sender nobody here is titled as; /wt/b has no brief and only its `omp/agent/…` branch.
-		expect(container.querySelector("[data-worktree-group]")).toBeNull();
-		expect(container.querySelector('[data-workspace-group="/work/alpha#agent"]')).toBeNull();
 		expect(doneFold(BOSS)).toBeNull();
 		expect(doneFold("group:/work/alpha")).toBeNull();
 		expect(container.querySelector("[data-sidebar-loose-children]")).toBeNull();
@@ -2562,7 +2693,6 @@ describe("Sidebar device sections", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state }],
 			forgotten: [],
@@ -2582,7 +2712,41 @@ describe("Sidebar device sections", () => {
 
 		expect(container.querySelector("[data-sidebar-device-header]")).toBeNull();
 		expect(container.querySelector("[data-sidebar-device]")).toBeNull();
+		expect(container.querySelector("[data-sidebar-device-add]")).toBeNull();
+		// With no device groups the project folder button sits beside the search, as it always did.
+		expect(container.querySelector("[data-sidebar-open-project]")).not.toBeNull();
 		expect(omp.sessions.list.mock.calls.every(call => call.length === 1)).toBe(true);
+	});
+
+	it("puts the project folder button on this device's header, not beside the search, once a host is paired", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		// Every device header ends in its own button; the search row's would be a second one for this device.
+		expect(container.querySelector("[data-sidebar-open-project]")).toBeNull();
+		const header = container.querySelector('[data-sidebar-device-header="local"]');
+		const add = header?.querySelector('[data-sidebar-device-add="local"]') ?? null;
+		expect(add?.getAttribute("aria-label")).toBe(
+			translate("remote.sidebar.addProject", { name: translate("remote.sidebar.thisDevice") }),
+		);
+		// The chevron stays and still folds the list.
+		expect(header?.querySelector('[data-sidebar-device-toggle="local"]')?.getAttribute("aria-expanded")).toBe("true");
+
+		omp.system.showOpenDialog.mockResolvedValueOnce(["/work/new-app"]);
+		await fire(add, "onClick");
+		await act(async () => {});
+		expect(omp.system.showOpenDialog).toHaveBeenLastCalledWith(
+			undefined,
+			expect.objectContaining({ directory: true, buttonLabel: translate("sidebar.project.newFolderButton") }),
+		);
+		// Started on this computer: the untouched tab re-rooted, else a new local tab; never on the host.
+		const spawnedCwds = omp.tabs.spawn.mock.calls.map(([payload]) =>
+			payload && typeof payload === "object" && "cwd" in payload ? payload.cwd : undefined,
+		);
+		expect([...omp.sidecar.setProject.mock.calls.map(([cwd]) => cwd), ...spawnedCwds]).toEqual(["/work/new-app"]);
+		expect(omp.tabs.spawn).not.toHaveBeenCalledWith(expect.objectContaining({ device: expect.anything() }));
 	});
 
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
@@ -2591,7 +2755,7 @@ describe("Sidebar device sections", () => {
 		pairHost("online");
 		await mount(<Sidebar />);
 
-		expect(container.querySelector('[data-sidebar-device-header="local"]')?.textContent).toBe(
+		expect(container.querySelector('[data-sidebar-device-toggle="local"]')?.textContent).toBe(
 			translate("remote.sidebar.thisDevice"),
 		);
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
@@ -2616,6 +2780,69 @@ describe("Sidebar device sections", () => {
 		// ⌄ folds the host away.
 		await fire(section?.querySelector("[data-sidebar-device-toggle]") ?? null, "onClick");
 		expect(section?.querySelector("[data-device-group]")).toBeNull();
+	});
+
+	it("puts a host worktree's session under its project, as the host's git says, and removes them together", async () => {
+		const omp = installWithRemote();
+		const WT = "/Users/kim/.omp/wt/gui-agent-a1b2c3-0a1b2c3";
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio"
+				? [...REMOTE, session("/Users/kim/.omp/agent/sessions/wt/two.jsonl", WT, { title: "Worktree fix", device })]
+				: LIST,
+		);
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [{ path: "/Users/kim/code/app", addedAt: 1 }],
+			removed: [],
+			worktrees: { [WT]: "/Users/kim/code/app" },
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.querySelector(`[data-device-group="${WT}"]`)).toBeNull();
+		const app = section?.querySelector('[data-device-group="/Users/kim/code/app"]');
+		expect(app?.textContent).toContain("Remote fix");
+		expect(app?.textContent).toContain("Worktree fix");
+		expect(section?.querySelectorAll("[data-device-group]")).toHaveLength(1);
+
+		await fire(app?.querySelector(".group\\/head") ?? null, "onContextMenu");
+		await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+		expect(section?.querySelector("[data-device-group]")).toBeNull();
+		expect(section?.textContent).not.toContain("Worktree fix");
+	});
+
+	it("shows the host's own project list, empty projects too, and removes one there", async () => {
+		const omp = installWithRemote();
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [
+				{ path: "/Users/kim/code/app", addedAt: 1 },
+				{ path: "/Users/kim/code/empty", addedAt: 2 },
+			],
+			removed: [],
+			worktrees: {},
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		// The host's list, read over the link: an empty project there keeps its header here.
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "get" }, "dev-studio");
+		const empty = section?.querySelector('[data-device-group="/Users/kim/code/empty"]');
+		expect(empty?.textContent).toContain("empty");
+		expect(empty?.querySelector("[data-device-session]")).toBeNull();
+		// This computer's own list never shows the host's project.
+		expect(container.querySelector('[data-workspace-group="/Users/kim/code/empty"]')).toBeNull();
+
+		await fire(empty?.querySelector(".group\\/head") ?? null, "onContextMenu");
+		await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith(
+			{ action: "remove", path: "/Users/kim/code/empty" },
+			"dev-studio",
+		);
+		expect(section?.querySelector('[data-device-group="/Users/kim/code/empty"]')).toBeNull();
+		expect(omp.sidebarProjects.lists["dev-studio"]?.removed).toEqual(["/Users/kim/code/empty"]);
 	});
 
 	it("shows an offline host as one offline line with no sessions", async () => {
@@ -3229,7 +3456,7 @@ describe("Sidebar with a split on screen", () => {
 	});
 });
 
-describe("Sidebar worktree groups", () => {
+describe("Sidebar worktree sessions", () => {
 	const AUTOPILOT = "/home/me/.omp/wt/h1/gui-2026-10-17-1ccaba4";
 	const CHILD = "/home/me/.omp/wt/h1/gui-agent-5wxp8i-23abcde";
 	const origin = (branch: string, kind: "autopilot" | "agent", slug: string) => ({
@@ -3277,29 +3504,42 @@ describe("Sidebar worktree groups", () => {
 			tabs: [...state.tabs, { id, cwd, status: "ready", kind: "agent", unreadDone: false, sessionPath }] as never,
 		}));
 
-	it("sits a worktree right under its project, labelled by what it is for", async () => {
+	const rowsOf = (group: string) =>
+		[...container.querySelectorAll(`[data-session-group="${group}"] .omp-sidebar-session-row`)].map(row => ({
+			text: row.textContent ?? "",
+			mark: row.querySelector("[data-sidebar-worktree]")?.getAttribute("data-sidebar-worktree") ?? null,
+			tooltip: row.querySelector("button[title]")?.getAttribute("title") ?? "",
+			child: row.getAttribute("data-session-run-child") === "true",
+		}));
+
+	it("lists a worktree's sessions among its project's own rows, each marked by what it is for", async () => {
 		mountWithWorktrees();
-		// A parallel child no opener row holds keeps its group while a tab holds it.
+		// A parallel child no opener row holds stays a row while a tab holds it.
 		openTab("tch", CHILD, "/wt/child.jsonl");
 		await mount(<Sidebar />);
 
-		const order = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+		// No group of their own: the project's group is the only one alpha has.
+		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
 			(element as unknown as Element).getAttribute("data-workspace-group"),
 		);
-		expect(order.indexOf(AUTOPILOT)).toBe(order.indexOf("/work/alpha") + 1);
-		expect(order.indexOf("/work/alpha#agent")).toBe(order.indexOf("/work/alpha") + 2);
+		expect(groups).not.toContain(AUTOPILOT);
+		expect(groups).not.toContain(CHILD);
+		expect(groups).not.toContain("/work/alpha#agent");
 
-		const header = (cwd: string) => container.querySelector(`[data-workspace-group="${cwd}"]`) as unknown as Element;
-		expect(header(AUTOPILOT).textContent?.trim()).toBe("Autopilot");
-		expect(header("/work/alpha#agent").textContent?.trim()).toBe("Parallel work");
-		expect(header(AUTOPILOT).getAttribute("data-worktree-group")).toBe("alpha");
-		expect(header("/work/alpha").getAttribute("data-worktree-group")).toBeNull();
-		// The folder names stay out of the sidebar; the full path is the tooltip.
+		// In the project's order (newest first), the worktree rows among the others.
+		const rows = rowsOf("/work/alpha").filter(row => !row.text.includes("New session"));
+		expect(rows.map(row => row.text)).toEqual([
+			expect.stringContaining("Cycle 3"),
+			expect.stringContaining("Approach A"),
+			expect.stringContaining("Session /work/alpha/one"),
+			expect.stringContaining("Session /work/alpha/two"),
+		]);
+		expect(rows.map(row => row.mark)).toEqual(["autopilot", "agent", null, null]);
+		expect(rows[0]?.tooltip).toContain("Autopilot");
+		expect(rows[1]?.tooltip).toContain("Parallel work");
+		// The folder names stay out of the sidebar.
 		expect(container.textContent).not.toContain("gui-2026");
 		expect(container.textContent).not.toContain("gui-agent");
-		const tooltip = header(AUTOPILOT).querySelector("button[aria-expanded]")?.getAttribute("title");
-		expect(tooltip).toContain(AUTOPILOT);
-		expect(tooltip).toContain("alpha");
 	});
 
 	it("holds the parallel children of one project in ONE group and drops a discarded one", async () => {
@@ -3329,10 +3569,7 @@ describe("Sidebar worktree groups", () => {
 		openTab("ta", CHILD, "/wt/a.jsonl");
 		openTab("tb", CHILD_B, "/wt/b.jsonl");
 		await mount(<Sidebar />);
-		const groups = [...container.querySelectorAll("[data-worktree-group]")];
-		expect(groups).toHaveLength(1);
-		expect(groups[0]?.textContent?.trim()).toBe("Parallel work");
-		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
+		const rows = rowsOf("/work/alpha").map(row => row.text);
 		expect(rows.some(text => text.includes("Approach A"))).toBe(true);
 		expect(rows.some(text => text.includes("Approach B"))).toBe(true);
 		expect(rows.some(text => text.includes("Approach C"))).toBe(false);
@@ -3369,7 +3606,7 @@ describe("Sidebar worktree groups", () => {
 		expect(rows.some(text => text.includes("Held here"))).toBe(true);
 	});
 
-	it("names the project too when its own group is not listed", async () => {
+	it("names the group after the project, not the worktree, when only worktree sessions exist", async () => {
 		const omp = installMockOmp([session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3" })]);
 		(omp as unknown as Record<string, unknown>).projectOrigins = {
 			get: vi.fn(async (cwds: string[]) =>
@@ -3389,8 +3626,57 @@ describe("Sidebar worktree groups", () => {
 		};
 		seedStores();
 		await mount(<Sidebar />);
-		const header = container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`);
-		expect(header?.textContent?.trim()).toBe("beta · Autopilot");
+		expect(container.querySelector(`[data-workspace-group="${AUTOPILOT}"]`)).toBeNull();
+		const header = container.querySelector('[data-workspace-group="/elsewhere/beta"]');
+		expect(header?.textContent?.trim()).toBe("beta");
+		// A new session from its + starts in the project's own checkout.
+		expect(header?.querySelector("[data-sidebar-group-new]")?.getAttribute("data-sidebar-group-new")).toBe(
+			"/elsewhere/beta",
+		);
+		await act(async () => {
+			(header?.querySelector("button[aria-expanded]") as unknown as HTMLButtonElement | null)?.click();
+		});
+		expect(rowsOf("/elsewhere/beta").map(row => row.mark)).toEqual(["autopilot"]);
+	});
+
+	it("puts a worktree's session in its project's group when the project's folder is spelled through a symlink", async () => {
+		// macOS: the session says /var/…, git's main checkout (realpath'd) is /private/var/…; a subfolder keeps its own group.
+		const omp = installMockOmp([
+			session("/wt/auto.jsonl", AUTOPILOT, { title: "Cycle 3", created: "2026-02-03T00:00:00Z" }),
+			session("/var/w/alpha/mine.jsonl", "/var/w/alpha", { title: "Own row" }),
+			session("/var/w/alpha/sub/s.jsonl", "/var/w/alpha/sub", { title: "Sub row" }),
+		]);
+		const real = { project: "alpha", root: "/private/var/w/alpha", worktree: null };
+		(omp as unknown as Record<string, unknown>).projectOrigins = {
+			get: vi.fn(async (cwds: string[]) =>
+				Object.fromEntries(
+					cwds.map(cwd => [
+						cwd,
+						cwd === AUTOPILOT
+							? {
+									project: "alpha",
+									root: "/private/var/w/alpha",
+									worktree: { kind: "autopilot", branch: "autopilot/x", slug: "x" },
+								}
+							: cwd.startsWith("/var/w/alpha")
+								? real
+								: null,
+					]),
+				),
+			),
+		};
+		seedStores();
+		useSessionStore.setState({ cwd: "/var/w/alpha" });
+		await mount(<Sidebar />);
+		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
+			(element as unknown as Element).getAttribute("data-workspace-group"),
+		);
+		expect(groups).not.toContain("/private/var/w/alpha");
+		expect(groups).toContain("/var/w/alpha/sub");
+		expect(rowsOf("/var/w/alpha").map(row => row.text)).toEqual([
+			expect.stringContaining("Cycle 3"),
+			expect.stringContaining("Own row"),
+		]);
 	});
 
 	it("shows the folder without its gui-…-hash dressing while git has not answered", async () => {
@@ -3465,22 +3751,20 @@ describe("Sidebar worktree groups", () => {
 		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
 			(element as unknown as Element).getAttribute("data-workspace-group"),
 		);
-		for (const child of [DOCS, TESTS, BUGS]) expect(groups).not.toContain(child);
-		expect(container.textContent).not.toMatch(/c2-docs|c2-tests|c3-bugs/);
+		for (const folder of [AUTOPILOT, DOCS, TESTS, BUGS]) expect(groups).not.toContain(folder);
+		expect(container.textContent).not.toMatch(/c2-docs|c3-bugs|c2-tests/);
 
-		const rows = [...container.querySelectorAll(`[data-session-group="${AUTOPILOT}"] .omp-sidebar-session-row`)].map(
-			row => ({
-				text: row.textContent ?? "",
-				child: row.getAttribute("data-session-run-child") === "true",
-			}),
-		);
-		// The run's own row first, then its children, newest first, each one step further in.
-		expect(rows.map(row => row.child)).toEqual([false, true, true, true]);
+		// In the project's group: the run's row where its recency puts it, its children right under it, newest first,
+		// one step in and with no mark of their own; then the project's older rows.
+		const rows = rowsOf("/work/alpha").filter(row => !row.text.includes("New session"));
+		expect(rows.map(row => row.child)).toEqual([false, true, true, true, false, false]);
 		expect(rows[0]?.text).toContain("Cycle 3");
+		expect(rows[0]?.mark).toBe("autopilot");
 		expect(rows[1]?.text).toContain("Fix the flaky upload test");
 		expect(rows[2]?.text).toContain("Cover the upload retry");
 		expect(rows[3]?.text).toContain("Docs pass");
-		expect(rows.filter(row => row.text.includes("New session"))).toEqual([]);
+		expect(rows.slice(1, 4).map(row => row.mark)).toEqual([null, null, null]);
+		expect(rows[4]?.text).toContain("Session /work/alpha/one");
 	});
 });
 
@@ -3569,7 +3853,6 @@ describe("Sidebar remembered folds", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],
@@ -3633,7 +3916,6 @@ describe("Sidebar remembered folds", () => {
 				keepAwake: true,
 				keepingAwake: false,
 				usedBy: [],
-				confirmNewDevices: false,
 			},
 			hosts: [],
 			forgotten: [],

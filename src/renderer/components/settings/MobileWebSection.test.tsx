@@ -11,10 +11,12 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RemoteState } from "../../../shared/ipc-types";
 import type { MobileWebState } from "../../../shared/mobile-web";
 import { DEFAULT_WEB_GRANTS } from "../../../shared/web-protocol";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useMobileWebStore } from "../../stores/mobile-web";
+import { useRemoteStore } from "../../stores/remote";
 import { useToastStore } from "../../stores/toast";
 import {
 	blockedDevice,
@@ -78,6 +80,18 @@ async function click(label: string): Promise<void> {
 	});
 }
 
+/** A device's Limits and Block sit behind its overflow menu: open it, then pick the item. */
+async function pickDeviceAction(name: string, item: string): Promise<void> {
+	await click(translate("remote.peerMenu", { name }));
+	const entry = (Array.from(document.body.querySelectorAll('[role="menuitem"]')) as HTMLElement[]).find(
+		candidate => (candidate.textContent ?? "").trim() === item,
+	);
+	expect(entry, `menu item "${item}"`).toBeDefined();
+	await act(async () => {
+		entry?.click();
+	});
+}
+
 type Handler = (event: object) => void;
 type ReactProps = Partial<Record<"onChange" | "onBlur" | "onKeyDown" | "onSubmit", Handler>>;
 
@@ -111,6 +125,7 @@ afterEach(async () => {
 	while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
 	useToastStore.setState({ toasts: [] });
 	useMobileWebStore.getState().reset();
+	useRemoteStore.getState().reset();
 	vi.clearAllMocks();
 });
 
@@ -445,6 +460,13 @@ describe("MobileWebSection ready", () => {
 		await mount();
 		expect(document.body.querySelector("#settings-mobile-web-confirm")).toBeNull();
 	});
+
+	it("leaves the approval switch to OMPdesk sharing while sharing is on, so one switch shows", async () => {
+		fake.set(readyMobileWebState());
+		useRemoteStore.setState({ state: { host: { enabled: true } } as RemoteState });
+		await mount();
+		expect(document.body.querySelector("#settings-mobile-web-confirm")).toBeNull();
+	});
 });
 
 describe("QR code", () => {
@@ -547,7 +569,7 @@ describe("MobileWebSection devices", () => {
 
 	it("blocks a device only after the confirmation", async () => {
 		await mount();
-		await click(translate("mobileWeb.devices.revokeLabel", { name: "iPhone" }));
+		await pickDeviceAction("iPhone", translate("mobileWeb.devices.revoke"));
 		expect(fake.api.devices.revoke).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(translate("mobileWeb.devices.revokeTitle", { name: "iPhone" }));
 		expect(document.body.textContent).toContain(translate("mobileWeb.devices.revokeBody", { name: "iPhone" }));
@@ -566,7 +588,7 @@ describe("MobileWebSection devices", () => {
 	it("says every device of the login is blocked when Tailscale gave no node identity", async () => {
 		fake.setDevices([webDevice({ blockScope: "login", tailscaleLogin: "kim@example.com" })]);
 		await mount();
-		await click(translate("mobileWeb.devices.revokeLabel", { name: "iPhone" }));
+		await pickDeviceAction("iPhone", translate("mobileWeb.devices.revoke"));
 		expect(document.body.textContent).toContain(
 			translate("mobileWeb.devices.revokeBodyLogin", { name: "iPhone", user: "kim@example.com" }),
 		);
@@ -575,7 +597,7 @@ describe("MobileWebSection devices", () => {
 
 	it("keeps the device when the block is cancelled", async () => {
 		await mount();
-		await click(translate("mobileWeb.devices.revokeLabel", { name: "iPhone" }));
+		await pickDeviceAction("iPhone", translate("mobileWeb.devices.revoke"));
 		await click(translate("common.cancel"));
 		expect(fake.api.devices.revoke).not.toHaveBeenCalled();
 		expect(document.body.querySelector('[data-web-device="device-iphone"]')).not.toBeNull();
@@ -583,7 +605,7 @@ describe("MobileWebSection devices", () => {
 
 	it("saves new limits through setLimits", async () => {
 		await mount();
-		await click(translate("remote.limits.label", { name: "iPhone" }));
+		await pickDeviceAction("iPhone", translate("remote.limits.button"));
 		const fields = Array.from(document.body.querySelectorAll("[data-peer-limits] input")) as HTMLInputElement[];
 		await act(async () => {
 			setInputValue(fields[0], "40");

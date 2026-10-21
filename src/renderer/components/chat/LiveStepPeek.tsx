@@ -28,6 +28,7 @@ import { selectToolEntry, type ToolEntry, type ToolsStore, useToolsStore } from 
 import { getToolHeader, getToolRenderer, type ToolHeader } from "../tools/index";
 import { isSilentCommand } from "../tools/renderers/BashRenderer";
 import { ToolPathTarget } from "../tools/ToolCard";
+import { ChildrenAtWork, waitsOnChildren } from "./work/ChildrenAtWork";
 import { collapseWaitSteps, selectLiveStep, type WorkStripStep } from "./work/live-step";
 import { liveFocusTarget, revealLiveFocus, STAGE_SCROLL_KEYS } from "./work/stage-follow";
 import { WorkContext } from "./work/WorkContext";
@@ -221,6 +222,10 @@ export function LiveStepPeek({
 				return entry ? `${id}:${entry.status}:${entry.toolName}` : "";
 			})
 			.join("|"),
+	);
+	// The parent's agent waits on the sessions it opened: the card names what each is doing meanwhile.
+	const waitingOnChildren = useFrameSelector(tools, s =>
+		toolCallIds.some(id => waitsOnChildren(selectToolEntry(s, id))),
 	);
 	const [replay, setReplay] = useState<string | null>(null);
 	const pinnedFromParallel = useRef(false);
@@ -703,6 +708,7 @@ export function LiveStepPeek({
 					}}
 				/>
 			) : null}
+			{!nested && carriesContext && turnIsLive && waitingOnChildren ? <ChildrenAtWork /> : null}
 			{!nested && (stageOpen || stagePresent) ? (
 				<div className="omp-work-stage-shell" data-open={stageOpen} aria-hidden={!stageOpen} inert={!stageOpen}>
 					<div className="omp-work-stage-clip">

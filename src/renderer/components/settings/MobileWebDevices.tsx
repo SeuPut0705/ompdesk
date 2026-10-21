@@ -6,7 +6,7 @@
  * identity: the confirm says so). Main owns the lists; every action answers with the whole new list (devices,
  * blocks) or state (users).
  */
-import { Ban, Pencil, Smartphone } from "lucide-react";
+import { Ban, Gauge, MoreHorizontal, Pencil, ShieldCheck, Smartphone } from "lucide-react";
 import { useId, useState } from "react";
 import type { PeerView } from "../../../shared/ipc-types";
 import {
@@ -22,10 +22,32 @@ import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../../stores/mobile-web";
-import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, Select, Switch } from "../common";
+import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, MenuButton, Select, Switch } from "../common";
 import { DeviceNameField } from "./DeviceNameField";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+
+/**
+ * The one "approve new devices on this computer" switch, for phones (Mobile web) and computers (OMPdesk sharing)
+ * alike: pref `mobileWeb.confirmNewDevices`, written through Mobile web and read by `remote/devices.ts`. Sharing's
+ * section shows it while sharing is on, Mobile web's only otherwise, so one switch is on screen.
+ */
+export function ConfirmNewDevicesRow({ state }: { state: MobileWebState }) {
+	const t = useT();
+	return (
+		<SettingsSwitchRow
+			icon={<ShieldCheck />}
+			checked={state.confirmNewDevices}
+			description={t("mobileWeb.confirmNewDesc")}
+			tipOnly
+			id="settings-mobile-web-confirm"
+			label={t("mobileWeb.confirmNew")}
+			onCheckedChange={on =>
+				void mobileWebCommand({ action: "set-confirm-new-devices", on }, t("mobileWeb.toggleFailed"))
+			}
+		/>
+	);
+}
 
 /** Every permission a device can hold: `pairing-admin` is never granted to one. */
 const GRANTABLE = WEB_PERMISSIONS.filter(permission => permission !== "pairing-admin");
@@ -120,25 +142,17 @@ function DeviceRow({
 				}
 				titleText={device.name}
 				trailing={
-					<div className="flex items-center gap-1">
-						<Button
-							aria-label={t("remote.limits.label", { name: device.name })}
-							onClick={onLimits}
-							size="sm"
-							variant="ghost"
-						>
-							{t("remote.limits.button")}
-						</Button>
-						<Button
-							aria-label={t("mobileWeb.devices.revokeLabel", { name: device.name })}
-							data-web-device-revoke
-							onClick={onRevoke}
-							size="sm"
-							variant="ghost"
-						>
-							{t("mobileWeb.devices.revoke")}
-						</Button>
-					</div>
+					// Limits and Block sit behind one overflow button, like every collection in Settings.
+					<MenuButton
+						align="end"
+						icon={<MoreHorizontal />}
+						items={[
+							{ id: "limits", label: t("remote.limits.button"), icon: Gauge, onSelect: onLimits },
+							{ id: "block", label: t("mobileWeb.devices.revoke"), icon: Ban, danger: true, onSelect: onRevoke },
+						]}
+						label={t("remote.peerMenu", { name: device.name })}
+						size="sm"
+					/>
 				}
 			/>
 			<div className="flex min-w-0 flex-col gap-1 pr-2 pb-2 pl-9">

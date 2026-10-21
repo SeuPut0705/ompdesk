@@ -419,7 +419,8 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				},
 				guide: {
 					type: "string",
-					description: "start: AUTOPILOT.md text to commit as the run branch's first commit when it differs.",
+					description:
+						"start: AUTOPILOT.md text to commit as the run branch's first commit when it differs (default: the repo's own, else one OMPdesk builds; a missing Release section is added from the project's facts).",
 				},
 				ship: {
 					type: "string",

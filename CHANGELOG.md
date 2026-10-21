@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.49.0] - 2026-10-21
+
+설정이 훨씬 줄었고, 오토파일럿 결과가 main에 저절로 올라가며, 작업현황에서 하위 세션이 하는 일이 보여요.
+
+### 새로 생긴 것
+- 오토파일럿이 검사를 통과한 사이클을 기본 브랜치(main)에 저절로 올려요. 강제 푸시는 하지 않고, main이 그사이 바뀌었으면 먼저 합치고 다시 검사해요. 보호된 브랜치면 PR 하나에 모아요. 실행이 끝나거나 멈추면 사이클·커밋·반영 수를 한 줄로 알려 줘요.
+- 오토파일럿이 프로젝트를 보고 배포 규칙을 알아서 만들어요. 가이드 상자는 이제 보이지 않아요.
+- 작업현황에서 하위 세션마다 지금 하는 일, 묻고 있는 질문, 끝난 결과가 한 줄씩 보여요. 하위 세션을 기다리는 동안 작업 카드에도 일하는 하위 세션이 보여요.
+- 작업현황의 바뀐 파일과 +/− 줄 수에 하위 세션 작업까지 들어가요. 끝난 할 일은 "n개 완료" 한 줄로 접혀요.
+- 자동 모드가 계획 모드를 고르면 승인 카드 없이 계획을 짜고 바로 진행해요. 직접 켠 계획 모드는 그대로 물어요.
+- 사이드바의 "이 기기" 줄에도 프로젝트 추가 버튼이 생겼어요. 기기 목록이 보일 때는 검색칸 옆 버튼을 숨겨 검색칸이 넓어져요.
+- 워크트리 세션이 별도 목록이 아니라 그 프로젝트 안에 보여요.
+
+### 바뀐 것
+- 설정 9개를 하나로 합치거나 자동으로 바꿨어요. 사고 과정은 "숨김·접힘·펼침" 하나로, 도구 자동 업데이트 셋은 "도구 최신으로 유지" 하나로, 새 기기 승인 둘은 하나로 합쳤어요. 창 제목 실행 상태와 앱 아이콘 진행률은 항상 켜져요. 쓰던 값은 그대로 이어져요.
+- 설정 모든 화면의 간격과 줄 높이를 맞췄어요.
+- 오토파일럿 시작 화면의 브랜치는 지금 폴더의 브랜치만 보여요.
+
+### 고친 것
+- 자동 모드가 길고 구체적인 첫 메시지를 계획 모드로 보내던 문제를 고쳤어요.
+- 보내기가 끝나기 직전에 누른 Enter가 사라지던 문제, 탭을 바꾼 직후 누른 첫 키가 사라지던 문제, 새 탭이 열리는 중에 누른 ⌘W가 이전 탭을 닫던 문제를 고쳤어요.
+- 원격 호스트를 다시 켠 직후 휴대폰이 오류를 받던 문제, 휴대폰 미리보기에서 한글과 영어 입력 순서가 바뀌던 문제를 고쳤어요.
+- 업데이트 확인이 응답 중간에 멈추면 계속 기다리던 문제를 고쳤어요.
+- 오래된 할 일 목록을 새 요청에서 에이전트가 잊지 않고 고쳐요.
+
+### 고친 것 (Windows)
+- 계획 파일이 Windows 경로면 계획 패널이 비어 보이던 문제를 고쳤어요.
+- 다른 프로그램이 파일을 열고 있으면 설정·페어링·재개 기록 저장이 실패하던 문제를 고쳤어요.
+- 예약 실행을 멈춰도 omp가 남아 폴더를 잡고 있던 문제, 주사율 높은 모니터에서 ⌃Tab 뒤 포커스가 사라지던 문제를 고쳤어요.
+
+<!-- en -->
+
+Far fewer settings, Autopilot lands its results on main by itself, and the work board shows what each child session is doing.
+
+### New
+- Autopilot lands green cycles on the default branch by itself: fast-forward only, never forced; when main moved it merges and checks again first; a protected branch gets one pull request. Each run ends with a one-line summary of cycles, commits and what landed.
+- Autopilot writes the project's release rules from the project itself; the guide box is gone.
+- The work board shows, under each child session, what it is doing, the question it asks, or its result; while the parent waits on children, its work card lists the ones at work.
+- The work board's changed files and +/− count the child sessions' work too; finished todos fold into one "n done" row.
+- When automatic mode picks Plan, the plan runs without an approval card; a Plan you turn on yourself still asks.
+- The sidebar's "This device" row has its own add-project button; while device sections show, the search row's button goes and search takes the width.
+- Worktree sessions show inside their project instead of a separate list.
+
+### Changed
+- Nine settings were merged or made automatic: thinking is one hidden/collapsed/expanded choice, the three tool auto-update switches are one "Keep tools up to date", the two new-device approvals are one, and the window-title run state and app-icon progress are always on. Your saved values carry over.
+- One spacing rhythm across every Settings page.
+- Autopilot's start sheet shows only the folder's current branch.
+
+### Fixed
+- Automatic mode no longer sends long, concrete first messages to Plan.
+- An Enter pressed just before a send finished, the first key after a tab change, and ⌘W pressed while a new tab opened no longer go astray.
+- A phone no longer gets an error right after its host restarts, and phone preview keeps Korean and English keys in order.
+- An update check that stalls mid-response no longer waits forever.
+- The agent updates a stale todo list when a new request arrives.
+
+### Fixed (Windows)
+- The Plan panel reads a plan at a Windows path.
+- Saving settings, pairing and resume records no longer fails while another program has the file open.
+- A stopped scheduled run no longer leaves omp holding the folder, and focus survives ⌃Tab on high-refresh displays.
+
 ## [0.48.0] - 2026-10-21
 
 노트북이 충전 중이면 덮개를 닫아도 작업이 멈추지 않고, Windows에서 디스크 정리와 세션 닫기가 제대로 동작해요.

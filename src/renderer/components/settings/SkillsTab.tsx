@@ -33,6 +33,7 @@ import {
 	Switch,
 	TextArea,
 } from "../common";
+import { SettingsRow } from "./SettingsLayout";
 
 type SkillFilter = "all" | "enabled" | "disabled" | "managed" | "project" | "user";
 type EditorState = {
@@ -462,68 +463,66 @@ export function SkillsTab({ query }: { query: string }) {
 		);
 	}
 
-	// Nothing installed: one empty state carries the only "New" action, not an empty list beside an empty preview.
 	const nothingInstalled = !error && !loading && skills.length === 0 && !editor;
+	const refreshButton = (
+		<IconButton
+			disabled={!sidecarReady || !routeReady}
+			icon={<RefreshCw />}
+			label={notConnected ?? t("settings.skills.refresh")}
+			loading={loading}
+			onClick={() => void loadSkills()}
+			size="sm"
+		/>
+	);
+	const newButton = (
+		<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">
+			{t("settings.skills.new")}
+		</Button>
+	);
+	// Nothing installed: one row carries the only "New" action (opening the tab reads the list again), not a toolbar
+	// holding only Refresh over an empty card.
+	if (nothingInstalled)
+		return (
+			<SettingsRow
+				compactControl
+				control={newButton}
+				icon={<BookOpen />}
+				id="settings-skills-empty"
+				label={<span className="text-(--sc-text-muted)">{t("settings.skills.none")}</span>}
+			/>
+		);
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex flex-wrap items-center gap-2">
-				{nothingInstalled ? null : (
-					<>
-						<div className="w-44">
-							<Select
-								aria-label={t("settings.skills.filter.label")}
-								controlSize="sm"
-								onChange={event => setFilter(event.target.value as SkillFilter)}
-								options={FILTER_OPTIONS.map(option => ({
-									value: option,
-									label: t(`settings.skills.filter.${option}`),
-								}))}
-								value={filter}
-							/>
-						</div>
-						<span className="text-sc-xs tabular-nums text-(--sc-text-muted)">
-							{t("settings.skills.count", { shown: visible.length, total: skills.length })}
-						</span>
-					</>
-				)}
+				<div className="w-44">
+					<Select
+						aria-label={t("settings.skills.filter.label")}
+						controlSize="sm"
+						onChange={event => setFilter(event.target.value as SkillFilter)}
+						options={FILTER_OPTIONS.map(option => ({
+							value: option,
+							label: t(`settings.skills.filter.${option}`),
+						}))}
+						value={filter}
+					/>
+				</div>
+				<span className="text-sc-xs tabular-nums text-(--sc-text-muted)">
+					{t("settings.skills.count", { shown: visible.length, total: skills.length })}
+				</span>
 				<span className="flex-1" />
-				<IconButton
-					disabled={!sidecarReady || !routeReady}
-					icon={<RefreshCw />}
-					label={notConnected ?? t("settings.skills.refresh")}
-					loading={loading}
-					onClick={() => void loadSkills()}
-					size="sm"
-				/>
-				{nothingInstalled ? null : (
-					<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">
-						{t("settings.skills.new")}
-					</Button>
-				)}
+				{refreshButton}
+				{newButton}
 			</div>
 
-			{nothingInstalled ? (
-				<EmptyState
-					actions={
-						<Button disabled={!sidecarReady || !routeReady} icon={<Plus />} onClick={startCreate} size="sm">
-							{t("settings.skills.new")}
-						</Button>
-					}
-					className="rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"
-					icon={<BookOpen />}
-					title={t("settings.skills.none")}
-				/>
-			) : (
-				<div className="skills-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
-					<aside className="skills-list-pane min-h-0">{listBody}</aside>
-					<section
-						aria-label={selected?.name ?? t("settings.skills.title")}
-						className="skills-detail-pane min-w-0 overflow-y-auto p-5"
-					>
-						{detailBody}
-					</section>
-				</div>
-			)}
+			<div className="skills-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+				<aside className="skills-list-pane min-h-0">{listBody}</aside>
+				<section
+					aria-label={selected?.name ?? t("settings.skills.title")}
+					className="skills-detail-pane min-w-0 overflow-y-auto p-5"
+				>
+					{detailBody}
+				</section>
+			</div>
 
 			<ConfirmDialog
 				busy={busyName !== null}

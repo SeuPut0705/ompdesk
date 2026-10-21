@@ -669,6 +669,58 @@ export function runRpcUi(): void {
 		scheduleNextPrompt("turn");
 		lastActivityAt = Date.now();
 	};
+	/**
+	 * The bridge's plan.ts for a plan the automatic choice entered (`OMP_GUI_TEST_AUTO_PLAN_PROPOSES`): the agent
+	 * writes its plan and proposes it, the bridge approves it itself with the context kept (no `plan_proposal` frame,
+	 * so no card), plan mode ends and stock's approved-plan prompt starts the execution turn in this session.
+	 */
+	const autoPlanTurn = (message: string, respond: () => void) => {
+		respond();
+		isStreaming = true;
+		write({ type: "agent_start" });
+		const user: AgentMessage = { role: "user", content: [{ type: "text", text: message }], timestamp: Date.now() };
+		const planned: AgentMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "Proposed plan: split the settings store, then move every caller." }],
+			timestamp: Date.now(),
+			provider: model.provider,
+			model: model.id,
+			stopReason: "stop",
+		};
+		for (const entry of [user, planned]) {
+			appendMessage(entry);
+			write({ type: "message_start", message: entry });
+			write({ type: "message_end", message: entry });
+		}
+		autoPlan = false;
+		planModeEnabled = false;
+		endTurn([user, planned]);
+		setTimeout(() => {
+			isStreaming = true;
+			write({ type: "agent_start" });
+			const approved: AgentMessage = {
+				role: "developer",
+				content: [{ type: "text", text: "Plan approved." }],
+				attribution: "agent",
+				synthetic: true,
+				timestamp: Date.now(),
+			};
+			const answer: AgentMessage = {
+				role: "assistant",
+				content: [{ type: "text", text: "Local fixture reply" }],
+				timestamp: Date.now(),
+				provider: model.provider,
+				model: model.id,
+				stopReason: "stop",
+			};
+			for (const entry of [approved, answer]) {
+				appendMessage(entry);
+				write({ type: "message_start", message: entry });
+				write({ type: "message_end", message: entry });
+			}
+			endTurn([approved, answer]);
+		}, 0);
+	};
 	/** Stock `abortRetry` during the saga's backoff: "Retry cancelled", then the terminal `agent_end`. False when no saga waits. */
 	const cancelSocketRetry = (): boolean => {
 		if (!socketRetry) return false;
@@ -2204,14 +2256,11 @@ export function runRpcUi(): void {
 			if (!planProposal) throw new Error("No plan is awaiting approval");
 			resolvePlan();
 			if (params.approved !== true) {
-				// Feedback re-plans; a plain rejection ends a plan the automatic choice used for one request (plan.ts).
+				// Feedback re-plans; a plain rejection leaves the user's plan mode on (an automatic plan never shows a card).
 				if (typeof params.feedback === "string" && params.feedback.trim()) {
 					return { approved: false, dispatched: true };
 				}
-				if (!autoPlan) return { approved: false, dispatched: false, reason: "rejected" };
-				planModeEnabled = false;
-				autoPlan = false;
-				return { approved: false, dispatched: false, reason: "rejected", planModeEnabled: false };
+				return { approved: false, dispatched: false, reason: "rejected" };
 			}
 			autoPlan = false;
 			planModeEnabled = false;
@@ -5731,6 +5780,14 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			}
 			case "steer":
 			case "follow_up":
+				// Stock (`AgentSession#scheduleQueuedMessageDrain`): a steer or follow-up that finds the session idle is
+				// queued and drained at once, so it starts a turn. One that left a window as its turn ended (the window had
+				// not heard `agent_end` yet) waited here forever, which stock never does (nightly 39513238308,
+				// workbench-shortcuts; 39474605589, remote-resume).
+				if (!isStreaming && !goalTurnRunning && text("message")) {
+					prompt(text("message"), ok, Array.isArray(command.images) ? (command.images as ImageContent[]) : []);
+					break;
+				}
 				// Stock's `queueChipText`: a picture-only message waits as "[Image]" (the lanes carry text only).
 				lanes[type === "steer" ? "steering" : "followUp"].push(
 					text("message") || (Array.isArray(command.images) && command.images.length > 0 ? "[Image]" : ""),
@@ -5910,6 +5967,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					break;
 				}
 				if (autopilot.childPrompt(text("message"), ok)) break;
+				if (process.env.OMP_GUI_TEST_AUTO_PLAN_PROPOSES && autoPlan && planModeEnabled) {
+					autoPlanTurn(text("message"), ok);
+					break;
+				}
 				prompt(text("message"), ok, Array.isArray(command.images) ? (command.images as ImageContent[]) : []);
 				break;
 			case "set_session_name": {

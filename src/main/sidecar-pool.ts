@@ -242,6 +242,13 @@ interface PoolEntry extends RunTracking {
 	/** Windows besides the owner that show the tab, by window id (multi-viewer). Never the owner. */
 	viewers: Map<number, TabViewer>;
 	/**
+	 * The latest `setStatus` per key, `setWidget` per key and `setTitle` this tab's omp sent (keys `status:`,
+	 * `widget:`, `title`). No frame repeats them, so a window that loads after they were set (a reload, a new window, a
+	 * phone, or a page whose listener came up 24 ms too late: nightly 39539556435) gets them from `openRequests`. A
+	 * new omp starts without them.
+	 */
+	uiState?: Map<string, ExtensionUIRequest>;
+	/**
 	 * The owner window shows a tab this computer runs for a paired device (`acquireHostedView`; the sidecar is a
 	 * HostedTabView): the omp, its resume, its updates and its layout are the device tab's, so this entry only
 	 * shows it, and lists as shared (the host decides steer/follow-up, closing it only leaves).
@@ -760,6 +767,7 @@ export class SidecarPool {
 			// Windows ending the session is neither: the machine cut the turn off, and the next launch
 			// continues it from the marker these facts write, so they stay as they were.
 			if (payload.status !== "ready" && !payload.sessionEnded) {
+				if (!sidecar.statusFromLink && payload.status === "starting") entry.uiState = undefined;
 				// A paired host's link blip is no exit: its omp likely runs the turn on, so the run stays as it read
 				// (the opener's board keeps its clock) until the host re-sends how it stands (`hostRun`).
 				if (sidecar.statusFromLink) {
@@ -871,6 +879,7 @@ export class SidecarPool {
 				this.#announce({ type: "askClosed", tabId: entry.tabId, requestId: request.targetId });
 				this.onRunningChange?.();
 			}
+			this.#keepUiState(entry, request);
 			this.#forwardToTab(entry, IPC_EVENTS.EXTENSION_UI, this.#uiFrame(entry, request));
 		});
 		// A paired host re-attached the tab (RemoteSidecar): the asks its omp holds now are the tab's whole
@@ -1811,6 +1820,19 @@ export class SidecarPool {
 		return true;
 	}
 
+	/**
+	 * Each of this window's tabs' status texts, widgets and title (`uiState`), for a page that loaded after they were
+	 * sent: no later frame repeats them.
+	 */
+	extensionUiState(win: ClientWindow): IpcOpenExtensionRequest[] {
+		const shown: IpcOpenExtensionRequest[] = [];
+		for (const entry of this.#byTabId.values()) {
+			if (!entry.uiState || windowOf(entry, win.webContents.id) !== win) continue;
+			for (const request of entry.uiState.values()) shown.push({ tabId: entry.tabId, request });
+		}
+		return shown;
+	}
+
 	/** The asks and approvals this window's tabs still wait on, for a page that loaded after they were raised. */
 	openRequests(win: ClientWindow): IpcOpenExtensionRequest[] {
 		const open: IpcOpenExtensionRequest[] = [];
@@ -1825,6 +1847,25 @@ export class SidecarPool {
 			}
 		}
 		return open;
+	}
+
+	/** Keep a tab's latest status text, widget and title (`PoolEntry.uiState`); an empty one is a clear. */
+	#keepUiState(entry: PoolEntry, request: ExtensionUIRequest): void {
+		const key =
+			request.method === "setStatus"
+				? `status:${request.statusKey}`
+				: request.method === "setWidget"
+					? `widget:${request.widgetKey}`
+					: request.method === "setTitle"
+						? "title"
+						: null;
+		if (key === null) return;
+		const cleared =
+			(request.method === "setStatus" && !request.statusText) ||
+			(request.method === "setWidget" && !request.widgetLines?.length);
+		entry.uiState ??= new Map();
+		if (cleared) entry.uiState.delete(key);
+		else entry.uiState.set(key, request);
 	}
 
 	/** Route a blocking request back to the tab that raised it, keeping its body for a reloaded page. */

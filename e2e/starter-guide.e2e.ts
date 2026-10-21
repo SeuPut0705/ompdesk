@@ -104,8 +104,14 @@ async function cardRects(page: Page): Promise<CardRects> {
 	});
 }
 
+// getBoundingClientRect is float32: at 125 % display scaling the card's 37.6 px bottom edge lands 4e-6 px past the
+// pane's top edge it abuts. Only an intrusion of a visible fraction of a pixel is an overlap.
+const EDGE_EPSILON = 0.01;
 const overlaps = (a: Box, b: Box) =>
-	a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+	a.x + EDGE_EPSILON < b.x + b.width &&
+	b.x + EDGE_EPSILON < a.x + a.width &&
+	a.y + EDGE_EPSILON < b.y + b.height &&
+	b.y + EDGE_EPSILON < a.y + a.height;
 
 /** The card shares no pixel with any pane (so no composer, Send, transcript, queue tray or goal dock) or side panel. */
 function expectNoOverlap(rects: CardRects): void {

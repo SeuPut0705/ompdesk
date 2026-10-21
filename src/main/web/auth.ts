@@ -27,6 +27,14 @@ export interface RequestPolicy {
 	 * served then, and with it set only a request carrying it is.
 	 */
 	servePrefix: string | null;
+	/**
+	 * The secret this host publishes under, known before serve's handler is confirmed (a relaunched host listens a
+	 * few seconds before its first serve status). Until `servePrefix` is set, a request carrying it is answered 503
+	 * (come back shortly) instead of 404: serve kept forwarding to this address while the app restarted, and a page
+	 * whose lazy chunk got 404 in that window gave the chunk up for good though this build has it (e2e
+	 * web-no-reload: Settings opened empty after the host's update). A request without it still gets the bare 404.
+	 */
+	pendingPrefix?: string | null;
 	allowedUsers: () => readonly string[];
 }
 
@@ -141,8 +149,13 @@ export function checkRequest(input: {
 	if (!isLoopbackAddress(remoteAddress)) return refuse(403, "not a loopback peer");
 	if (headers["tailscale-funnel-request"] !== undefined) return refuse(403, "funnel request");
 
-	// Not through serve (or not published yet): a bare 404, and no header on the request is read.
-	if (policy.servePrefix === null) return refuse(404, "not published");
+	// Not through serve (or not published yet): a bare 404, and no header on the request is read. Under the secret
+	// this host is about to publish, a 503: the handler is there, this process has not confirmed it yet.
+	if (policy.servePrefix === null) {
+		const pending = policy.pendingPrefix ?? null;
+		if (pending !== null && stripServePrefix(url, pending) !== null) return refuse(503, "not published yet");
+		return refuse(404, "not published");
+	}
 	const target = stripServePrefix(url, policy.servePrefix);
 	if (target === null) return refuse(404, "not through serve");
 

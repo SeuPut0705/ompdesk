@@ -27,6 +27,9 @@ export default defineConfig({
 	timeout: 60_000,
 	expect: { timeout: 10_000 },
 	reporter: [["list"], ["html", { open: "never" }]],
-	use: { screenshot: "only-on-failure", trace: "retain-on-failure" },
+	// Every click, fill and press is bounded (Playwright's default is none): one that waits for an element that never
+	// becomes actionable fails here naming it, instead of holding the test to its own timeout (nightly 39539556435:
+	// mobile-autopilot-rows clicked a button the page no longer showed and waited 5 min).
+	use: { screenshot: "only-on-failure", trace: "retain-on-failure", actionTimeout: 30_000 },
 	globalSetup: "./e2e/global-setup.ts",
 });

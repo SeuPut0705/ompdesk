@@ -156,6 +156,7 @@ import type {
 } from "./rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "./schedules";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
+import { type IpcSidebarProjects, SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "./sidebar-projects";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -246,6 +247,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<IpcHostSchedules>(IPC_EVENTS.HOST_SCHEDULES_STATE, update =>
 					callback(update.device, update.state),
 				),
+		},
+		sidebarProjects: {
+			command: (request, device) => transport.invoke(SIDEBAR_PROJECTS_COMMAND, request, device),
+			onState: callback => subscribe<IpcSidebarProjects>(SIDEBAR_PROJECTS_STATE, callback),
 		},
 		mobileWeb: {
 			getState: () => transport.invoke(MOBILE_WEB_GET_STATE),
@@ -511,6 +516,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) =>
 				transport.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId }) as Promise<void>,
 			openRequests: () => transport.invoke(IPC_COMMANDS.EXTENSION_UI_OPEN) as Promise<IpcOpenExtensionRequest[]>,
+			shownState: () => transport.invoke(IPC_COMMANDS.EXTENSION_UI_STATE) as Promise<IpcOpenExtensionRequest[]>,
 		},
 
 		sessions: {
@@ -577,8 +583,6 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
 			blockPeer: (deviceId: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_BLOCK_PEER, deviceId) as Promise<RemoteState>,
-			setConfirmNewDevices: (on: boolean) =>
-				transport.invoke(IPC_COMMANDS.REMOTE_SET_CONFIRM_NEW_DEVICES, on) as Promise<RemoteState>,
 			setPeerLimits: (deviceId: string, limits: PeerLimits) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_PEER_LIMITS, { deviceId, limits }) as Promise<RemoteState>,
 			renameHost: (deviceId: string, name: string) =>

@@ -1,73 +1,31 @@
 /**
  * The Autopilot tab of the Mode popover: the start sheet while no run is live, the run's summary and controls while
- * one is. Starting always opens a new worktree tab on the branch the Branch row picks (a new `autopilot/<date>` by
- * default, an existing branch no other worktree has, or the default branch with a warning) and runs there with every tool
- * approved, so this sheet is where the user consents to that (it replaces the full-access confirmation).
+ * one is. Starting always opens a new worktree tab on a new `autopilot/<date>` branch cut from the folder's own branch
+ * (the Branch row shows that branch, nothing else) and runs there with every tool approved, so this sheet is where the
+ * user consents to that (it replaces the full-access confirmation).
  */
 
-import { CircleCheck, PanelRight, Rocket, TriangleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { CircleCheck, GitBranch, PanelRight, Rocket, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
-	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_SHIP_PRESETS,
 	type AutopilotArea,
-	type AutopilotBranchChoice,
-	type AutopilotBranchEntry,
-	type AutopilotGuideInfo,
 	type AutopilotShipPreset,
 	type AutopilotStatus,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
-import { branchProblem, initialChoice, isDefaultBranchChoice, viaWorkBranch } from "../../../shared/autopilot-branch";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
-import {
-	Button,
-	InlineNotice,
-	Input,
-	Select,
-	SettingInfo,
-	Tabs,
-	TextArea,
-	type TextAreaProps,
-	Tooltip,
-} from "../common";
+import { Button, InlineNotice, SettingInfo, Tabs, TextArea, type TextAreaProps, Tooltip } from "../common";
 import { FocusChips } from "../panels/autopilot/AreaMix";
 import { useAutopilotStateText } from "../panels/autopilot/AutopilotBoardCard";
 import { AutopilotPauseButton, AutopilotStopButtons } from "../panels/autopilot/AutopilotControls";
 import { useAutopilotActions } from "../panels/autopilot/use-autopilot-actions";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
-
-/** The picker's value for "a new branch"; an existing branch's value is `EXISTING_PREFIX` + its name. */
-const NEW_BRANCH = "new";
-const EXISTING_PREFIX = "branch:";
-
-/** One picker row: the name, what it is (default, remote only) and why it cannot be taken. */
-function branchLabel(
-	entry: AutopilotBranchEntry,
-	t: (key: string, params?: Record<string, string | number>) => string,
-): string {
-	const notes: string[] = [];
-	if (entry.default) notes.push(t("autopilot.branch.default"));
-	if (!entry.local) notes.push(t("autopilot.branch.remoteOnly"));
-	if (entry.checkedOutAt) notes.push(t("autopilot.branch.viaWork"));
-	return notes.length > 0 ? `${entry.name} · ${notes.join(" · ")}` : entry.name;
-}
-
-/** Remember the choice per repository for the next sheet (never part of `autopilotShip`: the branch is per run). */
-async function rememberChoice(repo: string, choice: AutopilotBranchChoice): Promise<void> {
-	try {
-		const stored = await window.omp.prefs.get(AUTOPILOT_BRANCH_PREF);
-		const all = typeof stored === "object" && stored !== null && !Array.isArray(stored) ? stored : {};
-		await window.omp.prefs.set(AUTOPILOT_BRANCH_PREF, { ...all, [repo]: choice });
-	} catch {
-		// The choice is only a convenience for the next sheet.
-	}
-}
 
 /** The sheet's shipping choice: a preset, or `auto` (main decides from the repository; nothing is sent). */
 const AUTO = "auto";
@@ -79,22 +37,6 @@ function isShipChoice(value: unknown): value is ShipChoice {
 
 function isIdleStatus(value: unknown): value is AutopilotStatus {
 	return typeof value === "object" && value !== null && "active" in value && value.active === false;
-}
-
-type GuideHintKey =
-	| "autopilot.sheet.guideTooLarge"
-	| "autopilot.sheet.guideExists"
-	| "autopilot.sheet.guideDrafting"
-	| "autopilot.sheet.guideModel"
-	| "autopilot.sheet.guideTemplate";
-
-/** The line under the guide box: what the text is (the repo's file, a draft, a template) and where it goes. */
-function guideHintKey(guide: AutopilotGuideInfo | undefined, drafting: boolean): GuideHintKey | null {
-	if (guide?.tooLarge) return "autopilot.sheet.guideTooLarge";
-	if (guide?.exists) return "autopilot.sheet.guideExists";
-	if (drafting) return "autopilot.sheet.guideDrafting";
-	if (guide?.draft === "model") return "autopilot.sheet.guideModel";
-	return guide?.draft === "template" ? "autopilot.sheet.guideTemplate" : null;
 }
 
 /** Whether the tab's folder is a git repository (`get_git_status`); null until answered or when it cannot be read. */
@@ -196,7 +138,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const tabId = useRuntimeTabId();
 	const live = useAutopilotStore(isLiveAutopilot);
 	const detected = useAutopilotStore(s => s.status.ship);
-	const guide = useAutopilotStore(s => s.status.guide);
 	const rpc = useTabRpc();
 	const isRepo = useIsRepo();
 	const branches = useAutopilotStore(s => s.status.branches);
@@ -205,36 +146,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 	const [focus, setFocus] = useState<AutopilotArea[]>([]);
 	const [preset, setPreset] = useState<ShipChoice>(AUTO);
 	const [backlog, setBacklog] = useState("");
-	const [guideText, setGuideText] = useState("");
-	const [guideEdited, setGuideEdited] = useState(false);
-	const [drafting, setDrafting] = useState(false);
-	const draftAsked = useRef(false);
-	const [branchSel, setBranchSel] = useState(NEW_BRANCH);
-	// null: the user has not typed a name, so the field follows the suggestion (`autopilot/<date>`).
-	const [branchName, setBranchName] = useState<string | null>(null);
-	const seededRepo = useRef<string | null>(null);
-
-	// The repo's guide (or the draft the first look asked for) fills the box until the user types in it.
-	useEffect(() => {
-		if (!guideEdited && guide?.text) setGuideText(guide.text);
-	}, [guide, guideEdited]);
-
-	// A repo with no guide gets one drafted, once per sheet: one cheap smol request in the bridge, the template on failure.
-	useEffect(() => {
-		if (live || isRepo !== true || !guide || guide.exists || guide.text || draftAsked.current) return;
-		draftAsked.current = true;
-		setDrafting(true);
-		void rpc
-			.setAutopilot({ action: "guide_draft" })
-			.then(response => {
-				if (response.success && isIdleStatus(response.data))
-					tabAutopilotStore(tabId).getState().apply(response.data);
-			})
-			.catch(() => {})
-			.finally(() => setDrafting(false));
-	}, [live, isRepo, guide, rpc, tabId]);
-
-	// The branch list is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
+	// The folder's branch is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
 	useEffect(() => {
 		if (live || isRepo !== true) return;
 		let current = true;
@@ -254,18 +166,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 		};
 	}, [live, isRepo, rpc, tabId]);
 
-	// The remembered choice (or a new branch) seeds the picker once per repository; what the user then picks is theirs.
-	useEffect(() => {
-		if (!branches || seededRepo.current === branches.repo) return;
-		seededRepo.current = branches.repo;
-		const initial = initialChoice(branches.last, branches.branches);
-		setBranchSel(initial.kind === "existing" ? `${EXISTING_PREFIX}${initial.name}` : NEW_BRANCH);
-		setBranchName(initial.kind === "new" && initial.name ? initial.name : null);
-	}, [branches]);
-
 	if (live) return <RunSummary onOpened={onStarted} />;
-	const guideKey = guideHintKey(guide, drafting);
-	const guideHint = guideKey ? t(guideKey) : undefined;
 
 	const block = isRepo === false ? "notRepo" : null;
 	const procedure = detected?.releaseProcedure;
@@ -277,27 +178,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 				: t("autopilot.ship.preset.auto.desc")
 			: t(`autopilot.ship.preset.${preset}.desc`);
 
-	// The choice this sheet would send: a new branch (named only when the user changed the suggestion) or an existing one.
-	const pickedBranch = branchSel.startsWith(EXISTING_PREFIX) ? branchSel.slice(EXISTING_PREFIX.length) : "";
-	const shownName = branchName ?? branches?.suggested ?? "";
-	const typedName = shownName.trim();
-	const choice: AutopilotBranchChoice =
-		pickedBranch !== ""
-			? { kind: "existing", name: pickedBranch }
-			: typedName !== "" && typedName !== branches?.suggested
-				? { kind: "new", name: typedName }
-				: { kind: "new" };
-	const problem = branches ? branchProblem(choice, branches.branches) : null;
-	const branchBlocked = problem !== null;
-	const branchProblemText = problem
-		? problem.code === "invalid_name"
-			? t("autopilot.branch.invalid")
-			: problem.code === "exists"
-				? t("autopilot.branch.exists")
-				: null
-		: null;
-	const onDefaultBranch = branches ? isDefaultBranchChoice(choice, branches.branches) : false;
-	const viaTarget = branches ? viaWorkBranch(choice, branches.branches) !== null : false;
 	const start = async () => {
 		const items = backlog
 			.split("\n")
@@ -308,11 +188,8 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			action: "start",
 			...(focus.length > 0 ? { focus } : {}),
 			...(preset !== AUTO ? { preset } : {}),
-			...(branches ? { branch: choice } : {}),
 			...(items.length > 0 ? { backlog: items } : {}),
-			...(guideText.trim() && guide?.tooLarge !== true ? { guide: guideText } : {}),
 		});
-		if (started && branches) await rememberChoice(branches.repo, choice);
 		if (started) onStarted?.();
 	};
 
@@ -321,25 +198,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			{block && <InlineNotice title={t(`autopilot.sheet.blocked.${block}`)} tone="info" />}
 
 			<fieldset className="settings-section-body min-w-0" disabled={block !== null}>
-				<SettingsRow
-					badge={guideHint ? <SettingInfo text={guideHint} /> : undefined}
-					label={t("autopilot.sheet.guide")}
-				>
-					<GrowArea
-						aria-label={t("autopilot.sheet.guide")}
-						data-autopilot-guide
-						disabled={guide?.tooLarge === true}
-						focusRows={8}
-						mono
-						onChange={event => {
-							setGuideEdited(true);
-							setGuideText(event.target.value);
-						}}
-						placeholder={t("autopilot.sheet.guidePlaceholder")}
-						value={guideText}
-					/>
-				</SettingsRow>
-
 				<SettingsAdvanced>
 					<SettingsRow
 						badge={<SettingInfo text={shipNote} />}
@@ -376,76 +234,21 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 						label={t("autopilot.sheet.ship")}
 					/>
 
-					{branches && (
-						<>
-							<SettingsRow
-								badge={
-									<SettingInfo
-										text={
-											branchSel === NEW_BRANCH
-												? t("autopilot.branch.hintNew", { remote: branches.remote })
-												: t("autopilot.branch.hintExisting", { remote: branches.remote })
-										}
-									/>
-								}
-								compactControl
-								control={
-									<div className="w-48" data-autopilot-branch>
-										<Select
-											aria-label={t("autopilot.sheet.branch")}
-											controlSize="sm"
-											onChange={event => setBranchSel(event.target.value)}
-											options={[
-												{ value: NEW_BRANCH, label: t("autopilot.branch.new") },
-												...branches.branches.map(entry => ({
-													value: `${EXISTING_PREFIX}${entry.name}`,
-													label: branchLabel(entry, t),
-												})),
-											]}
-											value={branchSel}
-										/>
-									</div>
-								}
-								label={t("autopilot.sheet.branch")}
-							/>
-							{branchSel === NEW_BRANCH && (
-								<SettingsRow
-									compactControl
-									control={
-										<div className="w-48">
-											<Input
-												aria-label={t("autopilot.branch.name")}
-												controlSize="sm"
-												data-autopilot-branch-name
-												error={branchProblemText ?? undefined}
-												onChange={event => setBranchName(event.target.value)}
-												value={shownName}
-											/>
-										</div>
-									}
-									label={t("autopilot.branch.name")}
-								/>
-							)}
-							{onDefaultBranch && (
+					{branches?.current && (
+						<SettingsRow
+							badge={<SettingInfo text={t("autopilot.branch.hintNew", { remote: branches.remote })} />}
+							compactControl
+							control={
 								<span
-									className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-warning)"
-									data-autopilot-branch-warning
+									className="flex min-w-0 max-w-48 items-center gap-1 text-sc-sm text-(--sc-text-muted)"
+									data-autopilot-branch
 								>
-									<TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									<span>{t("autopilot.branch.defaultWarning", { branch: pickedBranch })}</span>
+									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									<span className="truncate font-mono">{branches.current}</span>
 								</span>
-							)}
-							{viaTarget && (
-								<span
-									className="flex items-center gap-1 pb-1 text-sc-xs text-(--sc-text-muted)"
-									data-autopilot-branch-via
-								>
-									<span className="truncate">
-										{t("autopilot.branch.viaLine", { work: branches.suggested, target: pickedBranch })}
-									</span>
-								</span>
-							)}
-						</>
+							}
+							label={t("autopilot.sheet.branch")}
+						/>
 					)}
 					<SettingsRow
 						badge={<SettingInfo text={t("autopilot.sheet.focusHint", { count: AUTOPILOT_AREAS.length })} />}
@@ -494,7 +297,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 				<Tooltip content={t("autopilot.sheet.desc")} describe={false}>
 					<Button
 						data-autopilot-start
-						disabled={block !== null || pending !== null || branchBlocked}
+						disabled={block !== null || pending !== null}
 						icon={<Rocket aria-hidden />}
 						loading={pending === "start"}
 						onClick={() => void start()}

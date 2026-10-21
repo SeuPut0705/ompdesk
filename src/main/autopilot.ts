@@ -23,9 +23,9 @@ import { randomUUID } from "node:crypto";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import {
-	AUTOPILOT_BRANCH_PREF,
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
+	AUTOPILOT_GUIDE_COMMIT_MAX_BYTES,
 	AUTOPILOT_GUIDE_FILE,
 	AUTOPILOT_OBJECTIVE,
 	type AutopilotAction,
@@ -36,7 +36,7 @@ import {
 	type AutopilotChildLive,
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
-	type AutopilotGuideInfo,
+	type AutopilotEnsuredGuide,
 	type AutopilotNudgeReason,
 	type AutopilotPauseReason,
 	type AutopilotReleaseProcedure,
@@ -58,7 +58,6 @@ import {
 	parseChoice,
 	runIdFor,
 	suggestBranchName,
-	validBranchPref,
 	viaWorkBranch,
 	worktreeModeFor,
 } from "../shared/autopilot-branch";
@@ -75,7 +74,7 @@ import type {
 import { type ApproverRun, AutopilotApprover } from "./autopilot-approver";
 import { type AuditScope, type AuditSnapshot, type AuditViolation, auditCycle, takeSnapshot } from "./autopilot-audit";
 import { readBranchEntries, readBranchInfo } from "./autopilot-branches";
-import { ShipRunner, type ShipTarget } from "./autopilot-ship";
+import { type ShipResult, ShipRunner, type ShipTarget } from "./autopilot-ship";
 import type { MainTextKey } from "./i18n-text";
 import { ghText, gitRaw, resolveBin } from "./local/git/exec";
 import { prCreate } from "./local/git/pr";
@@ -90,12 +89,10 @@ import type { ClientWindow } from "./web/client-window";
 const READY_TIMEOUT_MS = 120_000;
 const RELEASE_POLL_MS = 15_000;
 const RELEASE_CACHE_MS = 60_000;
-/** The most a sheet-provided guide may weigh when it is committed (the file may exceed what `begin` passes on). */
-const GUIDE_COMMIT_MAX_BYTES = 256 * 1024;
 const GIT_MS = 30_000;
 const WORKTREE_MS = 960_000;
-/** A guide draft is one model request (the bridge gives it 20 s, plus reading the repo): longer than the default 8 s RPC wait. */
-const GUIDE_DRAFT_MS = 45_000;
+/** Start's guide is at most one model request (the bridge gives it 20 s, plus reading the repo and gh): longer than the default 8 s RPC wait. */
+const GUIDE_MS = 45_000;
 /** TurnResume arms its scheduled retry a beat after a failed turn is reported; a failure still standing after this is final. */
 const ERROR_GRACE_MS = 3_000;
 /** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
@@ -178,6 +175,11 @@ export interface AutopilotDeps {
 	/** Default: {@link probeRepo}. */
 	probeRepo?: (root: string) => Promise<RepoProbe>;
 	log?: (message: string) => void;
+	/**
+	 * The run's summary, written when it ends or pauses (gui-runtime.jsonl, source `autopilot`): it outlives the run's
+	 * session, which a person may delete.
+	 */
+	runLog?: (message: string, details: Record<string, string | number | boolean>) => void;
 }
 
 /**
@@ -243,6 +245,12 @@ interface Run {
 	releaseRequested: boolean;
 	releaseProcedure?: AutopilotReleaseProcedure;
 	releaseBlocked?: string;
+	/** The project's default branch green cycles land on (Automatic shipping). */
+	landTo?: string;
+	/** Landing fell back to a pull request (a protected default branch): told once, shown in the status. */
+	landing?: { via: "pr"; url?: string; reason: string };
+	/** Cycles whose commit the default branch got this launch (the end summary also asks git). */
+	landedCount: number;
 	children: Map<string, ChildState>;
 	childBranches: Set<string>;
 	stopping: boolean;
@@ -280,6 +288,10 @@ const REASON_TEXT: Partial<Record<AutopilotPauseReason | AutopilotEndReason, Mai
 	cost: "autopilot.reason.cost",
 	app_closed: "autopilot.reason.app_closed",
 	agent_done: "autopilot.reason.agent_done",
+	user: "autopilot.reason.user",
+	user_pause: "autopilot.reason.user_pause",
+	user_abort: "autopilot.reason.user_abort",
+	tab_closed: "autopilot.reason.tab_closed",
 };
 
 /** What a nudge asks the quiet run for. */
@@ -356,11 +368,6 @@ export async function ghRunStatus(
 	} catch {
 		return null;
 	}
-}
-
-/** Whether `value` may be stored as the remembered branch choices (`autopilotBranch`; `undefined` clears it). */
-export function validAutopilotBranchPref(value: unknown): boolean {
-	return value === undefined || validBranchPref(value);
 }
 
 /** The two commands the coordinator answers (`ipc.ts` routes them here). */
@@ -543,7 +550,7 @@ export class Autopilot {
 		if (run) return this.#overlaid(run, await this.#fetchStatus(run));
 		const status = await this.#bridge<AutopilotStatus>(tabId, AUTOPILOT_BRIDGE_METHODS.status, {}).catch(() => null);
 		if (status?.active) return status;
-		return this.#idleStatus(sidecar, tabId, false);
+		return this.#idleStatus(sidecar);
 	}
 
 	async #action(
@@ -553,7 +560,6 @@ export class Autopilot {
 		action: AutopilotAction,
 	): Promise<AutopilotStatus & { tabId?: string }> {
 		if (action.action === "start") return this.#start(win, sidecar, tabId, action);
-		if (action.action === "guide_draft") return this.#idleStatus(sidecar, tabId, true);
 		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
 		if (!run) throw new AutopilotError(this.#deps.text("autopilot.err.noRun"), "autopilot_no_run");
 		switch (action.action) {
@@ -624,10 +630,13 @@ export class Autopilot {
 			options.ship?.autoPush === undefined &&
 			options.ship?.autoRelease === undefined;
 		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } });
-		const release = await this.#releaseFor(toplevel);
-		if ((settings.ship.autoRelease.on || options.preset === "release") && !release.procedure) {
+		const checkoutRelease = await this.#releaseFor(toplevel);
+		if ((settings.ship.autoRelease.on || options.preset === "release") && !checkoutRelease.procedure) {
 			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
 		}
+		// The app owns the guide: the repo's own (an agent's text first), a Release section added from the project's facts
+		// when it has none, or a whole one built from them. Built while the worktree is made; committed into it below.
+		const guideWork = this.#guideToCommit(tabId, toplevel, checkoutRelease.procedure, options.guide);
 
 		// The branch is checked now, from git's own state: the sheet's list may be old.
 		const date = this.#deps.today?.() ?? localDate(new Date());
@@ -639,13 +648,17 @@ export class Autopilot {
 		const { entries, defaultBranch } = await readBranchEntries(cwd, settings.ship.remote);
 		this.#refuseBranch(choice, entries);
 		const target = viaWorkBranch(choice, entries);
-		// Nobody chose a level: push the run's own branch when the repository has a remote, unless that branch is the
-		// default branch (only an explicit choice pushes there). Never a release. Pushing is ShipRunner's fast-forward of a
-		// branch the run owns, so it is safe on a protected main and with or without CI.
+		// Nobody chose a level: land every green cycle with a commit on the project's default branch (ShipRunner's
+		// fast-forward push, never the agent's, never forced; a protected branch gets one pull request instead) when the
+		// repository has a remote. Without a known default branch the run's own branch is pushed; without a remote, nothing.
+		// Releasing is decided below, from the procedure.
+		const hasRemote = shipUndecided && (await this.#gitText(cwd, ["remote"])).trim() !== "";
 		if (shipUndecided) {
-			const pushes = target ?? (choice.kind === "existing" ? choice.name : null);
-			const hasRemote = (await this.#gitText(cwd, ["remote"])).trim() !== "";
-			settings = { ...settings, ship: { ...settings.ship, autoPush: hasRemote && pushes !== defaultBranch } };
+			const land = hasRemote && defaultBranch !== null;
+			settings = {
+				...settings,
+				ship: { ...settings.ship, autoPush: hasRemote && !land, ...(land ? { land: true } : {}) },
+			};
 		}
 		const mode = worktreeModeFor(choice, entries);
 		const taken = new Set(entries.map(entry => entry.name));
@@ -677,9 +690,21 @@ export class Autopilot {
 		);
 		if (!created.success) throw new AutopilotError(created.error ?? "Creating the worktree failed.");
 		const made = created.data as RpcWorktreeCreateResult;
-		if (typeof options.guide === "string" && options.guide.trim()) {
-			await this.#commitGuide(made.path, options.guide);
+		const guide = await guideWork;
+		if (guide) await this.#commitGuide(made.path, guide.text);
+		// The run's own checkout holds the guide now, so its Release section counts when no rules file names a procedure.
+		const release = await this.#releaseFor(made.path);
+		// Nobody chose a level and a procedure says the project releases: the agent releases by it, when it judges the
+		// changes worth one (cadence `agent`). No remote: nothing to release to.
+		if (shipUndecided && hasRemote && release.procedure) {
+			settings = {
+				...settings,
+				ship: { ...settings.ship, autoRelease: { ...settings.ship.autoRelease, on: true } },
+			};
 		}
+		this.#deps.log?.(
+			`autopilot: guide ${guide ? `${guide.source}, release ${guide.release}, releases ${guide.releases}` : "unavailable"}; ship ${settings.ship.land ? `land on ${defaultBranch}` : `push ${settings.ship.autoPush}`}, release ${settings.ship.autoRelease.on}${release.procedure ? ` (${release.procedure.file})` : ""}`,
+		);
 		// The run's own base: the folder's branch, or, on the default branch itself, that branch (a release pushes it).
 		const baseBranch = (target ?? made.branch) === defaultBranch ? (target ?? made.branch) : checkoutBranch;
 		const runId = runIdFor(made.branch, date);
@@ -695,6 +720,7 @@ export class Autopilot {
 			branch: made.branch,
 			baseBranch,
 			...(target ? { target } : {}),
+			...(settings.ship.land ? { landTo: defaultBranch } : {}),
 			checkoutRoot: made.baseCwd,
 			settings,
 			release,
@@ -752,6 +778,7 @@ export class Autopilot {
 			baseBranch: string;
 			checkoutRoot: string;
 			target?: string;
+			landTo?: string | null;
 			settings: AutopilotSettings;
 			release: { procedure: AutopilotReleaseProcedure | null; blocked?: string };
 		},
@@ -764,6 +791,8 @@ export class Autopilot {
 			branch: info.branch,
 			baseBranch: info.baseBranch,
 			...(info.target ? { target: info.target } : {}),
+			...(info.landTo ? { landTo: info.landTo } : {}),
+			landedCount: 0,
 			checkoutRoot: info.checkoutRoot,
 			settings: info.settings,
 			status: null,
@@ -830,6 +859,9 @@ export class Autopilot {
 			root: status.root,
 			branch: status.branch,
 			...(status.target ? { target: status.target } : {}),
+			landTo: status.settings.ship.land
+				? (await readBranchEntries(status.root, status.settings.ship.remote).catch(() => null))?.defaultBranch
+				: null,
 			baseBranch: status.baseBranch ?? "main",
 			checkoutRoot,
 			settings: status.settings,
@@ -940,6 +972,10 @@ export class Autopilot {
 			}
 			return;
 		}
+		// A resume without an arm leaves the run on the startup tool set: say why, so a missing arm explains itself.
+		this.#log(
+			`resumeGoal ${tabId}: plain stock resume (run ${run ? "adopted" : "none"}, state ${status?.state ?? "unread"})`,
+		);
 		const response = await this.#stockResponse(tabId, { type: "set_goal", action: "resume" });
 		if (!response.success) throw new Error(response.error ?? "the tab is gone");
 	}
@@ -1116,15 +1152,22 @@ export class Autopilot {
 		run.releaseRequested = false;
 		if (record.ship) await this.#releaseReported(run, record.ship);
 		const wantsPush = requests.some(request => request.kind === "push");
-		const autoPush = run.settings.ship.autoPush && record.verify === "green";
-		let own: string | undefined;
-		if ((wantsPush || autoPush) && !run.ship.queue().some(item => item.kind === "push" && item.state === "queued")) {
+		const green = record.verify === "green";
+		const autoPush = run.settings.ship.autoPush && green;
+		const queued = (kind: "push" | "land") =>
+			run.ship.queue().some(item => item.kind === kind && item.state === "queued");
+		const own = new Set<string>();
+		if ((wantsPush || autoPush) && !queued("push")) {
 			// Pinned to the cycle's own commit: this push may run after a later turn has moved HEAD.
-			own = run.ship.enqueue({ kind: "push", ...(record.commit ? { sha: record.commit } : {}) }).id;
+			own.add(run.ship.enqueue({ kind: "push", ...(record.commit ? { sha: record.commit } : {}) }).id);
+		}
+		// Automatic shipping: only a green cycle with a commit of its own lands; a red one or one without a commit never.
+		if (run.settings.ship.land && green && record.commit && !queued("land")) {
+			own.add(run.ship.enqueue({ kind: "land", sha: record.commit }).id);
 		}
 		// This pipeline can outlive the next cycle's start: what the user queued after the frame arrived waits for that
-		// turn's end; everything queued before it, and this cycle's own push, goes now.
-		await this.#drain(run, item => item.id === own || item.at <= receivedAt);
+		// turn's end; everything queued before it, and this cycle's own push and land, go now.
+		await this.#drain(run, item => own.has(item.id) || item.at <= receivedAt);
 	}
 
 	async #audit(run: Run): Promise<AuditViolation[]> {
@@ -1163,7 +1206,7 @@ export class Autopilot {
 	async #drain(run: Run, accept?: (item: ShipQueueItem) => boolean): Promise<void> {
 		const waiting = run.ship.queue().filter(item => item.state === "queued" && (accept?.(item) ?? true));
 		if (waiting.length === 0) return;
-		const pushing = waiting.some(item => item.kind === "push" || item.kind === "pr");
+		const pushing = waiting.some(item => item.kind === "push" || item.kind === "pr" || item.kind === "land");
 		if (pushing) {
 			await this.#setState(run, { inFlight: { kind: "push", startedAt: this.#now() } }).catch(() => undefined);
 		}
@@ -1174,6 +1217,7 @@ export class Autopilot {
 			...(run.target ? { pushTo: run.target } : {}),
 			baseBranch: run.baseBranch,
 			remote: run.settings.ship.remote,
+			...(run.landTo ? { landTo: run.landTo } : {}),
 		};
 		const results = await run.ship.drain(target, accept);
 		if (pushing) await this.#setState(run, { inFlight: null }).catch(() => undefined);
@@ -1183,6 +1227,10 @@ export class Autopilot {
 		run.checkoutMayMove = false;
 		run.configMayChange = false;
 		for (const result of results) {
+			if (result.item.kind === "land") {
+				await this.#landed(run, result);
+				continue;
+			}
 			if (result.item.kind !== "push" && result.item.kind !== "pr") continue;
 			if (result.item.state === "done") continue;
 			// A rejected or unreachable push is reported (the queue item keeps its reason, the agent gets a note) and
@@ -1192,6 +1240,53 @@ export class Autopilot {
 				`The push of ${run.branch} failed: ${result.item.detail ?? "unknown reason"}. Autopilot never forces a push: run git fetch, merge ${run.settings.ship.remote}/${run.branch} into the branch, check again, and the next green cycle pushes it.`,
 			);
 		}
+	}
+
+	/**
+	 * What a land did, told where it matters: a default branch that moved (or a merge that would conflict) is a note to
+	 * the next cycle, never a stop; the first fallback to a pull request is said once (status line, notification, note).
+	 */
+	async #landed(run: Run, result: ShipResult): Promise<void> {
+		const outcome = result.land;
+		const remote = run.settings.ship.remote;
+		const dest = run.landTo ?? run.baseBranch;
+		if (outcome?.kind === "landed") {
+			run.landedCount++;
+			return;
+		}
+		if (outcome?.kind === "behind") {
+			const conflicts = outcome.conflicts ?? [];
+			const merge = `git fetch ${remote} && git merge ${remote}/${dest}`;
+			await this.#tellAgent(
+				run,
+				conflicts.length > 0
+					? `Not landed: ${remote}/${dest} moved on, and merging it conflicts in ${conflicts.join(", ")}. Run ${merge}, resolve the conflicts keeping both sides' intent, run the check, and commit; the next green cycle lands it.`
+					: `Not landed: ${remote}/${dest} has commits this run lacks. Run ${merge}, run the check, and commit; the next green cycle lands it. Never force anything.`,
+			);
+			return;
+		}
+		if (outcome?.kind === "pr") {
+			if (run.landing) return;
+			run.landing = { via: "pr", ...(outcome.url ? { url: outcome.url } : {}), reason: outcome.reason };
+			this.#log(
+				`${run.tabId}: ${remote}/${dest} refused the land (${outcome.reason}); lands go to ${outcome.url ?? "a pull request"}`,
+			);
+			this.#notify(run, {
+				kind: "error",
+				title: this.#deps.text("autopilot.land.prTitle"),
+				body: this.#deps.text("autopilot.land.prBody", { branch: dest, url: outcome.url ?? run.branch }),
+			});
+			await this.#tellAgent(
+				run,
+				`${remote}/${dest} refused a direct push (${outcome.reason}). Green cycles now update ${run.branch} and its pull request ${outcome.url ?? ""} instead; keep working as before.`,
+			);
+			await this.#refresh(run);
+			return;
+		}
+		await this.#tellAgent(
+			run,
+			`Landing on ${remote}/${dest} failed: ${result.item.detail ?? "unknown reason"}. Nothing was forced; the next green cycle tries again.`,
+		);
 	}
 
 	/** A note the next `begin` hands the agent (what only main saw: a failed push, a failed release run). */
@@ -1297,7 +1392,7 @@ export class Autopilot {
 		if (run.stopping) return;
 		await this.#stock(run.tabId, { type: "set_goal", action: "pause" }).catch(() => undefined);
 		await this.#setState(run, { state: "paused", reason, ...(detail ? { detail } : {}) });
-		this.#notifyStop(run, reason, detail);
+		await this.#reportStop(run, "paused", reason, detail);
 	}
 
 	/** The last turn of a stopping run settled. */
@@ -1310,15 +1405,17 @@ export class Autopilot {
 		if (!ending) {
 			await this.#setState(run, { state: "paused", reason: reason as AutopilotPauseReason });
 			run.stopping = false;
-			this.#notifyStop(run, reason, undefined);
+			await this.#reportStop(run, "paused", reason, undefined);
 			return;
 		}
+		const summary = await this.#summary(run, reason, undefined);
 		await this.#setState(run, { state: "ended", reason });
 		await this.#stock(run.tabId, { type: "set_goal", action: "drop" }).catch(() => undefined);
 		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.disarm, {}).catch(error =>
 			this.#log(`disarm: ${String(error)}`),
 		);
-		this.#notifyEnded(run, reason);
+		this.#deps.runLog?.("ended", summary.details);
+		this.#notify(run, { kind: "completion", title: this.#deps.text("autopilot.ended.title"), body: summary.line });
 		this.#runs.delete(run.tabId);
 		this.#deps.runEnded?.(run.root);
 	}
@@ -1493,31 +1590,93 @@ export class Autopilot {
 		this.#deps.notify(run.tabId, notice);
 	}
 
-	#notifyStop(run: Run, reason: string, detail: string | undefined): void {
+	/**
+	 * A run paused: the summary line goes to the runtime log always and to a notification unless the pause is the user's
+	 * own doing or a state the screen already shows ({@link SILENT_REASONS}).
+	 */
+	async #reportStop(run: Run, state: "paused", reason: string, detail: string | undefined): Promise<void> {
+		const summary = await this.#summary(run, reason, detail);
+		this.#deps.runLog?.(state, summary.details);
 		if (SILENT_REASONS.has(reason)) return;
-		const key = REASON_TEXT[reason as AutopilotPauseReason];
 		this.#notify(run, {
 			kind: COMPLETION_REASONS.has(reason) ? "completion" : "error",
 			title: this.#deps.text("autopilot.paused.title"),
-			body: key ? this.#deps.text(key, { detail: detail ?? "" }) : reason,
+			body: summary.line,
 		});
 	}
 
-	#notifyEnded(run: Run, reason: string): void {
-		const cycles = run.status?.cycles ?? [];
-		const key = REASON_TEXT[reason as AutopilotPauseReason];
-		this.#notify(run, {
-			kind: "completion",
-			title: this.#deps.text("autopilot.ended.title"),
-			body:
-				reason === "agent_done" && key
-					? this.#deps.text(key)
-					: this.#deps.text("autopilot.ended.body", {
-							branch: run.branch,
-							cycles: cycles.length,
-							commits: cycles.filter(cycle => cycle.commit).length,
-						}),
+	/**
+	 * One line that says what the run did and why it stopped: cycles (green), commits, whether they reached the default
+	 * branch (landing), the pushed branch, or only this computer, and the reason. Read from the journal and git, so it is
+	 * right after a relaunch too; it is the record that outlives the run's session.
+	 */
+	async #summary(
+		run: Run,
+		reason: string,
+		detail: string | undefined,
+	): Promise<{ line: string; details: Record<string, string | number | boolean> }> {
+		const text = this.#deps.text;
+		const status = await this.#fetchStatus(run).catch(() => run.status);
+		const cycles = status?.cycles ?? [];
+		const commits = cycles.flatMap(cycle => (cycle.commit ? [cycle.commit] : []));
+		const green = cycles.filter(cycle => cycle.verify === "green").length;
+		const remote = run.settings.ship.remote;
+		const contains = async (ref: string, sha: string) =>
+			(await gitRaw(run.root, ["merge-base", "--is-ancestor", sha, ref], { timeoutMs: GIT_MS }).catch(() => null))
+				?.code === 0;
+		let shipped: string;
+		const details: Record<string, string | number | boolean> = {};
+		if (run.settings.ship.land && run.landTo) {
+			const ref = `refs/remotes/${remote}/${run.landTo}`;
+			let landed = 0;
+			for (const sha of commits) if (await contains(ref, sha)) landed++;
+			details.landed = landed;
+			details.landTo = run.landTo;
+			shipped = run.landing
+				? text("autopilot.summary.pr", {
+						landed,
+						commits: commits.length,
+						target: run.landTo,
+						url: run.landing.url ?? run.branch,
+					})
+				: text("autopilot.summary.landed", { landed, commits: commits.length, target: run.landTo });
+			if (run.landing?.url) details.pr = run.landing.url;
+		} else if (run.settings.ship.autoPush || run.settings.ship.autoRelease.on) {
+			const dest = run.target ?? run.branch;
+			const last = commits.at(-1);
+			const pushed = last ? await contains(`refs/remotes/${remote}/${dest}`, last) : false;
+			details.pushed = pushed;
+			shipped = pushed
+				? text("autopilot.summary.pushed", { target: `${remote}/${dest}` })
+				: text("autopilot.summary.notPushed");
+		} else {
+			shipped = text("autopilot.summary.local");
+		}
+		const key = REASON_TEXT[reason as AutopilotPauseReason | AutopilotEndReason];
+		const why = key ? text(key, { detail: detail ?? "" }) : detail ? `${reason}: ${detail}` : reason;
+		const line = text("autopilot.summary", {
+			branch: run.branch,
+			cycles: cycles.length,
+			green,
+			commits: commits.length,
+			shipped,
+			reason: why,
 		});
+		return {
+			line,
+			details: {
+				summary: line,
+				run: run.run,
+				root: run.root,
+				branch: run.branch,
+				reason,
+				...(detail ? { detail } : {}),
+				cycles: cycles.length,
+				green,
+				commits: commits.length,
+				...details,
+			},
+		};
 	}
 
 	// ----------------------------------------------------------------------------------------
@@ -1553,6 +1712,7 @@ export class Autopilot {
 			queue: run.ship.queue(),
 			...(run.releaseProcedure ? { releaseProcedure: run.releaseProcedure } : {}),
 			...(run.releaseBlocked && !run.releaseProcedure ? { releaseBlocked: run.releaseBlocked } : {}),
+			...(run.landing ? { landing: run.landing } : {}),
 		};
 		const children: AutopilotChildLive[] = [...run.children.values()].map(child => ({
 			tabId: child.tabId,
@@ -1697,13 +1857,13 @@ export class Autopilot {
 	}
 
 	/**
-	 * Writes the start sheet's guide into the new worktree and commits it as the autopilot branch's first commit; nothing
-	 * happens when the worktree's own AUTOPILOT.md already says the same. Hooks are skipped (a docs-only commit must not
-	 * be able to stop the start) and so is signing. The user's own branch is never written.
+	 * Writes Start's guide into the new worktree and commits it as the autopilot branch's first commit; nothing happens
+	 * when the worktree's own AUTOPILOT.md already says the same. Hooks are skipped (a docs-only commit must not be able
+	 * to stop the start) and so is signing. The user's own branch is never written.
 	 */
 	async #commitGuide(root: string, guide: string): Promise<void> {
 		const body = `${guide.trim()}\n`;
-		if (Buffer.byteLength(body) > GUIDE_COMMIT_MAX_BYTES) {
+		if (Buffer.byteLength(body) > AUTOPILOT_GUIDE_COMMIT_MAX_BYTES) {
 			throw new AutopilotError(this.#deps.text("autopilot.err.guideTooLarge"), "autopilot_guide_large");
 		}
 		const file = join(root, AUTOPILOT_GUIDE_FILE);
@@ -1727,35 +1887,32 @@ export class Autopilot {
 		}
 	}
 
-	/** The repo's guide as the sheet shows it (with `draft`, a drafted one when there is none); null when the bridge cannot say. */
-	async #guideFor(tabId: string, cwd: string, draft: boolean): Promise<AutopilotGuideInfo | null> {
-		const root = (await this.#gitText(cwd, ["rev-parse", "--show-toplevel"])) || cwd;
-		const info = await this.#bridge<unknown>(
+	/** Start's guide from the bridge (see {@link AUTOPILOT_BRIDGE_METHODS.guide}); null when the bridge cannot build one. */
+	async #guideToCommit(
+		tabId: string,
+		root: string,
+		procedure: AutopilotReleaseProcedure | null,
+		text: string | undefined,
+	): Promise<AutopilotEnsuredGuide | null> {
+		const guide = await this.#bridge<unknown>(
 			tabId,
 			AUTOPILOT_BRIDGE_METHODS.guide,
-			{ root, draft },
-			draft ? GUIDE_DRAFT_MS : undefined,
+			{ root, procedure, ...(typeof text === "string" && text.trim() ? { text } : {}) },
+			GUIDE_MS,
 		).catch(() => null);
-		if (typeof info !== "object" || info === null || !("exists" in info) || !("text" in info)) return null;
-		return typeof info.exists === "boolean" && typeof info.text === "string" ? (info as AutopilotGuideInfo) : null;
+		if (typeof guide !== "object" || guide === null || !("text" in guide) || typeof guide.text !== "string")
+			return null;
+		return guide.text.trim() ? (guide as AutopilotEnsuredGuide) : null;
 	}
 
-	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the guide, the branches. */
-	async #idleStatus(sidecar: SidecarLike, tabId: string, draft: boolean): Promise<AutopilotStatus> {
+	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the branches. */
+	async #idleStatus(sidecar: SidecarLike): Promise<AutopilotStatus> {
 		const release = await this.#releaseFor(sidecar.cwd);
-		const guide = await this.#guideFor(tabId, sidecar.cwd, draft);
 		// git prints `C:/x` on Windows; the sheet's key and the folders the picker names are native paths.
 		const topText = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
 		const toplevel = topText ? resolve(topText) : topText;
 		const remote = await this.#detectRemote(sidecar.cwd);
-		const branches = toplevel
-			? await readBranchInfo(sidecar.cwd, {
-					toplevel,
-					remote,
-					date: this.#deps.today?.() ?? localDate(new Date()),
-					pref: this.#deps.prefs.get(AUTOPILOT_BRANCH_PREF),
-				}).catch(() => null)
-			: null;
+		const branches = toplevel ? await readBranchInfo(sidecar.cwd, { toplevel, remote }).catch(() => null) : null;
 		return {
 			active: false,
 			ship: {
@@ -1764,7 +1921,6 @@ export class Autopilot {
 				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
 			},
-			...(guide ? { guide } : {}),
 			...(branches ? { branches } : {}),
 		};
 	}

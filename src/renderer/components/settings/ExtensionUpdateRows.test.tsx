@@ -1,6 +1,6 @@
 /**
- * Settings › Updates & about › This computer › Extensions: the switch is on by default (state's `enabled`) and
- * writes the `extensionAutoUpdate` pref; one row per marketplace, plugin, skill and MCP server shows its
+ * Settings › Updates & about › This computer › Extensions: no switch of their own (the one "Keep tools up to date"
+ * switch covers them); one row per marketplace, plugin, skill and MCP server shows its
  * versions, how it is kept current and the last result or the reason it is left alone; "Update now" names the
  * row by key and is off while it runs, when it is skipped or pinned.
  */
@@ -81,7 +81,6 @@ const push = (state: ExtensionUpdateState) =>
 	act(async () => {
 		listener?.(state);
 	});
-const toggle = () => document.body.querySelector("#setting-gui-extensionAutoUpdate [role='switch']") as HTMLElement;
 const row = (key: string) => document.body.querySelector(`#setting-extension-${extensionDomId(key)}`) as HTMLElement;
 const nowButton = (key: string) =>
 	document.body.querySelector(`[data-testid='extension-update-now-${extensionDomId(key)}']`) as HTMLButtonElement;
@@ -97,15 +96,9 @@ afterEach(async () => {
 });
 
 describe("ExtensionUpdateRows", () => {
-	it("shows the switch on by default and writes the extensionAutoUpdate pref when it is turned off", async () => {
+	it("has no switch of its own: 'Keep tools up to date' covers extensions", async () => {
 		await mount(extState([]));
-		expect(translate("extensionUpdate.auto")).toBe("Update extensions automatically");
-		expect(document.body.textContent).toContain(translate("extensionUpdate.auto"));
-		expect(toggle().getAttribute("aria-checked")).toBe("true");
-		await act(async () => toggle().click());
-		expect(prefsSet).toHaveBeenCalledWith("extensionAutoUpdate", false);
-		await push(extState([], { enabled: false }));
-		expect(toggle().getAttribute("aria-checked")).toBe("false");
+		expect(document.body.querySelector("[role='switch']")).toBeNull();
 	});
 
 	it("says so when nothing is set up", async () => {

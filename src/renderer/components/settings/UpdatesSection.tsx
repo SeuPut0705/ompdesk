@@ -196,19 +196,17 @@ export function UpdatesSection() {
 	const appError = status.state === "error" ? status : null;
 
 	return (
-		<SettingsSection
-			actions={
-				<Button disabled={checking} icon={<RefreshCw />} loading={checking} onClick={check} size="sm">
-					{t("updates.checkAll")}
-				</Button>
-			}
-		>
-			<div className="my-3 flex items-center gap-3" data-about-brand>
+		<SettingsSection>
+			{/* The check sits on the brand's line: the section needs no header row of its own. */}
+			<div className="mb-3 flex items-center gap-3" data-about-brand>
 				<BrandMark size={40} variant="tile" />
-				<div className="min-w-0">
+				<div className="min-w-0 flex-1">
 					<div className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) text-(--sc-text)">OMPdesk</div>
 					<div className="font-mono text-sc-xs text-(--sc-text-muted)">{guiVersion ? `v${guiVersion}` : "—"}</div>
 				</div>
+				<Button disabled={checking} icon={<RefreshCw />} loading={checking} onClick={check} size="sm">
+					{t("updates.checkAll")}
+				</Button>
 			</div>
 
 			<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
@@ -256,14 +254,12 @@ export function UpdatesSection() {
 				}
 				footer={
 					<>
-						<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
-							{t("updates.current")} <span className="font-mono text-(--sc-text)">{guiVersion ?? "—"}</span>
-							{" · "}
-							{t("updates.latest")}{" "}
-							<span className="font-mono text-(--sc-text)">
-								{guiVersion && "version" in status ? status.version : "—"}
-							</span>
-						</p>
+						{/* The brand line above names this version; the row says only what is newer. */}
+						{status.state !== "not-available" && "version" in status && status.version !== guiVersion && (
+							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">
+								{t("updates.latest")} <span className="font-mono text-(--sc-text)">{status.version}</span>
+							</p>
+						)}
 						{status.state === "downloaded" && status.mode === "manual" && (
 							<p className="mt-1 text-sc-xs text-(--sc-text-muted)">{t("updater.manualInstructions")}</p>
 						)}
@@ -666,12 +662,13 @@ function PluginDoctorRow() {
 }
 
 /**
- * Optional GitHub token for the update check (releases are public): which
- * source the updater uses (env → gh → saved token; none = anonymous), a masked
- * field to save a token (encrypted by the main process), a test, and removal
- * of the saved token.
+ * GitHub token for the update check (releases are public, so the default user
+ * never sees this): shown only when the updater reports `auth-required` or a
+ * token is already saved (so it can be removed). It offers the active source
+ * (env → gh → saved token; none = anonymous), a masked field to save a token
+ * (encrypted by the main process), a test, and removal of the saved token.
  */
-function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
+export function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 	const t = useT();
 	const [info, setInfo] = useState<UpdateAuthInfo>();
 	const [draft, setDraft] = useState("");
@@ -709,6 +706,8 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 		[draft, onChanged, t],
 	);
 
+	const authRequired = useUpdaterStore(state => state.status.state === "auth-required");
+	if (!authRequired && !info?.hasStoredToken) return null;
 	const source = info?.source ?? "none";
 	return (
 		<SettingsRow
@@ -723,34 +722,37 @@ function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> }) {
 			description={t("updates.auth.description")}
 			tipOnly
 			footer={
-				<div className="mt-2 flex flex-col gap-2">
-					{info?.canStore === false ? (
+				<div className="mt-1 flex flex-col gap-1">
+					{info?.canStore === false && (
 						<p className="text-sc-xs text-(--sc-text-muted)">{t("updates.auth.cannotStore")}</p>
-					) : (
-						<div className="flex flex-wrap items-center gap-2">
-							<Input
-								aria-label={t("updates.auth.tokenLabel")}
-								autoComplete="off"
-								className="min-w-60 flex-1"
-								disabled={busy}
-								mono
-								onChange={event => setDraft(event.target.value)}
-								placeholder={t("updates.auth.placeholder")}
-								spellCheck={false}
-								type="password"
-								value={draft}
-							/>
-							<Button
-								disabled={busy || draft.trim().length === 0}
-								onClick={() => void run("save")}
-								size="sm"
-								variant="primary"
-							>
-								{t("updates.auth.save")}
-							</Button>
-						</div>
 					)}
-					<div className="flex flex-wrap items-center gap-2">
+					{/* One line: the field, then save, test and remove (it wraps only in a narrow column). */}
+					<div className="flex flex-wrap items-center gap-2" data-updates-auth-actions>
+						{info?.canStore !== false && (
+							<>
+								<Input
+									aria-label={t("updates.auth.tokenLabel")}
+									autoComplete="off"
+									className="min-w-48 flex-1"
+									controlSize="sm"
+									disabled={busy}
+									mono
+									onChange={event => setDraft(event.target.value)}
+									placeholder={t("updates.auth.placeholder")}
+									spellCheck={false}
+									type="password"
+									value={draft}
+								/>
+								<Button
+									disabled={busy || draft.trim().length === 0}
+									onClick={() => void run("save")}
+									size="sm"
+									variant="primary"
+								>
+									{t("updates.auth.save")}
+								</Button>
+							</>
+						)}
 						<Button disabled={busy} loading={busy} onClick={() => void run("test")} size="sm">
 							{t("updates.auth.test")}
 						</Button>

@@ -10,11 +10,12 @@ import * as mobileWeb from "../../shared/mobile-web";
 import { createOmpApi } from "../../shared/omp-api";
 import * as preview from "../../shared/preview";
 import * as schedules from "../../shared/schedules";
+import * as sidebarProjects from "../../shared/sidebar-projects";
 import * as sshTools from "../../shared/ssh-tools";
 import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
 
 const MAIN = path.join(__dirname, "..");
-const NAMED: Record<string, unknown> = { ...mobileWeb, ...preview, ...schedules, ...sshTools };
+const NAMED: Record<string, unknown> = { ...mobileWeb, ...preview, ...schedules, ...sidebarProjects, ...sshTools };
 const GROUPS: Record<string, Record<string, string>> = { IPC_COMMANDS, IPC_EVENTS };
 
 /** The channel a registration's first argument names: `IPC_COMMANDS.X`, a shared constant, or a literal. */

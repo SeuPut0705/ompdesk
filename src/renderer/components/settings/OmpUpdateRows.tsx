@@ -1,13 +1,13 @@
 /**
- * Settings › Updates & about › This computer, first rows: omp keeps itself
- * current (main `omp-updater.ts`). One switch (default on), an "Update now"
- * button, what main last learned from npm, and, after a failed attempt, why
- * and that the next check retries. OMPdesk's own update stays manual (the
- * section above).
+ * Settings › Updates & about › This computer, first rows: one "Keep tools up to date" switch (default on) for omp
+ * (main `omp-updater.ts`), the tool CLIs and extensions (their rows follow below), then omp's "Update now"
+ * button, what main last learned from npm, and, after a failed attempt, why and that the next check retries.
+ * OMPdesk's own update stays manual (the section above).
  */
-import { RefreshCcw, RefreshCw } from "lucide-react";
+import { RefreshCcw, RefreshCw, SquareTerminal } from "lucide-react";
 import { useEffect } from "react";
-import { OMP_AUTO_UPDATE_PREF, type OmpUpdateFailure, type OmpUpdateState } from "../../../shared/omp-update";
+import { TOOLS_AUTO_UPDATE_PREF } from "../../../shared/desktop-prefs";
+import type { OmpUpdateFailure, OmpUpdateState } from "../../../shared/omp-update";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { useOmpUpdateStore } from "../../stores/omp-update";
@@ -56,12 +56,12 @@ export function OmpUpdateRows() {
 			<SettingsSwitchRow
 				icon={<RefreshCcw />}
 				checked={state?.enabled ?? true}
-				description={t("ompUpdate.autoDesc")}
+				description={t("toolsUpdate.autoDesc")}
 				tipOnly
 				disabled={state === null}
-				id="setting-gui-ompAutoUpdate"
-				label={t("ompUpdate.auto")}
-				onCheckedChange={next => void saveGuiPreference(OMP_AUTO_UPDATE_PREF, next, () => {})}
+				id="setting-gui-toolsAutoUpdate"
+				label={t("toolsUpdate.auto")}
+				onCheckedChange={next => void saveGuiPreference(TOOLS_AUTO_UPDATE_PREF, next, () => {})}
 			/>
 			<SettingsRow
 				control={
@@ -76,10 +76,11 @@ export function OmpUpdateRows() {
 						{t("ompUpdate.now")}
 					</Button>
 				}
+				icon={<SquareTerminal />}
 				id="setting-omp-update-now"
 				label={t("ompUpdate.nowLabel")}
 			>
-				<p className="text-sc-sm break-words text-(--sc-text-secondary)" data-testid="omp-update-status">
+				<p className="text-sc-xs break-words text-(--sc-text-muted)" data-testid="omp-update-status">
 					{state ? statusText(t, state) : t("ompUpdate.status.notChecked")}
 				</p>
 				{state && <OmpUpdateFailureNotice state={state} />}

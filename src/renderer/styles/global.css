@@ -809,9 +809,30 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	margin-top: var(--sc-space-6);
 }
 
-/* Rows inside a section are separated by hairlines, never boxes. */
-.settings-section-body > [data-setting-row] + [data-setting-row] {
+/* Rows inside a section (or the tab panel a section holds, Memory's) are separated by hairlines,
+   never boxes. Tiles keep the same rhythm: two per line (one in a narrow column), a hairline above
+   every line after the first and at the boundary with a row before or after them. */
+:is(.settings-section-body, .settings-section-body > [role="tabpanel"]) > [data-setting-row] + [data-setting-row],
+.settings-section-body > [data-settings-tiles] + [data-setting-row],
+.settings-section-body > :is([data-setting-row], [data-settings-tiles]) + [data-settings-tiles] > :nth-child(-n + 2),
+[data-settings-tiles] > :nth-child(n + 3) {
 	border-top: var(--sc-hairline) solid var(--sc-divider);
+}
+
+[data-settings-tiles] {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	column-gap: var(--sc-space-6);
+}
+
+@container settings-content (max-width: 600px) {
+	[data-settings-tiles] {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	[data-settings-tiles] > :nth-child(2) {
+		border-top: var(--sc-hairline) solid var(--sc-divider);
+	}
 }
 
 .settings-field-row {
@@ -940,10 +961,6 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	.security-findings-pane {
 		border-right: 0;
 		border-bottom: 1px solid var(--omp-border-muted);
-	}
-
-	.security-insights-pane {
-		min-height: 12rem;
 	}
 }
 

@@ -32,8 +32,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MIN_OMP_VERSION, resolveOmp } from "../src/main/omp-runtime";
 import { bunInstallDir, managedToolsDir, setupPlatform } from "../src/main/setup/paths";
-import { type OmpUpdateOutcome, SetupService } from "../src/main/setup/service";
+import type { OmpUpdateOutcome } from "../src/main/setup/service";
 import { isNewer } from "../src/shared/version";
+import { electronOutside } from "./electron-outside";
 
 const ROOT_ENV = "OMPDESK_UPDATE_LOCK_CHECK_ROOT";
 const PACKAGE = "@oh-my-pi/pi-coding-agent";
@@ -328,6 +329,9 @@ async function check(root: string): Promise<void> {
 		console.log(`✓ bun install -g put ${PACKAGE}@${older.version} at ${launcher}`);
 
 		let printed = 0;
+		electronOutside(join(root, "userData"), "0.0.0-lock-check");
+		// Dynamic: service.ts links runtime-log's `electron` import, which only resolves once electronOutside ran.
+		const { SetupService } = await import("../src/main/setup/service");
 		const service = new SetupService({
 			platform,
 			arch: process.arch,

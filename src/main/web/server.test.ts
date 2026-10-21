@@ -526,6 +526,18 @@ describe("headers forged on the loopback", () => {
 		expect((await raw("/")).status).toBe(404);
 	});
 
+	it("answers 503 under its own secret until serve's handler is confirmed, so a page whose host just restarted retries instead of giving a chunk up", async () => {
+		host.server.configure({ servePrefix: null });
+		const own = host.serveSecret();
+		expect((await rawAt(`/${own}/assets/app-abc.js`)).status).toBe(503);
+		expect((await rawAt(`/${own}/`)).status).toBe(503);
+		expect((await rawAt(`/${own}/api/session`, { origin: origin() }, "POST")).status).toBe(503);
+		// Without it, nothing has changed: a bare 404 and no header read.
+		expect((await rawAt("/assets/app-abc.js")).status).toBe(404);
+		expect((await raw("/")).status).toBe(404);
+		expect(host.devices.list()).toEqual([]);
+	});
+
 	it("refuses a WebSocket upgrade without the prefix", async () => {
 		const paired = await pair();
 		const ticket = await ticketFor(paired);

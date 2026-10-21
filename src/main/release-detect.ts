@@ -1,12 +1,17 @@
 /**
  * Autopilot's release procedure detection: a repository "defines" a release procedure when one of its
- * rules files has a section about it. Autopilot's auto release and the screen's Release button only
- * exist then, and the agent is told the file and the headings to follow literally
+ * rules files has a section about it, or, when none does, its Autopilot guide (AUTOPILOT.md, which Start writes from the
+ * project's facts) has a Release section that does not say `Releases: no`. Autopilot's auto release and the screen's
+ * Release button only exist then, and the agent is told the file and the headings to follow literally
  * (`AutopilotBeginResult.ship.releaseProcedure`). Pure parsing plus a few file reads; never writes.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AutopilotReleaseProcedure } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import {
+	AUTOPILOT_GUIDE_FILE,
+	type AutopilotReleaseProcedure,
+} from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { guideRelease, markdownSections } from "../../resources/gui-bridge/modes/autopilot-release-core";
 
 /** What makes a heading, or the prose of the section before it, a release one (English, Korean). */
 const RELEASE_WORDS = /release|releasing|릴리스|릴리즈|배포|publish/i;
@@ -18,41 +23,13 @@ const WHOLE_FILES = ["RELEASING.md"];
  *  section at the end). */
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
-interface Section {
-	title: string;
-	level: number;
-	body: string;
-}
-
-/** ATX headings outside code fences, with the text up to the next heading of the same or a higher level. */
-function sections(text: string): Section[] {
-	const lines = text.split(/\r?\n/);
-	const heads: Array<{ title: string; level: number; at: number }> = [];
-	let fence: string | null = null;
-	lines.forEach((line, at) => {
-		const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-		if (mark) {
-			if (fence === null) fence = mark[0] ?? "`";
-			else if (mark[0] === fence) fence = null;
-			return;
-		}
-		if (fence !== null) return;
-		const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-		if (heading?.[1] && heading[2]) heads.push({ title: heading[2].trim(), level: heading[1].length, at });
-	});
-	return heads.map((head, index) => {
-		const end = heads.slice(index + 1).find(next => next.level <= head.level)?.at ?? lines.length;
-		return { title: head.title, level: head.level, body: lines.slice(head.at + 1, end).join("\n") };
-	});
-}
-
 /**
  * The headings of a rules file that make up its release procedure: every heading that names a release,
  * and the section of the same level right before such a heading when its own text talks about releasing
  * (this repository's "Change workflow" leads into its "Release" section that way). File order.
  */
 export function findReleaseAnchors(text: string): string[] {
-	const all = sections(text);
+	const all = markdownSections(text);
 	const anchored = new Set<number>();
 	all.forEach((section, index) => {
 		if (!RELEASE_WORDS.test(section.title)) return;
@@ -104,7 +81,9 @@ export async function detectReleaseProcedure(root: string): Promise<AutopilotRel
 		const text = await readText(join(root, file));
 		if (text === null) continue;
 		const base = file.split("/").pop() ?? file;
-		return { file, anchors: [sections(text)[0]?.title ?? base.replace(/\.[^.]+$/, "")] };
+		return { file, anchors: [markdownSections(text)[0]?.title ?? base.replace(/\.[^.]+$/, "")] };
 	}
-	return null;
+	const guide = await readText(join(root, AUTOPILOT_GUIDE_FILE));
+	const release = guide === null ? null : guideRelease(guide);
+	return release?.releases ? { file: AUTOPILOT_GUIDE_FILE, anchors: [release.title] } : null;
 }

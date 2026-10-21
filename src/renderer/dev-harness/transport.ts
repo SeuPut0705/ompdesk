@@ -26,6 +26,7 @@ import {
 } from "../../shared/preview";
 import type { RpcCommand, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
 	ADVISOR_USAGE,
@@ -39,6 +40,7 @@ import {
 	PR_LIST,
 	PR_REPO,
 	PROVIDERS,
+	projectsFixture,
 	SESSION_STATS,
 	sessionsFixture,
 	stateFixture,
@@ -46,7 +48,15 @@ import {
 	tabsFixture,
 	transcriptFor,
 } from "./fixture";
-import { BOARD_BUSY, boardJobs, boardPeers, boardReview, boardSubagents, boardUsage } from "./fixture-board";
+import {
+	BOARD_BUSY,
+	boardJobs,
+	boardPeers,
+	boardReview,
+	boardSubagents,
+	boardUsage,
+	familyEdits,
+} from "./fixture-board";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { memoryAnswer } from "./fixture-memory";
 import {
@@ -127,6 +137,7 @@ interface ViewPayload {
 /** Channels whose answer the renderer iterates: an empty list, not `undefined`. */
 const EMPTY_LISTS = [
 	IPC_COMMANDS.EXTENSION_UI_OPEN,
+	IPC_COMMANDS.EXTENSION_UI_STATE,
 	IPC_COMMANDS.HOSTED_SESSIONS,
 	"worktree-lifecycle:prompts-get",
 	"ssh-tools:prompts",
@@ -197,6 +208,23 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	let activeTabId = "tab-1";
 	const note = (key: string) => {
 		if (!unhandled.includes(key)) unhandled.push(key);
+	};
+	// This computer's project list, edited in place: Remove from sidebar takes a project out.
+	let projects = projectsFixture();
+	const harnessProjects = (request: SidebarProjectsRequest) => {
+		if (request.action === "remove")
+			projects = {
+				...projects,
+				projects: projects.projects.filter(entry => entry.path !== request.path),
+				removed: [...projects.removed, request.path],
+			};
+		if (request.action === "add" && !projects.projects.some(entry => entry.path === request.path))
+			projects = {
+				...projects,
+				projects: [...projects.projects, { path: request.path, addedAt: Date.now() }],
+				removed: projects.removed.filter(entry => entry !== request.path),
+			};
+		return projects;
 	};
 
 	const respond = (command: RpcCommand, data: unknown = {}) => ({
@@ -295,6 +323,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 					files: GIT_CHANGES.files,
 					truncated: false,
 				});
+			case "agent_control_family_edits":
+				return respond(command, familyEdits());
 			case "get_checkout_peers":
 				return respond(command, BOARD_BUSY ? boardPeers() : { peers: null });
 			case "get_git_diff": {
@@ -404,6 +434,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return REMOTE_STATE;
 			case SCHEDULES_COMMAND:
 				return SCHEDULES_STATE;
+			case SIDEBAR_PROJECTS_COMMAND:
+				return harnessProjects(payload as SidebarProjectsRequest);
 			case SCHEDULES_LOG:
 				return SCHEDULE_LOG;
 			case MOBILE_WEB_GET_STATE:

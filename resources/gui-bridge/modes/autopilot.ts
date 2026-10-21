@@ -42,8 +42,9 @@ import {
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
 	type AutopilotEndReason,
+	type AutopilotEnsuredGuide,
 	type AutopilotFrame,
-	type AutopilotGuideInfo,
+	type AutopilotGuideParams,
 	type AutopilotNote,
 	type AutopilotNudgeReason,
 	type AutopilotSetStateParams,
@@ -90,7 +91,7 @@ import {
 	writeOffNote,
 } from "./autopilot-core";
 import { evaluateToolCall } from "./autopilot-guard-core";
-import { draftGuide, fileIo, type GuideIo, readGuide, readGuideInfo } from "./autopilot-guide";
+import { ensureGuide, fileIo, type GuideIo, readGuide } from "./autopilot-guide";
 import { AUTOPILOT_CHILD_SECTION, AUTOPILOT_STOPPING_STEER, autopilotSection } from "./autopilot-prompt";
 import {
 	judgeVerify,
@@ -1048,10 +1049,13 @@ function takeShipRequests(session: Session): { requests: AutopilotShipRequest[] 
 	return { requests };
 }
 
+/** A guide read runs git and gh: neither may hold a start for long. */
+const GUIDE_EXEC_MS = 10_000;
+
 function guideIo(): GuideIo {
 	return fileIo(async (command, args, cwd) => {
 		try {
-			const result = await hostPi?.exec(command, args, { cwd });
+			const result = await hostPi?.exec(command, args, { cwd, timeout: GUIDE_EXEC_MS });
 			return result !== undefined && result.code === 0 ? result.stdout : null;
 		} catch {
 			return null;
@@ -1059,35 +1063,24 @@ function guideIo(): GuideIo {
 	});
 }
 
-/** The start sheet's view of the guide: the file when there is one, else (asked to) a draft. The draft is never written here. */
-async function guideInfo(session: Session, root: string, draft: boolean): Promise<AutopilotGuideInfo> {
-	const io = guideIo();
-	const existing = await readGuideInfo(root, io);
-	if (existing) return existing;
-	if (!draft) return { exists: false, text: "" };
-	const drafted = await draftGuide(root, io, (system, user) =>
-		completeOnSmol(session as unknown as NextPromptSession, {
-			system,
-			user,
-			maxTokens: 1200,
-			temperature: 0.3,
-			purpose: "autopilot-guide-draft",
-		}),
+/** The guide Start commits: the checkout's (or the agent's) with a Release section, else a new one. Never written here. */
+async function guideToCommit(session: Session, params: AutopilotGuideParams): Promise<AutopilotEnsuredGuide | null> {
+	return ensureGuide(
+		params.root,
+		guideIo(),
+		(system, user) =>
+			completeOnSmol(session as unknown as NextPromptSession, {
+				system,
+				user,
+				maxTokens: 1800,
+				temperature: 0.3,
+				purpose: "autopilot-guide-draft",
+			}),
+		{
+			...(params.procedure ? { procedure: params.procedure } : {}),
+			...(typeof params.text === "string" ? { text: params.text } : {}),
+		},
 	);
-	return {
-		exists: false,
-		text: drafted.text,
-		draft: drafted.draft,
-		...(drafted.model
-			? {
-					cost: {
-						model: drafted.model,
-						...(drafted.usd !== undefined ? { usd: drafted.usd } : {}),
-						...(drafted.tokens !== undefined ? { tokens: drafted.tokens } : {}),
-					},
-				}
-			: {}),
-	};
 }
 
 function methodsTable(): BridgeMethods {
@@ -1103,11 +1096,11 @@ function methodsTable(): BridgeMethods {
 			if (!guardState) followState(lastStateEntry(entriesOf(session)));
 			return statusOf(session);
 		},
-		/** The checkout's guide, or (with `draft`) one smol request's draft of it; never throws for a failed draft: that is the template. */
+		/** The guide Start commits; never throws for a failed model request: that is the template. */
 		[M.guide]: async (params, env) => {
 			const p = record(params);
 			if (typeof p.root !== "string" || !p.root) throw new Error("guide needs root");
-			return guideInfo(attach(env), p.root, p.draft === true);
+			return guideToCommit(attach(env), p as unknown as AutopilotGuideParams);
 		},
 		...guard("autopilot", {
 			[M.arm]: async (params, env) => arm(attach(env), parseArm(params)),

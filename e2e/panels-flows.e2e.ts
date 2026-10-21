@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { writeShellGh } from "./fixture/shell-gh";
 import { exitApp, fixtureOmp, openDestination, pressShortcutUntilVisible, walkRemotePicker } from "./harness";
 import { freePort, remoteTailscale } from "./remote-harness";
 import { capturer, type Finding, resize } from "./shell-capture";
@@ -572,10 +573,9 @@ async function seedProject(root: string): Promise<{ plan: string; bin: string }>
 	const pr = { number: 7, title, url: "https://github.com/o/r/pull/7", author: { login: "dev" }, headRefName: "fix" };
 	await fs.writeFile(path.join(bin, "list.json"), JSON.stringify([pr]));
 	await fs.writeFile(path.join(bin, "view.json"), JSON.stringify({ ...pr, baseRefName: "main", body: "Body" }));
-	await fs.writeFile(
-		path.join(bin, "gh"),
+	await writeShellGh(
+		bin,
 		`#!/bin/sh\ncase "$1 $2" in\n"repo view") echo '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}' ;;\n"pr list") cat "${bin}/list.json" ;;\n"pr view") cat "${bin}/view.json" ;;\n*) exit 1 ;;\nesac\n`,
-		{ mode: 0o755 },
 	);
 	return { plan, bin };
 }

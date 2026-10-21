@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe("settings store display sync", () => {
-	it("maps display.*, tui.titleState, and goal.statusInFooter onto store fields", async () => {
+	it("maps display.* and goal.statusInFooter onto store fields", async () => {
 		getSettings.mockResolvedValueOnce(
 			await success({
 				hideThinkingBlock: true,
@@ -35,7 +35,6 @@ describe("settings store display sync", () => {
 				omitThinking: true,
 				"display.showTokenUsage": true,
 				"display.collapseCompacted": false,
-				"tui.titleState": false,
 				"goal.statusInFooter": false,
 			}),
 		);
@@ -43,7 +42,6 @@ describe("settings store display sync", () => {
 		const state = useSettingsStore.getState();
 		expect(state.showTokenUsage).toBe(true);
 		expect(state.collapseCompacted).toBe(false);
-		expect(state.titleState).toBe(false);
 		expect(state.goalStatusInFooter).toBe(false);
 		expect(state.hideThinkingBlock).toBe(true);
 		expect(state.proseOnlyThinking).toBe(false);
@@ -51,15 +49,14 @@ describe("settings store display sync", () => {
 	});
 
 	it("ignores absent and non-boolean values instead of clobbering state", async () => {
-		useSettingsStore.setState({ showTokenUsage: true, titleState: false });
+		useSettingsStore.setState({ showTokenUsage: true, goalStatusInFooter: false });
 		getSettings.mockResolvedValueOnce(
-			await success({ "display.showTokenUsage": "yes", "goal.statusInFooter": true }),
+			await success({ "display.showTokenUsage": "yes", "goal.statusInFooter": "no" }),
 		);
 		await useSettingsStore.getState().syncDisplaySettings();
 		const state = useSettingsStore.getState();
 		expect(state.showTokenUsage).toBe(true);
-		expect(state.titleState).toBe(false);
-		expect(state.goalStatusInFooter).toBe(true);
+		expect(state.goalStatusInFooter).toBe(false);
 	});
 
 	it("keeps current values when the read fails", async () => {
@@ -80,17 +77,17 @@ describe("settings store display sync", () => {
 			type: "response",
 			command: "get_settings",
 			success: true,
-			data: { values: { "tui.titleState": false } },
+			data: { values: { "goal.statusInFooter": false } },
 		});
 		await secondSync;
 		older.resolve({
 			type: "response",
 			command: "get_settings",
 			success: true,
-			data: { values: { "tui.titleState": true } },
+			data: { values: { "goal.statusInFooter": true } },
 		});
 		await firstSync;
 
-		expect(useSettingsStore.getState().titleState).toBe(false);
+		expect(useSettingsStore.getState().goalStatusInFooter).toBe(false);
 	});
 });

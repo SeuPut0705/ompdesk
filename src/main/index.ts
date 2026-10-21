@@ -49,7 +49,6 @@ import {
 	aiMemoryEnabled,
 } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
-import { CLI_AUTO_UPDATE_PREF } from "../shared/cli-update";
 import {
 	APP_AUTO_UPDATE_PREF,
 	CLOSE_TO_TRAY_NOTICE_PREF,
@@ -57,17 +56,17 @@ import {
 	closeToTrayEnabled,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
+	TOOLS_AUTO_UPDATE_PREF,
 } from "../shared/desktop-prefs";
 import { ECC_PREF } from "../shared/ecc";
-import { EXTENSION_AUTO_UPDATE_PREF } from "../shared/extension-update";
 import { nativeAccelerator } from "../shared/hotkeys";
 import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
-import { OMP_AUTO_UPDATE_PREF } from "../shared/omp-update";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
+import { type IpcSidebarProjects, SIDEBAR_PROJECTS_PREF, SIDEBAR_PROJECTS_STATE } from "../shared/sidebar-projects";
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
@@ -84,7 +83,7 @@ import { AiMemoryService } from "./ai-memory/service";
 import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
 import { pidFileControl } from "./ai-memory/unit";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
-import { appIconPath, appNotification } from "./app-icon";
+import { appIconPath, appNotification, holdTestNotifications } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -132,7 +131,7 @@ import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-p
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
-import { dropRetiredPrefs } from "./retired-prefs";
+import { migrateRetiredPrefs } from "./retired-prefs";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
@@ -144,6 +143,7 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
+import { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { markStartup } from "./startup-timing";
@@ -286,6 +286,7 @@ if (process.env.OMP_GUI_HEADLESS === "1") {
 		win.setSkipTaskbar(true);
 		win.setFocusable(false);
 	});
+	holdTestNotifications();
 }
 
 /**
@@ -321,7 +322,7 @@ let mainPrefsStore: Store<MainPrefs> | null = null;
 function prefsStore(): Store<MainPrefs> {
 	if (!mainPrefsStore) {
 		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
-		dropRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
+		migrateRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
 		// A theme the app no longer ships (the pre-curated set) is replaced by its nearest successor, so the
 		// stored pref never names a missing theme and the saved window opens in the right scheme.
 		const prefs = mainPrefsStore as unknown as Store<Record<string, unknown>>;
@@ -693,6 +694,21 @@ app.whenReady().then(() => {
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
+	// The sidebar's project list: folders outlive their last session (src/main/sidebar-projects.ts).
+	const sidebarProjects = new SidebarProjects({
+		read: () => prefsStore().get(SIDEBAR_PROJECTS_PREF),
+		write: state => prefsStore().set(SIDEBAR_PROJECTS_PREF, state),
+		sessions: () => sessionIndex.list("global"),
+		defaultWorkspace: ensureDefaultWorkspace,
+		onState: state => {
+			const update: IpcSidebarProjects = { state };
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(SIDEBAR_PROJECTS_STATE, update);
+			}
+			// Devices whose sidebar shows this computer's section follow.
+			devices.hostSidebarProjectsChanged(state);
+		},
+	});
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
 		if (!device) return createLocalSidecar(cwd, kind, fresh);
 		// The host runs its own health check, session-kind record and bridge
@@ -761,6 +777,7 @@ app.whenReady().then(() => {
 			return ompUpdater;
 		},
 		schedules: () => scheduleService,
+		sidebarProjects: () => sidebarProjects,
 		accountRotation: accountRotationDeps({
 			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
 			tabs: () => sidecarPool.allSidecars(),
@@ -1034,7 +1051,7 @@ app.whenReady().then(() => {
 		scheduled: testInstaller
 			? process.env.OMP_GUI_TEST_OMP_UPDATES === "1"
 			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-		enabled: () => prefs.get(OMP_AUTO_UPDATE_PREF) !== false,
+		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		fetchLatest: () => setup.latestOmp(),
 		installed: () => {
 			const presence = setup.state().items.find(item => item.id === "omp")?.presence;
@@ -1075,14 +1092,14 @@ app.whenReady().then(() => {
 	ompUpdater = updater;
 	registerOmpUpdateIpc(ipc, updater);
 	// The vendor CLIs of connected accounts (Claude Code, Codex, Gemini, Cursor Agent, gh, …) keep current
-	// the same way (src/main/cli-tools/, pref `cliAutoUpdate`): already-installed tools only, through the
+	// the same way (src/main/cli-tools/, pref `toolsAutoUpdate`): already-installed tools only, through the
 	// method that owns each. A test launch needs the fake installer and OMP_GUI_TEST_CLI_UPDATES=1. A
 	// paired host does its own; remote tabs never reach this computer's tools.
 	const cliToolUpdater = new CliUpdater({
 		scheduled: testInstaller
 			? process.env.OMP_GUI_TEST_CLI_UPDATES === "1"
 			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-		enabled: () => prefs.get(CLI_AUTO_UPDATE_PREF) !== false,
+		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		platform: platform === "win32" ? "win32" : "darwin",
 		toolsDir,
 		connectedProviders: () =>
@@ -1101,7 +1118,7 @@ app.whenReady().then(() => {
 	cliUpdater = cliToolUpdater;
 	registerCliUpdateIpc(ipc, cliToolUpdater);
 	// The marketplaces, plugins, skills and MCP servers of this computer's omp keep current too
-	// (src/main/ext-update/, pref `extensionAutoUpdate`): stock's own refresh and upgrade run in the stock
+	// (src/main/ext-update/, pref `toolsAutoUpdate`): stock's own refresh and upgrade run in the stock
 	// helper's `extensions` worker, an MCP server's global binary is updated by the package manager that owns
 	// it, and the live local tabs (this computer's own and the ones it hosts for paired devices) pick up the
 	// result between turns. A test launch needs the fake installer and OMP_GUI_TEST_EXT_UPDATES=1.
@@ -1109,7 +1126,7 @@ app.whenReady().then(() => {
 		scheduled: testInstaller
 			? process.env.OMP_GUI_TEST_EXT_UPDATES === "1"
 			: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-		enabled: () => prefs.get(EXTENSION_AUTO_UPDATE_PREF) !== false,
+		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		platform: platform === "win32" ? "win32" : "darwin",
 		toolsDir,
 		helper: <T>(method: string, params: unknown, timeoutMs: number) =>
@@ -1358,6 +1375,8 @@ app.whenReady().then(() => {
 		},
 	});
 	void scheduleService.start();
+	// Lists every folder sessions ran in (the first pass also the ones from before the list existed).
+	void sidebarProjects.sync();
 	logWatcher = new LogWatcher();
 
 	// Settings › General › Window: closing the last window hides it to the tray
@@ -1407,7 +1426,13 @@ app.whenReady().then(() => {
 		},
 	});
 	const turnResume = new TurnResume({
-		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json")),
+		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json"), error =>
+			writeRuntimeLog({
+				source: "turn-resume",
+				message: "markers not saved",
+				details: { error: error instanceof Error ? error.message : String(error) },
+			}),
+		),
 		// This computer's own tabs and the ones it runs for paired devices (host-services.ts): the host
 		// owns those turns, so their markers, waits and continuations are this computer's.
 		pool: {
@@ -1548,6 +1573,7 @@ app.whenReady().then(() => {
 		relaunchContinuation: tabId => turnResume.relaunchContinuation(tabId),
 		mediaStreams,
 		schedules: () => scheduleService,
+		sidebarProjects,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.
 		promptOrigins: {
 			of: win => webHost?.promptOrigin(win) ?? null,
@@ -1556,10 +1582,12 @@ app.whenReady().then(() => {
 		onPrefChanged: key => {
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
-			if (key === OMP_AUTO_UPDATE_PREF) updater.prefChanged();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
-			if (key === CLI_AUTO_UPDATE_PREF) cliToolUpdater.prefChanged();
-			if (key === EXTENSION_AUTO_UPDATE_PREF) extensionToolUpdater.prefChanged();
+			if (key === TOOLS_AUTO_UPDATE_PREF) {
+				updater.prefChanged();
+				cliToolUpdater.prefChanged();
+				extensionToolUpdater.prefChanged();
+			}
 			if (key === "themeName" || key === "theme") {
 				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
 			}

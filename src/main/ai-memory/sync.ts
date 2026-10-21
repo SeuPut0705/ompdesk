@@ -26,13 +26,14 @@
  * unedited copy never goes back to that computer. When both sides changed, the one changed last wins (each page's
  * `updated_at`), logged as `conflict` (source `memory-sync`).
  */
+
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
 import type { AiMemoryPageRef, AiMemoryProjectRef } from "../../shared/ai-memory";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { writeFileAtomic } from "../atomic-file";
 import {
 	isDurablePath,
 	MEMORY_CONCLUSION_MAX_BYTES,
@@ -861,10 +862,7 @@ export class MemorySync {
 		const file = this.#file;
 		if (!file) return this.#saving;
 		this.#saving = this.#saving.then(async () => {
-			const tmp = `${this.#deps.stateFile}.tmp`;
-			await mkdir(dirname(this.#deps.stateFile), { recursive: true });
-			await writeFile(tmp, JSON.stringify(file), { mode: 0o600 });
-			await rename(tmp, this.#deps.stateFile);
+			await writeFileAtomic(this.#deps.stateFile, JSON.stringify(file), { mode: 0o600 });
 		});
 		this.#saving = this.#saving.catch(() => undefined);
 		return this.#saving;

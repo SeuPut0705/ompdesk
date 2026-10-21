@@ -42,7 +42,7 @@ import { formatClock } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { describeTurnError, messageText, turnErrorToast } from "../lib/messages";
 import { playNotificationSound } from "../lib/notification-sound";
-import { handleAutoOpenEvents } from "../lib/panel-auto-open";
+import { handleAutoOpenEvents, installPanelAutoOpen } from "../lib/panel-auto-open";
 import { useUsageSignal } from "../lib/usage-reports";
 import { useAutopilotStore } from "../stores/autopilot";
 import { useDesktopSlotStore } from "../stores/desktop-slot";
@@ -332,6 +332,7 @@ const WEDGE_PROBES = 2;
  */
 export function useRpcEvents(heartbeatMs = 15_000): void {
 	useEffect(() => {
+		installPanelAutoOpen();
 		const focusedTabId = () => useTabsStore.getState().activeTabId ?? "";
 		let disposed = false;
 		let statusVersion = 0;

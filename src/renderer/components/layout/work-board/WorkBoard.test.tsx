@@ -233,7 +233,7 @@ describe("WorkBoard visibility", () => {
 		expect(pane.hasAttribute("data-work-board")).toBe(false);
 	});
 
-	it("hides itself from its own button and saves the pref", async () => {
+	it("hides itself from its own button for this window only, saving no preference", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		await mount();
 		const hide = [...pane.querySelectorAll("button")].find(
@@ -241,6 +241,7 @@ describe("WorkBoard visibility", () => {
 		) as unknown as HTMLButtonElement;
 		await act(async () => hide.click());
 		expect(useUiStore.getState().workBoard).toBe(false);
+		expect(prefsSet).not.toHaveBeenCalledWith("workBoard", expect.anything());
 		expect(board()).toBeNull();
 	});
 });

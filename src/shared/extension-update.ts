@@ -9,9 +9,6 @@
  * "Update now" by row key; it never names a command, a path or a version to install.
  */
 
-/** Settings › Updates & about › Update extensions automatically (default on); a stored `false` turns it off. */
-export const EXTENSION_AUTO_UPDATE_PREF = "extensionAutoUpdate";
-
 /** Display order. */
 export const EXTENSION_KINDS = ["marketplace", "plugin", "skill", "mcp"] as const;
 export type ExtensionKind = (typeof EXTENSION_KINDS)[number];

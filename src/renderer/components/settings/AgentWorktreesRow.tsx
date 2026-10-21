@@ -4,7 +4,7 @@
  * `omp worktree clear --json` on a click, which removes only the orphaned ones. Finished agent worktrees
  * need no switch: main sweeps the landed ones by itself (worktree-orphans.ts `WorktreeSweeper`).
  */
-import { RefreshCw, Trash2 } from "lucide-react";
+import { FolderTree, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { RpcAgentWorktree, RpcAgentWorktreeClear, RpcAgentWorktreeList } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -133,6 +133,7 @@ export function AgentWorktreesRows() {
 						)}
 					</div>
 				}
+				icon={<FolderTree />}
 				id="setting-agent-worktrees"
 				label={t("settings.agentWorktrees")}
 			/>

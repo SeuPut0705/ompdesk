@@ -15,7 +15,6 @@ import { NEXT_PROMPT_INLINE_PREF, NEXT_PROMPT_PREF } from "../../../resources/gu
 import { ACCOUNT_ROTATION_PREF } from "../../shared/account-rotation";
 import { AGENT_PANEL_TABS } from "../../shared/agent-control";
 import { REA_PREF } from "../../shared/builtin-mcp";
-import { CLI_AUTO_UPDATE_PREF } from "../../shared/cli-update";
 import {
 	APP_AUTO_UPDATE_PREF,
 	AUTO_OPEN_CHANGES_PREF,
@@ -23,10 +22,9 @@ import {
 	CLOSE_TO_TRAY_PREF,
 	KEEP_AWAKE_WORKING_PREF,
 	RESUME_INTERRUPTED_PREF,
+	TOOLS_AUTO_UPDATE_PREF,
 } from "../../shared/desktop-prefs";
-import { EXTENSION_AUTO_UPDATE_PREF } from "../../shared/extension-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
-import { OMP_AUTO_UPDATE_PREF } from "../../shared/omp-update";
 import { REPLY_LANGUAGE_PREF } from "../../shared/reply-language";
 import { THEME_NAMES } from "../../shared/theme-names";
 import type { PropSchema } from "./app-schema";
@@ -157,7 +155,6 @@ export const SETTINGS: readonly Setting[] = [
 		options("compact", "full"),
 	),
 	pref("thinkingExpanded", "thinkingExpanded", "appearance", "Expand thinking", "생각 펼치기"),
-	pref("workBoard", "workBoard", "appearance", "Work board", "작업 현황 보드"),
 	pref("lineNumbers", "codeLineNumbers", "appearance", "Code line numbers", "코드 줄 번호"),
 	pref(
 		"hideThinkingBlock",
@@ -181,7 +178,6 @@ export const SETTINGS: readonly Setting[] = [
 		"Collapse compacted history",
 		"압축된 기록 접기",
 	),
-	pref("titleState", "displayPreferences.titleState", "general", "State in the window title", "창 제목에 상태 표시"),
 	pref(
 		"goalStatusInFooter",
 		"displayPreferences.goalStatusInFooter",
@@ -189,7 +185,6 @@ export const SETTINGS: readonly Setting[] = [
 		"Goal status in the footer",
 		"푸터에 목표 상태",
 	),
-	pref("showProgress", "displayPreferences.showProgress", "general", "Show progress", "진행률 표시"),
 	pref(
 		"emojiAutocomplete",
 		"displayPreferences.emojiAutocomplete",
@@ -242,39 +237,17 @@ export const SETTINGS: readonly Setting[] = [
 		},
 	),
 	pref(
-		"ompAutoUpdate",
-		OMP_AUTO_UPDATE_PREF,
+		"toolsAutoUpdate",
+		TOOLS_AUTO_UPDATE_PREF,
 		"updates",
-		"Update omp automatically",
-		"omp 자동 업데이트",
+		"Keep tools up to date (omp, tool CLIs, extensions)",
+		"도구 최신으로 유지 (omp, 도구 CLI, 확장)",
 		bool,
 		"sensitive",
 		{
-			manage: { lifts: "only the person's own update schedule; running turns keep the code they loaded" },
-		},
-	),
-	pref(
-		"cliAutoUpdate",
-		CLI_AUTO_UPDATE_PREF,
-		"updates",
-		"Update tool CLIs automatically",
-		"도구 CLI 자동 업데이트",
-		bool,
-		"sensitive",
-		{
-			manage: { lifts: "updates tools the person already signed in to; a switch they can flip back at once" },
-		},
-	),
-	pref(
-		"extensionAutoUpdate",
-		EXTENSION_AUTO_UPDATE_PREF,
-		"updates",
-		"Update extensions automatically",
-		"확장 자동 업데이트",
-		bool,
-		"sensitive",
-		{
-			manage: { lifts: "updates extensions the person already installed; installing a new one still asks" },
+			manage: {
+				lifts: "updates omp, tools and extensions the person already has; running turns keep the code they loaded and installing something new still asks",
+			},
 		},
 	),
 	pref("builtinRea", REA_PREF, "tools", "Built-in REA tools", "내장 REA 도구", bool, "sensitive", {
@@ -358,10 +331,11 @@ export type RowDecision = { covered: string } | { never: string };
 const USER_ONLY = "the person decides this in Settings; an agent changing it would widen its own power or spend";
 
 export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
+	// One choice over two prefs an agent sets one at a time (`settings.thinkingExpanded` is the other).
+	thinkingDisplay: { covered: "settings.hideThinkingBlock" },
 	language: { never: "the window's own language switch applies it; ask the person" },
 	profileName: { never: "the person's own profile text" },
 	profileExperience: { never: "the person's own profile" },
-	railPins: { never: "the person's own sidebar layout" },
 	githubAccount: { covered: "accounts.github_sign_in" },
 	machineSetup: { never: "machine setup installs tools by itself; there is nothing to set" },
 	pstack: { never: "the engineering-mode pack changes the prompt and skills every session runs with" },
@@ -371,7 +345,6 @@ export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	remote: { covered: "remote.connect" },
 	mobileWeb: { covered: "mobile_web.set_enabled" },
 	hostAppearance: { never: "a paired host's look; the person's own choice" },
-	auth: { never: "the update token is a credential" },
 	accounts: { covered: "accounts.provider_sign_in" },
 	custom: { never: "custom providers set endpoints and credentials" },
 	modelOverrides: { never: "model overrides change limits and wire behavior of providers" },

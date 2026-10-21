@@ -251,8 +251,13 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	const cdp = await page.context().newCDPSession(page);
 	const listeners = async () => {
-		const { result } = await cdp.send("Runtime.evaluate", { expression: "document" });
-		return (await cdp.send("DOMDebugger.getEventListeners", { objectId: result.objectId! })).listeners.length;
+		const { result } = await cdp.send("Runtime.evaluate", {
+			expression: `Object.entries(getEventListeners(document)).flatMap(([type, entries]) =>
+				entries.map(entry => type + (entry.useCapture ? " (capture) " : " ") + String(entry.listener).slice(0, 200)))`,
+			includeCommandLineAPI: true,
+			returnByValue: true,
+		});
+		return result.value as string[];
 	};
 	const pid = app.process().pid;
 	const checkProcesses = pid !== undefined && process.platform !== "win32";
@@ -265,6 +270,10 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(2);
 		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status).toBe("ready");
+		// Main's list says ready before the page has heard it, and ⌘W on a tab the page still sees starting asks first
+		// (tab-close.ts `tabNeedsCloseConfirm`): the close waits for the page's own status (nightly 39525167897 pressed
+		// ⌘W 33 ms after main's ready and the tab stayed, armed).
+		await expect(page.locator(".omp-titlebar-status")).toHaveText("Ready");
 		await whileOpen?.();
 		await page.keyboard.press("ControlOrMeta+w");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);
@@ -288,10 +297,27 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 			JSON.stringify(started),
 		).not.toEqual([]);
 	});
-	const before = await listeners();
+	// A control's hover bubble holds a document keydown listener while it is open, and opens 450 ms after the pointer
+	// enters a control. Closing a tab puts another composer's controls under the pointer, so a bare count read one
+	// more or less by the moment (the same test: 13 against 14 with the last read 700 ms later, 3 of 3 runs). The
+	// pointer is parked in the window's corner, where no control is, and the one remaining tab drawn before each read.
+	const settledListeners = async () => {
+		await page.mouse.move(1, 1);
+		await expect(page.getByRole("tooltip")).toHaveCount(0);
+		await expect(page.locator("section[data-tab-id]")).toHaveCount(1);
+		return listeners();
+	};
+	const before = await settledListeners();
 	for (let index = 1; index < cycles; index++) await cycle();
-	const after = await listeners();
-	expect(after).toBeLessThanOrEqual(before);
+	const after = await settledListeners();
+	const added = [...after];
+	for (const listener of before) {
+		const index = added.indexOf(listener);
+		if (index >= 0) added.splice(index, 1);
+	}
+	expect(after.length, `document listeners added by the cycles:\n${added.join("\n")}`).toBeLessThanOrEqual(
+		before.length,
+	);
 	expect(await page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);
 	// A closed tab's sidecar exits once its stdin closes; wait for that, never for a fixed time.
 	await expect.poll(() => processes().length).toBeLessThanOrEqual(processesBefore.length);

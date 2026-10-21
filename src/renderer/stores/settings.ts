@@ -26,12 +26,8 @@ export interface SettingsStore {
 	showTokenUsage: boolean;
 	/** Agent `display.collapseCompacted` setting: fold pre-compaction history behind an expander. */
 	collapseCompacted: boolean;
-	/** Agent `tui.titleState` setting: run-state marker in the window title. */
-	titleState: boolean;
 	/** Agent `goal.statusInFooter` setting: goal status chip in the composer. */
 	goalStatusInFooter: boolean;
-	/** Agent `terminal.showProgress` setting: run progress in dock/tray. */
-	showProgress: boolean;
 	/** Agent `speech.enabled` setting: speak assistant output. */
 	speechEnabled: boolean;
 	/** Agent `stt.enabled` setting: microphone input in the composer. */
@@ -68,13 +64,11 @@ const initialState = {
 	hideThinkingBlock: false,
 	proseOnlyThinking: true,
 	omitThinking: false,
-	// Schema defaults: usage row off, compaction folded, title/goal chrome on.
+	// Schema defaults: usage row off, compaction folded, goal chrome on.
 	showTokenUsage: false,
 	collapseCompacted: true,
-	titleState: true,
 	goalStatusInFooter: true,
-	// Schema defaults: progress/speech/stt/tight/colorblind all off.
-	showProgress: false,
+	// Schema defaults: speech/stt/tight/colorblind all off.
 	speechEnabled: false,
 	sttEnabled: false,
 	// Schema default (settings-schema.ts paste.largeMenuThreshold): menu at 100 lines.
@@ -124,9 +118,7 @@ const DISPLAY_BOOL_MAP: Record<
 	| "omitThinking"
 	| "showTokenUsage"
 	| "collapseCompacted"
-	| "titleState"
 	| "goalStatusInFooter"
-	| "showProgress"
 	| "speechEnabled"
 	| "sttEnabled"
 	| "emojiAutocomplete"
@@ -136,9 +128,7 @@ const DISPLAY_BOOL_MAP: Record<
 	omitThinking: "omitThinking",
 	"display.showTokenUsage": "showTokenUsage",
 	"display.collapseCompacted": "collapseCompacted",
-	"tui.titleState": "titleState",
 	"goal.statusInFooter": "goalStatusInFooter",
-	"terminal.showProgress": "showProgress",
 	"speech.enabled": "speechEnabled",
 	"stt.enabled": "sttEnabled",
 	emojiAutocomplete: "emojiAutocomplete",

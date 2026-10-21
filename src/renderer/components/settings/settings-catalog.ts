@@ -3,7 +3,7 @@
  * this catalog so each setting has exactly one editing destination.
  */
 
-import { GUI_DISPLAY_BOOL_FIELDS, GUI_DISPLAY_LEGACY_PATHS } from "../../lib/display-preferences";
+import { GUI_DISPLAY_BOOL_FIELDS, GUI_DISPLAY_BOOL_PATHS } from "../../lib/display-preferences";
 import { PLATFORM } from "../../lib/keymap";
 
 export const SETTINGS_SECTION_IDS = [
@@ -315,13 +315,6 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 			"continue resume interrupted relaunch restart crash update quit work 이어서 재개 중단 다시 열 때 업데이트 비정상 종료",
 	},
 	{
-		id: "railPins",
-		section: "general",
-		labelKey: "settings.gui.railPins",
-		aliases:
-			"sidebar shortcuts pin pinned usage limits terminal changes preview files background tasks schedules rail 사이드바 바로가기 고정 사용 한도",
-	},
-	{
 		id: "githubAccount",
 		section: "general",
 		rowId: "setting-github-account",
@@ -342,24 +335,11 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "ompdesk app update upgrade install restart automatically auto 자동 업데이트 설치 재시작 앱",
 	},
 	{
-		id: "ompAutoUpdate",
+		id: "toolsAutoUpdate",
 		section: "updates",
-		labelKey: "ompUpdate.auto",
-		aliases: "omp update upgrade automatically auto version cli npm 자동 업데이트 업그레이드 버전",
-	},
-	{
-		id: "cliAutoUpdate",
-		section: "updates",
-		labelKey: "cliUpdate.auto",
+		labelKey: "toolsUpdate.auto",
 		aliases:
-			"cli tools update upgrade automatically auto claude code codex gemini cursor agent copilot gh github cli node 도구 자동 업데이트 업그레이드 클로드 코덱스 제미나이 커서",
-	},
-	{
-		id: "extensionAutoUpdate",
-		section: "updates",
-		labelKey: "extensionUpdate.auto",
-		aliases:
-			"extensions plugins marketplaces skills mcp servers update upgrade automatically auto 확장 플러그인 마켓플레이스 스킬 서버 자동 업데이트 업그레이드",
+			"omp cli tools extensions plugins marketplaces skills mcp servers update upgrade automatically auto version npm claude code codex gemini cursor agent copilot gh node 도구 확장 플러그인 마켓플레이스 스킬 서버 자동 업데이트 업그레이드 버전 최신",
 	},
 	{ id: "theme", section: "appearance", labelKey: "settings.gui.theme", aliases: "theme dark light 테마 다크 라이트" },
 	{
@@ -393,16 +373,11 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "transcriptDetail tools detail transcript 대화 도구",
 	},
 	{
-		id: "thinkingExpanded",
+		id: "thinkingDisplay",
 		section: "appearance",
-		labelKey: "settings.gui.thinkingExpanded",
-		aliases: "thinkingExpanded reasoning thinking 사고 추론",
-	},
-	{
-		id: "workBoard",
-		section: "appearance",
-		labelKey: "settings.gui.workBoard",
-		aliases: "workBoard work board status panel margin 작업 현황 보드",
+		labelKey: "settings.gui.thinkingDisplay",
+		aliases:
+			"thinkingExpanded hideThinkingBlock reasoning thinking hide expand collapse 사고 추론 숨기기 펼치기 접기",
 	},
 	{
 		id: "lineNumbers",
@@ -410,11 +385,11 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		labelKey: "codeblock.lineNumbers",
 		aliases: "codeLineNumbers code lines 코드 줄 번호",
 	},
-	...GUI_DISPLAY_BOOL_FIELDS.map((id, index) => ({
+	...GUI_DISPLAY_BOOL_FIELDS.filter(id => id !== "hideThinkingBlock").map(id => ({
 		id,
-		section: id === "titleState" || id === "showProgress" ? ("general" as const) : ("appearance" as const),
+		section: "appearance" as const,
 		labelKey: `settings.display.${id}`,
-		aliases: `${GUI_DISPLAY_LEGACY_PATHS[index]} display 표시`,
+		aliases: `${GUI_DISPLAY_BOOL_PATHS[id]} display 표시`,
 	})),
 	{
 		id: "pasteMenuThreshold",
@@ -537,14 +512,6 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		rowId: "setting-remote-host-appearance",
 		labelKey: "remote.hosts.useHostAppearance",
 		aliases: "host theme language remote device appearance 호스트 테마 언어 원격",
-	},
-	{
-		id: "auth",
-		section: "updates",
-		sub: "auth",
-		rowId: "settings-updates-auth",
-		labelKey: "updates.auth.tokenLabel",
-		aliases: "github token auth updates 인증 토큰 업데이트",
 	},
 	{
 		id: "accounts",

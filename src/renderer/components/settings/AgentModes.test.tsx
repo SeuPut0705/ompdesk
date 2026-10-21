@@ -62,4 +62,37 @@ describe("AgentModes", () => {
 		await act(async () => (open as unknown as HTMLButtonElement).click());
 		expect(useUiStore.getState().modelSetupOpen).toBe(true);
 	});
+
+	it("has no action rows for goal mode, autopilot or the agents page", async () => {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		root = createRoot(container);
+		await act(async () =>
+			root?.render(
+				<I18nProvider>
+					<SettingsDataProvider
+						value={{
+							schema: { tabs: [], entries: [advisor] },
+							values: { "advisor.enabled": false },
+							loadState: "ready",
+							loadError: null,
+							sidecarReady: true,
+							sidecarBusy: false,
+							advisorActive: false,
+							onCommitted: () => {},
+							retry: () => {},
+						}}
+					>
+						<AgentModes />
+					</SettingsDataProvider>
+				</I18nProvider>,
+			),
+		);
+		const text = container.textContent ?? "";
+		for (const label of ["Start a goal", "Goal mode", "Autopilot", "Subagents", "Open Agents"]) {
+			expect(Array.from(container.querySelectorAll("button")).map(b => b.textContent?.trim())).not.toContain(label);
+			expect(text).not.toContain(`${label}Open`);
+		}
+		expect(container.querySelector("#setting-advisor\\.enabled")).not.toBeNull();
+	});
 });

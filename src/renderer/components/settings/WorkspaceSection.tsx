@@ -20,17 +20,7 @@ import {
 	removeWorkspaceDirectory,
 } from "../../lib/workspace-dirs";
 import { useSessionStore } from "../../stores/session";
-import {
-	Badge,
-	Banner,
-	Button,
-	ConfirmDialog,
-	EmptyState,
-	ErrorDetail,
-	IconButton,
-	ListRow,
-	SkeletonRows,
-} from "../common";
+import { Badge, Banner, Button, ConfirmDialog, ErrorDetail, IconButton, ListRow, SkeletonRows } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export function WorkspaceSection() {
@@ -129,7 +119,7 @@ export function WorkspaceSection() {
 	const showEmpty = !loading && !error && directories.length === 0;
 
 	return (
-		<SettingsSection actions={showEmpty ? undefined : addButton}>
+		<SettingsSection actions={showEmpty ? undefined : addButton} title={t("workspaceDirs.title")}>
 			{error && (
 				<Banner
 					actions={
@@ -172,7 +162,14 @@ export function WorkspaceSection() {
 				</div>
 			) : (
 				showEmpty && (
-					<EmptyState actions={addButton} icon={<FolderGit2 />} size="sm" title={t("workspaceDirs.empty")} />
+					// One row like every other line here, not a centered empty card.
+					<SettingsRow
+						compactControl
+						control={addButton}
+						icon={<FolderGit2 />}
+						id="settings-workspace-empty"
+						label={<span className="text-(--sc-text-muted)">{t("workspaceDirs.empty")}</span>}
+					/>
 				)
 			)}
 			{busy && sidecarReady && (
@@ -181,18 +178,14 @@ export function WorkspaceSection() {
 				</p>
 			)}
 			<SettingsRow
+				compactControl
 				control={
-					<Button
-						disabled={mutationDisabled}
-						icon={<PackageOpen />}
-						onClick={() => void onMove()}
-						size="sm"
-						title={blockedReason}
-					>
-						{t("workspaceDirs.move")}
+					<Button disabled={mutationDisabled} onClick={() => void onMove()} size="sm" title={blockedReason}>
+						{t("workspaceDirs.moveChoose")}
 					</Button>
 				}
 				description={t("workspaceDirs.moveDesc")}
+				icon={<PackageOpen />}
 				label={t("workspaceDirs.moveTitle")}
 			/>
 

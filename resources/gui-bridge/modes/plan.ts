@@ -159,22 +159,29 @@ async function onProposalWritten(event: AgentSessionEvent, session: AgentSession
 	const { PROPOSE_DEVICE_NAME } = await import("@oh-my-pi/pi-tui/tools/resolve");
 	const dispatch = writeDeviceDispatch(event.toolName, event.result);
 	if (dispatch?.tool !== PROPOSE_DEVICE_NAME || dispatch.mode !== "execute") return;
-	const suggestedFileName: string = ompPackage().planSaveFileName?.(proposal.title) ?? "PLAN.md";
-	const frame: ProposalFrame = {
-		planFilePath: proposal.planFilePath,
-		title: proposal.title,
-		suggestedFileName,
-		planContent: (await readPlan(session, proposal.planFilePath)) ?? "",
-		options: [...PLAN_PROPOSAL_OPTIONS],
-	};
-	proposal.frame = frame;
-	emit({ type: "plan_proposal", ...frame });
+	// A plan the automatic mode choice entered for one request is approved here, as the card's Approve would with
+	// "keep context": no `plan_proposal` frame (no card in any window, nothing waits on the person), and the plan
+	// runs in this session. The user's own plan mode still asks.
+	const auto = autoModeFlags(session.sessionManager.getSessionId()).autoPlan;
+	if (!auto) {
+		const suggestedFileName: string = ompPackage().planSaveFileName?.(proposal.title) ?? "PLAN.md";
+		const frame: ProposalFrame = {
+			planFilePath: proposal.planFilePath,
+			title: proposal.title,
+			suggestedFileName,
+			planContent: (await readPlan(session, proposal.planFilePath)) ?? "",
+			options: [...PLAN_PROPOSAL_OPTIONS],
+		};
+		proposal.frame = frame;
+		emit({ type: "plan_proposal", ...frame });
+	}
 	session.markPlanInternalAbortPending();
 	try {
 		await session.abort();
 	} finally {
 		session.clearPlanInternalAbortPending();
 	}
+	if (auto) await approve(session, { approved: true, option: "keep_context" });
 }
 
 onSessionEvent((event, session) => {
@@ -206,19 +213,12 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 		markPlanRejected(sessionId);
 		const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
 		if (feedback) {
-			// Feedback is a reply to the plan: an automatic plan stays on for the revised one.
+			// Feedback is a reply to the plan: plan mode stays on for the revised one.
 			void submitTurn(session, feedback, false).catch(reportTurnError);
 			return { approved: false, dispatched: true };
 		}
-		// A plan entered for one request ends with that plan; the user's own plan mode stays.
-		const autoPlan = autoModeFlags(sessionId).autoPlan;
-		if (autoPlan) await exitPlanMode(session);
-		return {
-			approved: false,
-			dispatched: false,
-			reason: "rejected",
-			...(autoPlan ? { planModeEnabled: false } : {}),
-		};
+		// Only the user's own plan mode shows a card (an automatic plan is approved by itself): it stays on.
+		return { approved: false, dispatched: false, reason: "rejected" };
 	}
 
 	const option = (typeof params.option === "string" ? params.option : "execute") as ApprovalOption;
@@ -281,8 +281,10 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 	const { humanizePlanTitle } = await import("@oh-my-pi/pi-coding-agent/plan-mode/approved-plan");
 	const seededName = humanizePlanTitle(proposal.title);
 	if (seededName && !session.sessionManager.getSessionName()) await session.setSessionName(seededName, "auto");
+	// Stock's own render (interactive-mode #approvePlan) inlines the plan: the prompt says never to re-read the file.
 	const approvedPrompt = prompt.render(ompPrompt("system/plan-mode-approved.md"), {
 		planFilePath,
+		planContent,
 		contextPreserved: option !== "execute",
 	});
 	void submitTurn(session, approvedPrompt, true).catch(reportTurnError);

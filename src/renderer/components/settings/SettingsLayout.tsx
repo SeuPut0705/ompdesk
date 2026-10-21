@@ -38,13 +38,9 @@ const SettingsGroupContext = createContext(false);
 const SettingsTipOnlyContext = createContext(false);
 export const SettingsTipOnly = SettingsTipOnlyContext.Provider;
 
-/** Several compact rows side by side: two or three tiles per line as the column allows. */
+/** Several compact rows side by side: two per line, one in a narrow column, divided like rows (global.css). */
 export function SettingsTiles({ children }: { children: ReactNode }) {
-	return (
-		<div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-x-6" data-settings-tiles>
-			{children}
-		</div>
-	);
+	return <div data-settings-tiles>{children}</div>;
 }
 
 export interface SettingsSectionProps {

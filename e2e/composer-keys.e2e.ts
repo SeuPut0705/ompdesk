@@ -99,10 +99,23 @@ for (const language of variants(["en", "ko"] as const))
 				await page.keyboard.press("ControlOrMeta+a");
 				await page.keyboard.press("Backspace");
 
-				// ⌃J inserts a newline at the caret; ⌃U deletes back to the line start.
+				// ⌃J inserts a newline at the caret on macOS; on Windows ⌃J is ⌘J, the side panel toggle, and
+				// leaves the draft alone. ⌃U deletes back to the line start on both.
 				await input.click();
 				await page.keyboard.type("first");
-				await page.keyboard.press("Control+j");
+				if (process.platform === "darwin") {
+					await page.keyboard.press("Control+j");
+				} else {
+					const panel = page.locator("aside[data-docked]");
+					const before = await panel.count();
+					await page.keyboard.press("Control+j");
+					await expect(panel).toHaveCount(before === 0 ? 1 : 0);
+					await expect(input).toHaveValue("first");
+					await page.keyboard.press("Control+j");
+					await expect(panel).toHaveCount(before);
+					await input.focus();
+					await page.keyboard.press("Shift+Enter");
+				}
 				await page.keyboard.type("second line");
 				await expect(input).toHaveValue("first\nsecond line");
 				await page.keyboard.press("Control+u");

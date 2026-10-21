@@ -299,7 +299,6 @@ export const REMOTE_STATE: RemoteState = {
 		keepAwake: true,
 		keepingAwake: true,
 		usedBy: ["Work laptop"],
-		confirmNewDevices: false,
 	},
 	hosts: [
 		{

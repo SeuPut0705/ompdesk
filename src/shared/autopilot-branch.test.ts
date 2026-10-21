@@ -3,16 +3,13 @@ import {
 	branchEntries,
 	branchProblem,
 	branchSlug,
-	initialChoice,
 	isDefaultBranchChoice,
 	isValidBranchName,
-	lastChoiceOf,
 	parseChoice,
 	parseWorktreeBranches,
 	pickDefaultBranch,
 	runIdFor,
 	suggestBranchName,
-	validBranchPref,
 	viaWorkBranch,
 	worktreeModeFor,
 } from "./autopilot-branch";
@@ -158,38 +155,12 @@ describe("names and ids", () => {
 	});
 });
 
-describe("the choice remembered per repository", () => {
-	const entries = branchEntries(facts);
-
-	it("prefills the next sheet while the branch is still usable, else a new branch", () => {
-		expect(initialChoice({ kind: "existing", name: "feature/login" }, entries)).toEqual({
-			kind: "existing",
-			name: "feature/login",
-		});
-		// Deleted since: back to the default. A branch another worktree holds is still a usable target.
-		expect(initialChoice({ kind: "existing", name: "dev" }, entries)).toEqual({ kind: "existing", name: "dev" });
-		expect(initialChoice({ kind: "existing", name: "gone" }, entries)).toEqual({ kind: "new" });
-		expect(initialChoice({ kind: "new", name: "dev" }, entries)).toEqual({ kind: "new" });
-		expect(initialChoice({ kind: "new", name: "mine" }, entries)).toEqual({ kind: "new", name: "mine" });
-		expect(initialChoice(undefined, entries)).toEqual({ kind: "new" });
-	});
-
-	it("reads the pref per repository and tolerates a hand-edited value", () => {
-		const pref = { "/repo/a": { kind: "existing", name: "dev" }, "/repo/b": { kind: "nope" }, "/repo/c": 3 };
-		expect(lastChoiceOf(pref, "/repo/a")).toEqual({ kind: "existing", name: "dev" });
-		expect(lastChoiceOf(pref, "/repo/b")).toBeNull();
-		expect(lastChoiceOf(pref, "/repo/c")).toBeNull();
-		expect(lastChoiceOf(pref, "/repo/none")).toBeNull();
-		expect(lastChoiceOf("x", "/repo/a")).toBeNull();
+describe("a start's branch option", () => {
+	it("tolerates a malformed value", () => {
+		expect(parseChoice({ kind: "existing", name: "dev" })).toEqual({ kind: "existing", name: "dev" });
+		expect(parseChoice({ kind: "new" })).toEqual({ kind: "new" });
 		expect(parseChoice({ kind: "existing", name: "" })).toBeNull();
-	});
-
-	it("accepts only a map of well-formed choices as the pref value", () => {
-		expect(validBranchPref({ "/r": { kind: "new" }, "/s": { kind: "existing", name: "dev" } })).toBe(true);
-		expect(validBranchPref({})).toBe(true);
-		expect(validBranchPref({ "/r": { kind: "existing" } })).toBe(false);
-		expect(validBranchPref([])).toBe(false);
-		expect(validBranchPref("dev")).toBe(false);
-		expect(validBranchPref(null)).toBe(false);
+		expect(parseChoice({ kind: "nope" })).toBeNull();
+		expect(parseChoice("dev")).toBeNull();
 	});
 });

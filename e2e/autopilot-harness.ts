@@ -9,6 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { AutopilotStatus } from "../resources/gui-bridge/modes/autopilot-contracts";
+import { writeShellGh } from "./fixture/shell-gh";
 import { launchApp, readRecords } from "./harness";
 
 export type Language = "en" | "ko";
@@ -168,13 +169,6 @@ export async function crash(app: ElectronApplication): Promise<void> {
 		.toBe(false);
 }
 
-/** Processes whose command line names `root`: what a killed app left running there. */
-export function survivors(root: string): string[] {
-	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
-		.split("\n")
-		.filter(line => line.includes(root));
-}
-
 /** The run's tab: a tab bound to a worktree on an `autopilot/` branch. */
 export interface RunTab {
 	tabId: string;
@@ -296,10 +290,9 @@ export function refs(repo: string, pattern: string): string {
 export async function installFakeGh(profile: ApProfile, conclusion: "success" | "failure"): Promise<void> {
 	const bin = path.join(profile.root, "bin");
 	await fs.mkdir(bin, { recursive: true });
-	await fs.writeFile(
-		path.join(bin, "gh"),
+	await writeShellGh(
+		bin,
 		`#!/bin/sh\nif [ "$1" = "run" ] && [ "$2" = "view" ]; then echo '{"status":"completed","conclusion":"${conclusion}"}'; exit 0; fi\nif [ "$1" = "auth" ]; then exit 0; fi\nexit 1\n`,
-		{ mode: 0o755 },
 	);
 	profile.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
 }

@@ -33,6 +33,9 @@
  *   `host.schedules.log {runId}` → string, `host.schedules.create {draft}` → ScheduleCreated (the new
  *   schedule's id from the save that made it, so concurrent creates never swap ids); the host pushes every
  *   change as the `host.schedules.changed` event
+ * - The host's sidebar project list (sidebar-projects.ts): `host.projects.command {request: SidebarProjectsRequest}`
+ *   → SidebarProjectsState (get, add a folder the person opened there, remove one from the sidebar); the host pushes
+ *   every change as the `host.projects.changed` event
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
@@ -52,8 +55,8 @@
  *   `host.memory.conclusions.push {conclusions}` → MemoryConclusionPushReply (insert-if-absent on the host's
  *   server: `written`, `same`, `skipped`, or `failed`). A host with memory off answers `{memory: false}`.
  *
- * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`
- * and `host.schedules.changed`.
+ * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
+ * `host.schedules.changed` and `host.projects.changed`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -76,6 +79,7 @@ import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleFrequency, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 
 /**
  * Events a host sends for a remote tab: the SidecarManager events it forwards (everything else
@@ -125,6 +129,8 @@ export const SESSIONS_CHANGED_EVENT = "sessions.changed";
 export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
 /** The host's scheduled runs changed (data: SchedulesState); sent to every connected device. */
 export const SCHEDULES_EVENT = "host.schedules.changed";
+/** The host's sidebar project list changed (data: SidebarProjectsState); sent to every connected device. */
+export const PROJECTS_EVENT = "host.projects.changed";
 /** This computer's device name changed (data: `{name}`); sent to every connected device. */
 export const HOST_NAME_EVENT = "host.name";
 /**
@@ -616,6 +622,25 @@ export const SchedulesStateSchema: z.ZodType<SchedulesState> = z.object({
 export const ScheduleCreatedSchema: z.ZodType<ScheduleCreated> = z.object({
 	id: z.string(),
 	state: SchedulesStateSchema,
+});
+
+const ProjectPath = z.string().min(1).max(4096);
+
+/** `host.projects.command` params: the device's sidebar reads or edits the host's project list. */
+export const ProjectsCommandParams: z.ZodType<{ request: SidebarProjectsRequest }> = z.object({
+	request: z.discriminatedUnion("action", [
+		z.object({ action: z.literal("get") }),
+		z.object({ action: z.literal("add"), path: ProjectPath }),
+		z.object({ action: z.literal("remove"), path: ProjectPath }),
+	]),
+});
+
+/** `host.projects.command` reply and `host.projects.changed` event. */
+export const SidebarProjectsStateSchema: z.ZodType<SidebarProjectsState, z.ZodTypeDef, unknown> = z.object({
+	projects: z.array(z.object({ path: ProjectPath, addedAt: z.number(), missing: z.literal(true).optional() })),
+	removed: z.array(ProjectPath),
+	// An older host sends none: its sessions then group by their own folder, as before.
+	worktrees: z.record(ProjectPath, ProjectPath).default({}),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

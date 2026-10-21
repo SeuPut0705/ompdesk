@@ -1,6 +1,14 @@
 /** A viewer's gestures as the mouse, wheel and key events the offscreen page takes (and nothing else). */
 import { describe, expect, it } from "vitest";
-import { electronKey, INPUT_BATCH_MAX, InputMapper, type InputOp, previewStreamBatchSchema } from "./preview-input";
+import {
+	electronKey,
+	INPUT_BATCH_MAX,
+	InputMapper,
+	type InputOp,
+	InputSequence,
+	type InputSink,
+	previewStreamBatchSchema,
+} from "./preview-input";
 
 const SURFACE = { width: 400, height: 800, scale: 1 };
 
@@ -145,5 +153,72 @@ describe("previewStreamBatchSchema", () => {
 			).success,
 		).toBe(false);
 		expect(previewStreamBatchSchema.safeParse([{ t: "pinch", scale: Number.POSITIVE_INFINITY }]).success).toBe(false);
+	});
+});
+
+describe("InputSequence", () => {
+	/** A page whose main thread answers a round trip, and takes committed text, only when the test lets it. */
+	function page() {
+		const calls: string[] = [];
+		const gates = { roundTrip: Promise.withResolvers<void>(), insert: Promise.withResolvers<void>() };
+		const sink: InputSink = {
+			event: event => void calls.push(`event ${"keyCode" in event ? event.keyCode : event.type}`),
+			text: async text => {
+				calls.push(`text ${text}`);
+				await gates.insert.promise;
+				calls.push(`inserted ${text}`);
+			},
+			roundTrip: async () => {
+				calls.push("round trip");
+				await gates.roundTrip.promise;
+			},
+			pinch: scale => void calls.push(`pinch ${scale}`),
+		};
+		return { calls, gates, sink };
+	}
+	const key = (name: string) => new InputMapper().map({ t: "key", key: name }, SURFACE);
+	const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+	it("holds committed text until the page has answered after the keys sent before it", async () => {
+		const { calls, gates, sink } = page();
+		const sequence = new InputSequence();
+		sequence.push([...key("Backspace"), { op: "text", text: "한글" }], sink);
+		await flush();
+		expect(calls).toEqual(["event Backspace", "event Backspace", "round trip"]);
+		gates.roundTrip.resolve();
+		await flush();
+		expect(calls.at(-1)).toBe("text 한글");
+	});
+
+	it("holds what follows committed text until the text is in", async () => {
+		const { calls, gates, sink } = page();
+		const sequence = new InputSequence();
+		sequence.push([{ op: "text", text: "a" }, ...key("Backspace")], sink);
+		await flush();
+		expect(calls).toEqual(["text a"]);
+		gates.insert.resolve();
+		await flush();
+		expect(calls).toEqual(["text a", "inserted a", "event Backspace", "event Backspace"]);
+	});
+
+	it("asks the page nothing when no event came before the text, and keeps going after an op throws", async () => {
+		const { calls, gates, sink } = page();
+		gates.insert.resolve();
+		const sequence = new InputSequence();
+		sequence.push(key("Backspace"), {
+			...sink,
+			event: () => {
+				throw new Error("The page is gone");
+			},
+		});
+		sequence.push(
+			[
+				{ op: "text", text: "x" },
+				{ op: "pinch", scale: 1.5 },
+			],
+			sink,
+		);
+		await flush();
+		expect(calls).toEqual(["text x", "inserted x", "pinch 1.5"]);
 	});
 });

@@ -83,8 +83,13 @@ for (const [language, theme] of variants([
 			await composer.fill("Sketch the archive flow");
 			await composer.press("Enter");
 			await expect.poll(() => activeTab(page).then(tab => tab.sessionPath ?? "")).toMatch(/\.jsonl$/);
-			await expect.poll(() => activeTab(page).then(tab => tab.status)).toBe("ready");
 			const saved = await activeTab(page);
+			// The tab names its session file before the file exists (it appears with the first entry, once the send is
+			// processed) and reads "ready" before the turn starts: a tab closed on either has no stored session to list.
+			await expect
+				.poll(() => fs.readFile(saved.sessionPath ?? "", "utf8").catch(() => ""))
+				.toContain("Sketch the archive flow");
+			await expect.poll(() => activeTab(page).then(tab => tab.status)).toBe("ready");
 			await page.keyboard.press("ControlOrMeta+t");
 			await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(2);
 			await page.keyboard.press("ControlOrMeta+1");

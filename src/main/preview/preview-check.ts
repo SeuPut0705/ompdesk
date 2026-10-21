@@ -26,6 +26,13 @@ export const PREVIEW_CHECK_IMAGE_MAX = 1280;
 export const PREVIEW_CHECK_SETTLE_MS = 300;
 /** Until the page is on screen, loaded and settled; later the capture is given up. */
 export const PREVIEW_CHECK_CAPTURE_MS = 2000;
+/**
+ * `reveal` makes a window show the visual only when its tab is the one in front, so a tab behind never gets its page on
+ * screen and the capture gives up on it after this long. A tab in front waits the whole `PREVIEW_CHECK_CAPTURE_MS`
+ * instead: a busy window mounts its panel late (a renderer 4x slower had the page asked for and still not laid out
+ * 450 ms after the tool opened it, and a flat 400 ms dropped the check).
+ */
+export const PREVIEW_CHECK_BEHIND_MS = 400;
 /** The whole check (probe + page + settle + judge) holds the tool's answer at most this long. */
 export const PREVIEW_CHECK_TOTAL_MS = 4000;
 /**
@@ -48,8 +55,13 @@ export interface PreviewCheckDeps {
 	 * no waiting for the page, no capture, so a user with the switch on but no native judge loses no time.
 	 */
 	available(budgetMs: number): Promise<boolean>;
-	/** The visual's own page as a PNG once it is on screen and settled; null when there is none within `budgetMs`. */
-	capture(visualId: string, version: number, budgetMs: number): Promise<PreviewImage | null>;
+	/** Whether the visual's tab is the one its window shows: only then does the window open the Preview for it. */
+	inFront(): boolean;
+	/**
+	 * The visual's own page as a PNG once it is on screen and settled; null when there is none within `budgetMs`, or
+	 * when no window has put it on screen within `appearMs`.
+	 */
+	capture(visualId: string, version: number, budgetMs: number, appearMs: number): Promise<PreviewImage | null>;
 	/** The tab's omp judges the picture; null when the request failed. */
 	judge(image: PreviewImage, budgetMs: number): Promise<PreviewCheckResult | null>;
 	/** Show the quiet notice on the page that shows `version` of the visual. */
@@ -117,7 +129,8 @@ export async function checkVisualPage(
 		try {
 			const available = await withDeadline(deps.available(PREVIEW_CHECK_PROBE_MS), PREVIEW_CHECK_PROBE_MS);
 			if (available !== true || !open) return null;
-			const image = await deps.capture(visualId, version, PREVIEW_CHECK_CAPTURE_MS);
+			const appearMs = deps.inFront() ? PREVIEW_CHECK_CAPTURE_MS : PREVIEW_CHECK_BEHIND_MS;
+			const image = await deps.capture(visualId, version, PREVIEW_CHECK_CAPTURE_MS, appearMs);
 			if (!image || !open) return null;
 			const result = await deps.judge(image, Math.max(0, PREVIEW_CHECK_TOTAL_MS - (Date.now() - started)));
 			if (!open || !result?.judged || !result.problem) return null;
@@ -140,14 +153,17 @@ export async function checkVisualPage(
  */
 export function createTabCheck(options: {
 	enabled: () => boolean;
+	/** Whether the visual's tab is the one its window shows right now. */
+	inFront: () => boolean;
 	pages: Pick<VisualPages, "capture" | "flag">;
 	rpc: Pick<RpcClient, "command"> | null;
 }): (visualId: string, version: number) => Promise<PreviewVerdict | null> {
-	const { enabled, pages, rpc } = options;
+	const { enabled, inFront, pages, rpc } = options;
 	return (visualId, version) =>
 		checkVisualPage(
 			{
 				enabled,
+				inFront,
 				available: async budgetMs => {
 					const response = await rpc?.command({ type: "judge_available" }, budgetMs);
 					return (
@@ -155,7 +171,7 @@ export function createTabCheck(options: {
 						(response.data as { available?: unknown } | undefined)?.available === true
 					);
 				},
-				capture: (id, shown, budgetMs) => pages.capture(id, shown, budgetMs),
+				capture: (id, shown, budgetMs, appearMs) => pages.capture(id, shown, budgetMs, appearMs),
 				judge: async (image, budgetMs) => {
 					const response = await rpc?.command({ type: "judge_preview_check", image }, budgetMs);
 					if (!response?.success) return null;

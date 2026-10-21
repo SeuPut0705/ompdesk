@@ -5,9 +5,10 @@
  * cursor past the stream's end, rebuilds from zero). Deletions are not subtracted, so the document frequencies go
  * slightly stale until the store changes (then the rebuild corrects them).
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+
+import { readFile } from "node:fs/promises";
 import { addConclusionTerms, type RecallTermStats } from "../../../resources/gui-bridge/modes/memory-recall-core";
+import { writeFileAtomic } from "../atomic-file";
 import { type MemoryStore, readConclusions } from "./sync";
 
 const PAGE = 200;
@@ -39,13 +40,13 @@ function parse(raw: string): TermsFile | undefined {
 export class RecallTermsIndex {
 	readonly #store: Pick<MemoryStore, "conclusions">;
 	readonly #file: string;
-	readonly #log: ((message: string, details?: unknown) => void) | undefined;
+	readonly #log: ((message: string, details?: object) => void) | undefined;
 	#running: Promise<void> | undefined;
 
 	constructor(deps: {
 		store: Pick<MemoryStore, "conclusions">;
 		file: string;
-		log?: (message: string, details?: unknown) => void;
+		log?: (message: string, details?: object) => void;
 	}) {
 		this.#store = deps.store;
 		this.#file = deps.file;
@@ -95,10 +96,7 @@ export class RecallTermsIndex {
 				await reads();
 			}
 			if (!changed && saved) return;
-			await mkdir(dirname(this.#file), { recursive: true });
-			const temp = `${this.#file}.${process.pid}.tmp`;
-			await writeFile(temp, JSON.stringify(state), { mode: 0o600 });
-			await rename(temp, this.#file);
+			await writeFileAtomic(this.#file, JSON.stringify(state), { mode: 0o600 });
 		} catch (failure) {
 			this.#log?.("recall-terms-failed", { error: failure instanceof Error ? failure.message : String(failure) });
 		}

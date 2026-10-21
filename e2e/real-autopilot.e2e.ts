@@ -14,11 +14,11 @@ import {
 	setAutopilot,
 	startRun,
 	status,
-	survivors,
 	waitForRunTab,
 	waitForStatus,
 } from "./autopilot-harness";
 import { exitApp } from "./harness";
+import { survivors } from "./process-tree";
 import { field, realOmpProfile, spentIn } from "./real-omp";
 
 // Explicit opt-in (OMP_GUI_REAL_WORK=1): these audits spend model tokens on the user's `smol` role in a private
@@ -383,7 +383,7 @@ test("real omp autopilot: yolo and the tool set are held only while the run live
 	}
 });
 
-test("real omp autopilot guide: the start sheet's draft is one request on the smol role, and its cost", async () => {
+test("real omp autopilot guide: Start's guide is one request on the smol role, with a Release section from the project's facts, and its cost", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(300_000);
 	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
@@ -395,25 +395,40 @@ test("real omp autopilot guide: the start sheet's draft is one request on the sm
 			.poll(() => page.evaluate(() => window.omp.sidecar.getStatus()), { timeout: 60_000 })
 			.toMatchObject({ status: "ready" });
 		const origin = await mainTab(page);
-		// A repository without AUTOPILOT.md: the status says so, and nothing has been asked of a model yet.
+		// The sheet's status asks no model and carries no guide.
 		const idle = await command(page, origin, { type: "get_autopilot" });
-		expect(idle).toMatchObject({ success: true, data: { active: false, guide: { exists: false, text: "" } } });
+		expect(idle).toMatchObject({ success: true, data: { active: false } });
+		expect(field(idle, "data")).not.toHaveProperty("guide");
 		expect(await spentIn(agent)).toEqual({ usd: 0, tokens: 0 });
 
-		const drafted = await setAutopilot(page, origin, { action: "guide_draft" });
-		expect(drafted).toMatchObject({ success: true });
-		const guide = field(field(drafted, "data"), "guide");
+		// What Start asks the bridge for: a repository without AUTOPILOT.md gets one drafted by the smol model.
+		const built = await command(page, origin, {
+			type: "autopilot_bridge",
+			method: "modes.autopilot_guide",
+			params: { root: project, procedure: null },
+		});
+		expect(built).toMatchObject({ success: true });
+		const guide = field(built, "data");
 		const text = String(field(guide, "text"));
 		const cost = field(guide, "cost");
-		const evidence = { draft: field(guide, "draft"), chars: text.length, cost, text };
+		const evidence = {
+			source: field(guide, "source"),
+			release: field(guide, "release"),
+			chars: text.length,
+			cost,
+			text,
+		};
 		await fs.writeFile(path.join(evidenceDir, "guide-draft.json"), JSON.stringify(evidence, null, 2));
 		test.info().annotations.push({ type: "guide-draft-cost", description: JSON.stringify(cost) });
-		// The real smol model answered (not the template), with a usable guide that names the repo's own rule.
-		expect(field(guide, "draft")).toBe("model");
+		// The real smol model answered (not the template), with a usable guide that names the repo's own rule and a
+		// Release section saying what the facts say: no tags, no publish path, so no release.
+		expect(field(guide, "source")).toBe("model");
+		expect(field(guide, "releases")).toBe(false);
 		expect(text).toMatch(/^#/m);
 		expect(text.length).toBeGreaterThan(200);
-		expect(text.length).toBeLessThanOrEqual(5_100);
+		expect(text.length).toBeLessThanOrEqual(8_000);
 		expect(text).toContain("bun test");
+		expect(text).toMatch(/\n## Release\n\s*Releases: no\b/);
 		expect(typeof field(cost, "model")).toBe("string");
 		// Nothing was written anywhere: the checkout still has no AUTOPILOT.md.
 		await expect(fs.access(path.join(project, "AUTOPILOT.md"))).rejects.toThrow();

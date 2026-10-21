@@ -126,15 +126,15 @@ describe("ompdesk_app tiers", () => {
 	it("runs a sensitive action after the card, and without a card when agentControlManage is on and the action lifts", async () => {
 		const ports = new FakePorts();
 		const control = new AppControl(ports);
-		await control.run(CALLER, "settings.cliAutoUpdate", { value: true });
+		await control.run(CALLER, "settings.toolsAutoUpdate", { value: true });
 		expect(ports.cards).toHaveLength(1);
-		expect(ports.prefs.cliAutoUpdate).toBe(true);
+		expect(ports.prefs.toolsAutoUpdate).toBe(true);
 
 		const open = new FakePorts();
 		open.manage = true;
-		await new AppControl(open).run(CALLER, "settings.cliAutoUpdate", { value: true });
+		await new AppControl(open).run(CALLER, "settings.toolsAutoUpdate", { value: true });
 		expect(open.cards).toEqual([]);
-		expect(open.prefs.cliAutoUpdate).toBe(true);
+		expect(open.prefs.toolsAutoUpdate).toBe(true);
 
 		await new AppControl(open).run(CALLER, "updates.check", {});
 		expect(open.invoked).toEqual([{ channel: IPC_COMMANDS.UPDATER_CHECK, args: [] }]);
@@ -319,12 +319,12 @@ describe("undo", () => {
 
 	it("asks the card again to undo a sensitive change", async () => {
 		const ports = new FakePorts();
-		ports.prefs.cliAutoUpdate = false;
+		ports.prefs.toolsAutoUpdate = false;
 		const control = new AppControl(ports);
-		await control.run(CALLER, "settings.cliAutoUpdate", { value: true });
+		await control.run(CALLER, "settings.toolsAutoUpdate", { value: true });
 		ports.approve = false;
 		expect(await refusal(control.run(CALLER, "app.undo", {}))).toContain("declined");
-		expect(ports.prefs.cliAutoUpdate).toBe(true);
+		expect(ports.prefs.toolsAutoUpdate).toBe(true);
 	});
 });
 
@@ -412,7 +412,7 @@ describe("what agents can never reach, by any route", () => {
 				return { text: "" };
 			},
 			escalate: async ctx => {
-				await ctx.setPref("cliAutoUpdate", true);
+				await ctx.setPref("toolsAutoUpdate", true);
 				return { text: "" };
 			},
 		};
@@ -556,7 +556,6 @@ describe("MCP install, pairing and Autopilot", () => {
 			"note",
 			"pause",
 			"resume",
-			"guide_draft",
 			"cancel_ship",
 		])
 			expect(rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");

@@ -27,8 +27,97 @@ export const SUPERVISOR_SPEC_ENV = "OMPDESK_SETUP_SPEC";
 /** Exit code the supervisor reports after it killed the installer for a stdin close. */
 export const SUPERVISOR_STOPPED_CODE = 130;
 
+/**
+ * Ends a process and everything that descends from it on Windows, which has no process group: Toolhelp's process
+ * snapshot names each process's parent (no WMI, which answers "call cancelled" when the machine is loaded, and then
+ * `taskkill /T` kills nothing). `ROOT_PID` is the pid and `STOPPED_AT` the FILETIME the stop was asked at.
+ *
+ * One pass lists the tree and ends it, so a process a member of the tree starts between the listing and its own
+ * end is missed (`taskkill /T` has the same window, hundreds of ms on a loaded machine: a `.cmd` shim's `bun` lived
+ * on with its working folder held, 1 of 40 scheduled-run stops). The walk therefore repeats until two passes in
+ * a row find nothing new. A child of an ended member stays reachable through the parent pid it carries, and a
+ * process is only taken for a member when it was born after its parent (pids are reused). The root counts only
+ * when it was born before the stop was asked for: nothing born later can be it.
+ *
+ * P/Invoke through a dynamic assembly (no `Add-Type`, whose C# compile costs 1 to 3 s a run) with pointers only,
+ * so a `PROCESSENTRY32W` is read at its offsets (pid 8, parent 32). A failure exits non-zero and the caller falls
+ * back to taskkill.
+ */
+const TREE_SWEEP_SCRIPT = [
+	"$ErrorActionPreference = 'Stop'",
+	"$ProgressPreference = 'SilentlyContinue'",
+	"$root = ROOT_PID",
+	"$stoppedAt = STOPPED_AT",
+	"$builder = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'Sweep'), [Reflection.Emit.AssemblyBuilderAccess]::Run)",
+	"$type = $builder.DefineDynamicModule('Sweep').DefineType('Native', 'Public,Class')",
+	"function Import($name, $result, $parameters) {",
+	"  $method = $type.DefinePInvokeMethod($name, 'kernel32.dll', 'Public,Static,PinvokeImpl', 'Standard', $result, $parameters, 'Winapi', 'Auto')",
+	"  $method.SetImplementationFlags('PreserveSig')",
+	"}",
+	"$time = [long].MakeByRefType()",
+	"Import CreateToolhelp32Snapshot ([IntPtr]) @([uint32], [uint32])",
+	"Import Process32FirstW ([bool]) @([IntPtr], [IntPtr])",
+	"Import Process32NextW ([bool]) @([IntPtr], [IntPtr])",
+	"Import OpenProcess ([IntPtr]) @([uint32], [bool], [uint32])",
+	"Import GetProcessTimes ([bool]) @([IntPtr], $time, $time, $time, $time)",
+	"Import TerminateProcess ([bool]) @([IntPtr], [uint32])",
+	"Import CloseHandle ([bool]) @([IntPtr])",
+	"$native = $type.CreateType()",
+	"$marshal = [Runtime.InteropServices.Marshal]",
+	"$entry = $marshal::AllocHGlobal(568)",
+	"function Parents {",
+	"  $parents = @{}",
+	"  $snapshot = $native::CreateToolhelp32Snapshot(2, 0)",
+	"  $marshal::WriteInt32($entry, 0, 568)",
+	"  for ($more = $native::Process32FirstW($snapshot, $entry); $more; $more = $native::Process32NextW($snapshot, $entry)) {",
+	"    $parents[$marshal::ReadInt32($entry, 8)] = $marshal::ReadInt32($entry, 32)",
+	"  }",
+	"  [void]$native::CloseHandle($snapshot)",
+	"  $parents",
+	"}",
+	"function Born($id) {",
+	"  $handle = $native::OpenProcess(0x1000, $false, $id)",
+	"  if ($handle -eq [IntPtr]::Zero) { return $null }",
+	"  $born = 0L; $other = 0L",
+	"  $ok = $native::GetProcessTimes($handle, [ref]$born, [ref]$other, [ref]$other, [ref]$other)",
+	"  [void]$native::CloseHandle($handle)",
+	"  if ($ok) { $born }",
+	"}",
+	"$rootBorn = Born $root",
+	"if ($null -eq $rootBorn -or $rootBorn -ge $stoppedAt) { exit 0 }",
+	"$members = @{ $root = $rootBorn }",
+	"$next = @($root)",
+	"$clock = [Diagnostics.Stopwatch]::StartNew()",
+	"$quiet = 0",
+	"while ($quiet -lt 2 -and $clock.Elapsed.TotalSeconds -lt 15) {",
+	"  foreach ($id in $next) {",
+	"    $handle = $native::OpenProcess(1, $false, $id)",
+	"    if ($handle -ne [IntPtr]::Zero) { [void]$native::TerminateProcess($handle, 1); [void]$native::CloseHandle($handle) }",
+	"  }",
+	"  Start-Sleep -Milliseconds 50",
+	"  $parents = Parents",
+	"  $next = @()",
+	"  do {",
+	"    $grew = $false",
+	"    foreach ($id in @($parents.Keys)) {",
+	"      if ($members.ContainsKey($id) -or -not $members.ContainsKey($parents[$id])) { continue }",
+	"      $born = Born $id",
+	"      if ($null -eq $born -or $born -lt $members[$parents[$id]]) { continue }",
+	"      $holder = Born $parents[$id]",
+	"      if ($null -ne $holder -and $holder -ne $members[$parents[$id]] -and $born -gt $holder) { continue }",
+	"      $members[$id] = $born",
+	"      $next += $id",
+	"      $grew = $true",
+	"    }",
+	"  } while ($grew)",
+	"  if ($next.Count -eq 0) { $quiet++ } else { $quiet = 0 }",
+	"}",
+	"exit 0",
+].join("\n");
+
 export const SUPERVISOR_SOURCE = `
 const { spawn } = require("node:child_process");
+const TREE_SWEEP_SCRIPT = ${JSON.stringify(TREE_SWEEP_SCRIPT)};
 const fs = require("node:fs");
 const spec = JSON.parse(process.env.${SUPERVISOR_SPEC_ENV});
 delete process.env.${SUPERVISOR_SPEC_ENV};
@@ -36,6 +125,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 const windows = process.platform === "win32";
 const log = spec.log || null;
 let stopping = false;
+let exited = false;
 let child;
 function dropLog() {
 	if (log) try { fs.unlinkSync(log.path); } catch {}
@@ -53,11 +143,31 @@ try {
 	process.stderr.write(String(error && error.message ? error.message : error) + "\\n");
 	process.exit(127);
 }
+let sweeping = null;
+function sweepTree() {
+	const stoppedAt = (BigInt(Date.now()) * 10000n + 116444736000000000n).toString();
+	const script = TREE_SWEEP_SCRIPT.replace("ROOT_PID", String(child.pid)).replace("STOPPED_AT", stoppedAt);
+	const encoded = Buffer.from(script, "utf16le").toString("base64");
+	const { promise, resolve: done } = Promise.withResolvers();
+	sweeping = promise;
+	// Without PowerShell's reflection (a locked-down machine) or its start, taskkill walks the tree through WMI, and
+	// with WMI down it exits 1 and kills nothing: the shim dies at best and the omp under it runs on, holding its
+	// folder. That is the last resort, so a failed taskkill ends the shim itself.
+	const fallBack = () => {
+		if (exited) return done();
+		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+		killer.on("error", () => { child.kill(); done(); });
+		killer.on("exit", code => { if (code !== 0) child.kill(); done(); });
+	};
+	const walker = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { stdio: "ignore", windowsHide: true });
+	const hung = setTimeout(() => walker.kill(), 20000);
+	walker.on("error", () => { clearTimeout(hung); fallBack(); });
+	walker.on("exit", code => { clearTimeout(hung); if (code === 0) done(); else fallBack(); });
+}
 function killTree(signal) {
 	if (!child.pid) return;
 	if (windows) {
-		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		killer.on("error", () => child.kill());
+		if (!exited && !sweeping) sweepTree();
 		return;
 	}
 	try { process.kill(-child.pid, signal); } catch {}
@@ -80,14 +190,18 @@ child.on("error", error => {
 	process.exit(127);
 });
 child.on("exit", (code, signal) => {
+	exited = true;
 	// A descendant that outlived the installer goes with its group.
 	if (!windows) killTree("SIGKILL");
 	const status = stopping ? ${SUPERVISOR_STOPPED_CODE} : code === null ? 1 : code;
 	let text = "";
 	if (log) try { text = fs.readFileSync(log.path, "utf8"); } catch {}
 	dropLog();
-	if (text) process.stdout.write(text, () => process.exit(status));
-	else process.exit(status);
+	// The shim ending is not the tree ending: what it started may still be going, and the sweep goes on until the tree is gone.
+	Promise.resolve(sweeping).then(() => {
+		if (text) process.stdout.write(text, () => process.exit(status));
+		else process.exit(status);
+	});
 });
 `;
 

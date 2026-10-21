@@ -139,9 +139,9 @@ describe("a web page's device preferences", () => {
 	});
 
 	it("removes a key set to undefined and reads it back as unset", async () => {
-		const { web, device } = rig({ device: { fontSize: 14, workBoard: false } });
+		const { web, device } = rig({ device: { fontSize: 14, codeLineNumbers: false } });
 		await web.api.prefs.set("fontSize", undefined);
-		expect(device.prefs).toEqual({ workBoard: false });
+		expect(device.prefs).toEqual({ codeLineNumbers: false });
 		expect(await web.api.prefs.get("fontSize")).toBeUndefined();
 	});
 
@@ -151,8 +151,8 @@ describe("a web page's device preferences", () => {
 		device.failNext = true;
 		await expect(web.api.prefs.set("fontSize", 18)).rejects.toThrow("too large");
 		expect(await web.api.prefs.get("fontSize")).toBe(14);
-		await web.api.prefs.set("workBoard", false);
-		expect(device.prefs).toEqual({ fontSize: 14, workBoard: false });
+		await web.api.prefs.set("codeLineNumbers", false);
+		expect(device.prefs).toEqual({ fontSize: 14, codeLineNumbers: false });
 	});
 
 	it("reads the record again at each whole-store read, so a reconnect shows what another visit saved", async () => {

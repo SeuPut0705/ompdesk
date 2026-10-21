@@ -80,6 +80,24 @@ describe("detectReleaseProcedure", () => {
 		expect(await detectReleaseProcedure(await repo({}))).toBeNull();
 	});
 
+	it("reads AUTOPILOT.md's Release section when no rules file names a procedure, never one that says it does not release", async () => {
+		const guide = "# Autopilot guide\n\n## Release cadence\n\nOften.\n\n## Release\n\nReleases: yes\n1. Tag it.\n";
+		expect(await detectReleaseProcedure(await repo({ "AUTOPILOT.md": guide }))).toEqual({
+			file: "AUTOPILOT.md",
+			anchors: ["Release"],
+		});
+		expect(
+			await detectReleaseProcedure(await repo({ "AUTOPILOT.md": "# G\n\n## Release\n\nReleases: no\n- none\n" })),
+		).toBeNull();
+		expect(
+			await detectReleaseProcedure(await repo({ "AUTOPILOT.md": "# G\n\n## Release cadence\n\nOften.\n" })),
+		).toBeNull();
+		// A rules file wins over the guide.
+		expect(
+			await detectReleaseProcedure(await repo({ "AUTOPILOT.md": guide, "AGENTS.md": "## Releasing\nx\n" })),
+		).toEqual({ file: "AGENTS.md", anchors: ["Releasing"] });
+	});
+
 	it("finds this repository's own Change workflow and Release sections", async () => {
 		const found = await detectReleaseProcedure(resolve(__dirname, "../.."));
 		expect(found?.file).toBe("AGENTS.md");

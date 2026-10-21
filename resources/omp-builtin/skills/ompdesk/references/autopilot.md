@@ -15,7 +15,7 @@ Starts, reads and stops an Autopilot run: an unattended loop that keeps improvin
 - A run on a paired device is that device's: its worktree, checks and shipping run there, and it opens here as a session of yours that shows the device's run.
 - `ship`: `commit` (local commits only), `push` (push each green cycle) or `release` (also publishes versions). Omitted: `commit`.
 - `branch`: `{"kind":"new","name":"..."}` or `{"kind":"existing","name":"..."}`. Omitted: a new `autopilot/<date>` branch.
-- `guide`: AUTOPILOT.md text committed as the branch's first commit. `advanced`: `focus`, `parallel`, `cadence` (with release), `remote`, `backlog`, `limits`; anything omitted keeps the Autopilot sheet's defaults.
+- `guide`: AUTOPILOT.md text committed as the branch's first commit. Omitted: the repo's own AUTOPILOT.md, else one OMPdesk builds from the repository; either way a missing Release section is added from the project's release facts. `advanced`: `focus`, `parallel`, `cadence` (with release), `remote`, `backlog`, `limits`; anything omitted keeps the Autopilot sheet's defaults.
 - The run opens as a session you started; the answer names its id. Do not message it.
 
 ## Cards

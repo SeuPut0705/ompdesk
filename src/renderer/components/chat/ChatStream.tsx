@@ -78,6 +78,7 @@ import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { estimateRowSize, RowSizeLearner, rowSizeKey } from "./transcript-row-estimate";
+import { ChildrenAtWork, useHasChildrenAtWork } from "./work/ChildrenAtWork";
 import { REVEAL_STEP_EVENT, type RevealStepRequest, revealStep, type StepReveal } from "./work/reveal-step";
 import { StepGroups, useMountedCount } from "./work/StepGroups";
 import { messageTimestampMs } from "./work/work-turn";
@@ -159,6 +160,7 @@ function SessionTranscript() {
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const pendingMail = useSessionStore(s => s.pendingMail);
+	const childrenAtWork = useHasChildrenAtWork();
 	const awaitingConnection = useAwaitingConnection();
 	const resuming = useResuming();
 	const status = useSessionStore(s => s.status);
@@ -239,7 +241,9 @@ function SessionTranscript() {
 		retryInfo != null ||
 		compactionInfo != null ||
 		pendingMail.length > 0 ||
-		(isStreaming && awaitingModelSince != null && !hasStreamedContent);
+		(isStreaming && awaitingModelSince != null && !hasStreamedContent) ||
+		// Between turns, the sessions this one opened still at work: what each is doing.
+		(!isStreaming && childrenAtWork);
 	// While a turn runs, its work stays ONE disclosure: the latest finalized
 	// work row absorbs the streaming message's steps (and keeps the spinner
 	// between steps) instead of a second live group mounting per step, so the
@@ -1159,6 +1163,9 @@ function SessionTranscript() {
 											<>
 												<TurnStatusRow attached={liveTail} />
 												<PendingMailNotes />
+												{isStreaming ? null : (
+													<ChildrenAtWork className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge)" />
+												)}
 											</>
 										)}
 									</div>

@@ -63,10 +63,9 @@ export async function timedBridgeRequest<T>(
 	budgetMs = DEFAULT_TIMEOUT_MS,
 	log: (breakdown: SlowCallBreakdown) => void = breakdown =>
 		writeRuntimeLog({
-			level: "warn",
 			source: "slow-bridge-call",
 			message: `${method} ${breakdown.stage === "timeout" ? `passed its ${budgetMs} ms timeout` : `ended ${breakdown.stage}`}`,
-			details: breakdown,
+			details: { level: "warn", ...breakdown },
 		}),
 ): Promise<T> {
 	const startedAt = Date.now() - (ctx.sidecar?.contextWaitMs ?? 0);

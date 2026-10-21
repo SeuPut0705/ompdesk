@@ -99,6 +99,24 @@ describe("UpdateWatcher", () => {
 		expect(watcher.available).toBe(false);
 	});
 
+	it("is not available when the worker that finished installing is already the page's controller (WebKit's order)", () => {
+		// Recorded on a hosted runner's WebKit right after pairing (nightly 39533946034): at the first install's
+		// "installed" event the registration still named the worker `waiting` and the page's controller was that same
+		// worker; "activating" and `controllerchange` came in the same millisecond. Nothing older is replaced.
+		const registration = new FakeRegistration();
+		const container = new FakeContainer();
+		container.controller = null;
+		const watcher = new UpdateWatcher(registration, container, () => {});
+		const worker = new FakeWorker();
+		registration.found(worker);
+		registration.waiting = worker;
+		container.controller = worker;
+		worker.become("installed");
+		expect(watcher.available).toBe(false);
+		// A page that loads in that moment sees the same pair: no update either.
+		expect(new UpdateWatcher(registration, container, () => {}).available).toBe(false);
+	});
+
 	it("becomes available when a new worker finishes installing, and tells listeners", () => {
 		const registration = new FakeRegistration();
 		const watcher = new UpdateWatcher(registration, new FakeContainer(), () => {});

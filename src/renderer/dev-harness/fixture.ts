@@ -13,7 +13,8 @@ import type {
 	RpcSessionState,
 	SessionStats,
 } from "../../shared/rpc-types";
-import { BOARD_BUSY, boardTurnMessages } from "./fixture-board";
+import type { SidebarProjectsState } from "../../shared/sidebar-projects";
+import { BOARD_BUSY, boardTurnMessages, CHILDREN_WAIT } from "./fixture-board";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
 const MINUTE = 60_000;
@@ -87,6 +88,33 @@ export const sessionsFixture = (): SessionInfo[] =>
 		firstMessage: seed.title,
 	}));
 
+/**
+ * This computer's project list (src/main/sidebar-projects.ts): the session folders, and with `?projects=1` an empty
+ * project the person just opened and one whose folder is gone, as the sidebar shows them.
+ */
+export const projectsFixture = (): SidebarProjectsState => {
+	const extra =
+		typeof location !== "undefined" && new URLSearchParams(location.search).get("projects") === "1"
+			? [
+					{ path: "/Users/dev/projects/api", addedAt: NOW },
+					{
+						path: "/Users/dev/projects/old-prototype",
+						addedAt: NOW - 30 * 24 * 60 * MINUTE,
+						missing: true as const,
+					},
+				]
+			: [];
+	return {
+		projects: [
+			{ path: PROJECT, addedAt: NOW - 3 * 60 * MINUTE },
+			{ path: OTHER_PROJECT, addedAt: NOW - 4 * 60 * MINUTE },
+			...extra,
+		],
+		removed: [],
+		worktrees: {},
+	};
+};
+
 export const MODEL = {
 	provider: "anthropic",
 	id: "claude-sonnet-5-5",
@@ -94,6 +122,28 @@ export const MODEL = {
 	contextWindow: 1_000_000,
 	maxTokens: 64_000,
 };
+
+/**
+ * `?todos=mixed`: a plan whose agent finished some steps out of order (the user's report: done steps after the one in
+ * progress), so the board's todo section shows how it folds finished steps wherever they sit.
+ */
+const MIXED_TODOS: Array<[string, "completed" | "in_progress" | "pending"]> | null =
+	typeof location !== "undefined" && new URLSearchParams(location.search).get("todos") === "mixed"
+		? [
+				["Read the board's code", "completed"],
+				["Reproduce the report", "completed"],
+				["Write the failing test", "completed"],
+				["Fold every finished step", "in_progress"],
+				["Update the harness", "completed"],
+				["Capture before and after", "completed"],
+				["Run the checks", "pending"],
+				["Update AGENTS.md", "completed"],
+				["Commit the test", "completed"],
+				["Commit the fix", "pending"],
+				["Push to main", "pending"],
+				["Report back", "pending"],
+			]
+		: null;
 
 export function stateFixture(tabId: string): RpcSessionState {
 	const seed = SEEDS.find(candidate => candidate.tabId === tabId) ?? SEEDS[0];
@@ -118,16 +168,23 @@ export function stateFixture(tabId: string): RpcSessionState {
 		autoRetryEnabled: true,
 		messageCount: seed.messageCount,
 		queuedMessageCount: 0,
-		todoPhases: [
-			{
-				name: "Fix the test",
-				tasks: [
-					{ content: "Reproduce the flake", status: "completed" },
-					{ content: "Wait for the row to mount before asserting", status: "in_progress" },
-					{ content: "Run the sidebar suite ten times", status: "pending" },
+		todoPhases: MIXED_TODOS
+			? [
+					{
+						name: "Ship the board",
+						tasks: MIXED_TODOS.map(([content, status]) => ({ content, status })),
+					},
+				]
+			: [
+					{
+						name: "Fix the test",
+						tasks: [
+							{ content: "Reproduce the flake", status: "completed" },
+							{ content: "Wait for the row to mount before asserting", status: "in_progress" },
+							{ content: "Run the sidebar suite ten times", status: "pending" },
+						],
+					},
 				],
-			},
-		],
 		contextUsage: { tokens: 38_400, contextWindow: 1_000_000, percent: 3.8 },
 		planModeEnabled: false,
 		agentsPaused: false,
@@ -380,7 +437,8 @@ export function entriesFor(tabId: string): Entry[] {
 		...entriesFixture(tabId).map(entry => entry.message),
 		...(params.has("stress") ? stressMessages(NOW - 20 * MINUTE) : []),
 		...(params.has("mail") ? mailMessages(NOW - 10 * MINUTE) : []),
-		...(BOARD_BUSY ? boardTurnMessages(NOW - 8 * MINUTE) : []),
+		// The live wait (`&children=wait`) is the turn running now: its clock reads from real time, not the fixture's day.
+		...(BOARD_BUSY ? boardTurnMessages(CHILDREN_WAIT ? Date.now() - 3 * MINUTE : NOW - 8 * MINUTE) : []),
 	];
 	return all.map((message, index) => ({
 		type: "message",

@@ -13,10 +13,10 @@
  * hook, because a crash or SIGKILL runs no hooks: the marker file already says
  * what was running. Electron-free (the pool and the clock are injected).
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
+import { writeFileAtomicDeferred } from "./atomic-file";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import type { SidecarLike } from "./sidecar-types";
@@ -194,13 +194,20 @@ export function retryDelays(raw: string | undefined): readonly number[] {
 	return parsed.length > 0 && parsed.every(ms => Number.isFinite(ms) && ms > 0) ? parsed : SCHEDULED_RETRY_DELAYS_MS;
 }
 
-/** The marker file: one JSON array, replaced atomically so a kill mid-write leaves the old one whole. */
+/**
+ * The marker file: one JSON array, replaced atomically so a kill mid-write leaves the old one whole
+ * (`writeFileAtomicDeferred`: a write Windows refuses is tried again, because a running turn has no later transition
+ * to write it again). `onFailure` hears of one that never went through.
+ */
 export class InterruptedTurnStore {
 	readonly #file: string;
+	readonly #onFailure: ((error: unknown) => void) | undefined;
 	#written: string | null = null;
+	#cancel: (() => void) | undefined;
 
-	constructor(file: string) {
+	constructor(file: string, onFailure?: (error: unknown) => void) {
 		this.#file = file;
+		this.#onFailure = onFailure;
 	}
 
 	read(): ResumeMarker[] {
@@ -221,15 +228,12 @@ export class InterruptedTurnStore {
 		const text = JSON.stringify(markers);
 		if (text === this.#written) return;
 		this.#written = text;
-		const temp = `${this.#file}.tmp`;
-		try {
-			mkdirSync(dirname(this.#file), { recursive: true });
-			writeFileSync(temp, text);
-			renameSync(temp, this.#file);
-		} catch {
-			// The next transition writes again; a marker that cannot be saved must not break the run.
+		this.#cancel?.();
+		this.#cancel = writeFileAtomicDeferred(this.#file, text, {}, error => {
+			// The next change writes again; a marker that cannot be saved must not break the run.
 			this.#written = null;
-		}
+			this.#onFailure?.(error);
+		});
 	}
 }
 

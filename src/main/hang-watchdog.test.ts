@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { hangMarkerPath, reportPreviousHang } from "./hang-watchdog";
 import { writeHangMarker } from "./hang-watchdog-core";
-import { appendRuntimeLogAtPath } from "./runtime-log-core";
+import { appendRuntimeLogAtPath, type RuntimeLogReport } from "./runtime-log-core";
 
 const mocks = vi.hoisted(() => ({ userData: { dir: "" } }));
 
@@ -18,7 +18,7 @@ vi.mock("electron", () => ({
 	powerMonitor: { on: () => {}, off: () => {} },
 }));
 vi.mock("./runtime-log", () => ({
-	writeRuntimeLog: (report: unknown) =>
+	writeRuntimeLog: (report: RuntimeLogReport) =>
 		appendRuntimeLogAtPath(path.join(mocks.userData.dir, "gui-runtime.jsonl"), report, {
 			appVersion: "0.44.0",
 			platform: "win32",

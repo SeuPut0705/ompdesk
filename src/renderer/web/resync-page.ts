@@ -6,7 +6,7 @@
  * - the tab list, as the whole truth (`reconcileTabs({dropUnlisted})`: a restarted host gave its tabs new ids);
  * - every visible tab's session: state, transcript tail, queue, subagents, goal and settings (`hydrateTabSession`
  *   merges into what is shown and runs while a reply streams); a background tab reads its own when shown;
- * - the asks and approvals main still holds (`settleTabExtensionUiRequests`: missed ones appear, answered ones go);
+ * - the status texts, widgets and title the tabs show, and the asks and approvals main still holds (`settleTabExtensionUiRequests`: missed ones appear, answered ones go);
  * - the paired-host snapshot, the sessions paired devices' tabs run on the computer and the shown session lists;
  * - each visible tab's opened sessions (`agent_control_review`): main's pushes of that list were lost with the socket,
  *   and a phone holds no tab of those sessions, so the list is all its board and strip have of them.
@@ -18,7 +18,12 @@ import { useAgentReviewStore } from "../stores/agent-review";
 import { loadHostedSessions } from "../stores/hosted-sessions";
 import { loadRemoteState } from "../stores/remote";
 import { refreshHeldSessionLists } from "../stores/session-list";
-import { settleTabExtensionUiRequests, useTabsStore, visibleTabIds } from "../stores/tabs";
+import {
+	restoreTabExtensionUiRequests,
+	settleTabExtensionUiRequests,
+	useTabsStore,
+	visibleTabIds,
+} from "../stores/tabs";
 
 /** False when the host could not list the tabs (the link dropped again): the pass is tried again. */
 export async function resyncPage(): Promise<boolean> {
@@ -28,13 +33,15 @@ export async function resyncPage(): Promise<boolean> {
 		const status = state.tabs.find(tab => tab.id === tabId)?.status;
 		return status === "ready" || status === "running" ? [hydrateTabSession(tabId)] : [];
 	});
-	const [open] = await Promise.all([
+	const [open, shown] = await Promise.all([
 		window.omp.ui.openRequests(),
+		window.omp.ui.shownState(),
 		loadRemoteState(),
 		loadHostedSessions(),
 		...visibleTabIds(state).map(tabId => useAgentReviewStore.getState().refresh(tabId)),
 		...sessions,
 	]);
+	restoreTabExtensionUiRequests(shown);
 	settleTabExtensionUiRequests(open);
 	refreshHeldSessionLists();
 	return true;

@@ -460,7 +460,7 @@ describe("AgentControlRuntime", () => {
 				return ok({
 					active: false,
 					ship: { policy: { autoPush: true, autoRelease: { on: false }, remote: "origin" }, queue: [] },
-					branches: { repo: "/h/repo", remote: "origin", defaultBranch: "trunk", suggested: "x", branches: [] },
+					branches: { repo: "/h/repo", remote: "origin", defaultBranch: "trunk", current: "trunk" },
 				});
 			if (command.type === "set_autopilot" && command.action === "start")
 				return ok({ active: true, state: "running", tabId: "hostrun9", sessionPath: "/h/sessions/run.jsonl" });

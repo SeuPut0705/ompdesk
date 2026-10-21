@@ -41,6 +41,7 @@ import {
 	PREVIEW_VISUALS,
 } from "../../shared/preview";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE } from "../../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "../../shared/sidebar-projects";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -92,6 +93,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.RPC_COMMAND_FOR_TAB]: never(RAW_RPC),
 	[C.EXTENSION_UI_RESPOND]: never(CARDS),
 	[C.EXTENSION_UI_OPEN]: never(CARDS),
+	[C.EXTENSION_UI_STATE]: never(CARDS),
 	[C.SESSIONS_LIST]: read("sessions.saved"),
 	[C.SESSIONS_DELETE]: sensitive("sessions.delete"),
 	[C.SESSIONS_RENAME]: change("sessions.rename"),
@@ -201,6 +203,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.EXTENSION_UPDATE_NOW]: never(OPERATOR),
 	[SCHEDULES_COMMAND]: never(OPERATOR),
 	[SCHEDULES_LOG]: never(DENY),
+	[SIDEBAR_PROJECTS_COMMAND]: never(DENY),
 	[SSH_TOOLS_COMMAND]: never(OPERATOR),
 	[SSH_TOOLS_AGENT]: never(DENY),
 	[SSH_TOOLS_PROMPTS]: never(DENY),
@@ -230,7 +233,6 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.REMOTE_SET_KEEP_AWAKE]: never(OPERATOR),
 	[C.REMOTE_REVOKE_PEER]: never(OPERATOR),
 	[C.REMOTE_BLOCK_PEER]: sensitive("remote.block"),
-	[C.REMOTE_SET_CONFIRM_NEW_DEVICES]: never(OPERATOR),
 	[C.REMOTE_SET_PEER_LIMITS]: never(OPERATOR),
 	[C.REMOTE_WATCH_TAILNET]: read("remote.list_tailnet"),
 	[C.REMOTE_CONNECT]: sensitive("remote.connect"),
@@ -272,6 +274,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.HOST_OMP_UPDATE_STATE]: never(PUSH),
 	[E.DISK_CARE_STATE]: never(PUSH),
 	[E.HOST_SCHEDULES_STATE]: never(PUSH),
+	[SIDEBAR_PROJECTS_STATE]: never(PUSH),
 	[E.CLI_UPDATE_STATE]: never(PUSH),
 	[E.EXTENSION_UPDATE_STATE]: never(PUSH),
 	[E.GITHUB_AUTH_STATE]: never(PUSH),

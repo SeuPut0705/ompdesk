@@ -43,13 +43,15 @@ on:
         type: boolean
         default: false
 
-# A newer release push to main supersedes a release run still going (its tag
-# is then cut by the newer run); a manual dispatch queues behind a running one.
+# A later push never cancels a release run: a push that touches package.json
+# while one is going waits for it, so no run stops half way through `publish`.
+# The waiting run then finds the tag cut and ends after `prepare`, or releases
+# the newer version; a newer waiting run replaces an older waiting one.
 # Failed jobs never cancel their independent siblings: `gh run rerun --failed`
 # then reruns only what failed.
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

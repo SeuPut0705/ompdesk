@@ -1398,11 +1398,13 @@ html[data-input="touch"] .settings-content :is(div, span, h2, h3).flex:has(> [da
 	min-height: 36px;
 }
 
-/* A section's actions (Reset all shortcuts, Refresh, Add custom endpoint…) wrap under its title on a narrow screen,
+/* A section's actions (Refresh, Add custom endpoint, New schedule…) wrap under its title on a narrow screen,
    4 px below the title line: on touch they sit 20 px below it and reach 7 px up and down (a 24 px button is a 36 px
-   target), so the title's info glyph keeps its line and the list under the head keeps its own taps. */
+   target), so the title's info glyph keeps its line. The head stands 12 px above the first row, so that 7 px reach
+   never takes a tap meant for the row's switch under it. */
 html[data-input="touch"] [data-settings-section-head] {
 	row-gap: 20px;
+	margin-bottom: var(--sc-space-3);
 	--hit-gap-y: 14px;
 }
 
@@ -1438,10 +1440,11 @@ html[data-input="touch"] :is([data-context-actions]:not(.flex-col), div:has(> [d
 /* Settings' clusters of buttons on one line (a schedule's Stop / Run now / ⋯, Preview beside Save diagnostic bundle,
    the copy buttons of the addresses) sit 10 px apart on touch, each reach ending half way to its neighbour; a 24 px
    button reaches 7 px up and down (a 36 px target) and a cluster that wraps keeps its rows 14 px apart for that. The
-   Memory reader's actions and a section head's actions keep their own spacing. */
+   Memory reader's actions, a section head's actions and the shortcuts toolbar (an info glyph 20 px from its button)
+   keep their own spacing. */
 html[data-input="touch"]
 	.settings-content
-	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-settings-section-head] > *):has(
+	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-hotkeys-toolbar], [data-settings-section-head] > *):has(
 		> button + button
 	) {
 	gap: 14px 10px;
@@ -1608,9 +1611,11 @@ html[data-shell]
 	--hit-gap-y: 0px;
 }
 
-/* The rows holding those controls grow with them: a host's header and a host folder's row were `h-8` boxes whose
+/* The rows holding those controls grow with them: a device's header and a host folder's row were `h-8` boxes whose
    36 px buttons hung 2–4 px into the next row and took its taps. */
-html[data-shell] .omp-session-sidebar :is([data-device-state] > div:first-child, [data-device-group] > div:first-child) {
+html[data-shell]
+	.omp-session-sidebar
+	:is([data-device-state] > div:first-child, [data-device-group] > div:first-child, [data-sidebar-device-header]) {
 	height: auto;
 	min-height: 36px;
 }

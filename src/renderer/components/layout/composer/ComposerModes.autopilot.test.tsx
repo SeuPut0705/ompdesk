@@ -10,7 +10,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type {
 	AutopilotAction,
-	AutopilotBranchEntry,
 	AutopilotBranchInfo,
 	AutopilotStatus,
 } from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
@@ -225,8 +224,8 @@ describe("Autopilot start sheet", () => {
 		const count = (selector: string) => document.querySelectorAll(`[data-autopilot-sheet] ${selector}`).length;
 		// Descriptions ride tooltips; the only paragraph left sits inside the closed ceilings disclosure.
 		expect(count("p:not(details p)")).toBe(0);
-		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(4);
-		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(4);
+		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(3);
+		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(3);
 		expect($("[data-autopilot-warning] .truncate")?.textContent).toBe(translate("autopilot.sheet.warningShort"));
 		// The release procedure is a glyph with the sentence as its name, not a line of text.
 		expect($("button[data-autopilot-no-procedure]")?.getAttribute("aria-label")).toBe(
@@ -236,18 +235,11 @@ describe("Autopilot start sheet", () => {
 		expect($("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
-	it("shows only the guide and Start with Advanced closed; shipping, branch, focus and backlog sit in that one disclosure", async () => {
+	it("shows only Start with Advanced closed; shipping, branch, focus and backlog sit in that one disclosure, and no guide box", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
-			guide: { exists: true, text: "# Ours\n" },
-			branches: {
-				repo: "/work/app",
-				remote: "origin",
-				defaultBranch: "main",
-				suggested: "autopilot/2026-10-18",
-				branches: [{ name: "main", local: true, remote: true, default: true, current: false }],
-			},
+			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
 		});
 		await mount(<ComposerModes />);
 		await openSheet();
@@ -259,8 +251,8 @@ describe("Autopilot start sheet", () => {
 		const outside = rows.filter(row => !row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
 		const inside = rows.filter(row => row.closest("[data-settings-advanced]")).map(row => row.textContent ?? "");
 		const has = (list: string[], key: string) => list.some(text => text.includes(translate(key)));
-		expect(outside).toHaveLength(1);
-		expect(has(outside, "autopilot.sheet.guide")).toBe(true);
+		expect(outside).toHaveLength(0);
+		expect(sheet.querySelector("[data-autopilot-guide]")).toBeNull();
 		for (const key of [
 			"autopilot.sheet.ship",
 			"autopilot.sheet.branch",
@@ -270,7 +262,7 @@ describe("Autopilot start sheet", () => {
 			expect(has(inside, key), `${key} inside`).toBe(true);
 		}
 		// Nothing to cap or limit: no parallel picker, no notifications, no ceilings, no remote field.
-		expect(sheet.querySelectorAll("select")).toHaveLength(1);
+		expect(sheet.querySelectorAll("select")).toHaveLength(0);
 		expect(sheet.querySelectorAll("input[type='number']")).toHaveLength(0);
 		expect($("button[data-autopilot-start]")).not.toBeNull();
 	});
@@ -279,14 +271,7 @@ describe("Autopilot start sheet", () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
-			guide: { exists: true, text: "# Ours\n" },
-			branches: {
-				repo: "/work/app",
-				remote: "origin",
-				defaultBranch: "main",
-				suggested: "autopilot/2026-10-18",
-				branches: [{ name: "main", local: true, remote: true, default: true, current: false }],
-			},
+			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
 		});
 		await mount(<ComposerModes />);
 		await openSheet();
@@ -297,31 +282,19 @@ describe("Autopilot start sheet", () => {
 		);
 	});
 
-	it("changes no layout on blur: the guide box and the Branch name keep their rows and the sheet its row count", async () => {
+	it("changes no layout on blur: the backlog box keeps its rows and the sheet its row count", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
-			guide: { exists: true, text: "# Ours\n" },
-			branches: {
-				repo: "/work/app",
-				remote: "origin",
-				defaultBranch: "main",
-				suggested: "autopilot/2026-10-18",
-				branches: [{ name: "main", local: true, remote: true, default: true, current: false }],
-			},
+			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
 		});
 		await mount(<ComposerModes />);
 		await openSheet();
 		const sheet = $("[data-autopilot-sheet]") as unknown as Element;
-		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement;
-		const name = $("input[data-autopilot-branch-name]") as unknown as HTMLInputElement;
+		const box = sheet.querySelector("textarea") as unknown as HTMLTextAreaElement;
 		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
 		const before = { rows: box.getAttribute("rows"), count: sheet.querySelectorAll("[data-setting-row]").length };
-		for (const field of [box, name]) {
-			await act(async () =>
-				handlersOf(field as unknown as HTMLTextAreaElement).onBlur?.({ target: field, currentTarget: field }),
-			);
-		}
+		await act(async () => handlersOf(box).onBlur?.({ target: box, currentTarget: box }));
 		expect(box.getAttribute("rows")).toBe(before.rows);
 		expect(sheet.querySelectorAll("[data-setting-row]")).toHaveLength(before.count);
 		expect(sheet.querySelector("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
@@ -386,288 +359,79 @@ describe("Autopilot start sheet", () => {
 		return (key ? record[key] : {}) as FieldHandlers;
 	}
 
-	async function typeInto(selector: string, value: string): Promise<void> {
-		const element = document.querySelector(selector) as unknown as HTMLTextAreaElement;
-		Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value")?.set?.call(element, value);
-		await act(async () => handlersOf(element).onChange?.({ target: element, currentTarget: element }));
-	}
-
-	function draftOnRequest(draft: string): void {
-		setAutopilot.mockImplementation(async action =>
-			action.action === "guide_draft"
-				? success({ active: false, guide: { exists: false, text: draft, draft: "model" } })
-				: success({ active: true, tabId: "new-tab" }),
-		);
-	}
-
-	it("shows a drafted guide for a repo without one and commits the user's edit with the start", async () => {
+	it("sends no guide: the app builds or completes AUTOPILOT.md itself at Start", async () => {
 		installMockOmp();
-		draftOnRequest("# Drafted guide\n\nKeep it small.\n");
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: false, text: "" } });
-		await mount(<ComposerModes />);
-		await openSheet();
-		await flush();
-		expect(setAutopilot.mock.calls.map(call => call[0].action)).toEqual(["guide_draft"]);
-		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement | null;
-		expect(box?.value).toBe("# Drafted guide\n\nKeep it small.\n");
-		expect(document.body.textContent).toContain(translate("autopilot.sheet.guideModel"));
-
-		await typeInto("textarea[data-autopilot-guide]", "# Mine\n\nEdited by the user.\n");
-		await act(async () => $("button[data-autopilot-start]")?.click());
-		await flush();
-		const start = setAutopilot.mock.calls.find(call => call[0].action === "start")?.[0];
-		expect(start).toMatchObject({ action: "start", guide: "# Mine\n\nEdited by the user.\n" });
-		// One draft only, however often the sheet re-renders.
-		expect(setAutopilot.mock.calls.filter(call => call[0].action === "guide_draft")).toHaveLength(1);
-	});
-
-	it("Start sends the edited guide even though the press blurs the guide box first, and the box keeps its size", async () => {
-		installMockOmp();
-		draftOnRequest("# Drafted guide\n");
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: false, text: "" } });
-		await mount(<ComposerModes />);
-		await openSheet();
-		await flush();
-		const box = $("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement;
-		expect(box.getAttribute("rows")).toBe("1");
-		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
-		expect(box.getAttribute("rows")).toBe("8");
-		await typeInto("textarea[data-autopilot-guide]", "# Mine\n\nMARKER-ONE\n");
-		// A press on Start blurs the box at mousedown, before the click: the sheet must not reflow under the pointer,
-		// or the release lands beside Start and the click never reaches it (v0.35.0: Start did nothing).
-		await act(async () => handlersOf(box).onBlur?.({ target: box, currentTarget: box }));
-		expect(box.getAttribute("rows")).toBe("8");
-		await act(async () => $("button[data-autopilot-start]")?.click());
-		await flush();
-		const starts = setAutopilot.mock.calls.filter(call => call[0].action === "start");
-		expect(starts).toHaveLength(1);
-		expect(starts[0]?.[0]).toMatchObject({ action: "start", guide: "# Mine\n\nMARKER-ONE\n" });
-	});
-
-	it("shows the repo's own guide for editing and drafts nothing", async () => {
-		installMockOmp();
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: true, text: "# Ours\n\nDo X.\n" } });
+		useAutopilotStore.getState().apply({ active: false });
 		await mount(<ComposerModes />);
 		await openSheet();
 		await flush();
 		expect(setAutopilot).not.toHaveBeenCalled();
-		expect(($("textarea[data-autopilot-guide]") as unknown as HTMLTextAreaElement | null)?.value).toBe(
-			"# Ours\n\nDo X.\n",
-		);
-		expect(document.body.textContent).toContain(translate("autopilot.sheet.guideExists"));
-	});
-
-	it("sends no guide when the box is cleared", async () => {
-		installMockOmp();
-		useAutopilotStore.getState().apply({ active: false, guide: { exists: true, text: "# Ours\n" } });
-		await mount(<ComposerModes />);
-		await openSheet();
-		await typeInto("textarea[data-autopilot-guide]", "");
 		await act(async () => $("button[data-autopilot-start]")?.click());
 		await flush();
-		expect(setAutopilot.mock.calls[0]?.[0]).not.toHaveProperty("guide");
+		expect(setAutopilot.mock.calls.map(call => call[0])).toEqual([{ action: "start" }]);
 	});
 
 	describe("the Branch row", () => {
-		const entry = (name: string, over: Partial<AutopilotBranchEntry> = {}): AutopilotBranchEntry => ({
-			name,
-			local: true,
-			remote: false,
-			default: false,
-			current: false,
-			...over,
-		});
 		const branches = (over: Partial<AutopilotBranchInfo> = {}): AutopilotBranchInfo => ({
 			repo: "/work/app",
 			remote: "origin",
 			defaultBranch: "main",
-			suggested: "autopilot/2026-10-18",
-			branches: [
-				entry("main", { remote: true, default: true }),
-				entry("dev", { current: true, checkedOutAt: "/work/app" }),
-				entry("feature/login", { remote: true }),
-				entry("hotfix", { local: false, remote: true }),
-				entry("release/1", { checkedOutAt: "/wt/gui-release-1" }),
-			],
+			current: "dev",
 			...over,
 		});
 		const seed = (info: AutopilotBranchInfo | undefined) =>
 			useAutopilotStore.getState().apply({ active: false, ...(info ? { branches: info } : {}) });
-		const select = () => $("[data-autopilot-branch] select") as unknown as HTMLSelectElement;
-		const nameInput = () => $("input[data-autopilot-branch-name]") as unknown as HTMLInputElement | null;
 		const startAction = () => setAutopilot.mock.calls.find(call => call[0].action === "start")?.[0];
-
-		async function choose(value: string): Promise<void> {
-			const element = select();
-			await act(async () => handlersOf(element as unknown as HTMLTextAreaElement).onChange?.({ target: { value } }));
-		}
 
 		async function startNow(): Promise<void> {
 			await act(async () => $("button[data-autopilot-start]")?.click());
 			await flush();
 		}
 
-		it("is one compact row under Shipping and absent when git gave no list", async () => {
+		it("shows the folder's own branch as one plain line, no list, no other name, and sends no branch", async () => {
 			installMockOmp();
-			seed(undefined);
+			// Whatever an earlier release remembered names no branch here.
+			(window as unknown as { omp: { prefs: { get: Mock } } }).omp.prefs.get.mockResolvedValue({
+				"/work/app": { kind: "existing", name: "feature/login" },
+			});
+			seed(branches());
+			await mount(<ComposerModes />);
+			await openSheet();
+			const row = $("[data-autopilot-branch]");
+			expect(row?.textContent).toBe("dev");
+			expect(document.querySelectorAll("[data-autopilot-sheet] select, [data-autopilot-sheet] option")).toHaveLength(
+				0,
+			);
+			expect($("input[data-autopilot-branch-name]")).toBeNull();
+			expect(document.body.textContent).not.toContain("feature/login");
+			expect(document.body.textContent).not.toMatch(/autopilot\/\d{4}/);
+			// A description rides a tooltip glyph, never a paragraph.
+			expect(document.querySelectorAll("[data-autopilot-sheet] p:not(details p)")).toHaveLength(0);
+			await startNow();
+			expect(startAction()).not.toHaveProperty("branch");
+			const prefs = (window as unknown as { omp: { prefs: { set: Mock } } }).omp.prefs.set;
+			expect(prefs).not.toHaveBeenCalledWith("autopilotBranch", expect.anything());
+		});
+
+		it("has no row on a detached folder or before git answered", async () => {
+			installMockOmp();
+			seed(branches({ current: null }));
 			await mount(<ComposerModes />);
 			await openSheet();
 			expect($("[data-autopilot-branch]")).toBeNull();
-			await startNow();
-			expect(startAction()).not.toHaveProperty("branch");
-
-			await act(async () => root.unmount());
-			document.body.innerHTML = "";
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			expect(select().getAttribute("aria-label")).toBe(translate("autopilot.sheet.branch"));
-			// A description rides a tooltip glyph, never a paragraph.
-			expect(document.querySelectorAll("[data-autopilot-sheet] p:not(details p)")).toHaveLength(0);
-		});
-
-		it("starts on a new autopilot/<date> branch by default, with an editable name and nothing sent for the untouched one", async () => {
-			installMockOmp();
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			expect(select().value).toBe("new");
-			expect(nameInput()?.value).toBe("autopilot/2026-10-18");
-			await startNow();
-			const untouched = startAction();
-			expect(untouched).toMatchObject({ branch: { kind: "new" } });
-			expect(untouched?.action === "start" ? untouched.branch : null).not.toHaveProperty("name");
-
-			// Start closed the popover: open a fresh sheet for the typed name.
-			await act(async () => root.unmount());
-			document.body.innerHTML = "";
-			setAutopilot.mockClear();
-			await mount(<ComposerModes />);
-			await openSheet();
-			await typeInto("input[data-autopilot-branch-name]", "work/night");
-			await startNow();
-			expect(startAction()).toMatchObject({ branch: { kind: "new", name: "work/night" } });
-		});
-
-		it("holds Start back for a name git would not take or one that already exists, with the reason", async () => {
-			installMockOmp();
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			await typeInto("input[data-autopilot-branch-name]", "bad name");
-			expect($("button[data-autopilot-start]")?.disabled).toBe(true);
-			expect(document.body.textContent).toContain(translate("autopilot.branch.invalid"));
-			await typeInto("input[data-autopilot-branch-name]", "feature/login");
-			expect($("button[data-autopilot-start]")?.disabled).toBe(true);
-			expect(document.body.textContent).toContain(translate("autopilot.branch.exists"));
-			await typeInto("input[data-autopilot-branch-name]", "work/ok");
 			expect($("button[data-autopilot-start]")?.disabled).toBe(false);
 		});
 
-		it("lists the repo's branches, the default first, none greyed: a branch another worktree holds says it goes via a work branch", async () => {
+		it("reads the branch again when the sheet opens: the status the tab hydrated with may be old", async () => {
 			installMockOmp();
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			const options = [...document.querySelectorAll("[data-autopilot-branch] option")];
-			const via = translate("autopilot.branch.viaWork");
-			expect(options.map(option => option.textContent)).toEqual([
-				translate("autopilot.branch.new"),
-				`main · ${translate("autopilot.branch.default")}`,
-				`dev · ${via}`,
-				"feature/login",
-				`hotfix · ${translate("autopilot.branch.remoteOnly")}`,
-				`release/1 · ${via}`,
-			]);
-			expect(options.some(option => option.getAttribute("disabled") !== null)).toBe(false);
-			// The line "work branch → push target" shows only for a target another worktree holds.
-			expect($("[data-autopilot-branch-via]")).toBeNull();
-			await choose("branch:release/1");
-			expect($("[data-autopilot-branch-via]")?.textContent).toBe(
-				translate("autopilot.branch.viaLine", { work: "autopilot/2026-10-18", target: "release/1" }),
-			);
-			await choose("branch:feature/login");
-			expect($("[data-autopilot-branch-via]")).toBeNull();
-		});
-
-		it("sends an existing branch, remembers it per repository and shows no warning for it", async () => {
-			installMockOmp();
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			await choose("branch:feature/login");
-			expect(nameInput()).toBeNull();
-			expect($("[data-autopilot-branch-warning]")).toBeNull();
-			await startNow();
-			expect(startAction()).toMatchObject({ branch: { kind: "existing", name: "feature/login" } });
-			const prefs = (window as unknown as { omp: { prefs: { set: Mock } } }).omp.prefs.set;
-			expect(prefs).toHaveBeenCalledWith("autopilotBranch", {
-				"/work/app": { kind: "existing", name: "feature/login" },
-			});
-		});
-
-		it("warns in one line when the default branch is picked: commits land on it and Push pushes to it", async () => {
-			installMockOmp();
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			expect($("[data-autopilot-branch-warning]")).toBeNull();
-			await choose("branch:main");
-			expect($("[data-autopilot-branch-warning]")?.textContent).toBe(
-				translate("autopilot.branch.defaultWarning", { branch: "main" }),
-			);
-			await choose("new");
-			expect($("[data-autopilot-branch-warning]")).toBeNull();
-			await choose("branch:main");
-			await startNow();
-			expect(startAction()).toMatchObject({ branch: { kind: "existing", name: "main" } });
-		});
-
-		it("does not move the sheet when the name field loses focus", async () => {
-			installMockOmp();
-			seed(branches());
-			await mount(<ComposerModes />);
-			await openSheet();
-			const input = nameInput() as unknown as HTMLTextAreaElement;
-			const before = document.querySelectorAll("[data-autopilot-sheet] *").length;
-			await act(async () => handlersOf(input).onFocus?.({ target: input, currentTarget: input }));
-			await act(async () => handlersOf(input).onBlur?.({ target: input, currentTarget: input }));
-			expect(document.querySelectorAll("[data-autopilot-sheet] *").length).toBe(before);
-		});
-
-		it("opens on the choice remembered for this repository, and on a new branch when it is no longer usable", async () => {
-			installMockOmp();
-			seed(branches({ last: { kind: "existing", name: "feature/login" } }));
-			await mount(<ComposerModes />);
-			await openSheet();
-			expect(select().value).toBe("branch:feature/login");
-
-			await act(async () => root.unmount());
-			document.body.innerHTML = "";
-			useAutopilotStore.getState().reset();
-			// `dev` is held by the user's own folder: still usable, as a target reached through a work branch.
-			seed(branches({ last: { kind: "existing", name: "dev" } }));
-			await mount(<ComposerModes />);
-			await openSheet();
-			expect(select().value).toBe("branch:dev");
-			expect($("[data-autopilot-branch-via]")?.textContent).toBe(
-				translate("autopilot.branch.viaLine", { work: "autopilot/2026-10-18", target: "dev" }),
-			);
-		});
-
-		it("reads the list again when the sheet opens: the status the tab hydrated with may be old", async () => {
-			installMockOmp();
-			const fresh = branches({ branches: [entry("main", { default: true }), entry("feature/new")] });
 			(window as unknown as { omp: { rpc: Record<string, unknown> } }).omp.rpc.getAutopilot = vi.fn(async () =>
-				success({ active: false, branches: fresh }),
+				success({ active: false, branches: branches({ current: "feature/new" }) }),
 			);
 			seed(branches());
 			await mount(<ComposerModes />);
 			await openSheet();
 			await flush();
-			expect(
-				[...document.querySelectorAll("[data-autopilot-branch] option")].map(option => option.textContent),
-			).toContain("feature/new");
+			expect($("[data-autopilot-branch]")?.textContent).toBe("feature/new");
 		});
 	});
 

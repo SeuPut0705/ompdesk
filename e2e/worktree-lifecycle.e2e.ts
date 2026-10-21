@@ -98,6 +98,11 @@ function worktreeList(): string[] {
 		.map(line => path.normalize(line.slice("worktree ".length).trim()));
 }
 
+/** What is left of a removed worktree: its folder and its entry in git's list (git drops the folder first). */
+async function leftOf(folder: string) {
+	return { folder: await exists(folder), listed: worktreeList().includes(folder) };
+}
+
 test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
 	test.beforeEach(async () => {
 		await launch("create:remove");
@@ -157,9 +162,12 @@ test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
 		// The first worktree tab is in the background now; close it from main's side.
 		await page.evaluate(id => window.omp.tabs.close(id), tab.tabId);
 		for (const removed of [worktree, second.worktree]) {
-			await expect.poll(() => exists(removed?.path ?? ""), { timeout: 15_000 }).toBe(false);
-			expect(worktreeList()).not.toContain(removed?.path);
-			expect(git(project, "branch", "--list", removed?.branch ?? "")).toBe("");
+			// The app removes the folder and its list entry in one git call and the branch in a later one: a folder
+			// that is gone is not yet a removal that is done.
+			await expect
+				.poll(() => leftOf(removed?.path ?? ""), { timeout: 15_000 })
+				.toEqual({ folder: false, listed: false });
+			await expect.poll(() => git(project, "branch", "--list", removed?.branch ?? ""), { timeout: 15_000 }).toBe("");
 		}
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		expect(await exists(path.join(project, "README.md"))).toBe(true);
@@ -186,8 +194,7 @@ test.describe("worktree.onStart = create, worktree.onExit = remove", () => {
 		await page.keyboard.press("ControlOrMeta+w");
 		await expect(dialog).toBeVisible();
 		await dialog.getByRole("button", { name: "Remove" }).click();
-		await expect.poll(() => exists(removedPath), { timeout: 15_000 }).toBe(false);
-		expect(worktreeList()).not.toContain(removedPath);
+		await expect.poll(() => leftOf(removedPath), { timeout: 15_000 }).toEqual({ folder: false, listed: false });
 	});
 });
 

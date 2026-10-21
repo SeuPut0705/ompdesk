@@ -9,6 +9,7 @@
  * through main/ssh/options.ts (OMPdesk's known_hosts, every hop checked) and
  * main/ssh/askpass.ts (questions to the window).
  */
+
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -29,6 +30,7 @@ import {
 	type SshToolsRequest,
 	type SshToolsState,
 } from "../../shared/ssh-tools";
+import { writeFileAtomic } from "../atomic-file";
 import { spawnSupervised } from "../setup/supervisor";
 import { AskpassServer } from "./askpass";
 import { classifyFailure, knownHostNames, parseListeningPorts, sshTool, targetArgs, writeSshConfig } from "./options";
@@ -349,15 +351,7 @@ export class SshTools {
 					active,
 				})),
 			};
-			await fs.mkdir(path.dirname(this.#storeFile), { recursive: true });
-			const temp = `${this.#storeFile}.${randomBytes(4).toString("hex")}.tmp`;
-			try {
-				await fs.writeFile(temp, JSON.stringify(data, null, "\t"));
-				await fs.rename(temp, this.#storeFile);
-			} catch (error) {
-				await fs.rm(temp, { force: true });
-				throw error;
-			}
+			await writeFileAtomic(this.#storeFile, JSON.stringify(data, null, "\t"));
 		});
 		this.#saving = write.catch(() => {});
 		return write;

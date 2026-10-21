@@ -1,12 +1,14 @@
 /**
- * The work board's "Current work" rows, one line each: what the turn's own edit tools changed (the last turn's while
- * idle), what the session's branch has not landed in main yet, the session's newest check (a failed one is its own
- * section at the top), the dev servers running, the other sessions in the checkout and the memory the turn used.
- * `useSessionBoard` reads them all once; the section draws what it found.
+ * The work board's "Current work" rows, one line each: what the turn's own edit tools and the sessions it opened
+ * changed (the last turn's while idle), what the session's branch has not landed in main yet, the session's newest
+ * check (a failed one is its own section at the top), the dev servers running, the other sessions in the checkout
+ * and the memory the turn used. `useSessionBoard` reads them all once; the section draws what it found.
  */
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
+import type { FamilyEdits, FamilyMemberEdits } from "../../../../shared/turn-edits";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
+import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { routeToSessionOwner } from "../../../hooks/use-session-switch";
 import { formatDuration, formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -14,10 +16,10 @@ import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
-import { useRuntimeTabId } from "../../../stores/session-runtime-context";
+import { useRuntimeTabId, useTabCommand } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
-import { useToolsStore } from "../../../stores/tools";
+import { transcriptToolEntries, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
@@ -28,6 +30,11 @@ import {
 	type ChangesSummary,
 	type DevServer,
 	devServers,
+	type FamilyChangesSummary,
+	type FamilyPart,
+	familyChanges,
+	type KeyedFileChange,
+	keyedFiles,
 	type LastCheck,
 	lastCheck,
 	type PeerOpen,
@@ -36,13 +43,12 @@ import {
 	recallTitles,
 	type ScopedPeer,
 	summarizePeers,
-	summarizeTurnFiles,
 	summarizeUnlanded,
 	type UnlandedSummary,
 } from "./session-board";
 
 export type SessionRowModel =
-	| ({ kind: "changes" } & ChangesSummary)
+	| ({ kind: "changes" } & FamilyChangesSummary)
 	| ({ kind: "unlanded" } & UnlandedSummary)
 	| { kind: "check"; check: LastCheck }
 	| ({ kind: "dev-server" } & DevServer)
@@ -66,24 +72,119 @@ export interface TurnWindow {
 /** Calls may be stamped a little before the turn's own start (one clock, two events). */
 const TURN_CLOCK_SLACK_MS = 500;
 
+/** The tab the board belongs to: its runtime's, else the window's active one. */
+function useBoardTabId(): string | null {
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	return runtimeTabId ?? activeTabId;
+}
+
 /**
  * What the turn's own edit tools changed (write, edit, ast_edit, apply_patch, as the work card counts them), live while
  * it runs. Never git: in a checkout other sessions share, git cannot tell this session's edits from theirs.
  */
-function useTurnChanges(turn: TurnWindow | null): ChangesSummary | null {
+function useTurnFiles(turn: TurnWindow | null): KeyedFileChange[] {
 	const { tools } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
+	const tabId = useBoardTabId();
+	const device = useTabsStore(state => state.tabs.find(tab => tab.id === tabId)?.device);
 	const finishedVersion = useToolsStore(state => state.finishedVersion);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
 	return useMemo(() => {
-		if (!turn) return null;
+		if (!turn) return [];
 		const entries = [...tools.getState().finishedTools.values()].filter(
 			entry =>
 				entry.startTime >= turn.start - TURN_CLOCK_SLACK_MS &&
 				(turn.end === null || entry.startTime <= turn.end + TURN_CLOCK_SLACK_MS),
 		);
-		return summarizeTurnFiles(workOutcomes(entries, undefined, cwd).files);
-	}, [turn?.start, turn?.end, tools, cwd, finishedVersion]);
+		return keyedFiles(workOutcomes(entries, undefined, cwd).files, cwd, device);
+	}, [turn?.start, turn?.end, tools, cwd, device, finishedVersion]);
+}
+
+/** A running child's step moves often: the family is read again at most this often. */
+const FAMILY_REREAD_MS = 5_000;
+
+/**
+ * One family member's share: what its worktree branch has not landed, else what its newest turn's own edit tools
+ * changed, counted by the work card's rule. Null when it cannot say (an older host, an omp starting).
+ */
+function memberShare(member: FamilyMemberEdits): Omit<FamilyPart, "title"> | null {
+	const cwd = member.edits?.cwd ?? "";
+	const branch = member.unlanded;
+	if (branch && branch.files.length > 0)
+		return { files: keyedFiles(branch.files, cwd, member.device), capped: branch.truncated };
+	if (!member.edits) return null;
+	const files = workOutcomes(transcriptToolEntries(member.edits.messages), undefined, cwd).files;
+	return { files: keyedFiles(files, cwd, member.device), capped: false };
+}
+
+/**
+ * The family's shares of the "Changed" row, read through main (`agent_control_family_edits`): every session the
+ * board's session opened, an Autopilot run's cycle children included, on any computer and in any window, and those
+ * closed after their work landed since this turn began. A member counts while it runs or waits, or when its turn
+ * ended after this session's turn began. Read on mount and whenever the family's rows move (main's review push
+ * carries a running child's step and state), at most every {@link FAMILY_REREAD_MS}: no timer of its own beyond that.
+ */
+function useFamilyParts(turn: TurnWindow | null): FamilyPart[] {
+	const tabId = useBoardTabId();
+	const command = useTabCommand();
+	const { rows } = useOpenedChildren(tabId);
+	const since = turn?.start;
+	const signature = useMemo(
+		() =>
+			rows.length === 0
+				? ""
+				: `${since ?? ""}\n${rows.map(row => `${row.key}|${row.status}|${row.since ?? ""}|${row.step ?? ""}`).join("\n")}`,
+		[rows, since],
+	);
+	const [members, setMembers] = useState<readonly FamilyMemberEdits[]>([]);
+	const latest = useRef({ command, since, signature });
+	latest.current = { command, since, signature };
+	const last = useRef<{ signature: string; at: number } | null>(null);
+	const due = useRef<number | null>(null);
+	const alive = useRef(true);
+	useEffect(() => {
+		alive.current = true;
+		return () => {
+			alive.current = false;
+			window.clearTimeout(due.current ?? undefined);
+			due.current = null;
+		};
+	}, []);
+	useEffect(() => {
+		if (!signature) {
+			setMembers([]);
+			return;
+		}
+		if (last.current?.signature === signature || due.current !== null) return;
+		const read = () => {
+			due.current = null;
+			// A read the wait held back asks with what is newest by then.
+			const { command: send, since: start, signature: current } = latest.current;
+			last.current = { signature: current, at: Date.now() };
+			void Promise.resolve()
+				.then(() => send({ type: "agent_control_family_edits", ...(start === undefined ? {} : { since: start }) }))
+				.then(response => {
+					const data = response.success ? (response.data as FamilyEdits | null) : null;
+					if (alive.current && Array.isArray(data?.members)) setMembers(data.members);
+				})
+				.catch(() => {});
+		};
+		const wait = last.current ? last.current.at + FAMILY_REREAD_MS - Date.now() : 0;
+		if (wait <= 0) read();
+		else due.current = window.setTimeout(read, wait);
+	}, [signature]);
+	return useMemo(
+		() =>
+			members.flatMap(member => {
+				const endedAt = member.edits?.endedAt ?? null;
+				const counts =
+					member.live || (turn !== null && endedAt !== null && endedAt >= turn.start - TURN_CLOCK_SLACK_MS);
+				const share = counts ? memberShare(member) : null;
+				return share ? [{ title: member.title, ...share }] : [];
+			}),
+		[members, turn],
+	);
 }
 
 /** While a turn runs, a finished call (a commit, an edit) reads the branch again at most this often. */
@@ -151,7 +252,9 @@ export function useLastCheck(): LastCheck | null {
 }
 
 export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
-	const changes = useTurnChanges(turn);
+	const own = useTurnFiles(turn);
+	const family = useFamilyParts(turn);
+	const changes = useMemo(() => familyChanges([{ title: null, files: own }, ...family]), [own, family]);
 	const unlanded = useUnlanded();
 	const check = useLastCheck();
 	const jobs = useBackgroundJobs();
@@ -161,8 +264,8 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 	const titles = useMemo(() => recallTitles(messages), [messages]);
 	return useMemo(() => {
 		const rows: SessionRowModel[] = [];
-		// A finished turn that changed nothing says so; a running one only once it changed something.
-		if (changes && (changes.files > 0 || turn?.end != null)) rows.push({ kind: "changes", ...changes });
+		// Only what changed: a turn (or a family) that changed nothing draws no line.
+		if (changes.files > 0) rows.push({ kind: "changes", ...changes });
 		if (unlanded) rows.push({ kind: "unlanded", ...unlanded });
 		if (check && check.state !== "failed") rows.push({ kind: "check", check });
 		for (const server of servers) rows.push({ kind: "dev-server", ...server });
@@ -170,7 +273,7 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 		if (company) rows.push({ kind: "peers", ...company });
 		if (titles.length > 0) rows.push({ kind: "recall", titles });
 		return { failedCheck: check?.state === "failed" ? check : null, rows };
-	}, [changes, unlanded, check, servers, peers, titles, turn?.end]);
+	}, [changes, unlanded, check, servers, peers, titles]);
 }
 
 const plural = (count: number) => (count === 1 ? "" : "s");
@@ -220,20 +323,28 @@ function changesText(summary: ChangesSummary): { count: string | number; meta: R
 	};
 }
 
-function ChangesRow(summary: ChangesSummary) {
+function ChangesRow(summary: FamilyChangesSummary) {
 	const t = useT();
 	const { count, meta } = changesText(summary);
+	// Each session's own share, one line each, when the sessions it opened changed files too.
+	const title = summary.parts
+		.map(({ title: name, summary: part }) => {
+			const files = t("chat.work.filesChanged", {
+				count: part.capped ? `${part.files}+` : part.files,
+				plural: plural(part.files),
+			});
+			const lines = part.capped ? "" : ` +${part.added} −${part.removed}`;
+			return `${name ?? t("workBoard.current.thisSession")}: ${files}${lines}`;
+		})
+		.join("\n");
 	return (
 		<BoardRow
-			data={{ "data-board-session": "changes" }}
-			label={
-				summary.files > 0
-					? t("chat.work.filesChanged", { count, plural: plural(summary.files) })
-					: t("workBoard.noChanges")
-			}
+			data={{ "data-board-session": "changes", ...(summary.parts.length > 0 ? { "data-board-family": "" } : {}) }}
+			label={t("chat.work.filesChanged", { count, plural: plural(summary.files) })}
 			lead={<Dot tone="muted" />}
 			meta={meta}
-			onClick={summary.files > 0 ? () => useUiStore.getState().setPanelTab("diff") : undefined}
+			onClick={() => useUiStore.getState().setPanelTab("diff")}
+			title={title || undefined}
 		/>
 	);
 }
@@ -388,7 +499,15 @@ function RecallRow({ titles }: { titles: string[] }) {
 function SessionRow({ row }: { row: SessionRowModel }) {
 	switch (row.kind) {
 		case "changes":
-			return <ChangesRow added={row.added} capped={row.capped} files={row.files} removed={row.removed} />;
+			return (
+				<ChangesRow
+					added={row.added}
+					capped={row.capped}
+					files={row.files}
+					parts={row.parts}
+					removed={row.removed}
+				/>
+			);
 		case "unlanded":
 			return (
 				<UnlandedRow

@@ -36,7 +36,7 @@ async function launch(language: string, theme: string) {
 	await Promise.all([project, desktop, agent].map(dir => fs.mkdir(dir)));
 	await fs.writeFile(
 		path.join(desktop, "prefs.json"),
-		JSON.stringify({ language, themeName: theme, firstRunComplete: true, workBoard: false }),
+		JSON.stringify({ language, themeName: theme, firstRunComplete: true }),
 	);
 	const app = await launchApp({ project, desktop, agent, profile: root });
 	const page = await app.firstWindow();

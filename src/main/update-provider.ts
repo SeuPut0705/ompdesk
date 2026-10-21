@@ -54,8 +54,10 @@ export function releaseUpdateInfo(release: PlatformRelease): UpdateInfo {
 }
 
 /**
- * How long the release lookup may go unanswered. A stalled connection (a captive portal, Wi-Fi that dropped
- * mid-request) never answers and never fails, and the check read "Checking for updates…" until the app quit.
+ * How long the release lookup may go unanswered, its body included. A stalled connection (a captive portal, Wi-Fi
+ * that dropped mid-request) never answers and never fails, and the check read "Checking for updates…" until the app
+ * quit; a body that stalls after the headers did the same (nightly 39521754163: desktop.e2e's check sat at
+ * "Checking" past 45 s while every other step has its own deadline).
  */
 export const RELEASE_LOOKUP_TIMEOUT_MS = 15_000;
 
@@ -73,16 +75,16 @@ async function fetchRelease(feed: ReleaseFeed): Promise<unknown> {
 			),
 		);
 	}, RELEASE_LOOKUP_TIMEOUT_MS);
+	const lookup = async (): Promise<unknown> => {
+		const response = await feed.fetch(url, { headers: feed.apiHeaders, signal: abort.signal });
+		// 404 is also what a token without access sees; runCheck asks the repo
+		// endpoint before trusting "no release".
+		if (response.status === 404) throw new ReleaseFeedError(NO_RELEASE_ERROR, `No published release (${url})`);
+		if (!response.ok) throw new ReleaseFeedError(RELEASE_LOOKUP_ERROR, `GitHub answered ${response.status} (${url})`);
+		return response.json();
+	};
 	// The race holds whether or not the fetch honours the signal.
-	const response = await Promise.race([
-		feed.fetch(url, { headers: feed.apiHeaders, signal: abort.signal }),
-		late.promise,
-	]).finally(() => clearTimeout(timer));
-	// 404 is also what a token without access sees; runCheck asks the repo
-	// endpoint before trusting "no release".
-	if (response.status === 404) throw new ReleaseFeedError(NO_RELEASE_ERROR, `No published release (${url})`);
-	if (!response.ok) throw new ReleaseFeedError(RELEASE_LOOKUP_ERROR, `GitHub answered ${response.status} (${url})`);
-	return response.json();
+	return Promise.race([lookup(), late.promise]).finally(() => clearTimeout(timer));
 }
 
 /** The provider class `setFeedURL({ provider: "custom", updateProvider })` instantiates. */

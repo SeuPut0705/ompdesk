@@ -58,6 +58,7 @@ import type {
 } from "./rpc-types";
 import type { SchedulesApi, SchedulesState } from "./schedules";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
+import type { SidebarProjectsApi } from "./sidebar-projects";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
 import type { StartupMark } from "./startup-timing";
@@ -196,6 +197,8 @@ export const IPC_COMMANDS = {
 	EXTENSION_UI_RESPOND: "extension-ui:respond",
 	/** The asks and approvals this window's tabs still wait on (a page that reloaded missed their events) */
 	EXTENSION_UI_OPEN: "extension-ui:open",
+	/** The status texts, widgets and title this window's tabs show (no later frame repeats them for a page that loaded late) */
+	EXTENSION_UI_STATE: "extension-ui:state",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
 	/** The sessions paired devices' tabs run on this computer, for its own sidebar (`IpcHostedSession[]`) */
@@ -423,8 +426,6 @@ export const IPC_COMMANDS = {
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
 	/** Keep a device that uses this computer out: block its Tailscale node, forget it, close its connections */
 	REMOTE_BLOCK_PEER: "remote:block-peer",
-	/** Ask before a new device may use this computer (prefs `remote.confirmNewDevices`) */
-	REMOTE_SET_CONFIRM_NEW_DEVICES: "remote:set-confirm-new-devices",
 	/** Set a paired client device's daily model-use limits ({deviceId, limits}) */
 	REMOTE_SET_PEER_LIMITS: "remote:set-peer-limits",
 	/** Rename a paired host ({deviceId, name}): the host sets its own device name */
@@ -475,6 +476,11 @@ export type RuntimeErrorSource =
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
 	/**
+	 * An Autopilot run's summary when it ends or pauses (src/main/autopilot.ts `runLog`): `message` is ended or paused,
+	 * `details.summary` the line its notification shows (cycles, commits, landed or pushed, why it stopped).
+	 */
+	| "autopilot"
+	/**
 	 * An app update's decisions (src/main/updater.ts, `AutoInstallScheduler`; info level, `details.level: "info"`):
 	 * `message` is check, download, scheduler or swap and `details.event` the step (never a token or a URL).
 	 */
@@ -523,6 +529,25 @@ export type RuntimeErrorSource =
 	| "launch-guard"
 	/** The pre-rename profile moved into userData (src/main/legacy-user-data.ts). */
 	| "user-data-migration"
+	/**
+	 * Machine setup (src/main/setup/detect.ts, service.ts): `message` names the finding or the Git Mandatory ASLR
+	 * override and its outcome; `details.level` is `warn` or `info`.
+	 */
+	| "setup"
+	/** The lid-awake hold (src/main/keep-awake, wired in index.ts): `message` is held, released, skipped, recovered or failed. */
+	| "keep-awake"
+	/** A paired-host event outside the link and tab sources (src/main/remote/devices.ts `log`): `message` is the event. */
+	| "remote"
+	/** Memory shared between paired computers (src/main/ai-memory/sync.ts): `message` is conflict, round or failed. */
+	| "memory-sync"
+	/** A turn that ended but still reads running (src/main/settle-watch.ts): `message` is "still settling", `details` stock's state. */
+	| "settle-watch"
+	/** An omp sidecar that exited and is restarting (src/main/sidecar-factory.ts): `message` is the reason, `details` the attempt and stderr. */
+	| "sidecar-restart"
+	/** A goal's time-limit update that failed (src/main/sidecar-factory.ts): `message` is the error. */
+	| "goal-time-limit"
+	/** A bridge call that was slow or timed out (src/main/local/slow-bridge-call.ts): `details` is where the time went. */
+	| "slow-bridge-call"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -823,7 +848,7 @@ export interface IpcSignInEndedPayload {
 	error?: string | null;
 }
 
-/** A blocking extension request still open on a tab, as `EXTENSION_UI_OPEN` lists it. */
+/** A blocking extension request still open on a tab (`EXTENSION_UI_OPEN`), or a status, widget or title it shows (`EXTENSION_UI_STATE`). */
 export interface IpcOpenExtensionRequest {
 	tabId: string;
 	request: ExtensionUIRequest;
@@ -1680,8 +1705,6 @@ export interface RemoteHostState {
 	keepingAwake: boolean;
 	/** Names of devices connected now or with a turn still running here. */
 	usedBy: string[];
-	/** Ask on this computer before a new device may use it (prefs `remote.confirmNewDevices`, default off). */
-	confirmNewDevices: boolean;
 }
 
 export interface RemoteState {
@@ -1767,6 +1790,8 @@ export interface OmpApi {
 	preview: PreviewApi;
 	/** Scheduled `omp -p` runs on this machine (Settings › Schedules). */
 	schedules: SchedulesApi;
+	/** The sidebar's project list of this computer or a paired host (src/main/sidebar-projects.ts). */
+	sidebarProjects: SidebarProjectsApi;
 	/** OMPdesk's own ssh on this computer: port forwards, port watch, agent state, prompts (Settings › SSH). */
 	sshTools: SshToolsApi;
 	/** Mobile web over Tailscale: the switch and its state, the paired phones, pairing (Settings › Mobile web). */
@@ -1988,6 +2013,8 @@ export interface OmpApi {
 		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): Promise<void>;
 		/** The asks and approvals this window's tabs wait on: a page that reloaded missed the events that raised them. */
 		openRequests(): Promise<IpcOpenExtensionRequest[]>;
+		/** The status texts, widgets and title this window's tabs show: no later frame repeats them for a late page. */
+		shownState(): Promise<IpcOpenExtensionRequest[]>;
 	};
 	sessions: {
 		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */
@@ -2048,7 +2075,6 @@ export interface OmpApi {
 		revokePeer(deviceId: string): Promise<RemoteState>;
 		/** Block the device's Tailscale node (shared with Mobile web's blocks) and forget the device. */
 		blockPeer(deviceId: string): Promise<RemoteState>;
-		setConfirmNewDevices(on: boolean): Promise<RemoteState>;
 		/** Daily model-use limits for a paired device; `{}` removes them. */
 		setPeerLimits(deviceId: string, limits: PeerLimits): Promise<RemoteState>;
 		/** Rename a paired host (it sets its own name). Throws `remote_offline` while it is unreachable. */

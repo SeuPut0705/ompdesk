@@ -255,7 +255,7 @@ export function proposeReleaseCheck(
 /** The level the guard enforces: the release scope opens only when auto release is on and due. */
 export function shipLevelOf(policy: AutopilotShipPolicy, due: boolean): AutopilotShipLevel {
 	if (policy.autoRelease.on && due) return "release";
-	return policy.autoPush ? "push" : "local";
+	return policy.autoPush || policy.land === true ? "push" : "local";
 }
 
 type InFlightMark = NonNullable<AutopilotStateEntry["inFlight"]>;
@@ -372,6 +372,7 @@ export function mergeSettings(
 		focus,
 		ship: {
 			autoPush: typeof ship.autoPush === "boolean" ? ship.autoPush : base.ship.autoPush,
+			...((typeof ship.land === "boolean" ? ship.land : base.ship.land) ? { land: true } : {}),
 			autoRelease: {
 				on: typeof autoRelease?.on === "boolean" ? autoRelease.on : base.ship.autoRelease.on,
 				cadence:
@@ -775,6 +776,7 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 		stopping: facts.stopping,
 		ship: {
 			autoPush: settings.ship.autoPush,
+			...(settings.ship.land ? { land: true } : {}),
 			autoRelease: settings.ship.autoRelease,
 			remote: settings.ship.remote,
 			branch: facts.branch,

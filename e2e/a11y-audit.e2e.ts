@@ -42,6 +42,13 @@ async function launch(
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+	// Windows 11 Mica: the sidebar is a 62 % tint over a backdrop the compositor draws and axe cannot see; it
+	// composites the tint over white, so the dark theme's 15:1 sidebar text read 4.41:1 (measured on screen: bg
+	// rgb(24,24,26) under rgb(237,237,240); light theme bg 245..255). nativeTheme follows the app's theme, so the
+	// backdrop is the theme's own canvas: paint that for axe.
+	await page.addStyleTag({
+		content: 'html[data-mica="true"], html[data-mica="true"] body { background: var(--sc-bg) !important; }',
+	});
 	return { app, page };
 }
 
@@ -206,14 +213,14 @@ for (const [language, theme] of variants([
 			await expect(page.locator(".omp-composer-input").first()).toBeVisible();
 			await scan("session");
 
-			await page.keyboard.press("Meta+k");
+			await page.keyboard.press("ControlOrMeta+k");
 			await expect(page.getByRole("dialog")).toBeVisible();
 			await scan("palette");
 			await page.keyboard.press("Escape");
 			if ((await page.getByRole("dialog").count()) > 0)
 				findings.push({ surface: "palette", kind: "escape:not-closed", detail: "dialog stays after Escape" });
 
-			await page.keyboard.press("Meta+j");
+			await page.keyboard.press("ControlOrMeta+j");
 			const aside = page.locator("aside[data-docked]");
 			await expect(aside).toBeVisible();
 			await scan("panel");
@@ -225,7 +232,7 @@ for (const [language, theme] of variants([
 				await expect(page.locator("aside[data-docked] .animate-spin")).toHaveCount(0, { timeout: 15_000 });
 				await scan(`panel › ${view}`);
 			}
-			await page.keyboard.press("Meta+j");
+			await page.keyboard.press("ControlOrMeta+j");
 
 			for (const dest of ["agents", "insights"] as const) {
 				await openDestination(page, dest);
@@ -234,7 +241,7 @@ for (const [language, theme] of variants([
 				await scanTabs(`page-${dest}`, page.locator("main"));
 			}
 
-			await page.keyboard.press("Meta+,");
+			await page.keyboard.press("ControlOrMeta+,");
 			const settings = page.locator("[data-settings-page]");
 			await expect(settings).toBeVisible();
 			const sections = await settings

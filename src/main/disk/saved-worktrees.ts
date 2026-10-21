@@ -14,12 +14,14 @@
  * - `restoreSavedWorktree`: `git worktree add` at the old path, the saved changes back in the working tree (not
  *   committed), the archive copied back, then the repository's own seeding and setup hook.
  */
+
 import { randomBytes } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import type { SavedWorktree, SavedWorktreeRestore } from "../../shared/disk-care";
 import { discardNewWorktree, type WorktreeRef, type WorktreeRemoval } from "../agent-control/branches";
+import { writeFileAtomic } from "../atomic-file";
 import { git, gitRaw } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
@@ -77,9 +79,7 @@ export class SavedWorktreeStore {
 			await fs.mkdir(this.#dir, { recursive: true, mode: 0o700 });
 			const records = change(await this.list());
 			const file = path.join(this.#dir, "saved.json");
-			const temp = `${file}.${process.pid}.tmp`;
-			await fs.writeFile(temp, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600 });
-			await fs.rename(temp, file);
+			await writeFileAtomic(file, `${JSON.stringify(records, null, 2)}\n`, { mode: 0o600, dirMode: 0o700 });
 		});
 		this.#writing = next.catch(() => {});
 		return next;

@@ -11,9 +11,9 @@
  * through the page's restore. A page the person brought back that way is the person's: no unit touches it again
  * (the wrapper answers `pinned` for it, which every unit already reads as "leave it").
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import type { AiMemoryCareSummary, AiMemoryProjectRef } from "../../shared/ai-memory";
+import { writeFileAtomic } from "../atomic-file";
 import type { AiMemoryClient } from "./client";
 
 export const CARE_TICK_MS = 15 * 60_000;
@@ -93,10 +93,7 @@ async function readState(file: string): Promise<CareState> {
 }
 
 async function writeState(file: string, state: CareState): Promise<void> {
-	await mkdir(dirname(file), { recursive: true });
-	const next = `${file}.next`;
-	await writeFile(next, JSON.stringify(state));
-	await rename(next, file);
+	await writeFileAtomic(file, JSON.stringify(state));
 }
 
 export class MemoryCare {

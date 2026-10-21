@@ -13,6 +13,7 @@
 import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AUTO_OPEN_CHANGES_PREF, AUTO_PREVIEW_DEV_SERVER_PREF } from "../../shared/desktop-prefs";
 import type { AgentSessionEvent, RpcGitFingerprint, RpcGitStatus } from "../../shared/rpc-types";
+import { TURN_EDIT_TOOLS } from "../../shared/turn-edits";
 import { currentShellMode } from "../hooks/use-shell-mode";
 import type { SessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore } from "../stores/session-runtime-context";
@@ -25,7 +26,7 @@ import { detectLocalPreviewUrls } from "./preview-browser";
 export const PANEL_IDLE_MS = 30_000;
 
 /** The tools that write files (stock names); a bash edit shows up as a moved git fingerprint instead. */
-export const EDIT_TOOLS: Record<string, true> = { edit: true, write: true, apply_patch: true, ast_edit: true };
+export const EDIT_TOOLS: Record<string, true> = Object.fromEntries(TURN_EDIT_TOOLS.map(name => [name, true]));
 
 /** Views a person works in: never replaced, however long they sit. */
 const WORKING_VIEWS: Record<string, true> = { terminal: true, files: true, preview: true, subagent: true };
@@ -123,7 +124,13 @@ async function prefOn(key: string): Promise<boolean> {
 	}
 }
 
-function install(): void {
+/**
+ * Watch the panel (the store and the touches that mark it in use). Once per app, at its start (useRpcEvents): a first
+ * install from the first event batch came at an unforeseeable moment, so the document's listener set changed in the
+ * middle of the app's life (nightly 39539556435, desktop.e2e's listener audit: four capture listeners "added by the
+ * cycles" whenever no batch had arrived before its baseline).
+ */
+export function installPanelAutoOpen(): void {
 	if (installed) return;
 	installed = true;
 	useUiStore.subscribe((next, previous) => {
@@ -271,7 +278,7 @@ function offerAutopilotScreen(tabId: string, status: AutopilotStatus): void {
 
 /** Feed one tab's event batch: the focused tab's dev servers and edits may open the side panel. */
 export function handleAutoOpenEvents(tabId: string, events: readonly AgentSessionEvent[]): void {
-	install();
+	installPanelAutoOpen();
 	for (const event of events) {
 		switch (event.type) {
 			case "agent_start":

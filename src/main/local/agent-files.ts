@@ -24,6 +24,7 @@ import type {
 	RpcAgentTemplatesInstallResult,
 	RpcParsedAgentDefinition,
 } from "../../shared/rpc-types";
+import { writeFileAtomic } from "../atomic-file";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
 export type AgentDirs = Record<AgentFileScope, string>;
@@ -70,11 +71,11 @@ export async function readAgentFile(dirs: AgentDirs, filePath: unknown): Promise
 
 /** Write `content` to `target` through a sibling temp file; `exclusive` refuses to replace an existing file. */
 async function atomicWrite(target: string, content: string, exclusive: boolean): Promise<void> {
+	if (!exclusive) return writeFileAtomic(target, content, { mode: 0o644 });
 	const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${randomBytes(6).toString("hex")}.tmp`);
 	await fsp.writeFile(tmp, content, { encoding: "utf8", mode: 0o644 });
 	try {
-		if (exclusive) await fsp.link(tmp, target);
-		else await fsp.rename(tmp, target);
+		await fsp.link(tmp, target);
 	} catch (cause) {
 		if (cause instanceof Error && "code" in cause && cause.code === "EEXIST") {
 			throw new LocalCommandError(`An agent file named ${path.basename(target)} already exists.`, "exists");

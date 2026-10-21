@@ -1,8 +1,8 @@
 /**
  * What the work board's "Current work" rows and the failed-check row read, as plain data (WorkBoardSession.tsx draws
- * them): the files the turn's own edit tools changed, what the session's branch has not landed yet, the session's
- * newest check, the other sessions in the checkout, the memory the turn used and the dev servers running. Everything
- * here is a pure function of store snapshots.
+ * them): the files the turn's own edit tools and the sessions it opened changed, what the session's branch has not
+ * landed yet, the session's newest check, the other sessions in the checkout, the memory the turn used and the dev
+ * servers running. Everything here is a pure function of store snapshots and what the opened sessions answered.
  */
 import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import { memoryRecallDetails } from "../../../../../resources/gui-bridge/modes/memory-recall-contracts";
@@ -12,7 +12,8 @@ import { devServerUrl } from "../../../lib/panel-auto-open";
 import type { ToolEntry } from "../../../stores/tools";
 import type { BackgroundJobVerdict } from "../../chat/completion-events";
 import { type CheckKind, checkKind, summarizeChecks } from "../../chat/work/work-checks";
-import { type WorkFileOutcome, workOutcomes } from "../../chat/work/work-view";
+import { workOutcomes } from "../../chat/work/work-view";
+import { workFilePathKey } from "../../tools/edit-args";
 
 /** A count of changed files and their lines. */
 export interface ChangesSummary {
@@ -32,14 +33,6 @@ function summarize(files: readonly { added?: number; removed?: number }[], cappe
 	};
 }
 
-/**
- * What the turn's own edit tools changed (the work card's file outcomes): never git, so another session's work in a
- * shared checkout never counts as this one's.
- */
-export function summarizeTurnFiles(files: readonly WorkFileOutcome[]): ChangesSummary {
-	return summarize(files, false);
-}
-
 /** What the session's branch has not landed in its default branch (`get_git_unlanded`); null on main or when none. */
 export interface UnlandedSummary extends ChangesSummary {
 	branch: string;
@@ -49,6 +42,69 @@ export interface UnlandedSummary extends ChangesSummary {
 export function summarizeUnlanded(unlanded: RpcGitUnlanded | null): UnlandedSummary | null {
 	if (!unlanded || unlanded.files.length === 0) return null;
 	return { ...summarize(unlanded.files, unlanded.truncated), branch: unlanded.branch, target: unlanded.target };
+}
+
+/**
+ * One session's changed file, keyed by where it is (computer and absolute path), with its lines. Never git for a
+ * session in a shared checkout: its own edit tools say what it changed, so another session's work never counts.
+ */
+export interface KeyedFileChange {
+	key: string;
+	added: number;
+	removed: number;
+}
+
+/** A session's own changed files as the family count reads them: `cwd` resolves relative paths, `device` its computer. */
+export function keyedFiles(
+	files: readonly { path: string; added?: number; removed?: number }[],
+	cwd: string,
+	device?: string,
+): KeyedFileChange[] {
+	return files.map(file => ({
+		key: `${device ?? ""}\0${workFilePathKey(file.path, cwd)}`,
+		added: file.added ?? 0,
+		removed: file.removed ?? 0,
+	}));
+}
+
+/** One session's share of a family count: `title` null for the board's own session. */
+export interface FamilyPart {
+	title: string | null;
+	files: readonly KeyedFileChange[];
+	/** Its list was cut (an unlanded list past git's cap): its count is a floor. */
+	capped?: boolean;
+}
+
+export interface FamilyChangesSummary extends ChangesSummary {
+	/** Each session's own count, the board's own first; empty when no session it opened changed anything. */
+	parts: { title: string | null; summary: ChangesSummary }[];
+}
+
+/**
+ * The files the board's session and the sessions it opened changed: one file counts once however many of them
+ * touched it (the same computer and path), its lines summed over every session's edits of it.
+ */
+export function familyChanges(parts: readonly FamilyPart[]): FamilyChangesSummary {
+	const files = new Map<string, { added: number; removed: number }>();
+	for (const part of parts)
+		for (const file of part.files) {
+			const known = files.get(file.key);
+			files.set(file.key, {
+				added: (known?.added ?? 0) + file.added,
+				removed: (known?.removed ?? 0) + file.removed,
+			});
+		}
+	const shown = parts.filter(part => part.files.length > 0);
+	const children = shown.some(part => part.title !== null);
+	return {
+		...summarize(
+			[...files.values()],
+			parts.some(part => part.capped === true),
+		),
+		parts: children
+			? shown.map(part => ({ title: part.title, summary: summarize(part.files, part.capped === true) }))
+			: [],
+	};
 }
 
 /** The session's newest test, typecheck, lint or build command, as the work card reads it. */

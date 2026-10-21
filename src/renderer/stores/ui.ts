@@ -112,9 +112,7 @@ export interface GuiDisplayPreferences {
 	proseOnlyThinking?: boolean | null;
 	showTokenUsage?: boolean | null;
 	collapseCompacted?: boolean | null;
-	titleState?: boolean | null;
 	goalStatusInFooter?: boolean | null;
-	showProgress?: boolean | null;
 	emojiAutocomplete?: boolean | null;
 	pasteMenuThreshold?: number | null;
 	/** Touch devices only: Enter sends like on a desktop instead of adding a line (default off: only Send sends). */
@@ -244,9 +242,12 @@ interface UiStore {
 	linkPreview: boolean;
 	/** Which edge the side panel docks to (Settings › General › Window). */
 	panelSide: PanelSide;
-	/** Expand reasoning (thinking) blocks by default (Settings → GUI, default off). */
+	/** A shown reasoning block starts open (Settings › Appearance › Thinking: expanded; default off). */
 	thinkingExpanded: boolean;
-	/** Show the live work board in a wide session pane's right margin (Settings → Appearance, default on). */
+	/**
+	 * The work board may dock in this window (default on; never stored): it docks whenever a pane has room
+	 * (`workBoardFits`), its ✕ hides it for this window, the palette's "Work board" brings it back.
+	 */
 	workBoard: boolean;
 	/** Transcript density: compact folds reasoning/tools; full shows every step. */
 	transcriptDetail: TranscriptDetail;

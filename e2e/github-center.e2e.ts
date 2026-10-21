@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { writeShellGh } from "./fixture/shell-gh";
 import { exitApp, fixtureOmp, openDestination, variants } from "./harness";
 import { resize } from "./shell-capture";
 
@@ -83,8 +84,8 @@ async function seed(name: string): Promise<Seeded> {
 			},
 		]),
 	]);
-	await fs.writeFile(
-		path.join(bin, "gh"),
+	await writeShellGh(
+		bin,
 		[
 			"#!/bin/sh",
 			`echo "$*" >> "${bin}/calls.log"`,
@@ -108,7 +109,6 @@ async function seed(name: string): Promise<Seeded> {
 			"esac",
 			"",
 		].join("\n"),
-		{ mode: 0o755 },
 	);
 	return { root, project: await fs.realpath(project), bin };
 }

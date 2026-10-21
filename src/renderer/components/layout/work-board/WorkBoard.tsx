@@ -23,7 +23,6 @@ import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { useShellMode } from "../../../hooks/use-shell-mode";
 import { lazyChunk } from "../../../lib/chunk-load";
-import { saveGuiPreference } from "../../../lib/display-preferences";
 import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
@@ -358,9 +357,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					className="omp-work-board-hide"
 					icon={<X />}
 					label={t("workBoard.hide")}
-					onClick={() =>
-						void saveGuiPreference("workBoard", false, () => useUiStore.getState().setWorkBoard(false))
-					}
+					onClick={() => useUiStore.getState().setWorkBoard(false)}
 					size="sm"
 				/>
 				{projectLine?.worktree ? (
@@ -521,12 +518,12 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					id="todos"
 					title={t("dock.todo")}
 				>
-					{plan.doneBefore > 0 && (
+					{plan.done > 0 && (
 						<BoardRow
 							data={{ "data-board-done-folded": "" }}
 							label={
 								<span className="text-(--sc-text-subtle)">
-									{t("workBoard.doneFolded", { count: plan.doneBefore })}
+									{t("workBoard.doneFolded", { count: plan.done })}
 								</span>
 							}
 							lead={<Check aria-hidden className="size-3 text-(--sc-success)" />}

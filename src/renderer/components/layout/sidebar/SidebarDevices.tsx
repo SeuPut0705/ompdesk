@@ -12,6 +12,7 @@ import {
 	ChevronRight,
 	FileArchive,
 	Folder,
+	FolderMinus,
 	FolderOpen,
 	FolderPlus,
 	MessageCircle,
@@ -21,7 +22,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -37,6 +38,7 @@ import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
+import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -71,32 +73,76 @@ function createdAt(session: SessionInfo): number {
 	return Number.isNaN(time) ? 0 : time;
 }
 
-/** The header over this device's own list, shown only once a host is paired; it folds the list like a host's header does. */
-export function SidebarLocalHeader() {
+/** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
+ * the end, the button that opens or makes a project folder on that device. This device's and every host's alike. */
+function DeviceHeader({
+	deviceId,
+	folded,
+	name,
+	children,
+	canAdd = true,
+	onAdd,
+	local,
+}: {
+	deviceId: string;
+	folded: boolean;
+	name: string;
+	children?: ReactNode;
+	canAdd?: boolean;
+	onAdd: () => void;
+	/** This device's header (`data-sidebar-device-header="local"`); a host's sits in its `[data-device-state]` section. */
+	local?: boolean;
+}) {
 	const t = useT();
-	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
 	const handle = useDeviceHeaderHandle();
+	const Chevron = folded ? ChevronRight : ChevronDown;
 	return (
-		<h2 className="m-0 text-sc-xs font-medium" data-sidebar-device-header="local">
+		<div
+			className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+			data-sidebar-device-header={local ? "local" : undefined}
+		>
 			<button
 				{...handle}
 				aria-expanded={!folded}
-				className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) px-2 text-left text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-				data-roving-item={`device:${LOCAL_DEVICE}`}
-				data-sidebar-device-toggle={LOCAL_DEVICE}
-				onClick={() => useSidebarFolds.getState().setDeviceFolded(LOCAL_DEVICE, !folded)}
+				className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				data-roving-item={`device:${deviceId}`}
+				data-sidebar-device-toggle={deviceId}
+				onClick={() => useSidebarFolds.getState().setDeviceFolded(deviceId, !folded)}
 				tabIndex={-1}
 				type="button"
 			>
 				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				<span className="min-w-0 flex-1 truncate">{t("remote.sidebar.thisDevice")}</span>
-				{folded ? (
-					<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				) : (
-					<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				)}
+				<span className="min-w-0 truncate">{name}</span>
+				{children}
+				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			</button>
-		</h2>
+			<IconButton
+				className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
+				data-sidebar-device-add={deviceId}
+				disabled={!canAdd}
+				icon={<FolderPlus />}
+				label={t("remote.sidebar.addProject", { name })}
+				onClick={onAdd}
+				size="sm"
+				tabIndex={-1}
+			/>
+		</div>
+	);
+}
+
+/** The header over this device's own list, shown only once a host is paired: it folds the list and, like a host's
+ * header, ends in the button that opens or makes a project folder here (the search row's own button then gives way). */
+export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void }) {
+	const t = useT();
+	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
+	return (
+		<DeviceHeader
+			deviceId={LOCAL_DEVICE}
+			folded={folded}
+			local
+			name={t("remote.sidebar.thisDevice")}
+			onAdd={onAddProject}
+		/>
 	);
 }
 
@@ -117,7 +163,6 @@ export function SidebarDeviceSection({
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
-	const handle = useDeviceHeaderHandle();
 	const online = host.state === "online";
 	const stateLabel = t(`remote.state.${host.state}`);
 	// While the link comes up the host's last known rows stand in (never read: an unlinked host is not asked), so the
@@ -137,58 +182,36 @@ export function SidebarDeviceSection({
 			data-device-state={host.state}
 			data-sidebar-device={host.deviceId}
 		>
-			<div className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
-				<button
-					{...handle}
-					aria-expanded={!collapsed}
-					className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-					data-roving-item={`device:${host.deviceId}`}
-					data-sidebar-device-toggle={host.deviceId}
-					onClick={() => useSidebarFolds.getState().setDeviceFolded(host.deviceId, !collapsed)}
-					tabIndex={-1}
-					type="button"
-				>
-					<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					<span className="min-w-0 truncate">{host.name}</span>
-					<span
-						aria-hidden
-						className={cx(
-							"size-1.5 shrink-0 rounded-full",
-							pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
-						)}
-					/>
-					{host.state === "offline" ? (
-						<span
-							className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-2xs text-(--sc-text-subtle)"
-							data-device-offline
-							title={t("remote.sidebar.offline")}
-						>
-							{stateLabel}
-						</span>
-					) : (
-						<span className="sr-only">, {stateLabel}</span>
+			<DeviceHeader
+				canAdd={online}
+				deviceId={host.deviceId}
+				folded={collapsed}
+				name={host.name}
+				onAdd={() =>
+					void pickRemoteDirectory(host.deviceId).then(path => {
+						if (path) void openRemote({ cwd: path, kind: "agent" });
+					})
+				}
+			>
+				<span
+					aria-hidden
+					className={cx(
+						"size-1.5 shrink-0 rounded-full",
+						pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
 					)}
-					{collapsed ? (
-						<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					) : (
-						<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					)}
-				</button>
-				<IconButton
-					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-					data-sidebar-device-add={host.deviceId}
-					disabled={!online}
-					icon={<FolderPlus />}
-					label={t("remote.sidebar.addProject", { name: host.name })}
-					onClick={() =>
-						void pickRemoteDirectory(host.deviceId).then(path => {
-							if (path) void openRemote({ cwd: path, kind: "agent" });
-						})
-					}
-					size="sm"
-					tabIndex={-1}
 				/>
-			</div>
+				{host.state === "offline" ? (
+					<span
+						className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-2xs text-(--sc-text-subtle)"
+						data-device-offline
+						title={t("remote.sidebar.offline")}
+					>
+						{stateLabel}
+					</span>
+				) : (
+					<span className="sr-only">, {stateLabel}</span>
+				)}
+			</DeviceHeader>
 			{!collapsed &&
 				(showRows ? (
 					<DeviceSessions
@@ -250,6 +273,8 @@ function DeviceSessions({
 	// The host's own lane rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session
 	// opened there without a folder starts) sits in its Chat lane, so it does here too.
 	const hostWorkspace = useHostWorkspace(host.deviceId, read);
+	// The host's own project list: its empty projects show here too, and one removed there (or here) is gone from both.
+	const projectList = useProjectList(host.deviceId, read);
 
 	const rows = useMemo<DeviceSession[]>(() => {
 		// A file stock wrote before the first message is not a conversation yet (see Sidebar).
@@ -292,14 +317,40 @@ function DeviceSessions({
 
 	const groups = useMemo(() => {
 		if (mode === "chat") return [];
+		const removed = new Set(projectList.removed);
+		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, DeviceSession[]>();
 		for (const session of rows) {
-			const list = byCwd.get(session.cwd) ?? [];
+			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
+			const project = projectList.worktrees[session.cwd] ?? session.cwd;
+			// A project removed from the sidebar takes its sessions with it, unless a tab holds one.
+			if (
+				removed.has(project) &&
+				session.liveTabId === undefined &&
+				!held.has(session.path) &&
+				!held.has(session.id)
+			)
+				continue;
+			const list = byCwd.get(project) ?? [];
 			list.push(session);
-			byCwd.set(session.cwd, list);
+			byCwd.set(project, list);
 		}
-		return [...byCwd.entries()].map(([cwd, groupSessions]) => ({ cwd, sessions: groupSessions }));
-	}, [rows, mode]);
+		const result = [...byCwd.entries()].map(([cwd, groupSessions]) => ({
+			cwd,
+			sessions: groupSessions,
+			missing: false,
+		}));
+		const needle = query.toLocaleLowerCase();
+		// The list's projects with no session to show, newest first after the ones that have; a filter keeps one whose
+		// folder name matches.
+		for (const project of projectList.projects.toSorted((a, b) => b.addedAt - a.addedAt)) {
+			const shown = result.find(group => group.cwd === project.path);
+			if (shown) shown.missing = project.missing === true;
+			else if (!needle || project.path.toLocaleLowerCase().includes(needle))
+				result.push({ cwd: project.path, sessions: [], missing: project.missing === true });
+		}
+		return result;
+	}, [rows, mode, projectList, query, hostTabs]);
 
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
 		hostTabs.find(
@@ -483,7 +534,7 @@ function DeviceSessions({
 			</div>
 		);
 	}
-	if (rows.length === 0) {
+	if (rows.length === 0 && groups.length === 0) {
 		return (
 			<p className="px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)" data-device-empty>
 				{query ? t("sidebar.noMatch") : t("remote.sidebar.empty")}
@@ -540,18 +591,33 @@ function DeviceSessions({
 			{groups.map(group => {
 				const groupCollapsed = !query && deviceGroupFolds[deviceGroupKey(host.deviceId, group.cwd)] === true;
 				const FolderIcon = groupCollapsed ? Folder : FolderOpen;
+				const name = basename(group.cwd) || group.cwd;
+				const groupItems: ContextMenuItem[] = [
+					{
+						id: "remove",
+						label: t("sidebar.menu.removeProject"),
+						icon: FolderMinus,
+						onSelect: () => void useSidebarProjects.getState().remove(host.deviceId, group.cwd),
+					},
+				];
 				return (
-					<div data-device-group={group.cwd} key={group.cwd}>
-						<div className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
+					<div data-device-group={group.cwd} data-project-missing={group.missing ? "" : undefined} key={group.cwd}>
+						<div
+							className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+							onContextMenu={event => setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })}
+						>
 							<button
 								aria-expanded={!groupCollapsed}
-								className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+								className={cx(
+									"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+									group.missing ? "text-(--sc-text-subtle)" : "text-(--sc-text-muted)",
+								)}
 								data-roving-item={`device-group:${host.deviceId}:${group.cwd}`}
 								onClick={() =>
 									useSidebarFolds.getState().setDeviceGroupFolded(host.deviceId, group.cwd, !groupCollapsed)
 								}
 								tabIndex={-1}
-								title={group.cwd}
+								title={group.missing ? `${group.cwd}\n${t("sidebar.project.missing")}` : group.cwd}
 								type="button"
 							>
 								{groupCollapsed ? (
@@ -560,11 +626,24 @@ function DeviceSessions({
 									<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								)}
 								<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								<span className="min-w-0 flex-1 truncate">{basename(group.cwd) || group.cwd}</span>
+								<span className="min-w-0 flex-1 truncate">{name}</span>
+								{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
 							</button>
+							<IconButton
+								className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+								icon={<MoreHorizontal />}
+								label={t("sidebar.groupMenu")}
+								onClick={event => {
+									const rect = event.currentTarget.getBoundingClientRect();
+									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: groupItems, label: name });
+								}}
+								size="sm"
+								tabIndex={-1}
+							/>
 							<IconButton
 								className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
 								data-device-group-new={group.cwd}
+								disabled={group.missing}
 								icon={<Plus />}
 								label={t("sidebar.menu.newAgentHere")}
 								onClick={() => void onOpen({ cwd: group.cwd, kind: "agent" })}

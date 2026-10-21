@@ -23,6 +23,7 @@ import {
 	FileArchive,
 	Folder,
 	FolderInput,
+	FolderMinus,
 	FolderOpen,
 	FolderPlus,
 	FolderSearch,
@@ -43,6 +44,7 @@ import {
 	PinOff,
 	Plus,
 	RefreshCw,
+	Rocket,
 	Rows2,
 	Search,
 	SearchX,
@@ -65,7 +67,7 @@ import {
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
-import { autopilotRunOf, type ProjectOrigin, worktreeLabel } from "../../../../shared/project-origin";
+import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useAwaitedInput } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -79,7 +81,7 @@ import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
-import { type ProjectName, useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
+import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
@@ -100,6 +102,7 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
@@ -134,6 +137,7 @@ import { useHostWorkspace } from "./host-workspace";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
+import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
 	type FamilyOpened,
@@ -163,24 +167,20 @@ import "../../../styles/sidebar.css";
 type SidebarSession = SessionInfo & { liveTabId?: string };
 
 interface WorkspaceGroup {
-	/** The group's id: its folder, or `<project>#agent` for the parallel children of one project. */
+	/** The group's id and where "new session here" starts: the folder, or a linked worktree's main checkout. */
 	cwd: string;
-	/** Every folder whose sessions the group holds. */
+	/** Every folder whose sessions the group holds (the project's worktrees among them). */
 	members: string[];
-	/** Where "new session here" starts: the group's folder, or the project for a parallel group. */
-	newCwd: string;
 	name: string;
-	/** The full path (for a linked worktree also its project): the group header's tooltip. */
+	/** The full path: the group header's tooltip. */
 	tooltip: string;
-	/** The main checkout the folder belongs to (the folder itself when git says nothing else). */
-	root: string;
-	/** Set when the folder is a linked worktree: where it comes from and what it is for. */
-	worktree: ProjectOrigin | null;
-	/** A worktree group shown right under its project's group. */
-	attached?: boolean;
 	sessions: SidebarSession[];
 	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): listed only while they need a look. */
 	folded: SidebarSession[];
+	/** The project's folder is gone from disk: still listed, dimmed, until the person removes it. */
+	missing?: boolean;
+	/** In this computer's project list: shown with no session too. */
+	listed?: boolean;
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
@@ -274,7 +274,7 @@ function showPanelView(tab: PanelTab): void {
 	ui.setPanelTab(tab);
 }
 
-/** Footer shortcuts the user pins in Settings › General (usage renders as bars, the rest as rows). */
+/** Footer shortcuts the user pins from Customize sidebar (usage renders as bars, the rest as rows). */
 const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { icon: typeof Bot; open: () => void }> = {
 	terminal: { icon: RAIL_PIN_ICONS.terminal, open: () => showPanelView("terminal") },
 	diff: { icon: RAIL_PIN_ICONS.diff, open: () => showPanelView("diff") },
@@ -284,7 +284,7 @@ const RAIL_PIN_ROWS: Record<Exclude<RailPin, "usage" | "agents" | "stats">, { ic
 	schedules: { icon: RAIL_PIN_ICONS.schedules, open: () => useUiStore.getState().openSettings("schedules") },
 };
 
-function useHelpItems(): ContextMenuItem[] {
+function useHelpItems(customizeSidebar: () => void): ContextMenuItem[] {
 	const t = useT();
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
 	const installOffered = useInstallOffered();
@@ -333,12 +333,11 @@ function useHelpItems(): ContextMenuItem[] {
 			onSelect: () => useUiStore.getState().openSettings("updates"),
 		},
 		{
-			// The pins themselves are Settings switches, so search finds them too.
 			id: "help-customize-sidebar",
 			label: t("help.customizeSidebar"),
 			icon: PanelLeft,
 			separatorBefore: true,
-			onSelect: () => useUiStore.getState().openSettings("general:setting-gui-railPins"),
+			onSelect: customizeSidebar,
 		},
 	];
 }
@@ -375,7 +374,10 @@ function SidebarFooter() {
 	const t = useT();
 	const destination = useUiStore(s => s.destination);
 	const keymapOverrides = useUiStore(s => s.keymapOverrides);
-	const helpItems = useHelpItems();
+	// Null until the first open: the sheet mounts then and stays, so it can animate out.
+	const [pinsSheet, setPinsSheet] = useState<{ open: boolean } | null>(null);
+	const [pinMenu, setPinMenu] = useState<PinMenuState | null>(null);
+	const helpItems = useHelpItems(() => setPinsSheet({ open: true }));
 	const railPins = useSidebarPrefs(s => s.railPins);
 	const shortcutFor = (id: PageDestination) =>
 		id === "agents"
@@ -396,12 +398,13 @@ function SidebarFooter() {
 			data-sidebar-destinations
 		>
 			{railPins.map(pin => {
-				if (pin === "usage") return <SidebarUsage key={pin} />;
+				if (pin === "usage") return <SidebarUsage key={pin} {...pinMenuHandlers(pin, setPinMenu)} />;
 				// Agents and Stats are the destination rows below, shown only while pinned.
 				if (pin === "agents" || pin === "stats") return null;
 				const { icon: Icon, open: openPin } = RAIL_PIN_ROWS[pin];
 				return (
 					<Button
+						{...pinMenuHandlers(pin, setPinMenu)}
 						className="omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5 text-(--sc-text-secondary)"
 						data-rail-pin={pin}
 						icon={<Icon />}
@@ -418,8 +421,10 @@ function SidebarFooter() {
 			).map(({ id, labelKey, icon: Icon }) => {
 				const current = destination === id;
 				const shortcut = shortcutFor(id);
+				const pinnable = id === "agents" || id === "insights";
 				const row = (
 					<Button
+						{...(pinnable ? pinMenuHandlers(id === "agents" ? "agents" : "stats", setPinMenu) : {})}
 						aria-current={current ? "page" : undefined}
 						className={cx(
 							"omp-sidebar-destination w-full min-w-0 justify-start gap-2.5 px-2.5",
@@ -451,6 +456,10 @@ function SidebarFooter() {
 					</div>
 				);
 			})}
+			{pinMenu && (
+				<PinMenu menu={pinMenu} onClose={() => setPinMenu(null)} onCustomize={() => setPinsSheet({ open: true })} />
+			)}
+			{pinsSheet && <SidebarPinsSheet onClose={() => setPinsSheet({ open: false })} open={pinsSheet.open} />}
 		</nav>
 	);
 }
@@ -597,6 +606,8 @@ export function Sidebar() {
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
+	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
+	const projectList = useProjectList();
 	const {
 		sessions,
 		isLoading,
@@ -984,86 +995,101 @@ export function Sidebar() {
 	);
 
 	// Code sessions stay grouped by project: pinned first, then the order the user
-	// dragged, with projects they never placed on top by recency.
+	// dragged, with projects they never placed on top by recency. A linked worktree's
+	// sessions (an Autopilot run, parallel work, a branch of the user's) are rows of
+	// their project's own group, never a group of their own; a project whose own folder
+	// has no session gets its group from them, named after the project. Every project
+	// of the list has a group, sessions or none; a project the person removed has none
+	// (its sessions stay on disk), unless a tab holds one of them.
 	const allGroups = useMemo<WorkspaceGroup[]>(() => {
-		const byKey = new Map<
-			string,
-			Omit<WorkspaceGroup, "name" | "tooltip" | "root" | "worktree"> & { shown: ProjectName }
-		>();
+		const byKey = new Map<string, Omit<WorkspaceGroup, "name" | "tooltip">>();
+		const groupFor = (key: string) => {
+			let entry = byKey.get(key);
+			if (!entry) {
+				entry = { cwd: key, members: [], sessions: [], folded: [] };
+				byKey.set(key, entry);
+			}
+			return entry;
+		};
+		// git realpaths a main checkout (macOS /var → /private/var), the sessions keep the folder as typed: a worktree's
+		// session goes to the group of the folder that IS its main checkout under another spelling (the same path, or the
+		// root ending in it), never to a subfolder's group.
+		const groupOfRoot = new Map<string, string>();
+		for (const session of codeSessions) {
+			const shown = projectName(session.cwd);
+			if (!shown.worktree && (shown.root === session.cwd || shown.root.endsWith(session.cwd)))
+				groupOfRoot.set(shown.root, session.cwd);
+		}
+		const keyOfRoot = (root: string) => groupOfRoot.get(root) ?? root;
+		const removed = new Set(projectList.removed);
+		const held = (session: SidebarSession) =>
+			session.liveTabId !== undefined || heldByTab.has(session.path) || heldByTab.has(session.id);
 		for (const session of codeSessions) {
 			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them),
 			// unless a tab still holds the session: one of this window's or a paired device's tab here.
-			if (
-				projectName(session.cwd).gone &&
-				session.liveTabId === undefined &&
-				!heldByTab.has(session.path) &&
-				!heldByTab.has(session.id)
-			)
-				continue;
+			if (projectName(session.cwd).gone && !held(session)) continue;
 			// A session another session's agent opened lives in that session's family, whatever its folder.
 			if (familyRootOf.has(session.path)) continue;
 			// One no opener holds folds into its project's group, below.
 			if (foldedRootOf.has(session.path)) continue;
-			const runCwd = runParentOf.get(session.path);
-			const shown = projectName(runCwd ?? session.cwd);
-			// The parallel children of one project share ONE group; a run of Autopilot keeps its own, children included.
-			const merged = runCwd === undefined && shown.worktree?.worktree?.kind === "agent";
-			const key = runCwd ?? (merged ? `${shown.root}#agent` : session.cwd);
-			let entry = byKey.get(key);
-			if (!entry) {
-				entry = { cwd: key, members: [], newCwd: merged ? shown.root : key, sessions: [], folded: [], shown };
-				byKey.set(key, entry);
-			}
+			// An Autopilot child goes where its run goes.
+			const shown = projectName(runParentOf.get(session.path) ?? session.cwd);
+			const key = shown.worktree ? keyOfRoot(shown.root) : session.cwd;
+			if (removed.has(key) && !held(session)) continue;
+			const entry = groupFor(key);
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
 			entry.sessions.push(session);
 		}
 		for (const session of codeSessions) {
 			const root = foldedRootOf.get(session.path);
 			if (root === undefined) continue;
-			let entry = byKey.get(root);
-			if (!entry) {
-				entry = { cwd: root, members: [root], newCwd: root, sessions: [], folded: [], shown: projectName(root) };
-				byKey.set(root, entry);
-			}
+			const key = keyOfRoot(root);
+			if (removed.has(key) && !held(session)) continue;
+			const entry = groupFor(key);
+			if (!entry.members.includes(key)) entry.members.push(key);
 			entry.folded.push(session);
 		}
-		// A linked worktree reads as its project + what it is for; the folder name (`gui-<name>-<hash>`) never shows.
-		const result: WorkspaceGroup[] = [...byKey.values()].map(({ shown, ...entry }) => ({
-			...entry,
-			name: groupAliases[entry.cwd] ?? shown.name,
-			tooltip: entry.cwd === entry.newCwd || !shown.worktree ? shown.tooltip : shown.worktree.root,
-			root: shown.root,
-			worktree: shown.worktree,
-			// The run's own rows first, then its children (one step further in).
-			sessions: entry.sessions.toSorted(
-				(a, b) => Number(runParentOf.has(a.path)) - Number(runParentOf.has(b.path)) || byPinThenRecency(a, b),
-			),
-			folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
-		}));
-		const ordered = orderProjects(result, {
+		const addedAt = new Map<string, number>();
+		const missing = new Set<string>();
+		for (const project of projectList.projects) {
+			const key = keyOfRoot(project.path);
+			addedAt.set(key, project.addedAt);
+			if (project.missing) missing.add(key);
+			const entry = groupFor(key);
+			if (!entry.members.includes(key)) entry.members.push(key);
+		}
+		const result: WorkspaceGroup[] = [...byKey.values()].map(entry => {
+			const shown = projectName(entry.cwd);
+			// The project's own order; an Autopilot run's children follow its row, newest first.
+			const sorted = entry.sessions.toSorted(byPinThenRecency);
+			const sessions = sorted.filter(session => !runParentOf.has(session.path));
+			const children = sorted.filter(session => runParentOf.has(session.path));
+			const placed = new Set<string>();
+			for (let index = sessions.length - 1; index >= 0; index--) {
+				const run = sessions[index] as SidebarSession;
+				const own = children.filter(child => runParentOf.get(child.path) === run.cwd);
+				if (own.length === 0 || sessions.slice(0, index).some(earlier => earlier.cwd === run.cwd)) continue;
+				placed.add(run.cwd);
+				sessions.splice(index + 1, 0, ...own);
+			}
+			// A child whose run has no row here still lists, at the end.
+			sessions.push(...children.filter(child => !placed.has(runParentOf.get(child.path) ?? "")));
+			return {
+				...entry,
+				name: groupAliases[entry.cwd] ?? shown.name,
+				tooltip: shown.tooltip,
+				sessions,
+				folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
+				...(addedAt.has(entry.cwd) ? { listed: true } : {}),
+				...(missing.has(entry.cwd) ? { missing: true } : {}),
+			};
+		});
+		return orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
-			recency: group => Math.max(...[...group.sessions, ...group.folded].map(createdAt)),
-		});
-		// A worktree's group sits right under its project's group when that one is listed.
-		const mainRoots = new Set(ordered.filter(group => !group.worktree).map(group => group.root));
-		const placed = new Set<string>();
-		return ordered.flatMap(group => {
-			if (group.worktree) return mainRoots.has(group.root) ? [] : [group];
-			if (placed.has(group.root)) return [group];
-			placed.add(group.root);
-			const attached = ordered
-				.filter(other => other.worktree && other.root === group.root)
-				// Under its project the group only needs what the worktree is for; elsewhere it names the project too.
-				.map(other => ({
-					...other,
-					attached: true,
-					name:
-						groupAliases[other.cwd] ??
-						(other.worktree ? worktreeLabel(other.worktree, kindLabels) : null) ??
-						other.name,
-				}));
-			return [group, ...attached];
+			// An empty project sorts by when it entered the list.
+			recency: group =>
+				Math.max(addedAt.get(group.cwd) ?? 0, ...[...group.sessions, ...group.folded].map(createdAt)),
 		});
 	}, [
 		codeSessions,
@@ -1072,11 +1098,11 @@ export function Sidebar() {
 		groupOrder,
 		byPinThenRecency,
 		projectName,
-		kindLabels,
 		runParentOf,
 		familyRootOf,
 		foldedRootOf,
 		heldByTab,
+		projectList,
 	]);
 	// A session matches when it does or when something it opened does: its family shows with it.
 	const matchesFamilyFilter = useCallback(
@@ -1092,11 +1118,13 @@ export function Sidebar() {
 							const named = group.name.toLocaleLowerCase().includes(query);
 							return {
 								...group,
+								named,
 								sessions: named ? group.sessions : group.sessions.filter(matchesFamilyFilter),
 								folded: named ? group.folded : group.folded.filter(matchesFilter),
 							};
 						})
-						.filter(group => group.sessions.length + group.folded.length > 0)
+						// A project whose own name matches stays, empty or not.
+						.filter(group => group.named || group.sessions.length + group.folded.length > 0)
 				: allGroups,
 		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
@@ -1149,15 +1177,9 @@ export function Sidebar() {
 	// which holds the newest rows only) and a loaded host list say what still exists.
 	useEffect(() => {
 		if (!listLive) return;
-		const folders = new Set<string>();
-		for (const group of allGroups) {
-			folders.add(group.cwd);
-			folders.add(group.root);
-			folders.add(group.newCwd);
-			for (const member of group.members) folders.add(member);
-		}
+		const folders = new Set(allGroups.map(group => group.cwd));
 		for (const session of sessions) if (!projectName(session.cwd).gone) folders.add(session.cwd);
-		useSidebarFolds.getState().pruneGroups(key => folders.has(key) || folders.has(key.replace(/#agent$/, "")));
+		useSidebarFolds.getState().pruneGroups(key => folders.has(key));
 		// A session an open tab holds stays known even before the index lists its file.
 		const known = new Set([...sessions.map(session => session.path), ...heldByTab]);
 		useSidebarSubagentsStore.getState().pruneFamilies(key => !isRememberedSession(key) || known.has(key));
@@ -1834,17 +1856,41 @@ export function Sidebar() {
 		const tabIndex = -1;
 		if (renamingSessionPath === session.path)
 			return renderRenameField(session, key, tab?.id, nested ? "omp-sidebar-session-rename-nested" : "pl-1");
+		// What a session in a linked worktree is for (an Autopilot run, parallel work, a branch): it lists among its
+		// project's rows, so its mark and tooltip say it. git's answer, else (a worktree being made) the tab's binding.
+		// An Autopilot child reads as its run's, under the run's row.
+		const worktreeOrigin =
+			session.kind === "chat" || runChild
+				? null
+				: (projectName(session.cwd).worktree ??
+					(tab?.worktree
+						? {
+								project: "",
+								root: tab.worktree.baseCwd,
+								worktree: {
+									kind: worktreeKindOf(tab.worktree.branch),
+									branch: tab.worktree.branch,
+									slug: tab.worktree.name,
+								},
+							}
+						: null));
+		const worktree = worktreeOrigin?.worktree
+			? { kind: worktreeOrigin.worktree.kind, label: worktreeLabel(worktreeOrigin, kindLabels) }
+			: null;
 		// The state is the row's own title sweeping (`SessionLiveTitle`) or its left-edge bar (sidebar.css `data-signal`), its words the
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
-		// alone; else a chat, a pin or a fork.
+		// alone; else a chat, a pin, a worktree's kind or a fork.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
+		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
 		) : pinned ? (
 			<Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" />
+		) : worktree ? (
+			<WorktreeMark aria-hidden className="size-(--sc-icon-sm)" data-sidebar-worktree={worktree.kind} />
 		) : fork ? (
 			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
 		) : null;
@@ -1952,10 +1998,11 @@ export function Sidebar() {
 							</SessionLiveTitle>
 							{fork?.parentTitle && <ForkParent name={fork.parentTitle} />}
 							{fork && <span className="sr-only">, {fork.label}</span>}
+							{worktree?.label && <span className="sr-only">, {worktree.label}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
 						</>
 					}
-					titleText={[title, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
+					titleText={[title, worktree?.label, fork?.tooltip, statusLabel].filter(Boolean).join("\n")}
 					trailing={
 						openTabId || opened.length > 0 ? (
 							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
@@ -1982,21 +2029,18 @@ export function Sidebar() {
 				session => isSessionBusy(session) || (familyChildrenOf.get(session.path) ?? []).some(isSessionBusy),
 			);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
-		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a project
-		// with nothing else to show has no group at all.
+		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a group made
+		// only of those, with nothing to show, is not drawn. A project of the list is, empty or not.
 		const loose = group.folded.map(child => familyChildFor(child)).filter(isShownOpened);
-		if (group.sessions.length === 0 && loose.length === 0) return null;
+		if (!group.listed && group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
 				{dragHandle => (
 					<>
 						<div
-							className={cx(
-								"group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)",
-								group.attached && "ml-3",
-							)}
+							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 							data-workspace-group={group.cwd}
-							data-worktree-group={group.worktree ? group.worktree.project : undefined}
+							data-project-missing={group.missing ? "" : undefined}
 							onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 							{...dragHandle}
 						>
@@ -2033,7 +2077,11 @@ export function Sidebar() {
 									aria-expanded={!groupCollapsed}
 									className={cx(
 										"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
-										isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
+										group.missing
+											? "text-(--sc-text-subtle)"
+											: isCurrentProject
+												? "text-(--sc-text)"
+												: "text-(--sc-text-muted)",
 									)}
 									data-roving-item={key}
 									onClick={() => toggleGroup(group)}
@@ -2051,7 +2099,7 @@ export function Sidebar() {
 										}
 									}}
 									tabIndex={tabIndex}
-									title={group.tooltip}
+									title={group.missing ? `${group.tooltip}\n${t("sidebar.project.missing")}` : group.tooltip}
 									type="button"
 								>
 									{groupCollapsed ? (
@@ -2059,21 +2107,13 @@ export function Sidebar() {
 									) : (
 										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 									)}
-									{group.worktree ? (
-										<GitBranch
-											aria-hidden
-											className="size-(--sc-icon-sm) shrink-0"
-											data-sidebar-workspace-icon
-											data-sidebar-worktree-icon
-										/>
-									) : (
-										<FolderIcon
-											aria-hidden
-											className="size-(--sc-icon-sm) shrink-0"
-											data-sidebar-workspace-icon
-										/>
-									)}
+									<FolderIcon
+										aria-hidden
+										className="size-(--sc-icon-sm) shrink-0"
+										data-sidebar-workspace-icon
+									/>
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
+									{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
 									{pinned && (
 										<Pin
 											aria-label={t("sidebar.pinned")}
@@ -2105,11 +2145,12 @@ export function Sidebar() {
 									<IconButton
 										className="text-(--sc-text-subtle) hover:text-(--sc-text)"
 										data-sidebar-group-new={group.cwd}
+										disabled={group.missing}
 										icon={<Plus />}
 										label={t("sidebar.menu.newAgentHere")}
 										onClick={() => {
 											useUiStore.getState().closeDestination();
-											void openTab({ cwd: group.newCwd });
+											void openTab({ cwd: group.cwd });
 										}}
 										size="sm"
 										tabIndex={-1}
@@ -2121,11 +2162,7 @@ export function Sidebar() {
 				    hundreds of sessions must not build the full DOM per
 				    debounced refresh just to hide it. */}
 						{!groupCollapsed && (
-							<div
-								className={cx("space-y-px", group.attached && "ml-3")}
-								data-session-group={group.cwd}
-								data-state="expanded"
-							>
+							<div className="space-y-px" data-session-group={group.cwd} data-state="expanded">
 								{group.sessions.map(session => renderSessionRow(session, true))}
 								<SidebarLooseChildren foldKey={`group:${group.cwd}`} opened={loose} />
 							</div>
@@ -2383,8 +2420,9 @@ export function Sidebar() {
 						variant="segmented"
 					/>
 					{/* One line per lane, the same geometry on both: the lane's search, then one icon (Code: open a
-					    project folder; Chat: new chat). New code sessions start from a project row's +, ⌘N, the
-					    palette, the menu and the tray. */}
+					    project folder; Chat: new chat). Once device sections show, each device header carries its own
+					    project folder button, so the Code lane's search takes the whole line. New code sessions start
+					    from a project row's +, ⌘N, the palette, the menu and the tray. */}
 					<div className="flex items-center gap-1" data-sidebar-header-row={mode}>
 						<div className="min-w-0 flex-1">
 							<SearchField
@@ -2406,7 +2444,7 @@ export function Sidebar() {
 								onClick={startChat}
 								variant="ghost"
 							/>
-						) : (
+						) : sectionHosts.length === 0 ? (
 							<IconButton
 								data-sidebar-open-project
 								icon={<FolderPlus />}
@@ -2414,7 +2452,7 @@ export function Sidebar() {
 								onClick={() => void openProjectFolder()}
 								variant="ghost"
 							/>
-						)}
+						) : null}
 					</div>
 				</div>
 
@@ -2439,7 +2477,9 @@ export function Sidebar() {
 										data-sidebar-local-device
 										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
-										{sectionHosts.length > 0 && <SidebarLocalHeader />}
+										{sectionHosts.length > 0 && (
+											<SidebarLocalHeader onAddProject={() => void openProjectFolder()} />
+										)}
 										{localList}
 									</div>
 								),
@@ -2498,7 +2538,7 @@ export function Sidebar() {
 									onSelect: () => {
 										setGroupMenu(null);
 										useUiStore.getState().closeDestination();
-										void openTab({ cwd: groupMenu.group.newCwd });
+										void openTab({ cwd: groupMenu.group.cwd });
 									},
 								},
 								{
@@ -2507,7 +2547,7 @@ export function Sidebar() {
 									icon: GitBranchPlus,
 									onSelect: () => {
 										setGroupMenu(null);
-										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.newCwd });
+										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
 									},
 								},
 								{
@@ -2579,6 +2619,15 @@ export function Sidebar() {
 										},
 									};
 								})(),
+								{
+									id: "group-remove",
+									label: t("sidebar.menu.removeProject"),
+									icon: FolderMinus,
+									onSelect: () => {
+										setGroupMenu(null);
+										void useSidebarProjects.getState().remove(undefined, groupMenu.group.cwd);
+									},
+								},
 								{
 									id: "group-delete",
 									separatorBefore: true,

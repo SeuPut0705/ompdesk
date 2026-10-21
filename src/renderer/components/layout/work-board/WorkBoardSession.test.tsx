@@ -3,11 +3,15 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutPeer, CheckoutPeers } from "../../../../../resources/gui-bridge/modes/checkout-peers-contracts";
+import type { AgentReviewItem } from "../../../../shared/agent-control";
 import type { AgentMessage, RpcAsyncJobItem, RpcJobRow } from "../../../../shared/rpc-types";
+import type { FamilyEdits, FamilyMemberEdits, RpcTurnEdits } from "../../../../shared/turn-edits";
 import { I18nProvider } from "../../../lib/i18n";
+import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
-import { useTabsStore } from "../../../stores/tabs";
+import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
@@ -32,8 +36,15 @@ let unlanded: unknown = null;
 let turn: TurnWindow | null = null;
 const getJobs = vi.fn(async () => ({ type: "response", command: "get_jobs", success: true, data: { rows } }));
 const getGitUnlanded = vi.fn(async () => ({ success: true, data: unlanded }));
+/** What main answers for `agent_control_family_edits` (the sessions the board's session opened). */
+let family: FamilyEdits = { members: [] };
+const command = vi.fn(async (sent: { type: string; since?: number }) =>
+	sent.type === "agent_control_family_edits"
+		? { type: "response", command: sent.type, success: true, data: family }
+		: { type: "response", command: sent.type, success: false, error: "unknown" },
+);
 Reflect.set(window, "omp", {
-	rpc: { getJobs, getGitUnlanded },
+	rpc: { getJobs, getGitUnlanded, command },
 	prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 });
 
@@ -59,11 +70,12 @@ function Host() {
 let container: HTMLElement;
 let root: Root;
 
-async function mount(): Promise<void> {
+async function mount(extraTabs: SessionTab[] = [], parent: Partial<SessionTab> = {}): Promise<void> {
 	useTabsStore.setState({
 		tabs: [
-			{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false },
+			{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false, ...parent },
 			{ id: "t2", cwd: "/w", status: "ready", kind: "agent", unreadDone: false },
+			...extraTabs,
 		],
 		activeTabId: "t1",
 		bundles: new Map(),
@@ -132,8 +144,21 @@ function serverJob(label: string, resultPreview?: string): RpcJobRow {
 	return { kind: "job", depth: 0, cancellable: true, job };
 }
 
+const reviewItem = (tabId: string, title: string): AgentReviewItem => ({
+	tabId,
+	title,
+	state: "needs-review",
+	commitsAhead: 0,
+	files: 0,
+	added: 0,
+	removed: 0,
+	uncommitted: 0,
+	answer: "",
+});
+
 beforeEach(() => {
 	getGitUnlanded.mockClear();
+	command.mockClear();
 });
 
 afterEach(async () => {
@@ -142,6 +167,9 @@ afterEach(async () => {
 	document.body.replaceChildren();
 	rows = [];
 	unlanded = null;
+	family = { members: [] };
+	useAgentReviewStore.getState().reset();
+	useClosedChildrenStore.getState().reset();
 	turn = null;
 	useMessagesStore.getState().reset();
 	useWorkBoardStore.getState().reset();
@@ -193,10 +221,11 @@ describe("Changed row", () => {
 		expect(row("unlanded")).toBeNull();
 	});
 
-	it("says a finished turn changed nothing, and is absent while a turn has changed nothing yet", async () => {
+	it("draws no line while the turn changed nothing, finished or running", async () => {
 		turn = { start: 10_000, end: 20_000 };
 		await mount();
-		expect(row("changes")?.textContent).toBe("No files changed");
+		expect(row("changes")).toBeNull();
+		expect(section("current")).toBeNull();
 		await act(async () => root.unmount());
 		turn = { start: 10_000, end: null };
 		await mount();
@@ -275,6 +304,163 @@ describe("Changed row", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("Changed row over the sessions this one opened", () => {
+	/** A member's newest turn as main reads it (`get_turn_edits`): its edit calls and their results, in its folder. */
+	function turnOf(cwd: string, endedAt: number, edits: Array<[path: string, diff: string]>): RpcTurnEdits {
+		const messages: AgentMessage[] = [];
+		edits.forEach(([path, diff], index) => {
+			const id = `${cwd}-${index}`;
+			messages.push({
+				role: "assistant",
+				content: [{ type: "toolCall", id, name: "edit", arguments: { path } }],
+				timestamp: endedAt - 1000 + index,
+			});
+			messages.push({
+				role: "toolResult",
+				toolCallId: id,
+				toolName: "edit",
+				content: [{ type: "text", text: "ok" }],
+				details: { diff },
+				timestamp: endedAt - 900 + index,
+			});
+		});
+		return { cwd, startedAt: endedAt - 2000, endedAt, messages };
+	}
+
+	// Works in the parent's own checkout and still runs: a file the parent also edited counts once.
+	const login: FamilyMemberEdits = {
+		key: "/s/c1.jsonl",
+		title: "Login form",
+		live: true,
+		edits: turnOf("/w", 12_000, [
+			["src/a.ts", "+1 a"],
+			["src/c.ts", "+1 c\n+2 c"],
+		]),
+		unlanded: null,
+	};
+	// Finished in its own worktree: what its branch has not landed counts, not its last turn alone.
+	const settings: FamilyMemberEdits = {
+		key: "/s/c2.jsonl",
+		title: "Settings page",
+		live: false,
+		edits: turnOf("/wt/c2", 15_000, [["x.ts", "+1 x"]]),
+		unlanded: {
+			branch: "omp/agent/settings",
+			target: "main",
+			truncated: false,
+			files: [
+				{ path: "x.ts", status: "M", added: 4, removed: 1 },
+				{ path: "y.ts", status: "A", added: 1, removed: 0 },
+			],
+		},
+	};
+	const children: SessionTab[] = [
+		{ id: "c1", cwd: "/w", status: "running", kind: "agent", unreadDone: false, openedBy: "t1", task: "Login form" },
+		{
+			id: "c2",
+			cwd: "/wt/c2",
+			status: "ready",
+			kind: "agent",
+			unreadDone: false,
+			openedBy: "t1",
+			task: "Settings page",
+			worktree: { name: "settings", path: "/wt/c2", baseCwd: "/w", branch: "omp/agent/settings" },
+			lastRun: { stopReason: "stop" },
+		},
+	];
+
+	beforeEach(() => {
+		command.mockClear();
+		family = { members: [login, settings] };
+		useSessionStore.setState({ cwd: "/w" });
+	});
+
+	it("counts the family's files once each, with their lines, and names each session's share", async () => {
+		turn = { start: 10_000, end: 20_000 };
+		finished(["e1", edit("src/a.ts", "+1 mine", 11_000)]);
+		await mount(children);
+		await act(async () => {});
+		// Own a.ts; Login form's a.ts (the same file) and c.ts; Settings page's unlanded x.ts and y.ts.
+		expect(row("changes")?.textContent).toContain("4 files changed");
+		expect(row("changes")?.textContent).toContain("+9");
+		expect(row("changes")?.textContent).toContain("−1");
+		const title = row("changes")?.getAttribute("title") ?? "";
+		expect(title).toContain("This session: 1 file changed +1 −0");
+		expect(title).toContain("Login form: 2 files changed +3 −0");
+		expect(title).toContain("Settings page: 2 files changed +5 −1");
+		// Main is asked for the family of this turn, closed children since its start included.
+		expect(command.mock.calls.map(([sent]) => sent)).toContainEqual({
+			type: "agent_control_family_edits",
+			since: 10_000,
+		});
+	});
+
+	it("shows a parent that changed nothing itself by its children's work", async () => {
+		// The user's report: an orchestrator whose four children edit many files read "No files changed".
+		turn = { start: 10_000, end: 11_000 };
+		await mount(children);
+		await act(async () => {});
+		expect(row("changes")?.textContent).toContain("4 files changed");
+		expect(row("changes")?.textContent).toContain("+8");
+	});
+
+	it("leaves out a child that finished before this turn began", async () => {
+		turn = { start: 30_000, end: null };
+		await mount(children);
+		await act(async () => {});
+		// Settings page finished at 15 s; Login form still runs, so its turn counts.
+		expect(row("changes")?.textContent).toContain("2 files changed");
+		expect(row("changes")?.getAttribute("title")).not.toContain("Settings page");
+	});
+
+	it("counts the children in a window that holds no tab of them (a phone viewing the opener)", async () => {
+		// The viewer knows the children only from main's review list; main reads their work, wherever they run.
+		turn = { start: 10_000, end: 20_000 };
+		await mount();
+		await act(async () => {
+			useAgentReviewStore.getState().apply({
+				tabId: "t1",
+				items: [{ ...reviewItem("c1", "Login form"), state: "running" }, reviewItem("c2", "Settings page")],
+			});
+		});
+		await act(async () => {});
+		expect(row("changes")?.textContent).toContain("4 files changed");
+	});
+
+	it("counts a child closed after its work landed during this turn", async () => {
+		// Main closes a child whose work landed: it leaves the tab list, its share stays in the turn's count.
+		turn = { start: 10_000, end: 20_000 };
+		family = {
+			members: [
+				{
+					key: "/s/c3.jsonl",
+					title: "Sidebar folds",
+					live: false,
+					edits: turnOf("/w", 14_000, [["src/folds.ts", "+1 f\n-2 g"]]),
+					unlanded: null,
+				},
+			],
+		};
+		await mount([], { sessionPath: "/s/t1.jsonl" });
+		await act(async () => {
+			useClosedChildrenStore.setState({
+				rows: [
+					{
+						path: "/s/c3.jsonl",
+						openedBySession: "/s/t1.jsonl",
+						title: "Sidebar folds",
+						cwd: "/w",
+						closedAt: 15_000,
+					},
+				],
+			});
+		});
+		await act(async () => {});
+		expect(row("changes")?.textContent).toContain("1 file changed");
+		expect(row("changes")?.getAttribute("title")).toContain("Sidebar folds: 1 file changed +1 −1");
 	});
 });
 

@@ -24,11 +24,11 @@ import {
 	RELEASE_NOW_MESSAGE,
 	type RepoProbe,
 	startSettings,
-	validAutopilotBranchPref,
 } from "./autopilot";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 import { createWorktree } from "./local/git/worktree";
+import { detectReleaseProcedure } from "./release-detect";
 import type { SidecarLike } from "./sidecar-types";
 import type { RelaunchContinuation } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
@@ -75,8 +75,8 @@ class World {
 	goal: { enabled: boolean; status?: string } = { enabled: false };
 	failGoalCreate = false;
 	failGoalResume = false;
-	/** What the bridge answers `modes.autopilot_guide` with. */
-	guide: unknown = { exists: false, text: "" };
+	/** What the bridge answers `modes.autopilot_guide` with; unset: an agent's own text as it came, else no guide. */
+	guide: unknown = undefined;
 	/** Stock's session name per tab (`set_session_name` / `get_state`). */
 	sessionNames = new Map<string, string>();
 	/** What the windows were told the session is called (`noteSessionName`). */
@@ -144,7 +144,12 @@ class World {
 				return current;
 			}
 			case AUTOPILOT_BRIDGE_METHODS.guide:
-				return this.guide;
+				return (
+					this.guide ??
+					(typeof params.text === "string"
+						? { text: params.text, source: "given", release: "kept", releases: false }
+						: null)
+				);
 			case AUTOPILOT_BRIDGE_METHODS.takeShipRequests:
 				return { requests: this.requests.splice(0) };
 			case AUTOPILOT_BRIDGE_METHODS.disarm:
@@ -185,6 +190,8 @@ let remote = "";
 let world: World;
 let notices: AutopilotNotice[];
 let endedRoots: string[];
+/** The run summaries written to the runtime log (`runLog`). */
+let runLogs: Array<{ message: string; details: Record<string, string | number | boolean> }>;
 let polls: Array<{ run: () => void; stopped: boolean }>;
 let afters: Array<() => void>;
 let releaseState: { status: string; conclusion: string | null } | null;
@@ -202,6 +209,8 @@ function text(key: MainTextKey, params?: Record<string, string | number>): strin
 function build(
 	over: {
 		releaseProcedure?: boolean;
+		/** The real detection over the run's checkout (the committed guide's Release section counts). */
+		realDetect?: boolean;
 		relaunch?: RelaunchContinuation;
 		prefs?: Record<string, unknown>;
 		probeRepo?: (root: string) => Promise<RepoProbe>;
@@ -284,8 +293,13 @@ function build(
 				entry.stopped = true;
 			};
 		},
-		detectRelease: async () => (over.releaseProcedure ? { file: "AGENTS.md", anchors: ["Release"] } : null),
+		detectRelease: over.realDetect
+			? detectReleaseProcedure
+			: async () => (over.releaseProcedure ? { file: "AGENTS.md", anchors: ["Release"] } : null),
 		log: () => undefined,
+		runLog: (message, details) => {
+			runLogs.push({ message, details });
+		},
 		...(over.probeRepo ? { probeRepo: over.probeRepo } : {}),
 	});
 	autopilot.attachControl({ childrenOf: () => [], clearQueue: async () => undefined });
@@ -341,6 +355,7 @@ beforeEach(async () => {
 	world = new World();
 	notices = [];
 	endedRoots = [];
+	runLogs = [];
 	polls = [];
 	afters = [];
 	releaseState = null;
@@ -453,17 +468,60 @@ describe("start", () => {
 			await start({ type: "set_autopilot", action: "start" });
 			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
 		});
-		it("pushes the run's own new branch when the repository has a remote, never releases", async () => {
+		it("lands every green cycle on the default branch when the repository has a remote, and releases only by a procedure", async () => {
 			await start({ type: "set_autopilot", action: "start" });
-			expect(armedPolicy()).toMatchObject({ autoPush: true, autoRelease: { on: false }, remote: "origin" });
+			expect(armedPolicy()).toMatchObject({
+				autoPush: false,
+				land: true,
+				autoRelease: { on: false },
+				remote: "origin",
+			});
 		});
-		it("stays local when the run would push the default branch", async () => {
+		it("releases by a rules file's procedure, when the agent judges it due", async () => {
+			build({ releaseProcedure: true });
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ land: true, autoRelease: { on: true, cadence: { kind: "agent" } } });
+		});
+		it("releases by the Release section of the guide Start committed, and the agent is told to follow it", async () => {
+			build({ realDetect: true });
+			world.guide = {
+				text: "# Guide\n\n## Release\n\nReleases: yes\n1. Tag it.\n",
+				source: "template",
+				release: "added",
+				releases: true,
+			};
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ land: true, autoRelease: { on: true } });
+			expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params).toMatchObject({
+				releaseProcedure: { file: "AUTOPILOT.md", anchors: ["Release"] },
+			});
+		});
+		it("only lands when the guide says the project does not release", async () => {
+			build({ realDetect: true });
+			world.guide = {
+				text: "# Guide\n\n## Release\n\nReleases: no\n- Nothing ships.\n",
+				source: "template",
+				release: "added",
+				releases: false,
+			};
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ land: true, autoRelease: { on: false } });
+		});
+		it("never releases without a remote, whatever the procedure", async () => {
+			build({ releaseProcedure: true });
+			gitSync(main, "remote", "remove", "origin");
+			await start({ type: "set_autopilot", action: "start" });
+			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
+			expect(armedPolicy()).not.toHaveProperty("land");
+		});
+		it("lands too when the run works on the default branch itself", async () => {
 			await start({ type: "set_autopilot", action: "start", branch: { kind: "existing", name: "main" } });
-			expect(armedPolicy()).toMatchObject({ autoPush: false });
+			expect(armedPolicy()).toMatchObject({ autoPush: false, land: true });
 		});
 		it("an explicit level wins", async () => {
 			await start({ type: "set_autopilot", action: "start", preset: "local" });
 			expect(armedPolicy()).toMatchObject({ autoPush: false });
+			expect(armedPolicy()).not.toHaveProperty("land");
 		});
 	});
 
@@ -487,7 +545,7 @@ describe("start", () => {
 		expect(names.lastIndexOf(AUTOPILOT_BRIDGE_METHODS.backlog)).toBeLessThan(names.indexOf("set_goal"));
 	});
 
-	it("commits the sheet's guide as the branch's first commit and leaves the user's branch alone", async () => {
+	it("commits an agent's guide as the branch's first commit and leaves the user's branch alone", async () => {
 		const { response } = await start({
 			type: "set_autopilot",
 			action: "start",
@@ -503,7 +561,7 @@ describe("start", () => {
 		expect(gitSync(main, "log", "--format=%s", "main").split("\n")).not.toContain("docs: add AUTOPILOT.md guide");
 	});
 
-	it("commits nothing when the sheet's guide is the repo's own text", async () => {
+	it("commits nothing when the agent's guide is the repo's own text", async () => {
 		await fs.writeFile(path.join(main, "AUTOPILOT.md"), "# Ours\n");
 		gitSync(main, "add", "AUTOPILOT.md");
 		gitSync(main, "commit", "-q", "-m", "add guide");
@@ -521,30 +579,37 @@ describe("start", () => {
 		expect(await fs.readFile(path.join(worktree, "AUTOPILOT.md"), "utf8")).toBe("# Ours\n\nEdited.\n");
 	});
 
-	it("asks the bridge for the repo's guide with the status, and for a draft only on guide_draft", async () => {
+	it("asks the bridge for Start's guide with the checkout and its procedure, commits what it answers, and the sheet asks for none", async () => {
+		build({ releaseProcedure: true });
+		world.guide = {
+			text: "# Built\n\n## Release\n\nReleases: yes\n",
+			source: "template",
+			release: "added",
+			releases: true,
+		};
+		await start({ type: "set_autopilot", action: "start" });
+		expect(world.bridgeCalls("parent", AUTOPILOT_BRIDGE_METHODS.guide)[0]?.params).toEqual({
+			root: expect.any(String),
+			procedure: { file: "AGENTS.md", anchors: ["Release"] },
+		});
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		expect(await fs.readFile(path.join(worktree, "AUTOPILOT.md"), "utf8")).toBe(
+			"# Built\n\n## Release\n\nReleases: yes\n",
+		);
+		expect(gitSync(worktree, "log", "--format=%s", "main..HEAD")).toBe("docs: add AUTOPILOT.md guide");
+
 		const sidecar = world.addTab("sheet", main);
 		autopilot.attachSidecar("sheet", sidecar as unknown as SidecarLike);
-		world.guide = { exists: false, text: "" };
 		const idle = await autopilot.status(sidecar as unknown as SidecarLike, "sheet");
-		expect(idle).toMatchObject({ active: false, guide: { exists: false, text: "" } });
-		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide)[0]?.params).toMatchObject({
-			root: expect.any(String),
-			draft: false,
-		});
-		world.guide = { exists: false, text: "# Draft\n", draft: "template" };
-		const drafted = await autopilot.handleCommand(
-			win,
-			sidecar as unknown as SidecarLike,
-			"sheet",
-			{ type: "set_autopilot", action: "guide_draft" },
-			"2",
-		);
-		expect(dataOf<AutopilotStatus>(drafted)).toMatchObject({
-			active: false,
-			guide: { text: "# Draft\n", draft: "template" },
-			ship: { queue: [] },
-		});
-		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide).at(-1)?.params).toMatchObject({ draft: true });
+		expect(idle).toMatchObject({ active: false, ship: { queue: [] } });
+		expect(idle).not.toHaveProperty("guide");
+		expect(world.bridgeCalls("sheet", AUTOPILOT_BRIDGE_METHODS.guide)).toEqual([]);
+	});
+
+	it("starts with no guide commit when the bridge cannot build one", async () => {
+		const { response } = await start({ type: "set_autopilot", action: "start" });
+		expect(response.success).toBe(true);
+		expect(gitSync(path.join(tmp, "wt-2026-10-17"), "log", "--format=%s", "main..HEAD")).toBe("");
 	});
 
 	it("passes a token ceiling to stock as the goal's budget and never a time limit", async () => {
@@ -864,34 +929,16 @@ describe("the branch a run is on", () => {
 		});
 	});
 
-	it("gives the sheet the branches, the suggestion and the choice remembered for this repository", async () => {
-		build({
-			prefs: { autopilotBranch: { [main]: { kind: "existing", name: "feature/x" }, "/other": { kind: "new" } } },
-		});
+	it("gives the sheet the folder's own branch only, whatever an earlier release remembered", async () => {
+		// `autopilotBranch` was the remembered choice of earlier releases: retired, never read.
+		build({ prefs: { autopilotBranch: { [main]: { kind: "existing", name: "feature/x" } } } });
 		const sidecar = world.addTab("m", main);
 		const status = dataOf<AutopilotStatus>(
 			await autopilot.handleCommand(win, sidecar as unknown as SidecarLike, "m", { type: "get_autopilot" }, "1"),
 		);
-		expect(status.branches).toMatchObject({
-			repo: main,
-			remote: "origin",
-			defaultBranch: "main",
-			suggested: "autopilot/2026-10-17",
-			last: { kind: "existing", name: "feature/x" },
-		});
-		const byName = Object.fromEntries((status.branches?.branches ?? []).map(entry => [entry.name, entry]));
-		expect(byName.main).toMatchObject({ default: true, current: true, checkedOutAt: main });
-		expect(byName["feature/x"]).toMatchObject({ local: true, remote: true });
-		expect(byName["remote-only"]).toMatchObject({ local: false, remote: true });
+		expect(status.branches).toEqual({ repo: main, remote: "origin", defaultBranch: "main", current: "main" });
 		// The branch is per run: the ship defaults carry none.
 		expect(Object.keys(status.ship?.policy ?? {}).sort()).toEqual(["autoPush", "autoRelease", "remote"]);
-	});
-
-	it("validAutopilotBranchPref accepts the remembered choices per repository and nothing else", () => {
-		expect(validAutopilotBranchPref({ "/r": { kind: "existing", name: "dev" }, "/s": { kind: "new" } })).toBe(true);
-		expect(validAutopilotBranchPref(undefined)).toBe(true);
-		expect(validAutopilotBranchPref({ "/r": { kind: "existing" } })).toBe(false);
-		expect(validAutopilotBranchPref("dev")).toBe(false);
 	});
 });
 
@@ -1041,8 +1088,16 @@ describe("stop requests from the bridge", () => {
 			reason: "repo_gone",
 		});
 		expect(notices).toEqual([
-			{ kind: "error", title: "Autopilot paused", body: "The repository folder is gone (/x)." },
+			{
+				kind: "error",
+				title: "Autopilot paused",
+				body: "autopilot/2026-10-17: 0 cycles (0 green), 0 commits; 0 of 0 landed on main. Stopped: The repository folder is gone (/x).",
+			},
 		]);
+		expect(runLogs.at(-1)).toMatchObject({
+			message: "paused",
+			details: { reason: "repo_gone", detail: "/x", cycles: 0, commits: 0, landed: 0, landTo: "main" },
+		});
 		autopilot.frame(sidecar, { type: "autopilot_stop_requested", reason: "budget" });
 		await autopilot.idle();
 		expect(notices.at(-1)?.kind).toBe("completion");
@@ -1326,6 +1381,138 @@ describe("a cycle's end", () => {
 		});
 		await autopilot.idle();
 		expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+	});
+
+	describe("Automatic shipping lands on the default branch", () => {
+		const worktree = () => path.join(tmp, "wt-2026-10-17");
+		const end = async (over: Partial<AutopilotCycleRecord>) => {
+			autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+				type: "autopilot_cycle_end",
+				record: record(over),
+			});
+			await autopilot.idle();
+		};
+		const notes = () =>
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).map(call => String(call.params?.text));
+
+		it("a green cycle with a commit lands on main; a red cycle and one without a commit never do", async () => {
+			await start();
+			const before = gitSync(remote, "rev-parse", "refs/heads/main");
+			const red = await commit(worktree(), "red.txt");
+			await end({ verify: "red", commit: red });
+			await end({ verify: "green" });
+			expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(before);
+			const sha = await commit(worktree(), "green.txt");
+			await end({ verify: "green", commit: sha });
+			expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(sha);
+			// Never the user's checkout, never the run's own branch on the remote.
+			expect(gitSync(main, "rev-parse", "main")).toBe(before);
+			expect(gitSync(remote, "for-each-ref", "refs/heads/autopilot")).toBe("");
+		});
+
+		/** Someone else's commit on the remote's main, from a clone of their own (the run's repository is not touched). */
+		async function pushElsewhere(file: string, text: string): Promise<string> {
+			const other = path.join(tmp, "someone-else");
+			gitSync(tmp, "clone", "-q", remote, other);
+			gitSync(other, "config", "user.email", "o@example.com");
+			gitSync(other, "config", "user.name", "Other");
+			gitSync(other, "config", "commit.gpgsign", "false");
+			await fs.writeFile(path.join(other, file), text);
+			gitSync(other, "add", file);
+			gitSync(other, "commit", "-q", "-m", `elsewhere ${file}`);
+			gitSync(other, "push", "-q", "origin", "HEAD:main");
+			return gitSync(other, "rev-parse", "HEAD");
+		}
+
+		it("main moved: nothing lands and the agent is told to merge; after its merge the next green cycle lands", async () => {
+			await start();
+			const moved = await pushElsewhere("other.txt", "other\n");
+			const sha = await commit(worktree(), "a.txt");
+			await end({ verify: "green", commit: sha });
+			expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(moved);
+			expect(notes().at(-1)).toMatch(
+				/^Not landed: origin\/main has commits this run lacks\. Run git fetch origin && git merge origin\/main/,
+			);
+			// The agent's next cycle: merge, check, commit.
+			gitSync(worktree(), "merge", "-q", "--no-edit", "origin/main");
+			const merged = gitSync(worktree(), "rev-parse", "HEAD");
+			await end({ verify: "green", commit: merged });
+			expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(merged);
+		});
+
+		it("a conflicting main is a note naming the files, never a pause", async () => {
+			await start();
+			await pushElsewhere("README.md", "theirs\n");
+			await fs.writeFile(path.join(worktree(), "README.md"), "ours\n");
+			gitSync(worktree(), "commit", "-q", "-am", "ours");
+			await end({ verify: "green", commit: gitSync(worktree(), "rev-parse", "HEAD") });
+			expect(notes().at(-1)).toContain("merging it conflicts in README.md");
+			expect(
+				world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).map(call => call.params?.state),
+			).not.toContain("paused");
+		});
+
+		it("a protected main falls back to one pull request, said once, and the end summary says what landed", async () => {
+			const hook = path.join(remote, "hooks", "pre-receive");
+			await fs.writeFile(
+				hook,
+				'#!/bin/sh\nwhile read old new ref; do\n  if [ "$ref" = refs/heads/main ]; then echo "GH006: Protected branch update failed" >&2; exit 1; fi\ndone\nexit 0\n',
+			);
+			await fs.chmod(hook, 0o755);
+			await start();
+			const first = await commit(worktree(), "a.txt");
+			await end({ verify: "green", commit: first });
+			const second = await commit(worktree(), "b.txt");
+			await end({ verify: "green", commit: second });
+			expect(gitSync(remote, "rev-parse", "refs/heads/autopilot/2026-10-17")).toBe(second);
+			const said = notices.filter(notice => notice.title === "Autopilot can't push to the default branch");
+			expect(said).toEqual([
+				expect.objectContaining({ body: expect.stringContaining("https://github.com/o/r/pull/1") }),
+			]);
+			const status = await autopilot.status(world.sidecars.get("ap-1") as unknown as SidecarLike, "ap-1");
+			expect(status.ship?.landing).toMatchObject({ via: "pr", url: "https://github.com/o/r/pull/1" });
+
+			world.statuses
+				.get("ap-1")
+				?.cycles?.push(record({ n: 1, commit: first }), record({ n: 2, commit: second, verify: "red" }));
+			autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+				type: "autopilot_stop_requested",
+				reason: "budget",
+			});
+			await autopilot.idle();
+			expect(runLogs.at(-1)).toMatchObject({
+				message: "paused",
+				details: {
+					reason: "budget",
+					cycles: 2,
+					green: 1,
+					commits: 2,
+					landed: 0,
+					pr: "https://github.com/o/r/pull/1",
+				},
+			});
+			expect(notices.at(-1)?.body).toBe(
+				"autopilot/2026-10-17: 2 cycles (1 green), 2 commits; main is protected: 0 of 2 landed, the rest waits in https://github.com/o/r/pull/1. Stopped: The token limit was reached.",
+			);
+		});
+
+		it("the end summary counts what landed and is written for the user's own pause too, with no notification", async () => {
+			await start();
+			const sha = await commit(worktree(), "a.txt");
+			await end({ verify: "green", commit: sha });
+			const unlanded = await commit(worktree(), "b.txt");
+			await end({ verify: "red", commit: unlanded });
+			world.statuses
+				.get("ap-1")
+				?.cycles?.push(record({ n: 1, commit: sha }), record({ n: 2, commit: unlanded, verify: "red" }));
+			autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+				type: "autopilot_stop_requested",
+				reason: "user_pause",
+			});
+			await autopilot.idle();
+			expect(runLogs.at(-1)).toMatchObject({ message: "paused", details: { landed: 1, commits: 2 } });
+			expect(notices).toEqual([]);
+		});
 	});
 
 	it("a verified user push request pushes at the turn's end even with auto push off", async () => {
