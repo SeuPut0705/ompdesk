@@ -10,6 +10,7 @@ import { useState } from "react";
 import { GITHUB_REPO_PATTERN, type GithubTarget } from "../../../../shared/github";
 import { useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { focusedTabDevice } from "../../../stores/remote";
 import { Button, EmptyState, ErrorDetail, Input, Select, Skeleton, SkeletonRows, Tabs } from "../../common";
 import { GithubSignIn } from "../../onboarding/GithubSignIn";
@@ -43,11 +44,7 @@ export function GithubCenter() {
 					actions={
 						<>
 							{missing && !connectHere && (
-								<Button
-									onClick={() => void window.omp.system.openExternal(GH_INSTALL_URL)}
-									size="sm"
-									variant="primary"
-								>
+								<Button onClick={() => openExternal(GH_INSTALL_URL)} size="sm" variant="primary">
 									{t("prCenter.installGh")}
 								</Button>
 							)}

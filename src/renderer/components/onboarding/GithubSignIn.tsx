@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react";
 import { type GithubAuthState, type GithubLoginFlow, githubLoginLive } from "../../../shared/github-auth";
 import { copyText, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { useGithubAuthStore } from "../../stores/github-auth";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { Badge, Button, CopyButton, InlineNotice, MenuButton, Spinner } from "../common";
@@ -32,7 +33,7 @@ function CodeStep({ flow }: { flow: Extract<GithubLoginFlow, { state: "code" }> 
 	const openGithub = async () => {
 		// The code goes to the clipboard first, so it is ready to paste when the page opens.
 		await copyText(flow.code);
-		void window.omp.system.openExternal(flow.url);
+		openExternal(flow.url);
 		await run(api => api.openLogin(), t("githubAuth.actionFailed"));
 	};
 	return (
@@ -48,12 +49,7 @@ function CodeStep({ flow }: { flow: Extract<GithubLoginFlow, { state: "code" }> 
 			{flow.opened && <InlineNotice live title={t("githubAuth.code.waiting")} tone="pending" />}
 			<div className="flex flex-wrap items-center gap-2">
 				{flow.opened ? (
-					<Button
-						icon={<ExternalLink />}
-						onClick={() => void window.omp.system.openExternal(flow.url)}
-						size="sm"
-						variant="secondary"
-					>
+					<Button icon={<ExternalLink />} onClick={() => openExternal(flow.url)} size="sm" variant="secondary">
 						{t("githubAuth.code.reopen")}
 					</Button>
 				) : (
@@ -229,7 +225,7 @@ export function GithubSignIn({ framed = true, onSignedIn, className }: GithubSig
 							<>
 								<Button
 									icon={<ExternalLink />}
-									onClick={() => void window.omp.system.openExternal(GH_DOWNLOAD_URL)}
+									onClick={() => openExternal(GH_DOWNLOAD_URL)}
 									size="sm"
 									variant="ghost"
 								>

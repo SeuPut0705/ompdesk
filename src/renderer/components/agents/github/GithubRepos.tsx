@@ -4,6 +4,7 @@ import { GITHUB_REPO_NAME_PATTERN, GITHUB_REPO_PATTERN, type GithubVisibility } 
 import { formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { focusedTabDevice } from "../../../stores/remote";
 import {
@@ -289,7 +290,7 @@ export function GithubRepos({
 											</Button>
 											<Button
 												icon={<ExternalLink />}
-												onClick={() => void window.omp.system.openExternal(repo.url)}
+												onClick={() => openExternal(repo.url)}
 												size="sm"
 												variant="ghost"
 											>

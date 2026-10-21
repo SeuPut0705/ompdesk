@@ -10,6 +10,7 @@
 import { ExternalLink, RefreshCw } from "lucide-react";
 import type { SetupItemState } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { Button, InlineNotice, Spinner } from "../common";
 import { SETUP_ITEM_NAMES, SetupProgressLine, setupFailureText } from "./MachineSetupView";
 
@@ -63,7 +64,7 @@ export function SetupInstallInline({ item, onRetry, onCancel }: SetupInstallInli
 				action={
 					<Button
 						icon={<ExternalLink />}
-						onClick={() => void window.omp.system.openExternal(item.manualUrl)}
+						onClick={() => openExternal(item.manualUrl)}
 						size="sm"
 						variant="secondary"
 					>

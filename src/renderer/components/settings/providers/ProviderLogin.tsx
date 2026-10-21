@@ -27,6 +27,7 @@ import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from 
 import type { ExtensionUIRequest } from "../../../../shared/rpc-types";
 import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
@@ -138,8 +139,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 				const link = loginLink(request, remote);
 				setState(prev => ({ ...prev, link }));
 				// A browser sign-in this page started on this computer opens by itself; the panel's button reopens it.
-				if (link.oauth && !remote && !state.resumed && state.since > 0)
-					void window.omp.system.openExternal(link.target);
+				if (link.oauth && !remote && !state.resumed && state.since > 0) openExternal(link.target);
 				// omp never waits on this answer; acknowledge it all the same.
 				void sendResponse({ type: "extension_ui_response", id: request.id, value: "done" });
 				removeRequest(request.id);
@@ -379,7 +379,7 @@ export function ProviderLoginPanel({
 					<Button
 						icon={<ExternalLink />}
 						onClick={() => {
-							if (state.link) void window.omp.system.openExternal(state.link.target);
+							if (state.link) openExternal(state.link.target);
 						}}
 						size="sm"
 						variant={keyPage ? "secondary" : "primary"}

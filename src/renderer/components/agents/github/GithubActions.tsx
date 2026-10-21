@@ -6,6 +6,7 @@ import { formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { githubEventLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { AsyncSection, Button, ConfirmDialog, IconButton, Input, MasterDetail, Modal, Select } from "../../common";
 import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, RunState, useGithubMutation } from "./shared";
 
@@ -97,12 +98,7 @@ export function RunDetail({
 							{t("github.runs.failedLog")}
 						</Button>
 					)}
-					<Button
-						icon={<ExternalLink />}
-						onClick={() => void window.omp.system.openExternal(run.url)}
-						size="sm"
-						variant="ghost"
-					>
+					<Button icon={<ExternalLink />} onClick={() => openExternal(run.url)} size="sm" variant="ghost">
 						{t("github.openOnGithub")}
 					</Button>
 				</div>

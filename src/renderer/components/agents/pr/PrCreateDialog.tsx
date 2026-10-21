@@ -12,6 +12,7 @@ import { useEffect, useId, useState } from "react";
 import type { RpcPrCreateResult, RpcPrDraftResult } from "../../../../shared/rpc-types";
 import { useGitStatus } from "../../../hooks/use-git-status";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { useSessionStore } from "../../../stores/session";
@@ -77,7 +78,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 			const result = response.data as RpcPrCreateResult | undefined;
 			if (result) {
 				toast({ variant: "success", message: t("prCenter.created", { number: String(result.number) }) });
-				void window.omp.system.openExternal(result.url);
+				openExternal(result.url);
 			}
 			void usePrCenterStore.getState().refresh();
 			onClose();

@@ -49,6 +49,7 @@ import {
 	rehypeAlerts,
 	rehypeHeadingIds,
 } from "./markdown-rehype";
+import { openExternal } from "./open-external";
 import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
 import { remarkCjkAutolink, remarkCjkStrong } from "./remark-cjk";
 import { remarkHtmlAsText } from "./remark-html-text";
@@ -397,7 +398,7 @@ function MarkdownLink({ href, children, node: _node, ...props }: ComponentPropsW
 		// goes to the browser.
 		const ui = useUiStore.getState();
 		if (ui.linkPreview && /^https?:\/\//i.test(href) && !event.metaKey && !event.ctrlKey) ui.openPreview(href);
-		else window.omp.system.openExternal(href);
+		else openExternal(href);
 	};
 	// Web, mail and local-file links get the link menu; `#fragment` and `local://` keep none.
 	const onContextMenu = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -736,7 +737,7 @@ function RemoteMarkdownImage({ src, alt, media }: { src: string; alt: string; me
 				href={src}
 				onClick={event => {
 					event.preventDefault();
-					window.omp.system.openExternal(src);
+					openExternal(src);
 				}}
 				className="shrink-0 truncate font-mono text-omp-xs text-[var(--omp-md-link)] underline decoration-[var(--omp-md-link-url)] hover:decoration-[var(--omp-md-link)]"
 			>

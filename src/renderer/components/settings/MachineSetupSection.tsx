@@ -9,6 +9,7 @@ import { ExternalLink, RefreshCw, ShieldCheck, Undo2 } from "lucide-react";
 import { useState } from "react";
 import type { GitAslrAction, SetupItemState } from "../../../shared/setup";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { Badge, Button, InlineNotice, SettingInfo } from "../common";
 import {
@@ -157,7 +158,7 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 						item.manualUrl ? (
 							<Button
 								icon={<ExternalLink />}
-								onClick={() => void window.omp.system.openExternal(item.manualUrl)}
+								onClick={() => openExternal(item.manualUrl)}
 								size="sm"
 								variant="ghost"
 							>

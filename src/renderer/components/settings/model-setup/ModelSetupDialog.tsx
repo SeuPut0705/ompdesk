@@ -18,6 +18,7 @@ import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { errorDetail, type InlineFailure, inlineFailure } from "../../../lib/error-detail";
 import { cx } from "../../../lib/format";
 import { useLang, useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
@@ -535,7 +536,7 @@ export function ModelSetupDialog() {
 														href={source.url}
 														onClick={event => {
 															event.preventDefault();
-															void window.omp.system.openExternal(source.url);
+															openExternal(source.url);
 														}}
 														title={source.url}
 													>

@@ -4,6 +4,7 @@ import { AnsiText, hasAnsi } from "../../../lib/ansi";
 import { resultText } from "../../../lib/format";
 import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { asArray, asRecord } from "../../../lib/wire-value";
 import type { ToolRendererProps } from "../ToolCard";
 import { resultDetails } from "./result";
@@ -238,7 +239,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 					<button
 						type="button"
 						title={t("tools.github.openInBrowser")}
-						onClick={() => void window.omp.system.openExternal(externalUrl)}
+						onClick={() => openExternal(externalUrl)}
 						className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] transition-colors hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-md-link)]"
 					>
 						<ExternalLink size={11} />
@@ -271,7 +272,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 						<button
 							type="button"
 							title={t("tools.github.openInBrowser")}
-							onClick={() => void window.omp.system.openExternal(externalUrl)}
+							onClick={() => openExternal(externalUrl)}
 							className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] transition-colors hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-md-link)]"
 						>
 							<ExternalLink size={11} />

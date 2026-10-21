@@ -27,6 +27,7 @@ import { AnsiText, hasAnsi } from "../../lib/ansi";
 import { cx, formatBytes, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
+import { openExternal } from "../../lib/open-external";
 import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
@@ -322,7 +323,7 @@ export function SetupManualSteps({ item }: { item: SetupItemState }) {
 				<div>
 					<Button
 						icon={<ExternalLink />}
-						onClick={() => void window.omp.system.openExternal(item.manualUrl)}
+						onClick={() => openExternal(item.manualUrl)}
 						size="sm"
 						variant="secondary"
 					>

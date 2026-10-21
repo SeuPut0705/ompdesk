@@ -12,6 +12,7 @@ import { formatBytes, formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { useNowTick } from "../../lib/now-tick";
+import { openExternal } from "../../lib/open-external";
 import { mobileWebCommand } from "../../stores/mobile-web";
 import { Banner, Button, CopyButton, InlineNotice, ProgressBar, Spinner } from "../common";
 
@@ -96,7 +97,7 @@ export function MobileWebPhasePanel({ state }: { state: MobileWebState }) {
 		setPending(request.action);
 		void mobileWebCommand(request, t("mobileWeb.commandFailed")).finally(() => setPending(null));
 	};
-	const open = (url: string) => void window.omp.system.openExternal(url);
+	const open = (url: string) => openExternal(url);
 	const button = (action: PhaseAction, label: string, variant: "primary" | "secondary" | "ghost") => (
 		<Button
 			data-mobile-web-action={action}

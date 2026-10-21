@@ -39,6 +39,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { useNowTick } from "../../lib/now-tick";
+import { openExternal } from "../../lib/open-external";
 import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
 import { isApprovalRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -700,7 +701,7 @@ function OpenUrlDialog({
 			onCancel();
 			return;
 		}
-		void window.omp.system.openExternal(target);
+		openExternal(target);
 		onDone();
 	};
 	return (

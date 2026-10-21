@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { FEEDBACK_REPO } from "../../../shared/feedback";
 import type { GithubStarState } from "../../../shared/github-auth";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { toastError } from "../../stores/toast";
 import { Button } from "../common";
 
@@ -48,7 +49,7 @@ export function ProductStar({ size = "sm" }: { size?: "sm" | "md" }) {
 			<Button
 				data-product-star="page"
 				icon={<ExternalLink />}
-				onClick={() => void window.omp.system.openExternal(FEEDBACK_REPO)}
+				onClick={() => openExternal(FEEDBACK_REPO)}
 				size={size}
 				variant="secondary"
 			>

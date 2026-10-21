@@ -1654,6 +1654,7 @@ export const en: Record<string, string> = {
 	"image.next": "Next image",
 	"image.position": "{index} of {total}",
 	"image.openDefault": "Open in default app",
+	"link.openFailed": "Couldn't open the link",
 	"image.openFailed": "Couldn't open the image",
 	"image.menu.label": "Image actions",
 	"image.menu.open": "Open",

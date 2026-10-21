@@ -5,6 +5,7 @@ import { formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
+import { openExternal } from "../../../lib/open-external";
 import {
 	AsyncSection,
 	Badge,
@@ -146,12 +147,7 @@ function IssueDetail({
 					>
 						{t(closed ? "github.issues.reopen" : "github.issues.close")}
 					</Button>
-					<Button
-						icon={<ExternalLink />}
-						onClick={() => void window.omp.system.openExternal(issue.url)}
-						size="sm"
-						variant="ghost"
-					>
+					<Button icon={<ExternalLink />} onClick={() => openExternal(issue.url)} size="sm" variant="ghost">
 						{t("github.openOnGithub")}
 					</Button>
 				</div>

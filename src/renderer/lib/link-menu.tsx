@@ -20,6 +20,7 @@ import { useUiStore } from "../stores/ui";
 import { copyText } from "./format";
 import { useT } from "./i18n";
 import { PLATFORM } from "./keymap";
+import { openExternal } from "./open-external";
 
 export type LinkMenuTarget = { kind: "web"; url: string } | { kind: "path"; path: string; line?: number; dir: boolean };
 
@@ -55,7 +56,7 @@ export function useLinkMenu(tabId: string | null): {
 						id: "mail",
 						label: t("markdown.link.openMail"),
 						icon: Mail,
-						onSelect: () => void window.omp.system.openExternal(target.url),
+						onSelect: () => openExternal(target.url),
 					},
 					{
 						id: "copy",
@@ -75,7 +76,7 @@ export function useLinkMenu(tabId: string | null): {
 					id: "browser",
 					label: t("markdown.link.openBrowser"),
 					icon: Globe,
-					onSelect: () => void window.omp.system.openExternal(target.url),
+					onSelect: () => openExternal(target.url),
 				},
 				{
 					id: "copy",

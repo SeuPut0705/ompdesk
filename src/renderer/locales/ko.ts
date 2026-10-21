@@ -1638,6 +1638,7 @@ export const ko: Record<string, string> = {
 	"image.next": "다음 이미지",
 	"image.position": "{total}개 중 {index}번째",
 	"image.openDefault": "기본 앱으로 열기",
+	"link.openFailed": "링크를 열지 못했어요",
 	"image.openFailed": "이미지를 열지 못했어요",
 	"image.menu.label": "이미지 작업",
 	"image.menu.open": "열기",

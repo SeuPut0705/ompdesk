@@ -23,6 +23,7 @@ import { DiffView } from "../../../lib/diff";
 import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
+import { openExternal } from "../../../lib/open-external";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { Badge, Button, EmptyState, ErrorDetail, InlineNotice, Skeleton } from "../../common";
 import { PrConversation, PrEditButton, PrMergeButton } from "./PrActions";
@@ -220,12 +221,7 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 					>
 						{t("prCenter.checkout")}
 					</Button>
-					<Button
-						icon={<ExternalLink />}
-						onClick={() => void window.omp.system.openExternal(detail.url)}
-						size="sm"
-						variant="secondary"
-					>
+					<Button icon={<ExternalLink />} onClick={() => openExternal(detail.url)} size="sm" variant="secondary">
 						{t("prCenter.openInBrowser")}
 					</Button>
 					<PrEditButton detail={detail} />

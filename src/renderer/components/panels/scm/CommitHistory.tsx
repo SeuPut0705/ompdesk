@@ -30,6 +30,7 @@ import { useFocusedScope } from "../../../lib/focused-scope";
 import { cx, formatAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { lastRead, rememberRead } from "../../../lib/last-read";
+import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useUiStore } from "../../../stores/ui";
 import {
@@ -233,7 +234,7 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 				id: "remote",
 				label: t("scm.history.openRemote"),
 				icon: ExternalLink,
-				onSelect: () => void window.omp.system.openExternal(url),
+				onSelect: () => openExternal(url),
 			});
 		}
 		items.push(

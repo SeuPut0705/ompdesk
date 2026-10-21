@@ -12,6 +12,7 @@ import type { RpcPrListItem } from "../../../shared/rpc-types";
 import { useFocusedScope } from "../../lib/focused-scope";
 import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { usePrCenterStore } from "../../stores/pr-center";
 import { focusedTabDevice } from "../../stores/remote";
@@ -190,11 +191,7 @@ export function PullRequests() {
 				actions={
 					<>
 						{reason === "gh_missing" && (
-							<Button
-								onClick={() => void window.omp.system.openExternal(GH_INSTALL_URL)}
-								size="sm"
-								variant="primary"
-							>
+							<Button onClick={() => openExternal(GH_INSTALL_URL)} size="sm" variant="primary">
 								{t("prCenter.installGh")}
 							</Button>
 						)}

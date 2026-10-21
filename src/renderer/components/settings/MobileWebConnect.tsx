@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import type { MobileWebState } from "../../../shared/mobile-web";
 import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { toast } from "../../stores/toast";
 import { Button, Spinner } from "../common";
 import { QrCode } from "../common/QrCode";
@@ -37,12 +38,7 @@ function StoreLink({ label, qrTitle, url }: { label: string; qrTitle: string; ur
 	return (
 		<div className="flex flex-col items-center gap-1" data-mobile-web-store={url}>
 			<QrCode size={72} title={qrTitle} value={url} />
-			<Button
-				icon={<ExternalLink />}
-				onClick={() => void window.omp.system.openExternal(url)}
-				size="sm"
-				variant="ghost"
-			>
+			<Button icon={<ExternalLink />} onClick={() => openExternal(url)} size="sm" variant="ghost">
 				{label}
 			</Button>
 		</div>
@@ -118,7 +114,7 @@ export function MobileWebConnect({ state, url }: { state: MobileWebState; url: s
 							<div>
 								<Button
 									icon={<ExternalLink />}
-									onClick={() => void window.omp.system.openExternal(DOWNLOAD_URL)}
+									onClick={() => openExternal(DOWNLOAD_URL)}
 									size="sm"
 									variant="ghost"
 								>

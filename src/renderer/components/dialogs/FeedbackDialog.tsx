@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildIssueUrl, FEEDBACK_KINDS, type FeedbackKind, formatErrorTail } from "../../../shared/feedback";
 import type { SystemInfo } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { useUiStore } from "../../stores/ui";
 import { Button, Input, Modal, TextArea } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
@@ -75,7 +76,7 @@ export function FeedbackDialog() {
 			errors: includeErrors ? errorTail : [],
 			prefillError: prefill?.error ?? null,
 		});
-		void window.omp.system.openExternal(url);
+		openExternal(url);
 		close();
 	}, [canSubmit, kind, title, description, includeEnv, includeErrors, info, errorTail, prefill, close]);
 

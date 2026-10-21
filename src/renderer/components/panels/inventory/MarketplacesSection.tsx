@@ -14,6 +14,7 @@ import { useCallback, useId, useState } from "react";
 import type { RpcMarketplaceInfo, RpcMarketplacePluginInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
+import { openExternal } from "../../../lib/open-external";
 import {
 	capturePluginActivationOrigin,
 	handlePluginActivation,
@@ -183,7 +184,7 @@ function AvailablePluginRow({
 						{repository && (
 							<button
 								className="text-(--sc-accent) underline-offset-2 hover:underline"
-								onClick={() => void window.omp.system.openExternal(repository)}
+								onClick={() => openExternal(repository)}
 								title={repository}
 								type="button"
 							>
@@ -193,7 +194,7 @@ function AvailablePluginRow({
 						{homepage && (
 							<button
 								className="text-(--sc-accent) underline-offset-2 hover:underline"
-								onClick={() => void window.omp.system.openExternal(homepage)}
+								onClick={() => openExternal(homepage)}
 								title={homepage}
 								type="button"
 							>

@@ -6,6 +6,7 @@ import {
 	type ShipQueueItem,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useAutopilotStore } from "../../stores/autopilot";
 import { useSessionStore } from "../../stores/session";
@@ -51,7 +52,7 @@ function QueueRow({ item, onCancel }: { item: ShipQueueItem; onCancel: () => voi
 				<IconButton
 					icon={<ExternalLink />}
 					label={t("autopilot.ship.openLink")}
-					onClick={() => void window.omp.system.openExternal(item.url as string)}
+					onClick={() => openExternal(item.url as string)}
 					size="sm"
 				/>
 			)}
@@ -97,7 +98,7 @@ export function ShipLandRow() {
 						<IconButton
 							icon={<ExternalLink />}
 							label={t("autopilot.ship.openPr")}
-							onClick={() => void window.omp.system.openExternal(landing.url as string)}
+							onClick={() => openExternal(landing.url as string)}
 							size="sm"
 						/>
 					)}
@@ -143,7 +144,7 @@ function ReleaseStatus() {
 				<IconButton
 					icon={<ExternalLink />}
 					label={t("autopilot.ship.openRun")}
-					onClick={() => void window.omp.system.openExternal(release.runUrl as string)}
+					onClick={() => openExternal(release.runUrl as string)}
 					size="sm"
 				/>
 			)}

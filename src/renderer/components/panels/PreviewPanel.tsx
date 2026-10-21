@@ -40,6 +40,7 @@ import {
 	reducePreviewState,
 } from "../../../shared/preview";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { latestBashPreviewUrl } from "../../lib/preview-browser";
 import { chromePlatform } from "../../lib/window-chrome";
 import { usePreviewVisualsStore } from "../../stores/preview-visuals";
@@ -448,7 +449,7 @@ export function PreviewPanel() {
 						size="sm"
 						disabled={!address || remoteBlocked}
 						onClick={() => {
-							if (address) void window.omp.system.openExternal(address);
+							if (address) openExternal(address);
 						}}
 					/>
 				</div>
@@ -614,8 +615,7 @@ export function PreviewPanel() {
 									variant="secondary"
 									icon={<ExternalLink />}
 									onClick={() => {
-										if (state.notice?.kind === "download")
-											void window.omp.system.openExternal(state.notice.url);
+										if (state.notice?.kind === "download") openExternal(state.notice.url);
 										command({ action: "dismissNotice" });
 									}}
 								>

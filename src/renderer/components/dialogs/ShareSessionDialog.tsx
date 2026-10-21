@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcShareSessionPreview, RpcShareSessionResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
+import { openExternal } from "../../lib/open-external";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -118,7 +119,7 @@ export function ShareSessionDialog() {
 							<CopyButton label={t("shareDialog.copy")} text={result.url} variant="secondary" />
 							<Button
 								aria-label={t("shareDialog.open")}
-								onClick={() => void window.omp.system.openExternal(result.url)}
+								onClick={() => openExternal(result.url)}
 								size="sm"
 								title={t("shareDialog.open")}
 								variant="secondary"

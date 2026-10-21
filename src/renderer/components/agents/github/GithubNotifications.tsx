@@ -4,6 +4,7 @@ import { cx, formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { githubNotificationReasonLabel, githubNotificationTypeLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { AsyncSection, Badge, Button, IconButton, Tabs } from "../../common";
 import { type GithubSectionProps, GithubToolbar, useGithubMutation } from "./shared";
 
@@ -104,7 +105,7 @@ export function GithubNotifications({ target, targetKey }: Pick<GithubSectionPro
 									<IconButton
 										icon={<ExternalLink />}
 										label={t("github.openOnGithub")}
-										onClick={() => void window.omp.system.openExternal(row.url)}
+										onClick={() => openExternal(row.url)}
 										size="sm"
 									/>
 								)}
