@@ -468,7 +468,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			["schedules", "Schedules"],
 		]);
 
-		useUiStore.setState({ destination: "insights", panelVisible: false });
+		await act(async () => useUiStore.setState({ destination: "insights", panelVisible: false }));
 		await fire(footer?.querySelector('[data-rail-pin="files"]') ?? null, "onClick");
 		expect(useUiStore.getState()).toMatchObject({ destination: "session", panelVisible: true, panelTab: "files" });
 		await fire(footer?.querySelector('[data-rail-pin="schedules"]') ?? null, "onClick");
@@ -2433,7 +2433,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			await fire(first?.querySelector("button") ?? null, "onClick");
 			expect(switchTab).toHaveBeenCalledWith("ta");
 		} finally {
-			useTabsStore.setState({ switchTab: original });
+			await act(async () => useTabsStore.setState({ switchTab: original }));
 		}
 	});
 
@@ -3211,7 +3211,7 @@ describe("Sidebar device sections", () => {
 			const row = container.querySelector("[data-session-path]");
 
 			// The first read fills the same section in place: nothing is added above or remounted.
-			pairHosts(["dev-studio"]);
+			await act(async () => pairHosts(["dev-studio"]));
 			await flush();
 			expect(order()).toEqual(["dev-studio", LOCAL_DEVICE]);
 			expect(
@@ -3232,7 +3232,7 @@ describe("Sidebar device sections", () => {
 			expect(row?.textContent).toContain("Remote fix");
 			expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
 
-			pairHost("online");
+			await act(async () => pairHost("online"));
 			await flush();
 			expect(omp.sessions.list).toHaveBeenCalledWith("global", "dev-studio");
 			expect(container.querySelector('[data-sidebar-device="dev-studio"] [data-device-session]')).toBe(row);
@@ -3249,7 +3249,7 @@ describe("Sidebar device sections", () => {
 			await mount(<Sidebar />);
 			expect(order()).toEqual(["dev-gone", LOCAL_DEVICE]);
 
-			pairHosts(["dev-office"]);
+			await act(async () => pairHosts(["dev-office"]));
 			await flush();
 			expect(order()).toEqual([LOCAL_DEVICE, "dev-office"]);
 			expect(useSidebarFolds.getState().knownHosts).toEqual([{ id: "dev-office", name: "office", offline: true }]);
@@ -3263,7 +3263,7 @@ describe("Sidebar device sections", () => {
 			const row = container.querySelector("[data-session-path]");
 			expect(row).not.toBeNull();
 
-			pairHosts(["dev-studio"]);
+			await act(async () => pairHosts(["dev-studio"]));
 			await flush();
 			expect(order()).toEqual([LOCAL_DEVICE, "dev-studio"]);
 			// The same element, not a remount: focus, an open rename field and row state survive pairing.
@@ -3567,11 +3567,13 @@ describe("Sidebar archive and move", () => {
 			expect(switchTab).toHaveBeenCalledWith("t0");
 			expect(splitTab).toHaveBeenCalledWith("t-new", "right");
 		} finally {
-			useTabsStore.setState({
-				openTab: original.openTab,
-				switchTab: original.switchTab,
-				splitTab: original.splitTab,
-			});
+			await act(async () =>
+				useTabsStore.setState({
+					openTab: original.openTab,
+					switchTab: original.switchTab,
+					splitTab: original.splitTab,
+				}),
+			);
 		}
 	});
 });
@@ -3658,7 +3660,7 @@ describe("Sidebar with a split on screen", () => {
 				kind: "agent",
 			});
 		} finally {
-			useTabsStore.setState({ openTab: original.openTab, switchTab: original.switchTab });
+			await act(async () => useTabsStore.setState({ openTab: original.openTab, switchTab: original.switchTab }));
 		}
 	});
 });
