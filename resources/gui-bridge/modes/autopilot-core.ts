@@ -483,7 +483,12 @@ export function pendingNotes(
 	return customEntries<AutopilotNote>(entries, AUTOPILOT_NOTE_ENTRY).filter(note => note.at > beganAt);
 }
 
-/** Follow-ups of the recent cycles that no later cycle's title mentions, newest first, without repeats. */
+/**
+ * Follow-ups of the recent cycles that no later cycle did, newest first, without repeats. A later cycle did one when
+ * its title is the follow-up's text or its report lists it under `resolved` (a title is a short name for the work and
+ * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
+ * window and `begin` kept pointing the agent back at it).
+ */
 export function openFollowups(records: readonly AutopilotCycleRecord[]): string[] {
 	const window = records.slice(-DUPLICATE_WINDOW);
 	const open: string[] = [];
@@ -493,7 +498,9 @@ export function openFollowups(records: readonly AutopilotCycleRecord[]): string[
 			const key = normalizeTitle(followup);
 			if (!key || seen.has(key)) continue;
 			seen.add(key);
-			if (window.slice(i + 1).some(later => normalizeTitle(later.title) === key)) continue;
+			const done = (later: AutopilotCycleRecord) =>
+				normalizeTitle(later.title) === key || (later.resolved ?? []).some(text => normalizeTitle(text) === key);
+			if (window.slice(i + 1).some(done)) continue;
 			open.push(followup);
 		}
 	}
@@ -581,6 +588,7 @@ export function finalizeCycle(facts: FinalizeFacts): AutopilotCycleRecord {
 		...(report.commit ? { commit: report.commit } : {}),
 		...(report.backlogId ? { backlogId: report.backlogId } : {}),
 		followups: (report.followups ?? []).map(text => text.trim()).filter(Boolean),
+		...(report.resolved?.length ? { resolved: report.resolved.map(text => text.trim()).filter(Boolean) } : {}),
 		...(report.ship ? { ship: report.ship } : {}),
 		children: report.children ?? [],
 		...(facts.verifyNote ? { verifyNote: facts.verifyNote } : {}),
@@ -612,6 +620,8 @@ export function parseEndReport(input: Record<string, unknown>): EndReport | { er
 	if (typeof input.backlogId === "string" && input.backlogId) report.backlogId = input.backlogId;
 	if (Array.isArray(input.followups))
 		report.followups = input.followups.filter((x): x is string => typeof x === "string");
+	if (Array.isArray(input.resolved))
+		report.resolved = input.resolved.filter((x): x is string => typeof x === "string");
 	const ship = input.ship;
 	if (typeof ship === "object" && ship !== null && (ship as { kind?: unknown }).kind === "release") {
 		const { version, runUrl } = ship as { version?: unknown; runUrl?: unknown };
@@ -738,7 +748,7 @@ export function beginHints(
 	const defects = facts.open.filter(text => DEFECT.test(text)).slice(0, 2);
 	if (defects.length > 0) {
 		hints.push(
-			`Open follow-ups name a defect (${defects.map(text => `"${text}"`).join(", ")}): pick one before docs, tests or polish.`,
+			`Open follow-ups name a defect (${defects.map(text => `"${text}"`).join(", ")}): pick one before docs, tests or polish. One you finished or found not to apply goes in end.resolved (its exact text), so it closes.`,
 		);
 	}
 	if (docsOnly(records.at(-1))) {

@@ -211,6 +211,8 @@ export interface AutopilotCycleRecord {
 	commit?: string;
 	backlogId?: string;
 	followups: string[];
+	/** Open follow-ups (their text as `begin` gave it) this cycle finished or found not to apply: they close. */
+	resolved?: string[];
 	ship?: { kind: "release"; version: string; runUrl?: string };
 	children: AutopilotChildReport[];
 	startedAt: number;
@@ -331,6 +333,8 @@ export type AutopilotToolInput =
 			check?: string;
 			backlogId?: string;
 			followups?: string[];
+			/** Open follow-ups this cycle finished or found not to apply, as `begin.openFollowups` wrote them. */
+			resolved?: string[];
 			ship?: { kind: "release"; version: string; runUrl?: string };
 			children?: AutopilotChildReport[];
 	  }

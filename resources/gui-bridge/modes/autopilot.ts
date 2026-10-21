@@ -681,7 +681,12 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				});
 			}
 			const followups = [...new Set([...(current.report?.followups ?? []), ...(parsed.followups ?? [])])];
-			const report: EndReport = followups.length > 0 ? { ...parsed, followups } : parsed;
+			const resolved = [...new Set([...(current.report?.resolved ?? []), ...(parsed.resolved ?? [])])];
+			const report: EndReport = {
+				...parsed,
+				...(followups.length > 0 ? { followups } : {}),
+				...(resolved.length > 0 ? { resolved } : {}),
+			};
 			const backlog = backlogItems(entries);
 			const pinned = report.backlogId ? backlog.find(item => item.id === report.backlogId && !item.done) : undefined;
 			const duplicate =
@@ -797,6 +802,10 @@ function registerTool(pi: ExtensionAPI): void {
 			check: z.string().optional().describe("end: the exact command you ran as the repo's check"),
 			backlogId: z.string().optional().describe("end: the pinned backlog item this cycle did"),
 			followups: z.array(z.string()).optional().describe("end: items found but not done"),
+			resolved: z
+				.array(z.string())
+				.optional()
+				.describe("end: open follow-ups (begin's exact text) this cycle did or found not to apply; they close"),
 			ship: z
 				.object({ kind: z.literal("release"), version: z.string(), runUrl: z.string().optional() })
 				.optional()

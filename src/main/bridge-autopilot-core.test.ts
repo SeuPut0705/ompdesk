@@ -538,6 +538,38 @@ describe("journal replay", () => {
 		expect(openFollowups(records)).toEqual(["add retries", "Docs for X"]);
 		expect(openFollowups([])).toEqual([]);
 	});
+	it("openFollowups: a later cycle that resolves a follow-up closes it, whatever its title says", () => {
+		const records = seq(
+			{ followups: ["The land check's tail drops the first error", "Docs for X"] },
+			{
+				title: "A refused land names the check's first error",
+				resolved: ["the land check's tail drops the first error"],
+			},
+		);
+		expect(openFollowups(records)).toEqual(["Docs for X"]);
+		const reopened = seq({ followups: ["Docs for X"] }, { resolved: ["Docs for X"] }, { followups: ["Docs for X"] });
+		expect(openFollowups(reopened)).toEqual(["Docs for X"]);
+	});
+	it("parseEndReport keeps the resolved follow-ups, and finalizeCycle records them", () => {
+		const report = parseEndReport({
+			area: "bugs",
+			title: "t",
+			summary: "s",
+			verify: "green",
+			resolved: [" a ", 3, ""],
+		});
+		expect(report).toMatchObject({ resolved: [" a ", ""] });
+		if ("error" in report) throw new Error(report.error);
+		const record = finalizeCycle({
+			n: 2,
+			startedAt: 0,
+			now: 1,
+			usage: { tokens: 0, usd: 0 },
+			compactions: 0,
+			report,
+		});
+		expect(record.resolved).toEqual(["a"]);
+	});
 });
 
 describe("usage", () => {

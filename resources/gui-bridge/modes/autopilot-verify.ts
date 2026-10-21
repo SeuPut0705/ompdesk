@@ -154,12 +154,14 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 	return { verify: "green", amendable: false, ...(last.call.command ? { check: last.call.command } : {}) };
 }
 
-/** The part of a first report a repeated `end` may add to: follow-ups, children, ship and commit the first left out. */
+/** The part of a first report a repeated `end` may add to: follow-ups, resolved ones, children, ship and commit the first left out. */
 export function mergeRepeatedEnd(first: EndReport, again: EndReport): EndReport {
 	const followups = [...new Set([...(first.followups ?? []), ...(again.followups ?? [])])];
+	const resolved = [...new Set([...(first.resolved ?? []), ...(again.resolved ?? [])])];
 	return {
 		...first,
 		...(followups.length > 0 ? { followups } : {}),
+		...(resolved.length > 0 ? { resolved } : {}),
 		...(first.children?.length ? {} : again.children?.length ? { children: again.children } : {}),
 		...(first.ship === undefined && again.ship !== undefined ? { ship: again.ship } : {}),
 		...(first.commit === undefined && again.commit !== undefined ? { commit: again.commit } : {}),
