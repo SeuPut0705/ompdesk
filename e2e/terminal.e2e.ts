@@ -43,7 +43,7 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
 			await aside.getByRole("button", { name: "Terminal", exact: true }).click();
 			await expect(aside.getByRole("tab", { name: "Terminal 1" })).toBeVisible();
-			await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(6);
+			await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(5); // The four views and close.
 			await expect(aside.getByRole("button", { name: "Copy selection", exact: true })).toBeVisible();
 			const input = aside.locator(".xterm-helper-textarea");
 			await input.focus();
