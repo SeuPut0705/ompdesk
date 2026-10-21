@@ -31,7 +31,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
-import type { AiMemoryPageRef, AiMemoryProjectRef } from "../../shared/ai-memory";
+import type { AiMemoryPageRef, AiMemoryProject, AiMemoryProjectRef } from "../../shared/ai-memory";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import { writeFileAtomic } from "../atomic-file";
 import {
@@ -83,7 +83,8 @@ export interface ConclusionPage {
 
 /** The memory server, as the sync reads and writes it (AiMemoryClient). */
 export interface MemoryStore {
-	projects(): Promise<AiMemoryProjectRef[]>;
+	/** Each project with the repository identity it was claimed by, when one was. */
+	projects(): Promise<Pick<AiMemoryProject, "workspace" | "project" | "identity">[]>;
 	/** Every latest page, expired ones too: a retired page must cross as retired, never be missed and re-created. */
 	allPages(
 		project: AiMemoryProjectRef,
@@ -105,6 +106,45 @@ export interface MemoryStore {
 }
 
 type PageRef = AiMemoryProjectRef & { path: string };
+
+/**
+ * How this server names each repository's project. Two computers may name one repository differently (the paired
+ * Windows host's path-style `seuput0705-ompdesk`, this Mac's `ompdesk`); a page or a conclusion carries its project's
+ * repository identity and is filed under this computer's project for that repository. Without an identity on the item,
+ * or a project here that holds it, the name stands, as before identities crossed.
+ */
+class ProjectNames {
+	readonly #identityOf = new Map<string, string>();
+	readonly #nameOf = new Map<string, string>();
+
+	static async read(store: MemoryStore): Promise<ProjectNames> {
+		const names = new ProjectNames();
+		for (const project of await store.projects()) {
+			if (!project.identity) continue;
+			names.#identityOf.set(`${project.workspace}\u0000${project.project}`, project.identity);
+			const key = `${project.workspace}\u0000${project.identity}`;
+			if (!names.#nameOf.has(key)) names.#nameOf.set(key, project.project);
+		}
+		return names;
+	}
+
+	identityOf(ref: AiMemoryProjectRef): string | undefined {
+		return this.#identityOf.get(`${ref.workspace}\u0000${ref.project}`);
+	}
+
+	/**
+	 * The item under this computer's name for its repository's project; null when the item names a repository and
+	 * the project here of the same name belongs to another (the same `owner/repo` on another forge): it is never filed
+	 * there. An item without an identity, or whose name holds no repository here, keeps the name.
+	 */
+	localize<T extends AiMemoryProjectRef & { identity?: string }>(item: T): T | null {
+		if (!item.identity) return item;
+		const local = this.#nameOf.get(`${item.workspace}\u0000${item.identity}`);
+		if (local) return local === item.project ? item : { ...item, project: local };
+		const held = this.identityOf(item);
+		return held && held !== item.identity ? null : item;
+	}
+}
 
 export function pageKey(ref: PageRef): string {
 	return `${ref.workspace}\u0000${ref.project}\u0000${ref.path}`;
@@ -163,7 +203,7 @@ function compareCursor(a: MemoryCursor, b: MemoryCursor): number {
 }
 
 /** The page on the link; null when it cannot cross (too big, a field past the link's bounds). */
-function toWire(copy: MemoryPageCopy, origin: string, at: string): MemoryPageWire | null {
+function toWire(copy: MemoryPageCopy, origin: string, at: string, identity?: string): MemoryPageWire | null {
 	if (Buffer.byteLength(copy.body) > MEMORY_PAGE_MAX_BYTES) return null;
 	const parsed = MemoryPageWire.safeParse({
 		workspace: copy.workspace,
@@ -178,6 +218,7 @@ function toWire(copy: MemoryPageCopy, origin: string, at: string): MemoryPageWir
 		metadata: copy.metadata,
 		...(copy.expiresAt ? { expiresAt: copy.expiresAt } : {}),
 		origin,
+		...(identity ? { identity } : {}),
 		updatedAt: at,
 		hash: pageHash(copy),
 	});
@@ -226,6 +267,7 @@ function cutBytes(text: string, max: number): string {
 function cleanConclusion(
 	row: Pick<MemoryConclusionCopy, "workspace" | "project" | "id" | "sessionId" | "title" | "body" | "at">,
 	origin: string,
+	identity?: string,
 ): MemoryConclusionWire | null {
 	const body = cutBytes(redactDiagnosticsText(row.body), MEMORY_CONCLUSION_MAX_BYTES);
 	if (!body.trim() || !/^\S+$/.test(row.id)) return null;
@@ -238,6 +280,7 @@ function cleanConclusion(
 		body,
 		at: row.at,
 		origin,
+		...(identity ? { identity } : {}),
 	});
 	return parsed.success ? parsed.data : null;
 }
@@ -271,6 +314,7 @@ export async function servePull(
 ): Promise<MemoryPullReply> {
 	if (!deps.ready()) return { memory: false, pages: [], next: params.since, more: false };
 	const self = deps.selfId();
+	const names = await ProjectNames.read(deps.store);
 	const entries = [...(await durableIndex(deps.store)).values()]
 		.map(entry => ({ entry, cursor: { at: entry.at, key: entry.key } }))
 		.filter(({ cursor }) => params.since === null || compareCursor(cursor, params.since) > 0)
@@ -288,7 +332,7 @@ export async function servePull(
 		const origin = copy.origin ?? self;
 		// An unedited copy of the asking device's own page: it has the page already.
 		if (origin === peer) continue;
-		const wire = toWire(copy, origin, entry.at);
+		const wire = toWire(copy, origin, entry.at, names.identityOf(entry.ref));
 		if (!wire) continue;
 		pages.push(wire);
 		bytes += Buffer.byteLength(wire.body);
@@ -308,9 +352,18 @@ export async function servePush(
 	if (!deps.ready()) return { memory: false, results: [] };
 	const self = deps.selfId();
 	const index = await durableIndex(deps.store);
+	const names = await ProjectNames.read(deps.store);
 	const results: MemoryPushReply["results"] = [];
-	for (const { page, expect } of params.pages) {
+	for (const { page: sent, expect } of params.pages) {
 		try {
+			// Under this computer's name for the page's repository: the key, the write and every reply use it. A
+			// page whose name here belongs to another repository is never written (`failed`: nothing changes).
+			const page = names.localize(sent);
+			if (!page) {
+				results.push({ status: "failed", hash: null });
+				continue;
+			}
+			const identity = names.identityOf(page);
 			const incoming = fromWire(page);
 			const held = index.get(pageKey(page));
 			const current = held ? await deps.store.pageCopy(held.ref) : null;
@@ -320,7 +373,7 @@ export async function servePush(
 				continue;
 			}
 			if (current && held && currentHash !== expect) {
-				const theirs = toWire(current, current.origin ?? self, held.at);
+				const theirs = toWire(current, current.origin ?? self, held.at, identity);
 				results.push({ status: "conflict", hash: currentHash, ...(theirs ? { page: theirs } : {}) });
 				continue;
 			}
@@ -333,7 +386,7 @@ export async function servePush(
 				))
 			) {
 				const moved = await deps.store.pageCopy(page);
-				const theirs = toWire(moved, moved.origin ?? self, moved.updatedAt ?? "");
+				const theirs = toWire(moved, moved.origin ?? self, moved.updatedAt ?? "", identity);
 				results.push({ status: "conflict", hash: pageHash(moved), ...(theirs ? { page: theirs } : {}) });
 				continue;
 			}
@@ -374,10 +427,11 @@ export async function serveConclusionPull(
 ): Promise<MemoryConclusionPullReply> {
 	if (!deps.ready()) return { memory: false, conclusions: [], next: params.since, more: false };
 	const self = deps.selfId();
+	const names = await ProjectNames.read(deps.store);
 	const conclusions: MemoryConclusionWire[] = [];
 	const take = (row: MemoryConclusionCopy, origin: string | undefined): void => {
 		if (!origin || origin === peer) return;
-		const wire = cleanConclusion(row, origin);
+		const wire = cleanConclusion(row, origin, names.identityOf(row));
 		if (wire) conclusions.push(wire);
 	};
 	const { page: native } = await readConclusions(
@@ -419,12 +473,14 @@ export async function serveConclusionPush(
 ): Promise<MemoryConclusionPushReply> {
 	if (!deps.ready()) return { memory: false, results: [] };
 	const self = deps.selfId();
+	const names = await ProjectNames.read(deps.store);
 	const results: MemoryConclusionPushReply["results"] = params.conclusions.map(() => ({ status: "failed" }));
 	const writable: (MemoryConclusionWire & { index: number })[] = [];
 	for (const [index, row] of params.conclusions.entries()) {
 		if (row.origin === self) results[index] = { status: "same" };
 		else {
-			const clean = cleanConclusion(row, row.origin);
+			const local = names.localize(row);
+			const clean = local && cleanConclusion(local, row.origin);
 			if (clean) writable.push({ ...clean, index });
 			else results[index] = { status: "skipped" };
 		}
@@ -601,8 +657,12 @@ export class MemorySync {
 			);
 			if (!reply.memory) throw new MemoryOff();
 			const local = await durableIndex(this.#deps.store);
+			const names = await ProjectNames.read(this.#deps.store);
 			for (const page of reply.pages) {
-				await this.#take(host, state, page, local, report);
+				// Filed under this computer's name for its repository; a name here that belongs to another repository
+				// takes nothing. The cursor stays in the host's own keys.
+				const here = names.localize(page);
+				if (here) await this.#take(host, state, here, local, report);
 				state.pull = { at: page.updatedAt, key: pageKey(page) };
 			}
 			state.pull = reply.next ?? state.pull;
@@ -671,6 +731,7 @@ export class MemorySync {
 	async #push(host: string, state: HostState, report: MemorySyncReport): Promise<void> {
 		const self = this.#deps.selfId();
 		const local = await durableIndex(this.#deps.store);
+		const names = await ProjectNames.read(this.#deps.store);
 		const pending = new Set(state.pending);
 		const candidates = [...local.values()]
 			.filter(entry => entry.at > state.push || pending.has(entry.key))
@@ -700,7 +761,8 @@ export class MemorySync {
 					this.#unpend(state, entry.key);
 					if (result.status === "written") report.pushed++;
 				} else if (result?.status === "conflict" && result.page) {
-					await this.#take(host, state, result.page, await durableIndex(this.#deps.store), report);
+					const here = names.localize(result.page);
+					if (here) await this.#take(host, state, here, await durableIndex(this.#deps.store), report);
 				} else if (!state.pending.includes(entry.key)) {
 					state.pending.push(entry.key);
 				}
@@ -721,7 +783,7 @@ export class MemorySync {
 				this.#unpend(state, entry.key);
 				continue;
 			}
-			const page = toWire(copy, copy.origin ?? self, entry.at);
+			const page = toWire(copy, copy.origin ?? self, entry.at, names.identityOf(entry.ref));
 			if (!page) continue;
 			batch.push({ key: entry.key, hash, item: { page, expect: state.remote[entry.key] ?? null } });
 			bytes += Buffer.byteLength(page.body);
@@ -754,8 +816,10 @@ export class MemorySync {
 			if (!reply.memory) throw new MemoryOff();
 			// This computer's own coming back is never written; whatever the host says, nothing unredacted is.
 			const rows: MemoryConclusionWire[] = [];
+			const names = await ProjectNames.read(this.#deps.store);
 			for (const row of reply.conclusions) {
-				const clean = row.origin === self ? null : cleanConclusion(row, row.origin);
+				const here = row.origin === self ? null : names.localize(row);
+				const clean = here && cleanConclusion(here, row.origin);
 				if (clean) rows.push(clean);
 			}
 			// A group that fails throws before the cursor moves: the batch is read again, the written rows answer `same`.
@@ -775,6 +839,7 @@ export class MemorySync {
 	/** Offer the host what it lacks of this computer's streams; the cursor stops at the first row it did not take. */
 	async #pushConclusions(host: string, state: HostState, report: MemorySyncReport): Promise<void> {
 		const self = this.#deps.selfId();
+		const names = await ProjectNames.read(this.#deps.store);
 		for (const source of ["native", "synced"] as const) {
 			for (let batch = 0; batch < MAX_CONCLUSION_BATCHES; batch++) {
 				const sent = state.conclusionsSent;
@@ -793,7 +858,10 @@ export class MemorySync {
 				// The host's own conclusions never go back to it, and a computer's neither (`origin`).
 				const entries = page.rows.map(row => {
 					const origin = source === "native" ? self : row.origin;
-					return { seq: row.seq, wire: origin && origin !== host ? cleanConclusion(row, origin) : null };
+					return {
+						seq: row.seq,
+						wire: origin && origin !== host ? cleanConclusion(row, origin, names.identityOf(row)) : null,
+					};
 				});
 				const wires = entries.flatMap(entry => (entry.wire ? [entry.wire] : []));
 				let results: MemoryConclusionPushReply["results"] = [];

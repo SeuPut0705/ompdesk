@@ -218,10 +218,17 @@ const MemoryTime = z.string().max(64);
 /** Where a pull goes on: the last page it examined, by the host's `updated_at` then key. */
 export const MemoryCursor = z.object({ at: MemoryTime, key: z.string().max(1200) });
 export type MemoryCursor = z.infer<typeof MemoryCursor>;
+/**
+ * The repository identity of the sender's project (`github.com/owner/repo`): two computers may name one repository's
+ * project differently, and the receiver files the item under its own project for it. Absent: the name alone. A peer
+ * that predates it drops the field and keeps the name rule.
+ */
+const MemoryIdentity = z.string().min(1).max(512);
 /** One durable page on the link, whole, with its content hash (sync.ts `pageHash`) and the computer it came from. */
 export const MemoryPageWire = z.object({
 	workspace: MemoryName,
 	project: MemoryName,
+	identity: MemoryIdentity.optional(),
 	path: z.string().min(1).max(512).refine(isDurablePath, "not a durable page"),
 	title: z.string().max(1000),
 	kind: z.string().max(64).optional(),
@@ -281,6 +288,7 @@ export type MemoryPushReply = z.infer<typeof MemoryPushReply>;
 export const MemoryConclusionWire = z.object({
 	workspace: MemoryName,
 	project: MemoryName,
+	identity: MemoryIdentity.optional(),
 	id: z.string().min(1).max(128),
 	sessionId: z.string().min(1).max(64),
 	title: z.string().max(1000),

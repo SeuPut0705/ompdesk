@@ -32,6 +32,8 @@ const QUIET = { pulled: 0, pushed: 0, conflicts: 0, conclusions: { pulled: 0, pu
 /** A memory server: pages by (workspace, project, path), each write a new `updated_at` from the shared clock. */
 class FakeServer {
 	readonly pages = new Map<string, Stored>();
+	/** Project name → the repository identity this server claimed it by (a checkout captured into it). */
+	readonly identities = new Map<string, string>();
 	writes: string[] = [];
 	ready = true;
 	/** Paths whose next read fails once (the server answering 500, a timeout). */
@@ -126,8 +128,13 @@ class FakeServer {
 
 	readonly store: MemoryStore = {
 		projects: async () => {
-			const seen = new Map<string, { workspace: string; project: string }>();
-			for (const p of this.pages.values()) seen.set(p.project, { workspace: p.workspace, project: p.project });
+			const seen = new Map<string, { workspace: string; project: string; identity?: string }>();
+			const add = (project: string) => {
+				const identity = this.identities.get(project);
+				seen.set(project, { workspace: "default", project, ...(identity ? { identity } : {}) });
+			};
+			for (const p of this.pages.values()) add(p.project);
+			for (const project of this.identities.keys()) add(project);
 			return [...seen.values()];
 		},
 		allPages: async ref =>
@@ -465,6 +472,53 @@ describe("memory sync between two computers", () => {
 		for (let round = 0; round < 3; round++) await sync.sync("win");
 		expect(win.writes).toEqual([]);
 		expect(mac.writes).toEqual([]);
+	});
+
+	it("files a repository's pages and conclusions under each computer's own project for it, whatever its name there", async () => {
+		// The paired Windows host names the repository path style, this Mac by its folder.
+		win.identities.set("seuput0705-ompdesk", "github.com/seuput0705/ompdesk");
+		mac.identities.set("ompdesk", "github.com/seuput0705/ompdesk");
+		win.edit("decisions/host.md", "Decided on the host.", "seuput0705-ompdesk");
+		mac.edit("decisions/mac.md", "Decided on the Mac.", "ompdesk");
+		win.capture("w1", "Host conclusion.", "seuput0705-ompdesk");
+		mac.capture("m1", "Mac conclusion.", "ompdesk");
+
+		expect(await sync.sync("win")).toEqual({
+			pulled: 1,
+			pushed: 1,
+			conflicts: 0,
+			conclusions: { pulled: 1, pushed: 1 },
+		});
+		expect(mac.body("decisions/host.md", "ompdesk")).toBe("Decided on the host.");
+		expect(win.body("decisions/mac.md", "seuput0705-ompdesk")).toBe("Decided on the Mac.");
+		expect([...mac.pages.values()].map(p => p.project)).not.toContain("seuput0705-ompdesk");
+		expect([...win.pages.values()].map(p => p.project)).not.toContain("ompdesk");
+		expect(mac.synced).toMatchObject([{ project: "ompdesk", id: "w1" }]);
+		expect(win.synced).toMatchObject([{ project: "seuput0705-ompdesk", id: "m1" }]);
+
+		crossed = 0;
+		mac.writes = [];
+		win.writes = [];
+		expect(await sync.sync("win")).toEqual(QUIET);
+		expect(crossed).toBe(0);
+		expect(mac.writes).toEqual([]);
+		expect(win.writes).toEqual([]);
+	});
+
+	it("never files one repository's memory under another repository's project of the same name", async () => {
+		// `acme/api` on GitLab there and on GitHub here: two repositories, one folder name.
+		win.identities.set("api", "gitlab.com/acme/api");
+		mac.identities.set("api", "github.com/acme/api");
+		win.edit("decisions/gitlab.md", "GitLab's decision.", "api");
+		mac.edit("decisions/github.md", "GitHub's decision.", "api");
+		win.capture("w1", "GitLab conclusion.", "api");
+		mac.capture("m1", "GitHub conclusion.", "api");
+
+		await sync.sync("win");
+		expect(mac.body("decisions/gitlab.md", "api")).toBeUndefined();
+		expect(win.body("decisions/github.md", "api")).toBeUndefined();
+		expect(mac.synced).toEqual([]);
+		expect(win.synced).toEqual([]);
 	});
 
 	it("an edit of a copy goes back to the computer it came from", async () => {
