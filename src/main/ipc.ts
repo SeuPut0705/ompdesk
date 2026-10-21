@@ -518,7 +518,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (isAgentControlTool(request.toolName)) {
 			void agentControl
-				.run(tab.win, tab.tabId, request.toolName, request.arguments)
+				.run(tab.win, tab.tabId, request.toolName, request.arguments, request.id)
 				.then(outcome => reply(outcome.text, outcome.isError));
 			return;
 		}
@@ -1120,6 +1120,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 		sweepMs: process.env.OMP_GUI_TEST_AGENT_SWEEP_MS ? Number(process.env.OMP_GUI_TEST_AGENT_SWEEP_MS) : undefined,
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
+		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,
 		sessions: {
 			list: () => sessionIndex.list("global"),

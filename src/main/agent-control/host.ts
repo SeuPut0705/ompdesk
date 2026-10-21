@@ -96,6 +96,7 @@ import {
 	type WorktreeRef,
 	type WorktreeRemoval,
 } from "./branches";
+import { CallJournal } from "./call-journal";
 import type { MailDelivery } from "./mail";
 import { MailOutbox, redeliverMail } from "./mail-outbox";
 import {
@@ -175,6 +176,8 @@ export interface AgentControlHostDeps {
 	sweepMs?: number;
 	/** Where accepted reports wait for their receiver's journal (`mail-outbox.ts`); absent: kept in memory only. */
 	mailOutboxFile?: string | null;
+	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
+	callJournalFile?: string | null;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -256,11 +259,14 @@ export class AgentControlRuntime {
 	readonly #sweepTimers = new Map<string, NodeJS.Timeout>();
 	/** Accepted reports until the receiver's journal holds them (`mail-outbox.ts`). */
 	readonly #outbox: MailOutbox;
+	/** Control-tool calls by their identity, so one a paired host re-sends after a relaunch runs once. */
+	readonly #calls: CallJournal;
 	#redelivering = false;
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
+		this.#calls = new CallJournal(deps.callJournalFile ?? null);
 		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
 			const parent =
@@ -430,10 +436,16 @@ export class AgentControlRuntime {
 		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
 	}
 
-	/** Execute one control host-tool call made by `callerTabId`'s main agent. */
-	async run(win: ClientWindow, callerTabId: string, tool: AgentControlToolName, args: unknown): Promise<ToolOutcome> {
+	/** Execute one control host-tool call made by `callerTabId`'s main agent; `callId` is the host tool call's id. */
+	async run(
+		win: ClientWindow,
+		callerTabId: string,
+		tool: AgentControlToolName,
+		args: unknown,
+		callId?: string,
+	): Promise<ToolOutcome> {
 		this.#windows.set(callerTabId, win);
-		const outcome = await this.control.run(callerTabId, tool, args);
+		const outcome = await this.control.run(callerTabId, tool, args, callId);
 		if (
 			tool === "ompdesk_session_open" ||
 			tool === "ompdesk_merge" ||
@@ -767,6 +779,7 @@ export class AgentControlRuntime {
 	#host(): AgentControlHost {
 		const deps = this.#deps;
 		return {
+			calls: this.#calls,
 			enabled: () => agentControlEnabled(deps.prefs.get(AGENT_CONTROL_PREF)),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			approveEnabled: () =>
