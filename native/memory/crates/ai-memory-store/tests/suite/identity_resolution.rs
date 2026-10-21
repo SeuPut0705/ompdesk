@@ -695,6 +695,11 @@ async fn the_project_listing_names_each_projects_repository_identity() {
             .expect("listed")
     };
     assert_eq!(identity_of(claimed), Some("github.com/acme/api".to_owned()));
+    let source = listed
+        .iter()
+        .find(|row| row.project_id == claimed.to_string())
+        .and_then(|row| row.identity_source.clone());
+    assert_eq!(source.as_deref(), Some("git_remote"));
     assert_eq!(identity_of(plain), None);
 }
 

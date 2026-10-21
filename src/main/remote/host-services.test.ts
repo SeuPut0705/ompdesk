@@ -3003,9 +3003,12 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 			memory: true,
 			results: [{ status: "written" }],
 		});
-		expect(store.writeConclusions).toHaveBeenCalledWith({ workspace: "default", project: "app" }, "device-x", [
-			expect.objectContaining({ id: "obs-1" }),
-		]);
+		expect(store.writeConclusions).toHaveBeenCalledWith(
+			{ workspace: "default", project: "app" },
+			"device-x",
+			[expect.objectContaining({ id: "obs-1" })],
+			undefined,
+		);
 
 		store.conclusions.mockClear();
 		store.writeConclusions.mockClear();

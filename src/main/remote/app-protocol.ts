@@ -229,6 +229,8 @@ export const MemoryPageWire = z.object({
 	workspace: MemoryName,
 	project: MemoryName,
 	identity: MemoryIdentity.optional(),
+	/** Which rung produced `identity` (`git_remote`, `explicit`); with it the receiver's write path files the item by identity. */
+	identitySource: z.string().min(1).max(32).optional(),
 	path: z.string().min(1).max(512).refine(isDurablePath, "not a durable page"),
 	title: z.string().max(1000),
 	kind: z.string().max(64).optional(),
@@ -289,6 +291,8 @@ export const MemoryConclusionWire = z.object({
 	workspace: MemoryName,
 	project: MemoryName,
 	identity: MemoryIdentity.optional(),
+	/** Which rung produced `identity` (`git_remote`, `explicit`); with it the receiver's write path files the item by identity. */
+	identitySource: z.string().min(1).max(32).optional(),
 	id: z.string().min(1).max(128),
 	sessionId: z.string().min(1).max(64),
 	title: z.string().max(1000),

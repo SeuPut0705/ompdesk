@@ -86,6 +86,8 @@ export interface AiMemoryProject extends AiMemoryProjectRef {
 	 * checkout claimed. Two computers may name one repository differently; this is what pairs them.
 	 */
 	identity?: string;
+	/** Which rung produced `identity` (`git_remote`, `explicit`): the pair the server's write path takes back. */
+	identitySource?: string;
 }
 
 export interface AiMemoryPageRef extends AiMemoryProjectRef {

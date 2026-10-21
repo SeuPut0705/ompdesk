@@ -34,6 +34,8 @@ class FakeServer {
 	readonly pages = new Map<string, Stored>();
 	/** Project name → the repository identity this server claimed it by (a checkout captured into it). */
 	readonly identities = new Map<string, string>();
+	/** The repository identity each copy write named (`writePageCopy`, `writeConclusions`), in order. */
+	repositories: (string | undefined)[] = [];
 	writes: string[] = [];
 	ready = true;
 	/** Paths whose next read fails once (the server answering 500, a timeout). */
@@ -131,7 +133,11 @@ class FakeServer {
 			const seen = new Map<string, { workspace: string; project: string; identity?: string }>();
 			const add = (project: string) => {
 				const identity = this.identities.get(project);
-				seen.set(project, { workspace: "default", project, ...(identity ? { identity } : {}) });
+				seen.set(project, {
+					workspace: "default",
+					project,
+					...(identity ? { identity, identitySource: "git_remote" } : {}),
+				});
 			};
 			for (const p of this.pages.values()) add(p.project);
 			for (const project of this.identities.keys()) add(project);
@@ -156,6 +162,7 @@ class FakeServer {
 			const current = this.pages.get(`${copy.project}/${copy.path}`)?.id ?? null;
 			if (expected !== undefined && expected !== current) return false;
 			this.writes.push(copy.path);
+			this.repositories.push(copy.repository?.identity);
 			this.#put(copy, origin);
 			return true;
 		},
@@ -176,9 +183,10 @@ class FakeServer {
 				last: all.length,
 			};
 		},
-		writeConclusions: async (project, origin, items) => {
+		writeConclusions: async (project, origin, items, repository) => {
 			if (this.noConclusionRoutes) throw new Error("Memory answered 404");
 			this.conclusionCalls.push({ project: project.project, origin, ids: items.map(item => item.id) });
+			this.repositories.push(repository?.identity);
 			for (const item of items) {
 				if (this.failConclusionOnce.delete(item.id)) throw new Error("Memory answered 500");
 			}
@@ -503,6 +511,22 @@ describe("memory sync between two computers", () => {
 		expect(crossed).toBe(0);
 		expect(mac.writes).toEqual([]);
 		expect(win.writes).toEqual([]);
+	});
+
+	it("writes a repository's copies on a computer that never captured it with the sender's repository identity", async () => {
+		// Nothing here knows the repository yet: the server's write path files the copies under its identity, so this
+		// computer's own first capture of it later joins that project (admin_write_page.rs in native/memory).
+		win.identities.set("seuput0705-ompdesk", "github.com/seuput0705/ompdesk");
+		win.edit("decisions/host.md", "Decided on the host.", "seuput0705-ompdesk");
+		win.capture("w1", "Host conclusion.", "seuput0705-ompdesk");
+		win.edit("decisions/plain.md", "No repository.", "notes");
+
+		await sync.sync("win");
+		expect(mac.repositories.sort()).toEqual([
+			"github.com/seuput0705/ompdesk",
+			"github.com/seuput0705/ompdesk",
+			undefined,
+		]);
 	});
 
 	it("never files one repository's memory under another repository's project of the same name", async () => {

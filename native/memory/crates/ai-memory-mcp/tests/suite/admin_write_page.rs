@@ -962,3 +962,79 @@ async fn write_page_sets_profile_fields_and_refuses_them_elsewhere() {
         );
     }
 }
+
+/// OMPdesk: a computer that receives a repository's synced page before it ever
+/// captured that repository files it under the repository's identity, so its
+/// own first capture later (another folder name) joins the same project: no
+/// plain project under the sender's name, no name two projects answer to. A
+/// copy without an identity keeps the name rule.
+#[tokio::test]
+async fn write_page_with_the_senders_identity_lands_where_this_computers_capture_will() {
+    let tmp = TempDir::new().unwrap();
+    let state = make_state(&tmp).await;
+    let repository = RepositoryIdentity {
+        identity: "github.com/seuput0705/ompdesk".into(),
+        source: IdentitySource::GitRemote,
+    };
+    let resp = post_json(
+        state.clone(),
+        "/admin/write-page",
+        json!({
+            "workspace": "default", "project": "seuput0705-ompdesk",
+            "path": "decisions/jev.md", "body": "Pin Jev 1.14.", "kind": "decision",
+            "origin_device": "win-1",
+            "identity": repository.identity, "identity_source": "git_remote"
+        }),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let ws = state
+        .writer
+        .get_or_create_workspace("default")
+        .await
+        .unwrap();
+    let (captured, _) = state
+        .writer
+        .resolve_project_by_identity_for_capture(
+            ws,
+            repository.clone(),
+            IdentityStyle::Path,
+            "ompdesk",
+            Some("/Users/me/ompdesk".to_owned()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let listed = state.reader.list_projects_with_stats(None).await.unwrap();
+    assert_eq!(
+        listed.len(),
+        1,
+        "one project for the repository: {listed:?}"
+    );
+    assert_eq!(listed[0].project_id, captured.to_string());
+    assert_eq!(listed[0].page_count, 1, "the synced page is in it");
+    assert!(
+        ai_memory_store::lookup_existing_scope(&state.reader, "default", "seuput0705-ompdesk")
+            .await
+            .is_ok(),
+        "the sender's name reads"
+    );
+
+    for (identity, source) in [
+        (json!("github.com/seuput0705/ompdesk"), json!(null)),
+        (json!("Not A Remote"), json!("git_remote")),
+    ] {
+        let refused = post_json(
+            state.clone(),
+            "/admin/write-page",
+            json!({
+                "workspace": "default", "project": "other", "path": "decisions/x.md",
+                "body": "x", "identity": identity, "identity_source": source
+            }),
+        )
+        .await;
+        assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}

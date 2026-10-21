@@ -2035,6 +2035,67 @@ async fn create_ws_proj(
     })
 }
 
+/// The scope a synced copy is written into (OMPdesk). With the sender's
+/// repository identity the target is the project holding that identity here,
+/// else the project of that name claimed for it, else one created for it as a
+/// capture would (path style), never a new plain project under the sender's
+/// name that this computer's own capture of the repository would later split
+/// from. Without an identity, the name rule of [`create_ws_proj`].
+async fn sync_write_scope(
+    state: &AdminState,
+    workspace: &str,
+    project: &str,
+    identity: Option<&str>,
+    identity_source: Option<&str>,
+) -> Result<AdminWriteScope, (StatusCode, Json<serde_json::Value>)> {
+    let repository = match (identity, identity_source) {
+        (None, None) => return create_ws_proj(state, workspace, project).await,
+        (Some(identity), Some(source)) => {
+            ai_memory_core::repository_identity::accept_wire_identity(identity, source).ok_or_else(
+                || {
+                    (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(serde_json::json!({ "error": "invalid repository identity" })),
+                    )
+                },
+            )?
+        }
+        _ => {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error": "identity and identity_source must be provided together"
+                })),
+            ));
+        }
+    };
+    let workspace_id = state
+        .writer
+        .get_or_create_workspace(workspace)
+        .await
+        .map_err(|e| internal_err(e.to_string()))?;
+    let (project_id, _) = state
+        .writer
+        .resolve_project_by_identity(
+            workspace_id,
+            repository,
+            ai_memory_core::repository_identity::IdentityStyle::Path,
+            project,
+            None,
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| internal_err(e.to_string()))?;
+    Ok(AdminWriteScope {
+        scope: ai_memory_store::ResolvedScope {
+            workspace_id,
+            project_id,
+        },
+        manifest_warning: None,
+    })
+}
+
 async fn refresh_promoted_scope(
     state: &AdminState,
     resolved: &ai_memory_store::ResolvedWriteScope,
@@ -8275,6 +8336,13 @@ struct WritePageAdminRequest {
     /// `expected_page_id`.
     #[serde(default)]
     create_only: bool,
+    /// OMPdesk: the repository identity of the project the copy comes from on
+    /// the sending computer, with `identity_source`; the copy then lands in the
+    /// project holding that identity here (see `sync_write_scope`).
+    #[serde(default)]
+    identity: Option<String>,
+    #[serde(default)]
+    identity_source: Option<String>,
 }
 
 const MAX_ORIGIN_DEVICE_LEN: usize = 200;
@@ -8402,7 +8470,14 @@ async fn handle_write_page(
         )
     })?;
 
-    let target = create_ws_proj(&state, &req.workspace, &req.project).await?;
+    let target = sync_write_scope(
+        &state,
+        &req.workspace,
+        &req.project,
+        req.identity.as_deref(),
+        req.identity_source.as_deref(),
+    )
+    .await?;
     let (ws, proj) = target.scope.as_tuple();
     let manifest_warning = target.manifest_warning;
 
@@ -8551,6 +8626,11 @@ struct WriteConclusionsRequest {
     origin_device: String,
     /// 1 to `SYNCED_CONCLUSION_BATCH_MAX` conclusions.
     conclusions: Vec<WriteConclusionItem>,
+    /// As `/admin/write-page`'s: the sender's repository identity and its source.
+    #[serde(default)]
+    identity: Option<String>,
+    #[serde(default)]
+    identity_source: Option<String>,
 }
 
 /// `POST /admin/write-conclusions`: store conclusions another of the person's
@@ -8587,7 +8667,14 @@ async fn handle_write_conclusions(
         )
     })?;
 
-    let target = create_ws_proj(&state, &req.workspace, &req.project).await?;
+    let target = sync_write_scope(
+        &state,
+        &req.workspace,
+        &req.project,
+        req.identity.as_deref(),
+        req.identity_source.as_deref(),
+    )
+    .await?;
     let (ws, proj) = target.scope.as_tuple();
     let statuses = state
         .writer

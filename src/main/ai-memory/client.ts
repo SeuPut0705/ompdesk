@@ -93,6 +93,10 @@ function projectOf(ref: AiMemoryProjectRef): AiMemoryProjectRef {
 	return { workspace: ref.workspace, project: ref.project };
 }
 
+function repositoryOf(repository: MemoryRepository | undefined): { identity?: string; identity_source?: string } {
+	return repository ? { identity: repository.identity, identity_source: repository.source } : {};
+}
+
 function sessionRow(row: Record<string, unknown>): AiMemorySession {
 	return {
 		id: str(row.session_id),
@@ -218,6 +222,7 @@ export class AiMemoryClient {
 	async projects(): Promise<AiMemoryProject[]> {
 		const projects = rows(await this.#get("/api/v1/projects")).map(row => {
 			const identity = str(row.identity);
+			const identitySource = str(row.identity_source);
 			const id = str(row.project_id);
 			return {
 				workspace: str(row.workspace_name),
@@ -226,6 +231,7 @@ export class AiMemoryClient {
 				lastUpdated: str(row.last_updated) || null,
 				...(id ? { id } : {}),
 				...(identity ? { identity } : {}),
+				...(identity && identitySource ? { identitySource } : {}),
 			};
 		});
 		return projects.sort((a, b) => ((a.lastUpdated ?? "") < (b.lastUpdated ?? "") ? 1 : -1));
@@ -718,6 +724,7 @@ export class AiMemoryClient {
 				...copy.metadata,
 				...(origin ? { origin_device: origin } : {}),
 				...(copy.expiresAt ? { expires_at: copy.expiresAt } : {}),
+				...repositoryOf(copy.repository),
 				...(expected === null ? { create_only: true } : { expected_page_id: expected }),
 			});
 			return true;
@@ -781,10 +788,12 @@ export class AiMemoryClient {
 		project: AiMemoryProjectRef,
 		origin: string,
 		items: Pick<MemoryConclusionCopy, "id" | "sessionId" | "title" | "body" | "at">[],
+		repository?: MemoryRepository,
 	): Promise<("written" | "same" | "skipped")[]> {
 		const reply = record(
 			await this.#post("/admin/write-conclusions", {
 				...projectOf(project),
+				...repositoryOf(repository),
 				origin_device: origin,
 				conclusions: items.map(item => ({
 					id: item.id,
@@ -812,6 +821,15 @@ export interface MemoryPageMetadata {
 	relations?: Record<string, string[]>;
 	applies_to?: string[];
 	enforced_by?: string;
+}
+
+/**
+ * The repository identity a project was claimed by, as the server lists it (`identity`, `identity_source`). A synced
+ * copy written with it lands in this computer's project for that repository (`/admin/write-page`'s `identity`).
+ */
+export interface MemoryRepository {
+	identity: string;
+	source: string;
 }
 
 /** A session conclusion as `conclusions` reads it (a Stop observation's body, ≤ 2000 bytes, already redacted). */
@@ -845,5 +863,7 @@ export interface MemoryPageCopy extends AiMemoryProjectRef {
 	expiresAt?: string;
 	/** The version read (the server's page id): a copy written over this page names it, so a change in between wins. */
 	id?: string;
+	/** On a write: the sender's repository for its project, so the copy lands where this computer files it. */
+	repository?: MemoryRepository;
 	updatedAt: string | null;
 }

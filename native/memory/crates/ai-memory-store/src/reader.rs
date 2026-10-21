@@ -1906,6 +1906,10 @@ pub struct ProjectSummary {
     /// each computer may name the same repository differently.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identity: Option<String>,
+    /// Which rung produced `identity` (`git_remote`, `explicit`), so a peer can
+    /// hand it back to `/admin/write-page` as the pair the wire accepts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_source: Option<String>,
 }
 
 /// Pending inbox depth for one recipient project. Returned by
@@ -9515,7 +9519,8 @@ impl ReaderPool {
                         p.name AS project_name, \
                         COUNT(pg.id) AS page_count, \
                         MAX(pg.updated_at) AS last_updated_us, \
-                        NULLIF(p.identity, '') AS identity \
+                        NULLIF(p.identity, '') AS identity, \
+                        NULLIF(p.identity_source, '') AS identity_source \
                  FROM workspaces w \
                  JOIN projects p ON p.workspace_id = w.id \
                  LEFT JOIN pages pg ON pg.project_id = p.id AND pg.is_latest = 1 \
@@ -9531,6 +9536,7 @@ impl ReaderPool {
                 let page_count: i64 = row.get(4)?;
                 let last_updated_us: Option<i64> = row.get(5)?;
                 let identity: Option<String> = row.get(6)?;
+                let identity_source: Option<String> = row.get(7)?;
                 Ok((
                     workspace_id,
                     workspace_name,
@@ -9539,6 +9545,7 @@ impl ReaderPool {
                     page_count,
                     last_updated_us,
                     identity,
+                    identity_source,
                 ))
             })?;
             let mut out = Vec::new();
@@ -9551,6 +9558,7 @@ impl ReaderPool {
                     page_count,
                     last_updated_us,
                     identity,
+                    identity_source,
                 ) = r?;
                 let workspace_id = WorkspaceId::from_slice(&workspace_id)?;
                 let project_id = ProjectId::from_slice(&project_id)?;
@@ -9565,6 +9573,7 @@ impl ReaderPool {
                     page_count: u64::try_from(page_count).unwrap_or(0),
                     last_updated,
                     identity,
+                    identity_source,
                 });
             }
             Ok(out)
