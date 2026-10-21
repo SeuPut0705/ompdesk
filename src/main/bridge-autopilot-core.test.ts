@@ -596,13 +596,16 @@ describe("journal replay", () => {
 		expect(openFollowups(inFlight, dismissed)).toEqual(["Trim the log"]);
 		expect(openFollowups(inFlight, [{ text: "Trim the log", at: 3_000 }])).toEqual([]);
 	});
-	it("openFollowups: one on the backlog, pinned or done, is the backlog's and leaves the list", () => {
+	it("openFollowups: a pending backlog item takes the follow-up; a done one closes it until a later cycle leaves it again", () => {
 		const records = seq({ followups: ["Trim the log", "Docs for X", "Keyboard access"] });
 		const backlog = [
 			{ id: "b1", text: "trim the log.", done: false },
 			{ id: "b2", text: "Keyboard access", done: true, cycle: 2 },
 		];
 		expect(openFollowups(records, [], backlog)).toEqual(["Docs for X"]);
+		// The item done in cycle 2 closes cycle 1's listing; cycle 5 leaving it again reopens it.
+		const later = [...records, ...seq({ n: 5, followups: ["Keyboard access"] })];
+		expect(openFollowups(later, [], backlog)).toEqual(["Keyboard access", "Docs for X"]);
 		const entries = [
 			custom(AUTOPILOT_CYCLE_ENTRY, records[0]),
 			custom(

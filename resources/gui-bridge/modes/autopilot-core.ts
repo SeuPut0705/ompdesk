@@ -506,8 +506,8 @@ export function pendingNotes(
  * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
  * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it ended
  * closes it too (`dismissed`, the backlog's `dismiss` events); a cycle that lists it again reopens it, even one that
- * was already running when the person dismissed it. One the backlog holds (pinned there, or done since) is the
- * backlog's: it is listed there instead.
+ * was already running when the person dismissed it. One a pending backlog item names is the backlog's (listed there
+ * instead); a done one closes it until a cycle after the one that did it leaves it again.
  */
 export function openFollowups(
 	records: readonly AutopilotCycleRecord[],
@@ -516,13 +516,21 @@ export function openFollowups(
 ): string[] {
 	const window = records.slice(-DUPLICATE_WINDOW);
 	const open: string[] = [];
-	// On the backlog it is the backlog's (it shows there, and `begin` lists it there); a done item closed it.
-	const seen = new Set<string>(backlog.map(item => normalizeTitle(item.text)));
+	// A pending backlog item is the backlog's (it shows there, and `begin` lists it there); a done one closed what the
+	// cycles up to the one that did it left, and a later cycle that leaves it again reopens it.
+	const seen = new Set<string>(backlog.filter(item => !item.done).map(item => normalizeTitle(item.text)));
+	const doneBy = new Map<string, number>();
+	for (const item of backlog) {
+		if (!item.done) continue;
+		const key = normalizeTitle(item.text);
+		doneBy.set(key, Math.max(doneBy.get(key) ?? 0, item.cycle ?? Number.POSITIVE_INFINITY));
+	}
 	for (let i = window.length - 1; i >= 0; i--) {
 		for (const followup of window[i].followups ?? []) {
 			const key = normalizeTitle(followup);
 			if (!key || seen.has(key)) continue;
 			seen.add(key);
+			if (window[i].n <= (doneBy.get(key) ?? Number.NEGATIVE_INFINITY)) continue;
 			const done = (later: AutopilotCycleRecord) =>
 				normalizeTitle(later.title) === key || (later.resolved ?? []).some(text => normalizeTitle(text) === key);
 			if (window.slice(i + 1).some(done)) continue;
