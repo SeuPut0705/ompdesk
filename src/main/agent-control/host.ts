@@ -233,6 +233,11 @@ export class AgentControlRuntime {
 	/** The review list last sent per parent tab (JSON), so the timer pushes only what changed. */
 	readonly #reviewSent = new Map<string, string>();
 	/**
+	 * Child tab → the opener whose review list (pushed, or read by its board) last named it. A child restored by a
+	 * relaunch has its opener only in the pool, which forgets it with the tab: its release must still reach that board.
+	 */
+	readonly #listedIn = new Map<string, string>();
+	/**
 	 * Openers whose timer review is still reading git: the next tick skips them. A review reads every child's branch,
 	 * so on a slow machine one tick's read outlived the next and the git processes piled up without end.
 	 */
@@ -258,7 +263,9 @@ export class AgentControlRuntime {
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
 		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
-			const parent = this.#openerOf(activity.tabId);
+			const parent =
+				this.#openerOf(activity.tabId) ??
+				(activity.type === "released" ? this.#listedIn.get(activity.tabId) : undefined);
 			// A running child moved on: the next live read takes its step and cost; nothing else changed.
 			if (activity.type === "step") {
 				if (parent) this.#moved.add(activity.tabId);
@@ -286,7 +293,7 @@ export class AgentControlRuntime {
 				this.#childrenSent.delete(activity.tabId);
 				this.#userPrompted.delete(activity.tabId);
 				this.#moved.delete(activity.tabId);
-				this.#autopilotRuns.delete(activity.tabId);
+				this.#listedIn.delete(activity.tabId);
 				this.control.released(activity.tabId);
 			}
 		});
@@ -444,7 +451,13 @@ export class AgentControlRuntime {
 		// A window viewing the tab (a phone) asks too; the owner stays the one its tools answer through.
 		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
 		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [], usage: {} };
-		return this.control.review(callerTabId);
+		const review = await this.control.review(callerTabId);
+		this.#noteListed(callerTabId, review.items);
+		return review;
+	}
+
+	#noteListed(callerTabId: string, items: readonly AgentReviewItem[]): void {
+		for (const item of items) this.#listedIn.set(item.tabId, callerTabId);
 	}
 
 	/** What the sessions this one opened changed (the work board's "Changed" row; read-only). */
@@ -461,6 +474,7 @@ export class AgentControlRuntime {
 	 */
 	#sendReview(callerTabId: string, review: AgentReviewResult): void {
 		this.#reviewSent.set(callerTabId, JSON.stringify(review));
+		this.#noteListed(callerTabId, review.items);
 		const showing = this.#deps.pool.windowsShowingTab(callerTabId);
 		const own = this.#win(callerTabId);
 		for (const win of own && !showing.includes(own) ? [own, ...showing] : showing)
