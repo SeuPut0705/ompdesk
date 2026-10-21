@@ -655,6 +655,14 @@ function measureInPage(
 	const LAYER =
 		"[role='menu'], [role='dialog'], [role='listbox'], [role='tooltip'], [data-sheet-panel], .omp-pop-in, .omp-toast-stack";
 	const layerOf = (element: Element): Element | null => element.closest(LAYER);
+	/** `row` is a list row's stretched control (its ::after covers the whole row) and `action` one of that row's controls. */
+	const stretchedOverRow = (row: Element, action: Element): boolean => {
+		const list = row.closest(".omp-list-row");
+		if (!list || action.closest(".omp-list-row") !== list) return false;
+		const after = getComputedStyle(row, "::after");
+		if (after.content === "none" || after.position !== "absolute") return false;
+		return (Number.parseFloat(after.width) || 0) >= list.getBoundingClientRect().width - 1;
+	};
 	const boxes = controls
 		.map(element => ({ element, rect: visibleRect(element) }))
 		.filter(
@@ -688,6 +696,9 @@ function measureInPage(
 				continue;
 			// A label wrapping an input, or two parts of one control (a switch and its label), are one target.
 			if (a.element.closest("label") && a.element.closest("label") === b.element.closest("label")) continue;
+			// A list row's own actions sit above its title, whose ::after stretches over the whole row (ListRow): the
+			// title runs on under the fade to them by design, and a tap there is the action's.
+			if (stretchedOverRow(a.element, b.element) || stretchedOverRow(b.element, a.element)) continue;
 			push("overlap", a.element, `crosses ${describe(b.element)} by ${Math.round(width)}×${Math.round(height)}`);
 			break;
 		}
