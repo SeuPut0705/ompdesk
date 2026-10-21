@@ -2387,8 +2387,9 @@ export function Sidebar() {
 						variant="segmented"
 					/>
 					{/* One line per lane, the same geometry on both: the lane's search, then one icon (Code: open a
-					    project folder; Chat: new chat). New code sessions start from a project row's +, ⌘N, the
-					    palette, the menu and the tray. */}
+					    project folder; Chat: new chat). Once device sections show, each device header carries its own
+					    project folder button, so the Code lane's search takes the whole line. New code sessions start
+					    from a project row's +, ⌘N, the palette, the menu and the tray. */}
 					<div className="flex items-center gap-1" data-sidebar-header-row={mode}>
 						<div className="min-w-0 flex-1">
 							<SearchField
@@ -2410,7 +2411,7 @@ export function Sidebar() {
 								onClick={startChat}
 								variant="ghost"
 							/>
-						) : (
+						) : sectionHosts.length === 0 ? (
 							<IconButton
 								data-sidebar-open-project
 								icon={<FolderPlus />}
@@ -2418,7 +2419,7 @@ export function Sidebar() {
 								onClick={() => void openProjectFolder()}
 								variant="ghost"
 							/>
-						)}
+						) : null}
 					</div>
 				</div>
 
@@ -2443,7 +2444,9 @@ export function Sidebar() {
 										data-sidebar-local-device
 										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
-										{sectionHosts.length > 0 && <SidebarLocalHeader />}
+										{sectionHosts.length > 0 && (
+											<SidebarLocalHeader onAddProject={() => void openProjectFolder()} />
+										)}
 										{localList}
 									</div>
 								),

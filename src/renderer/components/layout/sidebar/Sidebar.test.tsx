@@ -2600,7 +2600,41 @@ describe("Sidebar device sections", () => {
 
 		expect(container.querySelector("[data-sidebar-device-header]")).toBeNull();
 		expect(container.querySelector("[data-sidebar-device]")).toBeNull();
+		expect(container.querySelector("[data-sidebar-device-add]")).toBeNull();
+		// With no device groups the project folder button sits beside the search, as it always did.
+		expect(container.querySelector("[data-sidebar-open-project]")).not.toBeNull();
 		expect(omp.sessions.list.mock.calls.every(call => call.length === 1)).toBe(true);
+	});
+
+	it("puts the project folder button on this device's header, not beside the search, once a host is paired", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		// Every device header ends in its own button; the search row's would be a second one for this device.
+		expect(container.querySelector("[data-sidebar-open-project]")).toBeNull();
+		const header = container.querySelector('[data-sidebar-device-header="local"]');
+		const add = header?.querySelector('[data-sidebar-device-add="local"]') ?? null;
+		expect(add?.getAttribute("aria-label")).toBe(
+			translate("remote.sidebar.addProject", { name: translate("remote.sidebar.thisDevice") }),
+		);
+		// The chevron stays and still folds the list.
+		expect(header?.querySelector('[data-sidebar-device-toggle="local"]')?.getAttribute("aria-expanded")).toBe("true");
+
+		omp.system.showOpenDialog.mockResolvedValueOnce(["/work/new-app"]);
+		await fire(add, "onClick");
+		await act(async () => {});
+		expect(omp.system.showOpenDialog).toHaveBeenLastCalledWith(
+			undefined,
+			expect.objectContaining({ directory: true, buttonLabel: translate("sidebar.project.newFolderButton") }),
+		);
+		// Started on this computer: the untouched tab re-rooted, else a new local tab; never on the host.
+		const spawnedCwds = omp.tabs.spawn.mock.calls.map(([payload]) =>
+			payload && typeof payload === "object" && "cwd" in payload ? payload.cwd : undefined,
+		);
+		expect([...omp.sidecar.setProject.mock.calls.map(([cwd]) => cwd), ...spawnedCwds]).toEqual(["/work/new-app"]);
+		expect(omp.tabs.spawn).not.toHaveBeenCalledWith(expect.objectContaining({ device: expect.anything() }));
 	});
 
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
@@ -2609,7 +2643,7 @@ describe("Sidebar device sections", () => {
 		pairHost("online");
 		await mount(<Sidebar />);
 
-		expect(container.querySelector('[data-sidebar-device-header="local"]')?.textContent).toBe(
+		expect(container.querySelector('[data-sidebar-device-toggle="local"]')?.textContent).toBe(
 			translate("remote.sidebar.thisDevice"),
 		);
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');

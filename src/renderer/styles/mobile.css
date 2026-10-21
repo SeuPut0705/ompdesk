@@ -1611,9 +1611,11 @@ html[data-shell]
 	--hit-gap-y: 0px;
 }
 
-/* The rows holding those controls grow with them: a host's header and a host folder's row were `h-8` boxes whose
+/* The rows holding those controls grow with them: a device's header and a host folder's row were `h-8` boxes whose
    36 px buttons hung 2–4 px into the next row and took its taps. */
-html[data-shell] .omp-session-sidebar :is([data-device-state] > div:first-child, [data-device-group] > div:first-child) {
+html[data-shell]
+	.omp-session-sidebar
+	:is([data-device-state] > div:first-child, [data-device-group] > div:first-child, [data-sidebar-device-header]) {
 	height: auto;
 	min-height: 36px;
 }

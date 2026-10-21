@@ -21,7 +21,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -71,32 +71,76 @@ function createdAt(session: SessionInfo): number {
 	return Number.isNaN(time) ? 0 : time;
 }
 
-/** The header over this device's own list, shown only once a host is paired; it folds the list like a host's header does. */
-export function SidebarLocalHeader() {
+/** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
+ * the end, the button that opens or makes a project folder on that device. This device's and every host's alike. */
+function DeviceHeader({
+	deviceId,
+	folded,
+	name,
+	children,
+	canAdd = true,
+	onAdd,
+	local,
+}: {
+	deviceId: string;
+	folded: boolean;
+	name: string;
+	children?: ReactNode;
+	canAdd?: boolean;
+	onAdd: () => void;
+	/** This device's header (`data-sidebar-device-header="local"`); a host's sits in its `[data-device-state]` section. */
+	local?: boolean;
+}) {
 	const t = useT();
-	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
 	const handle = useDeviceHeaderHandle();
+	const Chevron = folded ? ChevronRight : ChevronDown;
 	return (
-		<h2 className="m-0 text-sc-xs font-medium" data-sidebar-device-header="local">
+		<div
+			className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+			data-sidebar-device-header={local ? "local" : undefined}
+		>
 			<button
 				{...handle}
 				aria-expanded={!folded}
-				className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-md) px-2 text-left text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-				data-roving-item={`device:${LOCAL_DEVICE}`}
-				data-sidebar-device-toggle={LOCAL_DEVICE}
-				onClick={() => useSidebarFolds.getState().setDeviceFolded(LOCAL_DEVICE, !folded)}
+				className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				data-roving-item={`device:${deviceId}`}
+				data-sidebar-device-toggle={deviceId}
+				onClick={() => useSidebarFolds.getState().setDeviceFolded(deviceId, !folded)}
 				tabIndex={-1}
 				type="button"
 			>
 				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				<span className="min-w-0 flex-1 truncate">{t("remote.sidebar.thisDevice")}</span>
-				{folded ? (
-					<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				) : (
-					<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-				)}
+				<span className="min-w-0 truncate">{name}</span>
+				{children}
+				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			</button>
-		</h2>
+			<IconButton
+				className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
+				data-sidebar-device-add={deviceId}
+				disabled={!canAdd}
+				icon={<FolderPlus />}
+				label={t("remote.sidebar.addProject", { name })}
+				onClick={onAdd}
+				size="sm"
+				tabIndex={-1}
+			/>
+		</div>
+	);
+}
+
+/** The header over this device's own list, shown only once a host is paired: it folds the list and, like a host's
+ * header, ends in the button that opens or makes a project folder here (the search row's own button then gives way). */
+export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void }) {
+	const t = useT();
+	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
+	return (
+		<DeviceHeader
+			deviceId={LOCAL_DEVICE}
+			folded={folded}
+			local
+			name={t("remote.sidebar.thisDevice")}
+			onAdd={onAddProject}
+		/>
 	);
 }
 
@@ -117,7 +161,6 @@ export function SidebarDeviceSection({
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
-	const handle = useDeviceHeaderHandle();
 	const online = host.state === "online";
 	const stateLabel = t(`remote.state.${host.state}`);
 	// While the link comes up the host's last known rows stand in (never read: an unlinked host is not asked), so the
@@ -137,58 +180,36 @@ export function SidebarDeviceSection({
 			data-device-state={host.state}
 			data-sidebar-device={host.deviceId}
 		>
-			<div className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
-				<button
-					{...handle}
-					aria-expanded={!collapsed}
-					className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
-					data-roving-item={`device:${host.deviceId}`}
-					data-sidebar-device-toggle={host.deviceId}
-					onClick={() => useSidebarFolds.getState().setDeviceFolded(host.deviceId, !collapsed)}
-					tabIndex={-1}
-					type="button"
-				>
-					<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					<span className="min-w-0 truncate">{host.name}</span>
-					<span
-						aria-hidden
-						className={cx(
-							"size-1.5 shrink-0 rounded-full",
-							pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
-						)}
-					/>
-					{host.state === "offline" ? (
-						<span
-							className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-2xs text-(--sc-text-subtle)"
-							data-device-offline
-							title={t("remote.sidebar.offline")}
-						>
-							{stateLabel}
-						</span>
-					) : (
-						<span className="sr-only">, {stateLabel}</span>
+			<DeviceHeader
+				canAdd={online}
+				deviceId={host.deviceId}
+				folded={collapsed}
+				name={host.name}
+				onAdd={() =>
+					void pickRemoteDirectory(host.deviceId).then(path => {
+						if (path) void openRemote({ cwd: path, kind: "agent" });
+					})
+				}
+			>
+				<span
+					aria-hidden
+					className={cx(
+						"size-1.5 shrink-0 rounded-full",
+						pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
 					)}
-					{collapsed ? (
-						<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					) : (
-						<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					)}
-				</button>
-				<IconButton
-					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-					data-sidebar-device-add={host.deviceId}
-					disabled={!online}
-					icon={<FolderPlus />}
-					label={t("remote.sidebar.addProject", { name: host.name })}
-					onClick={() =>
-						void pickRemoteDirectory(host.deviceId).then(path => {
-							if (path) void openRemote({ cwd: path, kind: "agent" });
-						})
-					}
-					size="sm"
-					tabIndex={-1}
 				/>
-			</div>
+				{host.state === "offline" ? (
+					<span
+						className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-2xs text-(--sc-text-subtle)"
+						data-device-offline
+						title={t("remote.sidebar.offline")}
+					>
+						{stateLabel}
+					</span>
+				) : (
+					<span className="sr-only">, {stateLabel}</span>
+				)}
+			</DeviceHeader>
 			{!collapsed &&
 				(showRows ? (
 					<DeviceSessions

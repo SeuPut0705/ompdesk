@@ -18,7 +18,7 @@ import { Button } from "../common";
 const TARGETS: Record<StarterStep, readonly string[]> = {
 	model: ["[data-model-chip]"],
 	prompt: [".omp-composer-input"],
-	project: ["[data-sidebar-open-project]", ".omp-sidebar-controls"],
+	project: ["[data-sidebar-open-project]", '[data-sidebar-device-add="local"]', ".omp-sidebar-controls"],
 	split: ['[data-tour="sessions"]'],
 	panel: ['[data-tour="panel"]'],
 };
