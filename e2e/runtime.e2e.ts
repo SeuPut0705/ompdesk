@@ -4,9 +4,10 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { exitApp, launchApp } from "./harness";
 
-/** The first transcript row below the viewport top, and its distance from it. */
+/** The first transcript row below the viewport top (its virtual index and its key), and its distance from it. */
 interface ReadingAnchor {
 	index: string | null;
+	key: string | null;
 	offset: number;
 }
 
@@ -46,6 +47,20 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 			setTimeout(done.resolve, 10_000);
 			return done.promise;
 		});
+		// Every scroll from here on, for the failure message: a row the reader holds moves either with a scroll (a
+		// compensation that went wrong) or without one (a row above it changed size and nothing compensated).
+		await scroll.evaluate(node => {
+			const log: string[] = [];
+			(window as unknown as { __readingScrolls: string[] }).__readingScrolls = log;
+			const started = performance.now();
+			let last = node.scrollTop;
+			node.addEventListener("scroll", () => {
+				log.push(
+					`${Math.round(performance.now() - started)}ms top=${Math.round(node.scrollTop)} Δ=${Math.round(node.scrollTop - last)} height=${node.scrollHeight}`,
+				);
+				last = node.scrollTop;
+			});
+		});
 		await page.mouse.wheel(0, -1500);
 		await ended;
 		await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
@@ -57,7 +72,11 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 					item => item.getBoundingClientRect().bottom > top + 4,
 				);
 				return row
-					? { index: row.getAttribute("data-index"), offset: row.getBoundingClientRect().top - top }
+					? {
+							index: row.getAttribute("data-index"),
+							key: row.getAttribute("data-row-key"),
+							offset: row.getBoundingClientRect().top - top,
+						}
 					: null;
 			});
 		// macOS animates wheel scrolls: the view can still be moving once it leaves
@@ -71,7 +90,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 				return (
 					previous !== null &&
 					current !== null &&
-					previous.index === current.index &&
+					previous.key === current.key &&
 					Math.abs(previous.offset - current.offset) < 1
 				);
 			})
@@ -86,12 +105,20 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		const before = await progress();
 		await page.evaluate(() => window.omp.rpc.bash("fixture:large-tool"));
 		await expect.poll(progress).toBeGreaterThan(before + 30);
-		const after = await scroll.evaluate((node, index) => {
-			const row = node.querySelector(`[data-index="${index}"]`);
+		// By the row's key: a virtual index names whichever row sits at that position, so rows inserted above the
+		// reader would make it name another row.
+		const after = await scroll.evaluate((node, key) => {
+			const row = Array.from(node.querySelectorAll("[data-row-key]")).find(
+				item => item.getAttribute("data-row-key") === key,
+			);
 			if (!row) throw new Error("Reading anchor left the viewport during streaming");
 			return row.getBoundingClientRect().top - node.getBoundingClientRect().top;
-		}, anchor.index);
-		expect(Math.abs(after - anchor.offset)).toBeLessThan(4);
+		}, anchor.key);
+		const scrolls = await page.evaluate(() => (window as unknown as { __readingScrolls: string[] }).__readingScrolls);
+		expect(
+			Math.abs(after - anchor.offset),
+			`row ${anchor.key} (index ${anchor.index}) moved from ${anchor.offset} to ${after}; scrolls since the wheel:\n${scrolls.slice(-40).join("\n")}`,
+		).toBeLessThan(4);
 		const inputMs: number[] = [];
 		await input.click();
 		for (const character of "retained stream draft") {
