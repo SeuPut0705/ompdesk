@@ -2572,16 +2572,20 @@ describe("SidecarPool background tabs", () => {
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ sessionId: "three", title: "Docs search" });
 	});
 
-	it("removes the window-closed listener when a tab is released", () => {
-		const { pool } = fakePool();
+	it("holds one window-closed listener however many tabs the window has, and a released tab is not released again", () => {
+		// A listener per tab passed Node's limit of 10 once a window held 11 tabs (MaxListenersExceededWarning).
+		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		const before = fw.win.listenerCount("closed");
-		pool.acquire("/a", fw.win, "tab-a");
-		pool.acquire("/b", fw.win, "tab-b");
-		expect(fw.win.listenerCount("closed")).toBe(before + 2);
-
-		expect(pool.releaseTab("tab-b")).toBe(true);
+		const ids = Array.from({ length: 12 }, (_, index) => `tab-${index}`);
+		for (const id of ids) pool.acquire(`/${id}`, fw.win, id);
 		expect(fw.win.listenerCount("closed")).toBe(before + 1);
+
+		expect(pool.releaseTab("tab-3")).toBe(true);
+		const disposed = sidecars.filter(sidecar => sidecar.disposed).length;
+		fw.close();
+		expect(sidecars.filter(sidecar => sidecar.disposed)).toHaveLength(disposed + 11);
+		for (const id of ids) expect(pool.releaseTab(id)).toBe(false);
 	});
 });
 

@@ -352,6 +352,8 @@ type WindowSplitView = NonNullable<IpcSetTabViewPayload["split"]>;
 export class SidecarPool {
 	#entries = new Set<PoolEntry>();
 	#byTabId = new Map<string, PoolEntry>();
+	/** What each window's one "closed" listener runs (`#whenClosed`). */
+	readonly #onWindowClose = new Map<ClientWindow, Set<() => void>>();
 	/** Window (webContents.id) → active tab. The first acquired tab defaults active. */
 	#activeByWindow = new Map<number, string>();
 	/** Window → up to four tabs whose full event streams are rendered. */
@@ -623,7 +625,7 @@ export class SidecarPool {
 				this.#syncFullWiring(entry.winId);
 			}
 
-			win.once("closed", entry.onWindowClosed);
+			this.#whenClosed(win, entry.onWindowClosed);
 
 			if (!deferStart) this.#ensureStarted(entry);
 			this.#notifyWindowTabsChanged(win);
@@ -667,10 +669,32 @@ export class SidecarPool {
 			this.#visibleByWindow.set(entry.winId, new Set([tabId]));
 			this.#syncFullWiring(entry.winId);
 		}
-		win.once("closed", entry.onWindowClosed);
+		this.#whenClosed(win, entry.onWindowClosed);
 		this.#ensureStarted(entry);
 		this.#notifyWindowTabsChanged(win);
 		return true;
+	}
+
+	/**
+	 * Run `run` when `win` closes. One "closed" listener per window runs every tab's and viewer's: a listener per tab
+	 * passed Node's 10 once a window held 11 tabs (MaxListenersExceededWarning).
+	 */
+	#whenClosed(win: ClientWindow, run: () => void): void {
+		let runs = this.#onWindowClose.get(win);
+		if (!runs) {
+			const pending = new Set<() => void>();
+			runs = pending;
+			this.#onWindowClose.set(win, pending);
+			win.once("closed", () => {
+				this.#onWindowClose.delete(win);
+				for (const each of [...pending]) each();
+			});
+		}
+		runs.add(run);
+	}
+
+	#notWhenClosed(win: ClientWindow, run: () => void): void {
+		this.#onWindowClose.get(win)?.delete(run);
 	}
 
 	/** Whether the tab is a window's view of a tab this computer runs for a paired device (`acquireHostedView`). */
@@ -1213,8 +1237,7 @@ export class SidecarPool {
 			if (answered.entry === entry) this.#answered.delete(id);
 		}
 		this.#announce({ type: "released", tabId: entry.tabId });
-		// A destroyed window already dropped its one-shot "closed" listener.
-		if (!entry.win.isDestroyed()) entry.win.removeListener("closed", entry.onWindowClosed);
+		this.#notWhenClosed(entry.win, entry.onWindowClosed);
 		// The devices viewing it hear the tab is gone while its omp still runs.
 		for (const view of [...(entry.deviceViews ?? [])]) view.end();
 		entry.sidecar.removeAllListeners();
@@ -1229,7 +1252,7 @@ export class SidecarPool {
 		const viewers = [...entry.viewers];
 		entry.viewers.clear();
 		for (const [winId, viewer] of viewers) {
-			if (!viewer.win.isDestroyed()) viewer.win.removeListener("closed", viewer.onClosed);
+			this.#notWhenClosed(viewer.win, viewer.onClosed);
 			this.#leaveWindowView(entry.tabId, winId, viewer.win);
 			this.#sendTabList(viewer.win);
 			if (!viewer.win.isDestroyed()) this.#notifyWindowTabsChanged(viewer.win);
@@ -1298,7 +1321,7 @@ export class SidecarPool {
 		// Its id now: a destroyed window's webContents can no longer be read when it closes.
 		const viewer: TabViewer = { win, onClosed: () => this.#leaveAsViewer(tabId, winId) };
 		entry.viewers.set(winId, viewer);
-		win.once("closed", viewer.onClosed);
+		this.#whenClosed(win, viewer.onClosed);
 		if (!this.#activeByWindow.has(winId)) {
 			this.#activeByWindow.set(winId, tabId);
 			this.#visibleByWindow.set(winId, new Set([tabId]));
@@ -1330,7 +1353,7 @@ export class SidecarPool {
 		if (!entry || !viewer) return;
 		entry.viewers.delete(winId);
 		const { win } = viewer;
-		if (!win.isDestroyed()) win.removeListener("closed", viewer.onClosed);
+		this.#notWhenClosed(win, viewer.onClosed);
 		this.#unwireFull(entry, winId);
 		this.#leaveWindowView(tabId, winId, win);
 		this.#forgetDrafts(entry, winId);
