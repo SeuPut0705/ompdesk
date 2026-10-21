@@ -86,6 +86,36 @@ async function softwareMarked(app: ElectronApplication, page: Page): Promise<boo
 		.catch(() => false);
 }
 
+/** The app's looping cues, one of each, in a fixed-width probe box. */
+const LOOPS = ["animate-spin", "omp-pulse-dot", "omp-work-pulse", "omp-thinking-shimmer", "omp-indeterminate-progress"];
+
+/** For each probe cue: whether its animation loops forever, and whether it has played out. */
+async function probeLoops(page: Page): Promise<{ cls: string; infinite: boolean; finished: boolean }[]> {
+	return page.evaluate(classes => {
+		let box = document.querySelector<HTMLElement>("[data-loop-probe]");
+		if (!box) {
+			box = document.createElement("div");
+			box.dataset.loopProbe = "";
+			box.style.cssText = "position:fixed;left:0;top:0;width:200px";
+			for (const cls of classes) {
+				const cue = document.createElement("div");
+				cue.className = cls;
+				cue.style.height = "4px";
+				box.append(cue);
+			}
+			document.body.append(box);
+		}
+		return [...box.children].map(cue => {
+			const [animation] = cue.getAnimations();
+			return {
+				cls: cue.className,
+				infinite: animation?.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY,
+				finished: animation === undefined || animation.playState === "finished",
+			};
+		});
+	}, LOOPS);
+}
+
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
 		test(`the composer shows work in progress: turn, background agents, a waiting question (${language} ${theme})`, async () => {
@@ -259,6 +289,8 @@ test("reduced motion gets a still indicator, and a hidden window pauses the ligh
 		// Software compositing keeps the still form whatever the media says; hardware gets the moving sweep.
 		const software = await softwareMarked(app, page);
 		await expect.poll(async () => (await loops()).length > 0).toBe(!software);
+		// Hardware compositing keeps every looping cue looping (the software rule must not leak).
+		if (!software) expect((await probeLoops(page)).filter(loop => !loop.infinite).map(loop => loop.cls)).toEqual([]);
 		await page.evaluate(() => {
 			Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
 			document.dispatchEvent(new Event("visibilitychange"));
@@ -287,6 +319,18 @@ test("software compositing draws the cue still (and, measured, the cost stays fl
 		const running = await live.evaluate(
 			sweep => sweep.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length,
 		);
+		// No loop runs anywhere under software compositing: each looping cue plays once and rests, and the
+		// indeterminate bar settles visible, full width (global.css).
+		expect((await probeLoops(page)).filter(loop => loop.infinite).map(loop => loop.cls)).toEqual([]);
+		await expect
+			.poll(async () => (await probeLoops(page)).filter(loop => !loop.finished).map(loop => loop.cls), {
+				timeout: 10_000,
+			})
+			.toEqual([]);
+		const bar = page.locator("[data-loop-probe] > .omp-indeterminate-progress");
+		await expect(bar).toHaveCSS("width", "200px");
+		await expect(bar).toHaveCSS("transform", "none");
+		await expect(bar).toHaveCSS("opacity", "0.55");
 		expect(running).toBe(0);
 		await expect(live).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		// The still cue costs nothing next to the running turn's own work: compare it with the cue absent

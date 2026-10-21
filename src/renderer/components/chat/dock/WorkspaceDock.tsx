@@ -32,8 +32,20 @@ import { TodoDockCard } from "./TodoDockCard";
 import { useWorkspaceDockFocus, WorkspaceDockFocusProvider } from "./WorkspaceDockFocus";
 import { WorkspaceIsland } from "./WorkspaceIsland";
 
+const FOCUS_MIN_HEIGHT = 200;
+
+/** The tallest a focused card may grow: the window keeps room for the composer and the transcript's head. */
+function focusMaxHeight(): number {
+	return Math.max(FOCUS_MIN_HEIGHT, window.innerHeight - 220);
+}
+
 function clampFocusHeight(height: number): number {
-	return Math.round(Math.min(Math.max(200, window.innerHeight - 220), Math.max(200, height)));
+	return Math.round(Math.min(focusMaxHeight(), Math.max(FOCUS_MIN_HEIGHT, height)));
+}
+
+/** The cap before any resize (the scroller's CSS default `min(50dvh, calc(100dvh - 300px))`), within the handle's bounds. */
+function defaultFocusHeight(): number {
+	return clampFocusHeight(Math.min(window.innerHeight / 2, window.innerHeight - 300));
 }
 
 function WorkspaceDockContent() {
@@ -58,7 +70,7 @@ function WorkspaceDockContent() {
 	const [focusHeight, setFocusHeight] = useState<number | null>(() => {
 		try {
 			const stored = Number(localStorage.getItem("omp.dock.focusHeight"));
-			return stored >= 200 ? clampFocusHeight(stored) : null;
+			return stored >= FOCUS_MIN_HEIGHT ? clampFocusHeight(stored) : null;
 		} catch {
 			return null;
 		}
@@ -96,11 +108,20 @@ function WorkspaceDockContent() {
 	};
 	const onHandleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (!focusedCard) return;
-		const step = event.key === "ArrowUp" ? 48 : event.key === "ArrowDown" ? -48 : 0;
-		if (!step) return;
+		// The handle sets the card's cap, never its content's height: a short list stays short under any cap.
+		const current = focusHeight ?? defaultFocusHeight();
+		const next =
+			event.key === "Home"
+				? FOCUS_MIN_HEIGHT
+				: event.key === "End"
+					? focusMaxHeight()
+					: event.key === "ArrowUp"
+						? clampHeight(current + 48)
+						: event.key === "ArrowDown"
+							? clampHeight(current - 48)
+							: null;
+		if (next === null) return;
 		event.preventDefault();
-		const current = focusHeight ?? scrollerRef.current?.clientHeight ?? 320;
-		const next = clampHeight(current + step);
 		setFocusHeight(next);
 		persistHeight(next);
 	};
@@ -120,6 +141,9 @@ function WorkspaceDockContent() {
 						<div
 							aria-label={t("dock.resizeHeight")}
 							aria-orientation="horizontal"
+							aria-valuemax={focusMaxHeight()}
+							aria-valuemin={FOCUS_MIN_HEIGHT}
+							aria-valuenow={focusHeight ?? defaultFocusHeight()}
 							className="mx-auto h-1.5 w-16 cursor-row-resize touch-none rounded-(--sc-radius-full) bg-(--sc-border) hover:bg-(--sc-border-strong) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
 							data-testid="workspace-dock-resize"
 							onKeyDown={onHandleKeyDown}

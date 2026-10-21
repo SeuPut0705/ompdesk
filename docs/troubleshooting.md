@@ -36,6 +36,17 @@ omp --version
 
 Required items finish first; optional ones install in the background. Status and **Try again** are in **Settings › Updates & about › This computer**.
 
+## Logs
+
+| Log | Where |
+|---|---|
+| OMPdesk's own errors and restart decisions | `~/Library/Application Support/ompdesk/logs/gui-runtime.jsonl` (Windows: `%APPDATA%\ompdesk\logs\gui-runtime.jsonl`) |
+| omp's log | `~/.omp/logs/` (Windows: `%USERPROFILE%\.omp\logs\`) |
+
+**Help › Send feedback** in the sidebar drafts a GitHub issue and can attach the recent OMPdesk errors (never session content). Nothing is sent while you write it; **Continue on GitHub** opens the draft in your browser, which hands its text to GitHub in the page address, so review it there before you post.
+
+**Settings › Updates & about › Copy diagnostics** puts the versions, the setup state and the last 100 lines of OMPdesk's log on the clipboard with secrets, addresses and your user folder hidden (**Preview** shows exactly what is copied; nothing is uploaded). Prefer it to the raw files, which can hold file paths, addresses and other details of your machine: remove anything private before you paste lines from them.
+
 ## Still stuck
 
-Open an [issue](https://github.com/SeuPut0705/ompdesk/issues) with the OMPdesk version, your OS, `omp --version` and the steps to reproduce.
+Open an [issue](https://github.com/SeuPut0705/ompdesk/issues) with the steps to reproduce, `omp --version` and the **Copy diagnostics** text (or the OMPdesk version, your OS and the relevant lines of the [logs](#logs)).

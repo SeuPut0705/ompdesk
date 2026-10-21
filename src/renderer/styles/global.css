@@ -992,6 +992,21 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	}
 }
 
+/* Software compositing (`html[data-gpu="software"]`, set by main's `#markSoftwareCompositing`: no GPU, a crash
+   fallback, a CI runner) paints every frame on the CPU, so no loop runs there: each looping cue (spinners,
+   pulses, shimmers, carets, sweeps) plays once and rests. One-shot animations and transitions are untouched. */
+html[data-gpu="software"] *,
+html[data-gpu="software"] *::before,
+html[data-gpu="software"] *::after {
+	animation-iteration-count: 1 !important;
+}
+
+html[data-gpu="software"] .omp-indeterminate-progress {
+	width: 100%;
+	transform: none;
+	opacity: 0.55;
+}
+
 /* GUI density changes conversation spacing without scaling text or scroll
    coordinates: it retunes the transcript spacing scale (components.css). */
 [data-density="tight"] .omp-transcript-editorial {

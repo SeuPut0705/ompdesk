@@ -71,5 +71,10 @@ describe("formatErrorTail", () => {
 		expect(formatErrorTail(lines)).toBe("`unknown` old\n`unknown` new");
 		const huge = JSON.stringify({ report: { source: "x", message: "m".repeat(4000) } });
 		expect(formatErrorTail([huge, huge, huge])).toHaveLength(0); // over the tail budget → dropped
+		// Over the budget the oldest go, never the newest: the error being reported is the last one logged.
+		const error = (message: string) => JSON.stringify({ report: { source: "x", message: message.padEnd(900, ".") } });
+		const tail = formatErrorTail([error("first"), error("second"), error("third"), error("fourth")]);
+		expect(tail).not.toContain("first");
+		expect(tail.split("\n").map(line => line.slice(0, 10))).toEqual(["`x` second", "`x` third.", "`x` fourth"]);
 	});
 });

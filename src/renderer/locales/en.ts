@@ -4680,6 +4680,7 @@ export const en: Record<string, string> = {
 	"sidebar.label": "Sidebar",
 	"sidebar.destinations": "Destinations",
 	"sidebar.collapse": "Hide sidebar",
+	"sidebar.resize": "Resize sidebar",
 	"sidebar.filter": "Filter sessions",
 	"sidebar.filterPlaceholder": "Find sessions",
 	"sidebar.filterChats": "Filter chats",

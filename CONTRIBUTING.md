@@ -6,7 +6,7 @@ Thanks for helping. OMPdesk is an unofficial desktop app for the [omp](https://g
 
 Issues are welcome.
 
-- **Bug:** include the OMPdesk version, your OS, `omp --version`, and the steps to reproduce. Logs help.
+- **Bug:** include the OMPdesk version, your OS, `omp --version`, and the steps to reproduce. [Logs](docs/troubleshooting.md#logs) help.
 - **Feature idea:** describe the problem you want solved, not only the solution.
 - **Vulnerability:** do not open an issue. Follow [SECURITY.md](SECURITY.md).
 
@@ -14,13 +14,16 @@ Issues are welcome.
 
 - Open an issue first for anything non-trivial.
 - Keep PRs small and focused on one change.
-- Before you push, run:
+- Before you push, run the checks CI runs on every pull request:
 
   ```bash
   bun run check:types
   bunx biome check src e2e resources scripts
+  node scripts/lint-surfaces.mjs
   bunx vitest run
   ```
+
+  While you work, `bun run check:changed` runs the same checks on just what you changed (plus the end-to-end specs that touch it).
 
 - Every user-visible string needs the same key in both `src/renderer/locales/en.ts` and `ko.ts`.
 - Do not add AI-attribution trailers to commit messages.

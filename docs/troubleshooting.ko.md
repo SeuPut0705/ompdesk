@@ -36,6 +36,17 @@ omp --version
 
 필수 항목이 먼저 끝나고, 선택 항목은 백그라운드에서 설치돼요. 상태와 **다시 시도**는 **설정 › 업데이트 및 정보 › 이 컴퓨터**에 있어요.
 
+## 로그
+
+| 로그 | 위치 |
+|---|---|
+| OMPdesk 자체 오류와 재시작 판단 | `~/Library/Application Support/ompdesk/logs/gui-runtime.jsonl` (Windows: `%APPDATA%\ompdesk\logs\gui-runtime.jsonl`) |
+| omp 로그 | `~/.omp/logs/` (Windows: `%USERPROFILE%\.omp\logs\`) |
+
+사이드바의 **도움말 › 피드백 보내기**는 GitHub 이슈 초안을 만들고, 최근 OMPdesk 오류를 붙일 수 있어요(세션 내용은 절대 포함되지 않아요). 작성하는 동안에는 아무것도 전송되지 않아요. **GitHub에서 계속**을 누르면 브라우저에서 초안이 열리고, 이때 그 내용이 페이지 주소에 담겨 GitHub로 전달되니 게시하기 전에 거기서 확인하세요.
+
+**설정 › 업데이트 및 정보 › 진단 정보 복사**는 버전, 설치 상태, OMPdesk 로그의 최근 100줄을 비밀값, 주소, 사용자 폴더를 가린 채 클립보드에 담아요(**미리보기**로 복사될 내용을 그대로 볼 수 있고, 아무것도 업로드하지 않아요). 로그 파일에는 파일 경로, 주소 같은 이 컴퓨터의 정보가 들어 있을 수 있으니 파일을 직접 붙여 넣기보다 이걸 쓰고, 줄을 붙여 넣을 때는 공개하면 안 되는 내용을 지워 주세요.
+
 ## 그래도 안 되면
 
-OMPdesk 버전, 운영체제, `omp --version`, 재현 방법과 함께 [이슈](https://github.com/SeuPut0705/ompdesk/issues)를 남겨 주세요.
+재현 방법, `omp --version`, **진단 정보 복사** 내용(또는 OMPdesk 버전, 운영체제, [로그](#로그)의 관련 줄)과 함께 [이슈](https://github.com/SeuPut0705/ompdesk/issues)를 남겨 주세요.
