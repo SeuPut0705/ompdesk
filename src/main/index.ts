@@ -1405,7 +1405,13 @@ app.whenReady().then(() => {
 		},
 	});
 	const turnResume = new TurnResume({
-		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json")),
+		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json"), error =>
+			writeRuntimeLog({
+				source: "turn-resume",
+				message: "markers not saved",
+				details: { error: error instanceof Error ? error.message : String(error) },
+			}),
+		),
 		// This computer's own tabs and the ones it runs for paired devices (host-services.ts): the host
 		// owns those turns, so their markers, waits and continuations are this computer's.
 		pool: {
