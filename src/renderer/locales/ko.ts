@@ -595,7 +595,7 @@ export const ko: Record<string, string> = {
 	"autopilot.reason.user_pause": "직접 일시정지했어요",
 	"autopilot.reason.user_abort": "직접 중단했어요",
 	"autopilot.reason.repo_gone": "저장소 폴더가 사라졌어요",
-	"autopilot.reason.ban_violation": "금지된 git 동작을 감지했어요",
+	"autopilot.reason.ban_violation": "예상하지 못한 git 변경을 보고 멈췄어요",
 	"autopilot.reason.budget": "토큰 상한에 도달했어요",
 	"autopilot.reason.time": "시간 상한에 도달했어요",
 	"autopilot.reason.cycles": "사이클 상한에 도달했어요",

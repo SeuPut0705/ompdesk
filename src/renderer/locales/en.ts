@@ -604,7 +604,7 @@ export const en: Record<string, string> = {
 	"autopilot.reason.user_pause": "Paused by you",
 	"autopilot.reason.user_abort": "Stopped by you",
 	"autopilot.reason.repo_gone": "The repository folder is gone",
-	"autopilot.reason.ban_violation": "A forbidden git action was detected",
+	"autopilot.reason.ban_violation": "Paused on a git change it did not expect",
 	"autopilot.reason.budget": "Token ceiling reached",
 	"autopilot.reason.time": "Time ceiling reached",
 	"autopilot.reason.cycles": "Cycle ceiling reached",

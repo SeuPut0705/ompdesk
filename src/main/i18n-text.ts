@@ -179,8 +179,8 @@ export const MAIN_TEXT = {
 		ko: "저장소 폴더가 사라졌어요({detail}).",
 	},
 	"autopilot.reason.ban_violation": {
-		en: "The agent did something the hard limits forbid ({detail}).",
-		ko: "에이전트가 금지된 작업을 했어요({detail}).",
+		en: "Autopilot's safety check saw a git change it did not expect ({detail}) and paused the run. Check it, then Resume to continue.",
+		ko: "오토파일럿 안전 점검이 예상하지 못한 git 변경을 보고 멈췄어요({detail}). 확인한 뒤 재개하면 이어서 돌아요.",
 	},
 	"autopilot.reason.budget": { en: "The token limit was reached.", ko: "토큰 상한에 도달했어요." },
 	"autopilot.reason.time": { en: "The time limit was reached.", ko: "시간 상한에 도달했어요." },
