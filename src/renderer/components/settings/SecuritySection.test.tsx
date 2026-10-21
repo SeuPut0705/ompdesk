@@ -252,7 +252,7 @@ describe("SecuritySection with nothing found", () => {
 			expect(bodyText()).toContain(translate("security.lastScan", { time: "5분 전" }));
 			expect(bodyText()).not.toMatch(/\b5m\b/);
 		} finally {
-			setLanguageOverride(null);
+			await act(async () => setLanguageOverride(null));
 		}
 	});
 

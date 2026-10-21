@@ -267,7 +267,8 @@ describe("Subagent view header", () => {
 			expect(status?.textContent).toMatch(/1분 \d+초/);
 			expect(status?.textContent).not.toMatch(/\dm \d+s/);
 		} finally {
-			setLanguageOverride(null);
+			// The mounted provider follows the override: put it back inside act.
+			await act(async () => setLanguageOverride(null));
 		}
 	});
 

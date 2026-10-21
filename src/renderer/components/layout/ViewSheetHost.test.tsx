@@ -28,7 +28,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 const events = new Proxy({}, { get: () => () => () => {} });
 Reflect.set(window, "omp", {
 	prefs: { get: async () => undefined, set: async () => {} },
-	runtime: { logSnapshot: async () => [] },
+	runtime: { logSnapshot: async () => ({ lines: [], nextSequence: 0 }) },
 	events,
 });
 

@@ -310,6 +310,9 @@ describe("FirstRunGate", () => {
 			builtin: false,
 		};
 		listProviders.mockResolvedValueOnce({ providers: [keyless], options: fixtureProviderOptions });
+		// A fresh gate on the same page: the first one leaves before the second mounts.
+		const first = roots.pop();
+		await act(async () => first?.unmount());
 		await mount(<FirstRunGate />);
 		expect(useFirstRunStore.getState().phase).toBe("idle");
 	});
