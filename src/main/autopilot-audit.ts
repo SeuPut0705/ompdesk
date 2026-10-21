@@ -12,7 +12,7 @@
  * branch cannot be told from the agent's, so it counts, like the design says.
  */
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { git, gitRaw } from "./local/git/exec";
 
@@ -121,18 +121,22 @@ async function movedByFetch(root: string, ref: string): Promise<boolean> {
 	return /^(fetch|pull)\b/.test(log.stdout.toString("utf8").trim());
 }
 
-/** The commits the run's branch made this cycle on its own line (first parents: a merge brings others' commits). */
-async function ownCommits(root: string, from: string | undefined, to: string | undefined): Promise<string[]> {
-	if (!to || from === to) return [];
-	const range = await gitRaw(root, ["rev-list", "--first-parent", from ? `${from}..${to}` : to], {
+/**
+ * The run's own commits: those on its branch's first-parent line that the default branch on the remote did not hold
+ * when the cycle began (a merge brings others' commits; first parents are the run's). Null when git cannot say, which
+ * counts as the run's (an empty answer is never evidence that another session acted).
+ */
+async function ownCommits(root: string, tip: string | undefined, base: string | undefined): Promise<string[] | null> {
+	if (!tip) return [];
+	const range = await gitRaw(root, ["rev-list", "--first-parent", tip, ...(base ? ["--not", base] : [])], {
 		timeoutMs: REFS_TIMEOUT_MS,
 	});
-	return range.code === 0 ? range.stdout.toString("utf8").split("\n").filter(Boolean) : [];
+	return range.code === 0 ? range.stdout.toString("utf8").split("\n").filter(Boolean) : null;
 }
 
-/** A remote-tracking ref another session moved: created or moved forward, holding none of the run's own commits. */
-async function movedByOthers(root: string, change: RefChange, own: readonly string[]): Promise<boolean> {
-	if (change.to === null) return false;
+/** A ref another session moved: created or moved forward, holding none of the run's own commits. */
+async function movedByOthers(root: string, change: RefChange, own: readonly string[] | null): Promise<boolean> {
+	if (change.to === null || own === null) return false;
 	if (change.from !== null) {
 		const forward = await gitRaw(root, ["merge-base", "--is-ancestor", change.from, change.to], {
 			timeoutMs: REFS_TIMEOUT_MS,
@@ -144,6 +148,24 @@ async function movedByOthers(root: string, change: RefChange, own: readonly stri
 		if (holds.code === 0) return false;
 	}
 	return true;
+}
+
+/**
+ * Branches checked out in a worktree of the repository other than the run's own: another session's worktree branch or
+ * the user's own checkout. The agent's `git branch x` is checked out nowhere, so it still counts.
+ */
+async function otherWorktreeBranches(root: string): Promise<Set<string>> {
+	const list = await gitRaw(root, ["worktree", "list", "--porcelain"], { timeoutMs: REFS_TIMEOUT_MS });
+	if (list.code !== 0) return new Set();
+	const self = await realpath(root).catch(() => root);
+	const branches = new Set<string>();
+	for (const block of list.stdout.toString("utf8").split("\n\n")) {
+		const tree = /^worktree (.+)$/m.exec(block)?.[1];
+		const branch = /^branch (.+)$/m.exec(block)?.[1];
+		if (!tree || !branch) continue;
+		if ((await realpath(tree).catch(() => tree)) !== self) branches.add(branch);
+	}
+	return branches;
 }
 
 function allowed(change: RefChange, scope: AuditScope): boolean {
@@ -175,13 +197,25 @@ export async function auditCycle(
 ): Promise<AuditViolation[]> {
 	const violations: AuditViolation[] = [];
 	const own = `refs/heads/${scope.branch}`;
-	let mine: string[] | undefined;
+	let mine: string[] | null | undefined;
+	const theirs = async (change: RefChange) => {
+		if (mine === undefined) {
+			mine = await ownCommits(
+				root,
+				after.refs[own],
+				before.refs[`refs/remotes/${scope.remote}/${scope.defaultBranch}`],
+			);
+		}
+		return movedByOthers(root, change, mine);
+	};
+	let others: Set<string> | undefined;
 	for (const change of diffRefs(before.refs, after.refs)) {
 		if (allowed(change, scope)) continue;
-		if (change.ref.startsWith("refs/remotes/") && change.to !== null) {
-			if (await movedByFetch(root, change.ref)) continue;
-			mine ??= await ownCommits(root, before.refs[own], after.refs[own]);
-			if (await movedByOthers(root, change, mine)) continue;
+		if (change.to !== null && change.ref.startsWith("refs/remotes/")) {
+			if ((await movedByFetch(root, change.ref)) || (await theirs(change))) continue;
+		} else if (change.to !== null && change.ref.startsWith("refs/heads/")) {
+			others ??= await otherWorktreeBranches(root);
+			if (others.has(change.ref) && (await theirs(change))) continue;
 		}
 		violations.push({ kind: "ref", detail: describeChange(change) });
 	}
@@ -203,10 +237,21 @@ export async function auditCycle(
 		violations.push({ kind: "config", detail: "the repository's git config changed" });
 	}
 	if (before.checkout !== null && after.checkout !== before.checkout && !scope.checkoutMayMove) {
-		violations.push({
-			kind: "checkout",
-			detail: `the default checkout moved (${before.checkout} → ${after.checkout})`,
-		});
+		// The same branch moved forward without the run's commits is the user's own pull or commit there.
+		const [branchBefore, from] = before.checkout.split(" ");
+		const [branchAfter, to] = (after.checkout ?? "").split(" ");
+		const pulled =
+			branchBefore === branchAfter &&
+			branchBefore !== "detached" &&
+			from !== undefined &&
+			to !== undefined &&
+			(await theirs({ ref: branchBefore ?? "", from, to }));
+		if (!pulled) {
+			violations.push({
+				kind: "checkout",
+				detail: `the default checkout moved (${before.checkout} → ${after.checkout})`,
+			});
+		}
 	}
 	return violations;
 }

@@ -140,6 +140,13 @@ describe("auditCycle", () => {
 		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/mine-pushed created"]);
 	});
 
+	it("catches the run pushing its unchanged branch to a new remote branch", async () => {
+		await commit(work, "mine.txt");
+		const before = await takeSnapshot(work, main);
+		gitSync(work, "push", "-q", "origin", "HEAD:refs/heads/mine-again");
+		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/mine-again created"]);
+	});
+
 	it("still catches a remote-tracking ref moved backwards or deleted", async () => {
 		const peer = path.join(tmp, "peer");
 		gitSync(main, "worktree", "add", "-q", "--detach", peer);
@@ -150,6 +157,24 @@ describe("auditCycle", () => {
 		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/side moved"]);
 		gitSync(peer, "push", "-q", "origin", ":refs/heads/side");
 		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/side deleted"]);
+	});
+
+	it("tolerates another session's branch in its own worktree and the user's pull in the default checkout", async () => {
+		await commit(work, "mine.txt");
+		const other = path.join(tmp, "other");
+		gitSync(tmp, "clone", "-q", remote, other);
+		gitSync(other, "config", "user.email", "t@example.com");
+		gitSync(other, "config", "user.name", "t");
+		const before = await takeSnapshot(work, main);
+		const peer = path.join(tmp, "peer");
+		gitSync(main, "worktree", "add", "-q", "-b", "omp/agent/peer", peer);
+		await commit(peer, "theirs.txt");
+		await commit(other, "upstream.txt");
+		gitSync(other, "push", "-q", "origin", "main");
+		gitSync(main, "pull", "-q", "--ff-only", "origin", "main");
+		expect(await audit(before)).toEqual([]);
+		gitSync(work, "branch", "sneaky");
+		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/heads/sneaky created"]);
 	});
 
 	it("catches tags: any in a local-only run, only new v* tags inside the release scope", async () => {
