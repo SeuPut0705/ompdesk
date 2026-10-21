@@ -397,7 +397,12 @@ describe.skipIf(!existsSync(omp))(
 			await first.quit();
 			const lines = readFileSync(journalFile(isolated), "utf8").split("\n").filter(Boolean);
 			const last = JSON.parse(lines.at(-1) ?? "{}") as { id?: string };
-			expect(messagesOf(journal(isolated)).at(-1)?.message?.stopReason).toBe("aborted");
+			// Stock journals the aborted reply after the aborted tool result, unless its graceful exit ends the process first
+			// (1 run in about 8 here): then the tool result is last and stock's own restore takes the turn up.
+			const end = messagesOf(journal(isolated)).at(-1)?.message;
+			const replyJournaled = end?.role === "assistant";
+			if (replyJournaled) expect(end?.stopReason).toBe("aborted");
+			else expect(end?.role).toBe("toolResult");
 			// What v0.49.0's bridge journaled after the abort: a session report, displayed, in the model's context.
 			const note = {
 				type: "custom_message",
@@ -415,7 +420,7 @@ describe.skipIf(!existsSync(omp))(
 				"composer.restore_interrupted",
 				{},
 			);
-			expect(outcome).toMatchObject({ turn: false, followUp: true });
+			expect(outcome).toMatchObject(replyJournaled ? { turn: false, followUp: true } : { turn: true });
 			await expect.poll(() => provider.continued, { timeout: 60_000 }).toBe(1);
 			await expect
 				.poll(() => messagesOf(journal(isolated)).at(-1)?.message?.content, { timeout: 30_000 })
