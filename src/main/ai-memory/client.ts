@@ -216,12 +216,16 @@ export class AiMemoryClient {
 	}
 
 	async projects(): Promise<AiMemoryProject[]> {
-		const projects = rows(await this.#get("/api/v1/projects")).map(row => ({
-			workspace: str(row.workspace_name),
-			project: str(row.project_name),
-			pages: num(row.page_count),
-			lastUpdated: str(row.last_updated) || null,
-		}));
+		const projects = rows(await this.#get("/api/v1/projects")).map(row => {
+			const identity = str(row.identity);
+			return {
+				workspace: str(row.workspace_name),
+				project: str(row.project_name),
+				pages: num(row.page_count),
+				lastUpdated: str(row.last_updated) || null,
+				...(identity ? { identity } : {}),
+			};
+		});
 		return projects.sort((a, b) => ((a.lastUpdated ?? "") < (b.lastUpdated ?? "") ? 1 : -1));
 	}
 

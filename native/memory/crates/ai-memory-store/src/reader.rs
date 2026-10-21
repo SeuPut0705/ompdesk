@@ -1900,6 +1900,12 @@ pub struct ProjectSummary {
     /// ISO-8601 timestamp of the newest `updated_at`, or `None` when
     /// the project has no pages yet.
     pub last_updated: Option<String>,
+    /// The repository identity the project was claimed by (`github.com/owner/repo`,
+    /// or a marker-declared one), absent for a project no checkout claimed.
+    /// OMPdesk's memory sync pairs a project across computers by it, since
+    /// each computer may name the same repository differently.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
 }
 
 /// Pending inbox depth for one recipient project. Returned by
@@ -9508,7 +9514,8 @@ impl ReaderPool {
                         p.id AS project_id, \
                         p.name AS project_name, \
                         COUNT(pg.id) AS page_count, \
-                        MAX(pg.updated_at) AS last_updated_us \
+                        MAX(pg.updated_at) AS last_updated_us, \
+                        NULLIF(p.identity, '') AS identity \
                  FROM workspaces w \
                  JOIN projects p ON p.workspace_id = w.id \
                  LEFT JOIN pages pg ON pg.project_id = p.id AND pg.is_latest = 1 \
@@ -9523,6 +9530,7 @@ impl ReaderPool {
                 let project_name: String = row.get(3)?;
                 let page_count: i64 = row.get(4)?;
                 let last_updated_us: Option<i64> = row.get(5)?;
+                let identity: Option<String> = row.get(6)?;
                 Ok((
                     workspace_id,
                     workspace_name,
@@ -9530,6 +9538,7 @@ impl ReaderPool {
                     project_name,
                     page_count,
                     last_updated_us,
+                    identity,
                 ))
             })?;
             let mut out = Vec::new();
@@ -9541,6 +9550,7 @@ impl ReaderPool {
                     project_name,
                     page_count,
                     last_updated_us,
+                    identity,
                 ) = r?;
                 let workspace_id = WorkspaceId::from_slice(&workspace_id)?;
                 let project_id = ProjectId::from_slice(&project_id)?;
@@ -9554,6 +9564,7 @@ impl ReaderPool {
                     project_name,
                     page_count: u64::try_from(page_count).unwrap_or(0),
                     last_updated,
+                    identity,
                 });
             }
             Ok(out)

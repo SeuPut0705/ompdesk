@@ -662,6 +662,42 @@ async fn unauthorized_capture_resolves_but_cannot_promote_a_legacy_name() {
     assert_eq!(row(&store, project).0, "api");
 }
 
+/// OMPdesk: the project listing names each project's repository identity, so
+/// two computers that named the same repository differently (`ompdesk` here,
+/// `seuput0705-ompdesk` there) can pair it; a project no checkout claimed
+/// lists none.
+#[tokio::test]
+async fn the_project_listing_names_each_projects_repository_identity() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let store = Store::open(tmp.path()).unwrap();
+    let ws = workspace(&store).await;
+    let (claimed, _) = resolve_styled(
+        &store,
+        ws,
+        &remote("github.com/acme/api"),
+        IdentityStyle::Path,
+        "api",
+        None,
+    )
+    .await;
+    let plain = store
+        .writer
+        .get_or_create_project(ws, "notes", None)
+        .await
+        .unwrap();
+
+    let listed = store.reader.list_projects_with_stats(None).await.unwrap();
+    let identity_of = |id: ProjectId| {
+        listed
+            .iter()
+            .find(|row| row.project_id == id.to_string())
+            .map(|row| row.identity.clone())
+            .expect("listed")
+    };
+    assert_eq!(identity_of(claimed), Some("github.com/acme/api".to_owned()));
+    assert_eq!(identity_of(plain), None);
+}
+
 /// The style only renames what has a host to drop: a declared identity keeps
 /// the name the client sent.
 #[tokio::test]

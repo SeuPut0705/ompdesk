@@ -79,6 +79,11 @@ export interface AiMemoryProjectRef {
 export interface AiMemoryProject extends AiMemoryProjectRef {
 	pages: number;
 	lastUpdated: string | null;
+	/**
+	 * The repository identity the server claimed the project by (`github.com/owner/repo`); absent for a project no
+	 * checkout claimed. Two computers may name one repository differently; this is what pairs them.
+	 */
+	identity?: string;
 }
 
 export interface AiMemoryPageRef extends AiMemoryProjectRef {

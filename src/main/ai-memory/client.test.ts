@@ -107,14 +107,26 @@ describe("AiMemoryClient", () => {
 		expect(await client.status()).toEqual({ version: null, pages: 0, sessions: 0, observations: 0, diskBytes: 0 });
 	});
 
-	it("lists projects newest first", async () => {
+	it("lists projects newest first, with the repository identity a project was claimed by", async () => {
 		routes["/api/v1/projects"] = json([
 			{ workspace_name: "w", project_name: "old", page_count: 1, last_updated: "2026-01-01T00:00:00Z" },
-			{ workspace_name: "w", project_name: "new", page_count: 4, last_updated: "2026-03-01T00:00:00Z" },
+			{
+				workspace_name: "w",
+				project_name: "new",
+				page_count: 4,
+				last_updated: "2026-03-01T00:00:00Z",
+				identity: "github.com/acme/new",
+			},
 			{ workspace_name: "w", project_name: "never", page_count: "x" },
 		]);
 		expect(await client.projects()).toEqual([
-			{ workspace: "w", project: "new", pages: 4, lastUpdated: "2026-03-01T00:00:00Z" },
+			{
+				workspace: "w",
+				project: "new",
+				pages: 4,
+				lastUpdated: "2026-03-01T00:00:00Z",
+				identity: "github.com/acme/new",
+			},
 			{ workspace: "w", project: "old", pages: 1, lastUpdated: "2026-01-01T00:00:00Z" },
 			{ workspace: "w", project: "never", pages: 0, lastUpdated: null },
 		]);
