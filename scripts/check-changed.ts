@@ -16,7 +16,9 @@
  *    spec, or a spec whose file name or text mentions a changed source file's
  *    name (`layout/work-board/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`). That is a
  *    name match, not a dependency graph; the release gate (`bun run gate`)
- *    still runs every spec.
+ *    still runs every spec. A picked spec that launches Playwright's own
+ *    browsers (`chromium`, `webkit`) waits until those start; a missing one
+ *    stops the run with the install command (`scripts/e2e-browsers.ts`).
  * 3. A change to e2e shared support (harness, fixtures) matches no single spec:
  *    the run says so and runs none; use `bunx playwright test <spec>` for the
  *    ones you touched.
@@ -27,6 +29,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { acquireLock, type RunResult, run, runLocked } from "./build-lock";
+import { browsersNeeded, missingBrowsers } from "./e2e-browsers";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -136,6 +139,16 @@ if (supportChanged && specs.length === 0) {
 if (specs.length === 0) {
 	console.log(`[check:changed] PASSED in ${seconds(performance.now() - started)} (no e2e spec matches the change)`);
 	process.exit(0);
+}
+// A Playwright upgrade leaves its browsers to `playwright install`: say so once instead of failing every phone spec.
+const browsersOf = new Map(specs.map(spec => [spec, browsersNeeded(readFileSync(spec, "utf8"))]));
+const missing = await missingBrowsers([...new Set([...browsersOf.values()].flat())]);
+if (missing.length > 0) {
+	const blocked = specs.filter(spec => browsersOf.get(spec)?.some(name => missing.includes(name)));
+	console.log(
+		`[check:changed] FAILED: Playwright's ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not installed, so ${blocked.length} of ${specs.length} spec file(s) could not start it (${blocked.join(" ")}); run \`bunx playwright install ${missing.join(" ")}\``,
+	);
+	process.exit(1);
 }
 console.log(`[check:changed] build, then ${specs.length} spec file(s): ${specs.join(" ")}`);
 const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
