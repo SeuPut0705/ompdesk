@@ -8,8 +8,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
+import { baseTemp } from "../run-temp";
 
 const LAUNCHER = `import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -27,7 +27,7 @@ const exists = (file: string) =>
 
 /** The compiled launcher, built once per machine (a 90 MB bun runtime) and shared by every spec and worker. */
 async function launcherExe(): Promise<string> {
-	const dir = path.join(os.tmpdir(), "omp-e2e-fake-gh");
+	const dir = path.join(baseTemp(), "omp-e2e-fake-gh");
 	const exe = path.join(dir, `gh-${createHash("sha256").update(LAUNCHER).digest("hex").slice(0, 12)}.exe`);
 	if (await exists(exe)) return exe;
 	await fs.mkdir(dir, { recursive: true });

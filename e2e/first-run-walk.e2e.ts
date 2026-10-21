@@ -15,6 +15,7 @@ import { chromium, devices, expect, type Locator, type Page, test } from "@playw
 import { createServer } from "vite";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { exitApp, fixtureOmp, launchApp } from "./harness";
+import { baseTemp } from "./run-temp";
 
 const directory = process.env.OMP_GUI_FIRST_RUN_WALK;
 test.skip(!directory, "set OMP_GUI_FIRST_RUN_WALK=<dir> to walk the first run");
@@ -65,7 +66,7 @@ async function inventory(page: Page): Promise<{ words: number; buttons: string[]
 for (const language of ["en", "ko"] as const) {
 	test(`first-run walk (${language})`, async () => {
 		test.setTimeout(180_000);
-		const out = directory ?? os.tmpdir();
+		const out = directory ?? baseTemp();
 		await fs.mkdir(out, { recursive: true });
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), `omp-first-run-walk-${language}-`)));
 		const [project, desktop, agent, installer] = ["project", "desktop", "agent", "installer"].map(name =>
@@ -183,7 +184,7 @@ for (const language of ["en", "ko"] as const) {
 for (const language of ["en", "ko"] as const) {
 	test(`first-run walk on the real omp (${language})`, async () => {
 		test.setTimeout(120_000);
-		const out = directory ?? os.tmpdir();
+		const out = directory ?? baseTemp();
 		await fs.mkdir(out, { recursive: true });
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), `omp-first-run-real-${language}-`)));
 		const [project, desktop, agent] = ["project", "desktop", "agent"].map(name => path.join(root, name));
@@ -240,7 +241,7 @@ for (const language of ["en", "ko"] as const) {
 
 test("first-run walk: the phone page's provider step at 390 px", async () => {
 	test.setTimeout(120_000);
-	const out = directory ?? os.tmpdir();
+	const out = directory ?? baseTemp();
 	const port = await new Promise<number>((resolve, reject) => {
 		const probe = createNetServer();
 		probe.once("error", reject);

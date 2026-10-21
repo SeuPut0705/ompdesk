@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
@@ -7,6 +6,7 @@ import { createToolsStore } from "../src/renderer/stores/tools";
 import type { SubagentFrame } from "../src/shared/rpc-types";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
+import { baseTemp } from "./run-temp";
 import type { RecordedWorkFrame } from "./work-recording";
 
 // Explicit opt-in: this audit spends model tokens and copies credentials only
@@ -14,7 +14,7 @@ import type { RecordedWorkFrame } from "./work-recording";
 test("real omp 18.8.7 streams inline subagent tools", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(300_000);
-	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-work-evidence");
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-work-evidence");
 	await fs.mkdir(evidenceDir, { recursive: true });
 	const { profile, project, desktop, env } = await realOmpProfile();
 	await fs.writeFile(path.join(project, "alpha.txt"), "alpha\nbeta\ngamma\n");

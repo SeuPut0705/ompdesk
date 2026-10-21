@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron, type Page } from "playwright";
@@ -20,6 +19,7 @@ import {
 import { exitApp } from "./harness";
 import { survivors } from "./process-tree";
 import { field, realOmpProfile, spentIn } from "./real-omp";
+import { baseTemp } from "./run-temp";
 
 // Explicit opt-in (OMP_GUI_REAL_WORK=1): these audits spend model tokens on the user's `smol` role in a private
 // disposable agent dir (config.yml and agent.db copied, 0700), a temp git repository and a local bare remote.
@@ -95,7 +95,7 @@ async function launch(desktop: string, env: Record<string, string>, project?: st
 test("real omp autopilot: two cycles in a new worktree, guarded, local only, then a push-level cycle", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(2_400_000);
-	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-autopilot");
 	await fs.mkdir(evidenceDir, { recursive: true });
 	const { profile, project, desktop, env, remote } = await seededProfile();
 	const remoteBefore = refs(remote, "refs/heads");
@@ -272,7 +272,7 @@ function expectArmed(held: Permissions): void {
 test("real omp autopilot: yolo and the tool set are held only while the run lives, across a SIGKILL too", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(2_400_000);
-	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-autopilot");
 	await fs.mkdir(evidenceDir, { recursive: true });
 	const { profile, project, desktop, agent, env } = await seededProfile();
 	const configPath = path.join(agent, "config.yml");
@@ -386,7 +386,7 @@ test("real omp autopilot: yolo and the tool set are held only while the run live
 test("real omp autopilot guide: Start's guide is one request on the smol role, with a Release section from the project's facts, and its cost", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(300_000);
-	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-autopilot");
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-autopilot");
 	await fs.mkdir(evidenceDir, { recursive: true });
 	const { profile, project, desktop, agent, env } = await seededProfile();
 	const { app, page } = await launch(desktop, env, project);

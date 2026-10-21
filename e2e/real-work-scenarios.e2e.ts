@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
+import { baseTemp } from "./run-temp";
 
 // Explicit opt-in audit on the user's small model: each scenario is one turn of
 // a real omp session, captured light and dark, and the finished transcript is
@@ -72,7 +72,7 @@ const SCENARIOS: ReadonlyArray<{ name: string; prompt: string; during?: (page: P
 
 // Its own subdirectory: the map audit writes to the same variable, and the run clears only what it owns.
 const evidence = path.join(
-	process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-work"),
+	process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-work"),
 	"scenarios",
 );
 

@@ -173,15 +173,18 @@ function fakeLocalTabs() {
 	const tab = new FakeHostSidecar("/local", "agent");
 	const owned = new Map<string, { tabId: string; winId: number }>();
 	const closed: string[] = [];
+	/** Session files a window tab here runs a turn in. */
+	const running = new Set<string>();
 	/** Views of a window's tab a device may get, by session file, and who asked. */
 	const views = new Map<string, FakeHostSidecar>();
 	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
 	const localTabs: HostServicesDeps["localTabs"] = {
 		sessionOwner: path => owned.get(path) ?? null,
 		sessionOwnerIsLive: path => owned.has(path) && tab.processAlive,
-		sessionRunning: () => false,
+		sessionRunning: path => running.has(path),
 		commandForSession: (_path, command) => tab.rpcClient.command(command),
 		closeSessionTab: async path => {
+			if (running.has(path)) return false;
 			const owner = owned.get(path);
 			if (owner) closed.push(owner.tabId);
 			owned.delete(path);
@@ -195,7 +198,7 @@ function fakeLocalTabs() {
 			return view as unknown as HostedTabView;
 		},
 	};
-	return { tab, owned, closed, views, viewed, localTabs };
+	return { tab, owned, closed, running, views, viewed, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -882,22 +885,31 @@ describe("LocalHostServices", () => {
 		expect(local.tab.accountRotationSyncs).toBe(0);
 	});
 
-	it("renames a session through this machine's own live tab, and refuses a delete while that tab runs it", async () => {
+	it("renames a session through this machine's own live tab; a delete closes that tab when idle and refuses only while it runs a turn", async () => {
+		// 21 Oct 2026: a device's delete of a session a host window had open, idle, was refused for good ("Session is
+		// open on the host"), while this computer's own delete closes another window's idle tab, and a device's idle one.
 		const { services, local, deleteSession, renameStoredSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
-		local.owned.set("/s/local.jsonl", { tabId: "local-1", winId: 1 });
+		const window = "/s/window.jsonl";
+		local.owned.set(window, { tabId: "local-1", winId: 1 });
 		local.tab.setStatus("ready");
 
-		await services.call(x.peer, "sessions.rename", { sessionPath: "/s/local.jsonl", name: " New " }, x);
-		const refused = await services
-			.call(x.peer, "sessions.delete", { sessionPath: "/s/local.jsonl" }, x)
-			.catch((error: unknown) => error);
-		// The person at this computer works in it: the device cannot take it away.
-		expect(ipcErrorCode(refused)).toBe("session_running");
-		expect(local.tab.commands).toEqual([{ type: "set_session_name", name: "New", sessionPath: "/s/local.jsonl" }]);
+		await services.call(x.peer, "sessions.rename", { sessionPath: window, name: " New " }, x);
+		expect(local.tab.commands).toEqual([{ type: "set_session_name", name: "New", sessionPath: window }]);
 		expect(renameStoredSession).not.toHaveBeenCalled();
+
+		local.running.add(window);
+		const refused = await services
+			.call(x.peer, "sessions.delete", { sessionPath: window }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_running");
 		expect(local.closed).toEqual([]);
 		expect(deleteSession).not.toHaveBeenCalled();
+
+		local.running.delete(window);
+		await services.call(x.peer, "sessions.delete", { sessionPath: window }, x);
+		expect(local.closed).toEqual(["local-1"]);
+		expect(deleteSession).toHaveBeenCalledWith(window);
 	});
 
 	it("falls back to the stored file when no live tab holds the session, closing a sleeping tab", async () => {
@@ -1000,19 +1012,32 @@ describe("LocalHostServices", () => {
 		expect(deleteSession).toHaveBeenCalledWith("/s/d.jsonl");
 	});
 
-	it("refuses to delete a session another device's live host tab holds", async () => {
+	it("a device's delete closes another device's idle host tab on the session and tells it, and refuses while that tab runs a turn", async () => {
 		const { services, sidecars, deleteSession } = setup();
 		const x = new FakeConnection(peer("device-x"));
 		const y = new FakeConnection(peer("device-y"));
 		await services.call(y.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, y);
+		await services.call(y.peer, "tab.start", { rtab: "t" }, y);
 		sidecars[0]?.setStatus("ready");
 		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/y.jsonl" });
 
+		sidecars[0]?.emit("events", [{ type: "agent_start" }]);
 		const refused = await services
 			.call(x.peer, "sessions.delete", { sessionPath: "/s/y.jsonl" }, x)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("session_running");
+		expect(sidecars[0]?.disposed).toBe(false);
 		expect(deleteSession).not.toHaveBeenCalled();
+
+		sidecars[0]?.emit("events", [{ type: "agent_end" }]);
+		const deleting = services.call(x.peer, "sessions.delete", { sessionPath: "/s/y.jsonl" }, x);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecars[0]?.disposed).toBe(true);
+		sidecars[0]?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/y.jsonl");
+		// The other device drops its tab and saved layout entry once the file is gone.
+		expect(y.tabEvents()).toContainEqual({ rtab: "t", name: "sessionDeleted", arg: "/s/y.jsonl" });
 	});
 
 	it("this computer's own delete closes an idle device tab on the session, tells the device, and waits for its omp", async () => {

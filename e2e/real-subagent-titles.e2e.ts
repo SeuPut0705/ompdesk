@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
+import { baseTemp } from "./run-temp";
 
 // Explicit opt-in audit on the user's small model (OMP_GUI_REAL_WORK=1): with the reply language Korean, the
 // texts a person reads in the main agent's tool calls follow it. Stock's task tool has no `description` field, so
@@ -51,7 +51,7 @@ for (const [run, language, script] of [
 	test(`real omp: subagent titles and todo items follow the ${language} reply language (run ${run})`, async () => {
 		test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 		test.setTimeout(420_000);
-		const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-titles");
+		const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-titles");
 		await fs.mkdir(evidenceDir, { recursive: true });
 		const { profile, project, desktop, env } = await realOmpProfile({ replyLanguage: language, autoTitle: false });
 		await fs.writeFile(path.join(project, "alpha.txt"), "alpha\nbeta\ngamma\n");
