@@ -74,6 +74,7 @@ import {
 	dueForRelease,
 	type EndReport,
 	finalizeCycle,
+	followupDismissals,
 	inFlightAfter,
 	initialStateEntry,
 	isDuplicateTitle,
@@ -490,6 +491,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					settings: current.settings,
 					records,
 					backlog: backlogItems(entries()),
+					dismissed: followupDismissals(entries()),
 					notes: pendingNotes(entries(), records, cur.beganAt),
 					stopping: current.state === "stopping",
 					branch: current.branch,
@@ -1017,7 +1019,10 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			} else if (p.op === "remove") {
 				if (typeof p.id !== "string" || !p.id) throw new Error("backlog remove needs id");
 				event = { op: "remove", id: p.id, at: now() };
-			} else throw new Error("backlog op must be add or remove");
+			} else if (p.op === "dismiss") {
+				if (typeof p.text !== "string" || !p.text.trim()) throw new Error("backlog dismiss needs text");
+				event = { op: "dismiss", id: newId("d"), text: p.text.trim(), at: now() };
+			} else throw new Error("backlog op must be add, remove or dismiss");
 			host.appendCustom(AUTOPILOT_BACKLOG_ENTRY, event);
 			return publish();
 		},

@@ -476,6 +476,13 @@ export function cycleRecords(entries: readonly JournalEntry[]): AutopilotCycleRe
 	return [...byNumber.values()].sort((a, b) => a.n - b.n);
 }
 
+/** The follow-ups the person dismissed, in order (the backlog's `dismiss` events). */
+export function followupDismissals(entries: readonly JournalEntry[]): { text: string; at: number }[] {
+	return customEntries<AutopilotBacklogEvent>(entries, AUTOPILOT_BACKLOG_ENTRY).flatMap(event =>
+		event.op === "dismiss" && event.text ? [{ text: event.text, at: event.at }] : [],
+	);
+}
+
 /** The pinned backlog: add/remove/done events replayed; removed items are gone, done ones stay marked. */
 export function backlogItems(entries: readonly JournalEntry[]): AutopilotBacklogItem[] {
 	const items = new Map<string, AutopilotBacklogItem>();
@@ -504,9 +511,13 @@ export function pendingNotes(
  * Follow-ups of the recent cycles that no later cycle did, newest first, without repeats. A later cycle did one when
  * its title is the follow-up's text or its report lists it under `resolved` (a title is a short name for the work and
  * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
- * window and `begin` kept pointing the agent back at it).
+ * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it closes
+ * it too (`dismissed`, the backlog's `dismiss` events); a later cycle that lists it again reopens it.
  */
-export function openFollowups(records: readonly AutopilotCycleRecord[]): string[] {
+export function openFollowups(
+	records: readonly AutopilotCycleRecord[],
+	dismissed: readonly { text: string; at: number }[] = [],
+): string[] {
 	const window = records.slice(-DUPLICATE_WINDOW);
 	const open: string[] = [];
 	const seen = new Set<string>();
@@ -518,6 +529,8 @@ export function openFollowups(records: readonly AutopilotCycleRecord[]): string[
 			const done = (later: AutopilotCycleRecord) =>
 				normalizeTitle(later.title) === key || (later.resolved ?? []).some(text => normalizeTitle(text) === key);
 			if (window.slice(i + 1).some(done)) continue;
+			const since = window[i].startedAt;
+			if (dismissed.some(event => event.at >= since && normalizeTitle(event.text) === key)) continue;
 			open.push(followup);
 		}
 	}
@@ -685,6 +698,8 @@ export interface BeginFacts {
 	settings: AutopilotSettings;
 	records: readonly AutopilotCycleRecord[];
 	backlog: readonly AutopilotBacklogItem[];
+	/** Follow-ups the person dismissed ({@link followupDismissals}). */
+	dismissed?: readonly { text: string; at: number }[];
 	notes: readonly AutopilotNote[];
 	stopping: boolean;
 	branch: string;
@@ -791,7 +806,7 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 		...(record.reverted ? { reverted: true } : {}),
 	}));
 	const left = budgetLeft(settings.limits, facts.used, facts.activeMs, records.length);
-	const open = openFollowups(records);
+	const open = openFollowups(records, facts.dismissed);
 	const backlog = facts.backlog.filter(item => !item.done);
 	const hints = beginHints(records, { open, backlog: backlog.length, maxParallel: settings.maxParallel });
 	return {
@@ -857,7 +872,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 	const running = state.state === "running" || state.state === "stopping";
 	const activeMs = state.activeMs + (running ? Math.max(0, now - state.at) : 0);
 	const cycle = Math.max(records.at(-1)?.n ?? 0, live?.n ?? 0);
-	const followups = openFollowups(records);
+	const followups = openFollowups(records, followupDismissals(entries));
 	return {
 		active: true,
 		role: state.role ?? "parent",

@@ -563,6 +563,7 @@ export const en: Record<string, string> = {
 	"autopilot.backlog": "Backlog",
 	"autopilot.followups": "Left for later",
 	"autopilot.followupPin": "Pin to the backlog: the next cycle takes it first",
+	"autopilot.followupDismiss": "Not needed: take it off the agent's list",
 	"autopilot.backlogRemove": "Remove item",
 	"autopilot.backlogAdd": "Add",
 	"autopilot.backlogPlaceholder": "Pin an item…",

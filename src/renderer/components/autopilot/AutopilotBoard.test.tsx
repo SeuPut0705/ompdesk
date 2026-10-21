@@ -310,7 +310,7 @@ describe("an Autopilot run on the work board", () => {
 		expect($('[data-board-section="followups"] .omp-work-board-count')?.textContent).toBe("4");
 	});
 
-	it("pins a follow-up to the backlog, and offers no pin for one already there or on an ended run", async () => {
+	it("pins or dismisses a follow-up, offers no pin for one already on the backlog, and nothing on an ended run", async () => {
 		installMockOmp();
 		const followups = ["Fix the flaky resize test", "Trim the log"];
 		useAutopilotStore.getState().apply({
@@ -327,12 +327,16 @@ describe("an Autopilot run on the work board", () => {
 		);
 		await act(async () => pins[0]?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "backlog_add", text: "Fix the flaky resize test" });
+		expect(all("[data-autopilot-followup-dismiss]")).toHaveLength(2);
+		await act(async () => $("[data-autopilot-followup-dismiss]")?.click());
+		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "followup_dismiss", text: "Fix the flaky resize test" });
 
 		await act(async () =>
 			useAutopilotStore.getState().apply({ ...status, followups, state: "ended", now: undefined }),
 		);
 		expect(all("[data-autopilot-followup]")).toHaveLength(2);
 		expect(all("[data-autopilot-followup-pin]")).toHaveLength(0);
+		expect(all("[data-autopilot-followup-dismiss]")).toHaveLength(0);
 	});
 
 	it("disables Create PR with the reason when the push target is the base branch, and keeps it for a feature target", async () => {

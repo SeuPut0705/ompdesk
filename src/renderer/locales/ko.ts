@@ -555,6 +555,7 @@ export const ko: Record<string, string> = {
 	"autopilot.backlog": "백로그",
 	"autopilot.followups": "남은 후속 작업",
 	"autopilot.followupPin": "백로그에 고정: 다음 사이클이 먼저 집어요",
+	"autopilot.followupDismiss": "필요 없음: 에이전트 목록에서 빼기",
 	"autopilot.backlogRemove": "항목 삭제",
 	"autopilot.backlogAdd": "추가",
 	"autopilot.backlogPlaceholder": "항목 고정…",

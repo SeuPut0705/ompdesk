@@ -27,6 +27,7 @@ import {
 	decideAfterCycle,
 	dueForRelease,
 	finalizeCycle,
+	followupDismissals,
 	greenCyclesSinceRelease,
 	hourlyRates,
 	inFlightAfter,
@@ -568,6 +569,22 @@ describe("journal replay", () => {
 		expect(openFollowups(records)).toEqual(["Docs for X"]);
 		const reopened = seq({ followups: ["Docs for X"] }, { resolved: ["Docs for X"] }, { followups: ["Docs for X"] });
 		expect(openFollowups(reopened)).toEqual(["Docs for X"]);
+	});
+	it("openFollowups: one the person dismissed after the cycle that left it closes, until a later cycle lists it again", () => {
+		const records = seq(
+			{ followups: ["Trim the log", "Docs for X"], startedAt: 1_000 },
+			{ followups: [], startedAt: 2_000 },
+		);
+		const entries = [
+			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "b1", text: "Keyboard access", at: 1_500 }),
+			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "dismiss", id: "d1", text: "trim  the LOG", at: 2_500 }),
+		];
+		const dismissed = followupDismissals(entries);
+		expect(dismissed).toEqual([{ text: "trim  the LOG", at: 2_500 }]);
+		expect(backlogItems(entries).map(item => item.text)).toEqual(["Keyboard access"]);
+		expect(openFollowups(records, dismissed)).toEqual(["Docs for X"]);
+		const listedAgain = [...records, ...seq({ n: 3, followups: ["Trim the log"], startedAt: 3_000 })];
+		expect(openFollowups(listedAgain, dismissed)).toEqual(["Trim the log", "Docs for X"]);
 	});
 	it("parseEndReport keeps the resolved follow-ups, and finalizeCycle records them", () => {
 		const report = parseEndReport({

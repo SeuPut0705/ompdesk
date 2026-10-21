@@ -303,7 +303,8 @@ function AutopilotRunSection() {
 /**
  * What the recent cycles left for later and no later cycle did: what the agent is likely to take next, before the
  * rotation's pick. One line each, the whole sentence in the tooltip; nothing while there is none. A pin puts one on
- * the backlog, which the next cycle takes before anything else.
+ * the backlog, which the next cycle takes before anything else; ✕ takes it off the agent's list (a later cycle that
+ * leaves it again brings it back).
  */
 function AutopilotFollowupsSection() {
 	const t = useT();
@@ -319,16 +320,28 @@ function AutopilotFollowupsSection() {
 				{text => (
 					<BoardRow
 						action={
-							!ended && !pinned.has(sameItem(text)) ? (
-								<IconButton
-									data-autopilot-followup-pin=""
-									disabled={pending === "backlog_add"}
-									icon={<Pin />}
-									label={t("autopilot.followupPin")}
-									onClick={() => void run({ action: "backlog_add", text })}
-									size="sm"
-								/>
-							) : undefined
+							ended ? undefined : (
+								<span className="flex gap-3" data-board-row-actions>
+									{!pinned.has(sameItem(text)) && (
+										<IconButton
+											data-autopilot-followup-pin=""
+											disabled={pending === "backlog_add"}
+											icon={<Pin />}
+											label={t("autopilot.followupPin")}
+											onClick={() => void run({ action: "backlog_add", text })}
+											size="sm"
+										/>
+									)}
+									<IconButton
+										data-autopilot-followup-dismiss=""
+										disabled={pending === "followup_dismiss"}
+										icon={<X />}
+										label={t("autopilot.followupDismiss")}
+										onClick={() => void run({ action: "followup_dismiss", text })}
+										size="sm"
+									/>
+								</span>
+							)
 						}
 						data={{ "data-autopilot-followup": "" }}
 						key={text}

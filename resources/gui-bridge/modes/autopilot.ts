@@ -70,6 +70,7 @@ import {
 	dueForRelease,
 	type EndReport,
 	finalizeCycle,
+	followupDismissals,
 	inFlightAfter,
 	initialStateEntry,
 	isDuplicateTitle,
@@ -703,6 +704,7 @@ async function runTool(
 				settings: state.settings,
 				records,
 				backlog: backlogItems(entries),
+				dismissed: followupDismissals(entries),
 				notes: pendingNotes(entries, records, current.beganAt),
 				stopping: state.state === "stopping",
 				branch: state.branch,
@@ -1129,7 +1131,10 @@ function backlog(session: Session, params: AutopilotBacklogParams): AutopilotSta
 	} else if (params.op === "remove") {
 		if (typeof params.id !== "string" || !params.id) throw new Error("backlog remove needs id");
 		event = { op: "remove", id: params.id, at: now() };
-	} else throw new Error("backlog op must be add or remove");
+	} else if (params.op === "dismiss") {
+		if (typeof params.text !== "string" || !params.text.trim()) throw new Error("backlog dismiss needs text");
+		event = { op: "dismiss", id: newId("d"), text: params.text.trim(), at: now() };
+	} else throw new Error("backlog op must be add, remove or dismiss");
 	append(session, AUTOPILOT_BACKLOG_ENTRY, event);
 	return publish(session);
 }

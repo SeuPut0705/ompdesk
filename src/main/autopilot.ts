@@ -593,6 +593,9 @@ export class Autopilot {
 			case "backlog_remove":
 				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.backlog, { op: "remove", id: action.id });
 				break;
+			case "followup_dismiss":
+				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.backlog, { op: "dismiss", text: action.text });
+				break;
 			case "ship":
 				await this.#shipAction(run, action);
 				break;

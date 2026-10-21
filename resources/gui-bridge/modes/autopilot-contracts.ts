@@ -251,8 +251,9 @@ export interface AutopilotNote {
 	at: number;
 }
 
+/** `dismiss`: the person took a follow-up off the agent's list ("Left for later"); `text` names it. */
 export interface AutopilotBacklogEvent {
-	op: "add" | "remove" | "done";
+	op: "add" | "remove" | "done" | "dismiss";
 	id: string;
 	text?: string;
 	/** `done`: the cycle that did it. */
@@ -539,6 +540,7 @@ export type AutopilotAction =
 	| { action: "note"; text: string }
 	| { action: "backlog_add"; text: string }
 	| { action: "backlog_remove"; id: string }
+	| { action: "followup_dismiss"; text: string }
 	| {
 			action: "ship";
 			kind: ShipKind | "auto_release";
@@ -686,7 +688,10 @@ export interface AutopilotConfigureParams {
 	release?: AutopilotReleaseStatus | null;
 }
 
-export type AutopilotBacklogParams = { op: "add"; text: string } | { op: "remove"; id: string };
+export type AutopilotBacklogParams =
+	| { op: "add"; text: string }
+	| { op: "remove"; id: string }
+	| { op: "dismiss"; text: string };
 
 export interface AutopilotSetStateParams {
 	state: AutopilotState;

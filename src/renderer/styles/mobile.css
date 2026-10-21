@@ -555,10 +555,10 @@ html[data-input="touch"] .omp-work-board-list {
 	--hit-gap-y: 1px;
 }
 
-/* A row's own trailing icon button (a backlog item's ✕, a follow-up's pin) reaches the row's full touch height: 10 px
+/* A row's own trailing icon button (a backlog item's ✕, a follow-up's pin and ✕, 12 px apart) reaches the row's full touch height: 10 px
    of bound around its 26 px box, where the list's 1 px bound left it a 26 px target. Sideways it reaches 6 px, the
    board's own padding, so its hit area never makes a docked board scroll sideways. */
-html[data-input="touch"] .omp-work-board-row > button {
+html[data-input="touch"] :is(.omp-work-board-row, [data-board-row-actions]) > button {
 	--hit-gap-x: 12px;
 	--hit-gap-y: 10px;
 }
