@@ -61,5 +61,5 @@ Releases: yes
 - A failed release run is reported in the cycle and fixed in the next one; never forced.
 
 ### Cadence
-- 8 releases in the last 90 days, about every 1 day; the latest is v0.49.0 on 2026-10-21.
+- 8 releases in the last 90 days, about every 1 day; when this guide was written the latest was v0.49.0 on 2026-10-21.
 - Release when user-visible fixes or features have gathered, at about that rhythm; a defect that breaks the released product ships at once, on its own. Docs-only or internal changes wait for the next release.

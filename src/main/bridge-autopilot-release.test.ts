@@ -144,7 +144,7 @@ describe("release facts of real repositories", () => {
 			"`.github/workflows/publish.yml` publishes (npm). It reads the repository secrets NPM_TOKEN.",
 		);
 		expect(section).toContain(
-			"3 releases in the last 90 days, about every 20 days; the latest is v1.4.0 on 2026-10-11.",
+			"3 releases in the last 90 days, about every 20 days; when this guide was written the latest was v1.4.0 on 2026-10-11.",
 		);
 		expect(section).not.toMatch(/npm publish|changeset publish`? *\n/);
 	});
@@ -320,7 +320,7 @@ describe("workflow triggers", () => {
 		expect(section).toContain("add `## X.Y.Z` on top of `CHANGELOG.md`");
 		// GitHub's releases are newer than the local tags: the cadence names the newest.
 		expect(section).toContain(
-			"29 releases in the last 90 days, about every 1 day; the latest is v0.24.3 on 2026-10-20.",
+			"29 releases in the last 90 days, about every 1 day; when this guide was written the latest was v0.24.3 on 2026-10-20.",
 		);
 	});
 });

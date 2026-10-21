@@ -175,7 +175,7 @@ function tagName(facts: ReleaseFacts): string {
 	return latest.replace(versionOf(latest), "X.Y.Z");
 }
 
-/** The history line of the cadence: how often the project has released (local tags can lag GitHub's releases). */
+/** The history line of the cadence: how often the project has released (local tags can lag GitHub's releases). The guide is committed and never rewritten, so the latest release is named as of its writing. */
 export function cadenceLine(facts: ReleaseFacts): string {
 	const { tags, githubReleases } = facts;
 	const count = Math.max(tags.last90, githubReleases?.last90 ?? 0);
@@ -188,7 +188,7 @@ export function cadenceLine(facts: ReleaseFacts): string {
 		tags.medianGapDays !== undefined
 			? `, about every ${tags.medianGapDays} day${tags.medianGapDays === 1 ? "" : "s"}`
 			: "";
-	return `${count} release${count === 1 ? "" : "s"} in the last 90 days${gap}; the latest is ${latest.name} on ${latest.date}.`;
+	return `${count} release${count === 1 ? "" : "s"} in the last 90 days${gap}; when this guide was written the latest was ${latest.name} on ${latest.date}.`;
 }
 
 /** Where the version is bumped: the manifests that carry one, and the files a publishing workflow's push must change. */
