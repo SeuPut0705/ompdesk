@@ -5820,6 +5820,8 @@ export const en: Record<string, string> = {
 	"remote.host.lastSeen": "Last seen {time}",
 	"remote.host.neverSeen": "Not connected yet",
 	"remote.version": "OMPdesk {version}",
+	"remote.versionOlder": "OMPdesk {version}, older than this computer's",
+	"remote.versionNewer": "OMPdesk {version}, newer than this computer's",
 	"remote.host.keepAwake": "Keep this computer awake while a device is using it",
 	"remote.host.keepAwakeDesc": "Only while a device is connected or its session runs.",
 	"remote.host.keepingAwake": "Keeping awake now",

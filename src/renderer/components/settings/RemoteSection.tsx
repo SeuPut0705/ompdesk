@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { RemoteHostState, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
+import { compareVersions } from "../../../shared/version";
 import { useHostAppearanceStore } from "../../hooks/use-host-appearance";
 import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -328,6 +329,14 @@ function HostAppearanceRow() {
 	);
 }
 
+/** A connected computer's version, and whether it is older or newer than this computer's (the one to update). */
+function versionLabel(theirs: string, ours: string | undefined, t: ReturnType<typeof useT>): string {
+	const order = ours ? compareVersions(theirs, ours) : null;
+	if (order !== null && order < 0) return t("remote.versionOlder", { version: theirs });
+	if (order !== null && order > 0) return t("remote.versionNewer", { version: theirs });
+	return t("remote.version", { version: theirs });
+}
+
 export function RemoteSection() {
 	const t = useT();
 	const state = useRemoteStore(store => store.state);
@@ -449,7 +458,7 @@ export function RemoteSection() {
 										const usage = peerUsageLine(peer, t);
 										// The version a connected device runs: an older one is the one to update.
 										const version = peer.appVersion
-											? t("remote.version", { version: peer.appVersion })
+											? versionLabel(peer.appVersion, state.appVersion, t)
 											: null;
 										const line = [seen, usage, version].filter(Boolean).join(" · ");
 										return (
@@ -565,13 +574,13 @@ export function RemoteSection() {
 											<span
 												data-remote-host-detail
 												title={[
-													entry.appVersion && t("remote.version", { version: entry.appVersion }),
+													entry.appVersion && versionLabel(entry.appVersion, state.appVersion, t),
 													entry.home,
 												]
 													.filter(Boolean)
 													.join(" · ")}
 											>
-												{entry.appVersion ? t("remote.version", { version: entry.appVersion }) : null}
+												{entry.appVersion ? versionLabel(entry.appVersion, state.appVersion, t) : null}
 												{entry.appVersion && entry.home ? " · " : null}
 												{entry.home ? <span className="font-mono">{entry.home}</span> : null}
 											</span>

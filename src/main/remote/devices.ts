@@ -268,6 +268,7 @@ export class RemoteDevices {
 				.list()
 				.map(paired => this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name)),
 			forgotten: Array.isArray(forgotten) ? forgotten.filter(name => typeof name === "string") : [],
+			appVersion: this.#deps.appVersion,
 		};
 	}
 

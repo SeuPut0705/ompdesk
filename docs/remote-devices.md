@@ -22,7 +22,7 @@ The computer that shares itself listens on its Tailscale addresses only, never o
 - **Allowed Tailscale accounts**: by default only this computer's own account. Add others under the sharing switch; the list is the same one Mobile web uses.
 - **Approve new devices on this computer**: off by default. On, a computer connecting for the first time waits until you approve it.
 - **Remove** forgets a computer; it can connect again while its account is allowed. **Block** keeps its Tailscale device out (of Mobile web too) until you unblock it.
-- Each connected computer's row names the OMPdesk version it runs, so a computer left on an older version is easy to spot. Two versions keep working together while their connection protocol is the same; when it is not, connecting says the version is incompatible, and updating both fixes it.
+- Each connected computer's row names the OMPdesk version it runs and whether it is older or newer than this computer's, so the one to update is easy to spot. Two versions keep working together while their connection protocol is the same; when it is not, connecting says the version is incompatible, and updating both fixes it.
 - If another program holds OMPdesk's port, sharing takes the next one (up to four more). When all are taken, Settings says which ports and sharing waits until one is free.
 
 ## Good to know

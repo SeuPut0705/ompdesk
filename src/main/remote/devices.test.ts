@@ -65,6 +65,7 @@ describe("computers of the tailnet", () => {
 		// Each side names the OMPdesk version the other runs, from its hello.
 		expect(peers).toMatchObject([{ name: "Laptop", login: LOGIN, appVersion: "1.0.0" }]);
 		expect(a.devices.state().hosts[0]?.appVersion).toBe("1.0.0");
+		expect(a.devices.state().appVersion).toBe("1.0.0");
 		expect(view.name).toBe("Studio");
 		expect(a.tailnet.pushed).toMatchObject([{ nodeId: "nSTUDIO", connected: true }]);
 

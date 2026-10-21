@@ -401,6 +401,7 @@ describe("RemoteSection", () => {
 		}));
 		await mount();
 
+		// Without this computer's version to compare against, the version stands alone.
 		const host = document.querySelector('[data-remote-host="host-b"] [data-remote-host-detail]');
 		expect(host?.textContent).toBe(`${translate("remote.version", { version: "0.50.0" })} · /Users/b`);
 		expect(host?.getAttribute("title")).toBe(host?.textContent);
@@ -408,6 +409,20 @@ describe("RemoteSection", () => {
 		expect(online?.textContent).toContain(translate("remote.version", { version: "0.52.7" }));
 		const offline = document.querySelector('[data-remote-peer="peer-old"] [data-peer-usage]');
 		expect(offline?.textContent).not.toContain("OMPdesk");
+	});
+
+	it("says whether a connected computer runs an older or a newer OMPdesk than this one", async () => {
+		remote.getState.mockImplementation(async () => ({
+			...hostOn({ peers: [{ ...LAPTOP, appVersion: "0.53.0" }] }),
+			hosts: [{ deviceId: "host-b", name: "Host B", state: "online", appVersion: "0.50.0" }],
+			appVersion: "0.52.7",
+		}));
+		await mount();
+
+		const host = document.querySelector('[data-remote-host="host-b"] [data-remote-host-detail]');
+		expect(host?.textContent).toBe(translate("remote.versionOlder", { version: "0.50.0" }));
+		const peer = document.querySelector('[data-remote-peer="peer-laptop"] [data-peer-usage]');
+		expect(peer?.textContent).toContain(translate("remote.versionNewer", { version: "0.53.0" }));
 	});
 
 	it("shows a device's use today against its limits and saves new limits through setPeerLimits", async () => {

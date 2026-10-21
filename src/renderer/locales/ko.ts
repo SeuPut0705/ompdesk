@@ -5809,6 +5809,8 @@ export const ko: Record<string, string> = {
 	"remote.host.lastSeen": "마지막 연결 {time}",
 	"remote.host.neverSeen": "아직 연결된 적이 없어요",
 	"remote.version": "OMPdesk {version}",
+	"remote.versionOlder": "OMPdesk {version}, 이 컴퓨터보다 이전 버전",
+	"remote.versionNewer": "OMPdesk {version}, 이 컴퓨터보다 최신 버전",
 	"remote.host.keepAwake": "다른 기기가 사용하는 동안 잠자기 방지",
 	"remote.host.keepAwakeDesc": "연결된 기기가 있거나 그 세션이 실행 중일 때만이에요.",
 	"remote.host.keepingAwake": "지금 잠자기를 막고 있어요",

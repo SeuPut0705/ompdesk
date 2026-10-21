@@ -1724,6 +1724,8 @@ export interface RemoteState {
 	hosts: HostView[];
 	/** Computers paired by code with an older release that could not be found on the tailnet and were forgotten. */
 	forgotten: string[];
+	/** This computer's OMPdesk version, beside which each connected computer's reads as older or newer. */
+	appVersion?: string;
 }
 
 /** A computer of the tailnet, as this device sees it (Settings › Devices & connections). */
