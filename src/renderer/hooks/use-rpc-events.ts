@@ -14,7 +14,6 @@ import {
 	syncAutopilot,
 	syncCheckoutPeers,
 	syncGoal,
-	syncPendingMail,
 } from "./session-hydration";
 
 export * from "./session-hydration";
@@ -102,8 +101,6 @@ const SNAPSHOT_NEUTRAL_EVENTS: Partial<Record<AgentSessionEvent["type"], true>> 
 	autopilot_update: true,
 	// The desktop slot is app-wide state main owns, not something a get_state snapshot reports.
 	desktop_slot_update: true,
-	// Held reports are the bridge's own feed (get_pending_mail), not something a get_state snapshot reports.
-	mail_pending: true,
 	// The checkout's peers are the bridge's own feed (get_checkout_peers), not something a get_state snapshot reports.
 	checkout_peers: true,
 };
@@ -630,10 +627,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							useDesktopSlotStore.getState().apply(event.state);
 							break;
 						}
-						case "mail_pending": {
-							useSessionStore.setState({ pendingMail: event.items });
-							break;
-						}
 						case "checkout_peers": {
 							useSessionStore.setState({ checkoutPeers: event.peers });
 							break;
@@ -821,7 +814,6 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 								await Promise.allSettled([
 									syncGoal("", activeTabCommand, isCurrent),
 									syncAutopilot("", activeTabCommand, isCurrent),
-									syncPendingMail("", activeTabCommand, isCurrent),
 									syncCheckoutPeers("", activeTabCommand, isCurrent),
 									useQueueStore.getState().refresh(),
 									useSettingsStore.getState().syncDisplaySettings(),

@@ -30,7 +30,20 @@ export const HOLD = "HOLD-MARK run";
 /** A prompt whose turn calls the shell tool and then sits in it (`sleep`). */
 export const TOOL = "TOOL-MARK run";
 
-export type Frame = { type: string; message?: { role?: string; customType?: string; details?: { id?: string } } };
+/** A prompt whose turn runs two shell calls in one batch (`sleep 3` each), then replies. */
+export const PARALLEL = "PARALLEL-MARK run";
+
+/** A prompt whose turn starts a background shell job (`sleep 300`, `async: true`) and then `wait`s on it. */
+export const WAIT = "WAIT-MARK run";
+
+export type Frame = {
+	type: string;
+	toolCallId?: string;
+	toolName?: string;
+	isError?: boolean;
+	result?: unknown;
+	message?: { role?: string; customType?: string; details?: { id?: string } };
+};
 
 function sse(text: string): string {
 	const base = { id: "c1", object: "chat.completion.chunk", created: 1, model: "m1" };
@@ -45,17 +58,17 @@ function sse(text: string): string {
 	return `${chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`;
 }
 
-/** A reply that calls the shell tool: the receiver is inside a long tool call, as a parent in `wait` is. */
-function toolSse(name: string): string {
+/** A reply that calls tools, all in one batch. */
+function toolSse(calls: Array<{ id: string; name: string; args: Record<string, unknown> }>): string {
 	const base = { id: "c2", object: "chat.completion.chunk", created: 1, model: "m1" };
-	const call = {
-		index: 0,
-		id: "call_1",
+	const toolCalls = calls.map((call, index) => ({
+		index,
+		id: call.id,
 		type: "function",
-		function: { name, arguments: JSON.stringify({ command: "sleep 300" }) },
-	};
+		function: { name: call.name, arguments: JSON.stringify(call.args) },
+	}));
 	const chunks = [
-		{ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [call] }, finish_reason: null }] },
+		{ ...base, choices: [{ index: 0, delta: { role: "assistant", tool_calls: toolCalls }, finish_reason: null }] },
 		{
 			...base,
 			choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
@@ -69,6 +82,8 @@ export interface Provider {
 	url: string;
 	/** Main-agent requests seen (side requests such as a title offer no bash tool and are not counted). */
 	turns: number;
+	/** The body of every main-agent request, in order. */
+	bodies: string[];
 	/** Resolves once a request of the held prompt arrived; `release` answers it. */
 	held: Promise<void>;
 	release(): void;
@@ -81,6 +96,7 @@ export async function startProvider(): Promise<Provider> {
 	const provider: Provider = {
 		url: "",
 		turns: 0,
+		bodies: [],
 		held: arrived.promise,
 		release: () => released.resolve(),
 		close: async () => undefined,
@@ -96,12 +112,37 @@ export async function startProvider(): Promise<Provider> {
 				return;
 			}
 			const parsed = JSON.parse(body) as { tools?: Array<{ function?: { name?: string } }> };
-			const shell = (parsed.tools ?? []).find(tool => tool.function?.name?.endsWith("bash"))?.function?.name;
+			const toolNamed = (end: string) =>
+				(parsed.tools ?? []).find(tool => tool.function?.name?.endsWith(end))?.function?.name;
+			const shell = toolNamed("bash");
 			const main = shell !== undefined;
-			if (main) provider.turns++;
-			if (shell && body.includes(TOOL) && !body.includes('"role":"tool"')) {
+			if (main) {
+				provider.turns++;
+				provider.bodies.push(body);
+			}
+			const results = body.split('"role":"tool"').length - 1;
+			const reply = (calls: Array<{ id: string; name: string; args: Record<string, unknown> }>) => {
 				res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-				res.end(toolSse(shell));
+				res.end(toolSse(calls));
+			};
+			if (shell && body.includes(TOOL) && results === 0) {
+				reply([{ id: "call_1", name: shell, args: { command: "sleep 300" } }]);
+				return;
+			}
+			if (shell && body.includes(PARALLEL) && results === 0) {
+				reply([
+					{ id: "call_a", name: shell, args: { command: "sleep 3" } },
+					{ id: "call_b", name: shell, args: { command: "sleep 3" } },
+				]);
+				return;
+			}
+			const wait = toolNamed("wait");
+			if (shell && wait && body.includes(WAIT) && results < 2) {
+				reply(
+					results === 0
+						? [{ id: "call_job", name: shell, args: { command: "sleep 300", async: true } }]
+						: [{ id: "call_wait", name: wait, args: {} }],
+				);
 				return;
 			}
 			if (main && body.includes(HOLD)) {

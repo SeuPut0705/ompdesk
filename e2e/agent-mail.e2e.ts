@@ -148,30 +148,30 @@ test("children report, one asks and is answered, and the parent reacts to each w
 	await expect(page.getByText("A finished, old API kept")).toBeVisible();
 });
 
-test("a progress report shows without a prompt: at once to an idle parent, waiting then landing for a busy one", async () => {
+test("a report shows without a prompt: at once to an idle parent, and during the turn of a busy one", async () => {
 	test.setTimeout(120_000);
 	const parent = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
 	const opened = await callAs(parent, "ompdesk_session_open", { message: "Title: part A\nDo A" });
 	const child = /Opened session (\w+)/.exec(opened.text)?.[1] as string;
 	await page.evaluate(id => window.omp.tabs.setActive(id), parent);
-	const landed = page.locator("[data-agent-mail='progress']");
-	const waiting = page.locator("[data-agent-mail-pending='progress']");
+	const progress = page.locator("[data-agent-mail='progress']");
+	const parentStatus = async () =>
+		(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === parent)?.status;
 
 	// Idle parent: the report is in the transcript once main's 2 s progress window closes, with no prompt sent.
 	await callAs(child, "ompdesk_report", { kind: "progress", text: "idle step", dispatch: "d1" });
-	await expect(landed).toHaveCount(1, { timeout: 2_000 + 1_000 });
+	await expect(progress).toHaveCount(1, { timeout: 2_000 + 1_000 });
 
-	// Busy parent: the report waits in view while the turn runs and lands in the transcript once it ends.
+	// Busy parent: progress and done land in the transcript while its turn still runs (stock's aside), not after it.
 	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }), parent);
-	await expect
-		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === parent)?.status)
-		.toBe("running");
+	await expect.poll(parentStatus).toBe("running");
 	await callAs(child, "ompdesk_report", { kind: "progress", text: "busy step", dispatch: "d1" });
-	await expect(waiting).toContainText("shows when this turn ends", { timeout: 2_000 + 1_000 });
-	await expect(landed).toHaveCount(1);
+	await expect(progress).toHaveCount(2, { timeout: 2_000 + 1_000 });
+	await callAs(child, "ompdesk_report", { kind: "done", text: "finished A", dispatch: "d1" });
+	await expect(page.locator("[data-agent-mail='done']")).toHaveCount(1, { timeout: 1_000 });
+	expect(await parentStatus()).toBe("running");
 	await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }), parent);
-	await expect(landed).toHaveCount(2, { timeout: 1_000 });
-	await expect(waiting).toHaveCount(0);
+	await expect.poll(parentStatus).toBe("ready");
 	// Nobody sent the parent a prompt: its only user message is the one that started the turn.
 	const transcript = await page.evaluate(
 		id => window.omp.rpc.commandForTab(id, { type: "get_transcript_page", fromEnd: true, limit: 50 }),

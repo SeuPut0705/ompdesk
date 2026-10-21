@@ -96,8 +96,6 @@ import {
 	type WorktreeRef,
 	type WorktreeRemoval,
 } from "./branches";
-import type { MailDelivery } from "./mail";
-import { MailOutbox, needsOutbox, redeliverMail } from "./mail-outbox";
 import {
 	AgentControl,
 	type AgentControlHost,
@@ -173,8 +171,6 @@ export interface AgentControlHostDeps {
 	text: AgentControlHost["text"];
 	/** How often opened sessions are looked at for closing; 0 turns the timer off (default 10 s). */
 	sweepMs?: number;
-	/** Where accepted `done`/`review` reports wait for their receiver's journal (`mail-outbox.ts`); absent: kept in memory only. */
-	mailOutboxFile?: string | null;
 	/** The sessions sharing a tab's checkout or repository on this computer (src/main/checkout-peers.ts). */
 	checkoutPeers?: (tabId: string) => readonly string[];
 	/** Autopilot's hooks (src/main/autopilot*.ts). */
@@ -249,13 +245,9 @@ export class AgentControlRuntime {
 	readonly #autopilotRuns = new Set<string>();
 	/** Debounce timers of the auto-close passes, per opener tab. */
 	readonly #sweepTimers = new Map<string, NodeJS.Timeout>();
-	/** Accepted `followUp` reports until the receiver's journal holds them (`mail-outbox.ts`). */
-	readonly #outbox: MailOutbox;
-	#redelivering = false;
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
-		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
 		this.control = new AgentControl(this.#host());
 		deps.pool.observeTabs(activity => {
 			const parent = this.#openerOf(activity.tabId);
@@ -291,11 +283,7 @@ export class AgentControlRuntime {
 			}
 		});
 		const every = deps.sweepMs ?? SWEEP_INTERVAL_MS;
-		if (every > 0)
-			setInterval(() => {
-				this.#sweepAll();
-				this.#redeliverMail();
-			}, every).unref();
+		if (every > 0) setInterval(() => this.#sweepAll(), every).unref();
 	}
 
 	/** The tab Autopilot (or anyone) opened this one for, if the control tools opened it. */
@@ -766,22 +754,14 @@ export class AgentControlRuntime {
 			// after a relaunch) the tab now holding the opener's session file.
 			parentOf: tabId => this.#openerOf(tabId),
 			mail: async (tabId, content, details, delivery) => {
-				const answer = await this.#sendMail(tabId, content, details, delivery);
-				const id = details.id;
-				if (typeof id !== "string" || !needsOutbox(delivery) || (answer?.duplicate && answer.journaled)) return;
-				// Stock holds a `followUp` in memory until it starts the turn that answers it, so a quit drops it:
-				// keep it until the receiver's journal holds it, and send it again to whatever omp replaces this one.
-				const info = this.#infoOf(tabId);
-				if (info?.sessionPath)
-					this.#outbox.keep({
-						id,
-						sessionPath: info.sessionPath,
-						...(info.device ? { device: info.device } : {}),
-						content,
-						details,
-						delivery,
-						at: Date.now(),
-					});
+				const response = await this.#hostCommand(tabId, {
+					type: "agent_control_mail",
+					content,
+					details,
+					triggerTurn: delivery.triggerTurn,
+					...(delivery.deliverAs ? { deliverAs: delivery.deliverAs } : {}),
+				});
+				if (!response.success) throw new Error(response.error ?? "The report could not be delivered.");
 			},
 			reviewChanged: parentTabId => this.#pushReview(parentTabId),
 			tabs: callerTabId => {
@@ -1041,43 +1021,6 @@ export class AgentControlRuntime {
 				return title || "this session";
 			},
 		};
-	}
-
-	/** One report to a tab's omp; the bridge's answer (`{duplicate, journaled}` for an id it already holds or queued). */
-	async #sendMail(
-		tabId: string,
-		content: string,
-		details: Record<string, unknown>,
-		delivery: MailDelivery,
-	): Promise<{ duplicate?: boolean; journaled?: boolean } | undefined> {
-		const response = await this.#hostCommand(tabId, {
-			type: "agent_control_mail",
-			content,
-			details,
-			triggerTurn: delivery.triggerTurn,
-			...(delivery.deliverAs ? { deliverAs: delivery.deliverAs } : {}),
-		});
-		if (!response.success) throw new Error(response.error ?? "The report could not be delivered.");
-		return typeof response.data === "object" && response.data !== null
-			? (response.data as { duplicate?: boolean; journaled?: boolean })
-			: undefined;
-	}
-
-	#infoOf(tabId: string): IpcTabInfo | undefined {
-		const win = this.#win(tabId);
-		return win ? this.#deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
-	}
-
-	/** Accepted `followUp` reports whose receiver's journal does not hold them yet, sent again to its live tab. */
-	#redeliverMail(): void {
-		if (this.#redelivering) return;
-		this.#redelivering = true;
-		void redeliverMail(this.#outbox, {
-			tabOf: (sessionPath, device) => this.#deps.pool.sessionOwner(sessionPath, device)?.tabId,
-			send: (tabId, mail) => this.#sendMail(tabId, mail.content, mail.details, mail.delivery),
-		}).finally(() => {
-			this.#redelivering = false;
-		});
 	}
 
 	async #hostCommand(tabId: string, command: RpcCommand): Promise<RpcResponse> {

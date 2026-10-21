@@ -18,7 +18,7 @@ ompdesk_session_open
 
 ## Collect
 
-Children tell you: each one's `done`, `review`, `question` or `blocked` report (`ompdesk_report`) lands in your session as a quiet line and wakes you when you are idle, so end your turn after dispatching instead of polling. To block on them now, one `ompdesk_session_result` with `sessions: [ids]` and `wait: true`; `until: "any"` returns at the first finish. Never poll `ompdesk_sessions` in a loop.
+Children tell you: each report (`ompdesk_report`) lands in your session as a quiet line between your steps while you work, ends a `wait` you are in, and a `done`, `review`, `question` or `blocked` wakes you when you are idle; so end your turn (or wait on your own jobs) after dispatching instead of polling. To block on them now, one `ompdesk_session_result` with `sessions: [ids]` and `wait: true`; `until: "any"` returns at the first finish. Never poll `ompdesk_sessions` in a loop.
 
 - a `question` or `blocked` report: answer with `ompdesk_session_send` (the child waits for it); a choice only the user can make goes to the user. It shows on the user's work board as waiting until you answer.
 

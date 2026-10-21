@@ -14,7 +14,7 @@
  *
  * No omp imports (not even types): the GUI's vitest installs it on a fake `pi`.
  */
-import { hasMailEntry, MAIL_CUSTOM_TYPE, MAIL_PENDING_EVENT, type PendingMail } from "./agent-control-contracts";
+import { hasMailEntry, MAIL_CUSTOM_TYPE } from "./agent-control-contracts";
 import { crossFamily, JUDGE_ROLES, modelFamily } from "./agent-control-judge-core";
 import { completeOnSmol, type ModelLike, type NextPromptSession } from "./modes/next-prompt-engine";
 import { type PromptSectionContext, type PromptSectionHost, registerPromptSection } from "./prompt-sections";
@@ -26,7 +26,6 @@ import { type PromptSectionContext, type PromptSectionHost, registerPromptSectio
 interface ControlSession {
 	/** Stock `AgentSession.isStreaming`: a turn runs (or a prompt is being set up). */
 	isStreaming: boolean;
-	sessionId: string;
 	sessionManager: {
 		getBranch(): { customType?: unknown }[];
 		appendCustomEntry(customType: string, data: unknown): unknown;
@@ -37,7 +36,6 @@ interface ControlEnv {
 	context(): {
 		ui: { confirm(title: string, message: string): Promise<unknown>; notify(message: string, type: "info"): void };
 	};
-	emit(event: { type: string; [key: string]: unknown }): void;
 }
 type BridgeMethods = Record<string, (params: unknown, env: ControlEnv) => Promise<unknown>>;
 
@@ -81,7 +79,7 @@ interface MailMessage {
 
 /** Stock's `pi.sendMessage` (a custom message, journaled and shown per its delivery). */
 interface MailHost {
-	sendMessage(message: MailMessage, options?: { triggerTurn?: boolean; deliverAs?: "followUp" | "aside" }): void;
+	sendMessage(message: MailMessage, options?: { triggerTurn?: boolean; deliverAs?: "aside" }): void;
 }
 
 /** The main session's `pi` (the first install; a subagent's rebinding never replaces it). */
@@ -95,55 +93,17 @@ export function install(pi: PromptSectionHost & Partial<MailHost>): void {
 	);
 }
 
-/** Report ids this process handed to stock or holds (a queued one is journaled only once delivered). */
+/** Report ids this process handed to stock (an aside is journaled only once the receiver's loop takes it). */
 const queuedMail = new Set<string>();
-
-/**
- * No-turn reports (progress, note) that arrived while a turn ran, oldest first, with the session they were sent to.
- * Stock offers no no-turn delivery into a running turn that shows at once: its default steers (the model reads it
- * between steps and the tool batch is cut short), `aside` reaches the model too and wakes a turn if the run ended
- * first, and `nextTurn` stays hidden, unjournaled, until the person's next prompt (a woken turn does not take it, and
- * a session reset drops it). So the bridge keeps them and hands them to stock's idle delivery once the turn ends:
- * journaled, drawn at once, and in the model's context from its next turn of any kind.
- */
-const heldMail: { sessionId: string; message: MailMessage; pending: PendingMail }[] = [];
-/** How often a held report checks whether the turn ended; the poll runs only while one is held. */
-const MAIL_FLUSH_POLL_MS = 250;
-let mailFlushTimer: ReturnType<typeof setInterval> | undefined;
-
-function emitPendingMail(env: ControlEnv): void {
-	env.emit({ type: MAIL_PENDING_EVENT, items: heldMail.map(held => held.pending) });
-}
-
-/** Hand the held reports to stock once the session is idle; one sent to a session this tab left is dropped. */
-function flushHeldMail(env: ControlEnv): void {
-	let session: ControlSession;
-	try {
-		session = env.session();
-	} catch {
-		return;
-	}
-	if (session.isStreaming) return;
-	clearInterval(mailFlushTimer);
-	mailFlushTimer = undefined;
-	for (const held of heldMail.splice(0)) {
-		if (held.sessionId === session.sessionId) mailHost?.sendMessage(held.message, { triggerTurn: false });
-	}
-	emitPendingMail(env);
-}
-
-/** Whether the session's journal already holds the report `id` (stock's `custom_message` entry). */
-function hasMail(env: ControlEnv, id: string): boolean {
-	return hasMailEntry(env.session().sessionManager.getBranch(), id);
-}
 
 export const methods: BridgeMethods = {
 	/**
 	 * `{content, details, triggerTurn, deliverAs?}` → `{}`: a report from another session (`ompdesk_report`), as one
 	 * stock custom message: journaled with the session (a relaunch neither loses nor repeats it), shown as a quiet line,
-	 * and delivered by stock's own rules (`aside` between steps, `followUp`; `triggerTurn` wakes an idle session). A
-	 * no-turn report (`triggerTurn: false`, no `deliverAs`) that finds a turn running is held until it ends
-	 * (`heldMail`, `{held: true}`), and the `mail_pending` frame lists what is held meanwhile.
+	 * and delivered by stock's own rules (`aside` at the next step boundary, an interruptible `wait` returning on it;
+	 * `triggerTurn` wakes an idle session). A no-turn report (`triggerTurn: false`, no `deliverAs`) that finds a turn
+	 * running goes as an `aside` too: stock's no-turn delivery into a running turn would steer (cutting the tool batch)
+	 * and its `nextTurn` stays hidden until the person's next prompt.
 	 */
 	"agent_control.mail": async (params, env) => {
 		const record = (params ?? {}) as Record<string, unknown>;
@@ -152,39 +112,18 @@ export const methods: BridgeMethods = {
 		if (!mailHost) throw new Error("This omp cannot receive reports (no extension sendMessage).");
 		const details = (record.details ?? {}) as Record<string, unknown>;
 		const id = typeof details.id === "string" ? details.id : undefined;
-		// Idempotent across restarts of either side: the journal is the record of what arrived (and, until stock
-		// journals a queued one, this process remembers it). `journaled` tells main which of the two it is: a report
-		// main keeps for a receiver that may be cut by a quit stays kept until the journal holds it.
-		if (id) {
-			const journaled = hasMail(env, id);
-			if (journaled || queuedMail.has(id)) return { duplicate: true, journaled };
-		}
+		// Idempotent across restarts of either side: the journal is the record of what arrived, and until stock's loop
+		// takes a queued aside this process remembers it.
+		const branch = env.session().sessionManager.getBranch();
+		if (id && (hasMailEntry(branch, id) || queuedMail.has(id))) return { duplicate: true };
 		if (id) queuedMail.add(id);
 		const message = { customType: MAIL_CUSTOM_TYPE, content, display: true, details };
-		const deliverAs = record.deliverAs === "followUp" || record.deliverAs === "aside" ? record.deliverAs : undefined;
+		// Idle, an aside starts a turn (stock), so a no-turn report keeps stock's plain idle delivery: shown at once.
+		const deliverAs = record.deliverAs === "aside" || env.session().isStreaming ? "aside" : undefined;
 		const triggerTurn = record.triggerTurn === true;
-		const session = env.session();
-		if (!triggerTurn && !deliverAs && session.isStreaming) {
-			const from = typeof details.fromTitle === "string" && details.fromTitle ? details.fromTitle : details.from;
-			heldMail.push({
-				sessionId: session.sessionId,
-				message,
-				pending: {
-					id: id ?? `${String(from)}:${Date.now()}`,
-					from: typeof from === "string" ? from : "",
-					kind: typeof details.kind === "string" ? details.kind : "note",
-				},
-			});
-			mailFlushTimer ??= setInterval(() => flushHeldMail(env), MAIL_FLUSH_POLL_MS);
-			mailFlushTimer.unref?.();
-			emitPendingMail(env);
-			return { held: true };
-		}
 		mailHost.sendMessage(message, { triggerTurn, ...(deliverAs ? { deliverAs } : {}) });
 		return {};
 	},
-	/** `{}` → `{items}`: the reports held until the running turn ends (what the last `mail_pending` frame listed). */
-	"agent_control.mail_pending": async () => ({ items: heldMail.map(held => held.pending) }),
 	/** `{title, message}` → `{approved}`: a dismissed or cancelled card is a refusal. */
 	"agent_control.confirm": async (params, env) => {
 		const record = (params ?? {}) as Record<string, unknown>;

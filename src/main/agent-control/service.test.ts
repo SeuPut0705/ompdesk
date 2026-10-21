@@ -2968,7 +2968,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		return { host, service, a: a as string, b: b as string, fire };
 	}
 
-	it("names the dispatch in the child's task, and a done report wakes the opener after its turn", async () => {
+	it("names the dispatch in the child's task, and a done report reaches the opener between its steps", async () => {
 		const { host, service, a } = await family();
 		expect(prompts(host, a)[0]).toContain('[ompdesk dispatch d1: report with ompdesk_report, dispatch "d1"]');
 		const result = await service.run(a, T.report, {
@@ -2982,7 +2982,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		expect(host.mails).toHaveLength(1);
 		const mail = host.mails[0];
 		expect(mail?.to).toBe("boss0001");
-		expect(mail?.delivery).toEqual({ triggerTurn: true, deliverAs: "followUp" });
+		expect(mail?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
 		expect(mail?.content).toContain(`<ompdesk-mail from="${a}"`);
 		expect(mail?.content).toContain("changed files: src/a.ts");
 		expect(mail?.content).toContain("checks: bun test passed");
@@ -3117,7 +3117,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		await service.run(a, T.report, { kind: "progress", text: "halfway" });
 		fire();
 		await Promise.resolve();
-		// The opener's bridge holds it until the running turn ends; `nextTurn` stayed out of sight until a prompt.
+		// The opener's bridge sends it as an aside while its turn runs; stock's hidden `nextTurn` is never used.
 		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
 	});
 

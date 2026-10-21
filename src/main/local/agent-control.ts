@@ -15,6 +15,7 @@ const mailCommand = z.object({
 	content: z.string().min(1).max(200_000),
 	details: z.record(z.string(), z.unknown()),
 	triggerTurn: z.boolean(),
+	// `followUp`: what a paired device's older main still sends; the bridge turns it into an aside while a turn runs.
 	deliverAs: z.enum(["followUp", "aside"]).optional(),
 });
 
@@ -51,8 +52,6 @@ export const handlers: Record<string, LocalHandler> = {
 		const mail = mailCommand.parse(command);
 		return ctx.bridge.request("agent_control.mail", mail);
 	},
-	/** The no-turn reports this session's bridge holds until its running turn ends (the transcript's waiting lines). */
-	get_pending_mail: async (_command, ctx) => ctx.bridge.request("agent_control.mail_pending", {}),
 	/** The other live sessions in this session's worktree or repository (the work board's "same checkout" row). */
 	get_checkout_peers: async (_command, ctx) => ctx.bridge.request("checkout_peers.get", {}),
 };

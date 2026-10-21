@@ -644,25 +644,9 @@ export function runRpcUi(): void {
 	};
 	const emitQueue = () =>
 		write({ type: "queue_update", steering: [...lanes.steering], followUp: [...lanes.followUp] });
-	/** gui-bridge agent-control.ts `heldMail`: no-turn reports that arrived while a turn ran, shown once it ended. */
-	const heldMail: { mail: AgentMessage; details: Record<string, unknown> }[] = [];
-	const pendingMail = () =>
-		heldMail.map(({ details }) => ({
-			id: String(details.id),
-			from: String(details.fromTitle || details.from),
-			kind: String(details.kind),
-		}));
 	const endTurn = (messages: AgentMessage[]) => {
 		isStreaming = false;
 		write({ type: "agent_end", messages });
-		if (heldMail.length > 0) {
-			for (const { mail } of heldMail.splice(0)) {
-				appendMessage(mail);
-				write({ type: "message_start", message: mail });
-				write({ type: "message_end", message: mail });
-			}
-			pushBridgeEvent({ type: "mail_pending", items: [] });
-		}
 		recapPending = true;
 		noteTitleTurn();
 		scheduleRecap();
@@ -1312,8 +1296,8 @@ export function runRpcUi(): void {
 		"agent_control.worker": () => ({}),
 		// gui-bridge agent-control.ts `agent_control.mail` → stock `sendMessage`: the report becomes a displayed custom
 		// message in the journal; with `triggerTurn` an idle session takes a turn on it (the parent reacts by itself),
-		// a running one reads it with its next step. A no-turn report that finds a turn running waits for its end
-		// (`heldMail`, listed by `mail_pending`). The woken turn's reply names the report it read.
+		// a running one reads it at its next step (stock's `aside`), whatever its kind. The woken turn's reply names the
+		// report it read.
 		"agent_control.mail": params => {
 			const details = (params.details ?? {}) as Record<string, unknown>;
 			// As the bridge: a report whose id the journal holds (delivered before a relaunch) is not repeated. The
@@ -1331,11 +1315,6 @@ export function runRpcUi(): void {
 				details,
 				timestamp: Date.now(),
 			} as unknown as AgentMessage;
-			if (params.triggerTurn !== true && params.deliverAs === undefined && isStreaming) {
-				heldMail.push({ mail, details });
-				pushBridgeEvent({ type: "mail_pending", items: pendingMail() });
-				return { held: true };
-			}
 			appendMessage(mail);
 			write({ type: "message_end", message: mail });
 			if (params.triggerTurn === true && !isStreaming) {
@@ -1357,7 +1336,6 @@ export function runRpcUi(): void {
 			}
 			return {};
 		},
-		"agent_control.mail_pending": () => ({ items: pendingMail() }),
 		// `ompdesk_compare` with criteria: the judge ranks the sessions in the order the evidence names them and
 		// picks the first, so a spec can tell the verdict reached the agent.
 		"agent_control.judge": params => {

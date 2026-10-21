@@ -1,6 +1,5 @@
 import type { VirtualItem } from "@tanstack/react-virtual";
 import { createStore } from "zustand/vanilla";
-import type { PendingMail } from "../../../resources/gui-bridge/agent-control-contracts";
 import type { CheckoutPeers } from "../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { NextPromptState, NextPromptUnavailable } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
 import type { ContextUsage, RpcSessionState, SidecarRestartProgress, SidecarStatus } from "../../shared/rpc-types";
@@ -82,9 +81,6 @@ export interface SessionStore {
 	nextPrompt: NextPromptState | null;
 	/** Why the last suggestion request failed (next_prompt_update unavailable); cleared by the next ready. */
 	nextPromptUnavailable: { reason: NextPromptUnavailable; detail?: string } | null;
-	/** Reports from other sessions this tab's bridge holds until the running turn ends (`mail_pending` frames,
-	 * hydrated via get_pending_mail): drawn as waiting lines under the transcript until they land in it. */
-	pendingMail: PendingMail[];
 	/** The other live sessions in this tab's worktree or repository, null while it works alone (`checkout_peers`
 	 * frames, hydrated via get_checkout_peers): the work board's "same checkout" row. */
 	checkoutPeers: CheckoutPeers | null;
@@ -127,7 +123,6 @@ const initialState = {
 	goalState: null,
 	nextPrompt: null,
 	nextPromptUnavailable: null,
-	pendingMail: [] as PendingMail[],
 	checkoutPeers: null as CheckoutPeers | null,
 };
 

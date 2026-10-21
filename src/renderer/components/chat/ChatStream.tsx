@@ -71,7 +71,6 @@ import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { ExecutionGroup } from "./ExecutionGroup";
 import { WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
-import { PendingMailNotes } from "./PendingMailNotes";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
@@ -159,7 +158,6 @@ function SessionTranscript() {
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
-	const pendingMail = useSessionStore(s => s.pendingMail);
 	const childrenAtWork = useHasChildrenAtWork();
 	const awaitingConnection = useAwaitingConnection();
 	const resuming = useResuming();
@@ -233,14 +231,12 @@ function SessionTranscript() {
 	// mirroring the TUI's loader line: auto-retry delay/attempt (warning),
 	// auto-compaction maintenance, or waiting on the model's first event.
 	// Priority matches the TUI, whose transient loaders replace the working
-	// loader; tool-execution windows show running tool cards instead. The same
-	// row carries the reports the bridge holds until the turn ends.
+	// loader; tool-execution windows show running tool cards instead.
 	const showStatusRow =
 		awaitingConnection !== null ||
 		resuming !== null ||
 		retryInfo != null ||
 		compactionInfo != null ||
-		pendingMail.length > 0 ||
 		(isStreaming && awaitingModelSince != null && !hasStreamedContent) ||
 		// Between turns, the sessions this one opened still at work: what each is doing.
 		(!isStreaming && childrenAtWork);
@@ -1162,7 +1158,6 @@ function SessionTranscript() {
 										) : (
 											<>
 												<TurnStatusRow attached={liveTail} />
-												<PendingMailNotes />
 												{isStreaming ? null : (
 													<ChildrenAtWork className="ps-(--omp-editorial-inset) pe-(--omp-editorial-edge)" />
 												)}

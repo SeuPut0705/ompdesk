@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
-import { deliveryFor, type MailKind } from "./agent-control/mail";
-import { MailOutbox, redeliverMail } from "./agent-control/mail-outbox";
+import type { MailKind } from "./agent-control/mail";
 import {
 	atEnd,
 	HOLD,
@@ -11,7 +10,6 @@ import {
 	omp,
 	type Provider,
 	runCleanups,
-	sessionFiles,
 	startOmp,
 	startProvider,
 	TOOL,
@@ -22,11 +20,10 @@ import {
  * it (stdin ends and stock disposes the session), measured on the installed omp with a scripted provider on loopback.
  *
  * Reported on 21 Oct 2026: a child's `done` to its parent, inside a long tool call, was never journaled after an update
- * restart. A `done`/`review` report is a `followUp`: stock keeps it in an in-memory queue and journals it only when it
- * starts the turn that answers it, so closing the omp drops it. A `question`/`blocked` report is an `aside`: stock
- * journals it at once. Main therefore keeps each accepted `followUp` report until the receiver's journal holds it
- * (`agent-control/mail-outbox.ts`) and sends it again, with its id, to the omp that replaces the closed one; the bridge
- * answers whether an id is journaled or only queued so main knows when it is done.
+ * restart. It went as a `followUp`, which stock keeps in an in-memory queue until it starts the turn that answers it,
+ * so closing the omp dropped it. Every report a busy receiver gets is now an `aside` (`deliveryFor`, and the bridge for
+ * a no-turn one), and stock journals a queued aside when the session is disposed: no report main accepted is lost to a
+ * quit, so main keeps no copy of its own.
  */
 afterAll(runCleanups);
 
@@ -47,79 +44,23 @@ async function busyOmp(prompt: string): Promise<{ provider: Provider; session: O
 }
 
 describe.skipIf(!existsSync(omp))("a report accepted by a busy receiver whose omp is then closed", () => {
-	const cases: Array<[MailKind, string, string, boolean]> = [
-		["done", "a model request", HOLD, false],
-		["done", "a tool call", TOOL, false],
-		["review", "a model request", HOLD, false],
-		["question", "a model request", HOLD, true],
-		["question", "a tool call", TOOL, true],
-		["blocked", "a tool call", TOOL, true],
+	const cases: Array<[MailKind, string, string]> = [
+		["done", "a model request", HOLD],
+		["done", "a tool call", TOOL],
+		["review", "a model request", HOLD],
+		["review", "a tool call", TOOL],
+		["question", "a model request", HOLD],
+		["question", "a tool call", TOOL],
+		["blocked", "a tool call", TOOL],
+		["progress", "a tool call", TOOL],
+		["note", "a model request", HOLD],
 	];
-	for (const [kind, where, prompt, journaled] of cases) {
-		it(`${journaled ? "is journaled" : "is lost"}: ${kind} during ${where}`, async () => {
+	for (const [kind, where, prompt] of cases) {
+		it(`is journaled: ${kind} during ${where}`, async () => {
 			const { session } = await busyOmp(prompt);
 			expect(await session.bridge.request("agent_control.mail", mail(kind, `m-${kind}`))).toEqual({});
 			await session.stop();
-			expect(journaledMail(session.isolated)).toEqual(journaled ? [`m-${kind}`] : []);
+			expect(journaledMail(session.isolated)).toEqual([`m-${kind}`]);
 		}, 120_000);
 	}
-
-	it("reaches the journal once, from the omp that replaces the closed one, through the outbox", async () => {
-		const { provider, session } = await busyOmp(HOLD);
-		const outbox = new MailOutbox(null);
-		const report = mail("done", "report-1");
-		// What main does when the receiver accepts a report: keep it until the journal holds it.
-		expect(await session.bridge.request("agent_control.mail", report)).toEqual({});
-		outbox.keep({
-			id: "report-1",
-			sessionPath: "/s/receiver.jsonl",
-			content: report.content,
-			details: report.details,
-			delivery: deliveryFor("done"),
-			at: Date.now(),
-		});
-		await session.stop();
-		expect(journaledMail(session.isolated)).toEqual([]);
-
-		// The relaunch: the same session file in a new omp, busy again (its history holds the held prompt).
-		const [file] = sessionFiles(session.isolated);
-		const again = await startOmp(provider, {
-			isolated: session.isolated,
-			root: session.root,
-			session: file as string,
-		});
-		await again.send({ type: "prompt", message: "continue" });
-		await expect.poll(() => provider.turns, { timeout: 30_000 }).toBeGreaterThan(2);
-		const asked: unknown[] = [];
-		const pass = () =>
-			redeliverMail(outbox, {
-				tabOf: () => "tab",
-				send: async (_tab, entry) => {
-					const answer = await again.bridge.request<{ duplicate?: boolean; journaled?: boolean }>(
-						"agent_control.mail",
-						{
-							content: entry.content,
-							details: entry.details,
-							...entry.delivery,
-						},
-					);
-					asked.push(answer);
-					return answer;
-				},
-			});
-
-		// First pass delivers it to the new omp; the second finds it queued there, not journaled, and sends nothing.
-		await pass();
-		await pass();
-		expect(asked).toEqual([{}, { duplicate: true, journaled: false }]);
-		expect(outbox.pending()).toHaveLength(1);
-		expect(journaledMail(session.isolated)).toEqual([]);
-
-		provider.release();
-		await expect.poll(() => journaledMail(session.isolated), { timeout: 30_000 }).toEqual(["report-1"]);
-		await pass();
-		expect(asked.at(-1)).toEqual({ duplicate: true, journaled: true });
-		expect(outbox.pending()).toEqual([]);
-		expect(journaledMail(session.isolated)).toEqual(["report-1"]);
-	}, 180_000);
 });

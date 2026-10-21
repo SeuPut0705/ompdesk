@@ -176,7 +176,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		name: T.report,
 		label: "Report to OMPdesk opener",
 		description:
-			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked; or tell a session working in the same checkout (the <shared-checkout> section names it) what you are about to do, or ask it to commit or hold off. kind: progress (a short status; coalesced), done (the work is finished: summary, changed files, checks you ran), question or blocked (you need its decision; it arrives between its steps and wakes it only when idle; do not guess meanwhile), review (ready for its review), note (to a sibling or a session in the same checkout: e.g. 'I am committing src/a.ts'; never wakes it). See skill://ompdesk.",
+			"Tell the session that opened you (or a sibling it opened) about your work, instead of waiting to be asked; or tell a session working in the same checkout (the <shared-checkout> section names it) what you are about to do, or ask it to commit or hold off. Every report reaches a working session between its steps (its tool calls are not cut, a `wait` returns on it). kind: progress (a short status; coalesced; never wakes an idle session), done (the work is finished: summary, changed files, checks you ran; wakes it when idle), question or blocked (you need its decision; wakes it when idle; do not guess meanwhile), review (ready for its review; wakes it when idle), note (to a sibling or a session in the same checkout: e.g. 'I am committing src/a.ts'; never wakes an idle session). See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {

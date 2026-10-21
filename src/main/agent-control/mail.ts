@@ -4,15 +4,14 @@
  * The idea is Orca's orchestration mailbox (worker_done / heartbeat / escalation verbs, decision gates routed to the
  * parent and never auto-resolved, dispatch ids so a stale message cannot complete a retry), rebuilt on stock's own
  * custom messages: a report lands in the receiver's session as one `ompdesk.mail` custom message (journaled by stock,
- * so a relaunch neither loses nor repeats it), delivered by stock's `sendMessage` rules:
+ * so a relaunch neither loses nor repeats it), delivered as stock's `aside`: a busy receiver reads it at its next step
+ * boundary without its tool batch being cut, and an interruptible `wait` returns on it.
  *
- *   question, blocked   `aside`: between the receiver's steps without interrupting a tool batch; an idle receiver
- *                       starts a turn on it. The receiver answers with `ompdesk_session_send` or asks the user;
- *                       nothing answers it on its own.
- *   done, review        `followUp` + `triggerTurn`: after the receiver's turn, or at once when it is idle.
+ *   question, blocked,  `aside` + `triggerTurn`: an idle receiver starts a turn on it. A question or blocker is
+ *   done, review        answered with `ompdesk_session_send` or by the user; nothing answers it on its own.
  *   progress, note      no turn (`triggerTurn: false`): shown at once when the receiver is idle; while a turn runs the
- *                       receiver's bridge holds it and shows it when the turn ends (the person sees it waiting
- *                       meanwhile); progress from one sender is coalesced, the latest wins.
+ *                       receiver's bridge sends it as an `aside` too, so the model reads it between its steps;
+ *                       progress from one sender is coalesced, the latest wins.
  *
  * Pure rules; the timers and delivery are injected (`host.ts` sends the mail through the receiver's omp).
  */
@@ -52,18 +51,17 @@ export interface Mail {
 
 export interface MailDelivery {
 	triggerTurn: boolean;
-	deliverAs?: "followUp" | "aside";
+	deliverAs?: "aside";
 }
 
-/** How stock delivers a report of this kind (a no-turn one waits in the receiver's bridge while a turn runs). */
+/** How stock delivers a report of this kind (a no-turn one becomes an `aside` in the receiver's bridge while a turn runs). */
 export function deliveryFor(kind: MailKind): MailDelivery {
 	switch (kind) {
 		case "question":
 		case "blocked":
-			return { triggerTurn: true, deliverAs: "aside" };
 		case "done":
 		case "review":
-			return { triggerTurn: true, deliverAs: "followUp" };
+			return { triggerTurn: true, deliverAs: "aside" };
 		default:
 			return { triggerTurn: false };
 	}

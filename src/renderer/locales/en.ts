@@ -4780,7 +4780,6 @@ export const en: Record<string, string> = {
 	"chat.custom.mail.checks": "Checks",
 	"chat.custom.mail.passed": "passed",
 	"chat.custom.mail.failed": "failed",
-	"chat.custom.mail.pending": "shows when this turn ends",
 	"workBoard.opened.merge.unmerged": "Not merged",
 	"workBoard.opened.merge.merged": "Merged",
 	"workBoard.approve": "Allow {tool}?",

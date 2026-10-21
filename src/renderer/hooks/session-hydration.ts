@@ -1,5 +1,4 @@
 import type { StoreApi } from "zustand";
-import type { PendingMail } from "../../../resources/gui-bridge/agent-control-contracts";
 import type { AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type { CheckoutPeers } from "../../../resources/gui-bridge/modes/checkout-peers-contracts";
 import type { NextPromptState } from "../../../resources/gui-bridge/modes/next-prompt-contracts";
@@ -275,27 +274,6 @@ export async function syncAutopilot(tabId: string, command: TabCommand, isCurren
 		withSessionRuntime(tabId, () => useAutopilotStore.getState().hydrateIfCurrent(startedAt, status));
 	} catch {
 		// Transient — the next autopilot_update frame or hydration retries.
-	}
-}
-
-/**
- * Fetch the reports the tab's bridge holds until its running turn ends (`get_pending_mail`); `mail_pending` frames
- * keep the list current afterwards, and one that lands while this read is in flight wins. An omp without the method
- * leaves the list empty.
- */
-export async function syncPendingMail(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
-	const before = withSessionRuntime(tabId, () => useSessionStore.getState().pendingMail);
-	try {
-		const res = await command({ type: "get_pending_mail" });
-		if (!isCurrent() || !res.success) return;
-		const items = (res.data as { items?: unknown } | undefined)?.items;
-		if (!Array.isArray(items)) return;
-		withSessionRuntime(tabId, () => {
-			if (useSessionStore.getState().pendingMail !== before) return;
-			useSessionStore.setState({ pendingMail: items as PendingMail[] });
-		});
-	} catch {
-		// unsupported_omp or transient: the next mail_pending frame carries the list.
 	}
 }
 
@@ -656,7 +634,6 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	const secondary = Promise.allSettled([
 		syncGoal("", activeTabCommand, isCurrent),
 		syncAutopilot("", activeTabCommand, isCurrent),
-		syncPendingMail("", activeTabCommand, isCurrent),
 		syncCheckoutPeers("", activeTabCommand, isCurrent),
 		syncNextPrompt("", activeTabCommand, isCurrent),
 		useQueueStore.getState().refresh(),
@@ -860,7 +837,6 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 		// not only on goal_updated events.
 		syncGoal(tabId, runtime.command, isCurrent),
 		syncAutopilot(tabId, runtime.command, isCurrent),
-		syncPendingMail(tabId, runtime.command, isCurrent),
 		syncCheckoutPeers(tabId, runtime.command, isCurrent),
 		syncNextPrompt(tabId, runtime.command, isCurrent),
 		// Queue snapshot: queue_update frames keep it fresh afterwards;

@@ -13,21 +13,6 @@ export const MAIL_CUSTOM_TYPE = "ompdesk.mail";
 export const AGENT_MESSAGE_START = /^\s*<ompdesk-agent-message[\s>]/;
 
 /**
- * The bridge frame listing the no-turn reports (progress, note) it holds until the receiver's running turn ends
- * (`{type, items: PendingMail[]}`, an empty list once they are in the transcript); bridge method
- * `agent_control.mail_pending` answers the same list.
- */
-export const MAIL_PENDING_EVENT = "mail_pending";
-
-export interface PendingMail {
-	/** The report's id (`details.id`). */
-	id: string;
-	/** The sender's title, else its tab id. */
-	from: string;
-	kind: string;
-}
-
-/**
  * Whether a session's journal already holds the report `id`: stock journals a `sendMessage` as a
  * `{type: "custom_message", customType, details, …}` entry (`CustomMessageEntry`, session/session-entries.ts).
  */
