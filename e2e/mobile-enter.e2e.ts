@@ -12,8 +12,9 @@ test.describe.configure({ retries: 1 });
 
 let server: ViteDevServer | undefined;
 let origin = "";
-let chromiumBrowser: Browser;
-let webkitBrowser: Browser;
+// Each engine starts on its first test, so the Chromium cases run on a machine without Playwright's WebKit.
+let chromiumBrowser: Browser | undefined;
+let webkitBrowser: Browser | undefined;
 
 async function freePort(): Promise<number> {
 	const { promise, resolve, reject } = Promise.withResolvers<number>();
@@ -36,8 +37,6 @@ test.beforeAll(async () => {
 	});
 	await server.listen();
 	origin = `http://127.0.0.1:${port}`;
-	chromiumBrowser = await chromium.launch();
-	webkitBrowser = await webkit.launch();
 });
 
 test.afterAll(async () => {
@@ -49,7 +48,11 @@ test.afterAll(async () => {
 type Lang = "en" | "ko";
 
 async function openPhone(engine: "chromium" | "webkit", lang: Lang): Promise<Page> {
-	const context = await (engine === "chromium" ? chromiumBrowser : webkitBrowser).newContext({
+	if (engine === "chromium") chromiumBrowser ??= await chromium.launch();
+	else webkitBrowser ??= await webkit.launch();
+	const browser = engine === "chromium" ? chromiumBrowser : webkitBrowser;
+	if (!browser) throw new Error(`${engine} did not start`);
+	const context = await browser.newContext({
 		...devices[engine === "chromium" ? "Pixel 8" : "iPhone 15"],
 	});
 	const page = await context.newPage();
