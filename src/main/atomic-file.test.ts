@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileAtomic, writeFileAtomicDeferred, writeFileAtomicSync } from "./atomic-file";
 import { holdOpen } from "./test-hold-open";
+
 // Windows refuses to rename over a file another handle has open. Elsewhere nothing is refused: the waiting cases hold
 // there too, the one that needs a refused rename runs on Windows only.
-// Windows refuses to rename over a file another handle has open. Elsewhere nothing is refused, and these hold too.
 describe("atomic file writes", () => {
 	let dir: string;
 	let file: string;
