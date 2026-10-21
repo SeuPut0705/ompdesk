@@ -20,6 +20,7 @@ import { gitRaw } from "./local/git/exec";
 import { prepareWorktree } from "./local/git/worktree-seed";
 import { findGitBash } from "./setup/paths";
 import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
+import { shellSpawnEnv } from "./shell-env";
 import { findOnPath } from "./spawn";
 
 /** A check that runs this long is stopped and counts as failed (the candidate is not landed). */
@@ -49,15 +50,13 @@ export interface LandCheck {
 }
 
 /** The shell the agent's bash tool would run it in: bash (with pipefail, so `cmd | tail` fails when cmd does), else sh. */
-function shellFor(command: string): { file: string; args: string[] } {
+function shellFor(command: string, env: NodeJS.ProcessEnv): { file: string; args: string[] } {
 	if (process.platform === "win32") {
-		const bash = findGitBash(process.env);
+		const bash = findGitBash(env);
 		if (bash) return { file: bash, args: ["-o", "pipefail", "-c", command] };
-		return { file: process.env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", command] };
+		return { file: env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", command] };
 	}
-	const bash = findOnPath(["bash"], process.env.PATH ?? "", process.platform === "darwin" ? "darwin" : "linux", [
-		"/bin/bash",
-	]);
+	const bash = findOnPath(["bash"], env.PATH ?? "", process.platform === "darwin" ? "darwin" : "linux", ["/bin/bash"]);
 	return bash ? { file: bash, args: ["-o", "pipefail", "-c", command] } : { file: "/bin/sh", args: ["-c", command] };
 }
 
@@ -92,11 +91,21 @@ export function pointCommandAt(
 	return windowsSpellings(root).reduce((text, spelling, i) => text.split(spelling).join(targets[i] ?? tree), command);
 }
 
-function run(command: string, cwd: string, timeoutMs: number): Promise<Omit<LandCheck, "durationMs">> {
+/**
+ * The environment a session's omp (and so its bash tool) gets: the login shell's PATH and exports under the app's
+ * own (`shellSpawnEnv`, as `SidecarManager` spawns). A Finder-launched app's own PATH is launchd's bare one, where the
+ * cycle's `bun run check` was "command not found" and no green cycle ever landed over a moved default branch.
+ */
+async function sessionEnv(): Promise<NodeJS.ProcessEnv> {
+	return withoutGitSelectors({ ...process.env, ...(await shellSpawnEnv()) });
+}
+
+async function run(command: string, cwd: string, timeoutMs: number): Promise<Omit<LandCheck, "durationMs">> {
 	const { promise, resolve } = Promise.withResolvers<Omit<LandCheck, "durationMs">>();
 	const chunks: Buffer[] = [];
 	let timedOut = false;
-	const child = spawnSupervised({ ...shellFor(command), shell: false }, withoutGitSelectors(process.env), cwd);
+	const env = await sessionEnv();
+	const child = spawnSupervised({ ...shellFor(command, env), shell: false }, env, cwd);
 	const timer = setTimeout(() => {
 		timedOut = true;
 		child.stdin?.end();

@@ -1,5 +1,51 @@
-import { describe, expect, it } from "vitest";
-import { pointCommandAt } from "./autopilot-land-check";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { checkLandCandidate, pointCommandAt } from "./autopilot-land-check";
+import { gitSync, initRepo } from "./local/git/test-repos";
+import { resetLoginShellEnvCache } from "./shell-env";
+
+describe("checkLandCandidate", () => {
+	const saved = { PATH: process.env.PATH, SHELL: process.env.SHELL };
+	afterEach(() => {
+		process.env.PATH = saved.PATH;
+		process.env.SHELL = saved.SHELL;
+		resetLoginShellEnvCache();
+	});
+
+	// A Finder-launched app has launchd's bare PATH; the cycle's command ran in the session's bash, whose PATH is the
+	// login shell's (shellSpawnEnv), so `bun run check` passed there and must find `bun` here too.
+	it.skipIf(process.platform === "win32")(
+		"runs the command with the login shell's PATH, as the session did",
+		async () => {
+			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-land-path-"));
+			try {
+				const tools = path.join(dir, "tools");
+				await fs.mkdir(tools);
+				await fs.writeFile(path.join(tools, "landtool"), "#!/bin/sh\necho landtool-ran\n", { mode: 0o755 });
+				const shell = path.join(dir, "fake-shell");
+				await fs.writeFile(
+					shell,
+					`#!/bin/sh\nprintf '%s\\n' __OMP_ENV_BEGIN__ 'PATH=${tools}:/usr/bin:/bin' __OMP_ENV_END__\n`,
+					{ mode: 0o755 },
+				);
+				const repo = path.join(dir, "repo");
+				await fs.mkdir(repo);
+				await initRepo(repo);
+				const sha = gitSync(repo, "rev-parse", "HEAD").trim();
+				process.env.SHELL = shell;
+				process.env.PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
+				resetLoginShellEnvCache();
+				const result = await checkLandCandidate({ root: repo, primary: repo, sha, command: "landtool" });
+				expect(result.tail).toContain("landtool-ran");
+				expect(result.ok).toBe(true);
+			} finally {
+				await fs.rm(dir, { recursive: true, force: true });
+			}
+		},
+	);
+});
 
 describe("pointCommandAt", () => {
 	const root = "C:\\Users\\me\\.omp\\wt\\run";
