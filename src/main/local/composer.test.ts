@@ -121,6 +121,19 @@ describe("stock composer authority", () => {
 		});
 	});
 
+	it("leaves out the system prompt and tool schemas when asked brief, and keeps them otherwise", async () => {
+		// The page's own reads (the 15 s liveness probe, every turn's re-sync) use none of the two, and a 90-tool session's
+		// pair was about 750 KB: a paired device viewing one host tab received 3 MB a minute of it.
+		const heavy = { ...STOCK_STATE, systemPrompt: ["x".repeat(1000)], dumpTools: [{ name: "read" }] };
+		const ctx = fakeContext({ stock: { get_state: heavy } });
+		const brief = await handlers.get_state({ type: "get_state", brief: true }, ctx);
+		expect(brief).not.toHaveProperty("systemPrompt");
+		expect(brief).not.toHaveProperty("dumpTools");
+		expect(brief).toMatchObject({ sessionId: "s1", isStreaming: false });
+		const whole = await handlers.get_state({ type: "get_state" }, ctx);
+		expect(whole).toMatchObject({ systemPrompt: heavy.systemPrompt, dumpTools: heavy.dumpTools });
+	});
+
 	it("uses stock tool descriptions and retains provenance plus mounted tools", async () => {
 		const ctx = fakeContext({
 			stock: { get_state: { ...STOCK_STATE, dumpTools: [{ name: "read", description: "Stock description" }] } },

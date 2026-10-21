@@ -631,7 +631,7 @@ describe("useRpcEvents context usage sync", () => {
 		// The probe is already paid for (it tokenises the context to answer at
 		// all); a session that only idles between turns had no other way to land
 		// a snapshot, so its ring stayed on the number from the last turn.
-		expect(getState).toHaveBeenCalledWith("t-idle", { type: "get_state" }, undefined);
+		expect(getState).toHaveBeenCalledWith("t-idle", { type: "get_state", brief: true }, undefined);
 		expect(session.getState().contextUsage).toMatchObject({ tokens: 900 });
 		expect(session.getState().statsPulse).toBeGreaterThan(0);
 	});

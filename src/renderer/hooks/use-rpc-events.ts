@@ -703,7 +703,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						missedProbes.set(probeTabId, misses);
 						if (misses >= WEDGE_PROBES) session.getState().setSidecarError(translate("events.sidecarNoResponse"));
 					};
-					void command({ type: "get_state" })
+					void command({ type: "get_state", brief: true })
 						.then(res => {
 							if (!res.success) {
 								missed();
@@ -793,7 +793,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 							const sw = await command({ type: "switch_session", sessionPath: pending });
 							if (!sw.success) toastError({ title: translate("events.sessionOpenFailed"), error: sw });
 						}
-						const res = await command({ type: "get_state" });
+						const res = await command({ type: "get_state", brief: true });
 						if (!isCurrent()) return;
 						if (!res.success) {
 							withSessionRuntime(statusTabId, () =>

@@ -141,7 +141,7 @@ export async function refreshSessionState(tabId = useTabsStore.getState().active
 	const selection = sessionRuntimeStore<ModelStore>(tabId, "model")?.getState();
 	const restarts = restartGenerations.get(runtime);
 	try {
-		const res = await runtime.command({ type: "get_state" });
+		const res = await runtime.command({ type: "get_state", brief: true });
 		if (
 			sessionRuntime(tabId) !== runtime ||
 			restartGenerations.get(runtime) !== restarts ||
@@ -189,7 +189,7 @@ export async function refreshModelState(tabId = useTabsStore.getState().activeTa
 	if (!runtime) return;
 	const sessionId = sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId;
 	try {
-		const res = await runtime.command({ type: "get_state" });
+		const res = await runtime.command({ type: "get_state", brief: true });
 		if (
 			sessionRuntime(tabId) !== runtime ||
 			sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().sessionId !== sessionId ||
@@ -627,7 +627,7 @@ export async function hydrateLegacySession(fallbackName?: string, initialState?:
 	};
 	const before = captureHydrationBaseline(stores);
 	const core = Promise.allSettled([
-		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state" }),
+		initialState ? Promise.resolve(initialState) : activeTabCommand({ type: "get_state", brief: true }),
 		fetchTranscriptTail(activeTabCommand),
 	]);
 	const subagents = useSubagentsStore.getState().refresh({ expect: isCurrent });
@@ -823,7 +823,7 @@ async function loadTabSession(tabId: string, runtime: SessionRuntime, fallbackNa
 	const before = captureHydrationBaseline(stores);
 
 	const coreResult = Promise.allSettled([
-		runtime.command({ type: "get_state" }),
+		runtime.command({ type: "get_state", brief: true }),
 		fetchTranscriptTail(runtime.command),
 	]);
 	const subagentsResult = sessionRuntimeStore<SubagentsStore>(tabId, "subagents")

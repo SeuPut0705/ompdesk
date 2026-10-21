@@ -64,7 +64,8 @@ export type RpcCommand =
 	// TUI Esc parity: withdraw queued user input, then abort; returns the input.
 	| { id?: string; type: "abort_and_restore_queue"; origin?: StopOrigin }
 	| { id?: string; type: "new_session"; parentSession?: string }
-	| { id?: string; type: "get_state" }
+	// `brief`: without `systemPrompt` and `dumpTools` (the page reads neither; a large session's pair is ~750 KB).
+	| { id?: string; type: "get_state"; brief?: boolean }
 	| { id?: string; type: "get_last_assistant_text" }
 	| { id?: string; type: "set_fast_mode"; enabled: boolean }
 	| { id?: string; type: "set_slow_mode"; enabled: boolean }

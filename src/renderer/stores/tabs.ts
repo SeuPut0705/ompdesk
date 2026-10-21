@@ -1612,7 +1612,7 @@ export function useSessionTabs(): void {
 				// when the sidecar's sessionFile differs (a failed read keeps
 				// the old behavior — switch unconditionally).
 				const runtime = ensureTabRuntime(tab.id);
-				const currentState = await runtime.command({ type: "get_state" });
+				const currentState = await runtime.command({ type: "get_state", brief: true });
 				const currentFile =
 					currentState.success && currentState.data != null
 						? (currentState.data as RpcSessionState).sessionFile

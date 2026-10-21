@@ -102,13 +102,31 @@ const bashCommand = z.object({ command: z.string(), excluded: z.boolean().option
 const forceToolCommand = z.object({ tool: z.string().optional(), clear: z.boolean().optional() });
 const ultrafastCommand = z.object({ enabled: z.boolean() });
 
+/**
+ * Stock's state without `systemPrompt` and `dumpTools`: the page reads neither, and with ninety tools the pair was
+ * about 750 KB, every 15 s liveness probe and every turn's re-sync, which a paired device viewing a host tab received
+ * at 3 MB a minute (21 Oct 2026).
+ */
+function briefState(state: RpcSessionState): RpcSessionState {
+	const {
+		systemPrompt: _prompt,
+		dumpTools: _tools,
+		...rest
+	} = state as RpcSessionState & {
+		systemPrompt?: unknown;
+		dumpTools?: unknown;
+	};
+	return rest;
+}
+
 export const handlers: Record<string, LocalHandler> = {
-	get_state: async (_command, ctx) => {
-		const [state, levels, extras] = await Promise.all([
+	get_state: async (command, ctx) => {
+		const [whole, levels, extras] = await Promise.all([
 			ctx.send<RpcSessionState>({ type: "get_state" }),
 			ctx.send<{ levels?: string[] }>({ type: "get_available_thinking_levels" }).catch(() => undefined),
 			stateExtras(ctx),
 		]);
+		const state = command.brief === true ? briefState(whole) : whole;
 		const result: RpcSessionState = {
 			...state,
 			cwd: extras?.cwd ?? ctx.cwd,
