@@ -788,6 +788,21 @@ describe("buildBegin / buildStatus", () => {
 		expect(status.reason).toBeUndefined();
 		expect(status.totals?.tokensPerHour).toBeGreaterThan(0);
 	});
+
+	it("leaves out of the status what only the journal's readers need: a cycle's check command and closed follow-ups", () => {
+		// The whole status goes to every window and paired device on each update; main lands from the cycle-end frame's
+		// record and `begin` reads follow-ups from the journal. On a 67-cycle run these were 30 % of a 111 KB status.
+		const record = rec({ n: 1, checkCommand: "bun run check:changed --base origin/main", resolved: ["a"] });
+		const entries: JournalEntry[] = [
+			{ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: state },
+			{ type: "custom", customType: AUTOPILOT_CYCLE_ENTRY, data: record },
+		];
+		const cycle = buildStatus(entries, 160_000).cycles?.[0];
+		expect(cycle).toMatchObject({ n: 1, title: record.title, summary: record.summary });
+		expect(cycle).not.toHaveProperty("checkCommand");
+		expect(cycle).not.toHaveProperty("resolved");
+		expect(cycleRecords(entries)[0]).toMatchObject({ checkCommand: record.checkCommand, resolved: ["a"] });
+	});
 	it("a paused or ended run's active time stops, quota wait is exposed, ended is still a run", () => {
 		const paused = {
 			...state,

@@ -819,6 +819,19 @@ export interface LiveCycle {
 	beganAt?: number;
 }
 
+/**
+ * A cycle as the status carries it: without the check command (main lands from the cycle-end frame's own record) and
+ * the follow-ups it closed (`begin` reads them from the journal). The whole status goes to every window and paired
+ * device on each update; on a 67-cycle run those two were 30 % of its 111 KB.
+ */
+function statusCycle({
+	checkCommand: _check,
+	resolved: _resolved,
+	...cycle
+}: AutopilotCycleRecord): AutopilotCycleRecord {
+	return cycle;
+}
+
 /** The whole status from the journal plus the cycle in flight; `active:false` when this session is no run. */
 export function buildStatus(entries: readonly JournalEntry[], now: number, live?: LiveCycle): AutopilotStatus {
 	const state = lastStateEntry(entries);
@@ -852,7 +865,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		startedAt: state.startedAt,
 		activeMs,
 		settings: state.settings,
-		cycles: records,
+		cycles: records.map(statusCycle),
 		...(redStreak(records) > 0 ? { redStreak: redStreak(records) } : {}),
 		backlog: backlogItems(entries),
 		notes: pendingNotes(entries, records, live?.beganAt),
