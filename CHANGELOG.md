@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.52.0] - 2026-10-21
+
+실행 중이라 지우지 못하던 세션을 한 번에 멈추고 지울 수 있고, 재시작 뒤 다른 기기가 다시 보낸 요청이 두 번 실행되지 않아요.
+
+### 새로 생긴 것
+- 실행 중이라 세션 삭제가 거절되면 안내에 "멈추고 삭제"가 떠요. 누르면 그 세션의 턴을 멈추고, 멈춘 뒤 바로 지워요. 이 컴퓨터의 세션도, 다른 컴퓨터의 세션도 같아요.
+
+### 고친 것
+- 이 컴퓨터가 재시작한 뒤 다른 컴퓨터가 다시 보낸 에이전트 요청(세션 열기, 메시지 보내기, 멈추기, 병합, 예약 만들기 등)이 두 번 실행되지 않아요. 결과를 알 수 없으면 다시 실행하지 않고 그렇다고 알려요.
+- 오토파일럿이 다른 세션의 푸시나 작업 브랜치 때문에 안전 점검에서 멈추지 않아요. 멈출 때는 예상하지 못한 git 변경을 봤다고 말하고, 재개하면 이어간다고 알려요.
+- 메모리가 읽지 못하는 프로젝트 하나 때문에 다른 프로젝트의 학습과 정리가 멈추지 않아요. 이름이 같아 헷갈리는 프로젝트는 한 번 정리하고, 두 컴퓨터가 같은 저장소를 각자 프로젝트로 맞춰 동기화해요.
+- 창이 가려져 있는 동안 하위 에이전트 목록, 계획 카드, PR 창이 omp에 아무것도 묻지 않아요.
+- GitHub 도구 카드가 초안 PR과 실행 결과를 화면 언어로 보여요.
+
+<!-- en -->
+
+A session a running turn kept from being deleted now stops and deletes in one step, and a request another computer sends again after this one relaunched no longer runs twice.
+
+### New
+- When a running turn refuses a session's delete, the notice offers "Stop and delete": it stops the turn on that session and deletes it once the turn has ended, on this computer and on a paired one alike.
+
+### Fixed
+- An agent request a paired computer sends again after this computer relaunched (open a session, send, stop, merge, create a schedule and the like) no longer runs twice; when its outcome cannot be known it says so instead of running again.
+- Autopilot no longer pauses its safety check for another session's push or worktree branch; when it does pause, it says it saw a git change it did not expect and that Resume continues.
+- One memory project the server cannot read no longer stops learning and curation for every other project; an ambiguous project name is repaired once, and two computers pair the same repository under their own projects when syncing.
+- While the window is hidden, the subagent roster, the plan card and the PR dialog ask omp nothing.
+- The GitHub tool card names a draft PR and a run's conclusion in the UI's language.
+
 ## [0.51.0] - 2026-10-21
 
 GitHub 화면이 GitHub 영어 대신 화면 언어로 보이고, 오토파일럿이 결과를 main에 더 안정적으로 반영해요.
