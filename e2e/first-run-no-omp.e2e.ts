@@ -294,6 +294,37 @@ for (const language of variants(["en", "ko"] as const)) {
 }
 
 /**
+ * Two apps installing at once, as parallel workers do: each one's download is its own. The test download used to
+ * land in `%LOCALAPPDATA%\ompdesk\tools\.downloads` on Windows, one file for every app on the PC, so the second
+ * app to finish found its `.part` renamed away (`ENOENT … rename`), the install failed before its installer
+ * ran, and a Retry or the provider step in the other spec failed the same way (5 of 16 runs beside 4 workers).
+ */
+test("first-run: two launches downloading omp at once do not share a download", async () => {
+	test.setTimeout(120_000);
+	const first = await launch("pair-one", "en", "light", "installing");
+	const second = await launch("pair-two", "en", "light", "installing");
+	try {
+		const apps = [first, second];
+		for (const { page } of apps) {
+			const omp = page.locator('[data-testid="machine-setup"] [data-setup-item="omp"]');
+			await expect(omp).toHaveAttribute("data-phase", "running", { timeout: 30_000 });
+			await expect(omp.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0.5");
+		}
+		for (const launched of apps) {
+			launched.finishDownload();
+			await expect
+				.poll(async () => fs.readFile(path.join(launched.root, "installer", "installs.log"), "utf8").catch(() => ""), {
+					message: `the installer of ${path.basename(launched.root)} ran, so its download finished and verified`,
+					timeout: 15_000,
+				})
+				.toMatch(/^omp /m);
+		}
+	} finally {
+		await Promise.all([first.close(), second.close()]);
+	}
+});
+
+/**
  * Opt-in (`OMP_GUI_REAL_FIRST_START=1`): the real boot cost of the user's installed omp on a fresh agent
  * dir, which the fake omp cannot show (its bundle load, cold provider discovery, a virus scan).
  */
