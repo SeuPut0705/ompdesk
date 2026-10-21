@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { run } from "./build-lock";
+import { describeExit, run } from "./build-lock";
 import { type LockLogEntry, readLockLog } from "./lock-log";
 
 describe("run", () => {
@@ -13,6 +13,14 @@ describe("run", () => {
 		const result = await run(["node", "-e", script, ...args], { capture: true });
 		expect(result.code).toBe(0);
 		expect(JSON.parse(result.output)).toEqual(args);
+	});
+
+	it.skipIf(process.platform === "win32")("names the signal that ended a step, never a bare exit code", async () => {
+		const result = await run(["node", "-e", "process.kill(process.pid, 'SIGKILL')"], { capture: true });
+		expect(result.signal).toBe("SIGKILL");
+		expect(result.code).toBe(137);
+		expect(describeExit(result)).toBe("killed by SIGKILL before it finished");
+		expect(describeExit({ code: 2, ms: 0, output: "" })).toBe("exit 2");
 	});
 });
 

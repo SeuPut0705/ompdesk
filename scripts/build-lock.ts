@@ -210,9 +210,17 @@ export async function acquireLock(command: readonly string[], options: AcquireOp
 }
 
 export interface RunResult {
+	/** The exit code; a step a signal ended reads 128 + the signal's number, as a shell reports it. */
 	code: number;
 	ms: number;
 	output: string;
+	/** The signal that ended the step (killed by the OS, a peer or a timeout), when one did. */
+	signal?: NodeJS.Signals;
+}
+
+/** How a failed step ended: "exit 2", or "killed by SIGKILL before it finished" (its output may stop mid-run). */
+export function describeExit(result: RunResult): string {
+	return result.signal ? `killed by ${result.signal} before it finished` : `exit ${result.code}`;
 }
 
 /** The file to start and how: Windows resolves `bunx` to `bunx.exe` (no shell) or a `.cmd` shim (cmd.exe). */
@@ -252,9 +260,10 @@ export function run(command: string[], options: { capture?: boolean } = {}): Pro
 	child.once("close", (code, signal) => {
 		children.delete(child);
 		resolve({
-			code: code ?? (signal ? 128 : 1),
+			code: code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : 1),
 			ms: performance.now() - started,
 			output: Buffer.concat(chunks).toString("utf8"),
+			...(code === null && signal ? { signal } : {}),
 		});
 	});
 	return promise;

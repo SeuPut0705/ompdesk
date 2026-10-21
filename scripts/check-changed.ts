@@ -28,7 +28,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { acquireLock, type RunResult, run, runLocked } from "./build-lock";
+import { acquireLock, describeExit, type RunResult, run, runLocked } from "./build-lock";
 import { browsersNeeded, missingBrowsers, missingBrowsersNotice } from "./e2e-browsers";
 
 const args = process.argv.slice(2);
@@ -122,7 +122,7 @@ const results = await Promise.all(
 	CHECKS.map(async ([name, command]): Promise<readonly [string, RunResult]> => {
 		const result = await run(command, { capture: true });
 		if (result.code !== 0)
-			console.log(`\n[check:changed] ✗ ${name} (exit ${result.code})\n${result.output.trimEnd()}\n`);
+			console.log(`\n[check:changed] ✗ ${name} (${describeExit(result)})\n${result.output.trimEnd()}\n`);
 		console.log(`[check:changed] ${result.code === 0 ? "✓" : "✗"} ${name} ${seconds(result.ms)}`);
 		return [name, result];
 	}),

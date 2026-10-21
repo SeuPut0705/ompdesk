@@ -16,7 +16,7 @@
  * A failed step prints its output and the gate exits non-zero; the side-by-side
  * steps always all finish, so one run reports every failing check.
  */
-import { acquireLock, type RunResult, run, runLocked } from "./build-lock";
+import { acquireLock, describeExit, type RunResult, run, runLocked } from "./build-lock";
 
 const CHECKS: ReadonlyArray<readonly [string, string[]]> = [
 	["types", ["bun", "run", "check:types"]],
@@ -31,7 +31,7 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 async function step(name: string, result: Promise<RunResult>): Promise<readonly [string, RunResult]> {
 	const done = await result;
-	if (done.code !== 0) console.log(`\n[gate] ✗ ${name} (exit ${done.code})\n${done.output.trimEnd()}\n`);
+	if (done.code !== 0) console.log(`\n[gate] ✗ ${name} (${describeExit(done)})\n${done.output.trimEnd()}\n`);
 	console.log(`[gate] ${done.code === 0 ? "✓" : "✗"} ${name} ${seconds(done.ms)}`);
 	return [name, done];
 }
