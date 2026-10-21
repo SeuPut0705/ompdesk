@@ -377,7 +377,7 @@ Code: `lib/messages.ts` (`abortActiveTurn`, `stopFromEscape`, `restoreAbortedQue
 
 - Views: `ComposerToolbar` (memoised: scalar props, stable handlers via `use-stable-callback.ts`, so typing does not re-render it), `RunChip` (+ `RunSettings.tsx`), `ComposerSheet`, `ComposerQueue.tsx`, `ComposerQueueEdit`, `queue-lane.tsx`, `ComposerRestoredQueue`, `ComposerUnderField`, `ComposerField`, `ComposerAttachments`, `CompletionList`, `PasteMenu`, `ComposerPickers`, `ComposerExpandedHeader`.
 - Hooks `use-composer-*` (`field` owns the one `textareaRef`, `placeDraft`/`ownEdit`, `field-height.ts`; `keys`, `menu`, `commands`, `paste`, `attach`, `dictation`, `draft`, `history`, `events` for `omp:insert-mention`/`omp:fill-composer`, `suggestions`, `submit`).
-- Helpers: `listbox-nav.ts`, `strip-roving.ts`, `paste-marker-edit.ts`, `keep-focus.ts`, `common/popover-focus.ts`, `lib/composer-actions.ts`, `lib/composer-blocked.ts`, `lib/tab-focus.ts`, `lib/hardware-keyboard.ts`.
+- Helpers: `strip-roving.ts`, `paste-marker-edit.ts`, `keep-focus.ts`, `common/popover-focus.ts`, `lib/composer-actions.ts`, `lib/composer-blocked.ts`, `lib/tab-focus.ts`, `lib/hardware-keyboard.ts`, `lib/listbox-nav.ts` (the keyboard model of a listbox driven from a field: the composer's menus wrap at the ends, the model, session and branch pickers stop there).
 
 ### Toolbar (desktop/tablet)
 
@@ -416,7 +416,7 @@ User's rule, from phone screenshots (descriptions under every row, a full-width 
 
 - The field is uncontrolled while typing (React 19 re-syncs a controlled textarea's `defaultValue` on every key, which cut ⌘Z to one character per press): the draft store is the source of truth and every composer write goes through `placeDraft`.
 - A `[Paste #N, +L lines]` marker is atomic: Backspace/Delete/word/line deletes that touch it remove marker and blob as one step (`paste-marker-edit.ts`); a dangling `[Paste #N` never reaches the agent.
-- `@` lists up to 20 000 files (`MENTION_FS_MAX_ENTRIES`) at depth 16 (`MENTION_FS_DEPTH`, `input-area-utils.ts`) ranked by `pathMatcher` (file name, word starts, CamelCase, Hangul initials); ←/→ keep the menu while inside the token (`arrowKeepsMenu`). The completion menu and the history overlay share `listbox-nav.ts`; the field is `role=combobox` while a menu exists.
+- `@` lists up to 20 000 files (`MENTION_FS_MAX_ENTRIES`) at depth 16 (`MENTION_FS_DEPTH`, `input-area-utils.ts`) ranked by `pathMatcher` (file name, word starts, CamelCase, Hangul initials); ←/→ keep the menu while inside the token (`arrowKeepsMenu`). The completion menu and the history overlay share `lib/listbox-nav.ts`; the field is `role=combobox` while a menu exists.
 - Attachment strips (`strip-roving.ts`): one tab stop each, arrows, Delete/Backspace, Backspace on an empty field focuses the last attachment, "Remove all" from 2.
 - The draft flushes on `visibilitychange`/`pagehide` and on unmount.
 - A draft past 8 000 characters (`LONG_DRAFT_CHARS`, `ComposerField.tsx`) is set in the system face (`[data-long]`): Inter Variable was reshaped for the whole text on every key.

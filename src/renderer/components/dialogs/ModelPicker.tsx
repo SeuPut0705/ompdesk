@@ -25,6 +25,7 @@ import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import { runManualMaintenance } from "../../lib/messages";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useModelStore } from "../../stores/model";
@@ -284,29 +285,16 @@ export function ModelPicker() {
 
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
 		if (isImeKeyEvent(event)) return;
-		switch (event.key) {
-			case "ArrowDown":
-				event.preventDefault();
-				setActiveIndex(index => Math.min(index + 1, flatOptions.length - 1));
-				break;
-			case "ArrowUp":
-				event.preventDefault();
-				setActiveIndex(index => Math.max(index - 1, 0));
-				break;
-			case "Home":
-				event.preventDefault();
-				setActiveIndex(0);
-				break;
-			case "End":
-				event.preventDefault();
-				setActiveIndex(Math.max(0, flatOptions.length - 1));
-				break;
-			case "Enter": {
-				event.preventDefault();
-				const option = flatOptions[activeIndex];
-				if (option) void select(option.provider, option.modelId);
-				break;
-			}
+		const target = listboxTarget(event.key, activeIndex, flatOptions.length, { wrap: false });
+		if (target !== null) {
+			event.preventDefault();
+			setActiveIndex(target);
+			return;
+		}
+		if (event.key === "Enter") {
+			event.preventDefault();
+			const option = flatOptions[activeIndex];
+			if (option) void select(option.provider, option.modelId);
 		}
 	};
 

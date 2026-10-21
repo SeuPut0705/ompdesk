@@ -5,6 +5,7 @@ import { cx, escapeRegExp, formatTimeAgo, shortenPath } from "../../../lib/forma
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { chordFromEvent } from "../../../lib/keymap";
+import { listboxTarget } from "../../../lib/listbox-nav";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import type { InputHistoryEntry } from "../../../stores/input-history";
 import { useInputHistoryStore } from "../../../stores/input-history";
@@ -12,7 +13,6 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
 import { Kbd, Spinner, Tabs } from "../../common";
-import { listboxTarget } from "./listbox-nav";
 
 /**
  * Ctrl+R history search overlay (GUI counterpart of the TUI

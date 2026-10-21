@@ -10,6 +10,7 @@ import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, us
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
@@ -114,29 +115,16 @@ export function BranchPickerDialog() {
 
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
 		if (isImeKeyEvent(event)) return;
-		switch (event.key) {
-			case "ArrowDown":
-				event.preventDefault();
-				setActiveIndex(index => Math.min(index + 1, filtered.length - 1));
-				break;
-			case "ArrowUp":
-				event.preventDefault();
-				setActiveIndex(index => Math.max(index - 1, 0));
-				break;
-			case "Home":
-				event.preventDefault();
-				setActiveIndex(0);
-				break;
-			case "End":
-				event.preventDefault();
-				setActiveIndex(Math.max(0, filtered.length - 1));
-				break;
-			case "Enter": {
-				event.preventDefault();
-				const entry = filtered[activeIndex];
-				if (entry) void select(entry);
-				break;
-			}
+		const target = listboxTarget(event.key, activeIndex, filtered.length, { wrap: false });
+		if (target !== null) {
+			event.preventDefault();
+			setActiveIndex(target);
+			return;
+		}
+		if (event.key === "Enter") {
+			event.preventDefault();
+			const entry = filtered[activeIndex];
+			if (entry) void select(entry);
 		}
 	};
 
