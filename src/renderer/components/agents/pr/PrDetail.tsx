@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { DiffView } from "../../../lib/diff";
+import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { usePrCenterStore } from "../../../stores/pr-center";
@@ -37,33 +38,6 @@ function CheckIcon({ conclusion, status }: { conclusion: string | null; status: 
 		return <Circle aria-hidden className={`${className} fill-current text-(--sc-warning)`} />;
 	}
 	return <Circle aria-hidden className={`${className} text-(--sc-text-subtle)`} />;
-}
-
-/** GitHub's check run and commit status states (`statusCheckRollup`), in the UI's words. */
-const CHECK_STATES: Record<string, true> = {
-	success: true,
-	failure: true,
-	error: true,
-	neutral: true,
-	cancelled: true,
-	skipped: true,
-	timed_out: true,
-	action_required: true,
-	stale: true,
-	startup_failure: true,
-	queued: true,
-	in_progress: true,
-	waiting: true,
-	requested: true,
-	pending: true,
-	expected: true,
-	completed: true,
-};
-
-/** A state GitHub adds later reads as GitHub spells it. */
-function checkStateLabel(t: (key: string) => string, state: string): string {
-	const key = state.toLowerCase();
-	return CHECK_STATES[key] ? t(`prCenter.checkState.${key}`) : key.replace(/_/g, " ");
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -293,7 +267,7 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 								<CheckIcon conclusion={check.conclusion} status={check.status} />
 								<span className="min-w-0 truncate text-(--sc-text)">{check.name}</span>
 								<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)">
-									{checkStateLabel(t, check.conclusion ?? check.status)}
+									{githubStateLabel(t, check.conclusion ?? check.status)}
 								</span>
 							</li>
 						))}

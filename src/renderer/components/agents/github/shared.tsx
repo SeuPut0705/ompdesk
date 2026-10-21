@@ -2,6 +2,7 @@ import { CheckCircle2, Circle, CircleDot, XCircle } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import type { GithubTarget } from "../../../../shared/github";
 import { cx } from "../../../lib/format";
+import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { toast, toastError } from "../../../stores/toast";
 import { EmptyState } from "../../common";
@@ -96,13 +97,11 @@ export function RunState({ status, conclusion }: { status: string; conclusion: s
 				: conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure"
 					? [XCircle, "text-(--sc-danger)", "github.runs.failure"]
 					: [Circle, "text-(--sc-text-subtle)", "github.runs.other"];
+	const label = t(key, { state: githubStateLabel(t, conclusion) });
 	return (
-		<span
-			className={cx("flex shrink-0 [&>svg]:size-(--sc-icon-sm)", className)}
-			title={t(key, { state: conclusion })}
-		>
+		<span className={cx("flex shrink-0 [&>svg]:size-(--sc-icon-sm)", className)} title={label}>
 			<Icon aria-hidden />
-			<span className="sr-only">{t(key, { state: conclusion })}</span>
+			<span className="sr-only">{label}</span>
 		</span>
 	);
 }
