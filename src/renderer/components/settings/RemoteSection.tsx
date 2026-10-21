@@ -424,7 +424,7 @@ export function RemoteSection() {
 									})}
 								</p>
 							) : host.addresses.length > 0 ? (
-								<ul className="flex flex-col gap-1 [--hit-gap-y:4px]" data-remote-addresses>
+								<ul className="flex flex-col gap-1" data-remote-addresses>
 									{host.addresses.map(address => (
 										<li key={address}>
 											<CopyableValue value={address} />

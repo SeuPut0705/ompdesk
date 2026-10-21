@@ -108,7 +108,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 		>
 			<div className="space-y-4">
 				<div className="grid grid-cols-[minmax(0,1fr)_9rem_5.5rem_5.5rem] gap-3 max-md:grid-cols-2 max-sm:grid-cols-1">
-					<div className="space-y-2 [--hit-gap-y:8px]">
+					<div className="space-y-2" data-benchmark-models>
 						<span className="text-sc-md">{t("benchmark.models")}</span>
 						<ModelValueSelect
 							kind="model"
@@ -119,7 +119,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 								if (value) setModels([...new Set([...selectors, value])].join(", "));
 							}}
 						/>
-						<div className="flex flex-wrap gap-1 [--hit-gap-x:4px] [--hit-gap-y:4px]">
+						<div className="flex flex-wrap gap-1" data-benchmark-chips>
 							{selectors.map(selector => (
 								<button
 									type="button"

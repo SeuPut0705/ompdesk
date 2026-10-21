@@ -183,13 +183,19 @@ describe("controls close enough to take each other's taps", () => {
 	});
 
 	it("declares the gap of the wrapping rows and clusters the audit found", () => {
-		declares("../components/modes/AutopilotConfig.tsx", "gap-1.5 [--hit-gap-x:6px] [--hit-gap-y:6px]");
-		declares("../components/settings/RemoteSection.tsx", "gap-1 [--hit-gap-y:4px]");
-		declares(
-			"../components/dialogs/BenchmarkDialog.tsx",
-			"space-y-2 [--hit-gap-y:8px]",
-			"gap-1 [--hit-gap-x:4px] [--hit-gap-y:4px]",
+		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-run-actions");
+		declares("../components/settings/RemoteSection.tsx", "data-remote-addresses");
+		declares("../components/dialogs/BenchmarkDialog.tsx", "data-benchmark-models", "data-benchmark-chips");
+		// Room as well as a bound: each reach is its own box plus half the gap, so 4-6 px left them 26-29 px high.
+		expect(rule('html[data-input="touch"] [data-autopilot-run-actions]')).toMatch(
+			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
 		);
+		expect(rule('html[data-input="touch"] [data-remote-addresses]')).toMatch(/--hit-gap-y:\s*14px/);
+		expect(rule('html[data-input="touch"] [data-remote-addresses] > li')).toMatch(/padding-block:\s*7px/);
+		expect(rule('html[data-input="touch"] [data-benchmark-models] > :not(:last-child)')).toMatch(
+			/margin-block-end:\s*12px/,
+		);
+		expect(rule('html[data-input="touch"] [data-benchmark-chips]')).toMatch(/gap:\s*12px;[^}]*--hit-gap-y:\s*12px/);
 		declares("../components/panels/TerminalPanel.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
 		declares("../components/dialogs/ImportForeignDialog.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
 	});

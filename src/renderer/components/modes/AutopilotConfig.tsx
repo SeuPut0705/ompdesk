@@ -74,7 +74,7 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 				</span>
 				{branch && <span className="truncate font-mono text-sc-xs text-(--sc-text-muted)">{branch}</span>}
 			</div>
-			<div className="flex flex-wrap items-center gap-1.5 [--hit-gap-x:6px] [--hit-gap-y:6px]">
+			<div className="flex flex-wrap items-center gap-1.5" data-autopilot-run-actions>
 				<Button
 					data-autopilot-open-screen
 					icon={<LayoutDashboard aria-hidden />}

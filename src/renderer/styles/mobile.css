@@ -1242,6 +1242,40 @@ html[data-input="touch"] [role="tablist"] > [role="tab"] {
 	min-height: var(--sc-row-touch);
 }
 
+/* Clusters a finger taps on touch get room, not only a bound: each control's reach is its own box plus half the gap,
+   so with the desktop's 4-6 px a bound alone left the Autopilot run's buttons 28 px, the benchmark's models 29 and the
+   remote addresses 26 high. Spaced like this each reaches 36 and stops half way to the next. */
+html[data-input="touch"] [data-autopilot-run-actions] {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
+}
+
+/* Each address sits in 7 px above and below, inside its own row: the first one's reach stops short of the setting's
+   info glyph above the list. */
+html[data-input="touch"] [data-remote-addresses] {
+	row-gap: 0;
+	--hit-gap-y: 14px;
+}
+
+html[data-input="touch"] [data-remote-addresses] > li {
+	padding-block: 7px;
+}
+
+html[data-input="touch"] [data-benchmark-models] {
+	--hit-gap-y: 12px;
+}
+
+html[data-input="touch"] [data-benchmark-models] > :not(:last-child) {
+	margin-block-end: 12px;
+}
+
+html[data-input="touch"] [data-benchmark-chips] {
+	gap: 12px;
+	--hit-gap-x: 12px;
+	--hit-gap-y: 12px;
+}
+
 /* A segmented bar's tabs sit 2 px apart: half of 4 px reached into the neighbour's own reach, which took the taps. */
 html[data-input="touch"] [role="tablist"][data-segmented] {
 	--hit-gap-x: 2px;
