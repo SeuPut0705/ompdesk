@@ -69,11 +69,12 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * sidebar and picker share), 0.9 KB; 3.311 MB (3,310,352 on the merged main of v0.49.0; 6.6 KB over the 3.303 MB
  * budget on its own base) with the sidebar's own project list: an empty or missing project's group, Remove from
  * sidebar on this device's and each host's section, the list's store and its parse (`stores/sidebar-projects.ts`,
- * `shared/sidebar-projects.ts`; the sidebar is the first screen)): a build that grows past it fails,
- * so the next eager import is a decision, not an accident. The language chunk the entries load before rendering is
- * not in it.
+ * `shared/sidebar-projects.ts`; the sidebar is the first screen); 3.312 MB (3,311,129 on the merged main, 3,310,873
+ * before) with the muted transcript line of a cut-off turn the resume follow-up continues (a5256b2b), 0.3 KB): a
+ * build that grows past it fails, so the next eager import is a decision, not an accident. The language chunk the
+ * entries load before rendering is not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_311_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_312_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
