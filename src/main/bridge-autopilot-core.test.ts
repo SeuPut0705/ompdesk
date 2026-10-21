@@ -572,8 +572,8 @@ describe("journal replay", () => {
 	});
 	it("openFollowups: one the person dismissed after the cycle that left it closes, until a later cycle lists it again", () => {
 		const records = seq(
-			{ followups: ["Trim the log", "Docs for X"], startedAt: 1_000 },
-			{ followups: [], startedAt: 2_000 },
+			{ followups: ["Trim the log", "Docs for X"], startedAt: 1_000, durationMs: 500 },
+			{ followups: [], startedAt: 2_000, durationMs: 500 },
 		);
 		const entries = [
 			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "b1", text: "Keyboard access", at: 1_500 }),
@@ -583,8 +583,18 @@ describe("journal replay", () => {
 		expect(dismissed).toEqual([{ text: "trim  the LOG", at: 2_500 }]);
 		expect(backlogItems(entries).map(item => item.text)).toEqual(["Keyboard access"]);
 		expect(openFollowups(records, dismissed)).toEqual(["Docs for X"]);
-		const listedAgain = [...records, ...seq({ n: 3, followups: ["Trim the log"], startedAt: 3_000 })];
+		const listedAgain = [
+			...records,
+			...seq({ n: 3, followups: ["Trim the log"], startedAt: 3_000, durationMs: 500 }),
+		];
 		expect(openFollowups(listedAgain, dismissed)).toEqual(["Trim the log", "Docs for X"]);
+		// Dismissed while cycle 2 still ran (started 2 000, ended 3 000), and cycle 2 left it again: it stays open.
+		const inFlight = seq(
+			{ followups: ["Trim the log"], startedAt: 1_000, durationMs: 500 },
+			{ followups: ["Trim the log"], startedAt: 2_000, durationMs: 1_000 },
+		);
+		expect(openFollowups(inFlight, dismissed)).toEqual(["Trim the log"]);
+		expect(openFollowups(inFlight, [{ text: "Trim the log", at: 3_000 }])).toEqual([]);
 	});
 	it("parseEndReport keeps the resolved follow-ups, and finalizeCycle records them", () => {
 		const report = parseEndReport({

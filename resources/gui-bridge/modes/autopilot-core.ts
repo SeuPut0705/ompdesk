@@ -511,8 +511,9 @@ export function pendingNotes(
  * Follow-ups of the recent cycles that no later cycle did, newest first, without repeats. A later cycle did one when
  * its title is the follow-up's text or its report lists it under `resolved` (a title is a short name for the work and
  * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
- * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it closes
- * it too (`dismissed`, the backlog's `dismiss` events); a later cycle that lists it again reopens it.
+ * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it ended
+ * closes it too (`dismissed`, the backlog's `dismiss` events); a cycle that lists it again reopens it, even one that
+ * was already running when the person dismissed it.
  */
 export function openFollowups(
 	records: readonly AutopilotCycleRecord[],
@@ -529,8 +530,9 @@ export function openFollowups(
 			const done = (later: AutopilotCycleRecord) =>
 				normalizeTitle(later.title) === key || (later.resolved ?? []).some(text => normalizeTitle(text) === key);
 			if (window.slice(i + 1).some(done)) continue;
-			const since = window[i].startedAt;
-			if (dismissed.some(event => event.at >= since && normalizeTitle(event.text) === key)) continue;
+			// After the cycle that left it ended: a dismissal while that cycle still ran is about an earlier listing.
+			const left = window[i].startedAt + window[i].durationMs;
+			if (dismissed.some(event => event.at >= left && normalizeTitle(event.text) === key)) continue;
 			open.push(followup);
 		}
 	}
