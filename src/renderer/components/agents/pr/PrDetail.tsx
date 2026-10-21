@@ -256,8 +256,13 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 			{detail.checks.length > 0 && (
 				<Section title={t("prCenter.section.checks", { count: String(detail.checks.length) })}>
 					<ul className="flex flex-col divide-y divide-(--sc-divider) rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
-						{detail.checks.map(check => (
-							<li className="flex items-center gap-2 px-3 py-2 text-sc-sm" key={check.name}>
+						{detail.checks.map((check, index) => (
+							<li
+								className="flex items-center gap-2 px-3 py-2 text-sc-sm"
+								data-pr-check
+								// One rollup can hold two checks of one name (a `check` job in two workflows).
+								key={`${index}:${check.name}`}
+							>
 								<CheckIcon conclusion={check.conclusion} status={check.status} />
 								<span className="min-w-0 truncate text-(--sc-text)">{check.name}</span>
 								<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)">
