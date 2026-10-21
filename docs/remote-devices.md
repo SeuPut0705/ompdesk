@@ -28,6 +28,11 @@ The computer that shares itself listens on its Tailscale addresses only, never o
 
 - A remote tab uses that computer's omp, accounts, files, terminal and history. Its omp, extensions and tools are updated by that computer's own OMPdesk.
 - If a device disconnects, its tabs keep running for 10 minutes, waiting for it to come back.
+- Quitting or updating OMPdesk on the computer you sit at leaves its remote tabs running on the other computer, as long as **Continue interrupted work after relaunch** is on (the default); they come back on the next launch.
+- The computer that runs the work shows those sessions in its own sidebar too, and you can type in them there; a question is answered by whichever side answers first.
+- An Autopilot run in the other computer's folder belongs to that computer: it keeps running when you close it here, and its replies count against this device's daily limit until it ends.
+- **Limits** on a device's row caps how much of this computer's models it may use a day, in requests and tokens.
+- Memory is shared: rules, decisions and each turn's conclusion saved on one computer are recalled on the other, while memory is on at both.
 - The computer that runs the work stays awake while a device is connected or its session runs. **Keep this computer awake while a device is using it** (on by default) turns that off.
 - Computers paired with a code by an older OMPdesk stay connected when they are found on your tailnet; Settings names the others once, and you connect them again from the list.
 - This is separate from [Mobile web](mobile-web.md), which opens OMPdesk from a phone browser over Tailscale.
