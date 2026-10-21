@@ -77,10 +77,11 @@ export class LinkTraffic {
 	}
 
 	#kindOf(message: object): string {
-		const { t, id, method, event, data } = message as Record<string, unknown>;
+		const { t, id, method, event, data, params } = message as Record<string, unknown>;
 		if (t === "req") {
-			if (typeof id === "number" && this.#methods.size < MAX_OPEN_REQUESTS) this.#methods.set(id, name(method));
-			return `req ${name(method)}`;
+			const asked = this.#methodOf(method, params);
+			if (typeof id === "number" && this.#methods.size < MAX_OPEN_REQUESTS) this.#methods.set(id, asked);
+			return `req ${asked}`;
 		}
 		if (t === "res") {
 			const asked = typeof id === "number" ? this.#methods.get(id) : undefined;
@@ -89,6 +90,18 @@ export class LinkTraffic {
 		}
 		if (t === "evt") return event === TAB_EVENT ? this.#tabEventKind(data) : `evt ${name(event)}`;
 		return name(t);
+	}
+
+	/**
+	 * A request's method, and for `tab.command` the RPC command's type with it: every poll of a viewed host tab is a
+	 * `tab.command`, and a link moving 3 MB a minute of their answers (21 Oct 2026) said nothing of which one.
+	 */
+	#methodOf(method: unknown, params: unknown): string {
+		const base = name(method);
+		if (base !== "tab.command") return base;
+		const type = ((params as { command?: { type?: unknown } } | null)?.command as { type?: unknown } | undefined)
+			?.type;
+		return typeof type === "string" ? `${base}/${name(type)}` : base;
 	}
 
 	#tabEventKind(data: unknown): string {

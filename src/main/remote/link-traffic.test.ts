@@ -23,6 +23,24 @@ describe("LinkTraffic", () => {
 		expect([window.tx, window.rx]).toEqual([8_344, 90]);
 	});
 
+	it("names a tab command and its answer by the RPC command's type", () => {
+		const traffic = new LinkTraffic();
+		traffic.record(
+			"rx",
+			{ t: "req", id: 3, method: "tab.command", params: { rtab: "t1", command: { type: "get_jobs" } } },
+			150,
+		);
+		traffic.record("tx", { t: "res", id: 3, ok: true, result: { type: "response" } }, 80_000);
+		traffic.record("rx", { t: "req", id: 4, method: "tab.command", params: { rtab: "t1" } }, 60);
+		traffic.record("tx", { t: "res", id: 4, ok: true, result: {} }, 40);
+		expect(traffic.take().rows).toEqual([
+			{ kind: "tx res tab.command/get_jobs", frames: 1, bytes: 80_000 },
+			{ kind: "rx req tab.command/get_jobs", frames: 1, bytes: 150 },
+			{ kind: "rx req tab.command", frames: 1, bytes: 60 },
+			{ kind: "tx res tab.command", frames: 1, bytes: 40 },
+		]);
+	});
+
 	it("names the frame type of a subagent frame and counts the omp events of a batch by type", () => {
 		const traffic = new LinkTraffic();
 		traffic.record("tx", tabEvent("subagentFrame", { type: "subagent_progress", payload: {} }), 3_000);
