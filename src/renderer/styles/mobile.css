@@ -755,6 +755,37 @@ html[data-shell] .omp-widget-float {
 	}
 }
 
+/* Checkbox and radio rows stacked a few px apart (the feedback dialog's attachments and its error preview, the worktree
+   dialog's base choice): a 44 px reach from a 17–32 px row covered the next row's text, so a tap there toggled the
+   neighbour. On touch each row is about a row high (by padding, so the text keeps its place in it) and its reach ends
+   half way to the next. */
+html[data-input="touch"] [data-feedback-include] {
+	--hit-gap-y: 4px;
+}
+
+html[data-input="touch"] [data-feedback-include] :is(label, summary) {
+	padding-block: 10px;
+}
+
+/* The error log row's 16 px (i) sits 20 px after its label and reaches 10 px each way, inside its padded row: a 36 px
+   target that leaves the label and the preview below their own taps. */
+html[data-input="touch"] [data-feedback-include] div:has(> [data-setting-info]) {
+	gap: 20px;
+}
+
+html[data-input="touch"] [data-feedback-include] [data-setting-info] {
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
+}
+
+html[data-input="touch"] [data-worktree-base] {
+	--hit-gap-y: 6px;
+}
+
+html[data-input="touch"] [data-worktree-base] > label {
+	min-height: var(--sc-row-touch);
+}
+
 /* The prompt card (an ask, an approval, a select): its answers and step tabs are one dense row each. */
 html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data-ask-note]) {
 	min-height: var(--sc-row-touch);

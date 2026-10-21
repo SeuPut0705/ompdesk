@@ -149,7 +149,10 @@ export function FeedbackDialog() {
 					required
 				/>
 
-				<div className="space-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
+				<div
+					data-feedback-include
+					className="space-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3"
+				>
 					<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
 						<input
 							type="checkbox"

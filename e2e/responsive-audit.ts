@@ -618,15 +618,16 @@ function measureInPage(
 		// The composer's textarea is one target with the box around it.
 		const composer = element.matches("[data-composer-input]") ? element.closest(".omp-composer-box") : null;
 		// A text editor (CodeMirror's contenteditable) is a field too: a tap anywhere on its scroller focuses it.
+		const label =
+			element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? element.closest("label") : null;
+		// A checkbox or radio inside its label is the label's target: the label carries the reach (mobile.css).
 		const field =
-			element instanceof HTMLInputElement ||
+			(element instanceof HTMLInputElement && !label) ||
 			element instanceof HTMLSelectElement ||
 			element.matches('[contenteditable="true"]') ||
 			(element instanceof HTMLTextAreaElement && !composer);
-		const label =
-			element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? element.closest("label") : null;
 		const own = (row ?? composer ?? label ?? element).getBoundingClientRect();
-		const after = getComputedStyle(element, "::after");
+		const after = getComputedStyle(label ?? element, "::after");
 		const reach = !row && !field && after.content !== "none" && after.position === "absolute";
 		return {
 			width: Math.max(own.width, reach ? Number.parseFloat(after.width) || 0 : 0),
@@ -713,8 +714,12 @@ function measureInPage(
 		if (element instanceof HTMLAnchorElement && style(element).display === "inline") continue;
 		const hit = hitBox(element);
 		if (hit.row) continue;
-		const own = element.getBoundingClientRect();
-		const clip = visibleRect(element);
+		// A checkbox or radio is tapped through its label: the label's box and reach are its own.
+		const label = element.closest("label");
+		const target =
+			label && element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? label : element;
+		const own = target.getBoundingClientRect();
+		const clip = visibleRect(target);
 		if (!clip) continue;
 		const cx = own.left + own.width / 2;
 		const cy = own.top + own.height / 2;
@@ -733,7 +738,6 @@ function measureInPage(
 			[cx - halfW, cy + halfH, "bottom-left"],
 			[cx + halfW, cy + halfH, "bottom-right"],
 		];
-		const label = element.closest("label");
 		const lost: string[] = [];
 		let thief = "";
 		// A scroller clips its controls' reach as it clips them: a point past it is no tap of this control's.
@@ -745,7 +749,8 @@ function measureInPage(
 			const topEl = tapTarget(x, y);
 			if (!topEl || element.contains(topEl) || label?.contains(topEl)) continue;
 			// Inside the control's own scroller bounds only: a point past the clip belongs to the clipper.
-			const owner = topEl.closest(controlSelector);
+			const owner =
+				topEl.closest(controlSelector) ?? topEl.closest("label:has(> input:is([type=checkbox], [type=radio]))");
 			if (owner && (owner.contains(element) || element.contains(owner))) continue;
 			// A popover, sheet or toast lying over part of the control covers it while it is open; it takes nothing.
 			const cover = layerOf(topEl);

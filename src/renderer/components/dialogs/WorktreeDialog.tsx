@@ -203,7 +203,7 @@ export function WorktreeDialog() {
 					</p>
 				)}
 				{error && <InlineNotice detail={error.cause} live title={error.message} tone="danger" />}
-				<fieldset disabled={creating || created !== null} className="flex flex-col gap-1.5">
+				<fieldset data-worktree-base disabled={creating || created !== null} className="flex flex-col gap-1.5">
 					<legend className="text-sc-sm font-medium text-(--sc-text-secondary)">{t("worktree.baseLabel")}</legend>
 					{(["HEAD", "default"] as const).map(value => (
 						<label

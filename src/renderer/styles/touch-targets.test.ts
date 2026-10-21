@@ -295,6 +295,21 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] [data-empty-actions]')).toMatch(/--hit-gap-y:\s*initial/);
 		declares("../components/panels/TerminalPanel.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
 		declares("../components/dialogs/ImportForeignDialog.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
+		// Checkbox and radio rows a few px apart: each a row high, its reach ending half way to the next (a 44 px reach
+		// from a 17 px label toggled the row under it).
+		declares("../components/dialogs/FeedbackDialog.tsx", "data-feedback-include");
+		expect(rule('html[data-input="touch"] [data-feedback-include]')).toMatch(/--hit-gap-y:\s*4px/);
+		expect(rule('html[data-input="touch"] [data-feedback-include] :is(label, summary)')).toMatch(
+			/padding-block:\s*10px/,
+		);
+		expect(rule('html[data-input="touch"] [data-feedback-include] [data-setting-info]')).toMatch(
+			/--hit-gap-x:\s*20px;[^}]*--hit-gap-y:\s*20px/,
+		);
+		declares("../components/dialogs/WorktreeDialog.tsx", "data-worktree-base");
+		expect(rule('html[data-input="touch"] [data-worktree-base]')).toMatch(/--hit-gap-y:\s*6px/);
+		expect(rule('html[data-input="touch"] [data-worktree-base] > label')).toMatch(
+			/min-height:\s*var\(--sc-row-touch\)/,
+		);
 	});
 });
 
