@@ -238,9 +238,13 @@ describe("controls close enough to take each other's taps", () => {
 		expect(
 			rule('html[data-input="touch"] .omp-changes [data-scm-bar][data-scm-bar][data-scm-bar] > div.flex'),
 		).toMatch(/column-gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/);
-		expect(rule('html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label, button)')).toMatch(
-			/align-self:\s*stretch/,
-		);
+		expect(
+			rule('html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label, button:not(:last-child))'),
+		).toMatch(/align-self:\s*stretch/);
+		// The discard icon keeps its size (a tablet keeps the desktop's controls): only its reach grows.
+		const discard = rule('html[data-input="touch"] .omp-changes [data-staged][data-staged] > button:last-child');
+		expect(discard).toMatch(/--hit-gap-y:\s*14px/);
+		expect(discard).not.toMatch(/\b(width|height):/);
 		const topbar = css.lastIndexOf('\nhtml[data-shell="phone"] .omp-panel-topbar {');
 		expect(css.slice(topbar, css.indexOf("}", topbar))).toMatch(/--hit-gap-y:\s*14px/);
 		declares("../components/panels/TerminalPanel.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');

@@ -1355,19 +1355,26 @@ html[data-input="touch"]
    (the file button's reach lay 1 px over the next row's). */
 html[data-input="touch"] .omp-changes [data-staged][data-staged] {
 	min-height: var(--sc-row-touch);
+	column-gap: 14px;
 	--hit-gap-y: 0px;
 }
 
-/* The rest of a Changes row is the row too: the stage box, the file and the discard button stand as tall as the row,
-   the box and the discard button as wide as it is tall, so each is a 36 px target where they drew 28×24, 302×29 and
-   26×24. Only their boxes grow: the check box and the icon keep their size, centred. */
-html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label, button) {
+/* The rest of a Changes row is the row too: the stage box's label (it draws nothing of its own) and the file stand as
+   tall as the row, the label as wide as it is tall; the discard icon keeps its 24 px box and reaches the row's
+   height and 7 px either side (its ::after starts inside its 1 px border), 14 px from the file. Each is a 36 px
+   target where they took 28×24, 302×29 and 26×24. */
+html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label, button:not(:last-child)) {
 	align-self: stretch;
 	height: auto;
 }
 
-html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label:first-child, button:last-child) {
+html[data-input="touch"] .omp-changes [data-staged][data-staged] > label:first-child {
 	width: var(--sc-row-touch);
+}
+
+html[data-input="touch"] .omp-changes [data-staged][data-staged] > button:last-child {
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
 }
 
 /* The Changes view's own controls (refresh in its toolbar, the branch, fetch, pull and push of the source-control
@@ -1390,11 +1397,6 @@ html[data-input="touch"] .omp-changes [data-scm-bar][data-scm-bar][data-scm-bar]
 	column-gap: 14px;
 	--hit-gap-x: 14px;
 	--hit-gap-y: 14px;
-}
-
-/* The discard button's ::after starts inside its 1 px border: 1 px each way makes it the row's full 36. */
-html[data-input="touch"] .omp-changes [data-staged][data-staged] > button:last-child {
-	--hit-gap-y: 2px;
 }
 
 html[data-input="touch"] .omp-changes :is([data-commit-box], .omp-changes-list) div.flex:has(> label > input[type="checkbox"]) {
