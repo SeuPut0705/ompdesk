@@ -90,6 +90,17 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(board.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
 				await expect(board.locator("[data-board-autopilot-text]")).toContainText(TEXT[language].running);
 				await expect(board.locator("[data-autopilot-totals]")).toBeVisible();
+				// The board lists the newest five cycles and folds the older ones behind "+N more" (unfolded, it lists
+				// them all from then on); the fake run keeps cycling every 700 ms, so on a slow machine cycle 1 is already
+				// folded here, or folds a moment later. Unfold until it shows.
+				const cycles = board.locator('[data-board-section="cycles"]');
+				await expect
+					.poll(async () => {
+						const more = cycles.locator("[data-board-more]");
+						if ((await more.count()) > 0) await more.click();
+						return cycles.locator('[data-autopilot-cycle="1"]').count();
+					})
+					.toBe(1);
 				for (const n of [1, 2]) {
 					await expect(board.locator(`[data-autopilot-cycle="${n}"]`)).toHaveAttribute("data-verify", "green");
 				}
