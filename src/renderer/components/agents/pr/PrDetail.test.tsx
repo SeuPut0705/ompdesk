@@ -8,7 +8,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RpcCommand, RpcPrDetail } from "../../../../shared/rpc-types";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, setLanguageOverride } from "../../../lib/i18n";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { PrDetail } from "./PrDetail";
 
@@ -88,6 +88,7 @@ afterEach(async () => {
 	}
 	container?.remove();
 	usePrCenterStore.getState().reset();
+	setLanguageOverride(null);
 });
 
 describe("PR detail checks", () => {
@@ -105,7 +106,7 @@ describe("PR detail checks", () => {
 			},
 		});
 		await mount();
-		expect(checkRows()).toEqual(["checksuccess", "buildin progress", "checkin progress"]);
+		expect(checkRows()).toEqual(["checkpassed", "buildrunning", "checkrunning"]);
 
 		// The next read: the first workflow's run is gone from the rollup, the rest moved on.
 		await act(async () =>
@@ -119,6 +120,25 @@ describe("PR detail checks", () => {
 				},
 			}),
 		);
-		expect(checkRows()).toEqual(["buildsuccess", "checkfailure"]);
+		expect(checkRows()).toEqual(["buildpassed", "checkfailed"]);
+	});
+
+	it("names each state in the UI's language, and one GitHub adds later as GitHub spells it", async () => {
+		install();
+		setLanguageOverride("ko");
+		usePrCenterStore.setState({
+			selected: 7,
+			detail: {
+				...DETAIL,
+				checks: [
+					{ name: "a", status: "COMPLETED", conclusion: "TIMED_OUT" },
+					{ name: "b", status: "IN_PROGRESS", conclusion: null },
+					{ name: "c", status: "PENDING", conclusion: null },
+					{ name: "d", status: "COMPLETED", conclusion: "BRAND_NEW_STATE" },
+				],
+			},
+		});
+		await mount();
+		expect(checkRows()).toEqual(["a시간 초과", "b진행 중", "c보류 중", "dbrand new state"]);
 	});
 });
