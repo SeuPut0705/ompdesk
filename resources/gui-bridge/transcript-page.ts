@@ -6,7 +6,7 @@
  * never a typed prompt: snapping to the prompt made one page of a long run 1754 messages and 4.6 MB (21 Oct 2026), on
  * every hydrate and every reconnect of a paired device.
  */
-export function transcriptTurnStart(
+export function transcriptRunStart(
 	messages: readonly { role: string; steering?: boolean; stopReason?: string }[],
 	offset: number,
 	end: number,

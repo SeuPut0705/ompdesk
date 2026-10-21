@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { transcriptPageMessages, transcriptTurnStart } from "../../../resources/gui-bridge/transcript-page";
+import { transcriptPageMessages, transcriptRunStart } from "../../../resources/gui-bridge/transcript-page";
 import type { AgentMessage, MessagesPage } from "../../shared/rpc-types";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { GuiBridgeClient } from "../bridge-client";
@@ -24,7 +24,7 @@ function pagedBridge(entries: ReturnType<typeof message>[], leaf: () => string) 
 		const { offset, limit, snapToTurn } = params as { offset: number; limit: number; snapToTurn?: boolean };
 		const messages = entries.map(entry => ({ ...entry.message, entryId: entry.id }));
 		const end = Math.min(messages.length, offset + limit);
-		const startIndex = snapToTurn ? transcriptTurnStart(messages, offset, end) : offset;
+		const startIndex = snapToTurn ? transcriptRunStart(messages, offset, end) : offset;
 		return { leafId: leaf(), total: messages.length, startIndex, messages: messages.slice(startIndex, end) } as T;
 	});
 	const ctx: LocalCommandContext = {
@@ -120,7 +120,7 @@ describe("get_transcript_page", () => {
 		);
 	});
 
-	it("snaps a tool result/assistant step back to the user's turn", () => {
+	it("snaps a tool result/assistant step back to the start of its run", () => {
 		const messages = [
 			{ role: "user" },
 			{ role: "assistant" },
@@ -128,17 +128,17 @@ describe("get_transcript_page", () => {
 			{ role: "assistant" },
 			{ role: "user" },
 		];
-		expect(transcriptTurnStart(messages, 2, 4)).toBe(0);
-		expect(transcriptTurnStart(messages, 3, 4)).toBe(0);
-		expect(transcriptTurnStart(messages, 4, 5)).toBe(4);
-		expect(transcriptTurnStart(messages, 5, 5)).toBe(5);
+		expect(transcriptRunStart(messages, 2, 4)).toBe(0);
+		expect(transcriptRunStart(messages, 3, 4)).toBe(0);
+		expect(transcriptRunStart(messages, 4, 5)).toBe(4);
+		expect(transcriptRunStart(messages, 5, 5)).toBe(5);
 		const steered = [
 			{ role: "user" },
 			{ role: "assistant" },
 			{ role: "toolResult" },
 			{ role: "user", steering: true },
 		];
-		expect(transcriptTurnStart(steered, 3, 4)).toBe(0);
+		expect(transcriptRunStart(steered, 3, 4)).toBe(0);
 	});
 
 	it("starts a page after the last run that ended, not at a prompt typed hours of goal continuations ago", () => {
@@ -155,10 +155,10 @@ describe("get_transcript_page", () => {
 			{ role: "assistant", stopReason: "toolUse" },
 			{ role: "toolResult" },
 		];
-		expect(transcriptTurnStart(messages, 6, 9)).toBe(4);
-		expect(transcriptTurnStart(messages, 8, 9)).toBe(4);
+		expect(transcriptRunStart(messages, 6, 9)).toBe(4);
+		expect(transcriptRunStart(messages, 8, 9)).toBe(4);
 		// A run that stopped on a tool call is not over: the page never starts at its result.
-		expect(transcriptTurnStart(messages, 2, 4)).toBe(0);
+		expect(transcriptRunStart(messages, 2, 4)).toBe(0);
 	});
 });
 

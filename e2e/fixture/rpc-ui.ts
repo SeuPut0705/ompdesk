@@ -43,7 +43,7 @@ import {
 	revivedSubagents,
 } from "../../resources/gui-bridge/restart-core";
 import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
-import { transcriptPageMessages, transcriptTurnStart } from "../../resources/gui-bridge/transcript-page";
+import { transcriptPageMessages, transcriptRunStart } from "../../resources/gui-bridge/transcript-page";
 import type {
 	AgentMessage,
 	ImageContent,
@@ -1927,7 +1927,7 @@ export function runRpcUi(): void {
 					: messages.length;
 			const end = Math.min(messages.length, offset + limit);
 			// The bridge's own rule: a page starts at a turn, never at a steer inside one.
-			const start = params.snapToTurn === true ? transcriptTurnStart(messages, offset, end) : offset;
+			const start = params.snapToTurn === true ? transcriptRunStart(messages, offset, end) : offset;
 			const result = {
 				leafId: activeLeafId,
 				total: messages.length,

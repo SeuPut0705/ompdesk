@@ -11,7 +11,7 @@ import { labelPromptOrigins } from "./prompt-origin-contracts";
 import { attachEntryIds, buildTranscript, flattenSessionTree } from "./session-display";
 import { forkCut } from "./session-fork-core";
 import { setSessionPinned } from "./session-pins";
-import { transcriptPageMessages, transcriptTurnStart } from "./transcript-page";
+import { transcriptPageMessages, transcriptRunStart } from "./transcript-page";
 import type { BridgeMethods } from "./types";
 
 function param(params: unknown, key: string): unknown {
@@ -68,9 +68,9 @@ export const methods: BridgeMethods = {
 			const { leafId, messages } = transcriptSnapshot(env.session().sessionManager);
 			let offset = Math.min(pageNumber(params, "offset", 0), messages.length);
 			const end = Math.min(messages.length, offset + pageNumber(params, "limit", messages.length));
-			// A page starts with the user's turn, never with an orphan tool result
+			// A page starts with a run (a typed prompt, or after a run that ended), never with an orphan tool result
 			// or an assistant step whose call/read group is on the preceding page.
-			if (param(params, "snapToTurn") === true) offset = transcriptTurnStart(messages, offset, end);
+			if (param(params, "snapToTurn") === true) offset = transcriptRunStart(messages, offset, end);
 			return {
 				leafId,
 				total: messages.length,
