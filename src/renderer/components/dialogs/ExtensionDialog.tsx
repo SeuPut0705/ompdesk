@@ -524,6 +524,8 @@ function AskDialog({
 								onClick={() => setStep(index)}
 								role="tab"
 								tabIndex={-1}
+								// The chip cuts a long label and shows no question but the current one's.
+								title={item.header ? `${item.header} · ${item.question}` : item.question}
 								type="button"
 							>
 								{isAnswered(index) && <Check aria-hidden className="size-3 text-(--sc-success)" />}

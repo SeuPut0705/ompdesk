@@ -286,6 +286,11 @@ describe("ExtensionDialog ask", () => {
 		expect(card().textContent).toContain("Where should this deploy?");
 		expect(card().textContent).not.toContain("Run the tests first?");
 		expect(buttonWithText("Submit")).toBeUndefined();
+		// A chip cuts a long label: hovering it names the label and the question that step asks.
+		expect(card().querySelector('[data-ask-step="0"]')?.getAttribute("title")).toBe(
+			"Target · Where should this deploy?",
+		);
+		expect(card().querySelector('[data-ask-step="1"]')?.getAttribute("title")).toBe("Run the tests first?");
 
 		const production = buttonWithText("Production");
 		if (!production) throw new Error("missing Production option");
