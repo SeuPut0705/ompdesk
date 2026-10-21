@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.52.5] - 2026-10-21
+
+휴대폰과 태블릿에서 붙어 있는 버튼을 누를 때 옆 버튼이 눌리지 않고, 진단 정보가 긴 로그를 더 짧게 담아요.
+
+### 고친 것
+- 휴대폰에서 바로 옆 컨트롤이 눌리던 곳을 고쳤어요: 진행 중인 하위 세션 목록, GitHub·PR 화면의 열림/닫힘/전체 탭, 오토파일럿 실행 중 버튼, 원격 기기 주소 복사, 벤치마크 모델 목록, 터미널 도구줄, 세션 가져오기의 검색 칸과 새로고침. 컴퓨터 화면의 배치는 그대로예요.
+- 진단 정보 복사가 5분마다 남는 업데이트 확인 줄을 다른 줄 사이에 있어도 하나로 접어, 마지막 100줄에 정말 일어난 일이 더 많이 담겨요. 상태가 바뀌었다 돌아온 기록은 순서대로 모두 남아요.
+
+<!-- en -->
+
+Close controls on a phone or tablet no longer take each other's taps, and Copy diagnostics fits more of what happened into its window.
+
+### Fixed
+- A tap on a phone no longer lands on the control beside the one under the finger: the sessions at work, the Open/Closed/All tabs of the GitHub and PR pages, the running Autopilot's buttons, the remote addresses' copy buttons, the benchmark's models, the terminal toolbar, and the import dialog's search and refresh. The desktop layout is unchanged.
+- Copy diagnostics folds the update check's every-5-minutes line into one even between other lines, so its last 100 lines hold more of what really happened; a state that changed and came back keeps every step in order.
+
 ## [0.52.4] - 2026-10-21
 
 AI가 답하는 동안 화면과 다른 기기로 가는 데이터가 더 줄고, 변경 사항의 stash 수가 바로 바뀌어요.
