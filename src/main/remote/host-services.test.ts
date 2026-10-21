@@ -23,6 +23,7 @@ import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
 import type { AgentProgress, RpcCommand, RpcResponse, SidecarStatus, SubagentFrame } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { MemoryPageCopy } from "../ai-memory/client";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
@@ -31,6 +32,7 @@ import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktrees";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
+import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { setTurnStopLog } from "../turn-stop-log";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
@@ -41,6 +43,7 @@ import {
 	MemoryConclusionPullReply,
 	MemoryPullReply,
 	OMP_UPDATE_EVENT,
+	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
 	type TabEventMessage,
 	TabRunArg,
@@ -262,6 +265,9 @@ function fakeMachine() {
 				id: "made-1",
 				state: SCHEDULES_EMPTY,
 			}),
+		),
+		sidebarProjects: vi.fn(
+			async (_request: SidebarProjectsRequest): Promise<SidebarProjectsState> => ({ projects: [], removed: [] }),
 		),
 	} satisfies MachineServices;
 }
@@ -2457,6 +2463,48 @@ describe("LocalHostServices host.* calls", () => {
 			expect(conn.events.filter(entry => entry.event === SCHEDULES_EVENT).map(entry => entry.data)).toEqual([
 				changed,
 			]);
+	});
+
+	it("serves this computer's own project list to a device and pushes its changes to every device", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		// This computer's real list: what a device adds or removes is the one its own sidebar shows.
+		const list = new SidebarProjects({
+			read: () => ({ projects: [{ path: "/srv/app", addedAt: 1 }], removed: [] }),
+			write: () => {},
+			sessions: async () => [],
+			defaultWorkspace: () => "/srv/work",
+			projectOf: async cwd => cwd,
+			exists: async () => true,
+			onState: state => services.sidebarProjectsChanged(state),
+			now: () => 7,
+		});
+		machine.sidebarProjects.mockImplementation(request => list.command(request));
+		await expect(services.call(x.peer, "host.projects.command", { request: { action: "get" } }, x)).resolves.toEqual({
+			projects: [{ path: "/srv/app", addedAt: 1 }],
+			removed: [],
+		});
+		await services.call(y.peer, "host.projects.command", { request: { action: "get" } }, y);
+		await services.call(x.peer, "host.projects.command", { request: { action: "add", path: "/srv/new" } }, x);
+		await services.call(y.peer, "host.projects.command", { request: { action: "remove", path: "/srv/app" } }, y);
+		const latest = { projects: [{ path: "/srv/new", addedAt: 7 }], removed: ["/srv/app"] };
+		expect(list.state()).toEqual(latest);
+		for (const conn of [x, y])
+			expect(conn.events.filter(entry => entry.event === PROJECTS_EVENT).map(entry => entry.data)).toEqual([
+				{
+					projects: [
+						{ path: "/srv/app", addedAt: 1 },
+						{ path: "/srv/new", addedAt: 7 },
+					],
+					removed: [],
+				},
+				latest,
+			]);
+		for (const bad of [{}, { request: { action: "wipe" } }, { request: { action: "remove", path: "" } }])
+			await expect(services.call(x.peer, "host.projects.command", bad, x)).rejects.toThrow(
+				/Invalid host.projects.command/,
+			);
 	});
 
 	it("serves a tab's file bytes to its own device only, as base64 that decodes to the same bytes", async () => {

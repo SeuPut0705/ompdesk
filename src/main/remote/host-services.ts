@@ -59,6 +59,7 @@ import {
 	type SubagentFrame,
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
+import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation } from "../../shared/terminal-types";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import type { BridgeConnectResult } from "../bridge-health";
@@ -127,6 +128,8 @@ import {
 	type MemoryPushReply,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
+	PROJECTS_EVENT,
+	ProjectsCommandParams,
 	SCHEDULES_EVENT,
 	SchedulesCommandParams,
 	SchedulesCreateParams,
@@ -963,6 +966,9 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
 			case "host.schedules.create":
 				return this.#deps.machine.createSchedule(parse(SchedulesCreateParams, method, params).draft, peer.deviceId);
+			// The device's sidebar section for this computer: this computer's own project list, the one its windows show.
+			case "host.projects.command":
+				return this.#deps.machine.sidebarProjects(parse(ProjectsCommandParams, method, params).request);
 			// Agent control of a session this computer runs for the device: the git it would run on its own checkout.
 			case GIT_METHODS.facts:
 				return branchFacts(parse(GitWorktreeParams, method, params).worktree);
@@ -1035,6 +1041,11 @@ export class LocalHostServices implements HostServices {
 	/** This machine's scheduled runs changed: every connected device showing them follows. */
 	schedulesChanged(state: SchedulesState): void {
 		for (const conn of this.#conns) emitSafely(conn, SCHEDULES_EVENT, state);
+	}
+
+	/** This machine's sidebar project list changed: every connected device's section for it follows. */
+	sidebarProjectsChanged(state: SidebarProjectsState): void {
+		for (const conn of this.#conns) emitSafely(conn, PROJECTS_EVENT, state);
 	}
 
 	/** This machine's reply-language setting changed: the tabs it runs for paired devices follow it. */

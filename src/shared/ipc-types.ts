@@ -58,6 +58,7 @@ import type {
 } from "./rpc-types";
 import type { SchedulesApi, SchedulesState } from "./schedules";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
+import type { SidebarProjectsApi } from "./sidebar-projects";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
 import type { StartupMark } from "./startup-timing";
@@ -1789,6 +1790,8 @@ export interface OmpApi {
 	preview: PreviewApi;
 	/** Scheduled `omp -p` runs on this machine (Settings › Schedules). */
 	schedules: SchedulesApi;
+	/** The sidebar's project list of this computer or a paired host (src/main/sidebar-projects.ts). */
+	sidebarProjects: SidebarProjectsApi;
 	/** OMPdesk's own ssh on this computer: port forwards, port watch, agent state, prompts (Settings › SSH). */
 	sshTools: SshToolsApi;
 	/** Mobile web over Tailscale: the switch and its state, the paired phones, pairing (Settings › Mobile web). */

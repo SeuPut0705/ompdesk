@@ -66,6 +66,7 @@ import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
+import { type IpcSidebarProjects, SIDEBAR_PROJECTS_PREF, SIDEBAR_PROJECTS_STATE } from "../shared/sidebar-projects";
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
@@ -142,6 +143,7 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
+import { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { markStartup } from "./startup-timing";
@@ -692,6 +694,21 @@ app.whenReady().then(() => {
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
+	// The sidebar's project list: folders outlive their last session (src/main/sidebar-projects.ts).
+	const sidebarProjects = new SidebarProjects({
+		read: () => prefsStore().get(SIDEBAR_PROJECTS_PREF),
+		write: state => prefsStore().set(SIDEBAR_PROJECTS_PREF, state),
+		sessions: () => sessionIndex.list("global"),
+		defaultWorkspace: ensureDefaultWorkspace,
+		onState: state => {
+			const update: IpcSidebarProjects = { state };
+			for (const win of BrowserWindow.getAllWindows()) {
+				if (!win.isDestroyed()) win.webContents.send(SIDEBAR_PROJECTS_STATE, update);
+			}
+			// Devices whose sidebar shows this computer's section follow.
+			devices.hostSidebarProjectsChanged(state);
+		},
+	});
 	sidecarPool = new SidecarPool((cwd, kind, fresh, device, tabId) => {
 		if (!device) return createLocalSidecar(cwd, kind, fresh);
 		// The host runs its own health check, session-kind record and bridge
@@ -760,6 +777,7 @@ app.whenReady().then(() => {
 			return ompUpdater;
 		},
 		schedules: () => scheduleService,
+		sidebarProjects: () => sidebarProjects,
 		accountRotation: accountRotationDeps({
 			prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
 			tabs: () => sidecarPool.allSidecars(),
@@ -1357,6 +1375,8 @@ app.whenReady().then(() => {
 		},
 	});
 	void scheduleService.start();
+	// Lists every folder sessions ran in (the first pass also the ones from before the list existed).
+	void sidebarProjects.sync();
 	logWatcher = new LogWatcher();
 
 	// Settings › General › Window: closing the last window hides it to the tray
@@ -1553,6 +1573,7 @@ app.whenReady().then(() => {
 		relaunchContinuation: tabId => turnResume.relaunchContinuation(tabId),
 		mediaStreams,
 		schedules: () => scheduleService,
+		sidebarProjects,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.
 		promptOrigins: {
 			of: win => webHost?.promptOrigin(win) ?? null,

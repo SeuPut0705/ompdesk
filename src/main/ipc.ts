@@ -93,6 +93,7 @@ import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type SchedulesRequest } from "../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
 import { AgentControlRuntime } from "./agent-control/host";
 import { appNotification } from "./app-icon";
@@ -138,6 +139,7 @@ import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
@@ -221,6 +223,8 @@ export interface IpcDeps {
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
 	schedules?: () => Pick<ScheduleService, "command" | "create"> | null;
+	/** This computer's sidebar project list: it looks for new folders when the session index changes. */
+	sidebarProjects?: Pick<SidebarProjects, "schedule">;
 	/**
 	 * Who typed a prompt, for the tabs several windows show (bridge prompt-origin.ts): `of` is the paired
 	 * device a window belongs to (null for a desktop window, whose prompts are the host's own), `hostName`
@@ -527,6 +531,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sessionIndex.onChange = () => {
 		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, undefined);
 		remoteDevices.hostSessionsChanged();
+		deps.sidebarProjects?.schedule();
 	};
 	// The sessions this computer runs for paired devices are every window's sidebar rows too.
 	deps.hostedTabs.onHostedSessionsChange(() =>
@@ -1899,6 +1904,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(SCHEDULES_LOG, (caller, runId: unknown, device?: unknown) => {
 		if (typeof runId !== "string") throw new Error("Invalid run id");
 		return machineFor(caller, device).scheduleLog(runId);
+	});
+	// The sidebar's project list of the machine a section shows: this computer's, or a paired host's own.
+	ipc.handle(SIDEBAR_PROJECTS_COMMAND, (caller, request: unknown, device?: unknown) => {
+		if (typeof request !== "object" || request === null) throw new Error("Invalid project list request");
+		const { action, path } = request as { action?: unknown; path?: unknown };
+		if (action === "get") return machineFor(caller, device).sidebarProjects({ action });
+		if ((action === "add" || action === "remove") && typeof path === "string" && path.length > 0)
+			return machineFor(caller, device).sidebarProjects({ action, path } satisfies SidebarProjectsRequest);
+		throw new Error("Invalid project list request");
 	});
 
 	// "Edit config" — open the agent's models.yml in the system editor. The

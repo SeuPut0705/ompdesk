@@ -33,6 +33,11 @@ import {
 } from "../../shared/ipc-types";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import type { SchedulesState } from "../../shared/schedules";
+import {
+	type IpcSidebarProjects,
+	SIDEBAR_PROJECTS_STATE,
+	type SidebarProjectsState,
+} from "../../shared/sidebar-projects";
 import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
 import { isTailnetAddress } from "../tailscale/tailnet";
 import type { TailnetPeer } from "../tailscale/whois";
@@ -49,9 +54,11 @@ import {
 	NameParams,
 	OMP_UPDATE_EVENT,
 	OmpUpdateStateSchema,
+	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
 	SchedulesStateSchema,
 	SESSIONS_CHANGED_EVENT,
+	SidebarProjectsStateSchema,
 	TAB_EVENT,
 	TabEventMessage,
 } from "./app-protocol";
@@ -527,6 +534,11 @@ export class RemoteDevices {
 		this.#deps.services.schedulesChanged(state);
 	}
 
+	/** This machine's sidebar project list changed: devices showing its section follow. */
+	hostSidebarProjectsChanged(state: SidebarProjectsState): void {
+		this.#deps.services.sidebarProjectsChanged(state);
+	}
+
 	/** This machine's session index changed: devices using it as a host refetch. */
 	hostSessionsChanged(): void {
 		this.#deps.services.sessionsChanged();
@@ -857,6 +869,14 @@ export class RemoteDevices {
 				if (state.success) {
 					const update: IpcHostSchedules = { device: deviceId, state: state.data };
 					this.#deps.broadcast(IPC_EVENTS.HOST_SCHEDULES_STATE, update);
+				}
+				return;
+			}
+			if (event === PROJECTS_EVENT) {
+				const state = SidebarProjectsStateSchema.safeParse(data);
+				if (state.success) {
+					const update: IpcSidebarProjects = { device: deviceId, state: state.data };
+					this.#deps.broadcast(SIDEBAR_PROJECTS_STATE, update);
 				}
 				return;
 			}

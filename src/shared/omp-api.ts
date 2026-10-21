@@ -156,6 +156,7 @@ import type {
 } from "./rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "./schedules";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
+import { type IpcSidebarProjects, SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "./sidebar-projects";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -246,6 +247,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribe<IpcHostSchedules>(IPC_EVENTS.HOST_SCHEDULES_STATE, update =>
 					callback(update.device, update.state),
 				),
+		},
+		sidebarProjects: {
+			command: (request, device) => transport.invoke(SIDEBAR_PROJECTS_COMMAND, request, device),
+			onState: callback => subscribe<IpcSidebarProjects>(SIDEBAR_PROJECTS_STATE, callback),
 		},
 		mobileWeb: {
 			getState: () => transport.invoke(MOBILE_WEB_GET_STATE),

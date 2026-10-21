@@ -41,6 +41,7 @@ import {
 	PREVIEW_VISUALS,
 } from "../../shared/preview";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE } from "../../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "../../shared/sidebar-projects";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -68,6 +69,8 @@ export type IpcChannel =
 	| typeof SCHEDULES_COMMAND
 	| typeof SCHEDULES_LOG
 	| typeof SCHEDULES_STATE
+	| typeof SIDEBAR_PROJECTS_COMMAND
+	| typeof SIDEBAR_PROJECTS_STATE
 	| typeof SSH_TOOLS_COMMAND
 	| typeof SSH_TOOLS_AGENT
 	| typeof SSH_TOOLS_PROMPTS
@@ -408,6 +411,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.EXTENSION_UPDATE_NOW]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
 	[SCHEDULES_COMMAND]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
 	[SCHEDULES_LOG]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[SIDEBAR_PROJECTS_COMMAND]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[SSH_TOOLS_COMMAND]: { dir: "invoke", permission: "extensions-admin", mode: "pass" },
 	[SSH_TOOLS_AGENT]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[SSH_TOOLS_PROMPTS]: { dir: "invoke", permission: "workspace", mode: "pass" },
@@ -502,6 +506,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[E.HOST_OMP_UPDATE_STATE]: { dir: "push", mode: "pass" },
 	[E.DISK_CARE_STATE]: { dir: "push", mode: "pass" },
 	[E.HOST_SCHEDULES_STATE]: { dir: "push", mode: "pass" },
+	[SIDEBAR_PROJECTS_STATE]: { dir: "push", mode: "pass" },
 	[E.CLI_UPDATE_STATE]: { dir: "push", mode: "pass" },
 	[E.AI_MEMORY_STATE]: { dir: "push", mode: "pass" },
 	[E.EXTENSION_UPDATE_STATE]: { dir: "push", mode: "pass" },

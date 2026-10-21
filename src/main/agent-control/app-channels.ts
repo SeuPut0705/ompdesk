@@ -41,6 +41,7 @@ import {
 	PREVIEW_VISUALS,
 } from "../../shared/preview";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE } from "../../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "../../shared/sidebar-projects";
 import {
 	SSH_TOOLS_AGENT,
 	SSH_TOOLS_COMMAND,
@@ -202,6 +203,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.EXTENSION_UPDATE_NOW]: never(OPERATOR),
 	[SCHEDULES_COMMAND]: never(OPERATOR),
 	[SCHEDULES_LOG]: never(DENY),
+	[SIDEBAR_PROJECTS_COMMAND]: never(DENY),
 	[SSH_TOOLS_COMMAND]: never(OPERATOR),
 	[SSH_TOOLS_AGENT]: never(DENY),
 	[SSH_TOOLS_PROMPTS]: never(DENY),
@@ -272,6 +274,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[E.HOST_OMP_UPDATE_STATE]: never(PUSH),
 	[E.DISK_CARE_STATE]: never(PUSH),
 	[E.HOST_SCHEDULES_STATE]: never(PUSH),
+	[SIDEBAR_PROJECTS_STATE]: never(PUSH),
 	[E.CLI_UPDATE_STATE]: never(PUSH),
 	[E.EXTENSION_UPDATE_STATE]: never(PUSH),
 	[E.GITHUB_AUTH_STATE]: never(PUSH),

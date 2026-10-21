@@ -31,6 +31,7 @@ import type {
 import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
 import type { OmpUpdateState } from "../shared/omp-update";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../shared/schedules";
+import type { SidebarProjectsRequest, SidebarProjectsState } from "../shared/sidebar-projects";
 import { BENCHMARK_TIMEOUT_MS, BenchmarkRunner } from "./benchmark-runner";
 import { builtinReaState } from "./builtin-mcp";
 import { ModelSetupRunner } from "./model-setup-runner";
@@ -48,9 +49,11 @@ import {
 	OmpUpdateStateSchema,
 	ScheduleCreatedSchema,
 	SchedulesStateSchema,
+	SidebarProjectsStateSchema,
 } from "./remote/app-protocol";
 import type { Revive } from "./restart-policy";
 import type { ScheduleService } from "./schedules";
+import type { SidebarProjects } from "./sidebar-projects";
 import type { StatsClient } from "./stats-client";
 
 export interface MachineServices {
@@ -98,6 +101,8 @@ export interface MachineServices {
 	 * in `schedules`.
 	 */
 	createSchedule(draft: ScheduleDraft, origin?: string): Promise<ScheduleCreated>;
+	/** The sidebar's project list on that machine (sidebar-projects.ts): read it, add a folder, remove one. */
+	sidebarProjects(request: SidebarProjectsRequest): Promise<SidebarProjectsState>;
 }
 
 /** The stats server's down-state texts, in this computer's UI language. */
@@ -154,6 +159,8 @@ export interface LocalMachineDeps {
 	ompUpdater: () => Pick<OmpUpdater, "state" | "updateNow">;
 	/** This computer's ScheduleService; it exists once startup has built it. */
 	schedules: () => Pick<ScheduleService, "command" | "create" | "readLog"> | null;
+	/** This computer's sidebar project list; it exists once startup has built it. */
+	sidebarProjects: () => Pick<SidebarProjects, "command"> | null;
 }
 
 export interface AccountRotationDeps {
@@ -365,6 +372,12 @@ export class LocalMachine implements MachineServices {
 		return this.#scheduleService().create(draft, origin);
 	}
 
+	async sidebarProjects(request: SidebarProjectsRequest): Promise<SidebarProjectsState> {
+		const projects = this.#deps.sidebarProjects();
+		if (!projects) throw new Error("The project list is not available yet");
+		return projects.command(request);
+	}
+
 	#scheduleService(): Pick<ScheduleService, "command" | "create" | "readLog"> {
 		const service = this.#deps.schedules();
 		if (!service) throw new Error("Scheduled runs are not available yet");
@@ -498,6 +511,10 @@ export class RemoteMachine implements MachineServices {
 
 	async createSchedule(draft: ScheduleDraft): Promise<ScheduleCreated> {
 		return ScheduleCreatedSchema.parse(await this.#request<unknown>("host.schedules.create", { draft }));
+	}
+
+	async sidebarProjects(request: SidebarProjectsRequest): Promise<SidebarProjectsState> {
+		return SidebarProjectsStateSchema.parse(await this.#request<unknown>("host.projects.command", { request }));
 	}
 }
 
