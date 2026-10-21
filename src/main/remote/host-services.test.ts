@@ -21,7 +21,14 @@ import type {
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
-import type { AgentProgress, RpcCommand, RpcResponse, SidecarStatus, SubagentFrame } from "../../shared/rpc-types";
+import type {
+	AgentProgress,
+	AgentSessionEvent,
+	RpcCommand,
+	RpcResponse,
+	SidecarStatus,
+	SubagentFrame,
+} from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
@@ -3127,5 +3134,45 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 		sidecar.emit("beforeResponse");
 
 		expect(delivered(x)).toEqual(JSON.parse(JSON.stringify([next])));
+	});
+});
+
+describe("LocalHostServices an Autopilot status on the link", () => {
+	const status = (cycles: number) => ({
+		active: true,
+		state: "running",
+		cycles: Array.from({ length: cycles }, (_, n) => ({ n, summary: "요약 ".repeat(100) })),
+	});
+	const update = (cycles: number) => ({ type: "autopilot_update", status: status(cycles) }) as AgentSessionEvent;
+
+	async function connected(slimAutopilot: boolean) {
+		const context = setup();
+		const x = Object.assign(new FakeConnection(peer("device-x")), {
+			slimEvents: true,
+			slimProgress: true,
+			slimAutopilot,
+		});
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("no sidecar");
+		sidecar.setStatus("ready");
+		for (const cycles of [30, 31]) sidecar.emit("events", [update(cycles)]);
+		const sent = x.tabEvents().filter(event => event.name === "events");
+		return sent.map(event => JSON.parse(JSON.stringify(event.arg)) as AgentSessionEvent[]);
+	}
+
+	it("goes as a delta after the first to a device that asked, which rebuilds both", async () => {
+		const sent = await connected(true);
+		expect(JSON.stringify(sent[1]).length).toBeLessThan(JSON.stringify(sent[0]).length / 10);
+		const decoder = createLinkEventDecoder();
+		expect(sent.map(batch => decoder.events(batch))).toEqual(
+			JSON.parse(JSON.stringify([[update(30)], [update(31)]])),
+		);
+	});
+
+	it("goes whole to a device that did not ask", async () => {
+		const sent = await connected(false);
+		expect(sent).toEqual(JSON.parse(JSON.stringify([[update(30)], [update(31)]])));
 	});
 });

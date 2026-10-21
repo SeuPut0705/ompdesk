@@ -470,3 +470,105 @@ describe("a connection's event sender", () => {
 		expect(sent).toEqual([]);
 	});
 });
+
+describe("an Autopilot run's status", () => {
+	/** A cycle as the status carries it: its summary, clipped to 400 characters, is most of it. */
+	const cycle = (n: number, extra: object = {}) => ({
+		n,
+		startedAt: 1_792_600_000_000 + n * 600_000,
+		durationMs: 540_000,
+		tokens: 12_000_000,
+		usd: 3.1,
+		area: "bugs",
+		title: `사이클 ${n}: 끊긴 링크에서 조용히 실패하던 호출을 고침`,
+		summary: `감사에서 찾은 문제를 고치고 회귀 테스트를 더했어요. `.repeat(12).slice(0, 400),
+		followups: [`사이클 ${n}에서 남긴 후속 작업`],
+		verify: "green",
+		commit: `${n}`.padStart(40, "a"),
+		change: { files: 3, insertions: 40, deletions: 6, commits: 1 },
+		...extra,
+	});
+	const status = (cycles: object[], extra: object = {}) => ({
+		active: true,
+		role: "parent",
+		state: "running",
+		run: "2026-10-21",
+		branch: "autopilot/2026-10-21",
+		cycle: cycles.length + 1,
+		settings: { ship: { level: "land" }, maxParallel: null },
+		cycles,
+		backlog: [],
+		ship: { queue: [], landing: null },
+		totals: { cycles: cycles.length, tokens: 1, usd: 1 },
+		...extra,
+	});
+	const update = (value: object): AgentSessionEvent =>
+		({ type: "autopilot_update", status: value }) as unknown as AgentSessionEvent;
+
+	const history = Array.from({ length: 90 }, (_, index) => cycle(index + 1));
+	const statuses = [
+		status(history),
+		status(history, { ship: { queue: [{ kind: "land", cycle: 90, state: "running" }], landing: null } }),
+		status([...history, cycle(91)]),
+		status([...history.slice(0, 10), cycle(11, { reverted: true }), ...history.slice(11), cycle(91)], {
+			reason: "user",
+		}),
+		status([...history.slice(0, 10), cycle(11, { reverted: true }), ...history.slice(11), cycle(91)]),
+	];
+
+	function send(options: { autopilot: boolean }) {
+		const encoder = createLinkEventEncoder({ progress: true, autopilot: options.autopilot });
+		const decoder = createLinkEventDecoder();
+		const wire = statuses.map(value => overTheWire(encoder.events([update(value)])) as AgentSessionEvent[]);
+		return { wire, delivered: wire.map(batch => decoder.events(batch)) };
+	}
+
+	it("reaches the device as every status the host sent", () => {
+		const { delivered } = send({ autopilot: true });
+		expect(delivered).toEqual(statuses.map(value => overTheWire([update(value)])));
+	});
+
+	it("crosses whole once, then as a small fraction of it", () => {
+		const { wire } = send({ autopilot: true });
+		const [first = 0, ...rest] = wire.map(batch => JSON.stringify(batch).length);
+		expect(first).toBeGreaterThan(JSON.stringify(statuses[0]).length);
+		for (const size of rest) expect(size).toBeLessThan(first / 20);
+	});
+
+	it("stays whole for a device that did not ask for it", () => {
+		const { wire } = send({ autopilot: false });
+		expect(wire).toEqual(statuses.map(value => overTheWire([update(value)])));
+	});
+
+	it("is never delivered half rebuilt: a delta a device holds no status for is dropped, the rest of the batch kept", () => {
+		const { wire } = send({ autopilot: true });
+		const late = createLinkEventDecoder();
+		const turn = { type: "turn_start" } as AgentSessionEvent;
+		expect(late.events([...(wire[1] ?? []), turn])).toEqual([turn]);
+	});
+
+	it("passes an older host's whole statuses through untouched", () => {
+		const decoder = createLinkEventDecoder();
+		for (const value of statuses) {
+			const batch = overTheWire([update(value)]) as AgentSessionEvent[];
+			expect(decoder.events(batch)).toBe(batch);
+		}
+	});
+
+	it("starts whole again after a send that failed", () => {
+		const sent: unknown[] = [];
+		const sender = createLinkEventSender({
+			progress: true,
+			autopilot: true,
+			send: (_name, arg) => {
+				sent.push(overTheWire(arg));
+				return sent.length !== 2;
+			},
+		});
+		for (const value of statuses.slice(0, 3)) sender.events([update(value)]);
+		// A device that holds no status (it missed the first too) still rebuilds it: it came whole.
+		expect(createLinkEventDecoder().events(sent[2] as AgentSessionEvent[])).toEqual(
+			overTheWire([update(statuses[2] as object)]),
+		);
+	});
+});

@@ -59,8 +59,9 @@ class LinkRecorder {
 				const {
 					slimEvents,
 					slimProgress: _progress,
+					slimAutopilot: _autopilot,
 					...older
-				} = message as { slimEvents: unknown; slimProgress?: unknown };
+				} = message as { slimEvents: unknown; slimProgress?: unknown; slimAutopilot?: unknown };
 				return original.call(this, device === "older" ? older : { ...older, slimEvents });
 			}
 			return original.call(this, message);

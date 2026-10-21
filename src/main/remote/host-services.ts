@@ -1644,6 +1644,7 @@ export class LocalHostServices implements HostServices {
 		tab.linkEvents?.sender.dispose();
 		const sender = createLinkEventSender({
 			progress: conn.slimProgress === true,
+			autopilot: conn.slimAutopilot === true,
 			send: (name, arg) => this.#send(tab, conn, name, arg),
 		});
 		tab.linkEvents = { conn, sender };

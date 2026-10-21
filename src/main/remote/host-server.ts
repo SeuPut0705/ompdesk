@@ -55,6 +55,8 @@ export interface HostConnection {
 	readonly slimEvents?: boolean;
 	/** It also rebuilds progress snapshots from deltas and takes subagent frames in arrays (`slimProgress`, protocol.ts). */
 	readonly slimProgress?: boolean;
+	/** It also rebuilds an Autopilot status from a delta against the last one (`slimAutopilot`, protocol.ts). */
+	readonly slimAutopilot?: boolean;
 	/** Push `{t:"evt"}`; throws when the event exceeds the frame cap. */
 	emit(event: string, data: unknown): void;
 	close(): void;
@@ -114,12 +116,14 @@ class PeerConnection implements HostConnection {
 	peer: PeerInfo;
 	readonly slimEvents: boolean;
 	readonly slimProgress: boolean;
+	readonly slimAutopilot: boolean;
 
-	constructor(link: Link, peer: PeerInfo, slimEvents: boolean, slimProgress: boolean) {
+	constructor(link: Link, peer: PeerInfo, slim: { events: boolean; progress: boolean; autopilot: boolean }) {
 		this.link = link;
 		this.peer = peer;
-		this.slimEvents = slimEvents;
-		this.slimProgress = slimProgress;
+		this.slimEvents = slim.events;
+		this.slimProgress = slim.progress;
+		this.slimAutopilot = slim.autopilot;
 	}
 
 	emit(event: string, data: unknown): void {
@@ -433,7 +437,11 @@ export class RemoteHost {
 		});
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
 		const slimEvents = hello.slimEvents === true;
-		const conn = new PeerConnection(link, current, slimEvents, slimEvents && hello.slimProgress === true);
+		const conn = new PeerConnection(link, current, {
+			events: slimEvents,
+			progress: slimEvents && hello.slimProgress === true,
+			autopilot: slimEvents && hello.slimAutopilot === true,
+		});
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		this.#opts.logLink?.("open", { deviceId: current.deviceId, ms: openedAt - acceptedAt });

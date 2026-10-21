@@ -16,6 +16,11 @@
  * and in the parent's task `tool_execution_update`, crosses once and after that as a delta
  * ({@link createProgressEncoder}), and the subagent frames of one flush cross in one tab event
  * ({@link createLinkEventSender}). The decoder rebuilds the very frames and updates stock emitted.
+ *
+ * With `slimAutopilot` an Autopilot run's `autopilot_update`, whose status carries every cycle of the run (about
+ * 100 KB after 90 cycles, sent several times a cycle), crosses whole once and after that as what changed from the
+ * last one: the top-level fields that differ, and of a list (the cycles) only its length and the items that differ
+ * ({@link createStatusEncoder}). The decoder rebuilds the status the host's pool delivered.
  */
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -51,6 +56,8 @@ export type WireSubagentFrame = SubagentFrame | WireProgressFrame;
 export interface LinkEventEncoderOptions {
 	/** The device rebuilds snapshots from deltas (`slimProgress`). */
 	progress?: boolean;
+	/** The device rebuilds an Autopilot status from a delta against the last one (`slimAutopilot`). */
+	autopilot?: boolean;
 }
 
 export interface LinkEventEncoder {
@@ -170,6 +177,81 @@ function mapSnapshots(event: ToolUpdate, map: (snapshot: unknown) => unknown): T
 	return { ...event, partialResult: { ...partialResult, details: { ...details, progress: mapped } } };
 }
 
+/** The `~delta` id of an Autopilot status: one run per tab, so one status per encoder. */
+const STATUS = "autopilot";
+const ITEMS = "~items";
+
+/** A list field after the last one: its length now and the items at an index that differ (or are new). */
+const ItemsDelta = z.object({ "~items": z.number().int().nonnegative(), at: z.record(z.unknown()) });
+type ItemsDelta = z.infer<typeof ItemsDelta>;
+
+function diffItems(base: readonly unknown[], next: readonly unknown[]): ItemsDelta {
+	const at: Record<string, unknown> = {};
+	for (const [index, item] of next.entries()) {
+		if (index >= base.length || !isDeepStrictEqual(base[index], item)) at[index] = item;
+	}
+	return { [ITEMS]: next.length, at };
+}
+
+/** The list {@link diffItems} describes; {@link UNREBUILT} when it names an item `base` never had. */
+function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBUILT {
+	const before: readonly unknown[] = Array.isArray(base) ? base : [];
+	const next: unknown[] = [];
+	for (let index = 0; index < delta[ITEMS]; index++) {
+		if (Object.hasOwn(delta.at, index)) next.push(delta.at[index]);
+		else if (index < before.length) next.push(before[index]);
+		else return UNREBUILT;
+	}
+	return next;
+}
+
+/**
+ * An Autopilot status after the last one sent: whole the first time, then the top-level fields that changed, a list
+ * among them as {@link diffItems}. Only the newest cycle, the run's state and its ship state move between two.
+ */
+function createStatusEncoder(): (status: unknown) => unknown {
+	let last: object | null = null;
+	return status => {
+		if (typeof status !== "object" || status === null || Array.isArray(status)) {
+			last = null;
+			return status;
+		}
+		const base = last;
+		last = status;
+		if (!base) return status;
+		const delta = diff(STATUS, base, status);
+		for (const [key, value] of Object.entries(delta.set ?? {})) {
+			const before: unknown = Reflect.get(base, key);
+			if (delta.set && Array.isArray(value) && Array.isArray(before)) delta.set[key] = diffItems(before, value);
+		}
+		return delta;
+	};
+}
+
+/** The inverse of {@link createStatusEncoder}; a delta it holds no earlier status for gives {@link UNREBUILT}. */
+function createStatusDecoder(): (wire: unknown) => unknown {
+	let last: object | null = null;
+	return wire => {
+		const delta = asDelta(wire);
+		if (!delta || delta[DELTA] !== STATUS) {
+			if (typeof wire === "object" && wire !== null && !Array.isArray(wire)) last = wire;
+			return wire;
+		}
+		const base = last;
+		if (!base) return UNREBUILT;
+		const set: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(delta.set ?? {})) {
+			const items = ItemsDelta.safeParse(value);
+			const next = items.success ? patchItems(Reflect.get(base, key), items.data) : value;
+			if (next === UNREBUILT) return UNREBUILT;
+			set[key] = next;
+		}
+		const status = patch(base, { [DELTA]: STATUS, set, ...(delta.unset ? { unset: delta.unset } : {}) });
+		last = status;
+		return status;
+	};
+}
+
 interface ProgressEncoder {
 	update(event: ToolUpdate): ToolUpdate;
 	frame(frame: SubagentProgressFrame): WireSubagentFrame;
@@ -260,6 +342,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 	const slim = createMessageUpdateSlimmer();
 	const drop = usageDropper();
 	const progress = options.progress ? createProgressEncoder() : null;
+	const status = options.autopilot ? createStatusEncoder() : null;
 	return {
 		events(batch) {
 			const slimmed = slim(batch);
@@ -268,6 +351,8 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 				let next: AgentSessionEvent = event;
 				if (event.type === "message_update") next = drop("", event);
 				else if (event.type === "tool_execution_update" && progress) next = progress.update(event);
+				else if (event.type === "autopilot_update" && status)
+					next = { ...event, status: status(event.status) } as unknown as AgentSessionEvent;
 				if (next === event) continue;
 				out ??= slimmed.slice();
 				out[index] = next;
@@ -363,11 +448,22 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 	};
 	const restoreSubagent = usageRestorer();
 	const progress = createProgressDecoder();
+	const decodeStatus = createStatusDecoder();
+	const autopilot = (event: Extract<AgentSessionEvent, { type: "autopilot_update" }>): AgentSessionEvent | null => {
+		const status = decodeStatus(event.status);
+		if (status === UNREBUILT) return null;
+		return status === event.status ? event : ({ ...event, status } as AgentSessionEvent);
+	};
 	return {
 		events(batch) {
 			let out: AgentSessionEvent[] | null = null;
 			for (const [index, event] of batch.entries()) {
-				const next = event.type === "tool_execution_update" ? progress.update(event) : decode(event);
+				const next =
+					event.type === "tool_execution_update"
+						? progress.update(event)
+						: event.type === "autopilot_update"
+							? autopilot(event)
+							: decode(event);
 				if (next === event) {
 					out?.push(event);
 					continue;
@@ -403,6 +499,8 @@ export interface LinkEventSender {
 export interface LinkEventSenderOptions {
 	/** The device sent `slimProgress`: frames leave in batches, one tab event a flush, and snapshots as deltas. */
 	progress: boolean;
+	/** The device sent `slimAutopilot`: an Autopilot status crosses as a delta against the last one. */
+	autopilot?: boolean;
 	/** Sends one tab event; false when it did not go out (an event over the frame cap). */
 	send(name: "events" | "subagentFrame", arg: unknown): boolean;
 }
@@ -414,13 +512,13 @@ export interface LinkEventSenderOptions {
  * wire order, and events and frames never swap places.
  */
 export function createLinkEventSender(options: LinkEventSenderOptions): LinkEventSender {
-	const { progress, send } = options;
-	let encoder = createLinkEventEncoder({ progress });
+	const { progress, autopilot = false, send } = options;
+	let encoder = createLinkEventEncoder({ progress, autopilot });
 	let held: SubagentFrame[] = [];
 	let timer: NodeJS.Timeout | undefined;
 	const deliver = (name: "events" | "subagentFrame", arg: unknown): void => {
 		// The device never got it, so the next snapshot of each subagent must go whole, not as a delta against this one.
-		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress });
+		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot });
 	};
 	const flush = (): void => {
 		clearTimeout(timer);

@@ -78,6 +78,9 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * sent once or as a delta against the last one of the same subagent (in `subagent_progress` frames and in the task
  * tool's `tool_execution_update` `details.progress`), and takes `subagentFrame` tab events as arrays, one per flush.
  * A device that sent only `slimEvents` (v0.46.0) cannot read either, so it keeps single, whole frames.
+ *
+ * `slimAutopilot` (only ever sent with `slimEvents`): the device also rebuilds an `autopilot_update` status sent as a
+ * delta against the last one of its tab (`link-events.ts`). A device without it (v0.52.7 and older) gets whole ones.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -86,6 +89,7 @@ export const ClientHello = z.object({
 	name: deviceName,
 	slimEvents: z.boolean().optional(),
 	slimProgress: z.boolean().optional(),
+	slimAutopilot: z.boolean().optional(),
 });
 
 export const HostHelloMessage = z.object({
