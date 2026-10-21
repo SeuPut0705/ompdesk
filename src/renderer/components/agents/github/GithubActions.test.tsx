@@ -40,7 +40,7 @@ const RUN: GithubRunDetail = {
 	jobs: [],
 };
 
-async function offersFailedRerun(conclusion: string): Promise<boolean> {
+async function mountRun(run: Partial<GithubRunDetail>): Promise<Element> {
 	const host = document.createElement("div");
 	document.body.appendChild(host);
 	container = host;
@@ -51,13 +51,18 @@ async function offersFailedRerun(conclusion: string): Promise<boolean> {
 				I18nProvider,
 				null,
 				createElement(RunDetail, {
-					run: { ...RUN, conclusion },
+					run: { ...RUN, ...run },
 					target: { host: "github.com", repo: "o/r" },
 					onChanged: () => {},
 				}),
 			),
 		),
 	);
+	return host as unknown as Element;
+}
+
+async function offersFailedRerun(conclusion: string): Promise<boolean> {
+	const host = await mountRun({ conclusion });
 	const labels = [...host.querySelectorAll("button")].map(button => button.textContent);
 	return labels.includes(translate("github.runs.rerunFailed"));
 }
@@ -86,6 +91,16 @@ describe("Actions run detail", () => {
 			timed_out: true,
 		});
 	});
+
+	it("names what started the run in the UI's language, and an event GitHub adds later as GitHub spells it", async () => {
+		setLanguageOverride("ko");
+		const meta = async (event: string) =>
+			(await mountRun({ event })).querySelector("[data-github-run-event]")?.textContent;
+		expect(await meta("pull_request")).toBe("풀 리퀘스트");
+		await act(async () => root?.unmount());
+		container?.remove();
+		expect(await meta("brand_new_event")).toBe("brand new event");
+	});
 });
 
 describe("Actions run workflow", () => {
@@ -96,8 +111,7 @@ describe("Actions run workflow", () => {
 		props[handler]?.(event);
 	}
 
-	it("starts the workflow on the default branch when no branch is typed", async () => {
-		setLanguageOverride("en");
+	async function mountActions(state: string): Promise<{ host: Element; sent: unknown[] }> {
 		const sent: unknown[] = [];
 		(window as unknown as { omp: unknown }).omp = {
 			rpc: {
@@ -105,7 +119,7 @@ describe("Actions run workflow", () => {
 					sent.push(command.request);
 					const data =
 						command.request.op === "workflow_list"
-							? [{ id: 9, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active" }]
+							? [{ id: 9, name: "Deploy", path: ".github/workflows/deploy.yml", state }]
 							: command.request.op === "workflow_dispatch"
 								? { ok: true }
 								: [];
@@ -127,10 +141,23 @@ describe("Actions run workflow", () => {
 			),
 		);
 		await act(async () => fire(host.querySelector("select"), "onChange", { target: { value: "9" } }));
-		const runButton = [...host.querySelectorAll("button")].find(
-			button => button.textContent === translate("github.runs.dispatch"),
-		);
-		await act(async () => fire(runButton, "onClick", {}));
+		return { host: host as unknown as Element, sent };
+	}
+
+	const runButton = (host: Element) =>
+		[...host.querySelectorAll("button")].find(button => button.textContent === translate("github.runs.dispatch"));
+
+	it("says why Run workflow is off for a workflow turned off on GitHub", async () => {
+		setLanguageOverride("en");
+		const { host } = await mountActions("disabled_manually");
+		expect(runButton(host)?.hasAttribute("disabled")).toBe(true);
+		expect(runButton(host)?.getAttribute("title")).toBe(translate("github.runs.workflowOff"));
+	});
+
+	it("starts the workflow on the default branch when no branch is typed", async () => {
+		setLanguageOverride("en");
+		const { host, sent } = await mountActions("active");
+		await act(async () => fire(runButton(host), "onClick", {}));
 		const confirm = [...document.querySelectorAll("button")].find(
 			button => button.textContent === translate("github.runs.dispatchConfirm"),
 		);

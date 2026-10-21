@@ -24,3 +24,21 @@ export function githubStateLabel(t: (key: string) => string, state: string): str
 	const key = state.toLowerCase();
 	return GITHUB_STATES[key] ? t(`prCenter.checkState.${key}`) : key.replace(/_/g, " ");
 }
+
+/** Workflow triggers a run names (`event`), in the UI's words. */
+const GITHUB_EVENTS: Record<string, true> = {
+	push: true,
+	pull_request: true,
+	pull_request_target: true,
+	workflow_dispatch: true,
+	schedule: true,
+	release: true,
+	workflow_run: true,
+	merge_group: true,
+	dynamic: true,
+};
+
+/** What started a run; an event GitHub adds later reads as GitHub spells it. */
+export function githubEventLabel(t: (key: string) => string, event: string): string {
+	return GITHUB_EVENTS[event] ? t(`github.runs.event.${event}`) : event.replace(/_/g, " ");
+}

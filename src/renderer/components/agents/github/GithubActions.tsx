@@ -4,6 +4,7 @@ import type { GithubRunDetail } from "../../../../shared/github";
 import { githubConclusionPassed } from "../../../../shared/github-checks";
 import { formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
+import { githubEventLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { AsyncSection, Button, ConfirmDialog, IconButton, Input, MasterDetail, Modal, Select } from "../../common";
 import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, RunState, useGithubMutation } from "./shared";
@@ -52,7 +53,7 @@ export function RunDetail({
 				<div className="flex flex-wrap items-center gap-2 text-sc-xs text-(--sc-text-muted)">
 					<span>{run.workflow}</span>
 					<span className="font-mono">{run.branch}</span>
-					<span>{run.event}</span>
+					<span data-github-run-event>{githubEventLabel(t, run.event)}</span>
 					<span>{formatTimeAgo(run.createdAt)}</span>
 				</div>
 				<div className="flex flex-wrap gap-2">
@@ -200,7 +201,13 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 					icon={<Play />}
 					onClick={() => setDispatching(true)}
 					size="sm"
-					title={chosen ? undefined : t("github.runs.pickWorkflow")}
+					title={
+						!chosen
+							? t("github.runs.pickWorkflow")
+							: chosen.state !== "active"
+								? t("github.runs.workflowOff")
+								: undefined
+					}
 					variant="secondary"
 				>
 					{t("github.runs.dispatch")}
