@@ -4671,6 +4671,7 @@ export const ko: Record<string, string> = {
 	"sidebar.label": "사이드바",
 	"sidebar.destinations": "이동",
 	"sidebar.collapse": "사이드바 숨기기",
+	"sidebar.resize": "사이드바 크기 조절",
 	"sidebar.filter": "세션 필터",
 	"sidebar.filterPlaceholder": "세션 찾기",
 	"sidebar.filterChats": "채팅 필터",

@@ -66,6 +66,7 @@ import {
 	useState,
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
+import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -2532,12 +2533,32 @@ export function Sidebar() {
 				<StarterGuide projectOpened={codeSessions.length > 0} promptSent={listedSessions.length > 0} />
 				<SidebarFooter />
 				<div
-					aria-hidden
-					className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) active:bg-(--sc-accent)"
+					aria-label={t("sidebar.resize")}
+					aria-orientation="vertical"
+					aria-valuemax={SIDEBAR_WIDTH.max}
+					aria-valuemin={SIDEBAR_WIDTH.min}
+					aria-valuenow={Math.round(sidebarWidth)}
+					className="absolute inset-y-0 right-0 z-(--sc-z-raised) w-1 translate-x-1/2 cursor-col-resize transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-accent-border) focus-visible:bg-(--sc-accent) active:bg-(--sc-accent)"
+					onKeyDown={event => {
+						if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+						event.preventDefault();
+						const step = event.key === "ArrowRight" ? 24 : event.key === "ArrowLeft" ? -24 : 0;
+						const next =
+							event.key === "Home"
+								? SIDEBAR_WIDTH.min
+								: event.key === "End"
+									? SIDEBAR_WIDTH.max
+									: clampSidebarWidth(sidebarWidthRef.current + step);
+						sidebarWidthRef.current = next;
+						setSidebarWidth(next);
+						writeSidebarWidth(next);
+						void window.omp.prefs.set("sidebarWidth", next).catch(() => {});
+					}}
 					onPointerDown={startSidebarDrag}
 					onPointerMove={onSidebarDrag}
 					onPointerUp={endSidebarDrag}
 					role="separator"
+					tabIndex={0}
 				/>
 			</aside>
 			<WorkspaceDialog
