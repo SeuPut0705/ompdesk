@@ -237,10 +237,17 @@ export function dueForRelease(facts: ReleaseFacts): boolean {
 	return green >= Math.max(1, policy.autoRelease.cadence.n);
 }
 
+/**
+ * The least time between two of a run's own releases when the agent judges the cadence. Every release prompts every
+ * user of the project to update; a run that released three times in one afternoon (OMPdesk, 21 Oct 2026) had nothing
+ * telling it how long ago the last one went out. A user's own request (`ship`) is never held by it.
+ */
+export const RELEASE_MIN_GAP_MS = 4 * 3_600_000;
+
 /** `propose_release`: the preconditions the bridge verifies (the clean working tree is a fact the caller passes). */
 export function proposeReleaseCheck(
 	records: readonly AutopilotCycleRecord[],
-	facts: { policyOn: boolean; hasProcedure: boolean; releaseInFlight: boolean; clean: boolean },
+	facts: { policyOn: boolean; hasProcedure: boolean; releaseInFlight: boolean; clean: boolean; now?: number },
 ): { ok: true } | { ok: false; reason: string } {
 	if (!facts.policyOn) return { ok: false, reason: "auto release is off" };
 	if (!facts.hasProcedure) return { ok: false, reason: "the repository defines no release procedure" };
@@ -250,6 +257,17 @@ export function proposeReleaseCheck(
 	if (redStreak(records) > 0) return { ok: false, reason: "there is a red streak" };
 	if (greenCyclesSinceRelease(records) < 1) return { ok: false, reason: "no green cycle since the last release" };
 	if (!facts.clean) return { ok: false, reason: "the working tree is not clean" };
+	const released = records.findLast(record => record.ship?.kind === "release" && record.verify === "green");
+	if (released && facts.now !== undefined) {
+		const ago = facts.now - (released.startedAt + released.durationMs);
+		if (ago < RELEASE_MIN_GAP_MS) {
+			const minutes = Math.max(0, Math.round(ago / 60_000));
+			return {
+				ok: false,
+				reason: `this run released ${released.ship?.version ?? "a version"} ${minutes} minutes ago; a run releases at most once every ${RELEASE_MIN_GAP_MS / 3_600_000} hours (the project's cadence and the user's own request decide otherwise)`,
+			};
+		}
+	}
 	return { ok: true };
 }
 

@@ -759,6 +759,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				hasProcedure: Boolean(state.releaseProcedure),
 				releaseInFlight: state.inFlight?.kind === "release",
 				clean: await gitClean(state.root),
+				now: now(),
 			});
 			if (!check.ok) return toolText({ due: false, reason: check.reason });
 			current.proposed = true;

@@ -44,6 +44,7 @@ import {
 	pendingNotes,
 	pendingShipRequests,
 	proposeReleaseCheck,
+	RELEASE_MIN_GAP_MS,
 	realUserText,
 	redStreak,
 	rotation,
@@ -284,6 +285,19 @@ describe("releases", () => {
 		expect(dueForRelease(facts(seq(GREEN), { policy: agent }))).toBe(false);
 		expect(dueForRelease(facts(seq(GREEN), { policy: agent, proposed: true }))).toBe(true);
 		expect(dueForRelease(facts(seq(RED), { policy: agent, proposed: true }))).toBe(false);
+	});
+	it("proposeReleaseCheck: no second release within hours of the run's last one", () => {
+		// A run released three times in one afternoon because nothing told the agent how long ago the last release was.
+		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };
+		const hour = 3_600_000;
+		const released = rec({ n: 1, area: "release", verify: "green", startedAt: 0, durationMs: hour / 2 });
+		released.ship = { kind: "release", version: "1.2.3" };
+		const records = [released, rec({ n: 2, verify: "green", commit: "abc", startedAt: hour, durationMs: 60_000 })];
+		expect(proposeReleaseCheck(records, { ...ok, now: 2 * hour })).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining("1.2.3"),
+		});
+		expect(proposeReleaseCheck(records, { ...ok, now: RELEASE_MIN_GAP_MS + hour })).toEqual({ ok: true });
 	});
 	it("proposeReleaseCheck: every precondition", () => {
 		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };
