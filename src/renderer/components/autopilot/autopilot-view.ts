@@ -1,18 +1,16 @@
 /**
- * Pure rules of the Autopilot screen, the work-board card and the composer chip: what step the agent is in, the area
- * mix, the cost prediction, the "while you were away" summary and the chip's state. Nothing here reads a store: the
- * components pass in what `get_autopilot` / `autopilot_update` and the tool store already hold.
+ * Pure rules of an Autopilot run's views (its work board sections, the composer chip, the dock row): what step the
+ * agent is in, the cost prediction and the chip's state. Nothing here reads a store: the components pass in what
+ * `get_autopilot` / `autopilot_update` and the tool store already hold.
  */
 
-import {
-	AUTOPILOT_AREAS,
-	type AutopilotCycleArea,
-	type AutopilotCycleRecord,
-	type AutopilotPauseReason,
-	type AutopilotStatus,
-	type ShipQueueItem,
-} from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
-import type { ToolEntry } from "../../../stores/tools";
+import type {
+	AutopilotCycleArea,
+	AutopilotCycleRecord,
+	AutopilotPauseReason,
+	AutopilotStatus,
+} from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import type { ToolEntry } from "../../stores/tools";
 
 export const AUTOPILOT_STEPS = ["audit", "implement", "verify", "commit"] as const;
 export type AutopilotStep = (typeof AUTOPILOT_STEPS)[number];
@@ -56,45 +54,6 @@ export function autopilotStep(calls: readonly StepCall[]): AutopilotStep | null 
 	return null;
 }
 
-/** The current step and the ones before it, which stay done when the agent reads or searches again afterwards. */
-export function autopilotProgress(calls: readonly StepCall[]): {
-	current: AutopilotStep | null;
-	done: AutopilotStep[];
-} {
-	let reached = -1;
-	let current: AutopilotStep | null = null;
-	for (const call of calls) {
-		const step = toolStep(call);
-		if (!step) continue;
-		const at = AUTOPILOT_STEPS.indexOf(step);
-		if (at >= reached) {
-			reached = at;
-			current = step;
-		}
-	}
-	return { current, done: AUTOPILOT_STEPS.slice(0, Math.max(0, reached)) };
-}
-
-const MIX_ORDER: readonly AutopilotCycleArea[] = [...AUTOPILOT_AREAS, "user", "release"];
-
-export interface AreaMix {
-	rows: { area: AutopilotCycleArea; count: number }[];
-	total: number;
-	max: number;
-}
-
-/** Reported cycles per area, in the fixed area order; an unreported cycle belongs to no area. */
-export function areaMix(cycles: readonly AutopilotCycleRecord[]): AreaMix {
-	const rows = MIX_ORDER.map(area => ({ area, count: cycles.filter(cycle => cycle.area === area).length })).filter(
-		row => row.count > 0,
-	);
-	return {
-		rows,
-		total: rows.reduce((sum, row) => sum + row.count, 0),
-		max: rows.reduce((most, row) => Math.max(most, row.count), 0),
-	};
-}
-
 /** The cost prediction averages this many of the newest cycles. */
 export const RATE_WINDOW = 5;
 const HOUR_MS = 3_600_000;
@@ -114,33 +73,6 @@ export function ratePrediction(cycles: readonly AutopilotCycleRecord[]): RatePre
 		tokensPerHour: sample.reduce((sum, cycle) => sum + cycle.tokens, 0) / hours,
 		usdPerHour: sample.reduce((sum, cycle) => sum + cycle.usd, 0) / hours,
 		sample: sample.length,
-	};
-}
-
-export interface OvernightSummary {
-	cycles: number;
-	commits: number;
-	red: number;
-	releases: string[];
-	pushes: number;
-	failedShips: number;
-}
-
-/** What happened while the window was away since `since` (ms): the "overnight card", counted from the journal alone. */
-export function overnightSummary(input: {
-	cycles: readonly AutopilotCycleRecord[];
-	since: number;
-	ship: readonly ShipQueueItem[] | undefined;
-}): OvernightSummary {
-	const finished = input.cycles.filter(cycle => cycle.startedAt + cycle.durationMs >= input.since);
-	const steps = (input.ship ?? []).filter(item => item.at >= input.since);
-	return {
-		cycles: finished.length,
-		commits: finished.filter(cycle => cycle.commit).length,
-		red: finished.filter(cycle => cycle.verify === "red").length,
-		releases: finished.flatMap(cycle => (cycle.ship ? [cycle.ship.version] : [])),
-		pushes: steps.filter(item => item.kind === "push" && item.state === "done").length,
-		failedShips: steps.filter(item => item.state === "failed").length,
 	};
 }
 

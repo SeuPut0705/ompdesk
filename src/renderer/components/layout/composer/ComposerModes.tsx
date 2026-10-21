@@ -2,15 +2,15 @@
  * The session MODES of the composer's one Run chip (`RunChip`): Plan, Goal and Autopilot, each with its inline
  * config, plus the automatic Plan/Goal choice switch. This file owns the Mode section of the Run popover
  * (`ModesSection`), what the chip says about the modes (`useComposerModes`: accent = active mode), and the two
- * conditional chips that sit beside the Run chip while they apply (`ComposerModeExtras`: Autopilot's "open
- * screen" button and the auto mode's "This request" chip). Run behavior (thinking, approval, toggles) is in
+ * conditional chips that sit beside the Run chip while they apply (`ComposerModeExtras`: Autopilot's "show the run"
+ * button and the auto mode's "This request" chip). Run behavior (thinking, approval, toggles) is in
  * `RunSettings`; model roles live in Settings › Models.
  *
  * `useUiStore.openModes(tab)` — palette commands, the goal dock, Settings › Features — opens the Run popover on
  * that mode in the focused pane (`RunChip` answers it); closing it clears the request.
  */
 
-import { ListChecks, PanelRight, Rocket, Sparkles, Target, X } from "lucide-react";
+import { LayoutDashboard, ListChecks, Rocket, Sparkles, Target, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useAutoModePref } from "../../../hooks/use-auto-mode-pref";
 import { goalIsActive } from "../../../lib/auto-mode-client";
@@ -22,10 +22,10 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
 import { Button, IconButton, SwitchField, Tabs, Tooltip } from "../../common";
 import { AutopilotModeConfig } from "../../modes/AutopilotConfig";
 import { GoalModeConfig } from "../../modes/ModeConfig";
-import { useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 
 export type ComposerModeId = "plan" | "goal" | "autopilot";
 
@@ -128,9 +128,13 @@ export function ModesSection({
 	);
 }
 
-/** Autopilot's "open screen" button and the auto-mode "This request" chip: extra buttons beside the Run chip. */
+/**
+ * Autopilot's "show the run" button and the auto-mode "This request" chip: extra buttons beside the Run chip. The run
+ * is shown on this pane's work board (docked, or its strip expanded), never in the side panel.
+ */
 export function ComposerModeExtras() {
 	const t = useT();
+	const tabId = useRuntimeTabId();
 	const autopilotLive = useAutopilotStore(isLiveAutopilot);
 	return (
 		<>
@@ -138,9 +142,9 @@ export function ComposerModeExtras() {
 				<IconButton
 					className="omp-composer-chip"
 					data-autopilot-chip-open
-					icon={<PanelRight />}
+					icon={<LayoutDashboard />}
 					label={t("autopilot.chip.open")}
-					onClick={() => useUiStore.getState().openAutopilotPanel()}
+					onClick={() => useUiStore.getState().revealWorkBoard(tabId)}
 					size="sm"
 				/>
 			)}

@@ -308,41 +308,13 @@ describe("Changes after edits", () => {
 	});
 });
 
-describe("Autopilot start → its screen", () => {
-	const started: AgentSessionEvent = {
-		type: "autopilot_update",
-		status: { active: true, state: "running", run: "2026-10-17", cycle: 1 },
-	};
-
-	it("opens the Autopilot screen once when a run starts in the focused tab", async () => {
-		handleAutoOpenEvents(TAB, [started]);
-		expect(useUiStore.getState().panelVisible).toBe(true);
-		expect(useUiStore.getState().panelTab).toBe("autopilot");
-
-		// The user closes it: the next update of the same run does not reopen it.
-		useUiStore.setState({ panelVisible: false });
-		handleAutoOpenEvents(TAB, [started]);
-		expect(useUiStore.getState().panelVisible).toBe(false);
-	});
-
-	it("opens nothing for a run that is not running, an unfocused tab or unsaved Files edits", async () => {
-		handleAutoOpenEvents(TAB, [{ type: "autopilot_update", status: { active: true, state: "paused", run: "r1" } }]);
-		handleAutoOpenEvents(TAB, [{ type: "autopilot_update", status: { active: false } }]);
-		expect(useUiStore.getState().panelVisible).toBe(false);
-
-		handleAutoOpenEvents("other-tab", [{ ...started, status: { ...started.status, run: "r2" } }]);
-		expect(useUiStore.getState().panelVisible).toBe(false);
-
-		useUiStore.setState({ fileEditDirty: true });
-		handleAutoOpenEvents(TAB, [{ ...started, status: { ...started.status, run: "r3" } }]);
-		expect(useUiStore.getState().panelVisible).toBe(false);
-		expect(useUiStore.getState().panelTab).toBe("diff");
-	});
-
-	it("never takes a view the user works in", async () => {
-		useUiStore.setState({ panelVisible: true, panelTab: "terminal" });
-		handleAutoOpenEvents(TAB, [started]);
-		expect(useUiStore.getState().panelTab).toBe("terminal");
+describe("Autopilot start", () => {
+	it("opens no panel: the run's home is the work board", async () => {
+		handleAutoOpenEvents(TAB, [
+			{ type: "autopilot_update", status: { active: true, state: "running", run: "2026-10-17", cycle: 1 } },
+		]);
+		await settle();
+		expect(useUiStore.getState()).toMatchObject({ panelVisible: false, panelTab: "diff" });
 	});
 });
 

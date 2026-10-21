@@ -162,12 +162,11 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 		await phone.locator("[data-run-settings-trigger]").click();
 		await phone.getByRole("tab", { name: "Autopilot" }).click();
 		await phone.locator("[data-autopilot-start]").click();
-		// The screen does not open by itself here: the running Run settings offer it, so open it from there
-		// (a screen that did open is the sheet over everything, as before); close it to reach the drawer.
-		// Once the run's status lands, the still-open Run settings show "Open screen"; before that they show the
-		// start form. Clicking the trigger then closed the popover it meant to open, and the unbounded click on a
-		// button never shown again waited out the 5 min test (nightly 39539556435).
-		const screen = phone.locator("[data-autopilot-panel]");
+		// Nothing opens by itself: the running Run settings offer "show the run", which expands the work strip into the
+		// board with the run's section (never a side panel). Once the run's status lands, the still-open Run settings
+		// show that button; before that they show the start form. Clicking the trigger then closed the popover it meant
+		// to open, and the unbounded click on a button never shown again waited out the 5 min test (nightly 39539556435).
+		const screen = phone.locator('[data-work-strip-panel] [data-board-section="autopilot"]');
 		const openScreen = phone.locator("[data-autopilot-open-screen]");
 		const trigger = phone.locator("[data-run-settings-trigger]").first();
 		await expect
@@ -178,13 +177,15 @@ test("a phone's Autopilot run lists its children under the run with their task, 
 					if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click({ timeout: 10_000 });
 					return "waiting";
 				},
-				{ timeout: 60_000, message: "the run screen or its Open screen button" },
+				{ timeout: 60_000, message: "the run on the work strip or its Show the run button" },
 			)
 			.not.toBe("waiting");
 		if (!(await screen.isVisible())) await openScreen.click({ timeout: 10_000 });
 		await expect(screen).toBeVisible({ timeout: 60_000 });
-		await phone.getByRole("button", { name: "Close side panel" }).first().click();
-		await expect(phone.locator("[data-autopilot-panel]")).toHaveCount(0);
+		await expect(phone.getByRole("button", { name: "Close side panel" })).toHaveCount(0);
+		// A second tap on the strip folds the board away again.
+		await phone.locator("[data-work-strip] [data-work-chip]").first().click();
+		await expect(phone.locator("[data-work-strip-panel]")).toHaveCount(0);
 
 		// A cycle's children are open: their rows sit under the run's, in the run's family (the sessions its agent
 		// opened), named by their task, in no group of their own.

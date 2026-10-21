@@ -26,7 +26,10 @@ export const KEEP_AWAKE_WORKING_PREF = "keepAwakeWhileWorking";
 /** Continue turns that were running when OMPdesk quit, crashed or restarted for an update (default on; only `false` turns it off). */
 export const RESUME_INTERRUPTED_PREF = "resumeInterrupted";
 
-/** Install a downloaded OMPdesk update and restart by itself at a quiet moment (Settings › Updates & about; default off; only `true` turns it on). */
+/**
+ * Install a downloaded OMPdesk update and restart by itself (Settings › Updates & about; default on, only a stored
+ * `false` turns it off). With Continue interrupted work on it restarts at the next safe point, running work and all.
+ */
 export const APP_AUTO_UPDATE_PREF = "appAutoUpdate";
 
 /**

@@ -7,6 +7,9 @@
  * - `tab.open {rtab, cwd?, kind?, fresh, sessionPath?}` → TabOpenResult
  * - `tab.start {rtab}`, `tab.restart {rtab, cwd?, sessionPath?}`, `tab.adoptCwd {rtab, cwd}`, `tab.close {rtab}`
  * - `tab.command {rtab, command, timeoutMs?}` → RpcResponse
+ * - `tabs.kept {}` → `{tabs: KeptTab[]}`: the tabs the host keeps for the asking device that no live connection holds
+ *   and that are running a turn, settling, waiting on an ask or held for the host's connection (a relaunched device
+ *   opens the ones its layout lost, `readopt.ts`); an older host answers `unsupported`
  * - `tab.sideChannel {rtab, frame}`, `tab.syncImageGeneration {rtab}`
  * - `sessions.list|search|kindFor|delete|rename|move`, `fs.list|read|readImage|readPlan|listDirs`,
  *   `workspace.default`, `launchProfile.get|update`
@@ -417,6 +420,27 @@ export const TabOpenResult = z.object({
 	viewing: z.boolean().optional(),
 });
 export type TabOpenResult = z.infer<typeof TabOpenResult>;
+
+/** Request: the tabs this host keeps for the asking device that no live connection holds and that still have work (`KeptTab`). */
+export const KEPT_TABS_METHOD = "tabs.kept";
+
+/**
+ * A host tab that outlived its device's connection, still running a turn, settling (background work), waiting on an
+ * ask, or held for the host's own connection. `rtab` is the id the device last gave it; `formerRtabs` the ones before
+ * (a relaunched device's adoption re-keys it), newest first: the ids an agent of the device may still name it by.
+ */
+export const KeptTab = z.object({
+	rtab: z.string().min(1).max(128),
+	formerRtabs: z.array(z.string().min(1).max(128)),
+	sessionPath: z.string().min(1),
+	cwd: z.string(),
+	kind: SessionKind,
+	state: z.enum(["running", "settling", "asking", "waiting"]),
+	title: z.string().optional(),
+});
+export type KeptTab = z.infer<typeof KeptTab>;
+
+export const KeptTabsReply = z.object({ tabs: z.array(z.unknown()) });
 
 /** RpcClient's default command timeout; the client waits this plus slack for `tab.command`. */
 export const HOST_COMMAND_TIMEOUT_MS = 8_000;

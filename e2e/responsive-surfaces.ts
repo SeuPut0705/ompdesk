@@ -409,10 +409,57 @@ export const SURFACES: readonly Surface[] = [
 		open: page => ui(page, "openModes", "autopilot"),
 	},
 	{
-		id: "autopilot-panel",
+		id: "autopilot-board",
 		area: "B",
-		title: "Side panel › Autopilot screen",
-		open: page => ui(page, "openAutopilotPanel"),
+		title: "Work board › an Autopilot run (docked, or the strip expanded)",
+		open: async page => {
+			await page.evaluate(() => {
+				const now = Date.now();
+				const store = window.__stores?.autopilot?.getState() as { apply: (status: unknown) => void } | undefined;
+				store?.apply({
+					active: true,
+					state: "running",
+					cycle: 3,
+					branch: "autopilot/2026-10-21",
+					baseBranch: "main",
+					now: {
+						n: 3,
+						area: "performance",
+						title: "Cache the session list's first read",
+						startedAt: now - 60_000,
+					},
+					activeMs: 1_800_000,
+					cycles: [1, 2].map(n => ({
+						n,
+						area: n === 1 ? "bugs" : "docs",
+						title: n === 1 ? "Fix the stale draft after a tab switch" : "Explain the release cadence",
+						summary: "",
+						verify: n === 1 ? "green" : "red",
+						commit: n === 1 ? "1a9f1c2deadbeef" : undefined,
+						followups: [],
+						children: [],
+						startedAt: now - (4 - n) * 600_000,
+						durationMs: 252_000,
+						tokens: 212_000,
+						usd: 0.42,
+						compactions: 0,
+					})),
+					redStreak: 2,
+					backlog: [{ id: "b1", text: "Keyboard access in settings", done: false }],
+					totals: { tokens: 424_000, usd: 0.84 },
+					ship: {
+						policy: {
+							autoPush: false,
+							autoRelease: { on: false, cadence: { kind: "agent" } },
+							remote: "origin",
+							land: true,
+						},
+						queue: [],
+					},
+				});
+			});
+			await ui(page, "revealWorkBoard", null);
+		},
 		settle: 900,
 	},
 	...DIALOG_FLAGS.map(

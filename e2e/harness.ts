@@ -111,6 +111,12 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
 		...("OMP_GUI_OMP" in extra ? {} : { OMP_GUI_OMP: await fixtureOmp(options.profile) }),
+		// Machine setup's managed tools dir is `%LOCALAPPDATA%\ompdesk\tools` on Windows (`managedToolsDir`), one
+		// folder for every app on the PC. A launch that downloads through the test installer has its own, or a
+		// parallel app renames its `.downloads/test-download.part` away and the install fails before it runs.
+		...(process.platform === "win32" && "OMP_GUI_TEST_DOWNLOAD" in extra
+			? { LOCALAPPDATA: path.join(options.profile, "localappdata") }
+			: {}),
 		...extra,
 	};
 	const launchEnv: Record<string, string> = {};

@@ -99,7 +99,7 @@ describe("AutoInstallScheduler", () => {
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
 		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "install"]);
-		expect(t.logs.map(line => line.split(" ")[0])).toEqual(["quiet", "countdown", "install"]);
+		expect(t.logs.map(line => line.split(" ")[0])).toEqual(["safe", "countdown", "install"]);
 	});
 
 	it("starts over when the install failed and the update is ready again", () => {
@@ -117,8 +117,8 @@ describe("AutoInstallScheduler", () => {
 		]);
 	});
 
-	it("treats no input for two minutes as idle even while focused", () => {
-		const t = setup({ focused: true, idleMs: AUTO_INSTALL_IDLE_MS - 1 });
+	it("treats no input for two minutes as idle even while focused, when resume is off", () => {
+		const t = setup({ focused: true, idleMs: AUTO_INSTALL_IDLE_MS - 1, resumes: false });
 		t.advance(0);
 		expect(t.calls).toEqual([]);
 		t.facts.idleMs = AUTO_INSTALL_IDLE_MS;
@@ -126,8 +126,8 @@ describe("AutoInstallScheduler", () => {
 		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
 	});
 
-	it("waits while a tab works, even unfocused", () => {
-		const t = setup({ focused: false, busy: true });
+	it("waits while a tab works, even unfocused, when resume is off", () => {
+		const t = setup({ focused: false, busy: true, resumes: false });
 		t.advance(0);
 		t.advance(10 * MINUTE);
 		expect(t.calls).toEqual([]);
@@ -136,13 +136,48 @@ describe("AutoInstallScheduler", () => {
 		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
 	});
 
-	it("restarts after the max wait while still busy when work resumes after a restart", () => {
+	it("with resume on, starts the countdown at once although a turn runs and the user types: it resumes after", () => {
+		const t = setup({ busy: true, focused: true, idleMs: 0, resumes: true });
+		t.advance(0);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		expect(t.calls.at(-1)).toBe("install");
+	});
+
+	it("with resume on, waits for an open ask or a compaction, before the countdown and at its end", () => {
+		const t = setup({ busy: true, asking: true, focused: false, resumes: true });
+		t.advance(0);
+		t.advance(AUTO_INSTALL_MAX_WAIT_MS * 2);
+		expect(t.calls).toEqual([]);
+		t.facts.asking = false;
+		t.facts.compacting = true;
+		t.advance(1000);
+		expect(t.calls).toEqual([]);
+		t.facts.compacting = false;
+		t.advance(1000);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		// The card or the compaction comes up during the countdown: the restart holds until it is gone.
+		t.facts.compacting = true;
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(10 * MINUTE);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		t.facts.compacting = false;
+		t.facts.asking = true;
+		t.advance(1000);
+		expect(t.calls).toHaveLength(1);
+		t.facts.asking = false;
+		t.advance(1000);
+		expect(t.calls.at(-1)).toBe("install");
+	});
+
+	it("with resume on, goes back to a quiet moment or the max wait after the user's Later", () => {
 		const t = setup({ busy: true, focused: true, resumes: true });
 		t.advance(0);
+		t.scheduler.postpone();
 		t.advance(AUTO_INSTALL_MAX_WAIT_MS - 1);
-		expect(t.calls).toEqual([]);
+		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`, "withdraw"]);
 		t.advance(1);
-		expect(t.calls).toEqual([`announce:${AUTO_INSTALL_COUNTDOWN_MS}`]);
+		expect(t.calls.at(-1)).toBe(`announce:${AUTO_INSTALL_COUNTDOWN_MS}`);
 		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
 		expect(t.calls.at(-1)).toBe("install");
 	});
@@ -211,7 +246,7 @@ describe("AutoInstallScheduler", () => {
 
 describe("AutoInstallScheduler decision log", () => {
 	it("writes each transition once, from busy through quiet and countdown to the install", () => {
-		const t = setup({ focused: false, busy: true });
+		const t = setup({ focused: false, busy: true, resumes: false });
 		t.advance(0);
 		// Ten minutes of the same busy turn, one tick a second: still the one line.
 		for (let second = 0; second < 600; second++) t.advance(1000);
@@ -231,7 +266,7 @@ describe("AutoInstallScheduler decision log", () => {
 	});
 
 	it("logs a changed wait reason, and the quiet moment, but never the same reason twice", () => {
-		const t = setup({ focused: true, busy: false, idleMs: 0 });
+		const t = setup({ focused: true, busy: false, idleMs: 0, resumes: false });
 		t.advance(0);
 		t.advance(1000);
 		t.facts.busy = true;
@@ -252,13 +287,35 @@ describe("AutoInstallScheduler decision log", () => {
 		]);
 	});
 
-	it("logs the forced install after 30 minutes with the resume setting", () => {
+	it("logs the safe point a resume-on app installs at, and what holds it", () => {
+		const t = setup({ busy: true, asking: true, focused: true, resumes: true });
+		t.advance(0);
+		t.advance(1000);
+		t.facts.asking = false;
+		t.advance(1000);
+		t.facts.compacting = true;
+		t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+		t.advance(1000);
+		t.facts.compacting = false;
+		t.advance(1000);
+		expect(t.logs).toEqual([
+			"waiting reason=open ask waitedMs=0",
+			"safe waitedMs=2000 running=true resume=true",
+			expect.stringMatching(/^countdown restartAt=\d+$/),
+			"held reason=compaction",
+			"install trigger=auto",
+		]);
+	});
+
+	it("logs the forced install after 30 minutes past the user's Later with the resume setting", () => {
 		const t = setup({ busy: true, focused: true, resumes: true });
 		t.advance(0);
+		t.scheduler.postpone();
+		t.advance(0);
 		t.advance(AUTO_INSTALL_MAX_WAIT_MS - 1);
-		expect(t.logs).toEqual(["waiting reason=busy turn waitedMs=0"]);
+		expect(t.logs.slice(2)).toEqual(["postponed by=user", "waiting reason=busy turn waitedMs=0"]);
 		t.advance(1);
-		expect(t.logs.slice(1)).toEqual([
+		expect(t.logs.slice(4)).toEqual([
 			`forced waitedMs=${AUTO_INSTALL_MAX_WAIT_MS} maxWaitMs=${AUTO_INSTALL_MAX_WAIT_MS} resume=true reason=busy turn`,
 			expect.stringMatching(/^countdown restartAt=\d+$/),
 		]);
@@ -274,7 +331,7 @@ describe("AutoInstallScheduler decision log", () => {
 	});
 
 	it("logs the user's Later, and waits again for a reason afterwards", () => {
-		const t = setup({ focused: false });
+		const t = setup({ focused: false, resumes: false });
 		t.advance(0);
 		t.scheduler.postpone();
 		t.scheduler.postpone();

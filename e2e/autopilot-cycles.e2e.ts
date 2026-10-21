@@ -1,10 +1,10 @@
 /**
  * Autopilot on the fake omp (`fixture/autopilot.ts`, rules imported from the bridge's own pure modules): the run's
- * cycles 1-2-3 in its new worktree tab with the chip, the work board and the panel (en light; every theme and
+ * cycles 1-2-3 in its new worktree tab with the chip and the work board (the strip in a narrow window, docked in a wide one; en light; every theme and
  * language with OMP_GUI_VARIANTS=1); Stop (the current cycle finishes, children's queues are emptied and their
  * tabs closed, ended:user, one notification); the approval cards and the questions an unattended run never gets;
  * the usage limit (a quota wait with an automatic booking that retries after the reset); the project guide. ■ and
- * its release confirmation are unit-tested (autopilot.test.ts, AutopilotPanel.test.tsx). Runs start from the Mode
+ * its release confirmation are unit-tested (autopilot.test.ts, AutopilotBoard.test.tsx). Runs start from the Mode
  * popover's sheet (the user's own path) unless the spec needs options the sheet does not offer.
  */
 import * as fs from "node:fs/promises";
@@ -36,7 +36,7 @@ const TEXT = {
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))
-		test(`${language === "en" && theme === "light" ? "@smoke " : ""}cycles 1, 2, 3 follow in a new worktree tab with the chip, the board and the panel (${language} ${theme})`, async () => {
+		test(`${language === "en" && theme === "light" ? "@smoke " : ""}cycles 1, 2, 3 follow in a new worktree tab, shown on the chip and the work board, never a panel (${language} ${theme})`, async () => {
 			test.setTimeout(180_000);
 			const profile = await makeApProfile({
 				language,
@@ -72,41 +72,52 @@ for (const language of variants(["en", "ko"] as const))
 				// Real commits, one per cycle, on the autopilot branch only.
 				expect(git(cwd, "log", "--format=%s", "main..HEAD").split("\n").length).toBeGreaterThanOrEqual(3);
 
-				// The screen opens by itself when a run starts: timeline rows with the verify result, totals, state badge.
-				await expect(page.locator("[data-autopilot-panel]")).toBeVisible();
+				// No panel opens by itself when a run starts: the run's home is the work board. In a window too narrow
+				// for the board to dock, the composer's "show the run" expands the strip into it.
+				await expect(page.getByRole("button", { name: TEXT[language].close })).toHaveCount(0);
+				await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1000, 820));
+				await expect(page.locator("[data-work-chip]").first()).toContainText(TEXT[language].running);
+				await page.locator("[data-autopilot-chip-open]").click();
+				const strip = page.locator("[data-work-strip-panel]");
+				await expect(strip.locator("[data-autopilot-stop]")).toBeVisible();
+				await expect(strip.locator("[data-autopilot-cycle-live], [data-autopilot-between]").first()).toBeVisible();
+				await capture(page, `${language}-${theme}-strip`);
+
+				// Docked beside the transcript (a wider window) the board is the run's: its head names the run and its
+				// state, then the cycles with their verify result and totals.
+				await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1700, 900));
+				const board = page.locator("[data-work-board-panel]");
+				await expect(board.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
+				await expect(board.locator("[data-board-autopilot-text]")).toContainText(TEXT[language].running);
+				await expect(board.locator("[data-autopilot-totals]")).toBeVisible();
 				for (const n of [1, 2]) {
-					await expect(page.locator(`[data-autopilot-cycle="${n}"]`)).toHaveAttribute("data-verify", "green");
+					await expect(board.locator(`[data-autopilot-cycle="${n}"]`)).toHaveAttribute("data-verify", "green");
 				}
-				// A reported green the bridge did not take shows why, and every cycle says how much it changed.
-				await expect(page.locator('[data-autopilot-cycle="3"]')).toHaveAttribute("data-verify", "skipped");
+				// Each cycle's verdict is a painted dot, not an empty inline span.
+				const dot = await board
+					.locator('[data-autopilot-cycle="1"] [data-autopilot-verify-dot] > span')
+					.boundingBox();
+				expect(dot?.width ?? 0).toBeGreaterThan(0);
+				expect(dot?.height ?? 0).toBeGreaterThan(0);
+				// A reported green the bridge did not take shows why, and every cycle says how much it changed: each
+				// cycle's details open in place.
+				await expect(board.locator('[data-autopilot-cycle="3"]')).toHaveAttribute("data-verify", "skipped");
+				for (const n of [3, 2, 1])
+					await board.locator(`[data-autopilot-cycle="${n}"] button[data-board-expands]`).click();
 				await expect(
-					page.locator('[data-autopilot-cycle="3"] [data-autopilot-verify-note="no_check"]'),
+					board.locator('[data-autopilot-cycle="3"] [data-autopilot-verify-note="no_check"]'),
 				).toBeVisible();
-				await expect(page.locator('[data-autopilot-cycle="1"] [data-autopilot-change]')).toBeVisible();
-				await expect(page.locator('[data-autopilot-cycle="2"]')).toContainText(TEXT[language].docOnly);
-				await expect(page.locator("[data-autopilot-totals]")).toBeVisible();
-				await expect(page.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
-				await capture(page, `${language}-${theme}-panel`);
+				await expect(board.locator('[data-autopilot-cycle="1"] [data-autopilot-change]')).toBeVisible();
+				await expect(board.locator('[data-autopilot-cycle="2"]')).toContainText(TEXT[language].docOnly);
+				await capture(page, `${language}-${theme}-board-run`);
 				const captures = process.env.OMP_GUI_AUTOPILOT_CAPTURES;
-				await captureTo(captures, page, `autopilot-timeline-${language}-${theme}`);
-				// The older rows sit below the fold: scroll them in for the change size and the docs-only badge.
-				await page.locator('[data-autopilot-cycle="1"]').scrollIntoViewIfNeeded();
-				await captureTo(captures, page, `autopilot-timeline-older-${language}-${theme}`);
+				await captureTo(captures, page, `autopilot-board-${language}-${theme}`);
 
 				// The Mode popover shows the run instead of the sheet.
 				await page.locator("[data-run-settings-trigger]").click();
 				await expect(page.locator("[data-autopilot-run]")).toBeVisible();
 				await capture(page, `${language}-${theme}-mode`);
 				await page.keyboard.press("Escape");
-
-				// With the panel closed the work board carries the run: state with the cycle, the recent items, the totals.
-				// The board needs room beside the transcript column: a wider window than the default.
-				await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1700, 900));
-				await page.getByRole("button", { name: TEXT[language].close }).click();
-				await expect(page.locator("[data-autopilot-panel]")).toHaveCount(0);
-				await expect(page.locator("[data-board-autopilot-text]")).toContainText(TEXT[language].running);
-				await expect(page.locator("[data-board-cycle]").first()).toBeVisible();
-				await expect(page.locator("[data-board-autopilot-totals]")).toBeVisible();
 				// And the composer chip names the cycle and the area.
 				await expect(page.locator("[data-run-settings-trigger]")).toContainText(TEXT[language].running);
 
@@ -273,7 +284,8 @@ test("a usage limit waits for the quota in main, wakes at the reset and retries 
 		expect(waiting.quotaResetAt).toBeGreaterThan(Date.now() - 60_000);
 		expect(waiting.cycles?.length).toBe(1);
 		expect(await page.evaluate(() => window.omp.prefs.get("quotaResume"))).toBeFalsy();
-		await expect(page.locator("[data-autopilot-now]")).toBeVisible();
+		await page.locator("[data-autopilot-chip-open]").click();
+		await expect(page.locator('[data-board-section="autopilot"]').first()).toBeVisible();
 		await expect(page.locator("[data-run-settings-trigger]")).toContainText(/quota|until|\d{2}:\d{2}/i);
 		await capture(page, "quota-wait");
 		// After the reset stock `retry` runs, cycle 2 completes and the run goes on.

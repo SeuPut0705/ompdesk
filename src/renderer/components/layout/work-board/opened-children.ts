@@ -40,10 +40,8 @@ export interface OpenedChildCounts {
 	total: number;
 	running: number;
 	waiting: number;
-	/** Finished and uneventful: the sidebar folds these into its "n done" row. */
+	/** Finished and uneventful: the sidebar and the board fold these into their "n done" row. */
 	done: number;
-	/** Closed by main after their work landed (stored sessions). */
-	closed: number;
 }
 
 const ORDER: Record<ChildStatus | "none", number> = { waiting: 0, problem: 1, running: 2, none: 3, done: 4 };
@@ -150,12 +148,10 @@ export function openedChildRows(input: {
 }
 
 export function openedChildCounts(rows: readonly OpenedChildRow[]): OpenedChildCounts {
-	const counts: OpenedChildCounts = { total: 0, running: 0, waiting: 0, done: 0, closed: 0 };
+	const counts: OpenedChildCounts = { total: 0, running: 0, waiting: 0, done: 0 };
 	for (const row of rows) {
-		if (row.tabId === null) {
-			counts.closed++;
-			continue;
-		}
+		// Closed by main after their work landed: a stored session, no child at work.
+		if (row.tabId === null) continue;
 		counts.total++;
 		if (row.status === "running") counts.running++;
 		else if (row.status === "waiting") counts.waiting++;

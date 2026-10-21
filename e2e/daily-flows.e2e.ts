@@ -295,17 +295,22 @@ async function flowBLaunch(root: string): Promise<FlowBLaunched> {
 	return { app, page, call: await controlToolCaller(page, path.join(root, "rpc.jsonl")) };
 }
 
-// The merged child auto-closed: main records it as a stored "done" row on the board of its opener (no tab, no sidebar
-// row). The deleted one appears nowhere. After a relaunch the opener is a new session, so nothing is listed.
+// The merged child auto-closed: main records it under its opener, whose board folds it into its "1 done" row (no tab,
+// no sidebar row; unfolded, a stored "done" row). The deleted one appears nowhere. After a relaunch the opener is a new
+// session, so nothing is listed.
 async function flowBExpectClean(page: Page, merged: boolean): Promise<void> {
 	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(0);
 	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
 	const rows = page.locator('[data-board-section="opened"] [data-board-opened]');
-	await expect(rows).toHaveCount(merged ? 1 : 0);
+	const fold = page.locator('[data-board-section="opened"] [data-board-opened-done]');
+	await expect(rows).toHaveCount(0);
 	if (merged) {
+		await expect(fold).toHaveText("1 done");
+		await fold.click();
+		await expect(rows).toHaveCount(1);
 		await expect(rows.first()).toHaveAttribute("data-status", "done");
 		await expect(rows.first()).toContainText("flow b merge me");
-	}
+	} else await expect(fold).toHaveCount(0);
 	// The opener's transcript may say it deleted the session (a mail note); no list or row may.
 	const lists = [
 		...(await page.locator('[data-board-section="opened"]').allInnerTexts()),
@@ -1258,18 +1263,24 @@ test("daily flow f: settings, model, diagnostics bundle and autopilot chain with
 
 		await test.step("Autopilot starts from the Mode popover and ends with Stop", async () => {
 			const run = await startFromSheet(page, "en");
-			await expect(page.locator("[data-autopilot-panel]")).toBeVisible();
-			await expect(page.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
+			// No panel opens: the composer's "show the run" brings the run's section of the work board into view.
 			await expect(page.locator("[data-autopilot-chip-open]")).toBeVisible();
+			await page.locator("[data-autopilot-chip-open]").click();
+			const runSection = page.locator('[data-board-section="autopilot"]').first();
+			await expect(runSection).toBeVisible();
+			await expect(page.locator("[data-autopilot-state]").first()).toHaveAttribute(
+				"data-autopilot-state",
+				"running",
+			);
 			await expect(page.locator("[data-run-settings-trigger]")).toContainText(/Cycle \d/);
 			await waitForStatus(page, run.tabId, s => s.state === "running", "the run is running");
 			expect((await activeTools(page, run.tabId)).includes("autopilot")).toBe(true);
 
-			await page.locator("[data-autopilot-panel] [data-autopilot-stop]").click();
-			await expect(page.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "ended", {
+			await runSection.locator("[data-autopilot-stop]").click();
+			await expect(page.locator("[data-autopilot-state]").first()).toHaveAttribute("data-autopilot-state", "ended", {
 				timeout: 90_000,
 			});
-			await expect(page.locator("[data-autopilot-reason]")).toHaveAttribute("data-autopilot-reason", "user");
+			await expect(page.locator("[data-autopilot-reason]").first()).toHaveAttribute("data-autopilot-reason", "user");
 			await expect(page.locator("[data-autopilot-chip-open]")).toHaveCount(0);
 			await expect(page.locator("[data-autopilot-dock]")).toHaveCount(0);
 			await expect(page.locator("[data-run-settings-trigger]")).not.toContainText(/Cycle \d/);

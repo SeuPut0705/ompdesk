@@ -100,8 +100,10 @@ export interface VerifyVerdict {
 	/** Why the claim was not taken as it was: the sentence the agent is told, and the same as data for the screen. */
 	note?: string;
 	why?: AutopilotVerifyNote;
-	/** The report was refused: the agent may run the check and call `end` again. */
+	/** The report was refused: the agent may run the check and `end` again. */
 	amendable: boolean;
+	/** Green taken from the ledger: the check command whose pass made it green, exactly as it ran. */
+	check?: string;
 }
 
 function shorten(command: string): string {
@@ -149,7 +151,7 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 			amendable: true,
 		};
 	}
-	return { verify: "green", amendable: false };
+	return { verify: "green", amendable: false, ...(last.call.command ? { check: last.call.command } : {}) };
 }
 
 /** The part of a first report a repeated `end` may add to: follow-ups, children, ship and commit the first left out. */

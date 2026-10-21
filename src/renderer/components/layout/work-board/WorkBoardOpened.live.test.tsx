@@ -28,7 +28,6 @@ const { OpenedSection } = await import("./WorkBoardOpened");
 const { LIVE_REVIEW_MS } = await import("../../../hooks/use-live-review");
 
 const row = (status: OpenedChildRow["status"]): OpenedChildRow => ({ key: "c1", tabId: "c1", title: "Kid", status });
-const counts = { total: 1, running: 1, waiting: 0, done: 0, closed: 0 };
 
 let root: Root;
 
@@ -41,7 +40,7 @@ async function mount(rows: OpenedChildRow[]): Promise<void> {
 	await act(async () =>
 		root.render(
 			<I18nProvider>
-				<OpenedSection counts={counts} now={Date.now()} rows={rows} />
+				<OpenedSection now={Date.now()} rows={rows} />
 			</I18nProvider>,
 		),
 	);
@@ -113,6 +112,9 @@ describe("what each child is doing, under its title", () => {
 		expect(label("r")).toBe("Kid");
 		expect(activity("r")).toBe("bun run check:changed");
 		expect(activity("w")).toBe("Should a failed bump open an issue or only log it?");
+		// A finished one is folded into the "n done" row; unfolded, it says what it reported.
+		expect(container().querySelector('[data-board-opened="d"]')).toBeNull();
+		await act(async () => (container().querySelector("[data-board-opened-done]") as HTMLElement | null)?.click());
 		expect(activity("d")).toBe("Fixed the flake.");
 		// Nothing said yet: no empty second line.
 		expect(activity("q")).toBeNull();

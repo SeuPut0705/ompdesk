@@ -1,9 +1,11 @@
 /**
  * The work board's rows for the sessions an agent opened: status only (working, waiting, failed), no buttons. The
- * opener's agent reviews and lands its children with its tools; a click on a row focuses the child. Loaded on demand
- * by `WorkBoard.tsx` (the phone's first screen never needs them).
+ * opener's agent reviews and lands its children with its tools; a click on a row focuses the child. The finished ones
+ * fold into one "n done" row like the plan's. Loaded on demand by `WorkBoard.tsx` (the phone's first screen never
+ * needs them).
  */
 import { Check, X } from "lucide-react";
+import { useState } from "react";
 import { useLiveReview } from "../../../hooks/use-live-review";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { formatElapsed } from "../../../lib/format";
@@ -16,7 +18,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { CostAmount, hasCost } from "../../common/CostAmount";
 import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
-import { childActivity, type OpenedChildCounts, type OpenedChildRow } from "./opened-children";
+import { childActivity, type OpenedChildRow } from "./opened-children";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
 function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
@@ -118,32 +120,38 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 	);
 }
 
-export function OpenedSection({
-	rows,
-	counts,
-	now,
-}: {
-	rows: readonly OpenedChildRow[];
-	counts: OpenedChildCounts;
-	now: number;
-}) {
+/**
+ * The children still at work or worth a look as rows; every finished one (a done tab, a session main closed after its
+ * work landed) folds into one "n done" row worded as the plan's, which lists them in place on a tap.
+ */
+export function OpenedSection({ rows, now }: { rows: readonly OpenedChildRow[]; now: number }) {
 	const t = useT();
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
+	const [doneOpen, setDoneOpen] = useState(false);
 	useLiveReview(
 		runtimeTabId ?? activeTabId,
 		rows.some(row => row.status === "running"),
 	);
+	const open = rows.filter(row => row.status !== "done");
+	const done = rows.filter(row => row.status === "done");
 	return (
-		<BoardSection
-			aside={counts.closed > 0 ? t("workBoard.opened.closed", { count: counts.closed }) : null}
-			count={rows.length}
-			id="opened"
-			title={t("workBoard.opened")}
-		>
-			<CappedRows cap={SECTION_CAP.opened} items={rows}>
+		<BoardSection count={open.length > 0 ? open.length : undefined} id="opened" title={t("workBoard.opened")}>
+			<CappedRows cap={SECTION_CAP.opened} items={open}>
 				{row => <OpenedRow key={row.key} now={now} row={row} />}
 			</CappedRows>
+			{done.length > 0 && (
+				<BoardRow
+					// It expands in place, so the phone's strip stays open for it.
+					data={{ "data-board-opened-done": "", "data-board-expands": "", "data-open": String(doneOpen) }}
+					label={
+						<span className="text-(--sc-text-subtle)">{t("workBoard.doneFolded", { count: done.length })}</span>
+					}
+					lead={<Check aria-hidden className="size-3 text-(--sc-success)" />}
+					onClick={() => setDoneOpen(!doneOpen)}
+				/>
+			)}
+			{doneOpen && done.map(row => <OpenedRow key={row.key} now={now} row={row} />)}
 		</BoardSection>
 	);
 }

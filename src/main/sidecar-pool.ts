@@ -485,6 +485,21 @@ export class SidecarPool {
 		return this.#byTabId.get(tabId)?.planProposal ?? null;
 	}
 
+	/**
+	 * What an automatic update restart must wait for on this computer's tabs (app-auto-update.ts): a tab compacting its
+	 * context (a cut compaction does not resume), and a plan proposal waiting on the person (an approval card).
+	 */
+	restartHolds(): { compacting: boolean; planWaiting: boolean } {
+		let compacting = false;
+		let planWaiting = false;
+		for (const entry of this.#entries) {
+			if (entry.hostedView) continue;
+			compacting ||= entry.run.compacting === true;
+			planWaiting ||= entry.planProposal !== undefined;
+		}
+		return { compacting, planWaiting };
+	}
+
 	#announce(activity: TabActivity): void {
 		for (const observer of this.#activityObservers) {
 			try {
@@ -531,7 +546,9 @@ export class SidecarPool {
 	 * `device` runs the tab on a paired host: the factory returns a
 	 * RemoteSidecar and the cwd is the host's path, so it is not resolved here
 	 * (the host canonicalizes it). `task`: what another session's agent opened it
-	 * for, on the entry before its first status reaches a window.
+	 * for, on the entry before its first status reaches a window. `formerIds`: the ids the session's tab had before
+	 * this one, newest first (a paired host's tab re-adopted after a relaunch: `readopt.ts`); they name it while it
+	 * holds `sessionPath`.
 	 */
 	acquire(
 		cwd: string,
@@ -546,6 +563,7 @@ export class SidecarPool {
 		title?: string,
 		device?: string,
 		task?: string,
+		formerIds?: string[],
 	): SidecarLike | null {
 		// A session the user deleted never comes back as a tab, whoever asks (a layout, a marker, a reopen).
 		if (deletedSessions().has(sessionPath, device)) return null;
@@ -573,6 +591,7 @@ export class SidecarPool {
 			};
 			if (title) entry.title = title;
 			if (task) entry.task = task;
+			if (formerIds && sessionPath) entry.former = { file: sessionPath, ids: formerIds };
 			// Before anything can start it: the gate must be in place for the first `ready`.
 			const gate = this.worktreeStartGate?.(tabId, entry.winId, {
 				kind,

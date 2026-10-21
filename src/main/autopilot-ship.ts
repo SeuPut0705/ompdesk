@@ -9,14 +9,19 @@
  * pinned as `pushurl` through `GIT_CONFIG_*` (so a `pushInsteadOf` rule cannot redirect it), a conflicting
  * merge or revert is aborted, one failed item never blocks the next, and every ref move is journaled before
  * it happens so the audit (autopilot-audit.ts) expects exactly it. Landing never merges into the run's worktree (the
- * next turn may already be working in it): a default branch that moved is reported, with the files a merge would
- * conflict in, and the agent merges, checks and commits in its next cycle.
+ * next turn may already be working in it): when the default branch moved on and merges cleanly, the merge commit is
+ * built without a checkout, the cycle's own check runs on exactly that commit in a temporary checkout
+ * (autopilot-land-check.ts), and only that commit is pushed, as a fast-forward. A merge that conflicts or fails its
+ * check is reported, and the agent merges, checks and commits in its next cycle.
  */
+
+import { devNull } from "node:os";
 import type {
 	AutopilotShipActionParams,
 	ShipKind,
 	ShipQueueItem,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { checkLandCandidate, type LandCheck, type LandCheckInput } from "./autopilot-land-check";
 import { gitRaw } from "./local/git/exec";
 
 export interface ShipTarget {
@@ -48,6 +53,8 @@ export interface ShipDeps {
 	): Promise<{ url: string; number: number }>;
 	now(): number;
 	id(): string;
+	/** Check a land candidate in a temporary checkout (default: {@link checkLandCandidate}). */
+	checkCandidate?(input: LandCheckInput): Promise<LandCheck>;
 }
 
 export interface ShipRequest {
@@ -57,19 +64,32 @@ export interface ShipRequest {
 	sha?: string;
 	/** `merge`: also allow a merge commit when a fast-forward is not possible. */
 	mode?: "ff" | "merge_commit";
+	/** `land`: the command whose pass made the cycle green; a merge with a moved default branch is checked with it. */
+	check?: string;
 }
 
 export type PushFailure = "rejected" | "network";
 
 /**
- * What a `land` did. `landed`: the default branch is now the cycle's commit (or already was). `behind`: the default
- * branch has commits the run lacks; nothing moved; `conflicts` names the files a merge would conflict in (empty: a
- * clean merge; null: git could not say). `pr`: the remote refused the default branch (protected), so the run's branch
- * was pushed and one pull request opened (`created`) or updated.
+ * What a `land` did. `landed`: the default branch is now `sha` (or already was): the cycle's commit, or with `merge`
+ * the commit that merged the default branch (`onto`) into it, which `check` passed on in a temporary checkout;
+ * `advanced` says the run's own branch was fast-forwarded to it. `behind`: the default branch has commits the run
+ * lacks; nothing moved; `conflicts` names the files a merge would conflict in (empty: a clean merge; null: git could
+ * not say). `red`: the merge was clean but the check failed on it; nothing moved. `pr`: the remote refused the default
+ * branch (protected), so the run's branch was pushed and one pull request opened (`created`) or updated.
  */
 export type LandOutcome =
-	| { kind: "landed"; sha: string }
+	| { kind: "landed"; sha: string; merge?: { onto: string; check: string; advanced: boolean } }
 	| { kind: "behind"; ahead: number | null; conflicts: string[] | null }
+	| {
+			kind: "red";
+			candidate: string;
+			onto: string;
+			check: string;
+			exitCode: number | null;
+			timedOut: boolean;
+			tail: string;
+	  }
 	| { kind: "pr"; url?: string; created: boolean; reason: string };
 
 export interface ShipResult {
@@ -85,6 +105,8 @@ const PUSH_TIMEOUT_MS = 180_000;
 const GIT_TIMEOUT_MS = 120_000;
 /** Finished items kept for the screen. */
 const KEEP_FINISHED = 20;
+/** Candidates a land builds when the default branch keeps moving (each checked); then the next cycle tries again. */
+const LAND_ATTEMPTS = 3;
 const NETWORK_FAILURE =
 	/could not resolve host|unable to access|connection (refused|reset|timed out)|timed out|network is unreachable|no route to host|does not appear to be a git repository|could not read from remote/i;
 const REFUSED_FIRST =
@@ -148,6 +170,8 @@ export class ShipRunner {
 	readonly #deps: ShipDeps;
 	readonly #items: ShipQueueItem[] = [];
 	readonly #modes = new Map<string, "ff" | "merge_commit">();
+	/** A land item's check command (what made its cycle green). */
+	readonly #checks = new Map<string, string>();
 	/** The pull request a protected default branch made landing open (one per run; later lands update its branch). */
 	#landPr: { url?: string } | null = null;
 	#tail: Promise<unknown> = Promise.resolve();
@@ -171,6 +195,7 @@ export class ShipRunner {
 			at: this.#deps.now(),
 		};
 		if (request.mode) this.#modes.set(item.id, request.mode);
+		if (request.check) this.#checks.set(item.id, request.check);
 		this.#items.push(item);
 		this.#broadcast();
 		return { ...item };
@@ -206,6 +231,7 @@ export class ShipRunner {
 		if (at < 0) return false;
 		this.#items.splice(at, 1);
 		this.#modes.delete(id);
+		this.#checks.delete(id);
 		this.#broadcast();
 		return true;
 	}
@@ -247,6 +273,7 @@ export class ShipRunner {
 				if (error instanceof LandStop) result.land = error.outcome;
 			}
 			this.#modes.delete(item.id);
+			this.#checks.delete(item.id);
 			results.push({ ...result, item: { ...item } });
 			this.#prune();
 			this.#broadcast();
@@ -319,10 +346,13 @@ export class ShipRunner {
 	}
 
 	/**
-	 * Land the cycle's commit on the default branch: fetch it, and push the commit there only when it contains the
-	 * remote's tip (a fast-forward). A default branch that moved is `behind` (with the files a merge would conflict in,
-	 * from `git merge-tree`, which touches no checkout); a refusal that is not the branch moving on is a protected
-	 * branch: the run's branch goes up instead, with one pull request into the default branch.
+	 * Land the cycle's commit on the default branch. Fetch it; when the commit contains the remote's tip, push it there
+	 * (a fast-forward). When the default branch moved on and merges cleanly (`git merge-tree`, no checkout), build the
+	 * merge commit, run the cycle's check on exactly that commit in a temporary checkout, and push it only when the check
+	 * passed and the default branch did not move meanwhile; a branch that moved again (during the check or the push)
+	 * gets a new candidate, checked again, up to {@link LAND_ATTEMPTS} times. A merge that conflicts, a cycle without a
+	 * known check, or a failed check is reported and nothing moves. A refusal that is not the branch moving on is a
+	 * protected branch: the run's branch goes up instead, with one pull request into the default branch.
 	 */
 	async #land(target: ShipTarget, item: ShipQueueItem): Promise<Pick<ShipResult, "land" | "pushed">> {
 		const { root, remote } = target;
@@ -330,6 +360,88 @@ export class ShipRunner {
 		if (!dest) throw new ShipFailure("The run has no default branch to land on.");
 		const sha = item.sha ?? (await this.#text(root, ["rev-parse", "HEAD"]));
 		item.sha = sha;
+		const check = this.#checks.get(item.id);
+		for (let attempt = 1; ; attempt++) {
+			const tip = await this.#fetchTip(target, dest);
+			if (tip === sha) {
+				item.detail = `${remote}/${dest} already has it`;
+				return { land: { kind: "landed", sha } };
+			}
+			let candidate = sha;
+			let merge: { onto: string; check: string } | undefined;
+			if (tip && (await this.#git(root, ["merge-base", "--is-ancestor", tip, sha])).code !== 0) {
+				// A pull request already carries the run (the default branch refuses pushes): it takes the commit as it is.
+				if (this.#landPr !== null) return this.#landByPr(target, item, sha, "the default branch refuses pushes");
+				const behind = await this.#behind(root, tip, sha);
+				if (!check || behind.conflicts === null || behind.conflicts.length > 0) {
+					item.detail = behindDetail(remote, dest, behind);
+					throw new LandStop(item.detail, behind);
+				}
+				candidate = await this.#mergeCommit(root, sha, tip, `${remote}/${dest}`);
+				item.detail = `checking the merge with ${remote}/${dest} (${candidate.slice(0, 9)})`;
+				this.#broadcast();
+				const checked = await (this.#deps.checkCandidate ?? checkLandCandidate)({
+					root,
+					primary: target.checkoutRoot,
+					sha: candidate,
+					base: tip,
+					command: check,
+				});
+				if (!checked.ok) {
+					const red: LandOutcome = {
+						kind: "red",
+						candidate,
+						onto: tip,
+						check,
+						exitCode: checked.exitCode,
+						timedOut: checked.timedOut,
+						tail: checked.tail,
+					};
+					item.detail = `the merge with ${remote}/${dest} fails the check (${checked.timedOut ? "timed out" : `exit ${checked.exitCode ?? "?"}`}); not landed`;
+					throw new LandStop(item.detail, red);
+				}
+				if ((await this.#fetchTip(target, dest)) !== tip) {
+					if (attempt < LAND_ATTEMPTS) continue;
+					throw this.#keptMoving(target, item, dest);
+				}
+				merge = { onto: tip, check };
+			}
+			const pushed = await this.#pushSha(target, candidate, dest);
+			if (pushed.code === 0) {
+				item.detail = merge
+					? `${remote}/${dest} (merged with ${merge.onto.slice(0, 9)}, checked)`
+					: `${remote}/${dest}`;
+				if (!merge) return { land: { kind: "landed", sha }, pushed: true };
+				const advanced = await this.#advance(root, sha, candidate);
+				return { land: { kind: "landed", sha: candidate, merge: { ...merge, advanced } }, pushed: true };
+			}
+			if (MOVED_ON.test(pushed.stderr)) {
+				// The default branch moved between the fetch and the push: measure it again.
+				if (attempt < LAND_ATTEMPTS) continue;
+				throw this.#keptMoving(target, item, dest);
+			}
+			const failure = classifyPushFailure(pushed.stderr);
+			if (failure === "network" || NOT_ALLOWED_AT_ALL.test(pushed.stderr)) {
+				throw new ShipFailure(brief(pushed.stderr), failure);
+			}
+			// The remote's own words say why (a branch rule, a hook); git's trailer only says that it refused.
+			const said = pushed.stderr
+				.split("\n")
+				.filter(line => line.startsWith("remote:"))
+				.join("\n");
+			return this.#landByPr(target, item, sha, brief(said.replace(/^remote:\s*/gm, "") || pushed.stderr));
+		}
+	}
+
+	#keptMoving(target: ShipTarget, item: ShipQueueItem, dest: string): LandStop {
+		const behind: LandOutcome = { kind: "behind", ahead: null, conflicts: null };
+		item.detail = `${behindDetail(target.remote, dest, behind)} (it kept moving: ${LAND_ATTEMPTS} tries)`;
+		return new LandStop(item.detail, behind);
+	}
+
+	/** Fetch the default branch into its remote-tracking ref; its tip, or null when the remote has no such branch. */
+	async #fetchTip(target: ShipTarget, dest: string): Promise<string | null> {
+		const { root, remote } = target;
 		const tracking = `refs/remotes/${remote}/${dest}`;
 		const fetched = await this.#git(
 			root,
@@ -341,37 +453,37 @@ export class ShipRunner {
 			throw new ShipFailure(brief(fetched.stderr), classifyPushFailure(fetched.stderr));
 		}
 		const tipRead = await this.#git(root, ["rev-parse", "--verify", "-q", tracking]);
-		const tip = tipRead.code === 0 ? tipRead.stdout.toString("utf8").trim() : null;
-		if (tip === sha) {
-			item.detail = `${remote}/${dest} already has it`;
-			return { land: { kind: "landed", sha } };
-		}
-		if (tip && (await this.#git(root, ["merge-base", "--is-ancestor", tip, sha])).code !== 0) {
-			const behind = await this.#behind(root, tip, sha);
-			item.detail = behindDetail(remote, dest, behind);
-			throw new LandStop(item.detail, behind);
-		}
-		const pushed = await this.#pushSha(target, sha, dest);
-		if (pushed.code === 0) {
-			item.detail = `${remote}/${dest}`;
-			return { land: { kind: "landed", sha }, pushed: true };
-		}
-		if (MOVED_ON.test(pushed.stderr)) {
-			// The default branch moved between the fetch and the push: the next cycle end measures it again.
-			const behind: LandOutcome = { kind: "behind", ahead: null, conflicts: null };
-			item.detail = behindDetail(remote, dest, behind);
-			throw new LandStop(item.detail, behind);
-		}
-		const failure = classifyPushFailure(pushed.stderr);
-		if (failure === "network" || NOT_ALLOWED_AT_ALL.test(pushed.stderr)) {
-			throw new ShipFailure(brief(pushed.stderr), failure);
-		}
-		// The remote's own words say why (a branch rule, a hook); git's trailer only says that it refused.
-		const said = pushed.stderr
-			.split("\n")
-			.filter(line => line.startsWith("remote:"))
-			.join("\n");
-		return this.#landByPr(target, item, sha, brief(said.replace(/^remote:\s*/gm, "") || pushed.stderr));
+		return tipRead.code === 0 ? tipRead.stdout.toString("utf8").trim() : null;
+	}
+
+	/** The merge of `tip` into `sha` as a commit object (`sha` first parent), built without any checkout or ref. */
+	async #mergeCommit(root: string, sha: string, tip: string, name: string): Promise<string> {
+		const tree = await this.#text(root, ["merge-tree", "--write-tree", "--no-messages", sha, tip]);
+		const short = await this.#text(root, ["rev-parse", "--short", sha]);
+		return this.#text(root, [
+			"commit-tree",
+			"--no-gpg-sign",
+			tree.split("\n")[0] ?? tree,
+			"-p",
+			sha,
+			"-p",
+			tip,
+			"-m",
+			`Merge ${name} into ${short} (Autopilot land)`,
+		]);
+	}
+
+	/**
+	 * Fast-forward the run's branch to the landed merge, only while its worktree still sits on the cycle's commit with
+	 * nothing changed (the agent has not moved on); no hook runs. False: left as it was.
+	 */
+	async #advance(root: string, from: string, to: string): Promise<boolean> {
+		const head = await this.#git(root, ["rev-parse", "HEAD"]);
+		if (head.code !== 0 || head.stdout.toString("utf8").trim() !== from) return false;
+		const status = await this.#git(root, ["status", "--porcelain"]);
+		if (status.code !== 0 || status.stdout.toString("utf8").trim() !== "") return false;
+		const merged = await this.#git(root, ["-c", `core.hooksPath=${devNull}`, "merge", "--ff-only", "-q", to]);
+		return merged.code === 0;
 	}
 
 	/** The default branch refused the push: the run's branch goes up and one pull request into the default branch carries it. */

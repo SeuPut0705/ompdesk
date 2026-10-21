@@ -82,13 +82,15 @@ describe("GoalDockBar for an Autopilot run", () => {
 		expect(container.querySelector(`[aria-label="${translate("dock.goal.drop")}"]`)).toBeNull();
 	});
 
-	it("opens the screen and sends the same stops as the screen", async () => {
+	it("shows the run on the work board and sends the same stops as the board", async () => {
 		useAutopilotStore.getState().apply({ active: true, state: "running", cycle: 4, now: { n: 4, startedAt: 1 } });
 		await mount();
+		const before = useUiStore.getState().workBoardReveal?.seq ?? 0;
 		await act(async () =>
 			(container.querySelector(`[aria-label="${translate("autopilot.chip.open")}"]`) as HTMLElement).click(),
 		);
-		expect(useUiStore.getState().panelTab).toBe("autopilot");
+		expect(useUiStore.getState().workBoardReveal?.seq).toBe(before + 1);
+		expect(useUiStore.getState().panelVisible).toBe(false);
 		await act(async () => (container.querySelector("[data-autopilot-stop]") as HTMLElement).click());
 		expect(setAutopilot).toHaveBeenCalledWith({ action: "stop" });
 		expect(setGoal).not.toHaveBeenCalled();

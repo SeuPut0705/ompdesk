@@ -1,11 +1,11 @@
 import { useCallback, useState } from "react";
-import type { AutopilotAction, AutopilotStatus } from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
-import { useT } from "../../../lib/i18n";
-import { useTabRpc } from "../../../lib/tab-rpc";
-import { tabAutopilotStore } from "../../../stores/autopilot";
-import { useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { useTabsStore } from "../../../stores/tabs";
-import { toastError } from "../../../stores/toast";
+import type { AutopilotAction, AutopilotStatus } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import { useT } from "../../lib/i18n";
+import { useTabRpc } from "../../lib/tab-rpc";
+import { tabAutopilotStore } from "../../stores/autopilot";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useTabsStore } from "../../stores/tabs";
+import { toastError } from "../../stores/toast";
 
 /** How long a started run's new tab may take to reach this window's tab list before focusing it is given up. */
 const NEW_TAB_WAIT_MS = 10_000;

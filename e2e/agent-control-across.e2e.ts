@@ -535,12 +535,15 @@ test.describe("on a paired device", () => {
 		// One line per row: the report is the row's tooltip.
 		await expect(row).toHaveAttribute("title", /Halfway on PC-B/);
 
-		// The turn on the host ends: the row stops running and the opener's count drops.
+		// The turn on the host ends: the row stops running and folds into the finished children's "1 done" row.
 		await app.page.evaluate(
 			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }),
 			child as string,
 		);
-		await expect(row).not.toHaveAttribute("data-status", "running", { timeout: 30_000 });
+		await expect(app.page.locator('[data-board-section="opened"] [data-board-opened-done]')).toHaveText("1 done", {
+			timeout: 30_000,
+		});
+		await expect(row).toHaveCount(0);
 		expect(parentTab).not.toBe(child);
 	});
 
@@ -598,12 +601,15 @@ test.describe("on a paired device", () => {
 		await expect.poll(seconds, { timeout: 15_000 }).toBeGreaterThan(before);
 		if (shots) await app.page.screenshot({ path: path.join(shots, "remote-child-after-blip.png") });
 
-		// The turn ends on the host: the row stops running.
+		// The turn ends on the host: the row stops running and folds into the "1 done" row.
 		await app.page.evaluate(
 			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:finish" }),
 			child as string,
 		);
-		await expect(row).not.toHaveAttribute("data-status", "running", { timeout: 30_000 });
+		await expect(app.page.locator('[data-board-section="opened"] [data-board-opened-done]')).toHaveText("1 done", {
+			timeout: 30_000,
+		});
+		await expect(row).toHaveCount(0);
 	});
 
 	test("creates, lists and cancels a schedule on a paired device, which keeps and runs it", async () => {

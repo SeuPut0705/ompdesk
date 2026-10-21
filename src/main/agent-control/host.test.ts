@@ -48,6 +48,8 @@ function setup(
 		autopilot?: AgentControlHostDeps["autopilot"];
 		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
 		sweepMs?: number;
+		/** `AgentControlHostDeps.mailOutboxFile`. */
+		mailOutboxFile?: string;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 		app?: AgentControlHostDeps["app"];
@@ -125,6 +127,7 @@ function setup(
 		schedules: options.schedules,
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
+		mailOutboxFile: options.mailOutboxFile,
 	};
 	const runtime = new AgentControlRuntime(deps);
 	return { runtime, win, win2, deps, commands, spawned, tabs, otherTabs, activity, prefs, openers, sidecars };
@@ -954,5 +957,76 @@ describe("AgentControlRuntime", () => {
 			deliverAs: "aside",
 			details: { kind: "question", from: "remo0004" },
 		});
+	});
+
+	it("sends a done report a busy parent accepted again to the omp that replaces it, until that omp's journal holds it", async () => {
+		// Stock queues a `followUp` in memory and journals it when the turn that answers it starts; a quit drops the
+		// queue. Each fake omp below does the same: a report is queued, and `endTurn` journals what is queued.
+		const omps = new Map<string, { journal: Set<string>; queued: Set<string> }>();
+		const received: string[] = [];
+		const asks: string[] = [];
+		const attach = (deps: AgentControlHostDeps) => {
+			const inner = deps.dispatch;
+			deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) => {
+				if (command.type !== "agent_control_mail") return inner(target, sidecar, tabId, command, timeoutMs);
+				asks.push(tabId);
+				const omp = omps.get(tabId) ?? { journal: new Set<string>(), queued: new Set<string>() };
+				omps.set(tabId, omp);
+				const id = String(command.details.id);
+				if (omp.journal.has(id)) return ok({ duplicate: true, journaled: true });
+				if (omp.queued.has(id)) return ok({ duplicate: true, journaled: false });
+				omp.queued.add(id);
+				received.push(tabId);
+				return ok();
+			};
+		};
+		vi.useFakeTimers();
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-mail-outbox-"));
+		try {
+			const file = path.join(dir, "mail-outbox.json");
+			const before = setup({
+				tabs: [
+					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+					{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
+				],
+				sweepMs: 1_000,
+				mailOutboxFile: file,
+			});
+			attach(before.deps);
+			const reported = await before.runtime.run(before.win, "kid00002", T.report, {
+				kind: "done",
+				text: "All checks pass",
+			});
+			expect(reported.isError, reported.text).toBe(false);
+			expect(received).toEqual(["main0001"]);
+
+			// The app quits with the parent mid-turn and relaunches: its session comes back in a tab with a new id.
+			const after = setup({
+				tabs: [{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" }],
+				sweepMs: 1_000,
+				mailOutboxFile: file,
+			});
+			after.deps.pool.sessionOwner = sessionPath =>
+				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0009" } as never) : null;
+			attach(after.deps);
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(received).toEqual(["main0001", "main0009"]);
+
+			// Queued in the new omp: asked again, never sent a second time.
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(received).toEqual(["main0001", "main0009"]);
+
+			// Its turn ended and stock journaled the report: one more look settles it, then nothing is sent.
+			const omp = omps.get("main0009");
+			for (const id of omp?.queued ?? []) omp?.journal.add(id);
+			await vi.advanceTimersByTimeAsync(1_000);
+			const asked = asks.length;
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(asks.length).toBe(asked);
+			expect(received).toEqual(["main0001", "main0009"]);
+		} finally {
+			vi.useRealTimers();
+			await fs.rm(dir, { recursive: true, force: true });
+		}
 	});
 });

@@ -11,7 +11,6 @@ import {
 	MoreHorizontal,
 	MoreVertical,
 	Network,
-	Rocket,
 	ScrollText,
 	Terminal,
 	X,
@@ -24,7 +23,6 @@ import { lazyChunk } from "../../lib/chunk-load";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { actionShortcut } from "../../lib/keymap";
-import { isAutopilotTab, useAutopilotStore } from "../../stores/autopilot";
 import { SessionRuntimeProvider, sessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { CLOSED_FILE_VIEW, type PanelTab, useUiStore } from "../../stores/ui";
@@ -85,21 +83,13 @@ const VIEWS = [
 ] satisfies { id: PanelTab; labelKey: string; icon: typeof Files }[];
 /** Not one of the switchable views: a dragged or menu-opened subagent row puts it in the panel. */
 const SUBAGENT_VIEW = { id: "subagent", labelKey: "panel.tabs.subagent", icon: Bot } as const;
-/** Not one of the switchable views either: the Autopilot screen, listed only for a tab that is an Autopilot run. */
-const AUTOPILOT_VIEW = { id: "autopilot", labelKey: "panel.tabs.autopilot", icon: Rocket } as const;
 
 function PanelHeader({ bare }: { bare?: boolean }) {
 	const t = useT();
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
 	const togglePanel = useUiStore(s => s.togglePanel);
-	const autopilotTab = useAutopilotStore(isAutopilotTab);
-	const current =
-		panelTab === "subagent"
-			? SUBAGENT_VIEW
-			: panelTab === "autopilot"
-				? AUTOPILOT_VIEW
-				: (VIEWS.find(view => view.id === panelTab) ?? VIEWS[0]);
+	const current = panelTab === "subagent" ? SUBAGENT_VIEW : (VIEWS.find(view => view.id === panelTab) ?? VIEWS[0]);
 	return (
 		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 flex-wrap items-center gap-x-1 px-3">
 			<span title={t(current.labelKey)} className="min-w-24 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
@@ -125,26 +115,13 @@ function PanelHeader({ bare }: { bare?: boolean }) {
 						label={t("panel.viewOptions")}
 						size="sm"
 						align="end"
-						items={[
-							...VIEWS.slice(4).map(view => ({
-								id: view.id,
-								label: t(view.labelKey),
-								icon: view.icon,
-								checked: panelTab === view.id,
-								onSelect: () => setPanelTab(view.id),
-							})),
-							...(autopilotTab
-								? [
-										{
-											id: AUTOPILOT_VIEW.id,
-											label: t(AUTOPILOT_VIEW.labelKey),
-											icon: AUTOPILOT_VIEW.icon,
-											checked: panelTab === "autopilot",
-											onSelect: () => useUiStore.getState().openAutopilotPanel(),
-										},
-									]
-								: []),
-						]}
+						items={VIEWS.slice(4).map(view => ({
+							id: view.id,
+							label: t(view.labelKey),
+							icon: view.icon,
+							checked: panelTab === view.id,
+							onSelect: () => setPanelTab(view.id),
+						}))}
 					/>
 				</>
 			)}
@@ -169,9 +146,8 @@ function PanelTabBar() {
 	const panelTab = useUiStore(s => s.panelTab);
 	const setPanelTab = useUiStore(s => s.setPanelTab);
 	const [moreAnchor, setMoreAnchor] = useState<{ x: number; y: number; above: number } | null>(null);
-	const autopilotTab = useAutopilotStore(isAutopilotTab);
 	const secondary = VIEWS.slice(4);
-	const inMore = secondary.some(view => view.id === panelTab) || panelTab === "subagent" || panelTab === "autopilot";
+	const inMore = secondary.some(view => view.id === panelTab) || panelTab === "subagent";
 	return (
 		<nav aria-label={t("panel.primaryViews")} className="omp-panel-tabbar" data-panel-tabbar="">
 			{VIEWS.slice(0, 4).map(view => (
@@ -202,32 +178,16 @@ function PanelTabBar() {
 				<ContextMenu
 					above={moreAnchor.above}
 					ariaLabel={t("panel.viewOptions")}
-					items={[
-						...secondary.map(view => ({
-							id: view.id,
-							label: t(view.labelKey),
-							icon: view.icon,
-							checked: panelTab === view.id,
-							onSelect: () => {
-								setMoreAnchor(null);
-								setPanelTab(view.id);
-							},
-						})),
-						...(autopilotTab
-							? [
-									{
-										id: AUTOPILOT_VIEW.id,
-										label: t(AUTOPILOT_VIEW.labelKey),
-										icon: AUTOPILOT_VIEW.icon,
-										checked: panelTab === "autopilot",
-										onSelect: () => {
-											setMoreAnchor(null);
-											useUiStore.getState().openAutopilotPanel();
-										},
-									},
-								]
-							: []),
-					]}
+					items={secondary.map(view => ({
+						id: view.id,
+						label: t(view.labelKey),
+						icon: view.icon,
+						checked: panelTab === view.id,
+						onSelect: () => {
+							setMoreAnchor(null);
+							setPanelTab(view.id);
+						},
+					}))}
 					onClose={() => setMoreAnchor(null)}
 					side="above"
 					x={moreAnchor.x}

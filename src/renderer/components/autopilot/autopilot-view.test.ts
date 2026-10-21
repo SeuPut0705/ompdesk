@@ -1,16 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type {
-	AutopilotCycleRecord,
-	AutopilotStatus,
-} from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
+import type { AutopilotCycleRecord, AutopilotStatus } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	APPROVAL_GRACE_MS,
 	approvalHeldBack,
-	areaMix,
 	autopilotChip,
-	autopilotProgress,
 	autopilotStep,
-	overnightSummary,
 	ratePrediction,
 	toolStep,
 } from "./autopilot-view";
@@ -72,7 +66,7 @@ describe("toolStep", () => {
 	});
 });
 
-describe("autopilotStep / autopilotProgress", () => {
+describe("autopilotStep", () => {
 	it("is the newest classified call's step", () => {
 		expect(autopilotStep([{ toolName: "read", args: {} }, { toolName: "edit", args: {} }, bash("ls")])).toBe(
 			"implement",
@@ -82,52 +76,6 @@ describe("autopilotStep / autopilotProgress", () => {
 	it("is null with nothing classified", () => {
 		expect(autopilotStep([])).toBeNull();
 		expect(autopilotStep([bash("ls")])).toBeNull();
-	});
-
-	it("marks every step before the current one done", () => {
-		expect(
-			autopilotProgress([
-				{ toolName: "read", args: {} },
-				{ toolName: "edit", args: {} },
-			]),
-		).toEqual({
-			current: "implement",
-			done: ["audit"],
-		});
-		expect(autopilotProgress([])).toEqual({ current: null, done: [] });
-	});
-
-	it("does not go back when the agent reads again after verifying", () => {
-		const progress = autopilotProgress([
-			{ toolName: "edit", args: {} },
-			bash("bun run check"),
-			{ toolName: "read", args: {} },
-		]);
-		expect(progress.current).toBe("verify");
-		expect(progress.done).toEqual(["audit", "implement"]);
-	});
-});
-
-describe("areaMix", () => {
-	it("counts reported cycles per area in the fixed order and skips unreported ones", () => {
-		const mix = areaMix([
-			cycle({ n: 1, area: "tests" }),
-			cycle({ n: 2, area: "design" }),
-			cycle({ n: 3, area: "tests" }),
-			cycle({ n: 4, area: "unreported", verify: "unreported" }),
-			cycle({ n: 5, area: "user" }),
-		]);
-		expect(mix.rows.map(row => [row.area, row.count])).toEqual([
-			["design", 1],
-			["tests", 2],
-			["user", 1],
-		]);
-		expect(mix.total).toBe(4);
-		expect(mix.max).toBe(2);
-	});
-
-	it("is empty with no cycles", () => {
-		expect(areaMix([])).toEqual({ rows: [], total: 0, max: 0 });
 	});
 });
 
@@ -150,44 +98,6 @@ describe("ratePrediction", () => {
 
 	it("ignores cycles without a duration", () => {
 		expect(ratePrediction([cycle({ n: 1, durationMs: 0 }), cycle({ n: 2, durationMs: 0 })])).toBeNull();
-	});
-});
-
-describe("overnightSummary", () => {
-	it("counts what finished since the user left", () => {
-		const cycles = [
-			cycle({ n: 1, startedAt: 1_000, durationMs: 500, commit: "aaa" }),
-			cycle({ n: 2, startedAt: 10_000, durationMs: 1_000, commit: "bbb" }),
-			cycle({ n: 3, startedAt: 20_000, durationMs: 1_000, verify: "red" }),
-			cycle({ n: 4, startedAt: 30_000, durationMs: 1_000, ship: { kind: "release", version: "v1.2.0" } }),
-		];
-		const summary = overnightSummary({ cycles, since: 5_000, ship: undefined });
-		expect(summary).toEqual({ cycles: 3, commits: 1, red: 1, releases: ["v1.2.0"], pushes: 0, failedShips: 0 });
-	});
-
-	it("counts the pushes and failed ship steps main ran meanwhile", () => {
-		const summary = overnightSummary({
-			cycles: [],
-			since: 5_000,
-			ship: [
-				{ id: "a", kind: "push", state: "done", at: 6_000 },
-				{ id: "b", kind: "push", state: "done", at: 1_000 },
-				{ id: "c", kind: "merge", state: "failed", at: 7_000 },
-			],
-		});
-		expect(summary.pushes).toBe(1);
-		expect(summary.failedShips).toBe(1);
-	});
-
-	it("is all zeros when nothing happened", () => {
-		expect(overnightSummary({ cycles: [], since: 0, ship: [] })).toEqual({
-			cycles: 0,
-			commits: 0,
-			red: 0,
-			releases: [],
-			pushes: 0,
-			failedShips: 0,
-		});
 	});
 });
 

@@ -31,7 +31,7 @@ import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
-import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
+import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -46,7 +46,6 @@ import { useWorkBoardStore } from "../../../stores/work-board";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { IconButton, Kbd } from "../../common";
-import { AutopilotBoardRows, useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
@@ -64,6 +63,13 @@ import {
 	workBoardWidth,
 } from "./work-board";
 
+/** An Autopilot run's head line and sections: a lazy chunk, since only a run's tab draws them. */
+const AutopilotBoardHead = lazyChunk(() =>
+	import("../../autopilot/AutopilotBoard").then(module => ({ default: module.AutopilotBoardHead })),
+);
+const AutopilotBoardSections = lazyChunk(() =>
+	import("../../autopilot/AutopilotBoard").then(module => ({ default: module.AutopilotBoardSections })),
+);
 /** The opened-session rows load when a session has such children: most never do. */
 const OpenedSection = lazy(() => import("./WorkBoardOpened").then(module => ({ default: module.OpenedSection })));
 /** The session rows (changes, last check, dev servers, same checkout, memory) and a failed check: a lazy chunk, since
@@ -256,8 +262,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const goalState = useSessionStore(state => state.goalState);
 	const goalStatus = goalState?.status;
 	const goalDetail = useGoalDetail(goal?.objective, goalState, turnActive);
-	const autopilot = useAutopilotStore(isLiveAutopilot);
-	const autopilotText = useAutopilotStateText();
+	// An Autopilot tab's board is the run's home: its head names the run, its first sections are the run's.
+	const autopilotTab = useAutopilotStore(isAutopilotTab);
+	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
 
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -284,7 +291,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const showsLast = !turnActive && lastTurn !== null;
 	const present =
 		turnActive ||
-		autopilot ||
+		autopilotTab ||
 		waiting > 0 ||
 		running > 0 ||
 		plan !== null ||
@@ -311,7 +318,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		agents.filter(agent => !WAITING_AGENT[agent.status]).length +
 		jobs.length +
 		opened.counts.running +
-		(turnActive ? 1 : 0);
+		(turnActive || autopilotRunning ? 1 : 0);
 	const pulse = waiting > 0 || opened.counts.waiting > 0 ? "waiting" : working > 0 ? "working" : "idle";
 
 	const turnState = retryInfo
@@ -336,7 +343,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			   they fit (each item's details are its tooltip). */}
 			<header className="omp-work-board-head">
 				<span aria-hidden className="omp-work-board-pulse" data-state={pulse} />
-				<h2 className="omp-work-board-name">{t("workBoard.label")}</h2>
+				<h2 className="omp-work-board-name">{autopilotTab ? t("autopilot.name") : t("workBoard.label")}</h2>
 				{plan ? (
 					<span
 						className="omp-work-board-progress"
@@ -360,6 +367,11 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					onClick={() => useUiStore.getState().setWorkBoard(false)}
 					size="sm"
 				/>
+				{autopilotTab ? (
+					<Suspense fallback={null}>
+						<AutopilotBoardHead />
+					</Suspense>
+				) : null}
 				{projectLine?.worktree ? (
 					<span className="omp-work-board-project" data-board-project title={projectLine.tooltip}>
 						{projectLine.name}
@@ -409,10 +421,10 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				<FailedCheckSlot />
 			</Suspense>
 
-			{autopilot && (
-				<BoardSection aside={autopilotText} id="autopilot" title={t("autopilot.name")}>
-					<AutopilotBoardRows />
-				</BoardSection>
+			{autopilotTab && (
+				<Suspense fallback={null}>
+					<AutopilotBoardSections />
+				</Suspense>
 			)}
 
 			{turnActive && (
@@ -499,7 +511,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 
 			{opened.rows.length > 0 && (
 				<Suspense fallback={null}>
-					<OpenedSection counts={opened.counts} now={now} rows={opened.rows} />
+					<OpenedSection now={now} rows={opened.rows} />
 				</Suspense>
 			)}
 
@@ -564,7 +576,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</BoardSection>
 			)}
 
-			{goal && !autopilot && (
+			{goal && !autopilotTab && (
 				<BoardSection id="goal" title={t("workBoard.goal")} aside={goalNote(goalStatus, t)}>
 					<BoardRow
 						data={{ "data-board-goal": goalStatus ?? "" }}
@@ -609,11 +621,20 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
  * Mount point inside a session pane's chat region. It owns the gates — the user's pref and the side panel (the board
  * never sits beside it) — and the pane's width, which it watches itself (`workBoardFits`, `workBoardWidth`). Where the
  * board cannot dock (a phone, a tablet, a narrow window, a split pane, the side panel open) the pane shows the status
- * strip under its header instead, which expands into the same board: never nothing while the pref is on.
+ * strip under its header instead, which expands into the same board: never nothing while the pref is on, nor in an
+ * Autopilot tab. A reveal for this pane's tab (`revealWorkBoard`: the composer chip's or the dock's "show the run")
+ * unfolds the run's section and brings it into view, docked, or expands the strip.
  */
 export function WorkBoardHost() {
 	const enabled = useUiStore(state => state.workBoard);
 	const panelOpen = useUiStore(state => state.panelVisible);
+	const reveal = useUiStore(state => state.workBoardReveal);
+	const run = useAutopilotStore(isLiveAutopilot);
+	const runtimeTabId = useRuntimeTabId();
+	const activeTabId = useTabsStore(state => state.activeTabId);
+	const tabId = runtimeTabId ?? activeTabId;
+	const [stripReveal, setStripReveal] = useState(0);
+	const seenReveal = useRef(reveal?.seq ?? 0);
 	const slot = useRef<HTMLDivElement>(null);
 	const [pane, setPane] = useState<HTMLElement | null>(null);
 	const [paneWidth, setPaneWidth] = useState(0);
@@ -639,7 +660,22 @@ export function WorkBoardHost() {
 		return () => observer.disconnect();
 	}, []);
 	const shell = useShellMode();
-	const form = workBoardForm({ enabled, panelOpen, fits: workBoardDocks(paneWidth, shell) });
+	const form = workBoardForm({ enabled, panelOpen, fits: workBoardDocks(paneWidth, shell), run });
+	useEffect(() => {
+		if (!reveal || reveal.seq === seenReveal.current) return;
+		seenReveal.current = reveal.seq;
+		if (reveal.tabId !== null && reveal.tabId !== tabId) return;
+		const folds = useWorkBoardStore.getState();
+		if (folds.collapsed.autopilot) folds.toggle("autopilot");
+		if (form === "strip") setStripReveal(reveal.seq);
+		else if (form === "docked")
+			// After the unfold above has rendered the section's rows.
+			setTimeout(() => {
+				const section = pane?.querySelector<HTMLElement>('[data-board-section="autopilot"]');
+				section?.scrollIntoView?.({ block: "nearest" });
+				section?.querySelector<HTMLElement>(".omp-work-board-fold")?.focus();
+			}, 0);
+	}, [reveal, tabId, form, pane]);
 	const width = form === "docked" ? workBoardWidth(paneWidth) : null;
 	// The slot and the columns' reserve read the width from the pane (components.css `--omp-board-width`).
 	useLayoutEffect(() => {
@@ -655,7 +691,7 @@ export function WorkBoardHost() {
 				{form === "docked" && pane ? <WorkBoard pane={pane} /> : null}
 			</div>
 			{form === "strip" && pane && (
-				<WorkBoardChip>
+				<WorkBoardChip reveal={stripReveal}>
 					<WorkBoard inline pane={pane} />
 				</WorkBoardChip>
 			)}

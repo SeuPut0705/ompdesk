@@ -65,6 +65,25 @@ export function lastWindowCloseAction(facts: {
 	return facts.closeToTray ? "hide" : "quit";
 }
 
+/** What a Dock click (macOS `activate`) does. */
+export type ActivateAction = "spawn" | "show" | "ignore";
+
+/**
+ * A Dock click opens a window when none is left and brings a hidden one back. Once a quit is approved it does
+ * neither: the services are torn down (or going down), and a window restored on them cannot open a paired host's tab,
+ * which then leaves the saved layout (21 Oct 2026: an update restart's first quit stalled and the Dock click rebuilt
+ * the session on a disposed `RemoteDevices`).
+ */
+export function activateAction(facts: {
+	quitApproved: boolean;
+	windowCount: number;
+	anyVisible: boolean;
+}): ActivateAction {
+	if (facts.quitApproved) return "ignore";
+	if (facts.windowCount === 0) return "spawn";
+	return facts.anyVisible ? "ignore" : "show";
+}
+
 /**
  * The approval behind `before-quit`: refused until a confirmation (or a
  * restart prompt) approves it, then the app's teardown runs exactly once.

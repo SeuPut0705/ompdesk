@@ -28,7 +28,7 @@ import { type ElectronApplication, expect, type Page, test } from "@playwright/t
 import { z } from "zod";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
-import { capture, cssString, exitApp, readRecords, variants } from "./harness";
+import { capture, controlToolCaller, cssString, exitApp, readRecords, variants } from "./harness";
 import { survivors } from "./process-tree";
 import {
 	connectHost,
@@ -766,6 +766,84 @@ test("a device quitting mid-turn leaves the turn running on the host, and its re
 		if (process.platform !== "win32") expect(ompPids(hostProfile).length).toBe(omps);
 		await a.getByRole("button", { name: "Stop", exact: true }).click();
 		await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toEqual([]);
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
+
+test("a host's running tab the saved layout lost comes back after the device relaunches, in the same omp and under its old id", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-lost-tab-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+			prefs: { agentControlManage: true },
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await openHostFolder(client.page, deviceId, hostProfile.project);
+		await send(client.page, "fixture running");
+		await expect.poll(() => markers(hostProfile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => remoteStatus(client?.page as Page, deviceId)).toBe("running");
+		const hostTab = (await client.page.evaluate(() => window.omp.tabs.list())).find(tab => tab.device === deviceId);
+		const oldId = hostTab?.tabId ?? "";
+		expect(oldId).not.toBe("");
+		const omps = ompPids(hostProfile).length;
+
+		await quit(client.app);
+		client = null;
+		await expect
+			.poll(
+				async () =>
+					(await host?.page.evaluate(() => window.omp.remote.getState()))?.host.peers.some(peer => peer.online),
+				{ timeout: 30_000 },
+			)
+			.toBe(false);
+
+		// What v0.49.0's stalled quit left in the prefs: the saved desktop session without the host's tab.
+		const prefsFile = path.join(clientProfile.desktop, "prefs.json");
+		const prefs = JSON.parse(await fs.readFile(prefsFile, "utf8")) as {
+			tabLayouts: Array<{ tabs: Array<{ device?: string }>; activeIndex: number }>;
+		};
+		expect(prefs.tabLayouts[0]?.tabs.some(tab => tab.device === deviceId)).toBe(true);
+		for (const layout of prefs.tabLayouts) {
+			layout.tabs = layout.tabs.filter(tab => tab.device !== deviceId);
+			layout.activeIndex = 0;
+		}
+		await fs.writeFile(prefsFile, JSON.stringify(prefs));
+
+		client = await launchRemote(clientProfile, { project: false });
+		const a = client.page;
+		await expect
+			.poll(async () => (await a.evaluate(() => window.omp.tabs.list())).some(tab => tab.device === deviceId), {
+				timeout: 60_000,
+				message: "the host's tab comes back",
+			})
+			.toBe(true);
+		await expect.poll(() => remoteStatus(a, deviceId), { timeout: 60_000 }).toMatch(/^(ready|running)$/);
+		if (process.platform !== "win32") expect(ompPids(hostProfile).length).toBe(omps);
+		expect(await markers(hostProfile)).toMatchObject([{ reason: "running" }]);
+
+		const call = await controlToolCaller(a, clientProfile.record);
+		const named = await call("ompdesk_session_result", { session: oldId, wait: false });
+		expect(named.text, "an id the agent had before the relaunch").not.toContain("No session");
+		const readopted = (await readRecords(path.join(clientProfile.desktop, "logs", "gui-runtime.jsonl"))).filter(
+			line => line.source === "remote-tab" && line.message === "readopt",
+		);
+		expect(readopted).toMatchObject([{ details: { device: deviceId, rtab: oldId, state: "running" } }]);
 		expect(client.errors).toEqual([]);
 	} finally {
 		if (client) await exitApp(client.app);

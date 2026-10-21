@@ -171,7 +171,7 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 });
 
 describe("openedChildCounts", () => {
-	it("counts the live children by status and the stored ones apart", () => {
+	it("counts the live children by status and leaves the stored ones out", () => {
 		const rows = openedChildRows({
 			parent,
 			tabs: [
@@ -183,6 +183,6 @@ describe("openedChildCounts", () => {
 			review: new Map(),
 			closed: [{ path: "/s/x.jsonl", openedBySession: "/s/boss.jsonl", title: "", cwd: "", closedAt: 0 }],
 		});
-		expect(openedChildCounts(rows)).toEqual({ total: 4, running: 2, waiting: 1, done: 1, closed: 1 });
+		expect(openedChildCounts(rows)).toEqual({ total: 4, running: 2, waiting: 1, done: 1 });
 	});
 });

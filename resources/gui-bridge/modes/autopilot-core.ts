@@ -546,6 +546,8 @@ export interface FinalizeFacts {
 	/** What the bridge measured of the report: why the verify differs from the claim, what the cycle changed. */
 	verifyNote?: AutopilotVerifyNote;
 	change?: AutopilotChangeStat;
+	/** The check command that made the cycle green (see `judgeVerify`). */
+	checkCommand?: string;
 }
 
 /** The record journaled at the terminal agent_end: the report, or `unreported`. */
@@ -583,6 +585,7 @@ export function finalizeCycle(facts: FinalizeFacts): AutopilotCycleRecord {
 		children: report.children ?? [],
 		...(facts.verifyNote ? { verifyNote: facts.verifyNote } : {}),
 		...(facts.change ? { change: facts.change } : {}),
+		...(facts.checkCommand && report.verify === "green" ? { checkCommand: facts.checkCommand } : {}),
 	};
 }
 

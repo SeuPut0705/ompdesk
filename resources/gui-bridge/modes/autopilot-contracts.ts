@@ -225,6 +225,8 @@ export interface AutopilotCycleRecord {
 	verifyNote?: AutopilotVerifyNote;
 	/** What the cycle changed; absent when it left no commit. */
 	change?: AutopilotChangeStat;
+	/** A green cycle's check command, exactly as its own tool calls ran and passed it (a land checks a merge with it). */
+	checkCommand?: string;
 }
 
 export interface AutopilotNote {

@@ -231,12 +231,44 @@ button.omp-work-board-row:hover {
 	color: var(--sc-text-subtle);
 }
 
-/* The review queue's buttons sit under the row, aligned with its text. */
+/* A row's buttons sit under it, aligned with its text (an Autopilot run's controls and its two text fields). */
 .omp-work-board-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--sc-space-1);
 	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5) 26px;
+}
+
+/* What a row opens in place under it (an Autopilot cycle's commit, time, change and revert), aligned with its text. */
+.omp-work-board-detail {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 2px;
+	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5) 26px;
+	font-size: var(--sc-font-xs);
+	line-height: 16px;
+	color: var(--sc-text-muted);
+}
+
+/* An Autopilot tab's head: the run's state and active time on one line, its totals on the next. */
+.omp-work-board-run {
+	grid-column: 1 / -1;
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 2px;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-muted);
+}
+
+.omp-work-board-run-state {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: var(--sc-space-1-5);
+	font-size: var(--sc-font-sm);
+	color: var(--sc-text);
 }
 
 .omp-work-board-sub[data-review-conflict] {
