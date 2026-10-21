@@ -751,6 +751,30 @@ describe("TurnResume launch", () => {
 		expect(h.store.read()).toEqual([]);
 	});
 
+	it("lets the bridge's follow-up continue a turn stock's retry cannot see, and sends no retry on top", async () => {
+		// 21 Oct 2026, v0.48.0 → v0.49.0: a note journaled after the aborted reply hid it from stock's `/retry`; the
+		// relaunch logged `restored: nothing, retried: false` and two running sessions sat idle.
+		h = setup({ answers: { restore_interrupted: restoreAnswer({ followUp: true, turnCut: true }) } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.logs.at(-1)).toEqual([
+			"continue",
+			{
+				tab: "restored",
+				action: "restore",
+				restored: "turn-behind-notes",
+				retried: false,
+				prompt: false,
+				goal: false,
+				started: true,
+				followUp: true,
+			},
+		]);
+	});
+
 	it("resumes a goal stock paused at startup after the restore, once", async () => {
 		h = setup({ answers: { restore_interrupted: restoreAnswer({ turn: true, goalPausedByExit: true }) } });
 		new InterruptedTurnStore(h.file).write([marker()]);

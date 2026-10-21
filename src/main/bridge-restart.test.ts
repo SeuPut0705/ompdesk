@@ -13,9 +13,11 @@ import {
 	journalEnd,
 	RESTART_JOBS_MESSAGE,
 	RESTART_SUBAGENTS_MESSAGE,
+	RESTART_TURN_MESSAGE,
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
+	turnCutBehindNotes,
 } from "../../resources/gui-bridge/restart-core";
 
 const exit: JournalEntry = { type: "custom", customType: "session_exit" };
@@ -210,6 +212,83 @@ describe("restartFollowUp", () => {
 		expect(followUp?.content).toContain("- bg_1: `make`");
 		expect(followUp?.content).toContain("- Scout");
 		expect(followUp?.details).toEqual({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }] });
+	});
+
+	it("continues a turn the restart cut off, alone or with jobs and subagents, in one message", () => {
+		const turn = restartFollowUp([], [], true);
+		expect(turn?.customType).toBe(RESTART_TURN_MESSAGE);
+		expect(turn?.content).toMatch(/cut your turn off/);
+		expect(turn?.content).toMatch(/Say nothing about the restart/);
+		expect(turn?.details).toEqual({ jobs: [], turn: true });
+		const all = restartFollowUp([{ id: "bg_1", command: "make" }], [{ id: "Scout" }], true);
+		expect(all?.customType).toBe(RESTART_JOBS_MESSAGE);
+		expect(all?.content).toMatch(/cut your turn off/);
+		expect(all?.details).toEqual({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }], turn: true });
+	});
+});
+
+describe("turnCutBehindNotes", () => {
+	/** The relaunch started at 05:31:52; the entries before were journaled by the 0.48.0 process the update quit. */
+	const startedAt = Date.parse("2026-10-21T05:31:52.000Z");
+	const at = (time: string) => `2026-10-21T${time}Z`;
+	const wait: JournalEntry = {
+		type: "message",
+		timestamp: at("05:29:49.735"),
+		message: { role: "assistant", stopReason: "toolUse" },
+	};
+	const exitPending: JournalEntry = {
+		type: "custom",
+		customType: "session_exit",
+		timestamp: at("05:31:45.866"),
+		data: { reason: "dispose", kind: "normal", pendingToolCalls: [{ toolName: "wait" }] },
+	};
+	const abortedResult: JournalEntry = {
+		type: "message",
+		timestamp: at("05:31:45.955"),
+		message: { role: "toolResult" },
+	};
+	const aborted: JournalEntry = {
+		type: "message",
+		timestamp: at("05:31:45.979"),
+		message: { role: "assistant", stopReason: "aborted" },
+	};
+	const evalState: JournalEntry = {
+		type: "custom_message",
+		customType: "eval-state-context",
+		timestamp: at("05:31:53.031"),
+	};
+	// A report the bridge handed the session once the abort left it idle (the parent tab of the incident).
+	const mail: JournalEntry = { type: "custom_message", customType: "ompdesk.mail", timestamp: at("05:31:46.016") };
+	// A follow-up stock had queued since an earlier relaunch, journaled with its old timestamp at the abort (a child).
+	const staleFollowUp: JournalEntry = {
+		type: "custom_message",
+		customType: "ompdesk-restart-jobs",
+		timestamp: "2026-10-20T22:51:25.257Z",
+	};
+	const cut = [wait, exitPending, abortedResult, aborted];
+
+	it("finds the v0.49.0 update's two journals: an aborted turn with a custom message after it", () => {
+		expect(turnCutBehindNotes([...cut, mail, evalState], startedAt)).toBe(true);
+		expect(turnCutBehindNotes([...cut, staleFollowUp], startedAt)).toBe(true);
+	});
+
+	it("leaves to stock's retry an aborted turn with only its startup eval snapshot after it", () => {
+		expect(turnCutBehindNotes(cut, startedAt)).toBe(false);
+		expect(turnCutBehindNotes([...cut, evalState], startedAt)).toBe(false);
+	});
+
+	it("leaves alone a turn that ended, one someone answered, and one this process aborted", () => {
+		const answered: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "stop" } };
+		expect(turnCutBehindNotes([wait, abortedResult, answered, mail], startedAt)).toBe(false);
+		const typed: JournalEntry = { type: "message", timestamp: at("05:32:17.847"), message: { role: "user" } };
+		expect(turnCutBehindNotes([...cut, mail, typed], startedAt)).toBe(false);
+		const late: JournalEntry = { ...aborted, timestamp: at("05:32:00.000") };
+		expect(turnCutBehindNotes([wait, abortedResult, late, mail], startedAt)).toBe(false);
+	});
+
+	it("counts a failed reply like an aborted one", () => {
+		const failed: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "error" } };
+		expect(turnCutBehindNotes([wait, abortedResult, failed, mail], startedAt)).toBe(true);
 	});
 });
 

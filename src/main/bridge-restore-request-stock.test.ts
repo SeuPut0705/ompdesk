@@ -362,3 +362,64 @@ describe.skipIf(!existsSync(omp))("a quit while omp prepares the next model requ
 		expect(prompts).toHaveLength(1);
 	}, 240_000);
 });
+
+/**
+ * The v0.48.0 → v0.49.0 update restart (21 Oct 2026): the quit aborted two turns mid-tool (a `wait`, a long bash), stock
+ * journaled the aborted tool result and the aborted reply, and then a custom message landed after them: in the parent
+ * a report the bridge handed the session once the abort left it idle (`ompdesk.mail`), in a child a follow-up stock had
+ * queued since an earlier relaunch. Stock's `retry` reads the conversation's end past its eval snapshots only, so the
+ * custom message hid the aborted reply: the relaunch logged `restored: nothing, retried: false` and both sat idle.
+ */
+describe.skipIf(!existsSync(omp))(
+	"a quit that aborted a tool, with a note journaled after the abort, on stock omp",
+	() => {
+		it("goes on with the turn after the relaunch", async () => {
+			const provider = await startProvider([{ tool: "bash", args: { command: "sleep 120", i: "long check" } }]);
+			cleanups.push(() => provider.close());
+			const isolated = mkdtempSync(join(tmpdir(), "ompdesk-noted-"));
+			chmodSync(isolated, 0o700);
+			const root = realpathSync(mkdtempSync(join(tmpdir(), "ompdesk-noted-repo-")));
+			cleanups.push(() => {
+				rmSync(isolated, { recursive: true, force: true });
+				rmSync(root, { recursive: true, force: true });
+			});
+			const { hold } = writeHoldExtension(isolated, "user");
+			rmSync(hold);
+			const first = await startOmp(provider, isolated, root, false);
+			await first.send({ type: "prompt", message: FIRST });
+			await expect
+				.poll(() => first.frames.some(frame => frame.type === "agent_end"), { timeout: 60_000 })
+				.toBe(true);
+			await first.send({ type: "prompt", message: SECOND });
+			await expect
+				.poll(() => first.frames.some(frame => frame.type === "tool_execution_start"), { timeout: 60_000 })
+				.toBe(true);
+			await first.quit();
+			const lines = readFileSync(journalFile(isolated), "utf8").split("\n").filter(Boolean);
+			const last = JSON.parse(lines.at(-1) ?? "{}") as { id?: string };
+			expect(messagesOf(journal(isolated)).at(-1)?.message?.stopReason).toBe("aborted");
+			// What v0.49.0's bridge journaled after the abort: a session report, displayed, in the model's context.
+			const note = {
+				type: "custom_message",
+				id: "n0te0001",
+				parentId: last.id,
+				timestamp: new Date().toISOString(),
+				customType: "ompdesk.mail",
+				content: '<ompdesk-mail from="child" kind="progress">still working</ompdesk-mail>',
+				display: true,
+				details: { id: "m1", from: "child", kind: "progress", text: "still working" },
+			};
+			writeFileSync(journalFile(isolated), `${[...lines, JSON.stringify(note)].join("\n")}\n`);
+			const second = await startOmp(provider, isolated, root, true);
+			const outcome = await second.bridge.request<{ turn: boolean; followUp: boolean }>(
+				"composer.restore_interrupted",
+				{},
+			);
+			expect(outcome).toMatchObject({ turn: false, followUp: true });
+			await expect.poll(() => provider.continued, { timeout: 60_000 }).toBe(1);
+			await expect
+				.poll(() => messagesOf(journal(isolated)).at(-1)?.message?.content, { timeout: 30_000 })
+				.toEqual([expect.objectContaining({ text: "CONTINUED" })]);
+		}, 240_000);
+	},
+);

@@ -527,6 +527,19 @@ describe("MessageBubble restart notice", () => {
 		expect(both).toContain("Re-running 1 background task(s) the restart stopped");
 		expect(both).toContain("Continuing 1 background task(s) after the restart");
 	});
+
+	it("shows a continued turn as its own muted line, never the notice text", () => {
+		const turn = render({
+			...notice({ jobs: [], turn: true }),
+			customType: "ompdesk-restart-turn",
+			content: "OMPdesk restarted while you were working and cut your turn off before it finished",
+		});
+		expect(turn).toContain("data-restart-turn");
+		expect(turn).toContain("Continuing the work the restart cut off");
+		expect(turn).not.toContain("data-restart-jobs");
+		expect(turn).not.toContain("cut your turn off");
+		expect(turn).not.toContain("omp-user-bubble");
+	});
 });
 
 describe("MessageBubble memory recall line", () => {
