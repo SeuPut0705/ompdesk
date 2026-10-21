@@ -144,6 +144,7 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	Mechanical: "규칙 기반",
 	"Short (5m)": "짧게 (5분)",
 	"Long (1h)": "길게 (1시간)",
+	"Long (1h+)": "길게 (1시간 이상)",
 	"Disable prompt caching and cache-affinity routing": "프롬프트 캐싱과 캐시 친화 라우팅을 꺼요",
 	Off: "끄기",
 	"Do not prevent any sleep": "잠자기를 막지 않아요",
@@ -863,6 +864,8 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 		"캐시 쓰기 비용이 가장 낮아요. 캐시 예열과 함께 쓰면 유휴 중에도 짧은 캐시가 유지돼요",
 	"1h TTL where the provider supports it; pricier writes, only warmed during active runs":
 		"프로바이더가 지원하면 1시간 TTL이에요. 쓰기 비용이 더 높고 실행 중에만 예열해요",
+	"Longer TTL where supported (Anthropic/Bedrock 1h, OpenAI GPT-5.6+ Responses 12h); pricier writes, only warmed during active runs":
+		"지원하는 곳에서 더 긴 TTL을 써요 (Anthropic/Bedrock 1시간, OpenAI GPT-5.6+ Responses 12시간). 쓰기 비용이 더 높고 실행 중에만 예열해요",
 	"Disable cache warming": "캐시 예열 끄기",
 	Streaming: "실행 중",
 	"Protect expensive prefixes during long tool executions; stops when the agent settles":
