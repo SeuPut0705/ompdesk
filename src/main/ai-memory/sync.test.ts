@@ -13,6 +13,7 @@ import {
 import { RM_TEMP } from "../test-fake-omp";
 import type { MemoryConclusionCopy, MemoryPageCopy } from "./client";
 import {
+	IDENTITY_PASS_RETRY_MS,
 	type MemoryStore,
 	MemorySync,
 	pageHash,
@@ -114,6 +115,16 @@ class FakeServer {
 			updatedAt: at,
 			at,
 		});
+	}
+
+	/** What the server's rename does (`ambiguous-names.ts`): the project's pages and copies under another name. */
+	renameProject(from: string, to: string): void {
+		for (const [key, page] of [...this.pages]) {
+			if (page.project !== from) continue;
+			this.pages.delete(key);
+			this.pages.set(`${to}/${page.path}`, { ...page, project: to });
+		}
+		for (const row of this.synced) if (row.project === from) row.project = to;
 	}
 
 	body(path: string, project = "app"): string | undefined {
@@ -256,6 +267,8 @@ describe("memory sync between two computers", () => {
 	let conclusionsCrossed: number;
 	/** Runs on the host just before it serves a push (a change made there mid-round). */
 	let beforePush: (() => void) | undefined;
+	/** The clock the identity pass is timed by. */
+	let wallClock = 0;
 
 	const clock = () => new Date(Date.UTC(2026, 9, 19, 0, 0, ++tick)).toISOString();
 
@@ -266,6 +279,7 @@ describe("memory sync between two computers", () => {
 			ready: () => mac.ready,
 			selfId: () => "mac",
 			onlineHosts: () => ["win"],
+			now: () => wallClock,
 			// The link carries JSON: what crosses is parsed again on the far side.
 			request: async <T>(_host: string, method: string, params: unknown): Promise<T> => {
 				const wire = JSON.parse(JSON.stringify(params));
@@ -305,6 +319,7 @@ describe("memory sync between two computers", () => {
 		crossed = 0;
 		conclusionsCrossed = 0;
 		beforePush = undefined;
+		wallClock = Date.UTC(2026, 9, 21);
 		sync = connect(win);
 	});
 
@@ -570,6 +585,35 @@ describe("memory sync between two computers", () => {
 		expect(await sync.sync("win")).toEqual(QUIET);
 		expect(crossed).toBe(0);
 		expect([...mac.writes, ...win.writes]).toEqual([]);
+	});
+
+	it("brings back what was synced by name before identities crossed, once both computers send them", async () => {
+		// Before: the host's pages and conclusions came here by name into a plain project, which the repair then
+		// renamed aside, and the cursors had passed them.
+		win.edit("decisions/jev.md", "Pin Jev 1.14.", "seuput0705-ompdesk");
+		win.capture("w1", "Host conclusion.", "seuput0705-ompdesk");
+		mac.identities.set("ompdesk", "github.com/seuput0705/ompdesk");
+		await sync.sync("win");
+		mac.renameProject("seuput0705-ompdesk", "seuput0705-ompdesk-unclaimed");
+		expect(mac.body("decisions/jev.md", "ompdesk")).toBeUndefined();
+
+		// The host now names its project's repository: a week on, the whole pass files both under `ompdesk` here.
+		win.identities.set("seuput0705-ompdesk", "github.com/seuput0705/ompdesk");
+		wallClock += IDENTITY_PASS_RETRY_MS;
+		await sync.sync("win");
+		expect(mac.body("decisions/jev.md", "ompdesk")).toBe("Pin Jev 1.14.");
+		expect(mac.synced.filter(row => row.project === "ompdesk").map(row => row.id)).toEqual(["w1"]);
+		expect(logs.filter(line => line.message === "identity-pass").map(line => line.details.seen)).toEqual([
+			false,
+			true,
+		]);
+
+		// Done for good: later rounds go on from their cursors.
+		crossed = 0;
+		conclusionsCrossed = 0;
+		wallClock += IDENTITY_PASS_RETRY_MS;
+		expect(await sync.sync("win")).toEqual(QUIET);
+		expect(crossed + conclusionsCrossed).toBe(0);
 	});
 
 	it("never files one repository's memory under another repository's project of the same name", async () => {

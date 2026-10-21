@@ -568,10 +568,30 @@ const HostState = z.object({
 	 * this computer's database they were read from (another one, or a position past a stream's end, starts over).
 	 */
 	conclusionsSent: MemoryConclusionCursor.default(() => ({ native: 0, synced: 0 })),
+	/**
+	 * One whole pass over both computers' memory once repository identities cross (`IDENTITY_PASS_RETRY_MS`):
+	 * items synced before were filed by name, some into a plain project a repair later renamed aside
+	 * (`ambiguous-names.ts`), and the cursors had passed them for good. The pass offers and pulls everything
+	 * again; identities file each item into its repository's project, and what is already there answers `same`.
+	 * `done` once a pass that saw an identity ends; a host that sends none is tried again a week later.
+	 */
+	identityPass: z
+		.object({
+			at: z.number(),
+			done: z.boolean(),
+			running: z.boolean(),
+			seen: z.boolean(),
+			pages: z.boolean(),
+			conclusions: z.boolean(),
+		})
+		.optional(),
 });
 type HostState = z.infer<typeof HostState>;
 const SyncFile = z.object({ v: z.literal(1), hosts: z.record(HostState) });
 type SyncFile = z.infer<typeof SyncFile>;
+
+/** A host whose whole pass carried no repository identity (an older OMPdesk) is passed again this much later. */
+export const IDENTITY_PASS_RETRY_MS = 7 * 24 * 60 * 60_000;
 
 function freshHost(): HostState {
 	return {
@@ -608,6 +628,8 @@ export interface MemorySyncDeps {
 	/** A line in the runtime log (source `memory-sync`). */
 	log(message: string, details: Record<string, unknown>): void;
 	intervalMs?: number;
+	/** The clock the identity pass is timed by; tests set it. */
+	now?: () => number;
 }
 
 class MemoryOff extends Error {}
@@ -664,6 +686,7 @@ export class MemorySync {
 		const started = Date.now();
 		const state = await this.#hostState(host);
 		const report: MemorySyncReport = { pulled: 0, pushed: 0, conflicts: 0, conclusions: { pulled: 0, pushed: 0 } };
+		this.#startIdentityPass(state);
 		let step = "pull";
 		try {
 			await this.#pull(host, state, report);
@@ -671,6 +694,7 @@ export class MemorySync {
 			await this.#push(host, state, report);
 			step = "conclusions";
 			await this.#conclusions(host, state, report);
+			this.#endIdentityPass(host, state);
 		} catch (error) {
 			if (error instanceof MemoryOff) return null;
 			const unsupported = ipcErrorCode(error) === "unsupported";
@@ -696,6 +720,26 @@ export class MemorySync {
 		return report;
 	}
 
+	/** Starts the whole pass when it is due: every cursor back to the start (see `HostState.identityPass`). */
+	#startIdentityPass(state: HostState): void {
+		const pass = state.identityPass;
+		const now = (this.#deps.now ?? Date.now)();
+		if (pass?.done || pass?.running || (pass && now - pass.at < IDENTITY_PASS_RETRY_MS)) return;
+		state.identityPass = { at: now, done: false, running: true, seen: false, pages: false, conclusions: false };
+		state.pull = null;
+		state.push = "";
+		state.conclusions = { native: 0, synced: 0 };
+		state.conclusionsSent = { native: 0, synced: 0 };
+	}
+
+	/** Ends a pass whose pulls both reached the host's end; done for good once it saw a repository identity. */
+	#endIdentityPass(host: string, state: HostState): void {
+		const pass = state.identityPass;
+		if (!pass?.running || !pass.pages || !(pass.conclusions || this.#conclusionsUnsupported.has(host))) return;
+		state.identityPass = { ...pass, running: false, done: pass.seen };
+		this.#deps.log("identity-pass", { host, seen: pass.seen });
+	}
+
 	async #pull(host: string, state: HostState, report: MemorySyncReport): Promise<void> {
 		for (let batch = 0; batch < MAX_PULL_BATCHES; batch++) {
 			const reply = MemoryPullReply.parse(
@@ -707,12 +751,16 @@ export class MemorySync {
 			for (const page of reply.pages) {
 				// Filed under this computer's name for its repository; a name here that belongs to another repository
 				// takes nothing. The cursor stays in the host's own keys.
+				if (page.identity && state.identityPass) state.identityPass.seen = true;
 				const here = names.localize(page);
 				if (here) await this.#take(host, state, here, local, report, names);
 				state.pull = { at: page.updatedAt, key: pageKey(page) };
 			}
 			state.pull = reply.next ?? state.pull;
-			if (!reply.more) return;
+			if (!reply.more) {
+				if (state.identityPass?.running) state.identityPass.pages = true;
+				return;
+			}
 		}
 	}
 
@@ -870,6 +918,7 @@ export class MemorySync {
 			const rows: MemoryConclusionWire[] = [];
 			const names = await ProjectNames.read(this.#deps.store);
 			for (const row of reply.conclusions) {
+				if (row.identity && state.identityPass) state.identityPass.seen = true;
 				const here = row.origin === self ? null : names.localize(row);
 				const clean = here && cleanConclusion(here, row.origin, wireRepository(here));
 				if (clean) rows.push(clean);
@@ -885,7 +934,10 @@ export class MemorySync {
 				report.conclusions.pulled += statuses.filter(status => status === "written").length;
 			}
 			state.conclusions = reply.next;
-			if (!reply.more) return;
+			if (!reply.more) {
+				if (state.identityPass?.running) state.identityPass.conclusions = true;
+				return;
+			}
 		}
 	}
 
