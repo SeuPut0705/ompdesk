@@ -1,5 +1,75 @@
 # Changelog
 
+## [0.50.0] - 2026-10-21
+
+오토파일럿 화면이 작업현황으로 옮겨졌고, 업데이트나 재시작 뒤에도 하던 일이 끊기지 않고 이어져요.
+
+### 새로 생긴 것
+- 오토파일럿 화면이 오른쪽 패널이 아니라 작업현황 맨 위에 보여요. 창이 좁거나 다른 패널이 열려 있으면 대화 위 한 줄로 보이고, 누르면 펼쳐져요.
+- 프로젝트가 세션과 따로 사이드바에 남아요. 세션을 모두 지워도 프로젝트는 그대로이고, 프로젝트 메뉴의 "사이드바에서 제거"로만 빠져요. 다른 컴퓨터도 각자 목록을 가져요.
+- 업데이트가 기본으로 자동 설치돼요. "중단된 작업 이어 하기"가 켜져 있으면 작업 중이어도 안전한 순간(열린 질문·승인 카드와 대화 압축이 없을 때) 60초 안내 뒤 재시작하고, 하던 일은 이어서 해요.
+- 오토파일럿이 바쁜 main에도 결과를 반영해요. 그사이 main이 바뀌었으면 합친 결과를 따로 다시 검사하고, 통과한 것만 올려요.
+- 작업현황에서 끝난 하위 세션이 "n개 완료" 한 줄로 접혀요.
+- 사이드 패널에는 터미널·변경·미리보기·파일만 남았어요. 백그라운드 작업·계획·로그·트리·작업 트리는 명령 팔레트와 메뉴에서 작은 창으로 열고, 대기열은 입력창의 대기열 버튼에서, 메모리는 설정에서 다뤄요.
+- 메인 세션이 일하는 중에도 하위 세션의 보고를 바로 받아요. 기다리던 작업이 있어도 보고가 오면 먼저 읽어요.
+- 메인 세션이나 앱이 강제로 꺼져도 하위 세션의 보고가 사라지지 않고, 다시 켜지면 한 번만 전달돼요.
+- 사이드바 세션 줄이 작업 중이면 도는 표시를 보여요. 하위 에이전트나 그 세션이 연 세션(다른 기기 포함)이 일할 때도요. 쉬는 줄의 시간은 마지막 대화 기준이라 재시작해도 바뀌지 않아요.
+- 채팅 탭의 기기 줄 버튼이 프로젝트 추가가 아니라 그 기기에서 새 채팅을 열어요.
+- MCP 서버마다 꺼진 이유를 보여주고, omp에서 쓰기·로그인 버튼, 열린 탭에 바로 적용, 입력창의 `/mcp reauth`·`/mcp reload`를 넣었어요.
+
+### 고친 것
+- 업데이트로 재시작한 뒤 하던 턴이 이어지지 않던 문제를 고쳤어요.
+- 앱을 끌 때 다른 컴퓨터의 탭이 사라지던 문제, 하위 세션의 완료 보고가 사라지던 문제를 고쳤어요.
+- 업데이트 확인이 끝나지 않고 계속 돌던 문제를 고쳤어요.
+- 탭을 바꾸는 중에 누른 키가 다른 탭으로 가거나 사라지던 문제를 고쳤어요.
+- 오토파일럿 할 일 목록에 같은 이름의 항목이 지워지지 않고 남던 문제를 고쳤어요.
+- omp 18.12.5에서 바뀐 프롬프트 캐시 옵션에 한국어 설명을 넣었어요.
+- PR 센터에서 Jenkins·Prow 같은 외부 검사가 계속 "진행 중"으로만 보이던 문제, 검사 상태가 영어로 나오던 문제, 이름이 같은 검사 줄이 남던 문제를 고쳤어요. (오토파일럿이 고친 것)
+- MCP 로그인이 설정의 프로바이더·계정 목록에 계정처럼 뜨던 문제를 고쳤어요.
+- 다른 세션의 에이전트가 연 세션에 제목이 생기지 않던 문제를 고쳤어요.
+- 할 일이 많을 때 작업현황 진행 막대가 개수 숫자와 겹치던 문제를 고쳤어요.
+- 재시작 뒤 작업현황의 "n개 완료" 개수가 두 번 세어지던 문제를 고쳤어요.
+
+### 고친 것 (Windows)
+- 다른 컴퓨터의 세션을 지워도 파일이 다시 생기던 문제를 고쳤어요.
+- 예약 실행을 멈출 때 그 사이 새로 뜬 프로세스가 남던 문제를 고쳤어요.
+- 오토파일럿이 main에 반영하기 전 검사에서 경로 표기 때문에 실패하던 문제를 고쳤어요.
+
+<!-- en -->
+
+The Autopilot screen moved to the work board, and work picks up where it left off after an update or a restart.
+
+### New
+- Autopilot shows at the top of the work board instead of the side panel. In a narrow window or beside another panel it is one line above the conversation that opens on a click.
+- Projects stay in the sidebar apart from their sessions: deleting every session keeps the project, and only the project menu's "Remove from sidebar" takes it out. Each paired computer keeps its own list.
+- Updates install by themselves by default. With "Continue interrupted work" on, the app restarts at the next safe moment (no open question, approval or compaction) after a 60-second notice, even while work runs, and the work continues.
+- Autopilot lands its results on a busy main: when main moved, the merged result is checked again on its own and only a passing one lands.
+- Finished child sessions fold into one "n done" row on the work board.
+- The side panel keeps Terminal, Changes, Preview and Files. Background tasks, plan, logs, session tree and work tree open as sheets from the command palette and menus; the queue lives in the composer's queue button and memory in Settings.
+- A main session receives its child sessions' reports while it works, and a wait returns as soon as one arrives.
+- A child's report survives the receiver's omp or the app being killed and is delivered exactly once after the relaunch.
+- A sidebar session row shows a working arc while it, its subagents or the sessions it opened (on any device) work; an idle row's age is its last message, so a restart no longer changes it.
+- In the Chat lane a device row's button starts a new chat on that device instead of adding a project.
+- Each MCP server says why it is off, with "Use in omp" and Sign in actions, changes apply to every open tab, and the composer takes `/mcp reauth` and `/mcp reload`.
+
+### Fixed
+- A turn cut off by an update restart now continues.
+- A paired computer's tab no longer disappears when the app quits, and a child session's done report is no longer lost.
+- An update check no longer spins forever.
+- Keys pressed while switching tabs no longer go to the wrong tab or get lost.
+- Autopilot's todo list no longer keeps a stale row when two items share a name.
+- omp 18.12.5's renamed prompt-cache option has its Korean text.
+- The PR Center no longer shows outside checks such as Jenkins or Prow as pending forever, shows check states in the UI's language, and no longer keeps a stale row when two checks share a name. (Fixed by Autopilot)
+- An MCP server's sign-in no longer shows as an account under Settings › Providers & accounts.
+- A session another session's agent opened now gets a title.
+- The work board's progress bar no longer overlaps its count on a long plan.
+- The work board's "n done" count no longer counts a child twice after a relaunch.
+
+### Fixed (Windows)
+- Deleting a paired computer's session no longer leaves its file behind.
+- Stopping a scheduled run no longer leaves a process that started during the stop.
+- Autopilot's check before landing on main no longer fails on Windows path spellings.
+
 ## [0.49.0] - 2026-10-21
 
 설정이 훨씬 줄었고, 오토파일럿 결과가 main에 저절로 올라가며, 작업현황에서 하위 세션이 하는 일이 보여요.
