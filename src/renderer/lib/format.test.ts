@@ -81,6 +81,9 @@ it("never rounds a relative age down to zero minutes", () => {
 			"just now",
 		]);
 		expect(formatTimeAgo(new Date(now - 60_000).toISOString())).toBe("1m");
+		// Epoch ms reads the same as its ISO time; a time it cannot read is no age.
+		expect(formatTimeAgo(now - 3 * 3_600_000)).toBe("3h");
+		expect(formatTimeAgo("not a time")).toBe("");
 	} finally {
 		vi.useRealTimers();
 	}

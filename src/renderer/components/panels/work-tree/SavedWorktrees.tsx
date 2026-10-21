@@ -94,7 +94,7 @@ export function SavedWorktrees() {
 				{worktrees.map(worktree => {
 					const name = worktree.path.split(PATH_SEPARATOR).filter(Boolean).at(-1) ?? worktree.path;
 					const branch = worktree.branch ?? worktree.savedBranch ?? "";
-					const age = formatTimeAgo(new Date(worktree.removedAt).toISOString());
+					const age = formatTimeAgo(worktree.removedAt);
 					const title = [
 						name,
 						worktree.path,

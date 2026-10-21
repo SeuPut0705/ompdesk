@@ -240,7 +240,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 							</span>
 							{entry.ts > 0 && (
 								<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
-									{formatTimeAgo(new Date(entry.ts).toISOString())}
+									{formatTimeAgo(entry.ts)}
 								</span>
 							)}
 						</button>

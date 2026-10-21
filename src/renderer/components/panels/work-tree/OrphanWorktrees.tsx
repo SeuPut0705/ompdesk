@@ -151,7 +151,7 @@ export function OrphanWorktrees() {
 					{worktrees.map(worktree => {
 						const name = worktreeName(worktree);
 						const state = stateText(worktree);
-						const age = formatTimeAgo(new Date(worktree.modifiedAt).toISOString());
+						const age = formatTimeAgo(worktree.modifiedAt);
 						return (
 							<li
 								className={cx(

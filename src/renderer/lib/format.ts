@@ -17,11 +17,10 @@ export function uiLocale(): string {
 	return UI_LANGUAGE_INTL[getCurrentLanguage()];
 }
 
-/** "just now" / "8m" / "3h" / "2d" / "Aug 2" */
-export function formatTimeAgo(iso: string | undefined | null): string {
-	if (!iso) return "";
-	const then = Date.parse(iso);
-	if (Number.isNaN(then)) return "";
+/** "just now" / "8m" / "3h" / "2d" / "Aug 2", of an ISO time or epoch ms. */
+export function formatTimeAgo(value: number | string | undefined | null): string {
+	const then = toMs(value);
+	if (then == null) return "";
 	const seconds = Math.max(0, (Date.now() - then) / 1000);
 	if (seconds < 60) return translate("time.justNow");
 	if (seconds < 3600) return translate("time.minutesShort", { count: Math.floor(seconds / 60) });

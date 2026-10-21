@@ -505,7 +505,7 @@ describe("a session's family: one-line rows", () => {
 		// Focusable row button in the sidebar's roving list.
 		expect(first.querySelector("button")?.getAttribute("data-roving-item")).toBe(`subagent:${TAB}:r1`);
 		// One age format across the sidebar: the session rows' own formatter.
-		expect(formatTimeAgo(new Date(Date.now() - 635_000).toISOString())).toBe("10m");
+		expect(formatTimeAgo(Date.now() - 635_000)).toBe("10m");
 	});
 
 	it("collapses the chip to its running-count pill when the sidebar is narrow; the tooltip keeps the summary", async () => {

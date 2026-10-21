@@ -79,7 +79,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 						className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-subtle)"
 						title={formatClock(entry.timestamp)}
 					>
-						{formatTimeAgo(new Date(entry.timestamp).toISOString())}
+						{formatTimeAgo(entry.timestamp)}
 					</span>
 				)}
 				{entry.label && (

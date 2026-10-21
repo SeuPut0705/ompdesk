@@ -412,7 +412,7 @@ function EditTimelineRow({
 					<span className="shrink-0 px-1 py-px text-sc-2xs text-(--sc-danger)">{t("diffPanel.error")}</span>
 				)}
 				<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)" title={formatClock(entry.timestamp)}>
-					{formatTimeAgo(new Date(entry.timestamp).toISOString())}
+					{formatTimeAgo(entry.timestamp)}
 				</span>
 			</button>
 			{expanded && (

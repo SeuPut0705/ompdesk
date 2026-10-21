@@ -196,7 +196,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	return (
 		<div data-subagent-depth={depth}>
 			<FamilyRow
-				age={elapsed !== null ? formatTimeAgo(new Date(Date.now() - elapsed).toISOString()) : undefined}
+				age={elapsed !== null ? formatTimeAgo(Date.now() - elapsed) : undefined}
 				buttonProps={{
 					tabIndex: -1,
 					"data-roving-item": rovingKey,

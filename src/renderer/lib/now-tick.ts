@@ -86,19 +86,15 @@ export function useAgeLabels(values: readonly AgeValue[], format: (value: AgeVal
 	return state.key === key ? state.labels : values.map(format);
 }
 
-function timeAgoOf(value: AgeValue): string {
-	return formatTimeAgo(typeof value === "number" ? new Date(value).toISOString() : value);
-}
-
 /**
  * {@link formatTimeAgo} of `iso` (or epoch ms), kept current on the same shared clock: the caller re-renders only
  * when the text changes ("3m" → "4m"), so a row's age moves without a render a second.
  */
 export function useTimeAgo(iso: string | number | undefined | null): string {
-	return useAgeLabels([iso], timeAgoOf)[0] ?? "";
+	return useAgeLabels([iso], formatTimeAgo)[0] ?? "";
 }
 
 /** {@link useAgeLabels} with {@link formatTimeAgo}, for a list's ages (strings or epoch ms). */
 export function useTimeAgos(values: readonly AgeValue[]): readonly string[] {
-	return useAgeLabels(values, timeAgoOf);
+	return useAgeLabels(values, formatTimeAgo);
 }

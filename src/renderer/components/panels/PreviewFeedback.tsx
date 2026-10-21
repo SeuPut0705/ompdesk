@@ -501,7 +501,7 @@ export function AllVisualsDialog({
 								<div className="text-sc-xs text-(--sc-text-muted)">
 									{t("panel.preview.visual.meta", {
 										count: record.versions,
-										when: formatTimeAgo(new Date(record.updatedAt).toISOString()),
+										when: formatTimeAgo(record.updatedAt),
 									})}
 								</div>
 							</div>
