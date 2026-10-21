@@ -8,6 +8,8 @@
  */
 import { create } from "zustand";
 import type { UpdateStatus } from "../../shared/ipc-types";
+import { translate } from "../lib/i18n";
+import { toastError } from "./toast";
 
 const DISMISSAL_KEY = "omp.update.dismissed";
 
@@ -117,4 +119,12 @@ export async function checkForUpdatesInPlace(): Promise<void> {
 			.getState()
 			.setStatus({ state: "error", message: error instanceof Error ? error.message : String(error) });
 	}
+}
+
+/**
+ * A button's download, install or postpone. Main reports what goes wrong with the update itself in the status; this
+ * says only that the click never reached it (a phone page whose link to the computer dropped).
+ */
+export function runUpdaterAction(action: "download" | "apply" | "postpone"): void {
+	void window.omp.updater[action]().catch(error => toastError({ title: translate("updater.actionFailed"), error }));
 }

@@ -2320,6 +2320,7 @@ export const en: Record<string, string> = {
 	"settings.restartRequired.badge": "Restart",
 	"settings.restartRequired.hint":
 		"Cached at session startup — edits take effect after restarting the session (in every client).",
+	"updater.actionFailed": "Couldn't reach the update",
 	"updater.available": "Version {version} is available",
 	"updater.download": "Download update",
 	"updater.downloadInstaller": "Download installer",

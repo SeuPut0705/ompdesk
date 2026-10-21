@@ -245,7 +245,7 @@ export function PreviewPanel() {
 	useEffect(
 		() => () => {
 			if (agentTab.current) releaseAgentRelay(agentTab.current);
-			void window.omp.preview.command({ action: "dispose" });
+			void window.omp.preview.command({ action: "dispose" }).catch(() => undefined);
 		},
 		[],
 	);

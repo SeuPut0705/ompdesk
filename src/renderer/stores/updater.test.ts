@@ -5,7 +5,9 @@
  * is replaced wholesale (the main process owns the machine).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadDismissal, useUpdaterStore } from "./updater";
+import { translate } from "../lib/i18n";
+import { useToastStore } from "./toast";
+import { loadDismissal, runUpdaterAction, useUpdaterStore } from "./updater";
 
 const globals = globalThis as Record<string, unknown>;
 let storage: Record<string, string>;
@@ -81,5 +83,27 @@ describe("useUpdaterStore", () => {
 		expect(loadDismissal()).toEqual({});
 		storage[key] = JSON.stringify({ version: 42, error: "yes" });
 		expect(loadDismissal()).toEqual({});
+	});
+});
+
+describe("runUpdaterAction", () => {
+	it("says an update action could not reach the computer instead of leaving the click silent", async () => {
+		globals.window = {
+			omp: { updater: { apply: async () => Promise.reject(new Error("The link to the computer dropped")) } },
+		};
+		const unhandled: unknown[] = [];
+		const listen = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", listen);
+		try {
+			runUpdaterAction("apply");
+			await new Promise(resolve => setTimeout(resolve, 0));
+		} finally {
+			process.off("unhandledRejection", listen);
+			delete globals.window;
+		}
+		expect(unhandled).toEqual([]);
+		const [toast] = useToastStore.getState().toasts;
+		expect(toast?.title).toBe(translate("updater.actionFailed"));
+		useToastStore.setState({ toasts: [] });
 	});
 });

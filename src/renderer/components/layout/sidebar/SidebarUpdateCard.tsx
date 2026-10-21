@@ -20,7 +20,7 @@ import type { UpdateStatus } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
 import { useSecondsUntil } from "../../../lib/use-seconds-until";
 import { useUiStore } from "../../../stores/ui";
-import { checkForUpdatesInPlace, useUpdaterStore } from "../../../stores/updater";
+import { checkForUpdatesInPlace, runUpdaterAction, useUpdaterStore } from "../../../stores/updater";
 import { IconButton, Spinner } from "../../common";
 
 /** How long "up to date" stays before the row goes away on its own. */
@@ -144,10 +144,10 @@ export function SidebarUpdateCard() {
 			action: {
 				label: t("updater.card.restartNow"),
 				icon: <RotateCw />,
-				onClick: () => void window.omp.updater.apply(),
+				onClick: () => runUpdaterAction("apply"),
 				primary: true,
 			},
-			onClose: () => void window.omp.updater.postpone(),
+			onClose: () => runUpdaterAction("postpone"),
 			closeLabel: t("updater.card.later"),
 		};
 	} else if (!row && status.state === "downloaded") {
@@ -160,12 +160,12 @@ export function SidebarUpdateCard() {
 				? {
 						label: t("updater.openInstaller"),
 						icon: <ExternalLink />,
-						onClick: () => void window.omp.updater.apply(),
+						onClick: () => runUpdaterAction("apply"),
 					}
 				: {
 						label: t("updater.card.restart"),
 						icon: <RotateCw />,
-						onClick: () => void window.omp.updater.apply(),
+						onClick: () => runUpdaterAction("apply"),
 						primary: true,
 					},
 			onClose: () => {
@@ -182,7 +182,7 @@ export function SidebarUpdateCard() {
 			action: {
 				label: t("updater.downloadInstaller"),
 				icon: <Download />,
-				onClick: () => void window.omp.updater.download(),
+				onClick: () => runUpdaterAction("download"),
 				primary: true,
 			},
 			onClose: () => {

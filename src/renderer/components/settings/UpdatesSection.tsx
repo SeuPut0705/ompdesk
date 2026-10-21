@@ -37,7 +37,7 @@ import { useFocusedHost, useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { useUpdaterStore } from "../../stores/updater";
+import { runUpdaterAction, useUpdaterStore } from "../../stores/updater";
 import {
 	Badge,
 	Banner,
@@ -221,12 +221,7 @@ export function UpdatesSection() {
 				badge={host ? <Badge variant="muted">{t("settings.navGroup.app")}</Badge> : undefined}
 				control={
 					status.state === "available" ? (
-						<Button
-							icon={<Download />}
-							onClick={() => void window.omp.updater.download()}
-							size="sm"
-							variant="primary"
-						>
+						<Button icon={<Download />} onClick={() => runUpdaterAction("download")} size="sm" variant="primary">
 							{status.mode === "manual" ? t("updater.downloadInstaller") : t("updater.download")}
 						</Button>
 					) : status.state === "downloading" ? (
@@ -236,7 +231,7 @@ export function UpdatesSection() {
 					) : status.state === "downloaded" ? (
 						<Button
 							icon={status.mode === "manual" ? <FolderOpen /> : <RotateCcw />}
-							onClick={() => void window.omp.updater.apply()}
+							onClick={() => runUpdaterAction("apply")}
 							size="sm"
 							variant="primary"
 						>
@@ -318,10 +313,10 @@ function AutoRestartNotice({ restartAt }: { restartAt: number }) {
 	return (
 		<p className="mt-1 flex items-center gap-2 text-sc-xs text-(--sc-text-muted)" data-testid="auto-restart-notice">
 			<span>{t("updater.card.autoRestart", { seconds })}</span>
-			<Button onClick={() => void window.omp.updater.apply()} size="sm" variant="primary">
+			<Button onClick={() => runUpdaterAction("apply")} size="sm" variant="primary">
 				{t("updater.card.restartNow")}
 			</Button>
-			<Button onClick={() => void window.omp.updater.postpone()} size="sm" variant="ghost">
+			<Button onClick={() => runUpdaterAction("postpone")} size="sm" variant="ghost">
 				{t("updater.card.later")}
 			</Button>
 		</p>

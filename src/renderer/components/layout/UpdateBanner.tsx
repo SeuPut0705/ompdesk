@@ -8,7 +8,7 @@
  */
 import { AlertCircle, RefreshCw, X } from "lucide-react";
 import { useT } from "../../lib/i18n";
-import { useUpdaterStore } from "../../stores/updater";
+import { checkForUpdatesInPlace, useUpdaterStore } from "../../stores/updater";
 import { Button, IconButton } from "../common";
 
 export function UpdateBanner() {
@@ -30,7 +30,7 @@ export function UpdateBanner() {
 				<span className="min-w-0 flex-1 truncate text-(--sc-text-secondary)" title={tooltip}>
 					{status.message}
 				</span>
-				<Button icon={<RefreshCw />} onClick={() => void window.omp.updater.check()} size="sm" variant="ghost">
+				<Button icon={<RefreshCw />} onClick={() => void checkForUpdatesInPlace()} size="sm" variant="ghost">
 					{t("updater.retry")}
 				</Button>
 				<IconButton icon={<X />} label={t("updater.dismissFailure")} onClick={dismissError} size="sm" />

@@ -40,7 +40,7 @@ afterEach(async () => {
 		root.unmount();
 	});
 	container.remove();
-	useUpdaterStore.setState({ status: { state: "idle" }, dismissed: {} });
+	useUpdaterStore.setState({ status: { state: "idle" }, dismissed: {}, manualCheck: false });
 	check.mockClear();
 	download.mockClear();
 	apply.mockClear();
@@ -68,6 +68,9 @@ describe("UpdateBanner", () => {
 			retryButton?.click();
 		});
 		expect(check).toHaveBeenCalledOnce();
+		// The retry is the menu's check: its outcome goes to the sidebar card, so the banner steps aside meanwhile.
+		expect(useUpdaterStore.getState().status).toEqual({ state: "checking" });
+		expect(container.textContent).toBe("");
 	});
 
 	it("lets a user close a failure banner, and keeps the closed notice closed", async () => {

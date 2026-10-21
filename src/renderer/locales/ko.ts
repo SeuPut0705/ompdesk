@@ -2306,6 +2306,7 @@ export const ko: Record<string, string> = {
 	"settings.restartRequired.badge": "재시작",
 	"settings.restartRequired.hint":
 		"세션 시작 시 캐시돼요. 변경 사항은 (모든 클라이언트에서) 세션을 재시작한 후 적용돼요.",
+	"updater.actionFailed": "업데이트에 닿지 못했어요",
 	"updater.available": "{version} 버전을 사용할 수 있어요",
 	"updater.download": "업데이트 다운로드",
 	"updater.downloadInstaller": "설치 프로그램 다운로드",
