@@ -232,6 +232,13 @@ export interface HostServicesDeps {
 	runChargesFile?: string;
 }
 
+/** A call of the omp's that a device answers; `delivered` once a connection was handed it. */
+interface PendingHostCall {
+	name: "hostToolCall" | "hostUriRequest";
+	request: { id: string };
+	delivered: boolean;
+}
+
 /** `run`, `lastRun`, `stopped` and `retry` follow the sidecar's events (`trackRunEvent`), like a local tab's. */
 interface HostTab extends RunTracking {
 	peerId: string;
@@ -259,6 +266,12 @@ interface HostTab extends RunTracking {
 	 * every `tab.open` re-sends them (`openAsks`), since the device missed whatever changed while away.
 	 */
 	asks: Map<string, ExtensionUIRequest>;
+	/**
+	 * Host tool calls and URI reads the omp waits on, by request id: stock never times one out, so a call that reached
+	 * no device (made while it was away, or held by a device process that quit) would hold the turn for good. `tab.open`
+	 * re-sends the ones this connection never had, and every one to a relaunched device that adopts the tab.
+	 */
+	hostCalls: Map<string, PendingHostCall>;
 	/** The turn waits for this computer's internet connection (turn-resume.ts). */
 	awaitingConnection?: boolean;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
@@ -726,6 +739,8 @@ export class LocalHostServices implements HostServices {
 	 * later answer is refused (`already_answered`) instead of reaching the omp.
 	 */
 	#answer(tab: HostTab, frame: { type?: unknown; id?: unknown }, side: "device" | "host", from?: HostedTabView): void {
+		if ((frame.type === "host_tool_result" || frame.type === "host_uri_result") && typeof frame.id === "string")
+			tab.hostCalls.delete(frame.id);
 		const id = frame.type === "extension_ui_response" && typeof frame.id === "string" ? frame.id : undefined;
 		const first = id === undefined ? undefined : tab.answered.get(id);
 		if (first !== undefined && first !== side)
@@ -1154,7 +1169,8 @@ export class LocalHostServices implements HostServices {
 
 	async #open(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): Promise<TabOpenResult> {
 		const key = this.#key(peer.deviceId, params.rtab);
-		const existing = this.#tabs.get(key) ?? this.#adopt(peer, params, conn);
+		const held = this.#tabs.get(key);
+		const existing = held ?? this.#adopt(peer, params, conn);
 		if (existing) {
 			clearTimeout(existing.graceTimer);
 			existing.graceTimer = undefined;
@@ -1174,6 +1190,13 @@ export class LocalHostServices implements HostServices {
 			this.#emit(existing, "openAsks", [...existing.asks.values()]);
 			// The device's waiting row may date from before it lost this computer.
 			this.#emit(existing, "awaitingConnection", existing.awaitingConnection === true);
+			// The calls the omp still waits on: a relaunched device (it adopts the tab under a new rtab) lost every one
+			// its last process held; the same device back from a lost link lacks only those made while it was away.
+			for (const call of existing.hostCalls.values()) {
+				if (held && call.delivered) continue;
+				call.delivered = true;
+				this.#emit(existing, call.name, call.request);
+			}
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}
 		// A session deleted on this computer is never reopened for a device whose layout still names it.
@@ -1334,6 +1357,7 @@ export class LocalHostServices implements HostServices {
 			// A window's tab may be mid-turn as the device joins it: its events so far reached nobody here.
 			run: view instanceof HostedTabView ? runFromReading(view.runReading()) : idleRun(),
 			asks: new Map(),
+			hostCalls: new Map(),
 			origin,
 			views: new Set(),
 			answered: new Map(),
@@ -1481,6 +1505,22 @@ export class LocalHostServices implements HostServices {
 			if (asks) tab.asks.set(request.id, request);
 			// omp withdrew the request (timeout, abort): no answer will follow.
 			if (asks || (request.method === "cancel" && tab.asks.delete(request.targetId))) this.#resume?.sync();
+		});
+		// The calls a device answers: the omp withdraws one only through a cancel frame, and a process that ends takes its own.
+		const pending = (name: PendingHostCall["name"]) => (request: { id: string }) => {
+			tab.hostCalls.set(request.id, { name, request, delivered: tab.conn !== null });
+		};
+		sidecar.on("hostToolCall", pending("hostToolCall"));
+		sidecar.on("hostUriRequest", pending("hostUriRequest"));
+		sidecar.on("frame", (frame: { type?: unknown; targetId?: unknown }) => {
+			if (
+				(frame.type === "host_tool_cancel" || frame.type === "host_uri_cancel") &&
+				typeof frame.targetId === "string"
+			)
+				tab.hostCalls.delete(frame.targetId);
+		});
+		sidecar.on("status", (payload: SidecarStatusPayload) => {
+			if (payload.status !== "ready") tab.hostCalls.clear();
 		});
 	}
 

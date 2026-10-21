@@ -1,7 +1,8 @@
 /**
- * A tab a paired host keeps running for this computer that this computer's saved layout does not name comes back
- * (the 21 Oct 2026 update restart: the layout a stalled quit rewrote lost the host's tab, and the next launch never
- * reopened it). The ask is the host's `tabs.kept`; a tab a local tab already holds is left to that tab.
+ * A tab a paired host keeps running for this computer comes back attached after the device relaunches (the 21 Oct
+ * 2026 update restarts: a layout a stalled quit rewrote lost the host's tab, and a tab the layout kept came back
+ * deferred, "not started", until someone looked at it). The ask is the host's `tabs.kept`; a session a tab here
+ * already holds is started in that tab, so it attaches to the host's running turn instead of waiting to be shown.
  */
 import { describe, expect, it, vi } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
@@ -21,37 +22,47 @@ function kept(rtab: string, patch: Partial<KeptTab> = {}): KeptTab {
 }
 
 function setup(tabs: KeptTab[] | null | Error, open: HostTabReadopt["open"] = (_device, tab) => `tab-for-${tab.rtab}`) {
-	const held = new Set<string>();
+	/** device:session → the tab here holding it, and whether that tab's process runs. */
+	const held = new Map<string, { tab: string; started: boolean }>();
 	const opened: string[] = [];
+	const started: string[] = [];
 	const log = vi.fn();
 	const deps: HostTabReadopt = {
 		kept: async () => {
 			if (tabs instanceof Error) throw tabs;
 			return tabs;
 		},
-		holds: (device, sessionPath) => held.has(`${device}:${sessionPath}`),
+		holder: (device, sessionPath) => held.get(`${device}:${sessionPath}`)?.tab ?? null,
+		start: tabId => {
+			const holding = [...held.values()].find(entry => entry.tab === tabId);
+			if (!holding || holding.started) return false;
+			holding.started = true;
+			started.push(tabId);
+			return true;
+		},
 		open: (device, tab) => {
 			const id = open(device, tab);
 			if (id) {
 				opened.push(tab.rtab);
-				held.add(`${device}:${tab.sessionPath}`);
+				held.set(`${device}:${tab.sessionPath}`, { tab: id, started: true });
 			}
 			return id;
 		},
 		log,
 	};
-	return { deps, held, opened, log };
+	return { deps, held, opened, started, log };
 }
 
 describe("readoptHostTabs", () => {
-	it("opens the host's working tab the layout did not name, and skips the one a local tab already holds", async () => {
+	it("opens the host's working tab the layout did not name, and leaves alone the one a running tab already holds", async () => {
 		const missing = kept("lost", { formerRtabs: ["older"], state: "asking", title: "Long job" });
 		const present = kept("present");
-		const { deps, held, opened, log } = setup([present, missing]);
-		held.add("host-1:/host/sessions/present.jsonl");
+		const { deps, held, opened, started, log } = setup([present, missing]);
+		held.set("host-1:/host/sessions/present.jsonl", { tab: "tab-present", started: true });
 
 		expect(await readoptHostTabs("host-1", deps)).toEqual(["tab-for-lost"]);
 		expect(opened).toEqual(["lost"]);
+		expect(started).toEqual([]);
 		// One runtime-log line per re-adopted tab, naming the ids the host knows.
 		expect(log).toHaveBeenCalledTimes(1);
 		expect(log).toHaveBeenCalledWith("readopt", {
@@ -61,6 +72,24 @@ describe("readoptHostTabs", () => {
 			session: "lost.jsonl",
 			state: "asking",
 			tab: "tab-for-lost",
+		});
+	});
+
+	it("starts the tab the layout restored deferred for a session the host keeps working, instead of waiting to be shown", async () => {
+		const { deps, held, opened, started, log } = setup([kept("child", { state: "running" })]);
+		held.set("host-1:/host/sessions/child.jsonl", { tab: "tab-deferred", started: false });
+
+		expect(await readoptHostTabs("host-1", deps)).toEqual(["tab-deferred"]);
+		expect(opened).toEqual([]);
+		expect(started).toEqual(["tab-deferred"]);
+		expect(log).toHaveBeenCalledWith("readopt", {
+			device: "host-1",
+			rtab: "child",
+			formerRtabs: [],
+			session: "child.jsonl",
+			state: "running",
+			tab: "tab-deferred",
+			held: true,
 		});
 	});
 

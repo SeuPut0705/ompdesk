@@ -1312,12 +1312,18 @@ app.whenReady().then(() => {
 			: {}),
 	});
 	devices.onHostOnline(host => aiMemorySync?.hostOnline(host));
-	// A host's tab that kept running for this computer but that the saved layout lost (a quit that stalled before
-	// the relaunch) comes back in the front window, adopted by session path, under the ids the host knows.
+	// A host's tab that kept running for this computer comes back attached: one the saved layout restored deferred is
+	// started, one the layout lost (a quit that stalled before the relaunch) opens in the front window, adopted by
+	// session path, under the ids the host knows.
 	devices.onHostOnline(host => {
 		void readoptHostTabs(host, {
 			kept: deviceId => devices.keptTabs(deviceId),
-			holds: (deviceId, sessionPath) => sidecarPool.sessionOwner(sessionPath, deviceId) !== null,
+			holder: (deviceId, sessionPath) => sidecarPool.sessionOwner(sessionPath, deviceId)?.tabId ?? null,
+			start: tabId => {
+				if (quitApproved() || sidecarPool.sidecarOf(tabId)?.status !== "asleep") return false;
+				sidecarPool.startTab(tabId);
+				return true;
+			},
 			open: (deviceId, tab) => {
 				const win = windowManager.getTargetWindow();
 				if (!win || quitApproved()) return null;
