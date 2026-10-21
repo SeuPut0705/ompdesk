@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type Browser, devices, expect, type Page } from "@playwright/test";
+import { outsideRoundedOutline as roundedOutline } from "./rounded-outline";
 
 // The responsive audit: a named list of surfaces (e2e/responsive-surfaces.ts) opened on the dev harness
 // (harness.html) at every phone and tablet width, measured in the page, written to <dir>/looks/*.json and merged
@@ -304,11 +305,16 @@ export async function measure(page: Page, look: Look): Promise<Issue[]> {
 		}
 		window.scrollTo(0, 0);
 	});
-	return page.evaluate(measureInPage, { safe: safeInsets(look), touch: touchLook(look) });
+	// The geometry helper goes in as source: a function passed to the page keeps nothing of its module.
+	const options = JSON.stringify({ safe: safeInsets(look), touch: touchLook(look) });
+	return page.evaluate<Issue[]>(`(${measureInPage.toString()})(${options}, ${roundedOutline.toString()})`);
 }
 
-/** Runs in the page (serialized by Playwright): nothing outside this function is in scope there. */
-function measureInPage(options: { safe: { t: number; r: number; b: number; l: number }; touch: boolean }): Issue[] {
+/** Runs in the page (serialized by Playwright): nothing outside this function and its arguments is in scope there. */
+function measureInPage(
+	options: { safe: { t: number; r: number; b: number; l: number }; touch: boolean },
+	outsideRoundedOutline: typeof roundedOutline,
+): Issue[] {
 	const issues: Issue[] = [];
 	const vw = document.documentElement.clientWidth;
 	const vh = window.innerHeight;
@@ -551,8 +557,6 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	// ── Tap targets, overlaps and stolen taps ───────────────────────────────────────────────────────
 	/** The part of the element a scroller or clipping ancestor lets through (null when none of it shows). */
 	interface Box {
-		/** The rounded corner of the box that clips it (a scroller's border radius), 0 when nothing rounded clips. */
-		radius?: number;
 		left: number;
 		top: number;
 		right: number;
@@ -564,7 +568,6 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		let top = Math.max(own.top, 0);
 		let right = Math.min(own.right, vw);
 		let bottom = Math.min(own.bottom, vh);
-		let radius = 0;
 		for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
 			const computed = style(node);
 			if (computed.overflowX === "visible" && computed.overflowY === "visible") continue;
@@ -577,9 +580,26 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 				top = Math.max(top, box.top);
 				bottom = Math.min(bottom, box.bottom);
 			}
-			radius = Math.max(radius, Number.parseFloat(computed.borderTopLeftRadius) || 0);
 		}
-		return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom, radius } : null;
+		return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom } : null;
+	};
+	const radius = (value: string, size: number): number =>
+		value.endsWith("%") ? (Number.parseFloat(value) / 100) * size : Number.parseFloat(value) || 0;
+	const cutByRoundedClip = (element: Element, x: number, y: number): boolean => {
+		for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+			const computed = style(node);
+			if (computed.overflowX === "visible" && computed.overflowY === "visible") continue;
+			const box = node.getBoundingClientRect();
+			const size = Math.min(box.width, box.height);
+			const radii = [
+				computed.borderTopLeftRadius,
+				computed.borderTopRightRadius,
+				computed.borderBottomRightRadius,
+				computed.borderBottomLeftRadius,
+			].map(value => radius(value.split(" ")[0] ?? "", size)) as [number, number, number, number];
+			if (outsideRoundedOutline(box, radii, x, y)) return true;
+		}
+		return false;
 	};
 	const controlSelector =
 		'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="switch"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="checkbox"], [role="radio"], [role="slider"], [contenteditable="true"]';
@@ -714,16 +734,9 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			const cover = layerOf(topEl);
 			if (cover && cover !== layerOf(element) && !cover.contains(element)) continue;
 			if (!owner && (ownOnly || x < clip.left || x > clip.right || y < clip.top || y > clip.bottom)) continue;
-			// A point in a clipping scroller's rounded corner (a segmented tab bar's last, half-scrolled tab) is cut by
-			// the curve: that corner draws nothing to tap, so the tap that misses it is no control's loss.
-			const corner = clip.radius ?? 0;
-			if (
-				!owner &&
-				corner > 0 &&
-				Math.min(x - clip.left, clip.right - x) < corner &&
-				Math.min(y - clip.top, clip.bottom - y) < corner
-			)
-				continue;
+			// A point a clipping ancestor's rounded corner cuts off (a segmented tab bar's last, half-scrolled tab) is past
+			// its curve: nothing is drawn there to tap, so the tap that misses is no control's loss.
+			if (!owner && cutByRoundedClip(element, x, y)) continue;
 			// A bar or chip floating over a scroller covers content that scrolls under it by design.
 			const scroller = scrollerOf(element);
 			if (owner && scroller && !scroller.contains(owner)) continue;
