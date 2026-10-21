@@ -29,17 +29,17 @@ test("a test app ends when the process that launched it dies without cleaning up
 		JSON.stringify({ language: "en", firstRunComplete: true }),
 	);
 	const launch = path.join(profile, "launch.json");
-	await fs.writeFile(
-		launch,
-		JSON.stringify(
-			await appLaunchOptions({
-				project: project as string,
-				desktop: desktop as string,
-				agent: agent as string,
-				profile,
-			}),
-		),
+	// The options every spec's app gets (`launchApp`), built here in the worker.
+	const options = await appLaunchOptions({
+		project: project as string,
+		desktop: desktop as string,
+		agent: agent as string,
+		profile,
+	});
+	expect(options.env.OMP_GUI_TEST_LAUNCHER_PID, "a launch names the worker that launched it").toBe(
+		String(process.pid),
 	);
+	await fs.writeFile(launch, JSON.stringify(options));
 	let pid = 0;
 	try {
 		const launcher = spawn(

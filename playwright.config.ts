@@ -6,8 +6,10 @@ import { dropGitSelectors } from "./src/shared/git-env";
 // Every suite launches Electron with `...process.env`; keep its windows off the
 // user's screen (see OMP_GUI_HEADLESS in src/main/index.ts). Set to 0 to watch.
 process.env.OMP_GUI_HEADLESS ??= "1";
-// Every launched app ends with the worker that launched it, even one that crashed (src/main/test-launcher-exit.ts).
-process.env.OMP_GUI_TEST_EXIT_WITH_LAUNCHER ??= "1";
+// Every launched app ends with the process that launched it, even one that crashed (src/main/test-launcher-exit.ts):
+// the runner names itself here, and each worker, loading this file again, names itself. A spec that launches
+// Electron itself with `...process.env` passes it on; `appLaunchOptions` (e2e/harness.ts) sets it too.
+process.env.OMP_GUI_TEST_LAUNCHER_PID = String(process.pid);
 // Windows: the run's temp files (every spec's profile, Playwright's own) go in one folder of its own, cleared with
 // the processes still naming it when the run ends (e2e/run-temp.ts).
 claimRunTemp();
