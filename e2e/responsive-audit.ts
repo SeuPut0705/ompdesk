@@ -562,12 +562,13 @@ function measureInPage(
 		right: number;
 		bottom: number;
 	}
-	const visibleRect = (element: Element): Box | null => {
+	/** `element`'s box clipped by the screen and its clipping ancestors; with `reach`, the ancestors' clip alone. */
+	const visibleRect = (element: Element, reach = false): Box | null => {
 		const own = element.getBoundingClientRect();
-		let left = Math.max(own.left, 0);
-		let top = Math.max(own.top, 0);
-		let right = Math.min(own.right, vw);
-		let bottom = Math.min(own.bottom, vh);
+		let left = reach ? 0 : Math.max(own.left, 0);
+		let top = reach ? 0 : Math.max(own.top, 0);
+		let right = reach ? vw : Math.min(own.right, vw);
+		let bottom = reach ? vh : Math.min(own.bottom, vh);
 		for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
 			const computed = style(node);
 			if (computed.overflowX === "visible" && computed.overflowY === "visible") continue;
@@ -733,9 +734,12 @@ function measureInPage(
 		const label = element.closest("label");
 		const lost: string[] = [];
 		let thief = "";
+		// A scroller clips its controls' reach as it clips them: a point past it is no tap of this control's.
+		const reach = visibleRect(element, true);
 		for (const [x, y, name] of points) {
 			// Only the part of the box that is on screen and inside the clipping ancestors can be tapped.
 			if (x < 0 || y < 0 || x > vw || y > vh) continue;
+			if (reach && (x < reach.left || x > reach.right || y < reach.top || y > reach.bottom)) continue;
 			const topEl = tapTarget(x, y);
 			if (!topEl || element.contains(topEl) || label?.contains(topEl)) continue;
 			// Inside the control's own scroller bounds only: a point past the clip belongs to the clipper.

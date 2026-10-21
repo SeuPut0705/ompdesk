@@ -1029,8 +1029,11 @@ html[data-shell="phone"] .omp-panel-topbar {
 	min-height: 36px;
 }
 
+/* The tab bar's 40 px buttons are targets enough as they are: their reach stays in the bar, which leaves the
+   terminal key bar above it to its keys (reaching 2 px up, they took the bottom edge of every key). */
 html[data-shell="phone"] .omp-panel-tabbar > button {
 	min-height: 40px;
+	--hit-gap-y: 0px;
 }
 
 /* Dense clusters: each control's 44 px hit area stops at the midpoint to its neighbour (see the hit-area rule). The side
@@ -1437,12 +1440,15 @@ html[data-input="touch"] .omp-changes :is([data-commit-box], .omp-changes-list) 
 	align-self: stretch;
 }
 
-/* The terminal's key bar: keys 4 px apart in one row, the bar's 4 px padding above and below them, the panel tab bar
-   under it on a phone (whose buttons reach 2 px up). A key's reach fills the bar, down to the tab buttons' hit area;
-   with the panel's 4 px bound it stopped 2 px short and left a strip under every key that no tap reached. */
-html[data-shell] [data-terminal-keybar] {
-	--hit-gap-x: 4px;
-	--hit-gap-y: 8px;
+/* The terminal's key bar: keys 10 px apart in one row that scrolls sideways, the bar's 4 px padding above and below
+   them, the panel tab bar under it on a phone. A key's ::after starts inside its 1 px border, so bounded at 10 it
+   reaches 5 px each way: the bar's whole height (36 px on a phone) and 36 across an arrow key, where 4 px apart and
+   bounded at 8 left the keys 34 high and the arrows 30 wide. */
+html[data-shell] [data-terminal-keybar],
+html[data-shell] [data-terminal-keybar] > div {
+	column-gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
 }
 
 /* Inline code in prose keeps to the 12 px floor (0.85em of a 13.5 px reply is 11.5). */

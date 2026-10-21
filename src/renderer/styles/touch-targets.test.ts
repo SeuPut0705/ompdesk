@@ -155,9 +155,14 @@ describe("hit areas that fill the room they have", () => {
 	});
 
 	it("lets a terminal key reach through the bar's padding, which its scroller holds so the reach is not clipped", () => {
-		const bound = rule("html[data-shell] [data-terminal-keybar]");
-		expect(bound).toMatch(/--hit-gap-x:\s*4px/);
-		expect(bound).toMatch(/--hit-gap-y:\s*8px/);
+		// A key's ::after starts inside its 1 px border: 10 px apart and bounded at 10, it fills the bar's height and
+		// reaches 36 across an arrow (4 px apart and bounded at 8 left the keys 34 high and the arrows 30 wide).
+		const bound = rule("html[data-shell] [data-terminal-keybar],\nhtml[data-shell] [data-terminal-keybar] > div");
+		expect(bound).toMatch(/column-gap:\s*10px/);
+		expect(bound).toMatch(/--hit-gap-x:\s*10px/);
+		expect(bound).toMatch(/--hit-gap-y:\s*10px/);
+		// The phone's tab bar under it keeps its reach inside its own 40 px buttons, leaving the keys their bottom edge.
+		expect(rule('html[data-shell="phone"] .omp-panel-tabbar > button')).toMatch(/--hit-gap-y:\s*0px/);
 		const bar = read("../components/panels/TerminalKeyBar.tsx");
 		expect(bar).toContain('bg-(--sc-surface-1) px-2"');
 		expect(bar).toContain("overflow-x-auto py-1");
