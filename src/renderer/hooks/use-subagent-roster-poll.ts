@@ -35,13 +35,22 @@ export function useSubagentRosterPoll(pollMs = STREAM_POLL_MS, schedule: PollSch
 
 	useEffect(() => {
 		if (!polling) return;
-		return schedule(() => {
+		const ask = () => {
+			// A hidden window asks nothing (the app's other polls follow the same
+			// rule); it catches up once when it shows again.
+			if (document.visibilityState === "hidden") return;
 			// A poll resolving after a tab/session switch must not paint this
 			// tab's agents over the new foreground session — the guard is
 			// re-checked inside the store AFTER the await, before the write.
 			const origin = capture();
 			if (!isActive(origin)) return;
 			void refresh({ expect: () => isActive(origin) });
-		}, pollMs);
+		};
+		const stop = schedule(ask, pollMs);
+		document.addEventListener("visibilitychange", ask);
+		return () => {
+			stop();
+			document.removeEventListener("visibilitychange", ask);
+		};
 	}, [capture, isActive, polling, pollMs, refresh, schedule]);
 }

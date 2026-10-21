@@ -126,4 +126,25 @@ describe("useSubagentRosterPoll", () => {
 		await act(async () => tick());
 		expect(getSubagents).toHaveBeenCalledTimes(1);
 	});
+
+	it("asks nothing while the window is hidden and catches up once when it shows", async () => {
+		let visibility: DocumentVisibilityState = "hidden";
+		Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+		try {
+			useSubagentsStore.getState().setSnapshots([snap({ id: "a1", status: "running" })]);
+			useSessionStore.setState({ isStreaming: true });
+			await mount();
+			await act(async () => tick());
+			await act(async () => tick());
+			expect(getSubagents).not.toHaveBeenCalled();
+
+			visibility = "visible";
+			await act(async () => {
+				document.dispatchEvent(new Event("visibilitychange"));
+			});
+			expect(getSubagents).toHaveBeenCalledTimes(1);
+		} finally {
+			Reflect.deleteProperty(document, "visibilityState");
+		}
+	});
 });
