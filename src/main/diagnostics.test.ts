@@ -192,6 +192,22 @@ describe("readDiagnosticsLog", () => {
 		]);
 	});
 
+	it("keeps every step of a sequence that came back to an earlier state: only a periodic check folds across lines", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-diag-"));
+		tempDirs.push(dir);
+		const file = path.join(dir, "gui-runtime.jsonl");
+		const phase = (minute: number, value: string) =>
+			JSON.stringify({
+				timestamp: `2026-10-21T10:0${minute}:00.000Z`,
+				source: "ai-memory",
+				message: "phase",
+				details: { phase: value },
+			});
+		const lines = [phase(0, "ready"), phase(1, "failed"), phase(2, "ready")];
+		await fs.writeFile(file, `${lines.join("\n")}\n`);
+		expect(await readDiagnosticsLog(file)).toEqual(lines);
+	});
+
 	it("is empty when there is no log", async () => {
 		expect(await readDiagnosticsLog(path.join(os.tmpdir(), "omp-gui-absent", "gui-runtime.jsonl"))).toEqual([]);
 	});
