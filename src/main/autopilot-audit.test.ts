@@ -126,6 +126,32 @@ describe("auditCycle", () => {
 		expect(await audit(before)).toEqual([]);
 	});
 
+	it("tolerates another session's push from another worktree of the repository, and still catches the run's own", async () => {
+		const peer = path.join(tmp, "peer");
+		gitSync(main, "worktree", "add", "-q", "--detach", peer);
+		await commit(work, "mine.txt");
+		const before = await takeSnapshot(work, main);
+		await commit(peer, "theirs.txt");
+		gitSync(peer, "push", "-q", "origin", "HEAD:main");
+		gitSync(peer, "push", "-q", "origin", "HEAD:refs/heads/their-feature");
+		expect(await audit(before)).toEqual([]);
+		await commit(work, "more.txt");
+		gitSync(work, "push", "-q", "origin", "HEAD:refs/heads/mine-pushed");
+		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/mine-pushed created"]);
+	});
+
+	it("still catches a remote-tracking ref moved backwards or deleted", async () => {
+		const peer = path.join(tmp, "peer");
+		gitSync(main, "worktree", "add", "-q", "--detach", peer);
+		await commit(peer, "theirs.txt");
+		gitSync(peer, "push", "-q", "origin", "HEAD:refs/heads/side");
+		const before = await takeSnapshot(work, main);
+		gitSync(peer, "push", "-q", "--force", "origin", "HEAD~1:refs/heads/side");
+		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/side moved"]);
+		gitSync(peer, "push", "-q", "origin", ":refs/heads/side");
+		expect((await audit(before)).map(v => v.detail)).toEqual(["refs/remotes/origin/side deleted"]);
+	});
+
 	it("catches tags: any in a local-only run, only new v* tags inside the release scope", async () => {
 		const before = await takeSnapshot(work, main);
 		gitSync(work, "tag", "v1.2.3");

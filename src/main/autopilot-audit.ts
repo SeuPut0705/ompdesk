@@ -5,8 +5,11 @@
  * entitled to are the own branch, the children's branches, what the ShipRunner journaled and, in the
  * release scope, the default branch on the remote and new `v*` tags.
  *
- * A remote-tracking ref that only a fetch moved is not the agent's (the reflog says `fetch`); a user's own
- * commit on a local branch cannot be told from the agent's, so it counts, like the design says.
+ * A remote-tracking ref that only a fetch moved is not the agent's (the reflog says `fetch`). Neither is one that moved
+ * forward or was created without holding any commit the run's branch made this cycle: in a repository other sessions
+ * work in, their pushes update the shared remote-tracking refs (the reflog says `update by push`), and that paused the
+ * run as its own. A deleted or rewound remote-tracking ref still counts, whoever did it. A user's own commit on a local
+ * branch cannot be told from the agent's, so it counts, like the design says.
  */
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -118,6 +121,31 @@ async function movedByFetch(root: string, ref: string): Promise<boolean> {
 	return /^(fetch|pull)\b/.test(log.stdout.toString("utf8").trim());
 }
 
+/** The commits the run's branch made this cycle on its own line (first parents: a merge brings others' commits). */
+async function ownCommits(root: string, from: string | undefined, to: string | undefined): Promise<string[]> {
+	if (!to || from === to) return [];
+	const range = await gitRaw(root, ["rev-list", "--first-parent", from ? `${from}..${to}` : to], {
+		timeoutMs: REFS_TIMEOUT_MS,
+	});
+	return range.code === 0 ? range.stdout.toString("utf8").split("\n").filter(Boolean) : [];
+}
+
+/** A remote-tracking ref another session moved: created or moved forward, holding none of the run's own commits. */
+async function movedByOthers(root: string, change: RefChange, own: readonly string[]): Promise<boolean> {
+	if (change.to === null) return false;
+	if (change.from !== null) {
+		const forward = await gitRaw(root, ["merge-base", "--is-ancestor", change.from, change.to], {
+			timeoutMs: REFS_TIMEOUT_MS,
+		});
+		if (forward.code !== 0) return false;
+	}
+	for (const sha of own) {
+		const holds = await gitRaw(root, ["merge-base", "--is-ancestor", sha, change.to], { timeoutMs: REFS_TIMEOUT_MS });
+		if (holds.code === 0) return false;
+	}
+	return true;
+}
+
 function allowed(change: RefChange, scope: AuditScope): boolean {
 	const { ref } = change;
 	if (scope.expectedRefs.includes(ref)) return true;
@@ -146,13 +174,17 @@ export async function auditCycle(
 	scope: AuditScope,
 ): Promise<AuditViolation[]> {
 	const violations: AuditViolation[] = [];
+	const own = `refs/heads/${scope.branch}`;
+	let mine: string[] | undefined;
 	for (const change of diffRefs(before.refs, after.refs)) {
 		if (allowed(change, scope)) continue;
-		if (change.ref.startsWith("refs/remotes/") && change.to !== null && (await movedByFetch(root, change.ref)))
-			continue;
+		if (change.ref.startsWith("refs/remotes/") && change.to !== null) {
+			if (await movedByFetch(root, change.ref)) continue;
+			mine ??= await ownCommits(root, before.refs[own], after.refs[own]);
+			if (await movedByOthers(root, change, mine)) continue;
+		}
 		violations.push({ kind: "ref", detail: describeChange(change) });
 	}
-	const own = `refs/heads/${scope.branch}`;
 	const oldTip = before.refs[own];
 	const newTip = after.refs[own];
 	if (oldTip && !newTip) violations.push({ kind: "history", detail: `${own} deleted` });
