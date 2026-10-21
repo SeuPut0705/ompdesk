@@ -946,7 +946,8 @@ export class RemoteDevices {
 		if (client.hello) {
 			view.platform = client.hello.platform;
 			view.home = client.hello.home;
-			view.appVersion = client.hello.appVersion;
+			// Only while connected: the last hello says nothing of a host that may have updated since.
+			if (client.state === "online") view.appVersion = client.hello.appVersion;
 		}
 		return view;
 	}

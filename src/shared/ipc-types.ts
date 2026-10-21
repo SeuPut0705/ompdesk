@@ -1663,7 +1663,7 @@ export interface HostView {
 	platform?: string;
 	/** Host home directory (folder picker start); absent until the first connection. */
 	home?: string;
-	/** The host's OMPdesk version, from its last hello; absent until the first connection. */
+	/** The host's OMPdesk version, from its hello; absent while it is not connected. */
 	appVersion?: string;
 }
 

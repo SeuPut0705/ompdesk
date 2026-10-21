@@ -67,6 +67,11 @@ describe("computers of the tailnet", () => {
 		expect(a.devices.state().hosts[0]?.appVersion).toBe("1.0.0");
 		expect(view.name).toBe("Studio");
 		expect(a.tailnet.pushed).toMatchObject([{ nodeId: "nSTUDIO", connected: true }]);
+
+		// Offline, the host's last hello no longer says what it runs: it may update before it comes back.
+		await b.devices.setHostEnabled(false);
+		const offline = await until(a, state => state.hosts[0]?.state !== "online");
+		expect(offline.hosts[0]?.appVersion).toBeUndefined();
 	});
 
 	it("never probes a phone, an offline node, or this computer itself", async () => {
