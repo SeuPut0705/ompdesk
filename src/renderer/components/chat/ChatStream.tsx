@@ -78,7 +78,7 @@ import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnEndAnnouncer } from "./TurnEndAnnouncer";
 import { estimateRowSize, RowSizeLearner, rowSizeKey } from "./transcript-row-estimate";
-import { ChildrenAtWork, useChildrenAtWork } from "./work/ChildrenAtWork";
+import { ChildrenAtWork, useHasChildrenAtWork } from "./work/ChildrenAtWork";
 import { REVEAL_STEP_EVENT, type RevealStepRequest, revealStep, type StepReveal } from "./work/reveal-step";
 import { StepGroups, useMountedCount } from "./work/StepGroups";
 import { messageTimestampMs } from "./work/work-turn";
@@ -160,7 +160,7 @@ function SessionTranscript() {
 	const retryInfo = useSessionStore(s => s.retryInfo);
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const pendingMail = useSessionStore(s => s.pendingMail);
-	const childrenAtWork = useChildrenAtWork().rows.length > 0;
+	const childrenAtWork = useHasChildrenAtWork();
 	const awaitingConnection = useAwaitingConnection();
 	const resuming = useResuming();
 	const status = useSessionStore(s => s.status);
