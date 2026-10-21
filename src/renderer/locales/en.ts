@@ -5432,6 +5432,7 @@ export const en: Record<string, string> = {
 	"tools.github.state.open": "open",
 	"tools.github.state.closed": "closed",
 	"tools.github.state.merged": "merged",
+	"tools.github.state.draft": "draft",
 	"tools.github.state.pending": "pending",
 	"tools.github.state.running": "running",
 	"tools.github.state.completed": "completed",

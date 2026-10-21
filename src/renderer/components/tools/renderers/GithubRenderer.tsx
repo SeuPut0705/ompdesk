@@ -2,6 +2,7 @@ import { CircleDot, ExternalLink, GitPullRequest } from "lucide-react";
 import { githubConclusionPassed } from "../../../../shared/github-checks";
 import { AnsiText, hasAnsi } from "../../../lib/ansi";
 import { resultText } from "../../../lib/format";
+import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { asArray, asRecord } from "../../../lib/wire-value";
 import type { ToolRendererProps } from "../ToolCard";
@@ -184,6 +185,13 @@ function extractEntity(
 	return { kind, number, title, state, url, repo };
 }
 
+/** A PR or issue state in the tool's own words, else a check or run state's (a conclusion), else GitHub's word. */
+function stateLabel(t: (key: string) => string, state: string): string {
+	const key = `tools.github.state.${state.toLowerCase()}`;
+	const own = t(key);
+	return own === key ? githubStateLabel(t, state) : own;
+}
+
 /** Lines consumed by the entity card, hidden from the body to avoid duplication. */
 const ENTITY_LINE_RE =
 	/^#\s+(?:Created\s+|Checked\s+Out\s+)?(?:Issue|Pull\s+Request)(?:\s+Worktree)?\s+#\d+|^(?:State|URL):\s*.*$/;
@@ -256,10 +264,7 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 								background: "var(--omp-bg-tertiary)",
 							}}
 						>
-							{t(`tools.github.state.${entity.state.toLowerCase()}`) ===
-							`tools.github.state.${entity.state.toLowerCase()}`
-								? entity.state
-								: t(`tools.github.state.${entity.state.toLowerCase()}`)}
+							{stateLabel(t, entity.state)}
 						</span>
 					)}
 					{externalUrl && (

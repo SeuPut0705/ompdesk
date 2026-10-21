@@ -5422,6 +5422,7 @@ export const ko: Record<string, string> = {
 	"tools.github.state.open": "열림",
 	"tools.github.state.closed": "닫힘",
 	"tools.github.state.merged": "병합됨",
+	"tools.github.state.draft": "초안",
 	"tools.github.state.pending": "대기 중",
 	"tools.github.state.running": "실행 중",
 	"tools.github.state.completed": "완료됨",
