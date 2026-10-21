@@ -562,6 +562,7 @@ export const en: Record<string, string> = {
 	"autopilot.focus.next": "Areas the next cycles favour. None selected = all areas.",
 	"autopilot.backlog": "Backlog",
 	"autopilot.followups": "Left for later",
+	"autopilot.followupPin": "Pin to the backlog: the next cycle takes it first",
 	"autopilot.backlogRemove": "Remove item",
 	"autopilot.backlogAdd": "Add",
 	"autopilot.backlogPlaceholder": "Pin an item…",

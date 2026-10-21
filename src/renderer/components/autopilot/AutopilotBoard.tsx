@@ -1,4 +1,4 @@
-import { Plus, X } from "lucide-react";
+import { Pin, Plus, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { AutopilotChildLive } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { formatCost, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
@@ -302,27 +302,48 @@ function AutopilotRunSection() {
 
 /**
  * What the recent cycles left for later and no later cycle did: what the agent is likely to take next, before the
- * rotation's pick. One line each, the whole sentence in the tooltip; nothing while there is none.
+ * rotation's pick. One line each, the whole sentence in the tooltip; nothing while there is none. A pin puts one on
+ * the backlog, which the next cycle takes before anything else.
  */
 function AutopilotFollowupsSection() {
 	const t = useT();
 	const followups = useAutopilotStore(s => s.status.followups);
+	const backlog = useAutopilotStore(s => s.status.backlog);
+	const ended = useAutopilotStore(s => s.status.state === "ended");
+	const { run, pending } = useAutopilotActions();
 	if (!followups || followups.length === 0) return null;
+	const pinned = new Set((backlog ?? []).filter(item => !item.done).map(item => sameItem(item.text)));
 	return (
 		<BoardSection count={followups.length} id="followups" title={t("autopilot.followups")}>
 			<CappedRows cap={SECTION_CAP.followups} items={followups}>
 				{text => (
-					<BoardRow
-						data={{ "data-autopilot-followup": "" }}
-						key={text}
-						label={text}
-						lead={<Dot ring tone="muted" />}
-						title={text}
-					/>
+					<li className="omp-work-board-item" key={text}>
+						<div className="omp-work-board-row" data-autopilot-followup="" title={text}>
+							<span className="omp-work-board-lead">
+								<Dot ring tone="muted" />
+							</span>
+							<span className="min-w-0 flex-1 truncate">{text}</span>
+							{!ended && !pinned.has(sameItem(text)) && (
+								<IconButton
+									data-autopilot-followup-pin=""
+									disabled={pending === "backlog_add"}
+									icon={<Pin />}
+									label={t("autopilot.followupPin")}
+									onClick={() => void run({ action: "backlog_add", text })}
+									size="sm"
+								/>
+							)}
+						</div>
+					</li>
 				)}
 			</CappedRows>
 		</BoardSection>
 	);
+}
+
+/** A follow-up already on the backlog, whatever its case and spacing. */
+function sameItem(text: string): string {
+	return text.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**
