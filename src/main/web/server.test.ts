@@ -344,8 +344,9 @@ describe("static files", () => {
 
 	// v0.38.1: a phone's page, older than the computer's update, asked for a lazy chunk the new build no longer had.
 	it("after an update, serves the previous build's hashed assets by name, and nothing else from them", async () => {
-		// This launch kept its build (WebHost.start); the next one runs a new build without the old chunk.
-		await vi.waitFor(() => expect(existsSync(join(userData, "web-assets", "builds.json"))).toBe(true));
+		// This launch kept its build (WebHost.start, queued first); the next one runs a new build without the old chunk.
+		await host.assets.retain(staticRoot);
+		expect(existsSync(join(userData, "web-assets", "builds.json"))).toBe(true);
 		writeFileSync(join(staticRoot, "web.html"), `${PAGE}<!-- next build -->`);
 		rmSync(join(staticRoot, "assets", "app-abc.js"));
 		writeFileSync(join(staticRoot, "assets", "app-def.js"), "next");

@@ -56,6 +56,7 @@ export class AssetArchive {
 	readonly #dir: string;
 	readonly #now: () => number;
 	#roots: readonly string[] = [];
+	#queue: Promise<void> = Promise.resolve();
 
 	constructor(dir: string, now: () => number = Date.now) {
 		this.#dir = dir;
@@ -69,9 +70,16 @@ export class AssetArchive {
 
 	/**
 	 * Keep the build in `staticRoot` for later (copied once), mark the others replaced, drop what is past the window or
-	 * the count, and serve the rest. Never throws for a missing renderer folder (a dev run has none).
+	 * the count, and serve the rest. Never throws for a missing renderer folder (a dev run has none). Calls run one
+	 * after another: a second call's copy is never swept away by the first call's cleanup.
 	 */
-	async retain(staticRoot: string): Promise<void> {
+	retain(staticRoot: string): Promise<void> {
+		const run = this.#queue.then(() => this.#retain(staticRoot));
+		this.#queue = run.catch(() => {});
+		return run;
+	}
+
+	async #retain(staticRoot: string): Promise<void> {
 		const current = await buildIdOf(staticRoot);
 		if (!current) return;
 		const now = this.#now();
