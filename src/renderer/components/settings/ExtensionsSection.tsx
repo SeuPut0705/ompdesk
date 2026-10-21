@@ -686,8 +686,15 @@ function McpTab({ rpc, query }: { rpc: LazyRpc<RpcMcpServerInfo[]>; query: strin
 			void runReauth(server);
 			return;
 		}
-		const next = action === "reconnect" ? null : action === "enable";
-		void mutation.run(server.name, next, () => tabRpc.mcpAction(server.name, action), t("extPanel.mcpActionFailed"));
+		const next = action === "reconnect" ? null : action === "enable" || action === "adopt";
+		const run = async (): Promise<RpcResponse> => {
+			const res = await tabRpc.mcpAction(server.name, action);
+			if (res.success && action === "adopt") {
+				toast({ variant: "success", message: t("mcp.adopt.ok", { name: server.name }) });
+			}
+			return res;
+		};
+		void mutation.run(server.name, next, run, t("extPanel.mcpActionFailed"));
 	};
 
 	const handleConfirmRemove = (): void => {

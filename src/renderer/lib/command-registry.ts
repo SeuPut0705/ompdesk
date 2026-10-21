@@ -93,6 +93,11 @@ export interface CommandMenuItem {
 	 * a partial match (see `commandGuard` / `enterNeedsConfirm`).
 	 */
 	guard?: CommandGuard;
+	/**
+	 * A typed `/mcp <verb>` runs its `action`/`window` affordance (composer-submit); this one is still sent as text
+	 * because stock's own reply (a listing in the transcript) is what the person typed it for.
+	 */
+	typedAsPrompt?: boolean;
 }
 
 /** Palette sections, in display order (design spec §2 IA). */
@@ -372,6 +377,37 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		if (!res.success) throw new Error(res.error);
 		await ctx.hydrateSession();
 		toast({ variant: "success", message: t(`mcpAction.${verb}`, { name }) });
+	};
+
+	/** /mcp reauth <name> signs in through the bridge (stock's headless /mcp cannot); a bare invocation opens the native MCP tab. */
+	const runMcpReauth = async (args?: string): Promise<void> => {
+		const name = args?.trim();
+		if (!name) {
+			ctx.openSettings("tools:mcp");
+			return;
+		}
+		const res = await boundRpc.mcpReauth(name);
+		if (!res.success) {
+			if (res.code === "oauth_busy") toast({ variant: "info", message: t("mcp.reauth.busy") });
+			else toastError({ title: t("mcp.reauth.failed"), error: res });
+			return;
+		}
+		const data = res.data as { ok?: boolean; error?: string } | undefined;
+		if (data?.ok === false) {
+			if (data.error === "cancelled") toast({ variant: "info", message: t("mcp.reauth.cancelled") });
+			else toastError({ title: t("mcp.reauth.failed"), error: data });
+			return;
+		}
+		await ctx.hydrateSession();
+		toast({ variant: "success", message: t("mcp.reauth.ok", { name }) });
+	};
+
+	/** /mcp reload rediscovers and reconnects every MCP server of this session and every live tab (stock's headless one only refreshes commands). */
+	const runMcpReload = async (): Promise<void> => {
+		const res = await boundRpc.mcpReload();
+		if (!res.success) throw new Error(res.error);
+		await ctx.hydrateSession();
+		toast({ variant: "success", message: t("mcpAction.reload") });
 	};
 
 	/**
@@ -1151,18 +1187,19 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 					label: t("cmd.mcp.list"),
 					description: t("cmd.mcp.list.desc"),
 					category: "extensions",
+					typedAsPrompt: true,
 					affordance: { kind: "window", open: () => ctx.openSettings("tools:mcp") },
 				},
-				// add/test/reauth are covered natively by the MCP tab (wizard + cards).
+				// add/test are covered natively by the MCP tab (wizard + cards); reauth with a name signs in from here.
 				subWindow("mcp add", () => ctx.openSettings("tools:mcp")),
 				subAction("mcp remove", args => runMcpAction("remove", args)),
 				subWindow("mcp test", () => ctx.openSettings("tools:mcp")),
 				subAction("mcp enable", args => runMcpAction("enable", args)),
 				subAction("mcp disable", args => runMcpAction("disable", args)),
-				subWindow("mcp reauth", () => ctx.openSettings("tools:mcp")),
+				subAction("mcp reauth", args => runMcpReauth(args)),
 				sub("mcp unauth", "/mcp unauth ", "<name>"),
 				subAction("mcp reconnect", args => runMcpAction("reconnect", args)),
-				sub("mcp reload", "/mcp reload"),
+				subAction("mcp reload", () => runMcpReload()),
 				sub("mcp resources", "/mcp resources"),
 				sub("mcp prompts", "/mcp prompts"),
 				sub("mcp notifications", "/mcp notifications"),

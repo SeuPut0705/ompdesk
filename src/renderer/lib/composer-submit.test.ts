@@ -30,6 +30,9 @@ interface MockOmp {
 		steer: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		followUp: Mock<(message: string, images?: unknown[]) => Promise<RpcResponse>>;
 		guidedGoal: Mock<(initial?: string) => Promise<RpcResponse>>;
+		mcpReauth: Mock<(name: string) => Promise<RpcResponse>>;
+		mcpReload: Mock<() => Promise<RpcResponse>>;
+		mcpAction: Mock<(name: string, action: string) => Promise<RpcResponse>>;
 		setAgentsPaused: Mock<(enabled: boolean) => Promise<RpcResponse>>;
 		setPlanMode: Mock<(enabled: boolean) => Promise<RpcResponse>>;
 		tan: Mock<(work: string) => Promise<RpcResponse>>;
@@ -58,6 +61,9 @@ function installMockOmp(): MockOmp {
 			setPlanMode: vi.fn(async enabled => success({ enabled })),
 			tan: vi.fn(async () => success({ jobId: "job-1" })),
 			omfg: vi.fn(async () => success({ state: "saved", savedPath: "/tmp/rule.md" })),
+			mcpReauth: vi.fn(async () => success({ ok: true })),
+			mcpReload: vi.fn(async () => success({ servers: [] })),
+			mcpAction: vi.fn(async () => success({})),
 			getState: vi.fn(async () =>
 				success({
 					sessionId: "s1",
@@ -630,6 +636,76 @@ describe("planComposerSubmit GUI-only routing", () => {
 		expect(omp.system.openExternal).not.toHaveBeenCalled();
 		expect(omp.rpc.getLastLink).toHaveBeenCalledTimes(1);
 		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+});
+
+describe("planComposerSubmit typed /mcp", () => {
+	const submitTyped = (message: string) =>
+		planComposerSubmit({ message, images: [], isStreaming: false, mode: "prompt", commands: [] });
+	const toastMessages = () => useToastStore.getState().toasts.map(toast => toast.message);
+
+	it("signs in through the bridge for /mcp reauth <name> instead of sending prompt text", async () => {
+		const omp = installMockOmp();
+		expect(submitTyped("/mcp reauth foo").kind).toBe("handled");
+		expect(omp.rpc.mcpReauth).toHaveBeenCalledExactlyOnceWith("foo");
+		await vi.waitFor(() => expect(toastMessages()).toContain(translate("mcp.reauth.ok", { name: "foo" })));
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("says a sign-in the person closed was cancelled, and one already running was busy", async () => {
+		const omp = installMockOmp();
+		omp.rpc.mcpReauth.mockResolvedValueOnce(success({ ok: false, error: "cancelled" }));
+		submitTyped("/mcp reauth foo");
+		await vi.waitFor(() => expect(toastMessages()).toContain(translate("mcp.reauth.cancelled")));
+		omp.rpc.mcpReauth.mockResolvedValueOnce({
+			type: "response",
+			command: "mcp_reauth",
+			success: false,
+			error: "busy",
+			code: "oauth_busy",
+		});
+		submitTyped("/mcp reauth bar");
+		await vi.waitFor(() => expect(toastMessages()).toContain(translate("mcp.reauth.busy")));
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("opens the MCP tab for a bare /mcp reauth", () => {
+		const omp = installMockOmp();
+		expect(submitTyped("/mcp reauth").kind).toBe("handled");
+		expect(useUiStore.getState().destination).toBe("settings");
+		expect(useUiStore.getState().settingsTab).toBe("tools:mcp");
+		expect(omp.rpc.mcpReauth).not.toHaveBeenCalled();
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("reloads every MCP server through the bridge for /mcp reload", async () => {
+		const omp = installMockOmp();
+		expect(submitTyped("/mcp reload").kind).toBe("handled");
+		expect(omp.rpc.mcpReload).toHaveBeenCalledOnce();
+		await vi.waitFor(() => expect(toastMessages()).toContain(translate("mcpAction.reload")));
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("runs the other GUI verbs with their arguments", () => {
+		const omp = installMockOmp();
+		expect(submitTyped("/mcp enable foo").kind).toBe("handled");
+		expect(omp.rpc.mcpAction).toHaveBeenCalledExactlyOnceWith("foo", "enable");
+		expect(submitTyped("/mcp add").kind).toBe("handled");
+		expect(useUiStore.getState().settingsTab).toBe("tools:mcp");
+		expect(omp.rpc.prompt).not.toHaveBeenCalled();
+	});
+
+	it("still sends /mcp list and verbs with no GUI affordance to stock as text", async () => {
+		const omp = installMockOmp();
+		for (const message of ["/mcp list", "/mcp unauth foo", "/mcp"]) {
+			const submit = submitTyped(message);
+			expect(submit.kind).toBe("send");
+			if (submit.kind !== "send") continue;
+			await submit.request();
+			expect(omp.rpc.prompt).toHaveBeenLastCalledWith(message, []);
+		}
+		expect(omp.rpc.mcpReauth).not.toHaveBeenCalled();
+		expect(omp.rpc.mcpReload).not.toHaveBeenCalled();
 	});
 });
 

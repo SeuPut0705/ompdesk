@@ -1,7 +1,9 @@
 /**
  * MCP server row (Settings › Extensions › MCP servers): scope and transport
- * badges, the stdio command / http(sse) URL target line, connection status,
- * tool count, and auth-state badge. The action menu (MenuButton) keeps
+ * badges, the stdio command / http(sse) URL target line, one muted line saying
+ * why the server is off (or that it needs a sign-in, or came from another
+ * tool's config) with its fix as an inline button, connection status, tool
+ * count, and auth-state badge. The action menu (MenuButton) keeps
  * enable/disable/reconnect/remove (remove is disabled for discovered-only
  * servers, which live in no writable config) plus "test connection" (inline
  * per-row result) and "re-authorize" (the existing extension_ui
@@ -14,12 +16,13 @@
  */
 
 import { FlaskConical, KeyRound, Lock, MoreHorizontal, Plug, Power, RefreshCw, Trash2 } from "lucide-react";
+import type { ReactNode } from "react";
 import type { RpcMcpServerInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
-import { Badge, type BadgeVariant, Button, type ContextMenuItem, MenuButton, Spinner } from "../../common";
+import { Badge, type BadgeVariant, Button, type ContextMenuItem, MenuButton, SettingInfo, Spinner } from "../../common";
 import { McpTestResultView, type McpTestView } from "./McpFeedback";
 
-export type McpCardAction = "enable" | "disable" | "reconnect" | "remove" | "test" | "reauth";
+export type McpCardAction = "enable" | "disable" | "reconnect" | "remove" | "test" | "reauth" | "adopt";
 
 /** Reauth in-flight phases; "cancelling" disables the cancel button. */
 export type McpReauthPhase = "running" | "cancelling";
@@ -60,6 +63,67 @@ function AuthBadge({ server }: { server: RpcMcpServerInfo }) {
 	return null;
 }
 
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+interface McpNote {
+	texts: string[];
+	/** Longer explanation behind an info glyph (never a paragraph). */
+	info?: string;
+	/** Tooltip of the note's text. */
+	title?: string;
+	button?: { action: McpCardAction; label: string; icon?: ReactNode };
+}
+
+/**
+ * The row's one muted line: why a server is off and the fix, else what a sign-in or another tool's config
+ * means for it. An enabled row with nothing to say has no line.
+ */
+function mcpNote(
+	server: RpcMcpServerInfo,
+	enabled: boolean,
+	reauth: McpReauthPhase | null,
+	t: Translate,
+): McpNote | null {
+	if (!enabled) {
+		const reason = server.offReason;
+		if (!reason) return null;
+		switch (reason.kind) {
+			case "otherTool":
+				return {
+					texts: [t("mcp.reason.otherTool", { tool: reason.tool })],
+					info: t("mcp.reason.otherTool.info", { tool: reason.tool }),
+					button: { action: "adopt", label: t("mcp.action.adopt") },
+				};
+			case "offInTool":
+				return {
+					texts: [t("mcp.reason.offInTool", { tool: reason.tool })],
+					button: { action: "enable", label: t("mcp.action.turnOn") },
+				};
+			case "toolOff":
+				return { texts: [t("mcp.reason.toolOff", { tool: reason.tool })] };
+			case "disabled":
+				return {
+					texts: [t("mcp.reason.disabled")],
+					button: { action: "enable", label: t("mcp.action.turnOn") },
+				};
+			case "projectConfigOff":
+				return { texts: [t("mcp.reason.projectConfigOff")] };
+		}
+	}
+	const texts: string[] = [];
+	if (server.alsoIn) texts.push(t("mcp.reason.alsoIn", { tool: server.alsoIn }));
+	const authState = server.authState;
+	if (reauth === null && (authState === "required" || authState === "expired")) {
+		texts.push(t(`mcp.signin.${authState}`));
+		return {
+			texts,
+			title: server.lastError,
+			button: { action: "reauth", label: t("mcp.action.signIn"), icon: <KeyRound aria-hidden /> },
+		};
+	}
+	return texts.length > 0 ? { texts } : null;
+}
+
 export interface McpServerCardProps {
 	server: RpcMcpServerInfo;
 	/** Enable state with the parent's optimistic overlay applied. */
@@ -95,6 +159,8 @@ export function McpServerCard({
 
 	// stdio shows the command; http/sse the URL; fall back to whichever exists.
 	const target = (server.transport === "stdio" ? server.command : server.url) ?? server.command ?? server.url;
+	const note = mcpNote(server, enabled, reauth, t);
+	const noteButton = note?.button;
 
 	const items: ContextMenuItem[] = [
 		{
@@ -151,6 +217,29 @@ export function McpServerCard({
 						<span className="block truncate font-mono text-sc-xs text-(--sc-text-muted)" title={target}>
 							{target}
 						</span>
+					)}
+					{note && (
+						<div
+							className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-sc-xs text-(--sc-text-muted) [--hit-gap-x:6px] [--hit-gap-y:4px]"
+							data-mcp-note
+						>
+							<span className="min-w-0 break-keep" title={note.title}>
+								{note.texts.join(" · ")}
+							</span>
+							{note.info && <SettingInfo text={note.info} />}
+							{noteButton && (
+								<Button
+									className="-my-1"
+									disabled={disabled || busy}
+									icon={noteButton.icon}
+									onClick={() => onMenuAction(noteButton.action)}
+									size="sm"
+									variant="secondary"
+								>
+									{noteButton.label}
+								</Button>
+							)}
+						</div>
 					)}
 				</div>
 				<span className="shrink-0 text-sc-sm tabular-nums text-(--sc-text-muted)">

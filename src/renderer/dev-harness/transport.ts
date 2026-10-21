@@ -58,6 +58,7 @@ import {
 	familyEdits,
 } from "./fixture-board";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
+import { MCP_SERVERS } from "./fixture-mcp";
 import { memoryAnswer } from "./fixture-memory";
 import {
 	ACTIVE_TOOLS,
@@ -275,6 +276,14 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return respond(command, MODEL_SETUP_FACTS);
 			case "get_session_spend":
 				return respond(command, SESSION_SPEND);
+			case "get_skills":
+				return respond(command, { skills: [] });
+			case "get_hooks":
+				return respond(command, { hooks: [] });
+			case "get_context_files":
+				return respond(command, { files: [] });
+			case "get_mcp_servers":
+				return respond(command, MCP_SERVERS);
 			case "get_plugins":
 				return respond(command, PLUGINS);
 			case "get_marketplaces":

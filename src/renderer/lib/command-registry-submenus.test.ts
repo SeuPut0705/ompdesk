@@ -99,7 +99,8 @@ describe("nativized command affordances", () => {
 		["mcp reconnect", "action"],
 		["mcp add", "window"],
 		["mcp test", "window"],
-		["mcp reauth", "window"],
+		["mcp reauth", "action"],
+		["mcp reload", "action"],
 		["marketplace add", "action"],
 		["marketplace remove", "action"],
 		["marketplace update", "action"],
@@ -118,7 +119,6 @@ describe("nativized command affordances", () => {
 		"advisor status",
 		"advisor dump",
 		"mcp unauth",
-		"mcp reload",
 		"mcp resources",
 		"mcp prompts",
 		"mcp notifications",
@@ -156,6 +156,8 @@ describe("nativized action wiring", () => {
 			setSetting: vi.fn(async () => ok({ advisorEnabled: true, advisorActive: true })),
 			getSettings: vi.fn(async () => ok({ values: { "computer.enabled": true } })),
 			mcpAction: vi.fn(async () => ok({ name: "srv", action: "enable", status: "connected" })),
+			mcpReauth: vi.fn(async () => ok({ ok: true })),
+			mcpReload: vi.fn(async () => ok({ servers: [] })),
 			marketplaceAction: vi.fn(async () => ok({ ok: true })),
 			setPluginEnabled: vi.fn(async () => ok({})),
 		};
@@ -243,6 +245,57 @@ describe("nativized action wiring", () => {
 		await affordance.run();
 		expect(rpc.mcpAction).not.toHaveBeenCalled();
 		expect(openSettings).toHaveBeenCalledWith("tools:mcp");
+	});
+
+	it("mcp reauth with a name signs in through the bridge, toasts the outcome and refreshes", async () => {
+		const affordance = wired("mcp reauth");
+		if (affordance.kind !== "action") throw new Error("expected action");
+		await affordance.run("srv");
+		expect(rpc.mcpReauth).toHaveBeenCalledExactlyOnceWith("srv");
+		expect(hydrateSession).toHaveBeenCalled();
+		expect(lastToast()).toMatchObject({ variant: "success", message: translate("mcp.reauth.ok", { name: "srv" }) });
+
+		rpc.mcpReauth.mockResolvedValueOnce(ok({ ok: false, error: "cancelled" }));
+		await affordance.run("srv");
+		expect(lastToast()).toMatchObject({ variant: "info", message: translate("mcp.reauth.cancelled") });
+
+		rpc.mcpReauth.mockResolvedValueOnce({
+			type: "response",
+			command: "mcp_reauth",
+			success: false,
+			error: "busy",
+			code: "oauth_busy",
+		});
+		await affordance.run("srv");
+		expect(lastToast()).toMatchObject({ variant: "info", message: translate("mcp.reauth.busy") });
+
+		rpc.mcpReauth.mockResolvedValueOnce({ type: "response", command: "mcp_reauth", success: false, error: "boom" });
+		await affordance.run("srv");
+		expect(lastToast()).toMatchObject({ variant: "error", title: translate("mcp.reauth.failed") });
+	});
+
+	it("mcp reauth without a name opens the MCP Settings page", async () => {
+		const affordance = wired("mcp reauth");
+		if (affordance.kind !== "action") throw new Error("expected action");
+		await affordance.run();
+		expect(rpc.mcpReauth).not.toHaveBeenCalled();
+		expect(openSettings).toHaveBeenCalledWith("tools:mcp");
+	});
+
+	it("mcp reload reloads every server through the bridge, then refreshes and toasts", async () => {
+		const affordance = wired("mcp reload");
+		if (affordance.kind !== "action") throw new Error("expected action");
+		await affordance.run();
+		expect(rpc.mcpReload).toHaveBeenCalledOnce();
+		expect(hydrateSession).toHaveBeenCalled();
+		expect(lastToast()).toMatchObject({ variant: "success", message: translate("mcpAction.reload") });
+		rpc.mcpReload.mockResolvedValueOnce({
+			type: "response",
+			command: "mcp_reload",
+			success: false,
+			error: "no bridge",
+		});
+		await expect(affordance.run()).rejects.toThrow("no bridge");
 	});
 
 	it("advisor on writes advisor.enabled and reports activation state", async () => {

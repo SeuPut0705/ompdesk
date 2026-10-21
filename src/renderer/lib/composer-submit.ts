@@ -93,6 +93,25 @@ function runGuiOnlyBuiltin(message: string, commands: AvailableCommand[]): boole
 	return runGuiAffordance(item.affordance, args);
 }
 
+/**
+ * Typed `/mcp <verb> [args]`: stock's headless `/mcp` cannot sign in (it answers "TUI only") and its `reload` only
+ * refreshes commands, so a verb the GUI has its own action or window for (the registry's `mcp` submenu) runs that
+ * with the args instead of going out as prompt text. Items the registry marks `typedAsPrompt` and verbs with no
+ * such affordance still go to stock.
+ */
+function runGuiMcpVerb(message: string, commands: AvailableCommand[]): boolean | undefined {
+	const parsed = parseSlashCommand(message);
+	if (parsed?.name !== "mcp") return undefined;
+	const [verb, ...rest] = parsed.args.split(/\s+/);
+	if (!verb) return undefined;
+	const submenu = buildCurrentCommandMenu(commands).find(item => item.name === "mcp")?.affordance;
+	if (submenu?.kind !== "submenu") return undefined;
+	const item = submenu.items.find(candidate => candidate.name === `mcp ${verb}`);
+	if (!item || item.typedAsPrompt) return undefined;
+	if (item.affordance.kind !== "action" && item.affordance.kind !== "window") return undefined;
+	return runGuiAffordance(item.affordance, rest.join(" ") || undefined);
+}
+
 /** Error code of a submission withdrawn before it was sent (see `signal`): no failure to show, the draft returns. */
 export const SUBMIT_CANCELLED = "submit_cancelled";
 const cancelledSubmit: RpcResponse = {
@@ -154,6 +173,8 @@ export function planComposerSubmit(input: {
 			},
 		};
 	}
+	const guiMcp = isSlashCommand ? runGuiMcpVerb(message, commands) : undefined;
+	if (guiMcp !== undefined) return { kind: guiMcp ? "handled" : "blocked" };
 	const guiHandled = isSlashCommand ? runGuiOnlyBuiltin(message, commands) : undefined;
 	if (guiHandled !== undefined) return { kind: guiHandled ? "handled" : "blocked" };
 	// Stock sends a `/skill:<name>` token for a skill that is off (or missing) as plain text: say so.

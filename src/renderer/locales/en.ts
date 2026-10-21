@@ -2632,6 +2632,7 @@ export const en: Record<string, string> = {
 	"mcpAction.disable": 'MCP server "{name}" disabled',
 	"mcpAction.remove": 'MCP server "{name}" removed',
 	"mcpAction.reconnect": 'MCP server "{name}" reconnected',
+	"mcpAction.reload": "MCP servers reloaded",
 
 	// /marketplace mutations
 	"marketplaceAction.add": 'Marketplace "{name}" added',
@@ -5012,6 +5013,21 @@ export const en: Record<string, string> = {
 	"mcp.reauth.ok": "Re-authorized {name}.",
 	"mcp.reauth.failed": "Re-authorization failed",
 	"mcp.reauth.cancelFailed": "Couldn't cancel authorization",
+	"mcp.reauth.cancelled": "Sign-in cancelled.",
+	"mcp.reason.otherTool": "Found in {tool}'s config · omp doesn't use it by default",
+	"mcp.reason.otherTool.info":
+		"Copies only this server's definition into omp's own ~/.omp/agent/mcp.json. {tool}'s other servers, skills and rules stay unused.",
+	"mcp.reason.offInTool": "Turned off in {tool}'s config",
+	"mcp.reason.toolOff": "Reading {tool}'s config is turned off in omp",
+	"mcp.reason.disabled": "Turned off by you",
+	"mcp.reason.projectConfigOff": "Project MCP config is turned off",
+	"mcp.reason.alsoIn": "Taken from {tool}'s config",
+	"mcp.signin.required": "Sign-in needed",
+	"mcp.signin.expired": "Sign-in expired",
+	"mcp.action.signIn": "Sign in",
+	"mcp.action.turnOn": "Turn on",
+	"mcp.action.adopt": "Use in omp",
+	"mcp.adopt.ok": "Copied {name} into omp's MCP config. omp uses it now.",
 
 	// Operations: Security Center, SSH hosts, and unified updates
 	"common.refresh": "Refresh",

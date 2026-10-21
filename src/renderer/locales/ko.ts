@@ -2617,6 +2617,7 @@ export const ko: Record<string, string> = {
 	"mcpAction.disable": '"{name}" MCP 서버를 비활성화했어요',
 	"mcpAction.remove": '"{name}" MCP 서버를 제거했어요',
 	"mcpAction.reconnect": 'MCP 서버 "{name}"에 다시 연결했어요',
+	"mcpAction.reload": "MCP 서버를 다시 불러왔어요",
 
 	// /marketplace mutations
 	"marketplaceAction.add": '"{name}" 마켓플레이스를 추가했어요',
@@ -5003,6 +5004,21 @@ export const ko: Record<string, string> = {
 	"mcp.reauth.ok": "{name} 서버를 다시 인증했어요.",
 	"mcp.reauth.failed": "다시 인증하지 못했어요",
 	"mcp.reauth.cancelFailed": "인증을 취소할 수 없어요",
+	"mcp.reauth.cancelled": "로그인을 취소했어요.",
+	"mcp.reason.otherTool": "{tool} 설정에서 찾음 · omp는 기본으로 쓰지 않아요",
+	"mcp.reason.otherTool.info":
+		"이 서버의 정의만 omp 자체 설정(~/.omp/agent/mcp.json)에 복사해요. {tool}의 다른 서버, 스킬, 규칙은 계속 쓰지 않아요.",
+	"mcp.reason.offInTool": "{tool} 설정에서 꺼져 있어요",
+	"mcp.reason.toolOff": "omp에서 {tool} 설정 읽기를 꺼 두었어요",
+	"mcp.reason.disabled": "직접 끔",
+	"mcp.reason.projectConfigOff": "프로젝트 MCP 설정 읽기가 꺼져 있어요",
+	"mcp.reason.alsoIn": "{tool} 설정에서 가져옴",
+	"mcp.signin.required": "로그인이 필요해요",
+	"mcp.signin.expired": "로그인이 만료됐어요",
+	"mcp.action.signIn": "로그인",
+	"mcp.action.turnOn": "켜기",
+	"mcp.action.adopt": "omp에서 쓰기",
+	"mcp.adopt.ok": "{name} 서버를 omp의 MCP 설정에 복사했어요. 이제 omp가 써요.",
 
 	// Operations: Security Center, SSH hosts, and unified updates
 	"common.refresh": "새로고침",
