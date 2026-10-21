@@ -61,6 +61,37 @@ function shellFor(command: string): { file: string; args: string[] } {
 	return bash ? { file: bash, args: ["-o", "pipefail", "-c", command] } : { file: "/bin/sh", args: ["-c", command] };
 }
 
+/** How a shell command can name a Windows path: escaped, as is, with forward slashes, as Git Bash's `/c/…`. */
+function windowsSpellings(p: string): string[] {
+	const native = path.win32.normalize(p);
+	const drive = /^([A-Za-z]):(.*)$/.exec(native);
+	const forms = (head: string, rest: string) => [
+		`${head}${rest.replaceAll("\\", "\\\\")}`,
+		`${head}${rest}`,
+		`${head}${rest.replaceAll("\\", "/")}`,
+	];
+	if (!drive) return forms("", native);
+	const [, letter = "", rest = ""] = drive;
+	const msys = rest.replaceAll("\\", "/");
+	return [letter.toUpperCase(), letter.toLowerCase()].flatMap(l => [...forms(`${l}:`, rest), `/${l}${msys}`]);
+}
+
+/**
+ * The cycle's command with the run's worktree path pointed at the temporary checkout, written the way the command wrote
+ * it. On Windows the agent's bash (Git Bash) reads an unquoted `C:\a\b` as `C:ab`, so a command that passed there names
+ * the worktree as `C:/a/b`, `/c/a/b`, `C:\\a\\b` or a quoted `C:\a\b`, whatever spelling the run's root has.
+ */
+export function pointCommandAt(
+	command: string,
+	root: string,
+	tree: string,
+	platform: NodeJS.Platform = process.platform,
+): string {
+	if (platform !== "win32") return command.split(root).join(tree);
+	const targets = windowsSpellings(tree);
+	return windowsSpellings(root).reduce((text, spelling, i) => text.split(spelling).join(targets[i] ?? tree), command);
+}
+
 function run(command: string, cwd: string, timeoutMs: number): Promise<Omit<LandCheck, "durationMs">> {
 	const { promise, resolve } = Promise.withResolvers<Omit<LandCheck, "durationMs">>();
 	const chunks: Buffer[] = [];
@@ -120,7 +151,7 @@ export async function checkLandCandidate(input: LandCheckInput): Promise<LandChe
 				return elapsed({ ok: false, exitCode: null, timedOut: false, tail: reset.stderr.slice(-OUTPUT_TAIL) });
 			}
 		}
-		const command = input.command.split(input.root).join(tree);
+		const command = pointCommandAt(input.command, input.root, tree);
 		return elapsed(await run(command, tree, input.timeoutMs ?? LAND_CHECK_TIMEOUT_MS));
 	} catch (error) {
 		return elapsed({
