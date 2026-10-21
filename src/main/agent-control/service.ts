@@ -21,6 +21,7 @@
  *           A session the user hid from agents refuses all, whatever the switches.
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
@@ -84,6 +85,7 @@ import {
 	type WorktreeRef,
 	type WorktreeRemoval,
 } from "./branches";
+import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import {
 	type AnswerArgs,
@@ -328,6 +330,11 @@ export interface AgentControlHost {
 	closedChildren?(): readonly ClosedChild[];
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
 	schedules(device?: string): ScheduleSource | null;
+	/**
+	 * The control-tool calls that change something, by their identity (`call-journal.ts`): a call a paired host re-sends
+	 * after this computer relaunched runs at most once. Absent: calls are not recorded.
+	 */
+	calls?: Pick<CallJournal, "get" | "begin" | "note" | "finish">;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
 	observe(listener: () => void): () => void;
 	/** Autopilot: a stop of the caller's work is in flight; nothing new may start. */
@@ -494,6 +501,58 @@ function waits(tab: ControlTab): boolean {
 /** A saved session's name: its title, else the task an agent opened it for, else its first message. */
 function storedTitle(row: Pick<StoredSession, "title" | "firstMessage">): string {
 	return row.title || agentTaskTitle(row.firstMessage) || row.firstMessage || "(untitled)";
+}
+
+/** A thrown error as a tool result: a `ToolError` is the agent's own message, anything else names the tool. */
+function outcomeOf(tool: AgentControlToolName, error: unknown): ToolOutcome {
+	if (error instanceof ToolError) return { text: error.message, isError: true };
+	return { text: `${tool} failed: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+}
+
+/** Calls whose effect a second run would repeat: recorded (`call-journal.ts`). Reads and a notification are not. */
+function mutates(tool: AgentControlToolName, args: unknown): boolean {
+	const action = typeof args === "object" && args !== null && "action" in args ? args.action : undefined;
+	switch (tool) {
+		case T.open:
+		case T.send:
+		case T.answer:
+		case T.stop:
+		case T.merge:
+		case T.app:
+			return true;
+		case T.schedule:
+			return action !== "list";
+		case T.autopilot:
+			return action !== "status";
+		default:
+			return false;
+	}
+}
+
+/** What a recorded call sets out to do, so its effect can be found after a relaunch (`#reconcile`). */
+function callIntent(tool: AgentControlToolName, args: unknown, caller: ControlTab): CallIntent | undefined {
+	if (typeof args !== "object" || args === null) return undefined;
+	const fields = args as Record<string, unknown>;
+	if (tool === T.open) {
+		const items = Array.isArray(fields.sessions) ? fields.sessions : [fields];
+		const open = items.flatMap(item => {
+			if (typeof item !== "object" || item === null) return [];
+			const { message, reopen } = item as Record<string, unknown>;
+			// One entry per new session (its count is what a relaunch expects); "" when the brief names no task.
+			return typeof message === "string" && message && !reopen
+				? [agentTaskTitle(wrapAgentMessage(message, caller.title)) ?? ""]
+				: [];
+		});
+		return { open };
+	}
+	if (tool === T.schedule && fields.action === "create")
+		return {
+			schedule: {
+				name: `${AGENT_SCHEDULE_PREFIX}${typeof fields.name === "string" ? fields.name : ""}`,
+				...(typeof fields.device === "string" ? { device: fields.device } : {}),
+			},
+		};
+	return undefined;
 }
 
 function label(tab: ControlTab): string {
@@ -915,6 +974,10 @@ export class AgentControl {
 	readonly #mailbox: Mailbox;
 	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
 	readonly #receipts = new Map<string, string>();
+	/** Recorded calls still running in this process, by key: the same call made again joins it. */
+	readonly #calling = new Map<string, Promise<ToolOutcome>>();
+	/** The recorded call a piece of work belongs to, so an open notes each tab it makes (`CallJournal.note`). */
+	readonly #callScope = new AsyncLocalStorage<{ key: string }>();
 	/** Sessions (`device\npath`) whose saved name `#nameUntitled` already looked up. */
 	readonly #namesSought = new Set<string>();
 	/** When each session last reported done, review, a question or a blocker to the one that opened it. */
@@ -1024,18 +1087,106 @@ export class AgentControl {
 		return (await this.#openMany(caller, tabs, sessions, undefined, tag)).map(entry => entry.tabId);
 	}
 
-	async run(callerTabId: string, tool: AgentControlToolName, args: unknown): Promise<ToolOutcome> {
+	/**
+	 * Run one control-tool call. `callId` is the host tool call's id (stock's, the same when a paired host re-sends the
+	 * call after this computer relaunched): a call that changes something is recorded under the caller's session file
+	 * and that id (`call-journal.ts`), so it runs at most once.
+	 */
+	async run(callerTabId: string, tool: AgentControlToolName, args: unknown, callId?: string): Promise<ToolOutcome> {
+		let tabs: ControlTab[];
 		try {
 			if (!this.#host.enabled())
 				fail("OMPdesk control tools are turned off (Settings › Tools & extensions). Ask the user to turn them on.");
-			const tabs = this.#host.tabs(callerTabId);
-			if (!tabs) fail("This session's tab is gone.");
+			tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
 			await this.#nameUntitled(tabs);
+		} catch (error) {
+			return outcomeOf(tool, error);
+		}
+		const caller = tabs.find(tab => tab.tabId === callerTabId);
+		const journal = this.#host.calls;
+		if (!journal || !callId || !caller?.sessionPath || !mutates(tool, args))
+			return this.#outcome(callerTabId, tabs, tool, args);
+		const key = `${caller.device ?? ""}\n${caller.sessionPath}\n${callId}`;
+		const joined = this.#calling.get(key);
+		if (joined) return joined;
+		const record = journal.get(key);
+		if (record?.result) return record.result;
+		const work = record
+			? this.#reconcile(record, caller, tabs)
+			: (() => {
+					journal.begin({ key, tool, callerTabId, intent: callIntent(tool, args, caller) });
+					return this.#callScope.run({ key }, () => this.#outcome(callerTabId, tabs, tool, args));
+				})();
+		this.#calling.set(key, work);
+		try {
+			const outcome = await work;
+			journal.finish(key, outcome);
+			return outcome;
+		} finally {
+			this.#calling.delete(key);
+		}
+	}
+
+	async #outcome(callerTabId: string, tabs: ControlTab[], tool: AgentControlToolName, args: unknown) {
+		try {
 			return { text: await this.#dispatch(callerTabId, tabs, tool, args), isError: false };
 		} catch (error) {
-			if (error instanceof ToolError) return { text: error.message, isError: true };
-			return { text: `${tool} failed: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+			return outcomeOf(tool, error);
 		}
+	}
+
+	/**
+	 * A call recorded as begun before this computer restarted, with no result: its effect may have happened. What the
+	 * app holds now decides (the sessions it opened, the schedule it saved); it is never run a second time, and a call
+	 * whose effect cannot be found answers that its outcome is unknown.
+	 */
+	async #reconcile(record: CallRecord, caller: ControlTab, tabs: ControlTab[]): Promise<ToolOutcome> {
+		const already = "This call had already run before OMPdesk restarted; it was not run again.";
+		const unknown = (hint: string): ToolOutcome => ({
+			text: `This ${record.tool} call was started before OMPdesk restarted, and its outcome is unknown after OMPdesk restarted: it was not run again. ${hint}`,
+			isError: true,
+		});
+		if (record.intent?.open) {
+			const ids = new Set(record.opened ?? []);
+			const titles = [...record.intent.open];
+			const found = tabs.filter(tab => {
+				if (tab.tabId === caller.tabId) return false;
+				if (ids.has(tab.tabId) || tab.formerIds?.some(id => ids.has(id))) return true;
+				// Opened but not noted yet (the app died in between): the caller's child opened for one of its tasks.
+				const title = tab.task ? titles.indexOf(tab.task) : -1;
+				if (title < 0 || this.#host.parentOf(tab.tabId) !== caller.tabId) return false;
+				titles.splice(title, 1);
+				return true;
+			});
+			const check = 'Check ompdesk_sessions {"mine":true} before opening it again with a new call.';
+			if (found.length === 0) return unknown(check);
+			const lines = found.map(
+				tab =>
+					`Opened session ${tab.tabId} in ${tab.cwd}${tab.deviceName ? ` on ${tab.deviceName}` : ""}. ${already}`,
+			);
+			if (found.length < record.intent.open.length)
+				lines.push(
+					`Whether the other ${record.intent.open.length - found.length} opened is unknown after OMPdesk restarted. ${check}`,
+				);
+			return { text: lines.join("\n"), isError: false };
+		}
+		if (record.intent?.schedule) {
+			const { device: deviceName, name } = record.intent.schedule;
+			const check = 'Check ompdesk_schedule {"action":"list"} before creating it again.';
+			try {
+				const device = deviceName === undefined ? null : this.#device(deviceName);
+				const rows = (await this.#host.schedules(device?.id ?? undefined)?.list()) ?? [];
+				const row = rows.findLast(entry => entry.name === name);
+				if (!row) return unknown(check);
+				return {
+					text: `Scheduled “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; id ${row.id}. ${already}`,
+					isError: false,
+				};
+			} catch {
+				return unknown(check);
+			}
+		}
+		return unknown("Check what it was meant to change before trying again with a new call.");
 	}
 
 	#stopping(callerTabId: string): boolean {
@@ -1610,6 +1761,8 @@ export class AgentControl {
 			opened.delete(reservation);
 		}
 		opened.add(tabId);
+		const call = this.#callScope.getStore();
+		if (call) this.#host.calls?.note(call.key, tabId);
 		try {
 			await this.#whenReady(tabId, caller.tabId);
 			const notes: string[] = [];
