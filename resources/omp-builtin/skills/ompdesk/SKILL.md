@@ -52,7 +52,7 @@ Children that write files get `worktree: true` or disjoint Ownership. Full flow:
 
 - Children report to you with `ompdesk_report`: a `done` or `review` arrives after your turn (or wakes you when idle), a `question` or `blocked` between your steps; `progress` and `note` arrive quietly. Do not poll: end your turn and you are woken. `ompdesk_session_result` with `wait` only when you must block now.
 - Answer a question with `ompdesk_session_send` (`request_id` makes a retry safe); a decision only the user can make goes to the user, never guessed. A report naming an older dispatch is ignored for you.
-- Judge `done` reports with `ompdesk_compare` (`criteria`), then merge or close each child yourself: you land or discard your children, nobody approves them on a board. Reuse a finished child (`ompdesk_session_send`) instead of opening a new one.
+- Judge `done` reports with `ompdesk_compare` (`criteria`), then merge or close each child yourself: you land or discard your children, nobody approves them on a board. Land each child as soon as it is judged: what is ready merges, releases and reaches the user now, and a slow child ships later. Reuse a finished child (`ompdesk_session_send`) instead of opening a new one.
 
 Silence is a checkpoint, not failure: a quiet child is usually working. Do not stop, restart or duplicate it without positive evidence (it ended without an answer, or it waits for an answer). A sent message is queued, not read.
 
