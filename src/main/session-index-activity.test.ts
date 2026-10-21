@@ -121,7 +121,9 @@ describe.skipIf(!stockRoot)("SessionIndex last activity", () => {
 	it("keeps the file's time for a session with no message in its journal", async () => {
 		const { dir, project } = await sessionsRoot();
 		const file = path.join(project, "notice.jsonl");
-		const then = new Date(Date.now() - 5 * DAY);
+		// A whole second: utimes takes seconds as a float, and a millisecond part can come back one lower in mtimeMs
+		// (…207 for …208), which failed this test about 6 runs in 7.
+		const then = new Date(Math.floor((Date.now() - 5 * DAY) / 1000) * 1000);
 		await fs.writeFile(
 			file,
 			`${[
