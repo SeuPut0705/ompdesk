@@ -24,29 +24,46 @@ export interface RenamedProject {
 	to: string;
 }
 
+/** An ambiguous name no rename took: the server's last answer, so it is said rather than left unreadable unseen. */
+export interface RefusedRename {
+	workspace: string;
+	project: string;
+	detail: string;
+}
+
+export interface NameRepair {
+	renamed: RenamedProject[];
+	refused: RefusedRename[];
+}
+
 /** Tries before giving up on one project: names may be taken as names or as keys the listing does not show. */
 const NAME_TRIES = 5;
 
-export async function renameAmbiguousProjects(client: AmbiguousNameClient): Promise<RenamedProject[]> {
+export async function renameAmbiguousProjects(client: AmbiguousNameClient): Promise<NameRepair> {
 	const listed = await client.projects();
 	const taken = new Set(listed.map(project => `${project.workspace}\u0000${project.project}`));
 	const renamed: RenamedProject[] = [];
+	const refused: RefusedRename[] = [];
 	for (const project of listed) {
 		// `_global` and the like are reserved scopes; a project a repository claimed keeps its name.
 		if (project.identity || !project.id || project.project.startsWith("_")) continue;
 		if ((await client.nameStatus(project)) !== "ambiguous") continue;
-		for (let n = 1; n <= NAME_TRIES; n++) {
+		let detail = "no free name";
+		let done = false;
+		for (let n = 1; n <= NAME_TRIES && !done; n++) {
 			const to = `${project.project}-unclaimed${n === 1 ? "" : `-${n}`}`;
 			if (taken.has(`${project.workspace}\u0000${to}`)) continue;
 			try {
 				await client.renameUnclaimedProject(project.workspace, project.id, to);
-			} catch {
+			} catch (error) {
+				detail = error instanceof Error ? error.message : String(error);
 				continue;
 			}
 			taken.add(`${project.workspace}\u0000${to}`);
 			renamed.push({ workspace: project.workspace, from: project.project, to });
-			break;
+			done = true;
 		}
+		if (!done) refused.push({ workspace: project.workspace, project: project.project, detail });
 	}
-	return renamed;
+	return { renamed, refused };
 }

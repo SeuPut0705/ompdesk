@@ -49,6 +49,8 @@ export const UPKEEP_IDLE_MS = 10 * 60_000;
 export const UPKEEP_MIN_GAP_MS = 60 * 60_000;
 export const UPKEEP_DAILY_MAX = 6;
 const DAY_MS = 24 * 60 * 60_000;
+/** Ambiguous names are looked for again from a tick at most this often (each look reads every unclaimed project's name). */
+const NAME_REPAIR_GAP_MS = 60 * 60_000;
 const SCAN_SESSIONS = 100;
 /** The first tick waits so the first tab and the wiring have the machine to themselves. */
 const FIRST_TICK_MS = 2 * 60_000;
@@ -147,6 +149,8 @@ export class MemoryUpkeep {
 	#timer: NodeJS.Timeout | null = null;
 	#first: NodeJS.Timeout | null = null;
 	#repaired = false;
+	/** When ambiguous names were last repaired; null before the first. */
+	#namesAt: number | null = null;
 	#running = false;
 	#disposed = false;
 	/** Observation counts at the last look, so a session nobody wrote to since is not read again every tick. */
@@ -197,16 +201,31 @@ export class MemoryUpkeep {
 		}
 	}
 
-	/** The repair: logs what it did, nothing when there was nothing to do. Never rejects. */
-	async repair(): Promise<RetitleReport | null> {
-		// First, so every later read (retitle, learning, care, the sync) can name each project again.
+	/**
+	 * Ambiguous names renamed (ambiguous-names.ts), at launch and then at most once an hour from a tick: a paired
+	 * computer's sync can make one while the app runs, and every read of it fails until it is renamed. Never rejects.
+	 */
+	async #repairNames(): Promise<void> {
+		this.#namesAt = this.#now;
 		try {
-			for (const renamed of await renameAmbiguousProjects(this.#deps.client)) {
-				this.#deps.log("renamed", { ...renamed });
+			const { renamed, refused } = await renameAmbiguousProjects(this.#deps.client);
+			for (const done of renamed) this.#deps.log("renamed", { ...done });
+			for (const left of refused) {
+				this.#deps.log("failed", {
+					step: "rename",
+					project: `${left.workspace}/${left.project}`,
+					detail: left.detail,
+				});
 			}
 		} catch (error) {
 			this.#deps.log("failed", { step: "rename", detail: error instanceof Error ? error.message : String(error) });
 		}
+	}
+
+	/** The repair: logs what it did, nothing when there was nothing to do. Never rejects. */
+	async repair(): Promise<RetitleReport | null> {
+		// First, so every later read (retitle, learning, care, the sync) can name each project again.
+		await this.#repairNames();
 		try {
 			const report = await retitleSessionPages(this.#deps.client, { dryRun: false });
 			if (report.retitled.length || report.childHandoffs || report.failed.length || report.unresolved.length) {
@@ -221,6 +240,7 @@ export class MemoryUpkeep {
 
 	/** One look at the conversations: at most one model call. Public for the tests. */
 	async tick(): Promise<TickOutcome> {
+		if (this.#namesAt === null || this.#now - this.#namesAt >= NAME_REPAIR_GAP_MS) await this.#repairNames();
 		if (!this.#deps.learn()) return { ran: false, reason: "off" };
 		if (this.#running) return { ran: false, reason: "busy" };
 		this.#running = true;

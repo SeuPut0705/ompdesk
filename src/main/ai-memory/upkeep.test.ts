@@ -440,6 +440,55 @@ describe("MemoryUpkeep.tick", () => {
 		});
 	});
 
+	it("a name the server calls ambiguous after launch is repaired on a later tick, at most once an hour", async () => {
+		const { client } = fakeClient([]);
+		const listed = client.projects;
+		let name = "notes";
+		const renames: string[] = [];
+		client.projects = async () => [
+			{ workspace: "default", project: name, pages: 0, lastUpdated: null, id: "id-yuyu" },
+			...(await listed()),
+		];
+		client.nameStatus = async ref => (ref.project === "yuyu-mos" ? "ambiguous" : "resolved");
+		client.renameUnclaimedProject = async (_workspace, id, to) => {
+			renames.push(`${id}->${to}`);
+			if (to.endsWith("-2")) throw new Error("Memory answered 409");
+			name = to;
+		};
+		const worker = upkeep(client);
+		await worker.repair();
+		// Another sync makes the name ambiguous: the tick within the hour leaves it, the one after repairs it.
+		name = "yuyu-mos";
+		now += 30 * 60_000;
+		await worker.tick();
+		expect(renames).toEqual([]);
+		now += 30 * 60_000;
+		await worker.tick();
+		expect(renames).toEqual(["id-yuyu->yuyu-mos-unclaimed"]);
+		expect(logs).toContainEqual({
+			message: "renamed",
+			details: { workspace: "default", from: "yuyu-mos", to: "yuyu-mos-unclaimed" },
+		});
+	});
+
+	it("an ambiguous name the server refuses to rename is logged, never swallowed", async () => {
+		const { client } = fakeClient([]);
+		const listed = client.projects;
+		client.projects = async () => [
+			{ workspace: "default", project: "yuyu-mos", pages: 0, lastUpdated: null, id: "id-yuyu" },
+			...(await listed()),
+		];
+		client.nameStatus = async ref => (ref.project === "yuyu-mos" ? "ambiguous" : "resolved");
+		client.renameUnclaimedProject = async () => {
+			throw new Error("Memory answered 409");
+		};
+		await upkeep(client).repair();
+		expect(logs).toContainEqual({
+			message: "failed",
+			details: { step: "rename", project: "default/yuyu-mos", detail: "Memory answered 409" },
+		});
+	});
+
 	it("a conversation still going is picked up once its person has been quiet long enough", async () => {
 		const { client } = fakeClient([{ id: "live", prompts: typed(9, 60_000) }]);
 		const worker = upkeep(client);

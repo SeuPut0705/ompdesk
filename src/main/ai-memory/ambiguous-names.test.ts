@@ -40,7 +40,7 @@ describe("renameAmbiguousProjects", () => {
 			],
 			["seuput0705-ompdesk", "ompdesk", "_global"],
 		);
-		expect(await renameAmbiguousProjects(client)).toEqual([
+		expect((await renameAmbiguousProjects(client)).renamed).toEqual([
 			{ workspace: "default", from: "seuput0705-ompdesk", to: "seuput0705-ompdesk-unclaimed" },
 		]);
 		expect(client.renames).toEqual(["id-seuput0705-ompdesk->seuput0705-ompdesk-unclaimed"]);
@@ -50,14 +50,18 @@ describe("renameAmbiguousProjects", () => {
 		const client = fake([project("acme-api"), project("acme-api-unclaimed")], ["acme-api"], to =>
 			to === "acme-api-unclaimed-2" ? "project name 'acme-api-unclaimed-2' already exists" : null,
 		);
-		expect(await renameAmbiguousProjects(client)).toEqual([
+		expect((await renameAmbiguousProjects(client)).renamed).toEqual([
 			{ workspace: "default", from: "acme-api", to: "acme-api-unclaimed-3" },
 		]);
 	});
 
 	it("renames nothing the server refuses: a captured project, or a server without the guarded route", async () => {
 		const client = fake([project("folder")], ["folder"], () => "Memory answered 409");
-		expect(await renameAmbiguousProjects(client)).toEqual([]);
+		expect(await renameAmbiguousProjects(client)).toEqual({
+			renamed: [],
+			// Said, not swallowed: a repair that renamed nothing for an ambiguous name left a project unreadable unnoticed.
+			refused: [{ workspace: "default", project: "folder", detail: "Memory answered 409" }],
+		});
 		expect(client.renames).toEqual([]);
 	});
 });
