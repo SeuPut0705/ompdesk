@@ -511,6 +511,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			respondExtensionUi: (response: ExtensionUIResponse, tabId?: string) =>
 				transport.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { response, tabId }) as Promise<void>,
 			openRequests: () => transport.invoke(IPC_COMMANDS.EXTENSION_UI_OPEN) as Promise<IpcOpenExtensionRequest[]>,
+			shownState: () => transport.invoke(IPC_COMMANDS.EXTENSION_UI_STATE) as Promise<IpcOpenExtensionRequest[]>,
 		},
 
 		sessions: {

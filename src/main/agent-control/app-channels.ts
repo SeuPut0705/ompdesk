@@ -92,6 +92,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.RPC_COMMAND_FOR_TAB]: never(RAW_RPC),
 	[C.EXTENSION_UI_RESPOND]: never(CARDS),
 	[C.EXTENSION_UI_OPEN]: never(CARDS),
+	[C.EXTENSION_UI_STATE]: never(CARDS),
 	[C.SESSIONS_LIST]: read("sessions.saved"),
 	[C.SESSIONS_DELETE]: sensitive("sessions.delete"),
 	[C.SESSIONS_RENAME]: change("sessions.rename"),

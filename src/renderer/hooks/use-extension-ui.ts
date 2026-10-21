@@ -41,6 +41,9 @@ export function useExtensionUi(): void {
 			pushTabExtensionUiRequest(tabId, request, signIn, answeredElsewhere),
 		);
 		const offSignIn = window.omp.events.onSignInEnded(({ tabId, error }) => endTabSignIn(tabId, error));
+		// What was shown and asked before this listener existed (a reload, a new window, or frames sent while the page
+		// was still starting: nightly 39539556435 lost a status set 24 ms before the listener came up).
+		void window.omp.ui.shownState().then(restoreTabExtensionUiRequests);
 		void window.omp.ui.openRequests().then(restoreTabExtensionUiRequests);
 		return () => {
 			offUi();

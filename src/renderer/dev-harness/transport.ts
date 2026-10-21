@@ -135,6 +135,7 @@ interface ViewPayload {
 /** Channels whose answer the renderer iterates: an empty list, not `undefined`. */
 const EMPTY_LISTS = [
 	IPC_COMMANDS.EXTENSION_UI_OPEN,
+	IPC_COMMANDS.EXTENSION_UI_STATE,
 	IPC_COMMANDS.HOSTED_SESSIONS,
 	"worktree-lifecycle:prompts-get",
 	"ssh-tools:prompts",

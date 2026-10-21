@@ -196,6 +196,8 @@ export const IPC_COMMANDS = {
 	EXTENSION_UI_RESPOND: "extension-ui:respond",
 	/** The asks and approvals this window's tabs still wait on (a page that reloaded missed their events) */
 	EXTENSION_UI_OPEN: "extension-ui:open",
+	/** The status texts, widgets and title this window's tabs show (no later frame repeats them for a page that loaded late) */
+	EXTENSION_UI_STATE: "extension-ui:state",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
 	/** The sessions paired devices' tabs run on this computer, for its own sidebar (`IpcHostedSession[]`) */
@@ -845,7 +847,7 @@ export interface IpcSignInEndedPayload {
 	error?: string | null;
 }
 
-/** A blocking extension request still open on a tab, as `EXTENSION_UI_OPEN` lists it. */
+/** A blocking extension request still open on a tab (`EXTENSION_UI_OPEN`), or a status, widget or title it shows (`EXTENSION_UI_STATE`). */
 export interface IpcOpenExtensionRequest {
 	tabId: string;
 	request: ExtensionUIRequest;
@@ -2008,6 +2010,8 @@ export interface OmpApi {
 		respondExtensionUi(response: ExtensionUIResponse, tabId?: string): Promise<void>;
 		/** The asks and approvals this window's tabs wait on: a page that reloaded missed the events that raised them. */
 		openRequests(): Promise<IpcOpenExtensionRequest[]>;
+		/** The status texts, widgets and title this window's tabs show: no later frame repeats them for a late page. */
+		shownState(): Promise<IpcOpenExtensionRequest[]>;
 	};
 	sessions: {
 		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */

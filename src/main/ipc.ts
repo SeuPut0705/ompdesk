@@ -1189,6 +1189,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return win ? sidecarPool.openRequests(win) : [];
 	});
 
+	ipc.handle(IPC_COMMANDS.EXTENSION_UI_STATE, caller => {
+		const win = caller.win;
+		return win ? sidecarPool.extensionUiState(win) : [];
+	});
+
 	// Sessions. `device` names the paired host whose session index answers;
 	// its sessions come back tagged with it.
 	ipc.handle(IPC_COMMANDS.SESSIONS_LIST, async (caller, payload: IpcSessionsListPayload) => {
