@@ -2843,6 +2843,47 @@ describe("Sidebar device sections", () => {
 		expect(omp.tabs.spawn).not.toHaveBeenCalledWith(expect.objectContaining({ device: expect.anything() }));
 	});
 
+	it("ends every device row in New chat in the Chat lane, starting the chat on that device", async () => {
+		const omp = installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
+		await fire(modeTab("chat"), "onClick");
+
+		// The Chat lane has no projects: no device row offers to add one. Each ends in New chat on its device, so the
+		// search row's New chat (this device's) gives way, as its project button does in Code.
+		expect(container.querySelector("[data-sidebar-device-add]")).toBeNull();
+		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
+		const local = container.querySelector('[data-sidebar-device-new-chat="local"]');
+		expect(local?.getAttribute("aria-label")).toBe(
+			translate("remote.sidebar.newChat", { name: translate("remote.sidebar.thisDevice") }),
+		);
+		const host = container.querySelector(
+			'[data-sidebar-device="dev-studio"] [data-sidebar-device-new-chat="dev-studio"]',
+		);
+		expect(host?.getAttribute("aria-label")).toBe(translate("remote.sidebar.newChat", { name: "studio" }));
+
+		// This device's starts a chat here, as the search row's New chat does; never on the host, never a folder dialog.
+		await fire(local, "onClick");
+		await act(async () => {});
+		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "chat" }));
+		expect(omp.tabs.spawn.mock.lastCall?.[0]).not.toHaveProperty("device");
+		// The host's starts it on the host, in its own workspace.
+		await fire(host, "onClick");
+		await act(async () => {});
+		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: "chat", cwd: undefined, device: "dev-studio" }),
+		);
+		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
+
+		// The Code lane keeps the add-project button on every device row.
+		await fire(modeTab("code"), "onClick");
+		expect(container.querySelector("[data-sidebar-device-new-chat]")).toBeNull();
+		expect(container.querySelector('[data-sidebar-device-add="local"]')).not.toBeNull();
+		expect(container.querySelector('[data-sidebar-device-add="dev-studio"]')).not.toBeNull();
+	});
+
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
 		const omp = installWithRemote();
 		seedStores();
