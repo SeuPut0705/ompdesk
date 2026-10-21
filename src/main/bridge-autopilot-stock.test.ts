@@ -45,7 +45,9 @@ interface ProviderRequest {
 	lastUser: string;
 }
 
-type Reply = { text: string } | { tool: string; args: Record<string, unknown> };
+type ToolStep = { tool: string; args: Record<string, unknown> };
+/** `calls`: several tool calls in one message, which stock runs side by side. */
+type Reply = { text: string } | ToolStep | { calls: ToolStep[] };
 type Step = Reply | { hang: true };
 
 function sse(chunks: unknown[]): string {
@@ -62,7 +64,8 @@ function completion(step: Reply, tools: string[]): string {
 		]);
 	}
 	// The provider payload may name a tool with a prefix; answer with the name as it was offered.
-	const name = tools.find(tool => tool === step.tool || tool.endsWith(`_${step.tool}`)) ?? step.tool;
+	const calls = "calls" in step ? step.calls : [step];
+	const named = (wanted: string) => tools.find(tool => tool === wanted || tool.endsWith(`_${wanted}`)) ?? wanted;
 	return sse([
 		{
 			...base,
@@ -71,14 +74,12 @@ function completion(step: Reply, tools: string[]): string {
 					index: 0,
 					delta: {
 						role: "assistant",
-						tool_calls: [
-							{
-								index: 0,
-								id: `call_${Math.random().toString(36).slice(2, 8)}`,
-								type: "function",
-								function: { name, arguments: JSON.stringify(step.args) },
-							},
-						],
+						tool_calls: calls.map((call, index) => ({
+							index,
+							id: `call_${Math.random().toString(36).slice(2, 8)}`,
+							type: "function",
+							function: { name: named(call.tool), arguments: JSON.stringify(call.args) },
+						})),
 					},
 					finish_reason: null,
 				},
@@ -499,6 +500,63 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		expect(plain?.tools.some(name => name === "ask" || name.endsWith("_ask"))).toBe(true);
 		expect(plain?.tools.some(name => name === "autopilot" || name.endsWith("_autopilot"))).toBe(false);
 	}, 240_000);
+
+	it("takes the commit a call beside `end` made: end waits for the calls in its message before it reads HEAD", async () => {
+		// Cycle 90 of this repository's own run sent its commit and `end` in one message with a mistyped hash: `end` read
+		// HEAD before the commit landed, the cycle had no commit and no change, and was never landed.
+		const commit =
+			"sleep 1 && echo more >> a.txt && git add a.txt && git -c user.name=t -c user.email=t@t commit -qm second";
+		let turns = 0;
+		const provider = await startProvider(requests => {
+			const latest = requests.at(-1);
+			if (!latest) return { text: "?" };
+			if (latest.inTurn === 0) turns++;
+			if (turns > 1) return { hang: true };
+			if (latest.inTurn === 0) return { tool: "autopilot", args: { op: "begin" } };
+			if (latest.inTurn === 1) {
+				return {
+					calls: [
+						{ tool: "bash", args: { command: commit } },
+						{
+							tool: "autopilot",
+							args: {
+								op: "end",
+								area: "tests",
+								title: "commit beside end",
+								summary: "committed and reported in one message",
+								verify: "skipped",
+								commit: "abc1234",
+							},
+						},
+					],
+				};
+			}
+			return { text: "cycle done" };
+		});
+		cleanups.push(() => provider.close());
+		const h = await startOmp(provider);
+		await h.bridge.request<AutopilotStatus>(M.arm, {
+			role: "parent",
+			root: h.root,
+			run: "2026-10-22",
+			branch: "autopilot/2026-10-22",
+			baseBranch: "main",
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
+		});
+		await h.send({ type: "goal", op: "create", objective: "Autopilot: test objective" });
+		await h.waitFrame(frame => frame.type === "autopilot_cycle_end");
+		const record = h.frames.find(frame => frame.type === "autopilot_cycle_end")?.record as AutopilotCycleRecord;
+		const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: h.root, encoding: "utf8" }).trim();
+		const log = execFileSync("git", ["log", "--oneline"], { cwd: h.root, encoding: "utf8" });
+		const results = JSON.stringify(provider.requests.map(request => request.toolResults.slice(-2)));
+		expect(record, `${log}\n${results}\n${JSON.stringify(record)}`).toMatchObject({
+			n: 1,
+			title: "commit beside end",
+			commit: head,
+		});
+		expect(record.change).toMatchObject({ files: 1, commits: 1 });
+		await h.stop();
+	}, 120_000);
 
 	it("follows the journal after a restart: the guard is on before arm, and the resumed run continues at the next cycle number", async () => {
 		const first = await startProvider(createScript({ hangAfterFirst: true }));

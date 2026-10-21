@@ -157,6 +157,46 @@ let lastTurnErrored = false;
 const yoloHeld = new WeakSet<object>();
 /** After disarm stock may still restore the pre-goal tool set (on `goal drop`): re-apply the restore then. */
 let pendingToolRestore: { excluded: string[]; mounted: string[] } | undefined;
+/** Woken on every tool event of the live cycle (`settledBeside`). */
+const toolEvents = new Set<() => void>();
+
+/** How long `end` waits for the calls running beside it; a bash call goes to the background after a minute anyway. */
+const SIBLING_WAIT_MS = 5 * 60_000;
+/** How long `end` waits for stock's event stream to report its own start (it lags the call by a millisecond or so). */
+const OWN_START_WAIT_MS = 2_000;
+
+/** Resolves once `ready()` holds, re-checked on every tool event, or after `ms`. */
+function untilToolEvents(ready: () => boolean, ms: number): Promise<void> {
+	if (ready()) return Promise.resolve();
+	return new Promise(done => {
+		const finish = () => {
+			clearTimeout(timer);
+			toolEvents.delete(check);
+			done();
+		};
+		const check = () => {
+			if (ready()) finish();
+		};
+		const timer = setTimeout(finish, ms);
+		timer.unref?.();
+		toolEvents.add(check);
+	});
+}
+
+/**
+ * Resolves once no tool call of the cycle but this `end` runs. Stock runs a message's tool calls side by side, so an
+ * `end` sent in the same message as the commit or the check it reports read HEAD and the ledger before either
+ * finished: the cycle had no commit and was never landed (cycle 90 of this repository's run). Stock reports a call's
+ * start through an event stream that lags its execution, so this first waits for its own start: every call stock
+ * launched before it has been reported by then.
+ */
+async function settledBeside(state: LiveState, callId: string | undefined): Promise<void> {
+	if (callId) await untilToolEvents(() => state.pending.has(callId), OWN_START_WAIT_MS);
+	// An autopilot call never waits for another (or for itself, reached as its `xd://` device).
+	const ours = (id: string, call: { tool: string; args: unknown }) =>
+		id === callId || call.tool === "autopilot" || String(record(call.args).path ?? "").startsWith("xd://autopilot");
+	await untilToolEvents(() => [...state.pending].every(([id, call]) => ours(id, call)), SIBLING_WAIT_MS);
+}
 
 function now(): number {
 	return Date.now();
@@ -504,12 +544,14 @@ function noteToolEvent(event: unknown): void {
 	const tool = typeof fields.toolName === "string" ? fields.toolName : "";
 	if (fields.type === "tool_execution_start") {
 		live.pending.set(id, { tool, args: fields.args });
+		for (const check of [...toolEvents]) check();
 		return;
 	}
 	const started = live.pending.get(id);
 	live.pending.delete(id);
 	const call = ledgerCall(tool, started?.args, fields.result, fields.isError === true);
 	if (call) live.calls.push(call);
+	for (const check of [...toolEvents]) check();
 }
 
 onSessionEvent((event, session) => {
@@ -602,7 +644,12 @@ async function observeReport(
 	};
 }
 
-async function runTool(session: Session, params: Record<string, unknown>, kind: "main" | "sub"): Promise<unknown> {
+async function runTool(
+	session: Session,
+	params: Record<string, unknown>,
+	kind: "main" | "sub",
+	callId?: string,
+): Promise<unknown> {
 	if (kind !== "main") throw new Error("Only the main agent runs autopilot cycles.");
 	const state = requireRun(session);
 	if ((state.role ?? "parent") !== "parent") throw new Error("A child session has no autopilot tool.");
@@ -670,6 +717,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 		}
 		case "end": {
 			const parsed = endReportOrThrow(params);
+			await settledBeside(current, callId);
 			if (current.report && !current.amendable) {
 				// The first report stands: a later `end` (a stop steer, a second thought) only adds what the first left out.
 				current.report = mergeRepeatedEnd(current.report, parsed);
@@ -824,7 +872,7 @@ function registerTool(pi: ExtensionAPI): void {
 		loadMode: "essential",
 		approval: "read",
 		async execute(
-			_toolCallId: string,
+			toolCallId: string,
 			params: Record<string, unknown>,
 			_signal: unknown,
 			_onUpdate: unknown,
@@ -832,7 +880,7 @@ function registerTool(pi: ExtensionAPI): void {
 		) {
 			const session = mainSession();
 			if (!session) throw new Error("No live omp session");
-			return runTool(session, params, ctx.agent.kind);
+			return runTool(session, params, ctx.agent.kind, toolCallId);
 		},
 	});
 }
