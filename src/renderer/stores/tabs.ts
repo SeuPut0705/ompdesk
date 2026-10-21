@@ -1547,15 +1547,18 @@ export function useSessionTabs(): void {
 							// subscription exists; the status snapshot still carries its reason.
 							session.getState().setStatus(tab.status, tab.cwd);
 							if (tabId !== state.activeTabId) continue;
-							void window.omp.sidecar.getStatus().then(status => {
-								if (status.status !== "error" && status.status !== "exited") return;
-								useSessionStore
-									.getState()
-									.setSidecarError(
-										status.message ?? translate("events.sidecarProcessFailed"),
-										status.restart ?? null,
-									);
-							});
+							void window.omp.sidecar.getStatus().then(
+								status => {
+									if (status.status !== "error" && status.status !== "exited") return;
+									useSessionStore
+										.getState()
+										.setSidecarError(
+											status.message ?? translate("events.sidecarProcessFailed"),
+											status.restart ?? null,
+										);
+								},
+								() => undefined,
+							);
 							continue;
 						}
 						if (tab.status !== "ready" && tab.status !== "running") continue;

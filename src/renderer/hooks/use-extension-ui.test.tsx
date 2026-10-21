@@ -10,7 +10,7 @@ import { codedError } from "../../shared/ipc-error-codes";
 import type { ExtensionUIResponse } from "../../shared/rpc-types";
 import { translate } from "../lib/i18n";
 import { useToastStore } from "../stores/toast";
-import { useExtensionUiResponder } from "./use-extension-ui";
+import { useExtensionUi, useExtensionUiResponder } from "./use-extension-ui";
 
 const { document, window, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -67,5 +67,32 @@ describe("useExtensionUiResponder", () => {
 		const [toast] = useToastStore.getState().toasts;
 		expect(toast?.variant).toBe("error");
 		expect(toast?.title).toBe(translate("extDialog.answerFailed"));
+	});
+});
+
+describe("useExtensionUi", () => {
+	it("leaves no rejection unhandled when its catch-up reads fail (a page booting while the link drops)", async () => {
+		const dropped = () => Promise.reject(new Error("The link to the computer dropped"));
+		const ui = (window as unknown as { omp: { ui: Record<string, unknown>; events?: Record<string, unknown> } }).omp;
+		Object.assign(ui.ui, { shownState: vi.fn(dropped), openRequests: vi.fn(dropped) });
+		ui.events = { onExtensionUi: () => () => {}, onSignInEnded: () => () => {} };
+		const unhandled: unknown[] = [];
+		const listen = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", listen);
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const page = createRoot(container as unknown as Element);
+		function Booting() {
+			useExtensionUi();
+			return null;
+		}
+		try {
+			await act(async () => page.render(<Booting />));
+			await new Promise(resolve => setTimeout(resolve, 0));
+		} finally {
+			process.off("unhandledRejection", listen);
+			await act(async () => page.unmount());
+		}
+		expect(unhandled).toEqual([]);
 	});
 });

@@ -95,9 +95,11 @@ export function subscribeUpdaterStatus(): () => void {
 	const unsubscribe = window.omp.events.onUpdaterStatus(status => {
 		useUpdaterStore.getState().setStatus(status);
 	});
-	void window.omp.updater.getStatus().then(status => {
-		useUpdaterStore.getState().setStatus(status);
-	});
+	// A failed read keeps the status it has; main pushes every change anyway.
+	void window.omp.updater.getStatus().then(
+		status => useUpdaterStore.getState().setStatus(status),
+		() => undefined,
+	);
 	return unsubscribe;
 }
 

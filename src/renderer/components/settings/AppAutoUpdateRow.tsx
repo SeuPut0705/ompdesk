@@ -19,9 +19,12 @@ export function AppAutoUpdateRow() {
 	const [mode, setMode] = useState<UpdateInstallMode>();
 	useEffect(() => {
 		let live = true;
-		void window.omp.updater.installMode().then(next => {
-			if (live) setMode(next);
-		});
+		void window.omp.updater.installMode().then(
+			next => {
+				if (live) setMode(next);
+			},
+			() => undefined,
+		);
 		return () => {
 			live = false;
 		};

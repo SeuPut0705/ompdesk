@@ -7,9 +7,12 @@ export function useAutoModePref(): [boolean, (next: boolean) => void] {
 	const [enabled, setEnabled] = useState(true);
 	useEffect(() => {
 		let live = true;
-		void window.omp.prefs.get(AUTO_MODE_PREF).then(stored => {
-			if (live) setEnabled(autoModeFromPref(stored));
-		});
+		void window.omp.prefs.get(AUTO_MODE_PREF).then(
+			stored => {
+				if (live) setEnabled(autoModeFromPref(stored));
+			},
+			() => undefined,
+		);
 		return () => {
 			live = false;
 		};

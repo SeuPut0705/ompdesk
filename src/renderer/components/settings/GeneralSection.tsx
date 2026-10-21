@@ -42,9 +42,12 @@ export function useMainPreference(key: string, fallback = false): [boolean, (nex
 	const [value, setValue] = useState(fallback);
 	useEffect(() => {
 		let live = true;
-		void window.omp.prefs.get(key).then(stored => {
-			if (live) setValue(typeof stored === "boolean" ? stored : fallback);
-		});
+		void window.omp.prefs.get(key).then(
+			stored => {
+				if (live) setValue(typeof stored === "boolean" ? stored : fallback);
+			},
+			() => undefined,
+		);
 		return () => {
 			live = false;
 		};

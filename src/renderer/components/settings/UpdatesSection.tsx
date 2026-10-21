@@ -188,7 +188,7 @@ export function UpdatesSection() {
 	}, [checkApp, checkCore]);
 
 	useEffect(() => {
-		void window.omp.updater.version().then(setGuiVersion);
+		void window.omp.updater.version().then(setGuiVersion, () => undefined);
 		void check();
 	}, [check]);
 
@@ -676,7 +676,7 @@ export function UpdateAuthRow({ onChanged }: { onChanged: () => Promise<void> })
 	const [result, setResult] = useState<UpdateAccess>();
 
 	useEffect(() => {
-		void window.omp.updater.authInfo().then(setInfo);
+		void window.omp.updater.authInfo().then(setInfo, () => undefined);
 	}, []);
 
 	const run = useCallback(
