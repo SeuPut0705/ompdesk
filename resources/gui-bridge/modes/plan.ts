@@ -159,22 +159,29 @@ async function onProposalWritten(event: AgentSessionEvent, session: AgentSession
 	const { PROPOSE_DEVICE_NAME } = await import("@oh-my-pi/pi-tui/tools/resolve");
 	const dispatch = writeDeviceDispatch(event.toolName, event.result);
 	if (dispatch?.tool !== PROPOSE_DEVICE_NAME || dispatch.mode !== "execute") return;
-	const suggestedFileName: string = ompPackage().planSaveFileName?.(proposal.title) ?? "PLAN.md";
-	const frame: ProposalFrame = {
-		planFilePath: proposal.planFilePath,
-		title: proposal.title,
-		suggestedFileName,
-		planContent: (await readPlan(session, proposal.planFilePath)) ?? "",
-		options: [...PLAN_PROPOSAL_OPTIONS],
-	};
-	proposal.frame = frame;
-	emit({ type: "plan_proposal", ...frame });
+	// A plan the automatic mode choice entered for one request is approved here, as the card's Approve would with
+	// "keep context": no `plan_proposal` frame (no card in any window, nothing waits on the person), and the plan
+	// runs in this session. The user's own plan mode still asks.
+	const auto = autoModeFlags(session.sessionManager.getSessionId()).autoPlan;
+	if (!auto) {
+		const suggestedFileName: string = ompPackage().planSaveFileName?.(proposal.title) ?? "PLAN.md";
+		const frame: ProposalFrame = {
+			planFilePath: proposal.planFilePath,
+			title: proposal.title,
+			suggestedFileName,
+			planContent: (await readPlan(session, proposal.planFilePath)) ?? "",
+			options: [...PLAN_PROPOSAL_OPTIONS],
+		};
+		proposal.frame = frame;
+		emit({ type: "plan_proposal", ...frame });
+	}
 	session.markPlanInternalAbortPending();
 	try {
 		await session.abort();
 	} finally {
 		session.clearPlanInternalAbortPending();
 	}
+	if (auto) await approve(session, { approved: true, option: "keep_context" });
 }
 
 onSessionEvent((event, session) => {
@@ -281,8 +288,10 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 	const { humanizePlanTitle } = await import("@oh-my-pi/pi-coding-agent/plan-mode/approved-plan");
 	const seededName = humanizePlanTitle(proposal.title);
 	if (seededName && !session.sessionManager.getSessionName()) await session.setSessionName(seededName, "auto");
+	// Stock's own render (interactive-mode #approvePlan) inlines the plan: the prompt says never to re-read the file.
 	const approvedPrompt = prompt.render(ompPrompt("system/plan-mode-approved.md"), {
 		planFilePath,
+		planContent,
 		contextPreserved: option !== "execute",
 	});
 	void submitTurn(session, approvedPrompt, true).catch(reportTurnError);
