@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.52.3] - 2026-10-21
+
+다른 기기에서 이 컴퓨터의 세션을 볼 때 주고받는 데이터가 크게 줄어요.
+
+### 고친 것
+- 화면이 15초마다, 그리고 턴마다 세션 상태를 확인할 때 시스템 프롬프트와 도구 설명 전체를 더는 받지 않아요. 다른 기기에서 이 컴퓨터의 세션 하나를 보는 것만으로 1분에 약 3 MB를 받던 일이 사라져요. 두 컴퓨터가 모두 이 버전이어야 효과가 있어요.
+- 목표나 오토파일럿처럼 오래 이어지는 실행에서 대화 기록을 처음 불러올 때 몇 시간 치를 한꺼번에 받지 않아요. 이 저장소의 오토파일럿 세션에서는 4.6 MB가 0.5 MB로 줄었어요. 앱을 열 때와 다른 기기가 다시 연결될 때 빨라져요.
+- 에이전트가 세션 목록을 보거나 끝난 세션을 닫을 때도 필요 없는 세션 정보를 받지 않아요.
+
+<!-- en -->
+
+Much less data crosses the link while another device views a session on this computer.
+
+### Fixed
+- The page's session-state checks, every 15 seconds and at every turn, no longer carry the whole system prompt and every tool's schema. Viewing one session of this computer from another device no longer costs about 3 MB a minute. Both computers need this version.
+- Opening the transcript of a long goal or Autopilot run no longer loads hours of it at once: this repository's Autopilot session went from 4.6 MB to 0.5 MB. Opening the app and a paired device's reconnect are faster.
+- An agent listing sessions or closing a finished one no longer reads session details it does not use.
+
 ## [0.52.2] - 2026-10-21
 
 오토파일럿 타임라인이 대화 언어로 적히고, 진단 정보 복사에 실제로 일어난 일이 담겨요.
