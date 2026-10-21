@@ -1050,10 +1050,12 @@ html[data-input="touch"] .omp-panel-topbar > div:has(> button) {
 	gap: 10px;
 }
 
+/* A phone's 36 px title row: close (24 px behind its 1 px border) reaches the row's full height. */
 html[data-shell="phone"] .omp-panel-topbar {
 	--hit-gap-x: 14px;
-	--hit-gap-y: 12px;
+	--hit-gap-y: 14px;
 }
+
 
 /* The top bar's icons sit 14 px apart so each one's bounded hit area is ≈ 40 px square (the bar's height). */
 html[data-shell] .omp-titlebar {
@@ -1354,6 +1356,53 @@ html[data-input="touch"]
 html[data-input="touch"] .omp-changes [data-staged][data-staged] {
 	min-height: var(--sc-row-touch);
 	--hit-gap-y: 0px;
+}
+
+/* The rest of a Changes row is the row too: the stage box, the file and the discard button stand as tall as the row,
+   the box and the discard button as wide as it is tall, so each is a 36 px target where they drew 28×24, 302×29 and
+   26×24. Only their boxes grow: the check box and the icon keep their size, centred. */
+html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label, button) {
+	align-self: stretch;
+	height: auto;
+}
+
+html[data-input="touch"] .omp-changes [data-staged][data-staged] > :is(label:first-child, button:last-child) {
+	width: var(--sc-row-touch);
+}
+
+/* The Changes view's own controls (refresh in its toolbar, the branch, fetch, pull and push of the source-control
+   bar, the commit box's generate button, Discard all) are 24 px boxes behind a 1 px border, whose ::after reaches
+   from the padding box: 14 px apart and bounded at 14 px, each reaches 36 (the side panel's 4 px bound left them 26
+   and the bar's 10 px 34). The amend check and the staged count stand as tall as their row, a row tall, instead of a 17 px line. */
+html[data-input="touch"] .omp-changes > :first-child,
+html[data-input="touch"] .omp-changes :is([data-scm-bar], [data-commit-box], .omp-changes-list) {
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+/* Three times: the side panel's 10 px cluster rule (a :not() and :has() over the panel) would win otherwise. */
+/* A narrow phone wraps the bar's actions under the branch: its rows sit 14 px apart, each reach ending between them. */
+html[data-input="touch"] .omp-changes [data-scm-bar] {
+	gap: 14px;
+}
+
+html[data-input="touch"] .omp-changes [data-scm-bar][data-scm-bar][data-scm-bar] > div.flex {
+	column-gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+/* The discard button's ::after starts inside its 1 px border: 1 px each way makes it the row's full 36. */
+html[data-input="touch"] .omp-changes [data-staged][data-staged] > button:last-child {
+	--hit-gap-y: 2px;
+}
+
+html[data-input="touch"] .omp-changes :is([data-commit-box], .omp-changes-list) div.flex:has(> label > input[type="checkbox"]) {
+	min-height: var(--sc-row-touch);
+}
+
+html[data-input="touch"] .omp-changes :is([data-commit-box], .omp-changes-list) div.flex > label:has(> input[type="checkbox"]) {
+	align-self: stretch;
 }
 
 /* The terminal's key bar: keys 4 px apart in one row, the bar's 4 px padding above and below them, the panel tab bar
