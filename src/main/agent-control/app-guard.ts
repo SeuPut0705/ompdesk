@@ -111,6 +111,9 @@ const RPC_TIER: Record<string, Tier | ((command: RpcCommand, full: boolean) => T
 	set_thinking_level: "change",
 	login: "sensitive",
 	mcp_add: "sensitive",
+	get_mcp_servers: "read",
+	mcp_reauth: "sensitive",
+	mcp_action: command => (command.type === "mcp_action" && command.action === "adopt" ? "sensitive" : "never"),
 	marketplace_action: command =>
 		command.type === "marketplace_action" && command.action === "install" ? "sensitive" : "never",
 };

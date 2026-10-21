@@ -33,12 +33,14 @@ class FakePorts implements AppPorts {
 		this.prefs[key] = value;
 		this.writes.push({ key, value });
 	};
+	/** What an RPC command answers, by type (default `{}`). */
+	rpcData: Record<string, unknown> = {};
 	rpc = async (_tab: string, command: RpcCommand): Promise<RpcResponse> => {
 		this.rpcs.push(command);
 		if (command.type === "get_settings")
 			return { type: "response", success: true, data: { values: this.stock } } as RpcResponse;
 		if (command.type === "set_setting") this.stock[command.path] = command.value;
-		return { type: "response", success: true, data: {} } as RpcResponse;
+		return { type: "response", success: true, data: this.rpcData[command.type] ?? {} } as RpcResponse;
 	};
 	invoke = async (_tab: string, channel: string, args: readonly unknown[]): Promise<unknown> => {
 		this.invoked.push({ channel, args });
@@ -184,6 +186,8 @@ describe("ompdesk_app tiers", () => {
 		["mobile_web.set_enabled", { enabled: true }],
 		["extensions.install_plugin", { marketplace: "m", plugin: "p" }],
 		["extensions.install_mcp", { name: "x", transport: "stdio", command: "npx", args: ["-y", "x"] }],
+		["extensions.mcp_sign_in", { name: "x" }],
+		["extensions.mcp_use", { name: "x" }],
 		["remote.connect", { nodeId: "nHOST" }],
 		["remote.unblock", { block: "node:nHOST" }],
 		["remote.set_allowed_users", { users: ["kim@example.com"] }],
@@ -561,8 +565,67 @@ describe("MCP install, pairing and Autopilot", () => {
 			expect(rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");
 		expect(rpcTier({ type: "get_autopilot" })).toBe("never");
 		expect(rpcTier({ type: "mcp_add", name: "a", config: { transport: "stdio", command: "x" } })).toBe("sensitive");
-		for (const type of ["mcp_test", "mcp_reauth", "ssh_manage"])
+		expect(rpcTier({ type: "mcp_reauth", name: "a" })).toBe("sensitive");
+		expect(rpcTier({ type: "get_mcp_servers" })).toBe("read");
+		expect(rpcTier({ type: "mcp_action", name: "a", action: "adopt" })).toBe("sensitive");
+		for (const action of ["enable", "disable", "reconnect", "remove"] as const)
+			expect(rpcTier({ type: "mcp_action", name: "a", action }), action).toBe("never");
+		for (const type of ["mcp_test", "mcp_reload", "ssh_manage"])
 			expect(rpcTier({ type } as unknown as RpcCommand), type).toBe("never");
+	});
+
+	it("tells an agent which MCP servers need a sign-in or are off and why, and starts the sign-in", async () => {
+		const ports = new FakePorts();
+		ports.full = true;
+		const higgsfield = {
+			name: "higgsfield",
+			transport: "http",
+			status: "disconnected",
+			toolCount: 0,
+			enabled: true,
+			authed: false,
+			authState: "required",
+			url: "https://mcp.example/secret-path",
+		};
+		const docs = {
+			name: "docs",
+			transport: "http",
+			status: "disconnected",
+			toolCount: 0,
+			enabled: false,
+			authed: false,
+			offReason: { kind: "otherTool", tool: "OpenAI Codex", provider: "codex" },
+		};
+		ports.rpcData = {
+			get_mcp_servers: { servers: [higgsfield, docs] },
+			mcp_add: { added: true, server: higgsfield },
+		};
+		const control = new AppControl(ports);
+		const listed = await control.run(CALLER, "extensions.mcp_servers", {});
+		expect(listed).toContain("higgsfield (http), disconnected, 0 tools, needs sign-in");
+		expect(listed).toContain("docs (http), off: found only in OpenAI Codex's config");
+		expect(listed).not.toContain("secret-path");
+
+		const added = await control.run(CALLER, "extensions.install_mcp", {
+			name: "higgsfield",
+			transport: "http",
+			url: "https://mcp.example/secret-path",
+		});
+		expect(added).toContain("needs a sign-in: run extensions.mcp_sign_in");
+		expect(added).toContain("Every open session picks the change up");
+
+		ports.rpcData = { ...ports.rpcData, mcp_reauth: { ok: true } };
+		const signed = await control.run(CALLER, "extensions.mcp_sign_in", { name: "higgsfield" });
+		expect(signed).toContain("Signed in to MCP server higgsfield");
+		ports.rpcData = { ...ports.rpcData, mcp_reauth: { ok: false, error: "cancelled" } };
+		expect(await refusal(control.run(CALLER, "extensions.mcp_sign_in", { name: "higgsfield" }))).toContain(
+			"cancelled",
+		);
+
+		ports.rpcData = { ...ports.rpcData, mcp_action: { name: "docs", action: "adopt", from: "OpenAI Codex" } };
+		const used = await control.run(CALLER, "extensions.mcp_use", { name: "docs" });
+		expect(used).toContain("Copied MCP server docs from OpenAI Codex's config");
+		expect(ports.rpcs).toContainEqual({ type: "mcp_action", name: "docs", action: "adopt" });
 	});
 });
 

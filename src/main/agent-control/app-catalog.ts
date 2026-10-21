@@ -7,6 +7,7 @@
  * The risk table `AGENT_CHANNELS` (app-channels.ts) names, per IPC channel, the actions that call it.
  */
 
+import type { McpOffReason } from "../../../resources/gui-bridge/extensions/mcp-contracts";
 import type { AgentAppEvent, AppUndo } from "../../shared/agent-control";
 import { AGENT_PANEL_TABS, AGENT_VIEW_SHEETS } from "../../shared/agent-control";
 import type { DiagnosticBundleResult } from "../../shared/diagnostic-bundle";
@@ -22,7 +23,7 @@ import {
 	type WebBlockedInfo,
 	type WebDeviceInfo,
 } from "../../shared/mobile-web";
-import type { RpcCommand } from "../../shared/rpc-types";
+import type { RpcCommand, RpcMcpServerInfo } from "../../shared/rpc-types";
 import { APPROVAL_MODES } from "../../shared/tool-approval";
 import { AppRefusal, type Tier } from "./app-guard";
 import { type ArgsSchema, NO_ARGS, objectSchema } from "./app-schema";
@@ -345,6 +346,54 @@ const SCOPE = {
 
 const SIGN_IN_NOTE =
 	"Only starts the existing sign-in flow (a browser page or a code the person completes); it never reads or stores a credential.";
+
+/** What an agent is told after a change to MCP servers: no tab needs a restart (src/main/mcp-live.ts). */
+const MCP_LIVE_NOTE = "Every open session picks the change up (a session in a turn when its turn ends), no restart.";
+
+/** How long `extensions.mcp_sign_in` waits for an early answer (a refusal, a server needing no sign-in). */
+const MCP_SIGN_IN_EARLY_MS = 3000;
+
+const MCP_SIGN_IN_NEXT = (name: string) =>
+	`It needs a sign-in: run extensions.mcp_sign_in with name "${name}" (the person completes it in the browser); never sign in through a terminal omp.`;
+
+function needsSignIn(server: RpcMcpServerInfo): boolean {
+	return server.enabled && (server.authState === "required" || server.authState === "expired");
+}
+
+function offReasonText(reason: McpOffReason): string {
+	switch (reason.kind) {
+		case "disabled":
+			return "turned off in omp's config";
+		case "otherTool":
+			return `found only in ${reason.tool}'s config, which omp does not read (extensions.mcp_use uses it)`;
+		case "offInTool":
+			return `turned off in ${reason.tool}'s config`;
+		case "toolOff":
+			return `reading ${reason.tool}'s config is turned off in omp`;
+		case "projectConfigOff":
+			return "project MCP config is turned off";
+	}
+}
+
+/** One line an agent reads: state, tools, sign-in, and why a server is off. No url or command (they can hold secrets). */
+function mcpServerLine(server: RpcMcpServerInfo): string {
+	const parts = [`${server.name} (${server.transport})`];
+	if (!server.enabled) {
+		parts.push(server.offReason ? `off: ${offReasonText(server.offReason)}` : "off");
+	} else {
+		parts.push(server.status, `${server.toolCount} tools`);
+		if (needsSignIn(server)) parts.push(server.authState === "expired" ? "sign-in expired" : "needs sign-in");
+		else if (server.authState === "authorized") parts.push("signed in");
+	}
+	if (server.alsoIn) parts.push(`taken from ${server.alsoIn}'s config`);
+	return parts.join(", ");
+}
+
+function delay(ms: number): Promise<undefined> {
+	const { promise, resolve } = Promise.withResolvers<undefined>();
+	setTimeout(() => resolve(undefined), ms).unref?.();
+	return promise;
+}
 
 export const APP_ACTIONS: readonly AppAction[] = [
 	{
@@ -928,15 +977,88 @@ export const APP_ACTIONS: readonly AppAction[] = [
 						...(Array.isArray(args.args) ? { args: args.args as string[] } : {}),
 					}
 				: { transport: args.transport as "http" | "sse", url: String(args.url) };
-			await ctx.rpc({
+			const added = (await ctx.rpc({
 				type: "mcp_add",
 				name: String(args.name),
 				config,
 				scope: args.scope === "project" ? "project" : "user",
-			});
+			})) as { server?: RpcMcpServerInfo } | undefined;
+			const server = added?.server;
+			const state = server ? mcpServerLine(server) : `${String(args.name)}: added`;
 			return {
-				text: `Added MCP server ${String(args.name)}.`,
+				text: `Added MCP server ${String(args.name)}. ${state}. ${MCP_LIVE_NOTE}${server && needsSignIn(server) ? ` ${MCP_SIGN_IN_NEXT(server.name)}` : ""}`,
 				change: { en: "Added MCP server", ko: "MCP 서버 추가", value: String(args.name) },
+			};
+		},
+	},
+	{
+		id: "extensions.mcp_servers",
+		area: "extensions",
+		description:
+			"List the MCP servers this session's omp knows: connected or not, tool count, whether it needs a sign-in, and why one is off (turned off, found only in another tool's config, …).",
+		args: NO_ARGS,
+		tier: "read",
+		run: async ctx => {
+			const servers =
+				((await ctx.rpc({ type: "get_mcp_servers" })) as { servers?: RpcMcpServerInfo[] } | undefined)?.servers ??
+				[];
+			if (servers.length === 0) return { text: "No MCP server is configured." };
+			return { text: servers.map(mcpServerLine).join("\n") };
+		},
+	},
+	{
+		id: "extensions.mcp_sign_in",
+		area: "extensions",
+		description: `Start the sign-in of an MCP server that needs one (OAuth: a browser page the person completes). Once it succeeds the server connects in every open session, no restart. ${SIGN_IN_NOTE}`,
+		args: objectSchema({ name: { type: "string", minLength: 1, maxLength: 80 } }, ["name"]),
+		tier: "sensitive",
+		manage: { always: "signing in connects the person's account (a credential)" },
+		run: async (ctx, args) => {
+			const name = String(args.name);
+			// The login waits on the person (up to 5 minutes); answer once it is under way, or with an early refusal.
+			const login = ctx.rpc({ type: "mcp_reauth", name });
+			const early = await Promise.race([
+				login.then(
+					data => ({ data }),
+					(error: unknown) => ({ error }),
+				),
+				delay(MCP_SIGN_IN_EARLY_MS),
+			]);
+			if (early === undefined) {
+				login.catch(() => {});
+				return {
+					text: `Sign-in for MCP server ${name} started: the person finishes it in the browser page shown in this session. When it succeeds the server connects in every open session; check with extensions.mcp_servers.`,
+				};
+			}
+			if ("error" in early) throw early.error;
+			const result = early.data as { ok?: boolean; error?: string } | undefined;
+			if (result?.ok === false)
+				throw new AppRefusal(`Sign-in for ${name} did not finish: ${result.error ?? "unknown error"}.`);
+			return { text: `Signed in to MCP server ${name}. ${MCP_LIVE_NOTE}` };
+		},
+	},
+	{
+		id: "extensions.mcp_use",
+		area: "extensions",
+		description:
+			"Use an MCP server that only another tool's user config declares (Codex, Claude Code, Cursor, …; extensions.mcp_servers says 'found in <tool>'): copies that one server's definition into omp's user mcp.json. The tool's other servers, skills and rules stay unused.",
+		args: objectSchema({ name: { type: "string", minLength: 1, maxLength: 80 } }, ["name"]),
+		tier: "sensitive",
+		manage: { always: "an MCP server is arbitrary code (stdio) or a network reach (http/sse) for every session" },
+		describe: args =>
+			`use the MCP server "${String(args.name)}" that another tool's config declares, in every session`,
+		run: async (ctx, args) => {
+			const name = String(args.name);
+			const adopted = (await ctx.rpc({ type: "mcp_action", name, action: "adopt" })) as
+				| { from?: string; status?: string; error?: string }
+				| undefined;
+			const servers =
+				((await ctx.rpc({ type: "get_mcp_servers" })) as { servers?: RpcMcpServerInfo[] } | undefined)?.servers ??
+				[];
+			const server = servers.find(entry => entry.name === name);
+			return {
+				text: `Copied MCP server ${name} from ${adopted?.from ?? "the other tool"}'s config into omp's. ${server ? mcpServerLine(server) : ""}. ${MCP_LIVE_NOTE}${server && needsSignIn(server) ? ` ${MCP_SIGN_IN_NEXT(name)}` : ""}`,
+				change: { en: "Using MCP server", ko: "MCP 서버 사용", value: name },
 			};
 		},
 	},
