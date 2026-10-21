@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { useStore } from "zustand";
+import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -34,13 +35,16 @@ import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { abortActiveTurn } from "../../../lib/messages";
 import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
+import { createTabRpc } from "../../../lib/tab-rpc";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
+import { ensureTabRuntime } from "../../../stores/tab-runtime";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -60,6 +64,33 @@ interface RemoteOpenArgs {
 	cwd: string;
 	sessionPath?: string;
 	kind?: SessionKind;
+}
+
+/** How long a Stop waits for a tab opened on a host's running session to attach to its omp. */
+const STOP_ATTACH_MS = 30_000;
+
+/** Resolves once the tab's omp answers (ready or running); a command sent to a tab still starting would be lost. */
+function tabAttached(tabId: string): Promise<void> {
+	const up = () => {
+		const status = useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.status;
+		return status === "ready" || status === "running";
+	};
+	const { promise, resolve, reject } = Promise.withResolvers<void>();
+	if (up()) {
+		resolve();
+		return promise;
+	}
+	const unsubscribe = useTabsStore.subscribe(() => {
+		if (!up()) return;
+		clearTimeout(timer);
+		unsubscribe();
+		resolve();
+	});
+	const timer = setTimeout(() => {
+		unsubscribe();
+		reject(new Error("The session did not start on the host"));
+	}, STOP_ATTACH_MS);
+	return promise;
 }
 
 const DOT_CLASS: Record<HostView["state"], string> = {
@@ -390,12 +421,45 @@ function DeviceSessions({
 		void onOpen({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
 	};
 
+	/**
+	 * The user's Stop of the turn the host runs in `session`: through the tab here that shows it, else a tab opened on
+	 * it, which attaches to the omp running it there (this device's leftover, or a host window's as a view).
+	 */
+	const stopOnHost = async (session: DeviceSession) => {
+		try {
+			const tabId =
+				tabFor(session)?.id ??
+				(await useTabsStore.getState().openTab({
+					cwd: session.cwd,
+					sessionPath: session.path,
+					kind: session.kind ?? "agent",
+					device: host.deviceId,
+				}));
+			if (!tabId) return;
+			await tabAttached(tabId);
+			const response = await abortActiveTurn(createTabRpc(ensureTabRuntime(tabId).command), tabId, "sidebar-delete");
+			if (!response.success) throw new Error(response.error);
+		} catch (cause) {
+			toastError({ title: t("remote.sidebar.stopFailed", { device: host.name }), error: cause });
+		}
+	};
+
+	const refuseRunning = (session: DeviceSession) => {
+		setPendingDelete(null);
+		toast({
+			variant: "warning",
+			message: t("remote.sidebar.deleteRunning", { device: host.name }),
+			action: { label: t("remote.sidebar.stopRunning"), run: () => void stopOnHost(session) },
+			durationMs: 15_000,
+		});
+	};
+
 	// Like the local list (Sidebar.tsx): the tab showing the session closes first, then main waits for the host's
-	// omp to let go of the file and the host deletes it (its own `sessions.delete`).
+	// omp to let go of the file and the host deletes it (its own `sessions.delete`). A turn running there, in a tab
+	// here or one the device cannot see (a host window's, another device's), refuses it and offers Stop.
 	const confirmDelete = async (session: DeviceSession) => {
 		if (tabFor(session)?.status === "running") {
-			toast({ variant: "warning", message: t("sidebar.menu.taskRunning") });
-			setPendingDelete(null);
+			refuseRunning(session);
 			return;
 		}
 		setDeleting(true);
@@ -407,7 +471,8 @@ function DeviceSessions({
 			await deleteSession(session.path);
 			setPendingDelete(null);
 		} catch (cause) {
-			toastError({ title: t("sidebar.deleteFailed"), error: cause });
+			if (ipcErrorCode(cause) === "session_running") refuseRunning(session);
+			else toastError({ title: t("sidebar.deleteFailed"), error: cause });
 		} finally {
 			setDeleting(false);
 		}
