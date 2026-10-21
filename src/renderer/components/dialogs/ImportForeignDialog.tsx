@@ -11,8 +11,9 @@
 import { Download, Inbox, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcForeignSessionInfo, RpcResponse } from "../../../shared/rpc-types";
+import { useShellInput } from "../../hooks/use-shell-mode";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
-import { formatTimeAgo } from "../../lib/format";
+import { cx, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
@@ -54,6 +55,7 @@ export function ImportForeignDialog() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	const touch = useShellInput() === "touch";
 	const close = useUiStore(s => s.closeImportDialog);
 	const [source, setSource] = useState<Source>("claude");
 	const [states, setStates] = useState<Partial<Record<Source, SourceState>>>({});
@@ -312,7 +314,12 @@ export function ImportForeignDialog() {
 					}))}
 					variant="segmented"
 				/>
-				<div className="ml-auto flex min-w-48 flex-1 items-center gap-2.5 [--hit-gap-x:10px] sm:max-w-72">
+				<div
+					className={cx(
+						"ml-auto flex min-w-48 flex-1 items-center sm:max-w-72",
+						touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1",
+					)}
+				>
 					<div className="min-w-0 flex-1">
 						<SearchField
 							label={t("import.search")}

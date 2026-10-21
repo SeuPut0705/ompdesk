@@ -177,7 +177,7 @@ describe("controls close enough to take each other's taps", () => {
 			"gap-1 [--hit-gap-x:4px] [--hit-gap-y:4px]",
 		);
 		declares("../components/panels/TerminalPanel.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
-		declares("../components/dialogs/ImportForeignDialog.tsx", "gap-2.5 [--hit-gap-x:10px]");
+		declares("../components/dialogs/ImportForeignDialog.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
 	});
 });
 
