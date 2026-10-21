@@ -13,6 +13,7 @@ import {
 	checkVisualPage,
 	createTabCheck,
 	judgeImage,
+	PREVIEW_CHECK_BEHIND_MS,
 	PREVIEW_CHECK_CAPTURE_MS,
 	PREVIEW_CHECK_IMAGE_MAX,
 	PREVIEW_CHECK_PROBE_MS,
@@ -46,6 +47,7 @@ function fakeDeps(overrides: Partial<PreviewCheckDeps> = {}) {
 	const flagged: Array<[string, number, string]> = [];
 	const deps: PreviewCheckDeps = {
 		enabled: () => true,
+		inFront: () => true,
 		available: async () => true,
 		capture: vi.fn(async () => IMAGE),
 		judge: vi.fn(async (): Promise<PreviewCheckResult | null> => ({ problem: null, judged: true })),
@@ -82,7 +84,7 @@ describe("Preview check on gui_visualize open", () => {
 		expect(withCheck.text).toBe(`${without.text}\n${HINT_ERROR}`);
 		expect(withCheck.isError).toBe(false);
 		expect(flagged).toEqual([[withCheck.id, 1, "error"]]);
-		expect(deps.capture).toHaveBeenCalledWith(withCheck.id, 1, PREVIEW_CHECK_CAPTURE_MS);
+		expect(deps.capture).toHaveBeenCalledWith(withCheck.id, 1, PREVIEW_CHECK_CAPTURE_MS, PREVIEW_CHECK_CAPTURE_MS);
 		expect(deps.judge).toHaveBeenCalledWith(IMAGE, expect.any(Number));
 		// The page is shown first; the check follows it.
 		expect(withCheck.revealed).toEqual([withCheck.id]);
@@ -182,6 +184,17 @@ describe("Preview check on gui_visualize open", () => {
 		});
 		await checkVisualPage(deps, "v", 1);
 		expect(deps.judge).toHaveBeenCalledWith(IMAGE, PREVIEW_CHECK_TOTAL_MS - 1500);
+	});
+
+	it("waits the whole capture budget for the page of a tab in front, and only a moment for one behind", async () => {
+		for (const [inFront, appearMs] of [
+			[true, PREVIEW_CHECK_CAPTURE_MS],
+			[false, PREVIEW_CHECK_BEHIND_MS],
+		] as const) {
+			const { deps } = fakeDeps({ inFront: () => inFront });
+			await checkVisualPage(deps, "v", 1);
+			expect(deps.capture).toHaveBeenCalledWith("v", 1, PREVIEW_CHECK_CAPTURE_MS, appearMs);
+		}
 	});
 });
 
@@ -293,7 +306,12 @@ describe("createTabCheck", () => {
 			success: true,
 			data: { problem: "blank", judged: true },
 		});
-		const verdict = await createTabCheck({ enabled: () => true, pages, rpc: { command: command as never } })("v", 1);
+		const verdict = await createTabCheck({
+			enabled: () => true,
+			inFront: () => true,
+			pages,
+			rpc: { command: command as never },
+		})("v", 1);
 		expect(verdict).toBe("blank");
 		expect(command).toHaveBeenCalledWith({ type: "judge_preview_check", image: IMAGE }, expect.any(Number));
 		expect(flagged).toEqual(["blank"]);
@@ -313,14 +331,17 @@ describe("createTabCheck", () => {
 	])("keeps today's behaviour for %s", async (_name, response) => {
 		const { flagged, pages, command } = tab(response);
 		expect(
-			await createTabCheck({ enabled: () => true, pages, rpc: { command: command as never } })("v", 1),
+			await createTabCheck({ enabled: () => true, inFront: () => true, pages, rpc: { command: command as never } })(
+				"v",
+				1,
+			),
 		).toBeNull();
 		expect(flagged).toEqual([]);
 	});
 
 	it("keeps today's behaviour while the tab's omp is not running", async () => {
 		const { flagged, pages, capture } = tab(null);
-		expect(await createTabCheck({ enabled: () => true, pages, rpc: null })("v", 1)).toBeNull();
+		expect(await createTabCheck({ enabled: () => true, inFront: () => true, pages, rpc: null })("v", 1)).toBeNull();
 		expect(capture).not.toHaveBeenCalled();
 		expect(flagged).toEqual([]);
 	});
@@ -339,7 +360,10 @@ describe("createTabCheck", () => {
 			probe,
 		);
 		expect(
-			await createTabCheck({ enabled: () => true, pages, rpc: { command: command as never } })("v", 1),
+			await createTabCheck({ enabled: () => true, inFront: () => true, pages, rpc: { command: command as never } })(
+				"v",
+				1,
+			),
 		).toBeNull();
 		expect(capture).not.toHaveBeenCalled();
 		expect(command.mock.calls.map(([request]) => request.type)).toEqual(["judge_available"]);
@@ -349,7 +373,10 @@ describe("createTabCheck", () => {
 	it("asks nothing while the switch is off, not even whether a judge exists", async () => {
 		const { command, capture, pages } = tab(null);
 		expect(
-			await createTabCheck({ enabled: () => false, pages, rpc: { command: command as never } })("v", 1),
+			await createTabCheck({ enabled: () => false, inFront: () => true, pages, rpc: { command: command as never } })(
+				"v",
+				1,
+			),
 		).toBeNull();
 		expect(command).not.toHaveBeenCalled();
 		expect(capture).not.toHaveBeenCalled();
@@ -357,8 +384,32 @@ describe("createTabCheck", () => {
 
 	it("asks whether a judge exists with the probe's short bound", async () => {
 		const { command, pages } = tab(null);
-		await createTabCheck({ enabled: () => true, pages, rpc: { command: command as never } })("v", 1);
+		await createTabCheck({ enabled: () => true, inFront: () => true, pages, rpc: { command: command as never } })(
+			"v",
+			1,
+		);
 		expect(command).toHaveBeenCalledWith({ type: "judge_available" }, PREVIEW_CHECK_PROBE_MS);
+	});
+
+	it("tells the capture how long to wait for the page by whether the tab is in front", async () => {
+		for (const [inFront, appearMs] of [
+			[true, PREVIEW_CHECK_CAPTURE_MS],
+			[false, PREVIEW_CHECK_BEHIND_MS],
+		] as const) {
+			const { command, capture, pages } = tab({
+				type: "response",
+				command: "judge_preview_check",
+				success: true,
+				data: { problem: null, judged: true },
+			});
+			await createTabCheck({
+				enabled: () => true,
+				inFront: () => inFront,
+				pages,
+				rpc: { command: command as never },
+			})("v", 1);
+			expect(capture).toHaveBeenCalledWith("v", 1, PREVIEW_CHECK_CAPTURE_MS, appearMs);
+		}
 	});
 });
 

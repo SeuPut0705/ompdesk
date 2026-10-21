@@ -464,9 +464,10 @@ export interface VisualPages {
 	choose(visualId: string, timeoutMs: number): Promise<VisualChoice>;
 	/**
 	 * The PNG of the one page showing `version` of the visual (the page only, never the window), once it is on screen,
-	 * loaded and settled; null when none is within `budgetMs` (preview-check.ts).
+	 * loaded and settled; null when none is within `budgetMs`, or when no window has put it on screen within
+	 * `appearMs` (preview-check.ts).
 	 */
-	capture(visualId: string, version: number, budgetMs: number): Promise<PreviewImage | null>;
+	capture(visualId: string, version: number, budgetMs: number, appearMs: number): Promise<PreviewImage | null>;
 	/** A quiet notice on the page showing `version` of the visual: what the judge saw. */
 	flag(visualId: string, version: number, problem: PreviewVerdict): void;
 }

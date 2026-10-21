@@ -65,11 +65,6 @@ const REGION_MAX_WIDTH = 1600;
 /** The Preview check looks for its page this often, and gives `capturePage` at least this long. */
 const CAPTURE_POLL_MS = 50;
 const CAPTURE_MIN_MS = 500;
-/**
- * `reveal` reaches the renderer, which then asks for the page: a visual that no window shows within this long after
- * the tool opened it is not going to be shown now (panel hidden, tab not in front), so the check gives up.
- */
-const CAPTURE_APPEAR_MS = 400;
 /** A viewer's poll for a page that does not exist yet (the panel asks before its first layout) is answered after this. */
 const NO_PAGE_RETRY_MS = 500;
 /** The most selected text, and the largest PDF, a viewer is sent. */
@@ -1106,7 +1101,7 @@ export function registerPreviewHost(
 				return picked as { value: string; text: string };
 			}
 		},
-		async capture(visualId, version, budgetMs) {
+		async capture(visualId, version, budgetMs, appearMs) {
 			const started = Date.now();
 			const deadline = started + budgetMs;
 			for (;;) {
@@ -1122,8 +1117,8 @@ export function registerPreviewHost(
 						);
 						return picture ? judgeImage(picture) : null;
 					}
-				} else if (!onScreenVisualPage(visualId, version) && Date.now() - started >= CAPTURE_APPEAR_MS) {
-					// Nobody shows it (the panel is hidden, another tab is in front): waiting longer would only delay the tool.
+				} else if (!onScreenVisualPage(visualId, version) && Date.now() - started >= appearMs) {
+					// No window has put it on screen within what the caller allows (preview-check.ts): waiting longer would only delay the tool.
 					return null;
 				}
 				if (Date.now() + CAPTURE_POLL_MS >= deadline) return null;

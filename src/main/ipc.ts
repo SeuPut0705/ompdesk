@@ -503,6 +503,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				// The Preview check judges the page through this tab's own omp, only while the judgeAssist pref is on.
 				check: createTabCheck({
 					enabled: () => judgeAssistEnabled(prefsStore.get(JUDGE_ASSIST_PREF)),
+					// The renderer opens the Preview only for the tab in front (stores/preview-visuals.ts).
+					inFront: () => sidecarPool.activeTabForWindow(tab.win) === tab.tabId,
 					pages: visualPages,
 					rpc: sidecar.rpcClient,
 				}),

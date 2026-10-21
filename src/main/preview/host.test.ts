@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_COMMAND, type PreviewState, VISUAL_SCHEME } from "../../shared/preview";
 import { IpcRegistry } from "../web/ipc-registry";
 import { registerPreviewHost } from "./host";
-import type { CapturedImage } from "./preview-check";
+import { type CapturedImage, PREVIEW_CHECK_BEHIND_MS } from "./preview-check";
 import { parseVisualUrl } from "./visual-navigation";
 import type { VisualPages } from "./visuals";
 
@@ -397,6 +397,7 @@ describe("preview host", () => {
 
 	describe("Preview check", () => {
 		const BOUNDS = { x: 0, y: 0, width: 600, height: 400 };
+		const BEHIND = PREVIEW_CHECK_BEHIND_MS;
 		/** The visual's page, laid out on screen and done loading. */
 		async function loadedVisual() {
 			const shown = await showVisual();
@@ -407,7 +408,7 @@ describe("preview host", () => {
 
 		it("captures only the visual's own page once it is on screen and loaded, as a PNG", async () => {
 			const { page } = await loadedVisual();
-			const image = await visualPages?.capture(VISUAL, 2, 2000);
+			const image = await visualPages?.capture(VISUAL, 2, 2000, BEHIND);
 			expect(image).toEqual({ data: Buffer.from("png").toString("base64"), mimeType: "image/png" });
 			expect(page.capturePage).toHaveBeenCalledTimes(1);
 		});
@@ -421,18 +422,18 @@ describe("preview host", () => {
 			const { page, ask } = await showVisual();
 			if (onScreen) await ask({ action: "layout", bounds: BOUNDS, visible: true });
 			if (loaded) page.emit("did-stop-loading");
-			expect(await visualPages?.capture(visualId, version, 150)).toBeNull();
+			expect(await visualPages?.capture(visualId, version, 150, BEHIND)).toBeNull();
 			expect(page.capturePage).not.toHaveBeenCalled();
 		});
 
-		it("gives up at once when no window shows the visual's page, without spending the capture budget", async () => {
+		it("gives up at once on a page of a tab behind, without spending the capture budget", async () => {
 			vi.useFakeTimers();
 			try {
-				// The page exists but its panel is not on screen (no layout): nobody is going to show it now.
+				// The page exists but its panel is not on screen (no layout), and its tab is not in front: nobody shows it now.
 				const { page } = await showVisual();
 				page.emit("did-stop-loading");
 				let answer: unknown = "pending";
-				void visualPages?.capture(VISUAL, 2, 2000).then(image => {
+				void visualPages?.capture(VISUAL, 2, 2000, BEHIND).then(image => {
 					answer = image;
 				});
 				await vi.advanceTimersByTimeAsync(399);
@@ -445,12 +446,51 @@ describe("preview host", () => {
 			}
 		});
 
+		it("gives a page of the tab in front the whole budget to reach the screen: a busy window mounts its panel late", async () => {
+			vi.useFakeTimers();
+			try {
+				// e2e on a renderer 4x and 8x slower: the page was asked for and still not laid out 450 ms after the tool opened it.
+				const { page, ask } = await showVisual();
+				let answer: unknown = "pending";
+				void visualPages?.capture(VISUAL, 2, 2000, 2000).then(image => {
+					answer = image;
+				});
+				await vi.advanceTimersByTimeAsync(1200);
+				expect(answer).toBe("pending");
+				await ask({ action: "layout", bounds: BOUNDS, visible: true });
+				page.emit("did-stop-loading");
+				await vi.advanceTimersByTimeAsync(400);
+				expect(answer).toEqual({ data: Buffer.from("png").toString("base64"), mimeType: "image/png" });
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("still gives up when the budget runs out for a tab in front that never reaches the screen", async () => {
+			vi.useFakeTimers();
+			try {
+				const { page } = await showVisual();
+				page.emit("did-stop-loading");
+				let answer: unknown = "pending";
+				void visualPages?.capture(VISUAL, 2, 2000, 2000).then(image => {
+					answer = image;
+				});
+				await vi.advanceTimersByTimeAsync(1900);
+				expect(answer).toBe("pending");
+				await vi.advanceTimersByTimeAsync(150);
+				expect(answer).toBeNull();
+				expect(page.capturePage).not.toHaveBeenCalled();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it("still waits for a page that appears on screen a moment after the tool opened it", async () => {
 			vi.useFakeTimers();
 			try {
 				const { page, ask } = await showVisual();
 				let answer: unknown = "pending";
-				void visualPages?.capture(VISUAL, 2, 2000).then(image => {
+				void visualPages?.capture(VISUAL, 2, 2000, BEHIND).then(image => {
 					answer = image;
 				});
 				await vi.advanceTimersByTimeAsync(200);
@@ -472,7 +512,7 @@ describe("preview host", () => {
 			await ask({ action: "layout", bounds: BOUNDS, visible: true });
 			web.emit("did-stop-loading");
 			expect(web.loaded).toEqual([WEB_URL]);
-			expect(await visualPages?.capture(WEB_VISUAL, 1, 600)).toBeNull();
+			expect(await visualPages?.capture(WEB_VISUAL, 1, 600, BEHIND)).toBeNull();
 			expect(web.capturePage).not.toHaveBeenCalled();
 			// Nor does a notice land on it.
 			visualPages?.flag(WEB_VISUAL, 1, "error");
@@ -480,7 +520,7 @@ describe("preview host", () => {
 
 			// The person browsing on away from it changes nothing: the page keeps its visual, still never captured.
 			web.emit("did-navigate", {}, "https://bank.example/account");
-			expect(await visualPages?.capture(WEB_VISUAL, 1, 600)).toBeNull();
+			expect(await visualPages?.capture(WEB_VISUAL, 1, 600, BEHIND)).toBeNull();
 			expect(web.capturePage).not.toHaveBeenCalled();
 
 			// A file visual in the visual session beside it is.
@@ -488,14 +528,14 @@ describe("preview host", () => {
 			const visual = pages().find(contents => contents !== web);
 			if (!visual) throw new Error("no visual page");
 			visual.emit("did-stop-loading");
-			expect(await visualPages?.capture(VISUAL, 2, 2000)).not.toBeNull();
+			expect(await visualPages?.capture(VISUAL, 2, 2000, BEHIND)).not.toBeNull();
 			expect(visual.capturePage).toHaveBeenCalledTimes(1);
 		});
 
 		it("treats a capture with no pixels as no capture", async () => {
 			const { page } = await loadedVisual();
 			page.capturePage.mockResolvedValueOnce(pngCapture(true));
-			expect(await visualPages?.capture(VISUAL, 2, 2000)).toBeNull();
+			expect(await visualPages?.capture(VISUAL, 2, 2000, BEHIND)).toBeNull();
 		});
 
 		it("shows the judge's notice on that page, never over another notice, and drops it when the page reloads", async () => {
