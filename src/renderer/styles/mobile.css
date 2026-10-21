@@ -1311,6 +1311,41 @@ html[data-input="touch"] [data-autopilot-run-actions] {
 	--hit-gap-y: 10px;
 }
 
+/* A phone's buttons are 24 px behind a 1 px border: 14 px apart and bounded at 14 they reach 36 (10 left them 32). */
+html[data-shell="phone"] [data-autopilot-run-actions] {
+	gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+/* A finished work card's findings (the cause, Tests, Changes, Preview) and its copy button sit 10 px apart (a wrapped
+   line 14 px) and reach 36 px (26 px chips 4 px apart reached 26), and its outcome summary ("Result") is a touch row tall. The row no longer
+   tucks 4 px up under the narrative, and keeps 10 px below, so the reach stays inside its card. */
+html[data-input="touch"] .omp-work-findings {
+	gap: 14px 10px;
+	margin-top: 0;
+	margin-bottom: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
+}
+
+/* The failing step's cause has no border: a 12 px bound makes its 24 px box 36. A wrapped line sits 14 px under it,
+   room for its 6 px reach and the copy button's 7 px. */
+html[data-input="touch"] .omp-work-findings > .omp-work-cause {
+	--hit-gap-y: 12px;
+}
+
+/* The copy button is 24 px on a phone: a 14 px bound makes it 36 (the row's 10 left it 32); it sits apart at the
+   row's end, so its reach covers no chip. */
+html[data-shell="phone"] .omp-work-findings > .omp-work-copy {
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+html[data-input="touch"] .omp-work-outcome summary {
+	min-height: var(--sc-row-touch);
+}
+
 /* Each address sits in 7 px above and below, inside its own row: the first one's reach stops short of the setting's
    info glyph above the list. */
 html[data-input="touch"] [data-remote-addresses] {

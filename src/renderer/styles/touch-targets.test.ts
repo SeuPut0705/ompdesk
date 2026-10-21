@@ -237,6 +237,17 @@ describe("controls close enough to take each other's taps", () => {
 			/margin-block-end:\s*12px/,
 		);
 		expect(rule('html[data-input="touch"] [data-benchmark-chips]')).toMatch(/gap:\s*12px;[^}]*--hit-gap-y:\s*12px/);
+		// A finished work card's findings and copy reach 36 (26 before), staying clear of the steps header and inside the
+		// card; the phone Run sheet's Autopilot buttons sit 14 px apart (10 left a phone's 24 px buttons 32).
+		expect(rule('html[data-input="touch"] .omp-work-findings')).toMatch(
+			/gap:\s*14px 10px;[^}]*margin-top:\s*0;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
+		);
+		expect(rule('html[data-input="touch"] .omp-work-findings > .omp-work-cause')).toMatch(/--hit-gap-y:\s*12px/);
+		expect(rule('html[data-shell="phone"] .omp-work-findings > .omp-work-copy')).toMatch(/--hit-gap-y:\s*14px/);
+		expect(rule('html[data-input="touch"] .omp-work-outcome summary')).toMatch(/min-height:\s*var\(--sc-row-touch\)/);
+		expect(rule('html[data-shell="phone"] [data-autopilot-run-actions]')).toMatch(
+			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
 		// The goal dock bar: an iPad held sideways handed a tap on Pause's right edge to Edit (8 px apart, unbounded).
 		declares("../components/chat/dock/GoalDockBar.tsx", "data-goal-dock");
 		expect(rule('html[data-input="touch"] [data-goal-dock]')).toMatch(
