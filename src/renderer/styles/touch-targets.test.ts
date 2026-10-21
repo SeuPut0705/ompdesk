@@ -319,6 +319,14 @@ describe("controls close enough to take each other's taps", () => {
 				'html[data-shell="phone"][data-input="touch"] [data-figure-header] :is([data-figure-actions], [data-figure-mode])',
 			),
 		).toMatch(/gap:\s*14px/);
+		// A phone's message actions (24 px) 14 px apart; the sidebar update card's buttons reach 36 from 10 px apart.
+		expect(rule('html[data-shell="phone"][data-input="touch"] .omp-message-actions')).toMatch(
+			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px/,
+		);
+		declares("../components/layout/sidebar/SidebarUpdateCard.tsx", "omp-update-card");
+		expect(rule('html[data-input="touch"] .omp-update-card')).toMatch(
+			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
+		);
 		declares("../components/dialogs/WorktreeDialog.tsx", "data-worktree-base");
 		expect(rule('html[data-input="touch"] [data-worktree-base]')).toMatch(/--hit-gap-y:\s*6px/);
 		expect(rule('html[data-input="touch"] [data-worktree-base] > label')).toMatch(

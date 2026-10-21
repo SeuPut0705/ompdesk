@@ -1713,6 +1713,21 @@ html[data-input="touch"] .omp-message-actions {
 	--hit-gap-x: 10px;
 }
 
+/* A phone draws them 24 px: 14 px apart they reach 36 across (10 left them 32). */
+html[data-shell="phone"][data-input="touch"] .omp-message-actions {
+	gap: 14px;
+	--hit-gap-x: 14px;
+}
+
+/* The sidebar's update card: its 28 px Restart and dismiss buttons (26 inside the border) sit 10 px apart on touch and
+   reach 5 px each way, to about the card's own 36 px edge, so each is a 36 px target that never covers its neighbour
+   (8 px apart under the sidebar's bound they reached 28). */
+html[data-input="touch"] .omp-update-card {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
+}
+
 /* The context popover's actions (compact, hand off, details) and a schedule's day buttons wrap in rows 4 px apart: on
    touch 10 px apart each way, so a button's reach ends half way to the next row's instead of covering it. The phone's
    context sheet stacks its actions as 44 px rows of its own. */
