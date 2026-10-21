@@ -11,9 +11,10 @@ import {
 	DISK_CARE_REMOVE_IDLE_DAYS,
 	type DiskCareState,
 } from "../../../shared/disk-care";
-import { formatBytes, formatTimeAgo } from "../../lib/format";
+import { formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { lastRead, rememberRead } from "../../lib/last-read";
+import { useTimeAgo } from "../../lib/now-tick";
 import { toastError } from "../../stores/toast";
 import { Button } from "../common";
 import { SettingsRow } from "./SettingsLayout";
@@ -22,12 +23,12 @@ const READ_KEY = "disk-care";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-function valueLine(t: Translate, state: DiskCareState | null): string {
+/** `ago`: when the last run ended, kept current by the row. */
+function valueLine(t: Translate, state: DiskCareState | null, ago: string): string {
 	if (!state?.usage) return state?.running ? t("diskCare.measuring") : t("diskCare.neverRun");
 	const total = t("diskCare.total", { size: formatBytes(state.usage.total) });
 	const run = state.lastRun;
 	if (!run) return `${total} · ${t("diskCare.neverRun")}`;
-	const ago = formatTimeAgo(new Date(run.endedAt).toISOString());
 	return `${total} · ${t("diskCare.freed", { size: formatBytes(run.freedBytes), ago })}`;
 }
 
@@ -52,6 +53,7 @@ export function DiskCareRow() {
 	const t = useT();
 	const [state, setState] = useState<DiskCareState | null>(() => lastRead<DiskCareState>(undefined, READ_KEY) ?? null);
 	const [starting, setStarting] = useState(false);
+	const lastRunAgo = useTimeAgo(state?.lastRun?.endedAt);
 
 	useEffect(() => {
 		let live = true;
@@ -109,7 +111,7 @@ export function DiskCareRow() {
 			tipOnly
 		>
 			<p className="text-sc-sm break-words text-(--sc-text-secondary)" data-testid="disk-care-status">
-				{valueLine(t, state)}
+				{valueLine(t, state, lastRunAgo)}
 			</p>
 		</SettingsRow>
 	);

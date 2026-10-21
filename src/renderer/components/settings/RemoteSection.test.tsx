@@ -412,6 +412,30 @@ describe("RemoteSection", () => {
 		expect(offline?.textContent).toContain(translate("remote.host.lastSeen", { time: "1m" }));
 	});
 
+	it("moves an away device's last-seen time on while Settings stays open", async () => {
+		vi.useFakeTimers();
+		try {
+			const away = {
+				...LAPTOP,
+				deviceId: "peer-away",
+				name: "away",
+				online: false,
+				lastSeenAt: Date.now() - 60_000,
+			};
+			remote.getState.mockImplementation(async () => hostOn({ peers: [away] }));
+			await mount();
+			const line = () => document.querySelector('[data-remote-peer="peer-away"] [data-peer-usage]')?.textContent;
+			expect(line()).toContain(translate("remote.host.lastSeen", { time: "1m" }));
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(60_000);
+			});
+			expect(line()).toContain(translate("remote.host.lastSeen", { time: "2m" }));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("says whether a connected computer runs an older or a newer OMPdesk than this one", async () => {
 		remote.getState.mockImplementation(async () => ({
 			...hostOn({ peers: [{ ...LAPTOP, appVersion: "0.53.0" }] }),

@@ -18,9 +18,9 @@ import {
 	webDeviceTier,
 } from "../../../shared/mobile-web";
 import { WEB_PERMISSIONS, type WebPermission } from "../../../shared/web-protocol";
-import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { useTimeAgo } from "../../lib/now-tick";
 import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../../stores/mobile-web";
 import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, MenuButton, Select, Switch } from "../common";
 import { DeviceNameField } from "./DeviceNameField";
@@ -82,10 +82,8 @@ function DeviceRow({
 	const t = useT();
 	const [renaming, setRenaming] = useState(false);
 	const tier = webDeviceTier(device.grants);
-	const seen =
-		device.lastSeenAt === null
-			? t("remote.host.neverSeen")
-			: t("remote.host.lastSeen", { time: formatTimeAgo(new Date(device.lastSeenAt).toISOString()) });
+	const seenAgo = useTimeAgo(device.lastSeenAt);
+	const seen = device.lastSeenAt === null ? t("remote.host.neverSeen") : t("remote.host.lastSeen", { time: seenAgo });
 	const parts = [
 		seen,
 		device.tailscaleLogin ? t("mobileWeb.devices.user", { user: device.tailscaleLogin }) : "",

@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useNowTick, useTimeAgo } from "./now-tick";
+import { useNowTick, useTimeAgo, useTimeAgos } from "./now-tick";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -87,5 +87,30 @@ describe("useTimeAgo", () => {
 		await seconds(1);
 		expect(label).toBe("2m");
 		expect(ageRenders).toBe(mounted + 1);
+	});
+});
+
+describe("useTimeAgos", () => {
+	it("keeps every age in a list current, rendering only when one of them changes", async () => {
+		let labels: readonly string[] = [];
+		let listRenders = 0;
+		function Ages({ values }: { values: readonly (string | number | null)[] }) {
+			labels = useTimeAgos(values);
+			listRenders++;
+			return null;
+		}
+		const values = [Date.now() - 90_000, new Date(Date.now() - 3 * 3_600_000).toISOString(), null];
+		await act(async () => root.render(<Ages values={values} />));
+		expect(labels).toEqual(["1m", "3h", ""]);
+		const mounted = listRenders;
+		await seconds(29);
+		expect(listRenders).toBe(mounted);
+		await seconds(1);
+		expect(labels).toEqual(["2m", "3h", ""]);
+		expect(listRenders).toBe(mounted + 1);
+
+		// A new list reads at once, in its own order.
+		await act(async () => root.render(<Ages values={[null, Date.now() - 5 * 60_000]} />));
+		expect(labels).toEqual(["", "5m"]);
 	});
 });

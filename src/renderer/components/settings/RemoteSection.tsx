@@ -37,10 +37,10 @@ import { useEffect, useId, useState } from "react";
 import type { RemoteHostState, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
 import { compareVersions } from "../../../shared/version";
 import { useHostAppearanceStore } from "../../hooks/use-host-appearance";
-import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { onEscape } from "../../lib/keymap";
+import { useTimeAgos } from "../../lib/now-tick";
 import { loadMobileWeb, useMobileWebStore } from "../../stores/mobile-web";
 import { loadRemoteState, useRemoteStore } from "../../stores/remote";
 import { toastError } from "../../stores/toast";
@@ -355,6 +355,8 @@ export function RemoteSection() {
 	// The allowed accounts and the blocks are Mobile web's (one list, one set of blocks for both).
 	const mobileWeb = useMobileWebStore(store => store.state);
 	const blocked = useMobileWebStore(store => store.blocked);
+	// When each away device was last here, moving on while Settings stays open.
+	const peerSeen = useTimeAgos(state?.host.peers.map(peer => (peer.online ? null : peer.lastSeenAt)) ?? []);
 
 	const confirmRemove = () => {
 		const target = pendingRemove;
@@ -448,16 +450,14 @@ export function RemoteSection() {
 						<SettingsRow icon={<Users />} label={t("remote.host.peers")}>
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>
-									{host.peers.map(peer => {
+									{host.peers.map((peer, index) => {
 										// While connected the record holds when it connected, which would read as "last seen hours
 										// ago" next to its Online badge: only a device away says when it was last here.
 										const seen = peer.online
 											? null
 											: peer.lastSeenAt === null
 												? t("remote.host.neverSeen")
-												: t("remote.host.lastSeen", {
-														time: formatTimeAgo(new Date(peer.lastSeenAt).toISOString()),
-													});
+												: t("remote.host.lastSeen", { time: peerSeen[index] ?? "" });
 										const usage = peerUsageLine(peer, t);
 										// The version a connected device runs: an older one is the one to update.
 										const version = peer.appVersion

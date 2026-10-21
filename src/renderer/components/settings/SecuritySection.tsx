@@ -15,6 +15,7 @@ import type {
 import { errorDetail } from "../../lib/error-detail";
 import { cx, formatAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useAgeLabels } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import {
@@ -52,8 +53,11 @@ const SEVERITY_FILL: Record<Severity, string> = {
 	informational: "bg-(--sc-info)",
 };
 
+/** How many of the newest scans the page lists. */
+const RECENT_SCANS = 5;
+
 /** When a scan ran, as a past moment in the UI language ("5분 전", "5m ago"); "—" before the first. */
-function formatWhen(value?: string): string {
+function formatWhen(value: string | number | null | undefined): string {
 	return formatAgo(value) || "—";
 }
 
@@ -80,6 +84,11 @@ export function SecuritySection() {
 	const t = useT();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const [dashboard, setDashboard] = useState<RpcSecurityDashboardResult>();
+	// When each scan ran, newest first, moving on while the page stays open.
+	const scanTimes = useAgeLabels(
+		dashboard?.scans.slice(0, RECENT_SCANS).map(scan => scan.completedAt ?? scan.createdAt) ?? [],
+		formatWhen,
+	);
 	const [selectedScan, setSelectedScan] = useState<RpcSecurityScanResult>();
 	const [selectedFindingId, setSelectedFindingId] = useState<string>();
 	const [target, setTarget] = useState<RpcSecurityTargetInput>({ kind: "working_tree" });
@@ -348,7 +357,7 @@ export function SecuritySection() {
 					</Badge>
 					<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
 						{t("security.lastScan", {
-							time: formatWhen(dashboard.scans[0]?.completedAt ?? dashboard.scans[0]?.createdAt),
+							time: scanTimes[0] ?? formatWhen(undefined),
 						})}
 					</span>
 				</div>
@@ -529,7 +538,7 @@ export function SecuritySection() {
 						)}
 						<div className={cx(findings.length > 0 && "mt-5 border-t border-(--sc-divider) pt-3")}>
 							<h3 className="mb-2 text-sc-sm font-semibold text-(--sc-text)">{t("security.recentScans")}</h3>
-							{dashboard.scans.slice(0, 5).map(scan => (
+							{dashboard.scans.slice(0, RECENT_SCANS).map((scan, index) => (
 								<ListRow
 									disabled={!sidecarReady}
 									key={scan.id}
@@ -542,7 +551,7 @@ export function SecuritySection() {
 											<CircleDashed className="text-(--sc-warning)" />
 										)
 									}
-									meta={`${scan.findingCount} · ${formatWhen(scan.completedAt ?? scan.createdAt)}`}
+									meta={`${scan.findingCount} · ${scanTimes[index] ?? ""}`}
 									onClick={() => void pickScan(scan.id)}
 									title={t(`security.target.${targetLabel(scan.target)}`)}
 								/>
