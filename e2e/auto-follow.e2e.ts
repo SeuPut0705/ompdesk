@@ -228,33 +228,43 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
 		// Each entrance, measured as it starts (the row 10px low, where it reaches furthest), so a slow machine whose
 		// frames outlast the 220 ms rise still measures it (a hosted runner's frame sampler saw no frame of the rise at
-		// all). Two signals: the slot gaining `omp-row-arrive` (read at once, the layout read resolves the animation's
-		// first keyframe) and the animation's own `animationstart`. Under four parallel apps the rows were marked yet no
-		// `animationstart` came (2 of 24 runs), so the mark alone counts too.
+		// all). Three signals, any of them counts: the animation's own `animationstart`, a slot gaining `omp-row-arrive`,
+		// and a slot inserted already carrying it (read at once: the layout read resolves the animation's first keyframe).
+		// Under four parallel apps the turn's rows ended up marked while `animationstart` alone counted none in 2 to 12
+		// of 36 runs; with all three signals, listened for on the whole document and measured against the row's own
+		// scroller, 2 of 36 still see none (follow-up: how a marked row reaches the page unseen).
 		await page.evaluate(() => {
-			const scroll = document.querySelector<HTMLElement>(".omp-transcript-scroll");
-			const canvas = document.querySelector<HTMLElement>(".omp-transcript-canvas");
-			if (!scroll || !canvas) throw new Error("expected the transcript");
 			const probe = { overflow: 0, entrances: 0 };
 			// Test-only global the second evaluate reads back.
 			(window as unknown as { __entrance: typeof probe }).__entrance = probe;
-			const measured = new WeakSet<Element>();
+			const counted = new WeakSet<Element>();
+			// Every signal samples the overflow (the mark may come before the rise's first frame applies); each row
+			// counts as one entrance.
 			const measure = (row: Element) => {
-				if (!row.matches(".omp-row-arrive > .omp-transcript-row") || measured.has(row)) return;
-				measured.add(row);
-				probe.entrances++;
+				if (!row.matches(".omp-row-arrive > .omp-transcript-row")) return;
+				const scroll = row.closest<HTMLElement>(".omp-transcript-scroll");
+				const canvas = row.closest<HTMLElement>(".omp-transcript-canvas");
+				if (!scroll || !canvas) return;
 				probe.overflow = Math.max(
 					probe.overflow,
 					scroll.scrollHeight - Math.max(canvas.offsetHeight, scroll.clientHeight),
 				);
+				if (counted.has(row)) return;
+				counted.add(row);
+				probe.entrances++;
 			};
-			canvas.addEventListener("animationstart", event => measure(event.target as Element));
+			const measureIn = (node: Node) => {
+				if (!(node instanceof Element)) return;
+				for (const row of node.querySelectorAll(".omp-row-arrive > .omp-transcript-row")) measure(row);
+				if (node.matches(".omp-transcript-row")) measure(node);
+			};
+			document.addEventListener("animationstart", event => measure(event.target as Element), true);
 			new MutationObserver(records => {
 				for (const record of records) {
-					const slot = record.target as Element;
-					for (const row of slot.querySelectorAll(":scope > .omp-transcript-row")) measure(row);
+					measureIn(record.target);
+					for (const node of record.addedNodes) measureIn(node);
 				}
-			}).observe(canvas, { subtree: true, attributes: true, attributeFilter: ["class"] });
+			}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
 		});
 		await sendTurn("fixture turn 1");
 		await expect.poll(entering).toBe(false);
