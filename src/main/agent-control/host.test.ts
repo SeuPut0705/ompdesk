@@ -283,6 +283,34 @@ describe("AgentControlRuntime", () => {
 			vi.useRealTimers();
 		}
 	});
+	it("tells the opener's board when a child restored by a relaunch closes, though the pool no longer names its opener", async () => {
+		vi.useFakeTimers();
+		try {
+			// After a relaunch only the pool knows the opener (by its session file); once the child's tab is released the
+			// pool forgets the child, so the opener is not found from it any more.
+			const { runtime, win, tabs, deps, activity } = setup({
+				tabs: [
+					{ tabId: "main0001", sessionPath: "/s/boss.jsonl" },
+					{ tabId: "kid00002", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
+				],
+				sweepMs: 0,
+			});
+			deps.pool.sessionOwner = sessionPath =>
+				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
+			let current: unknown[] = [{ tabId: "kid00002" }];
+			vi.spyOn(runtime.control, "review").mockImplementation(async () => ({ items: current, usage: {} }) as never);
+			// The board asked when it mounted: it lists the child.
+			expect((await runtime.review(win, "main0001")).items).toEqual([{ tabId: "kid00002" }]);
+			current = [];
+			tabs.splice(1, 1);
+			for (const observer of activity) observer({ type: "released", tabId: "kid00002" });
+			await vi.advanceTimersByTimeAsync(5_000);
+			const frames = win.sent.filter(([channel]) => channel === AGENT_CONTROL_REVIEW).map(([, payload]) => payload);
+			expect(frames.at(-1)).toEqual({ tabId: "main0001", items: [], usage: {} });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 	it("never starts a timer review of an opener while its last one still reads git", async () => {
 		vi.useFakeTimers();
 		try {
