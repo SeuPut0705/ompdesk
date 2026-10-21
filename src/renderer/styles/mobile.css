@@ -766,10 +766,16 @@ html[data-input="touch"] [data-choice-list] {
 	--hit-gap-y: 4px;
 }
 
-/* A work card's step chips sit 2 px apart in portrait: their reach stops in that gap instead of covering the next chip
-   (a phone held sideways spaces them 12 px apart, below). */
-html[data-shell] .omp-live-work-chips {
-	--hit-gap-x: 2px;
+/* A work card's step chips: under a finger the 24 px chips sit 12 px apart in a scroller whose padding (taken back by
+   its margin) keeps their 6 px reach inside its clip, so each is a 36 px tap and stays drawn at 24 (a chip is never
+   lifted visually). Until 22 Oct 2026 only a phone held sideways spaced them; a portrait phone and a tablet drew 26 × 28
+   targets 2 px apart. */
+html[data-input="touch"] .omp-live-work-chips {
+	gap: 12px;
+	padding-block: 6px;
+	margin-block: -6px;
+	--hit-gap-x: 12px;
+	--hit-gap-y: 12px;
 }
 
 /* ── Phone density: smaller and denser than the desktop, like a phone chat app ────────────────────────────── */
@@ -1929,17 +1935,7 @@ html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-side
 		--hit-gap-y: 10px;
 	}
 
-	/* A work card's head and its step chips: the 24 px step chips sit 12 px apart in a scroller whose padding (taken
-	   back by its margin) keeps their 6 px reach inside its clip, so each is a 36 px tap and stays drawn at 24 (a chip
-	   is never lifted visually); the head's "Steps" row is 36 px high. */
-	html[data-shell="phone"] .omp-live-work-chips {
-		gap: 12px;
-		padding-block: 6px;
-		margin-block: -6px;
-		--hit-gap-x: 12px;
-		--hit-gap-y: 12px;
-	}
-
+	/* A work card's head: the "Steps" row is 36 px high (its step chips are 36 px taps under any finger, above). */
 	html[data-shell="phone"] :is(.omp-work-head-side, .omp-execution-group-header--embedded) {
 		min-height: 36px;
 	}
