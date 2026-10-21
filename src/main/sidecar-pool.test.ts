@@ -1825,24 +1825,26 @@ describe("SidecarPool request-origin routing (F-UI-ORIGIN)", () => {
 		expect(await pool.routeSideChannel("req-offline", response)).toBe(false);
 	});
 
-	it("fails host-uri requests on the raising sidecar instead of forwarding them", async () => {
+	it("fails host-uri requests on the raising sidecar instead of forwarding them, a hidden tab's too", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
 		pool.acquire("/b", fw.win, "tab-b");
 		const [a, b] = sidecars;
+		const refusal = (id: string) => ({
+			type: "host_uri_result",
+			id,
+			isError: true,
+			error: "OMPdesk serves no host URI for https://example.com",
+		});
 
 		a?.emitHostUriRequest("uri-1");
-		expect(a?.sentFrames).toEqual([
-			{
-				type: "host_uri_result",
-				id: "uri-1",
-				isError: true,
-				error: "OMPdesk serves no host URI for https://example.com",
-			},
-		]);
+		expect(a?.sentFrames).toEqual([refusal("uri-1")]);
 		expect(b?.sentFrames).toEqual([]);
 		expect(await pool.routeSideChannel("uri-1", { type: "host_uri_result", id: "uri-1" })).toBe(false);
+		// A background tab's omp waits on its read as much as a shown one's (a host re-sends it when the tab attaches).
+		b?.emitHostUriRequest("uri-2");
+		expect(b?.sentFrames).toEqual([refusal("uri-2")]);
 	});
 
 	it("answers host tools through the executor without tracking a route", async () => {
