@@ -61,6 +61,8 @@ function asPeer(device: WebDeviceInfo): PeerView {
 		name: device.name,
 		login: device.tailscaleLogin,
 		online: device.connected,
+		// A phone's page is the computer's own build: no version of its own to name.
+		appVersion: null,
 		lastSeenAt: device.lastSeenAt,
 		limits: device.limits,
 		usage: device.usage,

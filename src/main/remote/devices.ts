@@ -237,7 +237,8 @@ export class RemoteDevices {
 
 	state(): RemoteState {
 		const host = this.#host;
-		const online = new Set((host?.connections() ?? []).map(peer => peer.deviceId));
+		const versions = new Map((host?.connections() ?? []).map(peer => [peer.deviceId, peer.appVersion]));
+		const online = new Set(versions.keys());
 		const using = new Set([...online, ...this.#deps.services.runningPeers()]);
 		const peers = this.#peers.list();
 		const forgotten = this.#deps.prefs.get(FORGOTTEN_KEY);
@@ -254,6 +255,7 @@ export class RemoteDevices {
 					name: peer.name,
 					login: peer.login,
 					online: online.has(peer.deviceId),
+					appVersion: versions.get(peer.deviceId) ?? null,
 					lastSeenAt: peer.lastSeenAt ?? null,
 					limits: peer.limits ?? {},
 					usage: this.#quota.usage(peer),
@@ -944,6 +946,7 @@ export class RemoteDevices {
 		if (client.hello) {
 			view.platform = client.hello.platform;
 			view.home = client.hello.home;
+			view.appVersion = client.hello.appVersion;
 		}
 		return view;
 	}

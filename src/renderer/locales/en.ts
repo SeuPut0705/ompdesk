@@ -5819,6 +5819,7 @@ export const en: Record<string, string> = {
 	"remote.host.noPeers": "No device has connected yet.",
 	"remote.host.lastSeen": "Last seen {time}",
 	"remote.host.neverSeen": "Not connected yet",
+	"remote.version": "OMPdesk {version}",
 	"remote.host.keepAwake": "Keep this computer awake while a device is using it",
 	"remote.host.keepAwakeDesc": "Only while a device is connected or its session runs.",
 	"remote.host.keepingAwake": "Keeping awake now",

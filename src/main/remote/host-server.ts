@@ -123,10 +123,18 @@ class PeerConnection implements HostConnection {
 	readonly slimEvents: boolean;
 	readonly slimProgress: boolean;
 	readonly slimAutopilot: boolean;
+	/** The device's OMPdesk version, from its hello. */
+	readonly appVersion: string;
 
-	constructor(link: Link, peer: PeerInfo, slim: { events: boolean; progress: boolean; autopilot: boolean }) {
+	constructor(
+		link: Link,
+		peer: PeerInfo,
+		slim: { events: boolean; progress: boolean; autopilot: boolean },
+		appVersion: string,
+	) {
 		this.link = link;
 		this.peer = peer;
+		this.appVersion = appVersion;
 		this.slimEvents = slim.events;
 		this.slimProgress = slim.progress;
 		this.slimAutopilot = slim.autopilot;
@@ -284,10 +292,11 @@ export class RemoteHost {
 		return this.#bound.map(host => formatAddress({ host, port }));
 	}
 
-	/** Peers with at least one live authenticated connection. */
-	connections(): PeerInfo[] {
-		const peers = new Map<string, PeerInfo>();
-		for (const conn of this.#connections) peers.set(conn.peer.deviceId, { ...conn.peer });
+	/** Peers with at least one live authenticated connection, with the OMPdesk version their newest one runs. */
+	connections(): Array<PeerInfo & { appVersion: string }> {
+		const peers = new Map<string, PeerInfo & { appVersion: string }>();
+		for (const conn of this.#connections)
+			peers.set(conn.peer.deviceId, { ...conn.peer, appVersion: conn.appVersion });
 		return [...peers.values()];
 	}
 
@@ -443,11 +452,16 @@ export class RemoteHost {
 		});
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
 		const slimEvents = hello.slimEvents === true;
-		const conn = new PeerConnection(link, current, {
-			events: slimEvents,
-			progress: slimEvents && hello.slimProgress === true,
-			autopilot: slimEvents && hello.slimAutopilot === true,
-		});
+		const conn = new PeerConnection(
+			link,
+			current,
+			{
+				events: slimEvents,
+				progress: slimEvents && hello.slimProgress === true,
+				autopilot: slimEvents && hello.slimAutopilot === true,
+			},
+			hello.appVersion,
+		);
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		// The device's build and what it can read: a busy traffic line is read against them (whole frames to an older
@@ -455,7 +469,7 @@ export class RemoteHost {
 		this.#opts.logLink?.("open", {
 			deviceId: current.deviceId,
 			ms: openedAt - acceptedAt,
-			appVersion: hello.appVersion,
+			appVersion: conn.appVersion,
 			slim: slimNames(conn),
 		});
 		const { logLink } = this.#opts;

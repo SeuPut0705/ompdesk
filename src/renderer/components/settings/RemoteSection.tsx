@@ -447,7 +447,11 @@ export function RemoteSection() {
 														time: formatTimeAgo(new Date(peer.lastSeenAt).toISOString()),
 													});
 										const usage = peerUsageLine(peer, t);
-										const line = usage ? `${seen} · ${usage}` : seen;
+										// The version a connected device runs: an older one is the one to update.
+										const version = peer.appVersion
+											? t("remote.version", { version: peer.appVersion })
+											: null;
+										const line = [seen, usage, version].filter(Boolean).join(" · ");
 										return (
 											<ListRow
 												actions={
@@ -556,10 +560,20 @@ export function RemoteSection() {
 										/>
 									}
 									description={
-										entry.home ? (
+										entry.home || entry.appVersion ? (
 											// The row truncates the host's folder; hover names it in full.
-											<span className="font-mono" title={entry.home}>
-												{entry.home}
+											<span
+												data-remote-host-detail
+												title={[
+													entry.appVersion && t("remote.version", { version: entry.appVersion }),
+													entry.home,
+												]
+													.filter(Boolean)
+													.join(" · ")}
+											>
+												{entry.appVersion ? t("remote.version", { version: entry.appVersion }) : null}
+												{entry.appVersion && entry.home ? " · " : null}
+												{entry.home ? <span className="font-mono">{entry.home}</span> : null}
 											</span>
 										) : undefined
 									}

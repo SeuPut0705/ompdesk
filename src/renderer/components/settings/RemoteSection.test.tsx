@@ -34,6 +34,7 @@ const LAPTOP: PeerView = {
 	name: "laptop",
 	login: "me@example.com",
 	online: true,
+	appVersion: "0.52.7",
 	lastSeenAt: Date.now() - 60_000,
 	limits: {},
 	usage: { requests: 0, tokens: 0 },
@@ -234,7 +235,10 @@ describe("RemoteSection", () => {
 		// A narrow window truncates the name and "Last seen …"; each keeps its full text on hover.
 		expect(peer?.querySelector('[title="laptop"]')).not.toBeNull();
 		const seen = translate("remote.host.lastSeen", { time: "1m" });
-		expect([...(peer?.querySelectorAll("[title]") ?? [])].map(node => node.getAttribute("title"))).toContain(seen);
+		const version = translate("remote.version", { version: "0.52.7" });
+		expect([...(peer?.querySelectorAll("[title]") ?? [])].map(node => node.getAttribute("title"))).toContain(
+			`${seen} · ${version}`,
+		);
 	});
 
 	it("says which ports are taken when the host listens nowhere", async () => {
@@ -386,6 +390,24 @@ describe("RemoteSection", () => {
 
 		const home = document.querySelector('[data-remote-host="host-b"] [title="/Users/someone-with-a-long-name"]');
 		expect(home?.textContent).toBe("/Users/someone-with-a-long-name");
+	});
+
+	it("names the OMPdesk version a connected host and a connected device run, and none for one offline", async () => {
+		remote.getState.mockImplementation(async () => ({
+			...hostOn({
+				peers: [LAPTOP, { ...LAPTOP, deviceId: "peer-old", name: "old", online: false, appVersion: null }],
+			}),
+			hosts: [{ deviceId: "host-b", name: "Host B", state: "online", home: "/Users/b", appVersion: "0.50.0" }],
+		}));
+		await mount();
+
+		const host = document.querySelector('[data-remote-host="host-b"] [data-remote-host-detail]');
+		expect(host?.textContent).toBe(`${translate("remote.version", { version: "0.50.0" })} · /Users/b`);
+		expect(host?.getAttribute("title")).toBe(host?.textContent);
+		const online = document.querySelector('[data-remote-peer="peer-laptop"] [data-peer-usage]');
+		expect(online?.textContent).toContain(translate("remote.version", { version: "0.52.7" }));
+		const offline = document.querySelector('[data-remote-peer="peer-old"] [data-peer-usage]');
+		expect(offline?.textContent).not.toContain("OMPdesk");
 	});
 
 	it("shows a device's use today against its limits and saves new limits through setPeerLimits", async () => {

@@ -1663,6 +1663,8 @@ export interface HostView {
 	platform?: string;
 	/** Host home directory (folder picker start); absent until the first connection. */
 	home?: string;
+	/** The host's OMPdesk version, from its last hello; absent until the first connection. */
+	appVersion?: string;
 }
 
 /** A device that uses this computer (B role); recorded the first time Tailscale let it in. */
@@ -1672,6 +1674,8 @@ export interface PeerView {
 	/** The Tailscale login of the node it connects from; null for a device paired by code and not seen since. */
 	login: string | null;
 	online: boolean;
+	/** The OMPdesk version of its live connection; null while it is not connected. */
+	appVersion: string | null;
 	/** Epoch ms of the last live connection; null when it never connected after pairing. */
 	lastSeenAt: number | null;
 	/** Daily limits on this computer's models for the device; empty = unlimited. */

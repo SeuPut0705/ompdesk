@@ -62,7 +62,9 @@ describe("computers of the tailnet", () => {
 		const view = await a.devices.connect("nSTUDIO");
 		await until(a, state => state.hosts[0]?.state === "online");
 		const peers = (await until(b, state => state.host.peers[0]?.online === true)).host.peers;
-		expect(peers).toMatchObject([{ name: "Laptop", login: LOGIN }]);
+		// Each side names the OMPdesk version the other runs, from its hello.
+		expect(peers).toMatchObject([{ name: "Laptop", login: LOGIN, appVersion: "1.0.0" }]);
+		expect(a.devices.state().hosts[0]?.appVersion).toBe("1.0.0");
 		expect(view.name).toBe("Studio");
 		expect(a.tailnet.pushed).toMatchObject([{ nodeId: "nSTUDIO", connected: true }]);
 	});

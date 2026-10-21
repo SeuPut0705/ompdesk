@@ -291,6 +291,7 @@ export const REMOTE_STATE: RemoteState = {
 				name: "Work laptop",
 				login: "seuput@example.com",
 				online: true,
+				appVersion: "0.52.7",
 				lastSeenAt: NOW - 30_000,
 				limits: { requestsPerDay: 100, tokensPerDay: 500_000 },
 				usage: { requests: 12, tokens: 61_000 },
