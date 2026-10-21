@@ -1491,10 +1491,19 @@ html[data-input="touch"] .omp-message-actions {
 /* The context popover's actions (compact, hand off, details) and a schedule's day buttons wrap in rows 4 px apart: on
    touch 10 px apart each way, so a button's reach ends half way to the next row's instead of covering it. The phone's
    context sheet stacks its actions as 44 px rows of its own. */
-html[data-input="touch"] :is([data-context-actions]:not(.flex-col), div:has(> [data-schedule-day])) {
+html[data-input="touch"] [data-context-actions]:not(.flex-col) {
 	gap: 10px;
 	--hit-gap-x: 10px;
 	--hit-gap-y: 10px;
+}
+
+/* A day button is 24 px high on a phone: its row of days wraps 14 px apart and each reaches 7 px up and down, a 36 px
+   target (10 px left it 32); above is the legend and below the hint, neither of them a control. */
+html[data-input="touch"] div:has(> [data-schedule-day]) {
+	column-gap: 10px;
+	row-gap: 14px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 14px;
 }
 
 /* Settings' clusters of buttons on one line (a schedule's Stop / Run now / ⋯, Preview beside Save diagnostic bundle,

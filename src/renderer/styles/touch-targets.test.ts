@@ -199,6 +199,12 @@ describe("controls close enough to take each other's taps", () => {
 		).toMatch(/gap:\s*10px/);
 	});
 
+	it("gives a schedule's day buttons room for a 36 px reach up and down", () => {
+		expect(rule('html[data-input="touch"] div:has(> [data-schedule-day])')).toMatch(
+			/row-gap:\s*14px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*14px/,
+		);
+	});
+
 	it("declares the gap of the wrapping rows and clusters the audit found", () => {
 		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-run-actions");
 		declares("../components/settings/RemoteSection.tsx", "data-remote-addresses");
