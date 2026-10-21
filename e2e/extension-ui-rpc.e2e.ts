@@ -112,12 +112,20 @@ for (const language of variants(["en", "ko"] as const))
 				// ── Several requests at once ───────────────────────────────────
 				// Every frame the page hears, for the failure below (CI only, 4 of the last 5 nightlies: the status line
 				// held "Indexer ready" without the "✓ 128 tests" sent just before it, while the widget after both came).
+				// Nightly 39539556435 showed the page did hear "b-tests" 24 ms before "a-index": the store lost it after.
+				// A tab status whose session id or file differs replaces the tab's runtime (stores/tabs.ts
+				// `tabSessionChanged`), so the statuses are recorded beside the frames.
 				await page.evaluate(() => {
 					const heard: string[] = [];
 					Reflect.set(window, "__extensionUiHeard", heard);
 					window.omp.events.onExtensionUi((request, tabId) => {
 						const key = "statusKey" in request ? ` ${String(request.statusKey)}` : "";
 						heard.push(`${performance.now().toFixed(0)} ${tabId} ${request.method}${key}`);
+					});
+					window.omp.events.onTabStatus(status => {
+						heard.push(
+							`${performance.now().toFixed(0)} ${status.tabId} status ${status.status} session ${status.sessionId ?? "-"} file ${status.sessionPath ?? "-"}`,
+						);
 					});
 				});
 				await fixture(page, "fixture:ext-ui");
