@@ -110,6 +110,16 @@ for (const language of variants(["en", "ko"] as const))
 			page.on("pageerror", error => errors.push(error.message));
 			try {
 				// ── Several requests at once ───────────────────────────────────
+				// Every frame the page hears, for the failure below (CI only, 4 of the last 5 nightlies: the status line
+				// held "Indexer ready" without the "✓ 128 tests" sent just before it, while the widget after both came).
+				await page.evaluate(() => {
+					const heard: string[] = [];
+					Reflect.set(window, "__extensionUiHeard", heard);
+					window.omp.events.onExtensionUi((request, tabId) => {
+						const key = "statusKey" in request ? ` ${String(request.statusKey)}` : "";
+						heard.push(`${performance.now().toFixed(0)} ${tabId} ${request.method}${key}`);
+					});
+				});
 				await fixture(page, "fixture:ext-ui");
 				const card = page.locator(".omp-ask-dock [data-prompt-card]");
 				await expect(card).toHaveCount(1);
@@ -127,6 +137,7 @@ for (const language of variants(["en", "ko"] as const))
 									.locator(".omp-below-editor-dock")
 									.evaluateAll(nodes => nodes.map(n => n.outerHTML.slice(0, 2000))),
 								open: await page.evaluate(() => window.omp.ui.openRequests()),
+								heard: await page.evaluate(() => Reflect.get(window, "__extensionUiHeard")),
 								tabs: await page.evaluate(() => window.omp.tabs.list()),
 							},
 							null,
