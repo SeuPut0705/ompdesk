@@ -1302,9 +1302,10 @@ export function Sidebar() {
 		}
 		await openTab({ cwd: target, kind: "agent" });
 	};
-	const startChat = () => {
+	/** New chat, on this computer or on a paired host (`device`), which runs it in its own workspace. */
+	const startChat = (device?: string) => {
 		useUiStore.getState().closeDestination();
-		void openTab({ kind: "chat" });
+		void openTab({ kind: "chat", ...(device === undefined ? {} : { device }) });
 	};
 	/** Pick an existing folder or make one in the native panel ("New Folder"), then start a session there. */
 	const openProjectFolder = async () => {
@@ -2281,7 +2282,12 @@ export function Sidebar() {
 							<EmptyState
 								actions={
 									<>
-										<Button icon={<MessageSquarePlus />} onClick={startChat} size="sm" variant="secondary">
+										<Button
+											icon={<MessageSquarePlus />}
+											onClick={() => startChat()}
+											size="sm"
+											variant="secondary"
+										>
 											{t("sidebar.menu.newChat")}
 										</Button>
 										{otherModeCount > 0 && (
@@ -2450,15 +2456,17 @@ export function Sidebar() {
 								value={filter}
 							/>
 						</div>
-						{mode === "chat" ? (
+						{/* Once a host is paired every device header ends in this lane's button, so the search row's
+						    would be a second one for this device. */}
+						{sectionHosts.length > 0 ? null : mode === "chat" ? (
 							<IconButton
 								data-sidebar-new-chat
 								icon={<MessageSquarePlus />}
 								label={t("sidebar.newChat")}
-								onClick={startChat}
+								onClick={() => startChat()}
 								variant="ghost"
 							/>
-						) : sectionHosts.length === 0 ? (
+						) : (
 							<IconButton
 								data-sidebar-open-project
 								icon={<FolderPlus />}
@@ -2466,7 +2474,7 @@ export function Sidebar() {
 								onClick={() => void openProjectFolder()}
 								variant="ghost"
 							/>
-						) : null}
+						)}
 					</div>
 				</div>
 
@@ -2492,7 +2500,11 @@ export function Sidebar() {
 										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
 										{sectionHosts.length > 0 && (
-											<SidebarLocalHeader onAddProject={() => void openProjectFolder()} />
+											<SidebarLocalHeader
+												mode={mode}
+												onAddProject={() => void openProjectFolder()}
+												onNewChat={() => startChat()}
+											/>
 										)}
 										{localList}
 									</div>
@@ -2506,6 +2518,7 @@ export function Sidebar() {
 										host={host}
 										mode={mode}
 										nested={nestedRemote.get(host.deviceId)}
+										onNewChat={startChat}
 										pending={host.pending === true}
 										query={query}
 									/>

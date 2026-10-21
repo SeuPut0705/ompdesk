@@ -5830,6 +5830,7 @@ export const en: Record<string, string> = {
 	"remote.picker.truncated": "Too many folders to list them all here. Filter by name to find the rest.",
 	"remote.sidebar.thisDevice": "This device",
 	"remote.sidebar.addProject": "Add project on {name}",
+	"remote.sidebar.newChat": "New chat on {name}",
 	"remote.sidebar.offline": "Offline. Sessions show up when it's back.",
 	"remote.sidebar.deleteMessage":
 		"Delete {name} on {device}? This permanently removes its transcript on that computer and cannot be undone.",

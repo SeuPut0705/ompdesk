@@ -1,11 +1,12 @@
 /**
  * Sidebar sections for paired hosts (remote devices). Each host gets a header
- * — name, link dot, ⌄ toggle, "Add project" — over its projects and sessions,
+ * — name, link dot, ⌄ toggle, the lane's button — over its projects and sessions,
  * grouped like the local list (Code: by project folder; Chat: one recency
  * list). An offline host shows one offline line and no sessions; its list is
  * only read while the link is up. Opening a row reuses the tab already
- * attached to it, else opens a remote tab; "Add project" browses the host's
- * disk with the remote folder picker.
+ * attached to it, else opens a remote tab; in Code the button ("Add project")
+ * browses the host's disk with the remote folder picker, in Chat it starts a
+ * chat on the host.
  */
 import {
 	ChevronDown,
@@ -16,6 +17,7 @@ import {
 	FolderOpen,
 	FolderPlus,
 	MessageCircle,
+	MessageSquarePlus,
 	Monitor,
 	MoreHorizontal,
 	Plus,
@@ -73,22 +75,25 @@ function createdAt(session: SessionInfo): number {
 }
 
 /** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
- * the end, the button that opens or makes a project folder on that device. This device's and every host's alike. */
+ * the end, the lane's own button on that device: in Code it opens or makes a project folder, in Chat (which has no
+ * projects) it starts a chat. This device's and every host's alike. */
 function DeviceHeader({
 	deviceId,
 	folded,
+	mode,
 	name,
 	children,
-	canAdd = true,
-	onAdd,
+	canAct = true,
+	onAction,
 	local,
 }: {
 	deviceId: string;
 	folded: boolean;
+	mode: SidebarDeviceMode;
 	name: string;
 	children?: ReactNode;
-	canAdd?: boolean;
-	onAdd: () => void;
+	canAct?: boolean;
+	onAction: () => void;
 	/** This device's header (`data-sidebar-device-header="local"`); a host's sits in its `[data-device-state]` section. */
 	local?: boolean;
 }) {
@@ -117,11 +122,13 @@ function DeviceHeader({
 			</button>
 			<IconButton
 				className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-				data-sidebar-device-add={deviceId}
-				disabled={!canAdd}
-				icon={<FolderPlus />}
-				label={t("remote.sidebar.addProject", { name })}
-				onClick={onAdd}
+				{...(mode === "chat"
+					? { "data-sidebar-device-new-chat": deviceId }
+					: { "data-sidebar-device-add": deviceId })}
+				disabled={!canAct}
+				icon={mode === "chat" ? <MessageSquarePlus /> : <FolderPlus />}
+				label={t(mode === "chat" ? "remote.sidebar.newChat" : "remote.sidebar.addProject", { name })}
+				onClick={onAction}
 				size="sm"
 				tabIndex={-1}
 			/>
@@ -130,8 +137,16 @@ function DeviceHeader({
 }
 
 /** The header over this device's own list, shown only once a host is paired: it folds the list and, like a host's
- * header, ends in the button that opens or makes a project folder here (the search row's own button then gives way). */
-export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void }) {
+ * header, ends in the lane's button here (the search row's project button then gives way). */
+export function SidebarLocalHeader({
+	mode,
+	onAddProject,
+	onNewChat,
+}: {
+	mode: SidebarDeviceMode;
+	onAddProject: () => void;
+	onNewChat: () => void;
+}) {
 	const t = useT();
 	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
 	return (
@@ -139,8 +154,9 @@ export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void 
 			deviceId={LOCAL_DEVICE}
 			folded={folded}
 			local
+			mode={mode}
 			name={t("remote.sidebar.thisDevice")}
-			onAdd={onAddProject}
+			onAction={mode === "chat" ? onNewChat : onAddProject}
 		/>
 	);
 }
@@ -151,6 +167,7 @@ export function SidebarDeviceSection({
 	query,
 	nested,
 	pending = false,
+	onNewChat,
 }: {
 	host: HostView;
 	mode: SidebarDeviceMode;
@@ -159,6 +176,8 @@ export function SidebarDeviceSection({
 	nested?: ReadonlySet<string>;
 	/** A host the last host-list read named, drawn before this launch's first read: still, as it will look. */
 	pending?: boolean;
+	/** The sidebar's own New chat, started on this host. */
+	onNewChat: (device: string) => void;
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
@@ -182,14 +201,18 @@ export function SidebarDeviceSection({
 			data-sidebar-device={host.deviceId}
 		>
 			<DeviceHeader
-				canAdd={online}
+				canAct={online}
 				deviceId={host.deviceId}
 				folded={collapsed}
+				mode={mode}
 				name={host.name}
-				onAdd={() =>
-					void pickRemoteDirectory(host.deviceId).then(path => {
-						if (path) void openRemote({ cwd: path, kind: "agent" });
-					})
+				onAction={
+					mode === "chat"
+						? () => onNewChat(host.deviceId)
+						: () =>
+								void pickRemoteDirectory(host.deviceId).then(path => {
+									if (path) void openRemote({ cwd: path, kind: "agent" });
+								})
 				}
 			>
 				<span

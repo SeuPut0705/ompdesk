@@ -5819,6 +5819,7 @@ export const ko: Record<string, string> = {
 	"remote.picker.truncated": "폴더가 너무 많아 일부만 보여요. 이름으로 찾으면 나머지도 보여요.",
 	"remote.sidebar.thisDevice": "이 기기",
 	"remote.sidebar.addProject": "{name}에 프로젝트 추가",
+	"remote.sidebar.newChat": "{name}에서 새 채팅",
 	"remote.sidebar.offline": "오프라인이에요. 다시 연결되면 세션이 보여요.",
 	"remote.sidebar.deleteMessage":
 		"{device}의 {name} 세션을 삭제할까요? 그 컴퓨터에서 세션 기록이 영구 삭제되며 되돌릴 수 없어요.",
