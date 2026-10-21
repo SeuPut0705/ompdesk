@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.52.7] - 2026-10-21
+
+연결이 잠깐 끊겨 링크나 업데이트 버튼이 실패하면 이제 알려 주고, 휴대폰과 태블릿의 작은 버튼이 더 누르기 쉬워요.
+
+### 고친 것
+- 링크를 열지 못하거나(연결이 끊김, 휴대폰이 막는 주소) 업데이트 받기·설치·나중에 버튼이 컴퓨터에 닿지 못하면 알림이 떠요. 지금까지는 눌러도 아무 일이 없었어요.
+- 업데이트 실패 알림의 "다시 확인"이 메뉴의 확인과 같아져, 결과가 사이드바 카드에 나와요.
+- 워크트리를 만들지·지울지 묻는 질문의 답이 전달되지 않으면 알려 주고, 질문은 그대로 남아 다시 답할 수 있어요.
+- 휴대폰 페이지가 켜지거나 다시 연결되는 동안 연결이 끊겨도 페이지 오류가 남지 않아요.
+- 휴대폰과 태블릿에서 실행 설정의 (i) 안내 아이콘, 그림·코드 블록의 미리보기·코드·복사·내려받기·확대 버튼이 36px 크기로 눌려요. 컴퓨터 화면은 그대로예요.
+- 오토파일럿 상태가 바뀔 때마다 창과 연결된 기기로 가는 데이터가 더 줄었어요(각 사이클 요약을 로그처럼 400자로 보내요).
+
+<!-- en -->
+
+When a dropped link makes a link or an update button fail, the app now says so, and small buttons on a phone or tablet are easier to tap.
+
+### Fixed
+- A link that cannot open (the link to the computer dropped, an address the phone page refuses) and an update button (download, install, later) that cannot reach the computer now say so; until now the click did nothing.
+- The update failure notice's "Check again" is the menu's check, and its outcome lands in the sidebar card.
+- An answer to the worktree question (create, remove) that could not be sent says so, and the question stays up to answer again.
+- A phone page that loses the link while it starts or reconnects no longer leaves page errors behind.
+- On a phone or tablet, the Run settings' (i) glyphs and a figure's or code block's Preview, Code, copy, download and enlarge buttons are 36 px targets. The desktop layout is unchanged.
+- Each Autopilot status update to windows and paired devices is smaller again: every cycle's summary goes as the log clips it, 400 characters.
+
 ## [0.52.6] - 2026-10-21
 
 휴대폰에서 연결이 잠깐 끊겨도 화면에 오류가 남지 않고, 휴대폰의 작은 글자와 버튼이 더 다루기 쉬워져요.
