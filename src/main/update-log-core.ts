@@ -111,3 +111,24 @@ export function previousInstallDetails(
 		...(swap ? { swapAt: swap.at, swapOutcome: swap.outcome } : {}),
 	};
 }
+
+/**
+ * Which `check` lines get written. The background check runs every 5 minutes, and a line for each one filled
+ * the log with `no-update` (625 of 728 update lines on one Mac, so Copy diagnostics' last 100 lines held a few
+ * hours of nothing): a background check writes only when its line differs from the last check's. A check the
+ * person asked for always writes, and the next background check after it writes again.
+ */
+export class CheckLog {
+	#last: string | undefined;
+
+	admit(details: UpdateLogDetails): boolean {
+		if (details.manual === true) {
+			this.#last = undefined;
+			return true;
+		}
+		const line = JSON.stringify(Object.entries(details).sort(([a], [b]) => a.localeCompare(b)));
+		if (line === this.#last) return false;
+		this.#last = line;
+		return true;
+	}
+}

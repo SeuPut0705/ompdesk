@@ -58,6 +58,7 @@ import {
 	updateAuthInfo,
 } from "./update-auth";
 import {
+	CheckLog,
 	type InstallHelperMode,
 	lastSwapEntry,
 	type PendingInstall,
@@ -173,11 +174,15 @@ let installTrigger: InstallTrigger | undefined;
 /** When electron-updater's own (Windows NSIS) download started; unset outside one. */
 let nsisDownloadStartedAt: number | undefined;
 
+/** Which `check` lines are written: a background check only when its outcome changed (update-log-core.ts). */
+const checkLog = new CheckLog();
+
 /**
  * One decision line in `gui-runtime.jsonl` (source `app-update`, info level). The caller never passes a token or
  * a URL: raw error text goes through `failureReason`.
  */
 function logUpdate(message: "check" | "download" | "scheduler" | "swap", details: UpdateLogDetails): void {
+	if (message === "check" && !checkLog.admit(details)) return;
 	writeRuntimeLog({ source: "app-update", message, details: { level: "info", ...details } });
 }
 
@@ -827,7 +832,13 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 
 	autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
 	autoUpdater.on("update-available", info => {
-		logUpdate("check", { event: "found", version: info.version, current: appVersion(), mode: installMode });
+		logUpdate("check", {
+			event: "found",
+			version: info.version,
+			current: appVersion(),
+			mode: installMode,
+			manual: checkAsked,
+		});
 		// The transfer in flight keeps its asset and version; restarting it would
 		// append a second stream to the same partial.
 		if (macTransfer.running) return;
@@ -867,7 +878,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 		if (installMode === "relaunch") void prepareRelaunchUpdate(info.version);
 	});
 	autoUpdater.on("update-not-available", () => {
-		logUpdate("check", { event: "no-update", current: appVersion() });
+		logUpdate("check", { event: "no-update", current: appVersion(), manual: checkAsked });
 		broadcast({ state: "not-available", version: appVersion() });
 	});
 	autoUpdater.on("download-progress", progress => {
