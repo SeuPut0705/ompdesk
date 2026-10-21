@@ -12,7 +12,7 @@ import type {
 	RpcSecurityScanResult,
 	RpcSecurityTargetInput,
 } from "../../../shared/rpc-types";
-import { cx, uiLocale } from "../../lib/format";
+import { cx, formatAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
@@ -51,15 +51,9 @@ const SEVERITY_FILL: Record<Severity, string> = {
 	informational: "bg-(--sc-info)",
 };
 
+/** When a scan ran, as a past moment in the UI language ("5분 전", "5m ago"); "—" before the first. */
 function formatWhen(value?: string): string {
-	if (!value) return "—";
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return value;
-	const delta = Date.now() - date.getTime();
-	if (delta < 60_000) return "<1m";
-	if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
-	if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
-	return date.toLocaleDateString(uiLocale());
+	return formatAgo(value) || "—";
 }
 
 /** i18n suffix of a scan target (`security.scan.*`, `security.target.*`); other stored kinds read as repository. */

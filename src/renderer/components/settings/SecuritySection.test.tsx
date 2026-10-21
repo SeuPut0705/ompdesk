@@ -9,7 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcResponse, RpcSecurityDashboardResult } from "../../../shared/rpc-types";
-import { I18nProvider, translate } from "../../lib/i18n";
+import { I18nProvider, loadLocale, setLanguageOverride, translate } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { SecuritySection } from "./SecuritySection";
 
@@ -222,6 +222,38 @@ describe("SecuritySection with nothing found", () => {
 			expect(bodyText()).toContain(expected);
 			if (state !== "clear") expect(bodyText()).not.toContain(translate("security.empty.title"));
 		});
+	});
+
+	it("says when the last scan ran in the UI language", async () => {
+		const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000 - 5_000).toISOString();
+		getSecurityDashboard.mockResolvedValue(
+			ok(
+				"get_security_dashboard",
+				dashboard({
+					enabled: true,
+					scans: [
+						{
+							id: "scan",
+							status: "completed",
+							createdAt: fiveMinutesAgo,
+							completedAt: fiveMinutesAgo,
+							producer: "fixture",
+							findingCount: 0,
+							target: { kind: "working_tree", displayName: "Working tree" },
+						},
+					],
+				}),
+			),
+		);
+		await loadLocale("ko");
+		setLanguageOverride("ko");
+		try {
+			await mount();
+			expect(bodyText()).toContain(translate("security.lastScan", { time: "5분 전" }));
+			expect(bodyText()).not.toMatch(/\b5m\b/);
+		} finally {
+			setLanguageOverride(null);
+		}
 	});
 
 	it("names the full repository path on hover where the row truncates it", async () => {
