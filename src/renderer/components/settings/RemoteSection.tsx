@@ -449,8 +449,11 @@ export function RemoteSection() {
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>
 									{host.peers.map(peer => {
-										const seen =
-											peer.lastSeenAt === null
+										// While connected the record holds when it connected, which would read as "last seen hours
+										// ago" next to its Online badge: only a device away says when it was last here.
+										const seen = peer.online
+											? null
+											: peer.lastSeenAt === null
 												? t("remote.host.neverSeen")
 												: t("remote.host.lastSeen", {
 														time: formatTimeAgo(new Date(peer.lastSeenAt).toISOString()),

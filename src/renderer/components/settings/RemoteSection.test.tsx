@@ -234,11 +234,10 @@ describe("RemoteSection", () => {
 		const peer = document.body.querySelector('[data-remote-peer="peer-laptop"]');
 		// A narrow window truncates the name and "Last seen …"; each keeps its full text on hover.
 		expect(peer?.querySelector('[title="laptop"]')).not.toBeNull();
-		const seen = translate("remote.host.lastSeen", { time: "1m" });
+		// Connected: its version, never a "last seen" that is only when it connected.
 		const version = translate("remote.version", { version: "0.52.7" });
-		expect([...(peer?.querySelectorAll("[title]") ?? [])].map(node => node.getAttribute("title"))).toContain(
-			`${seen} · ${version}`,
-		);
+		expect([...(peer?.querySelectorAll("[title]") ?? [])].map(node => node.getAttribute("title"))).toContain(version);
+		expect(peer?.textContent).not.toContain(translate("remote.host.lastSeen", { time: "1m" }));
 	});
 
 	it("says which ports are taken when the host listens nowhere", async () => {
@@ -409,6 +408,8 @@ describe("RemoteSection", () => {
 		expect(online?.textContent).toContain(translate("remote.version", { version: "0.52.7" }));
 		const offline = document.querySelector('[data-remote-peer="peer-old"] [data-peer-usage]');
 		expect(offline?.textContent).not.toContain("OMPdesk");
+		// Away, it says when it was last here.
+		expect(offline?.textContent).toContain(translate("remote.host.lastSeen", { time: "1m" }));
 	});
 
 	it("says whether a connected computer runs an older or a newer OMPdesk than this one", async () => {
