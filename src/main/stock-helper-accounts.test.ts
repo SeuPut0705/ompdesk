@@ -20,15 +20,20 @@ afterEach(async () => {
 });
 
 /** One request to a stock worker over its stdio protocol; the answer line, parsed. */
-async function ask(root: string, env: Record<string, string> = {}): Promise<{ result?: unknown; error?: string }> {
+async function ask(
+	root: string,
+	env: Record<string, string> = {},
+	method = "accounts.providers",
+	base: Record<string, string | undefined> = process.env,
+): Promise<{ result?: unknown; error?: string }> {
 	const child = spawn("bun", [path.resolve("resources/gui-bridge/stock-helper/host.ts"), "stock"], {
 		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env, ...env, OMP_PACKAGE_ROOT: root },
+		env: { ...base, ...env, OMP_PACKAGE_ROOT: root },
 	});
 	children.push(child);
 	child.stderr.resume();
 	const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
-	child.stdin.write(`${JSON.stringify({ id: 1, method: "accounts.providers" })}\n`);
+	child.stdin.write(`${JSON.stringify({ id: 1, method })}\n`);
 	const { value } = await lines.next();
 	return JSON.parse(value as string) as { result?: unknown; error?: string };
 }
@@ -40,7 +45,16 @@ async function fakeInstall(sdk: string | null): Promise<{ root: string; closed: 
 	await fs.mkdir(root, { recursive: true });
 	await fs.writeFile(
 		path.join(root, "package.json"),
-		JSON.stringify({ name: "@oh-my-pi/pi-coding-agent", type: "module", exports: { "./sdk": "./sdk.ts" } }),
+		JSON.stringify({
+			name: "@oh-my-pi/pi-coding-agent",
+			type: "module",
+			exports: { "./sdk": "./sdk.ts", "./mcp/oauth-flow": "./oauth-flow.ts" },
+		}),
+	);
+	// Stock's predicate for an MCP server's sign-in in the shared credential store.
+	await fs.writeFile(
+		path.join(root, "oauth-flow.ts"),
+		'export const isManagedMCPOAuthCredentialId = id => typeof id === "string" && id.startsWith("mcp_oauth:");\n',
 	);
 	const closed = path.join(dir, "closed");
 	if (sdk) await fs.writeFile(path.join(root, "sdk.ts"), sdk.replaceAll("__CLOSED__", JSON.stringify(closed)));
@@ -60,6 +74,7 @@ export async function discoverAuthStorage() {
 				{ id: 2, provider: "anthropic", credential: { type: "api_key", key: "SECRET-KEY" } },
 				{ id: 3, provider: "github-copilot", email: "me@example.com" },
 				{ id: 4 },
+				{ id: 5, provider: "mcp_oauth:profile:default:https://mcp.example/mcp", credential: { access: "SECRET-MCP" } },
 			],
 		},
 		close: () => writeFileSync(__CLOSED__, ""),
@@ -105,6 +120,8 @@ describe.skipIf(!existsSync(path.join(realRoot, "package.json")))("the real stoc
 const auth = await discoverAuthStorage();
 await auth.credentials.set("anthropic", { type: "api_key", key: "sk-test-1" });
 await auth.credentials.set("github-copilot", { type: "api_key", key: "sk-test-2" });
+const { mcpOAuthCredentialId } = await import(${JSON.stringify(path.join(realRoot, "src", "mcp", "oauth-flow.ts"))});
+await auth.credentials.set(mcpOAuthCredentialId("https://mcp.example.test/mcp"), { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 3600000 });
 auth.close();`,
 			],
 			{ env: { ...process.env, ...env }, encoding: "utf8" },
@@ -112,6 +129,31 @@ auth.close();`,
 		expect(seed.status).toBe(0);
 		const answer = await ask(realRoot, env);
 		expect(answer.error).toBeUndefined();
-		expect(answer.result).toEqual({ providers: expect.arrayContaining(["anthropic", "github-copilot"]) });
+		// An MCP server's sign-in shares the store but is no model provider.
+		expect((answer.result as { providers: string[] }).providers.sort()).toEqual(["anthropic", "github-copilot"]);
+	}, 60_000);
+
+	it("counts an agent dir holding only an MCP sign-in as not signed in to any model", async () => {
+		const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-accounts-mcp-"));
+		tempDirs.push(agentDir);
+		// No model key from the developer's environment: only PATH and a private HOME.
+		const base = { PATH: process.env.PATH, HOME: agentDir, USERPROFILE: agentDir };
+		const env = { PI_CODING_AGENT_DIR: agentDir, PI_CONFIG_DIR: "omp-config", OMP_PROFILE: "", PI_PROFILE: "" };
+		const seed = spawnSync(
+			"bun",
+			[
+				"-e",
+				`import { discoverAuthStorage } from ${JSON.stringify(path.join(realRoot, "src", "sdk.ts"))};
+import { mcpOAuthCredentialId } from ${JSON.stringify(path.join(realRoot, "src", "mcp", "oauth-flow.ts"))};
+const auth = await discoverAuthStorage();
+await auth.credentials.set(mcpOAuthCredentialId("https://mcp.example.test/mcp"), { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 3600000 });
+auth.close();`,
+			],
+			{ env: { ...base, ...env }, encoding: "utf8" },
+		);
+		expect(seed.status, seed.stderr).toBe(0);
+		const answer = await ask(realRoot, env, "accounts.signedIn", base);
+		expect(answer.error).toBeUndefined();
+		expect(answer.result).toEqual({ signedIn: false });
 	}, 60_000);
 });

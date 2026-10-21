@@ -756,6 +756,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			// the first-run step asks whether any credential exists at all (accounts.signedIn).
 			[`${AGENT}/sdk`]: ["discoverAuthStorage()"],
 			"@oh-my-pi/pi-ai": ["listProvidersWithEnvKey()", "getEnvApiKey()"],
+			// An MCP server's sign-in shares the credential store: never a model provider or a first-run sign-in.
+			[`${AGENT}/mcp/oauth-flow`]: ["isManagedMCPOAuthCredentialId()"],
 		},
 	},
 	modelRoles: {

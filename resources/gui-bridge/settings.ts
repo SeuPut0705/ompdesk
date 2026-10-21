@@ -27,6 +27,7 @@ import {
 	roleCandidatePool,
 } from "@oh-my-pi/pi-coding-agent/config/model-roles";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
+import { isManagedMCPOAuthCredentialId } from "@oh-my-pi/pi-coding-agent/mcp/oauth-flow";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import {
 	formatActiveAccountLabel,
@@ -365,7 +366,10 @@ function buildProviders(session: AgentSession) {
 	}
 	const ids = new Set<string>([...modelCount.keys(), ...loginIds]);
 	try {
-		for (const credential of authStorage.credentials.list()) ids.add(credential.provider);
+		// An MCP server's sign-in shares the store (its provider column is the credential id): no model provider.
+		for (const credential of authStorage.credentials.list()) {
+			if (!isManagedMCPOAuthCredentialId(credential.provider)) ids.add(credential.provider);
+		}
 	} catch {
 		// Credential listing is best-effort; providers with models still show.
 	}

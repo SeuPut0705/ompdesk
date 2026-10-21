@@ -9,6 +9,22 @@ interface StockAuthStorage {
 	close?(): void;
 }
 
+/**
+ * Stock's own test for an MCP server's sign-in, which shares the credential store with model accounts (its
+ * provider column is the credential id, `mcp_oauth:profile:<profile>:<url>`): no model provider, no first-run
+ * sign-in. From the user's omp installation, as the store is.
+ */
+async function mcpCredentialTest(root: string): Promise<(provider: string) => boolean> {
+	const flow = (await import(
+		Bun.resolveSync("@oh-my-pi/pi-coding-agent/mcp/oauth-flow", path.join(root, "package.json"))
+	)) as {
+		isManagedMCPOAuthCredentialId?: (id: string | undefined) => boolean;
+	};
+	if (typeof flow.isManagedMCPOAuthCredentialId !== "function")
+		throw new Error("Installed omp has no isManagedMCPOAuthCredentialId");
+	return flow.isManagedMCPOAuthCredentialId;
+}
+
 export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	/**
 	 * The providers with at least one stored credential row, through stock's own `discoverAuthStorage`
@@ -23,13 +39,14 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 			discoverAuthStorage?: () => Promise<StockAuthStorage>;
 		};
 		if (typeof sdk.discoverAuthStorage !== "function") throw new Error("Installed omp has no discoverAuthStorage");
+		const isMcp = await mcpCredentialTest(root);
 		const storage = await sdk.discoverAuthStorage();
 		try {
 			await storage.credentials.reload();
 			const providers = storage.credentials
 				.list()
 				.map(row => row.provider)
-				.filter((provider): provider is string => typeof provider === "string");
+				.filter((provider): provider is string => typeof provider === "string" && !isMcp(provider));
 			return { providers: [...new Set(providers)] };
 		} finally {
 			storage.close?.();
@@ -64,10 +81,14 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 			throw new Error("Installed omp has no getEnvApiKey");
 		const getEnvApiKey = ai.getEnvApiKey;
 		if (ai.listProvidersWithEnvKey().some(provider => getEnvApiKey(provider))) return { signedIn: true };
+		const isMcp = await mcpCredentialTest(root);
 		const storage = await sdk.discoverAuthStorage();
 		try {
 			await storage.credentials.reload();
-			return { signedIn: storage.credentials.list().length > 0 };
+			const models = storage.credentials
+				.list()
+				.filter(row => typeof row.provider !== "string" || !isMcp(row.provider));
+			return { signedIn: models.length > 0 };
 		} finally {
 			storage.close?.();
 		}

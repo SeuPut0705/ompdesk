@@ -38,6 +38,7 @@ if (args[0] === "cli-claude" && args[2] === "update") {
 
 /** The stand-in stock sdk: the providers with a stored credential come from the test's environment. */
 const FAKE_SDK = `
+export const isManagedMCPOAuthCredentialId = id => typeof id === "string" && id.startsWith("mcp_oauth");
 export async function discoverAuthStorage() {
 	const providers = (process.env.OMPDESK_FAKE_PROVIDERS ?? "").split(",").filter(Boolean);
 	return {
@@ -116,6 +117,7 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 		await fs.readFile(path.join(stock, "package.json"), "utf8"),
 	);
 	manifest.exports["./sdk"] = "./sdk.ts";
+	manifest.exports["./mcp/oauth-flow"] = "./sdk.ts";
 	await fs.writeFile(path.join(stock, "package.json"), JSON.stringify(manifest));
 	await fs.writeFile(path.join(stock, "sdk.ts"), FAKE_SDK);
 
