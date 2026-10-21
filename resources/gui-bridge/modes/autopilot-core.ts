@@ -33,6 +33,7 @@ import {
 	type AutopilotStopRequest,
 	type AutopilotToolInput,
 	type AutopilotVerifyNote,
+	clipCycleSummary,
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DUPLICATE_WINDOW,
 	isAutopilotArea,
@@ -821,15 +822,16 @@ export interface LiveCycle {
 
 /**
  * A cycle as the status carries it: without the check command (main lands from the cycle-end frame's own record) and
- * the follow-ups it closed (`begin` reads them from the journal). The whole status goes to every window and paired
- * device on each update; on a 67-cycle run those two were 30 % of its 111 KB.
+ * the follow-ups it closed (`begin` reads them from the journal), and its summary clipped as the Markdown log clips it
+ * (the cycle's tooltip is the only other reader). The whole status goes to every window and paired device on each
+ * update; on a 67-cycle run those two were 30 % of its 111 KB, and a 73-cycle run's summaries 63 KB (41 KB clipped).
  */
 function statusCycle({
 	checkCommand: _check,
 	resolved: _resolved,
 	...cycle
 }: AutopilotCycleRecord): AutopilotCycleRecord {
-	return cycle;
+	return { ...cycle, summary: clipCycleSummary(cycle.summary) };
 }
 
 /** The whole status from the journal plus the cycle in flight; `active:false` when this session is no run. */

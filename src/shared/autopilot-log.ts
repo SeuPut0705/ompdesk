@@ -1,4 +1,8 @@
-import { AUTOPILOT_AREAS, type AutopilotCycleRecord } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import {
+	AUTOPILOT_AREAS,
+	type AutopilotCycleRecord,
+	clipCycleSummary,
+} from "../../resources/gui-bridge/modes/autopilot-contracts";
 
 /**
  * The autopilot log as Markdown: the Autopilot screen's "Copy as Markdown" and the body main gives the draft pull
@@ -6,7 +10,6 @@ import { AUTOPILOT_AREAS, type AutopilotCycleRecord } from "../../resources/gui-
  */
 
 const SHORT_SHA = 7;
-const SUMMARY_MAX = 400;
 
 const SECTION_ORDER = [...AUTOPILOT_AREAS, "user", "release", "unreported"] as const;
 type Section = (typeof SECTION_ORDER)[number];
@@ -32,11 +35,6 @@ function short(sha: string): string {
 	return sha.slice(0, SHORT_SHA);
 }
 
-function clip(text: string): string {
-	const flat = text.replace(/\s+/g, " ").trim();
-	return flat.length > SUMMARY_MAX ? `${flat.slice(0, SUMMARY_MAX - 1)}…` : flat;
-}
-
 const VERIFY_NOTE: Record<NonNullable<AutopilotCycleRecord["verifyNote"]>["kind"], string> = {
 	no_check: "reported green, but no check ran this cycle",
 	check_failed: "reported green, but the last check failed",
@@ -53,7 +51,7 @@ function cycleLines(cycle: AutopilotCycleRecord): string[] {
 	}
 	if (cycle.reverted) parts.push("reverted");
 	const lines = [`- ${parts.join(" · ")}`];
-	if (cycle.summary.trim()) lines.push(`  ${clip(cycle.summary)}`);
+	if (cycle.summary.trim()) lines.push(`  ${clipCycleSummary(cycle.summary)}`);
 	if (cycle.verifyNote) {
 		const { kind, command } = cycle.verifyNote;
 		lines.push(`  - Verify: ${VERIFY_NOTE[kind]}${kind === "check_failed" && command ? ` (\`${command}\`)` : ""}`);

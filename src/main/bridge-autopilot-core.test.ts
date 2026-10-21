@@ -803,6 +803,23 @@ describe("buildBegin / buildStatus", () => {
 		expect(cycle).not.toHaveProperty("resolved");
 		expect(cycleRecords(entries)[0]).toMatchObject({ checkCommand: record.checkCommand, resolved: ["a"] });
 	});
+
+	it("carries a cycle's summary as the log copies it, 400 characters on one line, the journal keeping it whole", () => {
+		// Only the cycle's tooltip and the Markdown log read it, and the log clips it to the same 400; a run's summaries
+		// were most of its status (a 73-cycle run: 63 KB of them, 41 KB clipped).
+		const summary = `First line\n\n${"word ".repeat(200)}`;
+		const entries: JournalEntry[] = [
+			{ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: state },
+			{ type: "custom", customType: AUTOPILOT_CYCLE_ENTRY, data: rec({ n: 1, summary }) },
+			{ type: "custom", customType: AUTOPILOT_CYCLE_ENTRY, data: rec({ n: 2, summary: "Short one" }) },
+		];
+		const cycles = buildStatus(entries, 160_000).cycles ?? [];
+		expect(cycles[0]?.summary).toHaveLength(400);
+		expect(cycles[0]?.summary.startsWith("First line word word")).toBe(true);
+		expect(cycles[0]?.summary.endsWith("…")).toBe(true);
+		expect(cycles[1]?.summary).toBe("Short one");
+		expect(cycleRecords(entries)[0]?.summary).toBe(summary);
+	});
 	it("a paused or ended run's active time stops, quota wait is exposed, ended is still a run", () => {
 		const paused = {
 			...state,

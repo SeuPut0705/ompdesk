@@ -206,6 +206,15 @@ export interface AutopilotVerifyNote {
 	command?: string;
 }
 
+/** A cycle's summary as the status and the Markdown log carry it: one line, at most this many characters. */
+export const AUTOPILOT_SUMMARY_MAX = 400;
+
+/** A cycle's summary folded to one line and cut at {@link AUTOPILOT_SUMMARY_MAX} with an ellipsis. */
+export function clipCycleSummary(text: string): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	return flat.length > AUTOPILOT_SUMMARY_MAX ? `${flat.slice(0, AUTOPILOT_SUMMARY_MAX - 1)}…` : flat;
+}
+
 /** Payload of {@link AUTOPILOT_CYCLE_ENTRY} (what `autopilot end` reported, plus what the bridge measured). */
 export interface AutopilotCycleRecord {
 	n: number;
