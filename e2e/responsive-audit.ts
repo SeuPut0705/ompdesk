@@ -551,6 +551,8 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 	// ── Tap targets, overlaps and stolen taps ───────────────────────────────────────────────────────
 	/** The part of the element a scroller or clipping ancestor lets through (null when none of it shows). */
 	interface Box {
+		/** The rounded corner of the box that clips it (a scroller's border radius), 0 when nothing rounded clips. */
+		radius?: number;
 		left: number;
 		top: number;
 		right: number;
@@ -562,6 +564,7 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		let top = Math.max(own.top, 0);
 		let right = Math.min(own.right, vw);
 		let bottom = Math.min(own.bottom, vh);
+		let radius = 0;
 		for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
 			const computed = style(node);
 			if (computed.overflowX === "visible" && computed.overflowY === "visible") continue;
@@ -574,8 +577,9 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 				top = Math.max(top, box.top);
 				bottom = Math.min(bottom, box.bottom);
 			}
+			radius = Math.max(radius, Number.parseFloat(computed.borderTopLeftRadius) || 0);
 		}
-		return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom } : null;
+		return right - left > 0.5 && bottom - top > 0.5 ? { left, top, right, bottom, radius } : null;
 	};
 	const controlSelector =
 		'button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="switch"], [role="tab"], [role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="checkbox"], [role="radio"], [role="slider"], [contenteditable="true"]';
@@ -590,9 +594,11 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 		const row = element.closest(".omp-list-row") ?? (element.matches('[role="option"]') ? element : null);
 		// The composer's textarea is one target with the box around it.
 		const composer = element.matches("[data-composer-input]") ? element.closest(".omp-composer-box") : null;
+		// A text editor (CodeMirror's contenteditable) is a field too: a tap anywhere on its scroller focuses it.
 		const field =
 			element instanceof HTMLInputElement ||
 			element instanceof HTMLSelectElement ||
+			element.matches('[contenteditable="true"]') ||
 			(element instanceof HTMLTextAreaElement && !composer);
 		const label =
 			element instanceof HTMLInputElement && /checkbox|radio/.test(element.type) ? element.closest("label") : null;
@@ -708,6 +714,16 @@ function measureInPage(options: { safe: { t: number; r: number; b: number; l: nu
 			const cover = layerOf(topEl);
 			if (cover && cover !== layerOf(element) && !cover.contains(element)) continue;
 			if (!owner && (ownOnly || x < clip.left || x > clip.right || y < clip.top || y > clip.bottom)) continue;
+			// A point in a clipping scroller's rounded corner (a segmented tab bar's last, half-scrolled tab) is cut by
+			// the curve: that corner draws nothing to tap, so the tap that misses it is no control's loss.
+			const corner = clip.radius ?? 0;
+			if (
+				!owner &&
+				corner > 0 &&
+				Math.min(x - clip.left, clip.right - x) < corner &&
+				Math.min(y - clip.top, clip.bottom - y) < corner
+			)
+				continue;
 			// A bar or chip floating over a scroller covers content that scrolls under it by design.
 			const scroller = scrollerOf(element);
 			if (owner && scroller && !scroller.contains(owner)) continue;
