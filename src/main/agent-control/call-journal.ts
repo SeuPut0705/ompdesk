@@ -35,13 +35,15 @@ export interface CallRecord {
 	callerTabId: string;
 	at: number;
 	intent?: CallIntent;
+	/** Tabs the call opened so far (`note`), written as each one opens: a relaunch finds them by these ids (`formerIds`). */
+	opened?: string[];
 	/** Absent while the call has not finished (pending). */
 	result?: { text: string; isError: boolean };
 }
 
 function parseRecord(value: unknown): CallRecord | null {
 	if (typeof value !== "object" || value === null) return null;
-	const { key, tool, callerTabId, at, intent, result } = value as Record<string, unknown>;
+	const { key, tool, callerTabId, at, intent, opened, result } = value as Record<string, unknown>;
 	if (typeof key !== "string" || !key || typeof tool !== "string" || typeof at !== "number") return null;
 	if (typeof callerTabId !== "string") return null;
 	const record: CallRecord = { key, tool: tool as AgentControlToolName, callerTabId, at };
@@ -56,6 +58,7 @@ function parseRecord(value: unknown): CallRecord | null {
 		}
 		record.intent = parsed;
 	}
+	if (Array.isArray(opened)) record.opened = opened.filter((id): id is string => typeof id === "string");
 	if (typeof result === "object" && result !== null) {
 		const { text, isError } = result as Record<string, unknown>;
 		if (typeof text === "string" && typeof isError === "boolean") record.result = { text, isError };
@@ -101,6 +104,14 @@ export class CallJournal {
 		const record = this.#records.get(key);
 		if (!record) return;
 		record.result = result;
+		this.#write();
+	}
+
+	/** The call opened tab `tabId`: written at once, so a crash right after still finds what it opened. */
+	note(key: string, tabId: string): void {
+		const record = this.#records.get(key);
+		if (!record) return;
+		record.opened = [...(record.opened ?? []), tabId];
 		this.#write();
 	}
 
