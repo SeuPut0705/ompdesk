@@ -336,6 +336,8 @@ function restoreSummary(data: Record<string, unknown> | undefined): string {
 		const value = data[key];
 		return Array.isArray(value) && value.length > 0 ? [`${key}:${value.length}`] : [];
 	});
+	// A turn stock could not retry (a note came after its aborted reply), continued by the bridge's follow-up.
+	if (data.turnCut === true) parts.unshift("turn-behind-notes");
 	return parts.length > 0 ? parts.join(",") : "nothing";
 }
 
@@ -712,10 +714,12 @@ export class TurnResume {
 			return typeof data === "object" && data !== null ? { ...data } : undefined;
 		};
 		// Something goes on: the cut-off turn, a revived subagent (the bridge tells an idle session about it in
-		// one follow-up turn), the agent told about the background jobs the restart stopped, or stock's retry.
+		// one follow-up turn), the agent told about the background jobs the restart stopped, a cut-off turn stock's
+		// retry cannot see (the bridge continues it with that follow-up), or stock's retry.
 		const continues = (data: Record<string, unknown> | undefined): boolean =>
 			data?.turn === true ||
 			data?.retried === true ||
+			data?.followUp === true ||
 			(Array.isArray(data?.subagents) && data.subagents.length > 0) ||
 			(Array.isArray(data?.jobs) && data.jobs.length > 0);
 		// omp outlives a killed OMPdesk long enough to close the turn itself: its RPC client is gone (stdin EOF),
