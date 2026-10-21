@@ -112,6 +112,8 @@ export async function appLaunchOptions(
 		PI_CONFIG_DIR: path.relative(os.homedir(), options.profile),
 		OMP_PROFILE: "",
 		PI_PROFILE: "",
+		// The app ends with this worker, even one that dies running no exit handler (src/main/test-launcher-exit.ts).
+		OMP_GUI_TEST_LAUNCHER_PID: String(process.pid),
 		...("OMP_GUI_OMP" in extra ? {} : { OMP_GUI_OMP: await fixtureOmp(options.profile) }),
 		// Machine setup's managed tools dir is `%LOCALAPPDATA%\ompdesk\tools` on Windows (`managedToolsDir`), one
 		// folder for every app on the PC. A launch that downloads through the test installer has its own, or a
