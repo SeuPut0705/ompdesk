@@ -1786,28 +1786,22 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/**
-	 * This machine's sidebar policy (session-mutations.ts): a tab of this machine holding the session
-	 * closes, another device's live tab refuses. The asking device's own tabs on the file (the one it
-	 * just closed, one left from an earlier connection in its grace period, a duplicate) are its to
-	 * release: an idle one is closed and waited for, one running a turn refuses.
+	 * A device's delete takes this computer's own path (session-mutations.ts `deleteSession` with the device tabs): every
+	 * idle tab on the file closes, the asking device's leftovers from an earlier connection, another device's tab (told
+	 * `sessionDeleted` once the file is gone) and a window's tab here, as closing a tab does; it is refused only while
+	 * one of them runs a turn or compacts. Before (21 Oct 2026), a window here or another device holding the session,
+	 * idle, refused the delete for good ("Session is open on the host") with nothing the device could close.
 	 */
 	async #deleteSession(peer: PeerInfo, sessionPath: string): Promise<null> {
-		await recordSessionDelete({ sessionPath, by: peer.deviceId }, async () => {
-			// A window of this computer works in it: the device cannot take it away (the window's own delete can).
-			if (this.#deps.localTabs.sessionOwnerIsLive(sessionPath))
-				throw codedError("session_running", "Session is open on the host");
-			const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
-			if (held.some(tab => (tab.peerId !== peer.deviceId && tab.sidecar.processAlive) || runBusy(tab.run)))
-				throw codedError("session_running", "Session is open on the host");
-			for (const tab of held) {
-				this.#emit(tab, "status", this.#goneStatus(tab, "This session was deleted"));
-				this.#closeTab(this.#key(tab.peerId, tab.rtab));
-			}
-			await this.#exiting.get(sessionPath);
-			await deleteSession(this.#deps.localTabs, sessionPath, undefined, () =>
-				this.#deps.sessionIndex.deleteSession(sessionPath),
-			);
-		});
+		await recordSessionDelete({ sessionPath, by: peer.deviceId }, () =>
+			deleteSession(
+				this.#deps.localTabs,
+				sessionPath,
+				undefined,
+				() => this.#deps.sessionIndex.deleteSession(sessionPath),
+				this,
+			),
+		);
 		return null;
 	}
 
