@@ -97,11 +97,13 @@ export interface LaunchOptions {
 }
 
 /**
- * Launch the built app (`out/main/index.js`) on `project` with its own userData, omp agent and config dirs, no
- * omp profile, and the fake omp (`fixtureOmp`) unless `env` names `OMP_GUI_OMP`. `ELECTRON_RUN_AS_NODE`, which an
- * Electron-hosted runner exports, never reaches the app.
+ * What `launchApp` hands Electron: the built app (`out/main/index.js`) on `project` with its own userData, omp
+ * agent and config dirs, no omp profile, and the fake omp (`fixtureOmp`) unless `env` names `OMP_GUI_OMP`.
+ * `ELECTRON_RUN_AS_NODE`, which an Electron-hosted runner exports, never reaches the app.
  */
-export async function launchApp(options: LaunchOptions): Promise<ElectronApplication> {
+export async function appLaunchOptions(
+	options: LaunchOptions,
+): Promise<{ args: string[]; env: Record<string, string> }> {
 	const extra = options.env ?? {};
 	const env: Record<string, string | undefined> = {
 		// The app must never inherit a leaked GIT_DIR or its kin (src/shared/git-env.ts).
@@ -124,10 +126,15 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 		if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE") launchEnv[key] = value;
 	}
 	const entry = assertAppBuilt();
-	return electron.launch({
+	return {
 		args: [entry, options.project, `--user-data-dir=${options.desktop}`, ...(options.args ?? [])],
 		env: launchEnv,
-	});
+	};
+}
+
+/** Launch the built app as {@link appLaunchOptions} describes. */
+export async function launchApp(options: LaunchOptions): Promise<ElectronApplication> {
+	return electron.launch(await appLaunchOptions(options));
 }
 
 /**
