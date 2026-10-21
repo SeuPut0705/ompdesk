@@ -25,6 +25,10 @@ describe("github requests", () => {
 				prerelease: false,
 			}),
 		).toMatchObject({ draft: true });
+		expect(parseGithubRequest({ op: "workflow_dispatch", workflow: "ci.yml" })).toEqual({
+			op: "workflow_dispatch",
+			workflow: "ci.yml",
+		});
 	});
 
 	it("refuses anything gh could read as a flag, a host part in repo, and a clone without an absolute path", () => {

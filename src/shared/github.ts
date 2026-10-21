@@ -44,8 +44,8 @@ export type GithubRequest = GithubTarget &
 		| { op: "run_list"; workflow?: string }
 		| { op: "run_get"; id: number }
 		| { op: "run_log"; id: number; failedOnly: boolean }
-		/** Start a `workflow_dispatch` workflow on `ref`. */
-		| { op: "workflow_dispatch"; workflow: string; ref: string }
+		/** Start a `workflow_dispatch` workflow on `ref` (default: the repository's default branch, as gh's). */
+		| { op: "workflow_dispatch"; workflow: string; ref?: string }
 		| { op: "run_rerun"; id: number; failedOnly: boolean }
 		| { op: "run_cancel"; id: number }
 		| { op: "release_list" }

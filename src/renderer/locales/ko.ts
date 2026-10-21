@@ -3914,6 +3914,7 @@ export const ko: Record<string, string> = {
 	"github.runs.dispatchTitle": "{name} 실행",
 	"github.runs.dispatchHint": "{path} 워크플로를 workflow_dispatch 트리거로 GitHub에서 시작해요.",
 	"github.runs.ref": "브랜치 또는 태그",
+	"github.runs.refHint": "비워 두면 저장소의 기본 브랜치에서 실행해요.",
 	"github.runs.dispatchConfirm": "GitHub에서 실행",
 	"github.runs.dispatched": "워크플로를 시작했어요",
 	"github.releases.list": "릴리스",

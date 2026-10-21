@@ -3926,6 +3926,7 @@ export const en: Record<string, string> = {
 	"github.runs.dispatchTitle": "Run {name}",
 	"github.runs.dispatchHint": "Starts {path} on GitHub with its workflow_dispatch trigger.",
 	"github.runs.ref": "Branch or tag",
+	"github.runs.refHint": "Empty: the repository's default branch.",
 	"github.runs.dispatchConfirm": "Run on GitHub",
 	"github.runs.dispatched": "Workflow started",
 	"github.releases.list": "Releases",

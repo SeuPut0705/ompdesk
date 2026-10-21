@@ -1,6 +1,7 @@
 /**
- * GitHub Actions run detail (linkedom): "Re-run failed jobs" and "Failed jobs' log" show for a run that did not pass
- * by GitHub's rule (success, neutral and skipped pass), so a neutral run never offers to re-run jobs that did not fail.
+ * GitHub Actions (linkedom): "Re-run failed jobs" shows for a run that did not pass by GitHub's rule (success, neutral
+ * and skipped pass), so a neutral run never offers to re-run jobs that did not fail; and Run workflow starts on the
+ * repository's default branch when no branch is typed, as `gh workflow run` does.
  */
 
 import { parseHTML } from "linkedom";
@@ -9,7 +10,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GithubRunDetail } from "../../../../shared/github";
 import { I18nProvider, setLanguageOverride, translate } from "../../../lib/i18n";
-import { RunDetail } from "./GithubActions";
+import { GithubActions, RunDetail } from "./GithubActions";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 const globals = globalThis as Record<string, unknown>;
@@ -84,5 +85,57 @@ describe("Actions run detail", () => {
 			cancelled: true,
 			timed_out: true,
 		});
+	});
+});
+
+describe("Actions run workflow", () => {
+	function fire(element: unknown, handler: string, event: unknown): void {
+		const record = element as Record<string, unknown>;
+		const key = Object.keys(record).find(name => name.startsWith("__reactProps$"));
+		const props = record[key as string] as Record<string, (event: unknown) => void>;
+		props[handler]?.(event);
+	}
+
+	it("starts the workflow on the default branch when no branch is typed", async () => {
+		setLanguageOverride("en");
+		const sent: unknown[] = [];
+		(window as unknown as { omp: unknown }).omp = {
+			rpc: {
+				command: async (command: { request: { op: string } }) => {
+					sent.push(command.request);
+					const data =
+						command.request.op === "workflow_list"
+							? [{ id: 9, name: "Deploy", path: ".github/workflows/deploy.yml", state: "active" }]
+							: command.request.op === "workflow_dispatch"
+								? { ok: true }
+								: [];
+					return { type: "response", command: "github", success: true, data };
+				},
+			},
+		};
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		container = host;
+		root = createRoot(host as unknown as Element);
+		await act(async () =>
+			root?.render(
+				createElement(
+					I18nProvider,
+					null,
+					createElement(GithubActions, { target: { repo: "o/r" }, repoName: "o/r", targetKey: "o/r" }),
+				),
+			),
+		);
+		await act(async () => fire(host.querySelector("select"), "onChange", { target: { value: "9" } }));
+		const runButton = [...host.querySelectorAll("button")].find(
+			button => button.textContent === translate("github.runs.dispatch"),
+		);
+		await act(async () => fire(runButton, "onClick", {}));
+		const confirm = [...document.querySelectorAll("button")].find(
+			button => button.textContent === translate("github.runs.dispatchConfirm"),
+		);
+		expect(confirm?.hasAttribute("disabled")).toBe(false);
+		await act(async () => fire(document.querySelector("#github-dispatch"), "onSubmit", { preventDefault: () => {} }));
+		expect(sent).toContainEqual({ repo: "o/r", op: "workflow_dispatch", workflow: "9" });
 	});
 });

@@ -278,7 +278,7 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 							{t("common.cancel")}
 						</Button>
 						<Button
-							disabled={!ref.trim()}
+							disabled={!chosen}
 							form="github-dispatch"
 							loading={busy === "dispatch"}
 							type="submit"
@@ -298,10 +298,17 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 					id="github-dispatch"
 					onSubmit={event => {
 						event.preventDefault();
-						if (!chosen || !ref.trim()) return;
+						if (!chosen) return;
+						const branch = ref.trim();
 						void run(
 							"dispatch",
-							() => github({ ...target, op: "workflow_dispatch", workflow: String(chosen.id), ref: ref.trim() }),
+							() =>
+								github({
+									...target,
+									op: "workflow_dispatch",
+									workflow: String(chosen.id),
+									...(branch ? { ref: branch } : {}),
+								}),
 							t("github.actionFailed"),
 							t("github.runs.dispatched"),
 						).then(ok => {
@@ -316,10 +323,10 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 					</p>
 					<Input
 						autoFocus
+						hint={t("github.runs.refHint")}
 						label={t("github.runs.ref")}
 						mono
 						onChange={event => setRef(event.target.value)}
-						placeholder="main"
 						value={ref}
 					/>
 				</form>

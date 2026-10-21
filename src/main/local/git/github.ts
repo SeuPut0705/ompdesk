@@ -70,7 +70,7 @@ const requestSchema = z
 		z.object({ op: z.literal("run_list"), workflow: word.optional() }),
 		z.object({ op: z.literal("run_get"), id }),
 		z.object({ op: z.literal("run_log"), id, failedOnly: z.boolean() }),
-		z.object({ op: z.literal("workflow_dispatch"), workflow: word, ref: word }),
+		z.object({ op: z.literal("workflow_dispatch"), workflow: word, ref: word.optional() }),
 		z.object({ op: z.literal("run_rerun"), id, failedOnly: z.boolean() }),
 		z.object({ op: z.literal("run_cancel"), id }),
 		z.object({ op: z.literal("release_list") }),
@@ -449,7 +449,14 @@ export async function githubCommand(cwd: string, raw: unknown): Promise<GithubRe
 			} satisfies GithubResults["run_log"];
 		}
 		case "workflow_dispatch":
-			await call(["workflow", "run", request.workflow, "--repo", await repo(), "--ref", request.ref]);
+			await call([
+				"workflow",
+				"run",
+				request.workflow,
+				"--repo",
+				await repo(),
+				...(request.ref ? ["--ref", request.ref] : []),
+			]);
 			return { ok: true } satisfies GithubResults["workflow_dispatch"];
 		case "run_rerun":
 			await call([
