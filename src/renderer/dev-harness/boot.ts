@@ -11,7 +11,7 @@ import { InstallPrompt } from "../web/install";
 import { PushClient } from "../web/push-client";
 import { setWebPwa } from "../web/pwa";
 import { setWebRuntime } from "../web/runtime";
-import { BOARD_BUSY, boardBusyStores } from "./fixture-board";
+import { BOARD_BUSY, boardBusyStores, CHILDREN_WAIT, CHILDREN_WAIT_CALL } from "./fixture-board";
 import { createHarnessTransport } from "./transport";
 
 const query = new URLSearchParams(location.search);
@@ -146,6 +146,7 @@ const [
 	agentReview,
 	closedChildren,
 	todo,
+	tools,
 ] = await Promise.all([
 	import("../stores/ui").then(module => module.useUiStore),
 	import("../stores/tabs").then(module => module.useTabsStore),
@@ -168,6 +169,7 @@ const [
 	import("../stores/agent-review").then(module => module.useAgentReviewStore),
 	import("../stores/closed-children").then(module => module.useClosedChildrenStore),
 	import("../stores/todo").then(module => module.useTodoStore),
+	import("../stores/tools").then(module => module.useToolsStore),
 ]);
 window.__stores = {
 	ui,
@@ -201,6 +203,18 @@ if (BOARD_BUSY) {
 		todo.setState(busy.todo);
 		session.setState(busy.session);
 		extensionUi.getState().pushRequest(busy.request);
+		// `&children=wait`: the transcript's unanswered wait loads as stopped; while the turn runs it is in flight.
+		if (CHILDREN_WAIT) {
+			const state = tools.getState();
+			const finishedTools = new Map(state.finishedTools);
+			const liveTools = new Map(state.liveTools);
+			for (const [key, entry] of state.finishedTools) {
+				if (!key.startsWith(CHILDREN_WAIT_CALL)) continue;
+				finishedTools.delete(key);
+				liveTools.set(key, { ...entry, status: "running", endTime: null, startTime: Date.now() - 95_000 });
+			}
+			tools.setState({ finishedTools, liveTools, finishedVersion: state.finishedVersion + 1 });
+		}
 	}, 1_500);
 }
 

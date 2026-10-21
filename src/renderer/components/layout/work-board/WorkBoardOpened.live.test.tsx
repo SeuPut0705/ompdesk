@@ -24,7 +24,8 @@ Reflect.set(window, "omp", { rpc: { command } });
 
 // Imported after the DOM globals exist (React DOM reads them at load), as the other board tests do.
 const { createRoot } = await import("react-dom/client");
-const { OpenedSection, LIVE_REVIEW_MS } = await import("./WorkBoardOpened");
+const { OpenedSection } = await import("./WorkBoardOpened");
+const { LIVE_REVIEW_MS } = await import("../../../hooks/use-live-review");
 
 const row = (status: OpenedChildRow["status"]): OpenedChildRow => ({ key: "c1", tabId: "c1", title: "Kid", status });
 const counts = { total: 1, running: 1, waiting: 0, done: 0, closed: 0 };
@@ -81,5 +82,46 @@ describe("a board showing the sessions this one opened", () => {
 		await mount([row("done")]);
 		await act(async () => vi.advanceTimersByTime(LIVE_REVIEW_MS * 5));
 		expect(asked()).toBe(0);
+	});
+});
+
+describe("what each child is doing, under its title", () => {
+	const container = () => document.body.lastElementChild as unknown as HTMLElement;
+	async function show(rows: OpenedChildRow[]) {
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host as unknown as Element);
+		await mount(rows);
+	}
+	const activity = (key: string) =>
+		container().querySelector(`[data-board-opened="${key}"] [data-board-child-activity]`)?.textContent ?? null;
+	const label = (key: string) =>
+		container().querySelector(`[data-board-opened="${key}"] .truncate`)?.textContent ?? null;
+
+	it("shows a running child's step, a waiting one's question and a finished one's report, title first", async () => {
+		await show([
+			{ ...row("running"), key: "r", step: "bun run check:changed" },
+			{
+				...row("waiting"),
+				key: "w",
+				title: "Asker",
+				report: { kind: "question", text: "Should a failed bump open an issue\nor only log it?", at: 1 },
+			},
+			{ ...row("done"), key: "d", title: "Finisher", report: { kind: "done", text: "Fixed the flake.", at: 1 } },
+			{ ...row("running"), key: "q", title: "Quiet" },
+		]);
+		expect(label("r")).toBe("Kid");
+		expect(activity("r")).toBe("bun run check:changed");
+		expect(activity("w")).toBe("Should a failed bump open an issue or only log it?");
+		expect(activity("d")).toBe("Fixed the flake.");
+		// Nothing said yet: no empty second line.
+		expect(activity("q")).toBeNull();
+	});
+
+	it("follows the step main pushes, with nothing of its own to poll", async () => {
+		await show([{ ...row("running"), step: "Editing Sidebar.tsx" }]);
+		expect(activity("c1")).toBe("Editing Sidebar.tsx");
+		await mount([{ ...row("running"), step: "bun run check:changed" }]);
+		expect(activity("c1")).toBe("bun run check:changed");
 	});
 });

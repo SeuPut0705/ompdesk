@@ -143,6 +143,11 @@ export function boardPeers(): { peers: CheckoutPeers } {
 	};
 }
 
+/** `?board=busy&children=wait`: the parent's turn runs and its last call waits on its children. */
+export const CHILDREN_WAIT = BOARD_BUSY && query.get("children") === "wait";
+/** That call's id; boot.ts marks its entry running (a transcript's unanswered call loads as stopped). */
+export const CHILDREN_WAIT_CALL = "call-children-wait";
+
 /**
  * The busy session's last turn, after its last prompt: three memories the bridge recalled (one with a long Korean
  * title) and a failed `bun test`, so the memory row and the failed-check section show.
@@ -208,6 +213,28 @@ export function boardTurnMessages(base: number): Record<string, unknown>[] {
 			isError: true,
 			timestamp: base + 6_000,
 		},
+		// `&children=wait`: the parent's agent then waits on the sessions it opened (stock's `xd://` device call).
+		...(CHILDREN_WAIT
+			? [
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: CHILDREN_WAIT_CALL,
+								name: "write",
+								arguments: {
+									path: "xd://ompdesk_session_result",
+									content: '{"sessions":["child-1","child-2"],"wait":true,"until":"any"}',
+								},
+								intent: text("Waiting for the child sessions", "하위 세션 기다리는 중"),
+							},
+						],
+						stopReason: "toolUse",
+						timestamp: base + 8_000,
+					},
+				]
+			: []),
 	];
 }
 
@@ -250,6 +277,19 @@ export function boardReview(): { items: AgentReviewItem[] } {
 						"업데이트가 실패하면 이슈를 열까요, 기록만 할까요?",
 					),
 					at: now - MINUTE,
+				},
+			}),
+			item({
+				tabId: "child-3",
+				title: text("Keep the sidebar's folds across a relaunch", "다시 실행해도 사이드바 접힘 상태 유지"),
+				state: "needs-review",
+				report: {
+					kind: "done",
+					text: text(
+						"Folds survive a relaunch; sidebar-memory tests pass.",
+						"다시 실행해도 접힘이 유지돼요. sidebar-memory 테스트 통과.",
+					),
+					at: now - 2 * MINUTE,
 				},
 			}),
 		],
@@ -295,6 +335,7 @@ export function boardBusyStores(): {
 				),
 			},
 			goalState: { status: "active" },
+			...(CHILDREN_WAIT ? { isStreaming: true } : {}),
 		},
 		request: {
 			type: "extension_ui_request",

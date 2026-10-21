@@ -1193,6 +1193,83 @@
 	font-variant-numeric: tabular-nums;
 }
 
+/* The sessions this one opened still at work (chat/work/ChildrenAtWork.tsx): one line each, title, what it does now,
+   its clock; in the live card while the parent waits on them, under the transcript between its turns. */
+.omp-children-at-work {
+	min-width: 0;
+	padding-block: var(--sc-space-1);
+}
+
+.omp-children-at-work > ul {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.omp-children-at-work-row {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	min-height: var(--sc-control-sm);
+	align-items: center;
+	gap: var(--sc-space-2);
+	/* The goal and todo rows' inset, so the dots line up with theirs inside the live card. */
+	padding-inline: var(--sc-space-1-5);
+	border-radius: var(--sc-radius-sm);
+	font-size: var(--sc-font-sm);
+	text-align: start;
+	color: var(--sc-text-secondary);
+	transition: background-color var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-children-at-work-row:hover {
+	background: var(--sc-hover);
+	color: var(--sc-text);
+}
+
+:where(html[data-input="touch"]) .omp-children-at-work-row {
+	min-height: var(--sc-row-touch);
+}
+
+.omp-children-at-work-dot {
+	width: 6px;
+	height: 6px;
+	flex: none;
+	border-radius: 999px;
+	background: var(--sc-info);
+}
+
+.omp-children-at-work-dot[data-status="waiting"] {
+	background: var(--sc-warning);
+}
+
+.omp-children-at-work-title {
+	min-width: 0;
+	max-width: 45%;
+	flex: none;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 500;
+}
+
+.omp-children-at-work-step {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--sc-text-subtle);
+}
+
+.omp-children-at-work-clock {
+	flex: none;
+	margin-inline-start: auto;
+	font-size: var(--sc-font-xs);
+	color: var(--sc-text-subtle);
+	font-variant-numeric: tabular-nums;
+}
+
 /* The row hangs past the side column by its own padding so the chevron lines up with the card
    edge; its max width carries that overhang too, or the row would be clamped short of its content
    and cut its counts even beside a short narrative. */

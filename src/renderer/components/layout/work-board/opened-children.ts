@@ -159,3 +159,26 @@ export function openedChildCounts(rows: readonly OpenedChildRow[]): OpenedChildC
 	}
 	return counts;
 }
+
+/** A report or step as one line, cut at a word near this many characters (the row truncates it further). */
+const ACTIVITY_CHARS = 120;
+
+function oneLine(text: string): string {
+	const line = text.replace(/\s+/g, " ").trim();
+	if (line.length <= ACTIVITY_CHARS) return line;
+	const cut = line.slice(0, ACTIVITY_CHARS);
+	return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), ACTIVITY_CHARS / 2)).trimEnd()}…`;
+}
+
+/**
+ * What a child is doing, in its own words, for the line under its title: a running one's current step (its open tool
+ * call or last action, main's live push) or, before the first step, its progress report; a waiting one's question or
+ * blocker; a finished one's report. Null when it has said nothing yet.
+ */
+export function childActivity(row: OpenedChildRow): string | null {
+	const report = row.report?.text.trim() ? row.report : undefined;
+	if (row.status === "running") return row.step ? oneLine(row.step) : report ? oneLine(report.text) : null;
+	if (row.status === "waiting")
+		return report && (report.kind === "question" || report.kind === "blocked") ? oneLine(report.text) : null;
+	return report ? oneLine(report.text) : null;
+}
