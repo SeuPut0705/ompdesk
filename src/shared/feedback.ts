@@ -1,7 +1,8 @@
 /**
  * Feedback → GitHub issue bridge. Builds the `issues/new` URL the dialog
- * opens; nothing is sent until the user confirms on GitHub, and no session
- * content is ever included — only what the dialog previews.
+ * opens; nothing is sent before the user submits (the draft then reaches
+ * GitHub in that URL), and no session content is ever included — only what
+ * the dialog previews.
  *
  * Shared (not renderer-only) because the error log tail is assembled in the
  * main process and the fallback page uses the same URL builder.
@@ -80,18 +81,18 @@ function toErrorLine(raw: string): string | null {
 	}
 }
 
-/** Newest-last render of the given tail lines, bounded to MAX_ERRORS_CHARS. */
+/** Newest-last render of the given tail lines (oldest first), bounded to MAX_ERRORS_CHARS by dropping the oldest. */
 export function formatErrorTail(rawLines: readonly string[]): string {
 	const lines: string[] = [];
 	let size = 0;
-	for (const raw of rawLines) {
+	for (const raw of rawLines.toReversed()) {
 		const line = toErrorLine(raw);
 		if (line === null) continue;
 		if (size + line.length > MAX_ERRORS_CHARS) break;
 		lines.push(line);
 		size += line.length;
 	}
-	return lines.join("\n");
+	return lines.reverse().join("\n");
 }
 
 export function buildIssueBody(input: FeedbackInput): string {
