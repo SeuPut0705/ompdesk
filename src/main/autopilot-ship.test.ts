@@ -562,8 +562,9 @@ describe("land", () => {
 			const moved = await landElsewhere("other.txt", "other\n");
 			const sha = await commit(work, "a.txt");
 			// The run's change shows as uncommitted against the moved default branch, and the command's own path to the
-			// run's worktree points at the temporary checkout (other.txt is there, not in the run's worktree).
-			const scoped = `cd ${work} && test -f other.txt && git diff --name-only HEAD | grep -qx a.txt && ! git diff --name-only HEAD | grep -q other.txt`;
+			// run's worktree points at the temporary checkout (other.txt is there, not in the run's worktree). The path is
+			// written as a Windows agent's bash takes it (forward slashes); the run's root is the native path.
+			const scoped = `cd ${work.replaceAll("\\", "/")} && test -f other.txt && git diff --name-only HEAD | grep -qx a.txt && ! git diff --name-only HEAD | grep -q other.txt`;
 			const { checked, checkCandidate } = checking();
 			const result = await land(runner({ checkCandidate }), sha, scoped);
 			expect(result?.land).toMatchObject({ kind: "landed", sha: checked[0], merge: { onto: moved } });
