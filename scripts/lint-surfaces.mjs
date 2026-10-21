@@ -27,11 +27,15 @@
  *
  * Unhandled rejections (renderer .ts/.tsx, tests excluded): a `void window.omp.…(…)` call ends in `.catch(…)` or a
  * two-argument `.then` (see scripts/lint-unhandled.mjs); an exception carries `unhandled-ok: <reason>`.
+ *
+ * Locale (renderer .ts/.tsx, tests excluded): a number or date is formatted with `uiLocale()`, never the OS locale
+ * (`toLocaleString()` with no locale; see scripts/lint-locale.mjs); an exception carries `locale-ok: <reason>`.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findImeViolations } from "./lint-ime.mjs";
+import { findLocaleViolations } from "./lint-locale.mjs";
 import { findUnhandledCalls } from "./lint-unhandled.mjs";
 
 // fileURLToPath, not URL.pathname: the latter is "/D:/…" on Windows runners.
@@ -85,6 +89,9 @@ for (const file of collect(ROOT)) {
 			violations.push(
 				`${rel}:${hit.line}  rejection not handled  ${hit.text}  (add .catch, or unhandled-ok: <reason>)`,
 			);
+		}
+		for (const hit of findLocaleViolations(lines.join("\n"), file)) {
+			violations.push(`${rel}:${hit.line}  OS locale  ${hit.text}  (pass uiLocale(), or locale-ok: <reason>)`);
 		}
 	}
 }

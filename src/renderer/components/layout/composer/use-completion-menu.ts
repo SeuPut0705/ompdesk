@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import type { AvailableCommand, AvailableModelsResult, ModelInfo } from "../../../../shared/rpc-types";
 import { getEmojiSuggestions } from "../../../lib/emoji";
+import { uiLocale } from "../../../lib/format";
 import { fuzzyScore } from "../../../lib/fuzzy-score";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -254,7 +255,7 @@ export function useCompletionMenu({
 			const unseen = (result.total ?? 0) - result.items.length;
 			if (unseen > 0) notes.push(t("input.menu.more", { count: unseen }));
 			if (result.truncated) {
-				notes.push(t("input.menu.filesTruncated", { count: MENTION_FS_MAX_ENTRIES.toLocaleString() }));
+				notes.push(t("input.menu.filesTruncated", { count: MENTION_FS_MAX_ENTRIES.toLocaleString(uiLocale()) }));
 			}
 			const hints = [
 				{ keys: "↑↓", label: t("input.menu.hintMove") },
@@ -480,7 +481,7 @@ export function useCompletionMenu({
 			}
 			// No row to hang the notice on: it goes in the hint line under the field.
 			if (truncated && items.length === 0) {
-				setArgHint(t("input.menu.filesTruncated", { count: MENTION_FS_MAX_ENTRIES.toLocaleString() }));
+				setArgHint(t("input.menu.filesTruncated", { count: MENTION_FS_MAX_ENTRIES.toLocaleString(uiLocale()) }));
 			}
 			apply({ source: "mention", rangeStart: mention.start, items, total: total + schemes, truncated });
 			return () => {

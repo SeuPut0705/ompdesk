@@ -16,7 +16,7 @@ import type {
 	RpcContextEntryPreview,
 	RpcContextInspectResult,
 } from "../../../shared/rpc-types";
-import { cx, formatTokens } from "../../lib/format";
+import { cx, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { Badge, Banner, Button, ErrorDetail, Sheet, Spinner } from "../common";
@@ -116,8 +116,8 @@ function EntryPreview({ id }: { id: string }) {
 			{preview.truncated && (
 				<p className="text-sc-xs text-(--sc-text-muted)">
 					{t("contextInspector.previewTruncated", {
-						shown: preview.text.length.toLocaleString(),
-						total: preview.totalChars.toLocaleString(),
+						shown: preview.text.length.toLocaleString(uiLocale()),
+						total: preview.totalChars.toLocaleString(uiLocale()),
 					})}
 				</p>
 			)}

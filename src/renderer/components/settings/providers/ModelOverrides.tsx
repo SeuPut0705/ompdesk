@@ -18,6 +18,7 @@ import type {
 	ModelOverrideInput,
 } from "../../../../shared/ipc-types";
 import { errorDetail } from "../../../lib/error-detail";
+import { uiLocale } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
@@ -115,9 +116,9 @@ function summary(override: ModelOverrideInput, t: Translate): string {
 	const parts: string[] = [];
 	if (override.name) parts.push(override.name);
 	if (override.contextWindow)
-		parts.push(t("modelOverrides.summary.context", { count: override.contextWindow.toLocaleString() }));
+		parts.push(t("modelOverrides.summary.context", { count: override.contextWindow.toLocaleString(uiLocale()) }));
 	if (override.maxTokens)
-		parts.push(t("modelOverrides.summary.output", { count: override.maxTokens.toLocaleString() }));
+		parts.push(t("modelOverrides.summary.output", { count: override.maxTokens.toLocaleString(uiLocale()) }));
 	if (override.reasoning !== undefined)
 		parts.push(t(override.reasoning ? "modelOverrides.summary.reasoningOn" : "modelOverrides.summary.reasoningOff"));
 	if (override.thinking)

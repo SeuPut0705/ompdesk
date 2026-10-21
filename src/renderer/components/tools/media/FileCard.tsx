@@ -22,7 +22,7 @@ import {
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { basename, cx, formatBytes } from "../../../lib/format";
+import { basename, cx, formatBytes, uiLocale } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useUiStore } from "../../../stores/ui";
@@ -219,7 +219,7 @@ export function FileCard({ path, hideMissing = false, compact = false, onRemove,
 						t(`fileCard.kind.${state.kind}`),
 						state.count &&
 							t(`fileCard.count.${state.count.unit}`, {
-								count: `${state.count.count.toLocaleString()}${state.count.more ? "+" : ""}`,
+								count: `${state.count.count.toLocaleString(uiLocale())}${state.count.more ? "+" : ""}`,
 							}),
 						state.kind === "folder" ? null : formatBytes(state.size),
 					]
