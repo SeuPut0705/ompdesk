@@ -26,6 +26,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
+import { pollWhileVisible } from "../../../lib/visible-poll";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -248,11 +249,11 @@ export function PlanDockCard({ presentation = "dock" }: { presentation?: "dock" 
 		if (finished && planModeEnabled) void load({ quiet: true });
 	}, [isStreaming, planModeEnabled, load]);
 
-	// …and poll quietly while the planning turn streams so edits surface live.
+	// …and poll quietly while the planning turn streams so edits surface live
+	// (never while the window is hidden; it catches up when shown).
 	useEffect(() => {
 		if (!isStreaming || !planModeEnabled) return;
-		const timer = setInterval(() => void load({ quiet: true }), POLL_STREAMING_MS);
-		return () => clearInterval(timer);
+		return pollWhileVisible(() => void load({ quiet: true }), POLL_STREAMING_MS);
 	}, [isStreaming, planModeEnabled, load]);
 
 	const togglePlanMode = useCallback(async () => {

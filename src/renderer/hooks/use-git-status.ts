@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import type { RpcGitStatus } from "../../shared/rpc-types";
 import { acceptsActiveTabEvents, onActiveTabRouteSettled } from "../lib/tab-routing";
+import { pollWhileVisible } from "../lib/visible-poll";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
 
 /**
- * Live git state for the status footer's git segment (plan/20): polls the
- * ACTIVE tab's sidecar `get_git_status` every 2.5s (porcelain is ~10-30ms),
- * resets on tab/cwd change (no stale cross-tab flash), and refetches on the
- * streaming true→false edge — a finished run likely touched files. Background
- * tabs are never polled: the footer only renders active context.
+ * Live git state of the active tab (the PR create dialog): polls the ACTIVE
+ * tab's sidecar `get_git_status` every 2.5s while the window is shown
+ * (porcelain is ~10-30ms), resets on tab/cwd change (no stale cross-tab
+ * flash), and refetches on the streaming true→false edge — a finished run
+ * likely touched files. Background tabs are never polled.
  */
 export function useGitStatus(): { status: RpcGitStatus | null; refresh: () => void } {
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -38,11 +39,11 @@ export function useGitStatus(): { status: RpcGitStatus | null; refresh: () => vo
 		setStatus(null);
 		void refresh();
 		const unsubscribeRoute = onActiveTabRouteSettled(() => void refresh());
-		const timer = window.setInterval(() => void refresh(), 2500);
+		const stopPoll = pollWhileVisible(() => void refresh(), 2500);
 		return () => {
 			cancelled = true;
 			unsubscribeRoute();
-			window.clearInterval(timer);
+			stopPoll();
 		};
 	}, [activeTabId, cwd]);
 
