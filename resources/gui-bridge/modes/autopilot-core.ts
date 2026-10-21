@@ -37,6 +37,7 @@ import {
 	DEFAULT_AUTOPILOT_SETTINGS,
 	DUPLICATE_WINDOW,
 	isAutopilotArea,
+	normalizeTitle,
 	RECENT_CYCLES,
 } from "./autopilot-contracts";
 
@@ -51,14 +52,6 @@ export interface JournalEntry {
 // ---------------------------------------------------------------------------------------------
 // Titles, rotation, duplicates
 // ---------------------------------------------------------------------------------------------
-
-/** A title as the duplicate check compares it: case, punctuation and spacing ignored (Hangul kept). */
-export function normalizeTitle(title: string): string {
-	return title
-		.toLowerCase()
-		.replace(/[^\p{L}\p{N}]+/gu, " ")
-		.trim();
-}
 
 /** The last {@link DUPLICATE_WINDOW} cycles: a repeat of one of their titles is not picked again. */
 export function isDuplicateTitle(records: readonly AutopilotCycleRecord[], title: string): boolean {

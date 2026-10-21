@@ -14,6 +14,7 @@ import {
 	type AutopilotShipRequest,
 	DEFAULT_AUTOPILOT_SETTINGS,
 	NO_LIMITS,
+	normalizeTitle,
 	shipPolicyForPreset,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
@@ -40,7 +41,6 @@ import {
 	limitReached,
 	mergeSettings,
 	nextStateEntry,
-	normalizeTitle,
 	openFollowups,
 	parseEndReport,
 	pendingNotes,

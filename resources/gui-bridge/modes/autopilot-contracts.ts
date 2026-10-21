@@ -215,6 +215,17 @@ export function clipCycleSummary(text: string): string {
 	return flat.length > AUTOPILOT_SUMMARY_MAX ? `${flat.slice(0, AUTOPILOT_SUMMARY_MAX - 1)}…` : flat;
 }
 
+/**
+ * A title or follow-up as Autopilot compares them: case, punctuation and spacing ignored (Hangul kept). The duplicate
+ * check, the follow-ups a cycle resolves or the person dismisses, and the board's "already on the backlog" all use it.
+ */
+export function normalizeTitle(title: string): string {
+	return title
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.trim();
+}
+
 /** Payload of {@link AUTOPILOT_CYCLE_ENTRY} (what `autopilot end` reported, plus what the bridge measured). */
 export interface AutopilotCycleRecord {
 	n: number;

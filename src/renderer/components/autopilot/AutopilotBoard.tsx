@@ -1,6 +1,6 @@
 import { Pin, Plus, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type { AutopilotChildLive } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import { type AutopilotChildLive, normalizeTitle } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { formatCost, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -313,7 +313,7 @@ function AutopilotFollowupsSection() {
 	const ended = useAutopilotStore(s => s.status.state === "ended");
 	const { run, pending } = useAutopilotActions();
 	if (!followups || followups.length === 0) return null;
-	const pinned = new Set((backlog ?? []).filter(item => !item.done).map(item => sameItem(item.text)));
+	const pinned = new Set((backlog ?? []).filter(item => !item.done).map(item => normalizeTitle(item.text)));
 	return (
 		<BoardSection count={followups.length} id="followups" title={t("autopilot.followups")}>
 			<CappedRows cap={SECTION_CAP.followups} items={followups}>
@@ -322,7 +322,7 @@ function AutopilotFollowupsSection() {
 						action={
 							ended ? undefined : (
 								<span className="flex gap-3" data-board-row-actions>
-									{!pinned.has(sameItem(text)) && (
+									{!pinned.has(normalizeTitle(text)) && (
 										<IconButton
 											data-autopilot-followup-pin=""
 											disabled={pending === "backlog_add"}
@@ -353,11 +353,6 @@ function AutopilotFollowupsSection() {
 			</CappedRows>
 		</BoardSection>
 	);
-}
-
-/** A follow-up already on the backlog, whatever its case and spacing. */
-function sameItem(text: string): string {
-	return text.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 /**
