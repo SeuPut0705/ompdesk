@@ -111,6 +111,12 @@ export interface RemoteHostOptions {
 
 export type RemoteHostEvent = "peersChanged" | "connectionsChanged" | "listenChanged";
 
+/** The slim capabilities a connection has, as one line for the log (`none` for a device that reads whole frames). */
+function slimNames(conn: PeerConnection): string {
+	const names = [conn.slimEvents && "events", conn.slimProgress && "progress", conn.slimAutopilot && "autopilot"];
+	return names.filter(Boolean).join(",") || "none";
+}
+
 class PeerConnection implements HostConnection {
 	readonly link: Link;
 	peer: PeerInfo;
@@ -444,7 +450,14 @@ export class RemoteHost {
 		});
 		this.#connections.add(conn);
 		const openedAt = this.#now();
-		this.#opts.logLink?.("open", { deviceId: current.deviceId, ms: openedAt - acceptedAt });
+		// The device's build and what it can read: a busy traffic line is read against them (whole frames to an older
+		// device cost tens of times what slim ones do).
+		this.#opts.logLink?.("open", {
+			deviceId: current.deviceId,
+			ms: openedAt - acceptedAt,
+			appVersion: hello.appVersion,
+			slim: slimNames(conn),
+		});
 		const { logLink } = this.#opts;
 		if (logLink)
 			logLinkTraffic(link, {

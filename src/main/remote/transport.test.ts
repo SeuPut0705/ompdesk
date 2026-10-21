@@ -699,7 +699,12 @@ describe("a link that dropped or went silent", () => {
 		expect(lines.map(line => line.message).sort()).toEqual(["closed", "closed", "open", "open"]);
 		for (const { message, details } of lines) {
 			const who = { deviceId: a.identity.deviceId, ms: expect.any(Number) };
-			expect(details).toEqual(message === "open" ? who : { ...who, reason: "closed" });
+			// The open line names the device's build and the slim frames it reads.
+			expect(details).toEqual(
+				message === "open"
+					? { ...who, appVersion: expect.any(String), slim: "events,progress,autopilot" }
+					: { ...who, reason: "closed" },
+			);
 		}
 	});
 });
