@@ -16,6 +16,7 @@ import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useSessionStore } from "../../../stores/session";
+import { useTodoStore } from "../../../stores/todo";
 import { useUiStore } from "../../../stores/ui";
 import { AutopilotPanel } from "./AutopilotPanel";
 
@@ -100,6 +101,7 @@ afterEach(async () => {
 	document.body.innerHTML = "";
 	useAutopilotStore.getState().reset();
 	useSessionStore.getState().reset();
+	useTodoStore.getState().reset();
 	useUiStore.setState({ panelVisible: false, panelTab: "diff", changesFocusCommit: null, changesMode: "repository" });
 });
 
@@ -259,6 +261,41 @@ describe("Autopilot screen", () => {
 		);
 		expect($("[data-autopilot-pick]")?.textContent).toBe("chunk loops on size 0");
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain("chunk loops on size 0");
+	});
+
+	it("lists the cycle's todo rows as they are when two tasks share a text", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply(status);
+		useTodoStore.getState().setPhases([
+			{
+				name: "Fix",
+				tasks: [
+					{ content: "Reproduce", status: "in_progress" },
+					{ content: "Run the checks", status: "pending" },
+				],
+			},
+			{ name: "Docs", tasks: [{ content: "Run the checks", status: "pending" }] },
+		]);
+		await mount(<AutopilotPanel />);
+		expect(all("[data-autopilot-todo] li").map(row => row.textContent)).toEqual([
+			"Reproduce",
+			"Run the checks",
+			"Run the checks",
+		]);
+
+		await act(async () =>
+			useTodoStore.getState().setPhases([
+				{
+					name: "Fix",
+					tasks: [
+						{ content: "Reproduce", status: "completed" },
+						{ content: "Run the checks", status: "pending" },
+					],
+				},
+				{ name: "Docs", tasks: [{ content: "Run the checks", status: "pending" }] },
+			]),
+		);
+		expect(all("[data-autopilot-todo] li").map(row => row.textContent)).toEqual(["Run the checks", "Run the checks"]);
 	});
 
 	it("sends one action per control", async () => {

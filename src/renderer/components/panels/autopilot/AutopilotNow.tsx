@@ -152,8 +152,8 @@ export function AutopilotNow() {
 					)}
 					{board && (
 						<ul className="flex flex-col gap-0.5 text-sc-xs" data-autopilot-todo>
-							{board.rows.slice(0, TODO_ROWS).map(row => (
-								<li className="flex min-w-0 items-center gap-1.5" key={row.content}>
+							{board.rows.slice(0, TODO_ROWS).map((row, index) => (
+								<li className="flex min-w-0 items-center gap-1.5" key={`${index}:${row.content}`}>
 									{row.status === "completed" ? (
 										<Check aria-hidden className="size-3 shrink-0 text-(--sc-success)" />
 									) : (
