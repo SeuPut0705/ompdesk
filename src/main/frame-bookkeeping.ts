@@ -20,7 +20,8 @@ function slim(value: unknown): unknown {
 }
 
 /** `frame` with the bookkeeping left out of the messages it carries; the same object when there is none. */
-export function withoutFrameBookkeeping<T extends Frame>(frame: T): T {
+export function withoutFrameBookkeeping<T extends object>(source: T): T {
+	const frame = source as Frame;
 	if (frame.type === "turn_end" && ("message" in frame || "toolResults" in frame)) {
 		const { message: _message, toolResults: _toolResults, ...rest } = frame;
 		return rest as T;

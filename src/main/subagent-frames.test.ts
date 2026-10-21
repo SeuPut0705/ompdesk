@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, SubagentFrame } from "../shared/rpc-types";
 import { BATCH_INTERVAL_MS } from "./event-batcher";
-import { createSubagentFrameBatcher } from "./subagent-frames";
+import { createSubagentFrameBatcher, slimSubagentFrame } from "./subagent-frames";
 
 const reply = (text: string): AgentMessage => ({
 	role: "assistant",
@@ -82,5 +82,20 @@ describe("createSubagentFrameBatcher", () => {
 		expect(frame.type === "subagent_event" && frame.payload.event.type === "message_update").toBe(true);
 		if (frame.type === "subagent_event" && frame.payload.event.type === "message_update")
 			expect(frame.payload.event.assistantMessageEvent.partial).toBeDefined();
+	});
+
+	it("sends a subagent's turn end as its type and its messages without request bookkeeping", () => {
+		const event = (value: unknown): SubagentFrame =>
+			({ type: "subagent_event", payload: { id: "scout", event: value } }) as SubagentFrame;
+		const bookkept = { ...reply("done"), inputTransformations: [{ type: "thinking_dropped" }], requestControls: {} };
+		const result = { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "x".repeat(4000) }] };
+		expect(slimSubagentFrame(event({ type: "turn_end", message: bookkept, toolResults: [result] }))).toEqual(
+			event({ type: "turn_end" }),
+		);
+		expect(slimSubagentFrame(event({ type: "message_end", message: bookkept }))).toEqual(
+			event({ type: "message_end", message: reply("done") }),
+		);
+		const plain = event({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: {} });
+		expect(slimSubagentFrame(plain)).toBe(plain);
 	});
 });

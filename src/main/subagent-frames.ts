@@ -10,10 +10,14 @@
  *
  * Message updates are slimmed on the way: a subagent's events feed only its
  * tools-store surface (and the observed-usage count), which read the fields
- * {@link slimMessageUpdate} keeps — never the accumulated snapshot.
+ * {@link slimMessageUpdate} keeps — never the accumulated snapshot. Every
+ * event also leaves without what no window reads (frame-bookkeeping.ts): the
+ * request bookkeeping on its messages, and a `turn_end`'s message and tool
+ * results, which its own `message_end` and `tool_execution_end` already carried.
  */
 import type { SubagentFrame } from "../shared/rpc-types";
 import { BATCH_INTERVAL_MS } from "./event-batcher";
+import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { slimMessageUpdate } from "./message-update-slim";
 
 export interface SubagentFrameBatcher {
@@ -22,11 +26,13 @@ export interface SubagentFrameBatcher {
 	flush(): void;
 }
 
-/** A subagent's `message_update` reduced to what the renderer reads; every other frame as it is. */
+/** A subagent's event reduced to what the renderer reads; every other frame as it is. */
 export function slimSubagentFrame(frame: SubagentFrame): SubagentFrame {
-	return frame.type === "subagent_event" && frame.payload.event.type === "message_update"
-		? { type: frame.type, payload: { ...frame.payload, event: slimMessageUpdate(frame.payload.event) } }
-		: frame;
+	if (frame.type !== "subagent_event") return frame;
+	const source = frame.payload.event;
+	const trimmed = withoutFrameBookkeeping(source);
+	const event = trimmed.type === "message_update" ? slimMessageUpdate(trimmed) : trimmed;
+	return event === source ? frame : { type: frame.type, payload: { ...frame.payload, event } };
 }
 
 export function createSubagentFrameBatcher(send: (frames: SubagentFrame[]) => void): SubagentFrameBatcher {
