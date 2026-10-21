@@ -20,9 +20,11 @@ async function withFollowApp(body: (app: ElectronApplication, page: Page) => Pro
 		agent = path.join(profile, "agent"),
 		project = path.join(profile, "project");
 	await Promise.all([fs.mkdir(desktop), fs.mkdir(agent), fs.mkdir(project)]);
-	// The work board would show the todos beside the transcript and their dock strip would step
-	// aside; these tests need the dock between transcript and composer.
-	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", workBoard: false }));
+	// The work board would show the todos beside the transcript and their dock strip would step aside; these tests
+	// need the dock between transcript and composer. The board has no setting any more (b793deb8d retired the
+	// `workBoard` pref this spec still wrote), so the window is one the board does not dock in (a 1280 px window
+	// beside the sidebar leaves the pane under `workBoardFits`' 1137 px), as composer-toolbar's is.
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en" }));
 	const app = await launchApp({
 		project,
 		desktop,
@@ -33,7 +35,9 @@ async function withFollowApp(body: (app: ElectronApplication, page: Page) => Pro
 		env: { OMP_GUI_TEST_HISTORY: "300" },
 	});
 	try {
-		await body(app, await app.firstWindow());
+		const page = await app.firstWindow();
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+		await body(app, page);
 	} finally {
 		await exitApp(app);
 		await fs.rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
