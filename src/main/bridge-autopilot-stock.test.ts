@@ -558,6 +558,61 @@ describe.skipIf(!existsSync(omp))("autopilot on stock omp", () => {
 		await h.stop();
 	}, 120_000);
 
+	it("takes the commit of a call listed after `end` in the same message: stock reports that call's start after end's", async () => {
+		const commit =
+			"sleep 1 && echo more >> a.txt && git add a.txt && git -c user.name=t -c user.email=t@t commit -qm second";
+		let turns = 0;
+		const provider = await startProvider(requests => {
+			const latest = requests.at(-1);
+			if (!latest) return { text: "?" };
+			if (latest.inTurn === 0) turns++;
+			if (turns > 1) return { hang: true };
+			if (latest.inTurn === 0) return { tool: "autopilot", args: { op: "begin" } };
+			if (latest.inTurn === 1) {
+				return {
+					calls: [
+						{
+							tool: "autopilot",
+							args: {
+								op: "end",
+								area: "tests",
+								title: "commit beside end",
+								summary: "committed and reported in one message",
+								verify: "skipped",
+								commit: "abc1234",
+							},
+						},
+						{ tool: "bash", args: { command: commit } },
+					],
+				};
+			}
+			return { text: "cycle done" };
+		});
+		cleanups.push(() => provider.close());
+		const h = await startOmp(provider);
+		await h.bridge.request<AutopilotStatus>(M.arm, {
+			role: "parent",
+			root: h.root,
+			run: "2026-10-22",
+			branch: "autopilot/2026-10-22",
+			baseBranch: "main",
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
+		});
+		await h.send({ type: "goal", op: "create", objective: "Autopilot: test objective" });
+		await h.waitFrame(frame => frame.type === "autopilot_cycle_end");
+		const record = h.frames.find(frame => frame.type === "autopilot_cycle_end")?.record as AutopilotCycleRecord;
+		const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: h.root, encoding: "utf8" }).trim();
+		const log = execFileSync("git", ["log", "--oneline"], { cwd: h.root, encoding: "utf8" });
+		const results = JSON.stringify(provider.requests.map(request => request.toolResults.slice(-2)));
+		expect(record, `${log}\n${results}\n${JSON.stringify(record)}`).toMatchObject({
+			n: 1,
+			title: "commit beside end",
+			commit: head,
+		});
+		expect(record.change).toMatchObject({ files: 1, commits: 1 });
+		await h.stop();
+	}, 120_000);
+
 	it("records nothing while a call beside `end` still runs past the wait, and takes the commit from the next end", async () => {
 		// A wait that ran out is no settlement: reading HEAD then would record a cycle without the running commit.
 		const commit =

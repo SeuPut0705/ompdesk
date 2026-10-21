@@ -136,6 +136,8 @@ interface LiveState extends LiveCycle {
 	/** The turn's tool calls the verify check reads, in order, and the ones still running. */
 	calls: LedgerCall[];
 	pending: Map<string, { tool: string; args: unknown }>;
+	/** Tool calls of the turn that have ended, by id (`settledBeside`). */
+	ended: Set<string>;
 	/** HEAD when the turn began (what the cycle's change is measured from). */
 	headStart?: Promise<string | undefined>;
 	/** What the bridge measured of the report (see `autopilot-verify.ts`). */
@@ -188,20 +190,40 @@ function untilToolEvents(ready: () => boolean, ms: number): Promise<boolean> {
 	});
 }
 
+/** The other tool calls of the assistant message that carries the call `callId` (stock's own message list). */
+function siblingCalls(session: Session, callId: string): string[] {
+	const messages: readonly unknown[] = session.messages ?? [];
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const content = record(messages[i]).content;
+		if (!Array.isArray(content)) continue;
+		const ids = content
+			.map(part => record(part))
+			.filter(part => part.type === "toolCall" && typeof part.id === "string")
+			.map(part => String(part.id));
+		if (ids.includes(callId)) return ids.filter(id => id !== callId);
+	}
+	return [];
+}
+
 /**
  * Waits until no tool call of the cycle but this `end` runs, and answers the ones still running when the wait ran out
  * (empty once they all finished). Stock runs a message's tool calls side by side, so an `end` sent in the same message
  * as the commit or the check it reports read HEAD and the ledger before either finished: the cycle had no commit and
  * was never landed (cycle 90 of this repository's run). Stock reports a call's start through an event stream that
- * lags its execution, so this first waits for its own start: every call stock launched before it has been reported
- * by then.
+ * lags its execution, and a call listed after `end` starts after it: so this first waits for its own start (the
+ * message is in stock's list by then), then for every other call of its message to end, besides any other call
+ * still running.
  */
-async function settledBeside(state: LiveState, callId: string | undefined): Promise<string[]> {
+async function settledBeside(session: Session, state: LiveState, callId: string | undefined): Promise<string[]> {
 	if (callId) await untilToolEvents(() => state.pending.has(callId), OWN_START_WAIT_MS);
+	const siblings = callId ? siblingCalls(session, callId) : [];
 	// An autopilot call never waits for another (or for itself, reached as its `xd://` device).
 	const ours = (id: string, call: { tool: string; args: unknown }) =>
 		id === callId || call.tool === "autopilot" || String(record(call.args).path ?? "").startsWith("xd://autopilot");
-	const running = () => [...state.pending].filter(([id, call]) => !ours(id, call)).map(([, call]) => call.tool);
+	const running = () => [
+		...[...state.pending].filter(([id, call]) => !ours(id, call)).map(([, call]) => call.tool),
+		...siblings.filter(id => !state.ended.has(id) && !state.pending.has(id)).map(() => "tool"),
+	];
 	await untilToolEvents(() => running().length === 0, siblingWaitMs());
 	return running();
 }
@@ -419,6 +441,7 @@ function startLive(session: Session, entries: readonly JournalEntry[]): LiveStat
 		proposed: false,
 		calls: [],
 		pending: new Map(),
+		ended: new Set(),
 		...(root ? { headStart: headOf(root) } : {}),
 	};
 	return live;
@@ -557,6 +580,7 @@ function noteToolEvent(event: unknown): void {
 	}
 	const started = live.pending.get(id);
 	live.pending.delete(id);
+	live.ended.add(id);
 	const call = ledgerCall(tool, started?.args, fields.result, fields.isError === true);
 	if (call) live.calls.push(call);
 	for (const check of [...toolEvents]) check();
@@ -725,7 +749,7 @@ async function runTool(
 		}
 		case "end": {
 			const parsed = endReportOrThrow(params);
-			const running = await settledBeside(current, callId);
+			const running = await settledBeside(session, current, callId);
 			if (running.length > 0) {
 				// Reading HEAD and the ledger now would record a cycle without what those calls do: nothing is recorded.
 				return toolText({
