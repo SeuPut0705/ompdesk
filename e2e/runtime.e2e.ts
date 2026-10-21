@@ -75,11 +75,15 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		const readAnchor = (): Promise<ReadingAnchor | null> =>
 			scroll.evaluate(node => {
 				if (node.scrollHeight - node.scrollTop - node.clientHeight < 100) return null;
-				const top = node.getBoundingClientRect().top;
-				const rows = Array.from(node.querySelectorAll("[data-transcript-kind]"));
-				const row =
-					rows.find(item => item.getBoundingClientRect().top >= top - 0.5) ??
-					rows.find(item => item.getBoundingClientRect().bottom > top + 4);
+				const box = node.getBoundingClientRect();
+				const top = box.top;
+				// Overscanned rows and the pinned live tail are mounted too, outside the viewport: only rows that show
+				// count, in screen order.
+				const rows = Array.from(node.querySelectorAll("[data-transcript-kind]"))
+					.map(item => ({ item, rect: item.getBoundingClientRect() }))
+					.filter(({ rect }) => rect.bottom > top + 4 && rect.top < box.bottom)
+					.sort((a, b) => a.rect.top - b.rect.top);
+				const row = (rows.find(({ rect }) => rect.top >= top - 0.5) ?? rows[0])?.item;
 				return row
 					? {
 							index: row.getAttribute("data-index"),
