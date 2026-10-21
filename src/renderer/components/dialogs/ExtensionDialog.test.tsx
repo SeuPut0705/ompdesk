@@ -668,7 +668,7 @@ describe("ExtensionDialog docked prompts", () => {
 		vi.setSystemTime(new Date("2026-10-14T12:00:10Z"));
 		await mount({ withComposerDock: true });
 		expect(document.querySelector("[data-prompt-card]")).not.toBeNull();
-		useAutopilotStore.getState().reset();
+		await act(async () => useAutopilotStore.getState().reset());
 	});
 
 	it("never holds a card back in a session that is no Autopilot run", async () => {
@@ -981,7 +981,7 @@ describe("ExtensionDialog non-dialog mutations", () => {
 			expect(document.querySelector("[data-prompt-countdown]")).toBeNull();
 			expect(buttonWithText(translate("extDialog.submit"))).toBeUndefined();
 		} finally {
-			useExtensionUiStore.getState().endInlineLogin();
+			await act(async () => useExtensionUiStore.getState().endInlineLogin());
 		}
 	});
 

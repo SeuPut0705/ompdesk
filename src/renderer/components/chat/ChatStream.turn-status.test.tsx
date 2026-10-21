@@ -133,7 +133,7 @@ describe("TurnStatusRow", () => {
 		expect(cancel?.textContent).toBe("Cancel");
 		await act(async () => cancel?.click());
 		expect(cancelWait).toHaveBeenCalledWith("t1");
-		useTabsStore.setState({ activeTabId: null, tabs: [] });
+		await act(async () => useTabsStore.setState({ activeTabId: null, tabs: [] }));
 	});
 
 	it("a resuming tab shows one calm row with the Stop the old toast offered, no other indicator", async () => {
@@ -153,7 +153,7 @@ describe("TurnStatusRow", () => {
 		expect(buttons[0]?.textContent).toBe("Stop");
 		await act(async () => buttons[0]?.click());
 		expect(stop).toHaveBeenCalledWith("t1");
-		useTabsStore.setState({ activeTabId: null, tabs: [] });
+		await act(async () => useTabsStore.setState({ activeTabId: null, tabs: [] }));
 	});
 
 	it("a paired host's tab names the host whose connection it waits for, and a refused Cancel says so", async () => {
@@ -185,8 +185,8 @@ describe("TurnStatusRow", () => {
 		await act(async () => container.querySelector("button")?.click());
 		expect(cancelWait).toHaveBeenCalledWith("t1");
 		expect(useToastStore.getState().toasts.at(-1)?.title).toBe("Couldn't cancel the wait");
-		useTabsStore.setState({ activeTabId: null, tabs: [] });
-		useRemoteStore.getState().reset();
+		await act(async () => useTabsStore.setState({ activeTabId: null, tabs: [] }));
+		await act(async () => useRemoteStore.getState().reset());
 	});
 });
 

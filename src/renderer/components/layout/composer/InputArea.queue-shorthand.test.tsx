@@ -586,7 +586,7 @@ describe("InputArea queue shorthand submit", () => {
 		vi.useFakeTimers();
 		try {
 			await pressEnter(findTextarea());
-			useTabsStore.setState({ activeTabId: "t1" });
+			await act(async () => useTabsStore.setState({ activeTabId: "t1" }));
 			await act(async () => {
 				vi.runOnlyPendingTimers();
 				await Promise.resolve();
@@ -626,7 +626,7 @@ describe("InputArea queue shorthand submit", () => {
 		await pressEnter(findTextarea());
 		expect(followUp).toHaveBeenCalledTimes(1);
 
-		useTabsStore.setState({ activeTabId: "t1" });
+		await act(async () => useTabsStore.setState({ activeTabId: "t1" }));
 		first.resolve(ok());
 		await flush();
 		await flush();

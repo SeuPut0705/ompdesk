@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useMemoryPageStore } from "../../../stores/memory-page";
 import { MemoryPages } from "./MemoryPages";
@@ -128,7 +129,7 @@ describe("Memory › Pages", () => {
 	it("opens the page another section asked for", async () => {
 		api.readPage.mockResolvedValue(pageOf("decisions/d.md", "Decision D", { kind: "decision" }));
 		await mount(<MemoryPages project={PROJECT} />);
-		useMemoryPageStore.getState().openPage({ ...PROJECT, path: "decisions/d.md" });
+		await act(async () => useMemoryPageStore.getState().openPage({ ...PROJECT, path: "decisions/d.md" }));
 		await settle();
 		expect(api.readPage).toHaveBeenCalledWith({ ...PROJECT, path: "decisions/d.md" });
 		expect(text("[data-memory-reader]")).toContain("Decision D");

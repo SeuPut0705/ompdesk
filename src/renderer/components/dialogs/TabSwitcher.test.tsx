@@ -67,18 +67,31 @@ const key = (type: "keydown" | "keyup", name: string) =>
 const releaseControl = () => key("keyup", "Control");
 
 describe("TabSwitcher", () => {
+	/** Outside act(), as a real ⌃ release can come before React commits the open overlay. */
+	function outsideAct(run: () => void): void {
+		globals.IS_REACT_ACT_ENVIRONMENT = false;
+		try {
+			run();
+		} finally {
+			globals.IS_REACT_ACT_ENVIRONMENT = true;
+		}
+	}
+
 	it("a quick ⌃⇥ tap released before the overlay renders switches to the previous tab", () => {
-		// No act(): ⌃ comes up before React commits the open overlay.
-		useUiStore.setState({ tabSwitcherOpen: true });
-		releaseControl();
+		outsideAct(() => {
+			useUiStore.setState({ tabSwitcherOpen: true });
+			releaseControl();
+		});
 		expect(switchTab).toHaveBeenCalledWith("c");
 		expect(useUiStore.getState().tabSwitcherOpen).toBe(false);
 	});
 
 	it("a quick ⌃⇧⇥ tap switches to the oldest tab", () => {
-		useTabSwitcherStore.setState({ step: -1 });
-		useUiStore.setState({ tabSwitcherOpen: true });
-		releaseControl();
+		outsideAct(() => {
+			useTabSwitcherStore.setState({ step: -1 });
+			useUiStore.setState({ tabSwitcherOpen: true });
+			releaseControl();
+		});
 		expect(switchTab).toHaveBeenCalledWith("b");
 	});
 

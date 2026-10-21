@@ -1,3 +1,4 @@
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAiMemoryStore } from "../../../stores/ai-memory";
 import { useMemoryPageStore } from "../../../stores/memory-page";
@@ -74,7 +75,7 @@ describe("Memory page", () => {
 
 	it("a section's request to open a page moves to Pages", async () => {
 		await show("search");
-		useMemoryPageStore.getState().openPage({ ...PROJECT, path: "notes/a.md" });
+		await act(async () => useMemoryPageStore.getState().openPage({ ...PROJECT, path: "notes/a.md" }));
 		await settle();
 		expect(navigated).toContain("memory:pages");
 	});
@@ -90,11 +91,11 @@ describe("Memory page", () => {
 		await show("pages");
 		expect(api.pages).toHaveBeenLastCalledWith(PROJECT);
 		const select = q("[data-memory-project]");
-		await (async () => {
+		await act(async () => {
 			const key = Object.getOwnPropertyNames(select).find(name => name.startsWith("__reactProps$")) as string;
 			const props = (select as unknown as Record<string, { onChange: (event: unknown) => void }>)[key];
 			props?.onChange({ target: { value: "work/api" } });
-		})();
+		});
 		await settle();
 		expect(api.pages).toHaveBeenLastCalledWith({ workspace: "work", project: "api" });
 	});
