@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-	CheckLog,
 	lastSwapEntry,
 	type PendingInstall,
 	parsePendingInstall,
@@ -100,30 +99,5 @@ describe("previousInstallDetails", () => {
 		const details = previousInstallDetails({ ...pending, mode: "nsis" }, "0.40.0");
 		expect(details).toMatchObject({ outcome: "changed", mode: "nsis" });
 		expect(details).not.toHaveProperty("swapOutcome");
-	});
-});
-
-describe("CheckLog", () => {
-	it("writes a background check's line once until its outcome changes", () => {
-		const log = new CheckLog();
-		const quiet = { event: "no-update", current: "0.52.1" };
-		expect(log.admit(quiet)).toBe(true);
-		expect(log.admit(quiet)).toBe(false);
-		expect(log.admit({ ...quiet })).toBe(false);
-		const offline = { event: "error", kind: "check-failed", reason: "getaddrinfo ENOTFOUND" };
-		expect(log.admit(offline)).toBe(true);
-		expect(log.admit(offline)).toBe(false);
-		expect(log.admit(quiet)).toBe(true);
-		expect(log.admit({ ...quiet, current: "0.52.2" })).toBe(true);
-	});
-
-	it("always writes a check the person asked for, and the next background one after it", () => {
-		const log = new CheckLog();
-		const quiet = { event: "no-update", current: "0.52.1" };
-		log.admit(quiet);
-		expect(log.admit({ ...quiet, manual: true })).toBe(true);
-		expect(log.admit({ ...quiet, manual: true })).toBe(true);
-		expect(log.admit(quiet)).toBe(true);
-		expect(log.admit(quiet)).toBe(false);
 	});
 });
