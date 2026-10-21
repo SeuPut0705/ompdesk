@@ -972,6 +972,8 @@ export class Autopilot {
 			}
 			return;
 		}
+		// A resume without an arm leaves the run on the startup tool set: say why, so a missing arm explains itself.
+		this.#log(`resumeGoal ${tabId}: plain stock resume (run ${run ? "adopted" : "none"}, state ${status?.state ?? "unread"})`);
 		const response = await this.#stockResponse(tabId, { type: "set_goal", action: "resume" });
 		if (!response.success) throw new Error(response.error ?? "the tab is gone");
 	}
