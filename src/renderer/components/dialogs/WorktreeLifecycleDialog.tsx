@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import type { IpcWorktreeNotice, IpcWorktreePrompt } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
-import { toast } from "../../stores/toast";
+import { toast, toastError } from "../../stores/toast";
 import { webRuntime } from "../../web/runtime";
 import { Button, ConfirmDialog, Modal } from "../common";
 
@@ -64,7 +64,11 @@ export function WorktreeLifecycleDialog() {
 	const answer = (accept: boolean) => {
 		if (busy) return;
 		setAnswering(prompt.id);
-		void window.omp.worktreeLifecycle.answer(prompt.id, accept).finally(() => setAnswering(null));
+		// A failed answer (a dropped link) keeps the question up to answer again.
+		void window.omp.worktreeLifecycle
+			.answer(prompt.id, accept)
+			.catch(error => toastError({ title: t("extDialog.answerFailed"), error }))
+			.finally(() => setAnswering(null));
 	};
 
 	if (prompt.kind === "start") {

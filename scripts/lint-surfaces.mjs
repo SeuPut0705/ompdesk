@@ -24,11 +24,15 @@
  * IME (renderer .ts/.tsx, tests excluded): a function that tests a key for
  * "Enter" must use the isImeKeyEvent guard (see scripts/lint-ime.mjs); an
  * exception carries `ime-ok: <reason>` in a comment in or above the function.
+ *
+ * Unhandled rejections (renderer .ts/.tsx, tests excluded): a `void window.omp.…(…)` call ends in `.catch(…)` or a
+ * two-argument `.then` (see scripts/lint-unhandled.mjs); an exception carries `unhandled-ok: <reason>`.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findImeViolations } from "./lint-ime.mjs";
+import { findUnhandledCalls } from "./lint-unhandled.mjs";
 
 // fileURLToPath, not URL.pathname: the latter is "/D:/…" on Windows runners.
 const ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
@@ -76,6 +80,11 @@ for (const file of collect(ROOT)) {
 	if (!/\.test\.tsx?$/.test(rel)) {
 		for (const hit of findImeViolations(lines.join("\n"), file)) {
 			violations.push(`${rel}:${hit.line}  Enter without IME guard  ${hit.text}  (use isImeKeyEvent from lib/ime)`);
+		}
+		for (const hit of findUnhandledCalls(lines.join("\n"), file)) {
+			violations.push(
+				`${rel}:${hit.line}  rejection not handled  ${hit.text}  (add .catch, or unhandled-ok: <reason>)`,
+			);
 		}
 	}
 }
