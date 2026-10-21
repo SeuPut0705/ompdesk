@@ -127,26 +127,30 @@ function sameEventKey(line: string): { key: string; timestamp: string | undefine
 }
 
 /**
- * Consecutive lines that differ only in their time folded into the newest. The background update check writes a line
- * every 5 minutes (625 of 728 update lines on one Mac), and the last 100 lines held hours of those and none of the
- * events around them.
+ * Lines that differ only in their time folded into the newest, where the lines between them keep their order. The
+ * background update check writes a line every 5 minutes (625 of 728 update lines on one Mac), and the last 100 lines
+ * held hours of those; folding only adjacent ones left 25 in the window, since the link's traffic lines sat between.
  */
 function foldRepeats(lines: readonly string[]): LogEntry[] {
-	const entries: (LogEntry & { key: string })[] = [];
-	for (const line of lines) {
-		const { key, timestamp } = sameEventKey(line);
-		const last = entries.at(-1);
-		if (last && last.key === key) {
-			last.line = line;
-			last.count++;
-		} else entries.push({ line, count: 1, first: timestamp, key });
-	}
-	return entries;
+	const parsed = lines.map(line => ({ line, ...sameEventKey(line) }));
+	const newest = new Map<string, number>();
+	const seen = new Map<string, { count: number; first: string | undefined }>();
+	parsed.forEach(({ key, timestamp }, index) => {
+		newest.set(key, index);
+		const group = seen.get(key);
+		if (group) group.count++;
+		else seen.set(key, { count: 1, first: timestamp });
+	});
+	return parsed.flatMap(({ line, key }, index) => {
+		if (newest.get(key) !== index) return [];
+		const group = seen.get(key);
+		return [{ line, count: group?.count ?? 1, first: group?.first }];
+	});
 }
 
 function entryLines(entries: readonly LogEntry[]): string[] {
 	return entries.flatMap(({ line, count, first }) =>
-		count > 1 ? [line, `… the line above ${count} times in a row${first ? `, the first at ${first}` : ""}`] : [line],
+		count > 1 ? [line, `… the line above ${count} times${first ? `, the first at ${first}` : ""}`] : [line],
 	);
 }
 

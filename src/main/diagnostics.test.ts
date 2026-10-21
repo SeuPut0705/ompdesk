@@ -160,8 +160,35 @@ describe("readDiagnosticsLog", () => {
 		expect(read).toEqual([
 			event,
 			check(199 % 60),
-			`… the line above ${DIAGNOSTICS_LOG_LINES * 2} times in a row, the first at 2026-10-21T10:00:00.000Z`,
+			`… the line above ${DIAGNOSTICS_LOG_LINES * 2} times, the first at 2026-10-21T10:00:00.000Z`,
 			"plain",
+		]);
+	});
+
+	it("folds a line repeated between other lines into its newest, where the others stay in order", async () => {
+		// On one Mac the 5-minute update check sat between the link's traffic lines, so no two were adjacent and the
+		// last 100 entries still held 25 of them.
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-diag-"));
+		tempDirs.push(dir);
+		const file = path.join(dir, "gui-runtime.jsonl");
+		const at = (minute: number) => `2026-10-21T10:${String(minute).padStart(2, "0")}:00.000Z`;
+		const check = (minute: number) =>
+			JSON.stringify({
+				timestamp: at(minute),
+				source: "app-update",
+				message: "check",
+				details: { event: "no-update" },
+			});
+		const traffic = (minute: number) =>
+			JSON.stringify({ timestamp: at(minute), source: "remote-link", message: "traffic", details: { tx: minute } });
+		const lines = [check(0), traffic(1), check(5), traffic(6), check(10), traffic(11)];
+		await fs.writeFile(file, `${lines.join("\n")}\n`);
+		expect(await readDiagnosticsLog(file)).toEqual([
+			traffic(1),
+			traffic(6),
+			check(10),
+			`… the line above 3 times, the first at ${at(0)}`,
+			traffic(11),
 		]);
 	});
 
