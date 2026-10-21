@@ -206,6 +206,48 @@ it("clears stale todo dock focus when the transcript takes context", async () =>
 	expect(container.querySelector("[data-focused-card]")).toBeNull();
 	await act(async () => useSessionStore.setState({ planModeEnabled: false }));
 });
+it("the focused card's height handle names its height and bounds, and steps with the keyboard", async () => {
+	useUiStore.setState({ dockCollapsed: { todo: false } });
+	useTodoStore.getState().setPhases([
+		{
+			name: "Work",
+			tasks: Array.from({ length: 12 }, (_, index) => ({ content: `Task ${index}`, status: "completed" as const })),
+		},
+	]);
+	useTodoStore.getState().revealClosed();
+	await act(async () =>
+		root.render(
+			<I18nProvider>
+				<WorkspaceDock />
+			</I18nProvider>,
+		),
+	);
+	const viewAll = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button =>
+		button.textContent?.includes("view all 12 todos"),
+	);
+	await act(async () => viewAll?.click());
+	const handle = container.querySelector("[data-testid=workspace-dock-resize]");
+	if (!handle) throw new Error("no resize handle");
+	expect(handle.getAttribute("aria-valuemin")).toBe("200");
+	expect(handle.getAttribute("aria-valuemax")).toBe("680");
+	const press = async (key: string) => {
+		const record = handle as unknown as Record<string, Record<string, (event: unknown) => void>>;
+		const propsKey = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$")) ?? "";
+		await act(async () => record[propsKey]?.onKeyDown?.({ key, preventDefault: () => {} }));
+	};
+	// Before any resize the handle reports the card's default cap (min(50 %, height − 300)), never a short list's height.
+	expect(handle.getAttribute("aria-valuenow")).toBe("450");
+	await press("ArrowDown");
+	expect(handle.getAttribute("aria-valuenow")).toBe("402");
+	await press("End");
+	expect(handle.getAttribute("aria-valuenow")).toBe("680");
+	await press("Home");
+	expect(handle.getAttribute("aria-valuenow")).toBe("200");
+	await press("ArrowUp");
+	expect(handle.getAttribute("aria-valuenow")).toBe("248");
+	await press("Enter");
+	expect(handle.getAttribute("aria-valuenow")).toBe("248");
+});
 it("ignores todo focus already present when the context mounts", async () => {
 	useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "Next task", status: "pending" }] }]);
 	useUiStore.getState().focusDockCard("todo");
