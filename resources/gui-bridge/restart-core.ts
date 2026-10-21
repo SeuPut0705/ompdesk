@@ -30,6 +30,10 @@ const ASYNC_RESULT = "async-result";
 export const RESTART_JOBS_MESSAGE = "ompdesk-restart-jobs";
 /** The follow-up naming only revived subagents, for a session whose own turn the restore did not continue. */
 export const RESTART_SUBAGENTS_MESSAGE = "ompdesk-restart-subagents";
+/** The follow-up that continues a turn the restart cut off when stock's own retry cannot see it (`turnCutBehindNotes`). */
+export const RESTART_TURN_MESSAGE = "ompdesk-restart-turn";
+/** Stock's eval runtime snapshot (eval/state.ts `EVAL_STATE_CONTEXT_TYPE`), journaled at every session start. */
+const EVAL_STATE_CONTEXT = "eval-state-context";
 
 export interface InterruptedJob {
 	id: string;
@@ -179,6 +183,28 @@ export function journalEnd(branch: readonly JournalEntry[]): string {
 	return `${message}, ${kind ? `exit ${kind}${pending ? "+pending" : ""}` : "no exit"}`;
 }
 
+/**
+ * A turn the processes this one replaced ended aborted or failed (the quit cut it mid-tool, and stock journaled the
+ * aborted result and reply), with a custom message journaled after that reply and nothing anyone typed since.
+ *
+ * Stock's `retry` (session/turn-recovery.ts `retryableAssistantTurnEnd`) reads the conversation's end past its eval
+ * snapshots only, so any other custom message after the aborted reply hides it and `/retry` answers "Nothing to retry".
+ * The v0.48.0 → v0.49.0 update restart left exactly that in two sessions: a report the bridge handed the session once
+ * the abort left it idle (`ompdesk.mail`), and a follow-up stock had queued since an earlier relaunch, journaled at the
+ * abort with its old timestamp. With only eval snapshots after the reply stock's retry continues it, so this is false.
+ * The caller (a relaunch the host makes for a turn it saw running) continues it with one follow-up instead.
+ */
+export function turnCutBehindNotes(branch: readonly JournalEntry[], startedAt: number): boolean {
+	const tailAt = branch.findLastIndex(entry => entry.type === "message");
+	const tail = branch[tailAt];
+	const message = tail?.message;
+	if (!tail || message?.role !== "assistant" || !journaledBefore(tail, startedAt)) return false;
+	if (message.stopReason !== "aborted" && message.stopReason !== "error") return false;
+	return branch
+		.slice(tailAt + 1)
+		.some(entry => entry.type === "custom_message" && entry.customType !== EVAL_STATE_CONTEXT);
+}
+
 /** A subagent stock `restoreSession` revived: its id and what it was asked to do. */
 export interface RevivedSubagent {
 	id: string;
@@ -222,8 +248,14 @@ export function revivedSubagents(branch: readonly JournalEntry[], ids: readonly 
  * renderer's RestartNote), never this text. `- <id>` starts each list line (`settles` reads a job's `- <id>:`); the
  * intent follows so the agent can judge whether a job's result is still needed, or what a subagent is doing.
  */
-function restartNotice(jobs: readonly InterruptedJob[], subagents: readonly RevivedSubagent[]): string {
+function restartNotice(jobs: readonly InterruptedJob[], subagents: readonly RevivedSubagent[], turn: boolean): string {
 	const lines: string[] = [];
+	if (turn) {
+		lines.push(
+			"OMPdesk restarted while you were working and cut your turn off before it finished; the call it stopped shows as aborted above.",
+			"Carry on with the task: run that call again if its result is still needed.",
+		);
+	}
 	if (jobs.length > 0) {
 		lines.push(
 			"OMPdesk restarted and stopped these background jobs before they finished; their results will not arrive:",
@@ -250,11 +282,13 @@ function restartNotice(jobs: readonly InterruptedJob[], subagents: readonly Revi
 export interface RestartDetails {
 	jobs: Array<{ id: string; intent?: string }>;
 	subagents?: Array<{ id: string; intent?: string }>;
+	/** The follow-up also continues a turn the restart cut off. */
+	turn?: true;
 }
 
 /** The one follow-up a relaunch's restore sends the agent: a displayed custom message, shown as muted lines. */
 export interface RestartFollowUp {
-	customType: typeof RESTART_JOBS_MESSAGE | typeof RESTART_SUBAGENTS_MESSAGE;
+	customType: typeof RESTART_JOBS_MESSAGE | typeof RESTART_SUBAGENTS_MESSAGE | typeof RESTART_TURN_MESSAGE;
 	content: string;
 	details: RestartDetails;
 }
@@ -263,17 +297,28 @@ const listed = (items: readonly { id: string; intent?: string }[]) =>
 	items.map(item => (item.intent ? { id: item.id, intent: item.intent } : { id: item.id }));
 
 /**
- * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, and the revived subagents
- * of a session whose own turn did not go on (the caller passes none when it did). One message, so one turn.
+ * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, the revived subagents
+ * of a session whose own turn did not go on (the caller passes none when it did), and `turn`, a cut-off turn stock's
+ * retry cannot see (`turnCutBehindNotes`). One message, so one turn.
  */
 export function restartFollowUp(
 	jobs: readonly InterruptedJob[],
 	subagents: readonly RevivedSubagent[],
+	turn = false,
 ): RestartFollowUp | undefined {
-	if (jobs.length === 0 && subagents.length === 0) return undefined;
+	if (jobs.length === 0 && subagents.length === 0 && !turn) return undefined;
 	return {
-		customType: jobs.length > 0 ? RESTART_JOBS_MESSAGE : RESTART_SUBAGENTS_MESSAGE,
-		content: restartNotice(jobs, subagents),
-		details: subagents.length > 0 ? { jobs: listed(jobs), subagents: listed(subagents) } : { jobs: listed(jobs) },
+		customType:
+			jobs.length > 0
+				? RESTART_JOBS_MESSAGE
+				: subagents.length > 0
+					? RESTART_SUBAGENTS_MESSAGE
+					: RESTART_TURN_MESSAGE,
+		content: restartNotice(jobs, subagents, turn),
+		details: {
+			jobs: listed(jobs),
+			...(subagents.length > 0 ? { subagents: listed(subagents) } : {}),
+			...(turn ? { turn: true as const } : {}),
+		},
 	};
 }

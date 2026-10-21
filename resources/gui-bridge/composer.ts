@@ -22,6 +22,7 @@ import {
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
+	turnCutBehindNotes,
 } from "./restart-core";
 import type { BridgeMethods } from "./types";
 
@@ -369,8 +370,15 @@ export const methods: BridgeMethods = {
 				eventBus: taskTool?.session?.eventBus,
 				subagentEventBus: taskTool?.session?.subagentEventBus,
 			});
-			// A restored turn already goes on with its subagents (a cut-off `wait` reruns and finds them again).
-			const followUp = restartFollowUp(cutOff, outcome.turn ? [] : revivedSubagents(branch, outcome.subagents));
+			// A restored turn already goes on with its subagents (a cut-off `wait` reruns and finds them again). A turn
+			// stock neither restores nor can retry, because a custom message came after its aborted reply, goes on with
+			// the follow-up (`turnCutBehindNotes`; read before the restore, which may append to the journal).
+			const turnCut = !outcome.turn && turnCutBehindNotes(branch, startedAt);
+			const followUp = restartFollowUp(
+				cutOff,
+				outcome.turn ? [] : revivedSubagents(branch, outcome.subagents),
+				turnCut,
+			);
 			// Not awaited: a dispatched prompt settles with its whole turn; the restore answers at once.
 			if (followUp) {
 				void session
@@ -389,6 +397,7 @@ export const methods: BridgeMethods = {
 				goalPausedByExit,
 				followUp: followUp !== undefined,
 				cutBeforeRequest: abort !== undefined,
+				...(turnCut ? { turnCut: true } : {}),
 				journal: journalEnd(branch),
 			};
 		},

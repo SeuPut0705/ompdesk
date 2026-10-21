@@ -2306,6 +2306,7 @@ export const en: Record<string, string> = {
 	"chat.resumingStopFailed": "Couldn't stop the resumed work",
 	"chat.restartJobs": "Re-running {count} background task(s) the restart stopped",
 	"chat.restartSubagents": "Continuing {count} background task(s) after the restart",
+	"chat.restartTurn": "Continuing the work the restart cut off",
 	"settings.gui.proxy": "HTTP proxy",
 	"settings.gui.proxyDesc":
 		"Routes the agent's provider requests (OAuth, streaming, usage) through this proxy. Leave empty to follow the macOS system proxy. Applies on agent restart — restarted for you when idle.",
