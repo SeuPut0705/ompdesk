@@ -596,6 +596,24 @@ describe("journal replay", () => {
 		expect(openFollowups(inFlight, dismissed)).toEqual(["Trim the log"]);
 		expect(openFollowups(inFlight, [{ text: "Trim the log", at: 3_000 }])).toEqual([]);
 	});
+	it("openFollowups: one on the backlog, pinned or done, is the backlog's and leaves the list", () => {
+		const records = seq({ followups: ["Trim the log", "Docs for X", "Keyboard access"] });
+		const backlog = [
+			{ id: "b1", text: "trim the log.", done: false },
+			{ id: "b2", text: "Keyboard access", done: true, cycle: 2 },
+		];
+		expect(openFollowups(records, [], backlog)).toEqual(["Docs for X"]);
+		const entries = [
+			custom(AUTOPILOT_CYCLE_ENTRY, records[0]),
+			custom(
+				AUTOPILOT_STATE_ENTRY,
+				initialStateEntry({ run: "r", root: "/r", branch: "b", baseBranch: "main", excludedTools: [], now: 1 }),
+			),
+			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "b1", text: "Trim the log", at: 9 }),
+		];
+		const status = buildStatus(entries, 10);
+		expect(status.active ? status.followups : null).toEqual(["Docs for X", "Keyboard access"]);
+	});
 	it("parseEndReport keeps the resolved follow-ups, and finalizeCycle records them", () => {
 		const report = parseEndReport({
 			area: "bugs",

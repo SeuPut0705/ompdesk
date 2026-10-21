@@ -506,15 +506,18 @@ export function pendingNotes(
  * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
  * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it ended
  * closes it too (`dismissed`, the backlog's `dismiss` events); a cycle that lists it again reopens it, even one that
- * was already running when the person dismissed it.
+ * was already running when the person dismissed it. One the backlog holds (pinned there, or done since) is the
+ * backlog's: it is listed there instead.
  */
 export function openFollowups(
 	records: readonly AutopilotCycleRecord[],
 	dismissed: readonly { text: string; at: number }[] = [],
+	backlog: readonly AutopilotBacklogItem[] = [],
 ): string[] {
 	const window = records.slice(-DUPLICATE_WINDOW);
 	const open: string[] = [];
-	const seen = new Set<string>();
+	// On the backlog it is the backlog's (it shows there, and `begin` lists it there); a done item closed it.
+	const seen = new Set<string>(backlog.map(item => normalizeTitle(item.text)));
 	for (let i = window.length - 1; i >= 0; i--) {
 		for (const followup of window[i].followups ?? []) {
 			const key = normalizeTitle(followup);
@@ -801,7 +804,7 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 		...(record.reverted ? { reverted: true } : {}),
 	}));
 	const left = budgetLeft(settings.limits, facts.used, facts.activeMs, records.length);
-	const open = openFollowups(records, facts.dismissed);
+	const open = openFollowups(records, facts.dismissed, facts.backlog);
 	const backlog = facts.backlog.filter(item => !item.done);
 	const hints = beginHints(records, { open, backlog: backlog.length, maxParallel: settings.maxParallel });
 	return {
@@ -867,7 +870,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 	const running = state.state === "running" || state.state === "stopping";
 	const activeMs = state.activeMs + (running ? Math.max(0, now - state.at) : 0);
 	const cycle = Math.max(records.at(-1)?.n ?? 0, live?.n ?? 0);
-	const followups = openFollowups(records, followupDismissals(entries));
+	const followups = openFollowups(records, followupDismissals(entries), backlogItems(entries));
 	return {
 		active: true,
 		role: state.role ?? "parent",
