@@ -1,7 +1,7 @@
 import { Puzzle } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { cx } from "../../../lib/format";
+import { cx, oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { Kbd, SearchField } from "../../common";
@@ -24,11 +24,6 @@ interface SkillPickerOverlayProps {
 	onSelect: (name: string) => void;
 	onManage: () => void;
 	onClose: () => void;
-}
-
-/** Collapse a multi-paragraph description to one line of text. */
-export function oneLine(text: string): string {
-	return text.replace(/\s+/g, " ").trim();
 }
 
 /** Name matches first (prefix before substring), then description matches; token-AND. */

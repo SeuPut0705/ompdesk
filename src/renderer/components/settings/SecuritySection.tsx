@@ -12,6 +12,7 @@ import type {
 	RpcSecurityScanResult,
 	RpcSecurityTargetInput,
 } from "../../../shared/rpc-types";
+import { errorDetail } from "../../lib/error-detail";
 import { cx, formatAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -74,10 +75,6 @@ function severityCounts(findings: RpcSecurityFindingInfo[]): Record<Severity, nu
 	return counts;
 }
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
 export function SecuritySection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
@@ -137,7 +134,7 @@ export function SecuritySection() {
 					);
 					setError(undefined);
 				} catch (cause) {
-					if (version === generation.current) setError(errorMessage(cause));
+					if (version === generation.current) setError(errorDetail(cause));
 				} finally {
 					if (version === generation.current) setLoading(false);
 				}
@@ -226,7 +223,7 @@ export function SecuritySection() {
 			if (!response.success) setError(response.error);
 			await refresh();
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		} finally {
 			setRunning(false);
 		}
@@ -277,7 +274,7 @@ export function SecuritySection() {
 				setRationale("");
 			} else setError(response.error);
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		} finally {
 			setSavingDisposition(false);
 		}
@@ -297,7 +294,7 @@ export function SecuritySection() {
 			// dashboard read back is what reports the new verdict.
 			await refresh();
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		} finally {
 			setValidating(false);
 		}
@@ -310,7 +307,7 @@ export function SecuritySection() {
 			if (!response.success) setError(response.error);
 			await refresh();
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		}
 	};
 

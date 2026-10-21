@@ -275,6 +275,11 @@ export function formatPercent(n: number | null | undefined, decimals = 1): strin
 	return n != null && Number.isFinite(n) ? `${n.toFixed(decimals)}%` : "—";
 }
 
+/** Text as one line: every run of whitespace, newlines included, becomes one space. */
+export function oneLine(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 export function escapeHtml(s: string): string {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

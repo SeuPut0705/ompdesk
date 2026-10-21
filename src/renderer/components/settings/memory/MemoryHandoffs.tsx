@@ -5,10 +5,10 @@
 import { X } from "lucide-react";
 import { useState } from "react";
 import type { AiMemoryHandoff, AiMemoryProjectRef } from "../../../../shared/ai-memory";
-import { formatTimeAgo } from "../../../lib/format";
+import { formatTimeAgo, oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { Badge, Button, ConfirmDialog, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
-import { LIST_ROW, MemoryFrame, MutedLine, oneLine, ReadError, useMemoryAction } from "./memory-ui";
+import { LIST_ROW, MemoryFrame, MutedLine, ReadError, useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
 export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {

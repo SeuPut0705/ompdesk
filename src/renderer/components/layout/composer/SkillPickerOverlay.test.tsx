@@ -19,7 +19,8 @@ if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scro
 
 // Loaded after the linkedom globals exist: react-dom reads `window`/`document` at import.
 const { createRoot } = await import("react-dom/client");
-const { SkillPickerOverlay, filterSkills, oneLine } = await import("./SkillPickerOverlay");
+const { SkillPickerOverlay, filterSkills } = await import("./SkillPickerOverlay");
+const { oneLine } = await import("../../../lib/format");
 
 const LONG = `Use when the user asks to research social platforms.\n\nSupports many backends.\n\n${"More detail that goes on and on. ".repeat(20)}`;
 const SKILLS = [

@@ -6,6 +6,7 @@
 import { ChevronDown, ChevronRight, FileKey2, FolderOpen, Plus, RefreshCw, Server, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcSshHostInfo, RpcSshHostInput, RpcSshHostsResult, RpcSshTestResult } from "../../../shared/rpc-types";
+import { errorDetail } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { sshDiagnostics } from "../../lib/ssh-diagnostics";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -70,10 +71,6 @@ function targetText(host: RpcSshHostInfo): string {
 	return `${user}${host.host}:${host.port ?? 22}`;
 }
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
 export function SshSection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
@@ -126,7 +123,7 @@ export function SshSection() {
 				setError(undefined);
 				setLoadError(undefined);
 			} catch (cause) {
-				setLoadError(errorMessage(cause));
+				setLoadError(errorDetail(cause));
 			} finally {
 				setLoading(false);
 			}
@@ -195,7 +192,7 @@ export function SshSection() {
 				await load({ name: draft.name.trim(), scope: draft.scope });
 			}
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		} finally {
 			setSaving(false);
 		}
@@ -225,7 +222,7 @@ export function SshSection() {
 				setLogOpen(false);
 			}
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		} finally {
 			setTesting(false);
 		}
@@ -250,7 +247,7 @@ export function SshSection() {
 				await load();
 			}
 		} catch (cause) {
-			setError(errorMessage(cause));
+			setError(errorDetail(cause));
 		} finally {
 			setDeleting(false);
 		}
