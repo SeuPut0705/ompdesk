@@ -27,16 +27,20 @@ export function useComposerCommands({
 		});
 		const load = () => {
 			if (status !== "ready" || !runtimeTabId) return;
-			void rpc.getAvailableCommands().then(res => {
-				if (
-					cancelled ||
-					sessionRuntimeStore<SessionStore>(runtimeTabId, "session")?.getState().sessionId !== sessionId ||
-					!res.success
-				)
-					return;
-				const data = res.data as { commands?: AvailableCommand[] } | undefined;
-				setCommands(withGuiCommands(data?.commands ?? []));
-			});
+			// A read a dropped link or a closed bridge fails keeps the commands shown; the next ready reads again.
+			void rpc
+				.getAvailableCommands()
+				.then(res => {
+					if (
+						cancelled ||
+						sessionRuntimeStore<SessionStore>(runtimeTabId, "session")?.getState().sessionId !== sessionId ||
+						!res.success
+					)
+						return;
+					const data = res.data as { commands?: AvailableCommand[] } | undefined;
+					setCommands(withGuiCommands(data?.commands ?? []));
+				})
+				.catch(() => undefined);
 		};
 		load();
 		return () => {

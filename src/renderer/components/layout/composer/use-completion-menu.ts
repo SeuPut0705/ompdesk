@@ -297,14 +297,17 @@ export function useCompletionMenu({
 					};
 				}
 				timer = window.setTimeout(() => {
-					void rpc.getCommandArgCompletions(command.name, argPrefix).then(response => {
-						if (!live()) return;
-						const data = response.success
-							? (response.data as { items?: CompletionItem[]; hint?: string | null } | undefined)
-							: undefined;
-						setArgHint(atEnd ? (data?.hint ?? staticHint) : "");
-						apply(data?.items?.length ? { source: "slash-arg", rangeStart, items: data.items } : null);
-					});
+					void rpc.getCommandArgCompletions(command.name, argPrefix).then(
+						response => {
+							if (!live()) return;
+							const data = response.success
+								? (response.data as { items?: CompletionItem[]; hint?: string | null } | undefined)
+								: undefined;
+							setArgHint(atEnd ? (data?.hint ?? staticHint) : "");
+							apply(data?.items?.length ? { source: "slash-arg", rangeStart, items: data.items } : null);
+						},
+						() => undefined,
+					);
 				}, 120);
 				return () => {
 					cancelled = true;

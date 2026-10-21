@@ -2879,11 +2879,11 @@ export function Sidebar() {
 											const pinned = !pinnedSessions.includes(sessionMenu.session.path);
 											useSidebarPrefs.getState().toggleSessionPin(sessionMenu.session.path);
 											setSessionMenu(null);
+											const failed = () =>
+												toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
 											void tabRpc.setSessionPinned(sessionMenu.session.id, pinned).then(response => {
-												if (!response.success) {
-													toast({ variant: "warning", message: t("sidebar.pinSyncFailed") });
-												}
-											});
+												if (!response.success) failed();
+											}, failed);
 										},
 									},
 									...(sessionMenu.session.kind === "chat"
