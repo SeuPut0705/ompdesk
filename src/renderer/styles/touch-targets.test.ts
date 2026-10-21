@@ -150,6 +150,37 @@ describe("hit areas that fill the room they have", () => {
 	});
 });
 
+describe("controls close enough to take each other's taps", () => {
+	// Found by the responsive audit at 390 (stolen-tap): each one's 44 px reach covered its neighbour's.
+	const declares = (relative: string, ...bounds: string[]) => {
+		const source = read(relative);
+		for (const bound of bounds) expect(source, `${relative} declares ${bound}`).toContain(bound);
+	};
+
+	it("keeps the flush children-at-work rows inside their own row", () => {
+		expect(read("./components.css")).toMatch(
+			/:where\(html\[data-input="touch"\]\) \.omp-children-at-work > ul \{\s*--hit-gap-y:\s*0px/,
+		);
+	});
+
+	it("bounds a segmented tab bar to its 2 px gap, which Tabs marks", () => {
+		expect(rule('html[data-input="touch"] [role="tablist"][data-segmented]')).toMatch(/--hit-gap-x:\s*2px/);
+		declares("../components/common/Tabs.tsx", "data-segmented={segmented || undefined}");
+	});
+
+	it("declares the gap of the wrapping rows and clusters the audit found", () => {
+		declares("../components/modes/AutopilotConfig.tsx", "gap-1.5 [--hit-gap-x:6px] [--hit-gap-y:6px]");
+		declares("../components/settings/RemoteSection.tsx", "gap-1 [--hit-gap-y:4px]");
+		declares(
+			"../components/dialogs/BenchmarkDialog.tsx",
+			"space-y-2 [--hit-gap-y:8px]",
+			"gap-1 [--hit-gap-x:4px] [--hit-gap-y:4px]",
+		);
+		declares("../components/panels/TerminalPanel.tsx", 'touch ? "gap-2.5 [--hit-gap-x:10px]" : "gap-1"');
+		declares("../components/dialogs/ImportForeignDialog.tsx", "gap-2.5 [--hit-gap-x:10px]");
+	});
+});
+
 describe("the phone composer", () => {
 	it("draws +, Send and Stop at 28 px and reaches 44 (18 px of hit gap each way: the reach starts inside the 1 px border)", () => {
 		const gap = rule('html[data-shell="phone"] :is(.omp-composer-toolbar, .omp-composer-send-cluster)');

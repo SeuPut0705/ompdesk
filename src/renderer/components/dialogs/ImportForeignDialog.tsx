@@ -312,7 +312,7 @@ export function ImportForeignDialog() {
 					}))}
 					variant="segmented"
 				/>
-				<div className="ml-auto flex min-w-48 flex-1 items-center gap-1 sm:max-w-72">
+				<div className="ml-auto flex min-w-48 flex-1 items-center gap-2.5 [--hit-gap-x:10px] sm:max-w-72">
 					<div className="min-w-0 flex-1">
 						<SearchField
 							label={t("import.search")}
