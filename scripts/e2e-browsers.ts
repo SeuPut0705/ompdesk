@@ -1,8 +1,9 @@
 /**
  * The phone and web specs launch Playwright's own browsers (`chromium`, `webkit` from `@playwright/test`). A
  * Playwright upgrade moves the browsers' versioned folders, and until `bunx playwright install` fetches them every
- * such spec fails at its launch with the same "Executable doesn't exist" box. `check:changed` asks first, so a
- * missing browser is one line before the build instead of a failed spec per browser and device.
+ * such spec fails at its launch with the same "Executable doesn't exist" box. `check:changed` asks first and says
+ * so in one line before the specs run. It only warns: an import does not mean the spec runs (an opt-in spec skips
+ * with its gate off), so Playwright's own result stays the verdict.
  */
 import { chromium, firefox, webkit } from "@playwright/test";
 
@@ -21,6 +22,17 @@ export function browsersNeeded(source: string): BrowserName[] {
 		}
 	}
 	return (Object.keys(TYPES) as BrowserName[]).filter(name => named.has(name));
+}
+
+/** The warning for browsers `missing` that the picked `specs` import, or null when nothing is missing. */
+export function missingBrowsersNotice(
+	specs: readonly string[],
+	browsersOf: ReadonlyMap<string, readonly BrowserName[]>,
+	missing: readonly BrowserName[],
+): string | null {
+	if (missing.length === 0) return null;
+	const blocked = specs.filter(spec => browsersOf.get(spec)?.some(name => missing.includes(name)));
+	return `Playwright's ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not installed: ${blocked.join(" ")} cannot start ${missing.length > 1 ? "them" : "it"} unless skipped; run \`bunx playwright install ${missing.join(" ")}\``;
 }
 
 /** The browsers among `names` Playwright cannot start because their executable is not installed. */
