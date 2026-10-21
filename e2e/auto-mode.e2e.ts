@@ -3,8 +3,9 @@
  * `modes.auto_mode_undo` by keyword and, like the bridge, answers none for a busy session; the real classifier
  * against stock is covered by src/main/bridge-auto-mode*.test.ts). A decision is used for one request only: a
  * big-change prompt gets plan with the "This request: Plan" chip and one-click undo while the Mode picker stays on the
- * user's own modes, and that plan ends when it is approved, rejected or followed by an unrelated message (stock's own
- * exit, `set_plan_mode` off); "until tests pass" gets a goal that ends when it completes or the user stops it; a
+ * user's own modes; once the agent proposes that plan the bridge approves it itself (no card, no click) and the plan
+ * runs, or the plan ends when it is rejected or followed by an unrelated message (stock's own exit, `set_plan_mode`
+ * off); "until tests pass" gets a goal that ends when it completes or the user stops it; a
  * question stays plain; a session that ran a turn moments ago is never classified (`OMP_GUI_TEST_AUTO_MODE_IDLE_MS`
  * turns that window off for the other tests); the Mode popover's switch and Settings' row share the pref; a manually
  * chosen mode always wins; an undo stops further automatic decisions in that session. With the decision held like
@@ -101,6 +102,26 @@ test("a big change uses plan for that request only: a chip shows it, the Mode pi
 		// The undo stops automatic decisions in this session.
 		await send(page, "refactor the whole routing layer across all packages", 3);
 		await expect(chip(page)).toHaveCount(0);
+	} finally {
+		await finish(launched);
+	}
+});
+
+test("a plan the choice used runs by itself once proposed: no approval card, no click, and the chip ends with it", async () => {
+	const launched = await launch({}, { ...EVERY_PROMPT_IS_NEW, OMP_GUI_TEST_AUTO_PLAN_PROPOSES: "1" });
+	const { page, record } = launched;
+	try {
+		await composer(page).fill(PLAN_PROMPT);
+		await composer(page).press("Enter");
+		await expect(page.getByText("Proposed plan: split the settings store")).toBeVisible({ timeout: 30_000 });
+		// The approved plan's own turn answers; nobody clicked anything.
+		await expect(page.getByText("Local fixture reply")).toHaveCount(1, { timeout: 30_000 });
+		await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
+		await expect(chip(page)).toHaveCount(0);
+		expect(await recordsOfType(record, "modes.set_plan_mode")).toMatchObject([{ enabled: true, auto: true }]);
+		expect(await recordsOfType(record, "modes.plan_approval")).toHaveLength(0);
+		await expect(modeButton(page)).not.toContainText("Plan");
 	} finally {
 		await finish(launched);
 	}

@@ -213,19 +213,12 @@ async function approve(session: AgentSession, params: Record<string, unknown>): 
 		markPlanRejected(sessionId);
 		const feedback = typeof params.feedback === "string" ? params.feedback.trim() : "";
 		if (feedback) {
-			// Feedback is a reply to the plan: an automatic plan stays on for the revised one.
+			// Feedback is a reply to the plan: plan mode stays on for the revised one.
 			void submitTurn(session, feedback, false).catch(reportTurnError);
 			return { approved: false, dispatched: true };
 		}
-		// A plan entered for one request ends with that plan; the user's own plan mode stays.
-		const autoPlan = autoModeFlags(sessionId).autoPlan;
-		if (autoPlan) await exitPlanMode(session);
-		return {
-			approved: false,
-			dispatched: false,
-			reason: "rejected",
-			...(autoPlan ? { planModeEnabled: false } : {}),
-		};
+		// Only the user's own plan mode shows a card (an automatic plan is approved by itself): it stays on.
+		return { approved: false, dispatched: false, reason: "rejected" };
 	}
 
 	const option = (typeof params.option === "string" ? params.option : "execute") as ApprovalOption;
