@@ -39,6 +39,14 @@ function startsRun(messages: readonly { role: string; steering?: boolean; stopRe
  */
 const REQUEST_BOOKKEEPING = ["inputTransformations", "requestControls", "contextSnapshot"];
 
+/** `message` without request bookkeeping (see REQUEST_BOOKKEEPING); the same object when it carries none. */
+export function withoutRequestBookkeeping<T extends object>(message: T): T {
+	if (!REQUEST_BOOKKEEPING.some(key => key in message)) return message;
+	const copy = { ...message };
+	for (const key of REQUEST_BOOKKEEPING) Reflect.deleteProperty(copy, key);
+	return copy;
+}
+
 /**
  * A transcript page's messages without request bookkeeping (see REQUEST_BOOKKEEPING) and without a thinking block's
  * `thinkingSignature`: an opaque blob the provider checks when the conversation is sent again, which stock reads from
@@ -49,16 +57,13 @@ export function transcriptPageMessages<T extends object>(messages: readonly T[])
 	return messages.map(message => {
 		const content = (message as { content?: unknown }).content;
 		const signed = Array.isArray(content) && content.some(block => isSigned(block));
-		if (!signed && !REQUEST_BOOKKEEPING.some(key => key in message)) return message;
-		const page = { ...message };
-		for (const key of REQUEST_BOOKKEEPING) Reflect.deleteProperty(page, key);
-		if (signed) {
-			(page as { content?: unknown }).content = (content as unknown[]).map(block => {
-				if (!isSigned(block)) return block;
-				const { thinkingSignature: _signature, ...rest } = block;
-				return rest;
-			});
-		}
+		if (!signed) return withoutRequestBookkeeping(message);
+		const page = withoutRequestBookkeeping({ ...message });
+		(page as { content?: unknown }).content = (content as unknown[]).map(block => {
+			if (!isSigned(block)) return block;
+			const { thinkingSignature: _signature, ...rest } = block;
+			return rest;
+		});
 		return page;
 	});
 }

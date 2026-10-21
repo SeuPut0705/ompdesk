@@ -3,6 +3,7 @@
  * gui-bridge extension, handles restart, routes frames to RpcClient and
  * EventBatcher, and answers GUI-side commands (src/main/local) in-process.
  */
+
 import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
@@ -35,6 +36,7 @@ import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import { isNoModelBootFailure } from "./boot-model";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { EventBatcher } from "./event-batcher";
+import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
 import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
@@ -799,7 +801,8 @@ export class SidecarManager extends EventEmitter {
 
 	#routeFrame(frame: unknown): void {
 		if (typeof frame !== "object" || frame === null) return;
-		let obj = frame as Frame;
+		// Request bookkeeping no window reads leaves here, before any copy of the frame is made (frame-bookkeeping.ts).
+		let obj = withoutFrameBookkeeping(frame as Frame);
 		// Stock queue lanes are bare text; ids are assigned on arrival, in stream order.
 		if (obj.type === "queue_update" && this.#bridge) obj = projectQueueUpdate(this.#bridge, obj);
 		if (this.#held) {
