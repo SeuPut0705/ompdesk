@@ -16,6 +16,7 @@ import {
 } from "../../resources/gui-bridge/modes/auto-title-engine";
 import { setJudgeAssistEnabled, setJudgeAssistStockLoader } from "../../resources/gui-bridge/modes/judge-assist-engine";
 import { methods as replyLanguage } from "../../resources/gui-bridge/modes/reply-language";
+import { wrapAgentMessage } from "../shared/agent-control";
 import { type FakeJudge, fakeJudge, titleAnswer } from "./test-fake-judge";
 
 interface Entry {
@@ -257,6 +258,29 @@ describe("first title", () => {
 			expect(world.script.generate).not.toHaveBeenCalled();
 			expect(world.manager.setSessionName).not.toHaveBeenCalled();
 		}
+	});
+
+	it("names a session another agent opened from its brief, not the wrapper stock skips as low-signal", async () => {
+		// Stock's `isLowSignalTitleInput` strips the whole `<ompdesk-agent-message>` block and declines it.
+		const declineWrapped = async (text: string) => (text.includes("<ompdesk-agent-message") ? null : "Login fix");
+		const titled = build({ cards: false });
+		titled.script.generate.mockImplementation(declineWrapped);
+		await attach(titled.session);
+		const brief = wrapAgentMessage("Title: 로그인 오류를 고치고 회귀 테스트 추가\n# Target\nauth.ts", "Parent");
+		await send(titled.session, { type: "message_end", message: operator(brief) });
+		await flush();
+		expect(titled.script.generate).toHaveBeenCalledExactlyOnceWith("로그인 오류를 고치고 회귀 테스트 추가");
+		expect(titled.manager.setSessionName).toHaveBeenCalledExactlyOnceWith("Login fix", "auto", TITLE_TRIGGER);
+		expect(titleIsAuto("Login fix", titled.manager.titleSource, titled.entries)).toBe(true);
+
+		const untitled = build({ cards: false });
+		untitled.script.generate.mockImplementation(declineWrapped);
+		await attach(untitled.session);
+		const body = "Fix the login bug in auth.ts.\nAdd a regression test.";
+		await send(untitled.session, { type: "message_end", message: operator(wrapAgentMessage(body, "Parent")) });
+		await flush();
+		expect(untitled.script.generate).toHaveBeenCalledExactlyOnceWith(body);
+		expect(untitled.manager.setSessionName).toHaveBeenCalledExactlyOnceWith("Login fix", "auto", TITLE_TRIGGER);
 	});
 
 	it("does nothing when the pref is off or the user's environment suppresses titles", async () => {

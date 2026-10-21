@@ -14,6 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { titleLanguageLine } from "../../resources/gui-bridge/modes/auto-title-core";
+import { wrapAgentMessage } from "../shared/agent-control";
 
 /**
  * Pins the automatic session titles to the installed omp, in an empty private agent dir (no model is called):
@@ -29,12 +30,18 @@ import { titleLanguageLine } from "../../resources/gui-bridge/modes/auto-title-c
  */
 const omp = join(homedir(), ".bun", "bin", "omp");
 
+/** Two briefs another session's agent sends (`ompdesk_session_open`): one with a `Title:` line, one without. */
+const BRIEFS = [
+	wrapAgentMessage("Title: 로그인 오류를 고치고 회귀 테스트 추가\n# Target\nauth.ts", "Parent"),
+	wrapAgentMessage("Fix the login bug in auth.ts.\nAdd a regression test.", "Parent"),
+];
+
 const PROBE = `
 import { methods } from "./modes/auto-title";
 import { methods as replyLanguage } from "./modes/reply-language";
 import { capabilitiesFor } from "./probe-helper";
 import { TITLE_TRIGGER } from "./modes/auto-title-contracts";
-import { titleIsAuto } from "./modes/auto-title-core";
+import { titleIsAuto, titleInput } from "./modes/auto-title-core";
 export default function (pi) {
  pi.on("session_start", async () => {
   try {
@@ -70,6 +77,9 @@ export default function (pi) {
    const { collectOnlineTinyCandidates } = await import("@oh-my-pi/pi-coding-agent/tiny/online-candidates");
    const pool = roleCandidatePool("tiny", session.settings, session.modelRegistry);
    out.titleModels = collectOnlineTinyCandidates(["tiny", "commit", "smol"], session.settings, pool).map(c => ({ role: c.role, model: c.model.provider + "/" + c.model.id }));
+   const { isLowSignalTitleInput } = await import("@oh-my-pi/pi-coding-agent/tiny/text");
+   const briefs = ${JSON.stringify(BRIEFS)};
+   out.briefs = briefs.map(brief => ({ wrapped: isLowSignalTitleInput(brief), input: titleInput(brief) ?? null, inputLowSignal: isLowSignalTitleInput(titleInput(brief) ?? "") }));
    console.error("AT_PROBE=" + JSON.stringify(out));
   } catch (err) {
    console.error("AT_PROBE_ERROR=" + String(err && err.stack || err));
@@ -106,6 +116,7 @@ interface Probe {
 	agentAttributed: string | null;
 	assistant: string | null;
 	titleModels: Array<{ role: string; model: string }>;
+	briefs: Array<{ wrapped: boolean; input: string | null; inputLowSignal: boolean }>;
 }
 
 /** Stock's own title prompt, read from the omp install the probe runs (`dist/cli.js` → `src/prompts`). */
@@ -179,6 +190,11 @@ describe.skipIf(!existsSync(omp))("automatic session titles on stock omp", () =>
 		expect(probe.operator).toBe("fix the login bug");
 		expect(probe.agentAttributed).toBeNull();
 		expect(probe.assistant).toBeNull();
+		// Stock declines another agent's wrapped brief as low-signal; the engine names the session from its words.
+		expect(probe.briefs).toEqual([
+			{ wrapped: true, input: "로그인 오류를 고치고 회귀 테스트 추가", inputLowSignal: false },
+			{ wrapped: true, input: "Fix the login bug in auth.ts.\nAdd a regression test.", inputLowSignal: false },
+		]);
 	}, 130_000);
 
 	it("asks the cheap role chain for a title, never the default model first", () => {
