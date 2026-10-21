@@ -1623,6 +1623,10 @@ export interface SessionInfo {
 	title: string | null;
 	cwd: string;
 	created: string;
+	/**
+	 * When the session last did something: its newest conversation message's time (the stock helper's
+	 * `session-activity.ts`), else the file's mtime. Never the mtime alone, which every relaunch moves on.
+	 */
 	modified: string;
 	messageCount: number;
 	size: number;

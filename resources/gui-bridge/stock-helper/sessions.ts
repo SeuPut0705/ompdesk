@@ -1,6 +1,7 @@
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { PROMPT_ORIGIN_ENTRY } from "../prompt-origin-contracts";
 import { NO_TEXT_PROMPT } from "../session-list-contracts";
+import { lastActivity } from "./session-activity";
 
 /** The fields of stock's `SessionInfo` this helper reads; the rest pass through untouched. */
 interface StockSessionInfo {
@@ -222,13 +223,42 @@ function withoutPlaceholder(rows: StockSessionInfo[]): StockSessionInfo[] {
 	return rows;
 }
 
+/** Each row's newest message time, keyed by path and valid for one `modified:size` stamp (null: none in reach). */
+const activity = new Map<string, { stamp: string; at: number | null }>();
+
+/**
+ * A row's `modified` becomes when the session last did something (`session-activity.ts`): stock's mtime moves on
+ * every relaunch (a `session_exit`, a recap, a report) and every reader of `modified` means recency (the sidebar's
+ * age and order, the session picker, the projects' recency). A row with no message in reach keeps stock's mtime.
+ */
+async function withLastActivity(rows: StockSessionInfo[]): Promise<StockSessionInfo[]> {
+	await Promise.all(
+		rows.map(async row => {
+			const stamp = `${new Date(row.modified).getTime()}:${row.size}`;
+			let found = activity.get(row.path);
+			if (found?.stamp !== stamp) {
+				try {
+					found = { stamp, at: await lastActivity(row.path, row.size) };
+				} catch {
+					// Unreadable now (stock's own scan skips such files too): keep stock's mtime.
+					return;
+				}
+				activity.set(row.path, found);
+			}
+			if (found.at !== null) row.modified = new Date(found.at);
+		}),
+	);
+	return rows;
+}
+
 export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 	"sessions.list": async params => {
 		const { sessionsRoot } = paths(params);
 		const { listing, storage } = await stockSessions();
-		const rows = await withFirstPrompts(await listing.listAllSessions(storage, sessionsRoot));
+		const rows = await withLastActivity(await withFirstPrompts(await listing.listAllSessions(storage, sessionsRoot)));
 		const listed = new Set(rows.map(row => row.path));
 		for (const path of firstPrompts.keys()) if (!listed.has(path)) firstPrompts.delete(path);
+		for (const path of activity.keys()) if (!listed.has(path)) activity.delete(path);
 		return withoutPlaceholder(rows);
 	},
 	"sessions.list_directory": async params => {
@@ -236,7 +266,9 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		if (!sessionPath) throw new Error("Invalid session path");
 		const { listing, storage } = await stockSessions();
 		return withoutPlaceholder(
-			await withFirstPrompts(await listing.listSessionsReadOnly(dirname(sessionPath), storage)),
+			await withLastActivity(
+				await withFirstPrompts(await listing.listSessionsReadOnly(dirname(sessionPath), storage)),
+			),
 		);
 	},
 	/** Stock `deleteSessionWithArtifacts`; like stock's own `dropSession`, a file already gone (a tab's session never written) counts as deleted. */
