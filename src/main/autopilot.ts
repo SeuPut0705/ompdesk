@@ -657,7 +657,7 @@ export class Autopilot {
 			const land = hasRemote && defaultBranch !== null;
 			settings = {
 				...settings,
-				ship: { ...settings.ship, autoPush: hasRemote && !land, ...(land ? { land: true } : {}) },
+				ship: { ...settings.ship, automatic: true, autoPush: hasRemote && !land, ...(land ? { land: true } : {}) },
 			};
 		}
 		const mode = worktreeModeFor(choice, entries);

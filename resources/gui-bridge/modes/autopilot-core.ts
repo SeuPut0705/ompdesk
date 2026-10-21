@@ -373,6 +373,7 @@ export function mergeSettings(
 		ship: {
 			autoPush: typeof ship.autoPush === "boolean" ? ship.autoPush : base.ship.autoPush,
 			...((typeof ship.land === "boolean" ? ship.land : base.ship.land) ? { land: true } : {}),
+			...((typeof ship.automatic === "boolean" ? ship.automatic : base.ship.automatic) ? { automatic: true } : {}),
 			autoRelease: {
 				on: typeof autoRelease?.on === "boolean" ? autoRelease.on : base.ship.autoRelease.on,
 				cadence:

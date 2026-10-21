@@ -75,6 +75,11 @@ export type AutopilotShipPolicy = {
 	 * there by main's ShipRunner (never the agent, never forced); a protected default branch gets one pull request instead.
 	 */
 	land?: boolean;
+	/**
+	 * Nobody chose a level at start (the sheet's Automatic): main decided land, push or nothing from the repository. The
+	 * board then has no shipping section, whichever it decided: nothing there is the person's to do.
+	 */
+	automatic?: boolean;
 	autoRelease: { on: boolean; cadence: AutopilotReleaseCadence };
 	remote: string;
 };

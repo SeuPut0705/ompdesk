@@ -103,7 +103,7 @@ export function ShipLandRow() {
 					)}
 				</div>
 			</li>
-			{policy.land && (ship.inFlight?.kind === "release" || ship.release) && (
+			{(policy.land || policy.automatic) && (ship.inFlight?.kind === "release" || ship.release) && (
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-row">
 						<span className="omp-work-board-lead">
@@ -173,7 +173,7 @@ export function AutopilotShipSection() {
 	const [merging, setMerging] = useState(false);
 	const [mergeCommit, setMergeCommit] = useState(false);
 	const [releasing, setReleasing] = useState(false);
-	if (!ship || ship.policy.land) return null;
+	if (!ship || ship.policy.land || ship.policy.automatic) return null;
 	const live = state !== undefined && state !== "ended";
 	const policy = ship.policy;
 	const procedure = ship.releaseProcedure;

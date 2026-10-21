@@ -466,11 +466,12 @@ describe("start", () => {
 		it("stays local in a repository without a remote", async () => {
 			gitSync(main, "remote", "remove", "origin");
 			await start({ type: "set_autopilot", action: "start" });
-			expect(armedPolicy()).toMatchObject({ autoPush: false, autoRelease: { on: false } });
+			expect(armedPolicy()).toMatchObject({ automatic: true, autoPush: false, autoRelease: { on: false } });
 		});
 		it("lands every green cycle on the default branch when the repository has a remote, and releases only by a procedure", async () => {
 			await start({ type: "set_autopilot", action: "start" });
 			expect(armedPolicy()).toMatchObject({
+				automatic: true,
 				autoPush: false,
 				land: true,
 				autoRelease: { on: false },

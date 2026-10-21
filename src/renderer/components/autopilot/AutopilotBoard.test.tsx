@@ -370,6 +370,24 @@ describe("an Autopilot run on the work board", () => {
 		);
 	});
 
+	it("has no shipping section for an Automatic run that cannot land (no remote, or no known main branch)", async () => {
+		installMockOmp();
+		const ship = status.ship as NonNullable<AutopilotStatus["ship"]>;
+		for (const autoPush of [false, true]) {
+			await act(async () =>
+				useAutopilotStore.getState().apply({
+					...status,
+					ship: { ...ship, policy: { ...ship.policy, automatic: true, autoPush } },
+				}),
+			);
+			if (!autoPush) await mount();
+			expect($('[data-board-section="ship"]')).toBeNull();
+			expect($('[data-board-section="autopilot"]')?.textContent).toContain(
+				translate(autoPush ? "autopilot.board.shipPush" : "autopilot.board.shipLocal"),
+			);
+		}
+	});
+
 	it("opens a commit from its sha in the Changes commits view", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
