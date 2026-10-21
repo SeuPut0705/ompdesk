@@ -1,6 +1,6 @@
 /**
  * Autopilot: start a run from the Mode popover, watch cycles 1-2-3 (audit, implement, verify, commit) land in the
- * run's own worktree tab, then close the side panel to see the same run on the work board and the composer chip.
+ * run's own worktree tab, on the work board beside the transcript (the run's home) and the composer chip.
  * Uses the Autopilot fake (`e2e/fixture/autopilot.ts`), whose commits are real git in the temp repository.
  */
 import * as fs from "node:fs/promises";
@@ -41,14 +41,13 @@ test("autopilot cycles", async () => {
 		await page.locator("[data-autopilot-start]").click();
 		const { tabId } = await waitForRunTab(page);
 		await fixture(page, "fixture:title:Autopilot run", tabId);
-		await expect(page.locator("[data-autopilot-panel]")).toBeVisible();
+		const board = page.locator("[data-work-board-panel]");
+		await expect(board.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
 		await waitForStatus(page, tabId, s => (s.cycles?.length ?? 0) >= 3, "three cycles", 90_000);
 		for (const n of [1, 2, 3])
-			await expect(page.locator(`[data-autopilot-cycle="${n}"]`)).toHaveAttribute("data-verify", "green");
-		await page.waitForTimeout(1_800);
-		await page.getByRole("button", { name: "Close side panel" }).click();
+			await expect(board.locator(`[data-autopilot-cycle="${n}"]`)).toHaveAttribute("data-verify", "green");
 		await page.mouse.move(700, 450);
-		await expect(page.locator("[data-board-autopilot-text]")).toContainText(/Cycle \d/);
+		await expect(board.locator("[data-board-autopilot-text]")).toContainText(/Cycle \d/);
 		await page.waitForTimeout(2_800);
 		await recorder.finish({ width: 1600 });
 	} finally {

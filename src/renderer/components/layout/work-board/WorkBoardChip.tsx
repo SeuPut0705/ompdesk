@@ -6,6 +6,7 @@ import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
+import { isAutopilotTab, useAutopilotStore } from "../../../stores/autopilot";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
@@ -13,7 +14,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
-import { useAutopilotStateText } from "../../panels/autopilot/AutopilotBoardCard";
+import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
 import { liveSubagents, todoBoard } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
@@ -33,11 +34,18 @@ const FailedCheckWatch = lazyChunk(() =>
  * the top of the transcript (no scrim, nothing dimmed, nothing pushed). It collapses on a second tap, a swipe up
  * on the strip or the panel's grip, the back gesture, a tap outside, or a tap on a row (which also acts). Nothing
  * is remembered: every mount starts collapsed. The strip says what the dock's todo card would, so mobile.css hides
- * that card beside it. The line is a live region, so the board's announcements stay.
+ * that card beside it. The line is a live region, so the board's announcements stay. A bump of `reveal` (the pane's
+ * "show the run", WorkBoardHost) expands it.
  */
-export function WorkBoardChip({ children }: { children: ReactNode }) {
+export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; reveal?: number }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
+	const seenReveal = useRef(reveal);
+	useEffect(() => {
+		if (reveal === seenReveal.current) return;
+		seenReveal.current = reveal;
+		setOpen(true);
+	}, [reveal]);
 	/** The panel stays mounted for its exit (height transition); never under reduced motion. */
 	const [leaving, setLeaving] = useState(false);
 	const root = useRef<HTMLDivElement>(null);
@@ -77,8 +85,11 @@ export function WorkBoardChip({ children }: { children: ReactNode }) {
 		[pending, loginRequestIds],
 	);
 	const planProposal = usePlanApprovalStore(state => state.pending);
-	// A live run's own words (cycle and area, a pause reason, a quota wait): on a phone the strip is its only status.
-	const autopilotState = useAutopilotStateText();
+	// A run's own words (cycle and area, a pause reason, a quota wait, its end): in an Autopilot tab the strip is where
+	// the run is reached wherever the board cannot dock.
+	const runText = useAutopilotStateText();
+	const ended = useAutopilotStore(state => isAutopilotTab(state) && state.status.state === "ended");
+	const autopilotState = runText ?? (ended ? t("autopilot.state.ended") : null);
 
 	const waiting = blocking.length + (planProposal ? 1 : 0) + opened.counts.waiting;
 	const running = agents.length + jobs.length + opened.counts.running;

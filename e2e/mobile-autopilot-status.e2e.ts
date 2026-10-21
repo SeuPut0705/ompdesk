@@ -59,8 +59,6 @@ test("a phone says a live run's state once: the strip, not the dock row or the R
 		await phone.locator("[data-run-settings-trigger]").click();
 		await phone.locator("[data-tab-id='autopilot']").click();
 		await phone.locator("[data-autopilot-start]").click();
-		const closePanel = phone.getByRole("button", { name: "Close side panel" }).first();
-		if (await closePanel.isVisible().catch(() => false)) await closePanel.click();
 		const strip = phone.locator("[data-work-strip] [data-work-chip]");
 		await expect(strip).toContainText(/Autopilot · Cycle \d+/, { timeout: 60_000 });
 		// The dock row is in the DOM (the desktop shows it) but gives way beside the strip.

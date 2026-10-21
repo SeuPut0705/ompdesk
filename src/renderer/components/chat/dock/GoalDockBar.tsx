@@ -10,8 +10,8 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { AutopilotDockRow } from "../../autopilot/AutopilotDockRow";
 import { IconButton, Spinner } from "../../common";
-import { AutopilotDockRow } from "../../panels/autopilot/AutopilotDockRow";
 
 type GoalAction = "pause" | "resume" | "drop";
 

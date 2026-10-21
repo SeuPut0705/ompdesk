@@ -1258,18 +1258,24 @@ test("daily flow f: settings, model, diagnostics bundle and autopilot chain with
 
 		await test.step("Autopilot starts from the Mode popover and ends with Stop", async () => {
 			const run = await startFromSheet(page, "en");
-			await expect(page.locator("[data-autopilot-panel]")).toBeVisible();
-			await expect(page.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "running");
+			// No panel opens: the composer's "show the run" brings the run's section of the work board into view.
 			await expect(page.locator("[data-autopilot-chip-open]")).toBeVisible();
+			await page.locator("[data-autopilot-chip-open]").click();
+			const runSection = page.locator('[data-board-section="autopilot"]').first();
+			await expect(runSection).toBeVisible();
+			await expect(page.locator("[data-autopilot-state]").first()).toHaveAttribute(
+				"data-autopilot-state",
+				"running",
+			);
 			await expect(page.locator("[data-run-settings-trigger]")).toContainText(/Cycle \d/);
 			await waitForStatus(page, run.tabId, s => s.state === "running", "the run is running");
 			expect((await activeTools(page, run.tabId)).includes("autopilot")).toBe(true);
 
-			await page.locator("[data-autopilot-panel] [data-autopilot-stop]").click();
-			await expect(page.locator("[data-autopilot-state]")).toHaveAttribute("data-autopilot-state", "ended", {
+			await runSection.locator("[data-autopilot-stop]").click();
+			await expect(page.locator("[data-autopilot-state]").first()).toHaveAttribute("data-autopilot-state", "ended", {
 				timeout: 90_000,
 			});
-			await expect(page.locator("[data-autopilot-reason]")).toHaveAttribute("data-autopilot-reason", "user");
+			await expect(page.locator("[data-autopilot-reason]").first()).toHaveAttribute("data-autopilot-reason", "user");
 			await expect(page.locator("[data-autopilot-chip-open]")).toHaveCount(0);
 			await expect(page.locator("[data-autopilot-dock]")).toHaveCount(0);
 			await expect(page.locator("[data-run-settings-trigger]")).not.toContainText(/Cycle \d/);

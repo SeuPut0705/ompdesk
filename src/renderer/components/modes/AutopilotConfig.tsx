@@ -5,7 +5,7 @@
  * user consents to that (it replaces the full-access confirmation).
  */
 
-import { CircleCheck, GitBranch, PanelRight, Rocket, TriangleAlert } from "lucide-react";
+import { CircleCheck, GitBranch, LayoutDashboard, Rocket, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
 	AUTOPILOT_AREAS,
@@ -20,11 +20,11 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
+import { AutopilotPauseButton, AutopilotStopButtons } from "../autopilot/AutopilotControls";
+import { FocusChips } from "../autopilot/FocusChips";
+import { useAutopilotActions } from "../autopilot/use-autopilot-actions";
+import { useAutopilotStateText } from "../autopilot/use-autopilot-state-text";
 import { Button, InlineNotice, SettingInfo, Tabs, TextArea, type TextAreaProps, Tooltip } from "../common";
-import { FocusChips } from "../panels/autopilot/AreaMix";
-import { useAutopilotStateText } from "../panels/autopilot/AutopilotBoardCard";
-import { AutopilotPauseButton, AutopilotStopButtons } from "../panels/autopilot/AutopilotControls";
-import { useAutopilotActions } from "../panels/autopilot/use-autopilot-actions";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
 /** The sheet's shipping choice: a preset, or `auto` (main decides from the repository; nothing is sent). */
@@ -62,6 +62,7 @@ function useIsRepo(): boolean | null {
 /** The sentence that says where the run is, with the controls that apply to it. */
 function RunSummary({ onOpened }: { onOpened?: () => void }) {
 	const t = useT();
+	const tabId = useRuntimeTabId();
 	const text = useAutopilotStateText();
 	const branch = useAutopilotStore(s => s.status.branch);
 	return (
@@ -76,9 +77,9 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 			<div className="flex flex-wrap items-center gap-1.5">
 				<Button
 					data-autopilot-open-screen
-					icon={<PanelRight aria-hidden />}
+					icon={<LayoutDashboard aria-hidden />}
 					onClick={() => {
-						useUiStore.getState().openAutopilotPanel();
+						useUiStore.getState().revealWorkBoard(tabId);
 						onOpened?.();
 					}}
 					size="sm"

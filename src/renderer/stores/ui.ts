@@ -36,11 +36,10 @@ export const CLOSED_FILE_VIEW: Pick<
 };
 
 /**
- * What the side panel shows: a session view, one subagent's transcript
- * (`panelSubagent`), or the Autopilot screen. The subagent and Autopilot views stay out of `PANEL_TABS`, which
- * feeds the default-view setting and the `panel.*` shortcuts.
+ * What the side panel shows: a session view or one subagent's transcript (`panelSubagent`). The subagent view stays
+ * out of `PANEL_TABS`, which feeds the default-view setting and the `panel.*` shortcuts.
  */
-export type PanelView = PanelTab | "subagent" | "autopilot";
+export type PanelView = PanelTab | "subagent";
 export type ChangesMode = "repository" | "commits" | "current" | "timeline" | "artifacts";
 /** The subagent the side panel shows: its owning tab (whose omp writes its session) and its id. */
 export interface PanelSubagent {
@@ -249,6 +248,11 @@ interface UiStore {
 	 * (`workBoardFits`), its ✕ hides it for this window, the palette's "Work board" brings it back.
 	 */
 	workBoard: boolean;
+	/**
+	 * A request to show the work board of the pane holding `tabId` (an Autopilot run's home): `seq` bumps per request.
+	 * A docked board unfolds the run's section and scrolls to it; the status strip expands. Never the side panel.
+	 */
+	workBoardReveal: { tabId: string | null; seq: number } | null;
 	/** Transcript density: compact folds reasoning/tools; full shows every step. */
 	transcriptDetail: TranscriptDetail;
 	/** Expand/collapse-all signal for tool cards (⌃O); `seq` bumps per toggle so cards re-sync their local state. */
@@ -260,8 +264,8 @@ interface UiStore {
 	setPanelTab: (tab: PanelTab) => void;
 	/** Show one subagent's transcript in the side panel (a dragged or menu-opened sidebar row). */
 	openSubagentPanel: (subagent: PanelSubagent) => void;
-	/** Show the Autopilot screen (the chip's "open screen", the work board card, the auto-open on start). */
-	openAutopilotPanel: () => void;
+	/** Show the work board of the pane holding `tabId` (the composer chip's and the dock's "show the run"). */
+	revealWorkBoard: (tabId: string | null) => void;
 	openPreview: (url: string) => void;
 	/** `keep` opens the file as a tab that stays; otherwise it takes (or becomes) the preview tab. */
 	openFilePreview: (path: string, options?: { line?: number; keep?: boolean }) => void;
@@ -465,6 +469,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	panelSide: "right",
 	thinkingExpanded: false,
 	workBoard: true,
+	workBoardReveal: null,
 	transcriptDetail: "compact",
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
 	// The editor's own dialog (Files view) asks first, so a switch that would unmount it waits in `pendingFileSwitch`.
@@ -483,11 +488,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	},
 	openSubagentPanel: subagent => {
 		const next = { panelSubagent: subagent, panelTab: "subagent" as const, panelVisible: true };
-		if (get().fileEditDirty) set({ pendingFileSwitch: next });
-		else set(next);
-	},
-	openAutopilotPanel: () => {
-		const next = { panelTab: "autopilot" as const, panelVisible: true };
 		if (get().fileEditDirty) set({ pendingFileSwitch: next });
 		else set(next);
 	},
@@ -733,6 +733,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setNotifications: enabled => set({ notifications: enabled }),
 	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
 	setWorkBoard: enabled => set({ workBoard: enabled }),
+	revealWorkBoard: tabId => set({ workBoardReveal: { tabId, seq: (get().workBoardReveal?.seq ?? 0) + 1 } }),
 	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
 	keymapOverrides: {} as KeymapOverrides,
 	keymapHydrated: false,

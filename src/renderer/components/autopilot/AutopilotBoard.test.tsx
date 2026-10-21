@@ -1,24 +1,24 @@
 /**
- * The Autopilot screen: it draws only what `AutopilotStatus` and the tool/todo stores hold, and every control sends one
- * `set_autopilot` action.
+ * An Autopilot run's work board pieces (head and sections): they draw only what `AutopilotStatus` and the tool/todo
+ * stores hold, and every control sends one `set_autopilot` action. How the board places them (first, in every layout)
+ * is `WorkBoard.autopilot.test.tsx`.
  */
 
 import { parseHTML } from "linkedom";
-import { act, type ReactElement } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import type {
 	AutopilotAction,
 	AutopilotCycleRecord,
 	AutopilotStatus,
-} from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
-import type { RpcResponse } from "../../../../shared/rpc-types";
-import { I18nProvider, translate } from "../../../lib/i18n";
-import { useAutopilotStore } from "../../../stores/autopilot";
-import { useSessionStore } from "../../../stores/session";
-import { useTodoStore } from "../../../stores/todo";
-import { useUiStore } from "../../../stores/ui";
-import { AutopilotPanel } from "./AutopilotPanel";
+} from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import type { RpcResponse } from "../../../shared/rpc-types";
+import { I18nProvider, translate } from "../../lib/i18n";
+import { useAutopilotStore } from "../../stores/autopilot";
+import { useSessionStore } from "../../stores/session";
+import { useUiStore } from "../../stores/ui";
+import { AutopilotBoardHead, AutopilotBoardSections } from "./AutopilotBoard";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
 
@@ -81,14 +81,24 @@ async function flush(): Promise<void> {
 	});
 }
 
-async function mount(element: ReactElement): Promise<void> {
+async function mount(): Promise<void> {
 	container = document.createElement("div") as unknown as TestElement;
 	document.body.appendChild(container as never);
 	root = createRoot(container as unknown as Element);
 	await act(async () => {
-		root.render(<I18nProvider>{element}</I18nProvider>);
+		root.render(
+			<I18nProvider>
+				<AutopilotBoardHead />
+				<AutopilotBoardSections />
+			</I18nProvider>,
+		);
 	});
 	await flush();
+}
+
+/** A cycle's details open in place under its row. */
+async function expand(n: number): Promise<void> {
+	await act(async () => $(`[data-autopilot-cycle="${n}"] button[data-board-expands]`)?.click());
 }
 
 afterEach(async () => {
@@ -101,7 +111,6 @@ afterEach(async () => {
 	document.body.innerHTML = "";
 	useAutopilotStore.getState().reset();
 	useSessionStore.getState().reset();
-	useTodoStore.getState().reset();
 	useUiStore.setState({ panelVisible: false, panelTab: "diff", changesFocusCommit: null, changesMode: "repository" });
 });
 
@@ -186,44 +195,32 @@ const status: AutopilotStatus = {
 	children: [{ tabId: "c1", area: "performance", status: "running" }],
 };
 
-describe("Autopilot screen", () => {
-	it("explains an off session and offers the Mode tab", async () => {
-		installMockOmp();
-		await mount(<AutopilotPanel />);
-		expect(document.body.textContent).toContain(translate("autopilot.empty.title"));
-		await act(async () => document.querySelector("button")?.click());
-		expect(useUiStore.getState().modesOpen).toBe(true);
-		expect(useUiStore.getState().modesTab).toBe("autopilot");
-	});
-
-	it("draws the header, the cycle in progress, the mix, the backlog, the timeline and shipping from the status", async () => {
+describe("an Autopilot run on the work board", () => {
+	it("draws the head, the cycle in progress, the backlog, the cycles and shipping from the status", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
+		await mount();
 		expect($("[data-autopilot-state]")?.getAttribute("data-autopilot-state")).toBe("running");
-		expect($("[data-autopilot-header]")?.textContent).toContain(translate("autopilot.cycleN", { n: 3 }));
 		expect($("[data-autopilot-totals]")?.textContent).toContain("1.8M");
-		expect($("[data-autopilot-ahead]")?.textContent).toContain("↑12");
-		expect($("[data-autopilot-now]")?.textContent).toContain(translate("autopilot.area.performance"));
-		expect(all("[data-autopilot-steps] li")).toHaveLength(4);
+		expect($("[data-autopilot-state]")?.getAttribute("title")).toContain("↑12");
+		expect($('[data-board-section="autopilot"]')?.textContent).toContain(translate("autopilot.cycleN", { n: 3 }));
+		expect($("[data-autopilot-cycle-live]")?.textContent).toContain(translate("autopilot.area.performance"));
 		expect($("[data-autopilot-child]")).not.toBeNull();
-		expect(all("[data-mix-area]").map(row => row.getAttribute("data-mix-area"))).toEqual(["design", "tests"]);
-		expect($('[data-focus-area="design"]')?.getAttribute("aria-pressed")).toBe("true");
 		expect(all("[data-backlog-item]")).toHaveLength(2);
+		await act(async () => $("[data-autopilot-focus-row]")?.click());
+		expect($('[data-focus-area="design"]')?.getAttribute("aria-pressed")).toBe("true");
 		expect(all("[data-autopilot-cycle]").map(row => row.getAttribute("data-autopilot-cycle"))).toEqual(["2", "1"]);
 		expect($('[data-autopilot-cycle="2"]')?.getAttribute("data-verify")).toBe("red");
 		expect($("[data-ship-queue] [data-ship-state]")?.getAttribute("data-ship-state")).toBe("queued");
 		expect($("[data-ship-procedure]")?.textContent).toContain("AGENTS.md › Change workflow › Release");
 	});
 
-	it("keeps a fresh run's screen to one-line rows: no empty-state sentences, explanations behind (i)", async () => {
+	it("keeps a fresh run to one-line rows: no empty-state sentences, no cycles section before the first cycle", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({ ...status, cycles: [], backlog: [], now: { n: 1, startedAt: Date.now() } });
-		await mount(<AutopilotPanel />);
-		for (const section of ["[data-autopilot-mix]", "[data-autopilot-backlog]"]) {
-			expect(all(`${section} p`), section).toHaveLength(0);
-			expect($(`${section} [data-setting-info]`), section).not.toBeNull();
-		}
+		await mount();
+		expect($('[data-board-section="cycles"]')).toBeNull();
+		expect(all('[data-board-section="autopilot"] p, [data-board-section="backlog"] p')).toHaveLength(0);
 	});
 
 	it("shows the picked item, what a cycle changed and why a reported green was not taken", async () => {
@@ -240,7 +237,9 @@ describe("Autopilot screen", () => {
 				}),
 			],
 		});
-		await mount(<AutopilotPanel />);
+		await mount();
+		await expand(1);
+		await expand(2);
 		// Before the agent picks, the live row says so instead of showing the rotation's guess.
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain(translate("autopilot.picking"));
 		expect($("[data-autopilot-pick]")).toBeNull();
@@ -263,46 +262,11 @@ describe("Autopilot screen", () => {
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain("chunk loops on size 0");
 	});
 
-	it("lists the cycle's todo rows as they are when two tasks share a text", async () => {
-		installMockOmp();
-		useAutopilotStore.getState().apply(status);
-		useTodoStore.getState().setPhases([
-			{
-				name: "Fix",
-				tasks: [
-					{ content: "Reproduce", status: "in_progress" },
-					{ content: "Run the checks", status: "pending" },
-				],
-			},
-			{ name: "Docs", tasks: [{ content: "Run the checks", status: "pending" }] },
-		]);
-		await mount(<AutopilotPanel />);
-		expect(all("[data-autopilot-todo] li").map(row => row.textContent)).toEqual([
-			"Reproduce",
-			"Run the checks",
-			"Run the checks",
-		]);
-
-		await act(async () =>
-			useTodoStore.getState().setPhases([
-				{
-					name: "Fix",
-					tasks: [
-						{ content: "Reproduce", status: "completed" },
-						{ content: "Run the checks", status: "pending" },
-					],
-				},
-				{ name: "Docs", tasks: [{ content: "Run the checks", status: "pending" }] },
-			]),
-		);
-		expect(all("[data-autopilot-todo] li").map(row => row.textContent)).toEqual(["Run the checks", "Run the checks"]);
-	});
-
 	it("sends one action per control", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
-
+		await mount();
+		await act(async () => $("[data-autopilot-focus-row]")?.click());
 		await act(async () => $('[data-focus-area="tests"]')?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "configure", focus: ["design", "tests"] });
 
@@ -327,11 +291,10 @@ describe("Autopilot screen", () => {
 	it("says how many red cycles ran in a row from two on, muted, and nothing below that", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({ ...status, redStreak: 1 });
-		await mount(<AutopilotPanel />);
+		await mount();
 		expect($("[data-autopilot-red-streak]")).toBeNull();
 		await act(async () => useAutopilotStore.getState().apply({ ...status, redStreak: 3 }));
 		expect($("[data-autopilot-red-streak]")?.textContent).toBe(translate("autopilot.redStreak", { n: 3 }));
-		expect($("[data-autopilot-red-streak]")?.getAttribute("class")).toContain("text-(--sc-text-muted)");
 		await act(async () => useAutopilotStore.getState().apply({ ...status }));
 		expect($("[data-autopilot-red-streak]")).toBeNull();
 	});
@@ -339,7 +302,7 @@ describe("Autopilot screen", () => {
 	it("disables Create PR with the reason when the push target is the base branch, and keeps it for a feature target", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({ ...status, target: "main" });
-		await mount(<AutopilotPanel />);
+		await mount();
 		expect($("[data-ship-button='pr']")?.disabled).toBe(true);
 		expect($("[data-ship-button='pr']")?.getAttribute("title")).toBe(
 			translate("autopilot.ship.prOnBase", { base: "main" }),
@@ -356,7 +319,7 @@ describe("Autopilot screen", () => {
 				inFlight: { kind: "release", startedAt: 1 },
 			},
 		});
-		await mount(<AutopilotPanel />);
+		await mount();
 		await act(async () => $("[data-autopilot-abort]")?.click());
 		expect(setAutopilot).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(translate("autopilot.abortConfirm.release"));
@@ -365,7 +328,7 @@ describe("Autopilot screen", () => {
 	it("offers Resume for a paused run and no controls for an ended one", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({ ...status, state: "paused", reason: "cycles", now: undefined });
-		await mount(<AutopilotPanel />);
+		await mount();
 		expect($("[data-autopilot-reason]")?.getAttribute("data-autopilot-reason")).toBe("cycles");
 		await act(async () => $("[data-autopilot-resume]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "resume" });
@@ -380,8 +343,8 @@ describe("Autopilot screen", () => {
 	it("adds a backlog item and a note for the next cycle", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
-		expect($("button[data-autopilot-backlog-add]")?.disabled).toBe(true);
+		await mount();
+		expect($("button[data-autopilot-send='backlog_add']")?.disabled).toBe(true);
 
 		await typeInto("[data-autopilot-backlog-input]", "Fix the tab close race");
 		await submit("[data-autopilot-backlog-input]");
@@ -395,7 +358,8 @@ describe("Autopilot screen", () => {
 	it("opens a commit from its sha in the Changes commits view", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
+		await mount();
+		await expand(1);
 		await act(async () => $('[data-autopilot-sha="1a9f1c2deadbeef"]')?.click());
 		const ui = useUiStore.getState();
 		expect(ui.changesMode).toBe("commits");
@@ -409,7 +373,7 @@ describe("Autopilot screen", () => {
 			...status,
 			ship: { ...(status.ship as NonNullable<AutopilotStatus["ship"]>), inFlight: { kind: "push", startedAt: 1 } },
 		});
-		await mount(<AutopilotPanel />);
+		await mount();
 		await act(async () => $("[data-autopilot-abort]")?.click());
 		expect(setAutopilot).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(translate("autopilot.abortConfirm.push"));
@@ -433,7 +397,7 @@ describe("Autopilot shipping confirmations", () => {
 	it("merge asks first, then sends a fast-forward; the merge-commit box sends that mode instead", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
+		await mount();
 		await act(async () => $("[data-ship-button='merge']")?.click());
 		expect(setAutopilot).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain(
@@ -455,7 +419,7 @@ describe("Autopilot shipping confirmations", () => {
 	it("cancelling the merge confirmation sends nothing", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
+		await mount();
 		await act(async () => $("[data-ship-button='merge']")?.click());
 		await act(async () => button(translate("common.cancel")).click());
 		expect(setAutopilot).not.toHaveBeenCalled();
@@ -464,7 +428,7 @@ describe("Autopilot shipping confirmations", () => {
 	it("release asks first, then sends the release request as the user's own chat message", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
-		await mount(<AutopilotPanel />);
+		await mount();
 		await act(async () => $("[data-ship-button='release']")?.click());
 		expect(prompt).not.toHaveBeenCalled();
 		await act(async () => button(translate("autopilot.ship.release")).click());
@@ -476,7 +440,7 @@ describe("Autopilot shipping confirmations", () => {
 		installMockOmp();
 		const ship = status.ship as NonNullable<AutopilotStatus["ship"]>;
 		useAutopilotStore.getState().apply({ ...status, ship: { ...ship, releaseProcedure: undefined } });
-		await mount(<AutopilotPanel />);
+		await mount();
 		expect($("[data-ship-button='release']")?.disabled).toBe(true);
 		expect($("[data-ship-auto='release']")?.disabled).toBe(true);
 		expect(document.body.textContent).toContain(translate("autopilot.ship.noProcedure"));

@@ -5,7 +5,6 @@
  */
 import type { PanelSubagent, PanelView as PanelViewId } from "../../stores/ui";
 import { AiMemoryPanel } from "../panels/AiMemoryPanel";
-import { AutopilotPanel } from "../panels/autopilot/AutopilotPanel";
 import { DiffPanel } from "../panels/DiffPanel";
 import { FilesPanel } from "../panels/FilesPanel";
 import { JobsPanel } from "../panels/JobsPanel";
@@ -38,7 +37,6 @@ export function PanelView({ panelTab, subagent }: PanelViewProps) {
 			{panelTab === "memory" && <AiMemoryPanel />}
 			{panelTab === "jobs" && <JobsPanel />}
 			{panelTab === "subagent" && <SubagentPanel subagent={subagent} />}
-			{panelTab === "autopilot" && <AutopilotPanel />}
 		</>
 	);
 }

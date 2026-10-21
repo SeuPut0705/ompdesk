@@ -3,6 +3,9 @@ import { create } from "zustand";
 /** The work board's sections, in the order it lists them. */
 export type WorkBoardSectionId =
 	| "autopilot"
+	| "cycles"
+	| "ship"
+	| "backlog"
 	| "waiting"
 	| "check"
 	| "review"
@@ -42,6 +45,9 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 			if (!saved || typeof saved !== "object") return;
 			const known: WorkBoardSectionId[] = [
 				"autopilot",
+				"cycles",
+				"ship",
+				"backlog",
 				"waiting",
 				"check",
 				"review",

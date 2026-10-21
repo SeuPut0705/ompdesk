@@ -1,15 +1,17 @@
-import { PanelRight, Rocket } from "lucide-react";
-import { useT } from "../../../lib/i18n";
-import { useUiStore } from "../../../stores/ui";
-import { IconButton } from "../../common";
-import { useAutopilotStateText } from "./AutopilotBoardCard";
+import { LayoutDashboard, Rocket } from "lucide-react";
+import { useT } from "../../lib/i18n";
+import { useRuntimeTabId } from "../../stores/session-runtime-context";
+import { useUiStore } from "../../stores/ui";
+import { IconButton } from "../common";
 import { AutopilotStopButtons } from "./AutopilotControls";
+import { useAutopilotStateText } from "./use-autopilot-state-text";
 
 /**
  * What the dock shows for a Goal that is an Autopilot run, in place of the plain Goal strip (whose pause, edit and
- * drop would fight the coordinator): the run's state, the way to its screen, and the two stops.
+ * drop would fight the coordinator): the run's state, the way to the run on the work board, and the two stops.
  */
 export function AutopilotDockRow({ inline = false }: { inline?: boolean }) {
+	const tabId = useRuntimeTabId();
 	const t = useT();
 	const text = useAutopilotStateText();
 	return (
@@ -26,9 +28,9 @@ export function AutopilotDockRow({ inline = false }: { inline?: boolean }) {
 			<span className="shrink-0 text-sc-md font-medium text-(--sc-text)">{t("autopilot.name")}</span>
 			<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text-muted)">{text}</span>
 			<IconButton
-				icon={<PanelRight />}
+				icon={<LayoutDashboard />}
 				label={t("autopilot.chip.open")}
-				onClick={() => useUiStore.getState().openAutopilotPanel()}
+				onClick={() => useUiStore.getState().revealWorkBoard(tabId)}
 				size="sm"
 			/>
 			<AutopilotStopButtons />

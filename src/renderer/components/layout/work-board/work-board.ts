@@ -78,14 +78,16 @@ export function workBoardWidth(paneWidth: number): number {
 /**
  * How a session pane shows its work: docked beside the transcript where the margin holds it and the side panel is
  * closed, else the status strip under the header (a phone, a tablet, a narrow window, a split pane, the side panel
- * open), which expands into the same board. Never nothing while the user keeps the board on.
+ * open), which expands into the same board. Never nothing while the user keeps the board on, and never nothing in an
+ * Autopilot tab (`run`): the board is the run's home, so its ✕ leaves the strip there.
  */
 export function workBoardForm(input: {
 	enabled: boolean;
 	panelOpen: boolean;
 	fits: boolean;
+	run?: boolean;
 }): "docked" | "strip" | "off" {
-	if (!input.enabled) return "off";
+	if (!input.enabled) return input.run ? "strip" : "off";
 	return input.fits && !input.panelOpen ? "docked" : "strip";
 }
 

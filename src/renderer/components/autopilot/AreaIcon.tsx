@@ -11,7 +11,7 @@ import {
 	Zap,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import type { AutopilotCycleArea } from "../../../../../resources/gui-bridge/modes/autopilot-contracts";
+import type { AutopilotCycleArea } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 
 const ICONS: Record<AutopilotCycleArea | "unreported", ReactNode> = {
 	design: <Palette />,

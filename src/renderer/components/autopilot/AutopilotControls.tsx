@@ -1,13 +1,13 @@
-import { Pause, Play, Send, Square } from "lucide-react";
+import { Pause, Play, Square } from "lucide-react";
 import { useState } from "react";
-import { useT } from "../../../lib/i18n";
-import { useAutopilotStore } from "../../../stores/autopilot";
-import { Button, ConfirmDialog, Input } from "../../common";
+import { useT } from "../../lib/i18n";
+import { useAutopilotStore } from "../../stores/autopilot";
+import { Button, ConfirmDialog } from "../common";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
 /**
  * End (after the cycle in progress) and abort (now): the two ways to stop a run. Abort asks first while a push or a
- * release is under way, since it may be half done. Shared by the screen, the work board card and the Mode tab.
+ * release is under way, since it may be half done. Shared by the work board, the dock row and the Mode tab.
  */
 export function AutopilotStopButtons({ size = "sm" }: { size?: "sm" | "md" }) {
 	const t = useT();
@@ -90,56 +90,5 @@ export function AutopilotPauseButton({ size = "sm" }: { size?: "sm" | "md" }) {
 		>
 			{t("autopilot.pause")}
 		</Button>
-	);
-}
-
-/** Screen footer: the instruction for the next cycle, then pause/resume and the two stops. */
-export function AutopilotControls() {
-	const t = useT();
-	const state = useAutopilotStore(s => s.status.state);
-	const { pending, run } = useAutopilotActions();
-	const [note, setNote] = useState("");
-	const text = note.trim();
-	const ended = state === "ended";
-	const send = async () => {
-		if (!text) return;
-		if (await run({ action: "note", text })) setNote("");
-	};
-	return (
-		<div className="flex flex-col gap-2 border-t border-(--sc-divider) px-3 py-2.5" data-autopilot-controls>
-			{!ended && (
-				<form
-					className="flex items-end gap-1.5"
-					onSubmit={event => {
-						event.preventDefault();
-						void send();
-					}}
-				>
-					<Input
-						aria-label={t("autopilot.note.label")}
-						className="min-w-0 flex-1"
-						data-autopilot-note
-						onChange={event => setNote(event.target.value)}
-						placeholder={t("autopilot.note.placeholder")}
-						value={note}
-					/>
-					<Button
-						data-autopilot-note-send
-						disabled={!text || pending === "note"}
-						icon={<Send aria-hidden />}
-						loading={pending === "note"}
-						size="sm"
-						type="submit"
-						variant="secondary"
-					>
-						{t("autopilot.note.send")}
-					</Button>
-				</form>
-			)}
-			<div className="flex flex-wrap items-center justify-end gap-1.5">
-				{!ended && <AutopilotPauseButton />}
-				<AutopilotStopButtons />
-			</div>
-		</div>
 	);
 }

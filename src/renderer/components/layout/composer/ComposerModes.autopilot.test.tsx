@@ -161,13 +161,14 @@ describe("Autopilot chip", () => {
 		expect(trigger().textContent).toContain(translate("autopilot.state.waiting_quota"));
 	});
 
-	it("opens the Autopilot screen from the small button beside the chip", async () => {
+	it("shows the run on the work board from the small button beside the chip, never the side panel", async () => {
 		installMockOmp();
 		live(running);
 		await mount(<ComposerModes />);
+		const before = useUiStore.getState().workBoardReveal?.seq ?? 0;
 		await act(async () => $("button[data-autopilot-chip-open]")?.click());
-		expect(useUiStore.getState().panelTab).toBe("autopilot");
-		expect(useUiStore.getState().panelVisible).toBe(true);
+		expect(useUiStore.getState().workBoardReveal?.seq).toBe(before + 1);
+		expect(useUiStore.getState().panelVisible).toBe(false);
 	});
 
 	it("has no chip button for a session that is no run", async () => {
