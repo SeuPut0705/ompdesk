@@ -205,6 +205,8 @@ export const IPC_COMMANDS = {
 	HOSTED_SESSIONS: "sessions:hosted",
 	/** Delete a session file */
 	SESSIONS_DELETE: "sessions:delete",
+	/** Stop every turn on a session file and answer once they ended ("Stop and delete" of a refused delete) */
+	SESSIONS_STOP: "sessions:stop",
 	/** Rename a saved session without switching the active tab */
 	SESSIONS_RENAME: "sessions:rename",
 	/** Full-content search over session files; returns matching paths with an excerpt */
@@ -2024,6 +2026,8 @@ export interface OmpApi {
 		/** `device` = paired host deviceId; absent = this device. Remote results carry `device`. */
 		list(scope: "local" | "global", device?: string): Promise<SessionInfo[]>;
 		delete(sessionPath: string, device?: string): Promise<void>;
+		/** Stop every turn on the session (on `device` when given) and resolve once they have ended ("Stop and delete"). */
+		stop(sessionPath: string, device?: string): Promise<void>;
 		rename(sessionPath: string, name: string, device?: string): Promise<void>;
 		search(query: string, scope: "local" | "global", device?: string): Promise<SessionContentMatch[]>;
 		/** Move a stored session to `cwd`; resolves with its new path. */

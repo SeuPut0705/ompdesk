@@ -546,6 +546,34 @@ describe("SidecarPool tabs", () => {
 		expect(pushed()).toEqual(["running", "ready", "running+settling", "running", "running+settling", "ready"]);
 	});
 
+	it("stops the turn on a session for Stop and delete, in any window, and answers only once the run has ended", async () => {
+		const { pool, sidecars } = fakePool();
+		const other = fakeWindow(2);
+		pool.acquire("/a", other.win, "tab-a", "/s/a.jsonl");
+		const sidecar = sidecars[0];
+		sidecar?.emitStatus("ready");
+		// Nothing runs: nothing to stop.
+		await pool.stopSession("/s/a.jsonl");
+		expect(sidecar?.rpcCommands).toEqual([]);
+
+		sidecar?.emitAgentEvents(["agent_start"]);
+		let ended = false;
+		const stopping = pool.stopSession("/s/a.jsonl").then(() => {
+			ended = true;
+		});
+		await Promise.resolve();
+		expect(sidecar?.rpcCommands).toEqual([{ type: "abort_and_restore_queue" }]);
+		expect(ended).toBe(false);
+		// Background work after the turn still counts as running (prompt_result first, then the batched turn).
+		sidecar?.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		sidecar?.emitAgentEvents(["agent_end"]);
+		await Promise.resolve();
+		expect(ended).toBe(false);
+		sidecar?.emit("sessionSettled", { type: "session_settled" });
+		await stopping;
+		expect(pool.sessionRunning("/s/a.jsonl")).toBe(false);
+	});
+
 	it("re-wires forwarding on switch without duplicating listeners", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

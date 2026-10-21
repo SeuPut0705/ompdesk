@@ -96,6 +96,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.EXTENSION_UI_STATE]: never(CARDS),
 	[C.SESSIONS_LIST]: read("sessions.saved"),
 	[C.SESSIONS_DELETE]: sensitive("sessions.delete"),
+	[C.SESSIONS_STOP]: never(SESSION_TOOLS),
 	[C.SESSIONS_RENAME]: change("sessions.rename"),
 	[C.SESSIONS_SEARCH]: read("sessions.search"),
 	[C.SESSIONS_MOVE]: never(SESSION_TOOLS),

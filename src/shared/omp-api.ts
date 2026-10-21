@@ -524,6 +524,9 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.SESSIONS_LIST, { scope, device }) as Promise<SessionInfo[]>,
 			delete: (sessionPath: string, device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath, device }) as Promise<void>,
+			/** Stop every turn on the session (on `device` when given) and resolve once they have ended. */
+			stop: (sessionPath: string, device?: string) =>
+				transport.invoke(IPC_COMMANDS.SESSIONS_STOP, { sessionPath, device }) as Promise<void>,
 			rename: (sessionPath: string, name: string, device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name, device }) as Promise<void>,
 			search: (query: string, scope: "local" | "global", device?: string) =>

@@ -67,6 +67,7 @@ import {
 } from "react";
 import { agentMessageSender } from "../../../../shared/agent-control";
 import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
+import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
@@ -1419,10 +1420,31 @@ export function Sidebar() {
 			.catch(error => toastError({ title: t("sidebar.renameFailed"), error }));
 	};
 
+	/**
+	 * A delete a running turn refused (this window's tab, another window's, or a paired device's tab this computer
+	 * runs): one action stops every turn on the session (main answers once their runs ended) and runs the same
+	 * delete again, which the person already confirmed.
+	 */
+	const refuseRunning = (session: SessionInfo) => {
+		setPendingDelete(null);
+		toast({
+			variant: "warning",
+			message: t("sidebar.menu.taskRunning"),
+			action: {
+				label: t("sidebar.stopAndDelete"),
+				run: () =>
+					void window.omp.sessions.stop(session.path, undefined).then(
+						() => confirmDeleteSession(session),
+						error => toastError({ title: t("sidebar.stopFailed"), error }),
+					),
+			},
+			durationMs: 15_000,
+		});
+	};
+
 	const confirmDeleteSession = async (session: SessionInfo) => {
 		if (isSessionBusy(session)) {
-			toast({ variant: "warning", message: t("sidebar.menu.taskRunning") });
-			setPendingDelete(null);
+			refuseRunning(session);
 			return;
 		}
 		setDeleting(true);
@@ -1444,7 +1466,8 @@ export function Sidebar() {
 			if (neighbor) refocusRow.current = { key: neighbor, leaving };
 			setPendingDelete(null);
 		} catch (error) {
-			toastError({ title: t("sidebar.deleteFailed"), error });
+			if (ipcErrorCode(error) === "session_running") refuseRunning(session);
+			else toastError({ title: t("sidebar.deleteFailed"), error });
 		} finally {
 			setDeleting(false);
 		}

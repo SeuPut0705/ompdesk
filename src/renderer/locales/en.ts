@@ -844,6 +844,8 @@ export const en: Record<string, string> = {
 	"sidebar.openFailed": "Couldn't open session",
 	"sidebar.openInNewWindow": "Open in new window",
 	"sidebar.deleteFailed": "Couldn't delete session",
+	"sidebar.stopAndDelete": "Stop and delete",
+	"sidebar.stopFailed": "Couldn't stop the session",
 	"sidebar.chats": "Chats",
 	"project.worktree.autopilot": "Autopilot",
 	"project.worktree.agent": "Parallel work",
@@ -5864,8 +5866,7 @@ export const en: Record<string, string> = {
 	"remote.sidebar.offline": "Offline. Sessions show up when it's back.",
 	"remote.sidebar.deleteMessage":
 		"Delete {name} on {device}? This permanently removes its transcript on that computer and cannot be undone.",
-	"remote.sidebar.deleteRunning": "This session is running on {device}. Stop it, then delete it again.",
-	"remote.sidebar.stopRunning": "Stop",
+	"remote.sidebar.deleteRunning": "This session is running on {device}.",
 	"remote.sidebar.stopFailed": "Couldn't stop the session on {device}",
 	"remote.sidebar.empty": "No sessions on this device yet.",
 	"remote.tab.chip": "Runs on {name}",

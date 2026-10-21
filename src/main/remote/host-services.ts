@@ -77,7 +77,7 @@ import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "../session-mutations";
 import type { SidecarSessionIdentity } from "../sidecar";
-import type { SidecarPool } from "../sidecar-pool";
+import { type SidecarPool, STOP_SESSION_WAIT_MS } from "../sidecar-pool";
 import {
 	idleRun,
 	type RunState,
@@ -96,7 +96,7 @@ import { sessionFolderState } from "../tab-spawn";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
 import type { ResumeFact, ResumeMarker, TurnResume } from "../turn-resume";
-import { dispatchedCommand, STOP_COMMANDS } from "../turn-stop-log";
+import { dispatchedCommand, recordTurnStop, STOP_COMMANDS } from "../turn-stop-log";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -219,6 +219,7 @@ export interface HostServicesDeps {
 		| "closeSessionTab"
 		| "allSidecars"
 		| "viewForDevice"
+		| "stopSession"
 	>;
 	/** Moves a path to this machine's trash (Electron `shell.trashItem`). */
 	trashItem: (abs: string) => Promise<void>;
@@ -857,6 +858,9 @@ export class LocalHostServices implements HostServices {
 			}
 			case "sessions.delete":
 				return this.#deleteSession(peer, parse(SessionPathParams, method, params).sessionPath);
+			case "sessions.stop":
+				await this.stopSessionTurns(parse(SessionPathParams, method, params).sessionPath, peer.deviceId);
+				return null;
 			case "sessions.rename": {
 				const { sessionPath, name } = parse(RenameParams, method, params);
 				return this.#renameSession(sessionPath, name);
@@ -1762,6 +1766,46 @@ export class LocalHostServices implements HostServices {
 			if (tab.sessionFile === sessionPath && tab.sidecar.processAlive) return tab;
 		}
 		return undefined;
+	}
+
+	/**
+	 * "Stop and delete" (session-mutations.ts): stop every turn on `sessionPath` here, a window's tab of this computer
+	 * (`SidecarPool.stopSession`) and the tabs it runs for paired devices, and resolve once each of those runs has
+	 * ended (the tab's run events, never a timer). `by` is the paired device that asked, if any.
+	 */
+	async stopSessionTurns(sessionPath: string, by?: string): Promise<void> {
+		const busy = () =>
+			[...this.#tabs.values()].filter(
+				tab => tab.sessionFile === sessionPath && !tab.viewsWindow && runBusy(tab.run),
+			);
+		const window = this.#deps.localTabs.stopSession(sessionPath);
+		const held = busy();
+		for (const tab of held) {
+			this.noteStopped(tab.resumeId);
+			recordTurnStop({
+				command: "abort_and_restore_queue",
+				tab: tab.resumeId,
+				by: "session-delete",
+				...(by ? { device: by } : {}),
+			});
+			void tab.sidecar.rpcClient?.command({ type: "abort_and_restore_queue" }).catch(() => undefined);
+		}
+		const devices = (async () => {
+			if (busy().length === 0) return;
+			const { promise, resolve, reject } = Promise.withResolvers<void>();
+			const timer = setTimeout(() => {
+				off();
+				reject(codedError("session_running", "The session's turn did not end after Stop"));
+			}, STOP_SESSION_WAIT_MS);
+			const off = this.onRunningChange(() => {
+				if (busy().length > 0) return;
+				clearTimeout(timer);
+				off();
+				resolve();
+			});
+			return promise;
+		})();
+		await Promise.all([window, devices]);
 	}
 
 	/**

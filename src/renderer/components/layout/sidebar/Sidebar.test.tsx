@@ -16,7 +16,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { wrapAgentMessage } from "../../../../shared/agent-control";
 import { codedError } from "../../../../shared/ipc-error-codes";
-import { useToastStore } from "../../../stores/toast";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
@@ -43,6 +42,7 @@ import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import type { SubagentsStore } from "../../../stores/subagents";
 import { ensureTabRuntime } from "../../../stores/tab-runtime";
 import { useTabsStore } from "../../../stores/tabs";
+import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Sidebar } from "./Sidebar";
 

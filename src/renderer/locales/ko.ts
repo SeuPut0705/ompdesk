@@ -829,6 +829,8 @@ export const ko: Record<string, string> = {
 	"sidebar.openFailed": "세션을 열 수 없어요",
 	"sidebar.openInNewWindow": "새 창에서 열기",
 	"sidebar.deleteFailed": "세션을 삭제할 수 없어요",
+	"sidebar.stopAndDelete": "멈추고 삭제",
+	"sidebar.stopFailed": "세션을 중단하지 못했어요",
 	"sidebar.chats": "채팅",
 	"project.worktree.autopilot": "오토파일럿",
 	"project.worktree.agent": "병렬 작업",
@@ -5853,8 +5855,7 @@ export const ko: Record<string, string> = {
 	"remote.sidebar.offline": "오프라인이에요. 다시 연결되면 세션이 보여요.",
 	"remote.sidebar.deleteMessage":
 		"{device}의 {name} 세션을 삭제할까요? 그 컴퓨터에서 세션 기록이 영구 삭제되며 되돌릴 수 없어요.",
-	"remote.sidebar.deleteRunning": "{device}에서 이 세션이 실행 중이에요. 중단한 뒤 다시 삭제해 주세요.",
-	"remote.sidebar.stopRunning": "중단",
+	"remote.sidebar.deleteRunning": "{device}에서 이 세션이 실행 중이에요.",
 	"remote.sidebar.stopFailed": "{device}의 세션을 중단하지 못했어요",
 	"remote.sidebar.empty": "이 기기에는 아직 세션이 없어요.",
 	"remote.tab.chip": "{name}에서 실행 중",

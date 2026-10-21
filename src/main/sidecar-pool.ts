@@ -125,6 +125,7 @@ import {
 	TAB_LAYOUT_VERSION,
 } from "./tab-layout";
 import type { ResumeFact } from "./turn-resume";
+import { recordTurnStop } from "./turn-stop-log";
 import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { TabSpawnFacts } from "./worktree-lifecycle";
 import { removalHolds } from "./worktree-removals";
@@ -199,6 +200,8 @@ export interface PendingPlan {
 
 /** Answers kept to refuse a late second one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
+/** How long "Stop and delete" waits for a stopped turn to end before it gives up (`stopSession`). */
+export const STOP_SESSION_WAIT_MS = 60_000;
 
 /** Sidecar events a visible tab forwards to its window unchanged, as `{ tabId, payload }`. */
 const FORWARDED_TAB_EVENTS: ReadonlyArray<readonly [event: string, channel: string]> = [
@@ -723,6 +726,43 @@ export class SidecarPool {
 		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
 		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
 		return entry !== undefined && runBusy(entry.run);
+	}
+
+	/**
+	 * The person's Stop of the turn the tab holding `sessionPath` runs, in any window (a delete it refused: "Stop and
+	 * delete", session-mutations.ts). Resolves once that tab's run has ended (its `idle` activity, or it went away),
+	 * never on a timer; at once when nothing runs there. Rejects `session_running` if the run has not ended after
+	 * `STOP_SESSION_WAIT_MS`.
+	 */
+	async stopSession(sessionPath: string, device?: string): Promise<void> {
+		const owner = this.#sessionOwners.get(ownerKey(device, sessionPath));
+		const entry = owner ? this.#byTabId.get(owner.tabId) : undefined;
+		if (!entry || !runBusy(entry.run)) return;
+		const { tabId } = entry;
+		const { promise, resolve, reject } = Promise.withResolvers<void>();
+		const settled = () => !this.#byTabId.has(tabId) || !runBusy(entry.run);
+		const stop = this.observeTabs(activity => {
+			if (activity.tabId !== tabId || !settled()) return;
+			finish();
+			resolve();
+		});
+		const timer = setTimeout(() => {
+			finish();
+			reject(codedError("session_running", "The session's turn did not end after Stop"));
+		}, STOP_SESSION_WAIT_MS);
+		const finish = () => {
+			clearTimeout(timer);
+			stop();
+		};
+		this.noteStopped(tabId);
+		recordTurnStop({ command: "abort_and_restore_queue", tab: tabId, by: "session-delete" });
+		// Its queued messages go too: they would start the next turn on a session about to be deleted.
+		void entry.sidecar.rpcClient?.command({ type: "abort_and_restore_queue" }).catch(() => undefined);
+		if (settled()) {
+			finish();
+			resolve();
+		}
+		return promise;
 	}
 
 	/**
