@@ -43,8 +43,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	readonly statusFromLink?: boolean;
 	start(): void;
 	restart(cwd?: string, resumeSessionPath?: string): void;
-	/** Local sidecars only: pick up an extension update in the live session (bridge reload/reconnect). */
-	reloadExtensions?(plan: Pick<ExtensionApplyPlan, "reconnect"> & { reload: boolean }): Promise<void>;
+	/** Local sidecars only: pick up an extension update or another session's MCP change in the live session. */
+	reloadExtensions?(plan: Pick<ExtensionApplyPlan, "reconnect" | "mcp"> & { reload: boolean }): Promise<void>;
 	adoptCwd(cwd: string): boolean;
 	/** A local omp takes the frame at once. A paired host's tab returns a promise for a user's answer, and
 	 * throws or rejects `remote_offline` (or the host's refusal) when the host did not take it (see RemoteSidecar). */

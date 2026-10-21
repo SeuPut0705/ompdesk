@@ -99,6 +99,7 @@ import { DiskCare, registerDiskCareIpc } from "./disk/care";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
+import { EMPTY_APPLY_PLAN } from "./extension-reload";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
 import {
@@ -118,6 +119,7 @@ import { tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
 import { LogWatcher } from "./log-watcher";
 import { LocalMachine } from "./machine-services";
+import { onMcpChange } from "./mcp-live";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { followSetupState } from "./omp-availability";
@@ -1156,6 +1158,13 @@ app.whenReady().then(() => {
 	});
 	extensionUpdater = extensionToolUpdater;
 	registerExtensionUpdateIpc(ipc, extensionToolUpdater);
+	// One session's MCP change (an add, an adopted server, a sign-in, a reload) reaches every live session of this
+	// computer, the tabs it hosts for paired devices included (mcp-live.ts).
+	onMcpChange(change => {
+		const plan = { ...EMPTY_APPLY_PLAN, mcp: change };
+		sidecarPool.applyExtensionUpdate(plan);
+		hostServices.applyExtensionUpdate(plan);
+	});
 	// ai-memory is OMPdesk's memory (src/main/ai-memory/, pref `aiMemory`, default on): the shipped binary is staged
 	// into the tools dir, its per-user service serves it, and the omp sessions OMPdesk spawns load an app-owned
 	// extension root with `-e` (nothing is written to ~/.omp/agent). A dev build reports only; OMP_GUI_AI_MEMORY_BIN

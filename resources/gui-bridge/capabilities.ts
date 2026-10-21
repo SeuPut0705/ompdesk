@@ -525,9 +525,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"settings.getAgentDir()",
 			"sessionManager.getCwd()",
 			"modelRegistry.authStorage.credentials.set()",
+			"modelRegistry.authStorage.credentials.reload()",
 		],
 		modules: {
-			[`${AGENT}/capability`]: ["loadCapability()"],
+			[`${AGENT}/capability`]: [
+				"loadCapability()",
+				"isForeignUserProvider()",
+				"isProviderEnabled()",
+				"isUserSourceEnabled()",
+			],
+			[`${AGENT}/capability/fs`]: ["clearCache()"],
 			[`${AGENT}/discovery/helpers`]: ["expandEnvVarsDeep()"],
 			[`${AGENT}/mcp/client`]: ["connectToServer()", "disconnectServer()", "listTools()"],
 			[`${AGENT}/mcp/config`]: ["loadAllMCPConfigs()", "validateServerConfig()"],
@@ -554,6 +561,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 				"MCPManager.prototype.setAuthStorage()",
 				"MCPManager.prototype.prepareConfig()",
 				"MCPManager.prototype.getAllServerNames()",
+				"MCPManager.prototype.disconnectServer()",
+				"MCPManager.prototype.addConnectionStatusListener()",
 			],
 			[`${AGENT}/mcp/oauth-credentials`]: [
 				"hasMcpAuthorizationHeader()",

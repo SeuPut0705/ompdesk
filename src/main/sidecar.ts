@@ -8,6 +8,7 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import type { McpLiveChange } from "../../resources/gui-bridge/extensions/mcp-contracts";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_ENV, JUDGE_ASSIST_SET } from "../../resources/gui-bridge/modes/judge-assist-contracts";
@@ -1102,14 +1103,16 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	/**
-	 * An extension update landed: the live session reloads plugin state, then stock reconnects the MCP
-	 * servers whose package changed. Rejects on a bridge failure (the caller ignores it).
+	 * An extension update landed or another session changed MCP servers: the live session reloads plugin state,
+	 * stock reconnects the MCP servers whose package changed, and the bridge's `mcp_sync` follows the MCP
+	 * configuration and credentials on disk. Rejects on a bridge failure (the caller ignores it).
 	 */
-	async reloadExtensions(plan: { reload: boolean; reconnect: string[] }): Promise<void> {
+	async reloadExtensions(plan: { reload: boolean; reconnect: string[]; mcp?: McpLiveChange }): Promise<void> {
 		const bridge = this.#bridge;
 		if (!bridge) throw new Error("Bridge is disconnected");
 		if (plan.reload) await bridge.request("extension_update.reload");
 		if (plan.reconnect.length > 0) await bridge.request("extension_update.reconnect", { names: plan.reconnect });
+		if (plan.mcp) await bridge.request("mcp_sync", plan.mcp.all ? {} : { names: plan.mcp.names });
 	}
 
 	/**

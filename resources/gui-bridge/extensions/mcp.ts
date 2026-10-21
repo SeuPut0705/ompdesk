@@ -9,7 +9,14 @@
  * reload and reauth details (mcp-command-controller.ts in omp 18.6).
  */
 import * as path from "node:path";
-import { loadCapability } from "@oh-my-pi/pi-coding-agent/capability";
+import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import {
+	isForeignUserProvider,
+	isProviderEnabled,
+	isUserSourceEnabled,
+	loadCapability,
+} from "@oh-my-pi/pi-coding-agent/capability";
+import { clearCache as clearFsCache } from "@oh-my-pi/pi-coding-agent/capability/fs";
 import type { MCPServer } from "@oh-my-pi/pi-coding-agent/capability/mcp";
 import { expandEnvVarsDeep } from "@oh-my-pi/pi-coding-agent/discovery/helpers";
 import { connectToServer, disconnectServer, listTools } from "@oh-my-pi/pi-coding-agent/mcp/client";
@@ -40,6 +47,7 @@ import {
 	mcpOAuthCredentialId,
 } from "@oh-my-pi/pi-coding-agent/mcp/oauth-flow";
 import { cfgMcpEnableProjectConfig } from "@oh-my-pi/pi-coding-agent/mcp/settings";
+import type { McpConnectionStatusEvent } from "@oh-my-pi/pi-coding-agent/mcp/startup-events";
 import type { MCPServerConfig, MCPServerConnection } from "@oh-my-pi/pi-coding-agent/mcp/types";
 import { applyMcpToggleRuntime } from "@oh-my-pi/pi-coding-agent/modes/components/extensions/mcp-runtime";
 import { MCPCommandController } from "@oh-my-pi/pi-coding-agent/modes/controllers/mcp-command-controller";
@@ -50,6 +58,8 @@ import { inferMcpTransport } from "@oh-my-pi/pi-tui/overlays/extensions/mcp-runt
 import { getMCPConfigPath, Snowflake } from "@oh-my-pi/pi-utils";
 import { guard } from "../health";
 import type { BridgeEnv, BridgeMethods } from "../types";
+import type { McpSyncResult } from "./mcp-contracts";
+import { adoptedEntry, authStateOf, offReasonOf } from "./mcp-core";
 import { OAUTH_PASTE_PROMPT } from "./oauth-contracts";
 import { errorMessage, optScope, optString, paramsOf, requireString } from "./shared";
 
@@ -149,12 +159,68 @@ function reloadMcpServers(session: AgentSession): Promise<void> {
 	});
 }
 
-type AuthState = "none" | "authorized" | "expired" | "required";
+// ── Connection failures ─────────────────────────────────────────────────────
+// The TUI keeps the failed servers of stock's connection status events for its status line; an RPC host keeps
+// none, so a server that answered 401 with an OAuth challenge read as "disconnected" with no reason. The bridge
+// keeps the last failure per server for this process (one MCPManager per omp).
+
+const failures = new Map<string, string>();
+const watched = new WeakSet<MCPManager>();
+
+function noteStatus(event: McpConnectionStatusEvent): void {
+	switch (event.type) {
+		case "connecting":
+			for (const name of event.serverNames) failures.delete(name);
+			return;
+		case "connected":
+			failures.delete(event.serverName);
+			return;
+		case "failed":
+			failures.set(event.serverName, event.error);
+			return;
+		case "reconnecting":
+			return;
+	}
+}
+
+/** Attach once per manager: at session start (before stock's deferred discovery connects) and on every list. */
+function watchFailures(): void {
+	const manager = MCPManager.instance();
+	if (!manager || watched.has(manager)) return;
+	watched.add(manager);
+	manager.addConnectionStatusListener(noteStatus);
+}
+
+/**
+ * Stock sets the process-global manager while it builds the session and starts the GUI's deferred MCP discovery
+ * only after that, so watching from the moment the manager exists sees the first connect's failures; an RPC
+ * host's `session_start` can come after a fast 401. Rebinds for subagents install again: `watched` keeps it once.
+ */
+export function install(pi: ExtensionAPI): void {
+	const startedAt = Date.now();
+	const poll = setInterval(() => {
+		watchFailures();
+		const manager = MCPManager.instance();
+		if ((manager && watched.has(manager)) || Date.now() - startedAt > WATCH_FOR_MANAGER_MS) clearInterval(poll);
+	}, 10);
+	poll.unref?.();
+	pi.on("session_start", () => watchFailures());
+}
+
+const WATCH_FOR_MANAGER_MS = 60_000;
+
+/** Stock's own reading of an auth failure (`/mcp add` and the TUI reconnect start OAuth on it). */
+function challenged(name: string, url: string | undefined): boolean {
+	const failure = failures.get(name);
+	return failure !== undefined && analyzeAuthError(new Error(failure), url).requiresAuth;
+}
 
 /** Union of user config, project config, disabled markers and runtime-discovered servers (`/mcp list`). */
 async function listMcpServers(session: AgentSession) {
+	watchFailures();
 	const cwd = session.sessionManager.getCwd();
 	const manager = MCPManager.instance();
+	const enableProjectConfig = cfgMcpEnableProjectConfig.get(session.settings);
 	const [userConfig, projectConfig, inventory, active] = await Promise.all([
 		readMCPConfigFile(getMCPConfigPath("user", cwd)),
 		readMCPConfigFile(getMCPConfigPath("project", cwd)),
@@ -165,7 +231,7 @@ async function listMcpServers(session: AgentSession) {
 			extensionRoots: session.effectiveExtensionRoots,
 		}),
 		loadAllMCPConfigs(cwd, {
-			enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
+			enableProjectConfig,
 			filterExa: false,
 			extensionRoots: session.effectiveExtensionRoots,
 		}),
@@ -173,10 +239,15 @@ async function listMcpServers(session: AgentSession) {
 	// Stock's dashboard uses all rows, including equivalent aliases. The GUI
 	// has one row per name; keep stock's priority-ordered first occurrence.
 	const configured = new Map<string, MCPServer>();
+	// A foreign tool's user config declaring a name omp's own config also declares (an adopted copy).
+	const foreignAlso = new Map<string, string>();
 	for (const server of inventory.all) {
 		if (!configured.has(server.name)) configured.set(server.name, server);
+		else if (server._source.level === "user" && isForeignUserProvider(server._source.provider))
+			foreignAlso.set(server.name, server._source.providerName);
 	}
 	const disabledNames = new Set(userConfig.disabledServers ?? []);
+	const forcedNames = new Set(userConfig.enabledServers ?? []);
 	const names = new Set([...configured.keys(), ...disabledNames, ...(manager?.getAllServerNames() ?? [])]);
 
 	const authStorage = session.modelRegistry.authStorage;
@@ -191,23 +262,40 @@ async function listMcpServers(session: AgentSession) {
 		const scope = projectConfig.mcpServers?.[name] ? "project" : userConfig.mcpServers?.[name] ? "user" : undefined;
 		const credential = config ? lookupMcpOAuthCredential(authStorage, config) : undefined;
 		const headerAuth = config ? hasMcpAuthorizationHeader(config) : false;
-		const authState: AuthState = !config
-			? "none"
-			: credential
-				? credential.credential.expires > Date.now()
-					? "authorized"
-					: "expired"
-				: headerAuth
-					? "authorized"
-					: config.auth?.type === "oauth" || config.oauth
-						? "required"
-						: "none";
+		const url = config && "url" in config ? config.url : undefined;
+		const authState = authStateOf({
+			configured: config !== undefined,
+			credential: credential ? { valid: credential.credential.expires > Date.now() } : undefined,
+			headerAuth,
+			declaresOAuth: config?.auth?.type === "oauth" || config?.oauth !== undefined,
+			challenged: challenged(name, url),
+		});
+		const enabled = Object.hasOwn(active.configs, name);
+		const source = server?._source;
+		const offReason = offReasonOf({
+			active: enabled,
+			denied: disabledNames.has(name),
+			sourceDisabled: server?.enabled === false,
+			forced: forcedNames.has(name),
+			ownConfig: scope !== undefined,
+			source: source && {
+				provider: source.provider,
+				providerName: source.providerName,
+				level: source.level,
+				origin: source.origin,
+			},
+			providerEnabled: source ? isProviderEnabled(source.provider) : true,
+			userSourceEnabled: source ? isUserSourceEnabled(source.provider) : true,
+			projectConfigEnabled: enableProjectConfig,
+		});
+		const lastError = failures.get(name);
+		const alsoIn = scope !== undefined ? foreignAlso.get(name) : undefined;
 		return {
 			name,
 			transport: config?.type ?? (config ? "stdio" : "unknown"),
 			status: manager?.getConnectionStatus(name) ?? "disconnected",
 			toolCount: tools.filter(tool => tool.mcpServerName === name).length,
-			enabled: Object.hasOwn(active.configs, name),
+			enabled,
 			authed: credential !== undefined || headerAuth,
 			...(name === "rea" &&
 			process.env.OMP_GUI_REA_ROOT &&
@@ -216,8 +304,11 @@ async function listMcpServers(session: AgentSession) {
 				: {}),
 			...(scope !== undefined ? { scope } : {}),
 			...(config && "command" in config && config.command ? { command: config.command } : {}),
-			...(config && "url" in config && config.url ? { url: config.url } : {}),
+			...(url ? { url } : {}),
 			authState,
+			...(offReason ? { offReason } : {}),
+			...(alsoIn ? { alsoIn } : {}),
+			...(lastError ? { lastError } : {}),
 		};
 	});
 	servers.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
@@ -229,6 +320,8 @@ async function mcpAction(session: AgentSession, name: string, action: unknown, s
 	const cwd = session.sessionManager.getCwd();
 	const manager = MCPManager.instance();
 	switch (action) {
+		case "adopt":
+			return await adoptServer(session, name);
 		case "enable":
 		case "disable": {
 			const enabled = action === "enable";
@@ -288,6 +381,113 @@ async function mcpAction(session: AgentSession, name: string, action: unknown, s
 		default:
 			throw new Error(`Unknown MCP action: ${String(action)}`);
 	}
+}
+
+/** Startup's discovery filters (sdk.ts, `/mcp reload`, `/mcp enable`). */
+function startupDiscovery(session: AgentSession) {
+	return {
+		enableProjectConfig: cfgMcpEnableProjectConfig.get(session.settings),
+		filterExa: true,
+		filterBrowser: session.getEvalPreludes().some(definition => definition.name === "browser"),
+		extensionRoots: session.effectiveExtensionRoots,
+	};
+}
+
+/**
+ * Use one server another tool's user config declares (~/.codex/config.toml, ~/.claude.json, …) without opting that
+ * tool's whole `~/` config in. Stock's dashboard has only the provider-wide opt-in (`enabledProviders`), which
+ * also brings the tool's other servers, skills and rules; stock's `enabledServers` allowlist overrides an
+ * `enabled: false` but not a foreign source that is not opted in (`isUserSourceEnabled`). So the server's
+ * definition, as stock discovered it, is written into omp's own user mcp.json with stock's writer, and connected.
+ */
+async function adoptServer(session: AgentSession, name: string) {
+	const cwd = session.sessionManager.getCwd();
+	const inventory = await loadCapability<MCPServer>("mcps", {
+		cwd,
+		agentDir: session.settings.getAgentDir(),
+		includeDisabled: true,
+		extensionRoots: session.effectiveExtensionRoots,
+	});
+	const foreign = inventory.all.find(
+		server =>
+			server.name === name &&
+			server._source.level === "user" &&
+			isForeignUserProvider(server._source.provider) &&
+			!isUserSourceEnabled(server._source.provider),
+	);
+	if (!foreign) throw new Error(`Server "${name}" is not declared only in another tool's config.`);
+	const userPath = getMCPConfigPath("user", cwd);
+	const entry = adoptedEntry(foreign as unknown as Record<string, unknown>, inferMcpTransport(foreign), process.env);
+	await addMCPServer(userPath, name, entry as unknown as MCPServerConfig);
+	const result = await syncMcpServers(session, [name]);
+	const manager = MCPManager.instance();
+	return {
+		name,
+		action: "adopt" as const,
+		from: foreign._source.providerName,
+		status: manager?.getConnectionStatus(name) ?? "disconnected",
+		...(result.failed.includes(name) ? { error: failures.get(name) ?? "connect failed" } : {}),
+	};
+}
+
+/**
+ * Bring this session's MCP connections to what the configuration and credentials on disk say now, for the named
+ * servers (all known and configured ones when `names` is omitted). Another omp changed them: an add, remove,
+ * enable or disable in another tab, an adopted server, a sign-in whose credential another process wrote. A server
+ * no longer configured is disconnected; one configured but not connected (never was, or failed for want of a
+ * sign-in) is connected; one connected with a config that changed is connected again; one connected with the same
+ * config is left alone, so the tab that made the change does nothing twice. Stock's `/mcp reload` would drop and
+ * reconnect every server of the session; this touches only what moved.
+ */
+async function syncMcpServers(session: AgentSession, names?: readonly string[]): Promise<McpSyncResult> {
+	const manager = MCPManager.instance();
+	const result: McpSyncResult = { connected: [], disconnected: [], unchanged: [], failed: [] };
+	if (!manager) return result;
+	watchFailures();
+	// Another process wrote the files and the credential row: stock caches both per process.
+	clearFsCache();
+	await session.modelRegistry.authStorage.credentials.reload();
+	return serializeMcpReload(async () => {
+		const { configs, sources } = await loadAllMCPConfigs(session.sessionManager.getCwd(), startupDiscovery(session));
+		const known = new Set(manager.getAllServerNames());
+		const targets = names ?? [...new Set([...known, ...Object.keys(configs)])];
+		const connect: Record<string, MCPServerConfig> = {};
+		for (const name of targets) {
+			const config = configs[name];
+			const status = manager.getConnectionStatus(name);
+			if (!config) {
+				if (known.has(name) || status !== "disconnected") {
+					await manager.disconnectServer(name);
+					result.disconnected.push(name);
+				} else result.unchanged.push(name);
+				continue;
+			}
+			if (status === "connecting") {
+				result.unchanged.push(name);
+				continue;
+			}
+			if (status === "connected") {
+				if (Bun.deepEquals(manager.getServerConfig(name), config)) {
+					result.unchanged.push(name);
+					continue;
+				}
+				await manager.disconnectServer(name);
+			}
+			connect[name] = config;
+		}
+		const connecting = Object.keys(connect);
+		if (connecting.length > 0) {
+			await manager.connectServers(
+				connect,
+				Object.fromEntries(connecting.flatMap(name => (sources[name] ? [[name, sources[name]]] : []))),
+			);
+			for (const name of connecting) {
+				(manager.getConnectionStatus(name) === "disconnected" ? result.failed : result.connected).push(name);
+			}
+		}
+		if (connecting.length > 0 || result.disconnected.length > 0) await session.refreshMCPTools(manager.getTools());
+		return result;
+	});
 }
 
 /** `/mcp test` lookup: project shadows user, disabled servers are invisible. */
@@ -736,5 +936,24 @@ export const methods: BridgeMethods = guard("mcp", {
 		if (!activeReauth || activeReauth.name !== name) return { cancelled: false };
 		activeReauth.abort.abort("Reauthorization cancelled by user");
 		return { cancelled: true };
+	},
+
+	/**
+	 * Follow MCP changes another tab or process made (main sends it to every live tab after one tab changed the
+	 * configuration or signed in): `names` the servers that changed, none for all of them.
+	 */
+	mcp_sync: async (params, env) => {
+		const raw = paramsOf(params).names;
+		if (raw !== undefined && !(Array.isArray(raw) && raw.every(name => typeof name === "string" && name !== "")))
+			throw new Error("names must be a list of server names");
+		return await syncMcpServers(env.session(), raw as string[] | undefined);
+	},
+
+	/** `/mcp reload` for the GUI: stock's full rediscovery of this session (MCPCommandController.reloadServers). */
+	mcp_reload: async (_params, env) => {
+		clearFsCache();
+		await env.session().modelRegistry.authStorage.credentials.reload();
+		await reloadMcpServers(env.session());
+		return { servers: await listMcpServers(env.session()) };
 	},
 });

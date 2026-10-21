@@ -68,6 +68,7 @@ export interface SessionRpcClient {
 	mcpTest(probe: { name?: string; config?: RpcMcpServerInput }): Promise<RpcResponse>;
 	mcpReauth(name: string): Promise<RpcResponse>;
 	mcpReauthCancel(name: string): Promise<RpcResponse>;
+	mcpReload(): Promise<RpcResponse>;
 	marketplaceAction(payload: {
 		action: "add" | "remove" | "update" | "install" | "uninstall" | "upgrade" | "list_available";
 		marketplace?: string;
@@ -278,7 +279,7 @@ export interface SessionRpcClient {
 	setPluginEnabled(pluginId: string, enabled: boolean, scope?: "user" | "project"): Promise<RpcResponse>;
 	mcpAction(
 		name: string,
-		action: "enable" | "disable" | "reconnect" | "remove",
+		action: "enable" | "disable" | "reconnect" | "remove" | "adopt",
 		scope?: "user" | "project",
 	): Promise<RpcResponse>;
 	setTodos(phases: TodoPhase[]): Promise<RpcResponse>;
@@ -466,6 +467,7 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		mcpTest: probe => rpcCommand({ type: "mcp_test", ...probe }, 60_000),
 		mcpReauth: name => rpcCommand({ type: "mcp_reauth", name }, 360_000),
 		mcpReauthCancel: name => rpcCommand({ type: "mcp_reauth_cancel", name }, 10_000),
+		mcpReload: () => rpcCommand({ type: "mcp_reload" }, 120_000),
 		marketplaceAction: payload => rpcCommand({ type: "marketplace_action", ...payload }, 180_000),
 		getPluginDetail: pluginId => rpcCommand({ type: "get_plugin_detail", pluginId }, 30_000),
 		setPluginFeatures: (pluginId, features) => rpcCommand({ type: "set_plugin_features", pluginId, features }),
@@ -624,7 +626,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "set_context_file_enabled", contextFileId, enabled }),
 		setPluginEnabled: (pluginId, enabled, scope) =>
 			rpcCommand({ type: "set_plugin_enabled", pluginId, enabled, scope }),
-		mcpAction: (name, action, scope) => rpcCommand({ type: "mcp_action", name, action, scope }),
+		mcpAction: (name, action, scope) =>
+			rpcCommand({ type: "mcp_action", name, action, scope }, action === "adopt" ? 60_000 : undefined),
 		setTodos: phases => rpcCommand({ type: "set_todos", phases }),
 		setSubagentSubscription: level => rpcCommand({ type: "set_subagent_subscription", level }),
 		getSubagents: () => rpcCommand({ type: "get_subagents" }),

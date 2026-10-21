@@ -19,6 +19,18 @@ describe("mergeApplyPlans", () => {
 		expect(a.reconnect).toEqual(["x"]);
 		expect(EMPTY_APPLY_PLAN.reconnect).toEqual([]);
 	});
+
+	it("unions the MCP servers another session changed, and a reload of all of them wins", () => {
+		const plan = (names: string[], all?: boolean) => ({
+			...EMPTY_APPLY_PLAN,
+			mcp: { names, ...(all ? { all } : {}) },
+		});
+		expect(mergeApplyPlans(plan(["a"]), plan(["a", "b"])).mcp).toEqual({ names: ["a", "b"] });
+		expect(mergeApplyPlans(plan(["a"]), plan([], true)).mcp).toEqual({ names: [], all: true });
+		expect(mergeApplyPlans(EMPTY_APPLY_PLAN, plan(["a"])).mcp).toEqual({ names: ["a"] });
+		expect(mergeApplyPlans(EMPTY_APPLY_PLAN, EMPTY_APPLY_PLAN)).not.toHaveProperty("mcp");
+		expect(planIsEmpty(plan(["a"]))).toBe(false);
+	});
 });
 
 describe("planIsEmpty", () => {

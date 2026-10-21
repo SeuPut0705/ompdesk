@@ -15,6 +15,7 @@
  */
 
 import type { RpcMcpServersResult } from "../../shared/rpc-types";
+import { noteMcpChange } from "../mcp-live";
 import { resolveImageBlobs } from "./image-blobs";
 import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "./types";
 
@@ -33,7 +34,6 @@ const BRIDGED = [
 	"get_prompt_templates",
 	"get_mcp_servers",
 	"mcp_action",
-	"mcp_add",
 	"mcp_test",
 	"mcp_reauth_cancel",
 	"get_plugins",
@@ -76,13 +76,15 @@ async function withImageBytes<T extends { messages?: unknown }>(
 
 /** A second reauth while one is in flight fails with the fork's `oauth_busy` code. */
 async function mcpReauth(command: Parameters<LocalHandler>[0], ctx: LocalCommandContext) {
-	const result = await ctx.bridge.request<{ busy?: string }>("mcp_reauth", { name: command.name });
+	const result = await ctx.bridge.request<{ busy?: string; ok?: boolean }>("mcp_reauth", { name: command.name });
 	if (typeof result.busy === "string") {
 		throw new LocalCommandError(
 			`MCP OAuth reauthorization already in progress for "${result.busy}". Complete or cancel it before starting another.`,
 			"oauth_busy",
 		);
 	}
+	// The credential is shared by every omp of this computer: the other sessions connect with it now.
+	if (result.ok === true && typeof command.name === "string") noteMcpChange({ names: [command.name] });
 	return result;
 }
 
@@ -93,13 +95,30 @@ const mcpAction: LocalHandler = async (command, ctx) => {
 	const { servers } = await ctx.bridge.request<RpcMcpServersResult>("get_mcp_servers");
 	if (servers.some(server => server.name === command.name && server.builtin === "rea"))
 		throw new LocalCommandError("Use the built-in REA toggle; changes apply to new sessions", "invalid_params");
-	return viaBridge(command, ctx);
+	const result = await viaBridge(command, ctx);
+	noteMcpChange({ names: [command.name] });
+	return result;
 };
+
+const mcpAdd: LocalHandler = async (command, ctx) => {
+	const result = await viaBridge(command, ctx);
+	if (typeof command.name === "string") noteMcpChange({ names: [command.name] });
+	return result;
+};
+
+const mcpReload: LocalHandler = async (command, ctx) => {
+	const result = await viaBridge(command, ctx);
+	noteMcpChange({ names: [], all: true });
+	return result;
+};
+
 export const handlers: Record<string, LocalHandler> = {
 	...Object.fromEntries(BRIDGED.map(type => [type, viaBridge])),
 	abort_subagent: abortSubagent,
 	mcp_reauth: mcpReauth,
 	mcp_action: mcpAction,
+	mcp_add: mcpAdd,
+	mcp_reload: mcpReload,
 	get_subagent_messages: ({ id: _id, ...command }, ctx) =>
 		withImageBytes(ctx.send<{ messages?: unknown }>(command), ctx),
 	get_subagent_transcript: ({ type, id: _id, ...params }, ctx) =>

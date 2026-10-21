@@ -5,6 +5,7 @@
  */
 
 import type { DesktopSlotState } from "../../resources/gui-bridge/desktop-slot-contracts";
+import type { McpOffReason } from "../../resources/gui-bridge/extensions/mcp-contracts";
 import type { SkippedPreferred } from "../../resources/gui-bridge/model-role-contracts";
 import type { TitleRegenerateResult } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { AutopilotAction, AutopilotStatus } from "../../resources/gui-bridge/modes/autopilot-contracts";
@@ -331,7 +332,8 @@ export type RpcCommand =
 			id?: string;
 			type: "mcp_action";
 			name: string;
-			action: "enable" | "disable" | "reconnect" | "remove";
+			/** `adopt`: copy a server another tool's user config declares into omp's own user mcp.json, so omp uses it. */
+			action: "enable" | "disable" | "reconnect" | "remove" | "adopt";
 			scope?: "user" | "project";
 	  }
 	| { id?: string; type: "security_start"; target: RpcSecurityTargetInput }
@@ -383,6 +385,8 @@ export type RpcCommand =
 	| { id?: string; type: "mcp_test"; name?: string; config?: RpcMcpServerInput }
 	| { id?: string; type: "mcp_reauth"; name: string }
 	| { id?: string; type: "mcp_reauth_cancel"; name: string }
+	/** `/mcp reload` for the GUI: rediscover and reconnect every MCP server of this session, then every live tab. */
+	| { id?: string; type: "mcp_reload" }
 	| {
 			id?: string;
 			type: "marketplace_action";
@@ -962,8 +966,14 @@ export interface RpcMcpServerInfo {
 	command?: string;
 	/** http/sse only. */
 	url?: string;
+	/** The last connection failure this session saw (cleared when it connects). */
 	lastError?: string;
+	/** `required` also when the server answered the last connect with an OAuth challenge (HTTP 401). */
 	authState?: "none" | "authorized" | "expired" | "required";
+	/** Why the server is not used (only while `enabled` is false). */
+	offReason?: McpOffReason;
+	/** omp's own config declares it and another tool's user config does too (the copy `adopt` made, or by hand). */
+	alsoIn?: string;
 }
 export interface RpcMcpServersResult {
 	servers: RpcMcpServerInfo[];
