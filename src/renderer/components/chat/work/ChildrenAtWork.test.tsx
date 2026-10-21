@@ -144,6 +144,36 @@ describe("the parent's live work card while it waits on its children", () => {
 	});
 });
 
+describe("a window that views the parent", () => {
+	it("shows a child it holds no tab of, from main's review list, and nothing once it stopped", async () => {
+		// A phone viewing a desktop's session: the children are the desktop window's tabs, not this window's.
+		await act(async () => useTabsStore.setState({ tabs: [tab({ id: "p", title: "Boss" })] }));
+		await act(async () =>
+			useAgentReviewStore.getState().apply({
+				tabId: "p",
+				items: [item({ tabId: "c9", title: "Remote child", step: "Editing api.ts", runningSince: NOW - 9_000 })],
+			}),
+		);
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<ChildrenAtWork />
+				</I18nProvider>,
+			),
+		);
+		await rowsLoaded();
+		expect(rows().map(row => row.getAttribute("data-child-at-work"))).toEqual(["c9"]);
+		expect(text(rows()[0] as Element)).toContain("Editing api.ts");
+		await act(async () =>
+			useAgentReviewStore.getState().apply({
+				tabId: "p",
+				items: [item({ tabId: "c9", title: "Remote child", state: "needs-review" })],
+			}),
+		);
+		expect(rows()).toHaveLength(0);
+	});
+});
+
 describe("between the parent's turns", () => {
 	it("shows the children still at work, and nothing once none is", async () => {
 		await act(async () =>

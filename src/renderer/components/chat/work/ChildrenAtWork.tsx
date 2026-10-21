@@ -44,11 +44,13 @@ export function useChildrenAtWork(): { tabId: string | null; rows: OpenedChildRo
 	);
 	return { tabId, rows: atWork };
 }
+
 /**
  * Whether this tab has a child at work, as one boolean: the transcript asks it on every render, and a component
  * subscribed to the whole tab list (`useChildrenAtWork`) re-renders the 50k-row transcript on every tab's status
  * change (nightly 39525167897: runtime.e2e's reading anchor moved 82 px, desktop.e2e's ⌘W missed its tab; both green
- * without 073a05d5c). Same rule as `openedChildRows`: a live tab this one opened that runs, compacts or waits.
+ * without 073a05d5c). Same rule as `openedChildRows`: a live tab this one opened that runs, compacts or waits, or a
+ * child this window holds no tab of (a phone viewing the parent) that main's review list says runs or waits.
  */
 export function useHasChildrenAtWork(): boolean {
 	const runtimeTabId = useRuntimeTabId();
@@ -60,7 +62,7 @@ export function useHasChildrenAtWork(): boolean {
 		if (!tabId) return false;
 		const parent = state.tabs.find(tab => tab.id === tabId);
 		if (!parent) return false;
-		return state.tabs.some(
+		const atWork = state.tabs.some(
 			tab =>
 				tab.id !== parent.id &&
 				(tab.openedBy === parent.id ||
@@ -69,6 +71,13 @@ export function useHasChildrenAtWork(): boolean {
 					tab.compacting === true ||
 					tab.awaitingInput !== undefined ||
 					review.some(item => item.tabId === tab.id && item.waiting === true)),
+		);
+		return (
+			atWork ||
+			review.some(
+				item =>
+					(item.state === "running" || item.waiting === true) && !state.tabs.some(tab => tab.id === item.tabId),
+			)
 		);
 	});
 }
