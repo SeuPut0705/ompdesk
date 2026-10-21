@@ -23,6 +23,7 @@ import {
 	Tooltip,
 } from "chart.js";
 import { useSyncExternalStore } from "react";
+import { withAlpha as hexWithAlpha } from "./theme-color";
 
 Chart.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Filler, Tooltip, Legend);
 
@@ -95,18 +96,13 @@ export function chartColors(): string[] {
 	return resolved.filter((color, index) => resolved.indexOf(color) === index);
 }
 
-/** `#rgb` / `#rrggbb` → `rgba(…, alpha)`; any other CSS color is returned unchanged. */
+/**
+ * `#rgb` / `#rrggbb` / `#rrggbbaa` (its own alpha replaced) → `rgba(…, alpha)` through the theme's color math; any other
+ * CSS color (a `var()`, `rgb()`, a name) is returned unchanged.
+ */
 export function withAlpha(color: string, alpha: number): string {
-	const hex = color.startsWith("#") ? color.slice(1) : "";
-	const full =
-		hex.length === 3
-			? [...hex].map(digit => digit + digit).join("")
-			: hex.length === 6 || hex.length === 8
-				? hex.slice(0, 6)
-				: "";
-	if (!/^[0-9a-f]{6}$/i.test(full)) return color;
-	const value = Number.parseInt(full, 16);
-	return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+	const hex = /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
+	return /^#(?:[0-9a-f]{3}){1,2}$/i.test(hex) ? hexWithAlpha(hex, alpha) : color;
 }
 
 export function chartTheme() {
