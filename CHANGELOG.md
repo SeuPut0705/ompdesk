@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.52.1] - 2026-10-21
+
+두 컴퓨터가 같은 저장소를 다른 이름으로 부를 때도 메모리가 한 프로젝트로 모여요.
+
+### 고친 것
+- 다른 컴퓨터에서 동기화된 메모리가 저장소 정보를 함께 가져와서, 이 컴퓨터가 처음 그 저장소에서 작업할 때 따로 갈라진 프로젝트를 만들지 않아요. 프로젝트 이름이 서로 달라도 같은 저장소로 맞춰져요.
+- 예전에 이름만 보고 동기화돼 따로 떨어져 있던 메모리를, 두 컴퓨터가 모두 저장소 정보를 보내게 되면 한 번 다시 동기화해 제자리로 돌려놔요.
+- 다른 컴퓨터와 주고받은 데이터 기록에 어떤 종류의 데이터였는지도 남아요. 진단 정보를 복사하면 함께 들어가요.
+
+<!-- en -->
+
+Memory comes together in one project even when two computers call the same repository by different names.
+
+### Fixed
+- Memory synced from another computer carries its repository, so this computer's first own work in that repository no longer splits off a second project, whatever each computer names it.
+- Memory that was synced by name before and ended up apart is synced once more, into its repository's project, once both computers send repositories.
+- The log of what crosses the link to a paired computer keeps what kinds of data it was; Copy diagnostics includes it.
+
 ## [0.52.0] - 2026-10-21
 
 실행 중이라 지우지 못하던 세션을 한 번에 멈추고 지울 수 있고, 재시작 뒤 다른 기기가 다시 보낸 요청이 두 번 실행되지 않아요.
