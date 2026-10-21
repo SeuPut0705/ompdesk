@@ -630,12 +630,13 @@ describe("a link that dropped or went silent", () => {
 		const id = paired.deviceId;
 		expect(lines).toEqual([
 			{ message: "attempt", details: { deviceId: id, n: 1, delayMs: 0, trigger: "start" } },
-			{ message: "up", details: { deviceId: id, outageMs: 0, attempts: 1 } },
+			// Each "up" names the build the host runs, as the host's own "open" line names the device's.
+			{ message: "up", details: { deviceId: id, outageMs: 0, attempts: 1, appVersion: APP_VERSION } },
 			{ message: "down", details: { deviceId: id, name: "Studio", reason: "closed", wasOnlineMs: 2_000 } },
 			{ message: "attempt", details: { deviceId: id, n: 1, delayMs: 1_000, trigger: "backoff" } },
 			{ message: "attempt", details: { deviceId: id, n: 2, delayMs: 2_000, trigger: "backoff" } },
 			{ message: "attempt", details: { deviceId: id, n: 3, delayMs: 4_000, trigger: "backoff" } },
-			{ message: "up", details: { deviceId: id, outageMs: 7_000, attempts: 3 } },
+			{ message: "up", details: { deviceId: id, outageMs: 7_000, attempts: 3, appVersion: APP_VERSION } },
 		]);
 	});
 

@@ -459,7 +459,13 @@ export class RemoteClient {
 		this.#outage = null;
 		this.#onlineAt = now;
 		if (outage) {
-			this.#opts.log?.("up", { deviceId: this.deviceId, outageMs: now - outage.since, attempts: outage.attempts });
+			// The host's build beside it: a link that misbehaves after one side updated is read from either log.
+			this.#opts.log?.("up", {
+				deviceId: this.deviceId,
+				outageMs: now - outage.since,
+				attempts: outage.attempts,
+				appVersion: hello.appVersion,
+			});
 		}
 		this.#link = link;
 		this.#hello = hello;
