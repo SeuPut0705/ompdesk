@@ -29,6 +29,7 @@ import { z } from "zod";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { capture, cssString, exitApp, readRecords, variants } from "./harness";
+import { survivors } from "./process-tree";
 import {
 	connectHost,
 	freePort,
@@ -69,11 +70,18 @@ function isRunning(pid: number): boolean {
 	}
 }
 
-/** SIGKILL of the app's main process: no quit hook runs (interrupted-resume.e2e.ts). */
-async function crash(app: ElectronApplication): Promise<void> {
+/**
+ * SIGKILL of the app's main process: no quit hook runs (interrupted-resume.e2e.ts). Returns once the app's children
+ * have ended too: they outlive the main process for a moment and Chromium's singleton lock is still theirs then, so
+ * a relaunch on the same profile in that window fails with "Lock file can not be created" (error 32).
+ */
+async function crash(app: ElectronApplication, profile: RemoteProfile): Promise<void> {
 	const pid = await app.evaluate(() => process.pid);
 	process.kill(pid, "SIGKILL");
 	await expect.poll(() => isRunning(pid), { timeout: 20_000, message: "the killed app must be gone" }).toBe(false);
+	await expect
+		.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
+		.toEqual([]);
 }
 
 /** The fake omps running in RPC mode under a profile: one per live tab of that instance. */
@@ -142,7 +150,7 @@ for (const language of variants(["en", "ko"] as const))
 					await expect
 						.poll(() => markers(hostProfile), { timeout: 30_000 })
 						.toMatchObject([{ reason: "running", peer: expect.any(String) }]);
-					await crash(host.app);
+					await crash(host.app, hostProfile);
 					host = null;
 					await expect(client.page.locator(`[data-remote-reconnecting="${deviceId}"]`)).toBeVisible();
 					await capture(client.page, `${language}-${theme}-host-crashed`);
@@ -166,7 +174,7 @@ for (const language of variants(["en", "ko"] as const))
 					// The tab runs the turn on B (main's synthesized "running" status).
 					await expect.poll(() => remoteStatus(client?.page as Page, deviceId)).toBe("running");
 					const before = ompPids(hostProfile).length;
-					await crash(client.app);
+					await crash(client.app, clientProfile);
 					client = await launchRemote(clientProfile, { project: false, ready: false });
 					const a = client.page;
 					// Re-attached mid-turn: connected ("running" once the next run event arrives).
