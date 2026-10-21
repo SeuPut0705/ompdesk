@@ -64,12 +64,19 @@ export function diffRefs(before: Record<string, string>, after: Record<string, s
 	return changes;
 }
 
+/**
+ * Every ref and the commit it names. A symbolic ref (`refs/remotes/origin/HEAD`, which a clone or `remote set-head`
+ * makes) is left out: it moves whenever its target does, and the target is diffed itself, so a fetch that moved
+ * `origin/main` read as "refs/remotes/origin/HEAD moved" with no fetch in its own reflog and paused the run.
+ */
 async function readRefs(root: string): Promise<Record<string, string>> {
-	const out = await git(root, ["for-each-ref", "--format=%(refname)%00%(objectname)"], { timeoutMs: REFS_TIMEOUT_MS });
+	const out = await git(root, ["for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)"], {
+		timeoutMs: REFS_TIMEOUT_MS,
+	});
 	const refs: Record<string, string> = {};
 	for (const line of out.split("\n")) {
-		const [name, oid] = line.split("\0");
-		if (name && oid) refs[name] = oid;
+		const [name, oid, symref] = line.split("\0");
+		if (name && oid && !symref) refs[name] = oid;
 	}
 	return refs;
 }

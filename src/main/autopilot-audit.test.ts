@@ -113,6 +113,19 @@ describe("auditCycle", () => {
 		expect(await audit(before)).toEqual([]);
 	});
 
+	it("tolerates a fetch that moved the remote branch origin/HEAD points at (a clone's symbolic ref)", async () => {
+		gitSync(main, "remote", "set-head", "origin", "main");
+		const other = path.join(tmp, "other");
+		gitSync(tmp, "clone", "-q", remote, other);
+		gitSync(other, "config", "user.email", "t@example.com");
+		gitSync(other, "config", "user.name", "t");
+		const before = await takeSnapshot(work, main);
+		await commit(other, "theirs.txt");
+		gitSync(other, "push", "-q", "origin", "main");
+		gitSync(main, "fetch", "-q", "origin");
+		expect(await audit(before)).toEqual([]);
+	});
+
 	it("catches tags: any in a local-only run, only new v* tags inside the release scope", async () => {
 		const before = await takeSnapshot(work, main);
 		gitSync(work, "tag", "v1.2.3");
