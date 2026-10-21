@@ -201,13 +201,23 @@ export class UpdateWatcher {
 		this.#reload = reload;
 		this.#purge = purge;
 		// A worker already waiting, with an older one in control: the page runs the old build.
-		this.#available = registration.waiting !== null && container.controller !== null;
+		this.#available =
+			registration.waiting !== null &&
+			container.controller !== null &&
+			container.controller !== registration.waiting;
 		registration.addEventListener("updatefound", () => {
 			const worker = registration.installing;
 			worker?.addEventListener("statechange", () => {
 				// Only a worker that waits behind another is an update. A first install's "installed" can reach the page
-				// after that worker already activated and took control (WebKit): nothing waits then.
-				if (worker.state === "installed" && registration.waiting === worker && container.controller !== null)
+				// after that worker already activated and took control (WebKit dispatches it with the registration still
+				// naming the worker `waiting` and the page's controller the same worker, nightly 39533946034): nothing
+				// older is replaced then.
+				if (
+					worker.state === "installed" &&
+					registration.waiting === worker &&
+					container.controller !== null &&
+					container.controller !== worker
+				)
 					this.#setAvailable();
 			});
 		});
