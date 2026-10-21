@@ -26,6 +26,27 @@ import { findOnPath } from "./spawn";
 /** A check that runs this long is stopped and counts as failed (the candidate is not landed). */
 export const LAND_CHECK_TIMEOUT_MS = 30 * 60_000;
 const OUTPUT_TAIL = 2_000;
+/** A line that starts an error report: JavaScript's error names, `error:`/`Error:` lines, a Python traceback. */
+const ERROR_LINE = /^\s*(?:[A-Z][A-Za-z]*Error\b|Error:|error(?:\[[^\]]*\])?:|Traceback)/;
+const ERROR_LINES = 12;
+
+/**
+ * What a refused land shows of the check: the first error and the lines under it, then the output's end. A runner that
+ * lists every failing file after its errors (vitest groups files that failed the same way) filled the whole tail with
+ * file names, and the reason was gone.
+ */
+export function checkExcerpt(output: string): string {
+	const tail = output.slice(-OUTPUT_TAIL);
+	const lines = output.split("\n");
+	const first = lines.findIndex(line => ERROR_LINE.test(line));
+	if (first < 0) return tail;
+	const head = lines
+		.slice(first, first + ERROR_LINES)
+		.join("\n")
+		.slice(0, OUTPUT_TAIL / 2);
+	if (tail.includes(head)) return tail;
+	return `${head}\n…\n${output.slice(-(OUTPUT_TAIL - head.length - 3))}`;
+}
 
 export interface LandCheckInput {
 	/** The run's worktree: the repository the candidate lives in, and the path the command may name. */
@@ -120,7 +141,7 @@ async function run(command: string, cwd: string, timeoutMs: number): Promise<Omi
 		const output = Buffer.concat(chunks).toString("utf8") + (error ? `${error}\n` : "");
 		// A stopped check's own exit code is never taken as a pass.
 		const exitCode = timedOut || code === SUPERVISOR_STOPPED_CODE ? null : code;
-		resolve({ ok: !timedOut && exitCode === 0, exitCode, timedOut, tail: output.slice(-OUTPUT_TAIL) });
+		resolve({ ok: !timedOut && exitCode === 0, exitCode, timedOut, tail: checkExcerpt(output) });
 	};
 	child.on("error", error => finish(null, error.message));
 	child.on("close", code => finish(code));

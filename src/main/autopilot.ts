@@ -1269,10 +1269,10 @@ export class Autopilot {
 		}
 		if (outcome?.kind === "red") {
 			const why = outcome.timedOut ? "timed out" : `exit ${outcome.exitCode ?? "unknown"}`;
-			const tail = outcome.tail.trim().split("\n").slice(-15).join("\n");
+			const tail = outcome.tail.trim();
 			await this.#tellAgent(
 				run,
-				`Not landed: ${remote}/${dest} moved on; it merges with this cycle's commit without conflicts, but your check (${outcome.check}) fails on that merge (${why}). Run git fetch ${remote} && git merge ${remote}/${dest}, fix what the merge broke, run the check, and commit; the next green cycle lands it.${tail ? `\nThe check's last lines:\n${tail}` : ""}`,
+				`Not landed: ${remote}/${dest} moved on; it merges with this cycle's commit without conflicts, but your check (${outcome.check}) fails on that merge (${why}). Run git fetch ${remote} && git merge ${remote}/${dest}, fix what the merge broke, run the check, and commit; the next green cycle lands it.${tail ? `\nWhat the check printed (its first error, then its end):\n${tail}` : ""}`,
 			);
 			return;
 		}

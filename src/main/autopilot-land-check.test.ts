@@ -45,6 +45,29 @@ describe("checkLandCandidate", () => {
 			}
 		},
 	);
+
+	it.skipIf(process.platform === "win32")(
+		"keeps the first error of a long failing output, not only its last lines",
+		async () => {
+			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-land-tail-"));
+			try {
+				const repo = path.join(dir, "repo");
+				await fs.mkdir(repo);
+				await initRepo(repo);
+				const sha = gitSync(repo, "rev-parse", "HEAD").trim();
+				const command =
+					"echo 'TypeError: (0 , act) is not a function'; echo '    at mount (a.test.tsx:12:3)'; " +
+					'for i in $(seq 1 200); do echo " FAIL  |renderer| src/f$i.test.tsx [ src/f$i.test.tsx ]"; done; exit 1';
+				const result = await checkLandCandidate({ root: repo, primary: repo, sha, command });
+				expect(result.ok).toBe(false);
+				expect(result.tail).toContain("TypeError: (0 , act) is not a function");
+				expect(result.tail).toContain("src/f200.test.tsx");
+				expect(result.tail.length).toBeLessThanOrEqual(2_000);
+			} finally {
+				await fs.rm(dir, { recursive: true, force: true });
+			}
+		},
+	);
 });
 
 describe("pointCommandAt", () => {
