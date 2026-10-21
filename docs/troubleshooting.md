@@ -45,7 +45,7 @@ Required items finish first; optional ones install in the background. Status and
 
 **Help › Send feedback** in the sidebar drafts a GitHub issue and can attach the recent OMPdesk errors (never session content). Nothing is sent while you write it; **Continue on GitHub** opens the draft in your browser, which hands its text to GitHub in the page address, so review it there before you post.
 
-**Settings › Updates & about › Copy diagnostics** puts the versions, the setup state and the last 100 lines of OMPdesk's log on the clipboard with secrets, addresses and your user folder hidden (**Preview** shows exactly what is copied; nothing is uploaded). Prefer it to the raw files, which can hold file paths, addresses and other details of your machine: remove anything private before you paste lines from them.
+**Settings › Updates & about › Copy diagnostics** puts the versions, the setup state and the last 100 entries of OMPdesk's log (a line repeated in a row shows once, with its count) on the clipboard with secrets, addresses and your user folder hidden (**Preview** shows exactly what is copied; nothing is uploaded). Prefer it to the raw files, which can hold file paths, addresses and other details of your machine: remove anything private before you paste lines from them.
 
 ## Still stuck
 

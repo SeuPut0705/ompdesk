@@ -142,6 +142,29 @@ describe("readDiagnosticsLog", () => {
 		expect(read[0]).toBe("line-20");
 	});
 
+	it("folds a run of the same line (time aside) into its newest, so repeats never push real events out", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-diag-"));
+		tempDirs.push(dir);
+		const file = path.join(dir, "gui-runtime.jsonl");
+		const check = (minute: number) =>
+			JSON.stringify({
+				timestamp: `2026-10-21T10:${String(minute).padStart(2, "0")}:00.000Z`,
+				source: "app-update",
+				message: "check",
+				details: { event: "no-update" },
+			});
+		const event = JSON.stringify({ timestamp: "2026-10-21T09:00:00.000Z", source: "turn-resume", message: "launch" });
+		const repeats = Array.from({ length: DIAGNOSTICS_LOG_LINES * 2 }, (_, index) => check(index % 60));
+		await fs.writeFile(file, `${[event, ...repeats, "plain"].join("\n")}\n`);
+		const read = await readDiagnosticsLog(file);
+		expect(read).toEqual([
+			event,
+			check(199 % 60),
+			`… the line above ${DIAGNOSTICS_LOG_LINES * 2} times in a row, the first at 2026-10-21T10:00:00.000Z`,
+			"plain",
+		]);
+	});
+
 	it("is empty when there is no log", async () => {
 		expect(await readDiagnosticsLog(path.join(os.tmpdir(), "omp-gui-absent", "gui-runtime.jsonl"))).toEqual([]);
 	});

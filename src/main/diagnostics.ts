@@ -12,13 +12,15 @@ import type { SetupItemState, SetupPresence, SetupState } from "../shared/setup"
 import { tailLogLines } from "./runtime-log-core";
 import type { IpcRegistry } from "./web/ipc-registry";
 
-/** Runtime-log lines in a report, newest last. */
+/** Runtime-log entries in a report, newest last (a run of one line folded is one entry). */
 export const DIAGNOSTICS_LOG_LINES = 100;
+/** Raw lines read to find them: room for long runs of one repeated line. */
+const RAW_LOG_LINES = 3_000;
 /** One log line is cut here: a stack can run to tens of kilobytes. */
 const MAX_LINE_CHARS = 3_000;
 const MAX_DETAIL_CHARS = 300;
-/** The read window of a log tail: room for DIAGNOSTICS_LOG_LINES lines of stacks. */
-const LOG_TAIL_BYTES = 512 * 1024;
+/** The read window of a log tail: room for RAW_LOG_LINES short lines, or DIAGNOSTICS_LOG_LINES lines of stacks. */
+const LOG_TAIL_BYTES = 1024 * 1024;
 
 export interface DiagnosticsSystem {
 	appVersion: string;
@@ -97,7 +99,7 @@ export function buildDiagnosticsReport(input: DiagnosticsInput): string {
 		"## Machine setup",
 		...setupLines(setup),
 		"",
-		`## Runtime log (last ${DIAGNOSTICS_LOG_LINES} lines)`,
+		`## Runtime log (last ${DIAGNOSTICS_LOG_LINES} entries, repeats folded)`,
 		...(input.logLines.length > 0
 			? input.logLines.map(line => clip(redactDiagnosticsText(line), MAX_LINE_CHARS))
 			: ["(empty)"]),
@@ -105,12 +107,57 @@ export function buildDiagnosticsReport(input: DiagnosticsInput): string {
 	return redactDiagnosticsText(lines.join("\n"));
 }
 
-/** The newest lines across the current log and its `.1` archive, oldest first. */
+/** One log line and how many times it came in a row (`first` = the first one's timestamp). */
+interface LogEntry {
+	line: string;
+	count: number;
+	first: string | undefined;
+}
+
+/** What makes two lines the same event: everything but the timestamp; a line that is no JSON, its text. */
+function sameEventKey(line: string): { key: string; timestamp: string | undefined } {
+	try {
+		const parsed: unknown = JSON.parse(line);
+		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+			const { timestamp, ...rest } = parsed as Record<string, unknown>;
+			return { key: JSON.stringify(rest), timestamp: typeof timestamp === "string" ? timestamp : undefined };
+		}
+	} catch {}
+	return { key: line, timestamp: undefined };
+}
+
+/**
+ * Consecutive lines that differ only in their time folded into the newest. The background update check writes a line
+ * every 5 minutes (625 of 728 update lines on one Mac), and the last 100 lines held hours of those and none of the
+ * events around them.
+ */
+function foldRepeats(lines: readonly string[]): LogEntry[] {
+	const entries: (LogEntry & { key: string })[] = [];
+	for (const line of lines) {
+		const { key, timestamp } = sameEventKey(line);
+		const last = entries.at(-1);
+		if (last && last.key === key) {
+			last.line = line;
+			last.count++;
+		} else entries.push({ line, count: 1, first: timestamp, key });
+	}
+	return entries;
+}
+
+function entryLines(entries: readonly LogEntry[]): string[] {
+	return entries.flatMap(({ line, count, first }) =>
+		count > 1 ? [line, `… the line above ${count} times in a row${first ? `, the first at ${first}` : ""}`] : [line],
+	);
+}
+
+/** The newest entries across the current log and its `.1` archive, oldest first, a run of one line folded. */
 export async function readDiagnosticsLog(logPath: string): Promise<string[]> {
-	const current = await tailLogLines(logPath, DIAGNOSTICS_LOG_LINES, LOG_TAIL_BYTES);
-	if (current.length >= DIAGNOSTICS_LOG_LINES) return current;
-	const older = await tailLogLines(`${logPath}.1`, DIAGNOSTICS_LOG_LINES - current.length, LOG_TAIL_BYTES);
-	return [...older, ...current];
+	const lines = await tailLogLines(logPath, RAW_LOG_LINES, LOG_TAIL_BYTES);
+	const current = foldRepeats(lines);
+	if (current.length >= DIAGNOSTICS_LOG_LINES) return entryLines(current.slice(-DIAGNOSTICS_LOG_LINES));
+	const older = await tailLogLines(`${logPath}.1`, RAW_LOG_LINES, LOG_TAIL_BYTES);
+	const both = foldRepeats([...older, ...lines]);
+	return entryLines(both.slice(-DIAGNOSTICS_LOG_LINES));
 }
 
 export interface DiagnosticsDeps {
