@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { type ClosedChild, AGENT_CONTROL_TOOLS as T, wrapAgentMessage } from "../../shared/agent-control";
 import type {
@@ -12,6 +15,7 @@ import type {
 import type { ScheduleDraft } from "../../shared/schedules";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
+import { CallJournal } from "./call-journal";
 import type { MailDelivery } from "./mail";
 import {
 	AgentControl,
@@ -68,6 +72,8 @@ class FakeHost implements AgentControlHost {
 	listeners = new Set<() => void>();
 	beforeFirstPromptError: Error | null = null;
 	seq = 0;
+	/** The control-tool calls this computer recorded (`call-journal.ts`); absent: none recorded. */
+	calls?: CallJournal;
 
 	constructor(...tabs: Partial<FakeTab>[]) {
 		for (const tab of tabs) this.add(tab);
@@ -263,6 +269,7 @@ class FakeHost implements AgentControlHost {
 			title: "",
 			cwd: request.folder ?? "/repo",
 			...(typeof request.device === "string" ? { device: request.device, deviceName: "DESKTOP-PC" } : {}),
+			...(request.task ? { task: request.task } : {}),
 			status: "ready",
 			...(request.worktree
 				? { worktree: { name: "w", branch: "omp/agent/w", baseCwd: "/repo", path: "/wt/w" } }
@@ -3794,5 +3801,100 @@ describe("answer matrix", () => {
 			expect(outcome.isError, outcome.text).toBe(false);
 			expect(outcome.text).toMatch(want.ok as RegExp);
 		}
+	});
+});
+
+describe("a control call a paired host re-sends after this computer relaunched runs once", () => {
+	// 21 Oct 2026: a host re-sends every host tool call its omp still waits on to a relaunched device (host-services.ts
+	// `hostCalls`), and the device may have carried the call out before it died, between the effect and the result.
+	let dir: string;
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "agent-control-calls-"));
+	});
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+	const file = () => join(dir, "agent-control-calls.json");
+
+	/** This computer as it relaunched: a new caller tab id on the same session file, the journal read back from disk. */
+	function relaunch(host: FakeHost, from: string, to: string): void {
+		const caller = host.tabsById.get(from);
+		host.tabsById.delete(from);
+		if (caller) host.add({ ...caller, tabId: to });
+		for (const [child, parent] of host.parents) if (parent === from) host.parents.set(child, to);
+		host.calls = new CallJournal(file());
+	}
+
+	/** The app dies right after the call's effect: its result is never written. */
+	function dyingAfterTheEffect(journal: CallJournal): CallJournal {
+		journal.finish = () => {};
+		return journal;
+	}
+
+	it("opens one session when the app died after opening it and before recording the result", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.calls = dyingAfterTheEffect(new CallJournal(file()));
+		const first = await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, "call-1");
+		const child = /Opened session (\w+)/.exec(first.text)?.[1] as string;
+		expect(child).toBeTruthy();
+
+		relaunch(host, "boss0001", "boss0002");
+		const again = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, "call-1");
+		expect(host.spawned).toHaveLength(1);
+		expect(again.isError, again.text).toBe(false);
+		expect(again.text).toContain(`Opened session ${child}`);
+		expect(again.text).toMatch(/before OMPdesk restarted/);
+		// The reconciled result is the call's result from now on.
+		const third = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, "call-1");
+		expect(third.text).toBe(again.text);
+		expect(host.spawned).toHaveLength(1);
+	});
+
+	it("answers a finished call's result again instead of running it twice", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.calls = new CallJournal(file());
+		const first = await control(host).run("boss0001", T.open, { message: "Do A" }, "call-1");
+		relaunch(host, "boss0001", "boss0002");
+		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, "call-1");
+		expect(again).toEqual(first);
+		expect(host.spawned).toHaveLength(1);
+		// Another call id, or another session's call with the same id, is a call of its own.
+		host.add({ tabId: "other003", title: "Other", sessionPath: "/s/other.jsonl" });
+		await control(host).run("other003", T.open, { message: "Do A" }, "call-1");
+		await control(host).run("boss0002", T.open, { message: "Do A" }, "call-2");
+		expect(host.spawned).toHaveLength(3);
+	});
+
+	it("never runs again a call whose effect cannot be found: its outcome is unknown", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.calls = dyingAfterTheEffect(new CallJournal(file()));
+		// The app dies before the session opened (the spawn never came back).
+		const spawn = host.spawn;
+		host.spawn = async () => {
+			throw new Error("the app quit");
+		};
+		await control(host).run("boss0001", T.open, { message: "Do A" }, "call-1");
+		host.spawn = spawn;
+
+		relaunch(host, "boss0001", "boss0002");
+		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, "call-1");
+		expect(again.isError).toBe(true);
+		expect(again.text).toMatch(/outcome is unknown after OMPdesk restarted/);
+		expect(host.spawned).toHaveLength(0);
+		expect(host.tabsById.size).toBe(1);
+	});
+
+	it("finds the schedule a call saved before the app died, and saves no second one", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.calls = dyingAfterTheEffect(new CallJournal(file()));
+		const args = { action: "create", name: "Nightly", prompt: "run checks", every_minutes: 60 };
+		await control(host).run("boss0001", T.schedule, args, "call-1");
+		relaunch(host, "boss0001", "boss0002");
+		const again = await control(host).run("boss0002", T.schedule, args, "call-1");
+		expect(again.isError, again.text).toBe(false);
+		expect(again.text).toMatch(/Nightly.*before OMPdesk restarted/);
+		expect(host.scheduleRows).toHaveLength(1);
+		// Reading needs no record: a list call made again just runs.
+		expect((await control(host).run("boss0002", T.schedule, { action: "list" }, "call-2")).text).toMatch(/Nightly/);
 	});
 });
