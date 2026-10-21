@@ -321,7 +321,8 @@ export class WindowManager {
 	}
 
 	/**
-	 * Software compositing: the renderer draws its looping cues still (`html[data-gpu="software"]`, components.css).
+	 * Software compositing: the renderer draws its looping cues still (`html[data-gpu="software"]`, global.css and
+	 * components.css).
 	 * Set from main once the GPU process has reported, and again after each reload (the page starts without it).
 	 */
 	#markSoftwareCompositing(win: BrowserWindow): void {
