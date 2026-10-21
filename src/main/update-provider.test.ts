@@ -88,6 +88,20 @@ describe("release-notes update provider", () => {
 		}
 	});
 
+	it("gives up on a body that stalls after the headers came, too", async () => {
+		vi.useFakeTimers();
+		try {
+			// Headers answered, then nothing: `json()` would wait for the rest forever.
+			const stalled = new Response(new ReadableStream({ start: () => {} }), { status: 200 });
+			const { provider } = feedFor(() => stalled);
+			const outcome = provider.getLatestVersion().catch((error: unknown) => error);
+			await vi.advanceTimersByTimeAsync(RELEASE_LOOKUP_TIMEOUT_MS);
+			expect(await outcome).toMatchObject({ code: RELEASE_LOOKUP_ERROR });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("builds electron-updater's UpdateInfo from the metadata comment", async () => {
 		const { provider, requests, resolved } = feedFor(() => json(releasePayload()));
 		const info = await provider.getLatestVersion();
