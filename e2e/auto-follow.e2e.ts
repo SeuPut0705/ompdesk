@@ -226,9 +226,11 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 		await sendTurn("fixture turn 0");
 		await expect.poll(entering).toBe(false);
 		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
-		// Each entrance, measured as it starts (the row 10px low, where it reaches furthest): the animation's own event,
-		// so a slow machine whose frames outlast the 220 ms rise still measures it (a hosted runner's frame sampler saw
-		// no frame of the rise at all).
+		// Each entrance, measured as it starts (the row 10px low, where it reaches furthest), so a slow machine whose
+		// frames outlast the 220 ms rise still measures it (a hosted runner's frame sampler saw no frame of the rise at
+		// all). Two signals: the slot gaining `omp-row-arrive` (read at once, the layout read resolves the animation's
+		// first keyframe) and the animation's own `animationstart`. Under four parallel apps the rows were marked yet no
+		// `animationstart` came (2 of 24 runs), so the mark alone counts too.
 		await page.evaluate(() => {
 			const scroll = document.querySelector<HTMLElement>(".omp-transcript-scroll");
 			const canvas = document.querySelector<HTMLElement>(".omp-transcript-canvas");
@@ -237,8 +239,7 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 			// Test-only global the second evaluate reads back.
 			(window as unknown as { __entrance: typeof probe }).__entrance = probe;
 			const measured = new WeakSet<Element>();
-			canvas.addEventListener("animationstart", event => {
-				const row = event.target as HTMLElement;
+			const measure = (row: Element) => {
 				if (!row.matches(".omp-row-arrive > .omp-transcript-row") || measured.has(row)) return;
 				measured.add(row);
 				probe.entrances++;
@@ -246,7 +247,14 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 					probe.overflow,
 					scroll.scrollHeight - Math.max(canvas.offsetHeight, scroll.clientHeight),
 				);
-			});
+			};
+			canvas.addEventListener("animationstart", event => measure(event.target as Element));
+			new MutationObserver(records => {
+				for (const record of records) {
+					const slot = record.target as Element;
+					for (const row of slot.querySelectorAll(":scope > .omp-transcript-row")) measure(row);
+				}
+			}).observe(canvas, { subtree: true, attributes: true, attributeFilter: ["class"] });
 		});
 		await sendTurn("fixture turn 1");
 		await expect.poll(entering).toBe(false);
@@ -254,7 +262,13 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 			() => (window as unknown as { __entrance: { overflow: number; entrances: number } }).__entrance,
 		);
 		// The rise itself was measured, not only the frames around it.
-		expect(seen.entrances).toBeGreaterThan(0);
+		const marked = await page.evaluate(() =>
+			[...document.querySelectorAll("[data-row-key]")].map(
+				slot =>
+					`${slot.getAttribute("data-row-key")}${slot.classList.contains("omp-row-arrive") ? " (arrive)" : ""}`,
+			),
+		);
+		expect(seen.entrances, `rows mounted:\n${marked.join("\n")}`).toBeGreaterThan(0);
 		// Scroll height beyond the rows (a pixel of rounding between the two).
 		expect(seen.overflow).toBeLessThanOrEqual(1);
 		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
