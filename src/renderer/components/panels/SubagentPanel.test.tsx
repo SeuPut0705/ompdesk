@@ -10,7 +10,7 @@ import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AgentMessage, RpcCommand, SubagentSnapshot } from "../../../shared/rpc-types";
-import { I18nProvider, translate } from "../../lib/i18n";
+import { I18nProvider, loadLocale, setLanguageOverride, translate } from "../../lib/i18n";
 import { preloadMarkdownPipeline } from "../../lib/markdown";
 import type { MessagesStore } from "../../stores/messages";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../stores/session-runtime-context";
@@ -255,6 +255,20 @@ describe("Subagent view header", () => {
 			translate("sidebar.subagents.stop"),
 			translate("panel.subagent.copy"),
 		]);
+	});
+
+	it("writes its clock in the UI language", async () => {
+		await loadLocale("ko");
+		setLanguageOverride("ko");
+		try {
+			seed([snap()]);
+			await mount(<SubagentPanel subagent={{ tabId: TAB, agentId: "r1" }} />);
+			const status = view().querySelector("[data-subagent-status]");
+			expect(status?.textContent).toMatch(/1분 \d+초/);
+			expect(status?.textContent).not.toMatch(/\dm \d+s/);
+		} finally {
+			setLanguageOverride(null);
+		}
 	});
 
 	it("offers no stop for a finished agent or an advisor", async () => {

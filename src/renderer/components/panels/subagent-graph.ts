@@ -80,14 +80,6 @@ export function subagentElapsedMs(agent: SubagentSnapshot, now: number): number 
 	return null;
 }
 
-export function formatElapsed(ms: number): string {
-	const seconds = Math.max(0, Math.floor(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
 /** Ids of `task` tool calls found in a message list (main session or a subagent transcript). */
 function extractTaskToolCallIds(messages: AgentMessage[]): string[] {
 	const ids: string[] = [];

@@ -13,7 +13,7 @@
 import { Bot, Maximize2, Square } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
-import { cx, formatTokens } from "../../lib/format";
+import { cx, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
@@ -26,7 +26,6 @@ import { SubagentTranscript } from "./SubagentTranscript";
 import { isSteerableSubagent, SteerSubagentForm, SubagentTranscriptSheet } from "./SubagentTranscriptSheet";
 import { runSubagentAction } from "./subagent-actions";
 import {
-	formatElapsed,
 	isLiveSubagentStatus,
 	type StatusMeta,
 	statusMeta,
@@ -130,7 +129,7 @@ function SubagentHeader({
 						{formatTokens(tokens)}
 					</span>
 				) : null}
-				{elapsed !== null ? <span>{formatElapsed(elapsed)}</span> : null}
+				{elapsed !== null && elapsed >= 1000 ? <span>{formatElapsed(elapsed)}</span> : null}
 			</div>
 			<div className="no-drag flex shrink-0 items-center gap-0.5">
 				<IconButton icon={<Maximize2 />} label={t("panel.subagent.openFull")} onClick={onOpenFull} size="sm" />

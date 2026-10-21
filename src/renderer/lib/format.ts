@@ -164,7 +164,9 @@ export function formatElapsed(ms: number): string {
 	if (!(ms >= 1000)) return "";
 	const seconds = Math.floor(ms / 1000);
 	if (seconds < 60) return translate("time.secondsShort", { count: seconds });
-	return translate("time.minutesSecondsShort", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return translate("time.minutesSecondsShort", { minutes, seconds: seconds % 60 });
+	return translate("time.hoursMinutesShort", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
 const EXT_LANG: Record<string, string> = {

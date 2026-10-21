@@ -32,7 +32,7 @@ import {
 } from "react";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { cx, formatTimeAgo, formatTokens } from "../../../lib/format";
+import { cx, formatElapsed, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
@@ -49,13 +49,7 @@ import { useUiStore } from "../../../stores/ui";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common";
 import { SubagentTranscriptSheet } from "../../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../../panels/subagent-actions";
-import {
-	formatElapsed,
-	isLiveSubagentStatus,
-	statusMeta,
-	subagentElapsedMs,
-	subagentPrimaryLabel,
-} from "../../panels/subagent-graph";
+import { isLiveSubagentStatus, statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { FamilyRow, type FamilyRowProps } from "./SidebarFamilyRow";
 import {
 	buildSubagentFamilyRows,
@@ -192,7 +186,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	// The one line has no room for any of this: it is all the tooltip.
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
-		elapsed !== null ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
+		elapsed !== null && elapsed >= 1000 ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
 		childUsageText(progress?.resolvedModel, progress?.modelRole),
 		usage,
 		note,

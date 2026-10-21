@@ -10,6 +10,7 @@
 import { Bot, Check, MessageSquare, Pause, Play, RefreshCw, RotateCcw, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
+import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
@@ -21,13 +22,7 @@ import { useUiStore } from "../../stores/ui";
 import { Badge, Button, EmptyState, ErrorDetail, IconButton, ListRow } from "../common";
 import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../panels/subagent-actions";
-import {
-	formatElapsed,
-	isLiveSubagentStatus,
-	statusMeta,
-	subagentElapsedMs,
-	subagentPrimaryLabel,
-} from "../panels/subagent-graph";
+import { isLiveSubagentStatus, statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../panels/subagent-graph";
 import { agentSourceLabel } from "./agent-settings";
 
 /**
@@ -131,7 +126,7 @@ const AgentRow = memo(function AgentRow({
 					{t(meta.labelKey)}
 				</Badge>
 			}
-			meta={elapsed !== null ? formatElapsed(elapsed) : undefined}
+			meta={elapsed !== null && elapsed >= 1000 ? formatElapsed(elapsed) : undefined}
 			onClick={onView}
 			selected={actionState === "confirming"}
 			title={title}
