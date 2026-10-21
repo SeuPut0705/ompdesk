@@ -7,8 +7,9 @@ describe("lint-unhandled", () => {
 const a = () => void window.omp.system.openExternal(url);
 function b() { void window.omp.prefs.get(key).then(value => set(value)); }
 const c = <button onClick={() => void window.omp.updater.apply()} />;
+function d() { void tabRpc.cancelLogin(url); }
 `;
-		expect(findUnhandledCalls(source).map(hit => hit.line)).toEqual([2, 3, 4]);
+		expect(findUnhandledCalls(source).map(hit => hit.line)).toEqual([2, 3, 4, 5]);
 	});
 
 	it("accepts .catch, a two-argument .then, a catch after finally, and an unhandled-ok escape", () => {

@@ -6133,6 +6133,7 @@ export const ko: Record<string, string> = {
 	"providerList.notLoaded": "omp가 아직 모델을 불러오지 못했어요. 엔드포인트를 확인한 뒤 새로고침하세요.",
 	"providerList.intro": "로그인하거나 API 키를 붙여 넣으면 돼요. 연결된 프로바이더의 모델은 모델 선택에 나타나요.",
 	"providerList.login.retry": "다시 시도",
+	"providerList.login.cancelFailed": "로그인을 취소하지 못했어요",
 	"providerList.login.failed": "{provider}에 연결하지 못했어요",
 	"providerList.login.keyPage": "{provider} 대시보드에서 API 키를 만들거나 복사하세요.",
 	"providerList.login.browser": "브라우저에서 {provider} 로그인을 마치면 자동으로 연결돼요.",

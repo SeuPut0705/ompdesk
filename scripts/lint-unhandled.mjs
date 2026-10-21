@@ -1,7 +1,7 @@
 /**
- * Unhandled rejection lint — a `void window.omp.…(…)` call must handle its rejection.
+ * Unhandled rejection lint — a `void window.omp.…(…)` or `void tabRpc.…(…)` call must handle its rejection.
  *
- * Every `window.omp` call can reject: on a paired phone page it is a WebSocket call the dropped link fails with
+ * Every `window.omp` call can reject (and every `tabRpc` call, the tab's RPC through the same transport): on a paired phone page it is a WebSocket call the dropped link fails with
  * "The link to the computer dropped", and a `void` call nobody catches is an unhandled rejection (a page error, and a
  * click that silently does nothing). The chain after the call must end in `.catch(…)` or a two-argument
  * `.then(onFulfilled, onRejected)`. A deliberate exception carries `unhandled-ok: <reason>` in a comment on the
@@ -12,6 +12,10 @@ import ts from "typescript";
 /** @param {ts.Expression} node */
 function startsAtWindowOmp(node) {
 	let current = node;
+	let root = node;
+	while (ts.isPropertyAccessExpression(root) || ts.isCallExpression(root) || ts.isElementAccessExpression(root))
+		root = root.expression;
+	if (ts.isIdentifier(root) && root.text === "tabRpc") return true;
 	while (
 		ts.isPropertyAccessExpression(current) ||
 		ts.isCallExpression(current) ||

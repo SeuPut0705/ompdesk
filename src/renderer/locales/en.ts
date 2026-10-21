@@ -6152,6 +6152,7 @@ export const en: Record<string, string> = {
 	"providerList.notLoaded": "omp hasn't loaded its models. Check the endpoint, then refresh.",
 	"providerList.intro": "Sign in or paste an API key. A connected provider's models appear in the model picker.",
 	"providerList.login.retry": "Try again",
+	"providerList.login.cancelFailed": "Couldn't cancel the sign-in",
 	"providerList.login.failed": "Couldn't connect {provider}. Try again.",
 	"providerList.login.keyPage": "Create or copy an API key in your {provider} account.",
 	"providerList.login.browser": "Finish signing in to {provider} in your browser. OMPdesk connects automatically.",

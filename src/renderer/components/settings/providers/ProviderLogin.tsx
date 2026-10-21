@@ -26,13 +26,14 @@ import { ChevronDown, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ExtensionUIRequest } from "../../../../shared/rpc-types";
 import { useExtensionUiResponder } from "../../../hooks/use-extension-ui";
-import { useT } from "../../../lib/i18n";
+import { translate, useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { openUrlTarget, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { tabReady } from "../../../stores/tab-ready-gate";
+import { toastError } from "../../../stores/toast";
 import { Banner, Button, IconButton, Input, Spinner } from "../../common";
 
 interface LoginPrompt {
@@ -239,7 +240,10 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 		if (link?.oauth) {
 			// Stock's RPC `login` takes no cancel and re-asks an empty paste, while it
 			// holds omp's command queue; its callback's denial ends it at once.
-			void tabRpc.cancelLogin(link.url);
+			// A cancel that never reached omp (a dropped link) says so: the sign-in may still hold omp's queue.
+			void tabRpc
+				.cancelLogin(link.url)
+				.catch(error => toastError({ title: translate("providerList.login.cancelFailed"), error }));
 		} else if (prompt) {
 			void respond(prompt.id, { cancelled: true });
 		}
