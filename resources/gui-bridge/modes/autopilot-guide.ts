@@ -229,7 +229,7 @@ export function templateGuide(facts: GuideFacts): string {
 		...releaseSectionTemplate(facts.release, facts.verdict).trimEnd().split("\n"),
 		"",
 		"## Long-lived ideas",
-		"- (Ideas that outlast a run go here; the run's own backlog lives in the Autopilot panel.)",
+		"- (Ideas that outlast a run go here; the run's own backlog lives on its work board.)",
 		"",
 	];
 	return lines.join("\n");
