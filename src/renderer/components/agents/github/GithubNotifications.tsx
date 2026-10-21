@@ -2,6 +2,7 @@ import { Bell, CheckCheck, ExternalLink, MailOpen, RefreshCw } from "lucide-reac
 import { useState } from "react";
 import { cx, formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
+import { githubNotificationReasonLabel, githubNotificationTypeLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { AsyncSection, Badge, Button, IconButton, Tabs } from "../../common";
 import { type GithubSectionProps, GithubToolbar, useGithubMutation } from "./shared";
@@ -90,8 +91,12 @@ export function GithubNotifications({ target, targetKey }: Pick<GithubSectionPro
 									</div>
 									<div className="flex flex-wrap items-center gap-2 text-sc-xs text-(--sc-text-muted)">
 										<span className="font-mono">{row.repo}</span>
-										<Badge variant="muted">{row.type}</Badge>
-										<span>{row.reason.replaceAll("_", " ")}</span>
+										<Badge variant="muted">
+											<span data-github-notification-type>{githubNotificationTypeLabel(t, row.type)}</span>
+										</Badge>
+										<span data-github-notification-reason>
+											{githubNotificationReasonLabel(t, row.reason)}
+										</span>
 										<span>{formatTimeAgo(row.updatedAt)}</span>
 									</div>
 								</div>

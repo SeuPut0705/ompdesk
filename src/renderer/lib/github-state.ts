@@ -42,3 +42,42 @@ const GITHUB_EVENTS: Record<string, true> = {
 export function githubEventLabel(t: (key: string) => string, event: string): string {
 	return GITHUB_EVENTS[event] ? t(`github.runs.event.${event}`) : event.replace(/_/g, " ");
 }
+
+/** What a notification is about (`subject.type`), in the UI's words. */
+const NOTIFICATION_TYPES: Record<string, true> = {
+	Issue: true,
+	PullRequest: true,
+	Commit: true,
+	Release: true,
+	Discussion: true,
+	CheckSuite: true,
+	RepositoryInvitation: true,
+	RepositoryVulnerabilityAlert: true,
+};
+
+/** A notification's subject; a kind GitHub adds later reads as GitHub spells it. */
+export function githubNotificationTypeLabel(t: (key: string) => string, type: string): string {
+	return NOTIFICATION_TYPES[type] ? t(`github.notifications.type.${type}`) : type;
+}
+
+/** Why a notification came in (`reason`), in the UI's words. */
+const NOTIFICATION_REASONS: Record<string, true> = {
+	approval_requested: true,
+	assign: true,
+	author: true,
+	ci_activity: true,
+	comment: true,
+	invitation: true,
+	manual: true,
+	mention: true,
+	review_requested: true,
+	security_alert: true,
+	state_change: true,
+	subscribed: true,
+	team_mention: true,
+};
+
+/** Why a notification came in; a reason GitHub adds later reads as GitHub spells it. */
+export function githubNotificationReasonLabel(t: (key: string) => string, reason: string): string {
+	return NOTIFICATION_REASONS[reason] ? t(`github.notifications.reason.${reason}`) : reason.replace(/_/g, " ");
+}
