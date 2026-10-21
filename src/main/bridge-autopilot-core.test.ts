@@ -823,6 +823,22 @@ describe("buildBegin / buildStatus", () => {
 		expect(cycleRecords(entries)[0]).toMatchObject({ checkCommand: record.checkCommand, resolved: ["a"] });
 	});
 
+	it("names the follow-ups no later cycle did, newest first, and none when every one was done", () => {
+		const cycleEntry = (data: AutopilotCycleRecord): JournalEntry => ({
+			type: "custom",
+			customType: AUTOPILOT_CYCLE_ENTRY,
+			data,
+		});
+		const entries: JournalEntry[] = [
+			{ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: state },
+			cycleEntry(rec({ n: 1, followups: ["trim the log", "name the port"] })),
+			cycleEntry(rec({ n: 2, followups: ["lazy-load the drag library"], resolved: ["name the port"] })),
+		];
+		expect(buildStatus(entries, 160_000).followups).toEqual(["lazy-load the drag library", "trim the log"]);
+		entries.push(cycleEntry(rec({ n: 3, resolved: ["trim the log", "lazy-load the drag library"] })));
+		expect(buildStatus(entries, 160_000)).not.toHaveProperty("followups");
+	});
+
 	it("carries a cycle's summary as the log copies it, 400 characters on one line, the journal keeping it whole", () => {
 		// Only the cycle's tooltip and the Markdown log read it, and the log clips it to the same 400; a run's summaries
 		// were most of its status (a 73-cycle run: 63 KB of them, 41 KB clipped).

@@ -12,7 +12,7 @@ import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work
  * The board stays a glance in every environment: a waiting question, the running work and a failure stay above the
  * fold even beside a long plan. The plan folds its own rest (todoBoard), so it has no entry here.
  */
-export const SECTION_CAP = { waiting: 3, running: 4, opened: 3 } as const;
+export const SECTION_CAP = { waiting: 3, running: 4, opened: 3, followups: 3 } as const;
 
 /** The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. */
 export function CappedRows<T>({

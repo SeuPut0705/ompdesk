@@ -297,6 +297,19 @@ describe("an Autopilot run on the work board", () => {
 		expect($("[data-autopilot-red-streak]")).toBeNull();
 	});
 
+	it("lists what the cycles left for later, one line each, the first three and a row for the rest", async () => {
+		installMockOmp();
+		useAutopilotStore.getState().apply(status);
+		await mount();
+		expect($('[data-board-section="followups"]')).toBeNull();
+		const followups = ["Fix the flaky resize test", "Lazy-load the drag library", "Trim the log", "Name the port"];
+		await act(async () => useAutopilotStore.getState().apply({ ...status, followups }));
+		const rows = all("[data-autopilot-followup]");
+		expect(rows.map(row => row.getAttribute("title"))).toEqual(followups.slice(0, 3));
+		expect($('[data-board-section="followups"] [data-board-more]')?.getAttribute("data-board-more")).toBe("1");
+		expect($('[data-board-section="followups"] .omp-work-board-count')?.textContent).toBe("4");
+	});
+
 	it("disables Create PR with the reason when the push target is the base branch, and keeps it for a feature target", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({ ...status, target: "main" });

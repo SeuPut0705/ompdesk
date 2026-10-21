@@ -857,6 +857,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 	const running = state.state === "running" || state.state === "stopping";
 	const activeMs = state.activeMs + (running ? Math.max(0, now - state.at) : 0);
 	const cycle = Math.max(records.at(-1)?.n ?? 0, live?.n ?? 0);
+	const followups = openFollowups(records);
 	return {
 		active: true,
 		role: state.role ?? "parent",
@@ -884,6 +885,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		settings: state.settings,
 		cycles: records.map(statusCycle),
 		...(redStreak(records) > 0 ? { redStreak: redStreak(records) } : {}),
+		...(followups.length > 0 ? { followups } : {}),
 		backlog: backlogItems(entries),
 		notes: pendingNotes(entries, records, live?.beganAt),
 		ship: {

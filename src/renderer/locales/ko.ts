@@ -553,6 +553,7 @@ export const ko: Record<string, string> = {
 	"autopilot.focus.all": "모든 영역",
 	"autopilot.focus.next": "다음 사이클부터 우선할 영역이에요. 고르지 않으면 전체예요.",
 	"autopilot.backlog": "백로그",
+	"autopilot.followups": "남은 후속 작업",
 	"autopilot.backlogRemove": "항목 삭제",
 	"autopilot.backlogAdd": "추가",
 	"autopilot.backlogPlaceholder": "항목 고정…",

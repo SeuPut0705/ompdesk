@@ -472,6 +472,8 @@ export interface AutopilotStatus {
 	cycles?: AutopilotCycleRecord[];
 	/** Red cycles in a row (the repair counter the timeline shows); absent at zero. The run goes on: the next cycle repairs. */
 	redStreak?: number;
+	/** What the recent cycles left for later and no later cycle did (`openFollowups`, newest first); absent when none. */
+	followups?: string[];
 	backlog?: AutopilotBacklogItem[];
 	notes?: AutopilotNote[];
 	ship?: AutopilotShipState;

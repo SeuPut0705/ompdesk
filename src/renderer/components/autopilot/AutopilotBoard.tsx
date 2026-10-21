@@ -10,7 +10,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { Button, IconButton, Input } from "../common";
-import { BoardRow, BoardSection, Dot } from "../layout/work-board/board-parts";
+import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "../layout/work-board/board-parts";
 import { AreaIcon } from "./AreaIcon";
 import { AutopilotPauseButton, AutopilotStopButtons } from "./AutopilotControls";
 import { AutopilotCyclesSection } from "./AutopilotCycles";
@@ -301,6 +301,31 @@ function AutopilotRunSection() {
 }
 
 /**
+ * What the recent cycles left for later and no later cycle did: what the agent is likely to take next, before the
+ * rotation's pick. One line each, the whole sentence in the tooltip; nothing while there is none.
+ */
+function AutopilotFollowupsSection() {
+	const t = useT();
+	const followups = useAutopilotStore(s => s.status.followups);
+	if (!followups || followups.length === 0) return null;
+	return (
+		<BoardSection count={followups.length} id="followups" title={t("autopilot.followups")}>
+			<CappedRows cap={SECTION_CAP.followups} items={followups}>
+				{text => (
+					<BoardRow
+						data={{ "data-autopilot-followup": "" }}
+						key={text}
+						label={text}
+						lead={<Dot ring tone="muted" />}
+						title={text}
+					/>
+				)}
+			</CappedRows>
+		</BoardSection>
+	);
+}
+
+/**
  * Items the user pinned (the agent takes them before any rotation pick), the focus areas the next cycles favour, and
  * a field to pin another. A tap on the focus row opens its toggles in place.
  */
@@ -389,14 +414,15 @@ function AutopilotBacklogSection() {
 }
 
 /**
- * An Autopilot tab's board sections, the run's home: the cycle in flight with the controls, the cycles, shipping and
- * the backlog. The board's own sections (questions, subagents, todos, changes) follow them.
+ * An Autopilot tab's board sections, the run's home: the cycle in flight with the controls, the cycles, the open
+ * follow-ups, shipping and the backlog. The board's own sections (questions, subagents, todos, changes) follow them.
  */
 export function AutopilotBoardSections() {
 	return (
 		<>
 			<AutopilotRunSection />
 			<AutopilotCyclesSection />
+			<AutopilotFollowupsSection />
 			<AutopilotShipSection />
 			<AutopilotBacklogSection />
 		</>

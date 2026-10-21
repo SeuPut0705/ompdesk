@@ -5,6 +5,7 @@ export type WorkBoardSectionId =
 	| "autopilot"
 	| "cycles"
 	| "ship"
+	| "followups"
 	| "backlog"
 	| "waiting"
 	| "check"
@@ -47,6 +48,7 @@ export const useWorkBoardStore = create<WorkBoardStore>()((set, get) => ({
 				"autopilot",
 				"cycles",
 				"ship",
+				"followups",
 				"backlog",
 				"waiting",
 				"check",
