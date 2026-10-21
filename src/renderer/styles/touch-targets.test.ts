@@ -237,6 +237,11 @@ describe("controls close enough to take each other's taps", () => {
 			/margin-block-end:\s*12px/,
 		);
 		expect(rule('html[data-input="touch"] [data-benchmark-chips]')).toMatch(/gap:\s*12px;[^}]*--hit-gap-y:\s*12px/);
+		// The goal dock bar: an iPad held sideways handed a tap on Pause's right edge to Edit (8 px apart, unbounded).
+		declares("../components/chat/dock/GoalDockBar.tsx", "data-goal-dock");
+		expect(rule('html[data-input="touch"] [data-goal-dock]')).toMatch(
+			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*12px/,
+		);
 		// The Autopilot board: Pause, End and Stop now reach 36 from 14 px apart; a section head's copy and a row's own
 		// pin or ✕ reach the touch row, never past the board's edge (a docked board scrolled sideways by 2 px).
 		declares("../components/autopilot/AutopilotBoard.tsx", "data-autopilot-controls");

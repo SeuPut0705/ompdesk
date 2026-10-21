@@ -74,6 +74,7 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 					? "omp-work-context-row flex min-w-0 items-center gap-2"
 					: "flex min-w-0 items-center gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) py-1.5 pr-1.5 pl-3"
 			}
+			data-goal-dock={inline ? undefined : ""}
 			data-goal-row={inline || undefined}
 		>
 			<Target aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={inline ? 14 : 16} />

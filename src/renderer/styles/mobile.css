@@ -563,6 +563,15 @@ html[data-input="touch"] .omp-work-board-row > button {
 	--hit-gap-y: 10px;
 }
 
+/* The goal dock bar's Pause, Edit and Drop (28 px behind a 1 px border) sit 10 px apart and reach halfway to the next,
+   36 wide, instead of 8 px into it, and no higher than the bar (an iPad held sideways handed a tap on Pause's right
+   edge to Edit). */
+html[data-input="touch"] [data-goal-dock] {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 12px;
+}
+
 /* A run's Pause, End and Stop now, and a section head's own buttons (an Autopilot log's copy), are 24 px boxes behind a
    1 px border whose ::after reaches from the padding box: 14 px apart and bounded at 14 px, each reaches 36. A
    head's buttons sit 8 px in from its end, so their 7 px reach stays inside the board. */
