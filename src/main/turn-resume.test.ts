@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -165,6 +165,49 @@ describe("InterruptedTurnStore", () => {
 		writeFileSync(file, "tampered");
 		store.write([marker()]);
 		expect(readFileSync(file, "utf8")).toBe("tampered");
+	});
+
+	// Windows refuses to rename over a file another handle has open: an e2e poll, a virus scan or a backup reading the
+	// marker file at that instant made the write fail, and a running turn has no later transition to write it again.
+	it("writes the markers once a reader that held the file open lets go", async () => {
+		vi.useFakeTimers();
+		try {
+			const file = join(dir, "interrupted-turns.json");
+			writeFileSync(file, "[]");
+			const store = new InterruptedTurnStore(file);
+			const reader = openSync(file, "r");
+			store.write([marker()]);
+			closeSync(reader);
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(store.read()).toEqual([marker()]);
+			expect(readFileSync(file, "utf8")).toBe(JSON.stringify([marker()]));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps trying while the reader holds on, reports the failure once it gives up, and writes again on the next change", async () => {
+		vi.useFakeTimers();
+		try {
+			const file = join(dir, "interrupted-turns.json");
+			writeFileSync(file, "[]");
+			const failures: unknown[] = [];
+			const store = new InterruptedTurnStore(file, error => failures.push(error));
+			const reader = openSync(file, "r");
+			try {
+				store.write([marker()]);
+				await vi.advanceTimersByTimeAsync(60_000);
+				// A platform that lets the rename through has nothing to retry.
+				if (readFileSync(file, "utf8") === "[]") expect(failures).toHaveLength(1);
+			} finally {
+				closeSync(reader);
+			}
+			store.write([marker({ sessionPath: "/s/b.jsonl" })]);
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(store.read().map(entry => entry.sessionPath)).toEqual(["/s/b.jsonl"]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
