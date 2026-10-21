@@ -1326,6 +1326,65 @@ describe("LocalHostServices", () => {
 		expect(openAsks(fourth)).toEqual([]);
 	});
 
+	it("re-sends the host tool calls its omp still waits on: one made while the device was away, and every open one to a relaunched device", async () => {
+		// The 21 Oct 2026 update restart: a hosted child called `ompdesk_report` 7 s after its device quit, the call
+		// reached no connection, nobody ever answered it, and the turn waited on it for good (stock has no timeout).
+		const { services, sidecars } = setup();
+		const first = new FakeConnection(peer("device-x"));
+		await services.call(first.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: true }, first);
+		await services.call(first.peer, "tab.start", { rtab: "old" }, first);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("session", { sessionId: "s1", sessionFile: "/s/one.jsonl" });
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		const call = (id: string) => ({ type: "host_tool_call", id, toolCallId: `c-${id}`, toolName: "ompdesk_report" });
+		const resent = (conn: FakeConnection) =>
+			conn
+				.tabEvents()
+				.filter(event => event.name === "hostToolCall" || event.name === "hostUriRequest")
+				.map(({ arg }) => (typeof arg === "object" && arg !== null && "id" in arg ? arg.id : undefined));
+
+		// The device has this one; the link drops while it runs it.
+		sidecar.emit("hostToolCall", call("seen"));
+		services.disconnected(first.peer, first);
+		// The omp asks while nobody is connected, and withdraws one it gave up on.
+		sidecar.emit("hostToolCall", call("away"));
+		sidecar.emit("hostUriRequest", { type: "host_uri_request", id: "uri", operation: "read", url: "x://y" });
+		sidecar.emit("hostToolCall", call("withdrawn"));
+		sidecar.emit("frame", { type: "host_tool_cancel", id: "cancel-1", targetId: "withdrawn" });
+
+		// The same device comes back (a lost link): it gets what it never had, not the call it already runs.
+		const second = new FakeConnection(peer("device-x"));
+		await services.call(second.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: true }, second);
+		expect(resent(second)).toEqual(["away", "uri"]);
+		await services.call(
+			second.peer,
+			"tab.sideChannel",
+			{ rtab: "old", frame: { type: "host_tool_result", id: "away", result: { content: [] } } },
+			second,
+		);
+		services.disconnected(second.peer, second);
+
+		// The device relaunched: its old process took the calls it held with it, so every open one goes again.
+		const third = new FakeConnection(peer("device-x"));
+		await services.call(third.peer, "tab.open", { rtab: "new", cwd: workDir, sessionPath: "/s/one.jsonl" }, third);
+		expect(resent(third)).toEqual(["seen", "uri"]);
+		expect(third.tabEvents().find(event => event.name === "hostToolCall")).toEqual({
+			rtab: "new",
+			name: "hostToolCall",
+			arg: call("seen"),
+		});
+
+		// An omp that restarts took its calls with it.
+		services.disconnected(third.peer, third);
+		sidecar.setStatus("restarting");
+		sidecar.setStatus("ready");
+		const fourth = new FakeConnection(peer("device-x"));
+		await services.call(fourth.peer, "tab.open", { rtab: "new", cwd: workDir, fresh: true }, fourth);
+		expect(resent(fourth)).toEqual([]);
+	});
+
 	it("tells the device which sign-ins its tab runs: as they start and end, and on every re-attach, link or no link", async () => {
 		const { services, sidecars } = setup();
 		const first = new FakeConnection(peer("device-x"));

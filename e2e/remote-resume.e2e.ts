@@ -774,6 +774,65 @@ test("a device quitting mid-turn leaves the turn running on the host, and its re
 	}
 });
 
+test("a device quitting with the host's running tab in the background: its relaunch attaches that turn without anyone showing the tab", async () => {
+	// The 21 Oct 2026 update restart: an agent's children on two paired hosts sat in background tabs; the relaunch
+	// restored them deferred ("not started") and nothing attached them while their hosts kept their omps.
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-background-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", { language: "en", theme: "light", port: await freePort() });
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await openHostFolder(client.page, deviceId, hostProfile.project);
+		await send(client.page, "fixture running");
+		await expect.poll(() => markers(hostProfile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
+		await expect.poll(() => remoteStatus(client?.page as Page, deviceId)).toBe("running");
+		const omps = ompPids(hostProfile).length;
+
+		await quit(client.app);
+		client = null;
+		await expect
+			.poll(
+				async () =>
+					(await host?.page.evaluate(() => window.omp.remote.getState()))?.host.peers.some(peer => peer.online),
+				{ timeout: 30_000 },
+			)
+			.toBe(false);
+
+		// The window was looking at its own tab, so the host's comes back in the background.
+		const prefsFile = path.join(clientProfile.desktop, "prefs.json");
+		const prefs = JSON.parse(await fs.readFile(prefsFile, "utf8")) as {
+			tabLayouts: Array<{ tabs: Array<{ device?: string }>; activeIndex: number }>;
+		};
+		const layout = prefs.tabLayouts[0];
+		expect(layout?.tabs.some(tab => tab.device === deviceId)).toBe(true);
+		expect(layout?.tabs.some(tab => tab.device === undefined)).toBe(true);
+		if (layout) layout.activeIndex = layout.tabs.findIndex(tab => tab.device === undefined);
+		await fs.writeFile(prefsFile, JSON.stringify(prefs));
+
+		client = await launchRemote(clientProfile, { project: false });
+		const a = client.page;
+		expect((await a.evaluate(() => window.omp.tabs.list())).filter(tab => tab.device === deviceId)).toHaveLength(1);
+		await expect
+			.poll(() => remoteStatus(a, deviceId), { timeout: 60_000, message: "the background tab attaches the turn" })
+			.toBe("running");
+		if (process.platform !== "win32") expect(ompPids(hostProfile).length).toBe(omps);
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
+
 test("a host's running tab the saved layout lost comes back after the device relaunches, in the same omp and under its old id", async () => {
 	test.setTimeout(300_000);
 	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-lost-tab-")));
