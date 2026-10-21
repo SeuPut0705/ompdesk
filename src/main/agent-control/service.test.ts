@@ -431,6 +431,11 @@ describe("ompdesk_sessions", () => {
 		expect(result.text).not.toContain("Secret plans");
 		expect(result.text).not.toContain("classified");
 		expect(result.text).toContain("this session");
+		// A listing reads each session's state brief: a paired device's tab answers over the link, and the whole state
+		// carries the system prompt and every tool schema (~750 KB in a large session) the listing never reads.
+		const reads = host.sent.filter(entry => entry.command.type === "get_state");
+		expect(reads.length).toBeGreaterThan(0);
+		expect(reads.every(entry => (entry.command as { brief?: boolean }).brief === true)).toBe(true);
 	});
 
 	it("refuses when the switch is off or the caller's tab is gone", async () => {

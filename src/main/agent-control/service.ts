@@ -1395,7 +1395,7 @@ export class AgentControl {
 				.then(response => (response.success ? pick(response.data) : null))
 				.catch(() => null);
 		const [state, last, subagents, page] = await Promise.all([
-			call({ type: "get_state" }, data => (data as RpcSessionState | undefined) ?? null),
+			call({ type: "get_state", brief: true }, data => (data as RpcSessionState | undefined) ?? null),
 			call({ type: "get_last_assistant_text" }, data =>
 				data && typeof data === "object" && "text" in data && typeof data.text === "string" ? data.text : null,
 			),
@@ -3316,7 +3316,7 @@ export class AgentControl {
 			// Read before the close: the closed record keeps them for the opener's family cost.
 			const [model, cost, split] = await Promise.all([
 				this.#host
-					.command(tab.tabId, { type: "get_state" }, STATE_TIMEOUT_MS)
+					.command(tab.tabId, { type: "get_state", brief: true }, STATE_TIMEOUT_MS)
 					.then(response => (response.success ? (response.data as RpcSessionState | undefined)?.model : null))
 					.catch(() => null),
 				this.#cost(tab),
