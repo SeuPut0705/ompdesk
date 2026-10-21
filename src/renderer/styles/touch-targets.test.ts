@@ -190,6 +190,15 @@ describe("controls close enough to take each other's taps", () => {
 		expect(read("../components/layout/composer/ChoiceRow.tsx")).toContain("items-center gap-2 py-0.5");
 	});
 
+	it("spaces a figure header's buttons 10 px apart on touch, each a 36 px target", () => {
+		expect(rule('html[data-input="touch"] [data-figure-header]')).toMatch(
+			/--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
+		);
+		expect(
+			rule('html[data-input="touch"] [data-figure-header] :is([data-figure-actions], [data-figure-mode])'),
+		).toMatch(/gap:\s*10px/);
+	});
+
 	it("declares the gap of the wrapping rows and clusters the audit found", () => {
 		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-run-actions");
 		declares("../components/settings/RemoteSection.tsx", "data-remote-addresses");

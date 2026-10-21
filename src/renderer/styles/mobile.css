@@ -1206,6 +1206,18 @@ html[data-shell] [data-figure-header] {
 	--hit-gap-y: 4px;
 }
 
+/* On touch a figure's header buttons (Preview/Code, wrap, copy, download, enlarge) sit 10 px apart and reach 5 px up
+   and down, out of the 28 px header into the figure's border and the text around it: 26 px icons become 36 px targets
+   (2 px apart they were 30). */
+html[data-input="touch"] [data-figure-header] {
+	--hit-gap-x: 10px;
+	--hit-gap-y: 10px;
+}
+
+html[data-input="touch"] [data-figure-header] :is([data-figure-actions], [data-figure-mode]) {
+	gap: 10px;
+}
+
 /* The Run sheet's one-line rows (layout/composer/ChoiceRow.tsx, common/Switch.tsx SwitchTile in a `data-switch-grid`):
    segments and tiles sit 2–8 px apart, so each reach stops at the midpoint to its neighbour; on touch a segment is a
    40 px row high (the row's own height), and the tile's whole label is its tap target. */
