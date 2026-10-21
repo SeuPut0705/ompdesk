@@ -229,10 +229,8 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 		// Each entrance, measured as it starts (the row 10px low, where it reaches furthest), so a slow machine whose
 		// frames outlast the 220 ms rise still measures it (a hosted runner's frame sampler saw no frame of the rise at
 		// all). Three signals, any of them counts: the animation's own `animationstart`, a slot gaining `omp-row-arrive`,
-		// and a slot inserted already carrying it (read at once: the layout read resolves the animation's first keyframe).
-		// Under four parallel apps the turn's rows ended up marked while `animationstart` alone counted none in 2 to 12
-		// of 36 runs; with all three signals, listened for on the whole document and measured against the row's own
-		// scroller, 2 of 36 still see none (follow-up: how a marked row reaches the page unseen).
+		// and a slot inserted already carrying it (read at once: the layout read resolves the animation's first keyframe),
+		// listened for on the whole document and measured against the row's own scroller.
 		await page.evaluate(() => {
 			const probe = { overflow: 0, entrances: 0 };
 			// Test-only global the second evaluate reads back.
@@ -267,20 +265,17 @@ test("a row's entrance leaves a pinned transcript's scroll height to the rows", 
 			}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
 		});
 		await sendTurn("fixture turn 1");
+		const probe = () =>
+			page.evaluate(() => (window as unknown as { __entrance: { overflow: number; entrances: number } }).__entrance);
+		// The turn's rows are marked a render after its prompt shows: read once they rose, never at the first moment no
+		// rise runs (that read raced the mark and saw none in up to 12 of 36 runs under four parallel apps, the rows
+		// marked a moment later).
+		await expect
+			.poll(async () => (await probe()).entrances, { message: "no row of the turn rose" })
+			.toBeGreaterThan(0);
 		await expect.poll(entering).toBe(false);
-		const seen = await page.evaluate(
-			() => (window as unknown as { __entrance: { overflow: number; entrances: number } }).__entrance,
-		);
-		// The rise itself was measured, not only the frames around it.
-		const marked = await page.evaluate(() =>
-			[...document.querySelectorAll("[data-row-key]")].map(
-				slot =>
-					`${slot.getAttribute("data-row-key")}${slot.classList.contains("omp-row-arrive") ? " (arrive)" : ""}`,
-			),
-		);
-		expect(seen.entrances, `rows mounted:\n${marked.join("\n")}`).toBeGreaterThan(0);
 		// Scroll height beyond the rows (a pixel of rounding between the two).
-		expect(seen.overflow).toBeLessThanOrEqual(1);
+		expect((await probe()).overflow).toBeLessThanOrEqual(1);
 		await expect.poll(gap).toBeLessThan(SETTLED_EDGE_PX);
 		expect(errors).toEqual([]);
 	});
