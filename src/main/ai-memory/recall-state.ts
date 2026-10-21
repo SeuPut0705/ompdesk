@@ -5,9 +5,10 @@
  * rather than spawn-time values because a tab's omp starts before memory's setup pass has found the data dir, and the
  * Settings switch may change while it runs.
  */
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+
+import { rm } from "node:fs/promises";
 import type { MemoryEnv } from "../../../resources/gui-bridge/modes/memory-recall-contracts";
+import { writeFileAtomic } from "../atomic-file";
 
 export class RecallStateFile {
 	readonly path: string;
@@ -32,10 +33,7 @@ export class RecallStateFile {
 		this.#queue = this.#queue
 			.then(async () => {
 				if (!next) return rm(this.path, { force: true });
-				await mkdir(dirname(this.path), { recursive: true });
-				const temp = `${this.path}.${process.pid}.tmp`;
-				await writeFile(temp, next, { mode: 0o600 });
-				await rename(temp, this.path);
+				await writeFileAtomic(this.path, next, { mode: 0o600 });
 			})
 			.catch(() => {
 				this.#written = undefined;

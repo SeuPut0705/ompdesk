@@ -5,7 +5,8 @@
  * changed is written to `markerFile` before the change, so a crash or kill is undone at the next launch.
  */
 
-import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
+import { writeFileAtomicSync } from "../atomic-file";
 import type { LidBackend, LidHoldOutcome } from "./lid-awake";
 
 /** `SUB_BUTTONS` and `LIDACTION` by GUID: the aliases are English only in some powercfg builds. */
@@ -176,8 +177,7 @@ export class WindowsLidBackend implements LidBackend {
 
 	#writeMarker(marker: LidMarker): void {
 		const file = this.#options.markerFile;
-		writeFileSync(`${file}.tmp`, JSON.stringify(marker));
-		renameSync(`${file}.tmp`, file);
+		writeFileAtomicSync(file, JSON.stringify(marker));
 	}
 
 	#removeMarker(): void {

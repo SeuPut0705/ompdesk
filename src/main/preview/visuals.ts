@@ -12,6 +12,7 @@
  * snapshot, every other path from the entry file's folder, symlinks resolved
  * and never outside it.
  */
+
 import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -24,6 +25,7 @@ import {
 	VISUAL_SCHEME,
 } from "../../shared/preview";
 import type { HostToolDefinition } from "../../shared/rpc-types";
+import { writeFileAtomic } from "../atomic-file";
 import { type PreviewImage, type PreviewVerdict, previewHint } from "./preview-check";
 import { parseVisualUrl } from "./visual-navigation";
 
@@ -208,10 +210,7 @@ export class VisualStore {
 	}
 
 	async #save(): Promise<void> {
-		await fs.mkdir(this.#dir, { recursive: true });
-		const file = path.join(this.#dir, "history.json");
-		await fs.writeFile(`${file}.tmp`, JSON.stringify(this.#records));
-		await fs.rename(`${file}.tmp`, file);
+		await writeFileAtomic(path.join(this.#dir, "history.json"), JSON.stringify(this.#records));
 	}
 
 	#record(id: string): VisualRecord | undefined {

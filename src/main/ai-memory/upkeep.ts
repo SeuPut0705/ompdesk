@@ -16,9 +16,9 @@
  * Only what a person typed is read: a subagent's or an agent-opened session carries an agent's words, and ai-memory's
  * server redacts secrets before they are stored.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import type { AiMemoryPageRef, AiMemoryProjectRef, AiMemorySession } from "../../shared/ai-memory";
+import { writeFileAtomic } from "../atomic-file";
 import type { AiMemoryClient } from "./client";
 import {
 	buildDigest,
@@ -123,10 +123,7 @@ async function readState(file: string): Promise<UpkeepState> {
 }
 
 async function writeState(file: string, state: UpkeepState): Promise<void> {
-	await mkdir(dirname(file), { recursive: true });
-	const next = `${file}.next`;
-	await writeFile(next, JSON.stringify(state));
-	await rename(next, file);
+	await writeFileAtomic(file, JSON.stringify(state));
 }
 
 function summarize(report: RetitleReport): UpkeepLogDetails {

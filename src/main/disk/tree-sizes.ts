@@ -11,6 +11,7 @@
 
 import * as path from "node:path";
 import { existsSync, promises as fs } from "original-fs";
+import { writeFileAtomic } from "../atomic-file";
 
 /**
  * One directory as last read: its mtime and inode, the bytes of its direct entries that have one link, those with
@@ -148,10 +149,7 @@ export class TreeSizes {
 			readAt: this.#readAt,
 			roots: this.#next,
 		};
-		await fs.mkdir(path.dirname(this.#file), { recursive: true, mode: 0o700 });
-		const temp = `${this.#file}.${process.pid}.tmp`;
-		await fs.writeFile(temp, JSON.stringify(data), { mode: 0o600 });
-		await fs.rename(temp, this.#file);
+		await writeFileAtomic(this.#file, JSON.stringify(data), { mode: 0o600, dirMode: 0o700 });
 	}
 
 	async #measure(

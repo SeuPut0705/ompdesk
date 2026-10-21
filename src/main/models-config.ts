@@ -13,19 +13,7 @@
  * upserts merge over the existing entry instead of replacing it, so a rich
  * hand-written config never loses data to a GUI edit.
  */
-import {
-	chmodSync,
-	existsSync,
-	lstatSync,
-	mkdirSync,
-	readFileSync,
-	readlinkSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { type Document, parseDocument } from "yaml";
 import { codedError } from "../shared/ipc-error-codes";
@@ -41,6 +29,7 @@ import type {
 	ModelOverrideInput,
 } from "../shared/ipc-types";
 import { agentDir } from "./agent-paths";
+import { writeFileAtomicSync } from "./atomic-file";
 import { type ModelsConfigMetadata, modelsConfigMetadata, normalizeModelsConfig } from "./models-config-stock";
 
 export type { CustomProviderInput, CustomProviderModelInput, CustomProviderView };
@@ -111,8 +100,6 @@ async function readModelsFile(): Promise<ModelsFile> {
 	};
 }
 
-let tmpCounter = 0;
-
 /** Update existing nodes rather than replacing mappings, preserving comments on edited fields too. */
 function applyYamlDiff(doc: Document, before: unknown, after: unknown, keys: Array<string | number>): void {
 	if (before === after) return;
@@ -170,16 +157,8 @@ async function writeModelsFile(doc: Document, readStamp: FileStamp | null): Prom
 		target = realpathSync(file);
 		mode = statSync(target).mode & 0o7777;
 	}
-	const tmp = `${target}.tmp-${process.pid}-${tmpCounter++}`;
-	try {
-		writeFileSync(tmp, String(doc), { encoding: "utf8", mode });
-		// The creation mode is masked by the umask; the original's mode is kept exactly.
-		chmodSync(tmp, mode);
-		renameSync(tmp, target);
-	} catch (error) {
-		rmSync(tmp, { force: true });
-		throw error;
-	}
+	// The original's mode is kept exactly (the creation mode is masked by the umask).
+	writeFileAtomicSync(target, String(doc), { mode });
 }
 
 function maskApiKey(key: unknown): { hasApiKey: boolean; apiKeyPreview?: string } {

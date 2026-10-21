@@ -3,8 +3,8 @@
  * passes the file (`<userData>/launch-history.json`) and decides when a launch counts as stable. The history is
  * advisory: an unreadable or unwritable file never blocks a start.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { writeFileAtomicSync } from "./atomic-file";
 import { crashLoopDetected, HISTORY_KEEP, type LaunchRecord, parseLaunchHistory } from "./launch-guard-core";
 
 interface Guard {
@@ -16,11 +16,8 @@ interface Guard {
 let guard: Guard | undefined;
 
 function save(state: Guard): void {
-	const temp = `${state.path}.${process.pid}.tmp`;
 	try {
-		mkdirSync(dirname(state.path), { recursive: true });
-		writeFileSync(temp, JSON.stringify([...state.previous, state.current].slice(-HISTORY_KEEP)));
-		renameSync(temp, state.path);
+		writeFileAtomicSync(state.path, JSON.stringify([...state.previous, state.current].slice(-HISTORY_KEEP)));
 	} catch {
 		// Advisory: a launch that cannot record itself still starts.
 	}

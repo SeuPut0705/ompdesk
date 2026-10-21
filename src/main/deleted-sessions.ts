@@ -10,8 +10,9 @@
  * Kept in `<userData>/deleted-sessions.json`; session paths are never reused (each holds its own id), so a tombstone
  * can never hide a different session. Bounded by count; the oldest go first.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { writeFileAtomicSync } from "./atomic-file";
 
 export const MAX_TOMBSTONES = 2000;
 
@@ -68,10 +69,7 @@ export class DeletedSessions {
 	#save(): void {
 		if (!this.#file) return;
 		try {
-			mkdirSync(dirname(this.#file), { recursive: true });
-			const temp = `${this.#file}.tmp`;
-			writeFileSync(temp, JSON.stringify([...this.#entries.values()]), { mode: 0o600 });
-			renameSync(temp, this.#file);
+			writeFileAtomicSync(this.#file, JSON.stringify([...this.#entries.values()]), { mode: 0o600 });
 		} catch (error) {
 			console.warn(`[deleted-sessions] not saved: ${error}`);
 		}

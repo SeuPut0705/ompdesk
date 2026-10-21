@@ -5,9 +5,9 @@
  * remembers the ids of the sessions its chat tabs created. Sessions written by
  * the old forked agent carry `kind: "chat"` in their header and need no entry.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { writeFileAtomicSync } from "./atomic-file";
 
 const StoredKinds = z.object({ chat: z.array(z.string()) });
 
@@ -39,10 +39,7 @@ export class SessionKindStore {
 		if (chat.has(sessionId)) return;
 		chat.add(sessionId);
 		try {
-			mkdirSync(dirname(this.#file), { recursive: true });
-			const temp = `${this.#file}.tmp`;
-			writeFileSync(temp, JSON.stringify({ chat: [...chat] }));
-			renameSync(temp, this.#file);
+			writeFileAtomicSync(this.#file, JSON.stringify({ chat: [...chat] }));
 		} catch (err) {
 			console.warn(
 				`[session-kinds] could not persist ${this.#file}: ${err instanceof Error ? err.message : String(err)}`,

@@ -13,10 +13,10 @@
  * hook, because a crash or SIGKILL runs no hooks: the marker file already says
  * what was running. Electron-free (the pool and the clock are injected).
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
 import type { RpcResponse } from "../shared/rpc-types";
+import { writeFileAtomicDeferred } from "./atomic-file";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
 import type { SidecarLike } from "./sidecar-types";
@@ -195,21 +195,15 @@ export function retryDelays(raw: string | undefined): readonly number[] {
 }
 
 /**
- * Waits before each rewrite of a marker file Windows would not replace (a reader had it open): 20 ms doubling,
- * about 5 s in all. A running turn has no later transition to write it again, so a lost write is a lost turn.
- */
-const STORE_RETRY_MS: readonly number[] = [20, 40, 80, 160, 320, 640, 1_280, 2_560];
-
-/**
- * The marker file: one JSON array, replaced atomically so a kill mid-write leaves the old one whole. A write that
- * fails (Windows refuses a rename over a file another process has open: a virus scan, a backup, a poll) is tried
- * again on a timer; `onFailure` hears of one that never went through.
+ * The marker file: one JSON array, replaced atomically so a kill mid-write leaves the old one whole
+ * (`writeFileAtomicDeferred`: a write Windows refuses is tried again, because a running turn has no later transition
+ * to write it again). `onFailure` hears of one that never went through.
  */
 export class InterruptedTurnStore {
 	readonly #file: string;
 	readonly #onFailure: ((error: unknown) => void) | undefined;
 	#written: string | null = null;
-	#retry: NodeJS.Timeout | undefined;
+	#cancel: (() => void) | undefined;
 
 	constructor(file: string, onFailure?: (error: unknown) => void) {
 		this.#file = file;
@@ -234,27 +228,12 @@ export class InterruptedTurnStore {
 		const text = JSON.stringify(markers);
 		if (text === this.#written) return;
 		this.#written = text;
-		clearTimeout(this.#retry);
-		this.#save(text, 0);
-	}
-
-	#save(text: string, attempt: number): void {
-		const temp = `${this.#file}.tmp`;
-		try {
-			mkdirSync(dirname(this.#file), { recursive: true });
-			writeFileSync(temp, text);
-			renameSync(temp, this.#file);
-		} catch (error) {
-			const wait = STORE_RETRY_MS[attempt];
-			if (wait !== undefined) {
-				this.#retry = setTimeout(() => this.#save(text, attempt + 1), wait);
-				this.#retry.unref();
-				return;
-			}
+		this.#cancel?.();
+		this.#cancel = writeFileAtomicDeferred(this.#file, text, {}, error => {
 			// The next change writes again; a marker that cannot be saved must not break the run.
 			this.#written = null;
 			this.#onFailure?.(error);
-		}
+		});
 	}
 }
 
