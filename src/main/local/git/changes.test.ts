@@ -89,6 +89,17 @@ describe("checkout fingerprint", () => {
 		await next();
 	});
 
+	it("moves with a stash made, which leaves the status of the files unchanged", async () => {
+		// The Changes bar shows the stash count: a stash made (or removed) changes it with no file changing, and the
+		// panel kept the old count until something else moved.
+		await fs.writeFile(path.join(root, "README.md"), "stashed\n");
+		gitSync(root, "stash", "push", "-q");
+		const one = (await getGitFingerprint(root)).fingerprint;
+		await fs.writeFile(path.join(root, "README.md"), "stashed again\n");
+		gitSync(root, "stash", "push", "-q");
+		expect((await getGitFingerprint(root)).fingerprint).not.toBe(one);
+	});
+
 	it("answers for a folder outside a repository", async () => {
 		const outside = await fs.mkdtemp(path.join(os.tmpdir(), "omp-no-repo-"));
 		try {

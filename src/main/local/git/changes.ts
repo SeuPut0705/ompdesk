@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint, RpcGitHead, RpcGitStatus } from "../../../shared/rpc-types";
-import { git, gitRaw } from "./exec";
+import { type ExecResult, git, gitRaw } from "./exec";
 import {
 	isInside,
 	isProbablyBinaryHeader,
@@ -91,10 +91,7 @@ export async function getGitFingerprint(cwd: string, knownRoot?: string): Promis
 	const known = knownRoot && path.isAbsolute(knownRoot) ? path.resolve(knownRoot) : null;
 	const real = known ? await fs.realpath(cwd).catch(() => null) : null;
 	const trusted = known && real && (known === real || isInside(known, real)) ? known : null;
-	const [root, status] = await Promise.all([
-		trusted ?? repoRoot(cwd),
-		gitRaw(cwd, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]),
-	]);
+	const [root, status] = await Promise.all([trusted ?? repoRoot(cwd), checkoutStatus(cwd)]);
 	const hash = createHash("sha1");
 	if (!root || status.code !== 0) return { fingerprint: hash.update("not-a-repository").digest("hex") };
 	const text = status.stdout.toString("utf8");
@@ -119,6 +116,23 @@ export async function getGitFingerprint(cwd: string, knownRoot?: string): Promis
 	);
 	for (const stamp of stamps) hash.update(`\0${stamp}`);
 	return { fingerprint: hash.digest("hex") };
+}
+
+const STATUS_ARGS = ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"];
+/** False once a git refused `--show-stash` (older than 2.35): it is never asked again. */
+let showStash = true;
+
+/**
+ * The checkout's porcelain status with a `# stash <n>` header (`--show-stash`, in the same process): the Changes bar
+ * shows the stash count, and making or removing a stash changes no file, so without it the panel kept the old count.
+ */
+async function checkoutStatus(cwd: string): Promise<ExecResult> {
+	if (showStash) {
+		const status = await gitRaw(cwd, [...STATUS_ARGS, "--show-stash"]);
+		if (status.code === 0 || !status.stderr.includes("show-stash")) return status;
+		showStash = false;
+	}
+	return gitRaw(cwd, STATUS_ARGS);
 }
 
 export async function getGitChanges(cwd: string): Promise<RpcGitChanges> {
