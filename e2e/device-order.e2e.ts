@@ -117,6 +117,11 @@ for (const { language, theme } of VARIANTS) {
 
 			await test.step("Alt+ArrowDown on the host header moves it back down", async () => {
 				const page = (client as RemoteInstance).page;
+				// A relaunch's tab activation queues the composer's focus hand-off (`followActivationFocus`) for the next
+				// frame, and it takes focus from a sidebar button when it runs. A loaded window draws that frame late (a
+				// second after the activation at 8x CPU throttle): the hand-off then ran just after the header was focused
+				// and the key went to the composer. A callback asked for now runs after it in that same frame.
+				await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
 				await page.locator(`[data-device-drag-handle="${hostId}"]`).focus();
 				await page.keyboard.press("Alt+ArrowDown");
 				await expect.poll(() => order(page)).toEqual(["local", hostId]);
