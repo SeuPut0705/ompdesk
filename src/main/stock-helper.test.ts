@@ -25,16 +25,21 @@ async function workerScript(): Promise<string> {
 	const dispatch = path.resolve("resources/gui-bridge/stock-helper/dispatch.ts");
 	await fs.writeFile(
 		script,
-		`import { appendFileSync, writeFileSync } from "node:fs";
+		`import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createDispatcher } from ${JSON.stringify(dispatch)};
-// slow takes real time so the helper's own timeout has something to cut short.
+// slow takes real time; gated runs until the test writes "release", so a helper timeout cuts it short
+// whatever the machine's load does to either side's timers.
 const methods = {
 	fast: () => "ok",
 	slow: async () => {
 		await new Promise(done => setTimeout(done, 300));
 		writeFileSync(${JSON.stringify(path.join(dir, "slow-done"))}, "");
 		return "slow";
+	},
+	gated: async () => {
+		while (!existsSync(${JSON.stringify(path.join(dir, "release"))})) await new Promise(done => setTimeout(done, 10));
+		return "gated";
 	},
 	mutate: params => { appendFileSync(${JSON.stringify(path.join(dir, "mutations"))}, params + "\\n"); return "mutated"; },
 	hang: () => new Promise(() => {}),
@@ -60,6 +65,9 @@ async function helperOnWorker(requestTimeoutMs: number, options: Omit<StockHelpe
 		},
 	});
 	helpers.push(helper);
+	// Started before a test's timed part: a request's timeout runs through its worker's start, and a cold
+	// `bun` on a busy machine takes longer than the 100-250 ms these tests time out on.
+	await helper.request("fast", {}, { timeoutMs: 30_000 });
 	return { helper, children };
 }
 
@@ -68,29 +76,31 @@ const gone = (child: ChildProcessWithoutNullStreams | undefined) =>
 
 describe("StockHelper request timeout", () => {
 	it("fails only the slow request and keeps a worker whose late answer comes within the grace", async () => {
-		const { helper, children } = await helperOnWorker(200, { recycleGraceMs: 2000 });
-		await expect(helper.request("slow", {})).rejects.toThrow("timed out");
+		const { helper, children } = await helperOnWorker(200, { recycleGraceMs: 30_000 });
+		await expect(helper.request("gated", {})).rejects.toThrow("timed out");
 		expect(children).toHaveLength(1);
 		expect(children[0]?.exitCode).toBeNull();
-		// The slow request keeps running in the worker; wait for it before the next one queues behind it.
-		await vi.waitFor(() => fs.access(path.join(dir, "slow-done")));
-		await expect(helper.request("fast", {})).resolves.toBe("ok");
+		// The gated request keeps running in the worker; the next one queues behind it.
+		await fs.writeFile(path.join(dir, "release"), "");
+		await expect(helper.request("fast", {}, { timeoutMs: 30_000 })).resolves.toBe("ok");
 		expect(children).toHaveLength(1);
 	});
 
 	it("never runs a queued mutation whose caller already timed out, and its acknowledged withdrawal keeps the worker", async () => {
-		const { helper, children } = await helperOnWorker(250, { recycleGraceMs: 700 });
-		const slow = helper.request("slow", {});
-		const slowTimedOut = expect(slow).rejects.toThrow("timed out");
+		const { helper, children } = await helperOnWorker(250, { recycleGraceMs: 2000 });
+		const gated = helper.request("gated", {});
+		const gatedTimedOut = expect(gated).rejects.toThrow("timed out");
 		const mutate = helper.request("mutate", "late");
 		await expect(mutate).rejects.toThrow("timed out");
-		await slowTimedOut;
-		// The withdrawn mutation sits behind the slow request; once that ends it must be skipped.
-		await vi.waitFor(() => fs.access(path.join(dir, "slow-done")));
-		await expect(helper.request("mutate", "fresh")).resolves.toBe("mutated");
+		await gatedTimedOut;
+		// The withdrawn mutation sits behind the gated request; once that ends it must be skipped. The lane is
+		// serial, so the fresh mutation is answered only after the late answer and the withdrawal.
+		await fs.writeFile(path.join(dir, "release"), "");
+		await expect(helper.request("mutate", "fresh", { timeoutMs: 30_000 })).resolves.toBe("mutated");
 		expect(await fs.readFile(path.join(dir, "mutations"), "utf8")).toBe("fresh\n");
-		// Past both graces: the skipped mutation was acknowledged, so nothing counts as hung.
-		await sleep(800);
+		// Past both graces: the skipped mutation was acknowledged, so nothing counts as hung. A real wait: the
+		// grace is the helper's own timer on a real worker process, which fake timers cannot drive.
+		await sleep(2100);
 		expect(children).toHaveLength(1);
 		expect(gone(children[0])).toBe(false);
 	});
