@@ -23,7 +23,14 @@ import type { BridgeClient, OmpRuntime } from "../types";
 import { LocalCommandError } from "../types";
 import { repoRoot } from "./changes";
 import { DEFAULT_TIMEOUT_MS, gh, ghText, git, gitRaw, resolveBin } from "./exec";
-import { extractDraftJson, parsePrUnifiedDiff, renderPrompt, rollupCounts } from "./parse";
+import {
+	extractDraftJson,
+	type GhRollupEntry,
+	parsePrUnifiedDiff,
+	renderPrompt,
+	rollupChecks,
+	rollupCounts,
+} from "./parse";
 import prDraftSystemPrompt from "./pr-draft-system.md?raw";
 import prDraftUserPrompt from "./pr-draft-user.md?raw";
 
@@ -39,7 +46,7 @@ interface GhPrListRow {
 	deletions?: number;
 	updatedAt?: string;
 	reviewDecision?: string | null;
-	statusCheckRollup?: Array<{ name?: string; context?: string; status?: string; conclusion?: string | null }> | null;
+	statusCheckRollup?: GhRollupEntry[] | null;
 }
 
 interface GhPrDetailRow extends GhPrListRow {
@@ -189,11 +196,7 @@ export async function prGet(cwd: string, input: { number: number }): Promise<Rpc
 			additions: file.additions ?? 0,
 			deletions: file.deletions ?? 0,
 		})),
-		checks: (row.statusCheckRollup ?? []).map(check => ({
-			name: check.name ?? check.context ?? "check",
-			status: check.status ?? "",
-			conclusion: check.conclusion ?? null,
-		})),
+		checks: rollupChecks(row.statusCheckRollup),
 	};
 }
 

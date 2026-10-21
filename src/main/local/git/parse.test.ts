@@ -10,6 +10,8 @@ import {
 	parsePrUnifiedDiff,
 	parseStatusV2,
 	renderPrompt,
+	rollupChecks,
+	rollupCounts,
 	worktreeSlug,
 } from "./parse";
 
@@ -124,5 +126,35 @@ describe("pr draft helpers", () => {
 			body: "## S\n- a",
 		});
 		expect(extractDraftJson("{bad} nothing")).toBeNull();
+	});
+});
+
+describe("a PR's status check rollup", () => {
+	// gh's statusCheckRollup holds check runs (status, conclusion) and commit statuses (StatusContext: context, state).
+	const rollup = [
+		{ __typename: "CheckRun", name: "check", status: "COMPLETED", conclusion: "SUCCESS" },
+		{ __typename: "CheckRun", name: "build", status: "IN_PROGRESS", conclusion: "" },
+		{ __typename: "StatusContext", context: "ci/jenkins", state: "SUCCESS" },
+		{ __typename: "StatusContext", context: "ci/linux", state: "FAILURE" },
+		{ __typename: "StatusContext", context: "ci/windows", state: "ERROR" },
+		{ __typename: "StatusContext", context: "tide", state: "PENDING" },
+		{ __typename: "StatusContext", context: "deploy", state: "EXPECTED" },
+	];
+
+	it("reads a commit status's state as a check run's status and conclusion", () => {
+		expect(rollupChecks(rollup)).toEqual([
+			{ name: "check", status: "COMPLETED", conclusion: "SUCCESS" },
+			{ name: "build", status: "IN_PROGRESS", conclusion: null },
+			{ name: "ci/jenkins", status: "COMPLETED", conclusion: "SUCCESS" },
+			{ name: "ci/linux", status: "COMPLETED", conclusion: "FAILURE" },
+			{ name: "ci/windows", status: "COMPLETED", conclusion: "ERROR" },
+			{ name: "tide", status: "PENDING", conclusion: null },
+			{ name: "deploy", status: "EXPECTED", conclusion: null },
+		]);
+	});
+
+	it("counts finished commit statuses as passed or failed, not pending", () => {
+		expect(rollupCounts(rollup)).toEqual({ success: 2, failure: 2, pending: 3 });
+		expect(rollupCounts(null)).toEqual({ success: 0, failure: 0, pending: 0 });
 	});
 });

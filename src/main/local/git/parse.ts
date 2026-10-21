@@ -287,13 +287,41 @@ export function parsePrUnifiedDiff(text: string): PrDiffFile[] {
 	});
 }
 
-export function rollupCounts(rollup: Array<{ status?: string; conclusion?: string | null }> | null | undefined): {
+/** One entry of gh's `statusCheckRollup`: a check run (name, status, conclusion) or a commit status (context, state). */
+export interface GhRollupEntry {
+	name?: string;
+	context?: string;
+	status?: string;
+	conclusion?: string | null;
+	state?: string;
+}
+
+/**
+ * The rollup as check runs. A commit status (Jenkins, Prow, a deploy hook) has only a `state`: SUCCESS, FAILURE
+ * and ERROR are finished with that conclusion, PENDING and EXPECTED still wait.
+ */
+export function rollupChecks(
+	rollup: readonly GhRollupEntry[] | null | undefined,
+): { name: string; status: string; conclusion: string | null }[] {
+	return (rollup ?? []).map(check => {
+		const name = check.name ?? check.context ?? "check";
+		if (check.status === undefined && check.state) {
+			const finished = check.state === "SUCCESS" || check.state === "FAILURE" || check.state === "ERROR";
+			return finished
+				? { name, status: "COMPLETED", conclusion: check.state }
+				: { name, status: check.state, conclusion: null };
+		}
+		return { name, status: check.status ?? "", conclusion: check.conclusion || null };
+	});
+}
+
+export function rollupCounts(rollup: readonly GhRollupEntry[] | null | undefined): {
 	success: number;
 	failure: number;
 	pending: number;
 } {
 	const counts = { success: 0, failure: 0, pending: 0 };
-	for (const check of rollup ?? []) {
+	for (const check of rollupChecks(rollup)) {
 		if (check.conclusion === "SUCCESS" || check.conclusion === "NEUTRAL" || check.conclusion === "SKIPPED")
 			counts.success += 1;
 		else if (check.conclusion) counts.failure += 1;

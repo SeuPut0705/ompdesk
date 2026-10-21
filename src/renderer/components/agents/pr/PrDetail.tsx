@@ -33,7 +33,7 @@ function CheckIcon({ conclusion, status }: { conclusion: string | null; status: 
 		return <CheckCircle2 aria-hidden className={`${className} text-(--sc-success)`} />;
 	}
 	if (conclusion) return <XCircle aria-hidden className={`${className} text-(--sc-danger)`} />;
-	if (status === "IN_PROGRESS" || status === "QUEUED") {
+	if (status === "IN_PROGRESS" || status === "QUEUED" || status === "PENDING") {
 		return <Circle aria-hidden className={`${className} fill-current text-(--sc-warning)`} />;
 	}
 	return <Circle aria-hidden className={`${className} text-(--sc-text-subtle)`} />;
