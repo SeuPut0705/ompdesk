@@ -291,4 +291,25 @@ describe("transcriptPageMessages", () => {
 		expect(replyRow?.content).toBe(content);
 		expect(reply.inputTransformations).toHaveLength(1);
 	});
+
+	it("leaves out a thinking block's provider signature, which nothing on the page reads", () => {
+		// An opaque blob the provider checks when the conversation is sent again (stock reads it from the journal, never
+		// a page): about a fifth of a long session's tail page.
+		const reply = {
+			role: "assistant",
+			content: [
+				{ type: "thinking" as const, thinking: "plan", thinkingSignature: "x".repeat(500) },
+				{ type: "text" as const, text: "done" },
+			],
+			timestamp: 2,
+		};
+		const [row] = transcriptPageMessages([reply]);
+		expect(row?.content).toEqual([
+			{ type: "thinking", thinking: "plan" },
+			{ type: "text", text: "done" },
+		]);
+		expect(reply.content[0]).toHaveProperty("thinkingSignature");
+		const plain = { role: "assistant", content: [{ type: "text" as const, text: "ok" }], timestamp: 3 };
+		expect(transcriptPageMessages([plain])[0]).toBe(plain);
+	});
 });

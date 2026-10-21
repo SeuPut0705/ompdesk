@@ -15,11 +15,12 @@ export function messageIdentity(message: AgentMessage): string | undefined {
 }
 
 /**
- * The bridge adds `__ompReadGroup` to read calls in transcript pages and committed `agent_end`
- * messages (gui-bridge stream-metadata.ts `decorateMessages`), never to live `message_end`.
+ * What a transcript page and a live delivery of one message may differ by: the bridge adds `__ompReadGroup` to read
+ * calls in pages and committed `agent_end` messages (gui-bridge stream-metadata.ts `decorateMessages`), never to live
+ * `message_end`, and leaves a thinking block's `thinkingSignature` out of pages (transcript-page.ts).
  */
 function withoutReadGroup(key: string, value: unknown): unknown {
-	return key === "__ompReadGroup" ? undefined : value;
+	return key === "__ompReadGroup" || key === "thinkingSignature" ? undefined : value;
 }
 
 /** User text can arrive as either a string or text blocks on the wire; read calls with or without bridge metadata. */

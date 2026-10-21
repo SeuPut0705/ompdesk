@@ -39,12 +39,30 @@ function startsRun(messages: readonly { role: string; steering?: boolean; stopRe
  */
 const REQUEST_BOOKKEEPING = ["inputTransformations", "requestControls", "contextSnapshot"];
 
-/** A transcript page's messages without request bookkeeping (see REQUEST_BOOKKEEPING). */
+/**
+ * A transcript page's messages without request bookkeeping (see REQUEST_BOOKKEEPING) and without a thinking block's
+ * `thinkingSignature`: an opaque blob the provider checks when the conversation is sent again, which stock reads from
+ * the journal, never from a page. It was about a fifth of a long session's tail page (21 Oct 2026). The renderer's
+ * match of a live delivery to its page copy ignores it (message-identity.ts).
+ */
 export function transcriptPageMessages<T extends object>(messages: readonly T[]): T[] {
 	return messages.map(message => {
-		if (!REQUEST_BOOKKEEPING.some(key => key in message)) return message;
+		const content = (message as { content?: unknown }).content;
+		const signed = Array.isArray(content) && content.some(block => isSigned(block));
+		if (!signed && !REQUEST_BOOKKEEPING.some(key => key in message)) return message;
 		const page = { ...message };
 		for (const key of REQUEST_BOOKKEEPING) Reflect.deleteProperty(page, key);
+		if (signed) {
+			(page as { content?: unknown }).content = (content as unknown[]).map(block => {
+				if (!isSigned(block)) return block;
+				const { thinkingSignature: _signature, ...rest } = block;
+				return rest;
+			});
+		}
 		return page;
 	});
+}
+
+function isSigned(block: unknown): block is { thinkingSignature: unknown } {
+	return typeof block === "object" && block !== null && "thinkingSignature" in block;
 }
