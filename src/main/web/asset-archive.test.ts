@@ -1,7 +1,16 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	promises as fsp,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ARCHIVE_MAX_PREVIOUS, ARCHIVE_RETAIN_MS, AssetArchive, buildIdOf } from "./asset-archive";
 
 let root: string;
@@ -30,7 +39,10 @@ beforeEach(() => {
 	archiveDir = join(root, "web-assets");
 	clock = 1_000_000;
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => {
+	vi.restoreAllMocks();
+	rmSync(root, { recursive: true, force: true });
+});
 
 describe("AssetArchive (the previous builds' assets, served for a while after an update)", () => {
 	it("keeps each build once and serves only the replaced ones", async () => {
@@ -80,5 +92,36 @@ describe("AssetArchive (the previous builds' assets, served for a while after an
 		await archive.retain(renderer);
 		expect(archive.roots()).toEqual([]);
 		expect(JSON.parse(readFileSync(join(archiveDir, "builds.json"), "utf8")).builds).toHaveLength(1);
+	});
+
+	it("runs a second call only after the first ended, so the first call's cleanup never sweeps the second call's copy", async () => {
+		const archive = new AssetArchive(archiveDir, () => clock);
+		build("a");
+		const first = renderer;
+		renderer = join(root, "renderer-next");
+		build("b");
+		const second = renderer;
+		const copy = fsp.copyFile.bind(fsp);
+		let release = (): void => {};
+		const held = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		const copied: string[] = [];
+		vi.spyOn(fsp, "copyFile").mockImplementation(async (from, to, mode) => {
+			copied.push(String(from));
+			if (copied.length === 1) await held;
+			return copy(from, to, mode);
+		});
+		const a = archive.retain(first);
+		await vi.waitFor(() => expect(copied).toHaveLength(1));
+		const b = archive.retain(second);
+		// Every step of the second call that could run before the held copy has had its turn.
+		for (let tick = 0; tick < 50; tick++) await new Promise(resolve => setImmediate(resolve));
+		expect(copied).toEqual([join(first, "assets", "chunk-a.js")]);
+		release();
+		await Promise.all([a, b]);
+		expect(copied).toEqual([join(first, "assets", "chunk-a.js"), join(second, "assets", "chunk-b.js")]);
+		expect(served(archive, "chunk-a.js")).toEqual(["chunk a"]);
+		expect(existsSync(join(archiveDir, (await buildIdOf(second)) ?? "", "assets", "chunk-b.js"))).toBe(true);
 	});
 });
