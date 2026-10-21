@@ -74,20 +74,24 @@ export function autoModeSkip(input: AutoModeGuardInput): AutoModeReason | null {
  * the criteria's keys. Plan is only offered while the session may enter it again. The state carries the message
  * (`request`) and, when the session has one, the previous exchange (`previous`), so a follow-up or a correction of
  * earlier work can be told apart from new work.
+ *
+ * Plan is narrow on purpose: with "a new feature across several files" as its criterion every concrete feature
+ * request matched it, and long first messages (which describe a feature or several steps) went to Plan
+ * (bridge-auto-mode-real.test.ts: 2 of 10 long concrete requests chose plan and 3 more had 0.51-0.68 of its mass).
  */
 export const AUTO_MODE_INSTRUCTIONS =
-	"The state is a user's message to a coding agent (request) and, when there is one, the exchange before it (previous). Decide whether the message starts new work that a special working mode helps with. A mode is used for this one request only. Choose none when unsure, and always none when the message continues, follows up on, answers or corrects the previous work.\n\nExamples:\n<request>why does the build fail on CI?</request>\nnone\n\n<request>rename the variable foo to count in utils.ts</request>\nnone\n\n<previous>assistant: I moved the settings store to zustand.</previous><request>now refactor the remaining modules the same way across all files</request>\nnone\n\n<request>migrate the whole app from REST to GraphQL across all services</request>\nplan\n\n<request>keep going until all the tests pass</request>\ngoal";
+	"The state is a user's message to a coding agent (request) and, when there is one, the exchange before it (previous). Decide whether the message starts new work that a special working mode helps with. A mode is used for this one request only. Plan means the agent first writes a plan and changes nothing until it is approved: choose it only when the user asks for a plan, design or proposal before any change, or when the work is large and the message leaves the approach open. A concrete request is none however long, detailed or multi-step it is: a bug report, a feature described with its details, a list of steps to carry out, even work across several files. Choose none when unsure, and always none when the message continues, follows up on, answers or corrects the previous work.\n\nExamples:\n<request>why does the build fail on CI?</request>\nnone\n\n<request>rename the variable foo to count in utils.ts</request>\nnone\n\n<request>add a dark mode switch to the settings page, remember the choice, apply it to every screen and add tests for it</request>\nnone\n\n<previous>assistant: I moved the settings store to zustand.</previous><request>now refactor the remaining modules the same way across all files</request>\nnone\n\n<request>migrate the whole app from REST to GraphQL across all services</request>\nplan\n\n<request>don't change any code yet: propose how to split up the billing code and wait for my go</request>\nplan\n\n<request>keep going until all the tests pass</request>\ngoal";
 
 export function autoModeCriteria(
 	planAllowed: boolean,
 ): Record<AutoModeKind | "none", string> | Record<"goal" | "none", string> {
 	const criteria = {
-		none: "A question, an explanation, chat, a small, clear, local edit that needs no plan, or anything that continues or corrects the previous work.",
+		none: "A question, an explanation, chat, any concrete request however long or detailed (a bug to fix, a feature described with its details, steps to carry out, even across several files), or anything that continues or corrects the previous work.",
 		goal: "New work with a completion condition (until the tests pass, keep going until X) or long-running work the agent should drive on its own.",
 	};
 	if (!planAllowed) return criteria;
 	return {
-		plan: "New, large or risky work across several files: a refactor, migration, or new feature where reviewing a plan before any edit helps.",
+		plan: "The user asks for a plan, design or proposal before any change (plan first, show me the approach, don't touch the code yet), or the work is large, such as a migration or a rewrite across the codebase, and the message leaves the approach open.",
 		...criteria,
 	};
 }
