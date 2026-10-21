@@ -1413,7 +1413,8 @@ describe("a cycle's end", () => {
 		/** Someone else's commit on the remote's main, from a clone of their own (the run's repository is not touched). */
 		async function pushElsewhere(file: string, text: string): Promise<string> {
 			const other = path.join(tmp, "someone-else");
-			gitSync(tmp, "clone", "-q", remote, other);
+			if (await fs.stat(other).catch(() => null)) gitSync(other, "pull", "-q", "--ff-only", "origin", "main");
+			else gitSync(tmp, "clone", "-q", remote, other);
 			gitSync(other, "config", "user.email", "o@example.com");
 			gitSync(other, "config", "user.name", "Other");
 			gitSync(other, "config", "commit.gpgsign", "false");
@@ -1438,6 +1439,26 @@ describe("a cycle's end", () => {
 			const merged = gitSync(worktree(), "rev-parse", "HEAD");
 			await end({ verify: "green", commit: merged });
 			expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(merged);
+		});
+
+		it("main moved: the cycle's own check runs on the merge, and a passing merge lands without the agent", async () => {
+			await start();
+			const moved = await pushElsewhere("other.txt", "other\n");
+			const sha = await commit(worktree(), "a.txt");
+			await end({ verify: "green", commit: sha, checkCommand: "test -f a.txt && test -f other.txt" });
+			const landed = gitSync(remote, "rev-parse", "refs/heads/main");
+			expect(gitSync(remote, "rev-list", "--parents", "-n", "1", landed).split(" ").slice(1)).toEqual([sha, moved]);
+			expect(notes().at(-1)).toMatch(/^Landed on origin\/main as a merge .* fast-forwarded to it/);
+			expect(gitSync(worktree(), "rev-parse", "HEAD")).toBe(landed);
+			// A merge that fails the check never lands: the agent is told what failed.
+			const next = await commit(worktree(), "b.txt");
+			await pushElsewhere("third.txt", "third\n");
+			const before = gitSync(remote, "rev-parse", "refs/heads/main");
+			await end({ verify: "green", commit: next, checkCommand: "test ! -f third.txt" });
+			expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(before);
+			expect(notes().at(-1)).toMatch(
+				/^Not landed: .*your check \(test ! -f third\.txt\) fails on that merge \(exit 1\)/,
+			);
 		});
 
 		it("a conflicting main is a note naming the files, never a pause", async () => {

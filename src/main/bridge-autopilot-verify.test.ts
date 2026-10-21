@@ -106,8 +106,15 @@ describe("ledgerCall", () => {
 
 describe("judgeVerify", () => {
 	const base = { claimed: "green" as const, changed: true };
-	it("takes green when a check ran after the last edit and passed", () => {
-		expect(judgeVerify({ ...base, calls: [edit, bash("bun test")] })).toEqual({ verify: "green", amendable: false });
+	it("takes green when a check ran after the last edit and passed, naming that check", () => {
+		expect(judgeVerify({ ...base, calls: [edit, bash("bun test")] })).toEqual({
+			verify: "green",
+			amendable: false,
+			check: "bun test",
+		});
+		expect(judgeVerify({ ...base, calls: [edit, bash("bun test"), bash("bun run lint")] }).check).toBe(
+			"bun run lint",
+		);
 		expect(judgeVerify({ ...base, calls: [bash("cat > a.ts <<EOF\nEOF\nbun test")] }).verify).toBe("green");
 	});
 	it("refuses green without any check: skipped, and the agent may amend", () => {
