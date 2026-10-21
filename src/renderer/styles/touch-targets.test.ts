@@ -27,6 +27,20 @@ describe("touch targets and type", () => {
 		expect(read("./tokens.css")).toMatch(/--sc-font-sm: calc\(var\(--gui-font-size, 15px\) \* 13 \/ 15\)/);
 	});
 
+	it("sizes type through the tokens, so the phone's 12 px floor reaches it (a markdown table read 11.3 px)", () => {
+		// A size under the body's own steps derived from --gui-font-size skips the phone density block's floor.
+		for (const file of ["./components.css", "./global.css", "./mobile.css"]) {
+			for (const [, step] of read(file).matchAll(
+				/font-size:\s*calc\(var\(--gui-font-size, 15px\) \* ([\d.]+) \/ 15\)/g,
+			)) {
+				expect(Number(step), `${file}: a ${step}/15 size belongs to a --sc-font-* token`).toBeGreaterThanOrEqual(
+					14,
+				);
+			}
+		}
+		expect(read("./components.css")).toMatch(/\.markdown-body table \{[^}]*font-size:\s*var\(--sc-font-sm\)/);
+	});
+
 	it("shrinks the phone's controls, type and icons in one place, with fields still 16 px", () => {
 		const phone = rule('html[data-shell="phone"]');
 		expect(phone).toMatch(/--sc-control-sm:\s*24px/);

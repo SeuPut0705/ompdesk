@@ -397,7 +397,7 @@
 .markdown-body table {
 	border-collapse: collapse;
 	margin: 0.9em 0;
-	font-size: calc(var(--gui-font-size, 15px) * 13 / 15);
+	font-size: var(--sc-font-sm);
 	width: auto;
 	max-width: 100%;
 	display: block;
