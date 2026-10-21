@@ -46,16 +46,17 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(5); // The four views and close.
 			await expect(aside.getByRole("button", { name: "Copy selection", exact: true })).toBeVisible();
 			const input = aside.locator(".xterm-helper-textarea");
+			// The PTY wraps a line at its column width, so a command can break mid-word after a long prompt
+			// ("user@host project % echo restarted-" / "term" on a Mac with a long name): compare the rows unwrapped.
+			const rows = async () => (await aside.locator(".xterm-rows").innerText()).replaceAll("\n", "");
 			await input.focus();
 			await page.keyboard.type("echo ompdesk-term");
 			await page.keyboard.press("Enter");
-			await expect.poll(() => aside.locator(".xterm-rows").innerText()).toMatch(/ompdesk-term[\s\S]*ompdesk-term/);
+			await expect.poll(rows).toMatch(/ompdesk-term[\s\S]*ompdesk-term/);
 			await page.keyboard.type(process.platform === "win32" ? "cd" : "pwd");
 			await page.keyboard.press("Enter");
 			// A PTY wraps long paths at its column width; macOS also canonicalizes /var to /private/var.
-			await expect
-				.poll(async () => (await aside.locator(".xterm-rows").innerText()).replaceAll("\n", ""))
-				.toContain(await fs.realpath(project));
+			await expect.poll(rows).toContain(await fs.realpath(project));
 			await aside.screenshot({ animations: "disabled", path: test.info().outputPath(`terminal-${theme}.png`) });
 			await aside.getByRole("button", { name: "New terminal", exact: true }).click();
 			await expect(aside.getByRole("tab")).toHaveCount(2);
@@ -70,9 +71,7 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await input.focus();
 			await page.keyboard.type("echo restarted-term");
 			await page.keyboard.press("Enter");
-			await expect
-				.poll(() => aside.locator(".xterm-rows").innerText())
-				.toMatch(/restarted-term[\s\S]*restarted-term/);
+			await expect.poll(rows).toMatch(/restarted-term[\s\S]*restarted-term/);
 			await aside.getByRole("separator", { name: "Resize side panel" }).focus();
 			await page.keyboard.press("Home");
 			const toolbar = aside.getByRole("tablist").locator("..");
