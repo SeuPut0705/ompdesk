@@ -952,6 +952,15 @@ export class SidecarPool {
 		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
 			this.hostToolExecutor?.(sidecar, request, { tabId: entry.tabId, win });
 		});
+		// OMPdesk registers no host URI schemes: fail the read/write instead of leaving omp waiting, shown tab or hidden.
+		sidecar.on("hostUriRequest", (request: HostUriRequest) => {
+			sidecar.sendSideChannel({
+				type: "host_uri_result",
+				id: request.id,
+				isError: true,
+				error: `OMPdesk serves no host URI for ${request.url}`,
+			});
+		});
 		const settle = (settled: boolean, frame: "prompt_result" | "session_settled"): void => {
 			const wasBusy = runBusy(entry.run);
 			const wasSettling = runSettling(entry.run);
@@ -1085,15 +1094,6 @@ export class SidecarPool {
 		wire("beforeResponse", () => subagentFrames.flush());
 		wire("status", (payload: SidecarStatusPayload) => {
 			forwardActive(IPC_EVENTS.SIDECAR_STATUS, { ...payload, cwd: sidecar.cwd });
-		});
-		// OMPdesk registers no host URI schemes: fail the read/write instead of leaving omp waiting.
-		wire("hostUriRequest", (request: HostUriRequest) => {
-			sidecar.sendSideChannel({
-				type: "host_uri_result",
-				id: request.id,
-				isError: true,
-				error: `OMPdesk serves no host URI for ${request.url}`,
-			});
 		});
 		for (const [event, channel] of FORWARDED_TAB_EVENTS) {
 			wire(event, (payload: unknown) => forwardActive(channel, payload));
