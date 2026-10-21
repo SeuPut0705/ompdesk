@@ -326,8 +326,14 @@ for (const [language, theme] of variants(RUNS)) {
 			await capture("4-relaunch-restored");
 
 			// 5. Every pane's composer fits: its placeholder and toolbar, wide and in a narrow window, also with a
-			// running turn's steer chip and Stop beside Send and a queue prefix badge on the draft.
+			// running turn's steer chip and Stop beside Send and a queue prefix badge on the draft. A resize is laid out
+			// at the next frame, which also picks the short hint (use-composer-field.ts), so each measure waits for one.
 			const fits = async () => {
+				await page.evaluate(() => {
+					const { promise, resolve } = Promise.withResolvers<void>();
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+					return promise;
+				});
 				for (const fit of await composerFit(page)) {
 					expect(fit.placeholder, JSON.stringify(fit)).toBeLessThanOrEqual(fit.room);
 					expect(fit.overflow, JSON.stringify(fit)).toBeLessThanOrEqual(0);
