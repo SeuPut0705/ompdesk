@@ -1,5 +1,6 @@
 /** Pure parsers/projections for the GUI-side git commands (unit-tested). */
 import * as path from "node:path";
+import { githubConclusionPassed } from "../../../shared/github-checks";
 import { GUI_WORKTREE_BRANCH_PREFIX } from "../../../shared/worktree-branch";
 
 export interface GitStatusEntry {
@@ -322,8 +323,7 @@ export function rollupCounts(rollup: readonly GhRollupEntry[] | null | undefined
 } {
 	const counts = { success: 0, failure: 0, pending: 0 };
 	for (const check of rollupChecks(rollup)) {
-		if (check.conclusion === "SUCCESS" || check.conclusion === "NEUTRAL" || check.conclusion === "SKIPPED")
-			counts.success += 1;
+		if (check.conclusion && githubConclusionPassed(check.conclusion)) counts.success += 1;
 		else if (check.conclusion) counts.failure += 1;
 		else counts.pending += 1;
 	}

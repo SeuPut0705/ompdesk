@@ -18,6 +18,7 @@ import {
 	XCircle,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { githubConclusionPassed } from "../../../../shared/github-checks";
 import { DiffView } from "../../../lib/diff";
 import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
@@ -30,7 +31,7 @@ const BODY_COLLAPSE_LINES = 12;
 
 function CheckIcon({ conclusion, status }: { conclusion: string | null; status: string }) {
 	const className = "size-(--sc-icon-sm) shrink-0";
-	if (conclusion === "SUCCESS" || conclusion === "NEUTRAL" || conclusion === "SKIPPED") {
+	if (conclusion && githubConclusionPassed(conclusion)) {
 		return <CheckCircle2 aria-hidden className={`${className} text-(--sc-success)`} />;
 	}
 	if (conclusion) return <XCircle aria-hidden className={`${className} text-(--sc-danger)`} />;

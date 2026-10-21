@@ -1,4 +1,5 @@
 import { CircleDot, ExternalLink, GitPullRequest } from "lucide-react";
+import { githubConclusionPassed } from "../../../../shared/github-checks";
 import { AnsiText, hasAnsi } from "../../../lib/ansi";
 import { resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -70,18 +71,8 @@ const STATE_COLOR: Record<string, string> = {
 	draft: "var(--omp-dim)",
 };
 
-const SUCCESS_CONCLUSIONS: Record<string, true> = { success: true, neutral: true, skipped: true };
-const FAILURE_CONCLUSIONS: Record<string, true> = {
-	failure: true,
-	timed_out: true,
-	cancelled: true,
-	action_required: true,
-	startup_failure: true,
-};
-
 function jobColor(job: GhJob): string {
-	if (job.conclusion && SUCCESS_CONCLUSIONS[job.conclusion]) return "var(--omp-success)";
-	if (job.conclusion && FAILURE_CONCLUSIONS[job.conclusion]) return "var(--omp-error)";
+	if (job.conclusion) return githubConclusionPassed(job.conclusion) ? "var(--omp-success)" : "var(--omp-error)";
 	if (job.status === "in_progress") return "var(--omp-warning)";
 	return "var(--omp-dim)";
 }

@@ -1,6 +1,7 @@
 import { Ban, ExternalLink, Play, RefreshCw, RotateCcw, ScrollText } from "lucide-react";
 import { useState } from "react";
 import type { GithubRunDetail } from "../../../../shared/github";
+import { githubConclusionPassed } from "../../../../shared/github-checks";
 import { formatTimeAgo } from "../../../lib/format";
 import { github, useGithubLoad } from "../../../lib/github";
 import { useT } from "../../../lib/i18n";
@@ -9,7 +10,7 @@ import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, RunState
 
 type RunAction = { kind: "rerun"; failedOnly: boolean } | { kind: "cancel" };
 
-function RunDetail({
+export function RunDetail({
 	run,
 	target,
 	onChanged,
@@ -27,7 +28,7 @@ function RunDetail({
 		`${run.id}|${log?.failedOnly}`,
 	);
 	const done = run.status === "completed";
-	const failed = done && run.conclusion !== "success" && run.conclusion !== "skipped";
+	const failed = done && !githubConclusionPassed(run.conclusion);
 	const act = (action: RunAction) =>
 		void mutate(
 			action.kind,
