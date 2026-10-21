@@ -13,7 +13,7 @@ import type {
 	RpcSessionState,
 	SessionStats,
 } from "../../shared/rpc-types";
-import { BOARD_BUSY, boardTurnMessages } from "./fixture-board";
+import { BOARD_BUSY, boardTurnMessages, CHILDREN_WAIT } from "./fixture-board";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
 const MINUTE = 60_000;
@@ -409,7 +409,8 @@ export function entriesFor(tabId: string): Entry[] {
 		...entriesFixture(tabId).map(entry => entry.message),
 		...(params.has("stress") ? stressMessages(NOW - 20 * MINUTE) : []),
 		...(params.has("mail") ? mailMessages(NOW - 10 * MINUTE) : []),
-		...(BOARD_BUSY ? boardTurnMessages(NOW - 8 * MINUTE) : []),
+		// The live wait (`&children=wait`) is the turn running now: its clock reads from real time, not the fixture's day.
+		...(BOARD_BUSY ? boardTurnMessages(CHILDREN_WAIT ? Date.now() - 3 * MINUTE : NOW - 8 * MINUTE) : []),
 	];
 	return all.map((message, index) => ({
 		type: "message",

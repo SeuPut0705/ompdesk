@@ -124,4 +124,9 @@ describe("what each child is doing, under its title", () => {
 		await mount([{ ...row("running"), step: "bun run check:changed" }]);
 		expect(activity("c1")).toBe("bun run check:changed");
 	});
+
+	it("shows the question of an open card a child asks without any report", async () => {
+		await show([{ ...row("waiting"), question: "Which breakpoint should the tablet board use?" }]);
+		expect(activity("c1")).toBe("Which breakpoint should the tablet board use?");
+	});
 });

@@ -234,6 +234,8 @@ export interface AgentReviewItem {
 	report?: { kind: string; text: string; at: number };
 	/** Its last report is a question or a blocker its opener has not answered yet. */
 	waiting?: true;
+	/** What it waits on when `waiting`: its open card's question (a stock `ask`, an approval) or its plan's title. */
+	question?: string;
 }
 
 /**

@@ -1538,6 +1538,28 @@ describe("the review queue", () => {
 		expect((await service.reviewItems("main0001")).map(item => item.tabId)).not.toContain("other004");
 	});
 
+	it("carries the question of a child's open card with no report, never OMPdesk's own card", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		const ask = (id: string, title: string): ControlAsk => ({
+			id,
+			request: {
+				type: "extension_ui_request",
+				id,
+				method: "select",
+				title,
+				options: ["a", "b"],
+			} as ExtensionUIRequest,
+		});
+		(host.tabsById.get(ids[0]) as FakeTab).asks = [ask("q1", "Which breakpoint should the tablet board use?")];
+		(host.tabsById.get(ids[1]) as FakeTab).asks = [ask("q2", "[OMPdesk] Delete a session?")];
+		const items = await service.reviewItems("main0001");
+		expect(items.find(item => item.tabId === ids[0])).toMatchObject({
+			waiting: true,
+			question: "Which breakpoint should the tablet board use?",
+		});
+		expect(items.find(item => item.tabId === ids[1])?.question).toBeUndefined();
+	});
+
 	it("leaves out a landed, clean, idle child and lists a landed one only for the files it left over", async () => {
 		const { host, service, ids } = await withWorktreeChildren();
 		const landed: BranchFacts = { ...clean, commitsAhead: 0, files: [], untracked: 0, merged: true };

@@ -2784,10 +2784,14 @@ export class AgentControl {
 			...(conflict ? { note: conflict.join(", ") } : {}),
 			...this.#reportFields(tab),
 			// Its plan waits for approval, or a question card of its own waits for an answer: the opener (or the person)
-			// answers it, nothing is left to review.
-			...(tab.plan || tab.asks.some(entry => !askTitle(entry.request).startsWith(AGENT_CARD_PREFIX))
-				? { waiting: true as const }
-				: {}),
+			// answers it, nothing is left to review. The card's own question goes along, for the line under its row.
+			...(() => {
+				const card = tab.asks.find(entry => !askTitle(entry.request).startsWith(AGENT_CARD_PREFIX));
+				const question = card ? askTitle(card.request).trim() : tab.plan ? tab.plan.title?.trim() : "";
+				return tab.plan || card
+					? { waiting: true as const, ...(question ? { question: oneLine(question, 240) } : {}) }
+					: {};
+			})(),
 		};
 		if (!tab.worktree) return item;
 		try {
