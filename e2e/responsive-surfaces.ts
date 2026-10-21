@@ -445,6 +445,7 @@ export const SURFACES: readonly Surface[] = [
 						compactions: 0,
 					})),
 					redStreak: 2,
+					followups: ["Retry the flaky resize test once the drawer settles", "Keyboard access in settings"],
 					backlog: [{ id: "b1", text: "Keyboard access in settings", done: false }],
 					totals: { tokens: 424_000, usd: 0.84 },
 					ship: {

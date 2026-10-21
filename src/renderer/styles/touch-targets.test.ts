@@ -237,6 +237,18 @@ describe("controls close enough to take each other's taps", () => {
 			/margin-block-end:\s*12px/,
 		);
 		expect(rule('html[data-input="touch"] [data-benchmark-chips]')).toMatch(/gap:\s*12px;[^}]*--hit-gap-y:\s*12px/);
+		// The Autopilot board: Pause, End and Stop now reach 36 from 14 px apart; a section head's copy and a row's own
+		// pin or ✕ reach the touch row, never past the board's edge (a docked board scrolled sideways by 2 px).
+		declares("../components/autopilot/AutopilotBoard.tsx", "data-autopilot-controls");
+		expect(rule('html[data-input="touch"] [data-autopilot-controls]')).toMatch(
+			/column-gap:\s*14px;[^}]*row-gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
+		expect(rule('html[data-input="touch"] .omp-work-board-row > button')).toMatch(
+			/--hit-gap-x:\s*12px;[^}]*--hit-gap-y:\s*10px/,
+		);
+		expect(rule('html[data-input="touch"] .omp-work-board-title > .omp-work-board-aside')).toMatch(
+			/padding-inline-end:\s*8px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
 		// The Changes view: its 24 px controls behind a 1 px border reach 36 from 14 px apart; a file row's parts are
 		// as tall as the row (they drew 26 px with no reach between the flush rows).
 		expect(rule('html[data-input="touch"] .omp-changes [data-scm-bar]')).toMatch(/gap:\s*14px/);

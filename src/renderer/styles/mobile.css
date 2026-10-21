@@ -555,6 +555,31 @@ html[data-input="touch"] .omp-work-board-list {
 	--hit-gap-y: 1px;
 }
 
+/* A row's own trailing icon button (a backlog item's ✕, a follow-up's pin) reaches the row's full touch height: 10 px
+   of bound around its 26 px box, where the list's 1 px bound left it a 26 px target. Sideways it reaches 6 px, the
+   board's own padding, so its hit area never makes a docked board scroll sideways. */
+html[data-input="touch"] .omp-work-board-row > button {
+	--hit-gap-x: 12px;
+	--hit-gap-y: 10px;
+}
+
+/* A run's Pause, End and Stop now, and a section head's own buttons (an Autopilot log's copy), are 24 px boxes behind a
+   1 px border whose ::after reaches from the padding box: 14 px apart and bounded at 14 px, each reaches 36. A
+   head's buttons sit 8 px in from its end, so their 7 px reach stays inside the board. */
+html[data-input="touch"] [data-autopilot-controls] {
+	column-gap: 14px;
+	row-gap: 14px;
+	padding-bottom: 8px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+html[data-input="touch"] .omp-work-board-title > .omp-work-board-aside {
+	padding-inline-end: 8px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
 /* ── Settings, centers and pickers (design §6, W-F) ──────────────────────────────────────────────────────── */
 /* The section list is a page of its own on a phone (SettingsPage `data-stacked`): full-width rows under the title
    and search, not the chip bar the narrow container rule of global.css builds. */
