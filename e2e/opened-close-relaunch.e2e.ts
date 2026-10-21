@@ -121,10 +121,13 @@ test("a finished child restored by a relaunch leaves the open list by itself and
 		await expect
 			.poll(async () => (await tabs(second.page)).some(tab => tab.sessionPath === childPath), { timeout: 15_000 })
 			.toBe(false);
-		// The work board folds it into its done count: no open row is left for it.
+		// The work board folds it into its "1 done" row: no open row is left for it; unfolded, it is a done row.
+		const fold = second.page.locator("[data-board-opened-done]");
+		await expect(fold).toHaveText("1 done", { timeout: 15_000 });
+		await expect(second.page.locator("[data-board-opened]")).toHaveCount(0);
+		await fold.click();
 		const row = second.page.locator(`[data-board-opened=${cssString(childPath)}]`);
-		await expect(row).toHaveAttribute("data-status", "done", { timeout: 15_000 });
-		await expect(second.page.locator('[data-board-opened]:not([data-status="done"])')).toHaveCount(0);
+		await expect(row).toHaveAttribute("data-status", "done");
 		await quit(second.app);
 		current = undefined;
 

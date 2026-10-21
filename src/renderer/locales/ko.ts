@@ -4738,7 +4738,6 @@ export const ko: Record<string, string> = {
 	"workBoard.review.untitled": "제목 없는 세션",
 	"workBoard.review.branch": "{branch} → {base}",
 	"workBoard.opened": "하위 세션",
-	"workBoard.opened.closed": "닫힘 {count}개",
 	"workBoard.opened.status.running": "작업 중",
 	"workBoard.opened.status.waiting": "답변 대기",
 	"workBoard.opened.status.done": "완료",

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentReviewItem } from "../../../../shared/agent-control";
 import { I18nProvider } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
+import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -78,7 +79,10 @@ let pane: HTMLElement;
 
 async function mount(more: Array<Record<string, unknown>> = []): Promise<void> {
 	useTabsStore.setState({
-		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }, ...more] as never,
+		tabs: [
+			{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false, sessionPath: "/s/t1.jsonl" },
+			...more,
+		] as never,
 		activeTabId: "t1",
 		bundles: new Map(),
 	});
@@ -116,6 +120,7 @@ beforeEach(() => {
 	useUiStore.setState({ workBoard: true, panelVisible: false });
 	useWorkBoardStore.getState().reset();
 	useAgentReviewStore.getState().reset();
+	useClosedChildrenStore.getState().reset();
 	useToastStore.setState({ toasts: [] });
 });
 
@@ -174,7 +179,7 @@ describe("work board opened sessions", () => {
 		...extra,
 	});
 
-	it("lists them beside the running agents as children: waiting first, each with its status, step and branch", async () => {
+	it("lists the unfinished ones as children, waiting first; the finished ones fold into one 'n done' row", async () => {
 		listed = [
 			item({ tabId: "c-run", state: "running", step: "running bash (vitest)", runningSince: Date.now() - 5_000 }),
 			item({ tabId: "c-merge", branch: "omp/agent/m", baseBranch: "main", commitsAhead: 1 }),
@@ -189,22 +194,49 @@ describe("work board opened sessions", () => {
 				worktree: { name: "m", branch: "omp/agent/m", baseCwd: "/w", path: "/wt/m" },
 			}),
 		]);
+		// One main closed after its work landed: no tab, the same fold.
+		await act(async () =>
+			useClosedChildrenStore.setState({
+				rows: [
+					{
+						path: "/s/closed.jsonl",
+						openedBySession: "/s/t1.jsonl",
+						title: "Closed work",
+						cwd: "/w",
+						closedAt: 1,
+					},
+				],
+			}),
+		);
 		expect(opened()?.textContent).toContain("Child sessions");
 		const listedRows = () => [...(opened()?.querySelectorAll("[data-board-opened]") ?? [])];
-		// Three rows, waiting first; the fourth folds into one "+1 more" row until it is tapped.
-		expect(listedRows().map(row => row.getAttribute("data-board-opened"))).toEqual(["c-ask", "c-merge", "c-run"]);
-		expect(opened()?.querySelector("[data-board-more]")?.textContent).toBe("+1 more");
-		await act(async () => {
-			(opened()?.querySelector("[data-board-more]") as HTMLElement | null)?.click();
-		});
 		const rows = listedRows();
 		expect(rows.map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual([
 			["c-ask", "waiting"],
 			["c-merge", "problem"],
 			["c-run", "running"],
-			["c-done", "done"],
 		]);
 		expect(opened()?.querySelector("[data-board-more]")).toBeNull();
+		// The section counts what is left to look at; the finished tab and the closed session are one row, worded as
+		// the plan's fold, with no "closed" count beside the title.
+		expect(opened()?.querySelector(".omp-work-board-count")?.textContent).toBe("3");
+		const fold = opened()?.querySelector("[data-board-opened-done]") as HTMLElement | null;
+		expect(fold?.textContent).toBe("2 done");
+		expect(fold?.getAttribute("data-open")).toBe("false");
+		expect(opened()?.textContent).not.toContain("closed");
+		// A tap lists them in place (the phone's strip stays open for it), each still opening its session.
+		expect(fold?.hasAttribute("data-board-expands")).toBe(true);
+		await act(async () => fold?.click());
+		expect(fold?.getAttribute("data-open")).toBe("true");
+		expect(listedRows().map(row => [row.getAttribute("data-board-opened"), row.getAttribute("data-status")])).toEqual(
+			[
+				["c-ask", "waiting"],
+				["c-merge", "problem"],
+				["c-run", "running"],
+				["c-done", "done"],
+				["/s/closed.jsonl", "done"],
+			],
+		);
 		// Only the waiting child is marked; the list itself never takes the warning tone (it tinted every row).
 		expect(opened()?.hasAttribute("data-tone")).toBe(false);
 		// One line each: the title on the row; what it does now, its branch and merge state in the tooltip.
@@ -212,6 +244,13 @@ describe("work board opened sessions", () => {
 		expect(rows[2]?.getAttribute("title")).toContain("running bash (vitest)");
 		expect(rows[1]?.getAttribute("title")).toContain("omp/agent/m → main");
 		expect(rows[1]?.getAttribute("title")).toContain("Not merged");
+	});
+
+	it("shows only the fold when every child finished", async () => {
+		await mount([child("c-done", { title: "Landed work", lastRun: { stopReason: "stop", text: "ok" } })]);
+		expect(opened()?.querySelectorAll("[data-board-opened]")).toHaveLength(0);
+		expect(opened()?.querySelector("[data-board-opened-done]")?.textContent).toBe("1 done");
+		expect(opened()?.querySelector(".omp-work-board-count")).toBeNull();
 	});
 
 	it("shows four running opened sessions as one-line rows named by their task, none under Needs review", async () => {

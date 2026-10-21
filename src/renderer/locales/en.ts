@@ -4747,7 +4747,6 @@ export const en: Record<string, string> = {
 	"workBoard.review.untitled": "Untitled session",
 	"workBoard.review.branch": "{branch} → {base}",
 	"workBoard.opened": "Child sessions",
-	"workBoard.opened.closed": "{count} closed",
 	"workBoard.opened.status.running": "Working",
 	"workBoard.opened.status.waiting": "Waiting for you",
 	"workBoard.opened.status.done": "Done",

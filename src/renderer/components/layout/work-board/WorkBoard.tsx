@@ -511,7 +511,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 
 			{opened.rows.length > 0 && (
 				<Suspense fallback={null}>
-					<OpenedSection counts={opened.counts} now={now} rows={opened.rows} />
+					<OpenedSection now={now} rows={opened.rows} />
 				</Suspense>
 			)}
 

@@ -295,17 +295,22 @@ async function flowBLaunch(root: string): Promise<FlowBLaunched> {
 	return { app, page, call: await controlToolCaller(page, path.join(root, "rpc.jsonl")) };
 }
 
-// The merged child auto-closed: main records it as a stored "done" row on the board of its opener (no tab, no sidebar
-// row). The deleted one appears nowhere. After a relaunch the opener is a new session, so nothing is listed.
+// The merged child auto-closed: main records it under its opener, whose board folds it into its "1 done" row (no tab,
+// no sidebar row; unfolded, a stored "done" row). The deleted one appears nowhere. After a relaunch the opener is a new
+// session, so nothing is listed.
 async function flowBExpectClean(page: Page, merged: boolean): Promise<void> {
 	await expect(page.locator("[data-sidebar-opened-session]")).toHaveCount(0);
 	await expect(page.locator('[data-board-section="review"]')).toHaveCount(0);
 	const rows = page.locator('[data-board-section="opened"] [data-board-opened]');
-	await expect(rows).toHaveCount(merged ? 1 : 0);
+	const fold = page.locator('[data-board-section="opened"] [data-board-opened-done]');
+	await expect(rows).toHaveCount(0);
 	if (merged) {
+		await expect(fold).toHaveText("1 done");
+		await fold.click();
+		await expect(rows).toHaveCount(1);
 		await expect(rows.first()).toHaveAttribute("data-status", "done");
 		await expect(rows.first()).toContainText("flow b merge me");
-	}
+	} else await expect(fold).toHaveCount(0);
 	// The opener's transcript may say it deleted the session (a mail note); no list or row may.
 	const lists = [
 		...(await page.locator('[data-board-section="opened"]').allInnerTexts()),
