@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.52.4] - 2026-10-21
+
+AI가 답하는 동안 화면과 다른 기기로 가는 데이터가 더 줄고, 변경 사항의 stash 수가 바로 바뀌어요.
+
+### 고친 것
+- AI 답변이 실시간으로 올 때마다 함께 가던, 화면이 쓰지 않는 요청 기록을 빼요. 긴 세션에서는 메시지 하나의 80% 가까이 되던 양이라, 이 컴퓨터의 화면과 다른 기기 모두 가벼워져요.
+- 대화 기록을 불러올 때 AI 생각 블록의 서명값을 빼요. 화면은 이 값을 쓰지 않고, 긴 세션 첫 페이지의 약 5분의 1이었어요.
+- 변경 사항 패널이 stash를 만들거나 지우면 stash 수를 바로 다시 읽어요. 지금까지는 파일이 바뀌기 전까지 옛 수가 남았어요.
+- 오토파일럿이 초록 사이클을 main에 반영하기 전 다시 돌리는 검사가, 사이클이 보고한 저장소 검사예요. 지금까지는 마지막에 돌린 일부 테스트만 다시 돌 수 있었어요.
+- 오토파일럿이 만든 AUTOPILOT.md의 릴리스 주기 줄이 "가이드를 쓸 때의 최신 릴리스"라고 적어요. 가이드는 다시 쓰이지 않아서 "최신 릴리스"가 곧 틀린 정보가 됐어요.
+
+<!-- en -->
+
+Less data reaches the window and paired devices while the agent answers, and the Changes bar's stash count updates at once.
+
+### Fixed
+- Live answer events no longer carry the request bookkeeping no window reads, close to four fifths of a message in a long session, to this computer's windows and to paired devices.
+- Transcript pages leave out each thinking block's provider signature, which nothing on screen reads (about a fifth of a long session's first page).
+- The Changes panel reads the stash count again as soon as a stash is made or removed; it kept the old count until a file changed.
+- Before Autopilot lands a green cycle on main it runs the check the cycle reported, not a narrower run that came after it.
+- The AUTOPILOT.md Autopilot writes names the latest release as of when the guide was written, since the guide is never rewritten.
+
 ## [0.52.3] - 2026-10-21
 
 다른 기기에서 이 컴퓨터의 세션을 볼 때 주고받는 데이터가 크게 줄어요.
