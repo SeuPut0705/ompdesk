@@ -242,8 +242,9 @@ async function show(page: Page, look: Look, id: string): Promise<void> {
  * neighbour, an edge strip or a layer (tabs over the content below, sheet items over the next item, the sidebar's
  * project ⋯ over the title, the composer's last chip under Send, a notice's buttons over the work strip, wrapped
  * section pills, a Settings info glyph over the glyph or button on the next line), nothing sits under the home
- * indicator (a full-screen sheet's footer), a work card's summary never cuts a figure, and a docked tablet sidebar's
- * controls are 36 px targets. The matrix measures every surface.
+ * indicator (a full-screen sheet's footer), a work card's summary never cuts a figure, a docked tablet sidebar's
+ * controls are 36 px targets, the feedback and worktree dialogs' checkbox and radio rows keep their own taps, and a
+ * question card's step tabs and a figure header's buttons are 36 px targets. The matrix measures every surface.
  */
 const TOUCH_LOOKS: readonly Look[] = [
 	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "en" },
@@ -262,6 +263,10 @@ const TAP_SURFACES = [
 	"settings-models",
 	"settings-keyboard",
 	"panel-files",
+	"dialog-feedback",
+	"dialog-worktree",
+	"card-ask",
+	"dialog-plan-approval",
 ];
 const HOST_SURFACES = ["host-path-actions", "host-browser-folder"];
 
@@ -274,7 +279,15 @@ for (const look of TOUCH_LOOKS) {
 			for (const issue of await measure(page, look)) {
 				const summaryCut = issue.kind === "truncated" && issue.at.includes("omp-summary-part");
 				const sidebarTarget = issue.kind === "small-target" && issue.at.includes("[data-sidebar-");
-				if (["stolen-tap", "safe-area", "overlap"].includes(issue.kind) || summaryCut || sidebarTarget)
+				// A question card's step tabs and a figure header's buttons reach 36 through their spacing (mobile.css).
+				const spacedTarget =
+					issue.kind === "small-target" && /\[data-ask-step\]|\[data-figure-header\]/.test(issue.at);
+				if (
+					["stolen-tap", "safe-area", "overlap"].includes(issue.kind) ||
+					summaryCut ||
+					sidebarTarget ||
+					spacedTarget
+				)
 					found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
 			}
 		};
