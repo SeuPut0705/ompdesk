@@ -7,7 +7,15 @@ import { expect, type TestInfo, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
 import { micaSupported } from "../src/main/window-chrome";
 import { exitApp, fixtureOmp } from "./harness";
-import { describeProcess, isAiMemoryService, processTree, type WinProcess, windowsProcesses } from "./process-tree";
+import {
+	descendantsIn,
+	describeProcess,
+	isAiMemoryService,
+	processKey,
+	processTree,
+	type WinProcess,
+	windowsProcesses,
+} from "./process-tree";
 
 // What a Windows user sees when OMPdesk opens: the packaged app (dist/win-unpacked, which release.yml's win job
 // has just packaged; OMP_GUI_E2E_EXE points at another OMPdesk.exe, e.g. an installed release), NOT headless
@@ -182,13 +190,15 @@ function handleReport(service: WinProcess[]): string | null {
  * Quit the app the way `how` says, and wait until its process is closed: Playwright (like any parent reading the
  * app's output) waits for the app's stdio pipes to close, so a descendant that inherited them keeps it waiting.
  * Then nothing OMPdesk started may still run — the setup supervisor (the app's own binary as Node), an `ai-memory`
- * command it ran, omp — while ai-memory's own per-user service may, since it is designed to outlive the app.
+ * command it ran, omp — while ai-memory's own per-user service may, since it is designed to outlive the app. What the
+ * app started is what descends from its main process: an unpackaged run is `node_modules/electron/dist/electron.exe`
+ * for every spec's app, and a worker killed mid-test leaves its app running, so the binary names no process of this one.
  */
 async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: string, info: TestInfo): Promise<void> {
 	const launcher = app.process();
 	const closed = Promise.withResolvers<"closed">();
 	launcher.once("close", () => closed.resolve("closed"));
-	const { pid: mainPid, exe } = await app.evaluate(() => ({ pid: process.pid, exe: process.execPath }));
+	const mainPid = await app.evaluate(() => process.pid);
 	const before = windowsProcesses();
 	const owned = processTree(before, mainPid).filter(process => !isAiMemoryService(process));
 	const roles = [
@@ -225,7 +235,7 @@ async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: st
 				.join("\n")}`,
 		);
 	}
-	const ownedKeys = new Set(owned.map(process => `${process.pid}@${process.created}`));
+	const ownedKeys = new Set(owned.map(processKey));
 	// The user's own omp sessions run ai-memory bridges too: one whose live parent was outside the app's tree
 	// before the quit is theirs. An orphan the app left behind has no live parent, so it still counts.
 	const foreign = new Set(
@@ -235,22 +245,28 @@ async function quitAndCheck(app: ElectronApplication, how: QuitPath, profile: st
 					parent =>
 						parent.pid === process.ppid &&
 						Number(parent.created) <= Number(process.created) &&
-						!ownedKeys.has(`${parent.pid}@${parent.created}`),
+						!ownedKeys.has(processKey(parent)),
 				),
 			)
-			.map(process => `${process.pid}@${process.created}`),
+			.map(processKey),
 	);
 	const lower = (text: string | null) => (text ?? "").toLowerCase();
-	const survivorsNow = () =>
-		windowsProcesses().filter(
+	const survivorsNow = () => {
+		const now = windowsProcesses();
+		const started = new Set(
+			descendantsIn(now, owned)
+				.filter(process => !isAiMemoryService(process))
+				.map(processKey),
+		);
+		return now.filter(
 			process =>
-				ownedKeys.has(`${process.pid}@${process.created}`) ||
-				lower(process.exe) === lower(exe) ||
+				started.has(processKey(process)) ||
 				lower(process.commandLine).includes(lower(profile)) ||
 				(/^ai-memory(\.exe)?$/i.test(process.name) &&
 					!isAiMemoryService(process) &&
-					!foreign.has(`${process.pid}@${process.created}`)),
+					!foreign.has(processKey(process))),
 		);
+	};
 	// The launcher's pipes close a moment before main and its Chromium children have exited (measured on Windows:
 	// ~0.1 s later, both quit paths). A child that outlived the app is still there after this bound.
 	let survivors = survivorsNow();

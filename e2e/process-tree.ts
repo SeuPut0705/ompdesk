@@ -45,24 +45,50 @@ export function survivors(root: string): string[] {
 		.filter(line => line.includes(root));
 }
 
-/** `root` and everything below it; a child is never older than its parent (Windows reuses pids). */
-export function processTree(all: WinProcess[], root: number): WinProcess[] {
-	const tree = all.filter(process => process.pid === root);
-	for (let i = 0; i < tree.length; i++) {
-		const parent = tree[i];
+/** One process across listings: a pid alone is handed on to unrelated processes. */
+export const processKey = (process: WinProcess) => `${process.pid}@${process.created}`;
+
+/**
+ * The processes of `all` that are one of `seeds` or descend from one. `seeds` may come from an earlier listing than
+ * `all`: a seed that has exited is still the parent of what it left running (the child keeps its `ppid`). A child is
+ * never older than its parent, and one older than a later process that holds the parent's pid belongs to that one
+ * (Windows reuses pids, and a reused pid must not pull in its new owner's children).
+ */
+export function descendantsIn(all: WinProcess[], seeds: WinProcess[]): WinProcess[] {
+	const seedKeys = new Set(seeds.map(processKey));
+	const found = new Map(
+		all.filter(process => seedKeys.has(processKey(process))).map(process => [processKey(process), process]),
+	);
+	const parents = [...seeds];
+	for (let i = 0; i < parents.length; i++) {
+		const parent = parents[i];
 		if (!parent) continue;
 		for (const process of all) {
 			if (
 				process.ppid === parent.pid &&
-				Number(process.created) >= Number(parent.created) &&
-				!tree.includes(process)
+				BigInt(process.created) >= BigInt(parent.created) &&
+				!all.some(
+					holder =>
+						holder.pid === parent.pid &&
+						BigInt(holder.created) > BigInt(parent.created) &&
+						BigInt(holder.created) <= BigInt(process.created),
+				) &&
+				!found.has(processKey(process))
 			) {
-				tree.push(process);
+				found.set(processKey(process), process);
+				parents.push(process);
 			}
 		}
 	}
-	return tree;
+	return [...found.values()];
 }
+
+/** `root` and everything below it in one listing. */
+export const processTree = (all: WinProcess[], root: number): WinProcess[] =>
+	descendantsIn(
+		all,
+		all.filter(process => process.pid === root),
+	);
 
 /** ai-memory's own per-user service (`service-host`, its `--supervise` copy and the `serve` it runs). */
 export const isAiMemoryService = (process: WinProcess) =>
