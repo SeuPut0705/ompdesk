@@ -140,6 +140,26 @@ describe("get_transcript_page", () => {
 		];
 		expect(transcriptTurnStart(steered, 3, 4)).toBe(0);
 	});
+
+	it("starts a page after the last run that ended, not at a prompt typed hours of goal continuations ago", () => {
+		// A goal or Autopilot run continues with custom messages, never a typed prompt: snapping to the prompt made one
+		// page of a long run 4.6 MB (1754 messages), on every hydrate and every reconnect of a paired device.
+		const messages = [
+			{ role: "user" },
+			{ role: "assistant", stopReason: "toolUse" },
+			{ role: "toolResult" },
+			{ role: "assistant", stopReason: "stop" },
+			{ role: "custom" },
+			{ role: "assistant", stopReason: "toolUse" },
+			{ role: "toolResult" },
+			{ role: "assistant", stopReason: "toolUse" },
+			{ role: "toolResult" },
+		];
+		expect(transcriptTurnStart(messages, 6, 9)).toBe(4);
+		expect(transcriptTurnStart(messages, 8, 9)).toBe(4);
+		// A run that stopped on a tool call is not over: the page never starts at its result.
+		expect(transcriptTurnStart(messages, 2, 4)).toBe(0);
+	});
 });
 
 describe("get_transcript", () => {

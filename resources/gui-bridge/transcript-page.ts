@@ -1,16 +1,32 @@
 /**
- * Renderer pages must include the whole first turn, including tool calls/results.
- * A stock `steering` user message is delivered inside a running turn, so it never starts one.
+ * Where a renderer page may start: the whole run its first message belongs to, tool calls and results included, so no
+ * page opens on an orphan result or a call group split from its step. A run starts at a typed prompt (a stock
+ * `steering` user message joins the running one) or right after a run that ended (an assistant message that stopped on
+ * anything but a tool call). The second matters for goal and Autopilot runs, which continue with custom messages and
+ * never a typed prompt: snapping to the prompt made one page of a long run 1754 messages and 4.6 MB (21 Oct 2026), on
+ * every hydrate and every reconnect of a paired device.
  */
 export function transcriptTurnStart(
-	messages: readonly { role: string; steering?: boolean }[],
+	messages: readonly { role: string; steering?: boolean; stopReason?: string }[],
 	offset: number,
 	end: number,
 ): number {
 	let start = Math.min(offset, messages.length);
 	if (start >= end) return start;
-	while (start > 0 && (messages[start]?.role !== "user" || messages[start]?.steering === true)) start--;
+	while (start > 0 && !startsRun(messages, start)) start--;
 	return start;
+}
+
+function startsRun(messages: readonly { role: string; steering?: boolean; stopReason?: string }[], index: number) {
+	const message = messages[index];
+	if (message?.role === "user") return message.steering !== true;
+	const before = messages[index - 1];
+	return (
+		message?.role !== "toolResult" &&
+		before?.role === "assistant" &&
+		before.stopReason !== undefined &&
+		before.stopReason !== "toolUse"
+	);
 }
 
 /**
