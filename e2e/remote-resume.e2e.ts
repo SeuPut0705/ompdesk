@@ -706,6 +706,66 @@ test("a device deletes a host's session from its sidebar row: the host's omp let
 	}
 });
 
+test("a device deletes a host's session the host's own window has open and idle: the window's tab closes and the file goes", async () => {
+	// 21 Oct 2026: such a delete was refused for good ("Session is open on the host"), with nothing the device could close.
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-delete-window-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const b = host.page;
+		await send(b, "host hello");
+		await expect(b.locator("[data-transcript-kind]").filter({ hasText: "Local fixture reply" })).toHaveCount(1);
+		let sessionPath = "";
+		await expect
+			.poll(async () => {
+				sessionPath = (await b.evaluate(() => window.omp.tabs.list()))[0]?.sessionPath ?? "";
+				return sessionPath;
+			})
+			.toMatch(/\.jsonl$/);
+		const deviceId = await connectHost(b, client.page, "Host B");
+		const a = client.page;
+
+		const row = a.locator(`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessionPath)}]`);
+		await expect(row).toHaveCount(1, { timeout: 30_000 });
+		await row.hover();
+		await row.locator("[data-sidebar-row-menu]").click();
+		await a.getByRole("menuitem", { name: "Delete session" }).click();
+		await a.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+
+		await expect
+			.poll(
+				() =>
+					fs.stat(sessionPath).then(
+						() => true,
+						() => false,
+					),
+				{ timeout: 20_000, message: "the file goes" },
+			)
+			.toBe(false);
+		await expect(row).toHaveCount(0);
+		expect((await b.evaluate(() => window.omp.tabs.list())).some(tab => tab.sessionPath === sessionPath)).toBe(false);
+		expect(client.errors).toEqual([]);
+		expect(host.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
+
 /** Quit the app the way ⌘Q does, and wait for its process to end (interrupted-resume.e2e.ts). */
 async function quit(app: ElectronApplication): Promise<void> {
 	await app.evaluate(({ app: electronApp, dialog }) => {
