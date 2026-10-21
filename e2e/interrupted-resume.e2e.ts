@@ -184,12 +184,17 @@ function isRunning(pid: number): boolean {
 /**
  * SIGKILL of the app's main process: no quit hook, no teardown, no graceful anything. The pid comes from
  * the app itself: on Windows `app.process()` is a launcher one level above it, and killing that leaves the
- * app running.
+ * app running. Returns once the app's children have ended too: they outlive the main process for a moment and
+ * Chromium's singleton lock is still theirs then, so a relaunch in that window fails with "Lock file can not be
+ * created" (error 32) before it ever opens a window.
  */
-async function crash(app: ElectronApplication): Promise<void> {
+async function crash(app: ElectronApplication, profile: Profile): Promise<void> {
 	const pid = await app.evaluate(() => process.pid);
 	process.kill(pid, "SIGKILL");
 	await expect.poll(() => isRunning(pid), { timeout: 20_000, message: "the killed app must be gone" }).toBe(false);
+	await expect
+		.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
+		.toEqual([]);
 }
 
 async function cleanup(profile: Profile): Promise<void> {
@@ -278,10 +283,7 @@ for (const language of variants(["en", "ko"] as const))
 				current = first.app;
 				const sessionPath = await startLongTurn(profile, first.page);
 				// The marker is already on disk and no quit hook will run.
-				await crash(first.app);
-				await expect
-					.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
-					.toEqual([]);
+				await crash(first.app, profile);
 
 				const second = await launch(profile, { ready: false, height: 420 });
 				current = second.app;
@@ -359,7 +361,7 @@ test("a turn cut while its next model request was prepared continues on the next
 		await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
 		await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
 		const sessionPath = (await markers(profile))[0]?.sessionPath ?? "";
-		await crash(first.app);
+		await crash(first.app, profile);
 		current = undefined;
 		// The journal the report left: the prompt, then stock's clean exit record, nothing after.
 		await expect
@@ -401,7 +403,8 @@ test("a turn the user stopped is not resumed after a crash", async () => {
 			.toEqual([
 				expect.objectContaining({ command: "abort_and_restore_queue", by: "window", surface: "stop-button" }),
 			]);
-		await crash(first.app);
+		await crash(first.app, profile);
+		current = undefined;
 
 		const second = await launch(profile);
 		current = second.app;
@@ -431,10 +434,7 @@ for (const language of variants(["en", "ko"] as const))
 			});
 			await expect.poll(() => markers(profile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
 			await expect.poll(() => layoutHasSession(profile), { timeout: 30_000 }).toBe(true);
-			await crash(first.app);
-			await expect
-				.poll(() => survivors(profile.root), { timeout: 20_000, message: "the killed app's children must end" })
-				.toEqual([]);
+			await crash(first.app, profile);
 
 			const second = await launch(profile, { ready: false });
 			current = second.app;
