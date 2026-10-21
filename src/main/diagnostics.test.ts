@@ -95,6 +95,17 @@ describe("buildDiagnosticsReport", () => {
 		expect(report).toContain("Machine setup: not started");
 	});
 
+	it("names the connected paired computers' versions, never their names", () => {
+		const report = buildDiagnosticsReport({
+			...INPUT,
+			paired: { hosts: ["0.52.7", "0.50.0"], devices: [] },
+		});
+		expect(report).toContain("## Paired computers");
+		expect(report).toContain("Hosts this computer uses: 2 connected (0.52.7, 0.50.0)");
+		expect(report).toContain("Devices using this computer: none connected");
+		expect(buildDiagnosticsReport(INPUT)).not.toContain("## Paired computers");
+	});
+
 	it("redacts the whole report, the setup paths and every log line", () => {
 		const secret = `ghp_${"a1B2".repeat(9)}`;
 		const report = buildDiagnosticsReport({

@@ -1028,6 +1028,13 @@ app.whenReady().then(() => {
 		}),
 		setupState: () => setup.state(),
 		runtimeLogPath,
+		pairedVersions: () => {
+			const state = devices.state();
+			return {
+				hosts: state.hosts.flatMap(host => (host.state === "online" && host.appVersion ? [host.appVersion] : [])),
+				devices: state.host.peers.flatMap(peer => (peer.online && peer.appVersion ? [peer.appVersion] : [])),
+			};
+		},
 	};
 	registerDiagnosticsIpc(ipc, diagnostics);
 	registerDiagnosticBundleIpc(ipc, {

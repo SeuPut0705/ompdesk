@@ -44,6 +44,19 @@ export interface DiagnosticsInput {
 	setup: SetupState | null;
 	/** Runtime-log lines, oldest first. */
 	logLines: readonly string[];
+	/** The OMPdesk versions of the paired computers connected now, never their names: a mismatch explains a refusal. */
+	paired?: PairedVersions | null;
+}
+
+export interface PairedVersions {
+	/** Hosts this computer is connected to. */
+	hosts: readonly string[];
+	/** Devices connected to this computer. */
+	devices: readonly string[];
+}
+
+function pairedLine(label: string, versions: readonly string[]): string {
+	return `${label}: ${versions.length === 0 ? "none connected" : `${versions.length} connected (${versions.join(", ")})`}`;
 }
 
 function clip(text: string, max: number): string {
@@ -99,6 +112,14 @@ export function buildDiagnosticsReport(input: DiagnosticsInput): string {
 		"## Machine setup",
 		...setupLines(setup),
 		"",
+		...(input.paired
+			? [
+					"## Paired computers",
+					pairedLine("Hosts this computer uses", input.paired.hosts),
+					pairedLine("Devices using this computer", input.paired.devices),
+					"",
+				]
+			: []),
 		`## Runtime log (last ${DIAGNOSTICS_LOG_LINES} entries, repeats folded)`,
 		...(input.logLines.length > 0
 			? input.logLines.map(line => clip(redactDiagnosticsText(line), MAX_LINE_CHARS))
@@ -186,6 +207,8 @@ export interface DiagnosticsDeps {
 	system: () => DiagnosticsSystem;
 	setupState: () => SetupState | null;
 	runtimeLogPath: () => string;
+	/** The connected paired computers' versions; absent before remote devices exist. */
+	pairedVersions?: () => PairedVersions | null;
 	now?: () => Date;
 }
 
@@ -196,6 +219,7 @@ export async function currentDiagnosticsReport(deps: DiagnosticsDeps): Promise<s
 		system: deps.system(),
 		setup: deps.setupState(),
 		logLines: await readDiagnosticsLog(deps.runtimeLogPath()),
+		paired: deps.pairedVersions?.() ?? null,
 	});
 }
 
