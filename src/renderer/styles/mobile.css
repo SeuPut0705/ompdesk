@@ -1384,6 +1384,12 @@ html[data-input="touch"] [data-empty-actions] {
 	--hit-gap-y: initial;
 }
 
+/* A tree row with children opens and closes them itself (TreeView: its own action, or the toggle), so on touch the
+   whole row is the target and the 20 px chevron inside it takes no tap of its own. */
+html[data-input="touch"] [data-tree-id] > .omp-disclosure-chevron {
+	pointer-events: none;
+}
+
 /* A Changes row (stage box, file, discard) is a list row: a row tall and flush with the next, so its reach stays in it
    (the file button's reach lay 1 px over the next row's). */
 html[data-input="touch"] .omp-changes [data-staged][data-staged] {

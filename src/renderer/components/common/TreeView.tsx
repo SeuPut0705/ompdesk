@@ -70,6 +70,12 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 		else next.add(id);
 		onExpandedChange(next);
 	};
+	// A row with no action of its own (a JSON key) opens and closes its children: the whole row is the target, so the
+	// chevron needs no reach of its own on touch.
+	const activate = (row: FlatRow) => {
+		if (row.node.onClick) row.node.onClick();
+		else if (row.hasChildren) toggle(row.node.id);
+	};
 
 	const rows = useMemo<FlatRow[]>(() => {
 		const out: FlatRow[] = [];
@@ -144,7 +150,7 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 			case "Enter":
 			case " ": {
 				event.preventDefault();
-				row.node.onClick?.();
+				activate(row);
 				break;
 			}
 		}
@@ -170,7 +176,7 @@ export function TreeView({ nodes, expanded, onExpandedChange, emptyMessage, clas
 						className={`group flex min-h-(--sc-control-sm) cursor-default items-center gap-1 rounded-(--sc-radius-sm) pr-2 text-sc-sm transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) motion-reduce:transition-none ${selected ? "bg-(--sc-selected) text-(--sc-text)" : "text-(--sc-text-muted)"} ${row.node.className ?? ""}`.trim()}
 						data-tree-id={row.node.id}
 						key={row.node.id}
-						onClick={() => row.node.onClick?.()}
+						onClick={() => activate(row)}
 						onContextMenu={row.node.onMenu ? event => row.node.onMenu?.(anchorFromEvent(event)) : undefined}
 						draggable={row.node.onDragStart ? true : undefined}
 						onDragStart={row.node.onDragStart}

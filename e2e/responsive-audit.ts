@@ -609,6 +609,8 @@ function measureInPage(
 		if ((element as HTMLButtonElement).disabled) continue;
 		if (element.closest("[aria-hidden='true'], [inert], .xterm, [data-sheet-handle]")) continue;
 		if (!shown(element) || srOnly(element) || !visibleRect(element) || covered(element)) continue;
+		// A control no pointer reaches (a tree's chevron on touch: its row takes the tap) is no tap target.
+		if (style(element).pointerEvents === "none") continue;
 		controls.push(element);
 	}
 	const hitBox = (element: Element): { width: number; height: number; row: boolean; field: boolean } => {
