@@ -1521,6 +1521,16 @@ html[data-input="touch"]
 	--hit-gap-y: 14px;
 }
 
+/* A phone's icon buttons are 24 px (22 inside the border): 14 px apart they reach 36 across too (10 left them 32). */
+html[data-shell="phone"]
+	.settings-content
+	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-hotkeys-toolbar], [data-settings-section-head] > *):has(
+		> button + button
+	) {
+	column-gap: 14px;
+	--hit-gap-x: 14px;
+}
+
 /* Dialogs and sheets: 16 px side padding, a tight header, a title one step smaller, a footer that hugs the home
    indicator. A body that sets its own padding (flush lists) keeps it. */
 html[data-shell="phone"] :is(.omp-dialog-head, .omp-sheet-head) {

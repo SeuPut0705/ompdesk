@@ -205,6 +205,11 @@ describe("controls close enough to take each other's taps", () => {
 		);
 	});
 
+	it("spaces Settings' button clusters 14 px apart on a phone, where an icon button is 24 px", () => {
+		const phone = css.slice(css.indexOf('html[data-shell="phone"]\n\t.settings-content'));
+		expect(phone.slice(0, phone.indexOf("}"))).toMatch(/column-gap:\s*14px;[^}]*--hit-gap-x:\s*14px/);
+	});
+
 	it("declares the gap of the wrapping rows and clusters the audit found", () => {
 		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-run-actions");
 		declares("../components/settings/RemoteSection.tsx", "data-remote-addresses");
