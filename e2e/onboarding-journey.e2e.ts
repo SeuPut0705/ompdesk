@@ -7,6 +7,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
+import { baseTemp } from "./run-temp";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in audit of the first-time journey on the real omp (OMP_GUI_ONBOARDING=<dir>):
@@ -204,7 +205,7 @@ for (const variant of VARIANTS) {
 					.catch(() => ["page gone"])),
 			);
 			await fs.writeFile(
-				path.join(directory ?? os.tmpdir(), `${prefix}-${test.info().repeatEachIndex}-findings.json`),
+				path.join(directory ?? baseTemp(), `${prefix}-${test.info().repeatEachIndex}-findings.json`),
 				JSON.stringify({ findings, notes, errors }, null, 2),
 			);
 			await exitApp(app);
@@ -261,7 +262,7 @@ for (const [language, theme] of [
 			expect((await fs.readFile(path.join(real.project, "hello.txt"), "utf8")).trim()).toBe("hello");
 		} finally {
 			await fs.writeFile(
-				path.join(directory ?? os.tmpdir(), `${prefix}-findings.json`),
+				path.join(directory ?? baseTemp(), `${prefix}-findings.json`),
 				JSON.stringify({ findings, errors }, null, 2),
 			);
 			await exitApp(app);

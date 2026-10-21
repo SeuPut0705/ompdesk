@@ -161,6 +161,7 @@ import { execFileExecutor, startTailscaleApp } from "./tailscale/cli";
 import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/locate";
 import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
+import { exitWithLauncher } from "./test-launcher-exit";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
 import { recordTurnStop, setTurnStopLog } from "./turn-stop-log";
@@ -293,6 +294,8 @@ if (process.env.OMP_GUI_HEADLESS === "1") {
 	});
 	holdTestNotifications();
 }
+// A test launch ends with the Playwright worker that launched it, even one that died running no handler.
+exitWithLauncher(process.env, () => app.exit(0));
 
 /**
  * Unpackaged runs keep resources in the source tree. Resolve them from the

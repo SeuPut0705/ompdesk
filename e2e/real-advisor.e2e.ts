@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
+import { baseTemp } from "./run-temp";
 import type { RecordedWorkFrame } from "./work-recording";
 
 // Explicit opt-in: this audit spends model tokens (the user's `smol` role, plus the
@@ -17,7 +17,7 @@ import type { RecordedWorkFrame } from "./work-recording";
 test("real omp advisor note appears live and is recorded", async () => {
 	test.skip(process.env.OMP_GUI_REAL_WORK !== "1", "Opt-in model audit");
 	test.setTimeout(600_000);
-	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(os.tmpdir(), "ompdesk-real-advisor");
+	const evidenceDir = process.env.OMP_GUI_REAL_WORK_ARTIFACTS ?? path.join(baseTemp(), "ompdesk-real-advisor");
 	await fs.mkdir(evidenceDir, { recursive: true });
 	const { profile, project, desktop, env } = await realOmpProfile();
 	const app = await electron.launch({
