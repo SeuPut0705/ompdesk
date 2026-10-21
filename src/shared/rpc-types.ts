@@ -37,8 +37,7 @@ export type StopSurface =
 	| "agents-page"
 	| "handoff"
 	| "auto-mode"
-	| "retry"
-	| "sidebar-delete";
+	| "retry";
 
 /**
  * Who asked for a Stop (`abort`, `abort_and_restore_queue`, `abort_and_prompt`): main writes it to the runtime log

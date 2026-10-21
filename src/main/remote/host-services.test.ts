@@ -175,6 +175,8 @@ function fakeLocalTabs() {
 	const closed: string[] = [];
 	/** Session files a window tab here runs a turn in. */
 	const running = new Set<string>();
+	/** Session files whose window tab "Stop and delete" stopped. */
+	const stopped: string[] = [];
 	/** Views of a window's tab a device may get, by session file, and who asked. */
 	const views = new Map<string, FakeHostSidecar>();
 	const viewed: Array<{ origin: { deviceId: string; name: string }; hostName: string }> = [];
@@ -197,8 +199,12 @@ function fakeLocalTabs() {
 			viewed.push({ origin, hostName });
 			return view as unknown as HostedTabView;
 		},
+		// A window tab's turn on the file is stopped and ends at once.
+		stopSession: async path => {
+			if (running.delete(path)) stopped.push(path);
+		},
 	};
-	return { tab, owned, closed, running, views, viewed, localTabs };
+	return { tab, owned, closed, running, stopped, views, viewed, localTabs };
 }
 
 const DESKTOP: HostDesktopState = {
@@ -1010,6 +1016,39 @@ describe("LocalHostServices", () => {
 		sidecars[0]?.exited.resolve();
 		await deleting;
 		expect(deleteSession).toHaveBeenCalledWith("/s/d.jsonl");
+	});
+
+	it("Stop and delete: a device's sessions.stop stops the turn a device's tab or a window here runs, answering once it ended", async () => {
+		const { services, sidecars, local, deleteSession } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(y.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, y);
+		await services.call(y.peer, "tab.start", { rtab: "t" }, y);
+		const sidecar = sidecars[0];
+		sidecar?.setStatus("ready");
+		sidecar?.emit("session", { sessionId: "s", sessionFile: "/s/y.jsonl" });
+		sidecar?.emit("events", [{ type: "agent_start" }]);
+
+		let ended = false;
+		const stopping = services.call(x.peer, "sessions.stop", { sessionPath: "/s/y.jsonl" }, x).then(() => {
+			ended = true;
+		});
+		await new Promise<void>(resolve => setImmediate(resolve));
+		expect(sidecar?.commands).toContainEqual({ type: "abort_and_restore_queue" });
+		expect(ended).toBe(false);
+		sidecar?.emit("events", [{ type: "agent_end" }]);
+		await stopping;
+		// The delete the user already confirmed now goes through.
+		const deleting = services.call(x.peer, "sessions.delete", { sessionPath: "/s/y.jsonl" }, x);
+		await new Promise<void>(resolve => setImmediate(resolve));
+		sidecar?.exited.resolve();
+		await deleting;
+		expect(deleteSession).toHaveBeenCalledWith("/s/y.jsonl");
+
+		// A window here runs it: its pool stops that tab.
+		local.running.add("/s/w.jsonl");
+		await services.call(x.peer, "sessions.stop", { sessionPath: "/s/w.jsonl" }, x);
+		expect(local.stopped).toEqual(["/s/w.jsonl"]);
 	});
 
 	it("a device's delete closes another device's idle host tab on the session and tells it, and refuses while that tab runs a turn", async () => {

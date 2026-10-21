@@ -28,7 +28,9 @@ export type TurnStopBy =
 	| "autopilot"
 	| "desktop-slot"
 	| "quit"
-	| "turn-resume";
+	| "turn-resume"
+	/** "Stop and delete" of a session whose delete a running turn refused (sidebar, `sessions:stop`). */
+	| "session-delete";
 
 export interface TurnStop {
 	command: string;

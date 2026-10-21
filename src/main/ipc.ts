@@ -207,6 +207,7 @@ export interface IpcDeps {
 		| "attachRunLookup"
 		| "checkoutMembers"
 		| "closeSessionTabs"
+		| "stopSessionTurns"
 	>;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
@@ -1220,6 +1221,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!device) return sessionIndex.list(scope, cwd);
 		const sessions = await remoteDevices.request<SessionInfo[]>(device, "sessions.list", { scope, cwd });
 		return sessions.map(info => ({ ...info, device }));
+	});
+
+	// "Stop and delete" (a delete refused while a turn runs on the session): stop every turn on the file, in any window
+	// or tab this computer runs for a paired device (or, with `device`, on that host), and answer once they ended.
+	ipc.handle(IPC_COMMANDS.SESSIONS_STOP, async (_caller, payload: IpcSessionsDeletePayload) => {
+		if (typeof payload.sessionPath !== "string" || !payload.sessionPath.endsWith(".jsonl")) {
+			throw codedError("invalid_session_path", "Invalid session path");
+		}
+		const device = deviceOf(payload.device);
+		if (device) {
+			await remoteDevices.request(device, "sessions.stop", { sessionPath: payload.sessionPath }, 90_000);
+			return;
+		}
+		await deps.hostedTabs.stopSessionTurns(payload.sessionPath);
 	});
 
 	ipc.handle(IPC_COMMANDS.SESSIONS_DELETE, async (_caller, payload: IpcSessionsDeletePayload) => {
