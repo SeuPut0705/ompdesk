@@ -29,13 +29,17 @@ const OUTPUT_TAIL = 2_000;
 /** A line that starts an error report: JavaScript's error names, `error:`/`Error:` lines, a Python traceback. */
 const ERROR_LINE = /^\s*(?:[A-Z][A-Za-z]*Error\b|Error:|error(?:\[[^\]]*\])?:|Traceback)/;
 const ERROR_LINES = 12;
+/** Terminal color and cursor codes (`ESC [ … letter`): runners color their errors under FORCE_COLOR. */
+const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 
 /**
  * What a refused land shows of the check: the first error and the lines under it, then the output's end. A runner that
  * lists every failing file after its errors (vitest groups files that failed the same way) filled the whole tail with
- * file names, and the reason was gone.
+ * file names, and the reason was gone. Color codes go first: vitest wraps an error's name in them, so a colored line
+ * never started with the name, and a note has no terminal to draw them.
  */
-export function checkExcerpt(output: string): string {
+export function checkExcerpt(raw: string): string {
+	const output = raw.replace(ANSI, "");
 	const tail = output.slice(-OUTPUT_TAIL);
 	const lines = output.split("\n");
 	const first = lines.findIndex(line => ERROR_LINE.test(line));

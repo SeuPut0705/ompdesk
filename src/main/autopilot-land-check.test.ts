@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkLandCandidate, pointCommandAt } from "./autopilot-land-check";
+import { checkExcerpt, checkLandCandidate, pointCommandAt } from "./autopilot-land-check";
 import { gitSync, initRepo } from "./local/git/test-repos";
 import { resetLoginShellEnvCache } from "./shell-env";
 
@@ -68,6 +68,18 @@ describe("checkLandCandidate", () => {
 			}
 		},
 	);
+});
+
+describe("checkExcerpt", () => {
+	it("finds a colored error (vitest under FORCE_COLOR) and drops the color codes", () => {
+		const failing = Array.from({ length: 200 }, (_, i) => `\u001b[31m FAIL \u001b[39m src/f${i}.test.tsx`).join("\n");
+		const output = `\u001b[31m\u001b[1mTypeError\u001b[22m: (0 , act) is not a function\u001b[39m\n    at mount (a.test.tsx:12:3)\n${failing}`;
+		const excerpt = checkExcerpt(output);
+		expect(excerpt).toContain("TypeError: (0 , act) is not a function");
+		expect(excerpt).toContain("src/f199.test.tsx");
+		expect(excerpt).not.toContain("\u001b[");
+		expect(excerpt.length).toBeLessThanOrEqual(2_000);
+	});
 });
 
 describe("pointCommandAt", () => {
