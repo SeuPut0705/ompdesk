@@ -1,23 +1,24 @@
 import { execFile, execFileSync } from "node:child_process";
+import * as path from "node:path";
 
-/** A Windows process as Win32_Process lists it; `created` (FILETIME) tells a reused pid apart. */
+/** A Windows process as `win-processes.ts` lists it; `created` (FILETIME) tells a reused pid apart. */
 export interface WinProcess {
 	pid: number;
 	ppid: number;
+	threads: number;
 	name: string;
 	exe: string | null;
 	commandLine: string | null;
 	created: string;
 }
 
+/**
+ * Every process, listed by `win-processes.ts` under bun through Toolhelp32 and `NtQueryInformationProcess`. WMI
+ * (`Get-CimInstance Win32_Process`) answers "call cancelled" (0x80041032) while the machine is loaded, so no e2e
+ * process check asks it; see docs/windows-dev.md.
+ */
 export function windowsProcesses(): WinProcess[] {
-	const script = [
-		"Get-CimInstance Win32_Process | ForEach-Object {",
-		"[pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; exe = $_.ExecutablePath;",
-		"commandLine = $_.CommandLine; created = $(if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc().ToString() } else { '' }) }",
-		"} | ConvertTo-Json -Compress",
-	].join(" ");
-	const json = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+	const json = execFileSync("bun", [path.join(import.meta.dirname, "win-processes.ts")], {
 		encoding: "utf8",
 		maxBuffer: 64 * 1024 * 1024,
 		timeout: 30_000,
@@ -31,25 +32,13 @@ export const describeProcess = (process: WinProcess) =>
 
 /**
  * Processes whose command line names `root`: what a killed app left running there. Children get an open stdin pipe
- * and end when it closes (AGENTS.md), because a SIGKILL runs no quit handler. On Windows WMI answers "call
- * cancelled" or "unspecified error" while the machine is loaded (measured: 8 of 8 listings, minutes before the same
- * query passed 10 of 10), and `expect.poll` ends on a throwing callback, so a failed listing is asked again.
+ * and end when it closes (AGENTS.md), because a SIGKILL runs no quit handler.
  */
 export function survivors(root: string): string[] {
 	if (process.platform === "win32") {
-		const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${root.replaceAll("'", "''")}') } | ForEach-Object { "$($_.ProcessId) ppid=$($_.ParentProcessId) threads=$($_.ThreadCount) $($_.Name) $($_.CommandLine)" }`;
-		for (let attempt = 1; ; attempt++) {
-			try {
-				return execFileSync("powershell.exe", ["-NoProfile", "-Command", script], {
-					encoding: "utf8",
-					stdio: "pipe",
-				})
-					.split(/\r?\n/)
-					.filter(Boolean);
-			} catch (error) {
-				if (attempt === 5) throw error;
-			}
-		}
+		return windowsProcesses()
+			.filter(entry => entry.commandLine?.includes(root))
+			.map(entry => `${entry.pid} ppid=${entry.ppid} threads=${entry.threads} ${entry.name} ${entry.commandLine}`);
 	}
 	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
 		.split("\n")
@@ -81,22 +70,13 @@ export const isAiMemoryService = (process: WinProcess) =>
 
 /**
  * What the app below `launcher` started and left to wind down (never ai-memory's service, which is meant to outlive
- * it); none off Windows, where a process does not hold its folder. WMI answers "call cancelled" when it is loaded
- * (measured here under repeated listings), so a listing that fails is none: the exit then waits for the launcher
- * only, which is all it did before.
+ * it); none off Windows, where a process does not hold its folder.
  */
 export function processesBelow(launcher: number): WinProcess[] {
 	if (process.platform !== "win32") return [];
-	try {
-		return processTree(windowsProcesses(), launcher).filter(
-			entry => entry.pid !== launcher && !isAiMemoryService(entry),
-		);
-	} catch (error) {
-		console.warn(
-			`exitApp: the app's processes could not be listed, so none is waited for: ${String(error).slice(0, 160)}`,
-		);
-		return [];
-	}
+	return processTree(windowsProcesses(), launcher).filter(
+		entry => entry.pid !== launcher && !isAiMemoryService(entry),
+	);
 }
 
 /**
