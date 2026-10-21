@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.52.2] - 2026-10-21
+
+오토파일럿 타임라인이 대화 언어로 적히고, 진단 정보 복사에 실제로 일어난 일이 담겨요.
+
+### 고친 것
+- 오토파일럿 타임라인의 사이클 제목, 요약, 후속 항목이 대화 언어를 따라요. 지금까지는 에이전트가 영어로 써서 한국어 화면에서도 영어로 보였어요. 새로 시작하는 세션부터 적용돼요.
+- 진단 정보 복사에서 시간만 다르고 내용이 같은 로그 줄이 연달아 나오면 횟수와 함께 한 줄로 접어요. 5분마다 남는 업데이트 확인 줄이 최근 기록을 다 차지하지 않아요. 로그 파일은 그대로 모두 기록해요.
+- 메모리가 이름이 겹쳐 읽을 수 없게 된 프로젝트를 앱 시작 때뿐 아니라 실행 중에도 한 시간에 한 번 고쳐요. 고치지 못하면 그 이유를 로그에 남겨요.
+- 다른 컴퓨터와 주고받은 데이터 기록이 세션 명령을 종류별로 나눠 남겨요. 어떤 명령이 데이터를 많이 쓰는지 알 수 있어요.
+- 오토파일럿이 다른 저장소에 만들어 주는 AUTOPILOT.md가 없어진 오토파일럿 패널 대신 작업 보드를 가리켜요.
+
+<!-- en -->
+
+The Autopilot timeline is written in your conversation language, and Copy diagnostics shows what actually happened.
+
+### Fixed
+- An Autopilot cycle's title, summary and follow-ups on the run's timeline follow the conversation language. The agent wrote them in English, so a Korean screen showed English. Applies from sessions started after the update.
+- Copy diagnostics folds a run of log lines that differ only in their time into one line with a count, so the update check written every 5 minutes no longer fills the recent entries. The log file itself still records every line.
+- Memory repairs a project whose name became unreadable (shared with another project's key) while the app runs, at most once an hour, not only at launch, and logs why when it cannot.
+- The log of what crosses the link to a paired computer names each session command's type, so the commands that use the most data can be found.
+- The AUTOPILOT.md Autopilot writes into other repositories points to the work board instead of the removed Autopilot panel.
+
 ## [0.52.1] - 2026-10-21
 
 두 컴퓨터가 같은 저장소를 다른 이름으로 부를 때도 메모리가 한 프로젝트로 모여요.
