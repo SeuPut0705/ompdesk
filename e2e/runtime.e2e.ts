@@ -64,13 +64,22 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		await page.mouse.wheel(0, -1500);
 		await ended;
 		await expect(page.getByRole("button", { name: "Jump to latest", exact: true })).toBeVisible();
+		// The row the reader reads is the topmost one that starts in view (the app holds that row, content-anchor.ts),
+		// not one that spans the viewport's top: a spanning row's first measurement after the wheel is compensated in
+		// full (TanStack's first-measure rule), which keeps its bottom and every row below it in place and moves only
+		// its own hidden top edge. Nightlies 39524683225, 39525167897, 39539556435 and 39570341477 each failed with the
+		// spanning row moving 82 px (39570341477: an assistant row's top from -34 to 48, every scroll since the wheel a
+		// compensation with the height changing), which fits that rule; a row above the reader that changed size with no
+		// compensation would move this row too, and still fails. A row taller than the viewport is taken when no row
+		// starts in view.
 		const readAnchor = (): Promise<ReadingAnchor | null> =>
 			scroll.evaluate(node => {
 				if (node.scrollHeight - node.scrollTop - node.clientHeight < 100) return null;
 				const top = node.getBoundingClientRect().top;
-				const row = Array.from(node.querySelectorAll("[data-transcript-kind]")).find(
-					item => item.getBoundingClientRect().bottom > top + 4,
-				);
+				const rows = Array.from(node.querySelectorAll("[data-transcript-kind]"));
+				const row =
+					rows.find(item => item.getBoundingClientRect().top >= top - 0.5) ??
+					rows.find(item => item.getBoundingClientRect().bottom > top + 4);
 				return row
 					? {
 							index: row.getAttribute("data-index"),
@@ -78,6 +87,16 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 							offset: row.getBoundingClientRect().top - top,
 						}
 					: null;
+			});
+		// Every row in view as `key top+height`, for the failure message: which row changed size, and where.
+		const rowsInView = () =>
+			scroll.evaluate(node => {
+				const box = node.getBoundingClientRect();
+				return Array.from(node.querySelectorAll("[data-row-key]"))
+					.map(item => ({ key: item.getAttribute("data-row-key"), rect: item.getBoundingClientRect() }))
+					.filter(({ rect }) => rect.bottom > box.top && rect.top < box.bottom)
+					.map(({ key, rect }) => `${key} ${Math.round(rect.top - box.top)}+${Math.round(rect.height)}`)
+					.join("\n");
 			});
 		// macOS animates wheel scrolls: the view can still be moving once it leaves
 		// the live edge, so take the anchor only after two reads agree.
@@ -97,6 +116,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 			.toBe(true);
 		const anchor = await readAnchor();
 		if (!anchor) throw new Error("No visible reading anchor");
+		const inViewBefore = await rowsInView();
 		const progress = async () =>
 			page.evaluate(async () => {
 				const response = await window.omp.rpc.bash("fixture:progress");
@@ -117,7 +137,7 @@ test("streaming with 50k history preserves the reading anchor, supports five tas
 		const scrolls = await page.evaluate(() => (window as unknown as { __readingScrolls: string[] }).__readingScrolls);
 		expect(
 			Math.abs(after - anchor.offset),
-			`row ${anchor.key} (index ${anchor.index}) moved from ${anchor.offset} to ${after}; scrolls since the wheel:\n${scrolls.slice(-40).join("\n")}`,
+			`row ${anchor.key} (index ${anchor.index}) moved from ${anchor.offset} to ${after}; scrolls since the wheel:\n${scrolls.slice(-40).join("\n")}\nrows in view before:\n${inViewBefore}\nafter:\n${await rowsInView()}`,
 		).toBeLessThan(4);
 		const inputMs: number[] = [];
 		await input.click();
