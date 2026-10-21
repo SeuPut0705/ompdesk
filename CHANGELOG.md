@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.52.6] - 2026-10-21
+
+휴대폰에서 연결이 잠깐 끊겨도 화면에 오류가 남지 않고, 휴대폰의 작은 글자와 버튼이 더 다루기 쉬워져요.
+
+### 고친 것
+- 휴대폰 페이지가 연결이 잠깐 끊기는 동안 보낸 요청 몇 가지(하위 에이전트 구독, 슬래시 명령 목록과 인자 완성, 세션 고정)의 실패를 놓쳐 페이지 오류를 남기던 문제를 고쳤어요. 보이던 명령은 그대로 남고, 고정이 실패하면 경고가 떠요.
+- 휴대폰에서 오토파일럿 실행 버튼, 벤치마크 모델, 원격 기기 주소 복사 버튼의 누르는 영역이 다시 충분히 커요(지난 버전에서 26~29px로 작아졌어요). 컴퓨터 화면은 그대로예요.
+- 휴대폰에서 표 글자가 다른 작은 글자와 같은 12px이에요(11.3px였어요).
+- 오토파일럿 상태가 바뀔 때마다 창과 연결된 기기로 가는 데이터가 약 30% 줄었어요. 화면이 쓰지 않는 각 사이클의 검사 명령과 닫힌 후속 목록을 빼요.
+
+<!-- en -->
+
+A phone page that loses the link for a moment no longer leaves errors behind, and small text and buttons on a phone are easier to use.
+
+### Fixed
+- A few calls a phone page makes (the subagent subscription, the slash-command list and argument completions, the session pin) left a page error when the link dropped for a moment. The commands shown stay, and a pin that fails warns.
+- On a phone, the running Autopilot's buttons, the benchmark's models and the remote addresses' copy buttons are big enough to tap again (the last version cut them to 26 to 29 px). The desktop layout is unchanged.
+- A table's text on a phone is 12 px like the rest of the small text (it was 11.3 px).
+- Each Autopilot status update sent to windows and paired devices is about 30 % smaller: it leaves out each cycle's check command and closed follow-ups, which nothing on screen reads.
+
 ## [0.52.5] - 2026-10-21
 
 휴대폰과 태블릿에서 붙어 있는 버튼을 누를 때 옆 버튼이 눌리지 않고, 진단 정보가 긴 로그를 더 짧게 담아요.
