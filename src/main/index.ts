@@ -1767,13 +1767,17 @@ app.whenReady().then(() => {
 	createMenu(windowManager, spawnWindow);
 	setupDeepLinks(windowManager, spawnWindow);
 	setupUpdater(ipc, {
-		enabled: () => prefs.get(APP_AUTO_UPDATE_PREF) === true,
+		// Default on: only a stored `false` turns it off (an unattended Mac running Autopilot updates itself).
+		enabled: () => prefs.get(APP_AUTO_UPDATE_PREF) !== false,
 		resumes: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
 		// Running turns, compactions and open asks, on this computer's tabs and the ones it hosts for paired devices.
 		busy: () =>
 			sidecarPool.tabInventory().some(tab => tab.inFlight) ||
 			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.running || fact.awaitingUi),
-		asking: () => [...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.awaitingUi),
+		asking: () =>
+			sidecarPool.restartHolds().planWaiting ||
+			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.awaitingUi),
+		compacting: () => sidecarPool.restartHolds().compacting || hostServices.compacting(),
 	});
 });
 

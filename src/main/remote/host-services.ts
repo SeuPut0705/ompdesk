@@ -573,6 +573,11 @@ export class LocalHostServices implements HostServices {
 		return false;
 	}
 
+	/** A tab this computer runs for a paired device compacts its context: an automatic update restart waits for it. */
+	compacting(): boolean {
+		return [...this.#tabs.values()].some(tab => !tab.viewsWindow && tab.run.compacting === true);
+	}
+
 	/** The resume rules' inputs for the tabs this computer runs for paired devices. */
 	resumeFacts(): ResumeFact[] {
 		return [...this.#tabs.values()].flatMap(tab => {

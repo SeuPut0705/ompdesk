@@ -1,12 +1,18 @@
 /**
- * Settings › Updates & about › Install updates automatically (pref `appAutoUpdate`, default off).
+ * Settings › Updates & about › Install updates automatically (pref `appAutoUpdate`, default on: only a stored
+ * `false` turns it off).
  *
- * Once a verified update is downloaded and installable (relaunch mode or Windows NSIS), the app
- * installs it and restarts by itself at a good moment — never a modal: one quiet line with a 60 s
- * countdown ("지금 / 나중에") comes first. A good moment is no tab running a turn and no ask open,
- * and either every window unfocused or no user input for `IDLE_MS`. Still not quiet after `MAX_WAIT_MS`:
- * with Continue interrupted work on (the user's rule: work continues after a restart) it goes ahead
- * anyway; with it off it never forces the restart and keeps waiting for idle.
+ * Once a verified update is downloaded and installable (relaunch mode or Windows NSIS), the app installs it and
+ * restarts by itself — never a modal: one quiet line with a 60 s countdown ("지금 / 나중에") comes first.
+ *
+ * With Continue interrupted work on (the user's rule: running work goes on after a restart, so an unattended
+ * Autopilot Mac updates itself) the countdown starts at the next safe point: no ask or approval card open and no
+ * compaction under way. A running turn, a focused window and typing do not hold it; the restart itself also waits
+ * for a safe point when the countdown ends. After the user's "나중에" that round falls back to the rule below.
+ *
+ * With it off (or after "나중에"), a good moment is no tab running a turn and no ask open, and either every window
+ * unfocused or no user input for `IDLE_MS`. Still not quiet after `MAX_WAIT_MS`: with Continue interrupted work on
+ * it goes ahead anyway; with it off it never forces the restart and keeps waiting for idle.
  *
  * Electron-free so the decisions run under an injected clock; `updater.ts` supplies the facts and
  * the effects, and the restart itself is the existing quit path (`restartIntoUpdate`). Every decision
@@ -30,8 +36,10 @@ export interface AutoInstallFacts {
 	resumes: boolean;
 	/** Some tab runs a turn (or compacts) or an ask is open. */
 	busy: boolean;
-	/** An ask is open (the log names it as the reason, instead of a running turn). */
+	/** An ask or approval card is open (the log names it as the reason, instead of a running turn). */
 	asking?: boolean;
+	/** Some tab compacts its context: a restart then would cut the compaction, which does not resume. */
+	compacting?: boolean;
 	/** One of this app's windows has focus. */
 	focused: boolean;
 	/** Time since the user's last input anywhere on the computer. */
@@ -48,7 +56,7 @@ export interface AutoInstallEffects {
 }
 
 /** Why the scheduler is not installing yet. */
-export type AutoInstallWaitReason = "busy turn" | "open ask" | "focused+active input";
+export type AutoInstallWaitReason = "busy turn" | "open ask" | "compaction" | "focused+active input";
 
 export type AutoInstallLogDetails = Record<string, string | number | boolean>;
 
@@ -70,8 +78,13 @@ export function quietMoment(facts: AutoInstallFacts, idleMs: number = AUTO_INSTA
 
 /** What holds the install back right now; only meaningful when `quietMoment` is false. */
 function waitReason(facts: AutoInstallFacts): AutoInstallWaitReason {
-	if (facts.busy) return facts.asking ? "open ask" : "busy turn";
+	if (facts.busy) return facts.asking ? "open ask" : facts.compacting ? "compaction" : "busy turn";
 	return "focused+active input";
+}
+
+/** What a resume-on restart must wait for: an open card (its answer would be lost) or a compaction; else none. */
+function unsafeReason(facts: AutoInstallFacts): "open ask" | "compaction" | undefined {
+	return facts.asking ? "open ask" : facts.compacting ? "compaction" : undefined;
 }
 
 export class AutoInstallScheduler {
@@ -87,6 +100,10 @@ export class AutoInstallScheduler {
 	 * The update no longer being installable (the install failed) or the pref going off starts over.
 	 */
 	#installed = false;
+	/** The user's "나중에" this round: the safe-point rule gives way to a quiet moment or the max wait. */
+	#postponed = false;
+	/** The reason a resume-on restart at the countdown's end waits for, last logged. */
+	#loggedHold: string | undefined;
 
 	constructor(options: AutoInstallOptions) {
 		this.#opts = options;
@@ -119,13 +136,36 @@ export class AutoInstallScheduler {
 				effects.withdraw();
 				return;
 			}
+			// Running work resumes after the restart; an open card or a compaction would not: the restart waits.
+			const hold = f.resumes ? unsafeReason(f) : undefined;
+			if (hold) {
+				if (hold !== this.#loggedHold) this.#opts.log?.("held", { reason: hold });
+				this.#loggedHold = hold;
+				return;
+			}
 			this.#restartAt = undefined;
+			this.#loggedHold = undefined;
 			this.#installed = true;
+			this.#postponed = false;
 			this.#opts.log?.("install", { trigger: "auto" });
 			effects.install();
 			return;
 		}
 		const waitedMs = at - this.#waitingSince;
+		if (f.resumes && !this.#postponed) {
+			const reason = unsafeReason(f);
+			if (reason) {
+				if (reason !== this.#loggedWait) {
+					this.#loggedWait = reason;
+					this.#opts.log?.("waiting", { reason, waitedMs });
+				}
+				return;
+			}
+			this.#loggedWait = undefined;
+			this.#opts.log?.("safe", { waitedMs, running: f.busy, resume: true });
+			this.#announce(at);
+			return;
+		}
 		const quiet = quietMoment(f, this.#opts.idleMs);
 		const maxWaitMs = this.#opts.maxWaitMs ?? AUTO_INSTALL_MAX_WAIT_MS;
 		const forced = !quiet && f.resumes && waitedMs >= maxWaitMs;
@@ -140,15 +180,21 @@ export class AutoInstallScheduler {
 		this.#loggedWait = undefined;
 		if (forced) this.#opts.log?.("forced", { waitedMs, maxWaitMs, resume: true, reason: waitReason(f) });
 		else this.#opts.log?.("quiet", { waitedMs, idleMs: f.idleMs, focused: f.focused });
+		this.#announce(at);
+	}
+
+	#announce(at: number): void {
 		this.#restartAt = at + (this.#opts.countdownMs ?? AUTO_INSTALL_COUNTDOWN_MS);
 		this.#opts.log?.("countdown", { restartAt: this.#restartAt });
-		effects.announce(this.#restartAt);
+		this.#opts.effects.announce(this.#restartAt);
 	}
 
 	/** "나중에": drop the countdown; the next try waits for an idle window (the max wait starts over). */
 	postpone(): void {
 		if (this.#restartAt === undefined) return;
 		this.#restartAt = undefined;
+		this.#postponed = true;
+		this.#loggedHold = undefined;
 		this.#waitingSince = this.#opts.now();
 		this.#loggedWait = undefined;
 		this.#opts.log?.("postponed", { by: "user" });
@@ -157,6 +203,8 @@ export class AutoInstallScheduler {
 
 	#reset(reason: string): void {
 		this.#installed = false;
+		this.#postponed = false;
+		this.#loggedHold = undefined;
 		this.#waitingSince = undefined;
 		if (this.#restartAt === undefined) return;
 		this.#restartAt = undefined;

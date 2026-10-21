@@ -2307,7 +2307,8 @@ export const ko: Record<string, string> = {
 	"updater.card.installingHint":
 		"OMPdesk가 저절로 닫히고 업데이트를 설치한 뒤 다시 열려요. 열어 둔 작업, 작성 중인 글, 화면 배치는 그대로 돌아와요.",
 	"updates.appAuto": "업데이트 자동 설치",
-	"updates.appAutoDesc": "다운로드한 업데이트를, 작업 중인 탭이 없고 자리를 비웠을 때 60초 알림 후 재시작해 설치해요.",
+	"updates.appAutoDesc":
+		"다운로드한 업데이트를 60초 알림 후 재시작해 설치해요. 중단된 작업 이어가기가 켜져 있으면 기다리는 질문·승인과 압축이 없을 때 바로 설치하고 하던 작업은 이어서 진행해요. 꺼져 있으면 작업 중인 탭이 없고 자리를 비웠을 때 설치해요.",
 	"updates.appAutoManual":
 		"여기서는 쓸 수 없어요. 이 사본은 스스로 교체할 수 없어요 (읽기 전용 위치 또는 App Translocation). OMPdesk를 응용 프로그램 폴더로 옮기면 켤 수 있어요.",
 	"updater.card.compactReady": "{version} 업데이트 준비됨",

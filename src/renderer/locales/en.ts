@@ -2322,7 +2322,7 @@ export const en: Record<string, string> = {
 		"OMPdesk closes by itself, installs the update and opens again. Open work, drafts and the layout come back.",
 	"updates.appAuto": "Install updates automatically",
 	"updates.appAutoDesc":
-		"Restarts into a downloaded update when no tab is working and you are away, after a 60 s notice.",
+		"Restarts into a downloaded update after a 60 s notice: with Continue interrupted work on, as soon as no question or approval waits and nothing compacts (running work goes on after); otherwise when no tab is working and you are away.",
 	"updates.appAutoManual":
 		"Unavailable here: this copy cannot replace itself (read-only location or App Translocation). Move OMPdesk to the Applications folder to turn it on.",
 	"updater.card.compactReady": "Update {version} ready",

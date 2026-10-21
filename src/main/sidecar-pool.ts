@@ -485,6 +485,21 @@ export class SidecarPool {
 		return this.#byTabId.get(tabId)?.planProposal ?? null;
 	}
 
+	/**
+	 * What an automatic update restart must wait for on this computer's tabs (app-auto-update.ts): a tab compacting its
+	 * context (a cut compaction does not resume), and a plan proposal waiting on the person (an approval card).
+	 */
+	restartHolds(): { compacting: boolean; planWaiting: boolean } {
+		let compacting = false;
+		let planWaiting = false;
+		for (const entry of this.#entries) {
+			if (entry.hostedView) continue;
+			compacting ||= entry.run.compacting === true;
+			planWaiting ||= entry.planProposal !== undefined;
+		}
+		return { compacting, planWaiting };
+	}
+
 	#announce(activity: TabActivity): void {
 		for (const observer of this.#activityObservers) {
 			try {

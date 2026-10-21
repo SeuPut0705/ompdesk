@@ -154,8 +154,10 @@ export interface AutoInstallProbe {
 	resumes: () => boolean;
 	/** A tab runs a turn or compacts, or an ask is open (this computer's tabs and the ones it hosts). */
 	busy: () => boolean;
-	/** An ask is open (a subset of `busy`; the log names it as the reason). */
+	/** An ask, an approval or a plan proposal waits on the person (a subset of `busy`; the log names it as the reason). */
 	asking: () => boolean;
+	/** A tab compacts its context: a resume-on restart waits for it (a cut compaction does not resume). */
+	compacting: () => boolean;
 }
 
 /** Who started the install: the scheduler, a click on "Restart & install" (or a paired device's), or a plain quit. */
@@ -758,6 +760,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			resumes: probe.resumes(),
 			busy: probe.busy(),
 			asking: probe.asking(),
+			compacting: probe.compacting(),
 			focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
 			idleMs: powerMonitor.getSystemIdleTime() * 1000,
 		}),
