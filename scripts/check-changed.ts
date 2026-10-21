@@ -103,7 +103,9 @@ if (changed.length === 0) {
 const biomeFiles = changed.filter(file => BIOME_DIRS.test(file) && BIOME_EXT.test(file));
 const relatedFiles = changed.filter(file => /^(?:src|resources|scripts)\//.test(file) && /\.[cm]?[jt]sx?$/.test(file));
 const CHECKS: Array<readonly [string, string[]]> = [["types", ["bun", "run", "check:types"]]];
-if (biomeFiles.length > 0) CHECKS.push(["biome", ["bunx", "biome", "check", ...biomeFiles]]);
+// biome.json ignores some of these (stylesheets): a change of only those is no failure.
+if (biomeFiles.length > 0)
+	CHECKS.push(["biome", ["bunx", "biome", "check", "--no-errors-on-unmatched", ...biomeFiles]]);
 CHECKS.push(["surfaces", ["node", "scripts/lint-surfaces.mjs"]]);
 if (relatedFiles.length > 0) {
 	CHECKS.push(["vitest", ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...relatedFiles]]);
