@@ -1383,6 +1383,8 @@ describe("LocalHostServices", () => {
 		const second = new FakeConnection(peer("device-x"));
 		await services.call(second.peer, "tab.open", { rtab: "old", cwd: workDir, fresh: true }, second);
 		expect(resent(second)).toEqual(["away", "uri"]);
+		// Never handed to a connection before: provably new to the device, so not marked re-sent.
+		expect(second.tabEvents().find(event => event.name === "hostToolCall")?.arg).toEqual(call("away"));
 		await services.call(
 			second.peer,
 			"tab.sideChannel",
@@ -1395,10 +1397,11 @@ describe("LocalHostServices", () => {
 		const third = new FakeConnection(peer("device-x"));
 		await services.call(third.peer, "tab.open", { rtab: "new", cwd: workDir, sessionPath: "/s/one.jsonl" }, third);
 		expect(resent(third)).toEqual(["seen", "uri"]);
+		// Handed to the connection that went: the device may have run it, and is told so (agent-control/call-journal.ts).
 		expect(third.tabEvents().find(event => event.name === "hostToolCall")).toEqual({
 			rtab: "new",
 			name: "hostToolCall",
-			arg: call("seen"),
+			arg: { ...call("seen"), resent: true },
 		});
 
 		// An omp that restarts took its calls with it.

@@ -3815,14 +3815,18 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		rmSync(dir, { recursive: true, force: true });
 	});
 	const file = () => join(dir, "agent-control-calls.json");
+	/** The first delivery of host call `call-1`, and the host's re-send of it to a relaunched device. */
+	const first1 = { id: "call-1" };
+	const resent1 = { id: "call-1", resent: true };
+	const DAY = 24 * 60 * 60_000;
 
 	/** This computer as it relaunched: a new caller tab id on the same session file, the journal read back from disk. */
-	function relaunch(host: FakeHost, from: string, to: string): void {
+	function relaunch(host: FakeHost, from: string, to: string, now?: () => number): void {
 		const caller = host.tabsById.get(from);
 		host.tabsById.delete(from);
 		if (caller) host.add({ ...caller, tabId: to });
 		for (const [child, parent] of host.parents) if (parent === from) host.parents.set(child, to);
-		host.calls = new CallJournal(file());
+		host.calls = new CallJournal(file(), now);
 	}
 
 	/** The app dies right after the call's effect: its result is never written. */
@@ -3831,21 +3835,31 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		return journal;
 	}
 
+	/** Days pass and `count` other calls run, each answered and taken by its host. */
+	function laterCalls(journal: CallJournal, clock: { at: number }, count: number): void {
+		clock.at += 4 * DAY;
+		for (let index = 0; index < count; index++) {
+			journal.begin({ key: `\n/s/other.jsonl\nlater-${index}`, tool: T.send, callerTabId: "other003" });
+			journal.finish(`\n/s/other.jsonl\nlater-${index}`, { text: "ok", isError: false });
+			journal.acknowledge(`later-${index}`);
+		}
+	}
+
 	it("opens one session when the app died after opening it and before recording the result", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
 		host.calls = dyingAfterTheEffect(new CallJournal(file()));
-		const first = await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, "call-1");
+		const first = await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, first1);
 		const child = /Opened session (\w+)/.exec(first.text)?.[1] as string;
 		expect(child).toBeTruthy();
 
 		relaunch(host, "boss0001", "boss0002");
-		const again = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, "call-1");
+		const again = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, resent1);
 		expect(host.spawned).toHaveLength(1);
 		expect(again.isError, again.text).toBe(false);
 		expect(again.text).toContain(`Opened session ${child}`);
 		expect(again.text).toMatch(/before OMPdesk restarted/);
 		// The reconciled result is the call's result from now on.
-		const third = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, "call-1");
+		const third = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, resent1);
 		expect(third.text).toBe(again.text);
 		expect(host.spawned).toHaveLength(1);
 	});
@@ -3853,15 +3867,15 @@ describe("a control call a paired host re-sends after this computer relaunched r
 	it("answers a finished call's result again instead of running it twice", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
 		host.calls = new CallJournal(file());
-		const first = await control(host).run("boss0001", T.open, { message: "Do A" }, "call-1");
+		const first = await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
 		relaunch(host, "boss0001", "boss0002");
-		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, "call-1");
+		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, resent1);
 		expect(again).toEqual(first);
 		expect(host.spawned).toHaveLength(1);
 		// Another call id, or another session's call with the same id, is a call of its own.
 		host.add({ tabId: "other003", title: "Other", sessionPath: "/s/other.jsonl" });
-		await control(host).run("other003", T.open, { message: "Do A" }, "call-1");
-		await control(host).run("boss0002", T.open, { message: "Do A" }, "call-2");
+		await control(host).run("other003", T.open, { message: "Do A" }, first1);
+		await control(host).run("boss0002", T.open, { message: "Do A" }, { id: "call-2" });
 		expect(host.spawned).toHaveLength(3);
 	});
 
@@ -3873,11 +3887,11 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		host.spawn = async () => {
 			throw new Error("the app quit");
 		};
-		await control(host).run("boss0001", T.open, { message: "Do A" }, "call-1");
+		await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
 		host.spawn = spawn;
 
 		relaunch(host, "boss0001", "boss0002");
-		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, "call-1");
+		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, resent1);
 		expect(again.isError).toBe(true);
 		expect(again.text).toMatch(/outcome is unknown after OMPdesk restarted/);
 		expect(host.spawned).toHaveLength(0);
@@ -3888,13 +3902,60 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
 		host.calls = dyingAfterTheEffect(new CallJournal(file()));
 		const args = { action: "create", name: "Nightly", prompt: "run checks", every_minutes: 60 };
-		await control(host).run("boss0001", T.schedule, args, "call-1");
+		await control(host).run("boss0001", T.schedule, args, first1);
 		relaunch(host, "boss0001", "boss0002");
-		const again = await control(host).run("boss0002", T.schedule, args, "call-1");
+		const again = await control(host).run("boss0002", T.schedule, args, resent1);
 		expect(again.isError, again.text).toBe(false);
 		expect(again.text).toMatch(/Nightly.*before OMPdesk restarted/);
 		expect(host.scheduleRows).toHaveLength(1);
 		// Reading needs no record: a list call made again just runs.
-		expect((await control(host).run("boss0002", T.schedule, { action: "list" }, "call-2")).text).toMatch(/Nightly/);
+		expect((await control(host).run("boss0002", T.schedule, { action: "list" }, { id: "call-2" })).text).toMatch(
+			/Nightly/,
+		);
+	});
+
+	it("keeps a call the host has not acknowledged past 3 days and 500 newer calls: replayed then, it still runs once", async () => {
+		// A host waits on a call with no time limit, so it may re-send one days and many calls later.
+		const clock = { at: Date.UTC(2026, 9, 21) };
+		const now = () => clock.at;
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.calls = dyingAfterTheEffect(new CallJournal(file(), now));
+		await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
+		// A finished call whose result never reached the host stays too.
+		const finished = new CallJournal(file(), now);
+		host.calls = finished;
+		const answered = await control(host).run("boss0001", T.open, { message: "Do B" }, { id: "call-2" });
+		laterCalls(finished, clock, 600);
+
+		relaunch(host, "boss0001", "boss0002", now);
+		expect((await control(host).run("boss0002", T.open, { message: "Do A" }, resent1)).text).toMatch(
+			/before OMPdesk restarted/,
+		);
+		expect(await control(host).run("boss0002", T.open, { message: "Do B" }, { id: "call-2", resent: true })).toEqual(
+			answered,
+		);
+		expect(host.spawned).toHaveLength(2);
+	});
+
+	it("forgets an acknowledged call in time, and a re-sent call it has no record of is reconciled, never run", async () => {
+		const clock = { at: Date.UTC(2026, 9, 21) };
+		const now = () => clock.at;
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		const journal = new CallJournal(file(), now);
+		host.calls = journal;
+		await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, first1);
+		journal.acknowledge("call-1");
+		laterCalls(journal, clock, 600);
+		expect(journal.get("\n/s/boss.jsonl\ncall-1")).toBeUndefined();
+
+		// Forgotten (or a new profile): the host's re-send finds the session it opened instead of opening another.
+		relaunch(host, "boss0001", "boss0002", now);
+		const again = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, resent1);
+		expect(again.text).toMatch(/before OMPdesk restarted/);
+		// Nothing to find: its outcome is unknown, and still nothing runs.
+		const nothing = await control(host).run("boss0002", T.open, { message: "Do C" }, { id: "call-9", resent: true });
+		expect(nothing.isError).toBe(true);
+		expect(nothing.text).toMatch(/outcome is unknown after OMPdesk restarted/);
+		expect(host.spawned).toHaveLength(1);
 	});
 });

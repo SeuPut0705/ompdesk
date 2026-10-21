@@ -436,16 +436,16 @@ export class AgentControlRuntime {
 		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
 	}
 
-	/** Execute one control host-tool call made by `callerTabId`'s main agent; `callId` is the host tool call's id. */
+	/** Execute one control host-tool call made by `callerTabId`'s main agent; `call` is the host tool call (service.ts `run`). */
 	async run(
 		win: ClientWindow,
 		callerTabId: string,
 		tool: AgentControlToolName,
 		args: unknown,
-		callId?: string,
+		call?: { id: string; resent?: boolean },
 	): Promise<ToolOutcome> {
 		this.#windows.set(callerTabId, win);
-		const outcome = await this.control.run(callerTabId, tool, args, callId);
+		const outcome = await this.control.run(callerTabId, tool, args, call);
 		if (
 			tool === "ompdesk_session_open" ||
 			tool === "ompdesk_merge" ||
@@ -456,6 +456,11 @@ export class AgentControlRuntime {
 			this.#sweepSoon(callerTabId);
 		}
 		return outcome;
+	}
+
+	/** The host took the result of host call `callId`: its record may be forgotten in time (`CallJournal.acknowledge`). */
+	acknowledge(callId: string): void {
+		this.#calls.acknowledge(callId);
 	}
 
 	/** The work board's opened-session rows: the list of sessions this one opened (read-only; the agent lands them with tools). */

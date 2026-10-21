@@ -39,11 +39,13 @@ export interface CallRecord {
 	opened?: string[];
 	/** Absent while the call has not finished (pending). */
 	result?: { text: string; isError: boolean };
+	/** The host took the result (`acknowledge`): only then may the record be forgotten. */
+	acked?: boolean;
 }
 
 function parseRecord(value: unknown): CallRecord | null {
 	if (typeof value !== "object" || value === null) return null;
-	const { key, tool, callerTabId, at, intent, opened, result } = value as Record<string, unknown>;
+	const { key, tool, callerTabId, at, intent, opened, result, acked } = value as Record<string, unknown>;
 	if (typeof key !== "string" || !key || typeof tool !== "string" || typeof at !== "number") return null;
 	if (typeof callerTabId !== "string") return null;
 	const record: CallRecord = { key, tool: tool as AgentControlToolName, callerTabId, at };
@@ -63,6 +65,7 @@ function parseRecord(value: unknown): CallRecord | null {
 		const { text, isError } = result as Record<string, unknown>;
 		if (typeof text === "string" && typeof isError === "boolean") record.result = { text, isError };
 	}
+	if (acked === true && record.result) record.acked = true;
 	return record;
 }
 
@@ -87,9 +90,9 @@ export class CallJournal {
 		}
 	}
 
+	/** The record of a call, however old: one the host has not acknowledged is never forgotten (`#write`). */
 	get(key: string): CallRecord | undefined {
-		const record = this.#records.get(key);
-		return record && this.#now() - record.at <= CALL_JOURNAL_TTL_MS ? record : undefined;
+		return this.#records.get(key);
 	}
 
 	/** Record a call before its effect; written before this returns (a crash right after must find it). */
@@ -115,13 +118,33 @@ export class CallJournal {
 		this.#write();
 	}
 
+	/**
+	 * The host took the call's result (its `host_tool_result` reached the host's tab): it will never re-send this call,
+	 * so the record may now be forgotten by age or count. `callId` is the host call id, the key's last part.
+	 */
+	acknowledge(callId: string): void {
+		for (const record of this.#records.values()) {
+			if (!record.key.endsWith(`\n${callId}`) || !record.result || record.acked) continue;
+			record.acked = true;
+			this.#write();
+			return;
+		}
+	}
+
+	/**
+	 * Only acknowledged records go, by age (`CALL_JOURNAL_TTL_MS`) and then oldest first past `CALL_JOURNAL_MAX`: a host
+	 * waits on a call with no time limit and may re-send it days later, so a pending or unacknowledged record stays
+	 * (they come only from a crash or a lost reply, so they stay few).
+	 */
 	#write(): void {
 		const cutoff = this.#now() - CALL_JOURNAL_TTL_MS;
-		for (const [key, record] of this.#records) if (record.at < cutoff) this.#records.delete(key);
-		while (this.#records.size > CALL_JOURNAL_MAX) {
-			const oldest = this.#records.keys().next().value;
-			if (oldest === undefined) break;
-			this.#records.delete(oldest);
+		for (const [key, record] of this.#records) if (record.acked && record.at < cutoff) this.#records.delete(key);
+		let excess = this.#records.size - CALL_JOURNAL_MAX;
+		for (const [key, record] of this.#records) {
+			if (excess <= 0) break;
+			if (!record.acked) continue;
+			this.#records.delete(key);
+			excess--;
 		}
 		if (this.#file) writeFileAtomicSync(this.#file, JSON.stringify([...this.#records.values()]));
 	}

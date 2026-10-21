@@ -1761,6 +1761,11 @@ export interface HostToolCallRequest {
 	toolCallId: string;
 	toolName: string;
 	arguments: Record<string, unknown>;
+	/**
+	 * Not stock's: a paired host re-sends a call it had handed an earlier connection of this device (a relaunched
+	 * device adopting the tab, host-services.ts `hostCalls`). The device may have carried it out already.
+	 */
+	resent?: boolean;
 }
 
 export interface HostToolCancelRequest {

@@ -1194,8 +1194,12 @@ export class LocalHostServices implements HostServices {
 			// its last process held; the same device back from a lost link lacks only those made while it was away.
 			for (const call of existing.hostCalls.values()) {
 				if (held && call.delivered) continue;
+				// One an earlier connection was handed may have run on that device already: it says so (`resent`), and the
+				// device answers from its record of the call instead of running it blindly (agent-control/call-journal.ts).
+				const request =
+					call.delivered && call.name === "hostToolCall" ? { ...call.request, resent: true } : call.request;
 				call.delivered = true;
-				this.#emit(existing, call.name, call.request);
+				this.#emit(existing, call.name, request);
 			}
 			return { cwd: existing.sidecar.cwd, kind: existing.sidecar.kind, attached };
 		}

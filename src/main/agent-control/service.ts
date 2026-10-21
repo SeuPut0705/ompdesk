@@ -1088,11 +1088,18 @@ export class AgentControl {
 	}
 
 	/**
-	 * Run one control-tool call. `callId` is the host tool call's id (stock's, the same when a paired host re-sends the
-	 * call after this computer relaunched): a call that changes something is recorded under the caller's session file
-	 * and that id (`call-journal.ts`), so it runs at most once.
+	 * Run one control-tool call. `call` is the host tool call: its id (stock's, the same when a paired host re-sends the
+	 * call after this computer relaunched) and whether the host says it re-sends one it had handed a connection before
+	 * (`resent`). A call that changes something is recorded under the caller's session file and that id
+	 * (`call-journal.ts`), so it runs at most once; a re-sent one this computer has no record of (forgotten, or a new
+	 * profile) is reconciled like a pending one and never run blindly.
 	 */
-	async run(callerTabId: string, tool: AgentControlToolName, args: unknown, callId?: string): Promise<ToolOutcome> {
+	async run(
+		callerTabId: string,
+		tool: AgentControlToolName,
+		args: unknown,
+		call?: { id: string; resent?: boolean },
+	): Promise<ToolOutcome> {
 		let tabs: ControlTab[];
 		try {
 			if (!this.#host.enabled())
@@ -1104,13 +1111,18 @@ export class AgentControl {
 		}
 		const caller = tabs.find(tab => tab.tabId === callerTabId);
 		const journal = this.#host.calls;
-		if (!journal || !callId || !caller?.sessionPath || !mutates(tool, args))
+		if (!journal || !call || !caller?.sessionPath || !mutates(tool, args))
 			return this.#outcome(callerTabId, tabs, tool, args);
-		const key = `${caller.device ?? ""}\n${caller.sessionPath}\n${callId}`;
+		const key = `${caller.device ?? ""}\n${caller.sessionPath}\n${call.id}`;
 		const joined = this.#calling.get(key);
 		if (joined) return joined;
-		const record = journal.get(key);
-		if (record?.result) return record.result;
+		const known = journal.get(key);
+		if (known?.result) return known.result;
+		let record = known;
+		if (!record && call.resent) {
+			journal.begin({ key, tool, callerTabId, intent: callIntent(tool, args, caller) });
+			record = journal.get(key);
+		}
 		const work = record
 			? this.#reconcile(record, caller, tabs)
 			: (() => {

@@ -423,6 +423,9 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		try {
 			await this.#opened;
 			await this.#link.request("tab.sideChannel", { rtab: this.#rtab, frame });
+			// The host took the result: it never re-sends that call (agent-control/call-journal.ts acknowledges it).
+			const { type, id } = frame as { type?: unknown; id?: unknown };
+			if (type === "host_tool_result" && typeof id === "string") this.emit("hostReplyDelivered", id);
 		} catch (error) {
 			if (!isReplayable(frame)) {
 				if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);

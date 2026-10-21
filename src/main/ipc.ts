@@ -518,13 +518,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (isAgentControlTool(request.toolName)) {
 			void agentControl
-				.run(tab.win, tab.tabId, request.toolName, request.arguments, request.id)
-				.then(outcome => reply(outcome.text, outcome.isError));
+				.run(tab.win, tab.tabId, request.toolName, request.arguments, {
+					id: request.id,
+					resent: request.resent === true,
+				})
+				.then(outcome => {
+					reply(outcome.text, outcome.isError);
+					// A local omp never re-sends a call; a paired host's result counts once it reached the host
+					// (`hostReplyDelivered`, wired below).
+					if (!sidecar.device) agentControl.acknowledge(request.id);
+				});
 			return;
 		}
 		const result = executeGuiHostTool(request.toolName, request.arguments);
 		reply(result ?? `Host tool "${request.toolName}" is not registered`, result === undefined);
 	};
+	// A paired host took a host tool result: a control call's record may now be forgotten in time (call-journal.ts).
+	sidecarPool.hostReplyDelivered = id => agentControl.acknowledge(id);
 
 	// Session index changes: this window set, and every device using this
 	// computer as its host.

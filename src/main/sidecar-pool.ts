@@ -400,6 +400,8 @@ export class SidecarPool {
 	hostToolExecutor:
 		| ((sidecar: SidecarLike, request: HostToolCallRequest, tab: { tabId: string; win: ClientWindow }) => void)
 		| null = null;
+	/** A paired host took a host tool result this computer sent (`RemoteSidecar`'s `hostReplyDelivered`), by call id. */
+	hostReplyDelivered: ((id: string) => void) | null = null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: ClientWindow, layout: PersistedTabLayout | null) => void) | null = null;
 	/** Some tab may have started or finished running a turn (keep-awake while working). */
@@ -952,6 +954,7 @@ export class SidecarPool {
 		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
 			this.hostToolExecutor?.(sidecar, request, { tabId: entry.tabId, win });
 		});
+		sidecar.on("hostReplyDelivered", (id: string) => this.hostReplyDelivered?.(id));
 		// OMPdesk registers no host URI schemes: fail the read/write instead of leaving omp waiting, shown tab or hidden.
 		sidecar.on("hostUriRequest", (request: HostUriRequest) => {
 			sidecar.sendSideChannel({
