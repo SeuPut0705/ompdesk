@@ -15,6 +15,8 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { wrapAgentMessage } from "../../../../shared/agent-control";
+import { codedError } from "../../../../shared/ipc-error-codes";
+import { useToastStore } from "../../../stores/toast";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
@@ -75,6 +77,7 @@ interface MockOmp {
 	sessions: {
 		list: Mock<(scope: string, device?: string) => Promise<SessionInfo[]>>;
 		delete: Mock<(path: string) => Promise<void>>;
+		stop: Mock<(path: string, device?: string) => Promise<void>>;
 		rename: Mock<(path: string, name: string) => Promise<void>>;
 		search: Mock<(query: string, scope: string) => Promise<string[]>>;
 		openInNewWindow: Mock<(payload: { sessionPath?: string }) => Promise<boolean>>;
@@ -119,6 +122,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		sessions: {
 			list: vi.fn(async () => sessionList),
 			delete: vi.fn(async () => {}),
+			stop: vi.fn(async () => {}),
 			rename: vi.fn(async () => {}),
 			search: vi.fn(async () => []),
 			openInNewWindow: vi.fn(async () => true),
@@ -1554,6 +1558,46 @@ describe("Sidebar menus and pinned ordering", () => {
 		) as unknown as Element;
 		await fire(confirm, "onClick");
 		expect(omp.sessions.delete).toHaveBeenCalledWith("/work/alpha/one.jsonl");
+	});
+
+	it("a delete refused because a turn runs offers Stop and delete, which stops it and deletes once it ended, without asking again", async () => {
+		const omp = installMockOmp(LIST);
+		// Another window's tab runs the session: main refuses the delete until its turn has ended.
+		let running = true;
+		omp.sessions.delete.mockImplementation(async () => {
+			if (running) throw new Error(codedError("session_running", "Session is currently running").message);
+		});
+		const { promise: turnEnds, resolve: endTurn } = Promise.withResolvers<void>();
+		omp.sessions.stop.mockImplementation(async () => {
+			await turnEnds;
+			running = false;
+		});
+		seedStores();
+		await mount(<Sidebar />);
+
+		await openRowMenu(rowFor("Session /work/alpha/one"));
+		await fire(menuItem("Delete"), "onClick");
+		await fire(
+			[...document.body.querySelectorAll('[role="dialog"] button')].find(
+				b => (b.textContent ?? "").trim() === "Delete",
+			) as unknown as Element,
+			"onClick",
+		);
+		const refusal = useToastStore.getState().toasts.at(-1);
+		expect(refusal?.action?.label).toBe("Stop and delete");
+		expect(omp.sessions.delete).toHaveBeenCalledTimes(1);
+
+		await act(async () => refusal?.action?.run());
+		expect(omp.sessions.stop).toHaveBeenCalledWith("/work/alpha/one.jsonl", undefined);
+		// Not before the run has ended.
+		expect(omp.sessions.delete).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			endTurn();
+			await flush();
+		});
+		expect(omp.sessions.delete).toHaveBeenCalledTimes(2);
+		expect(omp.sessions.delete).toHaveBeenLastCalledWith("/work/alpha/one.jsonl");
+		expect(document.body.querySelector('[role="dialog"]')).toBeNull();
 	});
 
 	it("deleting the session the window's only tab shows closes that tab for the empty start tab, which has no row", async () => {
