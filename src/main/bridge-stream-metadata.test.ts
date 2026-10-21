@@ -1,5 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	cpSync,
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,8 +34,12 @@ describe.skipIf(!existsSync(omp) || !existsSync(join(agentDir, "agent.db")))("re
 			);
 			expect(vacuum.status, vacuum.stderr).toBe(0);
 			const sessions = join(agentDir, "sessions");
+			// One that holds a `read` call: the first file listed may be a chat with none (it then replayed 0 reads).
 			const transcript = readdirSync(sessions, { recursive: true }).find(
-				name => typeof name === "string" && name.endsWith(".jsonl"),
+				name =>
+					typeof name === "string" &&
+					name.endsWith(".jsonl") &&
+					readFileSync(join(sessions, name), "utf8").includes('"name":"read"'),
 			);
 			if (typeof transcript !== "string") throw new Error("No real persisted transcript to replay");
 			copyFileSync(join(sessions, transcript), join(root, "replay.jsonl"));

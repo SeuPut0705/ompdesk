@@ -18,6 +18,7 @@ import { setJudgeAssistEnabled, setJudgeAssistStockLoader } from "../../resource
 import { methods as replyLanguage } from "../../resources/gui-bridge/modes/reply-language";
 import { wrapAgentMessage } from "../shared/agent-control";
 import { type FakeJudge, fakeJudge, titleAnswer } from "./test-fake-judge";
+import { garbled } from "./test-mojibake";
 
 interface Entry {
 	type: "title_change";
@@ -345,7 +346,6 @@ describe("first title", () => {
 	});
 
 	it("never writes a title the model wrote as UTF-8 read as Windows-1252 (mojibake)", async () => {
-		const garbled = (value: string) => new TextDecoder("windows-1252").decode(new TextEncoder().encode(value));
 		const world = build();
 		world.script.generate.mockResolvedValue(garbled("로그인 버그 수정"));
 		world.script.retitle.mockResolvedValue(garbled("빌드 도구 이전"));

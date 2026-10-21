@@ -13,6 +13,7 @@ import {
 	RecapTimer,
 } from "../../resources/gui-bridge/session-recap-core";
 import type { TimerSession } from "../../resources/gui-bridge/timer-core";
+import { garbled } from "./test-mojibake";
 
 interface FakeSession extends TimerSession {
 	isStreaming: boolean;
@@ -198,7 +199,7 @@ describe("idle recap timer", () => {
 	});
 
 	it("delivers no recap the model wrote as UTF-8 read as Windows-1252 (mojibake)", async () => {
-		const reply = new TextDecoder("windows-1252").decode(new TextEncoder().encode("로그인 버그를 고치는 중이에요."));
+		const reply = garbled("로그인 버그를 고치는 중이에요.");
 		const session = fakeSession();
 		const timer = new RecapTimer(hooks);
 		holdNext = true;

@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { isUtf8Mojibake } from "../../resources/gui-bridge/mojibake";
 
-const garbled = (value: string) => new TextDecoder("windows-1252").decode(new TextEncoder().encode(value));
+import { garbled } from "./test-mojibake";
 
 describe("isUtf8Mojibake", () => {
 	it("catches the reported suggestions and other scripts read as Windows-1252", () => {

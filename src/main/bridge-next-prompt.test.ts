@@ -23,6 +23,7 @@ import {
 	setNextPromptStock,
 } from "../../resources/gui-bridge/modes/next-prompt-engine";
 import { type FakeJudge, fakeJudge, needsAnswer } from "./test-fake-judge";
+import { garbled } from "./test-mojibake";
 
 type BridgeEvent = NextPromptUpdate | NextPromptConfigFrame;
 type BridgeEnv = EngineEnv;
@@ -65,7 +66,6 @@ interface World {
 
 const text = (value: string) => ({ content: [{ type: "text", text: value }], stopReason: "stop" });
 /** UTF-8 read back as Windows-1252, the way the smol model once wrote a whole reply ("지금" → "ì§€ê¸ˆ"). */
-const garbled = (value: string) => new TextDecoder("windows-1252").decode(new TextEncoder().encode(value));
 
 function build(): World {
 	const frames: BridgeEvent[] = [];
