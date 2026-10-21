@@ -33,6 +33,8 @@ export default defineConfig({
 				test: {
 					name: "renderer",
 					include: [RENDERER],
+					// Merged after the root's setup file (vitest.renderer-setup.ts: linkedom's documents in standards mode).
+					setupFiles: ["./vitest.renderer-setup.ts"],
 					// Projects on different pools run at the same time, each with
 					// maxWorkers, which oversubscribes the cores and times out the
 					// heavier tests; separate groups run one after the other.
