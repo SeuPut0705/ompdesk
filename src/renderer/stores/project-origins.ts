@@ -3,6 +3,8 @@ import type { ProjectOrigin } from "../../shared/project-origin";
 
 /** A folder git could not place is asked again after this long (a worktree being made, a repository being cloned). */
 const RETRY_UNKNOWN_MS = 10_000;
+/** A lookup that failed (the computer restarting, a link that dropped) is asked again after this. */
+export const RETRY_FAILED_MS = 2_000;
 /** Main answers at most this many folders a call. */
 const BATCH = 200;
 
@@ -35,8 +37,10 @@ export const useProjectOrigins = create<ProjectOriginsState>((set, get) => {
 					}));
 				})
 				.catch(() => {
-					// A failed lookup leaves the folder's own name showing; the next request retries after the pause.
-					set(state => ({ origins: { ...state.origins, ...Object.fromEntries(batch.map(cwd => [cwd, null])) } }));
+					// No answer is not "git cannot place it": a null would read a worktree as a removed folder (the sidebar
+					// hides those rows) until the folder list changed. Keep what was known and ask again by itself
+					// (nightly 39536816829: a phone whose host restarted showed its Autopilot children as bare folders).
+					setTimeout(() => load(batch), RETRY_FAILED_MS);
 				});
 		}
 	}
