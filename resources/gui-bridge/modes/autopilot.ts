@@ -142,6 +142,8 @@ interface LiveState extends LiveCycle {
 	change?: AutopilotChangeStat;
 	/** The report was refused (a green claim the tool calls do not show): the agent may run the check and `end` again. */
 	amendable?: boolean;
+	/** The check command the verdict took green from (see `judgeVerify`). */
+	checkCommand?: string;
 }
 
 let hostPi: ExtensionAPI | undefined;
@@ -426,6 +428,7 @@ function onAgentEnd(session: Session, event: unknown): void {
 		compactions: finished.compactions,
 		...(finished.verifyNote ? { verifyNote: finished.verifyNote } : {}),
 		...(finished.change ? { change: finished.change } : {}),
+		...(finished.checkCommand ? { checkCommand: finished.checkCommand } : {}),
 	});
 	append(session, AUTOPILOT_CYCLE_ENTRY, cycle);
 	let state = requireRun(session);
@@ -692,6 +695,7 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 			current.verifyNote = seen.verdict.why;
 			current.change = seen.change;
 			current.amendable = seen.verdict.amendable;
+			current.checkCommand = seen.verdict.check;
 			current.area = report.area as AutopilotCycleArea;
 			publish(session);
 			return toolText({

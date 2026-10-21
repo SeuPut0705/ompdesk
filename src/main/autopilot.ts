@@ -1162,8 +1162,15 @@ export class Autopilot {
 			own.add(run.ship.enqueue({ kind: "push", ...(record.commit ? { sha: record.commit } : {}) }).id);
 		}
 		// Automatic shipping: only a green cycle with a commit of its own lands; a red one or one without a commit never.
+		// Its check command goes along: a default branch that moved on is merged and that merge checked before it lands.
 		if (run.settings.ship.land && green && record.commit && !queued("land")) {
-			own.add(run.ship.enqueue({ kind: "land", sha: record.commit }).id);
+			own.add(
+				run.ship.enqueue({
+					kind: "land",
+					sha: record.commit,
+					...(record.checkCommand ? { check: record.checkCommand } : {}),
+				}).id,
+			);
 		}
 		// This pipeline can outlive the next cycle's start: what the user queued after the frame arrived waits for that
 		// turn's end; everything queued before it, and this cycle's own push and land, go now.
@@ -1252,6 +1259,27 @@ export class Autopilot {
 		const dest = run.landTo ?? run.baseBranch;
 		if (outcome?.kind === "landed") {
 			run.landedCount++;
+			const merge = outcome.merge;
+			if (merge) {
+				this.#log(
+					`${run.tabId}: landed ${outcome.sha.slice(0, 9)} on ${remote}/${dest}: the merge of ${merge.onto.slice(0, 9)}, checked with ${merge.check}`,
+				);
+				await this.#tellAgent(
+					run,
+					merge.advanced
+						? `Landed on ${remote}/${dest} as a merge with the commits it had gained (${outcome.sha.slice(0, 9)}), after your check passed on that merge. ${run.branch} was fast-forwarded to it, so your worktree now has them too.`
+						: `Landed on ${remote}/${dest} as a merge with the commits it had gained (${outcome.sha.slice(0, 9)}), after your check passed on that merge. ${run.branch} moved on meanwhile, so run git fetch ${remote} && git merge ${remote}/${dest} before your next commit.`,
+				);
+			}
+			return;
+		}
+		if (outcome?.kind === "red") {
+			const why = outcome.timedOut ? "timed out" : `exit ${outcome.exitCode ?? "unknown"}`;
+			const tail = outcome.tail.trim().split("\n").slice(-15).join("\n");
+			await this.#tellAgent(
+				run,
+				`Not landed: ${remote}/${dest} moved on; it merges with this cycle's commit without conflicts, but your check (${outcome.check}) fails on that merge (${why}). Run git fetch ${remote} && git merge ${remote}/${dest}, fix what the merge broke, run the check, and commit; the next green cycle lands it.${tail ? `\nThe check's last lines:\n${tail}` : ""}`,
+			);
 			return;
 		}
 		if (outcome?.kind === "behind") {
