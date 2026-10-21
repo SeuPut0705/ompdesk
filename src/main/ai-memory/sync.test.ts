@@ -88,6 +88,22 @@ class FakeServer {
 		});
 	}
 
+	/**
+	 * Where the server's write path files a copy (admin.rs `sync_write_scope`): with a repository, the project holding
+	 * it, else the path-style name (`github.com/acme/api` → `acme-api`) unless another holds that name, made for it;
+	 * without one, the name sent.
+	 */
+	#target(project: string, identity: string | undefined): string {
+		if (!identity) return project;
+		for (const [name, held] of this.identities) if (held === identity) return name;
+		const pathName = identity.split("/").slice(1).join("-");
+		const taken = (name: string) =>
+			this.identities.has(name) || [...this.pages.values()].some(page => page.project === name);
+		const name = taken(pathName) ? project : pathName;
+		this.identities.set(name, identity);
+		return name;
+	}
+
 	#put(copy: MemoryPageCopy, origin: string | undefined): void {
 		const { origin: _dropped, id: _id, ...rest } = this.normalize(structuredClone(copy));
 		const at = this.now();
@@ -155,10 +171,11 @@ class FakeServer {
 			return copy;
 		},
 		// As the server's write path: only over the version named, or only where nothing is (`null`).
-		writePageCopy: async (copy, origin, expected) => {
+		writePageCopy: async (sent, origin, expected) => {
 			const race = this.beforeWrite;
 			this.beforeWrite = undefined;
 			race?.();
+			const copy = { ...sent, project: this.#target(sent.project, sent.repository?.identity) };
 			const current = this.pages.get(`${copy.project}/${copy.path}`)?.id ?? null;
 			if (expected !== undefined && expected !== current) return false;
 			this.writes.push(copy.path);
@@ -183,8 +200,9 @@ class FakeServer {
 				last: all.length,
 			};
 		},
-		writeConclusions: async (project, origin, items, repository) => {
+		writeConclusions: async (sent, origin, items, repository) => {
 			if (this.noConclusionRoutes) throw new Error("Memory answered 404");
+			const project = { ...sent, project: this.#target(sent.project, repository?.identity) };
 			this.conclusionCalls.push({ project: project.project, origin, ids: items.map(item => item.id) });
 			this.repositories.push(repository?.identity);
 			for (const item of items) {
@@ -527,6 +545,31 @@ describe("memory sync between two computers", () => {
 			"github.com/seuput0705/ompdesk",
 			undefined,
 		]);
+	});
+
+	it("settles a repository's copy where the receiver's server filed it, though the sender's project had another name", async () => {
+		// The server names a repository it did not know path style (`acme-api`), not as the sender did (`team-notes`).
+		win.identities.set("team-notes", "github.com/acme/api");
+		mac.identities.set("web-notes", "github.com/acme/web");
+		win.edit("decisions/host.md", "Decided on the host.", "team-notes");
+		mac.edit("decisions/mac.md", "Decided on the Mac.", "web-notes");
+
+		expect(await sync.sync("win")).toEqual({
+			pulled: 1,
+			pushed: 1,
+			conflicts: 0,
+			conclusions: { pulled: 0, pushed: 0 },
+		});
+		expect(mac.body("decisions/host.md", "acme-api")).toBe("Decided on the host.");
+		expect(win.body("decisions/mac.md", "acme-web")).toBe("Decided on the Mac.");
+		expect(logs.filter(line => line.message === "failed")).toEqual([]);
+
+		crossed = 0;
+		mac.writes = [];
+		win.writes = [];
+		expect(await sync.sync("win")).toEqual(QUIET);
+		expect(crossed).toBe(0);
+		expect([...mac.writes, ...win.writes]).toEqual([]);
 	});
 
 	it("never files one repository's memory under another repository's project of the same name", async () => {

@@ -121,16 +121,34 @@ class ProjectNames {
 
 	static async read(store: MemoryStore): Promise<ProjectNames> {
 		const names = new ProjectNames();
+		await names.refresh(store);
+		return names;
+	}
+
+	/** Read the server's projects again (a write may just have made a repository's project). */
+	async refresh(store: MemoryStore): Promise<void> {
+		this.#repositoryOf.clear();
+		this.#nameOf.clear();
 		for (const project of await store.projects()) {
 			if (!project.identity) continue;
-			names.#repositoryOf.set(`${project.workspace}\u0000${project.project}`, {
+			this.#repositoryOf.set(`${project.workspace}\u0000${project.project}`, {
 				identity: project.identity,
 				source: project.identitySource ?? "",
 			});
 			const key = `${project.workspace}\u0000${project.identity}`;
-			if (!names.#nameOf.has(key)) names.#nameOf.set(key, project.project);
+			if (!this.#nameOf.has(key)) this.#nameOf.set(key, project.project);
 		}
-		return names;
+	}
+
+	/**
+	 * Where an item written with its repository lives now. A write that made the repository's project here names it
+	 * as this server does (path style: `acme-api`), not as the sender did (`team-notes`), so a repository this
+	 * computer did not know is looked up again after the write.
+	 */
+	async landed<T extends AiMemoryProjectRef & { identity?: string }>(store: MemoryStore, item: T): Promise<T> {
+		if (!item.identity || this.#nameOf.has(`${item.workspace}\u0000${item.identity}`)) return item;
+		await this.refresh(store);
+		return this.localize(item) ?? item;
 	}
 
 	/** The repository the project of that name here was claimed by. */
@@ -414,7 +432,10 @@ export async function servePush(
 				results.push({ status: "conflict", hash: pageHash(moved), ...(theirs ? { page: theirs } : {}) });
 				continue;
 			}
-			results.push({ status: "written", hash: pageHash(await deps.store.pageCopy(page)) });
+			results.push({
+				status: "written",
+				hash: pageHash(await deps.store.pageCopy(await names.landed(deps.store, page))),
+			});
 		} catch {
 			results.push({ status: "failed", hash: null });
 		}
@@ -687,7 +708,7 @@ export class MemorySync {
 				// Filed under this computer's name for its repository; a name here that belongs to another repository
 				// takes nothing. The cursor stays in the host's own keys.
 				const here = names.localize(page);
-				if (here) await this.#take(host, state, here, local, report);
+				if (here) await this.#take(host, state, here, local, report, names);
 				state.pull = { at: page.updatedAt, key: pageKey(page) };
 			}
 			state.pull = reply.next ?? state.pull;
@@ -702,6 +723,7 @@ export class MemorySync {
 		page: MemoryPageWire,
 		local: Map<string, IndexEntry>,
 		report: MemorySyncReport,
+		names: ProjectNames,
 	): Promise<void> {
 		const key = pageKey(page);
 		const base = state.base[key];
@@ -709,7 +731,7 @@ export class MemorySync {
 		// The host's copy has not changed since the two agreed: anything changed here goes out with the push.
 		if (base && base[1] === page.hash) return;
 		const held = local.get(key);
-		if (!held) return this.#write(state, page, report, null);
+		if (!held) return this.#write(state, page, report, null, names);
 		const copy = await this.#deps.store.pageCopy(held.ref);
 		const mine = pageHash(copy);
 		if (mine === page.hash) {
@@ -718,7 +740,7 @@ export class MemorySync {
 			return;
 		}
 		// Changed only there.
-		if (base && base[0] === mine) return this.#write(state, page, report, copy.id ?? null);
+		if (base && base[0] === mine) return this.#write(state, page, report, copy.id ?? null, names);
 		// Changed on both (or first met with different content): the one changed last wins.
 		report.conflicts++;
 		const theirs = page.updatedAt > held.at;
@@ -731,7 +753,7 @@ export class MemorySync {
 			hereAt: held.at,
 			hostAt: page.updatedAt,
 		});
-		if (theirs) return this.#write(state, page, report, copy.id ?? null);
+		if (theirs) return this.#write(state, page, report, copy.id ?? null, names);
 		if (!state.pending.includes(key)) state.pending.push(key);
 	}
 
@@ -744,11 +766,16 @@ export class MemorySync {
 		page: MemoryPageWire,
 		report: MemorySyncReport,
 		expected: string | null,
+		names: ProjectNames,
 	): Promise<void> {
 		const key = pageKey(page);
 		const origin = page.origin === this.#deps.selfId() ? undefined : page.origin;
 		if (!(await this.#deps.store.writePageCopy(fromWire(page), origin, expected))) return;
-		state.base[key] = [pageHash(await this.#deps.store.pageCopy(page)), page.hash];
+		// Keyed where it landed: a repository new here gets the project name this server gives it.
+		const landed = await names.landed(this.#deps.store, page);
+		const at = pageKey(landed);
+		state.base[at] = [pageHash(await this.#deps.store.pageCopy(landed)), page.hash];
+		state.remote[at] = page.hash;
 		this.#unpend(state, key);
 		report.pulled++;
 	}
@@ -787,7 +814,7 @@ export class MemorySync {
 					if (result.status === "written") report.pushed++;
 				} else if (result?.status === "conflict" && result.page) {
 					const here = names.localize(result.page);
-					if (here) await this.#take(host, state, here, await durableIndex(this.#deps.store), report);
+					if (here) await this.#take(host, state, here, await durableIndex(this.#deps.store), report, names);
 				} else if (!state.pending.includes(entry.key)) {
 					state.pending.push(entry.key);
 				}
