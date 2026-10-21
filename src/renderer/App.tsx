@@ -8,11 +8,9 @@ import { BtwDialog } from "./components/dialogs/BtwDialog";
 import { ChangelogDialog, WhatsNewNotice } from "./components/dialogs/ChangelogDialog";
 import { CommandPalette } from "./components/dialogs/CommandPalette";
 import { CopySelectorDialog } from "./components/dialogs/CopySelectorDialog";
-import { DebugConsoleDialog } from "./components/dialogs/DebugConsoleDialog";
 import { ExtensionDialog } from "./components/dialogs/ExtensionDialog";
 import { ForceToolDialog } from "./components/dialogs/ForceToolDialog";
 import { HandoffDialog } from "./components/dialogs/HandoffDialog";
-import { ImportForeignDialog } from "./components/dialogs/ImportForeignDialog";
 import { LiveVoiceDialog } from "./components/dialogs/LiveVoiceDialog";
 import { ModelPicker } from "./components/dialogs/ModelPicker";
 import { ModelRestoreDialog } from "./components/dialogs/ModelRestoreDialog";
@@ -116,6 +114,12 @@ const BenchmarkDialog = lazyChunk(() =>
 );
 const ModelSetupDialog = lazyChunk(() =>
 	import("./components/settings/model-setup/ModelSetupDialog").then(m => ({ default: m.ModelSetupDialog })),
+);
+const DebugConsoleDialog = lazyChunk(() =>
+	import("./components/dialogs/DebugConsoleDialog").then(m => ({ default: m.DebugConsoleDialog })),
+);
+const ImportForeignDialog = lazyChunk(() =>
+	import("./components/dialogs/ImportForeignDialog").then(m => ({ default: m.ImportForeignDialog })),
 );
 
 function FocusedSessionEffects() {
@@ -238,6 +242,10 @@ export function App() {
 	// (v0.38.1, "Importing a module script failed." at Lazy under App).
 	const [benchmarkMounted, setBenchmarkMounted] = useState(false);
 	if (benchmarkOpen && !benchmarkMounted) setBenchmarkMounted(true);
+	// The debug console keeps its request and result between opens: mounted from its first open on.
+	const debugOpen = useUiStore(s => s.debugOpen);
+	const [debugMounted, setDebugMounted] = useState(false);
+	if (debugOpen && !debugMounted) setDebugMounted(true);
 	const modelSetupOpen = useUiStore(s => s.modelSetupOpen);
 	const importDialogOpen = useUiStore(s => s.importDialogOpen);
 	const activeTabId = useTabsStore(s => s.activeTabId);
@@ -898,7 +906,11 @@ export function App() {
 				<ModelRestoreDialog />
 				<BranchPickerDialog />
 				<BtwDialog />
-				<DebugConsoleDialog />
+				{debugMounted ? (
+					<Suspense fallback={null}>
+						<DebugConsoleDialog />
+					</Suspense>
+				) : null}
 				<LiveVoiceDialog />
 				<CopySelectorDialog />
 				<ActiveToolsDialog />
@@ -920,7 +932,7 @@ export function App() {
 				) : null}
 				<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
 				<ThemePickerDialog />
-				{importDialogOpen && <ImportForeignDialog />}
+				<Suspense fallback={null}>{importDialogOpen && <ImportForeignDialog />}</Suspense>
 				<Suspense fallback={null}>{feedbackOpen && <FeedbackDialog />}</Suspense>
 			</div>
 			<SetupTakeoverHost />
