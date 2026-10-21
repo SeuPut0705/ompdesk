@@ -750,6 +750,38 @@ describe("useRpcEvents context usage sync", () => {
 	});
 });
 
+describe("useRpcEvents on a dropped link", () => {
+	it("leaves no rejection unhandled when the subagent subscription's call is lost (a phone page during a relaunch)", async () => {
+		const harness = installTabRoutedMockOmp();
+		seedReadyTab("t-drop");
+		await mount(<RpcEventsProbe />);
+		await act(async () => {
+			await attachTabSession("t-drop");
+		});
+		const original = harness.commandForTab.getMockImplementation()!;
+		harness.commandForTab.mockImplementation((id, command) =>
+			command.type === "set_subagent_subscription"
+				? Promise.reject(new Error("The link to the computer dropped"))
+				: original(id, command),
+		);
+		const unhandled: unknown[] = [];
+		const listen = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", listen);
+		try {
+			await act(async () => {
+				await hydrateTabSession("t-drop");
+			});
+			await new Promise(resolve => setTimeout(resolve, 0));
+		} finally {
+			process.off("unhandledRejection", listen);
+		}
+		expect(harness.commandForTab.mock.calls.some(([, command]) => command.type === "set_subagent_subscription")).toBe(
+			true,
+		);
+		expect(unhandled).toEqual([]);
+	});
+});
+
 describe("useRpcEvents snapshot churn", () => {
 	/** Mount on a settled tab, then park every later get_state until the test answers it. */
 	async function holdNextState(tabId: string) {

@@ -1584,7 +1584,8 @@ export function useSessionTabs(): void {
 			const tab = state.tabs.find(entry => entry.id === payload.tabId);
 			if (visibleTabIds(state).includes(payload.tabId)) {
 				const runtime = ensureTabRuntime(payload.tabId);
-				void runtime.command({ type: "set_subagent_subscription", level: "progress" });
+				// Best effort, as hydration's: a call a dropped link failed is asked again by the next ready or hydrate.
+				void runtime.command({ type: "set_subagent_subscription", level: "progress" }).catch(() => undefined);
 				if (!tab?.pendingSessionPath && previousStatus !== "ready" && previousStatus !== "running") {
 					// Light TAB_STATUS is registered before the full active-tab channel.
 					// If ready raced SET_ACTIVE_TAB, the full ready event was already

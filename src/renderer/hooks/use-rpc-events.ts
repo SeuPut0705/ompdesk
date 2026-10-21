@@ -820,7 +820,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 									useSettingsStore.getState().syncApproval(),
 								]);
 							}
-							void command({ type: "set_subagent_subscription", level: "progress" });
+							void command({ type: "set_subagent_subscription", level: "progress" }).catch(() => undefined);
 						}
 					} catch {
 						if (!isCurrent()) return;

@@ -223,7 +223,9 @@ async function rig(
 	const browser = await chromium.launch();
 	const phone = await (await browser.newContext({ ...devices["Pixel 7"], colorScheme: "light" })).newPage();
 	const phoneErrors: string[] = [];
-	phone.on("pageerror", error => phoneErrors.push(error.message));
+	// The stack, not only the message: a call the dropped link failed reads "The link to the computer dropped" whoever
+	// made it, and under load three of them once failed the relaunch step with nothing naming their callers.
+	phone.on("pageerror", error => phoneErrors.push(error.stack ?? error.message));
 	await phone.goto(`${proxy.url}/`);
 	await phonePaired(phone);
 	return {

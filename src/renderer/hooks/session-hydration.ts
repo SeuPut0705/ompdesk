@@ -564,8 +564,8 @@ function commitHydration({
 		// sidecar. Tabs that report ready while active also subscribe via the
 		// status handlers — this covers tabs that booted or settled in the
 		// background, whose frames would otherwise stay silent on return.
-		// Idempotent server-side.
-		void command({ type: "set_subagent_subscription", level: "progress" });
+		// Idempotent server-side. Best effort: a call a dropped link failed is asked again by the next hydrate.
+		void command({ type: "set_subagent_subscription", level: "progress" }).catch(() => undefined);
 	} else if (focusUnchanged && wire != null) {
 		const selection = model?.getState();
 		applyEventlessState(
