@@ -865,7 +865,7 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 	"1h TTL where the provider supports it; pricier writes, only warmed during active runs":
 		"프로바이더가 지원하면 1시간 TTL이에요. 쓰기 비용이 더 높고 실행 중에만 예열해요",
 	"Longer TTL where supported (Anthropic/Bedrock 1h, OpenAI GPT-5.6+ Responses 12h); pricier writes, only warmed during active runs":
-		"지원하는 곳에서는 TTL이 더 길어요 (Anthropic/Bedrock 1시간, OpenAI GPT-5.6+ Responses 12시간). 쓰기 비용이 더 높고 실행 중에만 예열해요",
+		"지원하는 곳에서 더 긴 TTL을 써요 (Anthropic/Bedrock 1시간, OpenAI GPT-5.6+ Responses 12시간). 쓰기 비용이 더 높고 실행 중에만 예열해요",
 	"Disable cache warming": "캐시 예열 끄기",
 	Streaming: "실행 중",
 	"Protect expensive prefixes during long tool executions; stops when the agent settles":

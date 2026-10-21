@@ -61,6 +61,7 @@ import {
 	type SessionTab,
 	settleTabExtensionUiRequests,
 	settleTabPlanApproval,
+	steppingFromTabId,
 	tabChipLabel,
 	tabDisplayTitle,
 	useSessionTabs,
@@ -867,6 +868,29 @@ describe("tabs store switch", () => {
 			expect(useSessionStore.getState().isStreaming).toBe(false);
 			// …from a fetch begun after the route attached: the early one could miss events.
 			expect(omp.rpc.getTranscriptPage).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("steps from the tab a switch is on its way to while that tab's present loads", async () => {
+		seedTabs();
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+		vi.useFakeTimers();
+		try {
+			const gate = Promise.withResolvers<RpcResponse>();
+			omp.rpc.getTranscriptPage.mockReturnValueOnce(gate.promise);
+			const switching = useTabsStore.getState().switchTab("t1");
+			await vi.advanceTimersByTimeAsync(0);
+			// t0 is still shown; a second ⇧⌘] must start from t1, not land on t1 again.
+			expect(useTabsStore.getState().activeTabId).toBe("t0");
+			expect(steppingFromTabId(useTabsStore.getState())).toBe("t1");
+			gate.resolve(ok({ messages: [] }));
+			await vi.advanceTimersByTimeAsync(100);
+			await switching;
+			expect(steppingFromTabId(useTabsStore.getState())).toBe("t1");
+			await useTabsStore.getState().switchTab("t2");
+			expect(steppingFromTabId(useTabsStore.getState())).toBe("t2");
 		} finally {
 			vi.useRealTimers();
 		}

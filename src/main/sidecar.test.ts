@@ -1169,5 +1169,55 @@ describe("SidecarManager", () => {
 				}
 			},
 		);
+
+		it.skipIf(process.platform !== "win32")(
+			"reports the omp exited only once the omp itself is gone, not its shim, when taskkill fails",
+			async () => {
+				const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-late-"));
+				const pidPath = path.join(tempDir, "pid");
+				const binaryPath = await writeFakeOmp(
+					tempDir,
+					[
+						'import * as fs from "node:fs";',
+						`fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+						// The graceful shutdown of a real omp: it still writes its session file after stdin ended.
+						'process.stdin.on("end", () => setTimeout(() => process.exit(0), 1500));',
+						'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+						"process.stdin.resume();",
+						"setInterval(() => {}, 1000);",
+					].join("\n"),
+				);
+				const fakeBin = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-taskkill-"));
+				await fs.copyFile(
+					path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "ping.exe"),
+					path.join(fakeBin, "taskkill.exe"),
+				);
+				const realPath = process.env.PATH;
+				process.env.PATH = `${fakeBin}${path.delimiter}${realPath}`;
+				const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+				try {
+					const ready = waitForReady(sidecar);
+					sidecar.start();
+					await ready;
+					const pid = Number(await fs.readFile(pidPath, "utf8"));
+					const exited = sidecar.whenExited();
+					sidecar.dispose();
+					await exited;
+					const running = (() => {
+						try {
+							process.kill(pid, 0);
+							return true;
+						} catch {
+							return false;
+						}
+					})();
+					expect(running).toBe(false);
+				} finally {
+					process.env.PATH = realPath;
+					await fs.rm(fakeBin, RM_TEMP);
+					await fs.rm(tempDir, RM_TEMP);
+				}
+			},
+		);
 	});
 });

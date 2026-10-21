@@ -59,4 +59,23 @@ describe("waitForActiveTab", () => {
 		settleTabRoute("b");
 		expect(ran).toEqual(["w"]);
 	});
+
+	it("runs a held key only after the key before it has moved the tab and its route landed", () => {
+		// ⇧⌘] pressed twice during a route: each step starts where the one before it went (runtime.e2e under load
+		// lost steps when the second ran on the tab both saw).
+		beginTabRoute("a", "b");
+		const ran: string[] = [];
+		const step = (from: string, to: string) => () => {
+			ran.push(`${from}>${to}`);
+			beginTabRoute(from, to);
+		};
+		waitForActiveTab(step("b", "c"));
+		waitForActiveTab(step("c", "d"));
+		settleTabRoute("b");
+		expect(ran).toEqual(["b>c"]);
+		settleTabRoute("c");
+		expect(ran).toEqual(["b>c", "c>d"]);
+		settleTabRoute("d");
+		expect(waitForActiveTab(() => ran.push("now"))).toBe(false);
+	});
 });
