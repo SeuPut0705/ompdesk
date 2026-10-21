@@ -13,6 +13,7 @@
 | Pull request features don't work | Open a Git repository, then sign in under **Settings › General › GitHub account** (or check that `gh auth status` shows you signed in). |
 | A task stopped after the computer slept or the network dropped | OMPdesk waits for the connection and retries by itself. Press **Cancel** to stop waiting. |
 | Computer use asked for permission on macOS | Computer use is on by default. Grant **Screen Recording** and **Accessibility** to OMPdesk in System Settings. Turn it off for a session with `/computer off`. |
+| A worktree folder of an agent or Autopilot session is gone, or the disk filled up | OMPdesk keeps the disk it fills in check by itself, once a day. Worktrees idle for 3 days lose only what tools make again (build output, installed dependencies). A worktree whose work already landed is removed; one with unlanded work, idle for 14 days with no tab open on it, is saved first: its changes as commits on an `ompdesk/saved/…` branch, files git does not keep (such as an edited `.env`) in a private archive. On Windows, which cannot tell whether a program still works in a folder, only worktrees whose work landed are removed. **Saved worktrees** in the **Work tree** view (command palette, or the last row of the work board's **Child sessions**) puts one back with **Restore**. **Settings › Updates & about › This computer › Disk** shows what is in use and has **Clean up**. |
 
 ## Install by hand
 

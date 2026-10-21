@@ -24,7 +24,7 @@ If you hit GitHub's rate limit often, you can **optionally** give the app a toke
 
 ## omp
 
-omp updates itself. While OMPdesk is open it checks npm's latest `@oh-my-pi/pi-coding-agent` at launch and every 4 hours, and runs `omp update` in the background when there is something newer.
+omp updates itself. While OMPdesk is open it asks `omp update --check` at launch and every 4 hours, and runs `omp update` in the background when there is something newer. Both follow how you installed omp (Bun, npm, Homebrew, mise or the standalone build) and your registry settings, and update the omp OMPdesk runs, never another copy earlier on your `PATH`.
 
 - **Your work is not interrupted.** A running omp keeps the code it already loaded. Idle tabs restart on the new omp right away; busy tabs restart after their task finishes. Session history and drafts stay.
 - **A quiet notice.** One "omp updated" notification when it finishes. If the new omp lacks a feature OMPdesk uses, a warning names the feature.
