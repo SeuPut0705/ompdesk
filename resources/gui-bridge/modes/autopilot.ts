@@ -75,6 +75,7 @@ import {
 	isDuplicateTitle,
 	type JournalEntry,
 	type LiveCycle,
+	lastRunRelease,
 	lastStateEntry,
 	mergeSettings,
 	nextStateEntry,
@@ -759,7 +760,6 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				hasProcedure: Boolean(state.releaseProcedure),
 				releaseInFlight: state.inFlight?.kind === "release",
 				clean: await gitClean(state.root),
-				now: now(),
 			});
 			if (!check.ok) return toolText({ due: false, reason: check.reason });
 			current.proposed = true;
@@ -769,9 +769,11 @@ async function runTool(session: Session, params: Record<string, unknown>, kind: 
 				appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
 			}
 			publish(session);
+			const last = lastRunRelease(records, now());
 			return toolText({
 				due: true,
-				next: "Run the repository's release procedure as this cycle's item (area release) and report it in end.",
+				...(last ? { lastRelease: last } : {}),
+				next: `${last ? `This run last released ${last.version} ${last.minutesAgo} minutes ago (cycle ${last.cycle}). ` : ""}Check the repository's release cadence first (its Release section and rules: how often, and what may ship at once). If a release is not due by it, release nothing and pick another item this cycle. If it is, run the repository's release procedure as this cycle's item (area release) and report it in end.`,
 			});
 		}
 		default:

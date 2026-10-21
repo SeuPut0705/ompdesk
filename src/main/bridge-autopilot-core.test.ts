@@ -34,6 +34,7 @@ import {
 	isDuplicateTitle,
 	isRedCycle,
 	type JournalEntry,
+	lastRunRelease,
 	lastStateEntry,
 	limitReached,
 	mergeSettings,
@@ -44,7 +45,6 @@ import {
 	pendingNotes,
 	pendingShipRequests,
 	proposeReleaseCheck,
-	RELEASE_MIN_GAP_MS,
 	realUserText,
 	redStreak,
 	rotation,
@@ -286,18 +286,23 @@ describe("releases", () => {
 		expect(dueForRelease(facts(seq(GREEN), { policy: agent, proposed: true }))).toBe(true);
 		expect(dueForRelease(facts(seq(RED), { policy: agent, proposed: true }))).toBe(false);
 	});
-	it("proposeReleaseCheck: no second release within hours of the run's last one", () => {
-		// A run released three times in one afternoon because nothing told the agent how long ago the last release was.
+	it("lastRunRelease: the run's last green release and how long ago it ended, never a refusal", () => {
+		// Context for the agent's cadence judgment (a run released three times in one afternoon without it); the
+		// project's own Release section decides, so a hotfix can still ship at once.
 		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };
 		const hour = 3_600_000;
 		const released = rec({ n: 1, area: "release", verify: "green", startedAt: 0, durationMs: hour / 2 });
 		released.ship = { kind: "release", version: "1.2.3" };
-		const records = [released, rec({ n: 2, verify: "green", commit: "abc", startedAt: hour, durationMs: 60_000 })];
-		expect(proposeReleaseCheck(records, { ...ok, now: 2 * hour })).toMatchObject({
-			ok: false,
-			reason: expect.stringContaining("1.2.3"),
-		});
-		expect(proposeReleaseCheck(records, { ...ok, now: RELEASE_MIN_GAP_MS + hour })).toEqual({ ok: true });
+		const failed = rec({ n: 2, area: "release", verify: "red", startedAt: hour, durationMs: 60_000 });
+		failed.ship = { kind: "release", version: "1.2.4" };
+		const records = [
+			released,
+			failed,
+			rec({ n: 3, verify: "green", commit: "abc", startedAt: hour, durationMs: 60_000 }),
+		];
+		expect(lastRunRelease(records, 2 * hour)).toEqual({ version: "1.2.3", cycle: 1, minutesAgo: 90 });
+		expect(lastRunRelease(seq(GREEN), 2 * hour)).toBeUndefined();
+		expect(proposeReleaseCheck(records, ok)).toEqual({ ok: true });
 	});
 	it("proposeReleaseCheck: every precondition", () => {
 		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };
