@@ -19,7 +19,12 @@ async function openSettings(page: Page, section: string): Promise<void> {
 for (const theme of ["light", "dark"] as const satisfies readonly Theme[])
 	test(`static shots (${theme})`, async () => {
 		const suffix = theme === "light" ? "" : "-dark";
-		const profile = await makeProfile({ name: `statics-${theme}`, theme });
+		// A neutral device name: the default is this computer's own name.
+		const profile = await makeProfile({
+			name: `statics-${theme}`,
+			theme,
+			prefs: { remote: { deviceName: "Studio Mac" } },
+		});
 		const { app, page } = await launch(profile, 1440, 900);
 		try {
 			const tabId = (await tabs(page)).find(tab => tab.active)?.tabId ?? "";

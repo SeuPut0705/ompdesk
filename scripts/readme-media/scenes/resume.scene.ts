@@ -1,6 +1,6 @@
 /**
  * Quit → relaunch → resume: a turn is running, the app quits (⌘Q), and the next launch continues the turn on its
- * own with the "Continuing 1 interrupted task" notice. The fake omp's `restore_interrupted` answers the resumed turn.
+ * own, its tab showing the "Continuing where it left off…" row. The fake omp's `restore_interrupted` answers it.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -52,7 +52,7 @@ test("quit, relaunch, resume", async () => {
 		current = second.app;
 		await recorder.attach(second.page);
 		await caption(second.page, "Open OMPdesk again");
-		await expect(second.page.getByText("Continuing 1 interrupted task")).toBeVisible({ timeout: 30_000 });
+		await expect(second.page.locator("[data-resuming]")).toHaveCount(1, { timeout: 30_000 });
 		await caption(second.page, null);
 		await expect(second.page.getByText("Continued after the interruption.")).toBeVisible({ timeout: 30_000 });
 		await second.page.waitForTimeout(2_200);

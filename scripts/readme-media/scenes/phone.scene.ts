@@ -95,10 +95,9 @@ test("phone steer and push opt-in", async () => {
 		await page.waitForTimeout(900);
 		await page.getByText("Devices & connections").first().tap();
 		await page.waitForTimeout(900);
-		await expect(page.getByText("Notifications on this device")).toBeVisible({ timeout: 15_000 });
-		await page
-			.getByText("Notifications on this device")
-			.evaluate(element => element.scrollIntoView({ block: "center", behavior: "smooth" }));
+		const notifications = page.locator("[data-web-device-section]");
+		await expect(notifications).toBeVisible({ timeout: 15_000 });
+		await notifications.evaluate(element => element.scrollIntoView({ block: "start", behavior: "smooth" }));
 		await page.waitForTimeout(1_200);
 		await page.waitForTimeout(2_800);
 		await recorder.finish({ width: WIDTH * 2 });
