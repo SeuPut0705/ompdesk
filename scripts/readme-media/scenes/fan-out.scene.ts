@@ -1,8 +1,9 @@
 /**
  * Fan-out → compare → merge: the main agent opens three worktree sessions with the OMPdesk control tools, each child
- * commits its approach, the agent compares the branches, and the work board's review queue lists them: one is
- * approved (merged into the checkout, nothing pushed), one is discarded. Git is real, in the temp repository; the
- * children's commits are made by the script, standing in for what a real child does (as in `e2e/agent-review.e2e.ts`).
+ * commits its approach, the work board's Child sessions section lists them, and the agent compares the branches,
+ * merges the winner itself (`ompdesk_merge`: a merge commit in the checkout, nothing pushed) and closes one it
+ * rejected (`ompdesk_session_stop`). Git is real, in the temp repository; the children's commits are made by the script,
+ * standing in for what a real child does (as in `e2e/agent-review.e2e.ts`).
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -97,32 +98,24 @@ test("fan-out, compare, merge", async () => {
 			{ op: "end", id: "compare", text: "Three branches, one commit each. Compare runs no tests." },
 			main,
 		);
-		const review = page.locator('[data-board-section="review"]');
-		await expect(review).toBeVisible({ timeout: 30_000 });
-		await expect(review.locator("[data-review-child]")).toHaveCount(3);
-		await page.waitForTimeout(2_800);
+		const opened = page.locator('[data-board-section="opened"] [data-board-opened]');
+		await expect(opened).toHaveCount(3, { timeout: 30_000 });
+		await page.waitForTimeout(2_400);
 
-		// Approve the first on the board: the click merges it into the checkout.
+		// The agent lands the winner itself and closes the approach it rejected.
 		const first = children[0];
 		const third = children[2];
 		if (!first || !third) throw new Error("expected three children");
-		await review.locator(`[data-review-child="${first.tabId}"]`).getByRole("button", { name: "Approve" }).click();
-		await expect(review.locator("[data-review-child]")).toHaveCount(2, { timeout: 30_000 });
-		await expect(page.getByText("Merged the work of").first()).toBeVisible();
-		await page.waitForTimeout(2_200);
-		// Discard the third: two clicks, its session, worktree and branch go.
-		await review.locator(`[data-review-child="${third.tabId}"]`).getByRole("button", { name: "Discard" }).click();
-		await page.waitForTimeout(700);
-		await review
-			.locator(`[data-review-child="${third.tabId}"]`)
-			.getByRole("button", { name: "Discard for good?" })
-			.click();
-		await expect(review.locator("[data-review-child]")).toHaveCount(1, { timeout: 30_000 });
+		await call("merge", "ompdesk_merge", { session: first.tabId }, main);
+		await flow(page, { op: "end", id: "merge", text: "Merged Approach A into main. Nothing was pushed." }, main);
+		await page.waitForTimeout(1_800);
+		await call("stop", "ompdesk_session_stop", { session: third.tabId, close: true }, main);
+		await flow(page, { op: "end", id: "stop", text: "Closed Approach C." }, main);
 		await flow(
 			page,
 			{
 				op: "reply",
-				text: "Approach A is merged into main (nothing was pushed). Approach B is still waiting for your review; C was discarded.",
+				text: "Approach A is merged into main (nothing was pushed). Approach B stays open for another look; C is closed.",
 			},
 			main,
 		);
