@@ -61,10 +61,14 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	const projects: SidebarProject[] = [];
 	for (const entry of Array.isArray(record.projects) ? record.projects : []) {
 		if (!entry || typeof entry !== "object") continue;
-		const { path, addedAt } = entry as Record<string, unknown>;
+		const { path, addedAt, missing } = entry as Record<string, unknown>;
 		if (typeof path !== "string" || path.length === 0 || seen.has(path)) continue;
 		seen.add(path);
-		projects.push({ path, addedAt: typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : 0 });
+		projects.push({
+			path,
+			addedAt: typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : 0,
+			...(missing === true ? { missing: true as const } : {}),
+		});
 	}
 	const removed = [
 		...new Set(

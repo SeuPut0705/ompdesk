@@ -13,6 +13,7 @@ import type {
 	RpcSessionState,
 	SessionStats,
 } from "../../shared/rpc-types";
+import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import { BOARD_BUSY, boardTurnMessages, CHILDREN_WAIT } from "./fixture-board";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
@@ -86,6 +87,32 @@ export const sessionsFixture = (): SessionInfo[] =>
 		status: seed.status,
 		firstMessage: seed.title,
 	}));
+
+/**
+ * This computer's project list (src/main/sidebar-projects.ts): the session folders, and with `?projects=1` an empty
+ * project the person just opened and one whose folder is gone, as the sidebar shows them.
+ */
+export const projectsFixture = (): SidebarProjectsState => {
+	const extra =
+		typeof location !== "undefined" && new URLSearchParams(location.search).get("projects") === "1"
+			? [
+					{ path: "/Users/dev/projects/api", addedAt: NOW },
+					{
+						path: "/Users/dev/projects/old-prototype",
+						addedAt: NOW - 30 * 24 * 60 * MINUTE,
+						missing: true as const,
+					},
+				]
+			: [];
+	return {
+		projects: [
+			{ path: PROJECT, addedAt: NOW - 3 * 60 * MINUTE },
+			{ path: OTHER_PROJECT, addedAt: NOW - 4 * 60 * MINUTE },
+			...extra,
+		],
+		removed: [],
+	};
+};
 
 export const MODEL = {
 	provider: "anthropic",

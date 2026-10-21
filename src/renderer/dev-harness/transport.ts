@@ -26,6 +26,7 @@ import {
 } from "../../shared/preview";
 import type { RpcCommand, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
+import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
 	ADVISOR_USAGE,
@@ -39,6 +40,7 @@ import {
 	PR_LIST,
 	PR_REPO,
 	PROVIDERS,
+	projectsFixture,
 	SESSION_STATS,
 	sessionsFixture,
 	stateFixture,
@@ -206,6 +208,18 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	let activeTabId = "tab-1";
 	const note = (key: string) => {
 		if (!unhandled.includes(key)) unhandled.push(key);
+	};
+	// This computer's project list, edited in place: Remove from sidebar takes a project out.
+	let projects = projectsFixture();
+	const harnessProjects = (request: SidebarProjectsRequest) => {
+		if (request.action === "remove")
+			projects = {
+				projects: projects.projects.filter(entry => entry.path !== request.path),
+				removed: [...projects.removed, request.path],
+			};
+		if (request.action === "add" && !projects.projects.some(entry => entry.path === request.path))
+			projects = { projects: [...projects.projects, { path: request.path, addedAt: Date.now() }], removed: [] };
+		return projects;
 	};
 
 	const respond = (command: RpcCommand, data: unknown = {}) => ({
@@ -415,6 +429,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return REMOTE_STATE;
 			case SCHEDULES_COMMAND:
 				return SCHEDULES_STATE;
+			case SIDEBAR_PROJECTS_COMMAND:
+				return harnessProjects(payload as SidebarProjectsRequest);
 			case SCHEDULES_LOG:
 				return SCHEDULE_LOG;
 			case MOBILE_WEB_GET_STATE:

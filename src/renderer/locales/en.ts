@@ -127,6 +127,9 @@ export const en: Record<string, string> = {
 	"sidebar.menu.restoreAll": "Restore all",
 	"sidebar.menu.deleteArchived": "Delete all archived",
 	"sidebar.archiveAllNone": "Every session here is open in a tab",
+	"sidebar.menu.removeProject": "Remove from sidebar",
+	"sidebar.removeProjectFailed": "Couldn't remove the project from the sidebar",
+	"sidebar.project.missing": "Folder not found",
 	"sidebar.archiveOpenTab": "Close its tab first to archive it",
 	"sidebar.archived": "Archived ({count})",
 	"sidebar.archivedMenu": "Archived actions",
@@ -848,7 +851,7 @@ export const en: Record<string, string> = {
 	"sidebar.renameFailed": "Couldn't rename session",
 	"sidebar.deleteGroupConfirm": "Delete project sessions?",
 	"sidebar.deleteGroupMessage":
-		'Close the open tabs of the project "{name}" and remove it with all {count} of its sessions from the list.',
+		'Close the open tabs of the project "{name}" and delete all {count} of its sessions. The project stays in the sidebar.',
 	"sidebar.deleteGroupWarning": "This permanently deletes the session files. It cannot be undone.",
 	"sidebar.loading": "Loading sessions…",
 	"sidebar.loadFailed": "Couldn't load sessions",

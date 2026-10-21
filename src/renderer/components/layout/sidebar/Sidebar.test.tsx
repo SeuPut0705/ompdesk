@@ -16,10 +16,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { wrapAgentMessage } from "../../../../shared/agent-control";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
+import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
+import { resetLastReadForTest } from "../../../lib/last-read";
 import { LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
@@ -34,6 +36,7 @@ import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { useSidebarProjects } from "../../../stores/sidebar-projects";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import type { SubagentsStore } from "../../../stores/subagents";
 import { ensureTabRuntime } from "../../../stores/tab-runtime";
@@ -98,6 +101,12 @@ interface MockOmp {
 		revealPath: Mock<(path: string) => Promise<{ ok: boolean }>>;
 	};
 	rpc: Record<string, Mock<(...args: unknown[]) => Promise<unknown>>>;
+	/** This computer's project list as main keeps it (src/main/sidebar-projects.ts), per device. */
+	sidebarProjects: {
+		lists: Record<string, SidebarProjectsState>;
+		command: Mock<(request: SidebarProjectsRequest, device?: string) => Promise<SidebarProjectsState>>;
+		onState: Mock<() => () => void>;
+	};
 }
 
 function installMockOmp(sessionList: SessionInfo[]): MockOmp {
@@ -151,6 +160,26 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 				return (target as Record<string | symbol, unknown>)[prop];
 			},
 		}),
+		sidebarProjects: {
+			lists: {},
+			command: vi.fn(async (request, device) => {
+				const lists = omp.sidebarProjects.lists;
+				const key = device ?? "local";
+				const list = lists[key] ?? { projects: [], removed: [] };
+				if (request.action === "add" && !list.projects.some(entry => entry.path === request.path))
+					lists[key] = {
+						projects: [...list.projects, { path: request.path, addedAt: 1 }],
+						removed: list.removed.filter(entry => entry !== request.path),
+					};
+				if (request.action === "remove")
+					lists[key] = {
+						projects: list.projects.filter(entry => entry.path !== request.path),
+						removed: [...list.removed, request.path],
+					};
+				return lists[key] ?? list;
+			}),
+			onState: vi.fn(() => () => {}),
+		},
 	};
 	(window as unknown as { omp: MockOmp }).omp = omp;
 	return omp;
@@ -277,6 +306,8 @@ afterEach(async () => {
 		reveal: null,
 	});
 	useSidebarPrefs.getState().reset();
+	useSidebarProjects.getState().reset();
+	resetLastReadForTest();
 	useSidebarFolds.getState().reset();
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
@@ -941,8 +972,9 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels.some(label => label.includes("Move down"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
 		expect(labels.some(label => label.includes("Archive all"))).toBe(true);
+		expect(labels.some(label => label.includes("Remove from sidebar"))).toBe(true);
 		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(8);
+		expect(labels).toHaveLength(9);
 	});
 
 	it("each project header offers + in place of a count, and Move moves the project", async () => {
@@ -1522,8 +1554,16 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rows.some(text => text.includes("/work/alpha/one"))).toBe(false);
 	});
 
-	it("closes the project's tabs and deletes its sessions so the project leaves the list", async () => {
+	it("closes the project's tabs and deletes its sessions; the project stays listed, empty", async () => {
 		const omp = installMockOmp(LIST);
+		// Main lists every folder sessions ran in (src/main/sidebar-projects.ts).
+		omp.sidebarProjects.lists.local = {
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 1 },
+			],
+			removed: [],
+		};
 		const deleted = new Set<string>();
 		omp.sessions.delete.mockImplementation(async (path: string) => {
 			deleted.add(path);
@@ -1561,7 +1601,71 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
-		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();
+		// The project and its sessions are two things: the folder keeps its header, with + and no rows.
+		const kept = container.querySelector('[data-workspace-group="/work/alpha"]');
+		expect(kept).not.toBeNull();
+		expect(kept?.querySelector("[data-sidebar-group-new]")).not.toBeNull();
+		expect(container.querySelectorAll('[data-session-path^="/work/alpha/"]')).toHaveLength(0);
+	});
+
+	it("lists a project with no session, and Remove from sidebar takes it out without deleting anything", async () => {
+		const omp = installMockOmp(LIST);
+		omp.sidebarProjects.lists.local = {
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 1 },
+				{ path: "/work/empty", addedAt: Date.parse("2026-01-05T00:00:00Z") },
+			],
+			removed: [],
+		};
+		seedStores();
+		await mount(<Sidebar />);
+
+		const header = () => container.querySelector('[data-workspace-group="/work/empty"]');
+		expect(header()?.textContent).toContain("empty");
+		// Newest by when it entered the list: above beta and alpha, whose sessions are older.
+		const order = [...container.querySelectorAll("[data-workspace-group]")].map(group =>
+			group.getAttribute("data-workspace-group"),
+		);
+		expect(order.slice(0, 3)).toEqual(["/work/empty", "/work/beta", "/work/alpha"]);
+
+		// Removing a project that still has sessions takes them off the sidebar too; nothing is deleted.
+		for (const cwd of ["/work/empty", "/work/beta"]) {
+			await fire(container.querySelector(`[data-workspace-group="${cwd}"]`), "onContextMenu");
+			await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+			expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "remove", path: cwd }, undefined);
+			expect(container.querySelector(`[data-workspace-group="${cwd}"]`)).toBeNull();
+		}
+		expect(container.querySelector('[data-session-path="/work/beta/three.jsonl"]')).toBeNull();
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).not.toBeNull();
+	});
+
+	it("dims a project whose folder is gone and keeps offering Remove", async () => {
+		const omp = installMockOmp([]);
+		omp.sidebarProjects.lists.local = { projects: [{ path: "/work/gone", addedAt: 1, missing: true }], removed: [] };
+		seedStores();
+		await mount(<Sidebar />);
+
+		const header = container.querySelector('[data-workspace-group="/work/gone"]');
+		expect(header?.getAttribute("data-project-missing")).toBe("");
+		expect(header?.textContent).toContain(translate("sidebar.project.missing"));
+		expect(header?.querySelector("[data-sidebar-group-new]")?.getAttribute("disabled")).not.toBeNull();
+		await fire(header, "onContextMenu");
+		expect(menuItemLabels()).toContain(translate("sidebar.menu.removeProject"));
+	});
+
+	it("adds the folder of a session started in it to the project list", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+		omp.tabs.spawn.mockResolvedValueOnce({ tabId: "t-new", cwd: "/work/fresh" });
+		await act(async () => {
+			await useTabsStore.getState().openTab({ cwd: "/work/fresh" });
+		});
+		await flush();
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "add", path: "/work/fresh" }, undefined);
+		expect(container.querySelector('[data-workspace-group="/work/fresh"]')).not.toBeNull();
 	});
 
 	it("marks a fork the way stock's resume list does, naming the session it came from", async () => {
@@ -2668,6 +2772,38 @@ describe("Sidebar device sections", () => {
 		// ⌄ folds the host away.
 		await fire(section?.querySelector("[data-sidebar-device-toggle]") ?? null, "onClick");
 		expect(section?.querySelector("[data-device-group]")).toBeNull();
+	});
+
+	it("shows the host's own project list, empty projects too, and removes one there", async () => {
+		const omp = installWithRemote();
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [
+				{ path: "/Users/kim/code/app", addedAt: 1 },
+				{ path: "/Users/kim/code/empty", addedAt: 2 },
+			],
+			removed: [],
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		// The host's list, read over the link: an empty project there keeps its header here.
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "get" }, "dev-studio");
+		const empty = section?.querySelector('[data-device-group="/Users/kim/code/empty"]');
+		expect(empty?.textContent).toContain("empty");
+		expect(empty?.querySelector("[data-device-session]")).toBeNull();
+		// This computer's own list never shows the host's project.
+		expect(container.querySelector('[data-workspace-group="/Users/kim/code/empty"]')).toBeNull();
+
+		await fire(empty?.querySelector(".group\\/head") ?? null, "onContextMenu");
+		await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith(
+			{ action: "remove", path: "/Users/kim/code/empty" },
+			"dev-studio",
+		);
+		expect(section?.querySelector('[data-device-group="/Users/kim/code/empty"]')).toBeNull();
+		expect(omp.sidebarProjects.lists["dev-studio"]?.removed).toEqual(["/Users/kim/code/empty"]);
 	});
 
 	it("shows an offline host as one offline line with no sessions", async () => {

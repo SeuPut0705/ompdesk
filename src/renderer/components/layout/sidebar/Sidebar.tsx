@@ -23,6 +23,7 @@ import {
 	FileArchive,
 	Folder,
 	FolderInput,
+	FolderMinus,
 	FolderOpen,
 	FolderPlus,
 	FolderSearch,
@@ -101,6 +102,7 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
@@ -175,6 +177,10 @@ interface WorkspaceGroup {
 	sessions: SidebarSession[];
 	/** Sessions an agent opened that no opener row holds (closed, from before provenance, opener gone): listed only while they need a look. */
 	folded: SidebarSession[];
+	/** The project's folder is gone from disk: still listed, dimmed, until the person removes it. */
+	missing?: boolean;
+	/** In this computer's project list: shown with no session too. */
+	listed?: boolean;
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
@@ -600,6 +606,8 @@ export function Sidebar() {
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
+	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
+	const projectList = useProjectList();
 	const {
 		sessions,
 		isLoading,
@@ -990,7 +998,9 @@ export function Sidebar() {
 	// dragged, with projects they never placed on top by recency. A linked worktree's
 	// sessions (an Autopilot run, parallel work, a branch of the user's) are rows of
 	// their project's own group, never a group of their own; a project whose own folder
-	// has no session gets its group from them, named after the project.
+	// has no session gets its group from them, named after the project. Every project
+	// of the list has a group, sessions or none; a project the person removed has none
+	// (its sessions stay on disk), unless a tab holds one of them.
 	const allGroups = useMemo<WorkspaceGroup[]>(() => {
 		const byKey = new Map<string, Omit<WorkspaceGroup, "name" | "tooltip">>();
 		const groupFor = (key: string) => {
@@ -1011,23 +1021,22 @@ export function Sidebar() {
 				groupOfRoot.set(shown.root, session.cwd);
 		}
 		const keyOfRoot = (root: string) => groupOfRoot.get(root) ?? root;
+		const removed = new Set(projectList.removed);
+		const held = (session: SidebarSession) =>
+			session.liveTabId !== undefined || heldByTab.has(session.path) || heldByTab.has(session.id);
 		for (const session of codeSessions) {
 			// A discarded worktree's stored sessions go with it (the folder is gone; the session picker still finds them),
 			// unless a tab still holds the session: one of this window's or a paired device's tab here.
-			if (
-				projectName(session.cwd).gone &&
-				session.liveTabId === undefined &&
-				!heldByTab.has(session.path) &&
-				!heldByTab.has(session.id)
-			)
-				continue;
+			if (projectName(session.cwd).gone && !held(session)) continue;
 			// A session another session's agent opened lives in that session's family, whatever its folder.
 			if (familyRootOf.has(session.path)) continue;
 			// One no opener holds folds into its project's group, below.
 			if (foldedRootOf.has(session.path)) continue;
 			// An Autopilot child goes where its run goes.
 			const shown = projectName(runParentOf.get(session.path) ?? session.cwd);
-			const entry = groupFor(shown.worktree ? keyOfRoot(shown.root) : session.cwd);
+			const key = shown.worktree ? keyOfRoot(shown.root) : session.cwd;
+			if (removed.has(key) && !held(session)) continue;
+			const entry = groupFor(key);
 			if (!entry.members.includes(session.cwd)) entry.members.push(session.cwd);
 			entry.sessions.push(session);
 		}
@@ -1035,9 +1044,19 @@ export function Sidebar() {
 			const root = foldedRootOf.get(session.path);
 			if (root === undefined) continue;
 			const key = keyOfRoot(root);
+			if (removed.has(key) && !held(session)) continue;
 			const entry = groupFor(key);
 			if (!entry.members.includes(key)) entry.members.push(key);
 			entry.folded.push(session);
+		}
+		const addedAt = new Map<string, number>();
+		const missing = new Set<string>();
+		for (const project of projectList.projects) {
+			const key = keyOfRoot(project.path);
+			addedAt.set(key, project.addedAt);
+			if (project.missing) missing.add(key);
+			const entry = groupFor(key);
+			if (!entry.members.includes(key)) entry.members.push(key);
 		}
 		const result: WorkspaceGroup[] = [...byKey.values()].map(entry => {
 			const shown = projectName(entry.cwd);
@@ -1061,12 +1080,16 @@ export function Sidebar() {
 				tooltip: shown.tooltip,
 				sessions,
 				folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
+				...(addedAt.has(entry.cwd) ? { listed: true } : {}),
+				...(missing.has(entry.cwd) ? { missing: true } : {}),
 			};
 		});
 		return orderProjects(result, {
 			pinned: pinnedGroups,
 			manual: groupOrder,
-			recency: group => Math.max(...[...group.sessions, ...group.folded].map(createdAt)),
+			// An empty project sorts by when it entered the list.
+			recency: group =>
+				Math.max(addedAt.get(group.cwd) ?? 0, ...[...group.sessions, ...group.folded].map(createdAt)),
 		});
 	}, [
 		codeSessions,
@@ -1079,6 +1102,7 @@ export function Sidebar() {
 		familyRootOf,
 		foldedRootOf,
 		heldByTab,
+		projectList,
 	]);
 	// A session matches when it does or when something it opened does: its family shows with it.
 	const matchesFamilyFilter = useCallback(
@@ -1094,11 +1118,13 @@ export function Sidebar() {
 							const named = group.name.toLocaleLowerCase().includes(query);
 							return {
 								...group,
+								named,
 								sessions: named ? group.sessions : group.sessions.filter(matchesFamilyFilter),
 								folded: named ? group.folded : group.folded.filter(matchesFilter),
 							};
 						})
-						.filter(group => group.sessions.length + group.folded.length > 0)
+						// A project whose own name matches stays, empty or not.
+						.filter(group => group.named || group.sessions.length + group.folded.length > 0)
 				: allGroups,
 		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
@@ -2003,10 +2029,10 @@ export function Sidebar() {
 				session => isSessionBusy(session) || (familyChildrenOf.get(session.path) ?? []).some(isSessionBusy),
 			);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
-		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a project
-		// with nothing else to show has no group at all.
+		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a group made
+		// only of those, with nothing to show, is not drawn. A project of the list is, empty or not.
 		const loose = group.folded.map(child => familyChildFor(child)).filter(isShownOpened);
-		if (group.sessions.length === 0 && loose.length === 0) return null;
+		if (!group.listed && group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
 				{dragHandle => (
@@ -2014,6 +2040,7 @@ export function Sidebar() {
 						<div
 							className="group/head relative flex h-8 cursor-default items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 							data-workspace-group={group.cwd}
+							data-project-missing={group.missing ? "" : undefined}
 							onContextMenu={event => setGroupMenu({ anchor: anchorFromEvent(event), group })}
 							{...dragHandle}
 						>
@@ -2050,7 +2077,11 @@ export function Sidebar() {
 									aria-expanded={!groupCollapsed}
 									className={cx(
 										"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
-										isCurrentProject ? "text-(--sc-text)" : "text-(--sc-text-muted)",
+										group.missing
+											? "text-(--sc-text-subtle)"
+											: isCurrentProject
+												? "text-(--sc-text)"
+												: "text-(--sc-text-muted)",
 									)}
 									data-roving-item={key}
 									onClick={() => toggleGroup(group)}
@@ -2068,7 +2099,7 @@ export function Sidebar() {
 										}
 									}}
 									tabIndex={tabIndex}
-									title={group.tooltip}
+									title={group.missing ? `${group.tooltip}\n${t("sidebar.project.missing")}` : group.tooltip}
 									type="button"
 								>
 									{groupCollapsed ? (
@@ -2082,6 +2113,7 @@ export function Sidebar() {
 										data-sidebar-workspace-icon
 									/>
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
+									{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
 									{pinned && (
 										<Pin
 											aria-label={t("sidebar.pinned")}
@@ -2113,6 +2145,7 @@ export function Sidebar() {
 									<IconButton
 										className="text-(--sc-text-subtle) hover:text-(--sc-text)"
 										data-sidebar-group-new={group.cwd}
+										disabled={group.missing}
 										icon={<Plus />}
 										label={t("sidebar.menu.newAgentHere")}
 										onClick={() => {
@@ -2586,6 +2619,15 @@ export function Sidebar() {
 										},
 									};
 								})(),
+								{
+									id: "group-remove",
+									label: t("sidebar.menu.removeProject"),
+									icon: FolderMinus,
+									onSelect: () => {
+										setGroupMenu(null);
+										void useSidebarProjects.getState().remove(undefined, groupMenu.group.cwd);
+									},
+								},
 								{
 									id: "group-delete",
 									separatorBefore: true,

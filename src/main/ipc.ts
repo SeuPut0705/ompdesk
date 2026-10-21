@@ -1787,6 +1787,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// the window record in sync (menu "New Window" reads cwd from it).
 		windowManager.setRecordCwd(win, cwd);
 		sidecar.restart(cwd);
+		// The folder the person picked is a project of the sidebar from now on (src/main/sidebar-projects.ts).
+		void deps.machine.sidebarProjects({ action: "add", path: cwd }).catch(() => undefined);
 		return cwd;
 	});
 
@@ -1807,6 +1809,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				return false;
 			}
 			target.sidecar.restart(cwd);
+			void machineFor(caller, target.device)
+				.sidebarProjects({ action: "add", path: cwd })
+				.catch(() => undefined);
 			return true;
 		}
 		try {
@@ -1818,6 +1823,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const win = caller.win;
 		if (win) windowManager.setRecordCwd(win, cwd);
 		target.sidecar.restart(cwd);
+		void deps.machine.sidebarProjects({ action: "add", path: cwd }).catch(() => undefined);
 		return true;
 	});
 

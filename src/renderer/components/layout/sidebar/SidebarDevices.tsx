@@ -12,6 +12,7 @@ import {
 	ChevronRight,
 	FileArchive,
 	Folder,
+	FolderMinus,
 	FolderOpen,
 	FolderPlus,
 	MessageCircle,
@@ -37,6 +38,7 @@ import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
+import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -271,6 +273,8 @@ function DeviceSessions({
 	// The host's own lane rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session
 	// opened there without a folder starts) sits in its Chat lane, so it does here too.
 	const hostWorkspace = useHostWorkspace(host.deviceId, read);
+	// The host's own project list: its empty projects show here too, and one removed there (or here) is gone from both.
+	const projectList = useProjectList(host.deviceId, read);
 
 	const rows = useMemo<DeviceSession[]>(() => {
 		// A file stock wrote before the first message is not a conversation yet (see Sidebar).
@@ -313,14 +317,38 @@ function DeviceSessions({
 
 	const groups = useMemo(() => {
 		if (mode === "chat") return [];
+		const removed = new Set(projectList.removed);
+		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, DeviceSession[]>();
 		for (const session of rows) {
+			// A project removed from the sidebar takes its sessions with it, unless a tab holds one.
+			if (
+				removed.has(session.cwd) &&
+				session.liveTabId === undefined &&
+				!held.has(session.path) &&
+				!held.has(session.id)
+			)
+				continue;
 			const list = byCwd.get(session.cwd) ?? [];
 			list.push(session);
 			byCwd.set(session.cwd, list);
 		}
-		return [...byCwd.entries()].map(([cwd, groupSessions]) => ({ cwd, sessions: groupSessions }));
-	}, [rows, mode]);
+		const result = [...byCwd.entries()].map(([cwd, groupSessions]) => ({
+			cwd,
+			sessions: groupSessions,
+			missing: false,
+		}));
+		const needle = query.toLocaleLowerCase();
+		// The list's projects with no session to show, newest first after the ones that have; a filter keeps one whose
+		// folder name matches.
+		for (const project of projectList.projects.toSorted((a, b) => b.addedAt - a.addedAt)) {
+			const shown = result.find(group => group.cwd === project.path);
+			if (shown) shown.missing = project.missing === true;
+			else if (!needle || project.path.toLocaleLowerCase().includes(needle))
+				result.push({ cwd: project.path, sessions: [], missing: project.missing === true });
+		}
+		return result;
+	}, [rows, mode, projectList, query, hostTabs]);
 
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
 		hostTabs.find(
@@ -504,7 +532,7 @@ function DeviceSessions({
 			</div>
 		);
 	}
-	if (rows.length === 0) {
+	if (rows.length === 0 && groups.length === 0) {
 		return (
 			<p className="px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)" data-device-empty>
 				{query ? t("sidebar.noMatch") : t("remote.sidebar.empty")}
@@ -561,18 +589,33 @@ function DeviceSessions({
 			{groups.map(group => {
 				const groupCollapsed = !query && deviceGroupFolds[deviceGroupKey(host.deviceId, group.cwd)] === true;
 				const FolderIcon = groupCollapsed ? Folder : FolderOpen;
+				const name = basename(group.cwd) || group.cwd;
+				const groupItems: ContextMenuItem[] = [
+					{
+						id: "remove",
+						label: t("sidebar.menu.removeProject"),
+						icon: FolderMinus,
+						onSelect: () => void useSidebarProjects.getState().remove(host.deviceId, group.cwd),
+					},
+				];
 				return (
-					<div data-device-group={group.cwd} key={group.cwd}>
-						<div className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
+					<div data-device-group={group.cwd} data-project-missing={group.missing ? "" : undefined} key={group.cwd}>
+						<div
+							className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+							onContextMenu={event => setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })}
+						>
 							<button
 								aria-expanded={!groupCollapsed}
-								className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+								className={cx(
+									"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+									group.missing ? "text-(--sc-text-subtle)" : "text-(--sc-text-muted)",
+								)}
 								data-roving-item={`device-group:${host.deviceId}:${group.cwd}`}
 								onClick={() =>
 									useSidebarFolds.getState().setDeviceGroupFolded(host.deviceId, group.cwd, !groupCollapsed)
 								}
 								tabIndex={-1}
-								title={group.cwd}
+								title={group.missing ? `${group.cwd}\n${t("sidebar.project.missing")}` : group.cwd}
 								type="button"
 							>
 								{groupCollapsed ? (
@@ -581,11 +624,24 @@ function DeviceSessions({
 									<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								)}
 								<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								<span className="min-w-0 flex-1 truncate">{basename(group.cwd) || group.cwd}</span>
+								<span className="min-w-0 flex-1 truncate">{name}</span>
+								{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
 							</button>
+							<IconButton
+								className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+								icon={<MoreHorizontal />}
+								label={t("sidebar.groupMenu")}
+								onClick={event => {
+									const rect = event.currentTarget.getBoundingClientRect();
+									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: groupItems, label: name });
+								}}
+								size="sm"
+								tabIndex={-1}
+							/>
 							<IconButton
 								className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
 								data-device-group-new={group.cwd}
+								disabled={group.missing}
 								icon={<Plus />}
 								label={t("sidebar.menu.newAgentHere")}
 								onClick={() => void onOpen({ cwd: group.cwd, kind: "agent" })}

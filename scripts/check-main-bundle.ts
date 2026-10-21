@@ -66,11 +66,14 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
  * gone folder: `openTab`'s folder-missing toast and its Restore re-open, and the session picker's gone mark that opens
  * such a row as a tab, 0.6 KB; 3.302 MB (3,302,253 on the merged main) with a pick of another folder's session opening
  * as its own tab instead of stock's refused in-place switch (`opensInOwnTab` in use-session-switch.ts, which the
- * sidebar and picker share), 0.9 KB): a build that grows past it fails,
+ * sidebar and picker share), 0.9 KB; 3.311 MB (3,310,352 on the merged main of v0.49.0; 6.6 KB over the 3.303 MB
+ * budget on its own base) with the sidebar's own project list: an empty or missing project's group, Remove from
+ * sidebar on this device's and each host's section, the list's store and its parse (`stores/sidebar-projects.ts`,
+ * `shared/sidebar-projects.ts`; the sidebar is the first screen)): a build that grows past it fails,
  * so the next eager import is a decision, not an accident. The language chunk the entries load before rendering is
  * not in it.
  */
-const WEB_FIRST_SCREEN_JS_BYTES = 3_303_000;
+const WEB_FIRST_SCREEN_JS_BYTES = 3_311_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
