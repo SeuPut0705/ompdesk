@@ -238,7 +238,19 @@ export class MemoryUpkeep {
 			// `_global` and the like are the profile's scope, written by the owner, never learned into.
 			if (project.project.startsWith("_")) continue;
 			const ref = { workspace: project.workspace, project: project.project };
-			for (const session of await this.#deps.client.sessions(ref, SCAN_SESSIONS)) {
+			// One project the server cannot read (a name it calls ambiguous) never keeps the others from being learned.
+			let sessions: AiMemorySession[];
+			try {
+				sessions = await this.#deps.client.sessions(ref, SCAN_SESSIONS);
+			} catch (error) {
+				this.#deps.log("failed", {
+					step: "learn-project",
+					project: `${ref.workspace}/${ref.project}`,
+					detail: error instanceof Error ? error.message : String(error),
+				});
+				continue;
+			}
+			for (const session of sessions) {
 				if (this.#seen.get(session.id) === session.observations && !this.#waiting.has(session.id)) continue;
 				const all = await this.#personPrompts(ref, session.id);
 				this.#seen.set(session.id, session.observations);

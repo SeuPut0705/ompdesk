@@ -141,7 +141,10 @@ async function loadPages(client: CurateClient): Promise<{ pages: CuratePage[]; p
 	let counted = 0;
 	const pages: CuratePage[] = [];
 	for (const project of projects) {
-		const refs = (await client.pages(project)).filter(ref => isDurablePath(ref.path)).slice(0, CURATE_MAX_PAGES);
+		// One project the server cannot list never keeps the others from being curated.
+		const listed = await client.pages(project).catch(() => null);
+		if (!listed) continue;
+		const refs = listed.filter(ref => isDurablePath(ref.path)).slice(0, CURATE_MAX_PAGES);
 		if (refs.length === 0) continue;
 		counted++;
 		const read = await readInBatches(refs, async ref => {

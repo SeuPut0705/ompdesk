@@ -164,6 +164,28 @@ describe("curateMemory", () => {
 		expect(report.costUsd).toBeCloseTo(0.001);
 	});
 
+	it("a project the server cannot list is left out; the others are still curated", async () => {
+		const { memory } = setup([OLD_CODE, NEW_TAILSCALE]);
+		const client = memory.client();
+		const listed = client.projects;
+		const pages = client.pages;
+		client.projects = async () => [
+			{ workspace: WS, project: "seuput0705-ompdesk", pages: 6, lastUpdated: null },
+			...(await listed()),
+		];
+		client.pages = async project => {
+			if (project.project === "seuput0705-ompdesk") throw new Error("project 'seuput0705-ompdesk' is ambiguous");
+			return pages(project);
+		};
+		await curateMemory({
+			client,
+			log: () => undefined,
+			now: () => new Date("2026-10-20T00:00:00Z"),
+			judge: says("a_outdated"),
+		});
+		expect(memory.retired.map(item => item.path)).toEqual([OLD_CODE.path]);
+	});
+
 	it("retires the newer page when the judge says the older one is the current truth", async () => {
 		const { memory, run } = setup([OLD_CODE, NEW_TAILSCALE]);
 		await run({ judge: says("b_outdated") });

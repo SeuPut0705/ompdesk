@@ -418,6 +418,26 @@ describe("MemoryUpkeep.tick", () => {
 		expect(messages).toHaveLength(1);
 	});
 
+	it("a project the server cannot read is logged and skipped; the others are still learned", async () => {
+		const { client } = fakeClient([{ id: "main-1", prompts: typed(8, UPKEEP_IDLE_MS + 1) }]);
+		const listed = client.projects;
+		const sessions = client.sessions;
+		const ambiguous = "project 'seuput0705-ompdesk' is ambiguous in workspace 'default'";
+		client.projects = async () => [
+			{ workspace: "default", project: "seuput0705-ompdesk", pages: 6, lastUpdated: null },
+			...(await listed()),
+		];
+		client.sessions = async (project, limit) => {
+			if (project.project === "seuput0705-ompdesk") throw new Error(ambiguous);
+			return sessions(project, limit);
+		};
+		expect(await upkeep(client).tick()).toMatchObject({ ran: true, session: "main-1" });
+		expect(logs[0]).toEqual({
+			message: "failed",
+			details: { step: "learn-project", project: "default/seuput0705-ompdesk", detail: ambiguous },
+		});
+	});
+
 	it("a conversation still going is picked up once its person has been quiet long enough", async () => {
 		const { client } = fakeClient([{ id: "live", prompts: typed(9, 60_000) }]);
 		const worker = upkeep(client);

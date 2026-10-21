@@ -96,7 +96,14 @@ export function careUnits(deps: CareUnitsDeps): CareUnit[] {
 				>;
 				memo.flagged = flagged;
 				for (const project of await client.projects()) {
-					await checkFreshness({ client, project, log: deps.log, flagged });
+					// One project the server cannot read never keeps the others from being checked.
+					await checkFreshness({ client, project, log: deps.log, flagged }).catch((error: unknown) =>
+						deps.log("care-skipped", {
+							unit: "fresh",
+							project: `${project.workspace}/${project.project}`,
+							detail: error instanceof Error ? error.message : String(error),
+						}),
+					);
 				}
 				return { done: true };
 			},
