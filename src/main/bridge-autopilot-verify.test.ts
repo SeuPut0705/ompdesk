@@ -146,6 +146,17 @@ describe("judgeVerify", () => {
 		expect(judgeVerify({ claimed: "skipped", changed: true, calls: [] }).verify).toBe("skipped");
 		expect(judgeVerify({ claimed: "green", changed: false, calls: [] }).verify).toBe("green");
 	});
+	it("names the declared check when it ran after the last edit, though a narrower check ran last", () => {
+		// The name is what a land re-runs on the merged commit: a few e2e specs run after the repo's check made it
+		// re-run only those (21 Oct 2026, a cycle reported `check:changed` and recorded a playwright subset).
+		const declared = "bun run check:changed --base origin/main";
+		const calls = [edit, bash(`${declared} 2>&1 | tail -2`), bash("bunx playwright test e2e/a.e2e.ts")];
+		expect(judgeVerify({ ...base, calls, declared }).check).toBe(`${declared} 2>&1 | tail -2`);
+		// Before the last edit it proves nothing about the change: the last check is named.
+		const stale = [bash(declared), edit, bash("bun test")];
+		expect(judgeVerify({ ...base, calls: stale, declared }).check).toBe("bun test");
+	});
+
 	it("the declared check command counts as a check", () => {
 		const calls = [edit, bash("./tools/verify-everything --fast")];
 		expect(judgeVerify({ ...base, calls }).verify).toBe("skipped");

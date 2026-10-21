@@ -151,7 +151,14 @@ export function judgeVerify(facts: VerifyFacts): VerifyVerdict {
 			amendable: true,
 		};
 	}
-	return { verify: "green", amendable: false, ...(last.call.command ? { check: last.call.command } : {}) };
+	// The named check is what a land runs again on the merged commit: the declared one when it passed after the last
+	// edit, not a narrower run that came after it (a few e2e specs).
+	const named = facts.declared ? squash(facts.declared) : "";
+	const declaredRun = named
+		? checks.findLast(({ call, index }) => index > lastEdit && call.ok && squash(call.command ?? "").includes(named))
+		: undefined;
+	const check = (declaredRun ?? last).call.command;
+	return { verify: "green", amendable: false, ...(check ? { check } : {}) };
 }
 
 /** The part of a first report a repeated `end` may add to: follow-ups, resolved ones, children, ship and commit the first left out. */
