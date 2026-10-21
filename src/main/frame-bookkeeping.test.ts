@@ -13,15 +13,19 @@ const reply = {
 const kept = { role: "assistant", timestamp: 1, content: reply.content, usage: reply.usage };
 
 describe("withoutFrameBookkeeping", () => {
+	it("sends a turn's end as its type alone: its message and tool results already went out with their own frames", () => {
+		const result = { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "x".repeat(4000) }] };
+		const end = { type: "turn_end", message: reply, toolResults: [result] };
+		expect(withoutFrameBookkeeping(end)).toEqual({ type: "turn_end" });
+		expect(end.toolResults).toEqual([result]);
+		const bare = { type: "turn_end" };
+		expect(withoutFrameBookkeeping(bare)).toBe(bare);
+	});
+
 	it("leaves the request bookkeeping out of every message a live frame carries, and keeps the rest", () => {
 		expect(withoutFrameBookkeeping({ type: "message_end", message: reply })).toEqual({
 			type: "message_end",
 			message: kept,
-		});
-		expect(withoutFrameBookkeeping({ type: "turn_end", message: reply, toolResults: [] })).toEqual({
-			type: "turn_end",
-			message: kept,
-			toolResults: [],
 		});
 		const user = { role: "user", content: "hi", timestamp: 0 };
 		const end = withoutFrameBookkeeping({ type: "agent_end", messages: [user, reply] });

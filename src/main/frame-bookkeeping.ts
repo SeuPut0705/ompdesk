@@ -4,6 +4,10 @@
  * reads them, and in a long Anthropic session `inputTransformations` lists every earlier thinking block the API dropped:
  * about 21 KB of a 26 KB message on 21 Oct 2026, carried by `message_end`, `turn_end` and every message of `agent_end`
  * to each window and over the link to a paired device. Transcript pages already leave them out.
+ *
+ * A `turn_end` keeps only its type: its `message` (the turn's assistant message, already sent by `message_end`) and
+ * `toolResults` (each already sent by its `message_start`, `message_end` and `tool_execution_end`) are read by nobody
+ * here, and in an Autopilot turn they were one more copy of the turn's largest payloads per window and per device.
  */
 import { withoutRequestBookkeeping } from "../../resources/gui-bridge/transcript-page";
 
@@ -17,6 +21,10 @@ function slim(value: unknown): unknown {
 
 /** `frame` with the bookkeeping left out of the messages it carries; the same object when there is none. */
 export function withoutFrameBookkeeping<T extends Frame>(frame: T): T {
+	if (frame.type === "turn_end" && ("message" in frame || "toolResults" in frame)) {
+		const { message: _message, toolResults: _toolResults, ...rest } = frame;
+		return rest as T;
+	}
 	let out: Frame = frame;
 	const set = (key: string, value: unknown) => {
 		if (value === out[key]) return;
