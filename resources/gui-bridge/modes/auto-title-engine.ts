@@ -9,7 +9,8 @@
  *   and `renameTitle(title)` heads it with a card per `title.icons`, exactly as `/rename` does (OMPdesk holds
  *   `boring`, so no card and no card request unless the person chose icons). A message
  *   the title model declines (a greeting) is retried from the conversation after the turn, with
- *   `renameTitle()` (stock's `/rename` without a title).
+ *   `renameTitle()` (stock's `/rename` without a title). Another agent's wrapped brief is named from its words
+ *   ({@link titleInput}), since stock declines the wrapper as low-signal.
  * - Evolving: while the title is automatic ({@link titleIsAuto}), a terminal `agent_end` asks
  *   {@link EvolveGate} whether the work moved; if so `renameTitle()` makes a fresh title for the recent
  *   conversation, applied only when it is not a reword of the current one.
@@ -50,6 +51,7 @@ import {
 	planTitlePrompt,
 	type TitleChangeLike,
 	titleFits,
+	titleInput,
 	titleIsAuto,
 	titleShorterLine,
 } from "./auto-title-core";
@@ -423,7 +425,8 @@ async function onEvent(event: TitleEvent, session: TitleSession): Promise<void> 
 	state.gate.note(event);
 	if (!titleEffective(settings)) return;
 	if (event.type === "message_end" && !session.sessionName && event.message !== undefined) {
-		const text = (await stockFunctions()).operatorTitleText(event.message as never);
+		const message = (await stockFunctions()).operatorTitleText(event.message as never);
+		const text = message && titleInput(message);
 		if (text && !session.sessionName) runBackground(session, () => firstTitle(session, text));
 		return;
 	}

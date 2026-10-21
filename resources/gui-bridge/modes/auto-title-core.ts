@@ -9,7 +9,21 @@
  * is written as source "user" with {@link TITLE_TRIGGER} on its `title_change` entry, and
  * {@link titleIsAuto} reads that stamp back, so no state lives outside the session file.
  */
+import { explicitTitle, unwrapPrompt } from "../memory-prompt";
 import { TITLE_TRIGGER } from "./auto-title-contracts";
+
+/**
+ * What the title model names a session from, given the operator's first message. A brief another session's agent
+ * sent (`<ompdesk-agent-message>`, `ompdesk_session_open`) is its `Title:` line, else its body: stock's
+ * `isLowSignalTitleInput` strips the whole tag block and declines it, so the wrapped text would never be named. The
+ * line goes to the title model rather than straight to the name, since a brief's sentence is past the title limits.
+ * Anything else is the message as it is. Undefined for a brief with nothing in it.
+ */
+export function titleInput(message: string): string | undefined {
+	const { body, agentMessage } = unwrapPrompt(message);
+	if (!agentMessage) return message;
+	return explicitTitle(message) ?? (body || undefined);
+}
 
 /** The slice of a journal entry the origin check reads. */
 export interface TitleChangeLike {
