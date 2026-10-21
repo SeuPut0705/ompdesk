@@ -1391,6 +1391,14 @@ html[data-input="touch"] .omp-work-findings > .omp-work-cause {
 	--hit-gap-y: 12px;
 }
 
+/* A phone draws the chips 24 px (22 inside the border): 14 px apart each way and bounded at 14 they reach 36 (10 left
+   them 32). The cause, borderless, keeps its own 12 px bound. */
+html[data-shell="phone"][data-input="touch"] .omp-work-findings {
+	gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
 /* The copy button is 24 px on a phone: a 14 px bound makes it 36 (the row's 10 left it 32); it sits apart at the
    row's end, so its reach covers no chip. */
 html[data-shell="phone"] .omp-work-findings > .omp-work-copy {
