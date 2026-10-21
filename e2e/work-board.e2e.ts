@@ -208,7 +208,9 @@ test("a 30-task plan's bar stays left of its count, and the count and close stay
 				const geometry = await board.locator(".omp-work-board-head").evaluate(head => {
 					const box = (selector: string) => head.querySelector(selector)?.getBoundingClientRect();
 					const bar = head.querySelector(".omp-work-board-segments");
-					const count = head.querySelector(".omp-work-board-progress > span[aria-hidden]")?.getBoundingClientRect();
+					const count = head
+						.querySelector(".omp-work-board-progress > span[aria-hidden]")
+						?.getBoundingClientRect();
 					const close = box(".omp-work-board-hide");
 					const name = box(".omp-work-board-name");
 					const headBox = head.getBoundingClientRect();
