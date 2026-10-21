@@ -81,7 +81,7 @@ export interface FamilyOpened {
 	state: FamilyState | null;
 	stateLabel: string;
 	title: string;
-	age?: string;
+	age?: ReactNode;
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
 	tooltip: string;

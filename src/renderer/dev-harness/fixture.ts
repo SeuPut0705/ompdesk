@@ -74,8 +74,11 @@ export const tabsFixture = (): IpcTabInfo[] =>
 		title: seed.title,
 	}));
 
-export const sessionsFixture = (): SessionInfo[] =>
-	SEEDS.map((seed, index) => ({
+/** `?rows=N`: the sidebar holds N sessions (the three seeds, then saved ones in the project an hour apart). */
+const ROWS = typeof location !== "undefined" ? Number(new URLSearchParams(location.search).get("rows") ?? 0) || 0 : 0;
+
+export const sessionsFixture = (): SessionInfo[] => [
+	...SEEDS.map((seed, index) => ({
 		path: sessionPath(seed),
 		id: seed.sessionId,
 		title: seed.title,
@@ -86,7 +89,20 @@ export const sessionsFixture = (): SessionInfo[] =>
 		size: 4096 * (index + 2),
 		status: seed.status,
 		firstMessage: seed.title,
-	}));
+	})),
+	...Array.from({ length: Math.max(0, ROWS - SEEDS.length) }, (_, index) => ({
+		path: sessionPath({ sessionId: `sess-row-${index + 1}`, cwd: PROJECT }),
+		id: `sess-row-${index + 1}`,
+		title: `Saved session ${index + 1}`,
+		cwd: PROJECT,
+		created: new Date(NOW - (index + 2) * 60 * MINUTE).toISOString(),
+		modified: new Date(NOW - (index + 1) * 60 * MINUTE).toISOString(),
+		messageCount: 6,
+		size: 4096,
+		status: "complete" as const,
+		firstMessage: `Saved session ${index + 1}`,
+	})),
+];
 
 /**
  * This computer's project list (src/main/sidebar-projects.ts): the session folders, and with `?projects=1` an empty

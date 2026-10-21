@@ -17,6 +17,8 @@ import { useOpenedChildren } from "../../hooks/use-opened-children";
 import { useTabSessionRuntime } from "../../stores/session-runtime-context";
 import type { SubagentsStore } from "../../stores/subagents";
 import { type LiveState, LiveText } from "../common";
+import { TimeAgo } from "../common/TimeAgo";
+import { WorkingArc } from "../common/WorkingArc";
 import { liveWorkState, workingAgentCount } from "./live-work";
 
 interface SessionLiveProps {
@@ -75,4 +77,35 @@ export function TabLiveTitle({
 			{children}
 		</LiveText>
 	);
+}
+
+/**
+ * A row's age slot: the time since the session last did something (`SessionInfo.modified`, ticking on the shared
+ * clock), or the working arc while the session's work goes on, by the same rule as the title's light (its own turn,
+ * stock's background work, its subagents, the sessions its agent opened). Waiting on the person is not working: the
+ * caller shows its waiting token there instead. The age stays in the slot, hidden, so the row keeps its width.
+ */
+function LiveAge({ state, iso }: { state: LiveState | null; iso: string | null }): ReactElement | null {
+	const working = state === "turn" || state === "background" ? state : null;
+	if (!working) return iso ? <TimeAgo className="text-(--sc-text-subtle)" iso={iso} /> : null;
+	return (
+		<span className="omp-live-age" data-session-working={working}>
+			{iso && <TimeAgo iso={iso} />}
+			<WorkingArc state={working} />
+		</span>
+	);
+}
+
+export const SessionLiveAge = memo(function SessionLiveAge({
+	iso,
+	...props
+}: SessionLiveProps & { iso: string | null }): ReactElement | null {
+	return <LiveAge iso={iso} state={useSessionLive(props)} />;
+});
+
+export function TabLiveAge({
+	iso,
+	...props
+}: Omit<SessionLiveProps, "opened"> & { iso: string | null }): ReactElement | null {
+	return <LiveAge iso={iso} state={useTabLive(props)} />;
 }

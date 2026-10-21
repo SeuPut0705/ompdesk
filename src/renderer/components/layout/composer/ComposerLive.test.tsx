@@ -211,9 +211,14 @@ describe("the composer's sweep in the stylesheet", () => {
 	// A looping cue that animates anything else repaints its element every frame (the title shimmer's background
 	// position cost +9 % of a GPU core with four panes streaming); transform and opacity stay on the compositor.
 	it("animates only transform and opacity in every working cue", () => {
-		const blocks = [...css.matchAll(/@keyframes (omp-live-[\w-]+) \{([\s\S]*?)\n\}/g)];
+		const blocks = [...css.matchAll(/@keyframes (omp-live-[\w-]+|omp-working-arc-[\w-]+) \{([\s\S]*?)\n\}/g)];
 		expect(blocks.map(([, name]) => name)).toEqual(
-			expect.arrayContaining(["omp-live-shine-sweep", "omp-live-shine-text"]),
+			expect.arrayContaining([
+				"omp-live-shine-sweep",
+				"omp-live-shine-text",
+				"omp-working-arc-head",
+				"omp-working-arc-tail",
+			]),
 		);
 		for (const [, name, body] of blocks) {
 			const properties = new Set([...(body ?? "").matchAll(/^\s*([a-z-]+):/gm)].map(([, property]) => property));
@@ -222,6 +227,16 @@ describe("the composer's sweep in the stylesheet", () => {
 				name,
 			).toEqual([]);
 		}
+	});
+
+	it("holds the working arc still, as a 270° arc, under reduced motion and software compositing", () => {
+		const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce) {\n\t.omp-working-arc"));
+		const block = reduced.slice(0, reduced.indexOf("\n}\n"));
+		expect(block).toMatch(/\.omp-working-arc \.omp-working-arc-part\s*\{\s*animation: none/);
+		expect(block).toMatch(/\[data-arc="head"\]\s*\{\s*transform: rotate\(130deg\)/);
+		expect(rule('html[data-gpu="software"] .omp-working-arc .omp-working-arc-part')).toContain("animation: none");
+		expect(rule('html[data-gpu="software"] .omp-working-arc-part[data-arc="head"]')).toContain("rotate(130deg)");
+		expect(rule(".omp-working-arc[data-paused] .omp-working-arc-part")).toContain("animation-play-state: paused");
 	});
 
 	it("steps the Send ring out of the way beside a draft", () => {

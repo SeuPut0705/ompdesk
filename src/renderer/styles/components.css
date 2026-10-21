@@ -4275,3 +4275,255 @@ html[data-gpu="software"] .omp-live-sweep[data-working="turn"] {
 html[data-gpu="software"] .omp-live-sweep[data-working="background"] {
 	background: color-mix(in srgb, var(--sc-accent) 3%, transparent);
 }
+
+/* A working session's arc in its row's age slot (common/WorkingArc.tsx): two arcs of 140° (head, tail) turn on
+   opposite easings (head ease-out, tail ease-in), so the stroke they draw together grows to 273° and back each 1.5 s,
+   while the pair also advances 180° a turn so the stroke grows from a new place each time. The easing is sampled into
+   the keyframes (two turns, 12 samples each, over `--arc-period`) and played in `steps(3)` per sample: 24 positions
+   a second, on one grid shared by every arc (`--arc-delay`, set from the document clock), so ten arcs make 24 drawn
+   frames a second, not 60 each. Transforms only; at rest while the window is hidden; a still 270° arc under reduced
+   motion and software compositing. The keyframes are generated: head = (turn + easeOut) × 360° + t × 180°, tail with
+   easeIn, t in turns. */
+.omp-working-arc {
+	--arc-period: 3s;
+	--arc-delay: 0ms;
+	position: relative;
+	display: inline-block;
+	flex: none;
+	width: 1em;
+	height: 1em;
+	color: var(--sc-accent);
+	vertical-align: -0.125em;
+}
+
+.omp-working-arc[data-working-arc="background"] {
+	color: color-mix(in srgb, var(--sc-accent) 55%, var(--sc-text-subtle));
+}
+
+.omp-working-arc svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+}
+
+.omp-working-arc-track {
+	position: absolute;
+	inset: 0;
+	opacity: 0.18;
+}
+
+/* The stroke starts at 12 o'clock. */
+.omp-working-arc-stroke {
+	position: absolute;
+	inset: 0;
+	transform: rotate(-90deg);
+}
+
+.omp-working-arc-part {
+	position: absolute;
+	inset: 0;
+	animation: omp-working-arc-head var(--arc-period) steps(3) var(--arc-delay) infinite;
+}
+
+.omp-working-arc-part[data-arc="tail"] {
+	animation-name: omp-working-arc-tail;
+}
+
+@keyframes omp-working-arc-head {
+	0% {
+		transform: rotate(0.0deg);
+	}
+	4.167% {
+		transform: rotate(63.5deg);
+	}
+	8.333% {
+		transform: rotate(123.7deg);
+	}
+	12.5% {
+		transform: rotate(181.1deg);
+	}
+	16.667% {
+		transform: rotate(235.8deg);
+	}
+	20.833% {
+		transform: rotate(287.7deg);
+	}
+	25% {
+		transform: rotate(336.5deg);
+	}
+	29.167% {
+		transform: rotate(382.0deg);
+	}
+	33.333% {
+		transform: rotate(423.8deg);
+	}
+	37.5% {
+		transform: rotate(461.4deg);
+	}
+	41.667% {
+		transform: rotate(494.0deg);
+	}
+	45.833% {
+		transform: rotate(520.7deg);
+	}
+	50% {
+		transform: rotate(540.0deg);
+	}
+	54.167% {
+		transform: rotate(603.5deg);
+	}
+	58.333% {
+		transform: rotate(663.7deg);
+	}
+	62.5% {
+		transform: rotate(721.1deg);
+	}
+	66.667% {
+		transform: rotate(775.8deg);
+	}
+	70.833% {
+		transform: rotate(827.7deg);
+	}
+	75% {
+		transform: rotate(876.5deg);
+	}
+	79.167% {
+		transform: rotate(922.0deg);
+	}
+	83.333% {
+		transform: rotate(963.8deg);
+	}
+	87.5% {
+		transform: rotate(1001.4deg);
+	}
+	91.667% {
+		transform: rotate(1034.0deg);
+	}
+	95.833% {
+		transform: rotate(1060.7deg);
+	}
+	100% {
+		transform: rotate(1080.0deg);
+	}
+}
+@keyframes omp-working-arc-tail {
+	0% {
+		transform: rotate(0.0deg);
+	}
+	4.167% {
+		transform: rotate(19.3deg);
+	}
+	8.333% {
+		transform: rotate(46.0deg);
+	}
+	12.5% {
+		transform: rotate(78.6deg);
+	}
+	16.667% {
+		transform: rotate(116.2deg);
+	}
+	20.833% {
+		transform: rotate(158.0deg);
+	}
+	25% {
+		transform: rotate(203.5deg);
+	}
+	29.167% {
+		transform: rotate(252.3deg);
+	}
+	33.333% {
+		transform: rotate(304.2deg);
+	}
+	37.5% {
+		transform: rotate(358.9deg);
+	}
+	41.667% {
+		transform: rotate(416.3deg);
+	}
+	45.833% {
+		transform: rotate(476.5deg);
+	}
+	50% {
+		transform: rotate(540.0deg);
+	}
+	54.167% {
+		transform: rotate(559.3deg);
+	}
+	58.333% {
+		transform: rotate(586.0deg);
+	}
+	62.5% {
+		transform: rotate(618.6deg);
+	}
+	66.667% {
+		transform: rotate(656.2deg);
+	}
+	70.833% {
+		transform: rotate(698.0deg);
+	}
+	75% {
+		transform: rotate(743.5deg);
+	}
+	79.167% {
+		transform: rotate(792.3deg);
+	}
+	83.333% {
+		transform: rotate(844.2deg);
+	}
+	87.5% {
+		transform: rotate(898.9deg);
+	}
+	91.667% {
+		transform: rotate(956.3deg);
+	}
+	95.833% {
+		transform: rotate(1016.5deg);
+	}
+	100% {
+		transform: rotate(1080.0deg);
+	}
+}
+
+.omp-working-arc[data-paused] .omp-working-arc-part {
+	animation-play-state: paused;
+}
+
+/* Still: the head a 130° step ahead, a 270° arc from 12 o'clock. */
+@media (prefers-reduced-motion: reduce) {
+	.omp-working-arc .omp-working-arc-part {
+		animation: none;
+	}
+	.omp-working-arc-part[data-arc="head"] {
+		transform: rotate(130deg);
+	}
+}
+
+html[data-gpu="software"] .omp-working-arc .omp-working-arc-part {
+	animation: none;
+}
+
+html[data-gpu="software"] .omp-working-arc-part[data-arc="head"] {
+	transform: rotate(130deg);
+}
+
+/* A row's age slot while the session works: the age keeps its width (hidden), the arc sits at its end, so the row
+   never moves when work starts or ends. */
+.omp-live-age {
+	position: relative;
+	display: inline-grid;
+	align-items: center;
+	justify-items: end;
+}
+
+.omp-live-age > * {
+	grid-area: 1 / 1;
+}
+
+.omp-live-age > time {
+	visibility: hidden;
+}

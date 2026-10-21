@@ -362,6 +362,21 @@ function rowFor(text: string): Element {
 	return row;
 }
 
+/**
+ * What a row's age slot shows: "turn" or "background" (the working arc), "age" (the time since it last did
+ * something), "waiting" (the waiting token) or null.
+ */
+function slotOf(row: Element): string | null {
+	const end = row.querySelector("[data-sidebar-row-end]") ?? row;
+	const arc = end.querySelector("[data-session-working]");
+	if (arc) {
+		expect(arc.querySelector(".omp-working-arc")).not.toBeNull();
+		return arc.getAttribute("data-session-working");
+	}
+	if (end.querySelector(".omp-sidebar-approval")) return "waiting";
+	return end.querySelector("time") ? "age" : null;
+}
+
 /** The row's main button (the click target that opens the session). */
 function rowButton(text: string): Element {
 	return rowFor(text).querySelector("button") as Element;
@@ -836,13 +851,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		const row = rowFor("Session /work/beta/three");
 		expect(row.textContent).toContain("Running");
 		expect(row.querySelector('[aria-label="Delete session"]')).toBeNull();
-		// The state is a light sweeping the row's own title (no border light, no spinner, no bar, no new word);
-		// the word stays for screen readers.
+		// The state is a light sweeping the row's own title, and the working arc in its age slot (no border light,
+		// no bar, no new word); the word stays for screen readers.
 		expect(row.getAttribute("data-signal")).toBe("running");
 		const titleText = row.querySelector(".omp-live-text[data-working='turn']");
 		expect(titleText?.textContent).toContain("Session /work/beta/three");
 		expect(row.querySelector(".omp-live-edge")).toBeNull();
 		expect(row.querySelector('[role="status"], .omp-spinner')).toBeNull();
+		expect(slotOf(row)).toBe("turn");
 		expect(row.querySelector("button")?.getAttribute("title")).toContain("Running");
 	});
 
@@ -886,6 +902,38 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(waiting.querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
 		for (const row of [failed, rowFor("Session /work/alpha/two")])
 			expect(row.querySelector("[data-working]")).toBeNull();
+		// Waiting on the person is not working: the waiting token, never the arc; the others show their age.
+		expect(slotOf(waiting)).toBe("waiting");
+		expect(slotOf(failed)).toBe("age");
+		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("age");
+	});
+
+	it("moves a row's age on as time passes, with no new list read", async () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now: Date.parse("2026-03-01T12:00:00Z") });
+		try {
+			installMockOmp([
+				session("/work/alpha/aged.jsonl", "/work/alpha", {
+					title: "Aged session",
+					created: "2026-03-01T11:00:00Z",
+					modified: "2026-03-01T11:58:00Z",
+				}),
+				...LIST,
+			]);
+			seedStores();
+			await mount(<Sidebar />);
+			const age = () => rowFor("Aged session").querySelector("[data-sidebar-row-end] time")?.textContent;
+			expect(age()).toBe("2m");
+			await act(async () => {
+				vi.advanceTimersByTime(3 * 60_000);
+			});
+			expect(age()).toBe("5m");
+			await act(async () => {
+				vi.advanceTimersByTime(60 * 60_000);
+			});
+			expect(age()).toBe("1h");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("keeps a session a paired device's tab runs on this computer in its project group, with that tab's live state", async () => {
@@ -1910,6 +1958,7 @@ describe("Sidebar subagents", () => {
 		const edge = () => rowFor("Session /work/alpha/two").querySelector(".omp-live-text");
 		await mount(<Sidebar />);
 		expect(edge()?.getAttribute("data-working")).toBe("turn");
+		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("turn");
 
 		// The turn ends; the subagent it started runs on: the same sweep, the background form.
 		await act(async () => {
@@ -1920,12 +1969,14 @@ describe("Sidebar subagents", () => {
 		await flush();
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
 		expect(edge()?.getAttribute("data-working")).toBe("background");
+		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("background");
 
 		setSubagentStatus("aborted");
 		await flush();
 		// The work ended: the title is plain text again.
 		expect(edge()?.hasAttribute("data-working")).toBe(false);
 		expect(edge()?.textContent).toContain("Session /work/alpha/two");
+		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("age");
 	});
 
 	it("draws a running tab whose turn ended but whose background work keeps it unsettled in the background form", async () => {
@@ -1944,6 +1995,7 @@ describe("Sidebar subagents", () => {
 		});
 		await flush();
 		expect(edge()?.getAttribute("data-working")).toBe("background");
+		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("background");
 	});
 });
 
@@ -2161,9 +2213,46 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(remote?.querySelector("[data-family-device]")?.textContent).toBe("studio");
 		// The boss's light counts it among the sessions at work.
 		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-running]")?.textContent).toBe("3");
+		// A running child's token is the working arc.
+		expect(remote?.querySelector('[data-family-status="running"] .omp-working-arc')).not.toBeNull();
 		// It is the boss's child: the device's own list does not repeat it.
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(device?.textContent ?? "").not.toContain("Build it on Windows");
+	});
+
+	it("keeps the working arc on the idle boss while only a session it opened on a paired device runs", async () => {
+		mountFamily({
+			tabsExtra: [
+				{
+					id: "tw",
+					cwd: "C:\\work\\app",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "C:\\s\\remote.jsonl",
+					device: "dev-studio",
+					task: "Build it on Windows",
+					openedBy: "t1",
+				},
+			],
+		});
+		const setTab = async (id: string, change: Record<string, unknown>) => {
+			await act(async () => {
+				useTabsStore.setState(state => ({
+					tabs: state.tabs.map(tab => (tab.id === id ? { ...tab, ...change } : tab)),
+				}));
+			});
+			await flush();
+		};
+		await mount(<Sidebar />);
+		await setTab("ta", { status: "ready" });
+		await setTab("tc", { status: "ready" });
+		const boss = () => rowFor("Session /work/alpha/two");
+		expect(boss().getAttribute("data-signal")).toBeNull();
+		expect(slotOf(boss())).toBe("background");
+
+		await setTab("tw", { status: "ready" });
+		expect(slotOf(boss())).toBe("age");
 	});
 
 	it("leaves another device's session at the same path in that device's list", async () => {
@@ -2587,17 +2676,21 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		// The boss's own turn is idle; two sessions it opened run.
 		expect(boss().getAttribute("data-signal")).toBeNull();
 		expect(edge()?.getAttribute("data-working")).toBe("background");
+		expect(slotOf(boss())).toBe("background");
 
 		// One now waits for the person: its row keeps the warning look and no light; the other still runs.
 		await setTab("ta", { awaitingInput: "input" });
 		const waiting = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
 		expect(waiting?.getAttribute("data-signal")).toBe("waiting");
 		expect(waiting?.querySelector('[data-working="turn"], [data-working="background"]')).toBeNull();
+		expect(waiting?.querySelector(".omp-working-arc")).toBeNull();
 		expect(edge()?.getAttribute("data-working")).toBe("background");
+		expect(slotOf(boss())).toBe("background");
 
 		// Nothing runs behind the idle boss any more (one waits, the other finished): no light.
 		await setTab("tc", { status: "ready" });
 		expect(boss().querySelector("[data-working]")).toBeNull();
+		expect(slotOf(boss())).toBe("age");
 	});
 
 	it("lights the boss's row in a window viewing it while a session its agent opened runs as another window's tab", async () => {
@@ -2658,6 +2751,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(boss().getAttribute("data-signal")).toBeNull();
 		expect(boss().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("background");
 		expect(child()?.getAttribute("data-child-status")).toBe("running");
+		expect(slotOf(boss())).toBe("background");
 
 		// It waits on the person: no light on the idle boss, the child keeps its warning look.
 		act(() => useAgentReviewStore.setState({ byTab: { t1: [{ ...item, waiting: true }] } }));

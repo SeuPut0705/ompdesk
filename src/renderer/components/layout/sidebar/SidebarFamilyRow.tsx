@@ -9,6 +9,7 @@ import { Bot, Check, GitBranch, MessageSquare, Pause, TriangleAlert, X } from "l
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 import type { ListRowProps } from "../../common/ListRow";
+import { WorkingArc } from "../../common/WorkingArc";
 import type { FamilyKind, FamilyState } from "./sidebar-family";
 
 const KIND_ICON = { subagent: Bot, worktree: GitBranch, session: MessageSquare } as const;
@@ -22,8 +23,8 @@ export function FamilyStatus({ state }: { state: FamilyState }) {
 			data-family-status={state}
 		>
 			{state === "running" ? (
-				// A still dot: a child is a plain row; only a top-level session's card wears the running light.
-				<span className="size-2 rounded-(--sc-radius-full) bg-(--sc-accent)" />
+				// The working arc, the same one a top-level row wears in its age slot.
+				<WorkingArc state="turn" />
 			) : state === "waiting" ? (
 				<TriangleAlert className="size-(--sc-icon-sm) text-(--sc-warning)" />
 			) : state === "done" ? (
@@ -45,8 +46,8 @@ export interface FamilyRowProps {
 	state: FamilyState | null;
 	stateLabel: string;
 	title: string;
-	/** Whole units only ("12s", "10m", "2h", or the sidebar's time ago). */
-	age?: string;
+	/** Whole units only ("12s", "10m", "2h", or the sidebar's time ago, a ticking `TimeAgo`). */
+	age?: ReactNode;
 	/** The paired device a session runs on, by name: a short muted label before the token. */
 	device?: string;
 	/** Native tooltip: the status, folder, model, progress — whatever the one line has no room for. */

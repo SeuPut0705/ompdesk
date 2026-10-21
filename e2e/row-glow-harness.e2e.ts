@@ -193,16 +193,26 @@ for (const surface of SURFACES)
 			// The idle session (tab 3) and every child row stays plain; no border light anywhere.
 			await expect(sidebar.locator("[data-working]")).toHaveCount(2);
 			await expect(page.locator(".omp-live-edge")).toHaveCount(0);
-			// Two transforms per working title (the masked window, the copy of its words going back); nothing else in
-			// the sidebar loops, and nothing repaints.
+			// Two transforms per working title (the masked window, the copy of its words going back) and two per working
+			// arc (a working row's age slot, a running child's token); nothing else in the sidebar loops, and nothing
+			// repaints.
 			const inSidebar = (await runningAnimations(page)).filter(animation => animation.inSidebar);
 			const shine = { inSidebar: true, duration: 3000, props: ["transform"] };
-			expect(inSidebar.toSorted((a, b) => a.name.localeCompare(b.name))).toEqual([
+			expect(
+				inSidebar
+					.filter(animation => animation.name.startsWith("omp-live-"))
+					.toSorted((a, b) => a.name.localeCompare(b.name)),
+			).toEqual([
 				{ name: "omp-live-shine-text", ...shine },
 				{ name: "omp-live-shine-text", ...shine },
 				{ name: "omp-live-shine-text-hold", ...shine },
 				{ name: "omp-live-shine-text-hold", ...shine },
 			]);
+			// A row under the pointer (the toggle just clicked) shows its ⋯ in place of its age slot: count the arcs on screen.
+			const arcs = inSidebar.filter(animation => animation.name.startsWith("omp-working-arc"));
+			expect(arcs).toHaveLength((await sidebar.locator(".omp-working-arc:visible").count()) * 2);
+			for (const arc of arcs) expect(arc.props).toEqual(["transform"]);
+			expect(inSidebar).toHaveLength(4 + arcs.length);
 			// The family chip shows its count once: the filled running pill with the kind glyph, no plain count beside it.
 			await expect(sidebar.locator("[data-family-running]")).toHaveCount(1);
 			await expect(sidebar.locator("[data-family-agents], [data-family-sessions]")).toHaveCount(0);

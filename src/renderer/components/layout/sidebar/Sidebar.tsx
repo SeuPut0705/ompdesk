@@ -76,7 +76,7 @@ import { useShellInput } from "../../../hooks/use-shell-mode";
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
-import { copyText, cx, formatTimeAgo } from "../../../lib/format";
+import { copyText, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
@@ -132,7 +132,7 @@ import { TimeAgo } from "../../common/TimeAgo";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
-import { SessionLiveTitle } from "../SessionLiveTitle";
+import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
@@ -1709,7 +1709,11 @@ export function Sidebar() {
 			state: status ? CHILD_TOKEN[status] : null,
 			stateLabel: statusLabel,
 			title,
-			age: row.indexed ? formatTimeAgo(child.modified) : undefined,
+			// A running child's token is the working arc (`FamilyStatus`); its age comes back when it stops.
+			age:
+				row.indexed && status !== "running" ? (
+					<TimeAgo className="text-(--sc-text-subtle)" iso={child.modified} />
+				) : undefined,
 			// The one line has no room for the status in words, the folder or the model: they are the tooltip.
 			tooltip: [title, statusLabel, origin.tooltip, model].filter(Boolean).join("\n"),
 			selected: row.active,
@@ -1894,14 +1898,24 @@ export function Sidebar() {
 		) : fork ? (
 			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
 		) : null;
+		const openTabId = tab?.id;
+		// The age slot: the waiting token, else the working arc while the session or anything it started works, else
+		// the time since it last did something.
+		const runningOpened = opened.filter(child => child.status === "running").length;
 		const age = waiting ? (
 			<Badge className="omp-sidebar-approval" variant="warning">
 				{waitingLabel}
 			</Badge>
-		) : indexed ? (
-			<TimeAgo className="text-(--sc-text-subtle)" iso={session.modified} />
-		) : null;
-		const openTabId = tab?.id;
+		) : (
+			<SessionLiveAge
+				iso={indexed ? session.modified : null}
+				opened={runningOpened}
+				running={signal === "running"}
+				settling={settling}
+				tabId={openTabId ?? null}
+				waiting={false}
+			/>
+		);
 		return (
 			<Fragment key={session.path}>
 				<ListRow
@@ -1987,7 +2001,7 @@ export function Sidebar() {
 					title={
 						<>
 							<SessionLiveTitle
-								opened={opened.filter(child => child.status === "running").length}
+								opened={runningOpened}
 								running={signal === "running"}
 								settling={settling}
 								tabId={openTabId ?? null}
