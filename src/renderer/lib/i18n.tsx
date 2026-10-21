@@ -182,6 +182,14 @@ export function useT(): (key: string, params?: Record<string, string | number>) 
 	return ctx.t;
 }
 
+/**
+ * The UI language for a value cached from {@link translate} (a label a hook keeps in state): the provider's while one
+ * is mounted, so a switch re-renders the caller; outside one, the current language.
+ */
+export function useCurrentLang(): Lang {
+	return useContext(I18nContext)?.lang ?? getCurrentLanguage();
+}
+
 export function useLang(): { lang: Lang; setLang: (lang: Lang) => void } {
 	const ctx = useContext(I18nContext);
 	if (!ctx) throw new Error("useLang must be used within I18nProvider");

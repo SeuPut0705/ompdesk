@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatTimeAgo } from "./format";
+import { useCurrentLang } from "./i18n";
 
 type ClockListener = (now: number) => void;
 
@@ -68,7 +69,9 @@ function sameLabels(a: readonly string[], b: readonly string[]): boolean {
  * `format` should be stable (a module function): a new one restarts the subscription.
  */
 export function useAgeLabels(values: readonly AgeValue[], format: (value: AgeValue) => string): readonly string[] {
-	const key = values.map(value => value ?? "").join("\n");
+	// The labels are words: a language switch reads them again at once, not at the clock's next tick.
+	const lang = useCurrentLang();
+	const key = `${lang}\n${values.map(value => value ?? "").join("\n")}`;
 	const latest = useRef(values);
 	latest.current = values;
 	const [state, setState] = useState(() => ({ key, labels: values.map(format) }));

@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider, loadLocale, setLanguageOverride } from "./i18n";
 import { useNowTick, useTimeAgo, useTimeAgos } from "./now-tick";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -112,5 +113,32 @@ describe("useTimeAgos", () => {
 		// A new list reads at once, in its own order.
 		await act(async () => root.render(<Ages values={[null, Date.now() - 5 * 60_000]} />));
 		expect(labels).toEqual(["", "5m"]);
+	});
+});
+
+describe("ages and the UI language", () => {
+	it("read in the new language at once, without waiting for the clock", async () => {
+		await loadLocale("ko");
+		let labels: readonly string[] = [];
+		function Ages() {
+			labels = useTimeAgos([Date.now() - 5 * 60_000]);
+			return null;
+		}
+		try {
+			await act(async () =>
+				root.render(
+					<I18nProvider>
+						<Ages />
+					</I18nProvider>,
+				),
+			);
+			expect(labels).toEqual(["5m"]);
+			// Hidden: the clock stands still, so only the language change itself can move the label.
+			await act(async () => setVisibility("hidden"));
+			await act(async () => setLanguageOverride("ko"));
+			expect(labels).toEqual(["5분"]);
+		} finally {
+			await act(async () => setLanguageOverride(null));
+		}
 	});
 });
