@@ -68,7 +68,12 @@ import { writeSidebarVisible } from "./lib/sidebar-memory";
 import { closeActiveTab } from "./lib/tab-close";
 import { followActivationFocus } from "./lib/tab-focus";
 import { installTabHistory, navigateHistory } from "./lib/tab-history";
-import { acceptsActiveTabEvents, onActiveTabRouteSettled, onActiveTabRouteState } from "./lib/tab-routing";
+import {
+	acceptsActiveTabEvents,
+	onActiveTabRouteSettled,
+	onActiveTabRouteState,
+	waitForActiveTab,
+} from "./lib/tab-routing";
 import { focusedTabRpc } from "./lib/tab-rpc";
 import { FocusedRuntimeProvider, TabRuntimeProvider } from "./lib/tab-runtime-provider";
 import { applyFontSize, watchSystemTheme } from "./lib/theme";
@@ -431,9 +436,9 @@ export function App() {
 		// One dispatch switch keyed by actionId: the compiled-map lookup below and
 		// the default chords share these handlers (they were the hardcoded chains).
 		const dispatchKeymapAction = (actionId: KeymapActionId) => {
-			// The visible tab changes before main finishes moving the RPC/event route.
-			// Never let a shortcut mutate the outgoing sidecar during that gap.
-			if (!acceptsActiveTabEvents()) return;
+			// While a new tab opens and main moves the RPC/event route to it, a shortcut reaches neither the tab being
+			// left nor nothing (⌘W right after ⌘T closed the old tab: nightly 39525167897); it waits (waitForActiveTab).
+			if (waitForActiveTab(() => dispatchKeymapAction(actionId))) return;
 			const ui = useUiStore.getState();
 			switch (actionId) {
 				case "model.cycleForward":
@@ -822,9 +827,9 @@ export function App() {
 				ui.openDebug();
 				return;
 			}
-			// Menu commands below read or mutate the selected sidecar. Ignore the
-			// short selected-vs-routed gap instead of sending them to the old tab.
-			if (!acceptsActiveTabEvents()) return;
+			// Menu commands below read or mutate the selected sidecar: after a new tab main has not answered yet, and in
+			// the short selected-vs-routed gap, they wait instead of reaching the old tab or being dropped.
+			if (waitForActiveTab(() => void run(action, payload))) return;
 			if (action === "close-tab") {
 				closeActiveTab();
 				return;

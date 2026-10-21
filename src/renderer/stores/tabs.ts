@@ -62,7 +62,7 @@ import { autoCloseHeld } from "../lib/agent-auto-close";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle } from "../lib/session-title";
-import { beginTabRoute, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { beginTabRoute, openingTab, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
 import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
 import { webRuntime } from "../web/runtime";
@@ -674,133 +674,137 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		return true;
 	},
 
-	openTab: async args => {
-		const activeTab = get().tabs.find(tab => tab.id === get().activeTabId);
-		const device = args?.device;
-		// The focused tab's folder only means something on its own device.
-		const inheritCwd = activeTab?.device === device;
-		const runtimeCwd = sessionRuntimeStore<SessionStore>(get().activeTabId, "session")?.getState().cwd;
-		// A `worktree.onStart` worktree belongs to its tab's session: a new tab
-		// starts from the checkout it was forked from (and gets its own worktree).
-		const lifecycleSource = activeTab?.worktree?.lifecycle ? activeTab.worktree.baseCwd : undefined;
-		const cwd =
-			args?.cwd ??
-			(inheritCwd ? lifecycleSource || runtimeCwd || activeTab?.cwd || useSessionStore.getState().cwd : "");
-		const kind = args?.kind ?? "agent";
-		let result: IpcSpawnTabResult | null;
-		try {
-			result = await window.omp.tabs.spawn({
-				// Work and chat tabs run in the default workspace main picks.
-				cwd: args?.work || kind === "chat" ? undefined : cwd || undefined,
-				sessionPath: args?.sessionPath,
-				kind,
-				...(args?.work ? { defaultWorkspace: true } : {}),
-				...(args?.placeholder ? { placeholder: true } : {}),
-				...(args?.restoreSaved ? { restoreSaved: true } : {}),
-				worktree: args?.worktree,
-				...(device === undefined ? {} : { device }),
-			});
-		} catch (error) {
-			toastError({ title: translate("tabs.newFailed"), error });
-			return null;
-		}
-		if (!result) {
-			toast({ variant: "error", message: translate("tabs.newFailed") });
-			return null;
-		}
-		// Cross-kind refusal: the target session file carries a different kind —
-		// no conversion path exists (I2), so surface it and stay put.
-		if (result.tabId === null && result.refusal === "kind-mismatch") {
-			toast({ variant: "error", title: translate("tabs.newFailed"), message: translate("tabs.kindMismatch") });
-			return null;
-		}
-		if (result.tabId === null && result.refusal === "folder-missing") {
-			const folder = result.folder ?? "";
-			// Disk care saved the folder before it removed it: Restore puts the worktree back and opens the session there.
-			if (result.saved && !args?.restoreSaved) {
-				const again = { ...args, restoreSaved: true };
-				toast({
-					variant: "warning",
-					title: translate("tabs.folderSaved.title"),
-					message: translate("tabs.folderSaved", { folder }),
-					action: { label: translate("tabs.folderSaved.restore"), run: () => void get().openTab(again) },
-					durationMs: Number.POSITIVE_INFINITY,
-				});
-				return null;
-			}
-			toast({
-				variant: "error",
-				title: translate("tabs.newFailed"),
-				message: translate("tabs.folderMissing", { folder }),
-			});
-			return null;
-		}
-		// F-OWN belt guard: the session file is already attached to a tab, so
-		// main refused the double-attach. Owner lives in THIS window → switch
-		// to it (a tab main holds for this window that the list here does not
-		// show yet, e.g. one a relaunch restored while a web page loaded, is read
-		// in first); a foreign window's tab → focus that window (main focuses the
-		// owner window for an owned sessionPath instead of spawning).
-		if (result.tabId === null) {
-			const ownerTabId = result.ownerTabId ?? null;
-			const known = () => ownerTabId !== null && get().tabs.some(tab => tab.id === ownerTabId);
-			if (ownerTabId && !known()) await get().reconcileTabs();
-			if (ownerTabId && known()) {
-				await get().switchTab(ownerTabId);
-				return ownerTabId;
-			}
-			// A web page has no other window to bring forward: its "open in a new window" opens a tab here again,
-			// which main refuses again, without end.
-			if (args?.sessionPath && !webRuntime()) {
+	// Commands given until it settles belong to the tab it opens (lib/tab-routing.ts `waitForActiveTab`).
+	openTab: args =>
+		openingTab(
+			(async () => {
+				const activeTab = get().tabs.find(tab => tab.id === get().activeTabId);
+				const device = args?.device;
+				// The focused tab's folder only means something on its own device.
+				const inheritCwd = activeTab?.device === device;
+				const runtimeCwd = sessionRuntimeStore<SessionStore>(get().activeTabId, "session")?.getState().cwd;
+				// A `worktree.onStart` worktree belongs to its tab's session: a new tab
+				// starts from the checkout it was forked from (and gets its own worktree).
+				const lifecycleSource = activeTab?.worktree?.lifecycle ? activeTab.worktree.baseCwd : undefined;
+				const cwd =
+					args?.cwd ??
+					(inheritCwd ? lifecycleSource || runtimeCwd || activeTab?.cwd || useSessionStore.getState().cwd : "");
+				const kind = args?.kind ?? "agent";
+				let result: IpcSpawnTabResult | null;
 				try {
-					await window.omp.sessions.openInNewWindow({
-						sessionPath: args.sessionPath,
+					result = await window.omp.tabs.spawn({
+						// Work and chat tabs run in the default workspace main picks.
+						cwd: args?.work || kind === "chat" ? undefined : cwd || undefined,
+						sessionPath: args?.sessionPath,
+						kind,
+						...(args?.work ? { defaultWorkspace: true } : {}),
+						...(args?.placeholder ? { placeholder: true } : {}),
+						...(args?.restoreSaved ? { restoreSaved: true } : {}),
+						worktree: args?.worktree,
 						...(device === undefined ? {} : { device }),
 					});
-				} catch {
-					// Best-effort focus — the owner window may be mid-teardown.
+				} catch (error) {
+					toastError({ title: translate("tabs.newFailed"), error });
+					return null;
 				}
-			}
-			return ownerTabId;
-		}
-		const { tabId } = result;
-		// This window already let the tab go while main answered (the start tab gave way to a real tab the list pushed
-		// ahead of this answer): it is gone, not a tab to re-add and switch to.
-		if (isTabClosed(tabId)) return null;
-		ensureTabRuntime(tabId);
-		const resolvedCwd = result.cwd ?? cwd;
-		// Attached as a viewer of a session another window holds: the tab is already running there, so its
-		// status, title and viewers come from the list rather than from a first ready push that never comes.
-		if (result.attached) await get().reconcileTabs();
-		set(state => {
-			const existing = state.tabs.find(tab => tab.id === tabId);
-			if (existing) {
-				if (!args?.sessionPath || existing.pendingSessionPath === args.sessionPath) return state;
-				return {
-					tabs: state.tabs.map(tab =>
-						tab.id === tabId
-							? { ...tab, sessionPath: args.sessionPath, pendingSessionPath: args.sessionPath }
-							: tab,
-					),
-				};
-			}
-			const tab: SessionTab = {
-				id: tabId,
-				cwd: resolvedCwd,
-				status: "starting",
-				kind,
-				placeholder: args?.placeholder === true,
-				worktree: args?.worktree,
-				device,
-				unreadDone: false,
-				sessionPath: args?.sessionPath,
-				pendingSessionPath: args?.sessionPath,
-			};
-			return { tabs: [...state.tabs, tab] };
-		});
-		await get().switchTab(tabId);
-		return tabId;
-	},
+				if (!result) {
+					toast({ variant: "error", message: translate("tabs.newFailed") });
+					return null;
+				}
+				// Cross-kind refusal: the target session file carries a different kind —
+				// no conversion path exists (I2), so surface it and stay put.
+				if (result.tabId === null && result.refusal === "kind-mismatch") {
+					toast({ variant: "error", title: translate("tabs.newFailed"), message: translate("tabs.kindMismatch") });
+					return null;
+				}
+				if (result.tabId === null && result.refusal === "folder-missing") {
+					const folder = result.folder ?? "";
+					// Disk care saved the folder before it removed it: Restore puts the worktree back and opens the session there.
+					if (result.saved && !args?.restoreSaved) {
+						const again = { ...args, restoreSaved: true };
+						toast({
+							variant: "warning",
+							title: translate("tabs.folderSaved.title"),
+							message: translate("tabs.folderSaved", { folder }),
+							action: { label: translate("tabs.folderSaved.restore"), run: () => void get().openTab(again) },
+							durationMs: Number.POSITIVE_INFINITY,
+						});
+						return null;
+					}
+					toast({
+						variant: "error",
+						title: translate("tabs.newFailed"),
+						message: translate("tabs.folderMissing", { folder }),
+					});
+					return null;
+				}
+				// F-OWN belt guard: the session file is already attached to a tab, so
+				// main refused the double-attach. Owner lives in THIS window → switch
+				// to it (a tab main holds for this window that the list here does not
+				// show yet, e.g. one a relaunch restored while a web page loaded, is read
+				// in first); a foreign window's tab → focus that window (main focuses the
+				// owner window for an owned sessionPath instead of spawning).
+				if (result.tabId === null) {
+					const ownerTabId = result.ownerTabId ?? null;
+					const known = () => ownerTabId !== null && get().tabs.some(tab => tab.id === ownerTabId);
+					if (ownerTabId && !known()) await get().reconcileTabs();
+					if (ownerTabId && known()) {
+						await get().switchTab(ownerTabId);
+						return ownerTabId;
+					}
+					// A web page has no other window to bring forward: its "open in a new window" opens a tab here again,
+					// which main refuses again, without end.
+					if (args?.sessionPath && !webRuntime()) {
+						try {
+							await window.omp.sessions.openInNewWindow({
+								sessionPath: args.sessionPath,
+								...(device === undefined ? {} : { device }),
+							});
+						} catch {
+							// Best-effort focus — the owner window may be mid-teardown.
+						}
+					}
+					return ownerTabId;
+				}
+				const { tabId } = result;
+				// This window already let the tab go while main answered (the start tab gave way to a real tab the list pushed
+				// ahead of this answer): it is gone, not a tab to re-add and switch to.
+				if (isTabClosed(tabId)) return null;
+				ensureTabRuntime(tabId);
+				const resolvedCwd = result.cwd ?? cwd;
+				// Attached as a viewer of a session another window holds: the tab is already running there, so its
+				// status, title and viewers come from the list rather than from a first ready push that never comes.
+				if (result.attached) await get().reconcileTabs();
+				set(state => {
+					const existing = state.tabs.find(tab => tab.id === tabId);
+					if (existing) {
+						if (!args?.sessionPath || existing.pendingSessionPath === args.sessionPath) return state;
+						return {
+							tabs: state.tabs.map(tab =>
+								tab.id === tabId
+									? { ...tab, sessionPath: args.sessionPath, pendingSessionPath: args.sessionPath }
+									: tab,
+							),
+						};
+					}
+					const tab: SessionTab = {
+						id: tabId,
+						cwd: resolvedCwd,
+						status: "starting",
+						kind,
+						placeholder: args?.placeholder === true,
+						worktree: args?.worktree,
+						device,
+						unreadDone: false,
+						sessionPath: args?.sessionPath,
+						pendingSessionPath: args?.sessionPath,
+					};
+					return { tabs: [...state.tabs, tab] };
+				});
+				await get().switchTab(tabId);
+				return tabId;
+			})(),
+		),
 
 	switchTab: async id => {
 		const before = get();

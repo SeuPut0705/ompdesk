@@ -270,6 +270,10 @@ test("repeated modal and task lifecycles release sidecars and document listeners
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(2);
 		await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).at(-1)?.status).toBe("ready");
+		// Main's list says ready before the page has heard it, and ⌘W on a tab the page still sees starting asks first
+		// (tab-close.ts `tabNeedsCloseConfirm`): the close waits for the page's own status (nightly 39525167897 pressed
+		// ⌘W 33 ms after main's ready and the tab stayed, armed).
+		await expect(page.locator(".omp-titlebar-status")).toHaveText("Ready");
 		await whileOpen?.();
 		await page.keyboard.press("ControlOrMeta+w");
 		await expect.poll(() => page.evaluate(() => window.omp.tabs.list())).toHaveLength(1);

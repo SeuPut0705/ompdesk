@@ -64,3 +64,39 @@ export function onActiveTabRouteState(listener: (ready: boolean) => void): () =>
 	stateListeners.add(listener);
 	return () => stateListeners.delete(listener);
 }
+
+/** How long a command given while the active tab changes waits for it before it is dropped. */
+export const ROUTE_WAIT_MS = 2_000;
+
+/** A new tab main has not answered yet (⌘T, the menu). */
+let opening: Promise<unknown> | null = null;
+
+/** Commands given until `opened` settles belong to the tab it opens, not the one shown now. Returns `opened`. */
+export function openingTab<T>(opened: Promise<T>): Promise<T> {
+	const pending: Promise<unknown> = opened.finally(() => {
+		if (opening === pending) opening = null;
+	});
+	opening = pending;
+	return opened;
+}
+
+/**
+ * Whether `command` has to wait for the active tab: true when it was put off until the new tab is in and its route
+ * has landed (it then runs in the order given, or never when that takes over `ROUTE_WAIT_MS`), false when the caller
+ * may run it now. A key pressed in that gap was dropped, or acted on the tab being left: ⌘W right after ⌘T closed the
+ * old tab, or tried to close the window when it was the only one (nightly 39525167897, desktop.e2e).
+ */
+export function waitForActiveTab(command: () => void): boolean {
+	if (opening) {
+		void opening.then(() => waitForActiveTab(command) || command());
+		return true;
+	}
+	if (acceptsActiveTabEvents()) return false;
+	const off = onActiveTabRouteSettled(() => {
+		off();
+		clearTimeout(timer);
+		command();
+	});
+	const timer = setTimeout(off, ROUTE_WAIT_MS);
+	return true;
+}
