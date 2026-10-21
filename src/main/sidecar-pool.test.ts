@@ -1440,6 +1440,34 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(third.pool.tabLayoutForWindow(w3.win)?.tabs[0]?.formerIds).toEqual([id3]);
 	});
 
+	it("names a tab opened with former ids by them, and saves them with its own id", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		const events: string[][] = [];
+		pool.onWindowTabsChanged = (_win, layout) => events.push(layout?.tabs[0]?.formerIds ?? []);
+		pool.acquire(
+			"/host/work",
+			fw.win,
+			"tab-new",
+			"/host/s/a.jsonl",
+			"agent",
+			undefined,
+			false,
+			false,
+			false,
+			undefined,
+			"host-1",
+			undefined,
+			["rtab-last", "rtab-older"],
+		);
+		expect(pool.formerTabIds("tab-new")).toEqual(["rtab-last", "rtab-older"]);
+		// The first saved layout already carries them: a quit right after the open loses nothing.
+		expect(events[0]).toEqual(["tab-new", "rtab-last", "rtab-older"]);
+		// Another session in that tab: the ids name it no more.
+		pool.noteSessionFile("tab-new", "/host/s/b.jsonl");
+		expect(pool.formerTabIds("tab-new")).toEqual([]);
+	});
+
 	it("ignores an opener it does not hold", () => {
 		const { pool } = fakePool();
 		const fw = fakeWindow(1);

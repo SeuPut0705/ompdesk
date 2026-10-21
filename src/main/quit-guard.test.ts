@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { closeToTrayEnabled } from "../shared/desktop-prefs";
 import {
+	activateAction,
 	assessQuitRisk,
 	lastWindowCloseAction,
 	QuitLatch,
@@ -106,5 +107,23 @@ describe("closing the last shown window", () => {
 		expect(closeToTrayEnabled(undefined)).toBe(true);
 		expect(closeToTrayEnabled(true)).toBe(true);
 		expect(closeToTrayEnabled(false)).toBe(false);
+	});
+});
+
+describe("a Dock click (macOS activate)", () => {
+	const click = (windowCount: number, anyVisible: boolean, quitApproved = false) =>
+		activateAction({ windowCount, anyVisible, quitApproved });
+
+	it("opens a window when none is left, and brings a hidden one back", () => {
+		expect(click(0, false)).toBe("spawn");
+		expect(click(2, false)).toBe("show");
+		expect(click(2, true)).toBe("ignore");
+	});
+
+	it("never rebuilds a window once a quit is approved: its services are torn down, and a restore on them drops tabs from the saved layout", () => {
+		// 21 Oct 2026: an update restart tore the services down, the quit stalled, and a Dock click restored
+		// the layout again; a paired host's tab got no tab (its link was disposed) and left the saved layout.
+		expect(click(0, false, true)).toBe("ignore");
+		expect(click(2, false, true)).toBe("ignore");
 	});
 });

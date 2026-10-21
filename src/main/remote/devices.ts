@@ -20,7 +20,7 @@
 import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
 import { z } from "zod";
-import { codedError, type IpcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
+import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	type HostView,
 	IPC_EVENTS,
@@ -50,6 +50,9 @@ import {
 	DEVICE_RENAME_EVENT,
 	DeviceNameSchema,
 	HOST_NAME_EVENT,
+	KEPT_TABS_METHOD,
+	KeptTab,
+	KeptTabsReply,
 	NAME_METHODS,
 	NameParams,
 	OMP_UPDATE_EVENT,
@@ -496,6 +499,27 @@ export class RemoteDevices {
 		if (this.#deps.prefs.get(HOST_ENABLED_KEY) !== true) return null;
 		const peer = this.#peers.get(deviceId);
 		return peer ? this.#deps.services.reviveTab(peer, marker) : null;
+	}
+
+	/**
+	 * The tabs a paired host keeps running for this computer that no connection holds (`tabs.kept`), the ones that
+	 * still have work. Null from a host that does not know the method (an older OMPdesk); an entry this side cannot
+	 * read is left out.
+	 */
+	async keptTabs(deviceId: string): Promise<KeptTab[] | null> {
+		let reply: unknown;
+		try {
+			reply = await this.request<unknown>(deviceId, KEPT_TABS_METHOD, {});
+		} catch (error) {
+			if (ipcErrorCode(error) === "unsupported") return null;
+			throw error;
+		}
+		const parsed = KeptTabsReply.safeParse(reply);
+		if (!parsed.success) return null;
+		return parsed.data.tabs.flatMap(entry => {
+			const tab = KeptTab.safeParse(entry);
+			return tab.success ? [tab.data] : [];
+		});
 	}
 
 	/** A tab on a known host; throws `remote_unknown_device` when the host is not known. */

@@ -7,7 +7,7 @@ import { type AddressInfo, connect, createServer, type Server, type Socket } fro
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ipcErrorCode } from "../../shared/ipc-error-codes";
+import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { generateKeyPair } from "./crypto";
 import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
@@ -320,5 +320,34 @@ describe("Tailscale's side", () => {
 		expect(state.host.port).toBeNull();
 		expect(state.host.listenError).toBeNull();
 		expect(await rejectionCode(b.devices.connect("nSTUDIO"))).toBe("remote_tailscale_off");
+	});
+});
+
+describe("the tabs a host keeps for this device", () => {
+	const KEPT = {
+		rtab: "lost",
+		formerRtabs: ["older"],
+		sessionPath: "/host/sessions/lost.jsonl",
+		cwd: "/host/work",
+		kind: "agent",
+		state: "running",
+	} as const;
+
+	it("asks the host with `tabs.kept` and reads its answer, ignoring an entry it cannot read", async () => {
+		const { a, b, hostId } = await rig.connected();
+		b.services.call.mockImplementation(async (_peer, method) =>
+			method === "tabs.kept" ? { tabs: [KEPT, { rtab: "no-session" }] } : null,
+		);
+		expect(await a.devices.keptTabs(hostId)).toEqual([KEPT]);
+		expect(b.services.call.mock.calls.some(call => call[1] === "tabs.kept")).toBe(true);
+	});
+
+	it("answers null for a host that does not know the method (an older OMPdesk), and rejects for one that is away", async () => {
+		const { a, b, hostId } = await rig.connected();
+		b.services.call.mockImplementation(async () => {
+			throw codedError("unsupported", "Unknown method tabs.kept");
+		});
+		expect(await a.devices.keptTabs(hostId)).toBeNull();
+		expect(await rejectionCode(a.devices.keptTabs("nobody"))).toBe("remote_unknown_device");
 	});
 });

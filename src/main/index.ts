@@ -126,13 +126,15 @@ import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
 import { createLidAwake } from "./power/lid-awake-runtime";
-import { lastWindowCloseAction } from "./quit-guard";
+import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
+import { readoptHostTabs } from "./remote/readopt";
 import { migrateRetiredPrefs } from "./retired-prefs";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
+import { layoutsToSave } from "./saved-layouts";
 import { ompRunLauncher, ScheduleService } from "./schedules";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
@@ -146,6 +148,7 @@ import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
+import { nextSnowflake } from "./snowflake";
 import { markStartup } from "./startup-timing";
 import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
@@ -510,23 +513,21 @@ function readSavedTabLayouts(): PersistedTabLayout[] {
  * a secondary window's tabs are no longer dropped on the floor.
  */
 function persistTabLayouts(): void {
-	const layouts: PersistedTabLayout[] = [];
+	const live: PersistedTabLayout[] = [];
 	for (const win of windowManager.getAllWindows()) {
 		const layout = sidecarPool.tabLayoutForWindow(win);
-		if (layout) layouts.push(layout);
+		if (layout) live.push(layout);
 	}
-	// No live window means the app is quitting (or idle in the dock), not that
-	// the session was abandoned — writing an empty set would wipe the restore.
-	if (layouts.length === 0) return;
-	// electron-store rewrites and fsyncs the whole file on every set or delete (~4 ms each, on the main thread),
-	// and this runs on every tab change: write only what changed. Compared as stored (JSON drops `undefined`).
 	const store = prefsStore();
-	if (JSON.stringify(store.get("tabLayouts")) !== JSON.stringify(layouts)) store.set("tabLayouts", layouts);
+	const layouts = layoutsToSave({ quitApproved: quitApproved(), live, stored: store.get("tabLayouts") });
+	if (!layouts) return;
+	store.set("tabLayouts", layouts);
 	if (store.has("tabLayout")) store.delete("tabLayout");
 }
 
 /** Reopen one saved window: its tabs in order, at the layout's active cwd. */
 function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null {
+	if (quitApproved()) return null;
 	const active = layout.tabs[layout.activeIndex] ?? layout.tabs[0];
 	if (!active) return null;
 	// The window record keeps a path on this machine; a paired host's cwd means nothing here.
@@ -546,6 +547,9 @@ function spawnWindow(
 	kind?: SessionKind,
 	device?: string,
 ): BrowserWindow | null {
+	// An approved quit has torn the services down (or is doing so): a window built now has nothing to run on, and
+	// restoring the layout on it would drop what a disposed `RemoteDevices` cannot open from the saved session.
+	if (quitApproved()) return null;
 	if (device && cwd) {
 		const win = windowManager.createWindow({ cwd: resolveInitialCwd() });
 		const fresh = pendingSessionPath === undefined;
@@ -1299,6 +1303,36 @@ app.whenReady().then(() => {
 			: {}),
 	});
 	devices.onHostOnline(host => aiMemorySync?.hostOnline(host));
+	// A host's tab that kept running for this computer but that the saved layout lost (a quit that stalled before
+	// the relaunch) comes back in the front window, adopted by session path, under the ids the host knows.
+	devices.onHostOnline(host => {
+		void readoptHostTabs(host, {
+			kept: deviceId => devices.keptTabs(deviceId),
+			holds: (deviceId, sessionPath) => sidecarPool.sessionOwner(sessionPath, deviceId) !== null,
+			open: (deviceId, tab) => {
+				const win = windowManager.getTargetWindow();
+				if (!win || quitApproved()) return null;
+				const tabId = nextSnowflake();
+				const sidecar = sidecarPool.acquire(
+					tab.cwd,
+					win,
+					tabId,
+					tab.sessionPath,
+					tab.kind,
+					undefined,
+					false,
+					false,
+					false,
+					tab.title,
+					deviceId,
+					undefined,
+					[tab.rtab, ...tab.formerRtabs],
+				);
+				return sidecar ? tabId : null;
+			},
+			log: (step, details) => writeRuntimeLog({ source: "remote-tab", message: step, details }),
+		});
+	});
 	aiMemorySync.start();
 	// The term corpus of memory recall's coverage gate: read at memory-ready (onState above) and every ten minutes.
 	recallTerms = new RecallTermsIndex({
@@ -1747,11 +1781,13 @@ app.whenReady().then(() => {
 app.on("activate", () => {
 	if (!windowManager) return;
 	const windows = windowManager.getAllWindows();
-	if (windows.length === 0) {
-		spawnWindow();
-		return;
-	}
-	if (windows.some(win => win.isVisible())) return;
+	const action = activateAction({
+		quitApproved: quitApproved(),
+		windowCount: windows.length,
+		anyVisible: windows.some(win => win.isVisible()),
+	});
+	if (action === "spawn") spawnWindow();
+	if (action !== "show") return;
 	const win = windowManager.getTargetWindow() ?? windows[0];
 	if (win.isMinimized()) win.restore();
 	win.show();

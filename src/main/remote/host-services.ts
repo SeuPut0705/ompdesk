@@ -91,6 +91,7 @@ import {
 } from "../sidecar-run-state";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { stockHelperRequest } from "../stock-helper";
+import { MAX_FORMER_TAB_IDS } from "../tab-layout";
 import { sessionFolderState } from "../tab-spawn";
 import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
@@ -117,6 +118,8 @@ import {
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
+	KEPT_TABS_METHOD,
+	type KeptTab,
 	MEMORY_METHODS,
 	MemoryConclusionPullParams,
 	type MemoryConclusionPullReply,
@@ -248,6 +251,8 @@ interface HostTab extends RunTracking {
 	/** Session file the sidecar last reported (live-owner checks for delete/rename). */
 	sessionFile: string | undefined;
 	graceTimer: NodeJS.Timeout | undefined;
+	/** The rtabs this tab had before a relaunched device adopted it under a new one, newest first (`tabs.kept`). */
+	formerRtabs: string[];
 	run: RunState;
 	/**
 	 * Open asks and approvals the device has not answered, by request id, as the omp raised them:
@@ -788,6 +793,8 @@ export class LocalHostServices implements HostServices {
 				this.#answer(this.#tab(peer, rtab), frame, "device");
 				return null;
 			}
+			case KEPT_TABS_METHOD:
+				return { tabs: this.#keptTabs(peer) };
 			case "tab.cancelWait":
 				this.#resume?.cancelWait(this.#tab(peer, parse(RtabParams, method, params).rtab).resumeId);
 				return null;
@@ -1242,9 +1249,34 @@ export class LocalHostServices implements HostServices {
 		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
 		// Terminals are owned by rtab; the device lost the old one with its previous launch.
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
+		tab.formerRtabs = [tab.rtab, ...tab.formerRtabs].slice(0, MAX_FORMER_TAB_IDS);
 		tab.rtab = params.rtab;
 		this.#tabs.set(this.#key(peer.deviceId, params.rtab), tab);
 		return tab;
+	}
+
+	/**
+	 * The tabs `peer`'s last connection left that still have work (`tabs.kept`): in their grace period, on a session
+	 * file (a fresh tab with none cannot be opened again by its path), running a turn, settling, waiting on an ask
+	 * or held for this computer's connection. An idle one is left to its grace.
+	 */
+	#keptTabs(peer: PeerInfo): KeptTab[] {
+		const kept: KeptTab[] = [];
+		for (const tab of this.#tabs.values()) {
+			if (tab.peerId !== peer.deviceId || tab.conn !== null || tab.viewsWindow || !tab.sessionFile) continue;
+			const state = keptState(tab);
+			if (!state) continue;
+			kept.push({
+				rtab: tab.rtab,
+				formerRtabs: [...tab.formerRtabs],
+				sessionPath: tab.sessionFile,
+				cwd: tab.sidecar.cwd,
+				kind: tab.sidecar.kind,
+				state,
+				...(tab.title ? { title: tab.title } : {}),
+			});
+		}
+		return kept;
 	}
 
 	/** The host tab whose omp is on `sessionPath` (or will be, once started). */
@@ -1292,6 +1324,7 @@ export class LocalHostServices implements HostServices {
 			conn,
 			resumeSessionPath: sessionPath,
 			sessionFile: sessionPath,
+			formerRtabs: [],
 			graceTimer: undefined,
 			// A window's tab may be mid-turn as the device joins it: its events so far reached nobody here.
 			run: view instanceof HostedTabView ? runFromReading(view.runReading()) : idleRun(),
@@ -1799,6 +1832,14 @@ function terminalOwner(deviceId: string, rtab: string): string {
 /** A hosted tab's id for this computer's resume coordinator, beside the local tabs' ids (its first rtab). */
 function resumeId(deviceId: string, rtab: string): string {
 	return `peer:${deviceId}:${rtab}`;
+}
+
+/** Why a tab left in its grace period is worth bringing back to its device (`tabs.kept`); null when it is idle. */
+function keptState(tab: HostTab): KeptTab["state"] | null {
+	if (tab.asks.size > 0) return "asking";
+	if (runSettling(tab.run)) return "settling";
+	if (runBusy(tab.run)) return "running";
+	return tab.awaitingConnection ? "waiting" : null;
 }
 
 /** The benchmark and research slot of a paired device on this machine (windows here use `window:<id>`). */

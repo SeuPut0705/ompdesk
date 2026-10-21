@@ -1158,6 +1158,65 @@ describe("LocalHostServices", () => {
 		expect(sidecars).toHaveLength(1);
 	});
 
+	it("lists the working tabs a device's last connection left, and only those, with the rtabs they had", async () => {
+		const { services, sidecars } = setup();
+		const open = async (conn: FakeConnection, rtab: string, session?: string) => {
+			await services.call(
+				conn.peer,
+				"tab.open",
+				{ rtab, cwd: workDir, fresh: !session, sessionPath: session },
+				conn,
+			);
+			await services.call(conn.peer, "tab.start", { rtab }, conn);
+			const sidecar = sidecars[sidecars.length - 1];
+			sidecar?.setStatus("ready");
+			if (session) sidecar?.emit("session", { sessionId: rtab, sessionFile: session });
+			return sidecar;
+		};
+		const x = new FakeConnection(peer("device-x"));
+		const running = await open(x, "running", "/s/running.jsonl");
+		running?.emit("events", [{ type: "agent_start" }]);
+		const idle = await open(x, "idle", "/s/idle.jsonl");
+		const asking = await open(x, "asking", "/s/asking.jsonl");
+		asking?.emit("extensionUi", { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "?" });
+		const unwritten = await open(x, "unwritten");
+		unwritten?.emit("events", [{ type: "agent_start" }]);
+		const y = new FakeConnection(peer("device-y"));
+		const other = await open(y, "other", "/s/other.jsonl");
+		other?.emit("events", [{ type: "agent_start" }]);
+		// The relaunched device re-attaches one of its running tabs before it asks.
+		services.disconnected(x.peer, x);
+		services.disconnected(y.peer, y);
+		const back = new FakeConnection(peer("device-x"));
+		await services.call(back.peer, "tab.open", { rtab: "held", cwd: workDir, sessionPath: "/s/running.jsonl" }, back);
+
+		const kept = (conn: FakeConnection) => services.call(conn.peer, "tabs.kept", {}, conn);
+		expect(await kept(back)).toEqual({
+			tabs: [
+				{
+					rtab: "asking",
+					formerRtabs: [],
+					sessionPath: "/s/asking.jsonl",
+					cwd: workDir,
+					kind: "chat",
+					state: "asking",
+				},
+			],
+		});
+
+		// The one it took over names the id it had before: an id an agent was given still resolves.
+		services.disconnected(back.peer, back);
+		const later = new FakeConnection(peer("device-x"));
+		expect(await kept(later)).toMatchObject({
+			tabs: [
+				{ rtab: "asking", state: "asking" },
+				{ rtab: "held", formerRtabs: ["running"], sessionPath: "/s/running.jsonl", state: "running" },
+			],
+		});
+		expect(idle?.disposed).toBe(false);
+		expect(await kept(new FakeConnection(peer("device-z")))).toEqual({ tabs: [] });
+	});
+
 	it("starts one omp for concurrent opens of one session under two rtabs, on one connection or a reconnect", async () => {
 		const { services, sidecars } = setup();
 		const conn = new FakeConnection(peer("device-x"));
