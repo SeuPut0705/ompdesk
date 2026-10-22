@@ -1,5 +1,17 @@
 import { Bot, ChevronDown, GitBranch, SquareTerminal } from "lucide-react";
-import { type ReactNode, Suspense, type TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type ReactNode,
+	type RefObject,
+	Suspense,
+	type TouchEvent,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
@@ -22,6 +34,52 @@ const PANEL_ID = "omp-work-strip-panel";
 const LEAVE_MS = 160;
 /** An upward drag at least this long on the strip or the grip collapses the panel. */
 const SWIPE_UP_PX = 32;
+/** Space kept between the panel's far edge and its pane's edge. */
+const ROOM_MARGIN_PX = 8;
+/** Room above the strip that still shows a few of the board's rows: the panel opens upward from this much. */
+const MIN_UP_PX = 160;
+
+interface StripRoom {
+	/** The panel opens above the strip (clear of the composer) when its pane leaves room for a few rows there. */
+	up: boolean;
+	/** That side's room: `--strip-room` caps the panel's height below the stylesheet's 50dvh. */
+	px: number;
+}
+
+/**
+ * Where the panel opens and how tall it may be. A phone's strip sits under the header, so it opens downward over the
+ * transcript; a desktop window's sits in the dock just above the composer, where opening downward covered the
+ * composer and ran past the window (22 Oct 2026), so it opens upward while {@link MIN_UP_PX} fits there. A short
+ * pane (a short window, a split stacked in two, a question card filling the dock) can leave less: then it opens
+ * downward, over the dock. Measured again
+ * when the pane resizes or anything beside the strip on the way up to it does (a card appearing in the dock moves the
+ * strip without resizing it).
+ */
+function useStripRoom(root: RefObject<HTMLDivElement | null>, shown: boolean): StripRoom | undefined {
+	const [room, setRoom] = useState<StripRoom | undefined>(undefined);
+	useLayoutEffect(() => {
+		const strip = root.current;
+		if (!shown || !strip) return;
+		const pane = strip.closest(".omp-session-pane") ?? document.documentElement;
+		const measure = (): void => {
+			const box = strip.getBoundingClientRect();
+			const bounds = pane.getBoundingClientRect();
+			const above = box.top - bounds.top;
+			const below = bounds.bottom - box.bottom;
+			const up = above - ROOM_MARGIN_PX >= MIN_UP_PX || above > below;
+			const px = Math.max(0, Math.floor((up ? above : below) - ROOM_MARGIN_PX));
+			setRoom(previous => (previous?.up === up && previous.px === px ? previous : { up, px }));
+		};
+		measure();
+		const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+		observer?.observe(pane);
+		for (let node: Element = strip; node !== pane && node.parentElement; node = node.parentElement)
+			for (const sibling of node.parentElement.children) observer?.observe(sibling);
+		return () => observer?.disconnect();
+	}, [root, shown]);
+	return room;
+}
+
 /** The session rows' rules (`WorkBoardSession.tsx`), loaded after the first screen: only whether the newest check failed. */
 const FailedCheckWatch = lazyChunk(() =>
 	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
@@ -60,6 +118,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	}, []);
 	useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
 	useBackLayer(open, close);
+	const room = useStripRoom(root, open || leaving);
 	const turnActive = useTodoStore(state => state.turnActive);
 	const phases = useTodoStore(state => state.phases);
 	const planVisible = useTodoStore(selectTodoCardVisible);
@@ -204,6 +263,8 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 					data-leaving={!open || undefined}
 					data-work-strip-panel=""
 					id={PANEL_ID}
+					data-opens={room?.up ? "up" : undefined}
+					style={room === undefined ? undefined : ({ "--strip-room": `${room.px}px` } as CSSProperties)}
 					// A tap on a row acts (its own handler runs first) and collapses; the fold toggles and a row that
 					// expands in place (`data-board-expands`, the memory row) keep the panel open.
 					onClick={event => {
