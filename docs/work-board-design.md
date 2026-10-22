@@ -49,18 +49,18 @@ Captures (1600 px, light/dark × en/ko, running and just-ended turn) were taken 
 
 ## What the shipped board does
 
-- Placement: a pane that leaves at least 300 px beside its reading column (`workBoardFits`) docks it, and so does a desktop window or a sideways tablet whose column can narrow to 503 px beside it (`workBoardFitsNarrowed`; from about an 830 px pane, so a 1280 px Windows laptop window beside the sidebar docks it), unless its ✕ hid it for that window (`useUiStore.workBoard`, never stored) or the side panel is open; a board with no section takes no room. Where it cannot dock (a phone, a portrait tablet, a narrow window or split pane, the side panel open) it is a status strip under the header that expands the board in place over the top of the transcript.
-- Head: pulse (working / waiting / idle), "Work board", a hide button (turns the pref off), the worktree's project name when the session runs in one, the segmented todo bar with "3/7 done", and the account's usage limit. Direction B's status sentence did not ship: the waiting section's live region and each section's count carry it.
-- Sections, top to bottom, each shown only when it has rows: Autopilot, Waiting on you, Needs review, This turn, Running, Opened sessions, Todos, Goal, Last turn.
-- Autopilot: while the session is an Autopilot run, its cycle rows come first and the Goal section steps aside.
+- Placement: a pane that leaves at least 300 px beside its reading column (`workBoardFits`) docks it, and so does a desktop window or a sideways tablet whose column can narrow to 503 px beside it (`workBoardFitsNarrowed`; from about an 830 px pane, so a 1280 px Windows laptop window beside the sidebar docks it), unless the side panel is open; a board with no section takes no room. Where it cannot dock (a phone, a portrait tablet, a narrow window or split pane, the side panel open) it is a status strip under the header that expands the board in place over the top of the transcript. It has no close and no setting (22 Oct 2026: a hidden board had no way back), so a session's work is always one glance away.
+- Head: pulse (working / waiting / idle), "Work board", the worktree's project name when the session runs in one, the segmented todo bar with "3/7 done", and the subscription accounts' gauges beside each metered provider's charge. Direction B's status sentence did not ship: the waiting section's live region and each section's count carry it.
+- Every row is one line (lead mark, label, one short figure; the rest in its tooltip), and a long section folds into "+N more".
+- Sections, top to bottom, each shown only when it has rows: Waiting on you, a failed check, the Autopilot run's own sections in an Autopilot tab, Tools used, Running, Child sessions, Todos, Goal, Current work.
 - Waiting on you first: questions, approvals and a pending plan review; the only live region (polite); `⌥B` (`board.focus`) jumps to its first row from anywhere.
-- Needs review: only the exceptions of finished sessions an agent opened (a merge conflict, a failed ending, commits nothing merged, uncommitted work), with Review, Approve (merge into this checkout, nothing is pushed) and Discard (a second click removes the worktree and branch).
-- This turn: the last four calls with their tool icon, target and duration; the live one's icon is tinted.
+- No review buttons: the agent that opened a child compares, merges and closes it itself (`ompdesk_compare`, `ompdesk_merge`, `ompdesk_session_stop`); a child that needs the person is a waiting row and a notification.
+- Tools used: the turn's last three calls with their tool icon, target and duration; the live one's icon is tinted.
 - Running: subagents (state dot, task, elapsed, current step or tool, tokens, the provider mark of the model they run on) and background shells, the ones a subagent runs itself included (stock's jobs tree; the Background tasks view nests them under their subagent); a click opens the subagent in the side panel / Background tasks.
-- Opened sessions: one row per session the agent opened (status, current step, clock, branch state, its last `ompdesk_report`); sessions main closed after their work landed collapse into an "N closed" note.
-- Todos: finished tasks fold into "N done", the active row is emphasised, finished rows are struck through; a click scrolls the todo card in the conversation into view when it is there.
+- Child sessions: one row per session the agent opened (status, a second muted line with its step, question or last report, clock); the finished ones fold into one "n done" row.
+- Todos: finished tasks fold into "N done", the active row is emphasised; the list itself is edited in the todo card (Edit todos), which the board's collapsed dock twin otherwise leaves to the board.
 - Goal: objective, status, and budget / time meters from `get_goal` (warning colour from 90 %).
-- Last turn (idle): duration, files changed with +/−, a click opens Changes.
+- Current work: what the turn's own edit tools changed (and its children's), the newest check with its verdict, running dev servers, sessions sharing the checkout, the memory the turn recalled.
 - Motion: one running animation, the head's pulse while something works; rows fade in and out once
   (`usePresence`) and otherwise stay still, so a live row is marked by colour (an info dot, a tinted icon), not by
   movement. Every animated row cost the GPU process about 2 % of a core while the transcript streamed, whatever

@@ -13,7 +13,7 @@ Computers share over [Tailscale](https://tailscale.com) only. There is no pairin
 1. Install OMPdesk on both, and sign both in to Tailscale (the same account, or an account the other computer allows). Settings › Devices & connections offers to install or open Tailscale when it is missing or stopped.
 2. On the computer that **runs the work**, open **Settings › Devices & connections › OMPdesk sharing** and turn on **Let other devices use this computer**.
 3. On the computer you are **sitting at**, the same page lists the **Computers on your tailnet**. Press **Connect** next to the one that shares OMPdesk.
-4. Open the other computer's projects and sessions from the sidebar.
+4. Open the other computer's projects and sessions from the sidebar. Each computer has its own section there; a connected computer's header wears a color of its own, and its gear picks another color or none.
 
 The computer that shares itself listens on its Tailscale addresses only, never on your local network. Connections are encrypted end to end and pinned to each computer's key the first time they connect.
 
