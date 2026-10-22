@@ -51,7 +51,7 @@ interface StripRoom {
  * transcript; a desktop window's sits in the dock just above the composer, where opening downward covered the
  * composer and ran past the window (22 Oct 2026), so it opens upward while {@link MIN_UP_PX} fits there. A short
  * pane (a short window, a split stacked in two, a question card filling the dock) can leave less: then it opens
- * downward, over the dock. Measured again
+ * downward, over the dock and never past the composer's top. Measured again
  * when the pane resizes or anything beside the strip on the way up to it does (a card appearing in the dock moves the
  * strip without resizing it).
  */
@@ -65,7 +65,10 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, shown: boolean): S
 			const box = strip.getBoundingClientRect();
 			const bounds = pane.getBoundingClientRect();
 			const above = box.top - bounds.top;
-			const below = bounds.bottom - box.bottom;
+			// Downward it stops at the pane's composer, never over it (the composer sits below the strip in every shell).
+			const composer = pane.querySelector(".omp-composer-box")?.getBoundingClientRect();
+			const floor = composer && composer.top > box.bottom ? composer.top : bounds.bottom;
+			const below = floor - box.bottom;
 			const up = above - ROOM_MARGIN_PX >= MIN_UP_PX || above > below;
 			const px = Math.max(0, Math.floor((up ? above : below) - ROOM_MARGIN_PX));
 			setRoom(previous => (previous?.up === up && previous.px === px ? previous : { up, px }));

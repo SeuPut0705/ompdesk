@@ -384,8 +384,15 @@ test("responsive smoke 1280 desktop: a mermaid diagram lays out under Reduce mot
  * the strip was collapsed (22 Oct 2026). It opens upward now, clear of the composer, and no taller than the room its
  * pane has above the strip: a short window (or a pane of a split stacked in two) once cut its top off instead.
  */
-for (const height of [800, 480]) {
-	test(`responsive smoke 1280×${height} desktop: the expanded work strip stays in its pane, clear of the composer`, async () => {
+const STRIP_ROOMS: readonly { height: number; draft?: number }[] = [
+	{ height: 800 },
+	{ height: 480 },
+	// A pane as short as a split stacked in two: no room above the strip, the composer just under the dock.
+	{ height: 360, draft: 1 },
+];
+for (const { height, draft } of STRIP_ROOMS) {
+	const name = draft ? `1280×${height} desktop with a draft` : `1280×${height} desktop`;
+	test(`responsive smoke ${name}: the expanded work strip stays in its pane, clear of the composer`, async () => {
 		if (!browser) throw new Error("the browser is not up");
 		const look: Look = {
 			width: 1280,
@@ -398,6 +405,11 @@ for (const height of [800, 480]) {
 		};
 		const page = await openLook(browser, look, { origin, query: "&board=busy" });
 		await show(page, look, "board-strip");
+		if (draft)
+			await page
+				.locator(".omp-composer-box textarea")
+				.first()
+				.fill(Array.from({ length: draft }, (_, line) => `line ${line + 1} of a long draft`).join("\n"));
 		// The dock settles after the strip opens (the question card lands), and the panel follows it: read it settled.
 		const fits = async () => {
 			const panel = await page.locator("[data-work-strip-panel]").boundingBox();
@@ -407,7 +419,7 @@ for (const height of [800, 480]) {
 			if (panel.y < pane.y) return `panel's top ${panel.y} above its pane's ${pane.y}`;
 			if (panel.y + panel.height > composer.y)
 				return `panel's bottom ${panel.y + panel.height} over the composer at ${composer.y}`;
-			if (panel.height <= 80) return `panel only ${panel.height}px tall`;
+			if (!draft && panel.height <= 80) return `panel only ${panel.height}px tall`;
 			return "fits";
 		};
 		await expect.poll(fits, { timeout: 5_000 }).toBe("fits");
