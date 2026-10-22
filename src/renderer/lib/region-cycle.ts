@@ -82,5 +82,9 @@ export function cycleRegion(direction: 1 | -1): boolean {
 /** The F6 handler for the window: Shift+F6 goes back. Modified F6 is left to the OS and the keymap. */
 export function handleRegionKey(event: KeyboardEvent): void {
 	if (event.key !== "F6" || event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
-	if (cycleRegion(event.shiftKey ? -1 : 1)) event.preventDefault();
+	if (!cycleRegion(event.shiftKey ? -1 : 1)) return;
+	// Handled here in the capture phase, before its target: the terminal's own keydown (xterm) ignores
+	// `defaultPrevented` and would still send F6 to the shell as ESC[17~.
+	event.preventDefault();
+	event.stopPropagation();
 }

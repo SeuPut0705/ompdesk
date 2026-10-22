@@ -65,6 +65,7 @@ describe("F6 region cycling", () => {
 		expect(focused).toBeNull();
 		document.querySelector('[role="dialog"]')?.remove();
 		let prevented = false;
+		let stopped = false;
 		const event = {
 			key: "F6",
 			ctrlKey: true,
@@ -75,12 +76,17 @@ describe("F6 region cycling", () => {
 			preventDefault: () => {
 				prevented = true;
 			},
+			stopPropagation: () => {
+				stopped = true;
+			},
 		};
 		handleRegionKey(event as unknown as KeyboardEvent);
 		expect(prevented).toBe(false);
 		expect(focused).toBeNull();
 		handleRegionKey({ ...event, ctrlKey: false } as unknown as KeyboardEvent);
 		expect(prevented).toBe(true);
+		// The key never reaches its target (a terminal would send it to the shell).
+		expect(stopped).toBe(true);
 		expect(id()).toBe("row");
 	});
 });
