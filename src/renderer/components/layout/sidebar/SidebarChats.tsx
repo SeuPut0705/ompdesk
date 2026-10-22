@@ -3,11 +3,12 @@
  * its chats and other no-project sessions. The sidebar has no Code/Chat switch (the user's call, 22 Oct 2026): code
  * projects come first and chats follow in the same list, this computer's and every paired host's alike.
  */
-import { ChevronDown, ChevronRight, MessageCircle, MessageSquarePlus } from "lucide-react";
+import { MessageCircle, MessageSquarePlus } from "lucide-react";
 import type { ReactNode } from "react";
 import { useT } from "../../../lib/i18n";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { IconButton } from "../../common";
+import { SidebarFoldButton } from "./SidebarFoldButton";
 
 export function SidebarChats({
 	deviceId,
@@ -35,24 +36,21 @@ export function SidebarChats({
 	const t = useT();
 	const storedFold = useSidebarFolds(s => s.chats[deviceId] === true);
 	const folded = !filtering && storedFold;
-	const Chevron = folded ? ChevronRight : ChevronDown;
 	return (
 		<section aria-label={t("sidebar.chats")} className="mt-1" data-sidebar-chats={deviceId}>
 			<div className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
-				<button
-					aria-expanded={!folded}
-					className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				<SidebarFoldButton
+					className="text-(--sc-text-muted) hover:text-(--sc-text)"
 					data-roving-item={`chats:${deviceId}`}
 					data-sidebar-chats-toggle={deviceId}
+					folded={folded}
+					icon={<MessageCircle aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
 					onClick={() => useSidebarFolds.getState().setChatsFolded(deviceId, !folded)}
 					tabIndex={-1}
-					type="button"
 				>
-					<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-					<MessageCircle aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 					<span className="min-w-0 flex-1 truncate">{t("sidebar.chats")}</span>
 					{folded && count > 0 && <span className="shrink-0 text-sc-2xs text-(--sc-text-subtle)">{count}</span>}
-				</button>
+				</SidebarFoldButton>
 				<IconButton
 					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
 					{...newChatData}

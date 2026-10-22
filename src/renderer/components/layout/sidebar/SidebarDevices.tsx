@@ -58,6 +58,7 @@ import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
+import { SidebarFoldButton } from "./SidebarFoldButton";
 import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
@@ -727,29 +728,20 @@ function DeviceSessions({
 							className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
 							onContextMenu={event => setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })}
 						>
-							<button
-								aria-expanded={!groupCollapsed}
-								className={cx(
-									"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
-									group.missing ? "text-(--sc-text-subtle)" : "text-(--sc-text-muted)",
-								)}
+							<SidebarFoldButton
+								className={group.missing ? "text-(--sc-text-subtle)" : "text-(--sc-text-muted)"}
 								data-roving-item={`device-group:${host.deviceId}:${group.cwd}`}
 								onClick={() =>
 									useSidebarFolds.getState().setDeviceGroupFolded(host.deviceId, group.cwd, !groupCollapsed)
 								}
 								tabIndex={-1}
 								title={group.missing ? `${group.cwd}\n${t("sidebar.project.missing")}` : group.cwd}
-								type="button"
+								folded={groupCollapsed}
+								icon={<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
 							>
-								{groupCollapsed ? (
-									<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								) : (
-									<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								)}
-								<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								<span className="min-w-0 flex-1 truncate">{name}</span>
 								{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
-							</button>
+							</SidebarFoldButton>
 							<IconButton
 								className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
 								icon={<MoreHorizontal />}

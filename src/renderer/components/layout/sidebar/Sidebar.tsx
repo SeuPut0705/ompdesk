@@ -137,6 +137,7 @@ import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
+import { SidebarFoldButton } from "./SidebarFoldButton";
 import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
 import { SidebarRenameField } from "./SidebarRenameField";
 import {
@@ -2080,10 +2081,8 @@ export function Sidebar() {
 									/>
 								</div>
 							) : (
-								<button
-									aria-expanded={!groupCollapsed}
+								<SidebarFoldButton
 									className={cx(
-										"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
 										group.missing
 											? "text-(--sc-text-subtle)"
 											: isCurrentProject
@@ -2107,18 +2106,15 @@ export function Sidebar() {
 									}}
 									tabIndex={tabIndex}
 									title={group.missing ? `${group.tooltip}\n${t("sidebar.project.missing")}` : group.tooltip}
-									type="button"
+									folded={groupCollapsed}
+									icon={
+										<FolderIcon
+											aria-hidden
+											className="size-(--sc-icon-sm) shrink-0"
+											data-sidebar-workspace-icon
+										/>
+									}
 								>
-									{groupCollapsed ? (
-										<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									) : (
-										<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									)}
-									<FolderIcon
-										aria-hidden
-										className="size-(--sc-icon-sm) shrink-0"
-										data-sidebar-workspace-icon
-									/>
 									<span className="min-w-0 flex-1 truncate">{group.name}</span>
 									{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
 									{pinned && (
@@ -2136,7 +2132,7 @@ export function Sidebar() {
 											<span className="sr-only">, {t("sidebar.signal.running")}</span>
 										</span>
 									)}
-								</button>
+								</SidebarFoldButton>
 							)}
 							{renamingGroupCwd !== group.cwd && (
 								<span className="omp-sidebar-project-actions relative flex shrink-0 items-center pr-1">
