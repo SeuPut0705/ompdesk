@@ -222,6 +222,13 @@ export async function crashed(page: Page): Promise<boolean> {
 	return (await page.getByText(/Reload interface|인터페이스 다시 불러오기/).count()) > 0;
 }
 
+/** What a crashed panel's boundary ("This panel crashed", `PanelErrorBoundary`) says, or null when none shows. */
+export async function panelCrash(page: Page): Promise<string | null> {
+	const panel = page.locator("[data-panel-crashed]:visible").first();
+	if ((await panel.count()) === 0) return null;
+	return (await panel.innerText({ timeout: 2_000 }).catch(() => "")).replace(/\s+/g, " ").trim();
+}
+
 /**
  * Close whatever a surface opened: every open flag of the ui store goes back to its initial value, the toasts and
  * cards go, Escape presses away a popover. Returns false when something modal is still on screen (the caller then

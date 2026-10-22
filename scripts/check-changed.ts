@@ -154,7 +154,11 @@ if (browserNotice) console.log(`[check:changed] warning: ${browserNotice}`);
 console.log(`[check:changed] build, then ${specs.length} spec file(s): ${specs.join(" ")}`);
 const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
 if (build.code !== 0) process.exit(1);
-const e2e = await runLocked("playwright", ["bunx", "playwright", "test", ...specs], { via: "check:changed" });
+// An opt-in spec (the responsive audit, a capture run) registers no test without its env: the specs exist, so
+// "no tests found" means only that, never a pick gone wrong.
+const e2e = await runLocked("playwright", ["bunx", "playwright", "test", "--pass-with-no-tests", ...specs], {
+	via: "check:changed",
+});
 if (e2e.code !== 0 && browserNotice) console.log(`[check:changed] ${browserNotice}`);
 console.log(
 	`[check:changed] ${e2e.code === 0 ? "PASSED" : "FAILED: playwright"} in ${seconds(performance.now() - started)}`,

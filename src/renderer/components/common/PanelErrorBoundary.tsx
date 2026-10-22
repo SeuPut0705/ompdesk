@@ -18,7 +18,7 @@ interface PanelErrorBoundaryState {
 function Fallback({ error, onRetry }: { error: Error; onRetry: () => void }) {
 	const t = useT();
 	return (
-		<div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-8 text-center">
+		<div data-panel-crashed className="flex h-full flex-col items-center justify-center gap-2 px-6 py-8 text-center">
 			<span className="text-omp-md font-medium text-[var(--omp-error)]">{t("errorBoundary.title")}</span>
 			<span className="max-w-full break-words font-mono text-omp-xs leading-snug text-[var(--omp-dim)]">
 				{error.message}

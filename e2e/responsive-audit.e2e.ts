@@ -12,6 +12,7 @@ import {
 	measureDensity,
 	mergeReport,
 	openLook,
+	panelCrash,
 	resetPage,
 	type SurfaceResult,
 	summarize,
@@ -114,6 +115,9 @@ if (dir) {
 							.catch(() => "");
 						failed = `crashed the renderer: ${message.slice(0, 300) || failed || "?"}`;
 						reload = true;
+					} else {
+						const panel = await panelCrash(page);
+						if (panel !== null) failed = `a panel crashed: ${panel.slice(0, 300)}`;
 					}
 					const issues = failed ? [] : await measure(page, look);
 					const metrics = surface.density && !failed ? await measureDensity(page, look) : undefined;

@@ -10,6 +10,7 @@
 
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import type { LaunchProfile } from "../../shared/launch-profile";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, WEB_BLOCKS_LIST, WEB_DEVICES_LIST } from "../../shared/mobile-web";
 import type { OmpTransport } from "../../shared/omp-api";
 import {
@@ -207,6 +208,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	const unhandled: string[] = [];
 	const calls: Harness["calls"] = [];
 	let activeTabId = "tab-1";
+	const launchProfiles = new Map<string, LaunchProfile>();
 	const note = (key: string) => {
 		if (!unhandled.includes(key)) unhandled.push(key);
 	};
@@ -401,6 +403,14 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				const request = payload as PrefsSetPayload;
 				prefs[request.key] = request.value;
 				return undefined;
+			}
+			case IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE:
+				return launchProfiles.get((payload as { cwd: string }).cwd) ?? {};
+			case IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE: {
+				const { cwd, patch } = payload as { cwd: string; patch: Partial<LaunchProfile> };
+				const next = { ...launchProfiles.get(cwd), ...patch };
+				launchProfiles.set(cwd, next);
+				return next;
 			}
 			case IPC_COMMANDS.SYSTEM_INFO:
 				return {
