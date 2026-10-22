@@ -243,6 +243,32 @@ describe("TerminalPanel on a phone", () => {
 		resetShellModeForTests();
 	});
 
+	it("its session tabs are one tab stop, and the arrows switch the session", async () => {
+		phone(operation =>
+			operation.action === "list" && operation.waitMs
+				? new Promise(() => {})
+				: [snapshot(), snapshot({ id: "second" }), snapshot({ id: "third" })],
+		);
+		await mount(<TerminalPanel />);
+		await settle();
+		const tabs = () => Array.from(container.querySelectorAll("[role=tab]")) as HTMLElement[];
+		const stops = () => tabs().map(tab => tab.getAttribute("tabindex"));
+		expect(stops()).toEqual(["0", "-1", "-1"]);
+		const key = (target: HTMLElement, name: string) =>
+			act(async () => {
+				const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+				Object.defineProperty(event, "key", { value: name });
+				target.dispatchEvent(event);
+			});
+		await key(tabs()[0] as HTMLElement, "ArrowRight");
+		expect(stops()).toEqual(["-1", "0", "-1"]);
+		expect(tabs()[1]?.getAttribute("aria-selected")).toBe("true");
+		await key(tabs()[1] as HTMLElement, "End");
+		expect(stops()).toEqual(["-1", "-1", "0"]);
+		await key(tabs()[2] as HTMLElement, "ArrowRight");
+		expect(stops()).toEqual(["0", "-1", "-1"]);
+	});
+
 	it("reads with a long poll that carries the offset, one request at a time", async () => {
 		let lists = 0;
 		const request = phone(operation => {

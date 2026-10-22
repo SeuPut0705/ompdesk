@@ -511,6 +511,16 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					ref={tabsRef}
 					role="tablist"
 					aria-label={t("panel.terminal.title")}
+					onKeyDown={event => {
+						const at = sessions.findIndex(session => session.id === selected);
+						const next = rovingIndex(event.key, at, sessions.length);
+						if (next === null) return;
+						event.preventDefault();
+						const id = sessions[next]?.id;
+						if (!id) return;
+						setSelected(id);
+						tabsRef.current?.querySelectorAll<HTMLElement>("[role=tab]")[next]?.focus();
+					}}
 				>
 					{sessions.map((session, index) => (
 						<div className="flex shrink-0 items-center" key={session.id}>
@@ -518,6 +528,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 								type="button"
 								role="tab"
 								aria-selected={session.id === selected}
+								tabIndex={session.id === (selected ?? sessions[0]?.id) ? 0 : -1}
 								title={t("panel.terminal.session", { number: index + 1 })}
 								className="min-h-(--sc-control-sm) max-w-40 truncate rounded-(--sc-radius-sm) px-2 py-1 text-sc-xs text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed) aria-selected:bg-(--sc-selected) aria-selected:text-(--sc-text) motion-reduce:transition-none"
 								onClick={() => setSelected(session.id)}
@@ -702,6 +713,16 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	);
 }
 
+/** The tab a key moves to in a row of `count` tabs from `at`: arrows wrap, Home and End go to the ends. */
+export function rovingIndex(key: string, at: number, count: number): number | null {
+	if (count === 0) return null;
+	if (key === "Home") return 0;
+	if (key === "End") return count - 1;
+	const from = Math.max(at, 0);
+	if (key === "ArrowRight") return (from + 1) % count;
+	if (key === "ArrowLeft") return (from - 1 + count) % count;
+	return null;
+}
 export function TerminalPanel() {
 	const t = useT();
 	const tabId = useTabsStore(state => state.activeTabId);
