@@ -88,7 +88,7 @@ async function capture(page: Page, name: string): Promise<void> {
 		await page.getByRole("button", { name: /^(Send|보내기)$/ }).click();
 		const dialog = page.getByRole("dialog");
 		await dialog.getByPlaceholder(/Search themes|테마 검색/).fill(label);
-		await dialog.locator("button[aria-pressed]").filter({ hasText: label }).click();
+		await dialog.locator("[data-theme-entry]").filter({ hasText: label }).click();
 		await expect(dialog).toHaveCount(0);
 		await page.getByRole("button", { name: /^(Close|닫기)$/ }).evaluateAll(buttons => {
 			for (const button of buttons) if (button instanceof HTMLButtonElement) button.click();

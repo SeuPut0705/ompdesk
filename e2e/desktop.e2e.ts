@@ -135,7 +135,7 @@ test("math survives history reload and scrolls inside its column in both themes"
 		await command("/theme");
 		const picker = page.getByRole("dialog");
 		await picker.getByPlaceholder("Search themes…").fill(theme);
-		await picker.locator("button[aria-pressed]").filter({ hasText: theme }).click();
+		await picker.locator("[data-theme-entry]").filter({ hasText: theme }).click();
 		await expect(picker).toHaveCount(0);
 		await cdp.send("Emulation.setDeviceMetricsOverride", {
 			width: 900,
@@ -197,7 +197,7 @@ test("all named themes apply with readable primary text and no stale scheme toke
 		await command("/theme");
 		const picker = page.getByRole("dialog");
 		await picker.getByPlaceholder("Search themes…").fill(label);
-		const option = picker.locator("button[aria-pressed]").filter({ hasText: new RegExp(label, "i") });
+		const option = picker.locator("[data-theme-entry]").filter({ hasText: new RegExp(label, "i") });
 		await option.click();
 		await expect(picker).toHaveCount(0);
 		colors[label] = await page.evaluate(() =>

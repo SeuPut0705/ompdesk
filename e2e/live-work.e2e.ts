@@ -184,7 +184,7 @@ test("live work follows tool kinds, streams output and replays past steps", asyn
 				const picker = page.getByRole("dialog");
 				await picker.getByPlaceholder("Search themes…").fill(label);
 				await picker
-					.locator("button[aria-pressed]")
+					.locator("[data-theme-entry]")
 					.filter({ hasText: new RegExp(label, "i") })
 					.click();
 				await expect(picker).toHaveCount(0);

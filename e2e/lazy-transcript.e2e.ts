@@ -76,7 +76,7 @@ async function capture(name: string): Promise<void> {
 		const picker = page.getByRole("dialog");
 		await picker.getByPlaceholder("Search themes…").fill(label ?? "");
 		await picker
-			.locator("button[aria-pressed]")
+			.locator("[data-theme-entry]")
 			.filter({ hasText: label ?? "" })
 			.click();
 		await expect(picker).toHaveCount(0);

@@ -52,7 +52,7 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 				await page.getByRole("button", { name: "Send", exact: true }).click();
 				const dialog = page.getByRole("dialog");
 				await dialog.getByPlaceholder("Search themes…").fill(label);
-				await dialog.locator("button[aria-pressed]").filter({ hasText: label }).click();
+				await dialog.locator("[data-theme-entry]").filter({ hasText: label }).click();
 				await expect(dialog).toHaveCount(0);
 				await page.getByRole("button", { name: "Close", exact: true }).evaluateAll(buttons => {
 					for (const button of buttons) if (button instanceof HTMLButtonElement) button.click();

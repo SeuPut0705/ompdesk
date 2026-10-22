@@ -111,7 +111,7 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 			await page.getByRole("button", { name: "Send", exact: true }).click();
 			const picker = page.getByRole("dialog", { name: "Choose theme" });
 			await picker.getByPlaceholder("Search themes…").fill(label);
-			await picker.locator("button[aria-pressed]").filter({ hasText: label }).click();
+			await picker.locator("[data-theme-entry]").filter({ hasText: label }).click();
 			await expect(picker).toHaveCount(0);
 			await expect
 				.poll(() =>
