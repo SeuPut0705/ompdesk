@@ -186,6 +186,52 @@ export default function (pi) {
 `;
 }
 
+/**
+ * Two sign-ins nobody finishes in the browser: one whose paste-back dialog the person dismisses, one the GUI cancels
+ * (`mcp_reauth_cancel`) while that dialog is open, which must close the dialog.
+ */
+function cancelProbe(report: string): string {
+	return `${PROBE_HELPERS}
+export default function (pi) {
+	pi.on("session_start", async () => {
+		const out = { opened: 0, asked: 0, dismissedByFlow: false };
+		try {
+			const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID)?.session;
+			let mode = "dismiss";
+			const ui = {
+				notify: () => {},
+				input: (_title, _prompt, opts) => {
+					out.asked++;
+					if (mode === "dismiss") return Bun.sleep(300).then(() => undefined);
+					return new Promise(resolve => {
+						opts?.signal?.addEventListener("abort", () => {
+							out.dismissedByFlow = true;
+							resolve(undefined);
+						});
+					});
+				},
+			};
+			const emit = frame => {
+				if (frame.method === "open_url") out.opened++;
+			};
+			const env = { pi, session: () => session, context: () => ({ ui }), emit };
+			await until(async () => (await view(env, session, "fake")).row?.authState === "required", 20_000);
+			out.dismissed = await mcp.mcp_reauth({ name: "fake" }, env);
+			mode = "hold";
+			const pending = mcp.mcp_reauth({ name: "fake" }, env);
+			await until(() => out.asked === 2, 10_000);
+			out.cancel = await mcp.mcp_reauth_cancel({ name: "fake" }, env);
+			out.cancelled = await pending;
+			out.after = await view(env, session, "fake");
+		} catch (error) {
+			out.error = error.stack ?? String(error);
+		}
+		await Bun.write(${JSON.stringify(report)}, JSON.stringify(out));
+	});
+}
+`;
+}
+
 /** Another omp of the same agent dir signs in: it stores the credential as the bridge's OAuth flow does. */
 function credentialProbe(url: string): string {
 	return `
@@ -366,6 +412,25 @@ describe.skipIf(!installed)("MCP servers on the installed omp", () => {
 		expect(after.fake.row).toMatchObject({ status: "connected", authState: "authorized", toolCount: 1 });
 		expect(after.fake.tools.length).toBeGreaterThan(0);
 		expect(after.other.row).toMatchObject({ status: "disconnected", authState: "required" });
+	}, 150_000);
+
+	it("ends a sign-in the person dismisses or the GUI cancels, and closes its paste-back dialog", async () => {
+		const profile = makeProfile();
+		const fake = await fakeOAuthMcp();
+		cleanups.push(fake.close);
+		fs.writeFileSync(
+			path.join(profile.agentDir, "mcp.json"),
+			JSON.stringify({ mcpServers: { fake: { type: "http", url: fake.url } } }),
+		);
+		const report = path.join(profile.root, "cancel.json");
+		const out = await runLive(profile, cancelProbe(report), report);
+		expect(out.error).toBeUndefined();
+		expect(out.opened).toBe(2);
+		expect(out.dismissed).toEqual({ ok: false, error: "cancelled" });
+		expect(out.cancel).toEqual({ cancelled: true });
+		expect(out.cancelled).toEqual({ ok: false, error: "cancelled" });
+		expect(out.dismissedByFlow).toBe(true);
+		expect((out.after as { row: Record<string, unknown> }).row).toMatchObject({ authState: "required" });
 	}, 150_000);
 
 	it("signs a server in over a stale bearer header the config carries", async () => {
