@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import { LIVE_SESSIONS_EVENT } from "./app-protocol";
+import { LIVE_SESSIONS_EVENT, TAB_EVENT } from "./app-protocol";
 import { generateKeyPair } from "./crypto";
 import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
@@ -104,14 +104,49 @@ describe("computers of the tailnet", () => {
 });
 
 describe("connecting again to a host already paired", () => {
-	it("moves the host's open tabs onto the new link, so they do not read offline while the host is online", async () => {
-		const { a, hostId } = await rig.connected();
+	it("moves the host's open tabs onto the new link: re-attached, commands and the host's events reach them, and they leave it on dispose", async () => {
+		const { a, b, hostId } = await rig.connected();
+		const conns: HostConnection[] = [];
+		const methods: string[] = [];
+		b.services.call.mockImplementation(async (_peer, method, _params, conn) => {
+			methods.push(method as string);
+			if (method === "tab.open") {
+				conns.push(conn as HostConnection);
+				return { cwd: "/work", kind: "agent", attached: conns.length > 1 };
+			}
+			if (method === "tab.command")
+				return { type: "response", command: "get_state", success: true, data: { ok: conns.length } };
+			return {};
+		});
+		const ready = (conn: HostConnection) =>
+			conn.emit(TAB_EVENT, {
+				rtab: "t1",
+				name: "status",
+				arg: { status: "ready", statusPayload: {}, processAlive: true, cwd: "/work", kind: "agent", omp: "omp-1" },
+			});
 		const tab = a.devices.createSidecar(hostId, "t1", "/work", "agent", true);
-		expect(tab.offline).toBe(false);
+		const statuses: string[] = [];
+		tab.on("status", ({ status }: { status: string }) => statuses.push(status));
+		tab.start();
+		await vi.waitFor(() => expect(methods).toContain("tab.start"));
+		ready(conns[0] as HostConnection);
+		await vi.waitFor(() => expect(tab.status).toBe("ready"));
+
 		await a.devices.connect("nSTUDIO");
-		await until(a, state => state.hosts[0]?.state === "online");
+		// The tab re-attaches over the new link: a second `tab.open`, on the new connection.
+		await vi.waitFor(() => expect(conns).toHaveLength(2));
+		expect(conns[1]).not.toBe(conns[0]);
 		expect(tab.offline).toBe(false);
-		expect(tab.status).not.toBe("error");
+		ready(conns[1] as HostConnection);
+		await vi.waitFor(() => expect(tab.status).toBe("ready"));
+		expect(statuses).not.toContain("error");
+		await expect(tab.rpcClient?.command({ type: "get_state" })).resolves.toMatchObject({ data: { ok: 2 } });
+
+		// Its close goes over the new link too.
+		tab.dispose();
+		await vi.waitFor(() =>
+			expect(b.services.call.mock.calls.find(call => call[1] === "tab.close")?.[3]).toBe(conns[1]),
+		);
 	});
 });
 

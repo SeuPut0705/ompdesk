@@ -448,11 +448,14 @@ export class RemoteDevices {
 		}
 		this.#found.set(nodeId, found.address);
 		// Its open tabs go on over the new link: left on the closed one they read "offline" while the host is online.
-		const tabs = this.#links.get(paired.deviceId)?.tabs;
+		const old = this.#links.get(paired.deviceId)?.tabs;
+		const tabs = old ? [...old] : [];
+		// Taken off the old link first, so its close does not show them offline for the moment of the swap.
+		old?.clear();
 		this.#unlink(paired.deviceId);
 		this.#link(paired.deviceId);
 		const link = this.#links.get(paired.deviceId);
-		if (tabs && link)
+		if (link)
 			for (const [rtab, tab] of tabs) {
 				link.tabs.set(rtab, tab);
 				tab.relink(link.client);
