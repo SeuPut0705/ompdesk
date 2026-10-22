@@ -2,12 +2,13 @@ import * as fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
-import { type Browser, chromium, expect, test } from "@playwright/test";
+import { type Browser, chromium, expect, type Page, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 import { type Look, openLook, resetPage } from "./responsive-audit";
 import { surfacesFor } from "./responsive-surfaces";
 
-// axe-core over every surface of e2e/responsive-surfaces.ts on the dev harness, one test per look. Registered only
+// axe-core over every surface of e2e/responsive-surfaces.ts on the dev harness, one test per look, then a Tab walk
+// over the surface that fails a stop drawing no focus ring. Registered only
 // with OMP_GUI_AXE=<dir> (writes <dir>/<look>.json, every violation with its nodes). Looks: OMP_GUI_AXE_LOOKS, a
 // comma list of `<width>-<theme>-<lang>` (390 and 412 are a phone, anything wider the Electron window), default
 // 1280-light-en,1280-dark-en,390-light-ko,390-dark-en; OMP_GUI_AXE_ONLY=<regex of surface ids> narrows the surfaces.
@@ -35,6 +36,76 @@ const ALLOWED: Array<{ rule: string; target: RegExp; why: string }> = [
 interface Violation {
 	id: string;
 	nodes: Array<{ target: string; summary: string }>;
+}
+
+/**
+ * Whether the focused element paints anything: a ring may sit on a pseudo-element or a wrapper, where its own computed
+ * style says nothing. Compares the padded box with and without focus (e2e/a11y-audit.e2e.ts's check).
+ */
+async function paintsFocus(page: Page): Promise<boolean> {
+	const box = await page.evaluate(() => {
+		const rect = document.activeElement?.getBoundingClientRect();
+		if (!rect) return null;
+		const pad = 8;
+		return {
+			x: Math.max(0, rect.x - pad),
+			y: Math.max(0, rect.y - pad),
+			width: Math.min(rect.width + 2 * pad, 600),
+			height: Math.min(rect.height + 2 * pad, 300),
+		};
+	});
+	if (!box || box.width < 1 || box.height < 1) return true;
+	const focused = await page.screenshot({ clip: box, animations: "disabled" });
+	await page.evaluate(() => {
+		const el = document.activeElement as HTMLElement | null;
+		el?.setAttribute("data-axe-probe", "");
+		el?.blur();
+	});
+	const plain = await page.screenshot({ clip: box, animations: "disabled" });
+	await page.evaluate(() => {
+		const el = document.querySelector<HTMLElement>("[data-axe-probe]");
+		el?.removeAttribute("data-axe-probe");
+		el?.focus({ focusVisible: true } as FocusOptions);
+	});
+	return !focused.equals(plain);
+}
+
+/**
+ * Tab through the open surface (up to 25 stops, until focus comes round): a stop that draws no focus ring, or that is
+ * hidden, is a violation. Tailwind 4's `outline-none` beside `focus-visible:outline-2` drew none on ten controls.
+ */
+async function focusWalk(page: Page): Promise<Violation[]> {
+	const found: Violation[] = [];
+	const seen = new Set<string>();
+	for (let step = 0; step < 25; step++) {
+		await page.keyboard.press("Tab");
+		const stop = await page.evaluate(() => {
+			const el = document.activeElement as HTMLElement | null;
+			if (!el || el === document.body) return null;
+			const style = getComputedStyle(el);
+			const name =
+				el.getAttribute("aria-label") ??
+				el.getAttribute("title") ??
+				(el.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+			return {
+				id: `${el.tagName.toLowerCase()}[${el.getAttribute("role") ?? ""}] ${name}`,
+				focusVisible: el.matches(":focus-visible"),
+				drawn:
+					(style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0) ||
+					style.boxShadow !== "none",
+				hidden: style.visibility === "hidden" || el.getClientRects().length === 0,
+				// The composer shows focus with its caret and the box's border (components.css), by design.
+				composer: el.matches("[data-composer-input]"),
+			};
+		});
+		if (!stop) continue;
+		if (seen.has(stop.id)) break;
+		seen.add(stop.id);
+		if (stop.hidden) found.push({ id: "focus-hidden-stop", nodes: [{ target: stop.id, summary: "" }] });
+		else if (stop.focusVisible && !stop.drawn && !stop.composer && !(await paintsFocus(page)))
+			found.push({ id: "focus-no-ring", nodes: [{ target: stop.id, summary: "" }] });
+	}
+	return found;
 }
 
 function parseLook(spec: string): Look {
@@ -130,7 +201,7 @@ if (dir) {
 								),
 							}))
 							.filter(violation => violation.nodes.length > 0);
-						report.push({ surface: surface.id, violations: kept });
+						report.push({ surface: surface.id, violations: [...kept, ...(await focusWalk(page))] });
 					} catch (error) {
 						report.push({ surface: surface.id, failed: String(error).slice(0, 300) });
 					}
