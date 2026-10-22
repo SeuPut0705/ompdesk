@@ -119,7 +119,9 @@ export function SpeedFields() {
 	const toggleSlowMode = useModelStore(s => s.toggleSlowMode);
 	const fastIdle = fastEnabled && !fastActive;
 	return (
-		<div className="-mx-1.5 grid grid-cols-2 gap-x-1" data-switch-grid>
+		// Tiles pair up; a tile left alone on its row (Fast without Slow, Ultrafast after the pair) takes the whole row,
+		// so its switch lines up at the right edge with the rows above instead of stopping mid-sheet.
+		<div className="-mx-1.5 grid grid-cols-2 gap-x-1 [&>:last-child:nth-child(odd)]:col-span-2" data-switch-grid>
 			<SwitchTile
 				checked={fastEnabled}
 				data-fast-mode
