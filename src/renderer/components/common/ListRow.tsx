@@ -15,7 +15,7 @@
  * tab stop + arrow keys).
  */
 
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import { type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, useId } from "react";
 import { cx } from "../../lib/format";
 
 type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
@@ -95,6 +95,12 @@ export function ListRow({
 	rowProps,
 	buttonProps,
 }: ListRowProps) {
+	// The row's button carries only the title as its name; the description (a path, an account) is its description,
+	// so two rows of one title stay apart for a screen reader.
+	const descriptionId = useId();
+	const describedBy = [buttonProps?.["aria-describedby"], description ? descriptionId : undefined]
+		.filter(Boolean)
+		.join(" ");
 	const room = ACTION_ROOM[Math.min(Math.max(actionCount ?? 2, 1), ACTION_ROOM.length) - 1] ?? ACTION_ROOM[1];
 	// Overlaid on the right edge (left of `trailing`) so hidden actions never
 	// reserve the width the title needs at rest.
@@ -142,6 +148,7 @@ export function ListRow({
 					<button
 						{...buttonProps}
 						aria-current={selected ? "true" : undefined}
+						aria-describedby={describedBy || undefined}
 						className="block w-full truncate text-left text-sc-md text-(--sc-text) after:absolute after:inset-0 after:rounded-(--sc-radius-md) focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed"
 						disabled={disabled}
 						onClick={onClick}
@@ -155,7 +162,11 @@ export function ListRow({
 						{title}
 					</span>
 				)}
-				{description && <span className="block truncate text-sc-sm text-(--sc-text-muted)">{description}</span>}
+				{description && (
+					<span className="block truncate text-sc-sm text-(--sc-text-muted)" id={descriptionId}>
+						{description}
+					</span>
+				)}
 			</span>
 			{meta && (
 				<span

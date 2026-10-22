@@ -217,7 +217,7 @@ describe("WorkspaceDialog rows", () => {
 		omp.sessions.list.mockImplementation(async () => []);
 	});
 
-	it("marks the current project's row for screen readers and names each row by its project alone", async () => {
+	it("marks the current project's row and tells two projects of one name apart by their paths", async () => {
 		seedTab();
 		useSessionStore.setState({ cwd: "/Users/kim/code/app" });
 		const session = (cwd: string): SessionInfo => ({
@@ -232,14 +232,16 @@ describe("WorkspaceDialog rows", () => {
 			status: "complete",
 			firstMessage: "",
 		});
-		omp.sessions.list.mockResolvedValue([session("/Users/kim/code/app"), session("/Users/kim/code/site")]);
+		omp.sessions.list.mockResolvedValue([session("/Users/kim/code/app"), session("/Users/kim/work/app")]);
 		await mount("switch");
-		const rows = Array.from(document.body.querySelectorAll("button")).filter(button =>
-			["app", "site"].includes((button.textContent ?? "").trim()),
+		const rows = Array.from(document.body.querySelectorAll("button")).filter(
+			button => (button.textContent ?? "").trim() === "app",
 		);
-		expect(rows.map(row => [row.textContent?.trim(), row.getAttribute("aria-current")])).toEqual([
-			["app", "true"],
-			["site", null],
+		const description = (row: Element) =>
+			document.body.querySelector(`[id="${row.getAttribute("aria-describedby")}"]`)?.textContent;
+		expect(rows.map(row => [row.getAttribute("aria-current"), description(row)])).toEqual([
+			["true", "~/code/app"],
+			[null, "~/work/app"],
 		]);
 		omp.sessions.list.mockImplementation(async () => []);
 	});

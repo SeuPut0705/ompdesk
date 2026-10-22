@@ -68,4 +68,19 @@ describe("ListRow", () => {
 		expect(row.indexOf("2m")).toBeLessThan(row.indexOf("act"));
 		expect(row).toContain("-mr-1.5");
 	});
+
+	it("describes its button by the description, beside any description the caller gives", () => {
+		const row = renderToStaticMarkup(
+			<ListRow
+				buttonProps={{ "aria-describedby": "hint" }}
+				description="~/work/app"
+				onClick={() => {}}
+				title="app"
+			/>,
+		);
+		const describedBy = /aria-describedby="([^"]+)"/.exec(row)?.[1]?.split(" ") ?? [];
+		expect(describedBy[0]).toBe("hint");
+		expect(row).toMatch(new RegExp(`id="${describedBy[1]}"[^>]*>~/work/app<`));
+		expect(renderToStaticMarkup(<ListRow onClick={() => {}} title="app" />)).not.toContain("aria-describedby");
+	});
 });
