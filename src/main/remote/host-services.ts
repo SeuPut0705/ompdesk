@@ -1646,6 +1646,7 @@ export class LocalHostServices implements HostServices {
 			progress: conn.slimProgress === true,
 			autopilot: conn.slimAutopilot === true,
 			ends: conn.slimEnds === true,
+			readGroups: conn.slimReadGroups === true,
 			send: (name, arg) => this.#send(tab, conn, name, arg),
 		});
 		tab.linkEvents = { conn, sender };

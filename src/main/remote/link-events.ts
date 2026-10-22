@@ -26,7 +26,9 @@
  * tool result, a custom message), and each `agent_end` message equal, but for its journal `entryId`, to the one its
  * `message_end` carried, cross as a reference to it ({@link createEndsEncoder}). Stock otherwise sends a tool result
  * three times and a reply twice (measured on a paired host, 22 Oct 2026: `message_start`, `message_end` and
- * `agent_end` were 36 % of a slim link's event bytes).
+ * `agent_end` were 36 % of a slim link's event bytes). With `slimReadGroups` a reply whose read calls the bridge
+ * decorated for `agent_end` crosses as a reference too, its read groups beside it (measured once both computers ran
+ * 0.54.0: `message_end` 56 → 12 KB a minute, `agent_end` only 55 → 38, nearly all of it such replies).
  */
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -66,6 +68,8 @@ export interface LinkEventEncoderOptions {
 	autopilot?: boolean;
 	/** The device resolves a message sent as a reference to one this encoder already sent whole (`slimEnds`). */
 	ends?: boolean;
+	/** It also puts back the read groups a reference carries beside it (`slimReadGroups`). */
+	readGroups?: boolean;
 }
 
 export interface LinkEventEncoder {
@@ -358,7 +362,53 @@ type AgentMessageOf<T extends AgentSessionEvent["type"]> =
 		: never;
 type WireMessage = AgentMessageOf<"message_end">;
 
-const SentRef = z.object({ "~sent": z.string(), entryId: z.string().optional() }).strict();
+const READ_GROUP = "__ompReadGroup";
+
+const SentRef = z
+	.object({ "~sent": z.string(), entryId: z.string().optional(), reads: z.record(z.unknown()).optional() })
+	.strict();
+
+/**
+ * A committed message without the read groups the bridge adds to its read calls (`decorateMessages`, which the live
+ * `message_end` never has), and those groups by content index; `reads` is absent when there are none.
+ */
+function withoutReadGroups(message: WireMessage): { message: WireMessage; reads?: Record<string, unknown> } {
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) return { message };
+	let reads: Record<string, unknown> | undefined;
+	const plain = content.map((block: unknown, index) => {
+		const args = (block as { type?: unknown; arguments?: unknown }).arguments;
+		if (
+			(block as { type?: unknown }).type !== "toolCall" ||
+			!args ||
+			typeof args !== "object" ||
+			!(READ_GROUP in args)
+		)
+			return block;
+		const { [READ_GROUP]: group, ...rest } = args as Record<string, unknown>;
+		reads ??= {};
+		reads[index] = group;
+		return { ...(block as object), arguments: rest };
+	});
+	return reads ? { message: { ...message, content: plain } as WireMessage, reads } : { message };
+}
+
+/** The inverse of {@link withoutReadGroups}: each group back on its read call, last among its arguments. */
+function withReadGroups(message: WireMessage, reads: Record<string, unknown>): WireMessage {
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) return message;
+	return {
+		...message,
+		content: content.map((block: unknown, index) =>
+			Object.hasOwn(reads, index)
+				? {
+						...(block as object),
+						arguments: { ...(block as { arguments?: object }).arguments, [READ_GROUP]: reads[index] },
+					}
+				: block,
+		),
+	} as WireMessage;
+}
 
 function messageKey(message: WireMessage): string {
 	const { role, timestamp } = message as { role?: unknown; timestamp?: unknown };
@@ -389,7 +439,7 @@ function withoutEntryId(message: WireMessage): { message: WireMessage; entryId?:
  * Sends a message whole the first time this connection carries it, and as `{"~sent": key}` (with the journal
  * `entryId` an `agent_end` adds) when a `message_end` or `agent_end` carries the same message again.
  */
-function createEndsEncoder(): (event: AgentSessionEvent) => AgentSessionEvent {
+function createEndsEncoder(readGroups: boolean): (event: AgentSessionEvent) => AgentSessionEvent {
 	const sent = sentMessages<string>();
 	const remember = (message: WireMessage): string => {
 		const json = JSON.stringify(message);
@@ -413,10 +463,15 @@ function createEndsEncoder(): (event: AgentSessionEvent) => AgentSessionEvent {
 		let changed = false;
 		const messages = event.messages.map(message => {
 			const { message: bare, entryId } = withoutEntryId(message);
-			const key = messageKey(bare);
-			if (sent.get(key) !== JSON.stringify(bare)) return message;
+			const { message: plain, reads } = readGroups ? withoutReadGroups(bare) : { message: bare };
+			const key = messageKey(plain);
+			if (sent.get(key) !== JSON.stringify(plain)) return message;
 			changed = true;
-			return { [SENT]: key, ...(entryId === undefined ? {} : { entryId }) } as unknown as WireMessage;
+			return {
+				[SENT]: key,
+				...(entryId === undefined ? {} : { entryId }),
+				...(reads === undefined ? {} : { reads }),
+			} as unknown as WireMessage;
 		});
 		if (event.isTerminal !== false) sent.clear();
 		return changed ? { ...event, messages } : event;
@@ -431,7 +486,8 @@ function createEndsDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | 
 		if (!ref.success) return message;
 		const whole = kept.get(ref.data[SENT]);
 		if (!whole) return null;
-		return ref.data.entryId === undefined ? whole : ({ ...whole, entryId: ref.data.entryId } as WireMessage);
+		const grouped = ref.data.reads ? withReadGroups(whole, ref.data.reads) : whole;
+		return ref.data.entryId === undefined ? grouped : ({ ...grouped, entryId: ref.data.entryId } as WireMessage);
 	};
 	return event => {
 		if (event.type === "message_start" || event.type === "message_end") {
@@ -459,7 +515,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 	const drop = usageDropper();
 	const progress = options.progress ? createProgressEncoder() : null;
 	const status = options.autopilot ? createStatusEncoder() : null;
-	const ends = options.ends ? createEndsEncoder() : null;
+	const ends = options.ends ? createEndsEncoder(options.readGroups === true) : null;
 	return {
 		events(batch) {
 			const slimmed = slim(batch);
@@ -632,6 +688,8 @@ export interface LinkEventSenderOptions {
 	autopilot?: boolean;
 	/** The device sent `slimEnds`: a message this connection already carried crosses as a reference. */
 	ends?: boolean;
+	/** The device sent `slimReadGroups`: a committed reply's read groups ride beside its reference. */
+	readGroups?: boolean;
 	/** Sends one tab event; false when it did not go out (an event over the frame cap). */
 	send(name: "events" | "subagentFrame", arg: unknown): boolean;
 }
@@ -643,13 +701,13 @@ export interface LinkEventSenderOptions {
  * wire order, and events and frames never swap places.
  */
 export function createLinkEventSender(options: LinkEventSenderOptions): LinkEventSender {
-	const { progress, autopilot = false, ends = false, send } = options;
-	let encoder = createLinkEventEncoder({ progress, autopilot, ends });
+	const { progress, autopilot = false, ends = false, readGroups = false, send } = options;
+	let encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups });
 	let held: SubagentFrame[] = [];
 	let timer: NodeJS.Timeout | undefined;
 	const deliver = (name: "events" | "subagentFrame", arg: unknown): void => {
 		// The device never got it, so the next snapshot of each subagent must go whole, not as a delta against this one.
-		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot, ends });
+		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups });
 	};
 	const flush = (): void => {
 		clearTimeout(timer);

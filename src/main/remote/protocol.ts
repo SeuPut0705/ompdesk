@@ -85,6 +85,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * `slimEnds` (only ever sent with `slimEvents`): the device also resolves a `message_end` or `agent_end` message sent
  * as a reference to the same message this connection already carried whole (`link-events.ts`). A device without it
  * (v0.53.0 and older) gets every message whole.
+ *
+ * `slimReadGroups` (only ever sent with `slimEnds`): such a reference may also carry `reads`, the read groups the
+ * bridge adds to a committed reply's read calls. A device without it (v0.54.0) parses a reference strictly, so it
+ * gets those replies whole.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -95,6 +99,7 @@ export const ClientHello = z.object({
 	slimProgress: z.boolean().optional(),
 	slimAutopilot: z.boolean().optional(),
 	slimEnds: z.boolean().optional(),
+	slimReadGroups: z.boolean().optional(),
 });
 
 export const HostHelloMessage = z.object({

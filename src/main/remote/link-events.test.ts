@@ -583,8 +583,8 @@ describe("messages a connection already carried", () => {
 	const endsBytes = (batches: AgentSessionEvent[][]): number =>
 		batches.flat().reduce((sum, event) => sum + (ENDS.has(event.type) ? JSON.stringify(event).length : 0), 0);
 
-	function send(events: AgentSessionEvent[], ends: boolean, decoder = createLinkEventDecoder()) {
-		const encoder = createLinkEventEncoder({ progress: true, autopilot: true, ends });
+	function send(events: AgentSessionEvent[], ends: boolean, decoder = createLinkEventDecoder(), readGroups = ends) {
+		const encoder = createLinkEventEncoder({ progress: true, autopilot: true, ends, readGroups });
 		const wire = events.map(event => overTheWire(encoder.events([event])));
 		return { wire, delivered: wire.map(batch => decoder.events(batch)) };
 	}
@@ -619,6 +619,50 @@ describe("messages a connection already carried", () => {
 		expect(JSON.stringify(wire[1])).toContain("~sent");
 		expect(JSON.stringify(wire[2])).toContain("hi (edited)");
 		expect(delivered.flat()).toEqual(overTheWire(events));
+	});
+
+	it("a committed reply whose read calls the bridge decorated crosses as a reference with only those groups", () => {
+		// The bridge adds `__ompReadGroup` to each read call of an agent_end message (sessions.attach_entry_ids); the live
+		// message_end has none, so without the groups beside the reference every reply that read a file crossed whole.
+		const call = (id: string, path: string) => ({
+			type: "toolCall",
+			id,
+			name: "read",
+			arguments: { path, intent: "Reading the notes ".repeat(20) },
+		});
+		const reply = {
+			role: "assistant",
+			content: [{ type: "text", text: "Reading both. ".repeat(60) }, call("c1", "a.md"), call("c2", "b.md:10-20")],
+			timestamp: 9,
+			stopReason: "toolUse",
+		};
+		const decorated = {
+			...reply,
+			entryId: "e9",
+			content: reply.content.map(block =>
+				block.type === "toolCall"
+					? {
+							...block,
+							arguments: {
+								...(block as ReturnType<typeof call>).arguments,
+								__ompReadGroup: { path: (block as ReturnType<typeof call>).arguments.path },
+							},
+						}
+					: block,
+			),
+		};
+		const events = [
+			{ type: "message_start", message: { ...reply, content: [] } },
+			{ type: "message_end", message: reply },
+			{ type: "agent_end", messages: [decorated] },
+		] as unknown as AgentSessionEvent[];
+		const slim = send(events, true);
+		expect(slim.delivered.flat()).toEqual(overTheWire(events));
+		expect(JSON.stringify(slim.wire[2]).length).toBeLessThan(JSON.stringify(decorated).length / 4);
+		// A 0.54.0 device reads no groups: it still gets the decorated reply whole.
+		const older = send(events, true, createLinkEventDecoder(), false);
+		expect(JSON.stringify(older.wire[2])).toContain("Reading both.");
+		expect(older.delivered.flat()).toEqual(overTheWire(events));
 	});
 
 	it("are never delivered half rebuilt: a reference a device holds nothing for is dropped, the rest kept", () => {

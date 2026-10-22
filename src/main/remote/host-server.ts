@@ -59,6 +59,8 @@ export interface HostConnection {
 	readonly slimAutopilot?: boolean;
 	/** It also resolves a message sent as a reference to one this connection already carried (`slimEnds`, protocol.ts). */
 	readonly slimEnds?: boolean;
+	/** It also puts back the read groups a reference carries (`slimReadGroups`, protocol.ts). */
+	readonly slimReadGroups?: boolean;
 	/** Push `{t:"evt"}`; throws when the event exceeds the frame cap. */
 	emit(event: string, data: unknown): void;
 	close(): void;
@@ -120,6 +122,7 @@ function slimNames(conn: PeerConnection): string {
 		conn.slimProgress && "progress",
 		conn.slimAutopilot && "autopilot",
 		conn.slimEnds && "ends",
+		conn.slimReadGroups && "reads",
 	];
 	return names.filter(Boolean).join(",") || "none";
 }
@@ -131,13 +134,14 @@ class PeerConnection implements HostConnection {
 	readonly slimProgress: boolean;
 	readonly slimAutopilot: boolean;
 	readonly slimEnds: boolean;
+	readonly slimReadGroups: boolean;
 	/** The device's OMPdesk version, from its hello. */
 	readonly appVersion: string;
 
 	constructor(
 		link: Link,
 		peer: PeerInfo,
-		slim: { events: boolean; progress: boolean; autopilot: boolean; ends: boolean },
+		slim: { events: boolean; progress: boolean; autopilot: boolean; ends: boolean; reads: boolean },
 		appVersion: string,
 	) {
 		this.link = link;
@@ -147,6 +151,7 @@ class PeerConnection implements HostConnection {
 		this.slimProgress = slim.progress;
 		this.slimAutopilot = slim.autopilot;
 		this.slimEnds = slim.ends;
+		this.slimReadGroups = slim.reads;
 	}
 
 	emit(event: string, data: unknown): void {
@@ -469,6 +474,7 @@ export class RemoteHost {
 				progress: slimEvents && hello.slimProgress === true,
 				autopilot: slimEvents && hello.slimAutopilot === true,
 				ends: slimEvents && hello.slimEnds === true,
+				reads: slimEvents && hello.slimEnds === true && hello.slimReadGroups === true,
 			},
 			hello.appVersion,
 		);
