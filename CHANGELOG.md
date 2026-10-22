@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.10] - 2026-10-23
+
+연결한 컴퓨터끼리 주고받는 데이터가 약 3분의 1로 줄고, 키보드로 고르는 곳 두 군데가 제대로 움직여요.
+
+### 빨라진 것
+- 호스트가 연결한 기기에 보내는 큰 메시지를 압축해서 보내요. 대화와 Autopilot 상태 같은 데이터가 약 3배 작아져요. 양쪽 모두 이 버전이어야 하고, 예전 버전 기기는 지금처럼 받아요.
+
+### 고친 것
+- MCP 서버 추가 화면의 전송 방식과 범위 카드를 화살표 키로 고를 수 있어요. 카드마다 Tab이 멈추지 않고, 화면 읽기 프로그램이 각 묶음의 이름을 읽어요.
+- 터미널 패널의 세션 탭이 Tab 한 번에 들어가고, 화살표와 Home/End로 세션을 바꿔요.
+
+<!-- en -->
+
+Data between paired computers shrinks to about a third, and two keyboard pickers move as they should.
+
+### Faster
+- A host compresses the large messages it sends a paired device: transcripts, Autopilot status and the like get about 3x smaller. Both computers need this version; an older device receives as before.
+
+### Fixed
+- The transport and scope cards of the MCP add-server screen are picked with the arrow keys, are one tab stop each, and screen readers name each group.
+- The terminal panel's session tabs are one tab stop, and the arrow keys and Home/End switch the session.
+
 ## [0.61.9] - 2026-10-23
 
 연결한 컴퓨터에 다시 붙을 때 받는 양이 줄고, 접기 화살표가 부드럽게 돌아요.
