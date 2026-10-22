@@ -1016,6 +1016,10 @@ html[data-shell="phone"] .omp-composer-scroll > .omp-composer-send-cluster {
 html[data-shell="phone"] .omp-composer-toolbar > .omp-composer-actions {
 	flex: none;
 	margin-right: 4px;
+	/* 13 px from the scroller's end: the context ring reaches 4 px out of it and Send 9 px toward it, and the
+	   scroller stacks above. At 10 px they met inside Send's reach and its left edge went to the ring whenever a
+	   draft enabled Send (22 Oct 2026 responsive audit, 390 portrait). */
+	margin-left: 3px;
 }
 
 /* The lane chip is its icon on a phone (the width ladder folds it; its name and the lane are its accessible name and
@@ -1035,10 +1039,6 @@ html[data-shell="phone"] .omp-composer-scroll:has([data-send-mode]) .omp-compose
 html[data-shell="phone"] .omp-composer-actions {
 	margin-left: 0;
 	gap: var(--sc-space-2);
-	/* 4 px sideways each (36 px across): the context ring at the scroller's end sits 10 px from the action button and
-	   reaches 4 px of it from the scroller, which stacks above; the toolbar's 9 px gave Send's left edge to the ring
-	   whenever a draft enabled it (22 Oct 2026 responsive audit, 390 portrait). */
-	--hit-gap-x: 8px;
 }
 
 /* The ⌃G expanded composer: the field fills the screen above the same controls row. */
