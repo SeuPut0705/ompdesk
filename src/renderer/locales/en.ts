@@ -644,7 +644,6 @@ export const en: Record<string, string> = {
 	"autopilot.ship.kind.merge": "Merge",
 	"autopilot.ship.kind.release": "Release",
 	"autopilot.ship.kind.land": "Land",
-	"autopilot.ship.land": "Each green cycle lands on the default branch.",
 	"autopilot.ship.landPr": "The default branch refused the push: green cycles go to one pull request.",
 	"autopilot.ship.openPr": "Open the pull request",
 	"autopilot.ship.kind.revert": "Revert",

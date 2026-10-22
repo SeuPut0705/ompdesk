@@ -635,7 +635,6 @@ export const ko: Record<string, string> = {
 	"autopilot.ship.kind.merge": "합치기",
 	"autopilot.ship.kind.release": "배포",
 	"autopilot.ship.kind.land": "반영",
-	"autopilot.ship.land": "초록 사이클마다 기본 브랜치에 반영해요.",
 	"autopilot.ship.landPr": "기본 브랜치가 푸시를 거부해서 초록 사이클은 풀 리퀘스트 하나로 올라가요.",
 	"autopilot.ship.openPr": "풀 리퀘스트 열기",
 	"autopilot.ship.kind.revert": "되돌리기",

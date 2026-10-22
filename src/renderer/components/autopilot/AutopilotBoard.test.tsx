@@ -406,7 +406,9 @@ describe("an Autopilot run on the work board", () => {
 		await mount();
 		expect($('[data-board-section="ship"]')).toBeNull();
 		expect($("[data-ship-button]")).toBeNull();
-		expect($("[data-ship-land]")?.getAttribute("data-ship-land")).toBe("default");
+		// Landing on the default branch is the run's plain course: no line says it.
+		expect($("[data-ship-land]")).toBeNull();
+		expect($('[data-board-section="autopilot"]')?.textContent).not.toContain("lands on the default branch");
 		expect($('[data-board-section="autopilot"] [data-ship-release]')?.getAttribute("data-ship-release")).toBe(
 			"success",
 		);

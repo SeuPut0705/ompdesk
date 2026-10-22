@@ -64,9 +64,10 @@ function QueueRow({ item, onCancel }: { item: ShipQueueItem; onCancel: () => voi
 }
 
 /**
- * Where a run's green cycles go, one line in its first board section: landing on the default branch, the one pull
- * request a protected branch asked for (with its link), or the shipping level (`board.ship*`). A run that lands has
- * no shipping section, so a release under way or its last release shows here too.
+ * Where a run's green cycles go, one line in its first board section: the one pull request a protected branch asked
+ * for (with its link), or the shipping level (`board.ship*`). A run that simply lands on its default branch says
+ * nothing (the user's call, 22 Oct 2026: "each green cycle lands" told them nothing). A run that lands has no
+ * shipping section, so a release under way or its last release shows here too.
  */
 export function ShipLandRow() {
 	const t = useT();
@@ -74,7 +75,9 @@ export function ShipLandRow() {
 	if (!ship) return null;
 	const { policy, landing } = ship;
 	const text = policy.land
-		? t(landing ? "autopilot.ship.landPr" : "autopilot.ship.land")
+		? landing
+			? t("autopilot.ship.landPr")
+			: null
 		: t(
 				policy.autoRelease.on
 					? "autopilot.board.shipRelease"
@@ -84,22 +87,24 @@ export function ShipLandRow() {
 			);
 	return (
 		<>
-			<BoardRow
-				action={
-					landing?.url ? (
-						<IconButton
-							icon={<ExternalLink />}
-							label={t("autopilot.ship.openPr")}
-							onClick={() => openExternal(landing.url as string)}
-							size="sm"
-						/>
-					) : undefined
-				}
-				data={policy.land ? { "data-ship-land": landing ? "pr" : "default" } : undefined}
-				label={<span className="text-(--sc-text-muted)">{text}</span>}
-				lead={<Dot tone={landing ? "warning" : "muted"} />}
-				title={landing?.reason ? `${text}\n${landing.reason}` : text}
-			/>
+			{text !== null && (
+				<BoardRow
+					action={
+						landing?.url ? (
+							<IconButton
+								icon={<ExternalLink />}
+								label={t("autopilot.ship.openPr")}
+								onClick={() => openExternal(landing.url as string)}
+								size="sm"
+							/>
+						) : undefined
+					}
+					data={landing ? { "data-ship-land": "pr" } : undefined}
+					label={<span className="text-(--sc-text-muted)">{text}</span>}
+					lead={<Dot tone={landing ? "warning" : "muted"} />}
+					title={landing?.reason ? `${text}\n${landing.reason}` : text}
+				/>
+			)}
 			{(policy.land || policy.automatic) && (ship.inFlight?.kind === "release" || ship.release) && (
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-row">
