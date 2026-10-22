@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.54.0] - 2026-10-22
+
+데스크톱 창에서 작업 보드를 펼쳐도 입력창이 가려지지 않고, "동작 줄이기"를 켠 Mac에서도 도표가 제대로 그려지며, 연결된 컴퓨터와 주고받는 데이터가 크게 줄었어요.
+
+### 새로 생긴 것
+- 진단 정보 복사에 화면을 그리는 방식(하드웨어·소프트웨어 렌더링)과 "동작 줄이기" 설정이 들어가요.
+
+### 고친 것
+- 보드가 옆에 붙을 자리가 없는 데스크톱 창(예: 1280×800에 사이드바를 연 창)에서 작업 띠를 펼치면 패널이 입력창을 덮고 창 아래로 잘리던 문제를 고쳤어요. 이제 위로 열리고, 짧은 창이나 위아래로 나눈 칸에서도 칸 안에 맞춰 열려요.
+- macOS에서 "동작 줄이기"를 켜면 mermaid 도표의 글자와 상자가 사라지고 크게 퍼져 그려지던 문제를 고쳤어요.
+- 모델 자동 구성의 이유에서 싼 모델의 가격이 잘려 보이지 않아요($0.075가 $0.07로 보이던 것).
+- 태블릿에서도 작업 카드의 "진행 단계" 버튼이 36px 크기로 눌려요.
+- 사이드바 기기 머리에 마우스를 올리면 잘린 기기 이름 전체가 보여요.
+- 오토파일럿 보드에서 뜻 없던 "초록 사이클마다 기본 브랜치에 반영해요" 줄이 없어졌어요.
+- 연결된 컴퓨터로 가는 모델 목록, 모델 역할, 메시지가 훨씬 작게 가요(모델 목록 1.7MB → 약 0.4MB, 모델 역할 882KB → 약 200KB, 한 번 보낸 메시지는 다시 통째로 보내지 않아요). 메시지는 두 컴퓨터가 모두 이 버전일 때 줄어요.
+
+<!-- en -->
+
+The work board no longer covers the composer in a desktop window, diagrams draw right with Reduce motion on, and paired computers exchange far less data.
+
+### Added
+- Copy diagnostics names how the window draws (hardware or software rendering) and whether Reduce motion is on.
+
+### Fixed
+- In a desktop window with no room to dock the board (1280×800 with the sidebar open, say), the expanded work strip covered the composer and ran past the window's bottom edge; it opens upward now, and fits its pane in a short window or a split stacked in two.
+- With macOS's Reduce motion on, a mermaid diagram lost its labels and boxes and spread out huge; it lays out right now.
+- The model setup's reasons no longer cut a cheap model's price ($0.075 read as $0.07).
+- A work card's Steps toggle is a 36 px target on a tablet too.
+- Hovering a device section's header in the sidebar shows the device's whole name.
+- The Autopilot board no longer shows the meaningless "each green cycle lands on the default branch" line.
+- Paired computers send far less for the model list, model roles and messages (the model list 1.7 MB → about 0.4 MB, model roles 882 KB → about 200 KB, and a message already sent whole is not sent whole again). Messages shrink once both computers run this version.
+
 ## [0.53.0] - 2026-10-22
 
 오토파일럿 보드에서 남은 후속 작업을 바로 고정하거나 치울 수 있고, 연결된 컴퓨터마다 실행 중인 OMPdesk 버전이 보이며, 휴대폰과 태블릿의 작은 버튼이 더 누르기 쉬워졌어요.
