@@ -10,7 +10,7 @@ import {
 	releaseVerdict,
 	withReleaseSection,
 } from "../../resources/gui-bridge/modes/autopilot-release-core";
-import { collectReleaseFacts, readWorkflow } from "../../resources/gui-bridge/modes/autopilot-release-facts";
+import { collectReleaseFacts, readWorkflow, unreleasedOnTarget } from "../../resources/gui-bridge/modes/autopilot-release-facts";
 import { withoutGitSelectors } from "../shared/git-env";
 
 const NOW = Date.parse("2026-10-21T00:00:00Z");
@@ -354,5 +354,57 @@ describe("the guide's Release section", () => {
 		expect(withReleaseSection("# G\n\nBody.\n", "## Release\n\nReleases: no\n")).toBe(
 			"# G\n\nBody.\n\n## Release\n\nReleases: no\n",
 		);
+	});
+});
+
+describe("unreleasedOnTarget", () => {
+	async function clone(remote: string): Promise<string> {
+		const dir = await fs.mkdtemp(path.join(tmpdir(), "omp-release-target-"));
+		dirs.push(dir);
+		git(dir, ["clone", "-q", remote, "."]);
+		git(dir, ["config", "user.email", "t@example.com"]);
+		git(dir, ["config", "user.name", "T"]);
+		git(dir, ["config", "commit.gpgsign", "false"]);
+		git(dir, ["config", "tag.gpgsign", "false"]);
+		return dir;
+	}
+
+	async function world(): Promise<{ maintainer: string; run: string }> {
+		const seed = await repo({ "a.txt": "a" });
+		git(seed, ["tag", "v1.0.0"]);
+		git(seed, ["commit", "-q", "--allow-empty", "-m", "feat: on main after v1.0.0"], NOW - 2 * DAY);
+		const bare = await fs.mkdtemp(path.join(tmpdir(), "omp-release-bare-"));
+		dirs.push(bare);
+		git(bare, ["init", "-q", "--bare", "-b", "main"]);
+		git(seed, ["push", "-q", "--tags", bare, "main"]);
+		const run = await clone(bare);
+		git(run, ["switch", "-q", "-c", "autopilot/run"]);
+		return { maintainer: await clone(bare), run };
+	}
+
+	it("counts what landed on the remote's branch, never the run's unlanded commits", async () => {
+		const { run } = await world();
+		git(run, ["commit", "-q", "--allow-empty", "-m", "feat: unlanded one"]);
+		git(run, ["commit", "-q", "--allow-empty", "-m", "fix: unlanded two"]);
+		const landed = await unreleasedOnTarget(run, io, "origin", "main");
+		expect(landed?.target).toBe("refs/remotes/origin/main");
+		expect(landed?.tag).toBe("v1.0.0");
+		expect(landed?.commits.map(commit => commit.subject)).toEqual(["feat: on main after v1.0.0"]);
+	});
+
+	it("sees a release made from another checkout, so its commits are not counted again", async () => {
+		const { maintainer, run } = await world();
+		git(maintainer, ["commit", "-q", "--allow-empty", "-m", "release: v1.1.0"]);
+		git(maintainer, ["tag", "v1.1.0"]);
+		git(maintainer, ["commit", "-q", "--allow-empty", "-m", "fix: after v1.1.0"]);
+		git(maintainer, ["push", "-q", "--tags", "origin", "main"]);
+		const landed = await unreleasedOnTarget(run, io, "origin", "main");
+		expect(landed?.tag).toBe("v1.1.0");
+		expect(landed?.commits.map(commit => commit.subject)).toEqual(["fix: after v1.1.0"]);
+	});
+
+	it("has no target when neither the remote's nor a local branch of that name exists", async () => {
+		const { run } = await world();
+		expect(await unreleasedOnTarget(run, io, "origin", "trunk")).toBeUndefined();
 	});
 });

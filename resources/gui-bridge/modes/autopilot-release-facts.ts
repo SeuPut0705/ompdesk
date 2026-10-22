@@ -6,6 +6,7 @@
  */
 
 import { join } from "node:path";
+import type { UnreleasedCommit } from "./autopilot-core";
 import type { GuideIo } from "./autopilot-guide";
 import type { ReleaseFacts, ReleaseWorkflow } from "./autopilot-release-core";
 
@@ -304,4 +305,37 @@ export async function collectReleaseFacts(
 		conventional,
 		checks: options.checks ?? [],
 	};
+}
+
+/**
+ * What landed on the release target since its last release: the commits of `<remote>/<branch>` (fetched first, with
+ * its tags; the last fetched refs when the remote does not answer) after the newest `v*` tag reachable from it, oldest
+ * first. The target, never the run's own HEAD: an unlanded run branch has nothing on it to release, and a release
+ * made from another checkout is a tag on the remote, so its commits are not counted again. Undefined when neither
+ * the remote's nor a local branch of that name exists.
+ */
+export async function unreleasedOnTarget(
+	root: string,
+	io: Pick<GuideIo, "exec">,
+	remote: string,
+	branch: string,
+): Promise<{ target: string; tag?: string; commits: UnreleasedCommit[] } | undefined> {
+	await io.exec("git", ["fetch", "--quiet", "--tags", remote, branch], root);
+	const target = (
+		await Promise.all(
+			[`refs/remotes/${remote}/${branch}`, `refs/heads/${branch}`].map(async ref =>
+				(await io.exec("git", ["rev-parse", "--verify", "--quiet", ref], root)) === null ? null : ref,
+			),
+		)
+	).find(ref => ref !== null);
+	if (!target) return undefined;
+	const tag = (await io.exec("git", ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", target], root))?.trim();
+	const range = tag ? [`${tag}..${target}`] : ["-n", "200", target];
+	const out = await io.exec("git", ["log", "--no-merges", "--reverse", "--format=%ct%x09%s", ...range], root);
+	const commits = (out ?? "").split("\n").flatMap(line => {
+		const tab = line.indexOf("\t");
+		const at = Number(line.slice(0, tab)) * 1000;
+		return tab > 0 && Number.isFinite(at) ? [{ at, subject: line.slice(tab + 1) }] : [];
+	});
+	return { target, ...(tag ? { tag } : {}), commits };
 }

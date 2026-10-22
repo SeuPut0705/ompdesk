@@ -95,6 +95,7 @@ import {
 } from "./autopilot-core";
 import { evaluateToolCall } from "./autopilot-guard-core";
 import { ensureGuide, fileIo, type GuideIo, readGuide } from "./autopilot-guide";
+import { unreleasedOnTarget } from "./autopilot-release-facts";
 import { AUTOPILOT_CHILD_SECTION, AUTOPILOT_STOPPING_STEER, autopilotSection } from "./autopilot-prompt";
 import {
 	judgeVerify,
@@ -424,24 +425,6 @@ async function gitOut(root: string, args: string[]): Promise<{ code: number; out
 	} catch {
 		return { code: 1, out: "" };
 	}
-}
-
-/** The newest version tag reachable from HEAD (`v1.2.3`), or undefined in a repository that has none. */
-async function lastReleaseTag(root: string): Promise<string | undefined> {
-	const result = await gitOut(root, ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]);
-	return result.code === 0 && result.out ? result.out : undefined;
-}
-
-/** What landed since `tag` (the newest 200 without one), oldest first. */
-async function unreleasedCommits(root: string, tag: string | undefined): Promise<UnreleasedCommit[]> {
-	const range = tag ? [`${tag}..HEAD`] : ["-n", "200", "HEAD"];
-	const result = await gitOut(root, ["log", "--no-merges", "--reverse", "--format=%ct%x09%s", ...range]);
-	if (result.code !== 0 || !result.out) return [];
-	return result.out.split("\n").flatMap(line => {
-		const tab = line.indexOf("\t");
-		const at = Number(line.slice(0, tab)) * 1000;
-		return tab > 0 && Number.isFinite(at) ? [{ at, subject: line.slice(tab + 1) }] : [];
-	});
 }
 
 async function headOf(root: string): Promise<string | undefined> {
@@ -871,14 +854,16 @@ async function runTool(
 				clean: await gitClean(state.root),
 			});
 			if (!check.ok) return toolText({ due: false, reason: check.reason });
-			const since = await lastReleaseTag(state.root);
+			const landed = await unreleasedOnTarget(state.root, guideIo(), state.settings.ship.remote, state.baseBranch);
+			if (!landed) return toolText({ due: false, reason: `no ${state.baseBranch} branch to release from` });
 			const readiness = releaseReadiness(
-				await unreleasedCommits(state.root, since),
+				landed.commits,
 				now(),
 				typeof params.urgent === "string" ? params.urgent : undefined,
 			);
 			const contents = {
-				...(since ? { since } : {}),
+				target: landed.target,
+				...(landed.tag ? { since: landed.tag } : {}),
 				userVisible: readiness.userVisible.slice(-20),
 				internal: readiness.internal,
 			};
