@@ -234,7 +234,6 @@ function AutopilotRunSection() {
 				/>
 			)}
 			<ShipLandRow />
-			{!ended && <FocusRow />}
 			{!ended && (
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-actions" data-autopilot-controls>
@@ -243,6 +242,7 @@ function AutopilotRunSection() {
 					</div>
 				</li>
 			)}
+			{!ended && <FocusRow />}
 		</BoardSection>
 	);
 }
