@@ -1384,6 +1384,18 @@ html[data-input="touch"] [data-choice-row] [role="radiogroup"] {
 	--hit-gap-x: 2px;
 }
 
+/* On the narrowest phones (320 px) a row of five or more choices drew a one-syllable segment 33 px ("끔" of the
+   thinking levels reached 35 across, the responsive audit of 22 Oct 2026): the row's lead glyph, decorative (the
+   radiogroup and the (i) name the group), gives its 16 px and the 8 px beside it to the segments, about 4.8 px each
+   of five, so every segment reaches 36 with no label drawn narrower. */
+@media (max-width: 329px) {
+	html[data-input="touch"]
+		[data-choice-row]:has([role="radiogroup"] > [role="radio"]:nth-child(5))
+		> [data-setting-icon] {
+		display: none;
+	}
+}
+
 /* A choice row's (i) ends the row with room to its right and above and below: as in Settings' content it reaches 10 px
    each way (a 36 px target; the row's 4 px bound cut it to 20), and 12 px more beside the segments keeps that reach
    half way to the last segment. */
