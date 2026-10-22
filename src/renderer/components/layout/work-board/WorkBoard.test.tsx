@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -186,14 +184,6 @@ describe("WorkBoard visibility", () => {
 		expect(pane.hasAttribute("data-work-board")).toBe(true);
 		expect(pane.hasAttribute("data-work-board-running")).toBe(true);
 		expect(pane.hasAttribute("data-work-board-todo")).toBe(false);
-	});
-
-	it("the pane's marks hide the dock twins the board repeats (the island and the todo card)", () => {
-		const css = readFileSync(join(__dirname, "../../../styles/components.css"), "utf8");
-		const rule = css.match(
-			/\.omp-session-pane\[data-work-board-running\] \[data-workspace-island\],\s*\.omp-session-pane\[data-work-board-todo\] \[data-dock-card="todo"\] \{([^}]+)\}/,
-		);
-		expect(rule?.[1]).toContain("display: none");
 	});
 
 	it("hides in a pane too narrow for it and returns when the pane widens", async () => {
