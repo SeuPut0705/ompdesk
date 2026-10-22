@@ -86,7 +86,7 @@ export function ProviderPicker({
 					{featured.length > 0 && (
 						<section
 							aria-label={t("providers.featured.title")}
-							className="mb-2 flex flex-col gap-1.5"
+							className="mt-3 mb-2 flex flex-col gap-1.5"
 							data-featured-providers
 						>
 							<h3 className="px-2 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
