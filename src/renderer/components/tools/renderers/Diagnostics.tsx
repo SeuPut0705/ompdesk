@@ -2,6 +2,7 @@ import { AlertTriangle, XCircle } from "lucide-react";
 import { useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { revealAndFocus } from "../../../lib/reveal-focus";
 import { asArray, asNonEmptyString, asRecord } from "../../../lib/wire-value";
 
 /**
@@ -146,7 +147,9 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 			return { path: group.path, items: group.items.slice(0, take) };
 		})
 		.filter(group => group.items.length > 0);
-	const hidden = total - rendered.reduce((sum, group) => sum + group.items.length, 0);
+	const shownCount = rendered.reduce((sum, group) => sum + group.items.length, 0);
+	const hidden = total - shownCount;
+	let row = 0;
 	return (
 		<div className="space-y-2">
 			{rendered.map((group, gi) => (
@@ -157,13 +160,18 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 					{group.items.map((item, ii) =>
 						item.kind === "raw" ? (
 							<div
+								data-diag-row={row++}
 								key={ii}
 								className="font-mono text-omp-sm leading-[1.55] break-words whitespace-pre-wrap text-[var(--omp-muted)]"
 							>
 								{item.text}
 							</div>
 						) : (
-							<div key={ii} className="flex items-baseline gap-1.5 font-mono text-omp-sm leading-[1.55]">
+							<div
+								className="flex items-baseline gap-1.5 font-mono text-omp-sm leading-[1.55]"
+								data-diag-row={row++}
+								key={ii}
+							>
 								<span className="shrink-0 tabular-nums text-[var(--omp-dim)]">
 									{item.diag.line}:{item.diag.col}
 								</span>
@@ -188,7 +196,14 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 			{hidden > 0 && (
 				<button
 					type="button"
-					onClick={() => setExpanded(true)}
+					onClick={event => {
+						const list = event.currentTarget.parentElement;
+						revealAndFocus(
+							event.currentTarget,
+							() => setExpanded(true),
+							() => list?.querySelector(`[data-diag-row="${shownCount}"]`),
+						);
+					}}
 					className="omp-pressable text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
 				>
 					{t("chat.custom.moreDiagnostics", { count: hidden, plural: hidden === 1 ? "" : "s" })}

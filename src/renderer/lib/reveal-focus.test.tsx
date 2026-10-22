@@ -60,4 +60,60 @@ describe("revealAndFocus", () => {
 		expect(row?.getAttribute("data-note")).toBe("two");
 		expect(row?.getAttribute("tabindex")).toBe("-1");
 	});
+
+	it("stays in the card's own list when the card sits in an outer list item", async () => {
+		const host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+		await act(async () =>
+			root?.render(
+				<ul>
+					<li>
+						<button type="button">open note</button>
+						<Notes />
+					</li>
+				</ul>,
+			),
+		);
+		const more = Array.from(document.querySelectorAll("button")).find(b => b.textContent === "more") as HTMLElement;
+		await act(async () => more.click());
+		expect(focused?.getAttribute("data-note")).toBe("two");
+	});
+
+	it("focuses the row a list names when its revealed rows land elsewhere", async () => {
+		const host = document.createElement("div");
+		document.body.append(host);
+		root = createRoot(host);
+		function Grouped() {
+			const [all, setAll] = useState(false);
+			return (
+				<div>
+					<div>
+						<div data-row="0">a</div>
+						{all && <div data-row="2">c</div>}
+					</div>
+					<div>
+						<div data-row="1">b</div>
+					</div>
+					{!all && (
+						<button
+							onClick={event =>
+								revealAndFocus(
+									event.currentTarget,
+									() => setAll(true),
+									() => document.querySelector('[data-row="2"]'),
+								)
+							}
+							type="button"
+						>
+							more
+						</button>
+					)}
+				</div>
+			);
+		}
+		await act(async () => root?.render(<Grouped />));
+		await act(async () => (document.querySelector("button") as HTMLElement).click());
+		expect(focused?.getAttribute("data-row")).toBe("2");
+	});
 });

@@ -9,15 +9,22 @@ const FOCUSABLE =
 	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * `control` sits in its own list item (`li`), or is itself an item of the list it extends. That item's place in
- * the list is where the first revealed row lands; its first focusable element takes focus, or the row itself.
+ * `control` sits alone in its own list item (its parent is an `li`), or is itself an item of the list it extends
+ * (never an `li` further up: a card in a list item is not the list its control extends). That item's place in
+ * the list is where the first revealed row lands; its first focusable element takes focus, or the row itself. A
+ * list whose revealed rows land elsewhere (spread over groups) names the row with `firstRevealed`, read after the
+ * reveal.
  */
-export function revealAndFocus(control: HTMLElement, reveal: () => void): void {
-	const item = control.closest("li") ?? control;
+export function revealAndFocus(
+	control: HTMLElement,
+	reveal: () => void,
+	firstRevealed?: () => Element | null | undefined,
+): void {
+	const item = control.parentElement?.tagName === "LI" ? control.parentElement : control;
 	const list = item.parentElement;
 	const index = list ? Array.prototype.indexOf.call(list.children, item) : -1;
 	flushSync(reveal);
-	const row = list?.children[index];
+	const row = firstRevealed ? firstRevealed() : list?.children[index];
 	if (!(row instanceof HTMLElement) || !row.isConnected) return;
 	const target = row.matches(FOCUSABLE) ? row : row.querySelector<HTMLElement>(FOCUSABLE);
 	if (target) {
