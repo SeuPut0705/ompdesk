@@ -1,6 +1,6 @@
 /**
  * Common UI primitives barrel — the ompdesk design system. Usage rules live
- * in each file's header and in design-spec.md; every primitive renders in
+ * in each file's header and in README.md (the catalog); every primitive renders in
  * the internal style guide (OMP_GUI_STYLEGUIDE=1).
  */
 
@@ -34,6 +34,7 @@ export {
 	TextArea,
 	type TextAreaProps,
 } from "./Input";
+export { JumpToLatest, type JumpToLatestProps } from "./JumpToLatest";
 export { Kbd, type KbdProps } from "./Kbd";
 export { LangSwitcher, type LangSwitcherProps } from "./LangSwitcher";
 export { ListRow, type ListRowProps } from "./ListRow";

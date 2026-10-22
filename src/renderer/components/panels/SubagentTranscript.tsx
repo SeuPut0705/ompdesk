@@ -14,12 +14,12 @@
  * owning tab's own run, goal and streaming text never bleed into the cards.
  */
 
-import { ArrowDown, FileWarning, RefreshCw } from "lucide-react";
+import { FileWarning, RefreshCw } from "lucide-react";
 import { memo, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
 import { errorDetail } from "../../lib/error-detail";
-import { basename, cx, extractResultImages, resultDetails } from "../../lib/format";
+import { basename, extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { groupReadRows } from "../../lib/read-group";
 import { createMessagesStore, type MessagesStore } from "../../stores/messages";
@@ -43,7 +43,7 @@ import {
 	reuseTranscriptRows,
 } from "../chat/chat-stream-utils";
 import { MessageBubble } from "../chat/MessageBubble";
-import { Banner, Button, EmptyState, Spinner } from "../common";
+import { Banner, Button, EmptyState, JumpToLatest, Spinner } from "../common";
 import { ToolImage } from "../tools/media/ToolImage";
 import { ToolResultMedia } from "../tools/media/ToolMedia";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
@@ -298,21 +298,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 						)}
 					</div>
 				</div>
-				<button
-					aria-label={t("chat.jumpToLatest")}
-					className={cx(
-						"absolute bottom-3 left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border border-(--sc-border) bg-(--sc-elevated) px-3 text-sc-sm font-medium text-(--sc-text) shadow-(--sc-shadow-md) transition-all hover:bg-(--sc-hover)",
-						stick.pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
-					)}
-					aria-hidden={stick.pinned || undefined}
-					data-jump-to-latest
-					onClick={stick.jumpToLatest}
-					tabIndex={stick.pinned ? -1 : 0}
-					type="button"
-				>
-					<ArrowDown aria-hidden className="size-(--sc-icon-sm)" />
-					{t("chat.jumpToLatest")}
-				</button>
+				<JumpToLatest className="bottom-3" data-jump-to-latest onClick={stick.jumpToLatest} pinned={stick.pinned} />
 			</div>
 		</SessionRuntimeProvider>
 	);

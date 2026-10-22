@@ -1,6 +1,5 @@
 import { type Range, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import {
-	ArrowDown,
 	BookOpen,
 	Bug,
 	ChevronRight,
@@ -38,7 +37,7 @@ import { toastError } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { BrandMark, Button, Kbd, Skeleton, Spinner } from "../common";
+import { BrandMark, Button, JumpToLatest, Kbd, Skeleton, Spinner } from "../common";
 import { FirstRunSetup, useFirstRunActive } from "../onboarding/FirstRunSetup";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -1170,18 +1169,7 @@ function SessionTranscript() {
 					</div>
 				</div>
 			</div>
-			<button
-				type="button"
-				onClick={jumpToLatest}
-				aria-label={t("chat.jumpToLatest")}
-				className={cx(
-					"absolute bottom-5 left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
-					pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",
-				)}
-			>
-				<ArrowDown size={14} />
-				{t("chat.jumpToLatest")}
-			</button>
+			<JumpToLatest className="bottom-5" onClick={jumpToLatest} pinned={pinned} />
 			<ConversationNavigator
 				activeIndex={activeConversationIndex}
 				anchors={conversationAnchors}
