@@ -114,6 +114,8 @@ function DeviceHeader({
 				data-sidebar-device-toggle={deviceId}
 				onClick={() => useSidebarFolds.getState().setDeviceFolded(deviceId, !folded)}
 				tabIndex={-1}
+				// The name truncates in a narrow sidebar; hovering names the device whole.
+				title={name}
 				type="button"
 			>
 				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />

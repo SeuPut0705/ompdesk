@@ -2968,6 +2968,8 @@ describe("Sidebar device sections", () => {
 		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
 		expect(section?.getAttribute("data-device-state")).toBe("online");
 		expect(section?.querySelector("[data-sidebar-device-toggle]")?.textContent).toContain("studio");
+		// A narrow sidebar cuts a long device name: hovering the header names it whole.
+		expect(section?.querySelector("[data-sidebar-device-toggle]")?.getAttribute("title")).toBe("studio");
 		expect(section?.querySelector('[data-device-group="/Users/kim/code/app"]')?.textContent).toContain("Remote fix");
 		expect(omp.sessions.list).toHaveBeenCalledWith("global", "dev-studio");
 		// The host's session never leaks into this device's list.
