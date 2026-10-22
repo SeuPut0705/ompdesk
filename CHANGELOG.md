@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.61.21] - 2026-10-23
+
+키보드만으로 창 안을 더 쉽게 오갈 수 있어요.
+
+### 새 기능
+- F6과 Shift+F6으로 사이드바, 대화, 입력창, 작업 보드, 오른쪽 패널 사이를 옮겨 다녀요. 터미널 안에서도 빠져나와요. 설정 › 키보드에 적혀 있어요.
+
+### 고친 것
+- 사이드바의 세션·프로젝트 줄, 접기 버튼, 사용량 토글, 프로바이더 카드 등 10곳에서 Tab으로 이동해도 포커스 테두리가 보이지 않던 문제를 고쳤어요.
+
+### 개선
+- 휴대폰 웹 화면이 처음 열릴 때 내려받는 코드를 21KB 줄였어요. 테마 선택 창은 처음 열 때 불러와요.
+
+<!-- en -->
+
+Getting around the window from the keyboard is easier.
+
+### New
+- F6 and Shift+F6 move between the sidebar, the conversation, the composer, the work board and the side panel, out of the terminal too. Settings › Keyboard lists it.
+
+### Fixed
+- Ten controls showed no focus ring when reached with Tab, among them the sidebar's session and project rows, its fold buttons, the usage toggle and the provider cards.
+
+### Improved
+- The phone's web page downloads 21 KB less code when it first opens; the theme picker loads the first time it opens.
+
 ## [0.61.20] - 2026-10-23
 
 어두운 테마와 휴대폰에서 읽기 어려웠던 글자와 화면 읽기 프로그램의 제목 순서를 다듬었어요.
