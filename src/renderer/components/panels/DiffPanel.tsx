@@ -11,7 +11,7 @@
  */
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, Columns2, FileCode2, Rows3 } from "lucide-react";
+import { Columns2, FileCode2, Rows3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShellMode } from "../../hooks/use-shell-mode";
 import { type DiffLine, DiffView, parseDiff } from "../../lib/diff";
@@ -21,9 +21,9 @@ import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { type ChangesMode, useUiStore } from "../../stores/ui";
-import { EmptyState, IconButton, Select } from "../common";
+import { DisclosureButton, EmptyState, IconButton, Select } from "../common";
 import { workspaceRelativePath } from "./FilesPanel";
-import { PANEL_ROW, PanelToolbar } from "./PanelChrome";
+import { PANEL_ROW_SURFACE, PanelToolbar } from "./PanelChrome";
 import { RepositoryChanges } from "./RepositoryChanges";
 import { CommitHistory } from "./scm/CommitHistory";
 
@@ -366,12 +366,7 @@ function FileGroupHeader({
 }) {
 	const cwd = useSessionStore(state => state.cwd);
 	return (
-		<button aria-expanded={!collapsed} className={PANEL_ROW} onClick={onToggle} title={group.file} type="button">
-			{collapsed ? (
-				<ChevronRight className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-			) : (
-				<ChevronDown className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-			)}
+		<DisclosureButton className={PANEL_ROW_SURFACE} onToggle={onToggle} open={!collapsed} title={group.file}>
 			<FileCode2 className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			<span className="min-w-0 text-sc-sm text-(--sc-text)">
 				<FilePath cwd={cwd} file={group.file} />
@@ -381,7 +376,7 @@ function FileGroupHeader({
 				<span className="text-(--sc-danger)">-{group.removes}</span>
 				<span className="px-1 py-px text-sc-2xs text-(--sc-text-muted)">×{group.edits.length}</span>
 			</span>
-		</button>
+		</DisclosureButton>
 	);
 }
 
@@ -397,12 +392,7 @@ function EditTimelineRow({
 	const t = useT();
 	return (
 		<div className="pb-0.5 pl-4">
-			<button aria-expanded={expanded} className={PANEL_ROW} onClick={onToggle} type="button">
-				{expanded ? (
-					<ChevronDown className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-				) : (
-					<ChevronRight className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-				)}
+			<DisclosureButton className={PANEL_ROW_SURFACE} onToggle={onToggle} open={expanded}>
 				<span className="flex shrink-0 items-center gap-1 font-mono text-sc-xs">
 					<span className="text-(--sc-success)">+{entry.adds}</span>
 					<span className="text-(--sc-danger)">-{entry.removes}</span>
@@ -414,7 +404,7 @@ function EditTimelineRow({
 				<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)" title={formatClock(entry.timestamp)}>
 					{formatTimeAgo(entry.timestamp)}
 				</span>
-			</button>
+			</DisclosureButton>
 			{expanded && (
 				<div className="mt-0.5 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1">
 					<EditPreview entry={entry} />

@@ -9,7 +9,7 @@
  * through the runtime registry), main's review push and child usage, the closed children, the hosted sessions.
  */
 
-import { Bot, ChevronRight, GitBranch, MessageSquare, Network } from "lucide-react";
+import { Bot, GitBranch, MessageSquare, Network } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { Billing } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
@@ -26,7 +26,7 @@ import { onSessionRuntimesChange, sessionRuntimeStore } from "../../../stores/se
 import type { SubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
-import { EmptyState } from "../../common";
+import { DisclosureButton, EmptyState } from "../../common";
 import { CostAmount, hasCost } from "../../common/CostAmount";
 import { SettingInfo } from "../../common/SettingInfo";
 import { FamilyStatus } from "../../layout/sidebar/SidebarFamilyRow";
@@ -245,25 +245,21 @@ function FamilyTree({ family, billing }: { family: WorkTreeFamily; billing?: Rea
 			</ul>
 			{family.finished.length > 0 ? (
 				<>
-					<button
-						aria-expanded={finishedOpen}
+					<DisclosureButton
+						chevronClassName="size-(--sc-icon-sm)"
 						className={cx(
 							PANEL_ROW_SURFACE,
-							"omp-work-tree-row flex h-(--sc-control-md) w-full items-center gap-1.5 rounded-none py-0 text-(--sc-text-muted)",
+							"omp-work-tree-row h-(--sc-control-md) gap-1.5 rounded-none py-0 text-(--sc-text-muted)",
 						)}
 						data-work-tree-finished={family.finished.length}
-						onClick={() => setFinishedOpen(value => !value)}
+						onToggle={() => setFinishedOpen(value => !value)}
+						open={finishedOpen}
 						style={{ paddingLeft: INSET_PX + STEP_PX }}
-						type="button"
 					>
-						<ChevronRight
-							aria-hidden
-							className={cx("size-(--sc-icon-sm) shrink-0 transition-transform", finishedOpen && "rotate-90")}
-						/>
 						<span className="min-w-0 flex-1 truncate">
 							{t("workTree.finished", { count: family.finished.length })}
 						</span>
-					</button>
+					</DisclosureButton>
 					{finishedOpen ? (
 						<ul data-work-tree-finished-rows>
 							{family.finished.map(node => (
