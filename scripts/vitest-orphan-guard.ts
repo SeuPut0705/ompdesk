@@ -27,11 +27,18 @@ function alive(pid: number): boolean {
 
 /**
  * Ends this process once its parent is gone: reparented (POSIX: `ppid` changes) or no longer running (Windows keeps
- * the old `ppid`). The timer is unref'd, so it never holds a finished worker open.
+ * the old `ppid`). A worker already orphaned when this runs ends at once. The timer is unref'd, so it never holds a
+ * finished worker open.
  */
 export function exitWhenParentGone(intervalMs = ORPHAN_CHECK_MS): void {
 	const parent = process.ppid;
-	if (parent <= 1) return;
+	if (parent <= 1) {
+		// A forked worker (an IPC child; `process.send` outlives the channel) parented by init lost its runner before
+		// setup ran. A `threads` worker's `ppid` is the runner's own parent, which may be init on purpose (a container).
+		if (typeof process.send === "function") process.exit(1);
+		return;
+	}
+	if (!alive(parent)) process.exit(1);
 	const timer = setInterval(() => {
 		if (process.ppid === parent && alive(parent)) return;
 		clearInterval(timer);
