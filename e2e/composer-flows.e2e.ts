@@ -115,7 +115,7 @@ test("+ › Use a skill… takes the keys; the send-mode chip lasts one run; the
 		await input.fill("keep me");
 		await page.getByRole("button", { name: "Attach and more" }).click();
 		await page.getByRole("menuitem", { name: /Use a skill/ }).click();
-		await expect(page.getByRole("searchbox", { name: "Search skills" })).toBeFocused();
+		await expect(page.getByRole("combobox", { name: "Search skills" })).toBeFocused();
 		await page.keyboard.type("tdd");
 		await page.keyboard.press("Enter");
 		await expect(input).toHaveValue("keep me /skill:tdd ");

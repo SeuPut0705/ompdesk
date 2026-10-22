@@ -27,6 +27,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | One value from ≤ ~15 fixed options | `Select` (native popup) | a custom dropdown |
 | A long, searchable or rich list (models, sessions, branches) | a picker: `Modal size="picker" placement="top"` | `Select` |
 | Text entry | `Input`, `TextArea` (auto-grow), `SearchField`; long documents `TextEditor` | a raw `<input>` |
+| A picker's search over its result list | `SearchField` with `listbox` (the field is the list's combobox; rows are `OptionRow`, no tab stops) | rows the Tab key walks |
 | Sibling views of one surface | `Tabs` (`underline` sections, `segmented` 2–4 modes) | buttons that look like tabs |
 | A row of a picker's listbox driven from its field (`aria-activedescendant`) | `OptionRow` (`active` highlight, `selected`, `size`) | a copied row class string |
 | A navigable row (sessions, agents, providers) | `ListRow` (one click target, actions on hover/focus) | a copied row class string |

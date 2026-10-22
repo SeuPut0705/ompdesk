@@ -569,11 +569,7 @@ export function CommandPalette() {
 					)}
 					<div className="min-w-0 flex-1">
 						<SearchField
-							aria-activedescendant={flatList.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
-							aria-autocomplete="list"
-							aria-controls={listboxId}
-							aria-expanded
-							role="combobox"
+							listbox={{ id: listboxId, activeId: flatList.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined }}
 							controlSize="lg"
 							label={t("palette.searchLabel")}
 							onValueChange={value => {

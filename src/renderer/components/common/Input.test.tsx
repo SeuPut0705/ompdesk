@@ -8,7 +8,8 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
-import { Input, TextArea } from "./Input";
+import { I18nProvider } from "../../lib/i18n";
+import { Input, SearchField, TextArea } from "./Input";
 import { Select } from "./Select";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -122,4 +123,27 @@ it("grows an auto-grow field to its content plus its border, so an empty field h
 	} finally {
 		for (const key of ["scrollHeight", "offsetHeight", "clientHeight"]) Reflect.deleteProperty(prototype, key);
 	}
+});
+
+it("makes a search field the combobox of the list it drives, naming the list and its highlighted row", async () => {
+	await render(
+		<>
+			<SearchField
+				label="Search commands"
+				listbox={{ id: "list", activeId: "list-2" }}
+				onValueChange={() => {}}
+				value=""
+			/>
+			<SearchField label="Filter" onValueChange={() => {}} value="" />
+		</I18nProvider>,
+	);
+	const [picker, filter] = Array.from(document.body.querySelectorAll("input"));
+	expect(picker?.getAttribute("role")).toBe("combobox");
+	expect(picker?.getAttribute("aria-controls")).toBe("list");
+	expect(picker?.getAttribute("aria-activedescendant")).toBe("list-2");
+	expect(picker?.getAttribute("aria-expanded")).toBe("true");
+	expect(picker?.getAttribute("aria-autocomplete")).toBe("list");
+	// A plain filter stays a search box.
+	expect(filter?.getAttribute("role")).toBeNull();
+	expect(filter?.getAttribute("type")).toBe("search");
 });

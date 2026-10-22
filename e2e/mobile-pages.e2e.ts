@@ -440,7 +440,7 @@ for (const { engine, device } of variants(
 			// A phone's model chip is in the status row above the composer.
 			await page.locator(device.phone ? "[data-model-chip]" : "[data-model-chip]").click();
 			const dialog = page.getByRole("dialog");
-			const search = dialog.getByRole("searchbox", { name: "Search models" });
+			const search = dialog.getByRole("combobox", { name: "Search models" });
 			await expect(search).toBeVisible();
 			const options = dialog.locator("[data-model-option]");
 			await expect(options.first()).toBeVisible({ timeout: 15_000 });

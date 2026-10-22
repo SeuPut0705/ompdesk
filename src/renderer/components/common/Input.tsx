@@ -220,6 +220,11 @@ export interface SearchFieldProps
 	onValueChange: (value: string) => void;
 	/** macOS-spelled shortcut hint shown while the field is empty. */
 	shortcut?: string;
+	/**
+	 * The listbox this field drives (a picker): the field becomes its combobox, naming the list and the highlighted
+	 * row (`aria-activedescendant`), so the rows need no tab stops and the list is no scroll region keyboards miss.
+	 */
+	listbox?: { id: string; activeId?: string };
 }
 
 /**
@@ -228,13 +233,22 @@ export interface SearchFieldProps
  * to close the surrounding picker.
  */
 export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(function SearchField(
-	{ label, value, onValueChange, shortcut, onKeyDown, ...rest },
+	{ label, value, onValueChange, shortcut, onKeyDown, listbox, ...rest },
 	ref,
 ) {
 	const t = useT();
 	return (
 		<Input
 			{...rest}
+			{...(listbox
+				? {
+						role: "combobox",
+						"aria-autocomplete": "list" as const,
+						"aria-controls": listbox.id,
+						"aria-expanded": true,
+						"aria-activedescendant": listbox.activeId,
+					}
+				: {})}
 			aria-label={label}
 			className="[&::-webkit-search-cancel-button]:appearance-none"
 			leadingIcon={<Search />}

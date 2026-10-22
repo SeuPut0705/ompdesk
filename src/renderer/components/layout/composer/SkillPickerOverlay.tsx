@@ -117,8 +117,7 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 		>
 			<div className="border-b border-(--sc-divider) p-1.5">
 				<SearchField
-					aria-activedescendant={results.length > 0 ? `${listId}-option-${selected}` : undefined}
-					aria-controls={listId}
+					listbox={{ id: listId, activeId: results.length > 0 ? `${listId}-option-${selected}` : undefined }}
 					autoFocus
 					controlSize="sm"
 					label={t("input.skills.searchLabel")}
@@ -160,6 +159,7 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 								onMouseDown={event => event.preventDefault()}
 								onMouseEnter={() => setIndex(rowIndex)}
 								role="option"
+								tabIndex={-1}
 								title={description ? `${skill.name}\n${description}` : skill.name}
 								type="button"
 							>

@@ -81,7 +81,7 @@ for (const [language, theme] of variants(RUNS)) {
 		const page = await launch(language, theme, { width: 1280, height: 860 });
 		await page.locator("[data-model-chip]").click();
 		const dialog = page.getByRole("dialog");
-		const search = dialog.getByRole("searchbox", { name: SEARCH[language] });
+		const search = dialog.getByRole("combobox", { name: SEARCH[language] });
 		await expect(search).toBeFocused();
 
 		const options = dialog.getByRole("option");
@@ -111,7 +111,7 @@ for (const [language, theme] of variants(RUNS)) {
 		const page = await launch(language, theme, { width: 520, height: 520 });
 		await page.locator("[data-model-chip]").click();
 		const dialog = page.getByRole("dialog");
-		await expect(dialog.getByRole("searchbox", { name: SEARCH[language] })).toBeFocused();
+		await expect(dialog.getByRole("combobox", { name: SEARCH[language] })).toBeFocused();
 		const box = await dialog.boundingBox();
 		const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
 		expect(box).not.toBeNull();

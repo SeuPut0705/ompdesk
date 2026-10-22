@@ -349,8 +349,7 @@ export function ModelPicker() {
 			<div className="flex h-full min-h-0 flex-col">
 				<div className="border-b border-(--sc-divider) p-1.5">
 					<SearchField
-						aria-activedescendant={flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
-						aria-controls={listboxId}
+						listbox={{ id: listboxId, activeId: flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined }}
 						controlSize="sm"
 						label={t("modelPicker.searchLabel")}
 						onKeyDown={onKeyDown}
@@ -469,6 +468,7 @@ export function ModelPicker() {
 												onClick={() => void select(model.provider, model.id)}
 												onMouseEnter={() => setActiveIndex(optionIndex)}
 												role="option"
+												tabIndex={-1}
 												title={!sidecarReady ? t("modelPicker.notConnected") : details || undefined}
 												type="button"
 											>

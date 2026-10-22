@@ -97,7 +97,7 @@ for (const language of variants(["en", "ko"] as const))
 				expect((pickerBox?.y ?? 0) + (pickerBox?.height ?? 0)).toBeLessThanOrEqual(inputBox?.y ?? 0);
 				await capture(page, `${language}-${theme}-skill-picker`);
 
-				await picker.getByRole("searchbox", { name: text.search }).fill("caveman");
+				await picker.getByRole("combobox", { name: text.search }).fill("caveman");
 				await expect(rows).toHaveCount(2);
 				await capture(page, `${language}-${theme}-skill-picker-search`);
 				await page.keyboard.press("ArrowDown");
