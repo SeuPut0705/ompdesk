@@ -1,8 +1,9 @@
-import { Bug, ChevronDown, ChevronRight } from "lucide-react";
+import { Bug } from "lucide-react";
 import { useState } from "react";
 import { resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { asArray, asRecord } from "../../../lib/wire-value";
+import { DisclosureButton } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 import { resultDetails } from "./result";
 import { ToolTextPreview } from "./ToolTextPreview";
@@ -190,15 +191,14 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 
 			{variables.length > 0 && (
 				<div>
-					<button
-						type="button"
-						aria-expanded={varsOpen}
-						onClick={() => setVarsOpen(v => !v)}
-						className="flex items-center gap-1 text-omp-xs font-semibold uppercase tracking-wider text-[var(--omp-dim)] transition-colors hover:text-[var(--omp-text)]"
+					<DisclosureButton
+						chevronClassName="size-[11px]"
+						className="gap-1 text-omp-xs font-semibold uppercase tracking-wider text-[var(--omp-dim)] transition-colors hover:text-[var(--omp-text)]"
+						onToggle={() => setVarsOpen(v => !v)}
+						open={varsOpen}
 					>
-						{varsOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
 						{t("tools.debug.variables")}
-					</button>
+					</DisclosureButton>
 					{varsOpen && (
 						<div className="mt-0.5 max-h-40 overflow-auto rounded bg-[var(--omp-code-bg)] px-2 py-1 font-mono text-omp-sm leading-[1.6]">
 							{variables.map(row => (
