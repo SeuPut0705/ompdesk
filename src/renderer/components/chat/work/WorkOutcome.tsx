@@ -4,6 +4,7 @@ import { formatDuration } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useUiStore } from "../../../stores/ui";
+import { LinkButton } from "../../common";
 import { ToolImage } from "../../tools/media/ToolImage";
 import { ChatMedia } from "../../tools/media/ToolMedia";
 import { useRunOutcome } from "./use-work-run";
@@ -55,8 +56,7 @@ export function WorkOutcome({
 					</figure>
 				))}
 				{outcome.images.length > VISIBLE_IMAGES ? (
-					<button
-						type="button"
+					<LinkButton
 						className="omp-work-outcome-more"
 						aria-expanded={showAllImages}
 						onClick={() => setShowAllImages(value => !value)}
@@ -64,7 +64,7 @@ export function WorkOutcome({
 						{showAllImages
 							? t("chat.work.fewer")
 							: t("chat.work.moreImages", { count: outcome.images.length - VISIBLE_IMAGES })}
-					</button>
+					</LinkButton>
 				) : null}
 			</div>
 		) : null;
@@ -182,14 +182,13 @@ export function WorkOutcome({
 					{restCommands.map(renderCommand)}
 				</ul>
 				{rows > VISIBLE_ROWS ? (
-					<button
-						type="button"
+					<LinkButton
 						className="omp-work-outcome-more"
 						aria-expanded={showAll}
 						onClick={() => setShowAll(value => !value)}
 					>
 						{showAll ? t("chat.work.fewer") : t("chat.work.more", { count: rows - VISIBLE_ROWS })}
-					</button>
+					</LinkButton>
 				) : null}
 			</details>
 			{imageRow}

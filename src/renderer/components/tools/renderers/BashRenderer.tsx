@@ -7,6 +7,7 @@ import { devServerUrl } from "../../../lib/panel-auto-open";
 import { PREVIEW_SCROLL_MD } from "../../../lib/preview";
 import { detectLocalPreviewUrls } from "../../../lib/preview-browser";
 import { useUiStore } from "../../../stores/ui";
+import { LinkButton } from "../../common";
 import { ResultImages } from "../media/ResultImages";
 import type { ToolRendererProps } from "../ToolCard";
 import { describeTruncation, stripGeneratedOutputNotice, TruncationNote, type TruncationNotice } from "./output-meta";
@@ -324,16 +325,15 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 				)}
 			</div>
 			{devServer && !isPartial && (
-				<button
-					className="omp-bash-open-preview inline-flex w-fit items-center gap-1 rounded-(--sc-radius-xs) px-1 text-sc-xs text-(--omp-md-link) hover:bg-(--sc-hover)"
+				<LinkButton
+					className="omp-bash-open-preview inline-flex w-fit items-center gap-1 text-sc-xs"
 					data-bash-open-preview
 					onClick={() => useUiStore.getState().openPreview(devServer)}
 					title={devServer}
-					type="button"
 				>
 					<AppWindow aria-hidden size={12} />
 					{t("tools.bash.openPreview")}
-				</button>
+				</LinkButton>
 			)}
 			<ResultImages images={images} livePreview={livePreview} />
 			{notes.length > 0 && (

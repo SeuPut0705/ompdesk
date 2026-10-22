@@ -18,6 +18,7 @@ Object.assign(globalThis as Record<string, unknown>, {
 
 const { createRoot } = await import("react-dom/client");
 const { BashRenderer } = await import("./BashRenderer");
+const { useUiStore } = await import("../../../stores/ui");
 
 let container: HTMLElement;
 let root: Root;
@@ -249,5 +250,26 @@ describe("BashRenderer", () => {
 			"data:image/png;base64,first",
 			"data:image/jpeg;base64,second",
 		]);
+	});
+
+	it("offers a dev server's address as a link that opens it in Preview, never by itself", async () => {
+		const opened: string[] = [];
+		const openPreview = useUiStore.getState().openPreview;
+		useUiStore.setState({ openPreview: (url: string) => void opened.push(url) });
+		try {
+			await mount(
+				<BashRenderer
+					args={{ command: "bun run dev" }}
+					result={bashResult("  VITE ready\n  ➜  Local:   http://localhost:5173/\n")}
+				/>,
+			);
+			const link = container.querySelector("[data-bash-open-preview]") as unknown as HTMLButtonElement;
+			expect(link?.getAttribute("type")).toBe("button");
+			expect(opened).toEqual([]);
+			await act(async () => link.dispatchEvent(new Event("click", { bubbles: true })));
+			expect(opened).toEqual(["http://localhost:5173/"]);
+		} finally {
+			useUiStore.setState({ openPreview });
+		}
 	});
 });

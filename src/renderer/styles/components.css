@@ -2059,11 +2059,6 @@
 .omp-work-card-button:focus-visible,
 .omp-work-catch-up:focus-visible,
 .omp-work-outcome summary:focus-visible,
-.omp-work-outcome-more:focus-visible {
-	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
-	outline-offset: -2px;
-}
-
 .omp-live-step-icon {
 	flex-shrink: 0;
 	width: var(--sc-icon-sm);
@@ -2628,12 +2623,7 @@ button.omp-file-chip-name:hover {
 
 .omp-work-outcome-more {
 	margin: var(--sc-space-1) 0 0 calc(var(--sc-icon-sm) + var(--sc-space-2));
-	color: var(--sc-accent);
 	font-size: var(--sc-font-xs);
-}
-
-.omp-work-outcome-more:hover {
-	color: var(--sc-accent-hover);
 }
 
 /* Motion: only where it means something ─────────────────────────────────── */
