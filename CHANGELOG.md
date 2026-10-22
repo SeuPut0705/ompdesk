@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.20] - 2026-10-23
+
+어두운 테마와 휴대폰에서 읽기 어려웠던 글자와 화면 읽기 프로그램의 제목 순서를 다듬었어요.
+
+### 고친 것
+- 사용량 게이지가 한도에 가까워질 때(주황·빨강 채움) 창 이름과 퍼센트가 어두운 테마에서도 읽기 쉬운 대비를 가져요.
+- 작업 보드에서 답을 기다리는 줄 위의 옅은 글자, 활성 Run 칩의 이름, 작업 카드의 '따라가기'가 모든 테마에서 읽기 쉬워요.
+- 화면 읽기 프로그램에서 세션 이름이 창의 첫 제목이 되고, 휴대폰에서 펼친 작업 보드와 메모리 › 프로필의 제목이 단계를 건너뛰지 않아요.
+- 설정 › 기기·연결에서 공유가 켜져 있을 때 허용된 계정과 차단한 기기 목록이 한 번만 보여요.
+
+<!-- en -->
+
+Text that was hard to read in the dark theme and on phones, and the heading order screen readers follow, are tidied up.
+
+### Fixed
+- A usage gauge nearing its limit (amber or red fill) keeps its window name and percent readable in the dark themes too.
+- On the work board, the quiet text on a row waiting for an answer, the active Run chip's label and the work card's Follow read at full contrast in every theme.
+- For screen readers the session's name is the window's top heading, and the work board opened on a phone and Memory › Profile no longer skip a heading level.
+- Settings › Devices & connections lists the allowed accounts and blocked devices once while sharing is on.
+
 ## [0.61.19] - 2026-10-23
 
 ⌃Tab으로 탭을 바꾼 뒤 입력한 글자가 컴포저에 들어가지 않던 문제를 고쳤어요.
