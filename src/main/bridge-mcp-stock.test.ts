@@ -160,7 +160,7 @@ export default function (pi) {
  * The real add and sign-in paths: `mcp_add` of a server that answers 401 at once, then `mcp_reauth` while another
  * server still refuses. The open_url frame the flow emits is followed as a browser would.
  */
-function addAndSignInProbe(report: string, url: string): string {
+function addAndSignInProbe(report: string, url: string, add = true): string {
 	return `${PROBE_HELPERS}
 export default function (pi) {
 	pi.on("session_start", async (_event, ctx) => {
@@ -173,7 +173,7 @@ export default function (pi) {
 				void fetch(frame.url, { redirect: "follow" }).catch(error => { out.browser = String(error); });
 			};
 			const env = { pi, session: () => session, context: () => ctx, emit };
-			out.add = await mcp.mcp_add({ name: "fake", scope: "user", config: { transport: "http", url: ${JSON.stringify(url)} } }, env);
+			if (${add}) out.add = await mcp.mcp_add({ name: "fake", scope: "user", config: { transport: "http", url: ${JSON.stringify(url)} } }, env);
 			out.reauth = await mcp.mcp_reauth({ name: "fake" }, env);
 			await until(async () => (await view(env, session, "fake")).row?.status === "connected", 15_000);
 			out.after = { fake: await view(env, session, "fake"), other: await view(env, session, "other") };
@@ -366,6 +366,30 @@ describe.skipIf(!installed)("MCP servers on the installed omp", () => {
 		expect(after.fake.row).toMatchObject({ status: "connected", authState: "authorized", toolCount: 1 });
 		expect(after.fake.tools.length).toBeGreaterThan(0);
 		expect(after.other.row).toMatchObject({ status: "disconnected", authState: "required" });
+	}, 150_000);
+
+	it("signs a server in over a stale bearer header the config carries", async () => {
+		const profile = makeProfile();
+		const fake = await fakeOAuthMcp();
+		cleanups.push(fake.close);
+		const config = path.join(profile.agentDir, "mcp.json");
+		fs.writeFileSync(
+			config,
+			JSON.stringify({
+				mcpServers: { fake: { type: "http", url: fake.url, headers: { Authorization: "Bearer stale-token" } } },
+			}),
+		);
+		const report = path.join(profile.root, "stale-bearer.json");
+		const out = await runLive(profile, addAndSignInProbe(report, fake.url, false), report);
+		expect(out.error).toBeUndefined();
+		expect(out.reauth).toEqual({ ok: true });
+		// While the header stays, stock never reads the fresh credential: the next omp would send the stale bearer.
+		const saved = JSON.parse(fs.readFileSync(config, "utf8")).mcpServers.fake as {
+			headers?: Record<string, string>;
+			auth?: { type?: string };
+		};
+		expect(saved.headers?.Authorization).toBeUndefined();
+		expect(saved.auth).toMatchObject({ type: "oauth" });
 	}, 150_000);
 
 	it("uses one server Codex declares without reading the rest of Codex's config", async () => {
