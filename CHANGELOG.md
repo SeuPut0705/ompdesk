@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.17] - 2026-10-23
+
+키보드와 화면 읽기 프로그램으로 대화 기록과 사이드바를 다룰 때 걸리던 곳을 더 고쳤어요.
+
+### 고친 것
+- 대화 기록의 "이전 메시지 N개 보기"를 누르면 포커스가 페이지 처음으로 빠지지 않고 대화 기록에 남아, 화살표로 바로 읽을 수 있어요.
+- ⋯ 메뉴나 우클릭 메뉴에서 그 줄을 없애는 항목(사이드바에서 제거 등)을 고르면 포커스가 그 자리의 다음 줄(없으면 앞 줄)로 가요. 숨겨진 줄은 건너뛰어요.
+- 길어서 넘치는 코드 블록에 Tab으로 닿아 키보드로 가로·세로 스크롤할 수 있어요. 넘치지 않는 블록은 그대로예요.
+- 사이드바에서 연결된 컴퓨터의 채팅 구역을 화면 읽기 프로그램이 "{기기}의 채팅"으로 읽어요.
+
+<!-- en -->
+
+More keyboard and screen reader fixes in the transcript and the sidebar.
+
+### Fixed
+- "Show N earlier messages" in the transcript no longer drops the keyboard focus at the top of the page: it stays in the transcript, where the arrow keys read on.
+- Choosing a menu item that removes its own row (Remove from sidebar and the like) moves the focus to the next row, or the one before it, skipping hidden rows.
+- A code block that runs past its box can be reached with Tab and scrolled by keyboard, across and down; a block that fits is unchanged.
+- In the sidebar, a paired computer's Chats section reads as "Chats on {device}" to screen readers.
+
 ## [0.61.16] - 2026-10-23
 
 키보드로 목록을 다루다 포커스를 잃던 곳을 더 고쳤어요.
