@@ -2,6 +2,7 @@ import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import { useBackLayer } from "../../hooks/use-back-layer";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
+import { isTabbable } from "./popover-focus";
 
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -32,12 +33,16 @@ function focusNear(place: Place, panel: HTMLElement | null): void {
 		for (const child of [...children.slice(index), ...children.slice(0, index).reverse()]) {
 			const candidates = [child, ...child.querySelectorAll(FOCUSABLE)].filter(
 				(element): element is HTMLElement =>
-					element instanceof HTMLElement && element.matches(FOCUSABLE) && !panel?.contains(element),
+					element instanceof HTMLElement &&
+					element.matches(FOCUSABLE) &&
+					isTabbable(element) &&
+					!panel?.contains(element),
 			);
-			const target = children.indexOf(child) < index ? candidates.at(-1) : candidates[0];
-			if (target) {
+			if (children.indexOf(child) < index) candidates.reverse();
+			// A control the browser will not focus (hidden by CSS) leaves focus where it was: try the next one.
+			for (const target of candidates) {
 				target.focus();
-				return;
+				if (document.activeElement === target) return;
 			}
 		}
 	}

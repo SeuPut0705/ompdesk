@@ -228,6 +228,40 @@ describe("Modal", () => {
 		list.remove();
 	});
 
+	it("skips hidden, inert and unfocusable rows when its removed opener's place is taken", async () => {
+		const list = document.createElement("ul");
+		for (const name of ["a", "b", "c", "d", "e"]) {
+			const item = document.createElement("li");
+			const button = document.createElement("button");
+			button.textContent = `delete ${name}`;
+			item.append(button);
+			list.append(item);
+		}
+		list.children[2]?.setAttribute("hidden", "");
+		list.children[3]?.setAttribute("data-css-hidden", "");
+		document.body.appendChild(list);
+		const opener = list.querySelectorAll("button")[1] as HTMLElement;
+		activeElement = opener;
+		// The browser refuses focus to a control hidden by CSS: focus stays where it was.
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			if (!this.closest("[data-css-hidden]")) activeElement = this;
+		});
+
+		await mount(
+			<Modal open onClose={() => {}} title="Delete">
+				<button type="button">Delete</button>
+			</Modal>,
+		);
+		opener.closest("li")?.remove();
+		await render(
+			<Modal open={false} onClose={() => {}} title="Delete">
+				<button type="button">Delete</button>
+			</Modal>,
+		);
+		expect(activeElement?.textContent).toBe("delete e");
+		list.remove();
+	});
+
 	it("closes only the topmost dialog for each Escape press", async () => {
 		const closeBottom = vi.fn();
 		const closeTop = vi.fn();

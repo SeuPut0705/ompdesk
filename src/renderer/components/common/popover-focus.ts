@@ -8,7 +8,8 @@
 export const POPOVER_FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-const isTabbable = (element: HTMLElement): boolean =>
+/** Neither inside a hidden or inert subtree nor taken out of the tab order. */
+export const isTabbable = (element: HTMLElement): boolean =>
 	element.closest("[inert], [hidden], [aria-hidden='true']") === null && element.getAttribute("tabindex") !== "-1";
 
 /** The panel's tabbable controls in order. */
