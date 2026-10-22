@@ -60,7 +60,7 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await aside.screenshot({ animations: "disabled", path: test.info().outputPath(`terminal-${theme}.png`) });
 			await aside.getByRole("button", { name: "New terminal", exact: true }).click();
 			await expect(aside.getByRole("tab")).toHaveCount(2);
-			await aside.getByRole("button", { name: "Close terminal", exact: true }).last().click();
+			await aside.getByRole("button", { name: "Close Terminal 2", exact: true }).click();
 			await expect(aside.getByRole("tab")).toHaveCount(1);
 			await input.focus();
 			await page.keyboard.type("exit");
