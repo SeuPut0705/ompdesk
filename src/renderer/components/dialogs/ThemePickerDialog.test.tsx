@@ -51,5 +51,12 @@ describe("ThemePickerDialog", () => {
 		const field = document.body.querySelector(`input[aria-label="${translate("themePicker.search")}"]`);
 		expect(field?.getAttribute("aria-controls")).toBe(listbox?.id);
 		expect(field?.getAttribute("aria-activedescendant")).toBe(options[0]?.id);
+		// The light and dark themes sit in named groups, as the command palette's categories do.
+		const groups = Array.from(document.body.querySelectorAll('[role="listbox"] > [role="group"]'));
+		expect(groups.map(group => group.getAttribute("aria-label"))).toEqual([
+			translate("themePicker.group.light"),
+			translate("themePicker.group.dark"),
+		]);
+		expect(groups.every(group => group.querySelectorAll('[role="option"]').length >= 5)).toBe(true);
 	});
 });

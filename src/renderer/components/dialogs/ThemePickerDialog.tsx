@@ -71,6 +71,16 @@ export function ThemePickerDialog() {
 		if (!q) return entries;
 		return entries.filter(e => e.label.toLowerCase().includes(q) || e.description.toLowerCase().includes(q));
 	}, [entries, query]);
+	/** Consecutive entries of one group, each with its index in `filtered` (the option ids and the highlight). */
+	const groups = useMemo(() => {
+		const out: Array<{ group: ThemeEntry["group"]; items: Array<{ entry: ThemeEntry; i: number }> }> = [];
+		filtered.forEach((entry, i) => {
+			const last = out.at(-1);
+			if (last?.group === entry.group) last.items.push({ entry, i });
+			else out.push({ group: entry.group, items: [{ entry, i }] });
+		});
+		return out;
+	}, [filtered]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -154,18 +164,14 @@ export function ThemePickerDialog() {
 							{t("themePicker.empty")}
 						</div>
 					)}
-					{filtered.map((entry, i) => {
-						const isSystem = entry.selection === "system";
-						const isCurrent = entry.selection === current;
-						const pair = getSystemThemePair();
-						return (
-							<Fragment key={entry.selection}>
-								{entry.group !== filtered[i - 1]?.group && entry.group !== "system" && (
-									<div aria-hidden className="px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
-										{t(`themePicker.group.${entry.group}`)}
-									</div>
-								)}
+					{groups.map(group => {
+						const rows = group.items.map(({ entry, i }) => {
+							const isSystem = entry.selection === "system";
+							const isCurrent = entry.selection === current;
+							const pair = getSystemThemePair();
+							return (
 								<OptionRow
+									key={entry.selection}
 									active={i === active}
 									className="gap-3"
 									data-index={i}
@@ -211,7 +217,17 @@ export function ThemePickerDialog() {
 										</span>
 									</span>
 								</OptionRow>
-							</Fragment>
+							);
+						});
+						if (group.group === "system") return <Fragment key="system">{rows}</Fragment>;
+						const name = t(`themePicker.group.${group.group}`);
+						return (
+							<div aria-label={name} key={group.group} role="group">
+								<div aria-hidden className="px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
+									{name}
+								</div>
+								{rows}
+							</div>
 						);
 					})}
 				</div>
