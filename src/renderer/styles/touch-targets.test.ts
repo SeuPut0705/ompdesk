@@ -252,6 +252,12 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] .omp-live-work-chips')).toMatch(
 			/gap:\s*12px;[^}]*padding-block:\s*6px;[^}]*margin-block:\s*-6px;[^}]*--hit-gap-x:\s*12px;[^}]*--hit-gap-y:\s*12px/,
 		);
+		// A GitHub section's toolbar wrapped at 360 px and New issue on its second line took the search field's bottom
+		// edge (8 px apart, unbounded); 10 px left the button 32 px high.
+		declares("../components/agents/github/shared.tsx", "data-github-toolbar");
+		expect(rule('html[data-input="touch"] [data-github-toolbar]')).toMatch(
+			/row-gap:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
 		// The goal dock bar: an iPad held sideways handed a tap on Pause's right edge to Edit (8 px apart, unbounded).
 		declares("../components/chat/dock/GoalDockBar.tsx", "data-goal-dock");
 		expect(rule('html[data-input="touch"] [data-goal-dock]')).toMatch(
