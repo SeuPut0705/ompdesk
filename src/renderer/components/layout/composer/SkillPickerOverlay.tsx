@@ -146,6 +146,7 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 						const description = oneLine(skill.description);
 						return (
 							<OptionRow
+								pointerMoves
 								active={rowIndex === selected}
 								className="gap-3 rounded-(--sc-radius-sm)"
 								data-index={rowIndex}

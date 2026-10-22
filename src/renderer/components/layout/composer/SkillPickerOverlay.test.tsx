@@ -117,6 +117,9 @@ describe("SkillPickerOverlay", () => {
 				row => row.getAttribute("aria-selected") === "true",
 			);
 		expect(selected()).toBe(2);
+		// The pointer moves the highlight itself: no row draws a hover tint beside the keyboard's.
+		const rows = Array.from(document.querySelectorAll("[data-skill-row]"));
+		expect(rows.some(row => (row.getAttribute("class") ?? "").includes("hover:"))).toBe(false);
 		await key("ArrowUp");
 		expect(selected()).toBe(1);
 		await key("Enter");
