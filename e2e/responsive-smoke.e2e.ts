@@ -436,3 +436,50 @@ for (const { height, draft } of STRIP_ROOMS) {
 		await page.context().close();
 	});
 }
+
+/**
+ * More toasts than a short window holds (eight is the store's cap) once ran past its bottom edge, the newest and its
+ * close button out of reach (22 Oct 2026, the audit at 834×600). The stack scrolls inside the window now, and a wheel
+ * over a toast scrolls it although the stack itself takes no pointer events.
+ */
+test("responsive smoke 1280×480 desktop: a stack of toasts taller than the window scrolls to its newest", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 1280,
+		height: 480,
+		dpr: 1,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await openLook(browser, look, { origin });
+	await page.evaluate(() => {
+		const toast = window.__stores?.toast?.getState() as { push(input: unknown): void } | undefined;
+		for (let index = 0; index < 6; index++)
+			toast?.push({
+				variant: "info",
+				title: `Toast ${index}`,
+				message: "A message long enough to take a few lines in a 320 px toast, so six of them overflow.",
+				durationMs: Number.POSITIVE_INFINITY,
+			});
+	});
+	const scroller = page.locator("[data-toast-scroll]");
+	await expect(page.getByText("Toast 5")).toBeAttached();
+	const box = await scroller.evaluate(element => {
+		const rect = element.getBoundingClientRect();
+		return { bottom: rect.bottom, overflows: element.scrollHeight > element.clientHeight };
+	});
+	expect(box.overflows).toBe(true);
+	expect(box.bottom).toBeLessThanOrEqual(480);
+	const first = page.getByText("Toast 0");
+	await first.hover();
+	await page.mouse.wheel(0, 2000);
+	await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+	const newest = await page
+		.getByText("Toast 5")
+		.locator("xpath=ancestor::*[@role='status'][1]")
+		.evaluate(element => element.getBoundingClientRect().bottom);
+	expect(newest).toBeLessThanOrEqual(480);
+	await page.context().close();
+});

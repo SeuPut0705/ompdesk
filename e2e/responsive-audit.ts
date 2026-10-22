@@ -549,8 +549,18 @@ function measureInPage(
 			const pinned = top.id !== "root" && ["fixed", "absolute"].includes(style(top).position);
 			if (!pinned) continue;
 		}
-		const rect = element.getBoundingClientRect();
+		let rect = element.getBoundingClientRect();
 		if (rect.width < 2 || rect.height < 2) continue;
+		// Inside a scroller (a toast stack longer than the window), what counts is the scroller's own box: the rest is
+		// reached by scrolling it.
+		for (let up = element.parentElement; up && up !== document.body; up = up.parentElement) {
+			const { overflowX, overflowY } = style(up);
+			const scrolls = /auto|scroll/.test(overflowY) && up.scrollHeight > up.clientHeight + 1;
+			if (scrolls || (/auto|scroll/.test(overflowX) && up.scrollWidth > up.clientWidth + 1)) {
+				rect = up.getBoundingClientRect();
+				break;
+			}
+		}
 		// A dialog's wrapper that spans the viewport is the overlay, not a floating box.
 		const over = [
 			rect.left < -1 ? `left ${Math.round(rect.left)}` : "",

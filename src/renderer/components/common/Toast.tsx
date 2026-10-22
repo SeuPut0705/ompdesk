@@ -141,7 +141,7 @@ export function ToastStack() {
 	return createPortal(
 		<div
 			aria-live="polite"
-			className="omp-toast-stack pointer-events-none fixed top-28 right-4 z-(--sc-z-toast) flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+			className="omp-toast-stack pointer-events-none fixed top-(--omp-toast-top) right-4 z-(--sc-z-toast) flex w-80 max-w-[calc(100vw-2rem)] flex-col [--omp-toast-top:7rem]"
 			data-toast-stack
 			onBlur={event => {
 				if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false);
@@ -150,31 +150,38 @@ export function ToastStack() {
 			onMouseEnter={() => setPointerOver(true)}
 			onMouseLeave={() => setPointerOver(false)}
 		>
-			{toasts.map(entry => (
-				<ToastCard
-					action={
-						entry.action
-							? {
-									label: entry.action.label,
-									onClick: () => {
-										dismiss(entry.id);
-										entry.action?.run();
-									},
-								}
-							: undefined
-					}
-					className={
-						entry.exitingAt != null ? "pointer-events-none omp-toast-out" : "pointer-events-auto omp-toast-in"
-					}
-					count={entry.count}
-					detail={entry.detail}
-					key={entry.id}
-					message={entry.message}
-					onDismiss={() => dismiss(entry.id)}
-					title={entry.title}
-					variant={entry.variant}
-				/>
-			))}
+			{/* More toasts than the window holds scroll here instead of running past its bottom edge. The 1 rem of
+			    padding around them (taken back by the margin) keeps their shadows out of the scroller's clip. */}
+			<div
+				className="omp-toast-scroll -m-4 flex max-h-[calc(100dvh_-_var(--omp-toast-top)_+_1rem_-_var(--safe-b,0px))] flex-col gap-2 overflow-y-auto overscroll-contain p-4 [scrollbar-width:thin]"
+				data-toast-scroll
+			>
+				{toasts.map(entry => (
+					<ToastCard
+						action={
+							entry.action
+								? {
+										label: entry.action.label,
+										onClick: () => {
+											dismiss(entry.id);
+											entry.action?.run();
+										},
+									}
+								: undefined
+						}
+						className={
+							entry.exitingAt != null ? "pointer-events-none omp-toast-out" : "pointer-events-auto omp-toast-in"
+						}
+						count={entry.count}
+						detail={entry.detail}
+						key={entry.id}
+						message={entry.message}
+						onDismiss={() => dismiss(entry.id)}
+						title={entry.title}
+						variant={entry.variant}
+					/>
+				))}
+			</div>
 		</div>,
 		document.body,
 	);

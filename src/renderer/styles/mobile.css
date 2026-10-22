@@ -713,7 +713,7 @@ html[data-shell] .omp-sheet-surface {
 
 /* Toasts sit at the top right: clear the notch / rounded corner / landscape cutout. */
 html[data-shell] .omp-toast-stack {
-	top: calc(var(--safe-t) + 4.5rem);
+	--omp-toast-top: calc(var(--safe-t) + 4.5rem);
 	right: calc(var(--safe-r) + 1rem);
 	max-width: calc(100vw - var(--safe-l) - var(--safe-r) - 2rem);
 }
@@ -1857,14 +1857,14 @@ html[data-input="touch"] [data-run-sheet-row] {
 
 /* Toasts: full width under the 40 px bar, one 12 px gutter each side. */
 html[data-shell="phone"] .omp-toast-stack {
-	top: calc(var(--safe-t) + 48px);
+	--omp-toast-top: calc(var(--safe-t) + 48px);
 	right: calc(var(--safe-r) + var(--sc-space-3));
 	left: calc(var(--safe-l) + var(--sc-space-3));
 	width: auto;
 	max-width: none;
 }
 
-html[data-shell="phone"] .omp-toast-stack > * {
+html[data-shell="phone"] .omp-toast-scroll > * {
 	padding-block: var(--sc-space-2);
 	padding-left: var(--sc-space-3);
 	gap: var(--sc-space-2);
