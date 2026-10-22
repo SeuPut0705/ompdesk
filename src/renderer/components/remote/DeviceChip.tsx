@@ -23,7 +23,11 @@ export function DeviceChip({ deviceId }: { deviceId: string }) {
 	const host = useHostView(deviceId);
 	const name = host?.name ?? t("remote.tab.unknownDevice");
 	const state = host?.state ?? "offline";
-	const color = deviceColorOf(deviceId, useSidebarFolds(s => s.deviceColors[deviceId]), false);
+	const color = deviceColorOf(
+		deviceId,
+		useSidebarFolds(s => s.deviceColors[deviceId]),
+		false,
+	);
 	return (
 		<span
 			className="inline-flex min-w-0 shrink-0"
