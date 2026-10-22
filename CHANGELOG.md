@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.19] - 2026-10-23
+
+⌃Tab으로 탭을 바꾼 뒤 입력한 글자가 컴포저에 들어가지 않던 문제를 고쳤어요.
+
+### 고친 것
+- ⌃Tab이나 탭 전환 창으로 다른 탭으로 옮긴 뒤 바로 입력하면 글자가 대화 기록으로 가서 사라지던 문제를 고쳤어요(0.61.16부터). 입력은 새 탭의 컴포저로 들어가요.
+- 질문을 기다리는 세션 배지, 파란 배지, 대기열·진행 칩처럼 옅은 색 바탕 위의 작은 상태 글자가 모든 테마에서 읽기 쉬운 대비를 가져요.
+- 터미널 탭에서 Delete를 누르면 그 터미널이 닫히고, 그 자리의 터미널(없으면 '새 터미널' 버튼)로 포커스가 옮겨가요. 화면 읽기 프로그램에는 선택된 터미널의 닫기 버튼이 따로 있어요.
+- 화면 읽기 프로그램이 시트 손잡이를 이름 없는 장식으로 읽고, 공유 미리보기와 긴 대화상자 본문을 키보드로 스크롤할 수 있어요.
+
+<!-- en -->
+
+Text typed right after switching tabs with ⌃Tab reaches the composer again.
+
+### Fixed
+- After moving to another tab with ⌃Tab or the tab switcher, the next keys went to the conversation and were lost (since 0.61.16). They go to the new tab's composer.
+- Small status text on a pale wash (a waiting session's badge, blue badges, the queue and progress chips) reads at full contrast in every theme.
+- Delete on a terminal tab closes that terminal and moves focus to the one that took its place, or to New terminal when none is left. Screen readers get a close button for the selected terminal.
+- Screen readers treat a sheet's handle as decoration, and the share preview and a long dialog's body scroll from the keyboard.
+
 ## [0.61.18] - 2026-10-23
 
 지난 두 버전에서 알림이 화면에 남아 버튼을 가리던 문제를 고쳤어요.
