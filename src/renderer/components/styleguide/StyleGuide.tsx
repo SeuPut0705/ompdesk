@@ -35,6 +35,7 @@ import {
 	Button,
 	Checkbox,
 	CopyButton,
+	DisclosureButton,
 	EmptyState,
 	IconButton,
 	InlineNotice,
@@ -295,6 +296,7 @@ function Swatch({ token, value }: { token: string; value: string }) {
 export default function StyleGuide() {
 	const [mode, setMode] = useState<ThemeMode>("system");
 	const [approval, setApproval] = useState<"ask" | "remember" | "full">("ask");
+	const [disclosureOpen, setDisclosureOpen] = useState(true);
 	const [measureKey, setMeasureKey] = useState(0);
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [contrast, setContrast] = useState<ContrastRow[]>([]);
@@ -792,6 +794,20 @@ export default function StyleGuide() {
 									Add a note
 								</LinkButton>
 							</p>
+						</Block>
+						<Block className="space-y-1" label="DisclosureButton (opens what is under it)">
+							<DisclosureButton
+								className="rounded-(--sc-radius-md) px-2 py-1.5 text-sc-sm hover:bg-(--sc-hover)"
+								onToggle={() => setDisclosureOpen(open => !open)}
+								open={disclosureOpen}
+							>
+								<span className="min-w-0 flex-1 truncate font-mono text-(--sc-text)">src/app.ts</span>
+								<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-success)">+12</span>
+								<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-danger)">−3</span>
+							</DisclosureButton>
+							{disclosureOpen && (
+								<p className="pl-8 text-sc-sm text-(--sc-text-secondary)">The file's diff opens here.</p>
+							)}
 						</Block>
 					</div>
 				</Section>
