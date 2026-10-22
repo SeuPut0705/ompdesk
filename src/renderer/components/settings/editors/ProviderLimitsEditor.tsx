@@ -24,10 +24,12 @@ export interface ProviderLimitsEditorProps {
 }
 
 function LimitInput({
+	provider,
 	limit,
 	disabled,
 	onCommit,
 }: {
+	provider: string;
 	limit: number;
 	disabled?: boolean;
 	/** null removes the row (provider becomes unlimited). */
@@ -55,6 +57,7 @@ function LimitInput({
 	return (
 		<div className="w-20 shrink-0">
 			<Input
+				aria-label={t("settings.editors.limitFor", { provider })}
 				className="text-right tabular-nums"
 				controlSize="sm"
 				disabled={disabled}
@@ -101,7 +104,12 @@ export function ProviderLimitsEditor({ value, onCommit, disabled }: ProviderLimi
 					<span className="min-w-0 flex-1 truncate font-mono text-sc-sm text-(--sc-text)" title={provider}>
 						{provider}
 					</span>
-					<LimitInput disabled={disabled} limit={limit} onCommit={next => setLimit(provider, next)} />
+					<LimitInput
+						disabled={disabled}
+						limit={limit}
+						provider={provider}
+						onCommit={next => setLimit(provider, next)}
+					/>
 					{!disabled && (
 						<IconButton
 							className="shrink-0"

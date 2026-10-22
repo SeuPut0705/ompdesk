@@ -2350,6 +2350,7 @@ export const en: Record<string, string> = {
 	"settings.editors.kvRemove": "Remove row",
 	"settings.editors.kvDuplicateKey": "Another entry already uses “{key}”. Give this row a different name.",
 	"settings.editors.limitAdd": "Add provider limit…",
+	"settings.editors.limitFor": "Request limit for {provider}",
 	"settings.editors.limitUnlimited": "unlimited",
 	"settings.editors.errPositive": "Enter a positive number",
 	"settings.editors.kvAdd": "Add row",

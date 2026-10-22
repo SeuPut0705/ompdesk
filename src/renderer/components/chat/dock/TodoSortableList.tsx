@@ -149,6 +149,7 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 			{editing ? (
 				<span className="flex min-w-0 flex-1 items-center gap-1">
 					<input
+						aria-label={t("todoPanel.edit")}
 						autoFocus
 						className="w-full min-w-0 rounded-(--sc-radius-sm) border border-(--sc-accent) bg-(--sc-field) px-1.5 py-0.5 text-sc-md text-(--sc-text) focus:outline-none"
 						onBlur={commit}

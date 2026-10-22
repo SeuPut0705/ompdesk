@@ -2336,6 +2336,7 @@ export const ko: Record<string, string> = {
 	"settings.editors.kvRemove": "행 제거",
 	"settings.editors.kvDuplicateKey": "다른 항목이 이미 “{key}”를 사용 중이에요. 이 행에 다른 이름을 지정해 주세요.",
 	"settings.editors.limitAdd": "프로바이더 한도 추가…",
+	"settings.editors.limitFor": "{provider} 동시 요청 한도",
 	"settings.editors.limitUnlimited": "무제한",
 	"settings.editors.errPositive": "양수를 입력해 주세요",
 	"settings.editors.kvAdd": "행 추가",
