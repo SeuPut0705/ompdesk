@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.55.0] - 2026-10-22
+
+이미지 보기에 자체 상단 바가 생겨 Windows 창 닫기 버튼과 헷갈리지 않고, 모델 선택 창이 입력창 바로 위에서 열리며, 사용량을 너무 자주 읽어 생기던 Claude 429 오류가 사라졌어요. omp 18.12.6 이상이 필요해요.
+
+### 새로 생긴 것
+- 모델 선택 창이 지금 쓰는 입력창 바로 위에서 열리고, 뒤 화면을 어둡게 하거나 흐리게 하지 않아요(휴대폰은 그대로 아래 시트예요).
+- 오토파일럿이 시간 대신 내용으로 릴리스 시점을 정해요. 기본 브랜치에 들어간 사용자에게 보이는 변경이 셋 모이거나, 급한 수정이거나, 하루를 기다린 변경이 있을 때예요.
+- Windows에서 Bun으로 전역 설치한 도구 CLI도 알아서 업데이트돼요.
+- 디스크 정리가 저장소마다 따로 정한 작업 트리 위치(`worktree.base`)에 있는 작업 트리도 찾아 정리해요.
+
+### 고친 것
+- 이미지를 크게 볼 때 맨 위에 파일 이름과 닫기 버튼이 있는 자체 바가 생겼어요. 창 전체를 덮을 때는 Windows의 최소화·최대화·닫기 버튼과 macOS 신호등 자리를 비워, 이미지를 닫으려다 창을 닫는 일이 없어요.
+- GUI가 30초마다 사용량을 읽어 Anthropic 계정 조회가 하루 수백 번 429로 실패하던 문제를 고쳤어요. 이제 omp 상태줄처럼 5분마다 읽어요.
+- 오래된 인증 헤더가 남은 MCP 서버에 다시 로그인할 수 없던 문제를 고쳤어요.
+- 만료되지 않는 프롬프트 캐시를 쓰는 세션(Codex)이 쉬는 동안 자동 압축되지 않아요.
+- 알림이 창보다 많이 쌓이면 창 아래로 넘치지 않고 안에서 스크롤돼요.
+- 데스크톱 작업 띠가 보일 때 할 일 카드와 작업 섬이 같은 내용을 한 번 더 보여주지 않아요.
+- 작업 띠: 아래로 열릴 때 입력창에서 멈추고, 화살표가 패널이 열리는 쪽을 가리키며, 휴대폰에서는 36px 크기로 눌려요.
+- 태블릿 작업 카드의 결과 칩이 "진행 단계" 버튼과 겹치지 않아요.
+- 오래 돈 오토파일럿 세션을 열 때 받는 대화 양을 줄여(끝 페이지 최대 256K자) 휴대폰에서 더 빨리 열려요.
+- 연결된 컴퓨터로 가는 도구 결과와 파일 읽기 결과가 참조로 가서 데이터가 더 줄었어요(두 컴퓨터가 모두 이 버전일 때).
+
+<!-- en -->
+
+Image views get a bar of their own, so their close is never mistaken for the Windows window's; the model picker opens right on the composer; and the Claude 429 errors from reading usage too often are gone. Requires omp 18.12.6 or newer.
+
+### Added
+- The model picker opens right above the composer you are using and no longer dims or blurs the window behind it (a phone keeps its bottom sheet).
+- Autopilot decides when to release by content, not the clock: three user-visible changes on the default branch, an urgent fix, or a change that has waited a day.
+- Windows: a tool CLI installed globally with Bun now updates by itself.
+- Disk care also finds and tidies worktrees a repository keeps in its own `worktree.base`.
+
+### Fixed
+- A full-size image now has a bar of its own with the file name and its close button. Covering the window, it keeps clear of the Windows minimize, maximize and close buttons and of macOS's traffic lights, so closing an image never closes the window.
+- OMPdesk read usage every 30 seconds, and Anthropic account lookups failed with 429 hundreds of times a day; it now reads every 5 minutes, as omp's status line does.
+- Signing in again to an MCP server that held a stale authorization header failed; it works now.
+- A session whose prompt cache never expires (Codex) is no longer compacted while idle.
+- A stack of toasts taller than the window scrolls inside it instead of running past its bottom.
+- Beside a desktop work strip, the todo card and the work island no longer repeat what the strip shows.
+- Work strip: opening downward it stops at the composer, its chevron points the way it opens, and on a phone it is a 36 px tap.
+- A tablet work card's findings sit clear of its Steps toggle.
+- Opening a long Autopilot session reads less of its transcript (a page from the end weighs at most 256 K characters), so it opens faster on a phone.
+- Tool results and file reads cross to a paired computer as references, so paired computers exchange even less (once both run this version).
+
 ## [0.54.0] - 2026-10-22
 
 데스크톱 창에서 작업 보드를 펼쳐도 입력창이 가려지지 않고, "동작 줄이기"를 켠 Mac에서도 도표가 제대로 그려지며, 연결된 컴퓨터와 주고받는 데이터가 크게 줄었어요.
