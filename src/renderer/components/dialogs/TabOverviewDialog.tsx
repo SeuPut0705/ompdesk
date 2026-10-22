@@ -10,6 +10,7 @@ import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import { performTabClose } from "../../lib/tab-close";
 import { useTabHistoryStore } from "../../lib/tab-history";
 import { tabSignalPresentation } from "../../lib/tab-signal";
@@ -65,12 +66,10 @@ export function TabOverviewDialog() {
 
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
 		if (isImeKeyEvent(event)) return;
-		if (event.key === "ArrowDown") {
+		const target = listboxTarget(event.key, activeIndex, rows.length, { wrap: false });
+		if (target !== null) {
 			event.preventDefault();
-			setActiveIndex(index => Math.min(index + 1, rows.length - 1));
-		} else if (event.key === "ArrowUp") {
-			event.preventDefault();
-			setActiveIndex(index => Math.max(index - 1, 0));
+			setActiveIndex(target);
 		} else if (event.key === "Enter") {
 			event.preventDefault();
 			const tab = rows[activeIndex];
@@ -104,7 +103,10 @@ export function TabOverviewDialog() {
 							controlSize="lg"
 							label={t("tabOverview.search")}
 							onKeyDown={onKeyDown}
-							onValueChange={setQuery}
+							onValueChange={value => {
+								setQuery(value);
+								setActiveIndex(0);
+							}}
 							placeholder={t("tabOverview.search")}
 							ref={inputRef}
 							value={query}
