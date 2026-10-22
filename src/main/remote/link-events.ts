@@ -733,6 +733,107 @@ function createToolResultDecoder(): (event: AgentSessionEvent) => AgentSessionEv
 	};
 }
 
+const OUTPUT = "~output";
+
+/** A tool's running output after its last update on this connection: `prev.slice(from) + add`. */
+const OutputDelta = z.object({ "~output": z.object({ from: z.number().int().nonnegative(), add: z.string() }) });
+
+/** The text of an update whose output is one text block, as stock's bash, eval and task tools stream it. */
+function outputTextOf(event: ToolUpdate): string | null {
+	const content = (event.partialResult as { content?: unknown } | null | undefined)?.content;
+	if (!Array.isArray(content) || content.length !== 1) return null;
+	const [block] = content as Array<{ type?: unknown; text?: unknown }>;
+	return block?.type === "text" && typeof block.text === "string" ? block.text : null;
+}
+
+/** Where in `before` the start of `after` picks up, so that `after` begins with `before.slice(from)`; -1 for nowhere. */
+function continuationOf(before: string, after: string): number {
+	if (after.startsWith(before)) return 0;
+	const probe = after.slice(0, 64);
+	if (probe === "") return -1;
+	for (let at = before.indexOf(probe, 1); at !== -1; at = before.indexOf(probe, at + 1)) {
+		if (after.startsWith(before.slice(at))) return at;
+	}
+	return -1;
+}
+
+/** Tool updates whose output this end has seen, keyed by the frame's subagent and the call. */
+function outputKey(scope: string, event: ToolUpdate): string {
+	return `${scope}\u0000${event.toolCallId}`;
+}
+
+function forgetsOutputs(event: AgentSessionEvent): "all" | string | null {
+	if (event.type === "agent_end" && event.isTerminal !== false) return "all";
+	return event.type === "tool_execution_end" ? event.toolCallId : null;
+}
+
+/**
+ * Stock's bash, eval and task tools stream a running call's whole output so far in every `tool_execution_update`
+ * (bash: `content: [{type: "text", text}]`, the full text or its kept tail). After the first update of a call the link
+ * carries what follows the last one: `{"~output": {from, add}}` in place of `content`, the rebuilt text being the last
+ * one's text from `from` on, then `add`. An output that does not continue the last one goes whole.
+ */
+function createOutputEncoder(): {
+	update(scope: string, event: ToolUpdate): ToolUpdate;
+	forget(scope: string, event: AgentSessionEvent): void;
+} {
+	const sent = sentMessages<string>();
+	const forget = (scope: string, event: AgentSessionEvent): void => {
+		const which = forgetsOutputs(event);
+		if (which === "all") sent.clear();
+		else if (which !== null) sent.set(`${scope}\u0000${which}`, "");
+	};
+	return {
+		update(scope, event) {
+			const text = outputTextOf(event);
+			if (text === null) return event;
+			const key = outputKey(scope, event);
+			const before = sent.get(key);
+			sent.set(key, text);
+			if (!before) return event;
+			const from = continuationOf(before, text);
+			if (from < 0) return event;
+			const add = text.slice(before.length - from);
+			if (add.length * 2 > text.length) return event;
+			const partialResult = { ...(event.partialResult as object), content: { [OUTPUT]: { from, add } } };
+			return { ...event, partialResult } as ToolUpdate;
+		},
+		forget,
+	};
+}
+
+/** The inverse of {@link createOutputEncoder}; null for an output that continues one this decoder never held. */
+function createOutputDecoder(): {
+	update(scope: string, event: ToolUpdate): ToolUpdate | null;
+	forget(scope: string, event: AgentSessionEvent): void;
+} {
+	const held = sentMessages<string>();
+	return {
+		update(scope, event) {
+			const key = outputKey(scope, event);
+			const content = (event.partialResult as { content?: unknown } | null | undefined)?.content;
+			const delta = OutputDelta.safeParse({ [OUTPUT]: (content as Record<string, unknown> | null)?.[OUTPUT] });
+			if (!delta.success || content === undefined || content === null || Array.isArray(content)) {
+				const text = outputTextOf(event);
+				if (text !== null) held.set(key, text);
+				return event;
+			}
+			const before = held.get(key);
+			if (!before) return null;
+			const { from, add } = delta.data[OUTPUT];
+			const text = before.slice(from) + add;
+			held.set(key, text);
+			const partialResult = { ...(event.partialResult as object), content: [{ type: "text", text }] };
+			return { ...event, partialResult } as ToolUpdate;
+		},
+		forget(scope, event) {
+			const which = forgetsOutputs(event);
+			if (which === "all") held.clear();
+			else if (which !== null) held.set(`${scope}\u0000${which}`, "");
+		},
+	};
+}
+
 /** The inverse of {@link createEndsEncoder}; null for a reference to a message this decoder never held. */
 function createEndsDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | null {
 	const kept = sentMessages<WireMessage>();
@@ -778,12 +879,18 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 	const status = options.autopilot ? createStatusEncoder() : null;
 	const ends = options.ends ? createEndsEncoder(options.readGroups === true, options.endFields === true) : null;
 	const tools = ends && options.toolResults ? createToolResultEncoder() : null;
+	const outputs = options.toolOutputs ? createOutputEncoder() : null;
+	const update = (scope: string, event: ToolUpdate): ToolUpdate => {
+		const next = progress ? progress.update(event) : event;
+		return outputs ? outputs.update(scope, next) : next;
+	};
 	return {
 		events(batch) {
 			const slimmed = slim(batch);
 			let out: AgentSessionEvent[] | null = null;
 			for (const [index, event] of slimmed.entries()) {
 				let next: AgentSessionEvent = event;
+				outputs?.forget("", event);
 				if (event.type === "message_update") next = drop("", event);
 				else if (
 					ends &&
@@ -792,7 +899,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 					next = ends(event);
 					if (tools) next = tools(next);
 				} else if (event.type === "tool_execution_end" && tools) next = tools(event);
-				else if (event.type === "tool_execution_update" && progress) next = progress.update(event);
+				else if (event.type === "tool_execution_update") next = update("", event);
 				else if (event.type === "autopilot_update" && status)
 					next = { ...event, status: status(event.status) } as unknown as AgentSessionEvent;
 				if (next === event) continue;
@@ -806,9 +913,10 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 			if (slimmed.type === "subagent_progress") return progress ? progress.frame(slimmed) : slimmed;
 			if (slimmed.type !== "subagent_event") return slimmed;
 			const { event } = slimmed.payload;
+			outputs?.forget(slimmed.payload.id, event);
 			let next: AgentSessionEvent = event;
 			if (event.type === "message_update") next = drop(slimmed.payload.id, event);
-			else if (event.type === "tool_execution_update" && progress) next = progress.update(event);
+			else if (event.type === "tool_execution_update") next = update(slimmed.payload.id, event);
 			return next === event ? slimmed : { type: slimmed.type, payload: { ...slimmed.payload, event: next } };
 		},
 	};
@@ -893,6 +1001,11 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 	const decodeStatus = createStatusDecoder();
 	const ends = createEndsDecoder();
 	const tools = createToolResultDecoder();
+	const outputs = createOutputDecoder();
+	const update = (scope: string, event: ToolUpdate): ToolUpdate | null => {
+		const whole = outputs.update(scope, event);
+		return whole === null ? null : progress.update(whole);
+	};
 	const autopilot = (event: Extract<AgentSessionEvent, { type: "autopilot_update" }>): AgentSessionEvent | null => {
 		const status = decodeStatus(event.status);
 		if (status === UNREBUILT) return null;
@@ -902,6 +1015,7 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 		events(batch) {
 			let out: AgentSessionEvent[] | null = null;
 			for (const [index, event] of batch.entries()) {
+				outputs.forget("", event);
 				const tool = tools(event);
 				const resolved =
 					tool === null
@@ -913,7 +1027,7 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 					resolved === null
 						? null
 						: resolved.type === "tool_execution_update"
-							? progress.update(resolved)
+							? update("", resolved)
 							: resolved.type === "autopilot_update"
 								? autopilot(resolved)
 								: decode(resolved);
@@ -930,8 +1044,9 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 			if (frame.type === "subagent_progress") return progress.frame(frame);
 			if (frame.type !== "subagent_event") return frame;
 			const { event } = frame.payload;
+			outputs.forget(frame.payload.id, event);
 			let next: AgentSessionEvent | null = event;
-			if (event.type === "tool_execution_update") next = progress.update(event);
+			if (event.type === "tool_execution_update") next = update(frame.payload.id, event);
 			else if (event.type === "message_update") next = restoreSubagent(frame.payload.id, event);
 			if (next === null) return null;
 			return next === event ? frame : { type: frame.type, payload: { ...frame.payload, event: next } };

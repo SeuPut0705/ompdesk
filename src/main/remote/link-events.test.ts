@@ -862,3 +862,71 @@ describe("a tool result its call's end already carried", () => {
 		expect(delivered.flat()).toEqual(overTheWire(events));
 	});
 });
+
+describe("a running tool's output", () => {
+	/** Stock's bash updates: every one carries the call's whole output so far, or its kept tail once that runs long. */
+	function bash(id: string, lines: number, keep = Number.POSITIVE_INFINITY): AgentSessionEvent[] {
+		const events: AgentSessionEvent[] = [
+			{ type: "tool_execution_start", toolCallId: id, toolName: "bash", args: { command: "bun test" } },
+		] as unknown as AgentSessionEvent[];
+		let text = "";
+		for (let line = 0; line < lines; line++) {
+			text += `✓ test ${id} ${line} passed in ${line % 7} ms\n`;
+			const shown = text.length > keep ? text.slice(text.length - keep) : text;
+			events.push({
+				type: "tool_execution_update",
+				toolCallId: id,
+				toolName: "bash",
+				args: { command: "bun test" },
+				partialResult: { content: [{ type: "text", text: shown }], details: {} },
+			} as unknown as AgentSessionEvent);
+		}
+		events.push({
+			type: "tool_execution_end",
+			toolCallId: id,
+			toolName: "bash",
+			result: { content: [{ type: "text", text }], details: { exitCode: 0 } },
+			isError: false,
+		} as unknown as AgentSessionEvent);
+		return events;
+	}
+
+	function send(events: AgentSessionEvent[], toolOutputs: boolean, decoder = createLinkEventDecoder()) {
+		const encoder = createLinkEventEncoder({ progress: true, toolOutputs });
+		const wire = events.map(event => overTheWire(encoder.events([event])));
+		return { wire, delivered: wire.map(batch => decoder.events(batch)), bytes: JSON.stringify(wire).length };
+	}
+
+	it("reaches the device as every update stock sent, growing or as a sliding tail", () => {
+		for (const events of [bash("grow", 120), bash("tail", 300, 2000), [...bash("a", 40), ...bash("b", 40)]]) {
+			expect(send(events, true).delivered.flat()).toEqual(overTheWire(events));
+		}
+	});
+
+	it("crosses as what follows the last update: a tenth of the bytes or less", () => {
+		for (const events of [bash("grow", 200), bash("tail", 400, 3000)]) {
+			const slim = send(events, true).bytes;
+			const whole = send(events, false).bytes;
+			expect(slim * 10, `${slim} B against ${whole} B`).toBeLessThanOrEqual(whole);
+		}
+	});
+
+	it("crosses in a subagent's frames the same way", () => {
+		const frames = bash("sub", 80).map(
+			event => ({ type: "subagent_event", payload: { id: "a1", event } }) as unknown as SubagentFrame,
+		);
+		const encoder = createLinkEventEncoder({ progress: true, toolOutputs: true });
+		const decoder = createLinkEventDecoder();
+		const wire = frames.map(frame => overTheWire(encoder.subagentFrame(frame)));
+		expect(wire.map(frame => decoder.subagentFrame(frame as WireSubagentFrame))).toEqual(
+			frames.map(frame => overTheWire(slimSubagentFrame(frame))),
+		);
+		expect(JSON.stringify(wire).length * 4).toBeLessThan(JSON.stringify(frames).length);
+	});
+
+	it("is never delivered half: an update that continues one the device never held is dropped", () => {
+		const { wire } = send(bash("c1", 10), true);
+		const turn = { type: "turn_start" } as AgentSessionEvent;
+		expect(createLinkEventDecoder().events([...(wire[5] ?? []), turn])).toEqual([turn]);
+	});
+});
