@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.7] - 2026-10-23
+
+연결한 컴퓨터의 탭에서 도구가 출력을 쏟아낼 때 주고받는 양이 크게 줄었어요.
+
+### 빨라진 것
+- 셸 같은 도구가 돌며 출력을 낼 때마다 지금까지의 출력 전체를 다시 보냈어요(하루 64MB, 한 분에 31MB까지). 이제 앞 갱신에 이어지는 부분만 보내요. 두 컴퓨터가 모두 이 버전이어야 해요.
+
+### 고친 것
+- 작업판에서 사라지는 중인 실행 중 작업이나 서브에이전트가 바로 다시 나타나면 잠깐 두 줄로 보였어요.
+
+<!-- en -->
+
+Much less crosses the link while a tool streams output on a paired computer's tab.
+
+### Faster
+- A running tool such as the shell sent its whole output so far with every update (64 MB in a day, up to 31 MB in one minute). It now sends what follows the last update. Both computers need this version.
+
+### Fixed
+- On the work board a running job or subagent that came back while it faded out showed on two rows for a moment.
+
 ## [0.61.6] - 2026-10-22
 
 키보드로 고르는 목록과 폰의 버튼 탭을 다듬었어요.
