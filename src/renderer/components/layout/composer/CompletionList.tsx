@@ -105,6 +105,7 @@ export const CompletionList = memo(function CompletionList({
 			>
 				{menu.items.map((item, index) => (
 					<OptionRow
+						pointerMoves
 						active={index === menu.index}
 						// The name is the label; the description reads once, as the option's description.
 						aria-label={item.label}

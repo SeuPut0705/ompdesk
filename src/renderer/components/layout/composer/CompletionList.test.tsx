@@ -52,6 +52,8 @@ describe("CompletionList", () => {
 		expect(options.map(option => option.getAttribute("tabindex"))).toEqual(["-1", "-1", "-1"]);
 		expect(options.map(option => option.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
 		expect(options.map(option => option.id)).toEqual(["menu-0", "menu-1", "menu-2"]);
+		// The pointer moves the highlight itself: no row draws a hover tint beside it.
+		expect(options.some(option => option.className.includes("hover:"))).toBe(false);
 		await act(async () => {
 			options[2]?.dispatchEvent(new Event("mousedown", { bubbles: true, cancelable: true }));
 		});

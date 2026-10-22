@@ -7,6 +7,8 @@
  * `active` is the keyboard/hover highlight (the row Enter picks); `selected` is `aria-selected` (the current item, or
  * the highlighted one where the picker says so). `size`: `md` 40 px rows with a second line, `sm` 36 px single-line
  * rows. Give it a stable `id` for `aria-activedescendant`. A navigable list without a field is a `ListRow`.
+ * `pointerMoves`: the list moves `active` to the row under the pointer itself, so the row draws no hover tint of its
+ * own (one highlight, never a hover beside the keyboard's).
  */
 
 import type { ComponentProps } from "react";
@@ -16,9 +18,10 @@ export interface OptionRowProps extends Omit<ComponentProps<"button">, "role"> {
 	active: boolean;
 	selected?: boolean;
 	size?: "sm" | "md";
+	pointerMoves?: boolean;
 }
 
-export function OptionRow({ active, selected, size = "md", className, type, ...rest }: OptionRowProps) {
+export function OptionRow({ active, selected, size = "md", pointerMoves, className, type, ...rest }: OptionRowProps) {
 	return (
 		<button
 			tabIndex={-1}
@@ -27,7 +30,7 @@ export function OptionRow({ active, selected, size = "md", className, type, ...r
 			className={cx(
 				"flex w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 text-left disabled:opacity-50",
 				size === "md" ? "min-h-10 py-2" : "min-h-9 py-1.5",
-				active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
+				active ? "bg-(--sc-selected)" : !pointerMoves && "hover:bg-(--sc-hover)",
 				className,
 			)}
 			role="option"

@@ -55,5 +55,6 @@ describe("HistorySearchOverlay", () => {
 		expect(options).toHaveLength(3);
 		expect(options.map(option => option.getAttribute("tabindex"))).toEqual(["-1", "-1", "-1"]);
 		expect(options.map(option => option.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+		expect(options.some(option => option.className.includes("hover:"))).toBe(false);
 	});
 });

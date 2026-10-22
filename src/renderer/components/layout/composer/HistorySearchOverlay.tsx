@@ -210,6 +210,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 				) : (
 					results.map((entry, rowIndex) => (
 						<OptionRow
+							pointerMoves
 							active={rowIndex === selected}
 							className="items-baseline gap-3 rounded-(--sc-radius-sm)"
 							data-index={rowIndex}
