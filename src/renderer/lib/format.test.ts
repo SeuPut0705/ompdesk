@@ -11,6 +11,7 @@ import {
 	extractImageDataUrl,
 	extractImageDataUrls,
 	formatElapsed,
+	formatPricePerMillion,
 	formatShortClock,
 	formatSpan,
 	formatSpanCompact,
@@ -227,5 +228,18 @@ describe("formatTokens trimZero", () => {
 		expect(formatTokens(12_300, { trimZero: true })).toBe("12.3k");
 		expect(formatTokens(2_000_000, { trimZero: true })).toBe("2M");
 		expect(formatTokens(950, { trimZero: true })).toBe("950");
+	});
+});
+
+describe("formatPricePerMillion", () => {
+	it("formats per-million costs and trims insignificant zeros without eating integer zeros", () => {
+		expect(formatPricePerMillion(0)).toBe("$0");
+		expect(formatPricePerMillion(0.15)).toBe("$0.15");
+		expect(formatPricePerMillion(0.075)).toBe("$0.075");
+		expect(formatPricePerMillion(2.5)).toBe("$2.5");
+		expect(formatPricePerMillion(3)).toBe("$3");
+		expect(formatPricePerMillion(10)).toBe("$10");
+		expect(formatPricePerMillion(100)).toBe("$100");
+		expect(formatPricePerMillion(250)).toBe("$250");
 	});
 });

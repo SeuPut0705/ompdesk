@@ -23,6 +23,7 @@ import {
 	type PlanRow,
 } from "../../../../shared/role-plan";
 import type { ModelInfo, ModelRoleEntry, UsageReport } from "../../../../shared/rpc-types";
+import { formatPricePerMillion } from "../../../lib/format";
 
 export interface SetupModelOption {
 	/** `provider/id`, the value a role is set to. */
@@ -144,11 +145,6 @@ const KNOWN_BASES: readonly BillingBasis[] = [
 	"unknown",
 ];
 
-/** A price in USD as a short figure: two decimals at most, none when whole. */
-export function formatUsd(value: number): string {
-	return `$${Number(value.toFixed(2))}`;
-}
-
 /** "int 70 of 85, $1.2/M output vs $5/M": the numbers of a rule's sentence that the facts have. */
 function factsLine(t: Translate, reason: PlanReason): string {
 	const parts: string[] = [];
@@ -163,10 +159,10 @@ function factsLine(t: Translate, reason: PlanReason): string {
 		parts.push(
 			reason.comparePrice !== undefined
 				? t("modelSetup.reason.facts.priceVs", {
-						out: formatUsd(reason.outputPrice),
-						cmp: formatUsd(reason.comparePrice),
+						out: formatPricePerMillion(reason.outputPrice),
+						cmp: formatPricePerMillion(reason.comparePrice),
 					})
-				: t("modelSetup.reason.facts.price", { out: formatUsd(reason.outputPrice) }),
+				: t("modelSetup.reason.facts.price", { out: formatPricePerMillion(reason.outputPrice) }),
 		);
 	}
 	return parts.join(", ");

@@ -216,6 +216,14 @@ describe("model setup logic", () => {
 				{ mode: "full", keepsDefault: false },
 			),
 		).toContain("from a different vendor");
+		// A cheap model's price keeps its third decimal, as Compare models shows it.
+		expect(
+			reasonText(
+				translate,
+				{ ...row, reason: { ...row.reason, outputPrice: 0.075, comparePrice: 0.4 } },
+				{ mode: "full", keepsDefault: false },
+			),
+		).toContain("$0.075/M output vs $0.4/M");
 		expect(reasonText(translate, row, { mode: "picked", keepsDefault: false, research: "Best on SWE-bench." })).toBe(
 			"Best on SWE-bench. Subscription: signed in with your account.",
 		);

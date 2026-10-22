@@ -32,7 +32,7 @@ import type {
 	UsageReport,
 } from "../../../shared/rpc-types";
 import { useUsage, useUsageRead } from "../../hooks/use-usage-reports";
-import { cx, formatTokens } from "../../lib/format";
+import { cx, formatPricePerMillion, formatTokens } from "../../lib/format";
 import { useLang, useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { usageLimitLabel } from "../../lib/usage-labels";
@@ -86,14 +86,6 @@ export interface Row {
 	costOut: number | null;
 	roles: ModelRoleEntry[];
 	quota: { limit: UsageLimit; fraction: number } | null;
-}
-
-/** "$3" / "$0.15" / "$75" — trims insignificant zeros. */
-export function formatCost(perMillion: number): string {
-	const raw =
-		perMillion >= 100 ? perMillion.toFixed(0) : perMillion >= 1 ? perMillion.toFixed(2) : perMillion.toFixed(3);
-	const trimmed = raw.includes(".") ? raw.replace(/0+$/, "").replace(/\.$/, "") : raw;
-	return `$${trimmed}`;
 }
 
 function cmpNumber(a: number | null, b: number | null, dir: 1 | -1): number {
@@ -591,9 +583,9 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 												<span className="text-(--sc-success)">{t("modelCompare.free")}</span>
 											) : (
 												<span className="text-(--sc-text)">
-													{formatCost(row.costIn)}
+													{formatPricePerMillion(row.costIn)}
 													<span className="text-(--sc-text-subtle)"> / </span>
-													{formatCost(row.costOut)}
+													{formatPricePerMillion(row.costOut)}
 												</span>
 											)
 										) : (

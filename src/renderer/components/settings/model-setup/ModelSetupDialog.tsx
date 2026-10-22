@@ -16,7 +16,7 @@ import { type PlanMode, planRoles, setupSignature } from "../../../../shared/rol
 import type { ModelRoleEntry, ModelRolesResult } from "../../../../shared/rpc-types";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { errorDetail, type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { cx } from "../../../lib/format";
+import { cx, formatUsd } from "../../../lib/format";
 import { useLang, useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -30,7 +30,6 @@ import { modelRoleName } from "../schema-i18n";
 import {
 	currentDefaultModel,
 	distinctModels,
-	formatUsd,
 	groupByProvider,
 	loadSetupRecord,
 	mergeApplied,

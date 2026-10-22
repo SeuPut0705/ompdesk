@@ -21,7 +21,7 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
-import { buildModelRows, formatCost, ModelCompareSection } from "./ModelCompareSection";
+import { buildModelRows, ModelCompareSection } from "./ModelCompareSection";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -58,19 +58,6 @@ function role(partial: Partial<ModelRoleEntry> & { id: string }): ModelRoleEntry
 function report(partial: Partial<UsageReport> & { provider: string }): UsageReport {
 	return { fetchedAt: Date.now(), limits: [], ...partial };
 }
-
-describe("formatCost", () => {
-	it("formats per-million costs and trims insignificant zeros without eating integer zeros", () => {
-		expect(formatCost(0)).toBe("$0");
-		expect(formatCost(0.15)).toBe("$0.15");
-		expect(formatCost(0.075)).toBe("$0.075");
-		expect(formatCost(2.5)).toBe("$2.5");
-		expect(formatCost(3)).toBe("$3");
-		expect(formatCost(10)).toBe("$10");
-		expect(formatCost(100)).toBe("$100");
-		expect(formatCost(250)).toBe("$250");
-	});
-});
 
 describe("buildModelRows", () => {
 	it("joins provider auth metadata and falls back to the provider id for the name", () => {

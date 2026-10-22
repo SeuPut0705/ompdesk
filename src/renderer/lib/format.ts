@@ -269,6 +269,17 @@ export function formatUsd(value: number): string {
 	return formatCost(value, Math.abs(value) < 0.01 ? 4 : 2);
 }
 
+/**
+ * A list price per million tokens: "$3", "$0.15", "$0.075", "$75". Three decimals under a dollar, so a cheap model's
+ * price is never rounded away; insignificant zeros trimmed.
+ */
+export function formatPricePerMillion(perMillion: number): string {
+	const raw =
+		perMillion >= 100 ? perMillion.toFixed(0) : perMillion >= 1 ? perMillion.toFixed(2) : perMillion.toFixed(3);
+	const trimmed = raw.includes(".") ? raw.replace(/0+$/, "").replace(/\.$/, "") : raw;
+	return `$${trimmed}`;
+}
+
 /** Format percentage with safe fallback for NaN/null/undefined. */
 export function formatPercent(n: number | null | undefined, decimals = 1): string {
 	return n != null && Number.isFinite(n) ? `${n.toFixed(decimals)}%` : "—";
