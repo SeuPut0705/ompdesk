@@ -1673,6 +1673,16 @@ export interface HostView {
 	live?: HostLiveSession[];
 }
 
+/**
+ * The `sessions:changed` push: whose session list changed. `device` absent = this computer's own; a paired host's id
+ * otherwise. Each list reads again only for its own machine: both computers of a pair write their journals all the
+ * time, and a change of one made every list on the other re-read too (a device asked its host for the list 21 times
+ * a minute while only its own sessions ran).
+ */
+export interface IpcSessionsChanged {
+	device?: string;
+}
+
 /** A session a paired host works on now, by the working cue's rule (`live-work.ts`). */
 export interface HostLiveSession {
 	sessionPath: string;
@@ -1877,7 +1887,8 @@ export interface OmpApi {
 		onTabCommandOutput(callback: (frame: CommandOutputFrame, tabId: string) => void): () => void;
 		onTabSessionInfoUpdate(callback: (frame: SessionInfoUpdateFrame, tabId: string) => void): () => void;
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
-		onSessionsChanged(callback: () => void): () => void;
+		/** A machine's session list changed: this computer's (`device` absent) or a paired host's. */
+		onSessionsChanged(callback: (change: IpcSessionsChanged) => void): () => void;
 		/** The sessions paired devices' tabs run on this computer changed (the whole list). */
 		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
 		onLogBatch(callback: (batch: LogBatch) => void): () => void;

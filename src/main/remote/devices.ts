@@ -24,6 +24,7 @@ import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../
 import {
 	type HostLiveSession,
 	type HostView,
+	type IpcSessionsChanged,
 	IPC_EVENTS,
 	type IpcHostOmpUpdate,
 	type IpcHostSchedules,
@@ -470,7 +471,7 @@ export class RemoteDevices {
 		this.#unlink(deviceId);
 		this.#hosts.remove(deviceId);
 		this.#markComputers();
-		this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
+		this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
 		return this.#broadcastState();
 	}
 
@@ -885,12 +886,12 @@ export class RemoteDevices {
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
 			void this.#readLiveSessions(link);
 			// Its session list went stale while it was away (or never loaded).
-			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
+			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
 			for (const listener of this.#hostOnline) listener(deviceId);
 		});
 		client.on("event", (event, data) => {
 			if (event === SESSIONS_CHANGED_EVENT) {
-				this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
+				this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
 				return;
 			}
 			if (event === OMP_UPDATE_EVENT) {

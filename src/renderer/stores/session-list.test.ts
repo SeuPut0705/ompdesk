@@ -76,6 +76,51 @@ describe("session list snapshot", () => {
 		expect(sessionListFeed("global", "dev-2").store.getState().sessions).toEqual([]);
 	});
 
+	it("reads again only when its own machine's list changed, not another's", async () => {
+		vi.useFakeTimers();
+		const listeners: Array<(change: { device?: string }) => void> = [];
+		const reads: Array<string | undefined> = [];
+		vi.stubGlobal("window", {
+			setTimeout,
+			clearTimeout,
+			omp: {
+				sessions: {
+					list: async (_scope: string, device?: string) => {
+						reads.push(device);
+						return [];
+					},
+				},
+				events: {
+					onSessionsChanged: (listener: (change: { device?: string }) => void) => {
+						listeners.push(listener);
+						return () => {};
+					},
+				},
+			},
+		});
+		const releaseLocal = sessionListFeed("global").retain();
+		const releaseHost = sessionListFeed("global", "dev-studio").retain();
+		await vi.runAllTimersAsync();
+		reads.length = 0;
+		const changed = async (change: { device?: string }) => {
+			for (const listener of listeners) listener(change);
+			await vi.runAllTimersAsync();
+		};
+
+		// This computer's journals move while the host's do not: only this computer's list is read again.
+		await changed({});
+		expect(reads).toEqual([undefined]);
+		reads.length = 0;
+		await changed({ device: "dev-studio" });
+		expect(reads).toEqual(["dev-studio"]);
+		reads.length = 0;
+		await changed({ device: "dev-other" });
+		expect(reads).toEqual([]);
+		releaseLocal();
+		releaseHost();
+		vi.useRealTimers();
+	});
+
 	it("keeps its rows when the last holder lets go", () => {
 		snapshots().write("sessions", "local", "global", [row("/a")]);
 		install(() => new Promise(() => {}));

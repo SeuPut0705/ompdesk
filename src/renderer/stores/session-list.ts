@@ -152,7 +152,9 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 	const retain = (): (() => void) => {
 		holders++;
 		if (holders === 1) {
-			unsubscribe = window.omp.events.onSessionsChanged(() => {
+			unsubscribe = window.omp.events.onSessionsChanged(change => {
+				// Another machine's list changed: this one's rows are as they were.
+				if (change.device !== device) return;
 				window.clearTimeout(debounceTimer);
 				debounceTimer = window.setTimeout(() => refresh(), REFRESH_DEBOUNCE_MS);
 			});

@@ -56,6 +56,7 @@ import type {
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
 	IpcHostedSession,
+	IpcSessionsChanged,
 	IpcHostOmpUpdate,
 	IpcHostSchedules,
 	IpcModelSetupRunResult,
@@ -328,8 +329,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribeActiveTab<RpcBtwFrame>(IPC_EVENTS.BTW_FRAME, callback),
 			onConfigUpdate: (callback: (payload: ConfigUpdateFrame) => void) =>
 				subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
-			onSessionsChanged: (callback: () => void) =>
-				subscribe<undefined>(IPC_EVENTS.SESSIONS_CHANGED, () => callback()),
+			onSessionsChanged: (callback: (change: IpcSessionsChanged) => void) =>
+				subscribe<IpcSessionsChanged | undefined>(IPC_EVENTS.SESSIONS_CHANGED, change => callback(change ?? {})),
 			onHostedSessionsChanged: (callback: (sessions: IpcHostedSession[]) => void) =>
 				subscribe<IpcHostedSession[]>(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, callback),
 			onLogBatch: (callback: (batch: LogBatch) => void) => subscribe<LogBatch>(IPC_EVENTS.LOG_LINE, callback),

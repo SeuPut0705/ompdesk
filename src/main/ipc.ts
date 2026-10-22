@@ -87,7 +87,13 @@ import type {
 	SessionInfo,
 	SessionKind,
 } from "../shared/ipc-types";
-import { IPC_COMMANDS, IPC_EVENTS, type RunProgressState, type TrayState } from "../shared/ipc-types";
+import {
+	IPC_COMMANDS,
+	IPC_EVENTS,
+	type IpcSessionsChanged,
+	type RunProgressState,
+	type TrayState,
+} from "../shared/ipc-types";
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -540,7 +546,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// Session index changes: this window set, and every device using this
 	// computer as its host.
 	sessionIndex.onChange = () => {
-		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, undefined);
+		broadcast(windowManager, IPC_EVENTS.SESSIONS_CHANGED, {} satisfies IpcSessionsChanged);
 		remoteDevices.hostSessionsChanged();
 		deps.sidebarProjects?.schedule();
 	};
