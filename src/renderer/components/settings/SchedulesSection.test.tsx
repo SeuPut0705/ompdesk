@@ -193,11 +193,11 @@ describe("SchedulesSection", () => {
 		expect(row?.textContent).toContain("Every day at 09:30 · app");
 		expect(row?.textContent).toContain("Running");
 
-		await click(row?.querySelector('[aria-label="Stop"]') ?? null);
+		await click(row?.querySelector('[aria-label="Stop Nightly tidy"]') ?? null);
 		expect(command).toHaveBeenCalledWith({ action: "stop", runId: "r1" }, undefined);
 
 		state = { ...state, runs: [] };
-		await click(document.body.querySelector('[data-schedule-run-row="r1"] [aria-label="Stop"]'));
+		await click(document.body.querySelector('[data-schedule-run-row="r1"] [aria-label="Stop Nightly tidy"]'));
 		await act(async () =>
 			reactProps(
 				document.body.querySelector('[role="switch"][aria-label="Run Nightly tidy on schedule"]') as object,

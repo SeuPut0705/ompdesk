@@ -198,7 +198,7 @@ export function TabOverviewDialog() {
 											<IconButton
 												disabled={position === 0}
 												icon={<ArrowUp />}
-												label={t("tabOverview.moveUp")}
+												label={t("tabOverview.moveUp", { tab: labelOf(tab) })}
 												onClick={event => {
 													event.stopPropagation();
 													move(tab, -1);
@@ -208,7 +208,7 @@ export function TabOverviewDialog() {
 											<IconButton
 												disabled={position === tabs.length - 1}
 												icon={<ArrowDown />}
-												label={t("tabOverview.moveDown")}
+												label={t("tabOverview.moveDown", { tab: labelOf(tab) })}
 												onClick={event => {
 													event.stopPropagation();
 													move(tab, 1);

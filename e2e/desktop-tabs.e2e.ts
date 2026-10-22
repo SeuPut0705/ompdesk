@@ -29,7 +29,7 @@ const TEXT = {
 		switcher: "Open tabs, most recent first",
 		overview: "Tab overview",
 		order: "Order",
-		moveDown: "Move down",
+		moveDown: /^Move .+ down$/,
 		close: (title: string) => `Close ${title}`,
 	},
 	ko: {
@@ -38,7 +38,7 @@ const TEXT = {
 		switcher: "열린 탭, 최근 순",
 		overview: "탭 개요",
 		order: "순서",
-		moveDown: "아래로 이동",
+		moveDown: / 아래로 이동$/,
 		close: (title: string) => `${title} 닫기`,
 	},
 } as const;
@@ -314,7 +314,7 @@ for (const [language, theme] of variants(RUNS)) {
 		await pressShortcutUntilVisible(page, "Shift+ControlOrMeta+KeyA", overview);
 		await overview.getByRole("tab", { name: text.order, exact: true }).click();
 		const row = (tabId: string) => overview.locator(`[role="option"][data-tab-id="${tabId}"]`);
-		await row(alpha).getByRole("button", { name: text.moveDown, exact: true }).click();
+		await row(alpha).getByRole("button", { name: text.moveDown }).click();
 		await expect(rows).toHaveText([/^1\s*Beta/, /^2\s*Alpha/, /^3\s*Gamma/]);
 		await capture(page, `tab-overview-${language}-${theme}`);
 		await row(gamma)

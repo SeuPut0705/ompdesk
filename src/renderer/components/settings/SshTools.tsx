@@ -191,21 +191,23 @@ export function SshForwardsPanel({ target }: { target: SshTarget }) {
 									{status.kind === "retrying" || status.kind === "stopped" ? (
 										<IconButton
 											icon={status.kind === "retrying" ? <RotateCw /> : <Play />}
-											label={t(status.kind === "retrying" ? "ssh.tools.reconnectNow" : "ssh.tools.start")}
+											label={t(status.kind === "retrying" ? "ssh.tools.reconnectNow" : "ssh.tools.start", {
+												port: entry.localPort,
+											})}
 											onClick={() => void send({ action: "reconnect", id: entry.id })}
 											size="sm"
 										/>
 									) : status.kind !== "hostKeyChanged" ? (
 										<IconButton
 											icon={<Square />}
-											label={t("ssh.tools.stop")}
+											label={t("ssh.tools.stop", { port: entry.localPort })}
 											onClick={() => void send({ action: "stop", id: entry.id })}
 											size="sm"
 										/>
 									) : null}
 									<IconButton
 										icon={<Trash2 />}
-										label={t("ssh.tools.remove")}
+										label={t("ssh.tools.remove", { port: entry.localPort })}
 										onClick={() => void send({ action: "remove", id: entry.id })}
 										size="sm"
 									/>

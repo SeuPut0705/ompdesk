@@ -152,7 +152,7 @@ export function RecordKvEditor({
 							<IconButton
 								className="shrink-0"
 								icon={<X />}
-								label={t("settings.editors.kvRemove")}
+								label={k ? t("settings.editors.kvRemoveFor", { key: k }) : t("settings.editors.kvRemove")}
 								onClick={() => removeEntry(index)}
 								size="sm"
 							/>

@@ -248,7 +248,7 @@ export function SchedulesSection() {
 										{active ? (
 											<IconButton
 												icon={<Square />}
-												label={t("schedules.stop")}
+												label={t("schedules.stop", { name: schedule.name })}
 												onClick={() => void send({ action: "stop", runId: active.id })}
 												size="sm"
 											/>
@@ -256,7 +256,7 @@ export function SchedulesSection() {
 											<IconButton
 												data-schedule-run
 												icon={<Play />}
-												label={t("schedules.runNow")}
+												label={t("schedules.runNow", { name: schedule.name })}
 												onClick={() => void send({ action: "runNow", id: schedule.id })}
 												size="sm"
 											/>
@@ -392,7 +392,12 @@ function RunRow({
 					{duration ? ` · ${duration}` : ""}
 				</span>
 				{run.status === "running" && (
-					<IconButton icon={<Square />} label={t("schedules.stop")} onClick={onStop} size="sm" />
+					<IconButton
+						icon={<Square />}
+						label={t("schedules.stop", { name })}
+						onClick={onStop}
+						size="sm"
+					/>
 				)}
 				{run.status !== "skipped" && (
 					<Button aria-expanded={open} icon={<Chevron />} onClick={onToggleLog} size="sm" variant="ghost">

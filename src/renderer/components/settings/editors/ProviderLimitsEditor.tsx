@@ -114,7 +114,7 @@ export function ProviderLimitsEditor({ value, onCommit, disabled }: ProviderLimi
 						<IconButton
 							className="shrink-0"
 							icon={<X />}
-							label={t("settings.editors.kvRemove")}
+							label={t("settings.editors.kvRemoveFor", { key: provider })}
 							onClick={() => setLimit(provider, null)}
 							size="sm"
 						/>

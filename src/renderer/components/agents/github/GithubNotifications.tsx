@@ -104,7 +104,7 @@ export function GithubNotifications({ target, targetKey }: Pick<GithubSectionPro
 								{row.url && (
 									<IconButton
 										icon={<ExternalLink />}
-										label={t("github.openOnGithub")}
+										label={t("github.openOnGithubFor", { title: row.title })}
 										onClick={() => openExternal(row.url)}
 										size="sm"
 									/>
@@ -112,7 +112,7 @@ export function GithubNotifications({ target, targetKey }: Pick<GithubSectionPro
 								{row.unread && (
 									<IconButton
 										icon={<MailOpen />}
-										label={t("github.notifications.markRead")}
+										label={t("github.notifications.markRead", { title: row.title })}
 										loading={busy === row.id}
 										onClick={() =>
 											void run(

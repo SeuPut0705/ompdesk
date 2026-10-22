@@ -224,7 +224,7 @@ for (const [language, theme] of variants([
 			await center.getByRole("tab", { name: "Notifications", exact: true }).click();
 			const notification = center.locator('[data-github-notification="555"]');
 			await expect(notification).toContainText("Review requested");
-			await notification.getByRole("button", { name: "Mark as read", exact: true }).click();
+			await notification.getByRole("button", { name: /^Mark .+ as read$/ }).click();
 			await expect.poll(calls).toContain("api -X PATCH notifications/threads/555");
 
 			// C95: a new repository only after a visibility is chosen.
