@@ -803,12 +803,14 @@ describe("buildBegin / buildStatus", () => {
 			{
 				type: "custom",
 				customType: AUTOPILOT_CYCLE_ENTRY,
-				data: rec({ n: 2, startedAt: 20, durationMs: 1000, tokens: 200, usd: 2 }),
+				data: rec({ n: 2, startedAt: 20, durationMs: 1000, tokens: 200, usd: 2, followups: ["Trim the log"] }),
 			},
 			{ type: "custom", customType: AUTOPILOT_NOTE_ENTRY, data: { id: "n", text: "t", at: 500_000 } },
 		];
 		const status = buildStatus(entries, 160_000, { n: 3, area: "tests", startedAt: 150_000 });
 		expect(status).toMatchObject({
+			followups: ["Trim the log"],
+			followupCycles: [2],
 			active: true,
 			state: "running",
 			run: "r",

@@ -285,8 +285,13 @@ describe("an Autopilot run on the work board", () => {
 	it("dismisses a follow-up, and offers nothing on an ended run", async () => {
 		installMockOmp();
 		const followups = ["Fix the flaky resize test", "Trim the log"];
-		useAutopilotStore.getState().apply({ ...status, followups });
+		useAutopilotStore.getState().apply({ ...status, followups, followupCycles: [2, 1] });
 		await mount();
+		// Each row says which cycle left it, so a long-waiting one shows its age.
+		expect(all("[data-autopilot-followup] .omp-work-board-meta").map(meta => meta.textContent)).toEqual(["#2", "#1"]);
+		expect($("[data-autopilot-followup]")?.getAttribute("title")).toBe(
+			`Fix the flaky resize test\n${translate("autopilot.followupLeftIn", { n: 2 })}`,
+		);
 		expect(all("[data-autopilot-followup-dismiss]")).toHaveLength(2);
 		await act(async () => $("[data-autopilot-followup-dismiss]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "followup_dismiss", text: "Fix the flaky resize test" });

@@ -256,9 +256,12 @@ function AutopilotRunSection() {
 function AutopilotFollowupsSection() {
 	const t = useT();
 	const followups = useAutopilotStore(s => s.status.followups);
+	const cycles = useAutopilotStore(s => s.status.followupCycles);
 	const ended = useAutopilotStore(s => s.status.state === "ended");
 	const { run, pending } = useAutopilotActions();
 	if (!followups || followups.length === 0) return null;
+	// The cycle that last left each one: how long it has waited (an older bridge sends none).
+	const leftIn = new Map(followups.map((text, index) => [text, cycles?.[index]]));
 	return (
 		<BoardSection count={followups.length} id="followups" title={t("autopilot.followups")}>
 			<CappedRows cap={SECTION_CAP.followups} items={followups}>
@@ -280,7 +283,12 @@ function AutopilotFollowupsSection() {
 						key={text}
 						label={text}
 						lead={<Dot ring tone="muted" />}
-						title={text}
+						meta={leftIn.get(text) === undefined ? undefined : `#${leftIn.get(text)}`}
+						title={
+							leftIn.get(text) === undefined
+								? text
+								: `${text}\n${t("autopilot.followupLeftIn", { n: leftIn.get(text) ?? 0 })}`
+						}
 					/>
 				)}
 			</CappedRows>

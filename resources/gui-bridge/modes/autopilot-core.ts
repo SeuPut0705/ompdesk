@@ -545,10 +545,18 @@ export function openFollowups(
 	records: readonly AutopilotCycleRecord[],
 	dismissed: readonly { text: string; at: number }[] = [],
 ): string[] {
+	return openFollowupsLeft(records, dismissed).map(item => item.text);
+}
+
+/** {@link openFollowups} with the newest cycle that left each one (the board shows how long it has waited). */
+export function openFollowupsLeft(
+	records: readonly AutopilotCycleRecord[],
+	dismissed: readonly { text: string; at: number }[] = [],
+): { text: string; cycle: number }[] {
 	// Every cycle of the run, not the duplicate check's recent window: a follow-up nobody did or dismissed stays open
 	// however long ago it was left (30 cycles on, an unfinished one used to leave the list without a word).
 	const window = records;
-	const open: string[] = [];
+	const open: { text: string; cycle: number }[] = [];
 	const seen = new Set<string>();
 	for (let i = window.length - 1; i >= 0; i--) {
 		for (const followup of window[i].followups ?? []) {
@@ -561,7 +569,7 @@ export function openFollowups(
 			// After the cycle that left it ended: a dismissal while that cycle still ran is about an earlier listing.
 			const left = window[i].startedAt + window[i].durationMs;
 			if (dismissed.some(event => event.at >= left && normalizeTitle(event.text) === key)) continue;
-			open.push(followup);
+			open.push({ text: followup, cycle: window[i].n });
 		}
 	}
 	return open;
@@ -897,7 +905,8 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 	const running = state.state === "running" || state.state === "stopping";
 	const activeMs = state.activeMs + (running ? Math.max(0, now - state.at) : 0);
 	const cycle = Math.max(records.at(-1)?.n ?? 0, live?.n ?? 0);
-	const followups = openFollowups(records, followupDismissals(entries));
+	const left = openFollowupsLeft(records, followupDismissals(entries));
+	const followups = left.map(item => item.text);
 	return {
 		active: true,
 		role: state.role ?? "parent",
@@ -925,7 +934,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		settings: state.settings,
 		cycles: records.map(statusCycle),
 		...(redStreak(records) > 0 ? { redStreak: redStreak(records) } : {}),
-		...(followups.length > 0 ? { followups } : {}),
+		...(followups.length > 0 ? { followups, followupCycles: left.map(item => item.cycle) } : {}),
 		notes: pendingNotes(entries, records, live?.beganAt),
 		ship: {
 			policy: state.settings.ship,

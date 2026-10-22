@@ -554,6 +554,7 @@ export const ko: Record<string, string> = {
 	"autopilot.focus.next": "다음 사이클부터 우선할 영역이에요. 고르지 않으면 전체예요.",
 	"autopilot.followups": "남은 후속 작업",
 	"autopilot.followupDismiss": "필요 없음: 에이전트 목록에서 빼기",
+	"autopilot.followupLeftIn": "사이클 {n}에서 남김",
 	"autopilot.timeline": "타임라인",
 	"autopilot.redStreak": "연속 빨강 {n}",
 	"autopilot.untitled": "(제목 없음)",

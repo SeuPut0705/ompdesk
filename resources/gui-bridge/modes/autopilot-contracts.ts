@@ -479,6 +479,8 @@ export interface AutopilotStatus {
 	redStreak?: number;
 	/** What the recent cycles left for later and no later cycle did (`openFollowups`, newest first); absent when none. */
 	followups?: string[];
+	/** The newest cycle that left each of `followups`, in the same order. */
+	followupCycles?: number[];
 	notes?: AutopilotNote[];
 	ship?: AutopilotShipState;
 	/** A session that is no run: the branches the sheet's picker offers (this folder's repository). */

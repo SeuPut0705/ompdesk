@@ -562,6 +562,7 @@ export const en: Record<string, string> = {
 	"autopilot.focus.next": "Areas the next cycles favour. None selected = all areas.",
 	"autopilot.followups": "Left for later",
 	"autopilot.followupDismiss": "Not needed: take it off the agent's list",
+	"autopilot.followupLeftIn": "Left in cycle {n}",
 	"autopilot.timeline": "Timeline",
 	"autopilot.redStreak": "{n} red in a row",
 	"autopilot.untitled": "(untitled)",
