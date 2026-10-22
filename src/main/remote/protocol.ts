@@ -90,6 +90,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * bridge adds to a committed reply's read calls. A device without it (v0.54.0) parses a reference strictly, so it
  * gets those replies whole.
  *
+ * `slimEndFields` (only ever sent with `slimEnds`): such a reference may also carry `set` and `unset`, the top-level
+ * fields stock changed after the message crossed (every reply's `completedAt`). A device without it (v0.56.0 and
+ * older) parses a reference strictly, so it gets those messages whole.
+ *
  * `slimToolResults` (only ever sent with `slimEnds`): the device also rebuilds a tool result's `message_start` sent
  * as `{"~tool": toolCallId}` beside the fields its `tool_execution_end` did not carry: stock puts the same `content`
  * and `details` in both. A device without it (v0.54.0 and older) gets every tool result twice.
@@ -105,6 +109,7 @@ export const ClientHello = z.object({
 	slimEnds: z.boolean().optional(),
 	slimReadGroups: z.boolean().optional(),
 	slimToolResults: z.boolean().optional(),
+	slimEndFields: z.boolean().optional(),
 });
 
 /**
@@ -118,6 +123,7 @@ export interface LinkSlim {
 	ends: boolean;
 	readGroups: boolean;
 	toolResults: boolean;
+	endFields: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
@@ -130,6 +136,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		ends,
 		readGroups: ends && hello.slimReadGroups === true,
 		toolResults: ends && hello.slimToolResults === true,
+		endFields: ends && hello.slimEndFields === true,
 	};
 }
 
@@ -141,6 +148,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	ends: "ends",
 	readGroups: "reads",
 	toolResults: "tools",
+	endFields: "fields",
 };
 
 export const HostHelloMessage = z.object({

@@ -582,8 +582,14 @@ describe("messages a connection already carried", () => {
 	const endsBytes = (batches: AgentSessionEvent[][]): number =>
 		batches.flat().reduce((sum, event) => sum + (ENDS.has(event.type) ? JSON.stringify(event).length : 0), 0);
 
-	function send(events: AgentSessionEvent[], ends: boolean, decoder = createLinkEventDecoder(), readGroups = ends) {
-		const encoder = createLinkEventEncoder({ progress: true, autopilot: true, ends, readGroups });
+	function send(
+		events: AgentSessionEvent[],
+		ends: boolean,
+		decoder = createLinkEventDecoder(),
+		readGroups = ends,
+		endFields = ends,
+	) {
+		const encoder = createLinkEventEncoder({ progress: true, autopilot: true, ends, readGroups, endFields });
 		const wire = events.map(event => overTheWire(encoder.events([event])));
 		return { wire, delivered: wire.map(batch => decoder.events(batch)) };
 	}
@@ -661,6 +667,32 @@ describe("messages a connection already carried", () => {
 		// A 0.54.0 device reads no groups: it still gets the decorated reply whole.
 		const older = send(events, true, createLinkEventDecoder(), false);
 		expect(JSON.stringify(older.wire[2])).toContain("Reading both.");
+		expect(older.delivered.flat()).toEqual(overTheWire(events));
+	});
+
+	it("a committed reply stock stamped after its message_end crosses as a reference with the fields that changed", () => {
+		// omp 18.12.6 adds `completedAt` to a reply after its message_end (and a stock change may drop a field): every
+		// reply of an agent_end crossed whole again before references carried those fields.
+		const reply = {
+			role: "assistant",
+			content: [{ type: "text", text: "Done with the change. ".repeat(60) }],
+			timestamp: 11,
+			stopReason: "stop",
+			responseId: "r1",
+		};
+		const { responseId: _gone, ...rest } = reply;
+		const committed = { ...rest, completedAt: 12, entryId: "e11" };
+		const events = [
+			{ type: "message_start", message: { ...reply, content: [] } },
+			{ type: "message_end", message: reply },
+			{ type: "agent_end", messages: [committed] },
+		] as unknown as AgentSessionEvent[];
+		const slim = send(events, true);
+		expect(slim.delivered.flat()).toEqual(overTheWire(events));
+		expect(JSON.stringify(slim.wire[2])).not.toContain("Done with the change.");
+		// A device without the capability (0.56.0 and older) parses a reference strictly: it gets the reply whole.
+		const older = send(events, true, createLinkEventDecoder(), true, false);
+		expect(JSON.stringify(older.wire[2])).toContain("Done with the change.");
 		expect(older.delivered.flat()).toEqual(overTheWire(events));
 	});
 

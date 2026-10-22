@@ -28,7 +28,10 @@
  * three times and a reply twice (measured on a paired host, 22 Oct 2026: `message_start`, `message_end` and
  * `agent_end` were 36 % of a slim link's event bytes). With `slimReadGroups` a reply whose read calls the bridge
  * decorated for `agent_end` crosses as a reference too, its read groups beside it (measured once both computers ran
- * 0.54.0: `message_end` 56 → 12 KB a minute, `agent_end` only 55 → 38, nearly all of it such replies).
+ * 0.54.0: `message_end` 56 → 12 KB a minute, `agent_end` only 55 → 38, nearly all of it such replies). With
+ * `slimEndFields` a reference also carries the top-level fields stock changed after the message crossed (`set`,
+ * `unset`): stock stamps every reply's `completedAt` only after its `message_end`, so without them no reply of an
+ * `agent_end` matched and each crossed whole again (`link-events-stock.test.ts`, on the installed omp).
  */
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -358,8 +361,35 @@ type WireMessage = AgentMessageOf<"message_end">;
 const READ_GROUP = "__ompReadGroup";
 
 const SentRef = z
-	.object({ "~sent": z.string(), entryId: z.string().optional(), reads: z.record(z.unknown()).optional() })
+	.object({
+		"~sent": z.string(),
+		entryId: z.string().optional(),
+		reads: z.record(z.unknown()).optional(),
+		set: z.record(z.unknown()).optional(),
+		unset: z.array(z.string()).optional(),
+	})
 	.strict();
+
+/**
+ * What a message's top-level fields became since `before` crossed (`set`, `unset`), when that is small beside the
+ * message itself; null when the message must cross whole (no copy crossed, or its content changed).
+ */
+function fieldPatch(
+	before: string | undefined,
+	message: WireMessage,
+): { set?: Record<string, unknown>; unset?: string[] } | null {
+	if (before === undefined) return null;
+	const old = JSON.parse(before) as Record<string, unknown>;
+	const now = JSON.parse(JSON.stringify(message)) as Record<string, unknown>;
+	const set: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(now)) if (!isDeepStrictEqual(old[key], value)) set[key] = value;
+	const unset = Object.keys(old).filter(key => !Object.hasOwn(now, key));
+	if (JSON.stringify(set).length * 4 > before.length) return null;
+	return {
+		...(Object.keys(set).length > 0 ? { set } : {}),
+		...(unset.length > 0 ? { unset } : {}),
+	};
+}
 
 /**
  * A committed message without the read groups the bridge adds to its read calls (`decorateMessages`, which the live
@@ -432,7 +462,7 @@ function withoutEntryId(message: WireMessage): { message: WireMessage; entryId?:
  * Sends a message whole the first time this connection carries it, and as `{"~sent": key}` (with the journal
  * `entryId` an `agent_end` adds) when a `message_end` or `agent_end` carries the same message again.
  */
-function createEndsEncoder(readGroups: boolean): (event: AgentSessionEvent) => AgentSessionEvent {
+function createEndsEncoder(readGroups: boolean, fields: boolean): (event: AgentSessionEvent) => AgentSessionEvent {
 	const sent = sentMessages<string>();
 	const remember = (message: WireMessage): string => {
 		const json = JSON.stringify(message);
@@ -458,12 +488,15 @@ function createEndsEncoder(readGroups: boolean): (event: AgentSessionEvent) => A
 			const { message: bare, entryId } = withoutEntryId(message);
 			const { message: plain, reads } = readGroups ? withoutReadGroups(bare) : { message: bare };
 			const key = messageKey(plain);
-			if (sent.get(key) !== JSON.stringify(plain)) return message;
+			const before = sent.get(key);
+			const patch = before === JSON.stringify(plain) ? {} : fields ? fieldPatch(before, plain) : null;
+			if (!patch) return message;
 			changed = true;
 			return {
 				[SENT]: key,
 				...(entryId === undefined ? {} : { entryId }),
 				...(reads === undefined ? {} : { reads }),
+				...patch,
 			} as unknown as WireMessage;
 		});
 		if (event.isTerminal !== false) sent.clear();
@@ -541,8 +574,14 @@ function createEndsDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | 
 	const resolve = (message: WireMessage): WireMessage | null => {
 		const ref = SentRef.safeParse(message);
 		if (!ref.success) return message;
-		const whole = kept.get(ref.data[SENT]);
-		if (!whole) return null;
+		const held = kept.get(ref.data[SENT]);
+		if (!held) return null;
+		let whole = held;
+		if (ref.data.set || ref.data.unset) {
+			const patched: Record<string, unknown> = { ...whole, ...ref.data.set };
+			for (const key of ref.data.unset ?? []) delete patched[key];
+			whole = patched as WireMessage;
+		}
 		const grouped = ref.data.reads ? withReadGroups(whole, ref.data.reads) : whole;
 		return ref.data.entryId === undefined ? grouped : ({ ...grouped, entryId: ref.data.entryId } as WireMessage);
 	};
@@ -572,7 +611,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 	const drop = usageDropper();
 	const progress = options.progress ? createProgressEncoder() : null;
 	const status = options.autopilot ? createStatusEncoder() : null;
-	const ends = options.ends ? createEndsEncoder(options.readGroups === true) : null;
+	const ends = options.ends ? createEndsEncoder(options.readGroups === true, options.endFields === true) : null;
 	const tools = ends && options.toolResults ? createToolResultEncoder() : null;
 	return {
 		events(batch) {
