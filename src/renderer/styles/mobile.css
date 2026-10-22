@@ -1383,6 +1383,20 @@ html[data-input="touch"] [data-switch-tile] {
 	min-height: var(--sc-row-touch);
 }
 
+/* A tile's (i) and switch reach the tile's height and keep clear of each other: the (i) sits 14 px from the switch (the
+   tile's 4 px gap and 10 px more) and reaches 10 px each way (a 36 px target; the grid's 4 px bound cut it to 20), the switch reaches 4 px sideways
+   (the tile's own 6 px padding and the grid's gap are beside it) and 6 px up and down: 36 px (it was 32 × 28). The label still toggles the tile around them. */
+html[data-input="touch"] [data-switch-tile] > [data-setting-info] {
+	margin-inline-end: 10px;
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
+}
+
+html[data-input="touch"] [data-switch-tile] > [role="switch"] {
+	--hit-gap-x: 8px;
+	--hit-gap-y: 12px;
+}
+
 /* Tabs (common/Tabs.tsx): on touch a tab is a row tall and its reach stays inside its own bar. An underline bar's tabs
    sat 4 px apart over the content below, a segmented bar's 2 px, so each took its neighbour's taps and the next row's. */
 html[data-input="touch"] [role="tablist"] {

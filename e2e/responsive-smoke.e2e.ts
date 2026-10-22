@@ -245,7 +245,8 @@ async function show(page: Page, look: Look, id: string): Promise<void> {
  * section pills, a Settings info glyph over the glyph or button on the next line), nothing sits under the home
  * indicator (a full-screen sheet's footer), a work card's summary never cuts a figure, a docked tablet sidebar's
  * controls are 36 px targets, the feedback and worktree dialogs' checkbox and radio rows keep their own taps, and a
- * question card's step tabs and a figure header's buttons are 36 px targets. The matrix measures every surface.
+ * question card's step tabs, a figure header's buttons and a Run sheet tile's (i) and switch are 36 px targets. The
+ * matrix measures every surface.
  */
 const TOUCH_LOOKS: readonly Look[] = [
 	{ width: 390, height: 844, dpr: 3, orientation: "portrait", theme: "light", lang: "en" },
@@ -280,9 +281,11 @@ for (const look of TOUCH_LOOKS) {
 			for (const issue of await measure(page, look)) {
 				const summaryCut = issue.kind === "truncated" && issue.at.includes("omp-summary-part");
 				const sidebarTarget = issue.kind === "small-target" && issue.at.includes("[data-sidebar-");
-				// A question card's step tabs and a figure header's buttons reach 36 through their spacing (mobile.css).
+				// A question card's step tabs, a figure header's buttons and a Run sheet tile's (i) and switch reach 36
+				// through their spacing (mobile.css).
 				const spacedTarget =
-					issue.kind === "small-target" && /\[data-ask-step\]|\[data-figure-header\]/.test(issue.at);
+					issue.kind === "small-target" &&
+					/\[data-ask-step\]|\[data-figure-header\]|\[data-switch-tile\]/.test(issue.at);
 				// The work strip under the header is 28 px drawn and reaches 36 down over the transcript's top.
 				const workStrip = issue.kind === "small-target" && issue.at.includes("[data-work-chip]");
 				if (
