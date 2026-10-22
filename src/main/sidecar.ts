@@ -242,7 +242,7 @@ export interface SidecarOptions {
 	 * Session kind: "agent" (default) or "chat" (a conversation outside any
 	 * project). Both spawn the same argv with omp's full tool set; omp itself
 	 * has no notion of the kind, so the GUI records chat sessions in its own
-	 * metadata (session-kinds.ts) for the sidebar's Chat lane.
+	 * metadata (session-kinds.ts) for the sidebar's Chats section.
 	 */
 	kind?: "agent" | "chat";
 	/**

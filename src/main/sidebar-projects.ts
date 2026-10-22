@@ -30,7 +30,7 @@ export interface SidebarProjectsDeps {
 	write: (state: SidebarProjectsState) => void;
 	/** This computer's stored sessions. */
 	sessions: () => Promise<readonly SidebarProjectsSession[]>;
-	/** The no-project Work workspace: its sessions are the Chat lane's, never a project's. */
+	/** The no-project Work workspace: its sessions are the sidebar's chats, never a project's. */
 	defaultWorkspace: () => string;
 	/** The project a folder belongs to (a linked worktree's main checkout, else the folder), null when it is gone. */
 	projectOf?: (cwd: string) => Promise<string | null>;

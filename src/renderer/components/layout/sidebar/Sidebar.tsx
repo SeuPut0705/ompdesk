@@ -84,7 +84,7 @@ import { actionKbd, onEscape } from "../../../lib/keymap";
 import { orderProjects, reorderProjects } from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
-import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { isRememberedSession, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../../lib/sidebar-width";
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
@@ -188,12 +188,6 @@ type PendingDelete =
 	| { kind: "session"; session: SidebarSession }
 	| { kind: "group"; group: WorkspaceGroup }
 	| { kind: "archived"; sessions: SidebarSession[] };
-
-/**
- * Sidebar lanes. Code: project sessions grouped by folder. Chat: conversations
- * without a project — chat tabs plus agent sessions started in the GUI's
- * default folder.
- */
 
 /** Floor for the docked column: the sidebar never folds on its own, so this is what a narrow window keeps. */
 
@@ -475,16 +469,16 @@ function focusRovingItem(item: HTMLElement) {
 
 /**
  * Sessions-first sidebar (design-spec §2.1) and the app's only session
- * navigator: Code/Work lanes, New session, a filter, sessions grouped by
- * project (newest first, status as icon + text; every open tab keeps a row),
+ * navigator: one search, sessions grouped by project and then the Chats section
+ * (newest first, status as icon + text; every open tab keeps a row),
  * and a footer with the three destinations plus help.
  */
 export function Sidebar() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
-	// This computer's no-project workspace decides which lane a session's row sits in (`inChatLane`): its last answer
-	// paints the first frame, as a paired host's does (host-workspace.ts). Without it a chat-lane session was missing
+	// This computer's no-project workspace decides whether a session's row is a chat (`isChatSession`): its last answer
+	// paints the first frame, as a paired host's does (host-workspace.ts). Without it such a session was missing
 	// from the first frame's list and its row and selection came one frame later (300 ms on a slow machine).
 	const [defaultWorkspace, setDefaultWorkspace] = useState<string | null>(
 		() => snapshots().read<string>("panel", snapshotNs(), "workspace")?.value ?? null,
@@ -767,7 +761,7 @@ export function Sidebar() {
 	);
 	const agentSessions = useMemo(() => allSessions.filter(session => session.kind !== "chat"), [allSessions]);
 	const codeSessions = useMemo(
-		() => agentSessions.filter(session => !inChatLane(session, defaultWorkspace)),
+		() => agentSessions.filter(session => !isChatSession(session, defaultWorkspace)),
 		[agentSessions, defaultWorkspace],
 	);
 	const projectName = useProjectNames(
@@ -949,11 +943,11 @@ export function Sidebar() {
 		}
 		return byDevice;
 	}, [tabs, remoteChildTabs]);
-	// Chat lane: chats and other no-project sessions, one recency-ordered list.
-	const chatLaneSessions = useMemo(
+	// The Chats section: chats and other no-project sessions, one recency-ordered list.
+	const chatSessions = useMemo(
 		() =>
 			allSessions
-				.filter(session => inChatLane(session, defaultWorkspace))
+				.filter(session => isChatSession(session, defaultWorkspace))
 				.filter(matchesFilter)
 				.toSorted(byPinThenRecency),
 		[allSessions, defaultWorkspace, matchesFilter, byPinThenRecency],
@@ -1104,7 +1098,7 @@ export function Sidebar() {
 		)
 		.filter(matchesFilter)
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
-	const totalCount = groups.length + chatLaneSessions.length;
+	const totalCount = groups.length + chatSessions.length;
 	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
 	// in view.
 	const openTabCwds = useMemo(
@@ -2249,16 +2243,16 @@ export function Sidebar() {
 						</DndContext>
 					)}
 					{/* Chats follow the projects in the same list (no Code/Chat switch, the user's call of 22 Oct 2026). */}
-					{!listError && (chatLaneSessions.length > 0 || (!query && !(isLoading && allSessions.length === 0))) && (
+					{!listError && (chatSessions.length > 0 || (!query && !(isLoading && allSessions.length === 0))) && (
 						<SidebarChats
-							count={chatLaneSessions.length}
+							count={chatSessions.length}
 							deviceId={LOCAL_DEVICE}
 							filtering={query.length > 0}
 							newChatData={{ "data-sidebar-new-chat": "" }}
 							newChatLabel={t("sidebar.newChat")}
 							onNewChat={() => startChat()}
 						>
-							{chatLaneSessions.map(session => renderSessionRow(session))}
+							{chatSessions.map(session => renderSessionRow(session))}
 						</SidebarChats>
 					)}
 					{archivedRows.length > 0 && (

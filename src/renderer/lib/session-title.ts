@@ -37,9 +37,9 @@ export function sessionHasContent(session: Pick<SessionInfo, "title" | "firstMes
 }
 
 /**
- * The sidebar's lane rule, one for this computer's list and a paired host's: a chat, or a session in that machine's
- * no-project workspace (`~/.omp/work`), sits in the Chat lane; everything else in Code.
+ * The sidebar's rule, one for this computer's list and a paired host's: a chat, or a session in that machine's
+ * no-project workspace (`~/.omp/work`), is one of its chats (the Chats section); everything else sits under its project.
  */
-export function inChatLane(session: { kind?: SessionKind; cwd: string }, workspace: string | null): boolean {
+export function isChatSession(session: { kind?: SessionKind; cwd: string }, workspace: string | null): boolean {
 	return session.kind === "chat" || (workspace !== null && session.cwd === workspace);
 }

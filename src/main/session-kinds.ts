@@ -1,6 +1,6 @@
 /**
  * GUI-side record of which sessions are chats, so the sidebar lists them in
- * its Chat lane. Stock omp has no session kind: a chat tab is plain omp with
+ * its Chats section. Stock omp has no session kind: a chat tab is plain omp with
  * its full tool set, started in the GUI's default workspace, so the GUI
  * remembers the ids of the sessions its chat tabs created. Sessions written by
  * the old forked agent carry `kind: "chat"` in their header and need no entry.

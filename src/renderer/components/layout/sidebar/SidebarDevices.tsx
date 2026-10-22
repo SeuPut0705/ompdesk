@@ -1,12 +1,11 @@
 /**
  * Sidebar sections for paired hosts (remote devices). Each host gets a header
- * — name, link dot, ⌄ toggle, the lane's button — over its projects and sessions,
- * grouped like the local list (Code: by project folder; Chat: one recency
- * list). An offline host shows one offline line and no sessions; its list is
- * only read while the link is up. Opening a row reuses the tab already
- * attached to it, else opens a remote tab; in Code the button ("Add project")
- * browses the host's disk with the remote folder picker, in Chat it starts a
- * chat on the host.
+ * — name, link dot, ⌄ toggle, its Add project button — over its projects and then
+ * its Chats section, like the local list. An offline host shows one offline line
+ * and no sessions; its list is only read while the link is up. Opening a row
+ * reuses the tab already attached to it, else opens a remote tab; Add project
+ * browses the host's disk with the remote folder picker, the Chats section's
+ * button starts a chat on the host.
  */
 import {
 	ChevronDown,
@@ -34,7 +33,7 @@ import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { inChatLane, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
+import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
@@ -317,14 +316,14 @@ function DeviceSessions({
 			)
 			.toSorted((a, b) => createdAt(b) - createdAt(a));
 	}, [sessions, hostTabs, host.deviceId, query, nested]);
-	const chats = useMemo(() => rows.filter(session => inChatLane(session, hostWorkspace)), [rows, hostWorkspace]);
+	const chats = useMemo(() => rows.filter(session => isChatSession(session, hostWorkspace)), [rows, hostWorkspace]);
 
 	const groups = useMemo(() => {
 		const removed = new Set(projectList.removed);
 		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, DeviceSession[]>();
 		for (const session of rows) {
-			if (inChatLane(session, hostWorkspace)) continue;
+			if (isChatSession(session, hostWorkspace)) continue;
 			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
 			const project = projectList.worktrees[session.cwd] ?? session.cwd;
 			// A project removed from the sidebar takes its sessions with it, unless a tab holds one.
