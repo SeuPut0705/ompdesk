@@ -703,7 +703,11 @@ describe("a link that dropped or went silent", () => {
 			// The open line names the device's build and the slim frames it reads.
 			expect(details).toEqual(
 				message === "open"
-					? { ...who, appVersion: expect.any(String), slim: "events,progress,autopilot,ends,reads,tools,fields" }
+					? {
+							...who,
+							appVersion: expect.any(String),
+							slim: "events,progress,autopilot,ends,reads,tools,fields,status",
+						}
 					: { ...who, reason: "closed" },
 			);
 		}

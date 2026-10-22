@@ -61,7 +61,7 @@ import {
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LIVE_SESSIONS_DEBOUNCE_MS, LocalHostServices } from "./host-services";
 import type { HostedTabView } from "./hosted-view";
-import { createLinkEventDecoder, type WireSubagentFrame } from "./link-events";
+import { createLinkEventDecoder, createStatusReadDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { FrameTooLargeError } from "./wire";
@@ -3116,6 +3116,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			readGroups: false,
 			toolResults: false,
 			endFields: false,
+			autopilotReads: false,
 		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
@@ -3214,6 +3215,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				readGroups: false,
 				toolResults: false,
 				endFields: false,
+				autopilotReads: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3238,5 +3240,75 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 	it("goes whole to a device that did not ask", async () => {
 		const sent = await connected(false);
 		expect(sent).toEqual(JSON.parse(JSON.stringify([[update(30)], [update(31)]])));
+	});
+});
+
+describe("LocalHostServices a get_autopilot answer on the link", () => {
+	const status = (cycles: number) => ({
+		active: true,
+		state: "running",
+		cycles: Array.from({ length: cycles }, (_, n) => ({ n, summary: "요약 ".repeat(100) })),
+	});
+
+	/** Three reads, the run one cycle longer before each; the second asked `fresh`, as a device that lacked its copy. */
+	async function reads(autopilotReads: boolean) {
+		const { services } = setup();
+		const x = Object.assign(new FakeConnection(peer("device-x")), {
+			slim: {
+				events: true,
+				progress: true,
+				autopilot: true,
+				ends: false,
+				readGroups: false,
+				toolResults: false,
+				endFields: false,
+				autopilotReads,
+			},
+		});
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		let cycles = 30;
+		services.attachAutopilot(async (_target, command) => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: status(cycles++),
+		}));
+		const answers: RpcResponse[] = [];
+		for (const fresh of [false, true, false])
+			answers.push(
+				JSON.parse(
+					JSON.stringify(
+						await services.call(
+							x.peer,
+							"tab.command",
+							{ rtab: "t1", command: { type: "get_autopilot" }, ...(fresh ? { fresh } : {}) },
+							x,
+						),
+					),
+				) as RpcResponse,
+			);
+		return answers;
+	}
+
+	it("goes as a delta of the last answer to a device that reads them, whole when it asks fresh", async () => {
+		const answers = await reads(true);
+		const size = (answer: RpcResponse | undefined) => JSON.stringify(answer).length;
+		expect(size(answers[1])).toBeGreaterThan(size(answers[0]) - 100);
+		expect(size(answers[2]) * 10).toBeLessThan(size(answers[0]));
+		const decode = createStatusReadDecoder();
+		expect(answers.map(answer => decode(answer.success ? answer.data : null))).toEqual([
+			status(30),
+			status(31),
+			status(32),
+		]);
+	});
+
+	it("goes whole to a device that did not ask", async () => {
+		const answers = await reads(false);
+		expect(answers.map(answer => (answer.success ? answer.data : null))).toEqual([
+			status(30),
+			status(31),
+			status(32),
+		]);
 	});
 });

@@ -4,6 +4,7 @@ import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { TabEventMessage, TabStatusArg } from "./app-protocol";
+import { createStatusReadEncoder } from "./link-events";
 import { PendingTabCloses, type RemoteLink, RemoteSidecar } from "./remote-sidecar";
 
 interface SentRequest {
@@ -211,6 +212,32 @@ describe("RemoteSidecar", () => {
 			expect(link.methods()).toEqual(["tab.open", "tab.start"]);
 			expect(sidecar.status).toBe("starting");
 		});
+	});
+
+	it("rebuilds a get_autopilot answer sent as a delta, and asks again whole for one it holds no copy of", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		const host = createStatusReadEncoder();
+		const status = (cycles: number) => ({ active: true, cycles: Array.from({ length: cycles }, (_, n) => ({ n })) });
+		let cycles = 3;
+		// The host's encoder answered once for a connection this sidecar never read: its next answer is a delta of a
+		// copy the sidecar lacks.
+		host(status(2), false);
+		link.handlers["tab.command"] = params => ({
+			type: "response",
+			command: "get_autopilot",
+			success: true,
+			data: JSON.parse(JSON.stringify(host(status(cycles++), params.fresh === true))),
+		});
+		const read = () => sidecar.rpcClient?.command({ type: "get_autopilot" });
+		await expect(read()).resolves.toMatchObject({ data: status(4) });
+		expect(
+			link.sent.filter(request => request.method === "tab.command").map(request => request.params.fresh),
+		).toEqual([undefined, true]);
+		await expect(read()).resolves.toMatchObject({ data: status(5) });
+		expect(link.sent.filter(request => request.method === "tab.command")).toHaveLength(3);
 	});
 
 	it("forwards commands, side-channel frames and lifecycle calls to its rtab on the host", async () => {

@@ -8,6 +8,8 @@ import {
 	createLinkEventDecoder,
 	createLinkEventEncoder,
 	createLinkEventSender,
+	createStatusReadDecoder,
+	createStatusReadEncoder,
 	type LinkEventDecoder,
 	type WireSubagentFrame,
 } from "./link-events";
@@ -570,6 +572,39 @@ describe("an Autopilot run's status", () => {
 		expect(createLinkEventDecoder().events(sent[2] as AgentSessionEvent[])).toEqual(
 			overTheWire([update(statuses[2] as object)]),
 		);
+	});
+});
+
+describe("an Autopilot status a device reads", () => {
+	const cycle = (n: number) => ({ n, title: `사이클 ${n}`, summary: "요약 ".repeat(80), verify: "green" });
+	const status = (count: number, extra: object = {}) => ({
+		active: true,
+		state: "running",
+		cycles: Array.from({ length: count }, (_, index) => cycle(index + 1)),
+		...extra,
+	});
+	const first = status(90);
+	const second = status(91, { reason: "user" });
+
+	it("crosses whole once, then as a delta the device rebuilds into the status the host read", () => {
+		const encode = createStatusReadEncoder();
+		const decode = createStatusReadDecoder();
+		const wire = [overTheWire(encode(first, false)), overTheWire(encode(second, false))];
+		expect(JSON.stringify(wire[1]).length * 20).toBeLessThan(JSON.stringify(wire[0]).length);
+		expect(wire.map(decode)).toEqual([first, second]);
+	});
+
+	it("answers null for a delta of a copy it lacks, and takes the fresh answer the device asks for then", () => {
+		const encode = createStatusReadEncoder();
+		encode(first, false);
+		const decode = createStatusReadDecoder();
+		expect(decode(overTheWire(encode(second, false)))).toBeNull();
+		expect(decode(overTheWire(encode(second, true)))).toEqual(second);
+	});
+
+	it("passes an older host's plain status through", () => {
+		expect(createStatusReadDecoder()(first)).toBe(first);
+		expect(createStatusReadDecoder()({ active: false })).toEqual({ active: false });
 	});
 });
 

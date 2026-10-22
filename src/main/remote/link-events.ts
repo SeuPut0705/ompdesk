@@ -217,22 +217,41 @@ function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBU
  * An Autopilot status after the last one sent: whole the first time, then the top-level fields that changed, a list
  * among them as {@link diffItems}. Only the newest cycle, the run's state and its ship state move between two.
  */
+function statusDelta(base: object, status: object): FieldDelta {
+	const delta = diff(STATUS, base, status);
+	for (const [key, value] of Object.entries(delta.set ?? {})) {
+		const before: unknown = Reflect.get(base, key);
+		if (delta.set && Array.isArray(value) && Array.isArray(before)) delta.set[key] = diffItems(before, value);
+	}
+	return delta;
+}
+
+/** The status {@link statusDelta} describes; {@link UNREBUILT} when a list names an item `base` never had. */
+function patchStatus(base: object, delta: FieldDelta): object | typeof UNREBUILT {
+	const set: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(delta.set ?? {})) {
+		const items = ItemsDelta.safeParse(value);
+		const next = items.success ? patchItems(Reflect.get(base, key), items.data) : value;
+		if (next === UNREBUILT) return UNREBUILT;
+		set[key] = next;
+	}
+	return patch(base, { [DELTA]: STATUS, set, ...(delta.unset ? { unset: delta.unset } : {}) });
+}
+
+function isRecord(value: unknown): value is object {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function createStatusEncoder(): (status: unknown) => unknown {
 	let last: object | null = null;
 	return status => {
-		if (typeof status !== "object" || status === null || Array.isArray(status)) {
+		if (!isRecord(status)) {
 			last = null;
 			return status;
 		}
 		const base = last;
 		last = status;
-		if (!base) return status;
-		const delta = diff(STATUS, base, status);
-		for (const [key, value] of Object.entries(delta.set ?? {})) {
-			const before: unknown = Reflect.get(base, key);
-			if (delta.set && Array.isArray(value) && Array.isArray(before)) delta.set[key] = diffItems(before, value);
-		}
-		return delta;
+		return base ? statusDelta(base, status) : status;
 	};
 }
 
@@ -242,20 +261,66 @@ function createStatusDecoder(): (wire: unknown) => unknown {
 	return wire => {
 		const delta = asDelta(wire);
 		if (!delta || delta[DELTA] !== STATUS) {
-			if (typeof wire === "object" && wire !== null && !Array.isArray(wire)) last = wire;
+			if (isRecord(wire)) last = wire;
 			return wire;
 		}
-		const base = last;
-		if (!base) return UNREBUILT;
-		const set: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(delta.set ?? {})) {
-			const items = ItemsDelta.safeParse(value);
-			const next = items.success ? patchItems(Reflect.get(base, key), items.data) : value;
-			if (next === UNREBUILT) return UNREBUILT;
-			set[key] = next;
+		const status = last ? patchStatus(last, delta) : UNREBUILT;
+		if (status !== UNREBUILT) last = status;
+		return status;
+	};
+}
+
+const READ = "~read";
+
+/**
+ * A `get_autopilot` answer as it crosses a link whose device asked for `slimAutopilotReads`. Every tab hydration on
+ * a paired device asks it, and the answer is the whole status: a 217-cycle run's was 235 KB, three times a minute
+ * while the device switched to and from the tab (22 Oct 2026). After the first, an answer is a delta against the last
+ * one this connection sent, both numbered, so the device rebuilds it only from that very copy; a device that lacks it
+ * (a reply it never read, a relaunch) asks again with `fresh` and gets it whole.
+ */
+const StatusRead = z.union([
+	z.object({ [READ]: z.number(), base: z.number(), delta: FieldDelta }),
+	z.object({ [READ]: z.number(), status: z.unknown() }),
+]);
+
+/** The host's side, one per tab and connection: `fresh` sends the status whole. */
+export function createStatusReadEncoder(): (status: unknown, fresh: boolean) => unknown {
+	let next = 0;
+	let last: { id: number; status: object } | null = null;
+	return (status, fresh) => {
+		const id = ++next;
+		if (!isRecord(status)) {
+			last = null;
+			return { [READ]: id, status };
 		}
-		const status = patch(base, { [DELTA]: STATUS, set, ...(delta.unset ? { unset: delta.unset } : {}) });
-		last = status;
+		const base = fresh ? null : last;
+		last = { id, status };
+		return base ? { [READ]: id, base: base.id, delta: statusDelta(base.status, status) } : { [READ]: id, status };
+	};
+}
+
+/** The device's side, one per tab: the status an answer carries; null when it is a delta of a copy this side lacks. */
+export function createStatusReadDecoder(): (wire: unknown) => unknown {
+	/** The last few, by number. */
+	const held = new Map<number, object>();
+	const hold = (id: number, status: object): void => {
+		held.set(id, status);
+		for (const key of held.keys()) if (held.size > 4) held.delete(key);
+	};
+	return wire => {
+		const read = StatusRead.safeParse(wire);
+		// An older host answers the status itself.
+		if (!read.success) return wire;
+		const data = read.data;
+		if (!("delta" in data)) {
+			if (isRecord(data.status)) hold(data[READ], data.status);
+			return data.status;
+		}
+		const base = held.get(data.base);
+		const status = base ? patchStatus(base, data.delta) : UNREBUILT;
+		if (status === UNREBUILT) return null;
+		hold(data[READ], status);
 		return status;
 	};
 }
