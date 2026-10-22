@@ -299,21 +299,27 @@ describe("Changed row", () => {
 				vi.advanceTimersByTime(10_000);
 			});
 			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+			// An lsp call can rename or move files: it reads the branch again.
+			await act(async () => finishCall("l1", "lsp"));
+			await act(async () => {
+				vi.advanceTimersByTime(5_000);
+			});
+			expect(getGitUnlanded).toHaveBeenCalledTimes(2);
 			// A commit mid-turn: the calls that finish read the branch once, 5 s on.
 			await act(async () => finishCall("b1", "bash"));
 			await act(async () => {
 				vi.advanceTimersByTime(1_000);
 				finishCall("e1", "edit");
 			});
-			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(2);
 			await act(async () => {
 				vi.advanceTimersByTime(4_000);
 			});
-			expect(getGitUnlanded).toHaveBeenCalledTimes(2);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(3);
 			await act(async () => {
 				useTodoStore.getState().setTurnActive(false);
 			});
-			expect(getGitUnlanded).toHaveBeenCalledTimes(3);
+			expect(getGitUnlanded).toHaveBeenCalledTimes(4);
 		} finally {
 			vi.useRealTimers();
 		}

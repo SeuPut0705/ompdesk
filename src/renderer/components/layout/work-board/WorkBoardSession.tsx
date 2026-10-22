@@ -191,8 +191,17 @@ function useFamilyParts(turn: TurnWindow | null): FamilyPart[] {
 /** While a turn runs, a finished call (a commit, an edit) reads the branch again at most this often. */
 const UNLANDED_REREAD_MS = 5_000;
 
-/** Calls that only read: one finishing never makes the branch read again (a research turn read it every 5 s). */
-const LOOKS_ONLY: ReadonlySet<string> = new Set([...READ_ONLY_TOOLS, "todo", "ask", "fetch", "wait"]);
+/**
+ * Calls that only read: one finishing never makes the branch read again (a research turn read it every 5 s). Not
+ * `lsp`, which the agent-template table counts as reading: its rename, file move and code actions write files.
+ */
+const LOOKS_ONLY: ReadonlySet<string> = new Set([
+	...READ_ONLY_TOOLS.filter(name => name !== "lsp"),
+	"todo",
+	"ask",
+	"fetch",
+	"wait",
+]);
 
 /**
  * What the session's branch has not landed in main yet (`get_git_unlanded`; null on main itself), read through this
