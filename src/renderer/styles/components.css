@@ -2051,7 +2051,7 @@
 
 .omp-live-work-follow[aria-pressed="false"] {
 	background: var(--sc-accent-soft);
-	color: var(--sc-accent);
+	color: var(--sc-accent-on-soft);
 }
 
 .omp-live-work-chip:focus-visible,
@@ -3488,7 +3488,7 @@ button.omp-file-chip-name:hover {
 .omp-composer-chip[data-active],
 .omp-composer-chip[data-active]:hover {
 	background: var(--sc-accent-soft);
-	color: var(--sc-accent);
+	color: var(--sc-accent-on-soft);
 }
 
 .omp-composer-chip[data-active] .omp-composer-chevron {
