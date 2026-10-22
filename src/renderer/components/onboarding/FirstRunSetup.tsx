@@ -247,6 +247,7 @@ function ConnectStep() {
 			{catalog.configError && <Banner variant="warning">{t("setup.configReadFailed")}</Banner>}
 			<ProviderPicker
 				catalog={catalog}
+				headingLevel={2}
 				login={login}
 				onAddCustom={() => setCustomForm(true)}
 				showConnectedFeatured

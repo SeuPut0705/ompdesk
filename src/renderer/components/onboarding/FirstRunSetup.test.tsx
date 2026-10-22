@@ -472,7 +472,9 @@ describe("FirstRunSetup connect step", () => {
 		expect(region?.querySelector("h1")?.textContent).toBe(translate("setup.title"));
 		expect(region?.textContent).toContain(translate("setup.connect.description"));
 		expect(region?.querySelector("ol")).toBeNull();
-		expect(region?.querySelector("h2")).toBeNull();
+		// The only headings under the title are the provider picker's groups, never a step subtitle.
+		const headings = Array.from(region?.querySelectorAll("h2") ?? []).map(heading => heading.textContent);
+		expect(headings).toEqual([translate("providers.featured.title")]);
 		expect(region?.querySelector("kbd")).toBeNull();
 		expect(button(translate("setup.later"))).toBeDefined();
 	});

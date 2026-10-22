@@ -64,13 +64,19 @@ function fakeLogin(): ProviderLogin & { start: ReturnType<typeof vi.fn> } {
 }
 
 const roots: Root[] = [];
-async function mount(providers: ProviderInfo[], login: ProviderLogin, showConnectedFeatured = false) {
+async function mount(
+	providers: ProviderInfo[],
+	login: ProviderLogin,
+	showConnectedFeatured = false,
+	headingLevel?: 2 | 4,
+) {
 	const root = createRoot(document.body as unknown as Element);
 	await act(async () =>
 		root.render(
 			<I18nProvider>
 				<ProviderPicker
 					catalog={catalogOf(providers)}
+					headingLevel={headingLevel}
 					login={login}
 					showConnectedFeatured={showConnectedFeatured}
 				/>
@@ -117,6 +123,16 @@ describe("ProviderPicker featured group", () => {
 		const group = document.querySelector("[data-featured-providers]");
 		const rest = document.querySelector("[data-provider-picker]");
 		expect(group && rest && group.compareDocumentPosition(rest) & 4).toBeTruthy();
+	});
+
+	it("names its groups one level under the heading that holds it: h4 in a Settings section, h2 on first run", async () => {
+		await mount(stock, fakeLogin());
+		const levels = () => Array.from(document.querySelectorAll("h2, h3, h4")).map(heading => heading.tagName);
+		expect(levels()).toEqual(["H4", "H4"]);
+		for (const root of roots) await act(async () => root.unmount());
+		roots.length = 0;
+		await mount(stock, fakeLogin(), true, 2);
+		expect(levels()).toEqual(["H2", "H2"]);
 	});
 
 	it("starts stock's own login per action: subscription OAuth first, Grok's API key second", async () => {

@@ -24,6 +24,7 @@ export function ProviderPicker({
 	onAddCustom,
 	autoFocusSearch = false,
 	showConnectedFeatured = false,
+	headingLevel = 4,
 }: {
 	catalog: ProviderCatalog;
 	login: ProviderLogin;
@@ -33,7 +34,10 @@ export function ProviderPicker({
 	autoFocusSearch?: boolean;
 	/** First run lists a connected featured provider as connected; Settings already lists those above. */
 	showConnectedFeatured?: boolean;
+	/** The group headings' level: one under the heading that holds the picker (first run's h1, a Settings section's h3). */
+	headingLevel?: 2 | 4;
 }) {
+	const Heading = headingLevel === 2 ? "h2" : "h4";
 	const t = useT();
 	const [query, setQuery] = useState("");
 	const { providers, loading, loginReady } = catalog;
@@ -89,9 +93,9 @@ export function ProviderPicker({
 							className="mt-3 mb-2 flex flex-col gap-1.5"
 							data-featured-providers
 						>
-							<h3 className="px-2 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
+							<Heading className="px-2 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
 								{t("providers.featured.title")}
-							</h3>
+							</Heading>
 							<ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2">
 								{featured.map(card => (
 									<FeaturedCard
@@ -106,9 +110,9 @@ export function ProviderPicker({
 						</section>
 					)}
 					{available.length > 0 && !searching && featured.length > 0 && (
-						<h3 className="px-2 pt-1 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
+						<Heading className="px-2 pt-1 text-sc-xs font-semibold tracking-(--sc-tracking-tight) text-(--sc-text-muted) uppercase">
 							{t("providers.other.title")}
-						</h3>
+						</Heading>
 					)}
 					{available.length > 0 && (
 						<ul
