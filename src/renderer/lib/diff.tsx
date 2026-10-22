@@ -2,6 +2,7 @@ import { diffWords } from "diff";
 import type { HLJSApi } from "highlight.js";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { CopyButton } from "../components/common";
+import { LinkButton } from "../components/common/LinkButton";
 import { cx, languageFromPath } from "./format";
 import { getLoadedHljs, type HighlightToken, loadHljs, splitHighlightedLines } from "./highlight";
 import { useT } from "./i18n";
@@ -510,15 +511,15 @@ export function DiffView({ diff, filePath, className, focusRow }: DiffViewProps)
 					);
 				})}
 				{hiddenRows > unreachableRows ? (
-					<button
-						className="w-full px-2 py-1 text-left text-[var(--omp-dim)] underline-offset-2 hover:underline"
+					<LinkButton
+						className="block w-full px-2 py-1"
 						onClick={event =>
 							revealAndFocus(event.currentTarget, () => setRowBudget(budget => budget + MORE_RENDER_ROWS))
 						}
-						type="button"
+						tone="muted"
 					>
 						{t("diff.showMore", { count: revealRows })}
-					</button>
+					</LinkButton>
 				) : unreachableRows > 0 ? (
 					<div className="whitespace-pre px-2 text-(--sc-text-muted)">
 						<span className="opacity-50">{t("diff.moreLines", { count: unreachableRows })}</span>
