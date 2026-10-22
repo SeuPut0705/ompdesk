@@ -6,9 +6,8 @@
  */
 import { memo, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { currentShellMode, useShellInput } from "../../../hooks/use-shell-mode";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Kbd } from "../../common";
+import { Kbd, OptionRow } from "../../common";
 import type { CompletionItem, CompletionMenu } from "./use-completion-menu";
 
 /** The label with the spans the query matched set in the accent colour (the history search's `<mark>` look). */
@@ -105,15 +104,14 @@ export const CompletionList = memo(function CompletionList({
 				role="listbox"
 			>
 				{menu.items.map((item, index) => (
-					<button
+					<OptionRow
+						active={index === menu.index}
 						// The name is the label; the description reads once, as the option's description.
 						aria-label={item.label}
 						aria-description={item.description ? item.description.replace(/\s+/g, " ").trim() : undefined}
-						aria-selected={index === menu.index}
 						id={`${menuId}-${index}`}
 						key={`${menu.source}:${item.label}`}
-						type="button"
-						role="option"
+						size="sm"
 						onMouseDown={event => {
 							event.preventDefault();
 							onPick(item);
@@ -124,10 +122,7 @@ export const CompletionList = memo(function CompletionList({
 						title={
 							item.description ? `${item.label}\n${item.description.replace(/\s+/g, " ").trim()}` : undefined
 						}
-						className={cx(
-							"flex min-h-(--sc-control-md) w-full items-baseline gap-3 rounded-(--sc-radius-sm) px-2.5 py-1.5 text-left",
-							index === menu.index && "bg-(--sc-selected)",
-						)}
+						className="items-baseline gap-3 rounded-(--sc-radius-sm)"
 					>
 						<span className="shrink-0 font-mono text-sc-md font-medium text-(--sc-text)">
 							<HighlightedLabel label={item.label} ranges={item.highlights} />
@@ -138,7 +133,7 @@ export const CompletionList = memo(function CompletionList({
 						{item.hint && (
 							<span className="ml-auto shrink-0 font-mono text-sc-xs text-(--sc-text-subtle)">{item.hint}</span>
 						)}
-					</button>
+					</OptionRow>
 				))}
 			</div>
 			{footer && (!touch || footer.notes.length > 0) && (

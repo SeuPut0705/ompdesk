@@ -33,7 +33,6 @@
 	"components/layout/AccountLimit.tsx": 1,
 	"components/layout/PanelContainer.tsx": 1,
 	"components/layout/SplitWorkspace.tsx": 1,
-	"components/layout/composer/CompletionList.tsx": 1,
 	"components/layout/composer/ComposerAttachments.tsx": 1,
 	"components/layout/composer/ComposerQueue.tsx": 1,
 	"components/layout/composer/ComposerRestoredQueue.tsx": 1,
