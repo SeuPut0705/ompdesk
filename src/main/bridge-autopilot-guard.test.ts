@@ -29,6 +29,10 @@ const LEVELS: AutopilotShipLevel[] = ["local", "push", "release"];
 
 /** Blocked at every level, for the parent, the child, and with a one-shot release. */
 const ALWAYS_BLOCKED = [
+	// A download that would write outside the worktree, or wherever the cwd is.
+	"gh run download 123 -D /Users/me/elsewhere",
+	"gh run download 123 -D ../outside",
+	"gh run download 123",
 	"git push --force origin HEAD:main",
 	"git push -f origin HEAD:main",
 	"git push --force-with-lease origin HEAD:main",
@@ -275,6 +279,9 @@ const ALWAYS_ALLOWED = [
 	"gh issue view 1",
 	"gh run list",
 	"gh run view 1 --log",
+	// Reads a run's artifacts into the worktree: nothing changes on GitHub.
+	"gh run download 123 -n traces -D tmp/traces",
+	"gh run download 123 --dir=tmp/traces",
 	"gh release view v1",
 	"gh repo view",
 	"gh auth status",

@@ -657,7 +657,19 @@ const GH_READ = new Set([
 	"status",
 ]);
 
-function ghCommand(argv: string[], scope: Scope): string | undefined {
+/**
+ * `gh run download` changes nothing on GitHub: it reads a run's artifacts (a failed release run's traces, whose page
+ * snapshot says why a check failed) into a folder. It runs only with `-D <dir>` inside the worktree (or a scratch
+ * folder), so the download never writes elsewhere.
+ */
+function runDownloadProblem(argv: string[], scope: Scope, cwd: string): string | undefined {
+	const at = argv.findIndex(arg => arg === "-D" || arg === "--dir" || arg.startsWith("--dir="));
+	const dir = at < 0 ? undefined : argv[at]?.startsWith("--dir=") ? argv[at]?.slice(6) : argv[at + 1];
+	if (!dir) return "gh run download needs -D <dir> inside your worktree";
+	return scope.paths ? writePathProblem(dir, cwd, scope.root, true) : undefined;
+}
+
+function ghCommand(argv: string[], scope: Scope, cwd: string): string | undefined {
 	const words: string[] = [];
 	for (let k = 1; k < argv.length; k++) {
 		const arg = argv[k];
@@ -687,6 +699,7 @@ function ghCommand(argv: string[], scope: Scope): string | undefined {
 	}
 	if (group === "search") return undefined;
 	if (GH_READ.has(key)) return undefined;
+	if (key === "run download") return runDownloadProblem(argv, scope, cwd);
 	if (scope.releaseScope) {
 		if (key === "workflow run") return undefined;
 		if (key === "run watch") return undefined;
@@ -966,7 +979,7 @@ function analyzeSimple(cmd: Simple, scope: Scope, state: { cwd: string }, depth:
 		scope.collect.git({ cwd: git.cwd ?? state.cwd, sub: git.sub, args: git.args });
 		return undefined;
 	}
-	if (name === "gh") return ghCommand(argv, scope);
+	if (name === "gh") return ghCommand(argv, scope, state.cwd);
 	const pkg = packageCommand(name, argv);
 	if (pkg) return pkg;
 	const settings = omp(name, argv);
