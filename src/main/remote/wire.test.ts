@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { connect, createServer, type Socket } from "node:net";
+import { deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	DEFLATE_MIN_BYTES,
 	encodeFrame,
 	FrameDecoder,
 	FrameOpener,
@@ -105,6 +107,64 @@ describe("Link", () => {
 		b.listen(() => {});
 		expect(await a.check(WAKE_CHECK_MS)).toBe(true);
 		expect(a.closed).toBe(false);
+	});
+});
+
+describe("deflated frames", () => {
+	/** A secured pair whose `a` deflates what it sends, with the wire bytes of each frame `a` sent. */
+	async function deflatingPair(deflate = true) {
+		const [left, right] = await socketPair();
+		const a = new Link(left);
+		const b = new Link(right);
+		const [ab, ba] = [randomBytes(32), randomBytes(32)];
+		a.secure(ab, ba);
+		b.secure(ba, ab);
+		if (deflate) a.deflateSent();
+		const sent: number[] = [];
+		a.onTraffic((direction, _message, bytes) => {
+			if (direction === "tx") sent.push(bytes);
+		});
+		const got: WireMessage[] = [];
+		b.listen(message => got.push(message));
+		return { a, b, sent, got, left, right };
+	}
+
+	it("a large message crosses deflated and arrives as sent; a small one crosses as it is", async () => {
+		const { a, sent, got } = await deflatingPair();
+		const large = {
+			t: "evt",
+			rows: Array.from({ length: 400 }, (_, n) => ({ id: n, title: `cycle ${n}`, state: "green" })),
+		};
+		const small = { t: "evt", n: 1 };
+		a.send(large);
+		a.send(small);
+		await vi.waitFor(() => expect(got).toHaveLength(2));
+		expect(got).toEqual([large, small]);
+		const [largeBytes, smallBytes] = sent as [number, number];
+		expect(largeBytes * 3).toBeLessThan(JSON.stringify(large).length);
+		expect(JSON.stringify(small).length).toBeLessThan(DEFLATE_MIN_BYTES);
+		// Header, nonce and tag around the JSON itself: nothing was deflated.
+		expect(smallBytes).toBe(JSON.stringify(small).length + 4 + 12 + 16);
+	});
+
+	it("a link whose peer never asked sends every message as JSON", async () => {
+		const { a, sent, got } = await deflatingPair(false);
+		const large = { t: "evt", pad: "x".repeat(50_000) };
+		a.send(large);
+		await vi.waitFor(() => expect(got).toHaveLength(1));
+		expect(sent[0]).toBeGreaterThan(50_000);
+	});
+
+	it("drops a peer whose deflated frame inflates past the frame cap", async () => {
+		const [left, right] = await socketPair();
+		const b = new Link(right);
+		const closed = Promise.withResolvers<void>();
+		b.onClose(() => closed.resolve());
+		b.listen(() => {});
+		const bomb = deflateRawSync(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x20));
+		left.write(encodeFrame(Buffer.concat([Buffer.of(0), bomb])));
+		await closed.promise;
+		expect(b.closeReason).toBe("protocol");
 	});
 });
 

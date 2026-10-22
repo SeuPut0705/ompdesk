@@ -40,10 +40,10 @@ interface Row {
 }
 
 /**
- * What the device's hello says: `noListReads` was built before slim list reads (v0.59.1), `slimEventsOnly` before
- * slim progress, `older` before slim events.
+ * What the device's hello says: `noDeflate` was built before deflated frames (v0.61.9), `noListReads` before slim list
+ * reads (v0.59.1), `slimEventsOnly` before slim progress, `older` before slim events.
  */
-type DeviceKind = "current" | "noListReads" | "slimEventsOnly" | "older";
+type DeviceKind = "current" | "noDeflate" | "noListReads" | "slimEventsOnly" | "older";
 
 /** Counts every message a Link sends, split the way the report reads it. */
 class LinkRecorder {
@@ -58,6 +58,10 @@ class LinkRecorder {
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
 		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, message: object) {
 			record(message);
+			if (device === "noDeflate" && "deflate" in message) {
+				const { deflate: _deflate, ...earlier } = message as { deflate?: unknown };
+				return original.call(this, earlier);
+			}
 			if (device === "noListReads" && "slimEvents" in message) {
 				const {
 					slimListReads: _lists,
@@ -392,7 +396,8 @@ describe("link traffic harness", () => {
 
 describe("the host's traffic line over the real pipeline", () => {
 	it("names the omp event type a streamed reply is made of, and holds none of its text", async () => {
-		const { rig, turn, hostLog } = await openSession();
+		// Deflated, the scripted reply's repeated words stay under the line's 256 KiB floor.
+		const { rig, turn, hostLog } = await openSession({ device: "noDeflate" });
 		await turn({ kind: "stream", thinkingTokens: 400, textTokens: 1200, tokenMs: 0 });
 		await rig.dispose();
 

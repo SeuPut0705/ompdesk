@@ -121,6 +121,11 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * `slimToolOutputs` (only ever sent with `slimEvents`): the device also rebuilds a `tool_execution_update` whose
  * running output, stock's whole text so far in every update, crosses as what follows the call's last update
  * (`{"~output": {from, add}}`). A device without it (v0.61.6 and older) gets every update's whole output.
+ *
+ * `deflate`: the device reads a frame deflated on its own (`Link.deflateSent`, wire.ts), so the host deflates every
+ * message of 1 KB or more it sends that connection: JSON shrinks about 3x, and a host sent a device 9.7 MB in 18
+ * minutes on 23 Oct 2026, one Autopilot status read 322 KB. Independent of the slim flags. A device without it
+ * (v0.61.9 and older) gets every frame as JSON.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -140,6 +145,7 @@ export const ClientHello = z.object({
 	slimSettingsReads: z.boolean().optional(),
 	slimRosterReads: z.boolean().optional(),
 	slimToolOutputs: z.boolean().optional(),
+	deflate: z.boolean().optional(),
 });
 
 /**
@@ -160,6 +166,7 @@ export interface LinkSlim {
 	settingsReads: boolean;
 	rosterReads: boolean;
 	toolOutputs: boolean;
+	deflate: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
@@ -181,6 +188,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		settingsReads: listReads && hello.slimSettingsReads === true,
 		rosterReads: listReads && hello.slimRosterReads === true,
 		toolOutputs: events && hello.slimToolOutputs === true,
+		deflate: hello.deflate === true,
 	};
 }
 
@@ -199,6 +207,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	settingsReads: "settings",
 	rosterReads: "roster",
 	toolOutputs: "outputs",
+	deflate: "deflate",
 };
 
 export const HostHelloMessage = z.object({

@@ -706,7 +706,7 @@ describe("a link that dropped or went silent", () => {
 					? {
 							...who,
 							appVersion: expect.any(String),
-							slim: "events,progress,autopilot,ends,reads,tools,fields,status,lists,shift,settings,roster,outputs",
+							slim: "events,progress,autopilot,ends,reads,tools,fields,status,lists,shift,settings,roster,outputs,deflate",
 						}
 					: { ...who, reason: "closed" },
 			);
@@ -736,7 +736,13 @@ describe("the host's traffic line", () => {
 	it("says once a minute what a busy link sent and received, by kind, with no payload", async () => {
 		const { lines, remote, deviceId } = await connectedLink();
 		const pad = "x".repeat(300_000);
+		const pushed = Promise.withResolvers<unknown>();
+		remote.on("event", (event, data) => {
+			if (event === "pushed") pushed.resolve(data);
+		});
 		await remote.request("push", { pad });
+		// The device said it reads deflated frames: the host's event crosses deflated and arrives whole.
+		expect(await pushed.promise).toEqual({ pad });
 		await minutePasses();
 
 		const traffic = lines.filter(line => line.message === "traffic");
@@ -753,8 +759,7 @@ describe("the host's traffic line", () => {
 		const bytesOf = (kind: string) => top.find(row => row.kind === kind)?.bytes ?? 0;
 		expect(bytesOf("rx req push")).toBeGreaterThan(300_000);
 		expect(bytesOf("rx req push")).toBeLessThan(301_000);
-		expect(bytesOf("tx evt pushed")).toBeGreaterThan(300_000);
-		expect(bytesOf("tx evt pushed")).toBeLessThan(301_000);
+		expect(bytesOf("tx evt pushed")).toBeLessThan(2_000);
 		expect(details.rx as number).toBeGreaterThanOrEqual(bytesOf("rx req push"));
 		expect(details.tx as number).toBeGreaterThanOrEqual(bytesOf("tx evt pushed"));
 		expect(JSON.stringify(details)).not.toContain("xxxx");

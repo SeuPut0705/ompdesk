@@ -4,10 +4,14 @@
  * `secure()` every payload is `counter(12) || AES-256-GCM(JSON) || tag(16)`
  * with the 96-bit counter as nonce, one key per direction, and received
  * counters that must strictly increase. Any framing, decryption, counter or
- * JSON failure destroys the socket.
+ * JSON failure destroys the socket. A sender whose peer reads them
+ * (`deflateSent`) sends a message of `DEFLATE_MIN_BYTES` or more as
+ * `0x00 || deflate-raw(JSON)` when that is smaller; a receiver always reads
+ * both, since JSON never starts with 0x00.
  */
 import { createCipheriv, createDecipheriv } from "node:crypto";
 import type { Socket } from "node:net";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const PING_INTERVAL_MS = 10_000;
@@ -16,6 +20,15 @@ export const DEAD_AFTER_MS = 30_000;
 export const WAKE_CHECK_MS = 3_000;
 /** How long a graceful close waits for the peer before destroying the socket. */
 const CLOSE_GRACE_MS = 1_000;
+
+/**
+ * The smallest message worth deflating. Each frame is deflated on its own, with no context shared across frames, so a
+ * small one gains little. Measured on a session journal's JSON: about 3x smaller at level 3, 1.4 ms for 300 KB.
+ */
+export const DEFLATE_MIN_BYTES = 1024;
+const DEFLATE_LEVEL = 3;
+/** The first byte of a deflated payload; a JSON one starts with `{`. */
+const DEFLATED = 0x00;
 
 const HEADER_BYTES = 4;
 const NONCE_BYTES = 12;
@@ -26,6 +39,12 @@ export class FrameTooLargeError extends Error {
 	constructor(bytes: number) {
 		super(`frame of ${bytes} bytes exceeds the 16 MiB cap`);
 	}
+}
+
+/** `json` deflated behind its marker byte, or `json` itself when deflating does not make it smaller. */
+function deflated(json: Buffer): Buffer {
+	const packed = deflateRawSync(json, { level: DEFLATE_LEVEL });
+	return packed.length + 1 < json.length ? Buffer.concat([Buffer.of(DEFLATED), packed]) : json;
 }
 
 export function encodeFrame(payload: Buffer): Buffer {
@@ -164,6 +183,7 @@ export class Link {
 	#closed = false;
 	#closeReason: LinkCloseReason | null = null;
 	#closing = false;
+	#deflate = false;
 
 	constructor(socket: Socket, liveness: Liveness = { pingMs: PING_INTERVAL_MS, deadMs: DEAD_AFTER_MS }) {
 		this.#socket = socket;
@@ -198,12 +218,18 @@ export class Link {
 	send(message: object): void {
 		if (this.#closed) return;
 		const json = Buffer.from(JSON.stringify(message));
-		// Sealing adds bytes, never removes them: a message already past the cap is refused before it is encrypted.
+		// The cap is the receiver's after inflating: a message past it is refused whatever it would deflate to.
 		if (json.length > MAX_FRAME_BYTES) throw new FrameTooLargeError(json.length);
-		const payload = this.#sealer ? this.#sealer.seal(json) : json;
+		const body = this.#deflate && json.length >= DEFLATE_MIN_BYTES ? deflated(json) : json;
+		const payload = this.#sealer ? this.#sealer.seal(body) : body;
 		const frame = encodeFrame(payload);
 		this.#traffic?.("tx", message, frame.length);
 		this.#socket.write(frame);
+	}
+
+	/** Deflate large messages from now on: the peer said it reads them (its hello's `deflate`). */
+	deflateSent(): void {
+		this.#deflate = true;
 	}
 
 	/** Count what crosses this link from now on; one handler. */
@@ -277,7 +303,8 @@ export class Link {
 	}
 
 	#decode(payload: Buffer): WireMessage {
-		const json = this.#opener ? this.#opener.open(payload) : payload;
+		const body = this.#opener ? this.#opener.open(payload) : payload;
+		const json = body[0] === DEFLATED ? inflateRawSync(body.subarray(1), { maxOutputLength: MAX_FRAME_BYTES }) : body;
 		const message: unknown = JSON.parse(json.toString("utf8"));
 		if (typeof message !== "object" || message === null || Array.isArray(message)) throw new Error("not an object");
 		if (!("t" in message) || typeof message.t !== "string") throw new Error("message without a type");
