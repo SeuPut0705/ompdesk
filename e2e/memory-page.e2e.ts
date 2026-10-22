@@ -15,7 +15,12 @@ async function openMemory(page: Page) {
 	const search = page.getByRole("dialog").getByRole("searchbox");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 	await search.fill("memory");
-	await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: "Open the Memory page" }).click();
+	// Once opened, the command also heads the palette's Recent group: either row opens the page.
+	await page
+		.getByRole("dialog")
+		.locator("button[data-palette-index]", { hasText: "Open the Memory page" })
+		.first()
+		.click();
 	const section = page.locator("[data-settings-page] #settings-memory");
 	await expect(section).toBeVisible();
 	return section;
