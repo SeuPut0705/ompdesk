@@ -190,25 +190,49 @@ function mapSnapshots(event: ToolUpdate, map: (snapshot: unknown) => unknown): T
 const STATUS = "autopilot";
 const ITEMS = "~items";
 
-/** A list field after the last one: its length now and the items at an index that differ (or are new). */
-const ItemsDelta = z.object({ "~items": z.number().int().nonnegative(), at: z.record(z.unknown()) });
+/**
+ * A list field after the last one: its length now and the items at an index that differ (or are new). With `shift`,
+ * item `i` is compared with the last one's item `i + shift`: a transcript's tail page read again while its session
+ * runs starts later by the messages that left the front of the window, and compared index by index every item
+ * differed.
+ */
+const ItemsDelta = z.object({
+	"~items": z.number().int().nonnegative(),
+	at: z.record(z.unknown()),
+	shift: z.number().int().positive().optional(),
+});
 type ItemsDelta = z.infer<typeof ItemsDelta>;
 
-function diffItems(base: readonly unknown[], next: readonly unknown[]): ItemsDelta {
+function itemsAt(base: readonly unknown[], next: readonly unknown[], shift: number): Record<string, unknown> {
 	const at: Record<string, unknown> = {};
 	for (const [index, item] of next.entries()) {
-		if (index >= base.length || !isDeepStrictEqual(base[index], item)) at[index] = item;
+		const before = index + shift;
+		if (before >= base.length || !isDeepStrictEqual(base[before], item)) at[index] = item;
 	}
-	return { [ITEMS]: next.length, at };
+	return at;
+}
+
+/** `shifts`: the device reads {@link ItemsDelta.shift} (`slimShiftedReads`). */
+function diffItems(base: readonly unknown[], next: readonly unknown[], shifts = false): ItemsDelta {
+	const at = itemsAt(base, next, 0);
+	const first = next[0];
+	if (!shifts || first === undefined || Object.keys(at).length === 0) return { [ITEMS]: next.length, at };
+	const shift = base.findIndex((item, index) => index > 0 && isDeepStrictEqual(item, first));
+	if (shift < 1) return { [ITEMS]: next.length, at };
+	const shifted = itemsAt(base, next, shift);
+	return Object.keys(shifted).length < Object.keys(at).length
+		? { [ITEMS]: next.length, at: shifted, shift }
+		: { [ITEMS]: next.length, at };
 }
 
 /** The list {@link diffItems} describes; {@link UNREBUILT} when it names an item `base` never had. */
 function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBUILT {
 	const before: readonly unknown[] = Array.isArray(base) ? base : [];
 	const next: unknown[] = [];
+	const shift = delta.shift ?? 0;
 	for (let index = 0; index < delta[ITEMS]; index++) {
 		if (Object.hasOwn(delta.at, index)) next.push(delta.at[index]);
-		else if (index < before.length) next.push(before[index]);
+		else if (index + shift < before.length) next.push(before[index + shift]);
 		else return UNREBUILT;
 	}
 	return next;
@@ -218,11 +242,11 @@ function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBU
  * An Autopilot status after the last one sent: whole the first time, then the top-level fields that changed, a list
  * among them as {@link diffItems}. Only the newest cycle, the run's state and its ship state move between two.
  */
-function statusDelta(base: object, status: object): FieldDelta {
+function statusDelta(base: object, status: object, shifts = false): FieldDelta {
 	const delta = diff(STATUS, base, status);
 	for (const [key, value] of Object.entries(delta.set ?? {})) {
 		const before: unknown = Reflect.get(base, key);
-		if (delta.set && Array.isArray(value) && Array.isArray(before)) delta.set[key] = diffItems(before, value);
+		if (delta.set && Array.isArray(value) && Array.isArray(before)) delta.set[key] = diffItems(before, value, shifts);
 	}
 	return delta;
 }
@@ -285,8 +309,11 @@ const StatusRead = z.union([
 	z.object({ [READ]: z.string(), status: z.unknown() }),
 ]);
 
-/** The host's side, one per tab and connection: `fresh` sends the status whole. */
-export function createStatusReadEncoder(): (status: unknown, fresh: boolean) => unknown {
+/**
+ * The host's side, one per tab and connection: `fresh` sends the status whole. `shifts`: the device reads a list
+ * compared at an offset (`slimShiftedReads`).
+ */
+export function createStatusReadEncoder(shifts = false): (status: unknown, fresh: boolean) => unknown {
 	// Unique to this encoder: a device keeps its copies across a reconnect, and the next connection's encoder must
 	// never name one of them.
 	const epoch = randomUUID();
@@ -300,7 +327,9 @@ export function createStatusReadEncoder(): (status: unknown, fresh: boolean) => 
 		}
 		const base = fresh ? null : last;
 		last = { id, status };
-		return base ? { [READ]: id, base: base.id, delta: statusDelta(base.status, status) } : { [READ]: id, status };
+		return base
+			? { [READ]: id, base: base.id, delta: statusDelta(base.status, status, shifts) }
+			: { [READ]: id, status };
 	};
 }
 

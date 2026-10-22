@@ -706,7 +706,7 @@ describe("a link that dropped or went silent", () => {
 					? {
 							...who,
 							appVersion: expect.any(String),
-							slim: "events,progress,autopilot,ends,reads,tools,fields,status,lists",
+							slim: "events,progress,autopilot,ends,reads,tools,fields,status,lists,shift",
 						}
 					: { ...who, reason: "closed" },
 			);

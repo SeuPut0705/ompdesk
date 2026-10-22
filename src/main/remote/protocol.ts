@@ -105,6 +105,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * `slimListReads` (only ever sent with `slimAutopilotReads`): the device also rebuilds a `get_available_commands`
  * answer and a `get_transcript_page` read from the end (`encodedReadKey`) sent as numbered deltas the same way. A
  * device without it (v0.59.1 and older) gets them whole.
+ *
+ * `slimShiftedReads` (only ever sent with `slimListReads`): such a delta's list may also be compared at an offset
+ * (`shift`), as a running session's tail page starts later on each read. A device without it (v0.60.0) would read
+ * the items at the wrong place, so its lists are compared index by index.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -120,6 +124,7 @@ export const ClientHello = z.object({
 	slimEndFields: z.boolean().optional(),
 	slimAutopilotReads: z.boolean().optional(),
 	slimListReads: z.boolean().optional(),
+	slimShiftedReads: z.boolean().optional(),
 });
 
 /**
@@ -136,12 +141,14 @@ export interface LinkSlim {
 	endFields: boolean;
 	autopilotReads: boolean;
 	listReads: boolean;
+	shiftedReads: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 	const events = hello.slimEvents === true;
 	const ends = events && hello.slimEnds === true;
 	const autopilotReads = events && hello.slimAutopilot === true && hello.slimAutopilotReads === true;
+	const listReads = autopilotReads && hello.slimListReads === true;
 	return {
 		events,
 		progress: events && hello.slimProgress === true,
@@ -151,7 +158,8 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		toolResults: ends && hello.slimToolResults === true,
 		endFields: ends && hello.slimEndFields === true,
 		autopilotReads,
-		listReads: autopilotReads && hello.slimListReads === true,
+		listReads,
+		shiftedReads: listReads && hello.slimShiftedReads === true,
 	};
 }
 
@@ -166,6 +174,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	endFields: "fields",
 	autopilotReads: "status",
 	listReads: "lists",
+	shiftedReads: "shift",
 };
 
 export const HostHelloMessage = z.object({

@@ -602,6 +602,33 @@ describe("an Autopilot status a device reads", () => {
 		expect(decode(overTheWire(encode(second, true)))).toEqual(second);
 	});
 
+	it("compares a list that moved on at its offset only for a device that reads shifts", () => {
+		// A running session's tail page read again: two messages left the front of the window, three came at its end.
+		const page = (from: number, to: number) => ({
+			startIndex: from,
+			messages: Array.from({ length: to - from }, (_, i) => ({
+				role: "assistant",
+				text: `답 ${from + i} `.repeat(40),
+			})),
+		});
+		const before = page(100, 300);
+		const after = page(102, 303);
+		const shifting = createStatusReadEncoder(true);
+		const plain = createStatusReadEncoder();
+		shifting(before, false);
+		plain(before, false);
+		const shifted = overTheWire(shifting(after, false));
+		const indexed = overTheWire(plain(after, false));
+		expect(JSON.stringify(shifted).length * 20).toBeLessThan(JSON.stringify(indexed).length);
+		const device = createStatusReadDecoder();
+		const shiftingHost = createStatusReadEncoder(true);
+		expect(device(overTheWire(shiftingHost(before, false)))).toEqual(before);
+		expect(device(overTheWire(shiftingHost(after, false)))).toEqual(after);
+		// Rewound (a page read after a branch switch) or reordered: no offset fits better, items go by index.
+		const rewound = page(90, 290);
+		expect(device(overTheWire(shiftingHost(rewound, false)))).toEqual(rewound);
+	});
+
 	it("never rebuilds from a copy an earlier connection's encoder sent", () => {
 		const decode = createStatusReadDecoder();
 		const before = createStatusReadEncoder();

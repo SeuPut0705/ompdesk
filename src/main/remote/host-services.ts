@@ -1781,7 +1781,7 @@ export class LocalHostServices implements HostServices {
 		if (tab.reads?.conn !== conn) tab.reads = { conn, encoders: new Map() };
 		let encode = tab.reads.encoders.get(read.key);
 		if (!encode) {
-			encode = createStatusReadEncoder();
+			encode = createStatusReadEncoder(conn.slim.shiftedReads);
 			tab.reads.encoders.set(read.key, encode);
 		}
 		return { ...response, data: encode(response.data, fresh === true) };
