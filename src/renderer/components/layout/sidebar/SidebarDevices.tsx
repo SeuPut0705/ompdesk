@@ -17,7 +17,6 @@ import {
 	FolderOpen,
 	FolderPlus,
 	MessageCircle,
-	MessageSquarePlus,
 	Monitor,
 	MoreHorizontal,
 	Plus,
@@ -50,9 +49,8 @@ import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
+import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
-
-export type SidebarDeviceMode = "code" | "chat";
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
 type DeviceSession = SessionInfo & { liveTabId?: string };
@@ -76,12 +74,11 @@ function createdAt(session: SessionInfo): number {
 }
 
 /** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
- * the end, the lane's own button on that device: in Code it opens or makes a project folder, in Chat (which has no
- * projects) it starts a chat. This device's and every host's alike. */
+ * the end, the button that opens or makes a project folder on that device (a new chat is its Chats section's). This
+ * device's and every host's alike. */
 function DeviceHeader({
 	deviceId,
 	folded,
-	mode,
 	name,
 	children,
 	canAct = true,
@@ -90,7 +87,6 @@ function DeviceHeader({
 }: {
 	deviceId: string;
 	folded: boolean;
-	mode: SidebarDeviceMode;
 	name: string;
 	children?: ReactNode;
 	canAct?: boolean;
@@ -125,12 +121,10 @@ function DeviceHeader({
 			</button>
 			<IconButton
 				className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-				{...(mode === "chat"
-					? { "data-sidebar-device-new-chat": deviceId }
-					: { "data-sidebar-device-add": deviceId })}
+				data-sidebar-device-add={deviceId}
 				disabled={!canAct}
-				icon={mode === "chat" ? <MessageSquarePlus /> : <FolderPlus />}
-				label={t(mode === "chat" ? "remote.sidebar.newChat" : "remote.sidebar.addProject", { name })}
+				icon={<FolderPlus />}
+				label={t("remote.sidebar.addProject", { name })}
 				onClick={onAction}
 				size="sm"
 				tabIndex={-1}
@@ -140,16 +134,8 @@ function DeviceHeader({
 }
 
 /** The header over this device's own list, shown only once a host is paired: it folds the list and, like a host's
- * header, ends in the lane's button here (the search row's project button then gives way). */
-export function SidebarLocalHeader({
-	mode,
-	onAddProject,
-	onNewChat,
-}: {
-	mode: SidebarDeviceMode;
-	onAddProject: () => void;
-	onNewChat: () => void;
-}) {
+ * header, ends in its project button here (the search row's then gives way). */
+export function SidebarLocalHeader({ onAddProject }: { onAddProject: () => void }) {
 	const t = useT();
 	const folded = useSidebarFolds(s => s.devices[LOCAL_DEVICE] === true);
 	return (
@@ -157,23 +143,20 @@ export function SidebarLocalHeader({
 			deviceId={LOCAL_DEVICE}
 			folded={folded}
 			local
-			mode={mode}
 			name={t("remote.sidebar.thisDevice")}
-			onAction={mode === "chat" ? onNewChat : onAddProject}
+			onAction={onAddProject}
 		/>
 	);
 }
 
 export function SidebarDeviceSection({
 	host,
-	mode,
 	query,
 	nested,
 	pending = false,
 	onNewChat,
 }: {
 	host: HostView;
-	mode: SidebarDeviceMode;
 	query: string;
 	/** Tab ids and session files of sessions a session of this computer opened here: they are rows of its family. */
 	nested?: ReadonlySet<string>;
@@ -207,15 +190,11 @@ export function SidebarDeviceSection({
 				canAct={online}
 				deviceId={host.deviceId}
 				folded={collapsed}
-				mode={mode}
 				name={host.name}
-				onAction={
-					mode === "chat"
-						? () => onNewChat(host.deviceId)
-						: () =>
-								void pickRemoteDirectory(host.deviceId).then(path => {
-									if (path) void openRemote({ cwd: path, kind: "agent" });
-								})
+				onAction={() =>
+					void pickRemoteDirectory(host.deviceId).then(path => {
+						if (path) void openRemote({ cwd: path, kind: "agent" });
+					})
 				}
 			>
 				<span
@@ -241,8 +220,8 @@ export function SidebarDeviceSection({
 				(showRows ? (
 					<DeviceSessions
 						host={host}
-						mode={mode}
 						nested={nested}
+						onNewChat={() => onNewChat(host.deviceId)}
 						onOpen={openRemote}
 						query={query}
 						read={online}
@@ -261,16 +240,16 @@ export function SidebarDeviceSection({
  * known rows show. */
 function DeviceSessions({
 	host,
-	mode,
 	query,
 	nested,
+	onNewChat,
 	onOpen,
 	read,
 }: {
 	host: HostView;
-	mode: SidebarDeviceMode;
 	query: string;
 	nested: ReadonlySet<string> | undefined;
+	onNewChat: () => void;
 	onOpen: (args: RemoteOpenArgs) => Promise<void>;
 	read: boolean;
 }) {
@@ -295,8 +274,8 @@ function DeviceSessions({
 		[allTabs, host.deviceId, nested],
 	);
 
-	// The host's own lane rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session
-	// opened there without a folder starts) sits in its Chat lane, so it does here too.
+	// The host's own rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session opened
+	// there without a folder starts) is one of its chats, so it is here too.
 	const hostWorkspace = useHostWorkspace(host.deviceId, read);
 	// The host's own project list: its empty projects show here too, and one removed there (or here) is gone from both.
 	const projectList = useProjectList(host.deviceId, read);
@@ -330,7 +309,6 @@ function DeviceSessions({
 			}));
 		const needle = query.toLocaleLowerCase();
 		return [...listed, ...live]
-			.filter(session => inChatLane(session, hostWorkspace) === (mode === "chat"))
 			.filter(
 				session =>
 					!needle ||
@@ -338,14 +316,15 @@ function DeviceSessions({
 					session.cwd.toLocaleLowerCase().includes(needle),
 			)
 			.toSorted((a, b) => createdAt(b) - createdAt(a));
-	}, [sessions, hostTabs, host.deviceId, mode, query, nested, hostWorkspace]);
+	}, [sessions, hostTabs, host.deviceId, query, nested]);
+	const chats = useMemo(() => rows.filter(session => inChatLane(session, hostWorkspace)), [rows, hostWorkspace]);
 
 	const groups = useMemo(() => {
-		if (mode === "chat") return [];
 		const removed = new Set(projectList.removed);
 		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, DeviceSession[]>();
 		for (const session of rows) {
+			if (inChatLane(session, hostWorkspace)) continue;
 			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
 			const project = projectList.worktrees[session.cwd] ?? session.cwd;
 			// A project removed from the sidebar takes its sessions with it, unless a tab holds one.
@@ -375,7 +354,7 @@ function DeviceSessions({
 				result.push({ cwd: project.path, sessions: [], missing: project.missing === true });
 		}
 		return result;
-	}, [rows, mode, projectList, query, hostTabs]);
+	}, [rows, projectList, query, hostTabs, hostWorkspace]);
 
 	// What the host works on now (its windows' tabs, the tabs it runs for any device): a row no tab here holds still
 	// wears the working cue, without a tap to open it first.
@@ -643,14 +622,6 @@ function DeviceSessions({
 			)}
 		</>
 	);
-	if (mode === "chat") {
-		return (
-			<div className="space-y-px">
-				{rows.map(session => renderRow(session))}
-				{dialog}
-			</div>
-		);
-	}
 	return (
 		<div className="space-y-px">
 			{dialog}
@@ -723,6 +694,19 @@ function DeviceSessions({
 					</div>
 				);
 			})}
+			{(chats.length > 0 || !query) && (
+				<SidebarChats
+					canAdd={read}
+					count={chats.length}
+					deviceId={host.deviceId}
+					filtering={query.length > 0}
+					newChatData={{ "data-sidebar-device-new-chat": host.deviceId }}
+					newChatLabel={t("remote.sidebar.newChat", { name: host.name })}
+					onNewChat={onNewChat}
+				>
+					{chats.map(session => renderRow(session))}
+				</SidebarChats>
+			)}
 		</div>
 	);
 }

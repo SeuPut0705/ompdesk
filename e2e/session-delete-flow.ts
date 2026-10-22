@@ -35,14 +35,10 @@ interface Seeded {
 const rowsText = (page: Page) => page.locator(".omp-sidebar-session-row").allTextContents();
 const tabs = (page: Page) => page.evaluate(() => window.omp.tabs.list());
 const tabPaths = async (page: Page) => (await tabs(page)).map(tab => tab.sessionPath ?? null);
-const selectedMode = (page: Page) => page.locator(".omp-sidebar-controls [role=tab][aria-selected=true]");
+/** The rows of the projects' groups: chats follow them in the same list, in their own section. */
+const codeRowsText = (page: Page) => page.locator("[data-session-group] .omp-sidebar-session-row").allTextContents();
 const rowOf = (page: Page, session: Seeded) =>
 	page.locator(`.omp-sidebar-session-row[data-session-path=${cssString(session.file)}]`);
-
-async function showMode(page: Page, name: "Code" | "Chat"): Promise<void> {
-	await page.locator(".omp-sidebar-controls [role=tab]").filter({ hasText: name }).click();
-	await expect(selectedMode(page)).toHaveText(name);
-}
 
 /** Every `.jsonl` under `dir`: a session file (stock's lock files are not). */
 async function sessionFiles(dir: string): Promise<string[]> {
@@ -197,13 +193,11 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 		await deleteByMenu(page, active);
 		await expect.poll(() => tabPaths(page)).toEqual([chatActive.file, chatAsleep.file]);
 		await expect.poll(async () => (await tabs(page)).find(entry => entry.active)?.sessionPath).toBe(chatActive.file);
-		await showMode(page, "Code");
 		// No code tab is left, and no "New session" row took any deleted session's place.
-		await expect.poll(async () => (await rowsText(page)).length).toBe(0);
+		await expect.poll(async () => (await codeRowsText(page)).length).toBe(0);
 		await shot("code-after");
 
 		// Chat: a restored chat tab, a stored chat, then the focused chat through the composer's /delete.
-		await showMode(page, "Chat");
 		await deleteByTrash(page, chatAsleep);
 		await expect.poll(() => tabPaths(page)).toEqual([chatActive.file]);
 		await deleteByMenu(page, chatStored);
@@ -218,10 +212,7 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 		await expect
 			.poll(async () => (await tabs(page)).map(entry => ({ placeholder: entry.placeholder === true })))
 			.toEqual([{ placeholder: true }]);
-		for (const name of ["Code", "Chat"] as const) {
-			await showMode(page, name);
-			await expect.poll(async () => (await rowsText(page)).length).toBe(0);
-		}
+		await expect.poll(async () => (await rowsText(page)).length).toBe(0);
 		await shot("chat-after");
 
 		for (const session of deleted) await expect(fs.access(session.file)).rejects.toThrow();
@@ -267,10 +258,7 @@ export async function deleteSessionsEndToEnd(profile: DeleteProfile, seedSession
 		await expect
 			.poll(async () => (await tabs(again)).map(entry => ({ placeholder: entry.placeholder === true })))
 			.toEqual([{ placeholder: true }]);
-		for (const name of ["Code", "Chat"] as const) {
-			await showMode(again, name);
-			await expect.poll(async () => (await rowsText(again)).length).toBe(0);
-		}
+		await expect.poll(async () => (await rowsText(again)).length).toBe(0);
 		for (const session of deleted) await expect(fs.access(session.file)).rejects.toThrow();
 		expect(await sessionFiles(sessionsRoot)).toEqual([]);
 		await again.screenshot({ path: test.info().outputPath("relaunch.png"), animations: "disabled", scale: "css" });

@@ -1,6 +1,6 @@
 /**
  * What the left side remembers across relaunches, reloads and a reopened window: whether the docked sidebar is shown,
- * which project / folder / worktree / device groups are folded, the Code or Chat lane, the footer blocks (Get started,
+ * which project / folder / worktree / device groups are folded, each device's Chats section, the footer blocks (Get started,
  * usage), the Archived section and the sessions whose family rows are open or hidden.
  *
  * Three device-local prefs (`sidebarVisible`, `sidebarFolds`, `sidebarFamilies`; src/shared/device-prefs.ts: a paired
@@ -30,8 +30,6 @@ export const SIDEBAR_FAMILIES_STORAGE_KEY = "omp.sidebarFamilies";
 export const FOLD_LIMIT = 50;
 const KEY_MAX_CHARS = 200;
 
-export type SidebarLane = "code" | "chat";
-
 /** The device group key of "this device" while a host is paired. */
 export const LOCAL_DEVICE = "local";
 
@@ -42,8 +40,8 @@ export interface SidebarFolds {
 	devices: Record<string, boolean>;
 	/** A paired host's folder group: `deviceGroupKey(deviceId, cwd)` → folded. */
 	deviceGroups: Record<string, boolean>;
-	/** The lane the user last picked; null = follow the open session. */
-	lane: SidebarLane | null;
+	/** `LOCAL_DEVICE` or a paired host's deviceId → its Chats section folded. */
+	chats: Record<string, boolean>;
 	/** The Archived section is open. */
 	archivedOpen: boolean;
 	/** The Get started checklist is open. */
@@ -74,7 +72,7 @@ export const EMPTY_FOLDS: SidebarFolds = {
 	groups: {},
 	devices: {},
 	deviceGroups: {},
-	lane: null,
+	chats: {},
 	archivedOpen: false,
 	starterOpen: false,
 	usageCollapsed: false,
@@ -109,7 +107,7 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
 		groups: parseFlags(record.groups),
 		devices: parseFlags(record.devices),
 		deviceGroups: parseFlags(record.deviceGroups),
-		lane: record.lane === "code" || record.lane === "chat" ? record.lane : null,
+		chats: parseFlags(record.chats),
 		archivedOpen: record.archivedOpen === true,
 		starterOpen: record.starterOpen === true,
 		usageCollapsed: record.usageCollapsed === true,

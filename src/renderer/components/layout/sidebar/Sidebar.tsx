@@ -33,7 +33,6 @@ import {
 	Info,
 	Keyboard,
 	MessageCircle,
-	MessageSquarePlus,
 	MessageSquareWarning,
 	MoreHorizontal,
 	PanelLeft,
@@ -125,7 +124,6 @@ import {
 	SearchField,
 	SkeletonRows,
 	Spinner,
-	Tabs,
 } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
@@ -135,8 +133,8 @@ import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
-import { useHostWorkspace } from "./host-workspace";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
+import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
@@ -196,7 +194,6 @@ type PendingDelete =
  * without a project — chat tabs plus agent sessions started in the GUI's
  * default folder.
  */
-type SidebarMode = "code" | "chat";
 
 /** Floor for the docked column: the sidebar never folds on its own, so this is what a narrow window keeps. */
 
@@ -486,16 +483,6 @@ export function Sidebar() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const keymapOverrides = useUiStore(state => state.keymapOverrides);
-	// The lane last shown comes back; with none saved (or once the open session moves) the open session picks it.
-	const rememberedLane = useRef(useSidebarFolds.getState().lane);
-	const laneSettled = useRef(false);
-	const [mode, setMode] = useState<SidebarMode>(rememberedLane.current ?? "code");
-	const shownLane = useRef(mode);
-	useEffect(() => {
-		if (shownLane.current === mode) return;
-		shownLane.current = mode;
-		useSidebarFolds.getState().setLane(mode);
-	}, [mode]);
 	// This computer's no-project workspace decides which lane a session's row sits in (`inChatLane`): its last answer
 	// paints the first frame, as a paired host's does (host-workspace.ts). Without it a chat-lane session was missing
 	// from the first frame's list and its row and selection came one frame later (300 ms on a slow machine).
@@ -599,9 +586,6 @@ export function Sidebar() {
 		return index;
 	}, [hostedSessions]);
 	const hosts = usePairedHosts();
-	// The focused tab on a paired host takes that host's lane: its no-project workspace is the host's, not this one's.
-	// Unanswered (the host offline), the host section's own read fills the shared snapshot this one reads.
-	const activeHostWorkspace = useHostWorkspace(activeTab?.device, true);
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
@@ -646,30 +630,9 @@ export function Sidebar() {
 			.then(workspace => {
 				snapshots().write("panel", snapshotNs(), "workspace", workspace);
 				setDefaultWorkspace(workspace);
-				const tabState = useTabsStore.getState();
-				const activeKind = tabState.tabs.find(tab => tab.id === tabState.activeTabId)?.kind;
-				if (
-					rememberedLane.current === null &&
-					(activeKind === "chat" || useSessionStore.getState().cwd === workspace)
-				)
-					setMode("chat");
 			})
 			.catch(() => {});
 	}, []);
-
-	// Opening a session from search or the palette keeps the lane honest.
-	useEffect(() => {
-		if (!defaultWorkspace || !cwd) return;
-		// The first open session at launch does not override the lane that was left.
-		const settled = laneSettled.current;
-		laneSettled.current = true;
-		if (!settled && rememberedLane.current !== null) return;
-		setMode(
-			inChatLane({ kind: activeTabKind, cwd }, activeTabRemote ? activeHostWorkspace : defaultWorkspace)
-				? "chat"
-				: "code",
-		);
-	}, [activeTabKind, cwd, defaultWorkspace, activeTabRemote, activeHostWorkspace]);
 
 	const query = filter.trim().toLocaleLowerCase();
 	const matchesFilter = useCallback(
@@ -1130,24 +1093,18 @@ export function Sidebar() {
 				: allGroups,
 		[allGroups, matchesFamilyFilter, matchesFilter, query],
 	);
-	// Archived sessions of this lane that no tab holds, newest first.
+	// Archived sessions no tab holds, newest first.
 	const archivedRows = sessions
 		.filter(
 			session =>
 				archivedIds.has(session.id) &&
 				sessionHasContent(session) &&
 				!heldByTab.has(session.path) &&
-				!heldByTab.has(session.id) &&
-				inChatLane(session, defaultWorkspace) === (mode === "chat"),
+				!heldByTab.has(session.id),
 		)
 		.filter(matchesFilter)
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
-	const totalCount = mode === "chat" ? chatLaneSessions.length : groups.length;
-	// An empty lane must not read as "no sessions at all" while the other lane
-	// holds some (e.g. the open code session while 채팅 is selected).
-	const codeTotal = codeSessions.length;
-	const otherModeCount = mode === "chat" ? codeTotal : allSessions.length - codeTotal;
-	const visibleGroups = mode === "code" ? groups : [];
+	const totalCount = groups.length + chatLaneSessions.length;
 	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
 	// in view.
 	const openTabCwds = useMemo(
@@ -1317,7 +1274,6 @@ export function Sidebar() {
 				buttonLabel: t("sidebar.project.newFolderButton"),
 			});
 			if (!picked) return;
-			setMode("code");
 			await goToProject(picked);
 		} catch (error) {
 			toastError({ title: t("titlebar.openProjectFailed"), error });
@@ -2264,97 +2220,44 @@ export function Sidebar() {
 								size="sm"
 								title={t("sidebar.noMatch")}
 							/>
-						) : mode === "code" ? (
+						) : (
 							<EmptyState
 								actions={
-									<>
-										<Button
-											icon={<FolderOpen />}
-											onClick={() => setWorkspaceDialog("new-session")}
-											size="sm"
-											variant="secondary"
-										>
-											{t("sidebar.project.open")}
-										</Button>
-										{otherModeCount > 0 && (
-											<Button
-												data-sidebar-other-mode
-												onClick={() => setMode("chat")}
-												size="sm"
-												variant="ghost"
-											>
-												{t("sidebar.otherMode.showChat")}
-											</Button>
-										)}
-									</>
+									<Button
+										icon={<FolderOpen />}
+										onClick={() => setWorkspaceDialog("new-session")}
+										size="sm"
+										variant="secondary"
+									>
+										{t("sidebar.project.open")}
+									</Button>
 								}
 								className="omp-sidebar-empty"
-								description={
-									otherModeCount > 0 ? (
-										<>
-											{t("sidebar.emptyCodeHint")} {t("sidebar.otherMode.chat", { count: otherModeCount })}
-										</>
-									) : (
-										t("sidebar.emptyCodeHint")
-									)
-								}
+								description={t("sidebar.emptyCodeHint")}
 								icon={<SquareTerminal />}
 								size="sm"
 								title={t("sidebar.emptyCode")}
 							/>
-						) : (
-							<EmptyState
-								actions={
-									<>
-										<Button
-											icon={<MessageSquarePlus />}
-											onClick={() => startChat()}
-											size="sm"
-											variant="secondary"
-										>
-											{t("sidebar.menu.newChat")}
-										</Button>
-										{otherModeCount > 0 && (
-											<Button
-												data-sidebar-other-mode
-												onClick={() => setMode("code")}
-												size="sm"
-												variant="ghost"
-											>
-												{t("sidebar.otherMode.showCode")}
-											</Button>
-										)}
-									</>
-								}
-								className="omp-sidebar-empty"
-								description={
-									otherModeCount > 0 ? (
-										<>
-											{t("sidebar.emptyChatHint")} {t("sidebar.otherMode.code", { count: otherModeCount })}
-										</>
-									) : (
-										t("sidebar.emptyChatHint")
-									)
-								}
-								icon={<MessageCircle />}
-								size="sm"
-								title={t("sidebar.emptyChat")}
-							/>
 						))}
-					{mode === "chat" && chatLaneSessions.length > 0 && (
-						<div className="space-y-px" data-chat-lane>
-							{chatLaneSessions.map(session => renderSessionRow(session))}
-						</div>
-					)}
-					{visibleGroups.length > 0 && (
+					{groups.length > 0 && (
 						<DndContext collisionDetection={closestCenter} onDragEnd={onProjectDragEnd} sensors={projectSensors}>
-							<SortableContext
-								items={visibleGroups.map(group => group.cwd)}
-								strategy={verticalListSortingStrategy}
-							>
-								{visibleGroups.map(renderGroup)}
+							<SortableContext items={groups.map(group => group.cwd)} strategy={verticalListSortingStrategy}>
+								{groups.map(renderGroup)}
 							</SortableContext>
 						</DndContext>
+					)}
+					{/* Chats follow the projects in the same list (no Code/Chat switch, the user's call of 22 Oct 2026). */}
+					{!listError && (chatLaneSessions.length > 0 || (!query && !(isLoading && allSessions.length === 0))) && (
+						<SidebarChats
+							count={chatLaneSessions.length}
+							deviceId={LOCAL_DEVICE}
+							filtering={query.length > 0}
+							newChatData={{ "data-sidebar-new-chat": "" }}
+							newChatLabel={t("sidebar.newChat")}
+							onNewChat={() => startChat()}
+						>
+							{chatLaneSessions.map(session => renderSessionRow(session))}
+						</SidebarChats>
 					)}
 					{archivedRows.length > 0 && (
 						<section className="mt-3" data-sidebar-archived ref={archivedRef}>
@@ -2451,46 +2354,24 @@ export function Sidebar() {
 				</div>
 
 				<div className="omp-sidebar-controls flex shrink-0 flex-col gap-2 px-2 pt-1 pb-2">
-					<Tabs
-						activeId={mode}
-						ariaLabel={t("sidebar.mode.aria")}
-						className="flex w-full [&>button]:flex-1 [&>button]:justify-center"
-						compact
-						onChange={id => setMode(id as SidebarMode)}
-						tabs={[
-							{ id: "code", label: t("sidebar.mode.code") },
-							{ id: "chat", label: t("sidebar.mode.chat") },
-						]}
-						variant="segmented"
-					/>
-					{/* One line per lane, the same geometry on both: the lane's search, then one icon (Code: open a
-					    project folder; Chat: new chat). Once device sections show, each device header carries its own
-					    project folder button, so the Code lane's search takes the whole line. New code sessions start
-					    from a project row's +, ⌘N, the palette, the menu and the tray. */}
-					<div className="flex items-center gap-1" data-sidebar-header-row={mode}>
+					{/* One line: the search over every session (projects and chats), then the open-or-create project
+					    folder button. Once device sections show, each device header carries its own, so the search takes
+					    the whole line. New code sessions start from a project row's +, ⌘N, the palette, the menu and the
+					    tray; a new chat from the Chats section's own button. */}
+					<div className="flex items-center gap-1" data-sidebar-header-row>
 						<div className="min-w-0 flex-1">
 							<SearchField
 								controlSize="lg"
 								data-sidebar-filter
-								label={mode === "chat" ? t("sidebar.filterChats") : t("sidebar.filter")}
+								label={t("sidebar.filter")}
 								onValueChange={setFilter}
-								placeholder={
-									mode === "chat" ? t("sidebar.filterChatsPlaceholder") : t("sidebar.filterPlaceholder")
-								}
+								placeholder={t("sidebar.filterPlaceholder")}
 								value={filter}
 							/>
 						</div>
-						{/* Once a host is paired every device header ends in this lane's button, so the search row's
+						{/* Once a host is paired every device header ends in its own project button, so the search row's
 						    would be a second one for this device. */}
-						{sectionHosts.length > 0 ? null : mode === "chat" ? (
-							<IconButton
-								data-sidebar-new-chat
-								icon={<MessageSquarePlus />}
-								label={t("sidebar.newChat")}
-								onClick={() => startChat()}
-								variant="ghost"
-							/>
-						) : (
+						{sectionHosts.length > 0 ? null : (
 							<IconButton
 								data-sidebar-open-project
 								icon={<FolderPlus />}
@@ -2524,11 +2405,7 @@ export function Sidebar() {
 										role={sectionHosts.length > 0 ? "region" : undefined}
 									>
 										{sectionHosts.length > 0 && (
-											<SidebarLocalHeader
-												mode={mode}
-												onAddProject={() => void openProjectFolder()}
-												onNewChat={() => startChat()}
-											/>
+											<SidebarLocalHeader onAddProject={() => void openProjectFolder()} />
 										)}
 										{localList}
 									</div>
@@ -2540,7 +2417,6 @@ export function Sidebar() {
 								node: (
 									<SidebarDeviceSection
 										host={host}
-										mode={mode}
 										nested={nestedRemote.get(host.deviceId)}
 										onNewChat={startChat}
 										pending={host.pending === true}

@@ -1,7 +1,7 @@
 /**
  * The left sidebar's fold state, remembered (device-local pref `sidebarFolds`, mirrored in localStorage:
  * `lib/sidebar-memory.ts`): which project / folder / worktree groups are folded, the device sections (this device and
- * each paired host) and their folder groups, the Code/Chat lane the user picked, the Archived section, the Get started
+ * each paired host) and their folder groups, each device's Chats section, the Archived section, the Get started
  * checklist and the footer usage block. The sidebar's own components read and write it; the sidebar prunes it
  * (`pruneGroups`, `syncHosts`) once a live read says which folders and hosts still exist.
  */
@@ -16,7 +16,6 @@ import {
 	readSidebarFolds,
 	SIDEBAR_FOLDS_PREF,
 	type SidebarFolds,
-	type SidebarLane,
 	withFlag,
 	writeSidebarFolds,
 } from "../lib/sidebar-memory";
@@ -27,7 +26,7 @@ interface SidebarFoldsStore extends SidebarFolds {
 	setGroupFolded: (cwd: string, folded: boolean) => void;
 	setDeviceFolded: (deviceId: string, folded: boolean) => void;
 	setDeviceGroupFolded: (deviceId: string, cwd: string, folded: boolean) => void;
-	setLane: (lane: SidebarLane) => void;
+	setChatsFolded: (deviceId: string, folded: boolean) => void;
 	setArchivedOpen: (open: boolean) => void;
 	setStarterOpen: (open: boolean) => void;
 	setUsageCollapsed: (collapsed: boolean) => void;
@@ -50,7 +49,7 @@ function saved(state: SidebarFolds): SidebarFolds {
 		groups: state.groups,
 		devices: state.devices,
 		deviceGroups: state.deviceGroups,
-		lane: state.lane,
+		chats: state.chats,
 		archivedOpen: state.archivedOpen,
 		starterOpen: state.starterOpen,
 		usageCollapsed: state.usageCollapsed,
@@ -72,9 +71,7 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 		setDeviceFolded: (deviceId, folded) => edit({ devices: withFlag(get().devices, deviceId, folded) }),
 		setDeviceGroupFolded: (deviceId, cwd, folded) =>
 			edit({ deviceGroups: withFlag(get().deviceGroups, deviceGroupKey(deviceId, cwd), folded) }),
-		setLane: lane => {
-			if (get().lane !== lane) edit({ lane });
-		},
+		setChatsFolded: (deviceId, folded) => edit({ chats: withFlag(get().chats, deviceId, folded) }),
 		setArchivedOpen: open => {
 			if (get().archivedOpen !== open) edit({ archivedOpen: open });
 		},
@@ -95,14 +92,16 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 			writeSidebarFolds(saved(get()));
 		},
 		syncHosts: hosts => {
-			const { devices, deviceGroups, deviceOrder, knownHosts } = get();
+			const { devices, deviceGroups, deviceOrder, knownHosts, chats } = get();
 			const ids = new Set(hosts.map(host => host.id));
 			const known = (deviceId: string) => deviceId === LOCAL_DEVICE || ids.has(deviceId);
 			const keptDevices = Object.entries(devices).filter(([deviceId]) => known(deviceId));
 			const keptGroups = Object.entries(deviceGroups).filter(([key]) => known(key.slice(0, key.indexOf("\n"))));
 			const keptOrder = deviceOrder.filter(known);
+			const keptChats = Object.entries(chats).filter(([deviceId]) => known(deviceId));
 			if (
 				keptDevices.length === Object.keys(devices).length &&
+				keptChats.length === Object.keys(chats).length &&
 				keptGroups.length === Object.keys(deviceGroups).length &&
 				keptOrder.length === deviceOrder.length &&
 				JSON.stringify(hosts) === JSON.stringify(knownHosts)
@@ -110,6 +109,7 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 				return;
 			set({
 				devices: Object.fromEntries(keptDevices),
+				chats: Object.fromEntries(keptChats),
 				deviceGroups: Object.fromEntries(keptGroups),
 				deviceOrder: keptOrder,
 				knownHosts: [...hosts],

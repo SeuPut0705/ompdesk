@@ -1987,6 +1987,7 @@ html[data-shell]
 		[data-device-group-new],
 		[data-sidebar-device-add],
 		[data-sidebar-device-new-chat],
+		[data-sidebar-chats] > div:first-child > button,
 		.omp-sidebar-header button,
 		.omp-sidebar-controls button,
 		[data-sidebar-destinations] button,
@@ -2005,7 +2006,12 @@ html[data-shell]
    36 px buttons hung 2–4 px into the next row and took its taps. */
 html[data-shell]
 	.omp-session-sidebar
-	:is([data-device-state] > div:first-child, [data-device-group] > div:first-child, [data-sidebar-device-header]) {
+	:is(
+		[data-device-state] > div:first-child,
+		[data-device-group] > div:first-child,
+		[data-sidebar-device-header],
+		[data-sidebar-chats] > div:first-child
+	) {
 	height: auto;
 	min-height: 36px;
 }

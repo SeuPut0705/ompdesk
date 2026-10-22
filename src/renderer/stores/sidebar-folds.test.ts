@@ -40,7 +40,7 @@ describe("remembered folds", () => {
 		folds.setDeviceFolded(LOCAL_DEVICE, true);
 		folds.setDeviceFolded("dev-1", true);
 		folds.setDeviceGroupFolded("dev-1", "/srv/app", true);
-		folds.setLane("chat");
+		folds.setChatsFolded(LOCAL_DEVICE, true);
 		folds.setArchivedOpen(true);
 		folds.setStarterOpen(true);
 		folds.setUsageCollapsed(true);
@@ -51,12 +51,8 @@ describe("remembered folds", () => {
 		expect(state.groups).toEqual({ "/work/a": true, "/work/b": false });
 		expect(state.devices).toEqual({ [LOCAL_DEVICE]: true, "dev-1": true });
 		expect(state.deviceGroups).toEqual({ "dev-1\n/srv/app": true });
-		expect([state.lane, state.archivedOpen, state.starterOpen, state.usageCollapsed]).toEqual([
-			"chat",
-			true,
-			true,
-			true,
-		]);
+		expect(state.chats).toEqual({ [LOCAL_DEVICE]: true });
+		expect([state.archivedOpen, state.starterOpen, state.usageCollapsed]).toEqual([true, true, true]);
 		expect(get).not.toHaveBeenCalled();
 	});
 

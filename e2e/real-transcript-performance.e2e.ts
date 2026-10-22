@@ -93,9 +93,6 @@ test("isolated real-session switch timing, transcript bytes and renderer heap", 
 				if (!discovered.some(session => session.path === copied)) {
 					throw new Error(`Copied session missing from isolated stock index (${discovered.length} sessions)`);
 				}
-				const codeLane = page.getByRole("tab", { name: "Code", exact: true });
-				await expect(codeLane).toBeVisible();
-				await codeLane.click();
 				const group = page.locator(`button[title=${JSON.stringify(header.cwd)}][aria-expanded]`);
 				await expect(group).toBeVisible({ timeout: 30_000 });
 				if ((await group.getAttribute("aria-expanded")) === "false") await group.click();

@@ -113,7 +113,6 @@ async function openDrawer(phone: Page): Promise<void> {
 	await phone.getByRole("button", { name: "Open menu" }).click();
 	const sidebar = phone.locator("[data-drawer] .omp-session-sidebar");
 	await expect(sidebar).toBeVisible();
-	await sidebar.getByRole("tab", { name: "Code" }).click();
 }
 
 async function sendFromPhone(phone: Page, text: string): Promise<void> {

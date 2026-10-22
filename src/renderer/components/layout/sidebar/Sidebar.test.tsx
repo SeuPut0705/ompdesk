@@ -575,8 +575,6 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		useSidebarPrefs.setState({ hydrated: true });
 		await mount(<SidebarWithWorkspaceRecency />);
-		// A chat tab opens the Chat lane; projects live in Code.
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
 		// Non-active workspaces start collapsed and render no rows; expand alpha
 		// so its session order is inspectable.
 		await fire(groupToggle("/work/alpha"), "onClick");
@@ -634,8 +632,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rows[1]).toContain("Session /work/alpha/two");
 	});
 
-	it("keeps each lane's header to one line: its search, then one icon (Code: open folder; Chat: new chat)", async () => {
-		const omp = installMockOmp(LIST);
+	it("keeps one header line, its search and the project folder button, with chats after the projects in one list", async () => {
+		const omp = installMockOmp([
+			...LIST,
+			session("/work/chat-1.jsonl", "/work/chat-home", { kind: "chat", firstMessage: "chat one" }),
+		]);
 		useSessionStore.setState({ sessionId: "chat", cwd: "/work/alpha", isStreaming: false });
 		useTabsStore.setState({
 			tabs: [{ id: "chat", cwd: "/work/alpha", status: "ready", kind: "chat", unreadDone: false }],
@@ -644,36 +645,39 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
 		const headerRow = () => container.querySelector("[data-sidebar-header-row]");
 		const rowControls = () =>
 			[...(headerRow()?.querySelectorAll("input, button") ?? [])].map(
 				element => element.getAttribute("aria-label") ?? "",
 			);
-
-		// An active chat opens the Chat lane: [Find chats] [New chat].
-		expect(modeTab("chat")?.getAttribute("aria-selected")).toBe("true");
-		expect(headerRow()?.getAttribute("data-sidebar-header-row")).toBe("chat");
-		expect(rowControls()).toEqual([translate("sidebar.filterChats"), translate("sidebar.newChat")]);
-		expect(headerRow()?.querySelector("input")?.getAttribute("placeholder")).toBe(
-			translate("sidebar.filterChatsPlaceholder"),
-		);
-		await fire(container.querySelector("[data-sidebar-header-row] [data-sidebar-new-chat]"), "onClick");
-		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(
-			expect.objectContaining({ kind: "chat", sessionPath: undefined }),
-		);
-
-		// Code: [Find sessions] [open project folder], and no New session button anywhere in the header.
-		await fire(modeTab("code"), "onClick");
-		expect(modeTab("code")?.getAttribute("aria-selected")).toBe("true");
-		expect(headerRow()?.getAttribute("data-sidebar-header-row")).toBe("code");
+		// No Code/Chat switch: one search over every session, then the project folder button.
+		expect(container.querySelector('[role="tablist"]')).toBeNull();
 		expect(rowControls()).toEqual([translate("sidebar.filter"), translate("sidebar.project.newFolder")]);
 		expect(headerRow()?.querySelector("input")?.getAttribute("placeholder")).toBe(
 			translate("sidebar.filterPlaceholder"),
 		);
 		const controls = container.querySelector(".omp-sidebar-controls")?.textContent ?? "";
 		expect(controls).not.toContain(translate("sidebar.newSession"));
-		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
+
+		// Projects first, then the Chats section, in the same list.
+		const list = container.querySelector('[data-tour="sessions"]');
+		const firstProject = list?.querySelector("[data-workspace-group]");
+		const chats = list?.querySelector('[data-sidebar-chats="local"]');
+		expect(firstProject).not.toBeNull();
+		expect(chats?.textContent).toContain(translate("sidebar.chats"));
+		expect(chats?.textContent).toContain("Session /work/chat-1");
+		const order = [...(list?.querySelectorAll("[data-workspace-group], [data-sidebar-chats]") ?? [])];
+		expect(order.at(-1)).toBe(chats);
+
+		// The Chats section's own button starts a chat.
+		await fire(chats?.querySelector("[data-sidebar-new-chat]"), "onClick");
+		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: "chat", sessionPath: undefined }),
+		);
+		// Its fold is remembered.
+		await fire(chats?.querySelector("[data-sidebar-chats-toggle]"), "onClick");
+		expect(useSidebarFolds.getState().chats.local).toBe(true);
+		expect(container.querySelector('[data-sidebar-chats="local"] [data-chat-lane]')).toBeNull();
 	});
 
 	it("shows status as an icon plus text only when there is something to say", async () => {
@@ -1293,7 +1297,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect([...omp.sidecar.setProject.mock.calls.map(([cwd]) => cwd), ...spawnedCwds]).toEqual(["/work/new-app"]);
 	});
 
-	it("chats live in the Chat lane, not under their project", async () => {
+	it("chats live in the Chats section, not under their project", async () => {
 		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
 		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
 		const omp = installMockOmp([chat, agent]);
@@ -1303,9 +1307,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		const workspace = container.querySelector('[data-session-group="/work/alpha"]');
 		expect(workspace?.textContent).toContain("Session /work/alpha/agent");
 		expect(workspace?.textContent).not.toContain("Session /work/alpha/chat");
-		expect(container.querySelector("[data-chat-lane]")).toBeNull();
 
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="chat"]'), "onClick");
 		const lane = container.querySelector("[data-chat-lane]");
 		expect(lane?.textContent).toContain("Session /work/alpha/chat");
 		expect(lane?.textContent).not.toContain("Session /work/alpha/agent");
@@ -1349,7 +1351,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(lane?.textContent).toContain("Session /work/alpha/kept");
 	});
 
-	it("sessions started without a project share the Chat lane with chats", async () => {
+	it("sessions started without a project share the Chats section with chats", async () => {
 		const chat = session("/elsewhere/chat.jsonl", "/elsewhere", { kind: "chat" });
 		const noProject = session("/default/work/agent.jsonl", "/default/work");
 		installMockOmp([chat, noProject]);
@@ -1361,9 +1363,6 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		await mount(<Sidebar />);
 
-		expect(container.querySelector('[role="tablist"] [data-tab-id="chat"]')?.getAttribute("aria-selected")).toBe(
-			"true",
-		);
 		const lane = container.querySelector("[data-chat-lane]");
 		expect(lane?.textContent).toContain("Session /elsewhere/chat");
 		expect(lane?.textContent).toContain("Session /default/work/agent");
@@ -2915,28 +2914,23 @@ describe("Sidebar device sections", () => {
 		expect(omp.tabs.spawn).not.toHaveBeenCalledWith(expect.objectContaining({ device: expect.anything() }));
 	});
 
-	it("ends every device row in New chat in the Chat lane, starting the chat on that device", async () => {
+	it("gives every device its own Chats section after its projects, its New chat starting the chat on that device", async () => {
 		const omp = installWithRemote();
 		seedStores();
 		pairHost("online");
 		await mount(<Sidebar />);
-		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
-		await fire(modeTab("chat"), "onClick");
 
-		// The Chat lane has no projects: no device row offers to add one. Each ends in New chat on its device, so the
-		// search row's New chat (this device's) gives way, as its project button does in Code.
-		expect(container.querySelector("[data-sidebar-device-add]")).toBeNull();
-		expect(container.querySelector("[data-sidebar-new-chat]")).toBeNull();
-		const local = container.querySelector('[data-sidebar-device-new-chat="local"]');
-		expect(local?.getAttribute("aria-label")).toBe(
-			translate("remote.sidebar.newChat", { name: translate("remote.sidebar.thisDevice") }),
-		);
+		// Every device header ends in its project button; a new chat is each device's Chats section's.
+		expect(container.querySelector('[data-sidebar-device-add="local"]')).not.toBeNull();
+		expect(container.querySelector('[data-sidebar-device-add="dev-studio"]')).not.toBeNull();
+		const local = container.querySelector('[data-sidebar-chats="local"] [data-sidebar-new-chat]');
+		expect(local?.getAttribute("aria-label")).toBe(translate("sidebar.newChat"));
 		const host = container.querySelector(
-			'[data-sidebar-device="dev-studio"] [data-sidebar-device-new-chat="dev-studio"]',
+			'[data-sidebar-device="dev-studio"] [data-sidebar-chats="dev-studio"] [data-sidebar-device-new-chat="dev-studio"]',
 		);
 		expect(host?.getAttribute("aria-label")).toBe(translate("remote.sidebar.newChat", { name: "studio" }));
 
-		// This device's starts a chat here, as the search row's New chat does; never on the host, never a folder dialog.
+		// This device's starts a chat here; never on the host, never a folder dialog.
 		await fire(local, "onClick");
 		await act(async () => {});
 		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "chat" }));
@@ -2948,12 +2942,6 @@ describe("Sidebar device sections", () => {
 			expect.objectContaining({ kind: "chat", cwd: undefined, device: "dev-studio" }),
 		);
 		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
-
-		// The Code lane keeps the add-project button on every device row.
-		await fire(modeTab("code"), "onClick");
-		expect(container.querySelector("[data-sidebar-device-new-chat]")).toBeNull();
-		expect(container.querySelector('[data-sidebar-device-add="local"]')).not.toBeNull();
-		expect(container.querySelector('[data-sidebar-device-add="dev-studio"]')).not.toBeNull();
 	});
 
 	it("lights a host's session that no tab here holds while the host works on it, before anyone opens it", async () => {
@@ -3113,7 +3101,7 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
 	});
 
-	it("puts the host's no-project sessions in its Chat lane, by the host's own workspace, as the host does", async () => {
+	it("puts the host's no-project sessions in its Chats section, by the host's own workspace, as the host does", async () => {
 		const omp = installWithRemote();
 		const work = session("/Users/kim/.omp/agent/sessions/-.omp-work/two.jsonl", "/Users/kim/.omp/work", {
 			title: "Opened in the host's workspace",
@@ -3128,49 +3116,14 @@ describe("Sidebar device sections", () => {
 		seedStores();
 		pairHost("online");
 		await mount(<Sidebar />);
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
 
-		const section = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		const chats = () => container.querySelector('[data-sidebar-chats="dev-studio"]');
 		expect(omp.sidecar.defaultWorkspace).toHaveBeenCalledWith("dev-studio");
-		expect(section()?.textContent).toContain("Remote fix");
-		expect(section()?.textContent).not.toContain("Opened in the host's workspace");
-
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="chat"]'), "onClick");
-		expect(section()?.textContent).toContain("Opened in the host's workspace");
-		expect(section()?.textContent).not.toContain("Remote fix");
-	});
-
-	it("focusing a host's no-project tab opens the Chat lane, by the host's workspace", async () => {
-		const omp = installWithRemote();
-		omp.sidecar.defaultWorkspace.mockImplementation(async (device?: string) =>
-			device === "dev-studio" ? "/Users/kim/.omp/work" : "/default/work",
+		expect(chats()?.textContent).toContain("Opened in the host's workspace");
+		expect(chats()?.textContent).not.toContain("Remote fix");
+		expect(container.querySelector('[data-sidebar-device="dev-studio"] [data-device-group]')?.textContent).toContain(
+			"Remote fix",
 		);
-		seedStores();
-		pairHost("online");
-		await mount(<Sidebar />);
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="code"]'), "onClick");
-		const modeTab = (id: string) => container.querySelector(`[role="tablist"] [data-tab-id="${id}"]`);
-		expect(modeTab("code")?.getAttribute("aria-selected")).toBe("true");
-
-		act(() => {
-			useTabsStore.setState(state => ({
-				tabs: [
-					...state.tabs,
-					{
-						id: "t-remote",
-						cwd: "/Users/kim/.omp/work",
-						status: "ready",
-						kind: "agent",
-						unreadDone: false,
-						device: "dev-studio",
-					},
-				] as never,
-				activeTabId: "t-remote",
-			}));
-			useSessionStore.setState({ cwd: "/Users/kim/.omp/work" });
-		});
-		await flush();
-		expect(modeTab("chat")?.getAttribute("aria-selected")).toBe("true");
 	});
 
 	describe("order", () => {
@@ -4136,23 +4089,6 @@ describe("Sidebar remembered folds", () => {
 		expect(container.querySelector("[data-sidebar-device-toggle='local']")?.getAttribute("aria-expanded")).toBe(
 			"false",
 		);
-	});
-
-	it("keeps the Code or Chat lane that was left, even with a code session open", async () => {
-		const chat = session("/work/alpha/chat.jsonl", "/work/alpha", { kind: "chat" });
-		const agent = session("/work/alpha/agent.jsonl", "/work/alpha");
-		const omp = installMockOmp([chat, agent]);
-		seedStores();
-		await mount(<Sidebar />);
-		await fire(container.querySelector('[role="tablist"] [data-tab-id="chat"]'), "onClick");
-		expect(omp.prefs.set).toHaveBeenCalledWith("sidebarFolds", expect.objectContaining({ lane: "chat" }));
-
-		// The window reopens on the open code session: the lane that was left is the one shown.
-		await act(async () => root.unmount());
-		container.remove();
-		await mount(<Sidebar />);
-		expect(container.querySelector("[data-chat-lane]")?.textContent).toContain("Session /work/alpha/chat");
-		expect(container.querySelector("[data-workspace-group]")).toBeNull();
 	});
 
 	it("prunes the folds of folders, hosts and sessions that no longer exist once a live read lands", async () => {

@@ -60,14 +60,15 @@ describe("fold records", () => {
 			groups: { "/work/a": true, "/work/b": false },
 			devices: { local: true },
 			deviceGroups: { [deviceGroupKey("d1", "/srv")]: true },
-			lane: "chat" as const,
+			chats: { local: true },
 			starterOpen: true,
 		};
 		writeSidebarFolds(folds);
 		expect(parseSidebarFolds(JSON.parse(map.get(SIDEBAR_FOLDS_STORAGE_KEY) ?? "null"))).toEqual(folds);
 		expect(set).toHaveBeenCalledWith("sidebarFolds", folds);
 		expect(parseSidebarFolds(null)).toEqual(EMPTY_FOLDS);
-		expect(parseSidebarFolds({ groups: ["x"], devices: { a: "yes", b: true }, lane: "bogus" })).toEqual({
+		// A record an earlier build saved with its Code/Chat lane reads without it.
+		expect(parseSidebarFolds({ groups: ["x"], devices: { a: "yes", b: true }, lane: "chat" })).toEqual({
 			...EMPTY_FOLDS,
 			devices: { b: true },
 		});
