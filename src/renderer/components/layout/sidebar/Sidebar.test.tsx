@@ -3090,8 +3090,7 @@ describe("Sidebar device sections", () => {
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
 
 		// The host no longer says it works on it (or the link went down): the row goes quiet.
-		pairHost("online");
-		await act(async () => {});
+		await act(async () => pairHost("online"));
 		expect(slotOf(row())).toBe("age");
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBeNull();
 	});

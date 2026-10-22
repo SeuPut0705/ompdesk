@@ -140,7 +140,10 @@ function EffectiveLine({
 				? t("modelRoles.src.session")
 				: undefined;
 	return (
-		<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm text-(--sc-text-secondary)" data-role-status>
+		<div
+			className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm text-(--sc-text-secondary)"
+			data-role-status
+		>
 			<span className="font-medium text-(--sc-text)" title={effective.model}>
 				{effective.name ?? effective.model}
 			</span>
@@ -150,7 +153,7 @@ function EffectiveLine({
 				{levelName ? t("modelRoles.thinking", { level: levelName }) : t("modelRoles.thinkingSession")}
 			</span>
 			{compaction && <CompactsAt className="text-(--sc-text-muted)" compact point={compaction} />}
-		</p>
+		</div>
 	);
 }
 
