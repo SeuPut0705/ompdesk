@@ -346,9 +346,19 @@ function discoveryStates(session: AgentSession) {
 	return states;
 }
 
+/**
+ * A model as the windows get it: stock's model less its `compat` block (request quirks of the provider's API, about
+ * 1.9 KB of a 2.5 KB model, read by nothing in OMPdesk). A host with many providers sent a paired device 1.73 MB for
+ * one `get_providers`; every catalog read and `model_catalog_update` carries the list.
+ */
+function wireModel(model: ReturnType<AgentSession["getAvailableModels"]>[number]) {
+	const { compat: _compat, ...rest } = model as typeof model & { compat?: unknown };
+	return rest;
+}
+
 function catalogSnapshot(session: AgentSession, refreshPending: boolean) {
 	return {
-		models: session.getAvailableModels(),
+		models: session.getAvailableModels().map(wireModel),
 		discoveryStates: discoveryStates(session),
 		refreshPending,
 		generation: nextGeneration(),
