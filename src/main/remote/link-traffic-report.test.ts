@@ -56,11 +56,14 @@ class LinkRecorder {
 	start(device: DeviceKind = "current"): void {
 		const original = Link.prototype.send;
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
-		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, message: object) {
-			record(message);
-			if (device === "noDeflate" && "deflate" in message) {
+		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, sent: object) {
+			record(sent);
+			// Every build before the current one predates deflated frames.
+			let message = sent;
+			if (device !== "current" && "deflate" in message) {
 				const { deflate: _deflate, ...earlier } = message as { deflate?: unknown };
-				return original.call(this, earlier);
+				if (device === "noDeflate") return original.call(this, earlier);
+				message = earlier;
 			}
 			if (device === "noListReads" && "slimEvents" in message) {
 				const {
@@ -382,6 +385,19 @@ describe.skipIf(!MEASURE)("link traffic report", () => {
 			report(`task subagent, subscription ${level}`, recorder, Date.now() - started);
 		}, 120_000);
 	}
+});
+
+describe("deflated frames by the device's build", () => {
+	it("an older device's hello turns no deflate on: its host sends it every frame as JSON", async () => {
+		const slimOf = async (device: DeviceKind): Promise<string> => {
+			const { hostLog } = await openSession({ device });
+			const open = hostLog.find(line => line.message === "open");
+			return String((open?.details as { slim?: string } | undefined)?.slim);
+		};
+		expect((await slimOf("current")).split(",")).toContain("deflate");
+		for (const device of ["noDeflate", "noListReads", "slimEventsOnly", "older"] as const)
+			expect((await slimOf(device)).split(",")).not.toContain("deflate");
+	}, 60_000);
 });
 
 describe("link traffic harness", () => {
