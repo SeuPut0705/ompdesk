@@ -157,9 +157,15 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 				window.omp.rpc.command({ type: "bash", command: "fixture:subagents" }),
 			);
 			expect(roster.success).toBe(true);
-			const work = page.getByRole("region", { name: "Background work" });
-			await expect(work.getByRole("button", { name: /Agents 2 working/ })).toBeVisible({ timeout: 15_000 });
-			await expect(work.getByRole("button", { name: /Shells \d+ running/ })).toBeVisible();
+			// The window has no room to dock the work board, so its status strip holds the running work (the dock's
+			// island steps aside beside it): opened, it lists both subagents and the shell.
+			const strip = page.locator("[data-work-chip]");
+			await expect(strip).toBeVisible({ timeout: 15_000 });
+			await strip.click();
+			const panel = page.locator("[data-work-strip-panel]");
+			await expect(panel.locator("[data-board-agent]")).toHaveCount(2, { timeout: 15_000 });
+			await expect(panel.locator("[data-board-job]").first()).toBeVisible();
+			await strip.click();
 			await expect(page.locator("[data-sidebar-subagents-toggle]")).toHaveCount(1);
 			await expect(page.locator(".omp-user-bubble")).toHaveText([new RegExp(`^${FLOW_A_PROMPT}`)]);
 			await expect(page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")).toHaveCount(1);

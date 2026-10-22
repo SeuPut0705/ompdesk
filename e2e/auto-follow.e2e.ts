@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { exitApp, launchApp } from "./harness";
+import { exitApp, launchApp, pressShortcutUntilVisible } from "./harness";
 
 /** Distance from the bottom that still counts as "riding the live edge". Row
  * re-measurement during streaming overshoots a few pixels, so this is deliberately
@@ -289,6 +289,13 @@ test("viewport resizes from the dock and composer never stop a pinned transcript
 		const { input, gap, viewport, jumpOffered, send, abort, fixture, scrollUp, ridesTheStream } = followProbe(page);
 		const dock = page.getByTestId("workspace-dock");
 		await expect(input).toBeVisible({ timeout: 60_000 });
+		// The dock's todo card is what resizes the viewport here; beside the work board or its status strip it steps
+		// aside (they say the plan instead), so the board is hidden for this window, as its ✕ or the palette does.
+		const search = page.getByRole("dialog").getByRole("searchbox");
+		await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
+		await search.fill("Work board");
+		await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: "Work board" }).first().click();
+		await expect(search).toBeHidden();
 
 		await send("fixture stream");
 		await ridesTheStream(6);

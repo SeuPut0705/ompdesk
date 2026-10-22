@@ -153,12 +153,14 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await capture("wide");
 
-				// A narrow window has no room: the board goes and the columns centre again.
+				// A narrow window has no room: the board goes, the columns centre again and the status strip says the
+				// plan and the running work in its place, so the dock's island and todo card still step aside.
 				await resize(app, 1100, 900);
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
-				await expect(page.locator("[data-workspace-island]")).toBeVisible();
-				await expect(page.locator('[data-dock-card="todo"]')).toBeVisible();
+				await expect(page.locator("[data-work-strip]")).toBeVisible();
+				await expect(page.locator("[data-workspace-island]")).toBeHidden();
+				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await capture("narrow");
 				await resize(app, 1600, 900);
 				await expect(board).toBeVisible();
@@ -168,8 +170,9 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator("aside[data-docked]")).toBeVisible();
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
-				await expect(page.locator("[data-workspace-island]")).toBeVisible();
-				await expect(page.locator('[data-dock-card="todo"]')).toBeVisible();
+				await expect(page.locator("[data-work-strip]")).toBeVisible();
+				await expect(page.locator("[data-workspace-island]")).toBeHidden();
+				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await page.getByRole("button", { name: text.closePanel }).click();
 				await expect(page.locator("[data-workspace-island]")).toBeHidden();
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
