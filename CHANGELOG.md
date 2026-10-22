@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.61.0] - 2026-10-22
+
+연결한 컴퓨터에서 도는 탭의 기기 칩이 사이드바와 같은 기기 색을 써요. 휴대폰 입력창의 보내기 버튼을 누르기가 더 정확해졌어요.
+
+### 새로 생긴 것
+- 연결한 컴퓨터에서 도는 탭의 제목줄 기기 칩이 그 컴퓨터의 사이드바 색을 입어요.
+
+### 고친 것
+- 사이드바 기기 머리줄의 색 버튼이 늘 자리를 차지해 기기 이름이 거의 다 잘렸어요. 이제 마우스로는 머리줄에 올리거나 포커스할 때만 보여요(터치에서는 계속 보여요).
+- 휴대폰에서 글을 쓴 상태로 보내기 버튼 왼쪽 끝을 누르면 옆의 컨텍스트 링이 눌렸어요.
+- 연결한 컴퓨터에서 실행 중인 세션을 다시 불러올 때 대화 끝부분 전체가 아니라 새 메시지만 받아요(두 컴퓨터가 모두 이 버전일 때).
+
+<!-- en -->
+
+A remote tab's device chip wears the same device color as the sidebar. Send in the phone composer takes its taps more reliably.
+
+### Added
+- The device chip in a remote tab's title bar wears that computer's sidebar color.
+
+### Fixed
+- The device header's color button always took its room and cut the device name to a few letters; with a mouse it now shows on hover or focus (touch keeps it).
+- On a phone with a draft, a tap on Send's left edge went to the context ring beside it.
+- Reloading a session running on a paired computer receives only its new messages, not the whole tail of the conversation (when both computers run this version).
+
 ## [0.60.0] - 2026-10-22
 
 사이드바의 기기 머리줄마다 색이 생겨 연결한 컴퓨터의 세션을 이 컴퓨터 것과 쉽게 구분해요. 작업판은 닫히지 않고 늘 보여요.
