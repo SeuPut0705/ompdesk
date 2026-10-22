@@ -483,3 +483,41 @@ test("responsive smoke 1280×480 desktop: a stack of toasts taller than the wind
 	expect(newest).toBeLessThanOrEqual(480);
 	await page.context().close();
 });
+
+/**
+ * The audit judges a popover inside a scroller by what the scroller lets through, on the axes it scrolls only: a toast
+ * scrolled past the bottom of its stack is reachable, but a fixed dialog escapes the scroller around it and a box
+ * sticking out sideways from a stack that scrolls only vertically is not.
+ */
+test("responsive audit: a scroller lets through only what it scrolls", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 600,
+		height: 400,
+		dpr: 1,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await browser.newPage({ viewport: { width: look.width, height: look.height } });
+	await page.setContent(`<!doctype html><body style="margin:0">
+		<div style="position:fixed;top:300px;left:0;width:300px;max-height:90px;overflow-y:auto">
+			<div role="status" data-case="scrolled" style="height:300px">scrolled</div>
+		</div>
+		<div style="position:fixed;top:0;left:0;width:100px;height:60px;overflow-y:auto">
+			<div style="height:200px"></div>
+			<div role="dialog" data-case="fixed" style="position:fixed;top:350px;left:350px;width:100px;height:120px">fixed</div>
+		</div>
+		<div style="position:fixed;top:100px;left:300px;width:100px;max-height:80px;overflow-y:auto;overflow-x:hidden">
+			<div role="status" data-case="sideways" style="height:200px;width:400px">sideways</div>
+		</div>
+	</body>`);
+	const flagged = (await measure(page, look))
+		.filter(issue => issue.kind === "offscreen-popover")
+		.map(issue => issue.at);
+	expect(flagged.some(at => at.includes('"fixed"'))).toBe(true);
+	expect(flagged.some(at => at.includes("sideways"))).toBe(true);
+	expect(flagged.some(at => at.includes("scrolled"))).toBe(false);
+	await page.close();
+});

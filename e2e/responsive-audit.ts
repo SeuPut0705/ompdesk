@@ -549,16 +549,29 @@ function measureInPage(
 			const pinned = top.id !== "root" && ["fixed", "absolute"].includes(style(top).position);
 			if (!pinned) continue;
 		}
-		let rect = element.getBoundingClientRect();
-		if (rect.width < 2 || rect.height < 2) continue;
-		// Inside a scroller (a toast stack longer than the window), what counts is the scroller's own box: the rest is
-		// reached by scrolling it.
-		for (let up = element.parentElement; up && up !== document.body; up = up.parentElement) {
-			const { overflowX, overflowY } = style(up);
-			const scrolls = /auto|scroll/.test(overflowY) && up.scrollHeight > up.clientHeight + 1;
-			if (scrolls || (/auto|scroll/.test(overflowX) && up.scrollWidth > up.clientWidth + 1)) {
-				rect = up.getBoundingClientRect();
-				break;
+		const box = element.getBoundingClientRect();
+		if (box.width < 2 || box.height < 2) continue;
+		// Inside a scroller (a toast stack longer than the window), the part past the scroller's edge on an axis it
+		// scrolls is reached by scrolling it. A fixed box, or an absolute one placed outside the scroller, escapes it.
+		const rect = { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+		let escapes = style(element).position === "fixed";
+		// An absolute box is clipped only by scrollers at or above its containing block.
+		let block = style(element).position === "absolute" ? (element as HTMLElement).offsetParent : null;
+		for (let up = element.parentElement; up && up !== document.body && !escapes; up = up.parentElement) {
+			const { overflowX, overflowY, position } = style(up);
+			const under = block !== null && up !== block && block.contains(up);
+			if (up === block) block = null;
+			escapes = position === "fixed";
+			if (!block && position === "absolute") block = up.offsetParent;
+			if (under) continue;
+			const edge = up.getBoundingClientRect();
+			if (/auto|scroll/.test(overflowY) && up.scrollHeight > up.clientHeight + 1) {
+				rect.top = Math.max(rect.top, edge.top);
+				rect.bottom = Math.min(rect.bottom, edge.bottom);
+			}
+			if (/auto|scroll/.test(overflowX) && up.scrollWidth > up.clientWidth + 1) {
+				rect.left = Math.max(rect.left, edge.left);
+				rect.right = Math.min(rect.right, edge.right);
 			}
 		}
 		// A dialog's wrapper that spans the viewport is the overlay, not a floating box.
