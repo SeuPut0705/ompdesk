@@ -132,6 +132,8 @@ describe("a subagent row's title", () => {
 		const asked: string[] = [];
 		const store = createSubagentsStore(async command => {
 			asked.push(command.type);
+			// Only the first prompt is read, not the whole transcript.
+			expect(command).toMatchObject({ firstPrompt: true });
 			if (command.type !== "get_subagent_messages") return NO_TRANSCRIPT(command);
 			return {
 				type: "response",

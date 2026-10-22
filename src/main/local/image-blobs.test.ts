@@ -106,6 +106,22 @@ describe("subagent transcript images", () => {
 		]);
 	});
 
+	it("answers only the first user message when asked for the first prompt, from either read", async () => {
+		for (const type of ["get_subagent_messages", "get_subagent_transcript"]) {
+			const handler = localHandlerFor(type);
+			if (!handler) throw new Error(`${type} is not handled locally`);
+			const { ctx, stock, bridged } = context(transcript);
+			const result = (await handler(
+				{ type, id: "gui-9", subagentId: "ReloadTruth", firstPrompt: true },
+				ctx,
+			)) as SubagentTranscript;
+			expect(result.messages).toEqual([{ role: "user", content: "a message without images", timestamp: 2 }]);
+			// Stock is asked as before: the flag is main's alone.
+			const asked = type === "get_subagent_messages" ? stock[0] : bridged[0]?.params;
+			expect(asked).not.toHaveProperty("firstPrompt");
+		}
+	});
+
 	it("restores them on the bridge's get_subagent_transcript too", async () => {
 		const handler = localHandlerFor("get_subagent_transcript");
 		if (!handler) throw new Error("get_subagent_transcript is not handled locally");

@@ -79,7 +79,15 @@ export type RpcCommand =
 	/** Registers GUI-executed tools (stock `set_host_tools`); calls arrive as `host_tool_call`. */
 	| { id?: string; type: "set_host_tools"; tools: HostToolDefinition[] }
 	| { id?: string; type: "get_subagents" }
-	| { id?: string; type: "get_subagent_messages"; subagentId?: string; sessionFile?: string; fromByte?: number }
+	| {
+			id?: string;
+			type: "get_subagent_messages";
+			subagentId?: string;
+			sessionFile?: string;
+			fromByte?: number;
+			/** Answer only the first user message (main trims it where the omp runs): a subagent's assignment. */
+			firstPrompt?: boolean;
+	  }
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
 	| { id?: string; type: "cycle_model"; direction?: "forward" | "backward" }
 	| { id?: string; type: "get_available_models"; forceRefresh?: boolean }
@@ -376,7 +384,7 @@ export type RpcCommand =
 	/** Steer a running subagent this session owns (stock RPC `steer_subagent`). */
 	| { id?: string; type: "steer_subagent"; subagentId: string; message: string }
 	/** A settled subagent's transcript from the session's artifacts dir, after stock's registry forgot it (relaunch). */
-	| { id?: string; type: "get_subagent_transcript"; subagentId: string; fromByte?: number }
+	| { id?: string; type: "get_subagent_transcript"; subagentId: string; fromByte?: number; firstPrompt?: boolean }
 	| { id?: string; type: "write_local_paste"; content: string }
 	| { id?: string; type: "resolve_local_url"; url: string }
 	| { id?: string; type: "list_foreign_sessions"; source: "claude" | "codex" }

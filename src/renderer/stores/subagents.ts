@@ -301,8 +301,9 @@ export const createSubagentsStore = (command: TabCommand = activeTabCommand) => 
 			if (!node || node.assignment || node.description || recovered.has(id)) return;
 			recovered.add(id);
 			try {
-				let response = await command({ type: "get_subagent_messages", subagentId: id });
-				if (!response.success) response = await command({ type: "get_subagent_transcript", subagentId: id });
+				let response = await command({ type: "get_subagent_messages", subagentId: id, firstPrompt: true });
+				if (!response.success)
+					response = await command({ type: "get_subagent_transcript", subagentId: id, firstPrompt: true });
 				if (!response.success) return;
 				const messages = (response.data as { messages?: AgentMessage[] } | undefined)?.messages;
 				const first = messages?.find(message => message.role === "user");

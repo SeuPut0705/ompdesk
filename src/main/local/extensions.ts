@@ -64,6 +64,20 @@ async function abortSubagent(command: Parameters<LocalHandler>[0], ctx: LocalCom
 	return cancelled ? { ok: true } : { ok: false, reason: "not_found" };
 }
 
+/**
+ * With `firstPrompt`, the read answers only its first user message: the sidebar recovers a subagent's assignment
+ * from it, and the whole transcript (2.7 MB in a minute of one paired link's traffic, 22 Oct 2026) never crosses.
+ * Stock's read has no limit, so main trims it on the computer the omp runs on.
+ */
+async function firstOnly<T extends { messages?: unknown }>(read: Promise<T>, firstPrompt: unknown): Promise<T> {
+	const transcript = await read;
+	if (firstPrompt !== true || !Array.isArray(transcript.messages)) return transcript;
+	const first = transcript.messages.find(
+		message => typeof message === "object" && message !== null && (message as { role?: unknown }).role === "user",
+	);
+	return { messages: first ? [first] : [] } as T;
+}
+
 /** A transcript read whose `messages` carry their image bytes rather than stock's blob references. */
 async function withImageBytes<T extends { messages?: unknown }>(
 	read: Promise<T>,
@@ -119,8 +133,8 @@ export const handlers: Record<string, LocalHandler> = {
 	mcp_action: mcpAction,
 	mcp_add: mcpAdd,
 	mcp_reload: mcpReload,
-	get_subagent_messages: ({ id: _id, ...command }, ctx) =>
-		withImageBytes(ctx.send<{ messages?: unknown }>(command), ctx),
-	get_subagent_transcript: ({ type, id: _id, ...params }, ctx) =>
-		withImageBytes(ctx.bridge.request<{ messages?: unknown }>(type, params), ctx),
+	get_subagent_messages: ({ id: _id, firstPrompt, ...command }, ctx) =>
+		withImageBytes(firstOnly(ctx.send<{ messages?: unknown }>(command), firstPrompt), ctx),
+	get_subagent_transcript: ({ type, id: _id, firstPrompt, ...params }, ctx) =>
+		withImageBytes(firstOnly(ctx.bridge.request<{ messages?: unknown }>(type, params), firstPrompt), ctx),
 };
