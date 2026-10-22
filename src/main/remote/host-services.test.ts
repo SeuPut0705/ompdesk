@@ -3117,6 +3117,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			toolResults: false,
 			endFields: false,
 			autopilotReads: false,
+			listReads: false,
 		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
@@ -3216,6 +3217,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				toolResults: false,
 				endFields: false,
 				autopilotReads: false,
+				listReads: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3263,6 +3265,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				toolResults: false,
 				endFields: false,
 				autopilotReads,
+				listReads: false,
 			},
 		});
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3310,5 +3313,104 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 			status(31),
 			status(32),
 		]);
+	});
+});
+
+describe("LocalHostServices the reads a device repeats on every hydration", () => {
+	const commands = (n: number) => ({
+		commands: Array.from({ length: n }, (_, i) => ({
+			name: `skill:${i}`,
+			source: "skill",
+			description: "설명 ".repeat(60),
+		})),
+	});
+	const page = (n: number) => ({
+		messages: Array.from({ length: n }, (_, i) => ({
+			role: "assistant",
+			content: [{ type: "text", text: "답 ".repeat(200) }],
+			i,
+		})),
+		totalMessages: n,
+		startIndex: 0,
+	});
+
+	async function connected(listReads: boolean) {
+		const context = setup();
+		const x = Object.assign(new FakeConnection(peer("device-x")), {
+			slim: {
+				events: true,
+				progress: true,
+				autopilot: true,
+				ends: false,
+				readGroups: false,
+				toolResults: false,
+				endFields: false,
+				autopilotReads: true,
+				listReads,
+			},
+		});
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("no sidecar");
+		let n = 40;
+		sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: command.type === "get_available_commands" ? commands(n) : page(n),
+		});
+		const ask = async (command: Record<string, unknown>) =>
+			JSON.parse(
+				JSON.stringify(await context.services.call(x.peer, "tab.command", { rtab: "t1", command }, x)),
+			) as RpcResponse;
+		return { ...context, x, sidecar, ask, grow: () => n++ };
+	}
+
+	const size = (answer: RpcResponse) => JSON.stringify(answer).length;
+	const data = (answer: RpcResponse) => (answer.success ? answer.data : null);
+
+	it("sends the command list and the tail page as deltas of the last of their own kind; a page by cursor goes whole", async () => {
+		const { ask, grow } = await connected(true);
+		const tail = { type: "get_transcript_page", fromEnd: true, limit: 200 };
+		const answers = [await ask({ type: "get_available_commands" }), await ask(tail)];
+		grow();
+		answers.push(await ask({ type: "get_available_commands" }), await ask(tail));
+		expect(size(answers[2] as RpcResponse) * 10).toBeLessThan(size(answers[0] as RpcResponse));
+		expect(size(answers[3] as RpcResponse) * 10).toBeLessThan(size(answers[1] as RpcResponse));
+		const lists = createStatusReadDecoder();
+		const pages = createStatusReadDecoder();
+		expect([lists(data(answers[0] as RpcResponse)), lists(data(answers[2] as RpcResponse))]).toEqual([
+			commands(40),
+			commands(41),
+		]);
+		expect([pages(data(answers[1] as RpcResponse)), pages(data(answers[3] as RpcResponse))]).toEqual([
+			page(40),
+			page(41),
+		]);
+		// A page read by cursor is the device's to hold, nothing to compare it with.
+		expect(data(await ask({ type: "get_transcript_page", cursor: "c1", limit: 200 }))).toEqual(page(41));
+	});
+
+	it("sends both whole to a device that did not ask", async () => {
+		const { ask } = await connected(false);
+		expect(data(await ask({ type: "get_available_commands" }))).toEqual(commands(40));
+		expect(data(await ask({ type: "get_available_commands" }))).toEqual(commands(40));
+		expect(data(await ask({ type: "get_transcript_page", fromEnd: true, limit: 200 }))).toEqual(page(40));
+	});
+
+	it("sends a commandsUpdate that repeats the list the connection last got no further", async () => {
+		const { services, x, sidecar } = await connected(false);
+		const updates = () => x.tabEvents().filter(event => event.name === "commandsUpdate");
+		sidecar.emit("commandsUpdate", commands(3).commands);
+		sidecar.emit("commandsUpdate", commands(3).commands);
+		expect(updates()).toHaveLength(1);
+		sidecar.emit("commandsUpdate", commands(4).commands);
+		expect(updates()).toHaveLength(2);
+		// The device comes back on another connection: the list goes again.
+		const y = Object.assign(new FakeConnection(peer("device-x")), { slim: x.slim });
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir }, y);
+		sidecar.emit("commandsUpdate", commands(4).commands);
+		expect(y.tabEvents().filter(event => event.name === "commandsUpdate")).toHaveLength(1);
 	});
 });

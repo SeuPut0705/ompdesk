@@ -101,6 +101,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * `slimToolResults` (only ever sent with `slimEnds`): the device also rebuilds a tool result's `message_start` sent
  * as `{"~tool": toolCallId}` beside the fields its `tool_execution_end` did not carry: stock puts the same `content`
  * and `details` in both. A device without it (v0.54.0 and older) gets every tool result twice.
+ *
+ * `slimListReads` (only ever sent with `slimAutopilotReads`): the device also rebuilds a `get_available_commands`
+ * answer and a `get_transcript_page` read from the end (`encodedReadKey`) sent as numbered deltas the same way. A
+ * device without it (v0.59.1 and older) gets them whole.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -115,6 +119,7 @@ export const ClientHello = z.object({
 	slimToolResults: z.boolean().optional(),
 	slimEndFields: z.boolean().optional(),
 	slimAutopilotReads: z.boolean().optional(),
+	slimListReads: z.boolean().optional(),
 });
 
 /**
@@ -130,11 +135,13 @@ export interface LinkSlim {
 	toolResults: boolean;
 	endFields: boolean;
 	autopilotReads: boolean;
+	listReads: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 	const events = hello.slimEvents === true;
 	const ends = events && hello.slimEnds === true;
+	const autopilotReads = events && hello.slimAutopilot === true && hello.slimAutopilotReads === true;
 	return {
 		events,
 		progress: events && hello.slimProgress === true,
@@ -143,7 +150,8 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		readGroups: ends && hello.slimReadGroups === true,
 		toolResults: ends && hello.slimToolResults === true,
 		endFields: ends && hello.slimEndFields === true,
-		autopilotReads: events && hello.slimAutopilot === true && hello.slimAutopilotReads === true,
+		autopilotReads,
+		listReads: autopilotReads && hello.slimListReads === true,
 	};
 }
 
@@ -157,6 +165,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	toolResults: "tools",
 	endFields: "fields",
 	autopilotReads: "status",
+	listReads: "lists",
 };
 
 export const HostHelloMessage = z.object({

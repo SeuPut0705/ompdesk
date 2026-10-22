@@ -240,6 +240,46 @@ describe("RemoteSidecar", () => {
 		expect(link.sent.filter(request => request.method === "tab.command")).toHaveLength(3);
 	});
 
+	it("keeps a chain per read: the command list and the transcript's tail interleave, each rebuilt from its own copy", async () => {
+		const { link, sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		const hosts = new Map<string, ReturnType<typeof createStatusReadEncoder>>();
+		const commands = (n: number) => ({ commands: Array.from({ length: n }, (_, i) => ({ name: `skill:${i}` })) });
+		const page = (n: number) => ({
+			messages: Array.from({ length: n }, (_, i) => ({ role: "user", i })),
+			totalMessages: n,
+		});
+		let n = 10;
+		link.handlers["tab.command"] = params => {
+			const command = params.command as { type: string };
+			const key = command.type;
+			let encode = hosts.get(key);
+			if (!encode) {
+				encode = createStatusReadEncoder();
+				hosts.set(key, encode);
+			}
+			const data = key === "get_available_commands" ? commands(n) : page(n);
+			return {
+				type: "response",
+				command: key,
+				success: true,
+				data: JSON.parse(JSON.stringify(encode(data, params.fresh === true))),
+			};
+		};
+		const list = () => sidecar.rpcClient?.command({ type: "get_available_commands" });
+		const tail = () => sidecar.rpcClient?.command({ type: "get_transcript_page", fromEnd: true, limit: 200 });
+		await expect(list()).resolves.toMatchObject({ data: commands(10) });
+		await expect(tail()).resolves.toMatchObject({ data: page(10) });
+		n = 11;
+		await expect(list()).resolves.toMatchObject({ data: commands(11) });
+		await expect(tail()).resolves.toMatchObject({ data: page(11) });
+		expect(
+			link.sent.filter(request => request.method === "tab.command").map(request => request.params.fresh),
+		).toEqual([undefined, undefined, undefined, undefined]);
+	});
+
 	it("forwards commands, side-channel frames and lifecycle calls to its rtab on the host", async () => {
 		const { link, sidecar } = setup();
 		sidecar.start();

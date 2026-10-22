@@ -329,6 +329,26 @@ export function createStatusReadDecoder(): (wire: unknown) => unknown {
 	};
 }
 
+/**
+ * Which answers cross as numbered deltas ({@link createStatusReadEncoder}), each with its own chain per tab and the
+ * capability it needs: `get_autopilot` (`slimAutopilotReads`), and the two reads a device repeats on every hydration
+ * of a tab (`slimListReads`): the slash command list (about 100 KB with the built-in skill packs, and it seldom
+ * changes) and the transcript's tail page (up to 256 K characters; an idle session's is the same page again). A tail
+ * read keeps its own chain per limit; a page read by cursor goes whole.
+ */
+export function encodedReadKey(command: {
+	type: string;
+	fromEnd?: unknown;
+	cursor?: unknown;
+	limit?: unknown;
+}): { key: string; needs: "autopilotReads" | "listReads" } | null {
+	if (command.type === "get_autopilot") return { key: command.type, needs: "autopilotReads" };
+	if (command.type === "get_available_commands") return { key: command.type, needs: "listReads" };
+	if (command.type === "get_transcript_page" && command.fromEnd === true && command.cursor === undefined)
+		return { key: `${command.type}:${String(command.limit)}`, needs: "listReads" };
+	return null;
+}
+
 interface ProgressEncoder {
 	update(event: ToolUpdate): ToolUpdate;
 	frame(frame: SubagentProgressFrame): WireSubagentFrame;

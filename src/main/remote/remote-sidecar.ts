@@ -47,7 +47,7 @@ import {
 	TabSignInArg,
 	TabStatusArg,
 } from "./app-protocol";
-import { createLinkEventDecoder, createStatusReadDecoder, type WireSubagentFrame } from "./link-events";
+import { createLinkEventDecoder, createStatusReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
 
 /** The slice of RemoteClient a tab needs. */
 export interface RemoteLink {
@@ -141,7 +141,8 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	readonly #link: RemoteLink;
 	readonly #rtab: string;
 	readonly #linkEvents = createLinkEventDecoder();
-	readonly #autopilotReads = createStatusReadDecoder();
+	/** One per read that crosses as deltas (`encodedReadKey`). */
+	readonly #reads = new Map<string, (wire: unknown) => unknown>();
 	readonly #kind: "agent" | "chat";
 	readonly #fresh: boolean;
 	readonly #offlineMessage: () => string;
@@ -619,12 +620,19 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 					(timeoutMs ?? HOST_COMMAND_TIMEOUT_MS) + LINK_SLACK_MS,
 				);
 			const response = await ask(false);
-			if (command.type !== "get_autopilot" || !response.success) return response;
-			// The answer may be a delta of an earlier one (`slimAutopilotReads`); one this side lacks is asked again whole.
-			const status = this.#autopilotReads(response.data);
-			if (status !== null) return { ...response, data: status };
+			const read = encodedReadKey(command);
+			if (!read || !response.success) return response;
+			// The answer may be a delta of an earlier one (`slimAutopilotReads`, `slimListReads`); one this side lacks is
+			// asked again whole.
+			let decode = this.#reads.get(read.key);
+			if (!decode) {
+				decode = createStatusReadDecoder();
+				this.#reads.set(read.key, decode);
+			}
+			const data = decode(response.data);
+			if (data !== null) return { ...response, data };
 			const whole = await ask(true);
-			return whole.success ? { ...whole, data: this.#autopilotReads(whole.data) } : whole;
+			return whole.success ? { ...whole, data: decode(whole.data) } : whole;
 		} catch (error) {
 			// The link dropped mid-request: same refusal as a command sent while offline.
 			if (isOfflineError(error)) throw codedError("remote_offline", OFFLINE_TEXT);

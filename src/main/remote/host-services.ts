@@ -151,7 +151,7 @@ import {
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
 import { HostedTabView, labelForHost } from "./hosted-view";
-import { createLinkEventSender, createStatusReadEncoder, type LinkEventSender } from "./link-events";
+import { createLinkEventSender, createStatusReadEncoder, encodedReadKey, type LinkEventSender } from "./link-events";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
@@ -300,8 +300,10 @@ interface HostTab extends RunTracking {
 	answered: Map<string, "device" | "host">;
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
 	linkEvents?: { conn: HostConnection; sender: LinkEventSender };
-	/** `get_autopilot` answers to a device that reads them as deltas (`slimAutopilotReads`); one per connection. */
-	autopilotReads?: { conn: HostConnection; encode: (status: unknown, fresh: boolean) => unknown };
+	/** Answers to a device that reads them as deltas (`encodedReadKey`): one encoder per read and connection. */
+	reads?: { conn: HostConnection; encoders: Map<string, (status: unknown, fresh: boolean) => unknown> };
+	/** The last `commandsUpdate` list a connection got (JSON): stock repeats an unchanged list, which goes no further. */
+	sentCommands?: { conn: HostConnection; json: string };
 	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
 	sessionId?: string;
 	title?: string;
@@ -347,7 +349,7 @@ const CommandParams = z.object({
 	// Up to the longest window the GUI itself gives a command (a login waits on
 	// the browser, a bash or a PR checkout runs long): every command a device sends fits.
 	timeoutMs: z.number().int().positive().max(MAX_RPC_COMMAND_TIMEOUT_MS).optional(),
-	/** A `get_autopilot` the device asks again: its answer goes whole (`slimAutopilotReads`). */
+	/** A read the device asks again: its answer goes whole (`encodedReadKey`). */
 	fresh: z.boolean().optional(),
 });
 const SideChannelParams = z.object({ rtab: Rtab, frame: z.object({}).passthrough() });
@@ -1675,6 +1677,7 @@ export class LocalHostServices implements HostServices {
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {
 		const { conn } = tab;
 		if (!conn) return;
+		if (name === "commandsUpdate" && !this.#newCommands(tab, conn, arg)) return;
 		if (!conn.slim?.events) {
 			this.#send(tab, conn, name, arg);
 			return;
@@ -1687,6 +1690,18 @@ export class LocalHostServices implements HostServices {
 			sender.flush();
 			this.#send(tab, conn, name, arg);
 		}
+	}
+
+	/**
+	 * Whether a `commandsUpdate` says something the connection has not heard: stock sends the whole list at start and
+	 * again on every change of command metadata, often the same list (about 100 KB), and the device replaces its list
+	 * with each, so a repeat changes nothing there.
+	 */
+	#newCommands(tab: HostTab, conn: HostConnection, commands: unknown): boolean {
+		const json = JSON.stringify(commands);
+		if (tab.sentCommands?.conn === conn && tab.sentCommands.json === json) return false;
+		tab.sentCommands = { conn, json };
+		return true;
 	}
 
 	/** One tab event on `conn`; false when some of it did not go out. A tab whose device has another connection by now sends nothing. */
@@ -1735,8 +1750,10 @@ export class LocalHostServices implements HostServices {
 					)
 				: await this.#run(tab, client, command, params.timeoutMs);
 			if (!response.success) signInError = response.error ?? "";
-			if (response.success && command.type === "get_autopilot")
-				return this.#autopilotRead(tab, response, params.fresh);
+			if (response.success) {
+				const read = encodedReadKey(command as { type: string });
+				if (read) return this.#encodedRead(tab, read, response, params.fresh);
+			}
 			// A login or logout rewrote this machine's credential store: every tab
 			// running here re-reads it — this machine's own and every device's.
 			if (response.success && (command.type === "login" || command.type === "logout")) {
@@ -1752,12 +1769,22 @@ export class LocalHostServices implements HostServices {
 		}
 	}
 
-	/** A `get_autopilot` answer as the asking connection reads it: a delta against its last one when it asked for that. */
-	#autopilotRead(tab: HostTab, response: RpcResponse, fresh: boolean | undefined): RpcResponse {
+	/** An answer as the asking connection reads it: a delta against its last one of that read when it asked for that. */
+	#encodedRead(
+		tab: HostTab,
+		read: NonNullable<ReturnType<typeof encodedReadKey>>,
+		response: RpcResponse,
+		fresh: boolean | undefined,
+	): RpcResponse {
 		const { conn } = tab;
-		if (!conn?.slim?.autopilotReads || !response.success) return response;
-		if (tab.autopilotReads?.conn !== conn) tab.autopilotReads = { conn, encode: createStatusReadEncoder() };
-		return { ...response, data: tab.autopilotReads.encode(response.data, fresh === true) };
+		if (!conn?.slim?.[read.needs] || !response.success) return response;
+		if (tab.reads?.conn !== conn) tab.reads = { conn, encoders: new Map() };
+		let encode = tab.reads.encoders.get(read.key);
+		if (!encode) {
+			encode = createStatusReadEncoder();
+			tab.reads.encoders.set(read.key, encode);
+		}
+		return { ...response, data: encode(response.data, fresh === true) };
 	}
 
 	/** The tab's omp answers a command, except Autopilot's, which this computer's coordinator answers. */
