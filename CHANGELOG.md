@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.13] - 2026-10-23
+
+검색 창의 키보드 이동과 화면 읽기 프로그램이 읽는 내용을 다듬었어요.
+
+### 고친 것
+- 빠른 열기(⌘P)에서 결과가 없을 때 ↓를 누르면 결과가 다시 나와도 Enter가 아무것도 열지 않던 것을 고쳤어요. 검색어를 바꾸면 강조가 맨 위 결과로 돌아가요.
+- 테마 고르기에서 테마마다 Tab이 멈추지 않고, ↑/↓로 옮기는 강조를 화면 읽기 프로그램이 읽어요. 지금 쓰는 테마는 "현재"라고 읽어요.
+- 펼치고 접는 버튼(긴 출력 더 보기, 작업 결과 모두 보기, 디버그 변수, PR 본문, 일정 실행 기록, 메모리 세션)이 열렸는지 닫혔는지 화면 읽기 프로그램에 알려요.
+- 설정의 프로바이더별 동시 요청 한도 칸과 할 일 고치기 칸에 이름이 생겼어요.
+
+<!-- en -->
+
+Smoother keyboard movement in search pickers, and more for screen readers to read.
+
+### Fixed
+- In Quick Open (⌘P), ↓ with no results no longer leaves Enter opening nothing once results come back, and a changed query starts at the top match.
+- The theme picker's themes are no longer one tab stop each, and screen readers read the highlight the arrows move; the theme in use reads as "Current".
+- The show-more toggles (long output, all work results, debug variables, PR body, schedule runs, memory sessions) tell screen readers whether they are open.
+- The per-provider request limit fields in Settings and the todo edit field have names.
+
 ## [0.61.12] - 2026-10-23
 
 키보드로 질문 카드와 목록을 다룰 때 걸리던 곳을 고쳤어요.
