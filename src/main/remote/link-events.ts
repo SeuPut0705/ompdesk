@@ -746,13 +746,21 @@ function outputTextOf(event: ToolUpdate): string | null {
 	return block?.type === "text" && typeof block.text === "string" ? block.text : null;
 }
 
-/** Where in `before` the start of `after` picks up, so that `after` begins with `before.slice(from)`; -1 for nowhere. */
+/** At most this many places in `before` are tried as the start of `after`; a log of one repeated line matches everywhere. */
+const CONTINUATION_TRIES = 4;
+
+/**
+ * Where in `before` the start of `after` picks up, so that `after` begins with `before.slice(from)`; -1 for nowhere.
+ * Each try compares up to the whole text, so the tries are bounded and a text that matches nowhere tried goes whole.
+ */
 function continuationOf(before: string, after: string): number {
 	if (after.startsWith(before)) return 0;
 	const probe = after.slice(0, 64);
 	if (probe === "") return -1;
-	for (let at = before.indexOf(probe, 1); at !== -1; at = before.indexOf(probe, at + 1)) {
-		if (after.startsWith(before.slice(at))) return at;
+	let at = before.indexOf(probe, 1);
+	for (let tries = 0; at !== -1 && tries < CONTINUATION_TRIES; tries++) {
+		if (before.startsWith(after.slice(0, before.length - at), at)) return at;
+		at = before.indexOf(probe, at + 1);
 	}
 	return -1;
 }

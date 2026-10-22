@@ -930,3 +930,24 @@ describe("a running tool's output", () => {
 		expect(createLinkEventDecoder().events([...(wire[5] ?? []), turn])).toEqual([turn]);
 	});
 });
+
+describe("a running tool's repetitive output", () => {
+	it("is encoded in linear time: a long run of one character that ends differently each update", () => {
+		const update = (text: string) =>
+			({
+				type: "tool_execution_update",
+				toolCallId: "rep",
+				toolName: "bash",
+				args: {},
+				partialResult: { content: [{ type: "text", text }], details: {} },
+			}) as unknown as AgentSessionEvent;
+		const encoder = createLinkEventEncoder({ toolOutputs: true });
+		const decoder = createLinkEventDecoder();
+		const run = "a".repeat(200_000);
+		const events = [update(`${run}b`), update(`${run}c`), update(`${run}cd`)];
+		const started = performance.now();
+		const delivered = events.map(event => decoder.events(overTheWire(encoder.events([event]))));
+		expect(performance.now() - started).toBeLessThan(500);
+		expect(delivered.flat()).toEqual(overTheWire(events));
+	});
+});
