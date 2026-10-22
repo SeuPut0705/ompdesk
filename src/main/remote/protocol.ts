@@ -113,6 +113,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * `slimSettingsReads` (only ever sent with `slimListReads`): the device also rebuilds the reads Settings makes each
  * time it opens on a host's tab (`get_providers`, `get_settings_schema`, `get_model_roles`, `get_settings`) sent as
  * numbered deltas. A device without it (v0.61.3 and older) gets them whole.
+ *
+ * `slimRosterReads` (only ever sent with `slimListReads`): the device also rebuilds a `get_subagents` answer sent as a
+ * numbered delta. A running turn with live subagents polls it every 3 s (about 32 KB each). A device without it
+ * (v0.61.4 and older) gets it whole.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -130,6 +134,7 @@ export const ClientHello = z.object({
 	slimListReads: z.boolean().optional(),
 	slimShiftedReads: z.boolean().optional(),
 	slimSettingsReads: z.boolean().optional(),
+	slimRosterReads: z.boolean().optional(),
 });
 
 /**
@@ -148,6 +153,7 @@ export interface LinkSlim {
 	listReads: boolean;
 	shiftedReads: boolean;
 	settingsReads: boolean;
+	rosterReads: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
@@ -167,6 +173,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		listReads,
 		shiftedReads: listReads && hello.slimShiftedReads === true,
 		settingsReads: listReads && hello.slimSettingsReads === true,
+		rosterReads: listReads && hello.slimRosterReads === true,
 	};
 }
 
@@ -183,6 +190,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	listReads: "lists",
 	shiftedReads: "shift",
 	settingsReads: "settings",
+	rosterReads: "roster",
 };
 
 export const HostHelloMessage = z.object({

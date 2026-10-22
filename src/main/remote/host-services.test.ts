@@ -3120,6 +3120,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			listReads: false,
 			shiftedReads: false,
 			settingsReads: false,
+			rosterReads: false,
 		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
@@ -3222,6 +3223,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				listReads: false,
 				shiftedReads: false,
 				settingsReads: false,
+				rosterReads: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3272,6 +3274,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				listReads: false,
 				shiftedReads: false,
 				settingsReads: false,
+				rosterReads: false,
 			},
 		});
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3355,6 +3358,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				listReads,
 				shiftedReads,
 				settingsReads: listReads,
+				rosterReads: listReads,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3452,6 +3456,35 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 			"~read": expect.any(String),
 			status: catalog(),
 		});
+	});
+
+	it("sends the subagent roster a running turn polls as deltas of the last one", async () => {
+		const { sidecar, ask, x } = await connected(true);
+		let tick = 0;
+		const roster = () => ({
+			subagents: Array.from({ length: 6 }, (_, i) => ({
+				id: `a${i}`,
+				agent: "task",
+				status: "running",
+				task: `Title: 일 ${i}\n${"자세한 지시 ".repeat(200)}`,
+				progress: { toolCount: tick + i, lastUpdate: 1000 + tick },
+			})),
+		});
+		sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: roster(),
+		});
+		const decode = createReadDecoder();
+		const first = await ask({ type: "get_subagents" });
+		tick++;
+		const second = await ask({ type: "get_subagents" });
+		expect(size(second) * 10).toBeLessThan(size(first));
+		decode(data(first));
+		expect(decode(data(second))).toEqual(roster());
+		x.slim.rosterReads = false;
+		expect(data(await ask({ type: "get_subagents" }))).toEqual(roster());
 	});
 
 	it("sends Settings' reads whole to a device that reads lists but not settings", async () => {

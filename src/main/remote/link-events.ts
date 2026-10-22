@@ -203,18 +203,32 @@ const ItemsDelta = z.object({
 });
 type ItemsDelta = z.infer<typeof ItemsDelta>;
 
-function itemsAt(base: readonly unknown[], next: readonly unknown[], shift: number): Record<string, unknown> {
+/** An item that changed only in some fields, sent as those fields (`slimRosterReads`). */
+const ITEM_FIELDS = "~fields";
+
+function itemsAt(
+	base: readonly unknown[],
+	next: readonly unknown[],
+	shift: number,
+	fields = false,
+): Record<string, unknown> {
 	const at: Record<string, unknown> = {};
 	for (const [index, item] of next.entries()) {
 		const before = index + shift;
-		if (before >= base.length || !isDeepStrictEqual(base[before], item)) at[index] = item;
+		if (before < base.length && isDeepStrictEqual(base[before], item)) continue;
+		const prior = base[before];
+		// A roster's running agent changes its progress each poll and keeps its long assignment: only the fields.
+		at[index] =
+			fields && before < base.length && isRecord(prior) && isRecord(item)
+				? { [ITEM_FIELDS]: diff(STATUS, prior, item) }
+				: item;
 	}
 	return at;
 }
 
-/** `shifts`: the device reads {@link ItemsDelta.shift} (`slimShiftedReads`). */
-function diffItems(base: readonly unknown[], next: readonly unknown[], shifts = false): ItemsDelta {
-	const at = itemsAt(base, next, 0);
+/** `shifts`: the device reads {@link ItemsDelta.shift} (`slimShiftedReads`); `fields`: an item's fields (`~fields`). */
+function diffItems(base: readonly unknown[], next: readonly unknown[], shifts = false, fields = false): ItemsDelta {
+	const at = itemsAt(base, next, 0, fields);
 	const first = next[0];
 	if (!shifts || first === undefined || Object.keys(at).length === 0) return { [ITEMS]: next.length, at };
 	const shift = base.findIndex((item, index) => index > 0 && isDeepStrictEqual(item, first));
@@ -231,8 +245,17 @@ function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBU
 	const next: unknown[] = [];
 	const shift = delta.shift ?? 0;
 	for (let index = 0; index < delta[ITEMS]; index++) {
-		if (Object.hasOwn(delta.at, index)) next.push(delta.at[index]);
-		else if (index + shift < before.length) next.push(before[index + shift]);
+		if (Object.hasOwn(delta.at, index)) {
+			const item = delta.at[index];
+			const fields = isRecord(item) ? asDelta(Reflect.get(item, ITEM_FIELDS)) : null;
+			if (!fields) {
+				next.push(item);
+				continue;
+			}
+			const prior = before[index + shift];
+			if (!isRecord(prior)) return UNREBUILT;
+			next.push(patch(prior, fields));
+		} else if (index + shift < before.length) next.push(before[index + shift]);
 		else return UNREBUILT;
 	}
 	return next;
@@ -242,11 +265,12 @@ function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBU
  * A record (an Autopilot status, a read's answer) after the last one sent: the top-level fields that changed, a list
  * among them as {@link diffItems}. The delta's id stays "autopilot" on the wire, as the first devices read it.
  */
-function recordDelta(base: object, status: object, shifts = false): FieldDelta {
+function recordDelta(base: object, status: object, shifts = false, fields = false): FieldDelta {
 	const delta = diff(STATUS, base, status);
 	for (const [key, value] of Object.entries(delta.set ?? {})) {
 		const before: unknown = Reflect.get(base, key);
-		if (delta.set && Array.isArray(value) && Array.isArray(before)) delta.set[key] = diffItems(before, value, shifts);
+		if (delta.set && Array.isArray(value) && Array.isArray(before))
+			delta.set[key] = diffItems(before, value, shifts, fields);
 	}
 	return delta;
 }
@@ -312,9 +336,10 @@ const EncodedRead = z.union([
 
 /**
  * The host's side, one per read, tab and connection: `fresh` sends the answer whole. `shifts`: the device reads a list
- * compared at an offset (`slimShiftedReads`).
+ * compared at an offset (`slimShiftedReads`); `fields`: a changed list item as its changed fields (the roster's chain,
+ * `slimRosterReads`).
  */
-export function createReadEncoder(shifts = false): (status: unknown, fresh: boolean) => unknown {
+export function createReadEncoder(shifts = false, fields = false): (status: unknown, fresh: boolean) => unknown {
 	// Unique to this encoder: a device keeps its copies across a reconnect, and the next connection's encoder must
 	// never name one of them.
 	const epoch = randomUUID();
@@ -329,7 +354,7 @@ export function createReadEncoder(shifts = false): (status: unknown, fresh: bool
 		const base = fresh ? null : last;
 		last = { id, status };
 		return base
-			? { [READ]: id, base: base.id, delta: recordDelta(base.status, status, shifts) }
+			? { [READ]: id, base: base.id, delta: recordDelta(base.status, status, shifts, fields) }
 			: { [READ]: id, status };
 	};
 }
@@ -365,7 +390,8 @@ export function createReadDecoder(): (wire: unknown) => unknown {
  * of a tab (`slimListReads`): the slash command list (about 100 KB with the built-in skill packs, and it seldom
  * changes) and the transcript's tail page (up to 256 K characters; an idle session's is the same page again). A tail
  * read keeps its own chain per limit; a page read by cursor goes whole. Settings' reads (`slimSettingsReads`) keep a
- * chain per command and arguments.
+ * chain per command and arguments. The subagent roster (`slimRosterReads`), polled every 3 s while a turn runs live
+ * subagents, keeps one chain.
  */
 export function encodedReadKey(command: {
 	type: string;
@@ -375,11 +401,12 @@ export function encodedReadKey(command: {
 	forceRefresh?: unknown;
 	compact?: unknown;
 	paths?: unknown;
-}): { key: string; needs: "autopilotReads" | "listReads" | "settingsReads" } | null {
+}): { key: string; needs: "autopilotReads" | "listReads" | "settingsReads" | "rosterReads" } | null {
 	if (command.type === "get_autopilot") return { key: command.type, needs: "autopilotReads" };
 	if (command.type === "get_available_commands") return { key: command.type, needs: "listReads" };
 	if (command.type === "get_transcript_page" && command.fromEnd === true && command.cursor === undefined)
 		return { key: `${command.type}:${String(command.limit)}`, needs: "listReads" };
+	if (command.type === "get_subagents") return { key: command.type, needs: "rosterReads" };
 	if (SETTINGS_READS.has(command.type)) {
 		const args = [command.forceRefresh, command.compact, command.paths].map(value => JSON.stringify(value) ?? "");
 		return { key: `${command.type}:${args.join(":")}`, needs: "settingsReads" };
