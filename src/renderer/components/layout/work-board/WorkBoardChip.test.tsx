@@ -211,7 +211,6 @@ describe("WorkBoardChip, the phone's work strip", () => {
 	});
 
 	it("points its chevron the way the panel will open: upward from a strip low in its pane", async () => {
-		useTodoStore.setState({ turnActive: true });
 		const rects: Record<string, { top: number; bottom: number }> = {
 			"omp-session-pane": { top: 48, bottom: 800 },
 			"omp-work-strip": { top: 560, bottom: 600 },
@@ -227,9 +226,18 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		};
 		try {
 			container.className = "omp-session-pane";
+			const opens = () => container.querySelector("[data-work-chip]")?.getAttribute("data-opens");
+			// Mounted with nothing to say, the strip renders nothing; the room is measured once it shows.
 			await mount();
-			const chip = container.querySelector("[data-work-chip]");
-			expect(chip?.getAttribute("data-opens")).toBe("up");
+			expect(container.querySelector("[data-work-chip]")).toBeNull();
+			await act(async () => useTodoStore.setState({ turnActive: true }));
+			expect(opens()).toBe("up");
+			// Gone and back, it is measured again where it shows now.
+			await act(async () => useTodoStore.setState({ turnActive: false }));
+			expect(container.querySelector("[data-work-chip]")).toBeNull();
+			rects["omp-work-strip"] = { top: 60, bottom: 100 };
+			await act(async () => useTodoStore.setState({ turnActive: true }));
+			expect(opens()).toBeNull();
 		} finally {
 			Element.prototype.getBoundingClientRect = original;
 			container.className = "";
