@@ -47,7 +47,9 @@ export function usePresence<T>(items: readonly T[], keyOf: (item: T) => string, 
 	);
 
 	const rows: Presence<T>[] = items.map(item => ({ item, exiting: false }));
-	for (const ghost of [...ghosts].sort((a, b) => a.index - b.index)) {
+	// A ghost whose item is back is dropped by the effect after this render; until then it must not draw twice.
+	const live = new Set(items.map(keyOf));
+	for (const ghost of [...ghosts].filter(ghost => !live.has(ghost.key)).sort((a, b) => a.index - b.index)) {
 		rows.splice(Math.min(ghost.index, rows.length), 0, { item: ghost.item, exiting: true });
 	}
 	return rows;
