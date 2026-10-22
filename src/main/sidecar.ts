@@ -936,9 +936,11 @@ export class SidecarManager extends EventEmitter {
 							this.syncAutoTitle();
 							this.syncJudgeAssist();
 							this.syncAccountRotation();
-							void bridge
-								.request("stream_metadata.start")
-								.catch(error => console.warn("[sidecar] stock stream metadata unavailable:", error));
+							void bridge.request("stream_metadata.start").catch(error => {
+								// An omp that ended or restarted meanwhile closed its bridge: nothing is missing.
+								if (this.#isLive(generation))
+									console.warn("[sidecar] stock stream metadata unavailable:", error);
+							});
 						},
 						(err: unknown) => {
 							const error = err instanceof Error ? err.message : String(err);
