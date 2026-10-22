@@ -685,10 +685,10 @@ function measureInPage(
 		}
 	}
 	// Overlap: two controls' visible boxes cross, neither holds the other, and both are on top where they meet. A menu,
-	// popover or dialog floating over the page covers what lies under it by design: only controls of the same layer
-	// collide.
+	// popover or dialog floating over the page covers what lies under it by design, as does the work strip's open panel
+	// (drawn over the top of the transcript, which it neither pushes nor dims): only controls of the same layer collide.
 	const LAYER =
-		"[role='menu'], [role='dialog'], [role='listbox'], [role='tooltip'], [data-sheet-panel], .omp-pop-in, .omp-toast-stack";
+		"[role='menu'], [role='dialog'], [role='listbox'], [role='tooltip'], [data-sheet-panel], [data-work-strip-panel], .omp-pop-in, .omp-toast-stack";
 	const layerOf = (element: Element): Element | null => element.closest(LAYER);
 	/** `row` is a list row's stretched control (its ::after covers the whole row) and `action` one of that row's controls. */
 	const stretchedOverRow = (row: Element, action: Element): boolean => {
