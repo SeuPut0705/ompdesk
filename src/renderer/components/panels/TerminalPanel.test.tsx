@@ -275,14 +275,17 @@ describe("TerminalPanel on a phone", () => {
 		expect(terminals[0]?.focus).toHaveBeenCalled();
 	});
 
-	it("holds only tabs in its tab list, and Delete on a focused tab closes that session", async () => {
-		const request = phone(operation =>
-			operation.action === "list" && operation.waitMs
-				? new Promise(() => {})
-				: operation.action === "close"
-					? [snapshot()]
-					: [snapshot(), snapshot({ id: "second" })],
-		);
+	it("holds only tabs in its tab list, and Delete on a focused tab closes it and focuses the one that took its place", async () => {
+		let open = ["first", "second", "third"];
+		const request = phone(operation => {
+			if (operation.action === "list" && operation.waitMs) return new Promise(() => {});
+			if (operation.action === "close") open = open.filter(id => id !== operation.id);
+			return open.map(id => snapshot({ id }));
+		});
+		let focused: Element | null = null;
+		vi.spyOn(window.HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			focused = this;
+		});
 		await mount(<TerminalPanel />);
 		await settle();
 		const list = container.querySelector("[role=tablist]") as HTMLElement;
@@ -295,14 +298,30 @@ describe("TerminalPanel on a phone", () => {
 		const closeSelected = container.querySelector("[data-terminal-close-selected]");
 		expect(closeSelected?.getAttribute("aria-label")).toBe("Close Terminal 1");
 		expect(closeSelected?.getAttribute("aria-hidden")).toBeNull();
-		const second = list.querySelectorAll("[role=tab]")[1] as HTMLElement;
-		await act(async () => {
-			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
-			Object.defineProperty(event, "key", { value: "Delete" });
-			second.dispatchEvent(event);
-		});
-		// Delete closes the session the tab list's selection names (the focused tab is the selected one).
-		expect(request.mock.calls.some(([, operation]) => operation.action === "close")).toBe(true);
+		const tabs = () => Array.from(list.querySelectorAll("[role=tab]")) as HTMLElement[];
+		const key = (target: HTMLElement, name: string) =>
+			act(async () => {
+				const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+				Object.defineProperty(event, "key", { value: name });
+				target.dispatchEvent(event);
+			});
+		await key(tabs()[0] as HTMLElement, "ArrowRight");
+		await key(tabs()[1] as HTMLElement, "Delete");
+		await settle();
+		expect(operations(request, "close").map(operation => operation.id)).toEqual(["second"]);
+		// The tab after it took its place: selected and focused, so the next key still reaches the list.
+		expect(tabs().map(tab => tab.getAttribute("data-terminal-tab"))).toEqual(["first", "third"]);
+		expect(tabs()[1]?.getAttribute("aria-selected")).toBe("true");
+		expect(focused).toBe(tabs()[1]);
+		// The last tab's place goes to the one before it.
+		await key(tabs()[1] as HTMLElement, "Delete");
+		await settle();
+		expect(focused).toBe(tabs()[0]);
+		// None left: New terminal takes focus.
+		await key(tabs()[0] as HTMLElement, "Delete");
+		await settle();
+		expect(tabs()).toEqual([]);
+		expect(focused).toBe(container.querySelector("[data-terminal-new]"));
 	});
 
 	it("reads with a long poll that carries the offset, one request at a time", async () => {

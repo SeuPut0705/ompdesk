@@ -348,6 +348,8 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	const tabsRef = useRef<HTMLDivElement>(null);
 	/** The arrow keys switched sessions: the new shell leaves focus on the tab, so the next arrow moves on. */
 	const keyboardSwitch = useRef(false);
+	/** The tab (session id) or "new" (New terminal) that takes focus once a Delete's close has rendered. */
+	const focusAfterClose = useRef<string | null>(null);
 	const [shells, setShells] = useState<TerminalShell[]>([]);
 	const expanded = useUiStore(s => s.terminalExpanded);
 	const compact = useCompactShell();
@@ -396,6 +398,17 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 			live = false;
 		};
 	}, [tabId]);
+	useLayoutEffect(() => {
+		const target = focusAfterClose.current;
+		if (target === null) return;
+		focusAfterClose.current = null;
+		const head = tabsRef.current?.parentElement;
+		const next =
+			target === "new"
+				? head?.querySelector<HTMLElement>("[data-terminal-new]")
+				: tabsRef.current?.querySelector<HTMLElement>(`[data-terminal-tab="${target}"]`);
+		next?.focus();
+	});
 	useLayoutEffect(() => {
 		if (!selected) return;
 		tabsRef.current
@@ -492,6 +505,18 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 		const result = await request({ action: "close", id });
 		if (result && id === selected) setSelected(result[0]?.id ?? null);
 	};
+	// Delete on a tab (the APG's closable tabs): the session that took its place is selected and focused, the one
+	// before it when it was the last, and New terminal when none is left; focus never falls to the page.
+	const closeFromTab = async (index: number) => {
+		const id = sessions[index]?.id;
+		if (!id) return;
+		const result = await request({ action: "close", id });
+		if (!result) return;
+		const survivor = result[Math.min(index, result.length - 1)]?.id ?? null;
+		keyboardSwitch.current = true;
+		setSelected(survivor);
+		focusAfterClose.current = survivor ?? "new";
+	};
 	const copy = async () => {
 		try {
 			await navigator.clipboard.writeText(handle.current?.terminal.getSelection() ?? "");
@@ -521,12 +546,17 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					role="tablist"
 					aria-label={t("panel.terminal.title")}
 					onKeyDown={event => {
-						const at = sessions.findIndex(session => session.id === selected);
+						const at = sessions.findIndex(session => session.id === (selected ?? sessions[0]?.id));
 						// A tab list holds only tabs: the close buttons beside them are for the pointer, Delete closes the
 						// focused one (the APG's closable tabs) and assistive tech has the selected one's close after the list.
-						if (event.key === "Delete" && at !== -1) {
+						if (event.key === "Delete") {
+							const tab = (event.target as HTMLElement).closest?.("[role=tab]");
+							const index = tab
+								? Array.from(event.currentTarget.querySelectorAll("[role=tab]")).indexOf(tab)
+								: at;
+							if (index === -1) return;
 							event.preventDefault();
-							void close(sessions[at]?.id ?? "");
+							void closeFromTab(index);
 							return;
 						}
 						const next = rovingIndex(event.key, at, sessions.length);
@@ -544,6 +574,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 							<button
 								type="button"
 								role="tab"
+								data-terminal-tab={session.id}
 								aria-keyshortcuts="Delete"
 								aria-selected={session.id === selected}
 								tabIndex={session.id === (selected ?? sessions[0]?.id) ? 0 : -1}
@@ -581,6 +612,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					/>
 				)}
 				<IconButton
+					data-terminal-new
 					icon={<Plus />}
 					label={t("panel.terminal.new")}
 					disabled={loading}
