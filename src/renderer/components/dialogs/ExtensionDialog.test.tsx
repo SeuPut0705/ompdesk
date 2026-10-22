@@ -292,6 +292,22 @@ describe("ExtensionDialog ask", () => {
 		);
 		expect(card().querySelector('[data-ask-step="1"]')?.getAttribute("title")).toBe("Run the tests first?");
 
+		// The current step is the one tab stop of the step chips; the arrows move between questions.
+		const chips = () => Array.from(card().querySelectorAll("[data-ask-step]"));
+		expect(chips().map(chip => chip.getAttribute("tabindex"))).toEqual(["0", "-1"]);
+		const arrow = async (key: string) => {
+			const event = new Event("keydown", { bubbles: true, cancelable: true });
+			Object.assign(event, { key });
+			await act(async () => {
+				(chips()[0] as unknown as TestElement).dispatchEvent(event);
+			});
+		};
+		await arrow("ArrowRight");
+		expect(card().textContent).toContain("Run the tests first?");
+		expect(chips().map(chip => chip.getAttribute("tabindex"))).toEqual(["-1", "0"]);
+		await arrow("Home");
+		expect(card().textContent).toContain("Where should this deploy?");
+
 		const production = buttonWithText("Production");
 		if (!production) throw new Error("missing Production option");
 		await click(production);

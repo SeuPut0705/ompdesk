@@ -40,6 +40,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { useNowTick } from "../../lib/now-tick";
 import { openExternal } from "../../lib/open-external";
+import { rovingIndex } from "../../lib/roving";
 import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
 import { isApprovalRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -509,7 +510,18 @@ function AskDialog({
 				}}
 			>
 				{total > 1 && (
-					<div className="mb-3 flex gap-1 overflow-x-auto" data-ask-steps role="tablist">
+					<div
+						className="mb-3 flex gap-1 overflow-x-auto"
+						data-ask-steps
+						onKeyDown={event => {
+							const next = rovingIndex(event.key, step, questions.length);
+							if (next === null) return;
+							event.preventDefault();
+							setStep(next);
+							event.currentTarget.querySelectorAll<HTMLElement>("[role=tab]")[next]?.focus();
+						}}
+						role="tablist"
+					>
 						{questions.map((item, index) => (
 							<button
 								aria-selected={index === step}
@@ -523,7 +535,7 @@ function AskDialog({
 								key={item.id}
 								onClick={() => setStep(index)}
 								role="tab"
-								tabIndex={-1}
+								tabIndex={index === step ? 0 : -1}
 								// The chip cuts a long label and shows no question but the current one's.
 								title={item.header ? `${item.header} · ${item.question}` : item.question}
 								type="button"
