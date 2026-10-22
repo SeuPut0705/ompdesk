@@ -147,6 +147,12 @@ export function contrastPairs(name: ThemeName): ContrastPair[] {
 		}
 	}
 
+	// A row that waits on the person wears the warning wash (the work board); its quiet text reads at secondary there.
+	for (const key of TEXT_SURFACES) {
+		const bg = flatten(resolveTokenColor(theme, "--omp-warning-dim"), surface(theme, key));
+		add(`secondary over a warning wash on ${key}`, paint(theme, "--omp-text-secondary", bg), bg, text);
+	}
+
 	// The terminal's 16 colors on its surface (--sc-surface-1 = the sidebar).
 	const terminal = surface(theme, "--omp-sidebar-bg");
 	for (const [index, color] of theme.ansi.entries()) add(`ansi ${index}`, color, terminal, text);

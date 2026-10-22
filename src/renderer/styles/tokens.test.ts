@@ -210,3 +210,16 @@ describe("status text on its own soft wash", () => {
 		expect(offenders).toEqual([]);
 	});
 });
+
+describe("quiet text on a warning-washed row", () => {
+	it("reads at secondary on the work board's waiting rows, where the contrast pairs measure it", () => {
+		const css = readFileSync(join(dir, "work-board.css"), "utf8");
+		const rule =
+			/button\.omp-work-board-row\[data-board-opened\]\[data-status="waiting"\] \{([^}]*)\}/.exec(css)?.[1] ?? "";
+		expect(rule).toContain("--sc-text-subtle: var(--sc-text-secondary);");
+		expect(rule).toContain("--sc-text-muted: var(--sc-text-secondary);");
+		expect(css).toMatch(
+			/\.omp-work-board-section\[data-tone="warning"\] button\.omp-work-board-row,\s*button\.omp-work-board-row\[data-board-opened\]\[data-status="waiting"\] \{\s*--sc-text-subtle/,
+		);
+	});
+});

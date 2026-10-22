@@ -344,6 +344,14 @@ button.omp-work-board-more:hover {
 	color: var(--sc-warning);
 }
 
+/* The warning wash takes the quiet text's contrast under 4.5:1 (dark: a waiting child's step read 4.33:1): on a washed
+   row it reads at secondary, as on the sidebar's selected row (lib/theme-contrast.ts "secondary over a warning wash"). */
+.omp-work-board-section[data-tone="warning"] button.omp-work-board-row,
+button.omp-work-board-row[data-board-opened][data-status="waiting"] {
+	--sc-text-subtle: var(--sc-text-secondary);
+	--sc-text-muted: var(--sc-text-secondary);
+}
+
 .omp-work-board-section[data-tone="warning"] button.omp-work-board-row {
 	background: var(--sc-warning-soft);
 	color: var(--sc-text);
