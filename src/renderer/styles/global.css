@@ -545,7 +545,9 @@ html[data-gpu="software"] .omp-updating-hint {
 }
 
 .omp-disclosure-chevron {
-	transition: transform var(--omp-motion-fast) var(--omp-ease-spring);
+	transition:
+		transform var(--omp-motion-fast) var(--omp-ease-spring),
+		rotate var(--omp-motion-fast) var(--omp-ease-spring);
 }
 
 /* ============================================================================

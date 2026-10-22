@@ -1597,7 +1597,9 @@
 	width: var(--sc-icon-sm);
 	height: var(--sc-icon-sm);
 	color: var(--sc-text-subtle);
-	transition: transform var(--sc-duration-fast) var(--sc-ease-standard);
+	transition:
+		transform var(--sc-duration-fast) var(--sc-ease-standard),
+		rotate var(--sc-duration-fast) var(--sc-ease-standard);
 }
 
 .omp-work-card-button:hover .omp-work-card-chevron {
