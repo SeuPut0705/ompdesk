@@ -1138,7 +1138,10 @@ export function Sidebar() {
 		useSidebarFolds.getState().pruneGroups(key => folders.has(key));
 		// A session an open tab holds stays known even before the index lists its file.
 		const known = new Set([...sessions.map(session => session.path), ...heldByTab]);
-		useSidebarSubagentsStore.getState().pruneFamilies(key => !isRememberedSession(key) || known.has(key));
+		// A paired host's rows (`device:<id>:<path>`) are not this computer's sessions: FOLD_LIMIT bounds them.
+		useSidebarSubagentsStore
+			.getState()
+			.pruneFamilies(key => !isRememberedSession(key) || key.startsWith("device:") || known.has(key));
 	}, [listLive, allGroups, sessions, heldByTab, projectName]);
 	const hostsLoaded = useRemoteStore(s => s.state !== null);
 	useEffect(() => {

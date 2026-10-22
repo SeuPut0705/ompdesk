@@ -2353,13 +2353,15 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],
 		});
+		// Opened before (remembered): it stays open across the mount and this computer's own list read.
+		const HOST_KEY = `device:dev-studio:${HOST_BOSS}`;
+		useSidebarSubagentsStore.setState({ expanded: new Set([BOSS, HOST_KEY]) });
 		await mount(<Sidebar />);
-		// Folded by default, as every family: the person's toggle opens it.
-		await act(async () => useSidebarSubagentsStore.getState().setExpanded(HOST_BOSS, true));
+		expect(useSidebarSubagentsStore.getState().expanded.has(HOST_KEY)).toBe(true);
 
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
 		const family = [...(device?.querySelectorAll("[data-sidebar-family]") ?? [])].find(
-			element => element.getAttribute("data-sidebar-family") === HOST_BOSS,
+			element => element.getAttribute("data-sidebar-family") === HOST_KEY,
 		);
 		const child = family?.querySelector("[data-sidebar-opened-session]");
 		expect(child?.textContent).toContain("Child on the host");

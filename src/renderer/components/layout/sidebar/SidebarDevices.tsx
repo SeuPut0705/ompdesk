@@ -548,6 +548,8 @@ function DeviceSessions({
 		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened on this host.
 		const opened = families?.get(session.path) ?? (tab ? families?.get(`tab:${tab.id}`) : undefined) ?? NO_OPENED;
 		const family = tab !== undefined || opened.length > 0;
+		// Its own key: two hosts may keep a session at the same path, and this computer's prune never sees host rows.
+		const familyKey = `device:${host.deviceId}:${session.path}`;
 		return (
 			<Fragment key={session.path}>
 				<ListRow
@@ -619,11 +621,11 @@ function DeviceSessions({
 					titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null].filter(Boolean).join("\n")}
 					trailing={
 						family ? (
-							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={tab?.id ?? null} />
+							<SidebarSubagentsToggle opened={opened} sessionKey={familyKey} tabId={tab?.id ?? null} />
 						) : undefined
 					}
 				/>
-				{family && <SidebarSubagents opened={opened} sessionKey={session.path} tabId={tab?.id ?? null} />}
+				{family && <SidebarSubagents opened={opened} sessionKey={familyKey} tabId={tab?.id ?? null} />}
 			</Fragment>
 		);
 	};
