@@ -670,12 +670,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(order.at(-1)).toBe(chats);
 
 		// The Chats section's own button starts a chat.
-		await fire(chats?.querySelector("[data-sidebar-new-chat]"), "onClick");
+		await fire(chats?.querySelector("[data-sidebar-new-chat]") ?? null, "onClick");
 		expect(omp.tabs.spawn).toHaveBeenLastCalledWith(
 			expect.objectContaining({ kind: "chat", sessionPath: undefined }),
 		);
 		// Its fold is remembered.
-		await fire(chats?.querySelector("[data-sidebar-chats-toggle]"), "onClick");
+		await fire(chats?.querySelector("[data-sidebar-chats-toggle]") ?? null, "onClick");
 		expect(useSidebarFolds.getState().chats.local).toBe(true);
 		expect(container.querySelector('[data-sidebar-chats="local"] [data-chat-lane]')).toBeNull();
 	});

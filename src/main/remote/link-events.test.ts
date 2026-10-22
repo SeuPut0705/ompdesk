@@ -609,9 +609,9 @@ describe("an Autopilot status a device reads", () => {
 		const stale = status(90, { state: "paused" });
 		expect(decode(overTheWire(before(stale, false)))).toEqual(stale);
 		// The link came back: a new encoder, whose first answer this side never read.
-		const after = createStatusReadEncoder();
-		after(first, false);
-		expect(decode(overTheWire(after(second, false)))).toBeNull();
+		const replacement = createStatusReadEncoder();
+		replacement(first, false);
+		expect(decode(overTheWire(replacement(second, false)))).toBeNull();
 	});
 
 	it("passes an older host's plain status through", () => {
