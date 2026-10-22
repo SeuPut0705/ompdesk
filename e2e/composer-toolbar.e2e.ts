@@ -4,7 +4,7 @@
  * - nothing moves on a turn starting, a draft being typed, or the turn ending: +, the Run chip, the model chip, the
  *   context ring and the one action button keep their boxes (the lane chip takes the free room before the cluster);
  * - while idle nothing waits beside the action button (no gap held for Stop or the lane chip);
- * - an active mode paints the Run chip accent (computed colour, light and dark), a quiet chip does not;
+ * - an active mode paints the Run chip accent (`--sc-accent-on-soft`, computed, light and dark), a quiet chip does not;
  * - Tab leaves a popover: it closes and focus moves on (never to the top of the app);
  * - the context ring opens on click/Enter, never on keyboard focus.
  * With `OMP_GUI_TOOLBAR_CAPTURES=<dir>` (and OMP_GUI_VARIANTS=1 for en/ko × light/dark) it also writes
@@ -124,13 +124,14 @@ for (const language of variants(["en", "ko"] as const))
 					expect(edge, `${width}px: Send inside the composer`).toBeGreaterThanOrEqual(0);
 				}
 
-				// A quiet chip is not accent; a Plan mode is, in the real computed colour.
+				// A quiet chip is not accent; a Plan mode is, in the real computed colour (the accent drawn on its own wash,
+				// `--sc-accent-on-soft`, so its label holds 4.5:1).
 				await resize(app, 1280, 860);
 				await page.waitForTimeout(300);
 				const colour = (locator: Locator) => locator.evaluate(element => getComputedStyle(element).color);
 				const accent = await page.evaluate(() => {
 					const probe = document.createElement("span");
-					probe.style.color = "var(--sc-accent)";
+					probe.style.color = "var(--sc-accent-on-soft)";
 					document.body.appendChild(probe);
 					const value = getComputedStyle(probe).color;
 					probe.remove();
