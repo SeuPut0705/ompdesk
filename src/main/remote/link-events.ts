@@ -33,6 +33,7 @@
  * `unset`): stock stamps every reply's `completedAt` only after its `message_end`, so without them no reply of an
  * `agent_end` matched and each crossed whole again (`link-events-stock.test.ts`, on the installed omp).
  */
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type {
@@ -280,16 +281,19 @@ const READ = "~read";
  * (a reply it never read, a relaunch) asks again with `fresh` and gets it whole.
  */
 const StatusRead = z.union([
-	z.object({ [READ]: z.number(), base: z.number(), delta: FieldDelta }),
-	z.object({ [READ]: z.number(), status: z.unknown() }),
+	z.object({ [READ]: z.string(), base: z.string(), delta: FieldDelta }),
+	z.object({ [READ]: z.string(), status: z.unknown() }),
 ]);
 
 /** The host's side, one per tab and connection: `fresh` sends the status whole. */
 export function createStatusReadEncoder(): (status: unknown, fresh: boolean) => unknown {
+	// Unique to this encoder: a device keeps its copies across a reconnect, and the next connection's encoder must
+	// never name one of them.
+	const epoch = randomUUID();
 	let next = 0;
-	let last: { id: number; status: object } | null = null;
+	let last: { id: string; status: object } | null = null;
 	return (status, fresh) => {
-		const id = ++next;
+		const id = `${epoch}.${++next}`;
 		if (!isRecord(status)) {
 			last = null;
 			return { [READ]: id, status };
@@ -303,8 +307,8 @@ export function createStatusReadEncoder(): (status: unknown, fresh: boolean) => 
 /** The device's side, one per tab: the status an answer carries; null when it is a delta of a copy this side lacks. */
 export function createStatusReadDecoder(): (wire: unknown) => unknown {
 	/** The last few, by number. */
-	const held = new Map<number, object>();
-	const hold = (id: number, status: object): void => {
+	const held = new Map<string, object>();
+	const hold = (id: string, status: object): void => {
 		held.set(id, status);
 		for (const key of held.keys()) if (held.size > 4) held.delete(key);
 	};

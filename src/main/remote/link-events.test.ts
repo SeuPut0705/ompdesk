@@ -602,6 +602,16 @@ describe("an Autopilot status a device reads", () => {
 		expect(decode(overTheWire(encode(second, true)))).toEqual(second);
 	});
 
+	it("never rebuilds from a copy an earlier connection's encoder sent", () => {
+		const decode = createStatusReadDecoder();
+		const before = createStatusReadEncoder();
+		expect(decode(overTheWire(before(status(10), false)))).toEqual(status(10));
+		// The link came back: a new encoder, whose first answer this side never read.
+		const after = createStatusReadEncoder();
+		after(first, false);
+		expect(decode(overTheWire(after(second, false)))).toBeNull();
+	});
+
 	it("passes an older host's plain status through", () => {
 		expect(createStatusReadDecoder()(first)).toBe(first);
 		expect(createStatusReadDecoder()({ active: false })).toEqual({ active: false });
