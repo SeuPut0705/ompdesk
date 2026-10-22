@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.4] - 2026-10-22
+
+연결한 컴퓨터의 탭에서 설정을 열 때 주고받는 양이 크게 줄었어요. GitHub 카드의 열기 버튼과 작업판의 불필요한 다시 읽기도 고쳤어요.
+
+### 빨라진 것
+- 연결한 컴퓨터의 탭에서 설정을 열 때마다 모델 목록, 설정 항목, 모델 역할을 통째로 다시 받았어요(한 번에 수백 KB). 이제 두 번째부터는 바뀐 부분만 받아요. 두 컴퓨터가 모두 이 버전이어야 해요.
+
+### 고친 것
+- GitHub 도구 카드의 '브라우저에서 열기' 버튼에 이름이 없어 화면 읽기 프로그램이 읽지 못했고, 키보드로 갔을 때 설명도 뜨지 않았어요.
+- 이미 열려 있던 세션에서 작업판이 지난 호출을 새 호출로 세어, 파일을 읽기만 했는데도 아직 main에 없는 작업을 다시 읽었어요.
+
+<!-- en -->
+
+Opening Settings on a paired computer's tab moves far less over the link. The GitHub card's open button and a needless re-read on the work board are fixed.
+
+### Faster
+- Each time Settings opened on a paired computer's tab, the model list, the settings schema and the model roles crossed the link whole (hundreds of KB). From the second time on, only what changed crosses. Both computers need this version.
+
+### Fixed
+- The GitHub tool card's Open in browser button had no name, so screen readers could not read it, and it showed no tooltip on keyboard focus.
+- On a session already open, the work board counted earlier calls as new ones and read the branch's unlanded work again after a call that only read files.
+
 ## [0.61.3] - 2026-10-22
 
 체크박스가 앱 어디서나 같은 모양과 크기로 그려지고, 고르는 창의 키보드 이동이 바로잡혔어요. 작업판이 연결한 컴퓨터를 덜 자주 묻습니다.
