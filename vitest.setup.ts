@@ -1,11 +1,15 @@
 // A write under the real ~/.omp, ~/.pi, ~/.config/omp or OMPdesk's userData fails the test.
 import "./scripts/vitest-real-home-guard";
+import { exitWhenParentGone } from "./scripts/vitest-orphan-guard";
 import { loadLocale } from "./src/renderer/lib/i18n";
 import { dropGitSelectors } from "./src/shared/git-env";
 
 // Each worker too: a leaked GIT_DIR or its kin would send a test's temp-repo git to another repository
 // (src/shared/git-env.ts).
 dropGitSelectors();
+
+// A worker whose run was killed ends itself instead of running on as an orphan (scripts/vitest-orphan-guard.ts).
+exitWhenParentGone();
 
 if (typeof navigator !== "undefined") {
 	Object.defineProperty(navigator, "language", { configurable: true, get: () => "en-US" });
