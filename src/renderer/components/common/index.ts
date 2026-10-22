@@ -50,6 +50,11 @@ export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";
 export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover";
 export { ProgressBar, type ProgressBarProps, type ProgressBarTone } from "./ProgressBar";
+export {
+	SegmentedChoice,
+	type SegmentedChoiceProps,
+	type SegmentedOption,
+} from "./SegmentedChoice";
 export { Select, type SelectOption, type SelectProps } from "./Select";
 export { INLINE_DESCRIPTION_MAX, SettingInfo, splitDescription } from "./SettingInfo";
 export { Sheet, type SheetPlacement, type SheetProps, type SheetSize } from "./Sheet";

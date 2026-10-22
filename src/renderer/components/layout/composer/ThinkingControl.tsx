@@ -13,7 +13,6 @@
 import { Brain } from "lucide-react";
 import { useId } from "react";
 import { type RpcThinkingLevelState, THINKING_LEVEL_VALUES, type ThinkingLevel } from "../../../../shared/rpc-types";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { type ModelStore, useModelStore } from "../../../stores/model";
@@ -21,6 +20,7 @@ import { useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
+import { SegmentedChoice } from "../../common";
 import { ChoiceRow } from "./ChoiceRow";
 
 export type ThinkingSelector = ThinkingLevel | "auto";
@@ -98,40 +98,15 @@ export function ThinkingLevelField({ variant = "row" }: { variant?: "row" | "seg
 				<span className="text-sc-sm font-medium text-(--sc-text)" id={`${hintId}-label`}>
 					{t("input.runSettings.thinking")}
 				</span>
-				<div
+				<SegmentedChoice
 					aria-labelledby={`${hintId}-label`}
-					className="flex w-full items-center gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-3) p-0.5"
-					onKeyDown={event => {
-						if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-						event.preventDefault();
-						const step = event.key === "ArrowRight" ? 1 : -1;
-						const next = options[(options.indexOf(current) + step + options.length) % options.length];
-						if (!next) return;
-						select(next);
-						event.currentTarget.querySelector<HTMLElement>(`[data-thinking-option="${next}"]`)?.focus();
-					}}
-					role="radiogroup"
-				>
-					{options.map(option => (
-						<button
-							aria-checked={option === current}
-							className={cx(
-								"h-(--sc-hit-min) min-w-0 flex-1 truncate rounded-(--sc-radius-sm) px-1.5 text-sc-sm font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast)",
-								option === current
-									? "bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-sm)"
-									: "text-(--sc-text-muted) hover:text-(--sc-text)",
-							)}
-							data-thinking-option={option}
-							key={option}
-							onClick={() => select(option)}
-							role="radio"
-							tabIndex={option === current ? 0 : -1}
-							type="button"
-						>
-							{t(`input.thinking.name.${option}`)}
-						</button>
-					))}
-				</div>
+					className="w-full"
+					fit="equal"
+					onChange={select}
+					optionAttr="data-thinking-option"
+					options={options.map(option => ({ value: option, label: t(`input.thinking.name.${option}`) }))}
+					value={current}
+				/>
 				<span className="text-sc-xs text-(--sc-text-muted)" id={hintId}>
 					{t(`input.thinking.level.${current}`)}
 				</span>

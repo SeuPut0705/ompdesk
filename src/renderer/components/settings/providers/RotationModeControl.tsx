@@ -13,13 +13,12 @@
  * gui-bridge `accountRotation` feature.
  */
 
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ACCOUNT_ROTATION_MODES, type AccountRotationMode } from "../../../../shared/account-rotation";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useHostView } from "../../../stores/remote";
 import { toastError } from "../../../stores/toast";
-import { Spinner } from "../../common";
+import { SegmentedChoice, Spinner } from "../../common";
 import { SettingInfo } from "../../common/SettingInfo";
 
 const LABEL_KEY: Record<AccountRotationMode, string> = {
@@ -35,7 +34,6 @@ const DESCRIPTION_KEY: Record<AccountRotationMode, string> = {
 export function RotationModeControl({ device }: { device?: string }) {
 	const t = useT();
 	const labelId = useId();
-	const groupRef = useRef<HTMLDivElement>(null);
 	const hostName = useHostView(device)?.name;
 	const [mode, setMode] = useState<AccountRotationMode | null>(null);
 	const [evenSupported, setEvenSupported] = useState<boolean | null>(null);
@@ -88,17 +86,6 @@ export function RotationModeControl({ device }: { device?: string }) {
 			});
 	};
 
-	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-		if (delta === undefined || !mode) return;
-		event.preventDefault();
-		const options = ACCOUNT_ROTATION_MODES.filter(available);
-		const next = options[(options.indexOf(mode) + delta + options.length) % options.length];
-		if (!next) return;
-		choose(next);
-		groupRef.current?.querySelector<HTMLElement>(`[data-rotation-mode="${next}"]`)?.focus();
-	};
-
 	return (
 		<div className="flex min-w-0 flex-col gap-1.5" data-account-rotation={mode ?? "loading"}>
 			<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -106,38 +93,20 @@ export function RotationModeControl({ device }: { device?: string }) {
 					{t("providers.rotation.label")}
 				</span>
 				{mode && <SettingInfo text={`${t(DESCRIPTION_KEY[mode])} ${t("providers.rotation.hint")}`} />}
-				<div
+				<SegmentedChoice
 					aria-busy={saving || mode === null}
 					aria-labelledby={labelId}
-					className="inline-flex items-center gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-3) p-0.5"
-					onKeyDown={onKeyDown}
-					ref={groupRef}
-					role="radiogroup"
-				>
-					{ACCOUNT_ROTATION_MODES.map(option => {
-						const selected = option === mode;
-						return (
-							<button
-								aria-checked={selected}
-								className={cx(
-									"inline-flex h-(--sc-hit-min) shrink-0 items-center rounded-(--sc-radius-sm) px-2.5 text-sc-sm font-medium whitespace-nowrap transition-colors duration-(--sc-duration-fast) disabled:cursor-not-allowed disabled:opacity-50",
-									selected
-										? "bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-sm)"
-										: "text-(--sc-text-muted) hover:text-(--sc-text)",
-								)}
-								data-rotation-mode={option}
-								disabled={mode === null || !available(option)}
-								key={option}
-								onClick={() => choose(option)}
-								role="radio"
-								tabIndex={selected || (mode === null && option === "quota") ? 0 : -1}
-								type="button"
-							>
-								{t(LABEL_KEY[option])}
-							</button>
-						);
-					})}
-				</div>
+					disabled={mode === null}
+					fit="content"
+					onChange={choose}
+					optionAttr="data-rotation-mode"
+					options={ACCOUNT_ROTATION_MODES.map(option => ({
+						value: option,
+						label: t(LABEL_KEY[option]),
+						disabled: !available(option),
+					}))}
+					value={mode}
+				/>
 				{(saving || mode === null) && <Spinner size="sm" spin />}
 			</div>
 			{device && (
