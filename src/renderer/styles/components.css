@@ -3860,10 +3860,8 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 .omp-work-notes-age,
 .omp-work-notes-more {
 	font-size: var(--sc-font-xs);
-	color: var(--sc-text-muted);
 }
-.omp-work-notes-line:focus-visible,
-.omp-work-notes-more:focus-visible {
+.omp-work-notes-line:focus-visible {
 	outline: 2px solid var(--sc-focus-ring);
 	outline-offset: 2px;
 }

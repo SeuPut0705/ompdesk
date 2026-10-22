@@ -17,7 +17,7 @@
 	"components/chat/work/StepGroups.tsx": 1,
 	"components/chat/work/WorkContext.tsx": 2,
 	"components/chat/work/WorkMap.tsx": 1,
-	"components/chat/work/WorkNotes.tsx": 2,
+	"components/chat/work/WorkNotes.tsx": 1,
 	"components/chat/work/WorkOutcome.tsx": 3,
 	"components/dialogs/BenchmarkDialog.tsx": 1,
 	"components/dialogs/CommandPalette.tsx": 1,

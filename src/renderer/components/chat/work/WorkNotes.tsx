@@ -5,6 +5,7 @@ import { formatAgo, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { messageDisplayText } from "../../../lib/messages";
 import { Badge } from "../../common/Badge";
+import { LinkButton } from "../../common/LinkButton";
 import { advisorSeverityLabel, CustomMessageCard, workNoteSummary } from "../CustomMessageCard";
 import { TodoReminderNote } from "../TodoReminderNote";
 import { parseTodoReminder } from "../todo-reminder";
@@ -27,14 +28,14 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 	return (
 		<div className="omp-work-notes">
 			{hidden > 0 && (
-				<button
-					type="button"
+				<LinkButton
+					tone="muted"
 					className="omp-work-notes-more"
 					aria-expanded={showOlder}
 					onClick={() => setShowOlder(!showOlder)}
 				>
 					{showOlder ? t("chat.workNotes.less") : t("chat.workNotes.more", { count: hidden })}
-				</button>
+				</LinkButton>
 			)}
 			<ul className="omp-work-notes-list" aria-label={t("chat.workNotes.label")}>
 				{shown.map(message => {
