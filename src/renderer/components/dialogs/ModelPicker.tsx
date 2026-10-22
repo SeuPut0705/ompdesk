@@ -349,7 +349,10 @@ export function ModelPicker() {
 			<div className="flex h-full min-h-0 flex-col">
 				<div className="border-b border-(--sc-divider) p-1.5">
 					<SearchField
-						listbox={{ id: listboxId, activeId: flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined }}
+						listbox={{
+							id: listboxId,
+							activeId: flatOptions.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined,
+						}}
 						controlSize="sm"
 						label={t("modelPicker.searchLabel")}
 						onKeyDown={onKeyDown}

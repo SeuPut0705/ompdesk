@@ -138,7 +138,10 @@ export function QuickOpenDialog() {
 				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) p-4">
 					<div className="min-w-0 flex-1">
 						<SearchField
-							listbox={{ id: listboxId, activeId: showOptions ? `${listboxId}-option-${activeIndex}` : undefined }}
+							listbox={{
+								id: listboxId,
+								activeId: showOptions ? `${listboxId}-option-${activeIndex}` : undefined,
+							}}
 							controlSize="lg"
 							label={t("quickOpen.title")}
 							onKeyDown={onKeyDown}

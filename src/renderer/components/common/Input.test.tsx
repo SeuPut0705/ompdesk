@@ -127,7 +127,7 @@ it("grows an auto-grow field to its content plus its border, so an empty field h
 
 it("makes a search field the combobox of the list it drives, naming the list and its highlighted row", async () => {
 	await render(
-		<>
+		<I18nProvider>
 			<SearchField
 				label="Search commands"
 				listbox={{ id: "list", activeId: "list-2" }}

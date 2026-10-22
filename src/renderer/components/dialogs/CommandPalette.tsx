@@ -569,7 +569,10 @@ export function CommandPalette() {
 					)}
 					<div className="min-w-0 flex-1">
 						<SearchField
-							listbox={{ id: listboxId, activeId: flatList.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined }}
+							listbox={{
+								id: listboxId,
+								activeId: flatList.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined,
+							}}
 							controlSize="lg"
 							label={t("palette.searchLabel")}
 							onValueChange={value => {
