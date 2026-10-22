@@ -287,12 +287,24 @@ html[data-platform="win32"] {
 	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
 }
 
-/* On Windows the caption buttons (minimize, maximize, close) sit over a right-docked panel's header: its own close
-   goes to the header's other end, so the two ✕ never stand side by side (the user closed the window reaching for the
-   panel's, 22 Oct 2026). */
-html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar [data-panel-close] {
-	order: -1;
-	margin-inline-start: calc(var(--sc-space-1) * -1);
+/* On Windows the caption buttons (minimize, maximize, close) sit over a right-docked panel's header. The header's
+   first row is the caption band, the panel's title on its left and the window's buttons on its right; the panel's
+   own view buttons and close sit on a row below it, so the two ✕ never stand side by side (the user closed the
+   window reaching for the panel's, 22 Oct 2026). */
+html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar {
+	padding-right: var(--sc-space-2);
+	padding-bottom: var(--sc-space-1);
+}
+
+html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar [data-panel-title] {
+	flex-basis: 100%;
+	height: var(--sc-space-12);
+	line-height: var(--sc-space-12);
+	padding-right: var(--sc-caption-buttons);
+}
+
+html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar :is([data-panel-views], [data-panel-title] + [data-panel-close]) {
+	margin-inline-start: auto;
 }
 
 /* Side panel docked left (Settings › General › Window): it takes the

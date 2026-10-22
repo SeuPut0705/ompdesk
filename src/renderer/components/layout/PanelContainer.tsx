@@ -73,11 +73,19 @@ function PanelHeader({ bare }: { bare?: boolean }) {
 	const current = panelTab === "subagent" ? SUBAGENT_VIEW : (VIEWS.find(view => view.id === panelTab) ?? VIEWS[0]);
 	return (
 		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 flex-wrap items-center gap-x-1 px-3">
-			<span title={t(current.labelKey)} className="min-w-24 flex-1 truncate text-sc-sm font-medium text-(--sc-text)">
+			<span
+				className="min-w-24 flex-1 truncate text-sc-sm font-medium text-(--sc-text)"
+				data-panel-title=""
+				title={t(current.labelKey)}
+			>
 				{t(current.labelKey)}
 			</span>
 			{!bare && (
-				<div className="no-drag flex shrink-0 items-center" aria-label={t("panel.primaryViews")}>
+				<div
+					aria-label={t("panel.primaryViews")}
+					className="no-drag flex shrink-0 items-center"
+					data-panel-views=""
+				>
 					{VIEWS.map(view => (
 						<IconButton
 							key={view.id}
