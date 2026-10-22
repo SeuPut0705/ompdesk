@@ -97,6 +97,23 @@ describe("ZoomableImage", () => {
 		expect(overlay?.className).toContain("absolute");
 		expect(overlay?.className).not.toContain("fixed");
 		expect(sidebar.contains(viewer())).toBe(false);
+		// A pane sits under the title bar: no room to leave for the window's controls.
+		expect(viewer()?.querySelector("[data-image-viewer-head]")?.getAttribute("style") ?? "").not.toContain(
+			"--sc-caption-buttons",
+		);
+	});
+
+	it("keeps its own bar, named for the file, clear of the window's controls when it covers the window", async () => {
+		await mount(<ZoomableImage alt="shot" path="C:\\shots\\login.png" src="data:image/png;base64,AAAA" />);
+		await click(container.querySelector("[data-zoomable-image]"));
+		const bar = viewer()?.querySelector<HTMLElement>("[data-image-viewer-head]");
+		expect(bar?.textContent).toContain("login.png");
+		expect(bar?.querySelector('button[aria-label="Close"]')).not.toBeNull();
+		// The bar is not the picture's scroller: an actual-size picture scrolls under it.
+		expect(bar?.contains(viewer()?.querySelector("[data-image-viewer]") ?? null)).toBe(false);
+		// Windows draws its caption buttons over the window's top right, macOS its traffic lights over the top left.
+		expect(bar?.getAttribute("style")).toContain("--sc-caption-buttons");
+		expect(bar?.getAttribute("style")).toContain("--sc-traffic-lights");
 	});
 
 	it("steps through a gallery with its buttons and arrow keys, opening on the clicked picture", async () => {

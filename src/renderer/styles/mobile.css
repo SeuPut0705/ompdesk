@@ -1334,6 +1334,19 @@ html[data-shell="phone"][data-input="touch"] [data-figure-header] :is([data-figu
 	gap: 14px;
 }
 
+/* The picture viewer's bar (common/ZoomableImage.tsx): on touch its buttons sit 10 px apart (14 on a phone, whose icon
+   buttons draw 24 px) and reach the 40 px bar's height, so each is a 36 px target that takes no neighbour's tap. */
+html[data-input="touch"] [data-image-viewer-head] {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 0px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-image-viewer-head] {
+	gap: 14px;
+	--hit-gap-x: 14px;
+}
+
 /* The Run sheet's one-line rows (layout/composer/ChoiceRow.tsx, common/Switch.tsx SwitchTile in a `data-switch-grid`):
    segments and tiles sit 2–8 px apart, so each reach stops at the midpoint to its neighbour; on touch a segment is a
    40 px row high (the row's own height), and the tile's whole label is its tap target. */

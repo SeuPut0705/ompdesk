@@ -3,7 +3,9 @@
  * button (keyboard reachable); the viewer is a chromeless Modal, so Escape, a
  * backdrop click and focus return come from the shared modal layer. The viewer
  * covers the chat pane the image sits in (sidebar and side panel stay visible),
- * or the window when the image is outside a pane. The picture fits that area;
+ * or the window when the image is outside a pane, under a bar of its own (name,
+ * position, open in default app, close) that keeps clear of the window's own
+ * controls. The picture fits that area;
  * a click toggles actual size (scrollable) for screenshots whose detail the
  * fit scale hides. With a `gallery` (every picture of one message or result),
  * the viewer steps through it with ←/→ and its buttons; a picture that is a
@@ -69,6 +71,8 @@ export function ZoomableImage({
 	const [pane, setPane] = useState<HTMLElement | null>(null);
 	const items: readonly GalleryImage[] = gallery && gallery.length > 1 ? gallery : [{ src, alt, path }];
 	const shown = items[Math.min(index, items.length - 1)] ?? { src, alt, path };
+	// The bar names the file when there is one, else the picture's own description.
+	const viewerName = shown.path ? (shown.path.split(/[\\/]/).pop() ?? shown.path) : shown.alt;
 	const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
 	const close = () => {
 		setOpen(false);
@@ -187,7 +191,7 @@ export function ZoomableImage({
 			)}
 			<Modal
 				ariaLabel={shown.alt}
-				bodyClassName="relative flex items-center justify-center overflow-auto p-0"
+				bodyClassName="flex flex-col overflow-hidden p-0"
 				chromeless
 				container={pane}
 				onClose={close}
@@ -199,67 +203,80 @@ export function ZoomableImage({
 				size="full"
 			>
 				{/* ←/→ step the gallery from anywhere inside the viewer; the buttons stay the accessible path. */}
-				<div className="contents" onKeyDown={onKeyDown}>
-					<div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+				<div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
+					{/* The viewer's own bar, so its close never reads as the window's. A viewer over the window clears the
+					    caption buttons (Windows, top right) and the traffic lights (macOS, top left) drawn over it. */}
+					<div
+						className="omp-image-viewer-head flex h-10 shrink-0 items-center gap-1 border-b border-(--sc-divider) bg-(--sc-elevated) px-2"
+						data-image-viewer-head
+						style={
+							pane
+								? undefined
+								: {
+										paddingLeft: "max(var(--sc-space-2), var(--sc-traffic-lights))",
+										paddingRight: "calc(var(--sc-space-2) + var(--sc-caption-buttons))",
+									}
+						}
+					>
+						<span className="min-w-0 flex-1 truncate pl-1 text-sc-sm text-(--sc-text-secondary)" title={viewerName}>
+							{viewerName}
+						</span>
 						{items.length > 1 && (
-							<span className="rounded-(--sc-radius-full) bg-(--sc-elevated) px-2 text-sc-xs tabular-nums text-(--sc-text-secondary)">
+							<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
 								{t("image.position", { index: index + 1, total: items.length })}
 							</span>
 						)}
 						{shown.path && (
 							<IconButton
-								className="bg-(--sc-elevated)"
 								icon={<ExternalLink />}
 								label={t("image.openDefault")}
 								onClick={() => shown.path && void openInDefaultApp(shown.path)}
 								size="sm"
 							/>
 						)}
-						<IconButton
-							className="bg-(--sc-elevated)"
-							icon={<X />}
-							label={t("common.close")}
-							onClick={close}
-							size="sm"
-						/>
+						<IconButton icon={<X />} label={t("common.close")} onClick={close} size="sm" />
 					</div>
-					{items.length > 1 && (
-						<>
-							<IconButton
-								className="absolute top-1/2 left-2 z-10 -translate-y-1/2 bg-(--sc-elevated)"
-								icon={<ChevronLeft />}
-								label={t("image.previous")}
-								onClick={() => step(-1)}
-								size="sm"
-							/>
-							<IconButton
-								className="absolute top-1/2 right-2 z-10 -translate-y-1/2 bg-(--sc-elevated)"
-								icon={<ChevronRight />}
-								label={t("image.next")}
-								onClick={() => step(1)}
-								size="sm"
-							/>
-						</>
-					)}
-					<button
-						aria-label={t(actualSize ? "image.fit" : "image.actualSize")}
-						aria-pressed={actualSize}
-						className={cx(
-							"m-auto p-0",
-							actualSize ? "cursor-zoom-out" : "flex h-full w-full cursor-zoom-in items-center justify-center",
+					<div className="relative min-h-0 flex-1">
+						<div className="absolute inset-0 flex overflow-auto">
+							<button
+								aria-label={t(actualSize ? "image.fit" : "image.actualSize")}
+								aria-pressed={actualSize}
+								className={cx(
+									"m-auto p-0",
+									actualSize ? "cursor-zoom-out" : "flex h-full w-full cursor-zoom-in items-center justify-center",
+								)}
+								data-image-viewer
+								onClick={() => setActualSize(value => !value)}
+								type="button"
+							>
+								<img
+									alt={shown.alt}
+									// Fit fills the window (small pictures scale up: that is the point of
+									// enlarging); actual size shows natural pixels and scrolls.
+									className={actualSize ? "max-w-none" : "h-full w-full object-contain"}
+									src={shown.src}
+								/>
+							</button>
+						</div>
+						{items.length > 1 && (
+							<>
+								<IconButton
+									className="absolute top-1/2 left-2 z-10 -translate-y-1/2 bg-(--sc-elevated)"
+									icon={<ChevronLeft />}
+									label={t("image.previous")}
+									onClick={() => step(-1)}
+									size="sm"
+								/>
+								<IconButton
+									className="absolute top-1/2 right-2 z-10 -translate-y-1/2 bg-(--sc-elevated)"
+									icon={<ChevronRight />}
+									label={t("image.next")}
+									onClick={() => step(1)}
+									size="sm"
+								/>
+							</>
 						)}
-						data-image-viewer
-						onClick={() => setActualSize(value => !value)}
-						type="button"
-					>
-						<img
-							alt={shown.alt}
-							// Fit fills the window (small pictures scale up: that is the point of
-							// enlarging); actual size shows natural pixels and scrolls.
-							className={actualSize ? "max-w-none" : "h-full w-full object-contain"}
-							src={shown.src}
-						/>
-					</button>
+					</div>
 				</div>
 			</Modal>
 		</>
