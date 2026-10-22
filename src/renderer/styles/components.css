@@ -4540,3 +4540,65 @@ html[data-gpu="software"] .omp-working-arc-part[data-arc="head"] {
 .omp-live-age > time {
 	visibility: hidden;
 }
+
+/* A device section's header color (lib/device-color.ts): a paired host's header wears its own hue so its rows are told
+   from this computer's at a glance. The row takes a light wash of it and the device glyph the hue itself; the hues are
+   not status colors, and each is drawn per scheme so the glyph keeps 3:1 against the sidebar. */
+[data-device-color="blue"] {
+	--device-color: oklch(0.55 0.15 255);
+}
+[data-device-color="teal"] {
+	--device-color: oklch(0.55 0.1 195);
+}
+[data-device-color="violet"] {
+	--device-color: oklch(0.55 0.17 300);
+}
+[data-device-color="amber"] {
+	--device-color: oklch(0.6 0.13 70);
+}
+[data-device-color="pink"] {
+	--device-color: oklch(0.57 0.17 355);
+}
+[data-device-color="green"] {
+	--device-color: oklch(0.55 0.13 150);
+}
+:root[data-theme="dark"] [data-device-color="blue"] {
+	--device-color: oklch(0.74 0.12 255);
+}
+:root[data-theme="dark"] [data-device-color="teal"] {
+	--device-color: oklch(0.76 0.1 195);
+}
+:root[data-theme="dark"] [data-device-color="violet"] {
+	--device-color: oklch(0.74 0.14 300);
+}
+:root[data-theme="dark"] [data-device-color="amber"] {
+	--device-color: oklch(0.8 0.12 75);
+}
+:root[data-theme="dark"] [data-device-color="pink"] {
+	--device-color: oklch(0.75 0.14 355);
+}
+:root[data-theme="dark"] [data-device-color="green"] {
+	--device-color: oklch(0.76 0.13 150);
+}
+
+.omp-device-header[data-device-color] {
+	background-color: color-mix(in oklab, var(--device-color) 14%, transparent);
+}
+.omp-device-header[data-device-color]:hover {
+	background-color: color-mix(in oklab, var(--device-color) 22%, transparent);
+}
+.omp-device-header[data-device-color] [data-device-glyph] {
+	color: var(--device-color);
+}
+
+.omp-menu-swatch {
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+	border-radius: 9999px;
+	border: 1px solid var(--sc-border);
+}
+.omp-menu-swatch[data-device-color] {
+	background-color: var(--device-color);
+	border-color: transparent;
+}

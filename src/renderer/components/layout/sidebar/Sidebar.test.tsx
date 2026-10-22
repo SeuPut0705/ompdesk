@@ -20,6 +20,7 @@ import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { resetShellModeForTests, TOUCH_QUERY } from "../../../hooks/use-shell-mode";
 import { useWorkspaceRecency } from "../../../hooks/use-workspace-recency";
+import { DEVICE_COLORS } from "../../../lib/device-color";
 import { formatTimeAgo } from "../../../lib/format";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
@@ -2929,6 +2930,33 @@ describe("Sidebar device sections", () => {
 		);
 		expect([...omp.sidecar.setProject.mock.calls.map(([cwd]) => cwd), ...spawnedCwds]).toEqual(["/work/new-app"]);
 		expect(omp.tabs.spawn).not.toHaveBeenCalledWith(expect.objectContaining({ device: expect.anything() }));
+	});
+
+	it("colors a paired host's header by itself, leaves this device's plain, and its gear changes or clears the color", async () => {
+		installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const host = () => container.querySelector('[data-sidebar-device="dev-studio"] .omp-device-header');
+		const local = () => container.querySelector('[data-sidebar-device-header="local"]');
+		const auto = host()?.getAttribute("data-device-color");
+		expect(DEVICE_COLORS).toContain(auto);
+		expect(local()?.hasAttribute("data-device-color")).toBe(false);
+
+		const gear = container.querySelector('[data-sidebar-device-color="dev-studio"] button');
+		expect(gear?.getAttribute("aria-label")).toBe(translate("remote.sidebar.color", { name: "studio" }));
+		const other = DEVICE_COLORS.find(color => color !== auto) ?? "blue";
+		await fire(gear, "onClick");
+		await fire(menuItem(translate(`remote.sidebar.color.${other}`)), "onClick");
+		expect(host()?.getAttribute("data-device-color")).toBe(other);
+		expect(useSidebarFolds.getState().deviceColors["dev-studio"]).toBe(other);
+
+		await fire(gear, "onClick");
+		await fire(menuItem(translate("remote.sidebar.color.none")), "onClick");
+		expect(host()?.hasAttribute("data-device-color")).toBe(false);
+		await fire(gear, "onClick");
+		await fire(menuItem(translate("remote.sidebar.color.auto")), "onClick");
+		expect(host()?.getAttribute("data-device-color")).toBe(auto);
 	});
 
 	it("gives every device its own Chats section after its projects, its New chat starting the chat on that device", async () => {

@@ -6,6 +6,7 @@
  * (`pruneGroups`, `syncHosts`) once a live read says which folders and hosts still exist.
  */
 import { create } from "zustand";
+import type { DeviceColorChoice } from "../lib/device-color";
 import {
 	deviceGroupKey,
 	EMPTY_FOLDS,
@@ -27,6 +28,8 @@ interface SidebarFoldsStore extends SidebarFolds {
 	setDeviceFolded: (deviceId: string, folded: boolean) => void;
 	setDeviceGroupFolded: (deviceId: string, cwd: string, folded: boolean) => void;
 	setChatsFolded: (deviceId: string, folded: boolean) => void;
+	/** A device header's color; `undefined` goes back to automatic. */
+	setDeviceColor: (deviceId: string, choice: DeviceColorChoice | undefined) => void;
 	setArchivedOpen: (open: boolean) => void;
 	setStarterOpen: (open: boolean) => void;
 	setUsageCollapsed: (collapsed: boolean) => void;
@@ -50,6 +53,7 @@ function saved(state: SidebarFolds): SidebarFolds {
 		devices: state.devices,
 		deviceGroups: state.deviceGroups,
 		chats: state.chats,
+		deviceColors: state.deviceColors,
 		archivedOpen: state.archivedOpen,
 		starterOpen: state.starterOpen,
 		usageCollapsed: state.usageCollapsed,
@@ -72,6 +76,10 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 		setDeviceGroupFolded: (deviceId, cwd, folded) =>
 			edit({ deviceGroups: withFlag(get().deviceGroups, deviceGroupKey(deviceId, cwd), folded) }),
 		setChatsFolded: (deviceId, folded) => edit({ chats: withFlag(get().chats, deviceId, folded) }),
+		setDeviceColor: (deviceId, choice) => {
+			const { [deviceId]: _previous, ...rest } = get().deviceColors;
+			edit({ deviceColors: choice === undefined ? rest : { ...rest, [deviceId]: choice } });
+		},
 		setArchivedOpen: open => {
 			if (get().archivedOpen !== open) edit({ archivedOpen: open });
 		},
@@ -92,16 +100,18 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 			writeSidebarFolds(saved(get()));
 		},
 		syncHosts: hosts => {
-			const { devices, deviceGroups, deviceOrder, knownHosts, chats } = get();
+			const { devices, deviceGroups, deviceOrder, knownHosts, chats, deviceColors } = get();
 			const ids = new Set(hosts.map(host => host.id));
 			const known = (deviceId: string) => deviceId === LOCAL_DEVICE || ids.has(deviceId);
 			const keptDevices = Object.entries(devices).filter(([deviceId]) => known(deviceId));
 			const keptGroups = Object.entries(deviceGroups).filter(([key]) => known(key.slice(0, key.indexOf("\n"))));
 			const keptOrder = deviceOrder.filter(known);
 			const keptChats = Object.entries(chats).filter(([deviceId]) => known(deviceId));
+			const keptColors = Object.entries(deviceColors).filter(([deviceId]) => known(deviceId));
 			if (
 				keptDevices.length === Object.keys(devices).length &&
 				keptChats.length === Object.keys(chats).length &&
+				keptColors.length === Object.keys(deviceColors).length &&
 				keptGroups.length === Object.keys(deviceGroups).length &&
 				keptOrder.length === deviceOrder.length &&
 				JSON.stringify(hosts) === JSON.stringify(knownHosts)
@@ -110,6 +120,7 @@ export const useSidebarFolds = create<SidebarFoldsStore>()((set, get) => {
 			set({
 				devices: Object.fromEntries(keptDevices),
 				chats: Object.fromEntries(keptChats),
+				deviceColors: Object.fromEntries(keptColors),
 				deviceGroups: Object.fromEntries(keptGroups),
 				deviceOrder: keptOrder,
 				knownHosts: [...hosts],

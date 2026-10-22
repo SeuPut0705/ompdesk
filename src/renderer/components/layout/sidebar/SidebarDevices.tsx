@@ -19,6 +19,7 @@ import {
 	Monitor,
 	MoreHorizontal,
 	Plus,
+	Settings2,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import { DEVICE_COLORS, type DeviceColorChoice, deviceColorOf } from "../../../lib/device-color";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
@@ -45,7 +47,13 @@ import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { anchorFromEvent, ContextMenu, type ContextMenuItem, type MenuSelectModifiers } from "../../common/ContextMenu";
+import {
+	anchorFromEvent,
+	ContextMenu,
+	type ContextMenuItem,
+	MenuButton,
+	type MenuSelectModifiers,
+} from "../../common/ContextMenu";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
@@ -96,9 +104,39 @@ function DeviceHeader({
 	const t = useT();
 	const handle = useDeviceHeaderHandle();
 	const Chevron = folded ? ChevronRight : ChevronDown;
+	const choice = useSidebarFolds(s => s.deviceColors[deviceId]);
+	const color = deviceColorOf(deviceId, choice, local === true);
+	const pick = (next: DeviceColorChoice | undefined) => useSidebarFolds.getState().setDeviceColor(deviceId, next);
+	const colorItems: ContextMenuItem[] = [
+		{
+			id: "auto",
+			label: t("remote.sidebar.color.auto"),
+			checked: choice === undefined,
+			onSelect: () => pick(undefined),
+		},
+		...DEVICE_COLORS.map(
+			(value, index): ContextMenuItem => ({
+				id: value,
+				label: t(`remote.sidebar.color.${value}`),
+				swatch: value,
+				checked: choice === value,
+				separatorBefore: index === 0,
+				onSelect: () => pick(value),
+			}),
+		),
+		{
+			id: "none",
+			label: t("remote.sidebar.color.none"),
+			swatch: "",
+			checked: choice === "none",
+			separatorBefore: true,
+			onSelect: () => pick("none"),
+		},
+	];
 	return (
 		<div
-			className="group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+			className="omp-device-header group/device flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+			data-device-color={color ?? undefined}
 			data-sidebar-device-header={local ? "local" : undefined}
 		>
 			<button
@@ -113,11 +151,21 @@ function DeviceHeader({
 				title={name}
 				type="button"
 			>
-				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+				<Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" data-device-glyph />
 				<span className="min-w-0 truncate">{name}</span>
 				{children}
 				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			</button>
+			<span className="contents" data-sidebar-device-color={deviceId}>
+				<MenuButton
+					className="text-(--sc-text-subtle) hover:text-(--sc-text)"
+					icon={<Settings2 />}
+					items={colorItems}
+					label={t("remote.sidebar.color", { name })}
+					size="sm"
+					variant="ghost"
+				/>
+			</span>
 			<IconButton
 				className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
 				data-sidebar-device-add={deviceId}

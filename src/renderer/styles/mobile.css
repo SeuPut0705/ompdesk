@@ -2011,6 +2011,7 @@ html[data-shell]
 		[data-sidebar-group-new],
 		[data-device-group-new],
 		[data-sidebar-device-add],
+		[data-sidebar-device-color] > button,
 		[data-sidebar-device-new-chat],
 		[data-sidebar-chats] > div:first-child > button,
 		.omp-sidebar-header button,

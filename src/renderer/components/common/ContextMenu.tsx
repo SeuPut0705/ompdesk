@@ -44,6 +44,8 @@ export interface ContextMenuItem {
 	label: string;
 	description?: string;
 	icon?: LucideIcon;
+	/** A color dot in the icon's place (a color choice), drawn by components.css from `data-device-color`. */
+	swatch?: string;
 	/** Right-aligned plain hint text (a count, a value). */
 	hint?: string;
 	/** macOS-spelled shortcut, rendered as Kbd. */
@@ -112,6 +114,9 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 	const showCheckColumn = item.checked !== undefined;
 	return (
 		<>
+			{item.swatch !== undefined && (
+				<span aria-hidden className="omp-menu-swatch" data-device-color={item.swatch || undefined} />
+			)}
 			{Icon && (
 				<Icon
 					aria-hidden

@@ -13,7 +13,9 @@
  * sessions that no longer exist once a live read has confirmed what exists (`stores/sidebar-folds.ts`,
  * `stores/sidebar-subagents.ts`).
  */
+
 import { SIDEBAR_VISIBLE_STORAGE_KEY } from "../../shared/boot-shell-geometry";
+import { type DeviceColorChoice, isDeviceColorChoice } from "./device-color";
 import { readPref } from "./prefs-read";
 
 export const SIDEBAR_VISIBLE_PREF = "sidebarVisible";
@@ -42,6 +44,8 @@ export interface SidebarFolds {
 	deviceGroups: Record<string, boolean>;
 	/** `LOCAL_DEVICE` or a paired host's deviceId → its Chats section folded. */
 	chats: Record<string, boolean>;
+	/** `LOCAL_DEVICE` or a paired host's deviceId → the header color chosen for it (`lib/device-color.ts`); absent = automatic. */
+	deviceColors: Record<string, DeviceColorChoice>;
 	/** The Archived section is open. */
 	archivedOpen: boolean;
 	/** The Get started checklist is open. */
@@ -73,6 +77,7 @@ export const EMPTY_FOLDS: SidebarFolds = {
 	devices: {},
 	deviceGroups: {},
 	chats: {},
+	deviceColors: {},
 	archivedOpen: false,
 	starterOpen: false,
 	usageCollapsed: false,
@@ -108,12 +113,23 @@ export function parseSidebarFolds(value: unknown): SidebarFolds {
 		devices: parseFlags(record.devices),
 		deviceGroups: parseFlags(record.deviceGroups),
 		chats: parseFlags(record.chats),
+		deviceColors: parseColors(record.deviceColors),
 		archivedOpen: record.archivedOpen === true,
 		starterOpen: record.starterOpen === true,
 		usageCollapsed: record.usageCollapsed === true,
 		deviceOrder: parseDeviceOrder(record.deviceOrder),
 		knownHosts: parseKnownHosts(record.knownHosts),
 	};
+}
+
+/** Device id → a known color choice, anything else dropped, within the limit. */
+function parseColors(value: unknown): Record<string, DeviceColorChoice> {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+	const entries = Object.entries(value).filter(
+		(entry): entry is [string, DeviceColorChoice] =>
+			isDeviceColorChoice(entry[1]) && entry[0].length > 0 && entry[0].length <= KEY_MAX_CHARS,
+	);
+	return Object.fromEntries(entries.slice(-FOLD_LIMIT));
 }
 
 /** Distinct ids, malformed ones dropped, within the limit. */
