@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.61.22] - 2026-10-23
+
+키보드 사용과 작은 화면 손질을 고쳤어요.
+
+### 고친 것
+- 터미널에서 F6으로 빠져나올 때 셸에 `ESC[17~`가 함께 입력되던 문제를 고쳤어요.
+- 휴대폰에서 탭의 포커스 테두리가 가로 스크롤 영역에 잘리지 않고 탭 안쪽에 그려져요.
+- Run 설정에서 짝 없이 혼자 남은 스위치(빠른 모드만 있을 때 등)가 한 줄을 다 차지해, 스위치가 다른 줄처럼 오른쪽 끝에 놓여요.
+
+### 개선
+- 도구 강제 창에서 검색란에 둔 채 ↑/↓로 도구를 고를 수 있어요. 목록 줄마다 Tab을 누를 필요가 없어요.
+
+<!-- en -->
+
+Keyboard use and small-screen polish.
+
+### Fixed
+- Leaving the terminal with F6 no longer also types `ESC[17~` into its shell.
+- On a phone a tab's focus ring is drawn inside the tab, where the sideways tab scroller used to clip it.
+- In Run settings a switch left alone on its row (for example Fast mode alone) takes the whole row, so its switch sits at the right edge like the others.
+
+### Improved
+- In the force-tool dialog ↑/↓ pick a tool from the search field; the list rows are no longer one Tab stop each.
+
 ## [0.61.21] - 2026-10-23
 
 키보드만으로 창 안을 더 쉽게 오갈 수 있어요.
