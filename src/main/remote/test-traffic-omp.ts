@@ -190,8 +190,21 @@ async function toolWait(emit: (event: object) => void, seconds: number): Promise
 	await streamMessage(emit, 0, 12, 0, { id: "call-1", name: "bash", command: "sleep 30" });
 	emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "sleep 30" } });
 	await sleep(seconds * 1000);
-	const result = { content: [{ type: "text", text: "" }] };
+	const output = Array.from({ length: 200 }, (_, line) => `line ${line}: src/main/remote/link-events.ts`).join("\n");
+	const result = { content: [{ type: "text", text: output }], details: { exitCode: 0 } };
 	emit({ type: "tool_execution_end", toolCallId: "call-1", toolName: "bash", result, isError: false });
+	// Stock's order (pi-agent-core agent-loop.ts `emitToolResult`): the result message, built from the same result.
+	const message = {
+		role: "toolResult",
+		toolCallId: "call-1",
+		toolName: "bash",
+		content: result.content,
+		details: result.details,
+		isError: false,
+		timestamp: ++clock,
+	};
+	emit({ type: "message_start", message });
+	emit({ type: "message_end", message });
 	await streamMessage(emit, 0, 20, 0);
 }
 

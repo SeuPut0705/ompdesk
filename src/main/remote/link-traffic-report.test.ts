@@ -487,6 +487,27 @@ describe("a device that asks for slim events", () => {
 		for (const update of updates) expect(Array.isArray(update.message?.content)).toBe(true);
 	}, 30_000);
 
+	it("receives a tool result's output once, where an older device gets it twice", async () => {
+		const scenario = { kind: "tool-wait", seconds: 0 };
+		const starts = async (device: DeviceKind) => {
+			const session = await openSession({ device });
+			session.recorder.reset();
+			await session.turn(scenario);
+			const bytes = session.recorder.inner.get("events/message_start")?.bytes ?? 0;
+			const ends = session.recorder.inner.get("events/tool_execution_end")?.bytes ?? 0;
+			session.recorder.stop();
+			await session.rig.dispose();
+			return { bytes, ends };
+		};
+		const older = await starts("older");
+		const current = await starts("current");
+		// The output (about 7 KB) rides the end on both; the older device's result message carries it again.
+		expect(current.ends).toBe(older.ends);
+		expect(older.bytes - current.bytes, `${current.bytes} B against ${older.bytes} B`).toBeGreaterThan(
+			older.ends * 0.9,
+		);
+	}, 60_000);
+
 	it("delivers the same stream to the renderer as an older device does", async () => {
 		const scenario = { kind: "tool-wait", seconds: 0 };
 		const rendered = async (options: { device?: DeviceKind }) => {
