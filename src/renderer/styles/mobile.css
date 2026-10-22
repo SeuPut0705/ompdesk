@@ -553,10 +553,19 @@ html[data-shell="phone"] kbd {
 	display: none;
 }
 
-/* The board names itself in its own header; under the strip the strip names it. */
-.omp-work-strip-panel .omp-work-board-pulse,
-.omp-work-strip-panel .omp-work-board-name {
+/* The board names itself in its own header; under the strip the strip names it. The name stays a heading for a
+   screen reader (only drawn nothing), so the sections' h3 sit under an h2, not straight under the window's h1. */
+.omp-work-strip-panel .omp-work-board-pulse {
 	display: none;
+}
+
+.omp-work-strip-panel .omp-work-board-name {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 /* Under a finger the board's rows, section heads, "+N more" rows and head items are a touch row tall: one line still,

@@ -223,3 +223,15 @@ describe("quiet text on a warning-washed row", () => {
 		);
 	});
 });
+
+describe("the work board's name under the phone's strip", () => {
+	it("is hidden only from sight, so the sections' h3 stay under an h2 for a screen reader", () => {
+		const css = readFileSync(join(dir, "mobile.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+		const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(rule =>
+			(rule[1] ?? "").includes(".omp-work-strip-panel .omp-work-board-name"),
+		);
+		expect(rules.length).toBeGreaterThan(0);
+		for (const rule of rules) expect(rule[2]).not.toMatch(/display:\s*none/);
+		expect(rules.map(rule => rule[2]).join("")).toMatch(/clip-path:\s*inset\(50%\)/);
+	});
+});
