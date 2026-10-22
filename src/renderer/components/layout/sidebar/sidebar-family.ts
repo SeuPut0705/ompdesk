@@ -334,3 +334,24 @@ export function remoteOpenedChildren(
 	}
 	return children;
 }
+
+/**
+ * Tabs on a paired device that a session on that same device opened (its agent ran `ompdesk_session_open` there):
+ * child tab id → the opener's row key in the device's own list (its session file, else `tab:<id>` before stock wrote
+ * one). Such a child nests under that row in the device's section, as a local child under its local opener; without
+ * this a host session's children were loose rows of its list and its row showed none of them.
+ */
+export function hostOpenedChildren(tabs: readonly (FamilyTab & { device?: string })[]): Map<string, string> {
+	const children = new Map<string, string>();
+	for (const tab of tabs) {
+		if (tab.device === undefined) continue;
+		const opener =
+			(tab.openedBy ? tabs.find(entry => entry.id === tab.openedBy) : undefined) ??
+			(tab.openedBySession
+				? tabs.find(entry => entry.device === tab.device && entry.sessionPath === tab.openedBySession)
+				: undefined);
+		if (opener && opener.id !== tab.id && opener.device === tab.device)
+			children.set(tab.id, opener.sessionPath ?? `tab:${opener.id}`);
+	}
+	return children;
+}

@@ -23,7 +23,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo, SessionKind } from "../../../../shared/ipc-types";
@@ -58,6 +58,9 @@ import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
+import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
+
+const NO_OPENED: readonly FamilyOpened[] = [];
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
 type DeviceSession = SessionInfo & { liveTabId?: string };
@@ -205,13 +208,16 @@ export function SidebarDeviceSection({
 	host,
 	query,
 	nested,
+	families,
 	pending = false,
 	onNewChat,
 }: {
 	host: HostView;
 	query: string;
-	/** Tab ids and session files of sessions a session of this computer opened here: they are rows of its family. */
+	/** Tab ids and session files of sessions another session opened here: they are rows of its family. */
 	nested?: ReadonlySet<string>;
+	/** This host's opener rows (session file, else `tab:<id>`) → the sessions their agent opened here. */
+	families?: ReadonlyMap<string, readonly FamilyOpened[]>;
 	/** A host the last host-list read named, drawn before this launch's first read: still, as it will look. */
 	pending?: boolean;
 	/** The sidebar's own New chat, started on this host. */
@@ -271,6 +277,7 @@ export function SidebarDeviceSection({
 			{!collapsed &&
 				(showRows ? (
 					<DeviceSessions
+						families={families}
 						host={host}
 						nested={nested}
 						onNewChat={() => onNewChat(host.deviceId)}
@@ -294,6 +301,7 @@ function DeviceSessions({
 	host,
 	query,
 	nested,
+	families,
 	onNewChat,
 	onOpen,
 	read,
@@ -301,6 +309,7 @@ function DeviceSessions({
 	host: HostView;
 	query: string;
 	nested: ReadonlySet<string> | undefined;
+	families: ReadonlyMap<string, readonly FamilyOpened[]> | undefined;
 	onNewChat: () => void;
 	onOpen: (args: RemoteOpenArgs) => Promise<void>;
 	read: boolean;
@@ -536,75 +545,86 @@ function DeviceSessions({
 					]
 				: []),
 		];
+		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened on this host.
+		const opened = families?.get(session.path) ?? (tab ? families?.get(`tab:${tab.id}`) : undefined) ?? NO_OPENED;
+		const family = tab !== undefined || opened.length > 0;
 		return (
-			<ListRow
-				// One ⋯ on every input, so the title keeps its width; at rest under touch, on hover or focus elsewhere.
-				actions={
-					menuItems.length > 0 && (
-						<IconButton
-							data-sidebar-row-menu
-							icon={<MoreHorizontal />}
-							label={t("sidebar.sessionMenu")}
-							onClick={event => {
-								const rect = event.currentTarget.getBoundingClientRect();
-								setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuItems, label: title });
-							}}
-							size="sm"
-							tabIndex={-1}
-						/>
-					)
-				}
-				actionCount={1}
-				actionsAtRest={touchInput}
-				actionsOnHover={!touchInput}
-				buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
-				className="omp-sidebar-session-row"
-				key={session.path}
-				meta={
-					chat || age ? (
-						<span className="inline-flex items-center gap-1.5">
-							{chat}
-							{age}
-						</span>
-					) : undefined
-				}
-				onClick={() => openSession(session)}
-				rowProps={{
-					// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`).
-					draggable: tab !== undefined && !current,
-					onDragStart: event => {
-						if (!tab) return;
-						event.dataTransfer.effectAllowed = "move";
-						hideNativeDragImage(event.dataTransfer);
-						window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: tab.id } }));
-					},
-					onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
-					"data-device-session": session.path,
-					onContextMenu: event => {
-						const anchor = anchorFromEvent(event);
-						setRowMenu({ ...anchor, items: menuItems, label: title });
-					},
-					"data-active": active,
-					"data-current": current || undefined,
-					"data-pane-focus": (current && splitIds !== null) || undefined,
-					"data-live": indexed ? undefined : true,
-				}}
-				selected={active}
-				title={
-					<>
-						<TabLiveTitle
-							running={running}
-							settling={settling}
-							tabId={tab?.id ?? null}
-							text={title}
-							waiting={waiting}
-						/>
-						{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
-						{openElsewhere && !working && <span className="sr-only">, {t("sidebar.row.open")}</span>}
-					</>
-				}
-				titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null].filter(Boolean).join("\n")}
-			/>
+			<Fragment key={session.path}>
+				<ListRow
+					// One ⋯ on every input, so the title keeps its width; at rest under touch, on hover or focus elsewhere.
+					actions={
+						menuItems.length > 0 && (
+							<IconButton
+								data-sidebar-row-menu
+								icon={<MoreHorizontal />}
+								label={t("sidebar.sessionMenu")}
+								onClick={event => {
+									const rect = event.currentTarget.getBoundingClientRect();
+									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuItems, label: title });
+								}}
+								size="sm"
+								tabIndex={-1}
+							/>
+						)
+					}
+					actionCount={1}
+					actionsAtRest={touchInput}
+					actionsOnHover={!touchInput}
+					buttonProps={{ tabIndex: -1, "data-roving-item": `device-session:${host.deviceId}:${session.path}` }}
+					className="omp-sidebar-session-row"
+					key={session.path}
+					meta={
+						chat || age ? (
+							<span className="inline-flex items-center gap-1.5">
+								{chat}
+								{age}
+							</span>
+						) : undefined
+					}
+					onClick={() => openSession(session)}
+					rowProps={{
+						// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`).
+						draggable: tab !== undefined && !current,
+						onDragStart: event => {
+							if (!tab) return;
+							event.dataTransfer.effectAllowed = "move";
+							hideNativeDragImage(event.dataTransfer);
+							window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: tab.id } }));
+						},
+						onDragEnd: () => window.dispatchEvent(new CustomEvent("omp:tab-drag", { detail: { tabId: null } })),
+						"data-device-session": session.path,
+						onContextMenu: event => {
+							const anchor = anchorFromEvent(event);
+							setRowMenu({ ...anchor, items: menuItems, label: title });
+						},
+						"data-active": active,
+						"data-current": current || undefined,
+						"data-pane-focus": (current && splitIds !== null) || undefined,
+						"data-live": indexed ? undefined : true,
+					}}
+					selected={active}
+					title={
+						<>
+							<TabLiveTitle
+								running={running}
+								settling={settling}
+								tabId={tab?.id ?? null}
+								text={title}
+								waiting={waiting}
+							/>
+							{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
+							{openElsewhere && !working && <span className="sr-only">, {t("sidebar.row.open")}</span>}
+						</>
+					}
+					titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null].filter(Boolean).join("\n")}
+					trailing={
+						family ? (
+							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={tab?.id ?? null} />
+						) : undefined
+					}
+				/>
+				{family && <SidebarSubagents opened={opened} sessionKey={session.path} tabId={tab?.id ?? null} />}
+			</Fragment>
 		);
 	};
 

@@ -2309,6 +2309,67 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(device?.textContent ?? "").not.toContain("Build it on Windows");
 	});
 
+	it("nests a session a paired device's own session opened there under that session's row in the device's list", async () => {
+		const HOST_BOSS = "C:\\s\\host-boss.jsonl";
+		mountFamily({
+			tabsExtra: [
+				{
+					id: "th",
+					cwd: "C:\\work\\app",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: HOST_BOSS,
+					device: "dev-studio",
+					task: "Orchestrate on the host",
+				},
+				{
+					id: "tk",
+					cwd: "C:\\work\\app",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "C:\\s\\host-child.jsonl",
+					device: "dev-studio",
+					task: "Child on the host",
+					openedBy: "th",
+				},
+			],
+		});
+		ensureTabRuntime("th");
+		useRemoteStore.getState().apply({
+			tailnet: "ready",
+			host: {
+				enabled: false,
+				name: "laptop",
+				port: null,
+				addresses: [],
+				listenError: null,
+				peers: [],
+				keepAwake: true,
+				keepingAwake: false,
+				usedBy: [],
+			},
+			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
+			forgotten: [],
+		});
+		await mount(<Sidebar />);
+		// Folded by default, as every family: the person's toggle opens it.
+		await act(async () => useSidebarSubagentsStore.getState().setExpanded(HOST_BOSS, true));
+
+		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
+		const family = [...(device?.querySelectorAll("[data-sidebar-family]") ?? [])].find(
+			element => element.getAttribute("data-sidebar-family") === HOST_BOSS,
+		);
+		const child = family?.querySelector("[data-sidebar-opened-session]");
+		expect(child?.textContent).toContain("Child on the host");
+		expect(child?.querySelector('[data-family-status="running"]')).not.toBeNull();
+		// A row of its opener's family, not a row of the device's list beside it.
+		expect(
+			[...(device?.querySelectorAll("[data-device-session]") ?? [])].map(row => row.textContent),
+		).not.toContainEqual(expect.stringContaining("Child on the host"));
+	});
+
 	it("keeps the working arc on the idle boss while only a session it opened on a paired device runs", async () => {
 		mountFamily({
 			tabsExtra: [

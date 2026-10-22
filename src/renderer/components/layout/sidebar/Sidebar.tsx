@@ -150,6 +150,7 @@ import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import {
 	CHILD_TOKEN,
+	hostOpenedChildren,
 	isShownOpened,
 	openedChildStatus,
 	openerOfSessions,
@@ -932,17 +933,19 @@ export function Sidebar() {
 	}, [tabs, remoteChildTabs, familyRootOf]);
 	// What each device's section leaves out: those children's tabs and session files, per device (two hosts can keep
 	// a session at the same path).
+	// A session on a paired device that its own agent opened there: a child of that device's opener row.
+	const hostChildTabs = useMemo(() => hostOpenedChildren(tabs), [tabs]);
 	const nestedRemote = useMemo(() => {
 		const byDevice = new Map<string, Set<string>>();
 		for (const tab of tabs) {
-			if (tab.device === undefined || !remoteChildTabs.has(tab.id)) continue;
+			if (tab.device === undefined || !(remoteChildTabs.has(tab.id) || hostChildTabs.has(tab.id))) continue;
 			const keys = byDevice.get(tab.device) ?? new Set<string>();
 			keys.add(tab.id);
 			if (tab.sessionPath) keys.add(tab.sessionPath);
 			byDevice.set(tab.device, keys);
 		}
 		return byDevice;
-	}, [tabs, remoteChildTabs]);
+	}, [tabs, remoteChildTabs, hostChildTabs]);
 	// The Chats section: chats and other no-project sessions, one recency-ordered list.
 	const chatSessions = useMemo(
 		() =>
@@ -1801,6 +1804,16 @@ export function Sidebar() {
 		};
 	};
 
+	// Each paired device's families: its opener rows (by row key) → the sessions their agent opened there.
+	const hostFamilies = new Map<string, Map<string, FamilyOpened[]>>();
+	for (const tab of tabs) {
+		const opener = hostChildTabs.get(tab.id);
+		if (opener === undefined || tab.device === undefined) continue;
+		const families = hostFamilies.get(tab.device) ?? new Map<string, FamilyOpened[]>();
+		families.set(opener, [...(families.get(opener) ?? []), remoteFamilyChildFor(tab)]);
+		hostFamilies.set(tab.device, families);
+	}
+
 	/** `archived`: a row of the Archived section. */
 	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived") => {
 		const key = `session:${session.path}`;
@@ -2419,6 +2432,7 @@ export function Sidebar() {
 								node: (
 									<SidebarDeviceSection
 										host={host}
+										families={hostFamilies.get(host.deviceId)}
 										nested={nestedRemote.get(host.deviceId)}
 										onNewChat={startChat}
 										pending={host.pending === true}
