@@ -14,7 +14,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { rankQuickOpen } from "../../lib/quick-open";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Kbd, Modal, SearchField, SkeletonRows } from "../common";
+import { Button, InlineNotice, Kbd, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
 
 /** Directory depth and file cap of the walk (a large repo lists its first files). */
 const LIST_DEPTH = 12;
@@ -187,19 +187,15 @@ export function QuickOpenDialog() {
 						matches.map((path, index) => {
 							const slash = path.lastIndexOf("/");
 							return (
-								<button
-									aria-selected={index === activeIndex}
-									className={`flex min-h-9 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left ${
-										index === activeIndex ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)"
-									}`}
+								<OptionRow
+									active={index === activeIndex}
+									size="sm"
 									data-option-index={index}
 									data-path={path}
 									id={`${listboxId}-option-${index}`}
 									key={path}
 									onClick={() => pick(path)}
 									onMouseEnter={() => setActiveIndex(index)}
-									role="option"
-									type="button"
 								>
 									<FileText aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 									<span className="min-w-0 shrink-0 truncate text-sc-md font-medium text-(--sc-text)">
@@ -210,7 +206,7 @@ export function QuickOpenDialog() {
 											{path.slice(0, slash)}
 										</span>
 									)}
-								</button>
+								</OptionRow>
 							);
 						})
 					)}

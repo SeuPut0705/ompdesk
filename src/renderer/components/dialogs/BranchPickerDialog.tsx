@@ -15,7 +15,7 @@ import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
+import { Button, InlineNotice, Kbd, Modal, OptionRow, SearchField, SkeletonRows, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -195,11 +195,9 @@ export function BranchPickerDialog() {
 						filtered.map((entry, index) => {
 							const isActive = index === activeIndex;
 							return (
-								<button
-									aria-selected={false}
-									className={`flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left disabled:opacity-50 ${
-										isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)"
-									}`}
+								<OptionRow
+									active={isActive}
+									selected={false}
 									data-option-index={index}
 									disabled={branching !== null || !sidecarReady}
 									title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
@@ -207,13 +205,11 @@ export function BranchPickerDialog() {
 									key={entry.entryId}
 									onClick={() => void select(entry)}
 									onMouseEnter={() => setActiveIndex(index)}
-									role="option"
-									type="button"
 								>
 									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 									<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{entry.text}</span>
 									{branching === entry.entryId && <Spinner size="sm" spin />}
-								</button>
+								</OptionRow>
 							);
 						})
 					)}

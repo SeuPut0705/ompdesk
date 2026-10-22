@@ -62,7 +62,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, InlineNotice, Kbd, Modal, SearchField, Spinner } from "../common";
+import { Button, EmptyState, InlineNotice, Kbd, Modal, OptionRow, SearchField, Spinner } from "../common";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -486,14 +486,9 @@ export function CommandPalette() {
 				: item.description;
 
 		return (
-			<button
+			<OptionRow
+				active={isActive}
 				aria-disabled={disabled}
-				aria-selected={isActive}
-				className={cx(
-					"flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left",
-					isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-					disabled && "opacity-50",
-				)}
 				data-active={isActive ? "true" : undefined}
 				data-palette-index={index}
 				data-command-name={item.name}
@@ -510,8 +505,6 @@ export function CommandPalette() {
 					setExplicitSelection(false);
 					setArmed(null);
 				}}
-				role="option"
-				type="button"
 			>
 				<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				{/* Labels stay readable at narrow widths; supporting copy wraps onto a quiet second line. */}
@@ -546,7 +539,7 @@ export function CommandPalette() {
 				)}
 				{item.shortcut && <Kbd shortcut={item.shortcut} />}
 				{isSubmenu && <ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />}
-			</button>
+			</OptionRow>
 		);
 	};
 

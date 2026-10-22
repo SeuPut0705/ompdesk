@@ -12,7 +12,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { useTabHistoryStore } from "../../lib/tab-history";
 import { tabChipLabel, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Modal } from "../common";
+import { Modal, OptionRow } from "../common";
 
 /** Which way the opening press moved: ⌃⇥ (1) or ⌃⇧⇥ (-1). */
 export const useTabSwitcherStore = create<{ step: 1 | -1 }>()(() => ({ step: 1 }));
@@ -96,11 +96,9 @@ export function TabSwitcher() {
 		>
 			<div aria-label={t("tabSwitcher.title")} data-count={ordered.length} id={listId} role="listbox">
 				{ordered.map((tab, position) => (
-					<button
-						aria-selected={position === index}
-						className={`flex min-h-9 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-1.5 text-left ${
-							position === index ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)"
-						}`}
+					<OptionRow
+						active={position === index}
+						size="sm"
 						data-tab-id={tab.id}
 						key={tab.id}
 						onClick={() => {
@@ -108,14 +106,12 @@ export function TabSwitcher() {
 							void useTabsStore.getState().switchTab(tab.id);
 						}}
 						onMouseEnter={() => setMoved(position)}
-						role="option"
-						type="button"
 					>
 						<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{tabChipLabel(tab, tabs)}</span>
 						{tab.id === useTabsStore.getState().activeTabId && (
 							<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tabSwitcher.current")}</span>
 						)}
-					</button>
+					</OptionRow>
 				))}
 			</div>
 		</Modal>

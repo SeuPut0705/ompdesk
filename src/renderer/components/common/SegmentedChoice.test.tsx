@@ -82,7 +82,12 @@ describe("SegmentedChoice", () => {
 
 	it("hands the tab stop to the first enabled option when the held one is disabled", async () => {
 		const segments = await mount("b", vi.fn());
-		expect(segments.map(segment => segment.getAttribute("aria-checked"))).toEqual(["false", "true", "false", "false"]);
+		expect(segments.map(segment => segment.getAttribute("aria-checked"))).toEqual([
+			"false",
+			"true",
+			"false",
+			"false",
+		]);
 		expect(segments.map(segment => segment.getAttribute("tabindex"))).toEqual(["0", "-1", "-1", "-1"]);
 	});
 

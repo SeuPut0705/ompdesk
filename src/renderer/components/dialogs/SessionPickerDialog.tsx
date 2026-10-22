@@ -30,6 +30,7 @@ import {
 	InlineNotice,
 	Kbd,
 	Modal,
+	OptionRow,
 	SearchField,
 	SkeletonRows,
 	Spinner,
@@ -305,19 +306,15 @@ export function SessionPickerDialog() {
 							// A blank stored title falls back like the sidebar's, never to an empty row.
 							const title = sessionDisplayTitle(session, t("sessionPicker.untitled"));
 							return (
-								<button
-									aria-selected={isCurrent}
-									className={`flex min-h-10 w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left disabled:opacity-50 ${
-										isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)"
-									}`}
+								<OptionRow
+									active={isActive}
+									selected={isCurrent}
 									data-option-index={index}
 									disabled={switching !== null}
 									id={`${listboxId}-option-${index}`}
 									key={session.path}
 									onClick={() => void select(session)}
 									onMouseEnter={() => setActiveIndex(index)}
-									role="option"
-									type="button"
 								>
 									<History aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 									{session.kind === "chat" && (
@@ -361,7 +358,7 @@ export function SessionPickerDialog() {
 									{isCurrent && (
 										<Check aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)" />
 									)}
-								</button>
+								</OptionRow>
 							);
 						})
 					)}

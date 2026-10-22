@@ -28,6 +28,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A long, searchable or rich list (models, sessions, branches) | a picker: `Modal size="picker" placement="top"` | `Select` |
 | Text entry | `Input`, `TextArea` (auto-grow), `SearchField`; long documents `TextEditor` | a raw `<input>` |
 | Sibling views of one surface | `Tabs` (`underline` sections, `segmented` 2–4 modes) | buttons that look like tabs |
+| A row of a picker's listbox driven from its field (`aria-activedescendant`) | `OptionRow` (`active` highlight, `selected`, `size`) | a copied row class string |
 | A navigable row (sessions, agents, providers) | `ListRow` (one click target, actions on hover/focus) | a copied row class string |
 | A tree | `TreeView` | nested lists with your own keys |
 | List beside detail, one pane on a phone | `MasterDetail`, `useMasterDetail` | your own two-column switch |
