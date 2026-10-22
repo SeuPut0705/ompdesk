@@ -26,6 +26,7 @@ Issues are welcome.
   While you work, `bun run check:changed` runs the same checks on just what you changed (plus the end-to-end specs that touch it).
 
 - Every user-visible string needs the same key in both `src/renderer/locales/en.ts` and `ko.ts`.
+- Build UI from the shared components in [`src/renderer/components/common`](src/renderer/components/common/README.md): its README says which one fits each need. The surface lint above refuses a new raw `<button>`, checkbox or radio, or a hand-made dialog outside that folder.
 - Do not add AI-attribution trailers to commit messages.
 - The maintainer commits locally and batches releases, so a PR may be merged by rebase or squash rather than as-is.
 
