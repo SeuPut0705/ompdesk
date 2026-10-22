@@ -7,9 +7,8 @@
  */
 
 import { Check, Monitor } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ThemeScheme } from "../../../shared/theme-names";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { listboxTarget } from "../../lib/listbox-nav";
@@ -23,7 +22,7 @@ import {
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Modal, SearchField } from "../common";
+import { Modal, OptionRow, SearchField } from "../common";
 import { ThemePreview } from "../settings/ThemePicker";
 
 interface ThemeEntry {
@@ -47,6 +46,7 @@ export function ThemePickerDialog() {
 	const [active, setActive] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	const listboxId = useId();
 
 	const entries = useMemo<ThemeEntry[]>(
 		() => [
@@ -129,6 +129,10 @@ export function ThemePickerDialog() {
 					<SearchField
 						controlSize="lg"
 						label={t("themePicker.search")}
+						listbox={{
+							id: listboxId,
+							activeId: filtered.length > 0 ? `${listboxId}-option-${active}` : undefined,
+						}}
 						onValueChange={value => {
 							setQuery(value);
 							setActive(0);
@@ -138,7 +142,13 @@ export function ThemePickerDialog() {
 						value={query}
 					/>
 				</div>
-				<div ref={listRef} className="omp-command-list overflow-y-auto p-2">
+				<div
+					aria-label={t("themePicker.aria")}
+					className="omp-command-list overflow-y-auto p-2"
+					id={listboxId}
+					ref={listRef}
+					role={filtered.length > 0 ? "listbox" : undefined}
+				>
 					{filtered.length === 0 && (
 						<div className="px-3 py-8 text-center text-sc-md text-(--sc-text-muted)">
 							{t("themePicker.empty")}
@@ -151,21 +161,20 @@ export function ThemePickerDialog() {
 						return (
 							<Fragment key={entry.selection}>
 								{entry.group !== filtered[i - 1]?.group && entry.group !== "system" && (
-									<div className="px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
+									<div aria-hidden className="px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
 										{t(`themePicker.group.${entry.group}`)}
 									</div>
 								)}
-								<button
-									type="button"
+								<OptionRow
+									active={i === active}
+									className="gap-3"
 									data-index={i}
 									data-theme-entry={entry.selection}
-									aria-pressed={isCurrent}
+									id={`${listboxId}-option-${i}`}
 									onClick={() => select(entry)}
+									onMouseDown={event => event.preventDefault()}
 									onMouseEnter={() => setActive(i)}
-									className={cx(
-										"flex min-h-10 w-full items-center gap-3 rounded-(--sc-radius-md) px-3 py-2.5 text-left",
-										i === active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-									)}
+									pointerMoves
 								>
 									<span
 										aria-hidden="true"
@@ -191,14 +200,17 @@ export function ThemePickerDialog() {
 											)}
 											{entry.label}
 											{isCurrent && (
-												<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
+												<>
+													<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-secondary)" />
+													<span className="sr-only">{t("tabSwitcher.current")}</span>
+												</>
 											)}
 										</span>
 										<span className="block text-sc-sm leading-relaxed text-(--sc-text-muted)">
 											{entry.description}
 										</span>
 									</span>
-								</button>
+								</OptionRow>
 							</Fragment>
 						);
 					})}
