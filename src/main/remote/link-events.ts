@@ -42,6 +42,7 @@ import type {
 import { BATCH_INTERVAL_MS } from "../event-batcher";
 import { createMessageUpdateSlimmer } from "../message-update-slim";
 import { slimSubagentFrame } from "../subagent-frames";
+import type { LinkSlim } from "./protocol";
 
 type MessageUpdate = Extract<AgentSessionEvent, { type: "message_update" }>;
 
@@ -61,18 +62,8 @@ export interface WireProgressFrame {
 
 export type WireSubagentFrame = SubagentFrame | WireProgressFrame;
 
-export interface LinkEventEncoderOptions {
-	/** The device rebuilds snapshots from deltas (`slimProgress`). */
-	progress?: boolean;
-	/** The device rebuilds an Autopilot status from a delta against the last one (`slimAutopilot`). */
-	autopilot?: boolean;
-	/** The device resolves a message sent as a reference to one this encoder already sent whole (`slimEnds`). */
-	ends?: boolean;
-	/** It also puts back the read groups a reference carries beside it (`slimReadGroups`). */
-	readGroups?: boolean;
-	/** It rebuilds a tool result's `message_start` from the `tool_execution_end` before it (`slimToolResults`). */
-	toolResults?: boolean;
-}
+/** What the device reads beyond whole frames (its hello's `slim*` flags, `protocol.ts`); unset reads as false. */
+export type LinkEventEncoderOptions = Partial<Omit<LinkSlim, "events">>;
 
 export interface LinkEventEncoder {
 	events(batch: AgentSessionEvent[]): AgentSessionEvent[];
@@ -755,16 +746,11 @@ export interface LinkEventSender {
 }
 
 export interface LinkEventSenderOptions {
-	/** The device sent `slimProgress`: frames leave in batches, one tab event a flush, and snapshots as deltas. */
-	progress: boolean;
-	/** The device sent `slimAutopilot`: an Autopilot status crosses as a delta against the last one. */
-	autopilot?: boolean;
-	/** The device sent `slimEnds`: a message this connection already carried crosses as a reference. */
-	ends?: boolean;
-	/** The device sent `slimReadGroups`: a committed reply's read groups ride beside its reference. */
-	readGroups?: boolean;
-	/** The device sent `slimToolResults`: a tool result's `message_start` crosses as a reference to its call's end. */
-	toolResults?: boolean;
+	/**
+	 * What the device reads. With `progress` (`slimProgress`) frames leave in batches, one tab event a flush, and
+	 * snapshots as deltas.
+	 */
+	slim: LinkEventEncoderOptions;
 	/** Sends one tab event; false when it did not go out (an event over the frame cap). */
 	send(name: "events" | "subagentFrame", arg: unknown): boolean;
 }
@@ -776,13 +762,14 @@ export interface LinkEventSenderOptions {
  * wire order, and events and frames never swap places.
  */
 export function createLinkEventSender(options: LinkEventSenderOptions): LinkEventSender {
-	const { progress, autopilot = false, ends = false, readGroups = false, toolResults = false, send } = options;
-	let encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups, toolResults });
+	const { slim, send } = options;
+	const progress = slim.progress === true;
+	let encoder = createLinkEventEncoder(slim);
 	let held: SubagentFrame[] = [];
 	let timer: NodeJS.Timeout | undefined;
 	const deliver = (name: "events" | "subagentFrame", arg: unknown): void => {
 		// The device never got it, so the next snapshot of each subagent must go whole, not as a delta against this one.
-		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups, toolResults });
+		if (!send(name, arg)) encoder = createLinkEventEncoder(slim);
 	};
 	const flush = (): void => {
 		clearTimeout(timer);

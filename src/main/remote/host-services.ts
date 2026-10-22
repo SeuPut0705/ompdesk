@@ -1642,19 +1642,8 @@ export class LocalHostServices implements HostServices {
 	#sender(tab: HostTab, conn: HostConnection): NonNullable<HostTab["linkEvents"]> {
 		if (tab.linkEvents?.conn === conn) return tab.linkEvents;
 		tab.linkEvents?.sender.dispose();
-		const {
-			progress = false,
-			autopilot = false,
-			ends = false,
-			readGroups = false,
-			toolResults = false,
-		} = conn.slim ?? {};
 		const sender = createLinkEventSender({
-			progress,
-			autopilot,
-			ends,
-			readGroups,
-			toolResults,
+			slim: conn.slim ?? {},
 			send: (name, arg) => this.#send(tab, conn, name, arg),
 		});
 		tab.linkEvents = { conn, sender };

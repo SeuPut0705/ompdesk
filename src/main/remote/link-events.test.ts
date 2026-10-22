@@ -395,7 +395,7 @@ describe("a connection's event sender", () => {
 	function connection(options: { progress: boolean; failing?: number }) {
 		const sent: Array<{ name: string; arg: unknown }> = [];
 		const sender = createLinkEventSender({
-			progress: options.progress,
+			slim: { progress: options.progress },
 			send: (name, arg) => {
 				sent.push({ name, arg: overTheWire(arg) });
 				return sent.length !== options.failing;
@@ -559,8 +559,7 @@ describe("an Autopilot run's status", () => {
 	it("starts whole again after a send that failed", () => {
 		const sent: unknown[] = [];
 		const sender = createLinkEventSender({
-			progress: true,
-			autopilot: true,
+			slim: { progress: true, autopilot: true },
 			send: (_name, arg) => {
 				sent.push(overTheWire(arg));
 				return sent.length !== 2;
@@ -676,8 +675,7 @@ describe("messages a connection already carried", () => {
 		const prompt = { role: "user", content: "hi", timestamp: 7 } as const;
 		const sent: unknown[] = [];
 		const sender = createLinkEventSender({
-			progress: true,
-			ends: true,
+			slim: { progress: true, ends: true },
 			send: (_name, arg) => {
 				sent.push(overTheWire(arg));
 				return sent.length !== 1;
