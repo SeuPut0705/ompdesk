@@ -31,7 +31,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A row of a picker's listbox driven from its field (`aria-activedescendant`) | `OptionRow` (`active` highlight, `selected`, `size`) | a copied row class string |
 | A navigable row (sessions, agents, providers) | `ListRow` (one click target, actions on hover/focus) | a copied row class string |
 | A tree | `TreeView` | nested lists with your own keys |
-| List beside detail, one pane on a phone | `MasterDetail`, `useMasterDetail` | your own two-column switch |
+| List beside detail, one pane on a phone | `MasterDetail`, `useMasterDetail`, `MasterDetailBack` (a page that lays out its own list) | your own two-column switch |
 | A destination page | `PageLayout` | a page frame of your own |
 | A small form, confirm or picker | `Modal` (focus trapped, Escape closes, footer primary last) | a dialog from a dialog |
 | "Yes, really" before something irreversible | `ConfirmDialog` (safe action focused) | `window.confirm` |
@@ -55,6 +55,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | Ages, costs, account usage | `TimeAgo`, `CostAmount`, `UsageGauges` | formatting them again |
 | Work going on | `LiveText`/`LiveSweep` (`LiveShimmer`), `WorkingArc` | a new animation |
 | The app's mark | `BrandMark` | an inline copy of the π |
+| The UI language switch | `LangSwitcher` | a language select of your own |
 
 ## Container policy
 
@@ -79,6 +80,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 
 - A need no component covers gets a component here, not a second private copy in a feature folder. Two copies of the
   same control are merged into one.
-- Write the rules in the file's header comment, export it from `index.ts`, add a row to the table above and a sample
-  to `components/styleguide/StyleGuide.tsx`.
+- Write the rules in the file's header comment, export it from `index.ts`, add a row to the table above (every
+  exported component is named in it; `catalog.test.ts` fails otherwise) and a sample to
+  `components/styleguide/StyleGuide.tsx`.
 - Test behaviour (roles, names, keyboard, callbacks) with the linkedom harness, as `Switch.test.tsx` does.
