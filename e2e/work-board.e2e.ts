@@ -153,9 +153,10 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await capture("wide");
 
-				// A narrow window has no room: the board goes, the columns centre again and the status strip says the
-				// plan and the running work in its place, so the dock's island and todo card still step aside.
-				await resize(app, 1100, 900);
+				// A narrow window has no room, even beside a narrowed column (a 1000 px window's pane is about 750 px): the
+				// board goes, the columns centre again and the status strip says the plan and the running work in its
+				// place, so the dock's island and todo card still step aside.
+				await resize(app, 1000, 900);
 				await expect(board).toHaveCount(0);
 				await expect(pane).not.toHaveAttribute("data-work-board", "");
 				await expect(page.locator("[data-work-strip]")).toBeVisible();
