@@ -1597,6 +1597,10 @@ app.whenReady().then(() => {
 	const care = new DiskCare({
 		bridge: tablessWorktreeBridge,
 		openFolders: sessionOpenFolders,
+		projects: () => {
+			const { projects, removed } = sidebarProjects.state();
+			return [...projects.map(project => project.path), ...removed];
+		},
 		userData: app.getPath("userData"),
 		saved: savedWorktrees,
 		clearHttpCache: () => session.defaultSession.clearCache(),

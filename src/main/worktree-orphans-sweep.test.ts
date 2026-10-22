@@ -80,6 +80,38 @@ describe("sweepLandedWorktrees", () => {
 	);
 
 	it(
+		"finds a repository whose own worktree.base puts its worktrees elsewhere through the projects this computer knows",
+		async () => {
+			const own = path.join(root, "own");
+			const ownRoot = path.join(root, "own-wt");
+			await initRepo(own);
+			await fs.mkdir(ownRoot);
+			const theirs = path.join(ownRoot, `gui-own-${HASH}`);
+			gitSync(own, "worktree", "add", "-q", "-b", "omp/gui/own", theirs, "main");
+			const plain = path.join(root, "plain");
+			await fs.mkdir(plain);
+			const located = {
+				bridge: {
+					request: async <T>(method: string, params?: { primaryRoot?: string }): Promise<T> => {
+						if (method !== "git.worktree_location") throw new Error(`unexpected bridge call ${method}`);
+						const mine = params?.primaryRoot !== undefined && realFolder(params.primaryRoot) === realFolder(own);
+						return { root: mine ? ownRoot : wtRoot, hash: HASH } as T;
+					},
+				},
+				openFolders: () => [],
+			};
+			expect((await sweepLandedWorktrees(located)).removed).toEqual([]);
+			const report = await sweepLandedWorktrees({
+				...located,
+				projects: () => [own, plain, path.join(root, "gone"), repo],
+			});
+			expect(report.failed).toEqual([]);
+			expect(report.removed.map(worktree => worktree.path)).toEqual([realFolder(theirs)]);
+		},
+		SLOW,
+	);
+
+	it(
 		"removes nothing in a dry run and reports what would go",
 		async () => {
 			const dirs = await scene();

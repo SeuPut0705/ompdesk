@@ -34,6 +34,11 @@ export interface OrphanDeps {
 	bridge: Pick<BridgeClient, "request">;
 	/** The folders open sessions run in (tabs of this computer and tabs it hosts for paired devices). */
 	openFolders(): readonly string[];
+	/**
+	 * Project folders this computer knows (the sidebar's list, removed ones included): a repository whose own
+	 * `worktree.base` keeps its worktrees outside stock's global root is found through them.
+	 */
+	projects?(): readonly string[];
 }
 
 let openFoldersSource: (() => readonly string[]) | null = null;
@@ -318,19 +323,29 @@ export interface SweepReport {
 }
 
 /**
- * Stock's global worktree root (`worktree.base`; a repository's own base is read per repository) and the primary
- * checkouts its `gui-` folders belong to. A folder git cannot place (a removed repository, a stray directory) holds
- * nothing a rule may judge.
+ * Stock's global worktree root (`worktree.base`) and the primary checkouts its `gui-` folders belong to, plus each
+ * known project whose own `worktree.base` puts its worktrees in another folder holding `gui-` folders. A folder git
+ * cannot place (a removed repository, a stray directory) holds nothing a rule may judge.
  */
 export async function orphanRepositories(deps: OrphanDeps): Promise<{ root: string; repos: string[] }> {
 	const { root } = await stockWorktreeLocation(deps.bridge, os.homedir());
 	const repos = new Set<string>();
-	for (const name of await fs.readdir(root).catch(() => [] as string[])) {
-		if (!name.startsWith("gui-")) continue;
+	for (const name of await guiFolders(root)) {
 		const primary = await primaryRoot(path.join(root, name)).catch(() => null);
 		if (primary) repos.add(realFolder(primary));
 	}
+	for (const folder of deps.projects?.() ?? []) {
+		const primary = await primaryRoot(folder).catch(() => null);
+		if (!primary || repos.has(realFolder(primary))) continue;
+		const own = await stockWorktreeLocation(deps.bridge, primary).catch(() => null);
+		if (!own || path.resolve(own.root) === path.resolve(root)) continue;
+		if ((await guiFolders(own.root)).length > 0) repos.add(realFolder(primary));
+	}
 	return { root, repos: [...repos] };
+}
+
+async function guiFolders(root: string): Promise<string[]> {
+	return (await fs.readdir(root).catch(() => [] as string[])).filter(name => name.startsWith("gui-"));
 }
 
 /** Every repository's orphaned worktrees under stock's worktree root, read once; a listing that failed says why. */
