@@ -107,7 +107,6 @@ export const ko: Record<string, string> = {
 	"split.removePane": "분할 보기에서 이 창 제거",
 	"split.resize": "세션 창 크기 조절",
 	"split.switcher": "세션 창",
-	"sheet.handle": "아래로 끌어서 닫기",
 	"shell.openMenu": "메뉴 열기",
 	"panel.more": "더보기",
 	"tabs.done": "실행 완료",

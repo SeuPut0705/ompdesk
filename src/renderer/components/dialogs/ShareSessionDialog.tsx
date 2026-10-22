@@ -152,6 +152,7 @@ export function ShareSessionDialog() {
 					)}
 					<pre
 						tabIndex={0}
+						role="region"
 						aria-label={t("shareDialog.preview")}
 						className="max-h-[40vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-sm whitespace-pre-wrap break-words"
 					>

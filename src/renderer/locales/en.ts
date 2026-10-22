@@ -110,7 +110,6 @@ export const en: Record<string, string> = {
 	"split.removePane": "Remove this pane from split view",
 	"split.resize": "Resize session panes",
 	"split.switcher": "Session panes",
-	"sheet.handle": "Drag down to close",
 	"shell.openMenu": "Open menu",
 	"panel.more": "More",
 	"tabs.done": "Run completed",

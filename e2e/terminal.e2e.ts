@@ -60,7 +60,9 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await aside.screenshot({ animations: "disabled", path: test.info().outputPath(`terminal-${theme}.png`) });
 			await aside.getByRole("button", { name: "New terminal", exact: true }).click();
 			await expect(aside.getByRole("tab")).toHaveCount(2);
-			await aside.getByRole("button", { name: "Close Terminal 2", exact: true }).click();
+			// A tab list holds only tabs: Delete on the focused tab closes it.
+			await aside.getByRole("tab", { name: "Terminal 2" }).focus();
+			await page.keyboard.press("Delete");
 			await expect(aside.getByRole("tab")).toHaveCount(1);
 			await input.focus();
 			await page.keyboard.type("exit");

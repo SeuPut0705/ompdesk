@@ -215,7 +215,7 @@ describe("ContextMenu", () => {
 		);
 		// "Remove from sidebar" takes the row before the menu unmounts.
 		opener.closest("li")?.remove();
-		await act(async () => root.render(<></>));
+		await act(async () => root.render(null));
 		expect(active?.textContent).toBe("row c");
 		list.remove();
 		Reflect.deleteProperty(document, "activeElement");

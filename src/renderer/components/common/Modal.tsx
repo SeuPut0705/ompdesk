@@ -13,9 +13,19 @@
  */
 
 import { X } from "lucide-react";
-import { type CSSProperties, forwardRef, type HTMLAttributes, type ReactNode, useId, useRef } from "react";
+import {
+	type CSSProperties,
+	forwardRef,
+	type HTMLAttributes,
+	type ReactNode,
+	useId,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
+import { useScrollOverflow } from "../../hooks/use-scroll-overflow";
 import { useShellMode } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -60,6 +70,9 @@ export interface DialogSurfaceProps extends Omit<HTMLAttributes<HTMLDivElement>,
 	handle?: ReactNode;
 }
 
+const BODY_FOCUSABLE =
+	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
  * The dialog panel: header (title + description + close), scrolling body,
  * optional right-aligned footer. Long titles and action rows wrap.
@@ -83,6 +96,14 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 	ref,
 ) {
 	const t = useT();
+	// A body that scrolls and holds nothing focusable (a changelog, a long notice) takes a tab stop of its own, or
+	// the keyboard could never scroll what it hides (axe scrollable-region-focusable).
+	const bodyRef = useRef<HTMLDivElement>(null);
+	const overflow = useScrollOverflow(bodyRef, children);
+	const [plainText, setPlainText] = useState(false);
+	useLayoutEffect(() => {
+		setPlainText(!bodyRef.current?.querySelector(BODY_FOCUSABLE));
+	});
 	return (
 		<div
 			className={cx(
@@ -110,7 +131,13 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 					)}
 				</div>
 			)}
-			<div className={cx("omp-dialog-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
+			<div
+				className={cx("omp-dialog-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}
+				ref={bodyRef}
+				tabIndex={overflow.y && plainText ? 0 : undefined}
+			>
+				{children}
+			</div>
 			{footer && (
 				<div className="omp-dialog-foot flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-(--sc-divider) px-5 py-3">
 					{footer}

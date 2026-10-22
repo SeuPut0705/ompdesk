@@ -292,6 +292,39 @@ describe("Modal", () => {
 		toast.remove();
 	});
 
+	it("gives a body that scrolls with nothing focusable a tab stop, and leaves a form's body alone", async () => {
+		const tall = Object.getOwnPropertyDescriptors(HTMLElement.prototype);
+		Object.defineProperties(HTMLElement.prototype, {
+			clientHeight: { configurable: true, get: () => 200 },
+			scrollHeight: {
+				configurable: true,
+				get(this: HTMLElement) {
+					return this.classList.contains("omp-dialog-body") ? 900 : 200;
+				},
+			},
+		});
+		try {
+			await mount(
+				<Modal open onClose={() => {}} title="What's new">
+					<p>Long notes</p>
+				</Modal>,
+			);
+			expect(document.querySelector(".omp-dialog-body")?.getAttribute("tabindex")).toBe("0");
+			await render(
+				<Modal open onClose={() => {}} title="What's new">
+					<input aria-label="Name" />
+				</Modal>,
+			);
+			expect(document.querySelector(".omp-dialog-body")?.hasAttribute("tabindex")).toBe(false);
+		} finally {
+			for (const key of ["clientHeight", "scrollHeight"] as const) {
+				const own = tall[key];
+				if (own) Object.defineProperty(HTMLElement.prototype, key, own);
+				else Reflect.deleteProperty(HTMLElement.prototype, key);
+			}
+		}
+	});
+
 	it("closes only the topmost dialog for each Escape press", async () => {
 		const closeBottom = vi.fn();
 		const closeTop = vi.fn();

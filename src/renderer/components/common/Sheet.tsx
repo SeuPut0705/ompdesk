@@ -80,11 +80,9 @@ export function SheetHandle({
 	onClose: () => void;
 	edge?: "bottom" | "left";
 }) {
-	const t = useT();
 	const handlers = useSheetDrag(panelRef, onClose, edge);
 	return (
 		<div
-			aria-label={t("sheet.handle")}
 			className="omp-sheet-handle"
 			data-sheet-handle=""
 			// Drag only: the close button and Escape stay the keyboard routes.

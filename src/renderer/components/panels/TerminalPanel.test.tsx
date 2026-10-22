@@ -275,6 +275,32 @@ describe("TerminalPanel on a phone", () => {
 		expect(terminals[0]?.focus).toHaveBeenCalled();
 	});
 
+	it("holds only tabs in its tab list, and Delete on a focused tab closes that session", async () => {
+		const request = phone(operation =>
+			operation.action === "list" && operation.waitMs
+				? new Promise(() => {})
+				: operation.action === "close"
+					? [snapshot()]
+					: [snapshot(), snapshot({ id: "second" })],
+		);
+		await mount(<TerminalPanel />);
+		await settle();
+		const list = container.querySelector("[role=tablist]") as HTMLElement;
+		// The close buttons stay for the pointer, out of the tab list's accessibility tree.
+		const exposed = Array.from(list.querySelectorAll("button")).filter(
+			button => button.getAttribute("role") !== "tab" && button.getAttribute("aria-hidden") !== "true",
+		);
+		expect(exposed).toEqual([]);
+		const second = list.querySelectorAll("[role=tab]")[1] as HTMLElement;
+		await act(async () => {
+			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "key", { value: "Delete" });
+			second.dispatchEvent(event);
+		});
+		// Delete closes the session the tab list's selection names (the focused tab is the selected one).
+		expect(request.mock.calls.some(([, operation]) => operation.action === "close")).toBe(true);
+	});
+
 	it("reads with a long poll that carries the offset, one request at a time", async () => {
 		let lists = 0;
 		const request = phone(operation => {

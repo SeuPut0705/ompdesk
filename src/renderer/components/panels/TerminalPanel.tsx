@@ -521,6 +521,13 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					aria-label={t("panel.terminal.title")}
 					onKeyDown={event => {
 						const at = sessions.findIndex(session => session.id === selected);
+						// A tab list holds only tabs: the close buttons beside them are for the pointer, Delete closes the
+						// focused one (the APG's closable tabs).
+						if (event.key === "Delete" && at !== -1) {
+							event.preventDefault();
+							void close(sessions[at]?.id ?? "");
+							return;
+						}
 						const next = rovingIndex(event.key, at, sessions.length);
 						if (next === null) return;
 						event.preventDefault();
@@ -536,6 +543,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 							<button
 								type="button"
 								role="tab"
+								aria-keyshortcuts="Delete"
 								aria-selected={session.id === selected}
 								tabIndex={session.id === (selected ?? sessions[0]?.id) ? 0 : -1}
 								title={t("panel.terminal.session", { number: index + 1 })}
@@ -548,10 +556,12 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 								{t("panel.terminal.session", { number: index + 1 })}
 							</button>
 							<IconButton
+								aria-hidden
 								icon={<X />}
 								label={t("panel.terminal.closeFor", { number: index + 1 })}
 								onClick={() => void close(session.id)}
 								size="sm"
+								tabIndex={-1}
 							/>
 						</div>
 					))}
