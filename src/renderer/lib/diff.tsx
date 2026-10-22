@@ -5,6 +5,7 @@ import { CopyButton } from "../components/common";
 import { cx, languageFromPath } from "./format";
 import { getLoadedHljs, type HighlightToken, loadHljs, splitHighlightedLines } from "./highlight";
 import { useT } from "./i18n";
+import { revealAndFocus } from "./reveal-focus";
 
 export interface DiffLine {
 	type: "add" | "remove" | "context";
@@ -511,7 +512,9 @@ export function DiffView({ diff, filePath, className, focusRow }: DiffViewProps)
 				{hiddenRows > unreachableRows ? (
 					<button
 						className="w-full px-2 py-1 text-left text-[var(--omp-dim)] underline-offset-2 hover:underline"
-						onClick={() => setRowBudget(budget => budget + MORE_RENDER_ROWS)}
+						onClick={event =>
+							revealAndFocus(event.currentTarget, () => setRowBudget(budget => budget + MORE_RENDER_ROWS))
+						}
 						type="button"
 					>
 						{t("diff.showMore", { count: revealRows })}
