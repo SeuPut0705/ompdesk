@@ -335,6 +335,17 @@ out({
 createInterface({ input: process.stdin }).on("line", line => {
 	const command = JSON.parse(line) as { id?: string; type: string; level?: string; message?: string };
 	if (command.type === "set_subagent_subscription" && command.level) level = command.level;
-	out({ type: "response", id: command.id, command: command.type, success: true, data: {} });
+	// Stock's slash command list as the built-in skill packs make it: about 300 commands, most a long description.
+	const data =
+		command.type === "get_available_commands"
+			? {
+					commands: Array.from({ length: 300 }, (_, index) => ({
+						name: `skill:pack-${index}`,
+						source: "skill",
+						description: `Use this skill when the work touches area ${index}: ${WORDS.join(" ")}`,
+					})),
+				}
+			: {};
+	out({ type: "response", id: command.id, command: command.type, success: true, data });
 	if (command.type === "prompt" && command.message) void run(JSON.parse(command.message) as Scenario);
 });

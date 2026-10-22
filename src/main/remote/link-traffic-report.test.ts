@@ -39,8 +39,11 @@ interface Row {
 	bytes: number;
 }
 
-/** What the device's hello says: `slimEventsOnly` was built before slim progress, `older` before slim events. */
-type DeviceKind = "current" | "slimEventsOnly" | "older";
+/**
+ * What the device's hello says: `noListReads` was built before slim list reads (v0.59.1), `slimEventsOnly` before
+ * slim progress, `older` before slim events.
+ */
+type DeviceKind = "current" | "noListReads" | "slimEventsOnly" | "older";
 
 /** Counts every message a Link sends, split the way the report reads it. */
 class LinkRecorder {
@@ -55,6 +58,17 @@ class LinkRecorder {
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
 		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, message: object) {
 			record(message);
+			if (device === "noListReads" && "slimEvents" in message) {
+				const {
+					slimListReads: _lists,
+					slimShiftedReads: _shifts,
+					...earlier
+				} = message as {
+					slimListReads?: unknown;
+					slimShiftedReads?: unknown;
+				};
+				return original.call(this, earlier);
+			}
 			if (device !== "current" && "slimEvents" in message) {
 				const {
 					slimEvents,
@@ -599,4 +613,29 @@ describe("a device that asks for slim progress", () => {
 			expect(typeof partial.details?.progress?.[0]?.assignment).toBe("string");
 		}
 	});
+});
+
+describe("a device that asks for slim list reads", () => {
+	/** Two reads of the slash command list on one connection, as two hydrations of the tab ask it. */
+	const twice = async (device: DeviceKind) => {
+		const session = await openSession({ device });
+		const read = () => session.sidecar.rpcClient?.command({ type: "get_available_commands" });
+		const first = (await read())?.data;
+		session.recorder.reset();
+		const second = (await read())?.data;
+		const bytes = session.recorder.links.get("B>A res tab.command")?.bytes ?? 0;
+		// Its spy on Link.send goes now: the next session's hello must not pass through this one's.
+		session.recorder.stop();
+		await session.rig.dispose();
+		return { first, second, bytes };
+	};
+
+	it("receives the command list again in at most a twentieth of the bytes an earlier device gets, the same list", async () => {
+		const earlier = await twice("noListReads");
+		const current = await twice("current");
+		expect(current.second).toEqual(earlier.second);
+		expect(current.second).toEqual(current.first);
+		expect((current.second as { commands?: unknown[] }).commands).toHaveLength(300);
+		expect(current.bytes * 20, `${current.bytes} B against ${earlier.bytes} B`).toBeLessThanOrEqual(earlier.bytes);
+	}, 30_000);
 });
