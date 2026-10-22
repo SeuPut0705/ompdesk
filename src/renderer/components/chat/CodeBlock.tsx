@@ -184,8 +184,10 @@ export function CodeBlock({
 	// (the <pre> scrolls sideways) and, from there or alone, down (the box scrolls). A block that fits adds none.
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const preRef = useRef<HTMLPreElement>(null);
-	const box = useScrollOverflow(scrollRef, `${code}\n${wrap}`);
-	const across = useScrollOverflow(preRef, `${code}\n${wrap}`);
+	// The gutter swaps the <pre> for another element: the measure follows whichever is on screen.
+	const layout = `${code}\n${wrap}\n${gutter}`;
+	const box = useScrollOverflow(scrollRef, layout);
+	const across = useScrollOverflow(preRef, layout);
 	const scrollStop = (on: boolean) =>
 		on ? { "aria-label": t("codeblock.scroll"), role: "group", tabIndex: 0 } : undefined;
 	const preClass = cx(
