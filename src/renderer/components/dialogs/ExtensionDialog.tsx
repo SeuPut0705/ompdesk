@@ -47,7 +47,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { approvalHeldBack } from "../autopilot/autopilot-view";
-import { Badge, Button, Input, Kbd, TextArea } from "../common";
+import { Badge, Button, Input, Kbd, LinkButton, TextArea } from "../common";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { useAskDock, useBelowEditorDock } from "./ask-dock";
 import { ChoiceList, PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
@@ -588,14 +588,14 @@ function AskDialog({
 							value={answer.note}
 						/>
 					) : (
-						<button
-							className="text-sc-xs text-(--sc-text-muted) underline-offset-2 hover:text-(--sc-text) hover:underline"
+						<LinkButton
+							className="text-sc-xs"
 							data-ask-note
 							onClick={() => setNoteOpen(prev => new Set(prev).add(step))}
-							type="button"
+							tone="muted"
 						>
 							{t("extDialog.ask.addNote")}
-						</button>
+						</LinkButton>
 					)}
 				</div>
 			</form>

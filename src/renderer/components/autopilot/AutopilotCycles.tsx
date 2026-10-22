@@ -9,7 +9,7 @@ import { formatCost, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useAutopilotStore } from "../../stores/autopilot";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ConfirmDialog, CopyButton } from "../common";
+import { Badge, Button, ConfirmDialog, CopyButton, LinkButton } from "../common";
 import { BoardSection, CappedRows, Dot } from "../layout/work-board/board-parts";
 import { AreaIcon } from "./AreaIcon";
 import { useAutopilotActions } from "./use-autopilot-actions";
@@ -34,15 +34,9 @@ function showCommit(sha: string): void {
 
 function ShaLink({ sha }: { sha: string }) {
 	return (
-		<button
-			className="font-mono text-sc-xs text-(--sc-accent) hover:underline"
-			data-autopilot-sha={sha}
-			onClick={() => showCommit(sha)}
-			title={sha}
-			type="button"
-		>
+		<LinkButton className="font-mono text-sc-xs" data-autopilot-sha={sha} onClick={() => showCommit(sha)} title={sha}>
 			{sha.slice(0, 7)}
-		</button>
+		</LinkButton>
 	);
 }
 

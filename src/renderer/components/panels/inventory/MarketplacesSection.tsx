@@ -20,7 +20,7 @@ import {
 	handlePluginActivation,
 	isPluginActivationOriginActive,
 } from "../../../lib/plugin-activation";
-import { Badge, Button, IconButton, InlineNotice, Input, Spinner } from "../../common";
+import { Badge, Button, IconButton, InlineNotice, Input, LinkButton, Spinner } from "../../common";
 import { shortenSource } from "../inventory-utils";
 import { availablePluginActions, classifyMarketplaceSource, type MarketplacePluginAction } from "./marketplace-source";
 import { listAvailablePlugins, mutationError } from "./rpc-result";
@@ -182,24 +182,14 @@ function AvailablePluginRow({
 							<span key={tag}>#{tag}</span>
 						))}
 						{repository && (
-							<button
-								className="text-(--sc-accent) underline-offset-2 hover:underline"
-								onClick={() => openExternal(repository)}
-								title={repository}
-								type="button"
-							>
+							<LinkButton onClick={() => openExternal(repository)} title={repository}>
 								{t("marketplace.repository")}
-							</button>
+							</LinkButton>
 						)}
 						{homepage && (
-							<button
-								className="text-(--sc-accent) underline-offset-2 hover:underline"
-								onClick={() => openExternal(homepage)}
-								title={homepage}
-								type="button"
-							>
+							<LinkButton onClick={() => openExternal(homepage)} title={homepage}>
 								{t("marketplace.homepage")}
-							</button>
+							</LinkButton>
 						)}
 					</div>
 				)}

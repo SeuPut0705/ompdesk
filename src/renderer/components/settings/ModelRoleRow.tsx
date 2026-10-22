@@ -22,7 +22,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
 import { inUseReport, tightestLimit } from "../../lib/usage-reports";
 import { useUiStore } from "../../stores/ui";
-import { Badge, ProgressBar } from "../common";
+import { Badge, LinkButton, ProgressBar } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
@@ -194,16 +194,14 @@ function SkippedLine({
 				const index = element++;
 				const id = skipped.providers[index] ?? "";
 				return listed[index] ? (
-					<button
-						className="inline cursor-pointer rounded-(--sc-radius-sm) text-(--sc-accent) underline-offset-2 hover:underline focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+					<LinkButton
 						data-provider-link={id}
 						key={id}
 						onClick={() => useUiStore.getState().focusProvider(id)}
 						title={t("modelRoles.skipped.open", { provider: part.value })}
-						type="button"
 					>
 						{part.value}
-					</button>
+					</LinkButton>
 				) : (
 					<span key={id}>{part.value}</span>
 				);
@@ -311,14 +309,12 @@ export function ModelRoleRow({
 				{entry.id === "judge" && (
 					// Quiet pointer to what OMPdesk asks this role (Settings › Agent behavior), never a notice about the model.
 					<p className="text-sc-xs">
-						<button
-							className="cursor-pointer rounded-(--sc-radius-sm) text-(--sc-accent) underline-offset-2 hover:underline focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+						<LinkButton
 							data-judge-assist-link=""
 							onClick={() => useUiStore.getState().openSettings(JUDGE_ASSIST_SETTING_TARGET)}
-							type="button"
 						>
 							{t("modelRoles.judgeSmallDecisions")}
-						</button>
+						</LinkButton>
 					</p>
 				)}
 				{entry.source === "project" && (

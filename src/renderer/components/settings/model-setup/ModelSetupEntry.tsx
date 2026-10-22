@@ -16,7 +16,7 @@ import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button } from "../../common";
+import { Button, LinkButton } from "../../common";
 import { SettingsRow, SettingsSection } from "../SettingsLayout";
 import { modelRoleName } from "../schema-i18n";
 import {
@@ -160,14 +160,14 @@ export function ModelSetupEntry() {
 				description={t("modelSetup.entryDesc")}
 				footer={
 					offer && (
-						<button
-							className="text-left text-sc-xs text-(--sc-text-muted) hover:text-(--sc-text) hover:underline"
+						<LinkButton
+							className="text-sc-xs"
 							data-model-setup-offer
 							onClick={() => useUiStore.getState().openModelSetup()}
-							type="button"
+							tone="muted"
 						>
 							{t("modelSetup.entryOffer")}
-						</button>
+						</LinkButton>
 					)
 				}
 				label={t("modelSetup.entryLabel")}

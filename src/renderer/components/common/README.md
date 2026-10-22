@@ -20,6 +20,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A text action | `Button` (primary: the one main action; secondary; ghost in dense UI; danger only to confirm a destructive flow) | a styled `<button>`, two primaries side by side |
 | An icon-only action | `IconButton` (`label` required: name and tooltip; `pressed` toggles, `loading` shows work) | `Button` without text, a bare icon with a `title` |
 | Copy to clipboard | `CopyButton` | your own icon swap |
+| An action that reads as a link inside text (a name in a sentence, "Add a note", a commit hash) | `LinkButton` (`accent`, `muted`) | an underlined `<button>` of your own |
 | A list of actions | `MenuButton` (⋯ menus), `ContextMenu` (right click, `anchorFromEvent`) | a hand-made popover of buttons |
 | A setting that applies at once | `Switch` (bare), `SwitchField` (settings-style row), `SwitchTile` (two-column grid) | a checkbox |
 | A choice applied on submit, or rows picked from a list | `Checkbox` (`indeterminate` for select-all), `Radio` | a raw `<input type="checkbox">` |
