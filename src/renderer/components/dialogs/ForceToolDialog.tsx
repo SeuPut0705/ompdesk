@@ -8,14 +8,16 @@ import { useTabRpc } from "../../lib/tab-rpc";
  */
 
 import { Wrench, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { RpcActiveTool, RpcActiveToolsResult, RpcForceToolState } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, InlineNotice, Input, Modal, SearchField, SkeletonRows } from "../common";
+import { Badge, Button, InlineNotice, Input, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
 
 export function ForceToolDialog() {
 	const tabRpc = useTabRpc();
@@ -73,6 +75,21 @@ export function ForceToolDialog() {
 			tool => tool.name.toLowerCase().includes(query) || tool.description?.toLowerCase().includes(query),
 		);
 	}, [tools, filter]);
+
+	const listboxId = useId();
+	const selectedIndex = filtered.findIndex(tool => tool.name === selected);
+	// The filter field drives the list (a listbox): ↑/↓ pick the tool, and Tab leaves the list instead of walking it.
+	const onFilterKey = (event: KeyboardEvent<HTMLInputElement>) => {
+		if (isImeKeyEvent(event) || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+		const next = listboxTarget(event.key, selectedIndex === -1 ? -1 : selectedIndex, filtered.length, {
+			wrap: false,
+		});
+		const tool = next === null ? undefined : filtered[Math.max(0, next)];
+		if (!tool) return;
+		event.preventDefault();
+		setSelected(tool.name);
+		document.getElementById(`${listboxId}-${tool.name}`)?.scrollIntoView?.({ block: "nearest" });
+	};
 
 	const apply = async () => {
 		if (!sidecarReady || !selected || busy) return;
@@ -165,11 +182,21 @@ export function ForceToolDialog() {
 				{/* Tool picker */}
 				<SearchField
 					label={t("forceTool.filterPlaceholder")}
+					listbox={{
+						id: listboxId,
+						activeId: selectedIndex === -1 ? undefined : `${listboxId}-${filtered[selectedIndex]?.name}`,
+					}}
+					onKeyDown={onFilterKey}
 					onValueChange={setFilter}
 					placeholder={t("forceTool.filterPlaceholder")}
 					value={filter}
 				/>
-				<div className="min-h-32 max-h-[36dvh] flex-1 overflow-y-auto rounded-(--sc-radius-md) p-1">
+				<div
+					aria-label={t("forceTool.title")}
+					className="min-h-32 max-h-[36dvh] flex-1 overflow-y-auto rounded-(--sc-radius-md) p-1"
+					id={listboxId}
+					role={!loading && !loadError && filtered.length > 0 ? "listbox" : undefined}
+				>
 					{loading ? (
 						<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : loadError ? (
@@ -178,14 +205,12 @@ export function ForceToolDialog() {
 						<div className="px-3 py-8 text-center text-sc-sm text-(--sc-text-muted)">{t("forceTool.empty")}</div>
 					) : (
 						filtered.map(tool => (
-							<button
-								aria-pressed={selected === tool.name}
-								className={`flex min-h-10 w-full items-start gap-2.5 rounded-(--sc-radius-md) px-2.5 py-2 text-left hover:bg-(--sc-hover) ${
-									selected === tool.name ? "bg-(--sc-selected)" : ""
-								}`}
+							<OptionRow
+								active={selected === tool.name}
+								className="items-start"
+								id={`${listboxId}-${tool.name}`}
 								key={tool.name}
 								onClick={() => setSelected(tool.name)}
-								type="button"
 							>
 								<span className="mt-0.5 shrink-0">
 									<Badge variant={tool.name === current ? "info" : "muted"}>{tool.source}</Badge>
@@ -198,7 +223,7 @@ export function ForceToolDialog() {
 										</span>
 									) : null}
 								</span>
-							</button>
+							</OptionRow>
 						))
 					)}
 				</div>

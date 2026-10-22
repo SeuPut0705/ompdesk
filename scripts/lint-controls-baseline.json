@@ -25,7 +25,6 @@
 	"components/dialogs/DebugConsoleDialog.tsx": 1,
 	"components/dialogs/ExtensionDialog.tsx": 1,
 	"components/dialogs/FeedbackDialog.tsx": 1,
-	"components/dialogs/ForceToolDialog.tsx": 1,
 	"components/dialogs/ModelPicker.tsx": 1,
 	"components/dialogs/PromptCard.tsx": 1,
 	"components/dialogs/WorkspaceDialog.tsx": 2,

@@ -161,6 +161,35 @@ describe("ForceToolDialog", () => {
 		expect(useUiStore.getState().forceToolOpen).toBe(false);
 	});
 
+	it("lists the tools as options the filter field drives with the arrows, so the rows are no tab stops", async () => {
+		await mount();
+		const field = document.querySelector("input[type=search]") as unknown as TestElement & Element;
+		const list = document.querySelector("[role=listbox]");
+		expect(field.getAttribute("role")).toBe("combobox");
+		expect(field.getAttribute("aria-controls")).toBe(list?.id);
+		const options = Array.from(document.querySelectorAll("[role=option]"));
+		expect(options.map(option => option.getAttribute("tabindex"))).toEqual(["-1", "-1"]);
+		// linkedom trips React's input polyfill on a dispatched keydown: call the field's handler as React would.
+		const key = async (name: string) => {
+			const record = field as unknown as Record<string, unknown>;
+			const propsKey = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
+			const props = record[propsKey ?? ""] as { onKeyDown?: (event: object) => void };
+			await act(async () =>
+				props.onKeyDown?.({ key: name, nativeEvent: {}, preventDefault: () => {}, stopPropagation: () => {} }),
+			);
+			await flush();
+		};
+		await key("ArrowDown");
+		expect(field.getAttribute("aria-activedescendant")).toBe(options[0]?.id);
+		expect(options[0]?.getAttribute("aria-selected")).toBe("true");
+		await key("ArrowDown");
+		await key("ArrowDown");
+		// Stops at the last tool.
+		expect(field.getAttribute("aria-activedescendant")).toBe(options[1]?.id);
+		await click(buttonWithText("Force")!);
+		expect(rpc.setForceTool).toHaveBeenCalledWith({ tool: "write" });
+	});
+
 	it("forces without a prompt when the input is left empty", async () => {
 		await mount();
 		await click(buttonWithText("read")!);
