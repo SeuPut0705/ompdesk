@@ -253,7 +253,7 @@ export function KeyboardSection({ query }: { query: string }) {
 													<IconButton
 														className={REVEAL_CLASS}
 														icon={<RotateCcw />}
-														label={t("hotkeys.remap.resetFor", { action: t(row.labelKey) })}
+														label={t("hotkeys.remap.resetFor", { action: row.label })}
 														onClick={() => resetRow(actionId)}
 														size="sm"
 													/>
@@ -261,7 +261,7 @@ export function KeyboardSection({ query }: { query: string }) {
 												<IconButton
 													className={cx(!capturing && REVEAL_CLASS)}
 													icon={<Pencil />}
-													label={t("hotkeys.remap.rebindFor", { action: t(row.labelKey) })}
+													label={t("hotkeys.remap.rebindFor", { action: row.label })}
 													onClick={() => setCapture({ actionId, chord: null })}
 													size="sm"
 												/>

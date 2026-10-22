@@ -104,10 +104,14 @@ describe("KeyboardSection", () => {
 		// Hover-revealed controls hide with opacity, never display:none — a hidden
 		// button is skipped by Tab and its row can never be remapped by keyboard.
 		await mount();
-		const rebind = [...document.body.querySelectorAll("button")].filter(
-			button => button.getAttribute("aria-label")?.startsWith("Change the shortcut for "),
+		const rebind = [...document.body.querySelectorAll("button")].filter(button =>
+			button.getAttribute("aria-label")?.startsWith("Change the shortcut for "),
 		);
 		expect(rebind).toHaveLength(KEYMAP_ACTIONS.length);
+		// Each names the action it remaps, so a list of them is not one repeated "Change shortcut".
+		const names = rebind.map(button => button.getAttribute("aria-label") ?? "");
+		expect(new Set(names).size).toBe(names.length);
+		expect(names.some(name => /undefined|for $/.test(name))).toBe(false);
 		for (const button of rebind) {
 			expect(button.className).not.toMatch(/(^|\s)hidden(\s|$)/);
 			expect(button.className).toContain("group-focus-within:opacity-100");
