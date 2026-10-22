@@ -68,9 +68,10 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const compacting = useSessionStore(state => state.isCompacting);
 	const model = useModelStore(state => state.model);
-	const points = useCompactionPoints(sidecarReady);
+	const modelSelector = model ? `${model.provider}/${model.id}` : null;
+	const points = useCompactionPoints(sidecarReady, modelSelector);
 	/** Stock's resolved auto-compaction trigger for this model, in tokens; absent while auto-compaction is off. */
-	const compactAt = model ? points?.bySelector.get(`${model.provider}/${model.id}`)?.tokens : undefined;
+	const compactAt = modelSelector ? points?.bySelector.get(modelSelector)?.tokens : undefined;
 	const [open, setOpen] = useState(false);
 	const [pinned, setPinned] = useState(false);
 	const [anchor, setAnchor] = useState<AnchorPosition | null>(null);

@@ -14,13 +14,15 @@ import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-sessi
 import { guard } from "./health";
 import type { BridgeMethods } from "./types";
 
-async function compactionPoints(session: AgentSession) {
-	const [{ describeModelCompactionPoint }, { createModelBrowserSource }, { resolveRoleAssignments }] =
-		await Promise.all([
-			import("@oh-my-pi/pi-coding-agent/session/model-compaction-threshold"),
-			import("@oh-my-pi/pi-coding-agent/modes/model-browser-source"),
-			import("@oh-my-pi/pi-tui/overlays/model-browser"),
-		]);
+/**
+ * `selector` (`provider/id`) answers that one model and no roles: the context ring and the compaction-point row
+ * show the session model's point alone, and the whole table (every available model, every role's resolved model)
+ * was 62 KB a read, sent to a paired device on each tab hydration.
+ */
+async function compactionPoints(session: AgentSession, selector?: string) {
+	const { describeModelCompactionPoint } = await import(
+		"@oh-my-pi/pi-coding-agent/session/model-compaction-threshold"
+	);
 
 	/** Wire shape: `src/shared/rpc-types.ts` CompactionPoint. */
 	const point = (model: Model) => {
@@ -33,6 +35,20 @@ async function compactionPoints(session: AgentSession) {
 		};
 	};
 
+	if (selector !== undefined) {
+		return {
+			models: session
+				.getAvailableModels()
+				.filter(model => `${model.provider}/${model.id}` === selector)
+				.map(model => ({ selector, point: point(model) })),
+			roles: [],
+		};
+	}
+
+	const [{ createModelBrowserSource }, { resolveRoleAssignments }] = await Promise.all([
+		import("@oh-my-pi/pi-coding-agent/modes/model-browser-source"),
+		import("@oh-my-pi/pi-tui/overlays/model-browser"),
+	]);
 	// The models the hub's Roles view shows: configured values over the whole
 	// catalog, auto picks over the usable models.
 	const registry = session.modelRegistry;
@@ -71,7 +87,13 @@ async function compactionPoints(session: AgentSession) {
 
 export const methods: BridgeMethods = {
 	...guard("compactionLimits", {
-		compaction_points: async (_params, env) => compactionPoints(env.session()),
+		compaction_points: async (params, env) =>
+			compactionPoints(
+				env.session(),
+				typeof (params as { selector?: unknown } | undefined)?.selector === "string"
+					? (params as { selector: string }).selector
+					: undefined,
+			),
 		compaction_limits: async params => {
 			// Defer internals until guard succeeds so missing modules cannot break bridge startup.
 			const { parseCompactionPointInput, validateModelCompactionThresholds, formatCompactionPointInput } =

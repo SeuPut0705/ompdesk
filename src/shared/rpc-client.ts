@@ -171,8 +171,8 @@ export interface SessionRpcClient {
 	getModelSetupFacts(): Promise<RpcResponse>;
 	/** This session's spend per provider with each one's billing class (`SessionSpend`). */
 	getSessionSpend(): Promise<RpcResponse>;
-	/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`). */
-	getCompactionPoints(): Promise<RpcResponse>;
+	/** Per-model compaction points (omp 18.8.5+; older omp answers `unsupported_omp`); `selector` asks one model's. */
+	getCompactionPoints(selector?: string): Promise<RpcResponse>;
 	compactionLimits(params: { values?: unknown; key?: string; input?: string }): Promise<RpcResponse>;
 	/** Stock's most-recently-used models, `provider/id` newest first: `{ selectors: string[] }`. */
 	getRecentModels(): Promise<RpcResponse>;
@@ -555,7 +555,10 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getModelSetupFacts: () => rpcCommand({ type: "get_model_setup_facts" }),
 		getSessionSpend: () => rpcCommand({ type: "get_session_spend" }),
-		getCompactionPoints: () => rpcCommand({ type: "get_compaction_points" }),
+		getCompactionPoints: selector =>
+			rpcCommand(
+				selector === undefined ? { type: "get_compaction_points" } : { type: "get_compaction_points", selector },
+			),
 		getRecentModels: () => rpcCommand({ type: "get_recent_models" }),
 		compactionLimits: params => rpcCommand({ type: "compaction_limits", ...params }),
 		historyRecent: (limit, cwd) => rpcCommand({ type: "history_recent", limit, cwd }),

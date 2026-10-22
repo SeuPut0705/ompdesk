@@ -63,15 +63,16 @@ export interface CompactionPoints {
  * Where each available model and each role's model compacts, from stock's
  * resolver; re-read on config_update. Null while unknown, and always on an omp
  * whose live settings lack `compaction.modelThresholds` (before 18.8.5):
- * callers then show nothing.
+ * callers then show nothing. `selector` (`provider/id`) asks that model's point
+ * alone and no roles, for a caller that shows only the session model's.
  */
-export function useCompactionPoints(active = true): CompactionPoints | null {
+export function useCompactionPoints(active = true, selector?: string | null): CompactionPoints | null {
 	const tabRpc = useTabRpc();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
 	const [points, setPoints] = useState<CompactionPoints | null>(null);
 
 	useEffect(() => {
-		if (!active || !sidecarReady) return undefined;
+		if (!active || !sidecarReady || selector === null) return undefined;
 		let version = 0;
 		const load = async () => {
 			const current = ++version;
@@ -83,7 +84,7 @@ export function useCompactionPoints(active = true): CompactionPoints | null {
 					setPoints(null);
 					return;
 				}
-				const res = await tabRpc.getCompactionPoints();
+				const res = await tabRpc.getCompactionPoints(selector);
 				if (current !== version) return;
 				const parsed = res.success ? pointsSchema.safeParse(res.data) : undefined;
 				if (!parsed?.success) return;
@@ -101,7 +102,7 @@ export function useCompactionPoints(active = true): CompactionPoints | null {
 			version++;
 			unsubscribe();
 		};
-	}, [active, sidecarReady, tabRpc]);
+	}, [active, sidecarReady, selector, tabRpc]);
 
 	return points;
 }

@@ -84,7 +84,7 @@ const getSettings = vi.fn(async () => ({
 	success: true,
 	data: { values: thresholdsKnown ? { "compaction.modelThresholds": {} } : {} },
 }));
-const getCompactionPoints = vi.fn(async () => ({
+const getCompactionPoints = vi.fn(async (_selector?: string) => ({
 	type: "response",
 	command: "get_compaction_points",
 	success: true,
@@ -364,6 +364,8 @@ describe("ContextUsagePopover", () => {
 			translate("contextUsage.ringCompacts", { percent: 20, used: "40.0k", window: "200.0k", point: "80.0k" }),
 		);
 		expect(trigger.textContent).toBe("");
+		// The ring shows this model's point alone, so it asks for that one model, never the whole table.
+		expect(getCompactionPoints.mock.calls).toEqual([["acme/m"]]);
 		expect(arc()?.getAttribute("data-context-arc")).toBe("20");
 		const quarter = dash();
 		expect(trigger.getAttribute("data-context-ring")).toBe("ok");

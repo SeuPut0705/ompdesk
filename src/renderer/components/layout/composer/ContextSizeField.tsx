@@ -55,8 +55,8 @@ export function ContextSizeField() {
 	const rpc = useTabRpc();
 	const model = useModelStore(state => state.model);
 	const ready = useSessionStore(state => state.status) === "ready";
-	const points = useCompactionPoints(ready);
 	const selector = model ? `${model.provider}/${model.id}` : null;
+	const points = useCompactionPoints(ready, selector);
 	const selectorId = useId();
 	const [loaded, setLoaded] = useState<Loaded | null>(null);
 	const [saving, setSaving] = useState(false);

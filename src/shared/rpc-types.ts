@@ -185,7 +185,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_model_role_metadata" }
 	| { id?: string; type: "get_model_setup_facts" }
 	| { id?: string; type: "get_session_spend" }
-	| { id?: string; type: "get_compaction_points" }
+	/** `selector` (`provider/id`): that model's point alone and no roles; an older host answers the whole table. */
+	| { id?: string; type: "get_compaction_points"; selector?: string }
 	| { id?: string; type: "compaction_limits"; values?: unknown; key?: string; input?: string }
 	| { id?: string; type: "get_recent_models" }
 	| { id?: string; type: "set_output_style"; style: string }
