@@ -29,6 +29,9 @@ export function placeOf(element: Element): Place {
 export function focusNear(place: Place, panel: HTMLElement | null): void {
 	for (const { parent, index } of place) {
 		if (!parent.isConnected) continue;
+		// The body holds portals (other dialogs, the toast stack): focus there is no place near the opener, and a
+		// toast holding focus never expires. An opener whose whole layer went (a gallery dialog) has no place left.
+		if (parent === document.body || parent === document.documentElement) return;
 		const children = Array.from(parent.children);
 		for (const child of [...children.slice(index), ...children.slice(0, index).reverse()]) {
 			const candidates = [child, ...child.querySelectorAll(FOCUSABLE)].filter(

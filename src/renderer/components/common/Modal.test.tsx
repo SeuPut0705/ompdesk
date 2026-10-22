@@ -262,6 +262,36 @@ describe("Modal", () => {
 		list.remove();
 	});
 
+	it("leaves focus alone when the opener's whole layer went, never moving it into a portal such as a toast", async () => {
+		const layer = document.createElement("div");
+		const opener = document.createElement("button");
+		opener.textContent = "customize";
+		layer.append(opener);
+		document.body.appendChild(layer);
+		const toast = document.createElement("button");
+		toast.textContent = "close toast";
+		document.body.appendChild(toast);
+		activeElement = opener;
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			activeElement = this;
+		});
+
+		await mount(
+			<Modal open onClose={() => {}} title="Editor">
+				<button type="button">Create</button>
+			</Modal>,
+		);
+		// The gallery dialog that held the opener closed while the editor was open.
+		layer.remove();
+		await render(
+			<Modal open={false} onClose={() => {}} title="Editor">
+				<button type="button">Create</button>
+			</Modal>,
+		);
+		expect(activeElement).not.toBe(toast);
+		toast.remove();
+	});
+
 	it("closes only the topmost dialog for each Escape press", async () => {
 		const closeBottom = vi.fn();
 		const closeTop = vi.fn();
