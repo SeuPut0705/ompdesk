@@ -392,12 +392,7 @@ function RunRow({
 					{duration ? ` · ${duration}` : ""}
 				</span>
 				{run.status === "running" && (
-					<IconButton
-						icon={<Square />}
-						label={t("schedules.stop", { name })}
-						onClick={onStop}
-						size="sm"
-					/>
+					<IconButton icon={<Square />} label={t("schedules.stop", { name })} onClick={onStop} size="sm" />
 				)}
 				{run.status !== "skipped" && (
 					<Button aria-expanded={open} icon={<Chevron />} onClick={onToggleLog} size="sm" variant="ghost">
