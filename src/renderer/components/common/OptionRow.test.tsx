@@ -50,6 +50,8 @@ describe("OptionRow", () => {
 		expect(rows.map(row => row.getAttribute("type"))).toEqual(["button", "button", "button"]);
 		expect(rows.map(row => row.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
 		expect(rows[0]?.id).toBe("o-1");
+		// The field keeps focus and names the highlight; Tab never walks the results.
+		expect(rows.map(row => row.getAttribute("tabindex"))).toEqual(["-1", "-1", "-1"]);
 	});
 
 	it("runs its click and leaves a disabled row unpickable", async () => {

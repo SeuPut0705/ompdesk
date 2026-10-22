@@ -1,7 +1,8 @@
 /**
  * OptionRow — one row of a picker's listbox (command palette, session, branch and file pickers, the tab switcher):
  * `role="option"` under a `role="listbox"` whose field drives the highlight with `aria-activedescendant`
- * (lib/listbox-nav.ts), so the row itself is never a tab stop of its own.
+ * (lib/listbox-nav.ts), so the row itself is never a tab stop of its own (`tabIndex` -1 unless a caller says
+ * otherwise): Tab from the field leaves the list instead of walking every result.
  *
  * `active` is the keyboard/hover highlight (the row Enter picks); `selected` is `aria-selected` (the current item, or
  * the highlighted one where the picker says so). `size`: `md` 40 px rows with a second line, `sm` 36 px single-line
@@ -20,6 +21,7 @@ export interface OptionRowProps extends Omit<ComponentProps<"button">, "role"> {
 export function OptionRow({ active, selected, size = "md", className, type, ...rest }: OptionRowProps) {
 	return (
 		<button
+			tabIndex={-1}
 			{...rest}
 			aria-selected={selected ?? active}
 			className={cx(
