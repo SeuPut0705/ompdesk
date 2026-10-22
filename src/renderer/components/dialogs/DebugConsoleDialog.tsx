@@ -20,8 +20,6 @@ import {
 	ArrowRightToLine,
 	ArrowUpFromLine,
 	Bug,
-	ChevronDown,
-	ChevronRight,
 	Layers,
 	ListTree,
 	Pause,
@@ -40,7 +38,17 @@ import { useT } from "../../lib/i18n";
 import { asNumber, asRecord, asString } from "../../lib/wire-value";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, type BadgeVariant, Button, InlineNotice, Modal, SkeletonRows, Spinner, TextArea } from "../common";
+import {
+	Badge,
+	type BadgeVariant,
+	Button,
+	DisclosureButton,
+	InlineNotice,
+	Modal,
+	SkeletonRows,
+	Spinner,
+	TextArea,
+} from "../common";
 
 type TranslateFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -720,19 +728,14 @@ export function DebugConsoleDialog() {
 				</section>
 
 				<section className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
-					<button
-						aria-expanded={advancedOpen}
-						className="flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) px-3 py-2 text-left text-sc-md font-medium text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text)"
-						onClick={() => setAdvancedOpen(value => !value)}
-						type="button"
+					<DisclosureButton
+						chevronClassName="size-(--sc-icon-sm)"
+						className="min-h-9 rounded-(--sc-radius-md) px-3 py-2 text-sc-md font-medium text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text)"
+						onToggle={() => setAdvancedOpen(value => !value)}
+						open={advancedOpen}
 					>
-						{advancedOpen ? (
-							<ChevronDown aria-hidden className="size-(--sc-icon-sm)" />
-						) : (
-							<ChevronRight aria-hidden className="size-(--sc-icon-sm)" />
-						)}
 						{t("debug.advanced")}
-					</button>
+					</DisclosureButton>
 					{advancedOpen ? (
 						<div className="flex flex-col gap-3 border-t border-(--sc-divider) px-3 py-3">
 							<div className="flex flex-wrap gap-2">

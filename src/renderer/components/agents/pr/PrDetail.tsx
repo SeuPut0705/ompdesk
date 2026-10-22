@@ -7,8 +7,6 @@
 
 import {
 	CheckCircle2,
-	ChevronDown,
-	ChevronRight,
 	Circle,
 	ExternalLink,
 	GitBranch,
@@ -25,7 +23,7 @@ import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { openExternal } from "../../../lib/open-external";
 import { usePrCenterStore } from "../../../stores/pr-center";
-import { Badge, Button, EmptyState, ErrorDetail, InlineNotice, Skeleton } from "../../common";
+import { Badge, Button, DisclosureButton, EmptyState, ErrorDetail, InlineNotice, Skeleton } from "../../common";
 import { PrConversation, PrEditButton, PrMergeButton } from "./PrActions";
 
 const BODY_COLLAPSE_LINES = 12;
@@ -54,20 +52,17 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function FileRow({ path, additions, deletions }: { path: string; additions: number; deletions: number }) {
 	const t = useT();
 	const expanded = usePrCenterStore(state => state.expandedFiles[path]);
-	const Chevron = expanded ? ChevronDown : ChevronRight;
 	return (
 		<li className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
-			<button
-				aria-expanded={expanded !== undefined}
-				className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-(--sc-hover)"
-				onClick={() => void usePrCenterStore.getState().toggleFile(path)}
-				type="button"
+			<DisclosureButton
+				className="px-3 py-2 hover:bg-(--sc-hover)"
+				onToggle={() => void usePrCenterStore.getState().toggleFile(path)}
+				open={expanded !== undefined}
 			>
-				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				<span className="min-w-0 flex-1 truncate font-mono text-sc-sm text-(--sc-text)">{path}</span>
 				<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-success)">+{additions}</span>
 				<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-danger)">−{deletions}</span>
-			</button>
+			</DisclosureButton>
 			{expanded?.phase === "loading" && (
 				<div className="border-t border-(--sc-divider) px-3 py-2">
 					<div aria-label={t("prCenter.diffLoading")} className="flex flex-col gap-2" role="status">

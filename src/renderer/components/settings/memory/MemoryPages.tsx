@@ -3,7 +3,7 @@
  * the chosen one (markdown), and what you can do with it: edit (saved through the server's write path as a new
  * version), pin, rate, delete and, from the Deleted group, restore. Master-detail: on a phone the list, then the page.
  */
-import { ChevronDown, ChevronRight, Pin, PinOff, RotateCcw, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { Pin, PinOff, RotateCcw, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import {
 	AI_MEMORY_KINDS,
@@ -19,6 +19,7 @@ import {
 	Badge,
 	Button,
 	ConfirmDialog,
+	DisclosureButton,
 	MasterDetail,
 	SearchField,
 	SettingInfo,
@@ -96,21 +97,16 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 				const folded = collapsed.has(group) && !filter.trim();
 				return (
 					<section data-memory-group={group} key={group}>
-						<button
-							aria-expanded={!folded}
-							className="flex min-h-10 w-full items-center gap-1 px-1 text-sc-xs [html[data-input=touch]_&]:min-h-11 font-semibold text-(--sc-text-muted) uppercase"
+						<DisclosureButton
+							chevronClassName="size-(--sc-icon-sm)"
+							className="min-h-10 gap-1 px-1 text-sc-xs [html[data-input=touch]_&]:min-h-11 font-semibold text-(--sc-text-muted) uppercase"
 							data-memory-group-toggle={group}
-							onClick={() => toggle(group)}
-							type="button"
+							onToggle={() => toggle(group)}
+							open={!folded}
 						>
-							{folded ? (
-								<ChevronRight className="size-(--sc-icon-sm)" />
-							) : (
-								<ChevronDown className="size-(--sc-icon-sm)" />
-							)}
 							{t(`memory.pages.group.${group}`)}
 							<span className="font-normal tabular-nums">{list.length}</span>
-						</button>
+						</DisclosureButton>
 						{!folded &&
 							list.map(page => (
 								<button

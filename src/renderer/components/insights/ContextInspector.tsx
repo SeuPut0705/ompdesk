@@ -8,7 +8,6 @@
  * tokens: only their names are in the prompt until the agent uses one.
  */
 
-import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
 	RpcContextCategory,
@@ -19,7 +18,7 @@ import type {
 import { cx, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Badge, Banner, Button, ErrorDetail, Sheet, Spinner } from "../common";
+import { Badge, Banner, Button, DisclosureButton, ErrorDetail, Sheet, Spinner } from "../common";
 
 /** Grid order, as stock's `/context` stacks them: prompt, tools, context, skills, messages. */
 export const CONTEXT_CATEGORIES: readonly RpcContextCategory[] = [
@@ -131,16 +130,12 @@ function EntryRow({ entry, showCategory }: { entry: RpcContextEntry; showCategor
 	const role = entry.role ? (ROLE_KEY[entry.role] ? t(ROLE_KEY[entry.role]) : entry.role) : null;
 	return (
 		<li className="border-b border-(--sc-divider) last:border-b-0">
-			<button
-				aria-expanded={open}
-				className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sc-sm hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:outline-(--sc-focus-ring)"
-				onClick={() => setOpen(value => !value)}
-				type="button"
+			<DisclosureButton
+				chevronClassName="size-3.5 text-(--sc-text-muted)"
+				className="px-2 py-1.5 text-sc-sm hover:bg-(--sc-hover)"
+				onToggle={() => setOpen(value => !value)}
+				open={open}
 			>
-				<ChevronRight
-					aria-hidden
-					className={cx("size-3.5 shrink-0 text-(--sc-text-muted) transition-transform", open && "rotate-90")}
-				/>
 				<span
 					aria-hidden
 					className="size-2 shrink-0 rounded-(--sc-radius-xs)"
@@ -162,7 +157,7 @@ function EntryRow({ entry, showCategory }: { entry: RpcContextEntry; showCategor
 						{formatTokens(entry.tokens)}
 					</span>
 				)}
-			</button>
+			</DisclosureButton>
 			{open && (
 				<div className="px-2 pb-2 pl-7">
 					<EntryPreview id={entry.id} />

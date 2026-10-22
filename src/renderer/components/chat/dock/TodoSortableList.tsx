@@ -21,14 +21,14 @@ import {
 	useSortable,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Circle, GripVertical, Pencil, X, XCircle } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Circle, GripVertical, Pencil, X, XCircle } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 import type { TodoTask } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { onEscape } from "../../../lib/keymap";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
-import { IconButton } from "../../common";
+import { DisclosureButton, IconButton } from "../../common";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, type ContextMenuItem } from "../../common/ContextMenu";
 
 const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
@@ -231,25 +231,19 @@ function PhaseSection({
 	return (
 		<section className="mb-1.5">
 			{!hideHeader && (
-				<button
-					aria-expanded={!collapsed}
-					className="flex w-full items-center gap-1.5 rounded-(--sc-radius-sm) px-1.5 py-1 text-left transition-colors hover:bg-(--sc-hover)"
-					onClick={onToggle}
-					type="button"
+				<DisclosureButton
+					chevronClassName="size-3.5 text-(--sc-text-subtle)"
+					className="gap-1.5 rounded-(--sc-radius-sm) px-1.5 py-1 transition-colors hover:bg-(--sc-hover)"
+					onToggle={onToggle}
+					open={!collapsed}
 				>
-					<ChevronRight
-						aria-hidden="true"
-						className="omp-disclosure-chevron shrink-0 text-(--sc-text-subtle)"
-						size={14}
-						style={{ transform: collapsed ? undefined : "rotate(90deg)" }}
-					/>
 					<span className="min-w-0 flex-1 truncate text-sc-sm font-medium text-(--sc-text-secondary)">
 						{phase.name}
 					</span>
 					<span className="shrink-0 text-sc-2xs tabular-nums text-(--sc-text-muted)">
 						{done}/{total}
 					</span>
-				</button>
+				</DisclosureButton>
 			)}
 			{(hideHeader || !collapsed) && (
 				<SortableContext items={phase.tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
