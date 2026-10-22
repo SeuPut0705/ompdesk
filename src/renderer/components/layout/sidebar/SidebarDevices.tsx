@@ -379,7 +379,10 @@ function DeviceSessions({
 
 	// What the host works on now (its windows' tabs, the tabs it runs for any device): a row no tab here holds still
 	// wears the working cue, without a tap to open it first.
-	const hostLive = useMemo(() => new Map(host.live?.map(session => [session.sessionPath, session.state])), [host.live]);
+	const hostLive = useMemo(
+		() => new Map(host.live?.map(session => [session.sessionPath, session.state])),
+		[host.live],
+	);
 
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
 		hostTabs.find(
@@ -558,14 +561,18 @@ function DeviceSessions({
 				selected={active}
 				title={
 					<>
-						<TabLiveTitle running={running} settling={settling} tabId={tab?.id ?? null} text={title} waiting={waiting} />
+						<TabLiveTitle
+							running={running}
+							settling={settling}
+							tabId={tab?.id ?? null}
+							text={title}
+							waiting={waiting}
+						/>
 						{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
 						{openElsewhere && !working && <span className="sr-only">, {t("sidebar.row.open")}</span>}
 					</>
 				}
-				titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null]
-					.filter(Boolean)
-					.join("\n")}
+				titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null].filter(Boolean).join("\n")}
 			/>
 		);
 	};

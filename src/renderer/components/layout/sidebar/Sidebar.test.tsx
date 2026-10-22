@@ -2962,7 +2962,9 @@ describe("Sidebar device sections", () => {
 		pairHost("online");
 		await mount(<Sidebar />);
 		const row = () =>
-			container.querySelector('[data-device-session="/Users/kim/.omp/agent/sessions/app/one.jsonl"]') as Element;
+			container.querySelector(
+				'[data-device-session="/Users/kim/.omp/agent/sessions/app/one.jsonl"]',
+			) as unknown as Element;
 		expect(slotOf(row())).toBe("age");
 
 		const live = (state: "turn" | "background" | "waiting") =>
