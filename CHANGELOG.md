@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.59.1] - 2026-10-22
+
+화면 조작을 백그라운드로만 하도록 설정했을 때도, 화면 제어를 넘겨주지 못한 세션은 입력을 보내지 않아요.
+
+### 고친 것
+- omp 설정 `computer.backgroundFallback`이 `refuse`일 때, 화면 제어를 돌려주지 못한 세션이 백그라운드 입력을 계속 보낼 수 있었어요. 이제 그런 세션의 입력은 막히고, 제어를 넘길 때 진행 중이던 조작도 멈춰요.
+
+<!-- en -->
+
+With screen control set to stay in the background, a session that could not give control back no longer sends input.
+
+### Fixed
+- With omp's `computer.backgroundFallback` set to `refuse`, a session whose screen control could not be taken back could still send background input; its input is now blocked, and a hand-off stops the action in progress.
+
 ## [0.59.0] - 2026-10-22
 
 사이드바의 코드/채팅 탭이 사라지고 한 목록에 프로젝트, 그 아래 채팅이 나와요. 보낸 메시지가 입력한 줄바꿈을 그대로 보여 줘요.
