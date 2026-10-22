@@ -76,7 +76,6 @@ import {
 	isDuplicateTitle,
 	type JournalEntry,
 	type LiveCycle,
-	lastRunRelease,
 	lastStateEntry,
 	mergeSettings,
 	nextStateEntry,
@@ -84,8 +83,10 @@ import {
 	pendingNotes,
 	pendingShipRequests,
 	proposeReleaseCheck,
+	releaseReadiness,
 	shipLevelOf,
 	totalsOf,
+	type UnreleasedCommit,
 	type UsageTotals,
 	usageDelta,
 	userMessagesSinceLastCycle,
@@ -423,6 +424,24 @@ async function gitOut(root: string, args: string[]): Promise<{ code: number; out
 	} catch {
 		return { code: 1, out: "" };
 	}
+}
+
+/** The newest version tag reachable from HEAD (`v1.2.3`), or undefined in a repository that has none. */
+async function lastReleaseTag(root: string): Promise<string | undefined> {
+	const result = await gitOut(root, ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]);
+	return result.code === 0 && result.out ? result.out : undefined;
+}
+
+/** What landed since `tag` (the newest 200 without one), oldest first. */
+async function unreleasedCommits(root: string, tag: string | undefined): Promise<UnreleasedCommit[]> {
+	const range = tag ? [`${tag}..HEAD`] : ["-n", "200", "HEAD"];
+	const result = await gitOut(root, ["log", "--no-merges", "--reverse", "--format=%ct%x09%s", ...range]);
+	if (result.code !== 0 || !result.out) return [];
+	return result.out.split("\n").flatMap(line => {
+		const tab = line.indexOf("\t");
+		const at = Number(line.slice(0, tab)) * 1000;
+		return tab > 0 && Number.isFinite(at) ? [{ at, subject: line.slice(tab + 1) }] : [];
+	});
 }
 
 async function headOf(root: string): Promise<string | undefined> {
@@ -852,6 +871,24 @@ async function runTool(
 				clean: await gitClean(state.root),
 			});
 			if (!check.ok) return toolText({ due: false, reason: check.reason });
+			const since = await lastReleaseTag(state.root);
+			const readiness = releaseReadiness(
+				await unreleasedCommits(state.root, since),
+				now(),
+				typeof params.urgent === "string" ? params.urgent : undefined,
+			);
+			const contents = {
+				...(since ? { since } : {}),
+				userVisible: readiness.userVisible.slice(-20),
+				internal: readiness.internal,
+			};
+			if (!readiness.due)
+				return toolText({
+					due: false,
+					reason: readiness.reason,
+					...contents,
+					next: "Release nothing this cycle: pick another item. Pass urgent (why) only for a defect that breaks the released product or a regression of the last release.",
+				});
 			current.proposed = true;
 			if (guardState) guardState.due = true;
 			current.area = "release";
@@ -859,11 +896,11 @@ async function runTool(
 				appendState(session, { inFlight: { kind: "release", startedAt: now() } }, state);
 			}
 			publish(session);
-			const last = lastRunRelease(records, now());
 			return toolText({
 				due: true,
-				...(last ? { lastRelease: last } : {}),
-				next: `${last ? `This run last released ${last.version} ${last.minutesAgo} minutes ago (cycle ${last.cycle}). ` : ""}Check the repository's release cadence first (its Release section and rules: how often, and what may ship at once). If a release is not due by it, release nothing and pick another item this cycle. If it is, run the repository's release procedure as this cycle's item (area release) and report it in end.`,
+				reason: readiness.reason,
+				...contents,
+				next: "Run the repository's release procedure as this cycle's item (area release), with these changes in its notes, and report it in end.",
 			});
 		}
 		default:
@@ -878,7 +915,7 @@ function registerTool(pi: ExtensionAPI): void {
 		name: AUTOPILOT_TOOL,
 		label: "Autopilot",
 		description:
-			"Autopilot cycle ledger. op=begin: start the cycle (returns focus, backlog, notes, rotation, recent cycles, follow-ups, ship state, what to do next, hints). op=pick: name the item you chose after your audit (area + title). op=end: report the finished cycle (the runtime checks the commit and the check against your tool calls). op=ship: pass on the user's own push/release request (kind + their exact words as quote). op=propose_release: ask whether a release is due (auto release set to agent).",
+			"Autopilot cycle ledger. op=begin: start the cycle (returns focus, backlog, notes, rotation, recent cycles, follow-ups, ship state, what to do next, hints). op=pick: name the item you chose after your audit (area + title). op=end: report the finished cycle (the runtime checks the commit and the check against your tool calls). op=ship: pass on the user's own push/release request (kind + their exact words as quote). op=propose_release: ask whether a release is due (auto release set to agent): it is by what landed since the last release, never by the time since it (3 user-visible changes, an urgent one, or one that waited a day).",
 		parameters: z.object({
 			op: z.enum(["begin", "pick", "end", "ship", "propose_release"]),
 			area: z
@@ -909,6 +946,12 @@ function registerTool(pi: ExtensionAPI): void {
 				.describe("end: child sessions of this cycle"),
 			kind: z.enum(["push", "release"]).optional().describe("ship: what the user asked for"),
 			quote: z.string().optional().describe("ship: the user's exact words"),
+			urgent: z
+				.string()
+				.optional()
+				.describe(
+					"propose_release: why this cannot wait for more changes (a defect that breaks the released product, a regression of the last release)",
+				),
 		}),
 		defaultInactive: true,
 		loadMode: "essential",

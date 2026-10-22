@@ -36,7 +36,6 @@ import {
 	isDuplicateTitle,
 	isRedCycle,
 	type JournalEntry,
-	lastRunRelease,
 	lastStateEntry,
 	limitReached,
 	mergeSettings,
@@ -48,6 +47,7 @@ import {
 	proposeReleaseCheck,
 	realUserText,
 	redStreak,
+	releaseReadiness,
 	rotation,
 	shipLevelOf,
 	totalsOf,
@@ -287,23 +287,40 @@ describe("releases", () => {
 		expect(dueForRelease(facts(seq(GREEN), { policy: agent, proposed: true }))).toBe(true);
 		expect(dueForRelease(facts(seq(RED), { policy: agent, proposed: true }))).toBe(false);
 	});
-	it("lastRunRelease: the run's last green release and how long ago it ended, never a refusal", () => {
-		// Context for the agent's cadence judgment (a run released three times in one afternoon without it); the
-		// project's own Release section decides, so a hotfix can still ship at once.
-		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };
-		const hour = 3_600_000;
-		const released = rec({ n: 1, area: "release", verify: "green", startedAt: 0, durationMs: hour / 2 });
-		released.ship = { kind: "release", version: "1.2.3" };
-		const failed = rec({ n: 2, area: "release", verify: "red", startedAt: hour, durationMs: 60_000 });
-		failed.ship = { kind: "release", version: "1.2.4" };
-		const records = [
-			released,
-			failed,
-			rec({ n: 3, verify: "green", commit: "abc", startedAt: hour, durationMs: 60_000 }),
-		];
-		expect(lastRunRelease(records, 2 * hour)).toEqual({ version: "1.2.3", cycle: 1, minutesAgo: 90 });
-		expect(lastRunRelease(seq(GREEN), 2 * hour)).toBeUndefined();
-		expect(proposeReleaseCheck(records, ok)).toEqual({ ok: true });
+	it("releaseReadiness: what landed decides, never the time since the last release", () => {
+		const minute = 60_000;
+		const now = 10 * 60 * minute;
+		const at = (minutesAgo: number) => now - minutesAgo * minute;
+		const commit = (subject: string, minutesAgo = 5) => ({ subject, at: at(minutesAgo) });
+		// Internal work alone never ships, however much of it.
+		const internal = [commit("docs: a"), commit("test: b"), commit("refactor: c"), commit("ci: d")];
+		expect(releaseReadiness(internal, now)).toMatchObject({ due: false, userVisible: [], internal: 4 });
+		// Two fixes minutes after a release: not yet. A third makes a batch, released at once.
+		const two = [...internal, commit("fix(toast): scroll"), commit("feat: picker")];
+		expect(releaseReadiness(two, now)).toMatchObject({
+			due: false,
+			userVisible: ["fix(toast): scroll", "feat: picker"],
+		});
+		expect(releaseReadiness([...two, commit("perf: page budget")], now)).toMatchObject({ due: true });
+		// One urgent fix ships on its own; urgency names a reason, and needs something user-visible to ship.
+		expect(releaseReadiness([commit("fix: crash on launch")], now, "crashes at launch")).toMatchObject({
+			due: true,
+			reason: "urgent: crashes at launch",
+		});
+		expect(releaseReadiness(internal, now, "please")).toMatchObject({ due: false });
+		// A lone change that has waited a day goes out; a breaking change counts whatever its type.
+		expect(releaseReadiness([commit("fix: old one", 24 * 60)], now)).toMatchObject({ due: true });
+		expect(releaseReadiness([commit("refactor!: drop the v1 api")], now)).toMatchObject({
+			userVisible: ["refactor!: drop the v1 api"],
+		});
+		// Release commits and merges are not changes; a repository without conventional commits counts every commit.
+		expect(releaseReadiness([commit("release: v1.2.3"), commit("Merge branch x")], now)).toMatchObject({
+			internal: 0,
+			userVisible: [],
+		});
+		expect(releaseReadiness([commit("Add a picker"), commit("Fix a crash"), commit("Tidy docs")], now)).toMatchObject(
+			{ due: true, internal: 0 },
+		);
 	});
 	it("proposeReleaseCheck: every precondition", () => {
 		const ok = { policyOn: true, hasProcedure: true, releaseInFlight: false, clean: true };

@@ -365,7 +365,8 @@ export type AutopilotToolInput =
 			children?: AutopilotChildReport[];
 	  }
 	| { op: "ship"; kind: "push" | "release"; quote: string }
-	| { op: "propose_release" };
+	/** `urgent`: why this cannot wait for more changes (a defect that breaks the released product, a regression). */
+	| { op: "propose_release"; urgent?: string };
 
 export interface AutopilotBeginResult {
 	cycle: number;

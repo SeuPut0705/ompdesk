@@ -287,7 +287,7 @@ export function releaseSectionTemplate(facts: ReleaseFacts, verdict: ReleaseVerd
 	const cadence = [
 		"### Cadence",
 		`- ${cadenceLine(facts)}`,
-		"- Release when user-visible fixes or features have gathered, at about that rhythm; a defect that breaks the released product ships at once, on its own. Docs-only or internal changes wait for the next release.",
+		"- Release when three user-visible changes have gathered, at once for an urgent fix, or when one has waited a day; never because of the time since the last release. Docs-only or internal changes wait for the next release.",
 	];
 	if (verdict.via === "rules") {
 		return [

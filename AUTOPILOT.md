@@ -37,7 +37,7 @@ Project-wide direction for Autopilot runs on this repository, shared across sess
 - A bug fix has a test that failed before it; a UI change is covered at unit/component level.
 - Docs follow the code: `AGENTS.md`, the README feature line, and the matching `.ko` text.
 - One small, focused commit per change, in the repo's style (`feat:`, `fix:`, `test:`, `docs:`, `ci:` ...), no AI attribution trailers.
-- Finished, checked work is pushed to `main` as it lands (see "Change workflow" in `AGENTS.md`); never force-push. Releases go only through the release procedure in `AGENTS.md`, in small batches about once or twice a day.
+- Finished, checked work is pushed to `main` as it lands (see "Change workflow" in `AGENTS.md`); never force-push. Releases go only through the release procedure in `AGENTS.md`, when the content calls for one (see Release cadence).
 
 ## Taste
 
@@ -48,7 +48,7 @@ Project-wide direction for Autopilot runs on this repository, shared across sess
 
 ## Release cadence
 
-- Batched: a handful of user-visible fixes or features, once or twice a day at most, through `AGENTS.md`'s release procedure. A defect that makes the released app unusable ships at once, on its own.
+- By content, never by the clock: three user-visible changes (`feat`, `fix`, `perf`) make a release; one urgent fix (a defect that breaks the released app, a regression of the last release) ships on its own; a user-visible change never waits more than a day. Docs, tests, refactors and CI alone never make a release. `propose_release` checks this against the commits since the last tag.
 
 ## Long-lived ideas
 
@@ -62,4 +62,4 @@ Releases: yes
 
 ### Cadence
 - 8 releases in the last 90 days, about every 1 day; when this guide was written the latest was v0.49.0 on 2026-10-21.
-- Release when user-visible fixes or features have gathered, at about that rhythm; a defect that breaks the released product ships at once, on its own. Docs-only or internal changes wait for the next release.
+- Release when three user-visible changes have gathered, at once for an urgent fix, or when one has waited a day; never because of the time since the last release. Docs-only or internal changes wait for the next release.

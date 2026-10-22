@@ -230,19 +230,67 @@ export function dueForRelease(facts: ReleaseFacts): boolean {
 	return green >= Math.max(1, policy.autoRelease.cadence.n);
 }
 
+/** A commit since the project's last release: its subject and commit time. */
+export interface UnreleasedCommit {
+	subject: string;
+	at: number;
+}
+
+/** User-visible changes that make a release worth it without anything urgent among them. */
+export const RELEASE_BATCH = 3;
+/** A user-visible change never waits longer than this for the next release, however few have gathered. */
+export const RELEASE_WAIT_CEILING_MS = 24 * 60 * 60_000;
+
+const CONVENTIONAL = /^(\w+)(?:\([^)]*\))?(!)?:\s/;
+const USER_VISIBLE_TYPES = new Set(["feat", "fix", "perf"]);
+
 /**
- * The run's own last release and how long ago it went out, for `propose_release` to hand the agent: it judges the
- * cadence against the project's own Release section (a run that released three times in one afternoon, OMPdesk on
- * 21 Oct 2026, had nothing telling it when the last one went out). Context, never a cap: a hotfix ships at once.
+ * Whether what landed since the last release is worth one, by its content, never by the clock since the last release
+ * (the user's call, 22 Oct 2026: "once or twice a day" made a run sit on a batch of fixes for hours). A user-visible
+ * change is a `feat`, `fix` or `perf` commit (or a breaking `!` one); in a repository that does not write
+ * conventional commits every commit counts. Due: an urgent one (the agent says why: a defect that breaks the released
+ * product, a regression of the last release), or {@link RELEASE_BATCH} user-visible changes, or one that has waited
+ * {@link RELEASE_WAIT_CEILING_MS}. Docs, tests, refactors and CI alone never are.
  */
-export function lastRunRelease(
-	records: readonly AutopilotCycleRecord[],
+export function releaseReadiness(
+	commits: readonly UnreleasedCommit[],
 	now: number,
-): { version: string; cycle: number; minutesAgo: number } | undefined {
-	const released = records.findLast(record => record.ship?.kind === "release" && record.verify === "green");
-	if (!released?.ship) return undefined;
-	const ago = now - (released.startedAt + released.durationMs);
-	return { version: released.ship.version, cycle: released.n, minutesAgo: Math.max(0, Math.round(ago / 60_000)) };
+	urgent?: string,
+): { due: boolean; reason: string; userVisible: string[]; internal: number } {
+	const own = commits.filter(commit => !/^release:/i.test(commit.subject) && !/^Merge /.test(commit.subject));
+	const conventional = own.filter(commit => CONVENTIONAL.test(commit.subject)).length;
+	const counts = (subject: string): boolean => {
+		if (conventional * 2 < own.length) return true;
+		const match = CONVENTIONAL.exec(subject);
+		return match !== null && (USER_VISIBLE_TYPES.has(match[1]?.toLowerCase() ?? "") || match[2] === "!");
+	};
+	const visible = own.filter(commit => counts(commit.subject));
+	const userVisible = visible.map(commit => commit.subject);
+	const internal = own.length - visible.length;
+	if (visible.length === 0)
+		return {
+			due: false,
+			reason: "nothing user-visible since the last release (docs, tests, refactors and CI wait for the next one)",
+			userVisible,
+			internal,
+		};
+	if (urgent?.trim()) return { due: true, reason: `urgent: ${urgent.trim()}`, userVisible, internal };
+	if (visible.length >= RELEASE_BATCH)
+		return {
+			due: true,
+			reason: `${visible.length} user-visible changes since the last release`,
+			userVisible,
+			internal,
+		};
+	const oldest = Math.min(...visible.map(commit => commit.at));
+	if (now - oldest >= RELEASE_WAIT_CEILING_MS)
+		return { due: true, reason: "a user-visible change has waited a day for a release", userVisible, internal };
+	return {
+		due: false,
+		reason: `${visible.length} user-visible change${visible.length === 1 ? "" : "s"} since the last release; a release takes ${RELEASE_BATCH}, an urgent one, or a change that has waited a day`,
+		userVisible,
+		internal,
+	};
 }
 
 /** `propose_release`: the preconditions the bridge verifies (the clean working tree is a fact the caller passes). */
