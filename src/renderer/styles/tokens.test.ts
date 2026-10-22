@@ -249,6 +249,24 @@ describe("usage gauge fills", () => {
 	});
 });
 
+/** A selector list split at its own commas, not those inside `:is(…)` and the like. */
+function topLevelList(list: string): string[] {
+	const parts: string[] = [];
+	let depth = 0;
+	let start = 0;
+	for (let index = 0; index < list.length; index++) {
+		const char = list[index];
+		if (char === "(") depth++;
+		else if (char === ")") depth--;
+		else if (char === "," && depth === 0) {
+			parts.push(list.slice(start, index).trim());
+			start = index + 1;
+		}
+	}
+	parts.push(list.slice(start).trim());
+	return parts;
+}
+
 describe("focus ring utilities", () => {
 	it("never pair outline-none with a focus-visible outline, which it switches off", () => {
 		// Tailwind 4's `outline-none` sets `--tw-outline-style: none`, and `focus-visible:outline-2` draws
@@ -270,6 +288,27 @@ describe("focus ring utilities", () => {
 			}
 		};
 		walk(join(dir, ".."));
+		expect(offenders).toEqual([]);
+	});
+
+	it("never lists a :focus-visible selector beside one that is not, so a focus rule never styles a control at rest", () => {
+		// Deleting the last selector of a shared focus rule once glued the list onto the next rule: five focused
+		// work-card buttons took `.omp-live-step-icon`'s 14 px width and height and lost their ring.
+		const offenders: string[] = [];
+		for (const entry of readdirSync(dir)) {
+			if (!entry.endsWith(".css")) continue;
+			const css = readFileSync(join(dir, entry), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+			for (const match of css.matchAll(/([^{};]+)\{/g)) {
+				const selectors = topLevelList(match[1] ?? "");
+				if (selectors.some(selector => selector.startsWith("@"))) continue;
+				// A hover twin (`:hover::after, :focus-visible::after`) is a state too.
+				const atRest = selectors.filter(
+					selector => !/:(?:focus-visible|focus-within|focus|hover|active)\b/.test(selector),
+				);
+				if (selectors.some(selector => selector.includes(":focus-visible")) && atRest.length > 0)
+					offenders.push(`${entry}: ${selectors.join(", ").slice(0, 160)}`);
+			}
+		}
 		expect(offenders).toEqual([]);
 	});
 

@@ -2058,7 +2058,11 @@
 .omp-live-step-scroll:focus-visible,
 .omp-work-card-button:focus-visible,
 .omp-work-catch-up:focus-visible,
-.omp-work-outcome summary:focus-visible,
+.omp-work-outcome summary:focus-visible {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+	outline-offset: -2px;
+}
+
 .omp-live-step-icon {
 	flex-shrink: 0;
 	width: var(--sc-icon-sm);
