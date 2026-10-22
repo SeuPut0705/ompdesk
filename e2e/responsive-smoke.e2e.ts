@@ -390,6 +390,34 @@ test("responsive smoke 1280 desktop: a mermaid diagram lays out under Reduce mot
 });
 
 /**
+ * A paired computer's header in the sidebar ends in its color gear and project button. Always shown, the gear left
+ * "Old desktop" beside its offline badge as "Old …" in the default sidebar (22 Oct 2026); with a mouse it now shows
+ * while the header is hovered or focused, and a finger, which has no hover, keeps it at rest.
+ */
+test("responsive smoke 1280 desktop: a device header's name keeps its room until the header is hovered", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 1280,
+		height: 800,
+		dpr: 1,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await openLook(browser, look, { origin });
+	const header = page.locator('[data-sidebar-device="host-2"] .omp-device-header');
+	const gear = header.locator("[data-sidebar-device-color] button");
+	const name = header.locator("[data-sidebar-device-toggle] > span.truncate");
+	await expect(name).toHaveText("Old desktop", { timeout: 30_000 });
+	await expect(gear).toBeHidden();
+	expect(await name.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+	await header.hover();
+	await expect(gear).toBeVisible();
+	await page.context().close();
+});
+
+/**
  * A desktop window too narrow to dock the board (1280 wide beside the sidebar) keeps its work strip in the dock just
  * above the composer, where the phone's sits under the header. Its panel opened downward there, over the composer
  * and past the window's bottom edge, so the board's rows were cut off and the composer could not be clicked until

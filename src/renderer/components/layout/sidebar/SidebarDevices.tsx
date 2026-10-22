@@ -156,7 +156,12 @@ function DeviceHeader({
 				{children}
 				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			</button>
-			<span className="contents" data-sidebar-device-color={deviceId}>
+			{/* At rest with a mouse the gear gives the name its room; hovering or focusing the header, or the open menu,
+			    brings it back. A finger has no hover, so it stays. */}
+			<span
+				className="hidden group-focus-within/device:contents group-hover/device:contents has-[[aria-expanded=true]]:contents [@media(hover:none)]:contents"
+				data-sidebar-device-color={deviceId}
+			>
 				<MenuButton
 					className="text-(--sc-text-subtle) hover:text-(--sc-text)"
 					icon={<Settings2 />}
