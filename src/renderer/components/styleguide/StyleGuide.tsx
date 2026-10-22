@@ -40,13 +40,16 @@ import {
 	InlineNotice,
 	Input,
 	Kbd,
+	LinkButton,
 	ListRow,
 	MenuButton,
 	Modal,
+	OptionRow,
 	Popover,
 	ProgressBar,
 	Radio,
 	SearchField,
+	SegmentedChoice,
 	Select,
 	Sheet,
 	Skeleton,
@@ -291,6 +294,7 @@ function Swatch({ token, value }: { token: string; value: string }) {
 
 export default function StyleGuide() {
 	const [mode, setMode] = useState<ThemeMode>("system");
+	const [approval, setApproval] = useState<"ask" | "remember" | "full">("ask");
 	const [measureKey, setMeasureKey] = useState(0);
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [contrast, setContrast] = useState<ContrastRow[]>([]);
@@ -757,6 +761,37 @@ export default function StyleGuide() {
 								title="Bundle size investigation"
 							/>
 							<ListRow disabled leading={<GitBranch />} meta="3d" onClick={() => {}} title="Archived worktree" />
+						</Block>
+						<Block className="space-y-3" label="SegmentedChoice (a value, applied at once)">
+							<SegmentedChoice
+								aria-label="Tool approval"
+								onChange={setApproval}
+								optionAttr="data-styleguide-approval"
+								options={[
+									{ value: "ask", label: "Ask" },
+									{ value: "remember", label: "Remember", name: "Ask and remember" },
+									{ value: "full", label: "Full", name: "Full access" },
+								]}
+								value={approval}
+							/>
+						</Block>
+						<Block className="space-y-2" label="OptionRow (a picker's rows) · LinkButton">
+							<div aria-label="Branches" role="listbox">
+								<OptionRow active id="styleguide-option-0">
+									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+									main
+								</OptionRow>
+								<OptionRow active={false} id="styleguide-option-1" size="sm">
+									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+									feature/settings
+								</OptionRow>
+							</div>
+							<p className="text-sc-sm text-(--sc-text-secondary)">
+								The judge model needs a key from <LinkButton onClick={() => {}}>OpenRouter</LinkButton>.{" "}
+								<LinkButton onClick={() => {}} tone="muted">
+									Add a note
+								</LinkButton>
+							</p>
 						</Block>
 					</div>
 				</Section>
