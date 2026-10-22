@@ -2381,6 +2381,7 @@ export const ko: Record<string, string> = {
 	// Code blocks
 	"codeblock.lineNumbers": "줄 번호",
 	"codeblock.plainText": "일반 텍스트",
+	"codeblock.scroll": "코드",
 	"codeblock.wrap": "줄 바꿈",
 	"codeblock.runInTerminal": "터미널에서 실행",
 	"codeblock.runFailed": "터미널에서 실행하지 못했어요",

@@ -2395,6 +2395,7 @@ export const en: Record<string, string> = {
 	// Code blocks
 	"codeblock.lineNumbers": "Line numbers",
 	"codeblock.plainText": "Plain text",
+	"codeblock.scroll": "Code",
 	"codeblock.wrap": "Wrap lines",
 	"codeblock.runInTerminal": "Run in terminal",
 	"codeblock.runFailed": "Couldn't run it in the terminal",

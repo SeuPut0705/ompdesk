@@ -1,6 +1,7 @@
 import type { HLJSApi } from "highlight.js";
 import { SquareTerminal, WrapText } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useScrollOverflow } from "../../hooks/use-scroll-overflow";
 import { cx, escapeHtml } from "../../lib/format";
 import { getLoadedHljs, HIGHLIGHT_CHAR_CAP, loadHljs } from "../../lib/highlight";
 import { useT } from "../../lib/i18n";
@@ -179,6 +180,14 @@ export function CodeBlock({
 	// Wrapped rows no longer line up with one gutter number per source line,
 	// so the gutter steps aside while wrapping is on.
 	const gutter = showLineNumbers && lineCount > 0 && !wrap;
+	// A block that runs past its box takes a tab stop, so the keyboard can scroll what it hides: the code across
+	// (the <pre> scrolls sideways) and, from there or alone, down (the box scrolls). A block that fits adds none.
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const preRef = useRef<HTMLPreElement>(null);
+	const box = useScrollOverflow(scrollRef, `${code}\n${wrap}`);
+	const across = useScrollOverflow(preRef, `${code}\n${wrap}`);
+	const scrollStop = (on: boolean) =>
+		on ? { "aria-label": t("codeblock.scroll"), role: "group", tabIndex: 0 } : undefined;
 	const preClass = cx(
 		"px-3 py-3 font-mono text-sc-sm leading-(--sc-leading-normal)",
 		wrap ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-x-auto",
@@ -228,7 +237,7 @@ export function CodeBlock({
 					{endActions}
 				</FigureHeader>
 			)}
-			<div className={cx("overflow-auto", maxHeightClass)}>
+			<div className={cx("overflow-auto", maxHeightClass)} ref={scrollRef} {...scrollStop(box.y && !across.x)}>
 				{gutter ? (
 					<div className="flex">
 						<LineNumberGutter
@@ -237,10 +246,12 @@ export function CodeBlock({
 							startLine={startLine}
 							className="px-2.5 py-3 text-sc-sm leading-(--sc-leading-normal)"
 						/>
-						<pre className={cx("min-w-0 flex-1", preClass)}>{codeElement}</pre>
+						<pre className={cx("min-w-0 flex-1", preClass)} ref={preRef} {...scrollStop(across.x)}>
+							{codeElement}
+						</pre>
 					</div>
 				) : (
-					<pre className={preClass} data-code-wrapped={wrap || undefined}>
+					<pre className={preClass} data-code-wrapped={wrap || undefined} ref={preRef} {...scrollStop(across.x)}>
 						{codeElement}
 					</pre>
 				)}
