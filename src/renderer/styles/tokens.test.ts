@@ -13,7 +13,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { STATUS_ON_SOFT_MIX } from "../lib/theme-contrast";
+import { STATUS_ON_SOFT_MIX, USAGE_ALERT_FILL, USAGE_PLAIN_FILL } from "../lib/theme-contrast";
 import { SC_TOKEN_SOURCES, type ScTokenKey, scTokensFor, THEME_TOKEN_KEYS, THEMES } from "../lib/themes";
 
 type Scheme = "light" | "dark";
@@ -233,5 +233,18 @@ describe("the work board's name under the phone's strip", () => {
 		expect(rules.length).toBeGreaterThan(0);
 		for (const rule of rules) expect(rule[2]).not.toMatch(/display:\s*none/);
 		expect(rules.map(rule => rule[2]).join("")).toMatch(/clip-path:\s*inset\(50%\)/);
+	});
+});
+
+describe("usage gauge fills", () => {
+	it("are the shares the contrast table measures", () => {
+		const css = readFileSync(join(dir, "usage-gauges.css"), "utf8");
+		const pct = (value: number) => `${Math.round(value * 100)}%`;
+		expect(css).toContain(`color-mix(in srgb, var(--sc-text) ${pct(USAGE_PLAIN_FILL)}, transparent)`);
+		expect(css).toContain(`color-mix(in srgb, var(--sc-warning) ${pct(USAGE_ALERT_FILL)}, transparent)`);
+		expect(css).toContain(`color-mix(in srgb, var(--sc-danger) ${pct(USAGE_ALERT_FILL)}, transparent)`);
+		expect(css).toMatch(
+			/\[data-state="near"\], \[data-state="limit"\]\) \.omp-usage-gauge-text > :first-child \{\s*color: var\(--sc-text\);/,
+		);
 	});
 });

@@ -38,11 +38,11 @@
 }
 
 .omp-usage-gauge[data-state="near"] .omp-usage-gauge-fill {
-	background: color-mix(in srgb, var(--sc-warning) 34%, transparent);
+	background: color-mix(in srgb, var(--sc-warning) 26%, transparent);
 }
 
 .omp-usage-gauge[data-state="limit"] .omp-usage-gauge-fill {
-	background: color-mix(in srgb, var(--sc-danger) 34%, transparent);
+	background: color-mix(in srgb, var(--sc-danger) 26%, transparent);
 }
 
 .omp-usage-gauge-text {
@@ -64,6 +64,13 @@
 .omp-usage-gauge-text > :first-child {
 	color: var(--sc-text-secondary);
 	font-weight: 400;
+}
+
+/* Over a near or limit fill secondary falls under 4.5:1 (dark: 4.18:1 over the warning fill): the name takes the text
+   colour there, as the percent does. The fills' shares are the contrast table's (lib/theme-contrast.ts USAGE_*_FILL):
+   34 % warning put even the text colour under 4.5:1 on gruvbox-dark, nord, tokyo-night and hc-dark. */
+.omp-usage-gauge:is([data-state="near"], [data-state="limit"]) .omp-usage-gauge-text > :first-child {
+	color: var(--sc-text);
 }
 
 .omp-usage-gauge-reset {

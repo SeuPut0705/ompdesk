@@ -18,6 +18,9 @@ export const UI_BOUNDARY = 3;
 export const SELECTED_WARNING_MIX = 0.2;
 /** How far a status color drawn as text on its own soft wash (`--sc-*-on-soft`: badges, chips) leans toward the text color. */
 export const STATUS_ON_SOFT_MIX = 0.35;
+/** A usage gauge's fill (usage-gauges.css): the text color's share, and warning's or danger's once it nears the limit. */
+export const USAGE_PLAIN_FILL = 0.14;
+export const USAGE_ALERT_FILL = 0.26;
 
 /** The surfaces body text sits on. */
 const TEXT_SURFACES: ThemeTokenKey[] = [
@@ -151,6 +154,21 @@ export function contrastPairs(name: ThemeName): ContrastPair[] {
 	for (const key of TEXT_SURFACES) {
 		const bg = flatten(resolveTokenColor(theme, "--omp-warning-dim"), surface(theme, key));
 		add(`secondary over a warning wash on ${key}`, paint(theme, "--omp-text-secondary", bg), bg, text);
+	}
+
+	// A usage gauge's text over its fill (usage-gauges.css): the window's name at secondary over the plain fill, and
+	// everything at the text colour over a near or limit fill.
+	for (const key of TEXT_SURFACES) {
+		const base = surface(theme, key);
+		const bg = flatten(withAlpha(surface(theme, "--omp-text"), USAGE_PLAIN_FILL), base);
+		add(`secondary over a usage gauge's fill on ${key}`, paint(theme, "--omp-text-secondary", bg), bg, text);
+	}
+	for (const status of ["--omp-warning", "--omp-error"] as const) {
+		for (const key of TEXT_SURFACES) {
+			const base = surface(theme, key);
+			const bg = flatten(withAlpha(paint(theme, status, base), USAGE_ALERT_FILL), base);
+			add(`text over a usage gauge's ${status} fill on ${key}`, surface(theme, "--omp-text"), bg, text);
+		}
 	}
 
 	// The terminal's 16 colors on its surface (--sc-surface-1 = the sidebar).
