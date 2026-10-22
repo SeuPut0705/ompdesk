@@ -52,11 +52,12 @@ interface StripRoom {
  * composer and ran past the window (22 Oct 2026), so it opens upward while {@link MIN_UP_PX} fits there. A short
  * pane (a short window, a split stacked in two, a question card filling the dock) can leave less: then it opens
  * downward, over the dock and never past the composer's top. Measured again
- * when the pane resizes or anything beside the strip on the way up to it does (a card appearing in the dock moves the
- * strip without resizing it).
+ * when the pane resizes or anything beside the strip on the way up to it is added or resizes (a card appearing in the
+ * dock moves the strip without resizing it).
  */
-function useStripRoom(root: RefObject<HTMLDivElement | null>): StripRoom | undefined {
+function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, shown: boolean): StripRoom | undefined {
 	const [room, setRoom] = useState<StripRoom | undefined>(undefined);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: measured once the strip shows and again at each open.
 	useLayoutEffect(() => {
 		const strip = root.current;
 		if (!strip) return;
@@ -73,13 +74,31 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>): StripRoom | undef
 			const px = Math.max(0, Math.floor((up ? above : below) - ROOM_MARGIN_PX));
 			setRoom(previous => (previous?.up === up && previous.px === px ? previous : { up, px }));
 		};
-		measure();
-		const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-		observer?.observe(pane);
+		const resized = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+		const ancestors: Element[] = [];
 		for (let node: Element = strip; node !== pane && node.parentElement; node = node.parentElement)
-			for (const sibling of node.parentElement.children) observer?.observe(sibling);
-		return () => observer?.disconnect();
-	}, [root]);
+			ancestors.push(node.parentElement);
+		// Every sibling on the way up, also one added later (a card landing in the dock moves the strip unresized).
+		const watch = (): void => {
+			resized?.disconnect();
+			resized?.observe(pane);
+			for (const ancestor of ancestors) for (const child of ancestor.children) resized?.observe(child);
+		};
+		const added =
+			typeof MutationObserver === "function"
+				? new MutationObserver(() => {
+						watch();
+						measure();
+					})
+				: null;
+		for (const ancestor of ancestors) added?.observe(ancestor, { childList: true });
+		watch();
+		measure();
+		return () => {
+			resized?.disconnect();
+			added?.disconnect();
+		};
+	}, [root, open, shown]);
 	return room;
 }
 
@@ -121,8 +140,6 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	}, []);
 	useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
 	useBackLayer(open, close);
-	// Measured while collapsed too: the chevron points the way the panel will open.
-	const room = useStripRoom(root);
 	const turnActive = useTodoStore(state => state.turnActive);
 	const phases = useTodoStore(state => state.phases);
 	const planVisible = useTodoStore(selectTodoCardVisible);
@@ -193,6 +210,8 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 			<FailedCheckWatch onChange={setFailed} />
 		</Suspense>
 	);
+	// Measured while collapsed too (the chevron points the way the panel will open), and again at each open.
+	const room = useStripRoom(root, open, label !== null);
 	if (label === null) return watch;
 	const swipeStart = (event: TouchEvent<HTMLElement>) => {
 		swipe.current = event.touches[0]?.clientY ?? null;

@@ -899,12 +899,18 @@ html[data-shell="phone"] .omp-work-strip-panel {
 	margin-left: var(--omp-column-pad, var(--sc-space-3));
 }
 
+/* Drawn 28 px (the portrait chrome budget), it reaches 10 px down over the transcript's top padding (from inside its
+   1 px border) and never up, where the header's buttons reach 2 px past the bar's foot: a 36 px tap. */
 html[data-shell="phone"] .omp-work-chip {
 	width: calc(100% - 2 * var(--omp-column-pad, var(--sc-space-3)) - var(--omp-scrollbar-size, 0px));
 	min-height: 28px;
 	margin: var(--sc-space-0-5) auto var(--sc-space-0-5) var(--omp-column-pad, var(--sc-space-3));
 	padding-inline: 10px;
 	font-size: var(--sc-font-xs);
+}
+
+html[data-shell="phone"][data-input="touch"] .omp-work-chip::after {
+	inset-block: 0 -10px;
 }
 
 .omp-work-chip-plan {

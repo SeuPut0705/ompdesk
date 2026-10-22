@@ -282,11 +282,14 @@ for (const look of TOUCH_LOOKS) {
 				// A question card's step tabs and a figure header's buttons reach 36 through their spacing (mobile.css).
 				const spacedTarget =
 					issue.kind === "small-target" && /\[data-ask-step\]|\[data-figure-header\]/.test(issue.at);
+				// The work strip under the header is 28 px drawn and reaches 36 down over the transcript's top.
+				const workStrip = issue.kind === "small-target" && issue.at.includes("[data-work-chip]");
 				if (
 					["stolen-tap", "safe-area", "overlap"].includes(issue.kind) ||
 					summaryCut ||
 					sidebarTarget ||
-					spacedTarget
+					spacedTarget ||
+					workStrip
 				)
 					found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
 			}
@@ -404,6 +407,8 @@ for (const { height, draft } of STRIP_ROOMS) {
 			device: "electron",
 		};
 		const page = await openLook(browser, look, { origin, query: "&board=busy" });
+		// Collapsed above room to open into, its chevron already points up (the panel's way).
+		if (height === 800) await expect(page.locator("[data-work-chip]")).toHaveAttribute("data-opens", "up");
 		await show(page, look, "board-strip");
 		if (draft)
 			await page
