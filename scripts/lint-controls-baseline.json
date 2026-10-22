@@ -61,7 +61,6 @@
 	"components/panels/PreviewPanel.tsx": 1,
 	"components/panels/TerminalKeyBar.tsx": 4,
 	"components/panels/TerminalPanel.tsx": 1,
-	"components/panels/mcp/McpServerWizard.tsx": 2,
 	"components/panels/scm/BranchPicker.tsx": 2,
 	"components/panels/viewers/TextViews.tsx": 1,
 	"components/panels/work-tree/WorkTreePanel.tsx": 1,

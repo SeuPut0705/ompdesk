@@ -22,13 +22,12 @@ import { useTabRpc } from "../../../lib/tab-rpc";
  */
 
 import { Globe, Radio, Terminal } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import type { RpcMcpServerInput } from "../../../../shared/rpc-types";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
-import { Button, InlineNotice, Input, Modal } from "../../common";
+import { Button, ChoiceCards, InlineNotice, Input, Modal } from "../../common";
 import { ArrayChipEditor } from "../../settings/editors/ArrayChipEditor";
 import { RecordKvEditor } from "../../settings/editors/RecordKvEditor";
 import { McpTestResultView, type McpTestView, summarizeMcpTestData } from "./McpFeedback";
@@ -168,8 +167,12 @@ const SCOPES: Array<{ id: McpScope; labelKey: string; hintKey: string }> = [
 ];
 
 /** Matches Input's FieldShell label styling for non-Input controls. */
-function FieldLabel({ children }: { children: ReactNode }) {
-	return <span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)">{children}</span>;
+function FieldLabel({ id, children }: { id?: string; children: ReactNode }) {
+	return (
+		<span className="mb-1.5 block text-omp-md font-medium text-(--omp-text-secondary)" id={id}>
+			{children}
+		</span>
+	);
 }
 
 export function McpServerWizard({ open, onClose, onAdded }: McpServerWizardProps) {
@@ -200,6 +203,8 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 	const [testing, setTesting] = useState(false);
 	const [testView, setTestView] = useState<McpTestView | null>(null);
 	const busy = submitting || testing;
+	const transportLabel = useId();
+	const scopeLabel = useId();
 
 	/** Patch fields; any config edit drops stale field errors, server errors, and test results. */
 	const patch = (next: Partial<McpWizardValues>): void => {
@@ -282,31 +287,21 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 				/>
 
 				<div>
-					<FieldLabel>{t("mcp.wizard.transport")}</FieldLabel>
-					<div className="grid grid-cols-3 gap-2" role="radiogroup">
-						{TRANSPORTS.map(transport => (
-							<button
-								aria-checked={values.transport === transport.id}
-								className={cx(
-									"flex flex-col items-start gap-1 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-									values.transport === transport.id
-										? "border-(--omp-accent) bg-(--omp-selected-bg)"
-										: "border-(--omp-border-muted) bg-transparent hover:border-(--omp-border-strong)",
-								)}
-								disabled={busy}
-								key={transport.id}
-								onClick={() => patch({ transport: transport.id })}
-								role="radio"
-								type="button"
-							>
-								<span className="flex items-center gap-1.5 font-mono text-omp-sm font-medium text-(--omp-text)">
-									{transport.icon}
-									{transport.id}
-								</span>
-								<span className="text-omp-xs leading-snug text-(--omp-dim)">{t(transport.hintKey)}</span>
-							</button>
-						))}
-					</div>
+					<FieldLabel id={transportLabel}>{t("mcp.wizard.transport")}</FieldLabel>
+					<ChoiceCards
+						aria-labelledby={transportLabel}
+						className="grid-cols-3"
+						disabled={busy}
+						onChange={transport => patch({ transport })}
+						optionAttr="data-mcp-transport"
+						options={TRANSPORTS.map(transport => ({
+							value: transport.id,
+							icon: transport.icon,
+							title: <span className="font-mono">{transport.id}</span>,
+							hint: t(transport.hintKey),
+						}))}
+						value={values.transport}
+					/>
 				</div>
 
 				{values.transport === "stdio" ? (
@@ -362,28 +357,16 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 				)}
 
 				<div>
-					<FieldLabel>{t("mcp.wizard.scope")}</FieldLabel>
-					<div className="grid grid-cols-2 gap-2" role="radiogroup">
-						{SCOPES.map(scope => (
-							<button
-								aria-checked={values.scope === scope.id}
-								className={cx(
-									"flex flex-col items-start gap-0.5 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-									values.scope === scope.id
-										? "border-(--omp-accent) bg-(--omp-selected-bg)"
-										: "border-(--omp-border-muted) bg-transparent hover:border-(--omp-border-strong)",
-								)}
-								disabled={busy}
-								key={scope.id}
-								onClick={() => patch({ scope: scope.id })}
-								role="radio"
-								type="button"
-							>
-								<span className="text-omp-sm font-medium text-(--omp-text)">{t(scope.labelKey)}</span>
-								<span className="text-omp-xs leading-snug text-(--omp-dim)">{t(scope.hintKey)}</span>
-							</button>
-						))}
-					</div>
+					<FieldLabel id={scopeLabel}>{t("mcp.wizard.scope")}</FieldLabel>
+					<ChoiceCards
+						aria-labelledby={scopeLabel}
+						className="grid-cols-2"
+						disabled={busy}
+						onChange={scope => patch({ scope })}
+						optionAttr="data-mcp-scope"
+						options={SCOPES.map(scope => ({ value: scope.id, title: t(scope.labelKey), hint: t(scope.hintKey) }))}
+						value={values.scope}
+					/>
 				</div>
 
 				{(testing || testView) && <McpTestResultView testing={testing} view={testView} />}

@@ -199,6 +199,18 @@ describe("McpServerWizardForm SSR states", () => {
 		expect(html).not.toContain("Server URL");
 	});
 
+	it("names its transport and scope groups and makes the held card of each the one tab stop", () => {
+		installMockOmp();
+		const html = render({ transport: "http", scope: "project" });
+		const groups = [...html.matchAll(/<div[^>]*role="radiogroup"[^>]*>/g)].map(match => match[0]);
+		expect(groups).toHaveLength(2);
+		for (const group of groups) expect(group).toMatch(/aria-labelledby="[^"]+"/);
+		const tabStops = [...html.matchAll(/<button[^>]*role="radio"[^>]*>/g)]
+			.filter(match => match[0].includes('tabindex="0"'))
+			.map(match => match[0].match(/aria-checked="(\w+)"/)?.[1]);
+		expect(tabStops).toEqual(["true", "true"]);
+	});
+
 	it("renders url + headers for http, hiding the stdio fields", () => {
 		installMockOmp();
 		const html = render({ transport: "http" });

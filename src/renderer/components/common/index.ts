@@ -10,6 +10,7 @@ export { Banner, type BannerProps, type BannerVariant } from "./Banner";
 export { BrandMark, type BrandMarkProps, type BrandMarkVariant } from "./BrandMark";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 export { Checkbox, type CheckboxProps, Radio, type RadioProps } from "./Checkbox";
+export { type ChoiceCard, ChoiceCards, type ChoiceCardsProps } from "./ChoiceCards";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 export {
 	anchorFromEvent,

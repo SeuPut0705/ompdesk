@@ -25,6 +25,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A setting that applies at once | `Switch` (bare), `SwitchField` (settings-style row), `SwitchTile` (two-column grid) | a checkbox |
 | A choice applied on submit, or rows picked from a list | `Checkbox` (`indeterminate` for select-all), `Radio` | a raw `<input type="checkbox">` |
 | One of 2–5 short values, applied at once (thinking level, approval, rotation) | `SegmentedChoice` (a radio group; `fit`, `selectOnArrow`) | `Tabs` (they switch views), hand-made `role="radio"` buttons |
+| One of a few options that each need a line of explanation (an MCP server's transport, its scope) | `ChoiceCards` (a radio group of cards with a hint; one tab stop, arrows pick) | hand-made `role="radio"` cards |
 | One value from ≤ ~15 fixed options | `Select` (native popup) | a custom dropdown |
 | A long, searchable or rich list (models, sessions, branches) | a picker: `Modal size="picker" placement="top"` | `Select` |
 | Text entry | `Input`, `TextArea` (auto-grow), `SearchField`; long documents `TextEditor` | a raw `<input>` |

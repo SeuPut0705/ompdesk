@@ -34,6 +34,7 @@ import {
 	BrandMark,
 	Button,
 	Checkbox,
+	ChoiceCards,
 	CopyButton,
 	DisclosureButton,
 	EmptyState,
@@ -297,6 +298,7 @@ export default function StyleGuide() {
 	const [mode, setMode] = useState<ThemeMode>("system");
 	const [approval, setApproval] = useState<"ask" | "remember" | "full">("ask");
 	const [disclosureOpen, setDisclosureOpen] = useState(true);
+	const [scope, setScope] = useState<"user" | "project">("user");
 	const [measureKey, setMeasureKey] = useState(0);
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [contrast, setContrast] = useState<ContrastRow[]>([]);
@@ -775,6 +777,19 @@ export default function StyleGuide() {
 									{ value: "full", label: "Full", name: "Full access" },
 								]}
 								value={approval}
+							/>
+						</Block>
+						<Block label="ChoiceCards (a value whose options need a hint)">
+							<ChoiceCards
+								aria-label="Scope"
+								className="grid-cols-2"
+								onChange={setScope}
+								optionAttr="data-styleguide-scope"
+								options={[
+									{ value: "user", title: "Every project", hint: "Saved in your user config." },
+									{ value: "project", title: "This project", hint: "Saved in the project's .omp folder." },
+								]}
+								value={scope}
 							/>
 						</Block>
 						<Block className="space-y-2" label="OptionRow (a picker's rows) · LinkButton">
