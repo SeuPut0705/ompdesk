@@ -13,7 +13,7 @@ import {
 	Sparkles,
 	WifiOff,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, MessagesPage } from "../../../shared/rpc-types";
 import { hydrateTabSession, loadOlderTranscript } from "../../hooks/session-hydration";
 import { currentShellMode } from "../../hooks/use-shell-mode";
@@ -1142,18 +1142,11 @@ function SessionTranscript() {
 										) : row.kind === "todoSnapshot" ? (
 											<TodoSnapshotCard entry={row.entry} />
 										) : row.kind === "expander" ? (
-											<Button
-												className="omp-history-expander"
-												icon={<History />}
-												onClick={() => setPreCompactionOpen(true)}
-												size="sm"
-												variant="secondary"
-											>
-												{t("chat.compaction.showEarlier", {
-													count: row.count,
-													plural: row.count === 1 ? "" : "s",
-												})}
-											</Button>
+											<HistoryExpander
+												count={row.count}
+												onOpen={() => setPreCompactionOpen(true)}
+												scroller={parentRef}
+											/>
 										) : (
 											<>
 												<TurnStatusRow attached={liveTail} />
@@ -1839,3 +1832,33 @@ export {
 	scrollTranscriptToTail,
 	shouldRePinTranscript,
 } from "./chat-stream-utils";
+
+/**
+ * "Show N earlier messages": the button leaves the transcript once they show, so keyboard focus moves to the
+ * transcript's scroller (arrows and Page keys read on from there) instead of falling to the page.
+ */
+export function HistoryExpander({
+	count,
+	onOpen,
+	scroller,
+}: {
+	count: number;
+	onOpen: () => void;
+	scroller: RefObject<HTMLElement | null>;
+}) {
+	const t = useT();
+	return (
+		<Button
+			className="omp-history-expander"
+			icon={<History />}
+			onClick={() => {
+				onOpen();
+				scroller.current?.focus({ preventScroll: true });
+			}}
+			size="sm"
+			variant="secondary"
+		>
+			{t("chat.compaction.showEarlier", { count, plural: count === 1 ? "" : "s" })}
+		</Button>
+	);
+}
