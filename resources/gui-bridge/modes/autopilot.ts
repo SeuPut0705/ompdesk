@@ -86,7 +86,6 @@ import {
 	releaseReadiness,
 	shipLevelOf,
 	totalsOf,
-	type UnreleasedCommit,
 	type UsageTotals,
 	usageDelta,
 	userMessagesSinceLastCycle,
@@ -95,8 +94,8 @@ import {
 } from "./autopilot-core";
 import { evaluateToolCall } from "./autopilot-guard-core";
 import { ensureGuide, fileIo, type GuideIo, readGuide } from "./autopilot-guide";
-import { unreleasedOnTarget } from "./autopilot-release-facts";
 import { AUTOPILOT_CHILD_SECTION, AUTOPILOT_STOPPING_STEER, autopilotSection } from "./autopilot-prompt";
+import { unreleasedOnTarget } from "./autopilot-release-facts";
 import {
 	judgeVerify,
 	type LedgerCall,

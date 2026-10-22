@@ -218,7 +218,10 @@ export function ZoomableImage({
 									}
 						}
 					>
-						<span className="min-w-0 flex-1 truncate pl-1 text-sc-sm text-(--sc-text-secondary)" title={viewerName}>
+						<span
+							className="min-w-0 flex-1 truncate pl-1 text-sc-sm text-(--sc-text-secondary)"
+							title={viewerName}
+						>
 							{viewerName}
 						</span>
 						{items.length > 1 && (
@@ -243,7 +246,9 @@ export function ZoomableImage({
 								aria-pressed={actualSize}
 								className={cx(
 									"m-auto p-0",
-									actualSize ? "cursor-zoom-out" : "flex h-full w-full cursor-zoom-in items-center justify-center",
+									actualSize
+										? "cursor-zoom-out"
+										: "flex h-full w-full cursor-zoom-in items-center justify-center",
 								)}
 								data-image-viewer
 								onClick={() => setActualSize(value => !value)}

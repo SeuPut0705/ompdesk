@@ -10,7 +10,11 @@ import {
 	releaseVerdict,
 	withReleaseSection,
 } from "../../resources/gui-bridge/modes/autopilot-release-core";
-import { collectReleaseFacts, readWorkflow, unreleasedOnTarget } from "../../resources/gui-bridge/modes/autopilot-release-facts";
+import {
+	collectReleaseFacts,
+	readWorkflow,
+	unreleasedOnTarget,
+} from "../../resources/gui-bridge/modes/autopilot-release-facts";
 import { withoutGitSelectors } from "../shared/git-env";
 
 const NOW = Date.parse("2026-10-21T00:00:00Z");
