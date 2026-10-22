@@ -5,6 +5,7 @@
  * and the memory the turn used. `useSessionBoard` reads them all once; the section draws what it found.
  */
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { READ_ONLY_TOOLS } from "../../../../shared/agent-definition";
 import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
 import type { FamilyEdits, FamilyMemberEdits } from "../../../../shared/turn-edits";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
@@ -190,10 +191,14 @@ function useFamilyParts(turn: TurnWindow | null): FamilyPart[] {
 /** While a turn runs, a finished call (a commit, an edit) reads the branch again at most this often. */
 const UNLANDED_REREAD_MS = 5_000;
 
+/** Calls that only read: one finishing never makes the branch read again (a research turn read it every 5 s). */
+const LOOKS_ONLY: ReadonlySet<string> = new Set([...READ_ONLY_TOOLS, "todo", "ask", "fetch", "wait"]);
+
 /**
  * What the session's branch has not landed in main yet (`get_git_unlanded`; null on main itself), read through this
  * tab's runtime (a paired host's tab reads its host) on mount, each time a turn settles, and while one runs at most
- * every {@link UNLANDED_REREAD_MS} after one of its calls finished (a commit mid-turn): no timer of its own.
+ * every {@link UNLANDED_REREAD_MS} after a call that can touch the checkout finished (a commit mid-turn): no timer of
+ * its own.
  */
 function useUnlanded(): UnlandedSummary | null {
 	const rpc = useTabRpc();
@@ -216,17 +221,28 @@ function useUnlanded(): UnlandedSummary | null {
 	}, [rpc]);
 	useEffect(() => read(), [read]);
 	const finishedVersion = useToolsStore(state => state.finishedVersion);
+	const { tools } = useRunStores();
 	const reread = useRef<number | null>(null);
 	const seenVersion = useRef(finishedVersion);
+	const seenCalls = useRef<Set<string> | null>(null);
 	useEffect(() => {
 		if (finishedVersion === seenVersion.current) return;
 		seenVersion.current = finishedVersion;
-		if (!turnActive || reread.current) return;
+		// Only a call that can touch the checkout (an edit, a shell command, a subagent) moves what is unlanded.
+		let touched = false;
+		const seen = seenCalls.current ?? new Set<string>();
+		for (const [key, entry] of tools.getState().finishedTools) {
+			if (seen.has(key)) continue;
+			seen.add(key);
+			if (!LOOKS_ONLY.has(entry.toolName)) touched = true;
+		}
+		seenCalls.current = seen;
+		if (!touched || !turnActive || reread.current) return;
 		reread.current = window.setTimeout(() => {
 			reread.current = null;
 			read();
 		}, UNLANDED_REREAD_MS);
-	}, [finishedVersion, turnActive, read]);
+	}, [finishedVersion, turnActive, read, tools]);
 	useEffect(() => () => window.clearTimeout(reread.current ?? undefined), []);
 	const wasActive = useRef(turnActive);
 	useEffect(() => {

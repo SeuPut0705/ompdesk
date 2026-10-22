@@ -271,7 +271,15 @@ describe("Changed row", () => {
 		expect(row("unlanded")?.textContent).not.toContain("+1000");
 	});
 
-	it("reads on mount, when a turn settles, and while it runs only after its calls finish, at most every 5 s", async () => {
+	/** A call of the tab's run finishing, as the tools store records one. */
+	function finishCall(key: string, toolName: string) {
+		useToolsStore.setState(state => ({
+			finishedTools: new Map([...state.finishedTools, [key, bash("", { toolName })]]),
+			finishedVersion: state.finishedVersion + 1,
+		}));
+	}
+
+	it("reads on mount, when a turn settles, and while it runs only after a call that can touch the checkout finishes, at most every 5 s", async () => {
 		vi.useFakeTimers();
 		try {
 			await mount();
@@ -284,13 +292,18 @@ describe("Changed row", () => {
 				vi.advanceTimersByTime(60_000);
 			});
 			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
-			// A commit mid-turn: the calls that finish read the branch once, 5 s on.
+			// Calls that only read the code never read the branch again, however many finish.
+			await act(async () => finishCall("r1", "read"));
+			await act(async () => finishCall("r2", "grep"));
 			await act(async () => {
-				useToolsStore.setState(state => ({ finishedVersion: state.finishedVersion + 1 }));
+				vi.advanceTimersByTime(10_000);
 			});
+			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+			// A commit mid-turn: the calls that finish read the branch once, 5 s on.
+			await act(async () => finishCall("b1", "bash"));
 			await act(async () => {
 				vi.advanceTimersByTime(1_000);
-				useToolsStore.setState(state => ({ finishedVersion: state.finishedVersion + 1 }));
+				finishCall("e1", "edit");
 			});
 			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
 			await act(async () => {
