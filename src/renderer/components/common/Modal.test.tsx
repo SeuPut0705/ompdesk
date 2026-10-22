@@ -181,6 +181,53 @@ describe("Modal", () => {
 		trigger.remove();
 	});
 
+	it("puts focus where its opener sat when the dialog's action removed it", async () => {
+		const list = document.createElement("ul");
+		for (const name of ["a", "b", "c"]) {
+			const item = document.createElement("li");
+			const button = document.createElement("button");
+			button.textContent = `delete ${name}`;
+			item.append(button);
+			list.append(item);
+		}
+		document.body.appendChild(list);
+		const opener = list.querySelectorAll("button")[1] as HTMLElement;
+		activeElement = opener;
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			activeElement = this;
+		});
+
+		await mount(
+			<Modal open onClose={() => {}} title="Delete">
+				<button type="button">Delete</button>
+			</Modal>,
+		);
+		// The confirmed delete takes the opener's row before the dialog closes.
+		opener.closest("li")?.remove();
+		await render(
+			<Modal open={false} onClose={() => {}} title="Delete">
+				<button type="button">Delete</button>
+			</Modal>,
+		);
+		expect(activeElement?.textContent).toBe("delete c");
+
+		// The last row gone too: the row before it takes focus.
+		const last = activeElement as HTMLElement;
+		await render(
+			<Modal open onClose={() => {}} title="Delete">
+				<button type="button">Delete</button>
+			</Modal>,
+		);
+		last.closest("li")?.remove();
+		await render(
+			<Modal open={false} onClose={() => {}} title="Delete">
+				<button type="button">Delete</button>
+			</Modal>,
+		);
+		expect(activeElement?.textContent).toBe("delete a");
+		list.remove();
+	});
+
 	it("closes only the topmost dialog for each Escape press", async () => {
 		const closeBottom = vi.fn();
 		const closeTop = vi.fn();

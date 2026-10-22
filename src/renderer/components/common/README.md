@@ -38,7 +38,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A tree | `TreeView` | nested lists with your own keys |
 | List beside detail, one pane on a phone | `MasterDetail`, `useMasterDetail`, `MasterDetailBack` (a page that lays out its own list) | your own two-column switch |
 | A destination page | `PageLayout` | a page frame of your own |
-| A small form, confirm or picker | `Modal` (focus trapped, Escape closes, footer primary last) | a dialog from a dialog |
+| A small form, confirm or picker | `Modal` (focus trapped, Escape closes, footer primary last; on close focus returns to the opener, or to what took its place when the dialog's action removed it) | a dialog from a dialog |
 | "Yes, really" before something irreversible | `ConfirmDialog` (safe action focused) | `window.confirm` |
 | Detail too big for a popover, smaller than a page | `Sheet` (`right`, `left` drawer, `bottom` action sheet, `full`) | a Sheet over a Modal |
 | Quick contextual controls by their trigger | `Popover` | a Modal |

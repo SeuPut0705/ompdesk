@@ -6,6 +6,43 @@ import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Each ancestor of an element, nearest first, with the index of the child on the way to it. */
+type Place = Array<{ parent: Element; index: number }>;
+
+function placeOf(element: Element): Place {
+	const place: Place = [];
+	for (let node = element; node.parentElement; node = node.parentElement) {
+		place.push({
+			parent: node.parentElement,
+			index: Array.prototype.indexOf.call(node.parentElement.children, node),
+		});
+	}
+	return place;
+}
+
+/**
+ * Focus the control nearest to where a removed opener sat: in its nearest ancestor still on the page, the first
+ * focusable from the opener's old position on (what took its place), else the last one before it. Without this the
+ * focus of a dialog whose action removed its opener fell to the page, and the next Tab started over from the top.
+ */
+function focusNear(place: Place, panel: HTMLElement | null): void {
+	for (const { parent, index } of place) {
+		if (!parent.isConnected) continue;
+		const children = Array.from(parent.children);
+		for (const child of [...children.slice(index), ...children.slice(0, index).reverse()]) {
+			const candidates = [child, ...child.querySelectorAll(FOCUSABLE)].filter(
+				(element): element is HTMLElement =>
+					element instanceof HTMLElement && element.matches(FOCUSABLE) && !panel?.contains(element),
+			);
+			const target = children.indexOf(child) < index ? candidates.at(-1) : candidates[0];
+			if (target) {
+				target.focus();
+				return;
+			}
+		}
+	}
+}
+
 /**
  * Modal-layer behavior shared by Modal (Dialog) and Sheet: while `open`, the
  * panel is the topmost dialog layer, focus moves into it and is trapped,
@@ -22,6 +59,8 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 	// The system back gesture closes the topmost sheet or dialog (web shell only).
 	useBackLayer(open, onClose);
 	const restoreRef = useRef<HTMLElement | null>(null);
+	/** Where the opener sat, for when the dialog's action removed it (a confirmed delete takes its row). */
+	const restorePlace = useRef<Place>([]);
 	/** The dialog closed while topmost: focus goes back to its opener once the commit is over. */
 	const restorePending = useRef(false);
 
@@ -29,6 +68,7 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 		if (!open) return;
 		const unregisterLayer = registerDialogLayer(panelRef.current);
 		restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		restorePlace.current = restoreRef.current ? placeOf(restoreRef.current) : [];
 		const panel = panelRef.current;
 		const active = document.activeElement;
 		// Preserve a caller-autofocused control inside the new dialog, but never
@@ -90,7 +130,9 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 			const active = document.activeElement;
 			const panel = panelRef.current;
 			if (active instanceof HTMLElement && active !== document.body && !panel?.contains(active)) return;
-			restoreRef.current?.focus();
+			const opener = restoreRef.current;
+			if (opener?.isConnected) opener.focus();
+			else focusNear(restorePlace.current, panel);
 		},
 		[open, panelRef],
 	);
