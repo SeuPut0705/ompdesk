@@ -2124,3 +2124,12 @@ html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-side
 		margin-bottom: 0;
 	}
 }
+
+/* A GitHub section's toolbar wraps on a narrow screen: a button on the second line reached 9 px up across the 8 px
+   between the lines and took the bottom edge of the search field above it (22 Oct 2026 responsive audit, 360 px,
+   Issues). The lines sit 14 px apart on touch and each control's reach stops halfway, so a 28 px button still
+   reaches 36. */
+html[data-input="touch"] [data-github-toolbar] {
+	row-gap: 14px;
+	--hit-gap-y: 14px;
+}
