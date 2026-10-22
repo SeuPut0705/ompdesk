@@ -5,8 +5,7 @@
  * hash, so its copy is English-only and bypasses the locale files.
  *
  * The contrast matrix is computed from the live computed styles; the page
- * publishes it as `window.__scContrast` for the screenshot script that
- * writes the table in design-spec.md.
+ * publishes it as `window.__scContrast` for a screenshot script to read.
  */
 
 import {
@@ -34,6 +33,7 @@ import {
 	Banner,
 	BrandMark,
 	Button,
+	Checkbox,
 	CopyButton,
 	EmptyState,
 	IconButton,
@@ -45,6 +45,7 @@ import {
 	Modal,
 	Popover,
 	ProgressBar,
+	Radio,
 	SearchField,
 	Select,
 	Sheet,
@@ -373,7 +374,7 @@ export default function StyleGuide() {
 					<h1 className="text-sc-3xl font-semibold tracking-(--sc-tracking-tight)">OMPdesk</h1>
 					<p className="mt-2 max-w-2xl text-sc-lg text-(--sc-text-secondary)">
 						Calm, content-first, one confident accent. Tokens are CSS custom properties (--sc-*) in
-						src/renderer/styles; primitives live in components/common. Rules: design-spec.md.
+						src/renderer/styles; primitives live in components/common. Rules: components/common/README.md.
 					</p>
 				</div>
 
@@ -675,6 +676,28 @@ export default function StyleGuide() {
 							<Switch checked={false} label="Small off" onCheckedChange={() => {}} size="sm" />
 							<Switch checked disabled label="Disabled" onCheckedChange={() => {}} />
 						</div>
+					</Block>
+					<Block className="flex flex-wrap items-center gap-6" label="Checkbox · Radio (applied on submit)">
+						<label className="flex items-center gap-2 text-sc-sm">
+							<Checkbox defaultChecked />
+							Include environment
+						</label>
+						<label className="flex items-center gap-2 text-sc-sm">
+							<Checkbox indeterminate />
+							Select all (some)
+						</label>
+						<label className="flex items-center gap-2 text-sc-sm">
+							<Checkbox disabled />
+							Disabled
+						</label>
+						<label className="flex items-center gap-2 text-sc-sm">
+							<Radio defaultChecked name="styleguide-radio" />
+							HEAD
+						</label>
+						<label className="flex items-center gap-2 text-sc-sm">
+							<Radio name="styleguide-radio" />
+							Default branch
+						</label>
 					</Block>
 				</Section>
 

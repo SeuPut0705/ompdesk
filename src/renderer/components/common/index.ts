@@ -9,6 +9,7 @@ export { Badge, type BadgeProps, type BadgeVariant } from "./Badge";
 export { Banner, type BannerProps, type BannerVariant } from "./Banner";
 export { BrandMark, type BrandMarkProps, type BrandMarkVariant } from "./BrandMark";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
+export { Checkbox, type CheckboxProps, Radio, type RadioProps } from "./Checkbox";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 export {
 	anchorFromEvent,

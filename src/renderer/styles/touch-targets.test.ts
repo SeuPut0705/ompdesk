@@ -90,7 +90,7 @@ describe("touch targets and type", () => {
 
 	it("gives each changed file a checkbox in a label that the hit area reaches", () => {
 		const source = read("../components/panels/RepositoryChanges.tsx");
-		expect(source).toMatch(/<label className="[^"]*h-\(--sc-hit-min\)[^"]*">\s*<input\s+aria-checked/);
+		expect(source).toMatch(/<label className="[^"]*h-\(--sc-hit-min\)[^"]*">\s*<Checkbox\s+aria-checked/);
 	});
 });
 

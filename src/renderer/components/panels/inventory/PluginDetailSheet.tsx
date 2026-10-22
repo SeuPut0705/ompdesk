@@ -35,6 +35,7 @@ import {
 	Badge,
 	Banner,
 	Button,
+	Checkbox,
 	ErrorDetail,
 	IconButton,
 	InlineNotice,
@@ -680,12 +681,11 @@ export function PluginDetailBody({
 							<div className="divide-y divide-(--sc-divider) border-y border-(--sc-divider)">
 								{detail.features.map(feature => (
 									<label className="flex cursor-pointer items-start gap-2.5 py-2.5" key={feature.id}>
-										<input
+										<Checkbox
 											checked={currentFeatures.includes(feature.id)}
-											className="mt-1 accent-(--sc-accent)"
+											className="mt-1"
 											disabled={featuresBusy}
 											onChange={event => toggleFeature(feature.id, event.target.checked)}
-											type="checkbox"
 										/>
 										<span className="min-w-0 flex-1">
 											<span className="block text-sc-md font-medium text-(--sc-text)">{feature.id}</span>

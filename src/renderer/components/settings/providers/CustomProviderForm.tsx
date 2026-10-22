@@ -21,7 +21,7 @@ import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast } from "../../../stores/toast";
-import { Banner, Button, ErrorDetail, IconButton, Input, Select, TextArea } from "../../common";
+import { Banner, Button, Checkbox, ErrorDetail, IconButton, Input, Select, TextArea } from "../../common";
 import { FieldError, FieldLabel } from "./FormFields";
 import { ModelEditor, type ModelRow } from "./ModelEditor";
 
@@ -58,8 +58,6 @@ function isValidHttpUrl(value: string): boolean {
 		return false;
 	}
 }
-
-const CHECKBOX_CLASS = "size-4 shrink-0 accent-(--sc-accent) disabled:cursor-not-allowed";
 
 export interface CustomProviderFormProps {
 	/** null = adding a new provider. */
@@ -447,12 +445,11 @@ export function CustomProviderForm({ editing, existing, options, onSaved, onCanc
 						/>
 
 						<label className="flex items-start gap-2.5">
-							<input
+							<Checkbox
 								checked={authHeader}
-								className={`${CHECKBOX_CLASS} mt-0.5`}
+								className="mt-0.5"
 								disabled={locked}
 								onChange={event => setAuthHeader(event.target.checked)}
-								type="checkbox"
 							/>
 							<span>
 								<span className="block text-sc-md text-(--sc-text)">{t("providerCfg.form.authHeader")}</span>
@@ -494,12 +491,11 @@ export function CustomProviderForm({ editing, existing, options, onSaved, onCanc
 						</div>
 
 						<label className="flex items-start gap-2.5">
-							<input
+							<Checkbox
 								checked={disableStrictTools}
-								className={`${CHECKBOX_CLASS} mt-0.5`}
+								className="mt-0.5"
 								disabled={locked}
 								onChange={event => setDisableStrictTools(event.target.checked)}
-								type="checkbox"
 							/>
 							<span>
 								<span className="block text-sc-md text-(--sc-text)">

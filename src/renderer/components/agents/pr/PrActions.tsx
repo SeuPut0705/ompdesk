@@ -20,6 +20,7 @@ import {
 	Badge,
 	type BadgeVariant,
 	Button,
+	Checkbox,
 	IconButton,
 	InlineNotice,
 	Input,
@@ -111,12 +112,10 @@ export function PrMergeButton({ detail }: { detail: RpcPrDetail }) {
 						value={method}
 					/>
 					<label className="flex items-center gap-2 text-sc-sm text-(--sc-text-secondary)" htmlFor={deleteId}>
-						<input
+						<Checkbox
 							checked={deleteBranch}
-							className="size-4 shrink-0 accent-(--sc-accent)"
 							id={deleteId}
 							onChange={event => setDeleteBranch(event.target.checked)}
-							type="checkbox"
 						/>
 						{t("prCenter.merge.deleteBranch", { head: detail.headRefName })}
 					</label>

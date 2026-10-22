@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { CustomProviderModelInput, CustomProviderOptions } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
-import { Button, IconButton, Input, Select } from "../../common";
+import { Button, Checkbox, IconButton, Input, Select } from "../../common";
 
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 type CostField = (typeof COST_FIELDS)[number];
@@ -200,32 +200,26 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 
 					<div className="flex flex-wrap items-center gap-4">
 						<label className="flex items-center gap-2">
-							<input
-								type="checkbox"
+							<Checkbox
 								checked={model.reasoning === true}
 								onChange={e => onUpdate(model.key, { reasoning: e.target.checked || undefined })}
 								disabled={readonly || disabled}
-								className="size-4 accent-(--sc-accent)"
 							/>
 							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.reasoning")}</span>
 						</label>
 						<label className="flex items-center gap-2">
-							<input
-								type="checkbox"
+							<Checkbox
 								checked={model.supportsTools === true}
 								onChange={e => onUpdate(model.key, { supportsTools: e.target.checked || undefined })}
 								disabled={readonly || disabled}
-								className="size-4 accent-(--sc-accent)"
 							/>
 							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.supportsTools")}</span>
 						</label>
 						<label className="flex items-center gap-2">
-							<input
-								type="checkbox"
+							<Checkbox
 								checked={model.omitMaxOutputTokens === true}
 								onChange={e => onUpdate(model.key, { omitMaxOutputTokens: e.target.checked || undefined })}
 								disabled={readonly || disabled}
-								className="size-4 accent-(--sc-accent)"
 							/>
 							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.omitMaxTokens")}</span>
 						</label>
@@ -237,22 +231,18 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 						</span>
 						<div className="flex gap-3">
 							<label className="flex items-center gap-2">
-								<input
-									type="checkbox"
+								<Checkbox
 									checked={model.input?.includes("text") ?? false}
 									onChange={() => toggleInput("text")}
 									disabled={readonly || disabled}
-									className="size-4 accent-(--sc-accent)"
 								/>
 								<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.inputText")}</span>
 							</label>
 							<label className="flex items-center gap-2">
-								<input
-									type="checkbox"
+								<Checkbox
 									checked={model.input?.includes("image") ?? false}
 									onChange={() => toggleInput("image")}
 									disabled={readonly || disabled}
-									className="size-4 accent-(--sc-accent)"
 								/>
 								<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.inputImage")}</span>
 							</label>
@@ -264,8 +254,7 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 							{t("providerCfg.form.thinkingConfig")}
 						</span>
 						<label className="flex items-center gap-2">
-							<input
-								type="checkbox"
+							<Checkbox
 								checked={!!model.thinking}
 								onChange={e => {
 									if (e.target.checked) {
@@ -275,7 +264,6 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 									}
 								}}
 								disabled={readonly || disabled}
-								className="size-4 accent-(--sc-accent)"
 							/>
 							<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.thinkingEnabled")}</span>
 						</label>
@@ -309,12 +297,10 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 									<div className="flex flex-wrap gap-3">
 										{options.efforts.map(effort => (
 											<label key={effort} className="flex items-center gap-2">
-												<input
-													type="checkbox"
+												<Checkbox
 													checked={model.thinking!.efforts.some(value => value === effort)}
 													onChange={e => updateThinkingEfforts(effort, e.target.checked)}
 													disabled={readonly || disabled}
-													className="size-4 accent-(--sc-accent)"
 												/>
 												<span className="text-sc-xs text-(--sc-text)">{effort}</span>
 											</label>
@@ -323,8 +309,7 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 								</div>
 
 								<label className="flex items-center gap-2">
-									<input
-										type="checkbox"
+									<Checkbox
 										checked={model.thinking.supportsDisplay === true}
 										onChange={e =>
 											onUpdate(model.key, {
@@ -332,7 +317,6 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 											})
 										}
 										disabled={readonly || disabled}
-										className="size-4 accent-(--sc-accent)"
 									/>
 									<span className="text-sc-sm text-(--sc-text)">{t("providerCfg.form.thinkingDisplay")}</span>
 								</label>

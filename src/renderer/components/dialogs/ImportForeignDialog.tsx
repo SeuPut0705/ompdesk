@@ -22,6 +22,7 @@ import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import {
 	Button,
+	Checkbox,
 	EmptyState,
 	IconButton,
 	InlineNotice,
@@ -340,13 +341,11 @@ export function ImportForeignDialog() {
 			    bottom edge at 320 px (22 Oct 2026 responsive audit). */}
 			<div className={cx("mb-2 flex flex-wrap items-center gap-2", touch && "[--hit-gap-y:16px]")}>
 				<label className="mr-auto inline-flex items-center gap-2 text-sc-sm text-(--sc-text-secondary)">
-					<input
+					<Checkbox
 						checked={allSelected}
-						className="accent-(--sc-accent)"
 						data-import-select-all
 						disabled={!sidecarReady || importing || selectable.length === 0}
 						onChange={toggleAll}
-						type="checkbox"
 					/>
 					{t("import.selectAll", { count: selectable.length })}
 				</label>
@@ -408,13 +407,12 @@ export function ImportForeignDialog() {
 							key={session.id}
 							className="flex cursor-pointer flex-wrap items-start gap-3 border-b border-(--sc-divider) px-3 py-2.5 last:border-0 hover:bg-(--sc-hover)"
 						>
-							<input
-								type="checkbox"
+							<Checkbox
 								disabled={!sidecarReady || importing || completed.has(`${source}:${session.id}`)}
 								title={!sidecarReady ? t("import.notConnected") : undefined}
 								checked={selected.has(`${source}:${session.id}`)}
 								onChange={() => toggle(session.id)}
-								className="mt-1 accent-(--sc-accent)"
+								className="mt-1"
 							/>
 							<span className="min-w-0 flex-1">
 								<span className="block truncate text-sc-md font-medium text-(--sc-text)">

@@ -22,7 +22,7 @@ import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Input, Modal } from "../common";
+import { Button, InlineNotice, Input, Modal, Radio } from "../common";
 
 /** Renderer-side mirror of the agent's slugify (rpc-worktree.ts). */
 function slugify(name: string): string {
@@ -210,13 +210,7 @@ export function WorktreeDialog() {
 							key={value}
 							className="flex min-h-8 cursor-pointer items-center gap-2 text-sc-md text-(--sc-text)"
 						>
-							<input
-								type="radio"
-								name="worktree-base"
-								checked={baseRef === value}
-								onChange={() => setBaseRef(value)}
-								className="accent-(--sc-accent)"
-							/>
+							<Radio name="worktree-base" checked={baseRef === value} onChange={() => setBaseRef(value)} />
 							{value === "HEAD" ? t("worktree.baseHead") : t("worktree.baseDefault")}
 						</label>
 					))}

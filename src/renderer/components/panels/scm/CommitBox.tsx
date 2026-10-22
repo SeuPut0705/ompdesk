@@ -8,7 +8,7 @@ import { GitCommitHorizontal, Sparkles } from "lucide-react";
 import { useId, useState } from "react";
 import { useT } from "../../../lib/i18n";
 import type { TabRpc } from "../../../lib/tab-rpc";
-import { Button, IconButton, TextArea } from "../../common";
+import { Button, Checkbox, IconButton, TextArea } from "../../common";
 import type { ScmRunner } from "./use-scm-action";
 
 export function CommitBox({
@@ -112,13 +112,11 @@ export function CommitBox({
 			)}
 			<div className="flex items-center gap-2">
 				<label className="flex items-center gap-1.5 text-sc-xs text-(--sc-text-secondary)" htmlFor={amendId}>
-					<input
+					<Checkbox
 						checked={amend}
-						className="size-4 shrink-0 accent-(--sc-accent) disabled:cursor-not-allowed"
 						disabled={busy !== null}
 						id={amendId}
 						onChange={event => void toggleAmend(event.target.checked)}
-						type="checkbox"
 					/>
 					{t("scm.commit.amend")}
 				</label>

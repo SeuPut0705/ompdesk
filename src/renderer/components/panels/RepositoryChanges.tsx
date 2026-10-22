@@ -13,6 +13,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import {
 	anchorFromEvent,
 	Button,
+	Checkbox,
 	ConfirmDialog,
 	ContextMenu,
 	type ContextMenuAnchor,
@@ -48,8 +49,6 @@ export const STATUS_STYLE: Record<string, string> = {
 	renamed: "text-(--sc-text-muted)",
 	conflicted: "text-(--sc-danger)",
 };
-
-const CHECKBOX = "size-4 shrink-0 accent-(--sc-accent) disabled:cursor-not-allowed";
 
 /** How often the open list asks git again while the window is visible. */
 const REPOSITORY_WATCH_MS = 3000;
@@ -318,16 +317,12 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 								/>
 								<div className="mt-1 flex items-center gap-2 px-2 text-sc-xs text-(--sc-text-muted)">
 									<label className="flex min-w-0 items-center gap-2">
-										<input
+										<Checkbox
 											aria-checked={allChecked ? "true" : staged > 0 ? "mixed" : "false"}
 											checked={allChecked}
-											className={CHECKBOX}
 											disabled={scmBusy}
+											indeterminate={!allChecked && staged > 0}
 											onChange={() => setStaged("all", !allChecked)}
-											ref={element => {
-												if (element) element.indeterminate = !allChecked && staged > 0;
-											}}
-											type="checkbox"
 										/>
 										<span className="truncate">
 											{t("scm.stagedSummary", { staged, total: changes.files.length })}
@@ -362,7 +357,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 												}}
 											>
 												<label className="ml-1 flex h-(--sc-hit-min) w-7 shrink-0 cursor-pointer items-center justify-center">
-													<input
+													<Checkbox
 														aria-checked={
 															state === "all" ? "true" : state === "partial" ? "mixed" : "false"
 														}
@@ -372,13 +367,9 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 																: t("scm.stageFile", { path: file.path })
 														}
 														checked={state === "all"}
-														className={CHECKBOX}
 														disabled={scmBusy}
+														indeterminate={state === "partial"}
 														onChange={() => setStaged([file.path], state !== "all")}
-														ref={element => {
-															if (element) element.indeterminate = state === "partial";
-														}}
-														type="checkbox"
 													/>
 												</label>
 												<PanelListRow

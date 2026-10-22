@@ -20,7 +20,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toastError } from "../../../stores/toast";
-import { Badge, Button, InlineNotice, ListRow } from "../../common";
+import { Badge, Button, Checkbox, InlineNotice, ListRow } from "../../common";
 import { SettingsSection } from "../SettingsLayout";
 import {
 	AGENT_ACCOUNT_POOLS_PATH,
@@ -33,8 +33,6 @@ import {
 	serializeAgentAccountPools,
 	togglePoolAccount,
 } from "./account-pools";
-
-const CHECKBOX_CLASS = "size-4 shrink-0 accent-(--sc-accent) disabled:cursor-not-allowed";
 
 /** A connected subscription provider and its account read (null until it answered). */
 export interface PoolProvider {
@@ -123,12 +121,10 @@ function AgentPool({
 				: t("accountPools.restricted", { count: keyCount });
 	const checkbox = (provider: string, key: string, label: string, title?: string) => (
 		<label className="flex min-h-7 min-w-0 items-center gap-2 text-sc-sm text-(--sc-text)" key={key} title={title}>
-			<input
+			<Checkbox
 				checked={poolIncludes(pools, agent, provider, key)}
-				className={CHECKBOX_CLASS}
 				disabled={disabled}
 				onChange={event => onChange(togglePoolAccount(pools, agent, provider, key, event.target.checked))}
-				type="checkbox"
 			/>
 			<span className="min-w-0 truncate">{label}</span>
 		</label>
@@ -167,7 +163,7 @@ function AgentPool({
 										className="flex min-h-7 min-w-0 items-center gap-2 text-sc-sm text-(--sc-text-muted)"
 										key={`none-${account.credentialId}`}
 									>
-										<input checked={false} className={CHECKBOX_CLASS} disabled readOnly type="checkbox" />
+										<Checkbox checked={false} disabled readOnly />
 										<span className="min-w-0 truncate">
 											{t("accountPools.noIdentity", { account: account.label })}
 										</span>

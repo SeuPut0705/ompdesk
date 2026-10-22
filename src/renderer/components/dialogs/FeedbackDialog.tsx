@@ -12,7 +12,7 @@ import type { SystemInfo } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { useUiStore } from "../../stores/ui";
-import { Button, Input, Modal, TextArea } from "../common";
+import { Button, Checkbox, Input, Modal, TextArea } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 
 const LOG_TAIL_LINES = 20;
@@ -154,11 +154,10 @@ export function FeedbackDialog() {
 					className="space-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3"
 				>
 					<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
-						<input
-							type="checkbox"
+						<Checkbox
 							checked={includeEnv}
 							onChange={event => setIncludeEnv(event.target.checked)}
-							className="mt-0.5 accent-(--sc-accent)"
+							className="mt-0.5"
 						/>
 						<span>
 							{t("feedback.includeEnv")}
@@ -170,11 +169,10 @@ export function FeedbackDialog() {
 					<div>
 						<div className="flex items-center gap-1.5">
 							<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
-								<input
-									type="checkbox"
+								<Checkbox
 									checked={includeErrors}
 									onChange={event => setIncludeErrors(event.target.checked)}
-									className="mt-0.5 accent-(--sc-accent)"
+									className="mt-0.5"
 								/>
 								<span>{t("feedback.includeErrors")}</span>
 							</label>

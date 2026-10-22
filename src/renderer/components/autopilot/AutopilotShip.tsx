@@ -11,7 +11,7 @@ import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useAutopilotStore } from "../../stores/autopilot";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
-import { Badge, type BadgeVariant, Button, ConfirmDialog, IconButton, Select, SwitchField } from "../common";
+import { Badge, type BadgeVariant, Button, Checkbox, ConfirmDialog, IconButton, Select, SwitchField } from "../common";
 import { BoardRow, BoardSection, Dot } from "../layout/work-board/board-parts";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
@@ -303,11 +303,10 @@ export function AutopilotShipSection() {
 							<div className="flex flex-col gap-2">
 								<p>{t("autopilot.ship.mergeConfirm.body", { count: ahead ?? 0, base: base ?? "main" })}</p>
 								<label className="flex items-center gap-2 text-sc-sm">
-									<input
+									<Checkbox
 										checked={mergeCommit}
 										data-ship-merge-commit
 										onChange={event => setMergeCommit(event.target.checked)}
-										type="checkbox"
 									/>
 									{t("autopilot.ship.mergeConfirm.commit")}
 								</label>

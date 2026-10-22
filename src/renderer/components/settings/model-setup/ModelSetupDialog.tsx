@@ -25,7 +25,18 @@ import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Badge, Button, ErrorDetail, InlineNotice, Modal, SearchField, SettingInfo, Spinner, Tabs } from "../../common";
+import {
+	Badge,
+	Button,
+	Checkbox,
+	ErrorDetail,
+	InlineNotice,
+	Modal,
+	SearchField,
+	SettingInfo,
+	Spinner,
+	Tabs,
+} from "../../common";
 import { modelRoleName } from "../schema-i18n";
 import {
 	currentDefaultModel,
@@ -618,14 +629,12 @@ function RoleRow({
 				{stock ? (
 					<span aria-hidden className="size-4 shrink-0" />
 				) : (
-					<input
+					<Checkbox
 						aria-label={t("modelSetup.row.select", { role: name })}
 						checked={ticked}
-						className="size-4 shrink-0 accent-(--sc-accent)"
 						data-model-setup-tick={row.role}
 						disabled={unchanged}
 						onChange={event => onTick(event.target.checked)}
-						type="checkbox"
 					/>
 				)}
 				<span className="min-w-0 truncate font-medium text-(--sc-text)" title={name}>
@@ -685,13 +694,11 @@ function ModelCheckbox({
 			)}
 			title={option.selector}
 		>
-			<input
+			<Checkbox
 				checked={checked}
-				className="size-4 shrink-0 accent-(--sc-accent)"
 				data-model-setup-model={option.selector}
 				disabled={disabled}
 				onChange={event => onChange(event.target.checked)}
-				type="checkbox"
 			/>
 			<span className="min-w-0 truncate text-sc-sm text-(--sc-text)">{option.label}</span>
 			{isDefault && <Badge variant="success">{t("modelSetup.pick.default")}</Badge>}

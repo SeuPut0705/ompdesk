@@ -17,7 +17,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { usePrCenterStore } from "../../../stores/pr-center";
 import { useSessionStore } from "../../../stores/session";
 import { toast, toastError } from "../../../stores/toast";
-import { Button, Input, Modal, TextArea } from "../../common";
+import { Button, Checkbox, Input, Modal, TextArea } from "../../common";
 
 export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const tabRpc = useTabRpc();
@@ -155,12 +155,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 					value={body}
 				/>
 				<label className="flex w-fit cursor-pointer items-center gap-2 text-sc-md text-(--sc-text)">
-					<input
-						checked={draft}
-						className="size-4 accent-(--sc-accent)"
-						onChange={event => setDraft(event.target.checked)}
-						type="checkbox"
-					/>
+					<Checkbox checked={draft} onChange={event => setDraft(event.target.checked)} />
 					{t("prCenter.asDraft")}
 				</label>
 			</form>

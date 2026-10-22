@@ -23,7 +23,7 @@ import { useT } from "../../../lib/i18n";
 import { useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { toast, toastError } from "../../../stores/toast";
-import { Button, ConfirmDialog, IconButton, Input, ListRow, Modal, Select } from "../../common";
+import { Button, Checkbox, ConfirmDialog, IconButton, Input, ListRow, Modal, Select } from "../../common";
 import { SettingsSection } from "../SettingsLayout";
 import type { ProviderCatalog } from "./ProviderList";
 
@@ -406,9 +406,8 @@ function OverrideEditor({
 							return (
 								<div className="flex items-center gap-3" key={effort}>
 									<label className="inline-flex w-28 items-center gap-2 text-sc-sm text-(--sc-text)">
-										<input
+										<Checkbox
 											checked={checked}
-											className="accent-(--sc-accent)"
 											data-model-override-effort={effort}
 											onChange={() =>
 												patch({
@@ -418,7 +417,6 @@ function OverrideEditor({
 													),
 												})
 											}
-											type="checkbox"
 										/>
 										{effort}
 									</label>
