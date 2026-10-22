@@ -118,6 +118,40 @@ describe("get_transcript_page", () => {
 		);
 	});
 
+	it("reads one run longer than the budget whole, asking the bridge for it once more at most", async () => {
+		// A prompt, then 300 tool steps of one run: every shorter read snaps back to the prompt.
+		const output = "tool output line\n".repeat(400);
+		const steps = Array.from(
+			{ length: 300 },
+			(_, i): AgentMessage =>
+				i % 2 === 0
+					? ({
+							role: "assistant",
+							content: [],
+							stopReason: "toolUse",
+							timestamp: i + 1,
+						} as unknown as AgentMessage)
+					: ({
+							role: "toolResult",
+							toolCallId: `c${i}`,
+							content: [{ type: "text", text: output }],
+							timestamp: i + 1,
+						} as unknown as AgentMessage),
+		);
+		const entries = [user("go", 0), ...steps].map((body, i) => message(`m${i}`, i === 0 ? null : `m${i - 1}`, body));
+		const { ctx, requested } = pagedBridge(entries, () => "m300");
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		const tail = await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx);
+		expect(tail.startIndex).toBe(0);
+		expect(tail.messages).toHaveLength(301);
+		expect(tail.prevCursor).toBeUndefined();
+		// The metadata read, the page asked for, and one shorter read that came back the same.
+		expect(requested).toHaveLength(3);
+	});
+
 	it("handles short and empty tails without a preceding cursor", async () => {
 		const page = handlers.get_transcript_page as (
 			command: Record<string, unknown>,

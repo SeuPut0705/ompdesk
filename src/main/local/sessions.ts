@@ -111,8 +111,11 @@ export const handlers: Record<string, LocalHandler> = {
 		let page = await transcriptPage(ctx, offset, take, backward);
 		while (backward && take > MIN_BACKWARD_PAGE && JSON.stringify(page.messages).length > BACKWARD_PAGE_BUDGET) {
 			take = Math.max(MIN_BACKWARD_PAGE, Math.floor(take / 2));
+			const smaller = await transcriptPage(ctx, endIndex - take, take, true);
+			// One run longer than the budget: the bridge snaps every shorter read back to its start, the same page.
+			if ((smaller.startIndex ?? endIndex - take) === (page.startIndex ?? offset)) break;
 			offset = endIndex - take;
-			page = await transcriptPage(ctx, offset, take, true);
+			page = smaller;
 		}
 		if (
 			(cursor && (page.leafId !== cursor.leafId || page.total !== cursor.total)) ||
