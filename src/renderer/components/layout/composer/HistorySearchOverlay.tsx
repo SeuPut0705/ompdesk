@@ -12,7 +12,7 @@ import { useInputHistoryStore } from "../../../stores/input-history";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { toastError } from "../../../stores/toast";
-import { Kbd, Spinner, Tabs } from "../../common";
+import { Kbd, OptionRow, Spinner, Tabs } from "../../common";
 
 /**
  * Ctrl+R history search overlay (GUI counterpart of the TUI
@@ -209,21 +209,17 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 					)
 				) : (
 					results.map((entry, rowIndex) => (
-						<button
-							key={`${entry.ts}-${rowIndex}`}
-							type="button"
-							id={`${listId}-option-${rowIndex}`}
-							role="option"
-							aria-selected={rowIndex === selected}
+						<OptionRow
+							active={rowIndex === selected}
+							className="items-baseline gap-3 rounded-(--sc-radius-sm)"
 							data-index={rowIndex}
-							onMouseDown={event => event.preventDefault()}
+							id={`${listId}-option-${rowIndex}`}
+							key={`${entry.ts}-${rowIndex}`}
 							onClick={() => pick(entry)}
+							onMouseDown={event => event.preventDefault()}
 							onMouseEnter={() => setIndex(rowIndex)}
+							size="sm"
 							title={entry.cwd ? shortenPath(entry.cwd) : t("input.history.legacy")}
-							className={cx(
-								"flex w-full items-baseline gap-3 rounded-(--sc-radius-sm) px-2.5 py-1.5 text-left",
-								rowIndex === selected ? "bg-(--sc-selected)" : "",
-							)}
 						>
 							<span
 								className={cx(
@@ -243,7 +239,7 @@ export function HistorySearchOverlay({ cwd, onSelect, onClose }: HistorySearchOv
 									{formatTimeAgo(entry.ts)}
 								</span>
 							)}
-						</button>
+						</OptionRow>
 					))
 				)}
 			</div>

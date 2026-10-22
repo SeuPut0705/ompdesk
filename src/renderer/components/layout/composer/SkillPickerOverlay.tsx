@@ -1,10 +1,10 @@
 import { Puzzle } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { cx, oneLine } from "../../../lib/format";
+import { oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Kbd, SearchField } from "../../common";
+import { Kbd, OptionRow, SearchField } from "../../common";
 
 /**
  * Searchable skill picker opened from the composer's + menu: one line per
@@ -145,12 +145,9 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 					results.map((skill, rowIndex) => {
 						const description = oneLine(skill.description);
 						return (
-							<button
-								aria-selected={rowIndex === selected}
-								className={cx(
-									"flex min-h-(--sc-control-md) w-full items-center gap-3 rounded-(--sc-radius-sm) px-2.5 py-1 text-left",
-									rowIndex === selected ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-								)}
+							<OptionRow
+								active={rowIndex === selected}
+								className="gap-3 rounded-(--sc-radius-sm)"
 								data-index={rowIndex}
 								data-skill-row={skill.name}
 								id={`${listId}-option-${rowIndex}`}
@@ -158,10 +155,8 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 								onClick={() => onSelect(skill.name)}
 								onMouseDown={event => event.preventDefault()}
 								onMouseEnter={() => setIndex(rowIndex)}
-								role="option"
-								tabIndex={-1}
+								size="sm"
 								title={description ? `${skill.name}\n${description}` : skill.name}
-								type="button"
 							>
 								<span className="max-w-[55%] shrink-0 truncate font-mono text-sc-sm font-medium text-(--sc-text)">
 									{skill.name}
@@ -174,7 +169,7 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 										{description}
 									</span>
 								)}
-							</button>
+							</OptionRow>
 						);
 					})
 				)}
