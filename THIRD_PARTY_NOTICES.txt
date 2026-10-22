@@ -7114,7 +7114,7 @@ SOFTWARE.
 
 pstack engineering skills (https://github.com/cursor/plugins/tree/main/pstack)
 Copyright (c) 2026 Lauren Tan, licensed under the MIT License. Skills, playbooks and agent text copied from
-pstack 0.15.26 (cursor/plugins commit 0b8e952052d482ee6de06deebf14d590d77b1b34) into resources/omp-builtin/pstack/ by
+pstack 0.15.28 (cursor/plugins commit d457567332aa6989e753ea289f30ea2bfbc80bc0) into resources/omp-builtin/pstack/ by
 scripts/sync-pstack.ts. Changes: Cursor and Claude tool, agent and model names are replaced by omp and
 OMPdesk ones, tdd and teach are renamed pstack-tdd and pstack-teach, and the Cursor-only parts (setup-pstack,
 poteto-help, make-bot-ui, Bugbot triage, the orchestrate playbook, the watch-pr and orch tools) are left out.
