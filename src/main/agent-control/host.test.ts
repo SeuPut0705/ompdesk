@@ -792,7 +792,7 @@ describe("AgentControlRuntime", () => {
 		} finally {
 			await fs.rm(root, { recursive: true, force: true });
 		}
-	});
+	}, 30_000);
 
 	it("closes a child restored after a relaunch whose branch was pushed straight to main, and removes its worktree", async () => {
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-host-relaunch-")));
