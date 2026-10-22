@@ -14,6 +14,25 @@
  */
 import { DESKTOP_SLOT_IDLE_MS, type DesktopSlotReason } from "./desktop-slot-contracts";
 
+/** The fields of stock's `ComputerSessionSnapshot` (tools/computer/protocol.ts) the slot reads. */
+export interface RunSnapshot {
+	readOnly: boolean;
+	backgroundFallback?: string;
+}
+
+/**
+ * Whether a computer run needs the slot. The slot keeps sessions from fighting over the foreground: stock's window
+ * input goes to a window in the background (no pointer moved, no app activated), but a refused background call falls
+ * back to a takeover by default, and raise, activate, desktop-wide input and menus take the user's screen. Under
+ * stock's `computer.backgroundFallback: "refuse"` every one of those is refused before anything is sent
+ * (tools/computer/worker.ts `refuseForeground`), so such a run never touches the foreground and runs beside the other
+ * sessions' with no slot, as a read-only run does (the user's question, 22 Oct 2026: control other windows while I
+ * work, like Codex).
+ */
+export function needsSlot(snapshot: RunSnapshot): boolean {
+	return !snapshot.readOnly && snapshot.backgroundFallback !== "refuse";
+}
+
 /** A frame this module sends to main (`env.emit`; main adds the tab). */
 export type SlotFrame =
 	| { type: "desktop_slot_acquire"; requestId: string }

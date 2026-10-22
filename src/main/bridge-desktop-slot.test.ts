@@ -5,7 +5,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DESKTOP_SLOT_IDLE_MS } from "../../resources/gui-bridge/desktop-slot-contracts";
-import { type ActingRun, DesktopSlotCore, type SlotFrame } from "../../resources/gui-bridge/desktop-slot-core";
+import {
+	type ActingRun,
+	DesktopSlotCore,
+	needsSlot,
+	type SlotFrame,
+} from "../../resources/gui-bridge/desktop-slot-core";
 
 const STALE = "stale";
 const REVOKED = "revoked";
@@ -81,6 +86,16 @@ beforeEach(() => {
 });
 afterEach(() => {
 	vi.useRealTimers();
+});
+
+describe("which computer runs need the slot", () => {
+	it("only one that can take the foreground: a run stock keeps in the background passes like a read-only one", () => {
+		expect(needsSlot({ readOnly: true, backgroundFallback: "takeover" })).toBe(false);
+		expect(needsSlot({ readOnly: false, backgroundFallback: "takeover" })).toBe(true);
+		// An omp that sends no fallback setting falls back to a takeover, as stock's default does.
+		expect(needsSlot({ readOnly: false })).toBe(true);
+		expect(needsSlot({ readOnly: false, backgroundFallback: "refuse" })).toBe(false);
+	});
 });
 
 describe("desktop slot: read-only runs", () => {

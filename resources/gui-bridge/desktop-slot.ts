@@ -1,7 +1,7 @@
 /**
  * The desktop slot's bridge side (contract: ./desktop-slot-contracts.ts, rules: ./desktop-slot-core.ts): one omp
  * session at a time drives the desktop. The seam is stock's `ComputerSupervisor.prototype.run`, patched once at
- * install: a read-only run passes, an acting run needs the slot main owns (`desktop_slot_acquire` →
+ * install: a read-only run, or one stock keeps in the background (`needsSlot`), passes; an acting run needs the slot main owns (`desktop_slot_acquire` →
  * `desktop_slot.grant`) and one that had to wait returns the stale notice instead of running.
  *
  * Feature-detected: an omp whose supervisor lacks `run` or `revokeControl` is left untouched (stock behaviour,
@@ -12,7 +12,7 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import * as supervisorModule from "@oh-my-pi/pi-coding-agent/tools/computer/supervisor";
 import { hasPath } from "./capabilities";
 import { DESKTOP_SLOT_REVOKED_NOTICE, DESKTOP_SLOT_STALE_NOTICE } from "./desktop-slot-contracts";
-import { DesktopSlotCore } from "./desktop-slot-core";
+import { DesktopSlotCore, needsSlot, type RunSnapshot } from "./desktop-slot-core";
 import { emit, errorMessage, record } from "./modes/shared";
 import type { BridgeMethods } from "./types";
 
@@ -28,13 +28,7 @@ interface NoticeRun {
 	screenshots: [];
 }
 
-type RunArgs = [
-	code: string,
-	timeoutMs: number,
-	snapshot: { readOnly: boolean },
-	signal?: AbortSignal,
-	context?: unknown,
-];
+type RunArgs = [code: string, timeoutMs: number, snapshot: RunSnapshot, signal?: AbortSignal, context?: unknown];
 type RunMethod = (this: SlotController, ...args: RunArgs) => Promise<unknown>;
 
 /** The original `run`, kept on the patched prototype so a second install (a subagent's rebind) patches nothing. */
@@ -73,7 +67,7 @@ function patchSupervisor(pi: ExtensionAPI): boolean {
 	proto.run = function run(this: SlotController, ...args: RunArgs): Promise<unknown> {
 		controllers.add(this);
 		const [code, timeoutMs, snapshot, signal, context] = args;
-		if (snapshot.readOnly) return core.runReadOnly(() => original.apply(this, args));
+		if (!needsSlot(snapshot)) return core.runReadOnly(() => original.apply(this, args));
 		return core.runActing({
 			signal,
 			run: own => original.call(this, code, timeoutMs, snapshot, own, context),
