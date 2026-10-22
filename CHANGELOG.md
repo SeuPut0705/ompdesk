@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.60.0] - 2026-10-22
+
+사이드바의 기기 머리줄마다 색이 생겨 연결한 컴퓨터의 세션을 이 컴퓨터 것과 쉽게 구분해요. 작업판은 닫히지 않고 늘 보여요.
+
+### 새로 생긴 것
+- 사이드바의 기기 섹션 머리줄이 기기마다 다른 색을 입어요. 연결한 컴퓨터는 색이 저절로 정해지고, 머리줄의 톱니 버튼으로 다른 색이나 색 없음을 고를 수 있어요.
+
+### 고친 것
+- 작업판의 닫기 버튼을 없앴어요. 닫으면 다시 열 방법이 없었어요. 이제 자리가 있으면 옆에 붙고, 없으면 상태 줄로 보여요.
+- 작업판이 계획을 보여 주는 동안 '할 일 편집'을 눌러도 아무것도 나오지 않았어요. 이제 펼친 할 일 카드가 보여 바로 고칠 수 있어요.
+- 연결한 컴퓨터에서 탭을 다시 불러올 때 명령 목록과 대화 끝부분을 매번 통째로 받지 않고 바뀐 부분만 받아요(두 컴퓨터가 모두 이 버전일 때). 바뀌지 않은 명령 목록은 다시 보내지 않아요.
+
+<!-- en -->
+
+Each device header in the sidebar now wears its own color, so a paired computer's sessions are easy to tell from this one's. The work board no longer closes.
+
+### Added
+- The sidebar's device section headers each wear their own color. A paired computer gets one by itself; the header's gear picks another color or none.
+
+### Fixed
+- The work board's close button is gone: once closed, nothing could open it again. It docks where there is room and shows as the status strip elsewhere.
+- Edit todos showed nothing while the work board showed the plan; the opened todo card now shows, ready to edit.
+- Reloading a tab of a paired computer no longer receives the whole command list and the transcript's tail every time, only what changed (when both computers run this version); an unchanged command list is not sent again.
+
 ## [0.59.1] - 2026-10-22
 
 화면 조작을 백그라운드로만 하도록 설정했을 때도, 화면 제어를 넘겨주지 못한 세션은 입력을 보내지 않아요.
