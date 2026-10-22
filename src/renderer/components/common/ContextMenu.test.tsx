@@ -193,6 +193,34 @@ describe("ContextMenu", () => {
 		expect(outcome.stopped).toBe(true);
 	});
 
+	it("puts focus where its opener sat when the chosen item removed the opener's row", async () => {
+		const list = document.createElement("ul");
+		for (const name of ["a", "b", "c"]) {
+			const item = document.createElement("li");
+			const button = document.createElement("button");
+			button.textContent = `row ${name}`;
+			item.append(button);
+			list.append(item);
+		}
+		document.body.appendChild(list);
+		let active: Element | null = list.querySelectorAll("button")[1] ?? null;
+		const opener = active as HTMLElement;
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => active });
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			active = this;
+		});
+
+		await mount(
+			<ContextMenu items={[{ id: "remove", label: "Remove", onSelect: () => {} }]} x={0} y={0} onClose={() => {}} />,
+		);
+		// "Remove from sidebar" takes the row before the menu unmounts.
+		opener.closest("li")?.remove();
+		await act(async () => root.render(<></>));
+		expect(active?.textContent).toBe("row c");
+		list.remove();
+		Reflect.deleteProperty(document, "activeElement");
+	});
+
 	it("stays open through clicks inside and closes on the next outside pointer press", async () => {
 		const onClose = vi.fn();
 		await mount(

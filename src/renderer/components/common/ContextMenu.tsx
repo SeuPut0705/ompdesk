@@ -34,6 +34,7 @@ import { cx } from "../../lib/format";
 import { isImeKeyEvent } from "../../lib/ime";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
+import { focusNear, placeOf } from "./focus-place";
 import { IconButton } from "./IconButton";
 import { Kbd } from "./Kbd";
 import { SheetHandle } from "./Sheet";
@@ -205,6 +206,7 @@ export function ContextMenu({
 		// item that moved focus on purpose (a picker or overlay it opened, which
 		// focused its own field as it mounted) keeps it.
 		const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		const restorePlace = restore ? placeOf(restore) : [];
 		const panel = menuRef.current;
 		const unregisterLayer = registerDialogLayer(panel);
 		const onDown = (event: PointerEvent) => {
@@ -237,7 +239,9 @@ export function ContextMenu({
 			unregisterLayer();
 			const focused = document.activeElement;
 			const dropped = !focused || focused === document.body || panel?.contains(focused) === true;
-			if (dropped && restore?.isConnected) restore.focus();
+			if (!dropped) return;
+			if (restore?.isConnected) restore.focus();
+			else focusNear(restorePlace, panel ?? null);
 		};
 	}, []);
 

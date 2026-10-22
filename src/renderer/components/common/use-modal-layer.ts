@@ -2,51 +2,10 @@ import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
 import { useBackLayer } from "../../hooks/use-back-layer";
 import { isImeKeyEvent } from "../../lib/ime";
 import { isTopmostDialog, registerDialogLayer } from "./dialog-layer";
-import { isTabbable } from "./popover-focus";
+import { focusNear, type Place, placeOf } from "./focus-place";
 
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/** Each ancestor of an element, nearest first, with the index of the child on the way to it. */
-type Place = Array<{ parent: Element; index: number }>;
-
-function placeOf(element: Element): Place {
-	const place: Place = [];
-	for (let node = element; node.parentElement; node = node.parentElement) {
-		place.push({
-			parent: node.parentElement,
-			index: Array.prototype.indexOf.call(node.parentElement.children, node),
-		});
-	}
-	return place;
-}
-
-/**
- * Focus the control nearest to where a removed opener sat: in its nearest ancestor still on the page, the first
- * focusable from the opener's old position on (what took its place), else the last one before it. Without this the
- * focus of a dialog whose action removed its opener fell to the page, and the next Tab started over from the top.
- */
-function focusNear(place: Place, panel: HTMLElement | null): void {
-	for (const { parent, index } of place) {
-		if (!parent.isConnected) continue;
-		const children = Array.from(parent.children);
-		for (const child of [...children.slice(index), ...children.slice(0, index).reverse()]) {
-			const candidates = [child, ...child.querySelectorAll(FOCUSABLE)].filter(
-				(element): element is HTMLElement =>
-					element instanceof HTMLElement &&
-					element.matches(FOCUSABLE) &&
-					isTabbable(element) &&
-					!panel?.contains(element),
-			);
-			if (children.indexOf(child) < index) candidates.reverse();
-			// A control the browser will not focus (hidden by CSS) leaves focus where it was: try the next one.
-			for (const target of candidates) {
-				target.focus();
-				if (document.activeElement === target) return;
-			}
-		}
-	}
-}
 
 /**
  * Modal-layer behavior shared by Modal (Dialog) and Sheet: while `open`, the
