@@ -1189,7 +1189,8 @@ describe("AiMemoryService", () => {
 			await vi.waitFor(() => expect(setups()).toBe(2));
 			// Many more down polls: the cooldown keeps the count at two.
 			const seen = health.healthCalls;
-			await vi.waitFor(() => expect(health.healthCalls).toBeGreaterThan(seen + 6));
+			// Real timers: a loaded Windows runner managed three 10 ms polls in waitFor's default second (ci run 39754506341).
+			await vi.waitFor(() => expect(health.healthCalls).toBeGreaterThan(seen + 6), { timeout: 10_000 });
 			expect(setups()).toBe(2);
 			clock.now += 11 * 60_000;
 			await vi.waitFor(() => expect(setups()).toBe(3));

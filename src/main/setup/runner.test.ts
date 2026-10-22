@@ -259,7 +259,10 @@ describe("supervisor", () => {
 		expect(output.join("")).toContain("hello");
 	});
 
-	it("kills the installer's whole tree when its stdin closes", async () => {
+	// The supervisor gives PowerShell's tree sweep up to 20 s before it falls back to taskkill (supervisor.ts
+	// `sweepTree`), and the first sweep of a run starts a cold PowerShell: on a loaded windows-latest runner that
+	// took the whole 20 s of vitest's default (ci run 39764722935, 20039 ms), which the supervisor survives by design.
+	it("kills the installer's whole tree when its stdin closes", { timeout: 45_000 }, async () => {
 		await cancelKillsGrandchild({ ...process.env });
 	});
 
