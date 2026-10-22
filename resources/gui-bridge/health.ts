@@ -45,6 +45,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-ai/auth/usage-report": () => import("@oh-my-pi/pi-ai/auth/usage-report"),
 	"@oh-my-pi/pi-ai/oauth": () => import("@oh-my-pi/pi-ai/oauth"),
 	"@oh-my-pi/pi-ai/usage/registry": () => import("@oh-my-pi/pi-ai/usage/registry"),
+	"@oh-my-pi/pi-catalog/compat/prompt-cache-persistent": () =>
+		import("@oh-my-pi/pi-catalog/compat/prompt-cache-persistent"),
 	"@oh-my-pi/pi-catalog/types": () => import("@oh-my-pi/pi-catalog/types"),
 	"@oh-my-pi/pi-coding-agent/autolearn/managed-skills": () =>
 		import("@oh-my-pi/pi-coding-agent/autolearn/managed-skills"),

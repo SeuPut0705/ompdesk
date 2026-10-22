@@ -46,7 +46,13 @@ const HOUR = 3_600_000;
 
 beforeEach(() => {
 	vi.useFakeTimers();
-	settings = { idleEnabled: true, idleThresholdTokens: 200_000, idleTimeoutSeconds: 300, cacheWarmingDelayMs };
+	settings = {
+		idleEnabled: true,
+		idleThresholdTokens: 200_000,
+		idleTimeoutSeconds: 300,
+		cacheWarmingDelayMs,
+		promptCachePersistent: () => false,
+	};
 });
 
 afterEach(() => {
@@ -82,6 +88,23 @@ describe("idle compaction timer", () => {
 		settings = { ...settings, idleThresholdTokens: 200_000, idleEnabled: false };
 		await timer.onEvent({ type: "agent_end" }, fakeSession());
 		expect(timer.armed).toBe(false);
+	});
+
+	it("never compacts a session whose model's prompt cache never expires (logged-in Codex, omp 18.12.6)", async () => {
+		// Stock's #promptCachePersistent: idle compaction would only throw a warm cache away. Checked again when the
+		// timer fires, since the session's model can change while it waits.
+		const timer = new IdleCompactionTimer(read);
+		let persistent = true;
+		settings = { ...settings, promptCachePersistent: () => persistent };
+		const session = fakeSession();
+		await timer.onEvent({ type: "agent_end" }, session);
+		expect(timer.armed).toBe(false);
+		persistent = false;
+		await timer.onEvent({ type: "agent_end" }, session);
+		expect(timer.armed).toBe(true);
+		persistent = true;
+		vi.advanceTimersByTime(300_000);
+		expect(session.runs).toBe(0);
 	});
 
 	it("clamps the delay to 60–3600 seconds", async () => {

@@ -1146,10 +1146,19 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	 * without it the timer keeps the configured delay, as stock's did.
 	 */
 	idleCompaction: {
-		session: ["subscribe()", "settings", "isStreaming", "isCompacting", "getContextUsage()", "runIdleCompaction()"],
+		session: [
+			"subscribe()",
+			"settings",
+			"model",
+			"isStreaming",
+			"isCompacting",
+			"getContextUsage()",
+			"runIdleCompaction()",
+		],
 		modules: {
 			[`${AGENT}/session/context-settings`]: ["cfgCompaction.get()"],
 			[`${AGENT}/session/cache-warmer`]: ["getCacheWarmingDelayMs()"],
+			"@oh-my-pi/pi-catalog/compat/prompt-cache-persistent": ["isPromptCachePersistent()"],
 		},
 	},
 	/**

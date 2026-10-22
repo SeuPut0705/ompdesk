@@ -19,6 +19,12 @@ export interface IdleSettings {
 	idleTimeoutSeconds: number;
 	/** Stock `session/cache-warmer` `getCacheWarmingDelayMs`: when stock would refresh an entry of this lifetime. */
 	cacheWarmingDelayMs(ttlMs: number): number | undefined;
+	/**
+	 * Stock's `#promptCachePersistent` (pi-catalog `isPromptCachePersistent` of the session's model, omp 18.12.6): a
+	 * cache that never expires (logged-in Codex) stays warm across any idle gap, so idle compaction would only throw
+	 * it away. Asked at the arm and again when the timer fires.
+	 */
+	promptCachePersistent(): boolean;
 }
 
 /** Stock `PromptCacheEntry` (`session/cache-warmer`): the cache entry the latest main-loop request wrote. */
@@ -50,7 +56,7 @@ export const IDLE_COMPACTION_CACHE_LEAD_MS = 5_000;
 
 export class IdleCompactionTimer<S extends IdleSession = IdleSession> extends IdleWindowTimer<S, IdleSettings> {
 	protected delayMs(settings: IdleSettings, session: S): number | undefined {
-		if (!settings.idleEnabled) return undefined;
+		if (!settings.idleEnabled || settings.promptCachePersistent()) return undefined;
 		const threshold = settings.idleThresholdTokens;
 		if (threshold <= 0 || (session.getContextUsage()?.tokens ?? 0) < threshold) return undefined;
 		// A turn may have started while the settings loaded.
@@ -69,6 +75,7 @@ export class IdleCompactionTimer<S extends IdleSession = IdleSession> extends Id
 	protected fire(session: S, settings: IdleSettings): void {
 		// Re-check like stock: pruning may have dropped usage below the threshold meanwhile.
 		if (session.isStreaming || session.isCompacting || !this.draftEmpty) return;
+		if (settings.promptCachePersistent()) return;
 		if ((session.getContextUsage()?.tokens ?? 0) < settings.idleThresholdTokens) return;
 		void session.runIdleCompaction().catch(() => {
 			// Stock reports its own failure through its compaction events.

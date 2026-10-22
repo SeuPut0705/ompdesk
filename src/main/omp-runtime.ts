@@ -19,17 +19,18 @@ import { isExecutableFile, launcherNames, needsShell, spawnArgs, spawnCommand } 
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
- * against. 18.12.3 is the first omp with the `always-ask-cached` ("Ask and
- * remember") tool approval mode the composer offers, and its remembering approval
- * answers (`src/shared/tool-approval.ts`).
- * Earlier floors: 18.12.2's `@oh-my-pi/pi-ai` `nativeJudgmentImageBounds` (the
+ * against. 18.12.6 is the first omp with pi-catalog's `isPromptCachePersistent`, which
+ * idle compaction asks so it never throws away a logged-in Codex session's warm cache
+ * (stock's own rule since that release, `idle-compaction-core.ts`).
+ * Earlier floors: 18.12.3's `always-ask-cached` ("Ask and remember") tool approval mode
+ * the composer offers (`src/shared/tool-approval.ts`); 18.12.2's `@oh-my-pi/pi-ai` `nativeJudgmentImageBounds` (the
  * judge-model preview check, `capabilities.ts` `judgeAssist`); the stock internals
  * the bridge reuses instead of keeping OMPdesk copies (session listing and
  * transcript, worktree root, provider catalog, account matching…),
  * `worktree.onStart`/`onExit` (18.8.6), per-model compaction limits and account
  * identity keys (18.8.7), stock's project-scoped memory backend call (18.11.0).
  */
-export const MIN_OMP_VERSION = "18.12.3";
+export const MIN_OMP_VERSION = "18.12.6";
 
 const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;

@@ -71,7 +71,7 @@
 
 macOS 첫 실행: 빌드는 서명했지만 공증은 받지 않아서, 앱을 우클릭하고 **열기**를 한 번 선택하세요. Windows SmartScreen: **추가 정보 → 실행**을 누르세요.
 
-Apple Silicon Mac 또는 Windows 10/11 x64가 필요해요. omp 18.12.3 이상이 필요하고, 알아서 설치돼요.
+Apple Silicon Mac 또는 Windows 10/11 x64가 필요해요. omp 18.12.6 이상이 필요하고, 알아서 설치돼요.
 
 ## 업데이트
 
@@ -103,7 +103,7 @@ OMPdesk, omp, 연결한 계정의 도구 CLI, omp의 플러그인·스킬·MCP �
 
 ## 소스에서 실행하기
 
-Bun, Git, omp 18.12.3 이상이 필요해요.
+Bun, Git, omp 18.12.6 이상이 필요해요.
 
 ```bash
 git clone https://github.com/SeuPut0705/ompdesk.git
