@@ -17,6 +17,7 @@ import type {
 } from "../../../shared/rpc-types";
 import { cx, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { revealAndFocus } from "../../lib/reveal-focus";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { Badge, Banner, Button, DisclosureButton, ErrorDetail, Sheet, Spinner } from "../common";
 
@@ -264,7 +265,19 @@ function InspectorBody({ data }: { data: RpcContextInspectResult }) {
 					</ul>
 				)}
 				{shown.length < entries.length && (
-					<Button className="self-center" onClick={() => setShowAll(true)} size="sm" variant="ghost">
+					<Button
+						className="self-center"
+						onClick={event => {
+							const list = event.currentTarget.parentElement?.querySelector("ul");
+							revealAndFocus(
+								event.currentTarget,
+								() => setShowAll(true),
+								() => list?.children[LIST_LIMIT],
+							);
+						}}
+						size="sm"
+						variant="ghost"
+					>
 						{t("contextInspector.showAll", { count: entries.length })}
 					</Button>
 				)}

@@ -11,6 +11,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { getLoadedHljs, type HighlightToken, loadHljs, splitHighlightedLines } from "../../../lib/highlight";
 import { useT } from "../../../lib/i18n";
+import { revealAndFocus } from "../../../lib/reveal-focus";
 import { Button, IconButton } from "../../common";
 
 /** Above this many characters the view shows plain text (grammar scan cost). */
@@ -147,7 +148,18 @@ export function CodeView({
 			</pre>
 			{visible < lineCount && (
 				<div className="px-3 pb-3">
-					<Button onClick={() => setShowAll(true)} size="sm" variant="ghost">
+					<Button
+						onClick={event => {
+							const pre = event.currentTarget.parentElement?.previousElementSibling;
+							revealAndFocus(
+								event.currentTarget,
+								() => setShowAll(true),
+								() => pre?.children[visible],
+							);
+						}}
+						size="sm"
+						variant="ghost"
+					>
 						{t("fileViewer.showAllLines", { count: lineCount })}
 					</Button>
 				</div>
