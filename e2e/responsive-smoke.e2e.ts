@@ -200,10 +200,9 @@ for (const look of AUTOPILOT_LOOKS) {
 			await show(page, look, id);
 			if (id === "autopilot-board") {
 				const board = page.locator("[data-work-board-panel]").first();
-				expect(
-					await board.locator("[data-autopilot-followup-dismiss]").count(),
-					"a follow-up's ✕",
-				).toBeGreaterThan(0);
+				expect(await board.locator("[data-autopilot-followup-dismiss]").count(), "a follow-up's ✕").toBeGreaterThan(
+					0,
+				);
 				expect(await page.locator(".omp-work-board-slot [data-work-board-panel]").count(), "docked").toBe(
 					look.form === "docked" ? 1 : 0,
 				);
