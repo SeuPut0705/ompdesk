@@ -71,8 +71,10 @@ jobs:
           FILES=$(bun scripts/e2e-shard.ts "$SHARD/$SHARDS")
           read -r -a SPECS <<< "$FILES"
           test "${#SPECS[@]}" -gt 0
-          bunx playwright test "${SPECS[@]}"
-      - if: failure()
+          # Playwright stops itself 5 minutes before the job's limit, so a shard that runs long still prints every
+          # failure and leaves its traces (nightly 39749113072: shard 2 hit 30 minutes and its one failure left nothing).
+          bunx playwright test --global-timeout=1500000 "${SPECS[@]}"
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-macos-shard-${{ matrix.shard }}
