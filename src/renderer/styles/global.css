@@ -246,6 +246,14 @@ html[data-mica="true"] .omp-session-sidebar {
 	-webkit-app-region: no-drag;
 }
 
+/* A layer drawn over the window (dialogs, sheets, popovers, menus) takes its own clicks. Chromium sums up the window's
+   drag area from every element that declares one, whatever lies on top of it: a dialog over the 48px top bars, such as
+   the picture viewer's bar or a tall model picker, had its clicks there taken as a window drag, so its close button
+   never answered. Each layer cuts its whole box out of the drag area while it is shown. */
+:is(.omp-dialog-overlay, .omp-action-sheet-overlay, [data-sheet-placement], .omp-pop-in) {
+	-webkit-app-region: no-drag;
+}
+
 /* Frameless chrome (src/main/window-chrome.ts): the OS draws its window
    controls over the 48px top bars, so the bar that sits under them makes
    room. macOS traffic lights sit top-left (over the sidebar header, or over

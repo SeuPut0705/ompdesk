@@ -557,5 +557,14 @@ test("responsive smoke 1280 desktop: the model picker sits on the composer and d
 	}));
 	expect(overlay.background).toBe("rgba(0, 0, 0, 0)");
 	expect(overlay.blur).toBe("none");
+	// Chromium makes the window's drag area from every element that declares one, whatever lies over it: the dialog
+	// cuts itself out of the top bars' drag area, or a click on it up there would move the window instead.
+	const region = (selector: string) =>
+		page
+			.locator(selector)
+			.first()
+			.evaluate(node => getComputedStyle(node).getPropertyValue("-webkit-app-region"));
+	expect(await region(".omp-topbar")).toBe("drag");
+	expect(await region(".omp-dialog-overlay")).toBe("no-drag");
 	await page.context().close();
 });
