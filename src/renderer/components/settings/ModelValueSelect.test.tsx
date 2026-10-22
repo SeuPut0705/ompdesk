@@ -220,4 +220,58 @@ describe("ModelValueSelect", () => {
 		expect(strict.offered).toBe(false);
 		expect((await typeInto(true)).offered).toBe(true);
 	});
+
+	it("lets the arrow keys reach every row of the list and commits from the search field on Enter", async () => {
+		const shells = [{ label: "", options: [{ value: "/bin/zsh" }, { value: "/bin/bash" }] }];
+		const onCommit = vi.fn();
+		await openDropdown(
+			undefined,
+			<ModelValueSelect allowCustom groups={shells} onCommit={onCommit} value="/bin/bash" />,
+		);
+		const input = document.body.querySelector("input") as unknown as Record<string, unknown>;
+		const props = () => {
+			const key = Object.getOwnPropertyNames(input).find(name => name.startsWith("__reactProps$"));
+			return (key ? input[key] : {}) as {
+				onChange?: (event: unknown) => void;
+				onKeyDown?: (event: unknown) => void;
+			};
+		};
+		const type = async (value: string) => act(async () => props().onChange?.({ target: { value } }));
+		const enter = async () =>
+			act(async () =>
+				props().onKeyDown?.({ key: "Enter", nativeEvent: { isComposing: false }, preventDefault() {} }),
+			);
+
+		await type("/usr/bin/fish");
+		// "Use …" and "Clear" are rows of the list: the arrows walk only options, and a listbox holds nothing else.
+		expect(document.body.querySelectorAll("[role='listbox'] button:not([role='option'])").length).toBe(0);
+		expect(optionRows().some(row => (row.textContent ?? "").includes('Use "/usr/bin/fish"'))).toBe(true);
+
+		await enter();
+		expect(onCommit).toHaveBeenLastCalledWith("/usr/bin/fish");
+	});
+
+	it("commits the first match on Enter, and nothing for an empty search", async () => {
+		const shells = [{ label: "", options: [{ value: "/bin/zsh" }, { value: "/bin/bash" }] }];
+		const onCommit = vi.fn();
+		await openDropdown(undefined, <ModelValueSelect groups={shells} onCommit={onCommit} value="/bin/zsh" />);
+		const input = document.body.querySelector("input") as unknown as Record<string, unknown>;
+		const props = () => {
+			const key = Object.getOwnPropertyNames(input).find(name => name.startsWith("__reactProps$"));
+			return (key ? input[key] : {}) as {
+				onChange?: (event: unknown) => void;
+				onKeyDown?: (event: unknown) => void;
+			};
+		};
+		const enter = async () =>
+			act(async () =>
+				props().onKeyDown?.({ key: "Enter", nativeEvent: { isComposing: false }, preventDefault() {} }),
+			);
+
+		await enter();
+		expect(onCommit).not.toHaveBeenCalled();
+		await act(async () => props().onChange?.({ target: { value: "bash" } }));
+		await enter();
+		expect(onCommit).toHaveBeenCalledWith("/bin/bash");
+	});
 });

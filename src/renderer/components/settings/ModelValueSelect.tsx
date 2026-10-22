@@ -355,6 +355,16 @@ export function ModelValueSelect({
 		}
 	};
 
+	// Enter in the search field picks the first match (or the typed text when nothing matches); an empty search picks
+	// nothing, so an Enter on open never changes the value.
+	const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+		if (event.key !== "Enter" || isImeKeyEvent(event) || trimmedQuery === "" || !ready) return;
+		event.preventDefault();
+		const first = filteredGroups.flatMap(group => group.options).find(option => option.disabled !== true);
+		if (first) choose(first.value);
+		else if (queryIsCustom) choose(trimmedQuery);
+	};
+
 	const renderOption = (option: ModelValueOption) => {
 		const selected = option.value === value;
 		// `disabled` is a recognition label, not a lock: choosing a disabled
@@ -426,12 +436,13 @@ export function ModelValueSelect({
 							aria-label={t("modelValue.searchAria", { noun })}
 							className="min-w-0 flex-1 bg-transparent text-sc-md text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle)"
 							onChange={event => setQuery(event.target.value)}
+							onKeyDown={onSearchKeyDown}
 							placeholder={t("modelValue.searchPlaceholder", { noun })}
 							ref={searchRef}
 							value={query}
 						/>
 					</div>
-					<div className="min-h-0 flex-1 overflow-y-auto p-1" ref={listRef} role="listbox">
+					<div className="min-h-0 flex-1 overflow-y-auto p-1" ref={listRef} role={ready ? "listbox" : undefined}>
 						{!ready && fetchState === "error" ? (
 							<div className="flex flex-col items-center gap-2 py-6">
 								<span className="px-3 text-center text-sc-sm text-(--sc-danger)">
@@ -467,7 +478,14 @@ export function ModelValueSelect({
 									</div>
 								)}
 								{queryIsCustom && (
-									<button className={ROW_CLASS} onClick={() => choose(trimmedQuery)} type="button">
+									<button
+										aria-selected={false}
+										className={ROW_CLASS}
+										onClick={() => choose(trimmedQuery)}
+										role="option"
+										tabIndex={-1}
+										type="button"
+									>
 										<span className="min-w-0 flex-1 truncate">
 											{t("modelValue.useCustom", { query: trimmedQuery })}
 										</span>
@@ -475,8 +493,11 @@ export function ModelValueSelect({
 								)}
 								{value !== "" && (
 									<button
+										aria-selected={false}
 										className={cx(ROW_CLASS, "mt-0.5 rounded-t-none border-t border-(--sc-divider)")}
 										onClick={() => choose("")}
+										role="option"
+										tabIndex={-1}
 										type="button"
 									>
 										<span className="min-w-0 flex-1 text-(--sc-text-muted)">
