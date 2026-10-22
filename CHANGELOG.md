@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.1] - 2026-10-22
+
+연결한 컴퓨터에 다시 연결해도 열린 탭이 '기기가 오프라인'으로 멈추지 않아요.
+
+### 고친 것
+- 이미 연결된 컴퓨터에 **연결**을 다시 누르면, 그 컴퓨터의 열린 탭이 옛 연결에 남아 컴퓨터가 연결돼 있는데도 "이 세션을 실행하는 기기가 오프라인이에요"로 멈췄어요. 이제 탭이 새 연결로 옮겨 가고, 옮기는 순간에도 오류로 깜빡이지 않아요.
+- 360px 폰에서 GitHub 이슈 도구 줄이 두 줄로 접히면 '새 이슈' 버튼이 위 줄 검색칸의 아래쪽 탭을 가져갔어요.
+- 태블릿에서 오프라인인 컴퓨터 머리줄의 '오프라인' 배지가 읽기 어려울 만큼 작았어요.
+
+<!-- en -->
+
+Connecting again to a paired computer no longer leaves its open tabs stuck reading "offline".
+
+### Fixed
+- Pressing **Connect** again for a computer that was already connected left its open tabs on the old connection, reading "The device running this session is offline" while the computer was connected. The tabs now move to the new connection, without flashing an error as they do.
+- On a 360 px phone, when the GitHub Issues toolbar wrapped to two lines, New issue took taps meant for the bottom edge of the search field above it.
+- On a tablet, the Offline badge on a disconnected computer's header was too small to read.
+
 ## [0.61.0] - 2026-10-22
 
 연결한 컴퓨터에서 도는 탭의 기기 칩이 사이드바와 같은 기기 색을 써요. 휴대폰 입력창의 보내기 버튼을 누르기가 더 정확해졌어요.
