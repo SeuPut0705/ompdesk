@@ -131,6 +131,7 @@ export function TerminalViewport({
 	fontSize,
 	onLease,
 	claimTick = 0,
+	takeFocus = true,
 }: {
 	tabId: string;
 	id: string;
@@ -144,6 +145,8 @@ export function TerminalViewport({
 	transform?: (data: string) => string;
 	/** The terminal's font size in px; changing it refits the screen. */
 	fontSize?: number;
+	/** Focus the shell once it is up; false when the arrow keys switched sessions and focus stays on the tabs. */
+	takeFocus?: boolean;
 	/** Who sizes the PTY changed (`other`: another viewer does, this one draws the PTY at its size). */
 	onLease?: (lease: TerminalLeaseState | undefined) => void;
 	/** Bumped after this viewer took the PTY's size (`claim`): it fits and resizes again. */
@@ -156,8 +159,8 @@ export function TerminalViewport({
 	/** This viewer sizes the PTY (the screen fits its box); otherwise it draws another viewer's size and scrolls. */
 	const [sized, setSized] = useState(true);
 	const fontChanged = useRef<(() => void) | null>(null);
-	const latest = useRef({ transform, fontSize, onLease });
-	latest.current = { transform, fontSize, onLease };
+	const latest = useRef({ transform, fontSize, onLease, takeFocus });
+	latest.current = { transform, fontSize, onLease, takeFocus };
 	useEffect(() => {
 		if (!element.current) return;
 		const target = element.current;
@@ -269,7 +272,7 @@ export function TerminalViewport({
 			theme.observe(document.documentElement, { attributes: true });
 			applyFontSize();
 			resize();
-			view.terminal.focus();
+			if (latest.current.takeFocus) view.terminal.focus();
 			// A new font size arrives through `latest`; the effect below calls this.
 			fontChanged.current = applyFontSize;
 			if (chromePlatform() === "web") {
@@ -342,6 +345,8 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 	const [attempt, setAttempt] = useState(0);
 	const handle = useRef<TerminalMount | null>(null);
 	const tabsRef = useRef<HTMLDivElement>(null);
+	/** The arrow keys switched sessions: the new shell leaves focus on the tab, so the next arrow moves on. */
+	const keyboardSwitch = useRef(false);
 	const [shells, setShells] = useState<TerminalShell[]>([]);
 	const expanded = useUiStore(s => s.terminalExpanded);
 	const compact = useCompactShell();
@@ -464,7 +469,9 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 			rows: 24,
 			...(typeof preferred === "string" && preferred ? { shell: preferred } : {}),
 		});
-		if (result) setSelected(result.at(-1)?.id ?? null);
+		if (!result) return;
+		keyboardSwitch.current = false;
+		setSelected(result.at(-1)?.id ?? null);
 	};
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a session just chosen starts with nobody known to hold its size.
 	useEffect(() => setLease(undefined), [selected]);
@@ -518,6 +525,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 						event.preventDefault();
 						const id = sessions[next]?.id;
 						if (!id) return;
+						keyboardSwitch.current = true;
 						setSelected(id);
 						tabsRef.current?.querySelectorAll<HTMLElement>("[role=tab]")[next]?.focus();
 					}}
@@ -531,7 +539,10 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 								tabIndex={session.id === (selected ?? sessions[0]?.id) ? 0 : -1}
 								title={t("panel.terminal.session", { number: index + 1 })}
 								className="min-h-(--sc-control-sm) max-w-40 truncate rounded-(--sc-radius-sm) px-2 py-1 text-sc-xs text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed) aria-selected:bg-(--sc-selected) aria-selected:text-(--sc-text) motion-reduce:transition-none"
-								onClick={() => setSelected(session.id)}
+								onClick={() => {
+									keyboardSwitch.current = false;
+									setSelected(session.id);
+								}}
 							>
 								{t("panel.terminal.session", { number: index + 1 })}
 							</button>
@@ -666,6 +677,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					onStatus={onStatus}
 					predict={remote}
 					tabId={tabId}
+					takeFocus={!keyboardSwitch.current}
 					transform={transform}
 				/>
 			) : (

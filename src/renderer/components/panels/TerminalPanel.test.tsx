@@ -135,6 +135,7 @@ const { terminals } = vi.hoisted(() => ({
 		rows: number;
 		resize: (cols: number, rows: number) => void;
 		data: (value: string) => void;
+		focus: ReturnType<typeof vi.fn>;
 	}>,
 }));
 vi.mock("@xterm/xterm", () => ({
@@ -160,7 +161,7 @@ vi.mock("@xterm/xterm", () => ({
 			this.data = callback;
 			return { dispose() {} };
 		}
-		focus() {}
+		focus = vi.fn();
 		clear() {}
 		getSelection() {
 			return "";
@@ -267,6 +268,11 @@ describe("TerminalPanel on a phone", () => {
 		expect(stops()).toEqual(["-1", "-1", "0"]);
 		await key(tabs()[2] as HTMLElement, "ArrowRight");
 		expect(stops()).toEqual(["0", "-1", "-1"]);
+		// Each switch mounted a new shell; none took focus from the tab the arrows are on.
+		await settle();
+		expect(terminals.length).toBeGreaterThan(1);
+		expect(terminals.slice(1).every(terminal => terminal.focus.mock.calls.length === 0)).toBe(true);
+		expect(terminals[0]?.focus).toHaveBeenCalled();
 	});
 
 	it("reads with a long poll that carries the offset, one request at a time", async () => {
