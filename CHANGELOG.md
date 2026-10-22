@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.53.0] - 2026-10-22
+
+오토파일럿 보드에서 남은 후속 작업을 바로 고정하거나 치울 수 있고, 연결된 컴퓨터마다 실행 중인 OMPdesk 버전이 보이며, 휴대폰과 태블릿의 작은 버튼이 더 누르기 쉬워졌어요.
+
+### 새로 생긴 것
+- 오토파일럿 보드에 최근 사이클이 남기고 아직 아무도 하지 않은 후속 작업이 "남은 후속 작업"으로 한 줄씩 보여요. 핀을 누르면 백로그에 올라 다음 사이클이 먼저 하고, ✕로 치울 수 있어요.
+- 설정 › 기기 및 연결에서 연결된 컴퓨터마다 실행 중인 OMPdesk 버전과, 이 컴퓨터보다 오래됐는지 새로운지가 보여요.
+- 진단 정보 복사에 지금 연결된 컴퓨터들의 OMPdesk 버전이 들어가요(이름은 넣지 않아요).
+
+### 고친 것
+- 오토파일럿이 커밋과 같은 메시지에서 사이클을 끝내도 그 커밋을 놓치지 않아요. 지금까지는 초록 사이클이 커밋 없이 기록돼 main에 반영되지 않을 수 있었어요.
+- 설정의 "몇 분 전" 표시(연결이 끊긴 기기의 마지막 연결, 디스크 정리, 보안 스캔)가 페이지를 열어 둔 동안에도 움직이고, 언어를 바꾸면 바로 그 언어로 바뀌어요.
+- 연결 중인 기기 줄에 "마지막 연결 3시간 전"처럼 연결된 시각이 잘못 나오지 않아요.
+- 숫자와 날짜가 운영체제 언어가 아니라 앱의 언어를 따라요.
+- 질문이 여러 개인 카드의 단계 칩에 마우스를 올리면 잘린 제목과 그 단계의 질문이 보여요.
+- 휴대폰과 태블릿에서 작업 카드, 오토파일럿 보드, 목표 막대, 변경 사항 보기, 터미널 키 막대, 설정의 버튼 묶음, 일정의 요일, 그림 머리, 메시지 동작, 의견 보내기와 워크트리 대화상자의 작은 버튼이 36px 크기로 눌리고, 서로의 탭을 가로채지 않아요. 컴퓨터 화면은 그대로예요.
+- 연결이 끊겨 취소가 omp에 닿지 못한 로그인은 그렇다고 알려 줘요.
+- 오토파일럿 상태와 서브에이전트 이벤트, 턴 끝 알림이 창과 연결된 기기로 더 작게 가요.
+- 휴대폰 첫 화면이 더 가벼워졌어요(디버그 콘솔과 가져오기 대화상자는 처음 열 때 불러와요).
+
+<!-- en -->
+
+The Autopilot board lets you pin or dismiss what the recent cycles left for later, each connected computer shows the OMPdesk version it runs, and small buttons on a phone or tablet are easier to tap.
+
+### Added
+- The Autopilot board lists what recent cycles left for later and no later cycle did ("Left for later"), one line each. A pin puts one on the backlog so the next cycle does it first; ✕ dismisses it.
+- Settings › Devices & connections names the OMPdesk version each connected computer runs, and whether it is older or newer than this one.
+- Copy diagnostics includes the OMPdesk versions of the computers connected now (never their names).
+
+### Fixed
+- An Autopilot cycle that ends in the same message as its commit keeps that commit; a green cycle could be recorded without one and never land on main.
+- Settings' "ago" times (an away device's last connection, disk care, security scans) move on while the page stays open, and follow a language switch at once.
+- A connected device's line no longer reads "last seen" hours ago.
+- Numbers and dates follow the app's language, not the OS locale.
+- Hovering a step chip of a several-question card shows its full label and the question that step asks.
+- On a phone or tablet, the small buttons of work cards, the Autopilot board, the goal bar, the Changes view, the terminal's key bar, Settings' button clusters, a schedule's days, figure headers, message actions and the feedback and worktree dialogs are 36 px targets that no longer take each other's taps. The desktop layout is unchanged.
+- A sign-in whose Cancel could not reach omp over a dropped link says so.
+- Autopilot status, subagent events and turn ends reach windows and paired devices smaller.
+- The phone's first screen is lighter: the debug console and the import dialog load when first opened.
+
 ## [0.52.7] - 2026-10-21
 
 연결이 잠깐 끊겨 링크나 업데이트 버튼이 실패하면 이제 알려 주고, 휴대폰과 태블릿의 작은 버튼이 더 누르기 쉬워요.
