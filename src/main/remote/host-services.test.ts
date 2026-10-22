@@ -61,7 +61,7 @@ import {
 import type { HostConnection } from "./host-server";
 import { type HostServicesDeps, LIVE_SESSIONS_DEBOUNCE_MS, LocalHostServices } from "./host-services";
 import type { HostedTabView } from "./hosted-view";
-import { createLinkEventDecoder, createStatusReadDecoder, type WireSubagentFrame } from "./link-events";
+import { createLinkEventDecoder, createReadDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { FrameTooLargeError } from "./wire";
@@ -3301,7 +3301,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 		const size = (answer: RpcResponse | undefined) => JSON.stringify(answer).length;
 		expect(size(answers[1])).toBeGreaterThan(size(answers[0]) - 100);
 		expect(size(answers[2]) * 10).toBeLessThan(size(answers[0]));
-		const decode = createStatusReadDecoder();
+		const decode = createReadDecoder();
 		expect(answers.map(answer => decode(answer.success ? answer.data : null))).toEqual([
 			status(30),
 			status(31),
@@ -3382,8 +3382,8 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 		answers.push(await ask({ type: "get_available_commands" }), await ask(tail));
 		expect(size(answers[2] as RpcResponse) * 10).toBeLessThan(size(answers[0] as RpcResponse));
 		expect(size(answers[3] as RpcResponse) * 10).toBeLessThan(size(answers[1] as RpcResponse));
-		const lists = createStatusReadDecoder();
-		const pages = createStatusReadDecoder();
+		const lists = createReadDecoder();
+		const pages = createReadDecoder();
 		expect([lists(data(answers[0] as RpcResponse)), lists(data(answers[2] as RpcResponse))]).toEqual([
 			commands(40),
 			commands(41),

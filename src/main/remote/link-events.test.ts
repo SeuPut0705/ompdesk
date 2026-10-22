@@ -8,8 +8,8 @@ import {
 	createLinkEventDecoder,
 	createLinkEventEncoder,
 	createLinkEventSender,
-	createStatusReadDecoder,
-	createStatusReadEncoder,
+	createReadDecoder,
+	createReadEncoder,
 	type LinkEventDecoder,
 	type WireSubagentFrame,
 } from "./link-events";
@@ -587,17 +587,17 @@ describe("an Autopilot status a device reads", () => {
 	const second = status(91, { reason: "user" });
 
 	it("crosses whole once, then as a delta the device rebuilds into the status the host read", () => {
-		const encode = createStatusReadEncoder();
-		const decode = createStatusReadDecoder();
+		const encode = createReadEncoder();
+		const decode = createReadDecoder();
 		const wire = [overTheWire(encode(first, false)), overTheWire(encode(second, false))];
 		expect(JSON.stringify(wire[1]).length * 20).toBeLessThan(JSON.stringify(wire[0]).length);
 		expect(wire.map(decode)).toEqual([first, second]);
 	});
 
 	it("answers null for a delta of a copy it lacks, and takes the fresh answer the device asks for then", () => {
-		const encode = createStatusReadEncoder();
+		const encode = createReadEncoder();
 		encode(first, false);
-		const decode = createStatusReadDecoder();
+		const decode = createReadDecoder();
 		expect(decode(overTheWire(encode(second, false)))).toBeNull();
 		expect(decode(overTheWire(encode(second, true)))).toEqual(second);
 	});
@@ -613,15 +613,15 @@ describe("an Autopilot status a device reads", () => {
 		});
 		const before = page(100, 300);
 		const after = page(102, 303);
-		const shifting = createStatusReadEncoder(true);
-		const plain = createStatusReadEncoder();
+		const shifting = createReadEncoder(true);
+		const plain = createReadEncoder();
 		shifting(before, false);
 		plain(before, false);
 		const shifted = overTheWire(shifting(after, false));
 		const indexed = overTheWire(plain(after, false));
 		expect(JSON.stringify(shifted).length * 20).toBeLessThan(JSON.stringify(indexed).length);
-		const device = createStatusReadDecoder();
-		const shiftingHost = createStatusReadEncoder(true);
+		const device = createReadDecoder();
+		const shiftingHost = createReadEncoder(true);
 		expect(device(overTheWire(shiftingHost(before, false)))).toEqual(before);
 		expect(device(overTheWire(shiftingHost(after, false)))).toEqual(after);
 		// Rewound (a page read after a branch switch) or reordered: no offset fits better, items go by index.
@@ -630,20 +630,20 @@ describe("an Autopilot status a device reads", () => {
 	});
 
 	it("never rebuilds from a copy an earlier connection's encoder sent", () => {
-		const decode = createStatusReadDecoder();
-		const before = createStatusReadEncoder();
+		const decode = createReadDecoder();
+		const before = createReadEncoder();
 		// The same length as `first`, so a delta of `first` would apply to it cleanly and rebuild the wrong status.
 		const stale = status(90, { state: "paused" });
 		expect(decode(overTheWire(before(stale, false)))).toEqual(stale);
 		// The link came back: a new encoder, whose first answer this side never read.
-		const replacement = createStatusReadEncoder();
+		const replacement = createReadEncoder();
 		replacement(first, false);
 		expect(decode(overTheWire(replacement(second, false)))).toBeNull();
 	});
 
 	it("passes an older host's plain status through", () => {
-		expect(createStatusReadDecoder()(first)).toBe(first);
-		expect(createStatusReadDecoder()({ active: false })).toEqual({ active: false });
+		expect(createReadDecoder()(first)).toBe(first);
+		expect(createReadDecoder()({ active: false })).toEqual({ active: false });
 	});
 });
 

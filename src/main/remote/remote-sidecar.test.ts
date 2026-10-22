@@ -4,7 +4,7 @@ import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { RpcResponse, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { TabEventMessage, TabStatusArg } from "./app-protocol";
-import { createStatusReadEncoder } from "./link-events";
+import { createReadEncoder } from "./link-events";
 import { PendingTabCloses, type RemoteLink, RemoteSidecar } from "./remote-sidecar";
 
 interface SentRequest {
@@ -219,7 +219,7 @@ describe("RemoteSidecar", () => {
 		sidecar.start();
 		await settle();
 		sidecar.handleEvent(hostStatus("ready"));
-		const host = createStatusReadEncoder();
+		const host = createReadEncoder();
 		const status = (cycles: number) => ({ active: true, cycles: Array.from({ length: cycles }, (_, n) => ({ n })) });
 		let cycles = 3;
 		// The host's encoder answered once for a connection this sidecar never read: its next answer is a delta of a
@@ -245,7 +245,7 @@ describe("RemoteSidecar", () => {
 		sidecar.start();
 		await settle();
 		sidecar.handleEvent(hostStatus("ready"));
-		const hosts = new Map<string, ReturnType<typeof createStatusReadEncoder>>();
+		const hosts = new Map<string, ReturnType<typeof createReadEncoder>>();
 		const commands = (n: number) => ({ commands: Array.from({ length: n }, (_, i) => ({ name: `skill:${i}` })) });
 		const page = (n: number) => ({
 			messages: Array.from({ length: n }, (_, i) => ({ role: "user", i })),
@@ -257,7 +257,7 @@ describe("RemoteSidecar", () => {
 			const key = command.type;
 			let encode = hosts.get(key);
 			if (!encode) {
-				encode = createStatusReadEncoder();
+				encode = createReadEncoder();
 				hosts.set(key, encode);
 			}
 			const data = key === "get_available_commands" ? commands(n) : page(n);

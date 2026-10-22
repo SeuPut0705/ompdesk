@@ -47,7 +47,7 @@ import {
 	TabSignInArg,
 	TabStatusArg,
 } from "./app-protocol";
-import { createLinkEventDecoder, createStatusReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
+import { createLinkEventDecoder, createReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
 
 /** The slice of RemoteClient a tab needs. */
 export interface RemoteLink {
@@ -626,7 +626,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			// asked again whole.
 			let decode = this.#reads.get(read.key);
 			if (!decode) {
-				decode = createStatusReadDecoder();
+				decode = createReadDecoder();
 				this.#reads.set(read.key, decode);
 			}
 			const data = decode(response.data);

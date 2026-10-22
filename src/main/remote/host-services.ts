@@ -151,7 +151,7 @@ import {
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
 import { HostedTabView, labelForHost } from "./hosted-view";
-import { createLinkEventSender, createStatusReadEncoder, encodedReadKey, type LinkEventSender } from "./link-events";
+import { createLinkEventSender, createReadEncoder, encodedReadKey, type LinkEventSender } from "./link-events";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { commandUsesModel } from "./quota-commands";
@@ -1781,7 +1781,7 @@ export class LocalHostServices implements HostServices {
 		if (tab.reads?.conn !== conn) tab.reads = { conn, encoders: new Map() };
 		let encode = tab.reads.encoders.get(read.key);
 		if (!encode) {
-			encode = createStatusReadEncoder(conn.slim.shiftedReads);
+			encode = createReadEncoder(conn.slim.shiftedReads);
 			tab.reads.encoders.set(read.key, encode);
 		}
 		return { ...response, data: encode(response.data, fresh === true) };

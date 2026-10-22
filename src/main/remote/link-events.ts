@@ -239,10 +239,10 @@ function patchItems(base: unknown, delta: ItemsDelta): unknown[] | typeof UNREBU
 }
 
 /**
- * An Autopilot status after the last one sent: whole the first time, then the top-level fields that changed, a list
- * among them as {@link diffItems}. Only the newest cycle, the run's state and its ship state move between two.
+ * A record (an Autopilot status, a read's answer) after the last one sent: the top-level fields that changed, a list
+ * among them as {@link diffItems}. The delta's id stays "autopilot" on the wire, as the first devices read it.
  */
-function statusDelta(base: object, status: object, shifts = false): FieldDelta {
+function recordDelta(base: object, status: object, shifts = false): FieldDelta {
 	const delta = diff(STATUS, base, status);
 	for (const [key, value] of Object.entries(delta.set ?? {})) {
 		const before: unknown = Reflect.get(base, key);
@@ -251,8 +251,8 @@ function statusDelta(base: object, status: object, shifts = false): FieldDelta {
 	return delta;
 }
 
-/** The status {@link statusDelta} describes; {@link UNREBUILT} when a list names an item `base` never had. */
-function patchStatus(base: object, delta: FieldDelta): object | typeof UNREBUILT {
+/** The record {@link recordDelta} describes; {@link UNREBUILT} when a list names an item `base` never had. */
+function patchRecord(base: object, delta: FieldDelta): object | typeof UNREBUILT {
 	const set: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(delta.set ?? {})) {
 		const items = ItemsDelta.safeParse(value);
@@ -276,7 +276,7 @@ function createStatusEncoder(): (status: unknown) => unknown {
 		}
 		const base = last;
 		last = status;
-		return base ? statusDelta(base, status) : status;
+		return base ? recordDelta(base, status) : status;
 	};
 }
 
@@ -289,7 +289,7 @@ function createStatusDecoder(): (wire: unknown) => unknown {
 			if (isRecord(wire)) last = wire;
 			return wire;
 		}
-		const status = last ? patchStatus(last, delta) : UNREBUILT;
+		const status = last ? patchRecord(last, delta) : UNREBUILT;
 		if (status !== UNREBUILT) last = status;
 		return status;
 	};
@@ -298,22 +298,23 @@ function createStatusDecoder(): (wire: unknown) => unknown {
 const READ = "~read";
 
 /**
- * A `get_autopilot` answer as it crosses a link whose device asked for `slimAutopilotReads`. Every tab hydration on
- * a paired device asks it, and the answer is the whole status: a 217-cycle run's was 235 KB, three times a minute
- * while the device switched to and from the tab (22 Oct 2026). After the first, an answer is a delta against the last
- * one this connection sent, both numbered, so the device rebuilds it only from that very copy; a device that lacks it
- * (a reply it never read, a relaunch) asks again with `fresh` and gets it whole.
+ * A read's answer as it crosses a link whose device asked for it ({@link encodedReadKey}). Every tab hydration on a
+ * paired device asks these, and each answer was whole: a 217-cycle run's `get_autopilot` was 235 KB, three times a
+ * minute while the device switched to and from the tab (22 Oct 2026). After the first, an answer is a delta against
+ * the last one this connection sent, both numbered, so the device rebuilds it only from that very copy; a device that
+ * lacks it (a reply it never read, a relaunch) asks again with `fresh` and gets it whole. The whole answer travels
+ * under `status`, the key the first devices read.
  */
-const StatusRead = z.union([
+const EncodedRead = z.union([
 	z.object({ [READ]: z.string(), base: z.string(), delta: FieldDelta }),
 	z.object({ [READ]: z.string(), status: z.unknown() }),
 ]);
 
 /**
- * The host's side, one per tab and connection: `fresh` sends the status whole. `shifts`: the device reads a list
+ * The host's side, one per read, tab and connection: `fresh` sends the answer whole. `shifts`: the device reads a list
  * compared at an offset (`slimShiftedReads`).
  */
-export function createStatusReadEncoder(shifts = false): (status: unknown, fresh: boolean) => unknown {
+export function createReadEncoder(shifts = false): (status: unknown, fresh: boolean) => unknown {
 	// Unique to this encoder: a device keeps its copies across a reconnect, and the next connection's encoder must
 	// never name one of them.
 	const epoch = randomUUID();
@@ -328,13 +329,13 @@ export function createStatusReadEncoder(shifts = false): (status: unknown, fresh
 		const base = fresh ? null : last;
 		last = { id, status };
 		return base
-			? { [READ]: id, base: base.id, delta: statusDelta(base.status, status, shifts) }
+			? { [READ]: id, base: base.id, delta: recordDelta(base.status, status, shifts) }
 			: { [READ]: id, status };
 	};
 }
 
-/** The device's side, one per tab: the status an answer carries; null when it is a delta of a copy this side lacks. */
-export function createStatusReadDecoder(): (wire: unknown) => unknown {
+/** The device's side, one per read and tab: the answer the wire carries; null when it is a delta of a copy this side lacks. */
+export function createReadDecoder(): (wire: unknown) => unknown {
 	/** The last few, by number. */
 	const held = new Map<string, object>();
 	const hold = (id: string, status: object): void => {
@@ -342,7 +343,7 @@ export function createStatusReadDecoder(): (wire: unknown) => unknown {
 		for (const key of held.keys()) if (held.size > 4) held.delete(key);
 	};
 	return wire => {
-		const read = StatusRead.safeParse(wire);
+		const read = EncodedRead.safeParse(wire);
 		// An older host answers the status itself.
 		if (!read.success) return wire;
 		const data = read.data;
@@ -351,7 +352,7 @@ export function createStatusReadDecoder(): (wire: unknown) => unknown {
 			return data.status;
 		}
 		const base = held.get(data.base);
-		const status = base ? patchStatus(base, data.delta) : UNREBUILT;
+		const status = base ? patchRecord(base, data.delta) : UNREBUILT;
 		if (status === UNREBUILT) return null;
 		hold(data[READ], status);
 		return status;
@@ -359,7 +360,7 @@ export function createStatusReadDecoder(): (wire: unknown) => unknown {
 }
 
 /**
- * Which answers cross as numbered deltas ({@link createStatusReadEncoder}), each with its own chain per tab and the
+ * Which answers cross as numbered deltas ({@link createReadEncoder}), each with its own chain per tab and the
  * capability it needs: `get_autopilot` (`slimAutopilotReads`), and the two reads a device repeats on every hydration
  * of a tab (`slimListReads`): the slash command list (about 100 KB with the built-in skill packs, and it seldom
  * changes) and the transcript's tail page (up to 256 K characters; an idle session's is the same page again). A tail

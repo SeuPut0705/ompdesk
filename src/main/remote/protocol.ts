@@ -95,7 +95,7 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * older) parses a reference strictly, so it gets those messages whole.
  *
  * `slimAutopilotReads` (only ever sent with `slimAutopilot`): the device also rebuilds a `get_autopilot` answer sent as
- * a numbered delta against an earlier answer of this connection (`createStatusReadEncoder`), and asks again with
+ * a numbered delta against an earlier answer of this connection (`createReadEncoder`), and asks again with
  * `fresh` when it holds no such answer. A device without it (v0.58.0 and older) gets the whole status.
  *
  * `slimToolResults` (only ever sent with `slimEnds`): the device also rebuilds a tool result's `message_start` sent
