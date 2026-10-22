@@ -3057,7 +3057,14 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 
 	/** A device's connection that asked for slim events and progress, and whose link refuses a frame over `CAP`. */
 	class CappedConnection extends FakeConnection {
-		readonly slim = { events: true, progress: true, autopilot: false, ends: false, readGroups: false };
+		readonly slim = {
+			events: true,
+			progress: true,
+			autopilot: false,
+			ends: false,
+			readGroups: false,
+			toolResults: false,
+		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
 			super.emit(event, data);
@@ -3147,7 +3154,14 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 	async function connected(slimAutopilot: boolean) {
 		const context = setup();
 		const x = Object.assign(new FakeConnection(peer("device-x")), {
-			slim: { events: true, progress: true, autopilot: slimAutopilot, ends: false, readGroups: false },
+			slim: {
+				events: true,
+				progress: true,
+				autopilot: slimAutopilot,
+				ends: false,
+				readGroups: false,
+				toolResults: false,
+			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
 		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);

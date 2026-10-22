@@ -70,6 +70,8 @@ export interface LinkEventEncoderOptions {
 	ends?: boolean;
 	/** It also puts back the read groups a reference carries beside it (`slimReadGroups`). */
 	readGroups?: boolean;
+	/** It rebuilds a tool result's `message_start` from the `tool_execution_end` before it (`slimToolResults`). */
+	toolResults?: boolean;
 }
 
 export interface LinkEventEncoder {
@@ -478,6 +480,70 @@ function createEndsEncoder(readGroups: boolean): (event: AgentSessionEvent) => A
 	};
 }
 
+const TOOL = "~tool";
+
+const ToolRef = z.object({ "~tool": z.string() }).passthrough();
+
+/** What a tool result's `message_start` repeats of its `tool_execution_end`: stock builds both from one result. */
+interface ToolOutput {
+	content: unknown;
+	details: unknown;
+}
+
+function toolOutputOf(event: AgentSessionEvent): { id: string; output: ToolOutput } | null {
+	if (event.type !== "tool_execution_end") return null;
+	const result = event.result as { content?: unknown; details?: unknown } | undefined;
+	return { id: event.toolCallId, output: { content: result?.content, details: result?.details } };
+}
+
+/**
+ * Sends a tool result's `message_start` as `{"~tool": toolCallId, ...the rest}` when its `content` and `details` are
+ * what that call's `tool_execution_end`, already sent, carried. Runs after {@link createEndsEncoder}, which keeps the
+ * message whole for the `message_end` and `agent_end` references.
+ */
+function createToolResultEncoder(): (event: AgentSessionEvent) => AgentSessionEvent {
+	const outputs = sentMessages<string>();
+	return event => {
+		const end = toolOutputOf(event);
+		if (end) {
+			outputs.set(end.id, JSON.stringify(end.output));
+			return event;
+		}
+		if (event.type === "agent_end" && event.isTerminal !== false) outputs.clear();
+		if (event.type !== "message_start") return event;
+		const message = event.message as WireMessage & { role?: unknown; toolCallId?: unknown };
+		if (message.role !== "toolResult" || typeof message.toolCallId !== "string") return event;
+		const { content, details, ...rest } = message as typeof message & ToolOutput;
+		if (outputs.get(message.toolCallId) !== JSON.stringify({ content, details })) return event;
+		return { ...event, message: { [TOOL]: message.toolCallId, ...rest } as unknown as WireMessage };
+	};
+}
+
+/** The inverse of {@link createToolResultEncoder}; null for a reference to a call this decoder never saw end. */
+function createToolResultDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | null {
+	const outputs = sentMessages<ToolOutput>();
+	return event => {
+		const end = toolOutputOf(event);
+		if (end) {
+			outputs.set(end.id, end.output);
+			return event;
+		}
+		if (event.type === "agent_end" && event.isTerminal !== false) outputs.clear();
+		if (event.type !== "message_start") return event;
+		const ref = ToolRef.safeParse(event.message);
+		if (!ref.success) return event;
+		const { [TOOL]: id, ...rest } = ref.data;
+		const output = outputs.get(id);
+		if (!output) return null;
+		const message = {
+			...rest,
+			content: output.content,
+			...(output.details === undefined ? {} : { details: output.details }),
+		};
+		return { ...event, message: message as unknown as WireMessage };
+	};
+}
+
 /** The inverse of {@link createEndsEncoder}; null for a reference to a message this decoder never held. */
 function createEndsDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | null {
 	const kept = sentMessages<WireMessage>();
@@ -516,6 +582,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 	const progress = options.progress ? createProgressEncoder() : null;
 	const status = options.autopilot ? createStatusEncoder() : null;
 	const ends = options.ends ? createEndsEncoder(options.readGroups === true) : null;
+	const tools = ends && options.toolResults ? createToolResultEncoder() : null;
 	return {
 		events(batch) {
 			const slimmed = slim(batch);
@@ -526,8 +593,10 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 				else if (
 					ends &&
 					(event.type === "message_start" || event.type === "message_end" || event.type === "agent_end")
-				)
+				) {
 					next = ends(event);
+					if (tools) next = tools(next);
+				} else if (event.type === "tool_execution_end" && tools) next = tools(event);
 				else if (event.type === "tool_execution_update" && progress) next = progress.update(event);
 				else if (event.type === "autopilot_update" && status)
 					next = { ...event, status: status(event.status) } as unknown as AgentSessionEvent;
@@ -628,6 +697,7 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 	const progress = createProgressDecoder();
 	const decodeStatus = createStatusDecoder();
 	const ends = createEndsDecoder();
+	const tools = createToolResultDecoder();
 	const autopilot = (event: Extract<AgentSessionEvent, { type: "autopilot_update" }>): AgentSessionEvent | null => {
 		const status = decodeStatus(event.status);
 		if (status === UNREBUILT) return null;
@@ -637,10 +707,13 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 		events(batch) {
 			let out: AgentSessionEvent[] | null = null;
 			for (const [index, event] of batch.entries()) {
+				const tool = tools(event);
 				const resolved =
-					event.type === "message_start" || event.type === "message_end" || event.type === "agent_end"
-						? ends(event)
-						: event;
+					tool === null
+						? null
+						: tool.type === "message_start" || tool.type === "message_end" || tool.type === "agent_end"
+							? ends(tool)
+							: tool;
 				const next =
 					resolved === null
 						? null
@@ -690,6 +763,8 @@ export interface LinkEventSenderOptions {
 	ends?: boolean;
 	/** The device sent `slimReadGroups`: a committed reply's read groups ride beside its reference. */
 	readGroups?: boolean;
+	/** The device sent `slimToolResults`: a tool result's `message_start` crosses as a reference to its call's end. */
+	toolResults?: boolean;
 	/** Sends one tab event; false when it did not go out (an event over the frame cap). */
 	send(name: "events" | "subagentFrame", arg: unknown): boolean;
 }
@@ -701,13 +776,13 @@ export interface LinkEventSenderOptions {
  * wire order, and events and frames never swap places.
  */
 export function createLinkEventSender(options: LinkEventSenderOptions): LinkEventSender {
-	const { progress, autopilot = false, ends = false, readGroups = false, send } = options;
-	let encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups });
+	const { progress, autopilot = false, ends = false, readGroups = false, toolResults = false, send } = options;
+	let encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups, toolResults });
 	let held: SubagentFrame[] = [];
 	let timer: NodeJS.Timeout | undefined;
 	const deliver = (name: "events" | "subagentFrame", arg: unknown): void => {
 		// The device never got it, so the next snapshot of each subagent must go whole, not as a delta against this one.
-		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups });
+		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot, ends, readGroups, toolResults });
 	};
 	const flush = (): void => {
 		clearTimeout(timer);

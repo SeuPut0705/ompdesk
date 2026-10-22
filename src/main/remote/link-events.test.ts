@@ -691,3 +691,70 @@ describe("messages a connection already carried", () => {
 		]);
 	});
 });
+
+describe("a tool result its call's end already carried", () => {
+	/** Stock's order (pi-agent-core agent-loop.ts `emitToolResult`): the end, then the result message from the same result. */
+	function call(id: string, text: string, details: unknown = { exitCode: 0 }): AgentSessionEvent[] {
+		const result = { content: [{ type: "text", text }], details };
+		const message = {
+			role: "toolResult",
+			toolCallId: id,
+			toolName: "bash",
+			content: result.content,
+			details: result.details,
+			isError: false,
+			timestamp: 100,
+		};
+		return [
+			{ type: "tool_execution_start", toolCallId: id, toolName: "bash", args: { command: "ls" } },
+			{ type: "tool_execution_end", toolCallId: id, toolName: "bash", result, isError: false },
+			{ type: "message_start", message },
+			{ type: "message_end", message },
+		] as unknown as AgentSessionEvent[];
+	}
+
+	function send(events: AgentSessionEvent[], toolResults: boolean, decoder = createLinkEventDecoder()) {
+		const encoder = createLinkEventEncoder({ progress: true, ends: true, readGroups: true, toolResults });
+		const wire = events.map(event => overTheWire(encoder.events([event])));
+		return { wire, delivered: wire.map(batch => decoder.events(batch)) };
+	}
+
+	const output = "file.txt\n".repeat(400);
+
+	it("crosses as a reference to that end and reaches the device as stock sent it", () => {
+		const events = [...call("c1", output), ...call("c2", "second"), { type: "agent_end", messages: [] }];
+		const { wire, delivered } = send(events as AgentSessionEvent[], true);
+		expect(delivered.flat()).toEqual(overTheWire(events));
+		const start = JSON.stringify(wire[2]);
+		expect(start).toContain('"~tool":"c1"');
+		expect(start).not.toContain("file.txt");
+		expect(start.length).toBeLessThan(400);
+	});
+
+	it("goes whole when its content or details differ from the end's, or the device did not ask", () => {
+		const events = call("c1", output);
+		const edited = events.map(event =>
+			event.type === "message_start" ? { ...event, message: { ...event.message, details: { exitCode: 1 } } } : event,
+		) as AgentSessionEvent[];
+		const changed = send(edited, true);
+		expect(JSON.stringify(changed.wire[2])).toContain("file.txt");
+		expect(changed.delivered.flat()).toEqual(overTheWire(edited));
+		const older = send(events, false);
+		expect(JSON.stringify(older.wire[2])).toContain("file.txt");
+		expect(older.delivered.flat()).toEqual(overTheWire(events));
+	});
+
+	it("is dropped, never delivered half, on a device that never saw the call end", () => {
+		const { wire } = send(call("c1", output), true);
+		const turn = { type: "turn_start" } as AgentSessionEvent;
+		expect(createLinkEventDecoder().events([...(wire[2] ?? []), turn])).toEqual([turn]);
+	});
+
+	it("goes whole after the run ended: both ends forget the calls at a terminal agent_end", () => {
+		const [start, end, resultStart] = call("c1", output);
+		const events = [start, end, { type: "agent_end", messages: [] }, resultStart] as AgentSessionEvent[];
+		const { wire, delivered } = send(events, true);
+		expect(JSON.stringify(wire[3])).toContain("file.txt");
+		expect(delivered.flat()).toEqual(overTheWire(events));
+	});
+});

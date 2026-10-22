@@ -187,6 +187,7 @@ async function handshake(address: string, opts: HandshakeOptions): Promise<Hands
 			slimAutopilot: true,
 			slimEnds: true,
 			slimReadGroups: true,
+			slimToolResults: true,
 		});
 		const message = await link.receive(HANDSHAKE_TIMEOUT_MS);
 		if (message.t === "error") throw new RemoteError(String(message.code ?? "protocol"));
