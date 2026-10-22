@@ -16,8 +16,8 @@ type Language = "en" | "ko";
 type Theme = "light" | "dark";
 
 const TEXT = {
-	en: { board: "Work board", closePanel: "Close side panel", hide: "Hide work board", running: "Running" },
-	ko: { board: "작업 현황", closePanel: "사이드 패널 닫기", hide: "작업 현황 숨기기", running: "실행 중" },
+	en: { board: "Work board", closePanel: "Close side panel", running: "Running" },
+	ko: { board: "작업 현황", closePanel: "사이드 패널 닫기", running: "실행 중" },
 } as const;
 
 interface Launched {
@@ -178,11 +178,8 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator("[data-workspace-island]")).toBeHidden();
 				await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
 				await expect(board).toBeVisible();
-
-				// The board's own button hides it for this window; nothing is stored.
-				await board.getByRole("button", { name: text.hide }).click();
-				await expect(board).toHaveCount(0);
-				expect(await page.evaluate(() => window.omp.prefs.get("workBoard"))).toBeUndefined();
+				// No close: nothing would open it again.
+				await expect(board.getByRole("button", { name: /hide|close|숨기기|닫기/i })).toHaveCount(0);
 				expect(errors).toEqual([]);
 			} finally {
 				await exitApp(app);
@@ -190,7 +187,7 @@ for (const language of variants(["en", "ko"] as const))
 			}
 		});
 
-test("a 30-task plan's bar stays left of its count, and the count and close stay in the head, narrow and with large text (en light)", async () => {
+test("a 30-task plan's bar stays left of its count, and the count stays in the head, narrow and with large text (en light)", async () => {
 	test.setTimeout(180_000);
 	const { app, page, root } = await launch("en", "light");
 	try {
