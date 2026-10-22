@@ -3344,6 +3344,7 @@ export const en: Record<string, string> = {
 	"hotkeys.row.composerEditor": "Expand / collapse the composer",
 	"hotkeys.row.composerNewline": "Insert a new line",
 	"hotkeys.row.composerDeleteLine": "Delete back to the start of the line",
+	"hotkeys.row.regions": "Move between sidebar, conversation, composer, work board and panel",
 	"hotkeys.row.abort": "Stop the running turn (Esc twice while the field has text)",
 	"hotkeys.row.thinkingCycle": "Cycle thinking level",
 	"hotkeys.row.thinkingToggle": "Show / hide thinking blocks",

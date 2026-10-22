@@ -3330,6 +3330,7 @@ export const ko: Record<string, string> = {
 	"hotkeys.row.composerEditor": "입력창 크게 펼치기 / 접기",
 	"hotkeys.row.composerNewline": "줄 바꿈 넣기",
 	"hotkeys.row.composerDeleteLine": "줄 처음까지 지우기",
+	"hotkeys.row.regions": "사이드바·대화·입력창·작업 보드·패널 사이 이동",
 	"hotkeys.row.abort": "실행 중인 턴 중단 (입력창에 글이 있으면 Esc 두 번)",
 	"hotkeys.row.thinkingCycle": "사고 수준 순환",
 	"hotkeys.row.thinkingToggle": "사고 블록 표시 / 숨기기",

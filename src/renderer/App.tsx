@@ -61,6 +61,7 @@ import { subscribeOmpUpdated } from "./lib/omp-update";
 import { type PaneDirection, paneInDirection, renderedPaneBoxes } from "./lib/pane-focus";
 import { watchPluginActivation } from "./lib/plugin-activation";
 import { useProjectNames } from "./lib/project-origin";
+import { handleRegionKey } from "./lib/region-cycle";
 import { writeSidebarVisible } from "./lib/sidebar-memory";
 import { closeActiveTab } from "./lib/tab-close";
 import { followActivationFocus } from "./lib/tab-focus";
@@ -684,6 +685,13 @@ export function App() {
 
 	// A session activation (⌃Tab, a sidebar row, New session, ⌘T) hands the next keystroke to the composer.
 	useEffect(() => followActivationFocus(), []);
+	// F6 / Shift+F6 move between the window's regions (sidebar, transcript, composer, work board, side panel). In
+	// the capture phase: the terminal sends every key to its shell, so F6 would never leave it (as VS Code skips the
+	// shell for its region keys).
+	useEffect(() => {
+		window.addEventListener("keydown", handleRegionKey, true);
+		return () => window.removeEventListener("keydown", handleRegionKey, true);
+	}, []);
 
 	// Updater status: main-process push + boot replay, unsubscribed on unmount.
 	useEffect(() => subscribeUpdaterStatus(), []);

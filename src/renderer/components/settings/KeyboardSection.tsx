@@ -86,7 +86,11 @@ const HOTKEY_GROUPS: HotkeyGroup[] = [
 		titleKey: "hotkeys.group.generation",
 		rows: [{ keys: "Esc", labelKey: "hotkeys.row.abort" }, ...remapRows("generation")],
 	},
-	{ id: "view", titleKey: "hotkeys.group.view", rows: remapRows("view") },
+	{
+		id: "view",
+		titleKey: "hotkeys.group.view",
+		rows: [{ keys: "F6 / ⇧F6", labelKey: "hotkeys.row.regions" }, ...remapRows("view")],
+	},
 	{ id: "session", titleKey: "hotkeys.group.session", rows: remapRows("session") },
 	{ id: "native", titleKey: "hotkeys.group.native", rows: reservedRows("native") },
 ];
