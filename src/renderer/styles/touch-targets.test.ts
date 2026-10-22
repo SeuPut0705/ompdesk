@@ -255,6 +255,11 @@ describe("controls close enough to take each other's taps", () => {
 		// A GitHub section's toolbar wrapped at 360 px and New issue on its second line took the search field's bottom
 		// edge (8 px apart, unbounded); 10 px left the button 32 px high.
 		declares("../components/agents/github/shared.tsx", "data-github-toolbar");
+		// The Autopilot sheet's Start took its warning (i)'s right edge on a 320 px phone (8 px apart, unbounded).
+		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-start-row");
+		expect(rule('html[data-input="touch"] [data-autopilot-start-row]')).toMatch(
+			/gap:\s*20px;[^}]*--hit-gap-x:\s*20px/,
+		);
 		expect(rule('html[data-input="touch"] [data-github-toolbar]')).toMatch(
 			/row-gap:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);

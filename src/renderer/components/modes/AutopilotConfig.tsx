@@ -242,7 +242,7 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 				</SettingsAdvanced>
 			</fieldset>
 
-			<div className="flex items-center gap-2 border-t border-(--sc-divider) pt-2">
+			<div className="flex items-center gap-2 border-t border-(--sc-divider) pt-2" data-autopilot-start-row>
 				<span
 					className="flex min-w-0 flex-1 items-center gap-1 text-sc-xs text-(--sc-warning)"
 					data-autopilot-warning
