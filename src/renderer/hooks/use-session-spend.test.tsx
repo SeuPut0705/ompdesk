@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
+import { USAGE_POLL_MS } from "../lib/usage-reports";
 import { useSessionStore } from "../stores/session";
 import { useTabsStore } from "../stores/tabs";
 import { useSessionSpend } from "./use-session-spend";
@@ -65,7 +66,7 @@ describe("useSessionSpend", () => {
 
 		// A read of session A is on its way when the same ready tab switches to session B in place.
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(60_000);
+			await vi.advanceTimersByTimeAsync(USAGE_POLL_MS);
 		});
 		const lateForA = pending.shift();
 		expect(lateForA).toBeDefined();

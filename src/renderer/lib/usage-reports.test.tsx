@@ -6,6 +6,7 @@ import {
 	lastUsedAccounts,
 	readUsageReports,
 	USAGE_BACKOFF_MAX_MS,
+	USAGE_EVENT_GAP_MS,
 	USAGE_POLL_MS,
 	usagePollDelay,
 	useUsageSignal,
@@ -49,15 +50,15 @@ afterEach(() => {
 });
 
 describe("usagePollDelay", () => {
-	it("polls every 30 s and doubles the wait per failed read up to 5 minutes", () => {
-		expect([0, 1, 2, 3, 4, 9].map(usagePollDelay)).toEqual([
-			30_000,
-			60_000,
-			120_000,
-			240_000,
+	it("polls every 5 minutes, stock's status-line cadence, and doubles the wait per failed read up to 20", () => {
+		expect([0, 1, 2, 3, 9].map(usagePollDelay)).toEqual([
+			300_000,
+			600_000,
+			USAGE_BACKOFF_MAX_MS,
 			USAGE_BACKOFF_MAX_MS,
 			USAGE_BACKOFF_MAX_MS,
 		]);
+		expect(USAGE_BACKOFF_MAX_MS).toBe(1_200_000);
 	});
 });
 
@@ -98,6 +99,7 @@ describe("watchUsage", () => {
 		useUsageSignal.getState().turnEnded();
 		await advance(0);
 		expect(read).toHaveBeenCalledTimes(1);
+		await advance(USAGE_EVENT_GAP_MS);
 		window.dispatchEvent(new Event("focus"));
 		await advance(0);
 		expect(read).toHaveBeenCalledTimes(2);
@@ -106,6 +108,27 @@ describe("watchUsage", () => {
 		expect(read).toHaveBeenCalledTimes(2);
 		await advance(1);
 		expect(read).toHaveBeenCalledTimes(3);
+	});
+
+	it("reads at most once a minute however often turns end: a read probes every expired account", async () => {
+		watch();
+		useUsageSignal.getState().turnEnded();
+		await advance(0);
+		expect(read).toHaveBeenCalledTimes(1);
+		// Four sessions ending turns 10 s apart: one more read, a minute after the first.
+		for (let turn = 0; turn < 4; turn++) {
+			await advance(10_000);
+			useUsageSignal.getState().turnEnded();
+			window.dispatchEvent(new Event("focus"));
+		}
+		await advance(0);
+		expect(read).toHaveBeenCalledTimes(1);
+		await advance(USAGE_EVENT_GAP_MS - 40_000 - 1);
+		expect(read).toHaveBeenCalledTimes(1);
+		await advance(1);
+		expect(read).toHaveBeenCalledTimes(2);
+		await advance(USAGE_EVENT_GAP_MS);
+		expect(read).toHaveBeenCalledTimes(2);
 	});
 
 	it("skips polls while the window is hidden and reads when it comes back into view", async () => {
@@ -135,7 +158,7 @@ describe("watchUsage", () => {
 		await advance(USAGE_POLL_MS * 4);
 		expect(read).toHaveBeenCalledTimes(3);
 		read.mockResolvedValue(true);
-		await advance(USAGE_POLL_MS * 8);
+		await advance(USAGE_BACKOFF_MAX_MS);
 		expect(read).toHaveBeenCalledTimes(4);
 		await advance(USAGE_POLL_MS);
 		expect(read).toHaveBeenCalledTimes(5);

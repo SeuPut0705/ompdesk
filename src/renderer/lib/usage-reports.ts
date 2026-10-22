@@ -5,13 +5,20 @@
  * one poll per tab (`hooks/use-usage-reports.ts`), which re-reads while any of
  * them is on screen:
  *
- * - every {@link USAGE_POLL_MS} through stock's cached read. Stock decides when
- *   to probe the provider (its per-account cache, 5 minutes ±25%, pi-ai
- *   `USAGE_REPORT_TTL_MS`), and every model response refreshes the account that
- *   served it from its rate-limit headers in between (`usage.ingestHeaders`,
- *   at most once a minute), so a poll costs a cache read, not a provider call;
- * - when any tab's turn ends (its headers just moved the in-use account);
- * - when the window comes back into focus or into view.
+ * - every {@link USAGE_POLL_MS}, stock's own status-line cadence, through stock's
+ *   cached read. Stock decides when to probe the provider (its per-account cache,
+ *   5 minutes ±25%, pi-ai `USAGE_REPORT_TTL_MS`), and every model response
+ *   refreshes the account that served it from its rate-limit headers in between
+ *   (`usage.ingestHeaders`, at most once a minute);
+ * - when any tab's turn ends (its headers just moved the in-use account) and when
+ *   the window comes back into focus or into view, but no sooner than
+ *   {@link USAGE_EVENT_GAP_MS} after the last read: such a read comes when that
+ *   gap is over.
+ *
+ * Why not more often: a read probes every account whose report expired, and a
+ * probe that failed waits only a minute (Claude's `/usage`, which rate-limits per
+ * address and stays limited for minutes after a 429). Read every 30 s, three
+ * Anthropic accounts answered 429 313 times on one Mac in a day (22 Oct 2026).
  *
  * A failed read doubles the wait up to {@link USAGE_BACKOFF_MAX_MS} and holds
  * the focus and turn-end reads until one succeeds again.
@@ -27,8 +34,9 @@ import type { RpcResponse, UsageLimit, UsageReport } from "../../shared/rpc-type
 import { providerBrand } from "../components/settings/providers/provider-marks";
 import { accountWindows } from "./usage-windows";
 
-export const USAGE_POLL_MS = 30_000;
-export const USAGE_BACKOFF_MAX_MS = 5 * 60_000;
+export const USAGE_POLL_MS = 5 * 60_000;
+export const USAGE_EVENT_GAP_MS = 60_000;
+export const USAGE_BACKOFF_MAX_MS = 20 * 60_000;
 
 /** Wait before the next poll after `failures` reads failed in a row. */
 export function usagePollDelay(failures: number): number {
@@ -142,6 +150,7 @@ export function watchUsage(read: () => Promise<boolean>): () => void {
 	let failures = 0;
 	let inFlight = false;
 	let disposed = false;
+	let lastRead = Number.NEGATIVE_INFINITY;
 	const schedule = () => {
 		window.clearTimeout(timer);
 		timer = window.setTimeout(() => void run(), usagePollDelay(failures));
@@ -151,6 +160,7 @@ export function watchUsage(read: () => Promise<boolean>): () => void {
 		// Hidden: nothing to update; the read on return to view catches up.
 		if (document.visibilityState === "hidden") return schedule();
 		inFlight = true;
+		lastRead = Date.now();
 		window.clearTimeout(timer);
 		let ok = false;
 		try {
@@ -163,9 +173,16 @@ export function watchUsage(read: () => Promise<boolean>): () => void {
 		failures = ok ? 0 : failures + 1;
 		schedule();
 	};
-	/** Focus, back in view, a turn's end: read now unless backing off. */
+	/** Focus, back in view, a turn's end: read now, or once the gap since the last read is over, unless backing off. */
 	const event = () => {
-		if (failures === 0 && document.visibilityState !== "hidden") void run();
+		if (failures !== 0 || document.visibilityState === "hidden") return;
+		const wait = lastRead + USAGE_EVENT_GAP_MS - Date.now();
+		if (wait <= 0) {
+			void run();
+			return;
+		}
+		window.clearTimeout(timer);
+		timer = window.setTimeout(() => void run(), wait);
 	};
 	window.addEventListener("focus", event);
 	document.addEventListener("visibilitychange", event);
