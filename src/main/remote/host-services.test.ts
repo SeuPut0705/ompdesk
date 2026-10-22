@@ -3337,7 +3337,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 		startIndex: 0,
 	});
 
-	async function connected(listReads: boolean) {
+	async function connected(listReads: boolean, shiftedReads = false) {
 		const context = setup();
 		const x = Object.assign(new FakeConnection(peer("device-x")), {
 			slim: {
@@ -3350,7 +3350,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				endFields: false,
 				autopilotReads: true,
 				listReads,
-				shiftedReads: false,
+				shiftedReads,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3394,6 +3394,33 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 		]);
 		// A page read by cursor is the device's to hold, nothing to compare it with.
 		expect(data(await ask({ type: "get_transcript_page", cursor: "c1", limit: 200 }))).toEqual(page(41));
+	});
+
+	it("compares a running session's tail page at the offset its window moved by only for a device that reads shifts", async () => {
+		// The window keeps 40 messages: each read starts one message later.
+		const tail = { type: "get_transcript_page", fromEnd: true, limit: 40 };
+		const moving = (from: number) => ({
+			messages: Array.from({ length: 40 }, (_, i) => ({ role: "assistant", text: `답 ${from + i} `.repeat(60) })),
+			totalMessages: from + 40,
+			startIndex: from,
+		});
+		const second = async (shiftedReads: boolean) => {
+			const { sidecar, ask } = await connected(true, shiftedReads);
+			let from = 0;
+			sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => ({
+				type: "response",
+				command: command.type,
+				success: true,
+				data: moving(from++),
+			});
+			const decode = createReadDecoder();
+			const answers = [await ask(tail), await ask(tail)];
+			expect(answers.map(answer => decode(data(answer)))).toEqual([moving(0), moving(1)]);
+			return size(answers[1] as RpcResponse);
+		};
+		const shifted = await second(true);
+		const indexed = await second(false);
+		expect(shifted * 10).toBeLessThan(indexed);
 	});
 
 	it("sends both whole to a device that did not ask", async () => {
