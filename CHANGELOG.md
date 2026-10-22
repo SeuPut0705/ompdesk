@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.56.0] - 2026-10-22
+
+연결한 컴퓨터에서 작업 중인 세션이 열어 보기 전에도 사이드바에 작업 중으로 보이고, 상단 바 위에 뜬 창이나 메뉴를 누르면 창이 끌리던 문제를 고쳤어요.
+
+### 새로 생긴 것
+- 연결한 컴퓨터에서 작업 중인 세션은 열어 보기 전에도 사이드바 행에 작업 표시(움직이는 빛, 작업 원, 질문이 있으면 대기 색)가 나와요. 두 컴퓨터가 모두 이 버전일 때 보여요.
+
+### 고친 것
+- 이미지 보기나 키 큰 모델 선택 창처럼 창 맨 위까지 올라온 대화상자·메뉴를 누르면 창이 끌리던 문제를 고쳤어요.
+- 대화 칸 안에서 연 이미지 보기가 칸보다 커서 아래가 잘리던 문제를 고쳤어요. 휴대폰에서는 홈 바에 가리지 않고, 닫기 버튼이 더 누르기 쉬워요.
+- 연결한 컴퓨터의 세션 목록을 그 컴퓨터 목록이 바뀔 때만 다시 받아요(전에는 어느 쪽이든 바뀌면 1분에 20번 넘게 받았어요).
+
+<!-- en -->
+
+Sessions a paired computer works on show it in your sidebar before you open them, and clicking a dialog or menu that reaches the top bars no longer drags the window.
+
+### Added
+- A session a paired computer is working on shows it on its sidebar row (the moving light, the working circle, or the waiting colour for a question) before you open it, once both computers run this version.
+
+### Fixed
+- Clicking a dialog or menu that reaches the window's top bars, such as the image viewer or a tall model picker, dragged the window instead.
+- An image viewer opened in a chat pane was taller than the pane and lost its bottom edge; on a phone it now stays clear of the home bar, and its close button is easier to tap.
+- A paired computer's session list is read again only when that computer's list changed (any change on either computer read it 20 times a minute and more).
+
 ## [0.55.0] - 2026-10-22
 
 이미지 보기에 자체 상단 바가 생겨 Windows 창 닫기 버튼과 헷갈리지 않고, 모델 선택 창이 입력창 바로 위에서 열리며, 사용량을 너무 자주 읽어 생기던 Claude 429 오류가 사라졌어요. omp 18.12.6 이상이 필요해요.
