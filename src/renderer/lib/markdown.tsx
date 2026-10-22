@@ -54,6 +54,7 @@ import { PREVIEW_HEIGHT_LG, PREVIEW_SCROLL_CODE } from "./preview";
 import { remarkCjkAutolink, remarkCjkStrong } from "./remark-cjk";
 import { remarkHtmlAsText } from "./remark-html-text";
 import { remarkLatexMath } from "./remark-latex-math";
+import { remarkSoftBreaks } from "./remark-soft-breaks";
 import { useTabRpc } from "./tab-rpc";
 
 interface MarkdownRendererProps {
@@ -98,6 +99,7 @@ const REMARK_PLUGINS_USER_TEXT: Options["remarkPlugins"] = [
 	remarkCjkStrong,
 	remarkCjkAutolink,
 	remarkHtmlAsText,
+	remarkSoftBreaks,
 ];
 
 type SanitizeSchema = NonNullable<Parameters<typeof rehypeSanitize>[0]>;
