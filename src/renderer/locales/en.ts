@@ -794,6 +794,8 @@ export const en: Record<string, string> = {
 	"workspaces.add": "Add project…",
 	"workspaces.empty": "No recent projects. Add one to get started.",
 	"workspaces.current": "Current",
+	"workspaces.filter": "Find a project",
+	"workspaces.noMatch": "No project matches.",
 	"workspaces.sessionCount": "{count} sessions",
 	"workspaces.switchFailed": "Couldn't switch project",
 	"contextUsage.ring": "Context {percent}% · {used} / {window}",

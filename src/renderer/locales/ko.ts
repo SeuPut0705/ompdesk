@@ -780,6 +780,8 @@ export const ko: Record<string, string> = {
 	"workspaces.add": "프로젝트 추가…",
 	"workspaces.empty": "최근 프로젝트가 없어요. 프로젝트를 추가해서 시작하세요.",
 	"workspaces.current": "현재",
+	"workspaces.filter": "프로젝트 찾기",
+	"workspaces.noMatch": "맞는 프로젝트가 없어요.",
 	"workspaces.sessionCount": "세션 {count}개",
 	"workspaces.switchFailed": "프로젝트를 전환하지 못했어요. 다시 시도하세요.",
 	"contextUsage.ring": "컨텍스트 {percent}% · {used} / {window}",

@@ -217,32 +217,74 @@ describe("WorkspaceDialog rows", () => {
 		omp.sessions.list.mockImplementation(async () => []);
 	});
 
-	it("marks the current project's row and tells two projects of one name apart by their paths", async () => {
+	const sessionAt = (cwd: string): SessionInfo => ({
+		path: `${cwd}/s.jsonl`,
+		id: cwd,
+		title: null,
+		cwd,
+		created: "2026-10-13T00:00:00Z",
+		modified: "2026-10-13T00:00:00Z",
+		messageCount: 1,
+		size: 1,
+		status: "complete",
+		firstMessage: "",
+	});
+	const options = () => Array.from(document.body.querySelectorAll("[role=option]"));
+	/** Drive the filter field's handler as React would (linkedom trips React's input polyfill on a dispatched key). */
+	const fieldProps = () => {
+		const field = document.body.querySelector("input[type=search]") as unknown as Record<string, unknown>;
+		const key = Object.getOwnPropertyNames(field).find(name => name.startsWith("__reactProps$")) ?? "";
+		return field[key] as {
+			onChange: (event: object) => void;
+			onKeyDown: (event: object) => void;
+		};
+	};
+	const type = async (value: string) => {
+		await act(async () => fieldProps().onChange({ target: { value } }));
+	};
+	const press = async (key: string) => {
+		await act(async () =>
+			fieldProps().onKeyDown({ key, nativeEvent: {}, preventDefault: () => {}, stopPropagation: () => {} }),
+		);
+		await settle();
+	};
+
+	it("marks the current project and tells two projects of one name apart by their paths", async () => {
 		seedTab();
 		useSessionStore.setState({ cwd: "/Users/kim/code/app" });
-		const session = (cwd: string): SessionInfo => ({
-			path: `${cwd}/s.jsonl`,
-			id: cwd,
-			title: null,
-			cwd,
-			created: "2026-10-13T00:00:00Z",
-			modified: "2026-10-13T00:00:00Z",
-			messageCount: 1,
-			size: 1,
-			status: "complete",
-			firstMessage: "",
-		});
-		omp.sessions.list.mockResolvedValue([session("/Users/kim/code/app"), session("/Users/kim/work/app")]);
+		omp.sessions.list.mockResolvedValue([sessionAt("/Users/kim/code/app"), sessionAt("/Users/kim/work/app")]);
 		await mount("switch");
-		const rows = Array.from(document.body.querySelectorAll("button")).filter(
-			button => (button.textContent ?? "").trim() === "app",
-		);
-		const description = (row: Element) =>
-			document.body.querySelector(`[id="${row.getAttribute("aria-describedby")}"]`)?.textContent;
-		expect(rows.map(row => [row.getAttribute("aria-current"), description(row)])).toEqual([
-			["true", "~/code/app"],
-			[null, "~/work/app"],
+		expect(options().map(row => [row.getAttribute("aria-current"), row.textContent])).toEqual([
+			["true", expect.stringContaining("~/code/app")],
+			[null, expect.stringContaining("~/work/app")],
 		]);
+		omp.sessions.list.mockImplementation(async () => []);
+	});
+
+	it("finds a project as it is typed and opens the one the arrows reach with Enter", async () => {
+		seedTab();
+		useSessionStore.setState({ cwd: "/Users/kim/code/app" });
+		omp.sessions.list.mockResolvedValue([
+			sessionAt("/Users/kim/code/app"),
+			sessionAt("/Users/kim/code/website"),
+			sessionAt("/Users/kim/code/web-tools"),
+		]);
+		await mount("switch");
+		const field = document.body.querySelector("input[type=search]");
+		expect(field?.getAttribute("role")).toBe("combobox");
+		expect(options()).toHaveLength(3);
+		await type("web");
+		expect(options().map(row => row.textContent?.match(/^[a-z-]+/)?.[0])).toEqual(["website", "web-tools"]);
+		expect(field?.getAttribute("aria-activedescendant")).toBe(options()[0]?.id);
+		await press("ArrowDown");
+		expect(field?.getAttribute("aria-activedescendant")).toBe(options()[1]?.id);
+		await type("zzz");
+		expect(options()).toHaveLength(0);
+		expect(document.body.textContent).toContain(translate("workspaces.noMatch"));
+		await type("web");
+		await press("ArrowDown");
+		await press("Enter");
+		expect(omp.sidecar.setProject).toHaveBeenCalledWith("/Users/kim/code/web-tools");
 		omp.sessions.list.mockImplementation(async () => []);
 	});
 });

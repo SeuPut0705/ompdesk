@@ -9,10 +9,13 @@
  */
 
 import { Check, Folder, FolderPlus } from "lucide-react";
-import { useMemo } from "react";
+import { type KeyboardEvent, useId, useMemo, useState } from "react";
 import { useSessionList } from "../../hooks/use-session-list";
 import { basename, shortenPath } from "../../lib/format";
+import { pathMatcher } from "../../lib/fuzzy-score";
 import { useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import { useProjectNames } from "../../lib/project-origin";
 import { pickWorkspaceDirectory, selectFocusedTabProject } from "../../lib/workspace-dirs";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -20,7 +23,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Button, ListRow, Modal } from "../common";
+import { Button, Modal, OptionRow, SearchField } from "../common";
 
 interface WorkspaceRow {
 	cwd: string;
@@ -81,6 +84,27 @@ export function WorkspaceDialog({
 		useMemo(() => (device === undefined ? workspaces.map(ws => ws.cwd) : []), [device, workspaces]),
 	);
 
+	const nameOf = (ws: WorkspaceRow) => (device === undefined ? projectNameOf(ws.cwd).name : ws.name);
+	const [query, setQuery] = useState("");
+	const [active, setActive] = useState(0);
+	const listboxId = useId();
+	// Name first (a project named like the query wins), then anywhere in its folder's path; recency breaks ties.
+	const shown = useMemo(() => {
+		const text = query.trim().normalize("NFC");
+		if (!text) return workspaces;
+		const match = pathMatcher(text);
+		return workspaces
+			.map((ws, order) => {
+				const name = device === undefined ? projectNameOf(ws.cwd).name : ws.name;
+				return { ws, order, score: match(`${ws.cwd}/${name}`, false)?.score };
+			})
+			.filter((row): row is { ws: WorkspaceRow; order: number; score: number } => row.score !== undefined)
+			.sort((a, b) => b.score - a.score || a.order - b.order)
+			.map(row => row.ws);
+	}, [query, workspaces, projectNameOf, device]);
+	const activeIndex = Math.min(active, Math.max(shown.length - 1, 0));
+	const optionId = (index: number) => `${listboxId}-${index}`;
+
 	/** In-place workspace switches abort the active sidecar run. New-session
 	 * intent opens an independent agent tab and does not need this guard. */
 	const guardBusy = (): boolean => {
@@ -119,6 +143,22 @@ export function WorkspaceDialog({
 		}
 	};
 
+	const onFilterKey = (event: KeyboardEvent<HTMLInputElement>) => {
+		if (isImeKeyEvent(event)) return;
+		if (event.key === "Enter") {
+			const target = shown[activeIndex];
+			if (!target) return;
+			event.preventDefault();
+			void pick(target.cwd);
+			return;
+		}
+		const next = listboxTarget(event.key, activeIndex, shown.length, { wrap: false });
+		if (next === null || event.key === "Home" || event.key === "End") return;
+		event.preventDefault();
+		setActive(next);
+		document.getElementById(optionId(next))?.scrollIntoView?.({ block: "nearest" });
+	};
+
 	const addWorkspace = async () => {
 		if (intent === "switch" && guardBusy()) return;
 		// The remote picker is a dialog of its own: never stack it on this one.
@@ -152,35 +192,68 @@ export function WorkspaceDialog({
 					{t("workspaces.add")}
 				</Button>
 
-				<div className="max-h-[46vh] overflow-y-auto">
+				{workspaces.length > 0 && (
+					<SearchField
+						autoFocus
+						label={t("workspaces.filter")}
+						listbox={{ id: listboxId, activeId: shown.length > 0 ? optionId(activeIndex) : undefined }}
+						onKeyDown={onFilterKey}
+						onValueChange={value => {
+							setQuery(value);
+							setActive(0);
+						}}
+						placeholder={t("workspaces.filter")}
+						value={query}
+					/>
+				)}
+
+				<div
+					aria-label={t("workspaces.title")}
+					className="max-h-[46vh] overflow-y-auto"
+					id={listboxId}
+					role={shown.length > 0 ? "listbox" : undefined}
+				>
 					{workspaces.length === 0 ? (
 						<div className="px-2 py-8 text-center text-sc-md text-(--sc-text-muted)">{t("workspaces.empty")}</div>
+					) : shown.length === 0 ? (
+						<div className="px-2 py-8 text-center text-sc-md text-(--sc-text-muted)">
+							{t("workspaces.noMatch")}
+						</div>
 					) : (
-						workspaces.map(ws => {
+						shown.map((ws, index) => {
 							const isCurrent = ws.cwd === cwd;
 							return (
-								<ListRow
-									description={
-										// Middle-truncated: two projects deep under one parent differ only at the tail.
-										<span title={ws.cwd}>{shortenPath(ws.cwd)}</span>
-									}
+								<OptionRow
+									active={index === activeIndex}
+									aria-current={isCurrent ? "true" : undefined}
+									id={optionId(index)}
 									key={ws.cwd}
-									leading={<Folder aria-hidden />}
-									meta={
-										ws.sessionCount > 0 ? t("workspaces.sessionCount", { count: ws.sessionCount }) : undefined
-									}
 									onClick={() => void pick(ws.cwd)}
-									selected={isCurrent}
-									title={device === undefined ? projectNameOf(ws.cwd).name : ws.name}
-									trailing={
-										isCurrent ? (
-											<span className="flex items-center gap-1 text-sc-xs font-medium text-(--sc-text-secondary)">
-												<Check aria-hidden className="size-(--sc-icon-sm)" />
-												{t("workspaces.current")}
-											</span>
-										) : undefined
-									}
-								/>
+									onPointerMove={() => setActive(index)}
+									pointerMoves
+								>
+									<Folder aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
+									<span className="min-w-0 flex-1">
+										<span className="flex min-w-0 items-baseline gap-2">
+											<span className="truncate text-sc-md text-(--sc-text)">{nameOf(ws)}</span>
+											{ws.sessionCount > 0 && (
+												<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
+													{t("workspaces.sessionCount", { count: ws.sessionCount })}
+												</span>
+											)}
+										</span>
+										{/* Middle-truncated: two projects deep under one parent differ only at the tail. */}
+										<span className="block truncate text-sc-sm text-(--sc-text-muted)" title={ws.cwd}>
+											{shortenPath(ws.cwd)}
+										</span>
+									</span>
+									{isCurrent ? (
+										<span className="flex shrink-0 items-center gap-1 text-sc-xs font-medium text-(--sc-text-secondary)">
+											<Check aria-hidden className="size-(--sc-icon-sm)" />
+											{t("workspaces.current")}
+										</span>
+									) : null}
+								</OptionRow>
 							);
 						})
 					)}
