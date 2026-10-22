@@ -361,7 +361,8 @@ export async function syncPlanProposal(tabId: string, command: TabCommand, isCur
 }
 
 // 200 messages bounds the initial IPC/renderer work while retaining several
-// recent turns. The bridge extends a page back to the start of its first run (transcript-page.ts).
+// recent turns. The bridge extends a page back to the start of its first run (transcript-page.ts), and main reads a
+// heavier page again with fewer messages (local/sessions.ts BACKWARD_PAGE_BUDGET).
 export const TRANSCRIPT_TAIL_LIMIT = 200;
 
 async function fetchTranscriptTail(command: TabCommand): Promise<RpcResponse> {

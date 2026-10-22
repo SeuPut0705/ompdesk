@@ -5,6 +5,7 @@
  */
 import { ImageIcon } from "lucide-react";
 import { type ComponentProps, useState } from "react";
+import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { ZoomableImage } from "../../common/ZoomableImage";
 
@@ -13,12 +14,9 @@ function formatName(mimeType: string): string {
 	return (/^image\/([a-z0-9.+-]+)/i.exec(mimeType)?.[1] ?? "image").replace(/-sequence$/i, "").toUpperCase();
 }
 
-/** Bytes of a base64 payload, as "1.2 MB" / "840 KB". */
+/** Bytes of a base64 payload, as every other file size reads ("1.2 MB", "840.3 KB"). */
 function sizeLabel(base64: string): string {
-	const bytes = Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
-	return bytes >= 1024 * 1024
-		? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-		: `${Math.max(1, Math.round(bytes / 1024))} KB`;
+	return formatBytes(Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0));
 }
 
 /** "PNG · 1.2 MB": what a thumbnail's tooltip says before the picture's dimensions. */
