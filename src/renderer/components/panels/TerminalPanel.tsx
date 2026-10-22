@@ -487,6 +487,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 			setClaimTick(tick => tick + 1);
 		}
 	};
+	const selectedIndex = sessions.findIndex(session => session.id === (selected ?? sessions[0]?.id));
 	const close = async (id: string) => {
 		const result = await request({ action: "close", id });
 		if (result && id === selected) setSelected(result[0]?.id ?? null);
@@ -522,7 +523,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 					onKeyDown={event => {
 						const at = sessions.findIndex(session => session.id === selected);
 						// A tab list holds only tabs: the close buttons beside them are for the pointer, Delete closes the
-						// focused one (the APG's closable tabs).
+						// focused one (the APG's closable tabs) and assistive tech has the selected one's close after the list.
 						if (event.key === "Delete" && at !== -1) {
 							event.preventDefault();
 							void close(sessions[at]?.id ?? "");
@@ -566,6 +567,19 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 						</div>
 					))}
 				</div>
+				{/* The tab list holds only tabs, so the close buttons beside them are the pointer's. The selected session's
+				    close lives here for assistive tech (a touch screen reader has no Delete key); sighted keyboard users
+				    see it when it takes focus. */}
+				{selectedIndex !== -1 && (
+					<IconButton
+						className="sr-only focus-visible:not-sr-only"
+						data-terminal-close-selected
+						icon={<X />}
+						label={t("panel.terminal.closeFor", { number: selectedIndex + 1 })}
+						onClick={() => void close(sessions[selectedIndex]?.id ?? "")}
+						size="sm"
+					/>
+				)}
 				<IconButton
 					icon={<Plus />}
 					label={t("panel.terminal.new")}

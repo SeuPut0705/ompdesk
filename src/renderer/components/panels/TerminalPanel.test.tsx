@@ -291,6 +291,10 @@ describe("TerminalPanel on a phone", () => {
 			button => button.getAttribute("role") !== "tab" && button.getAttribute("aria-hidden") !== "true",
 		);
 		expect(exposed).toEqual([]);
+		// Assistive tech keeps a close: the selected session's, after the list (a touch screen reader has no Delete).
+		const closeSelected = container.querySelector("[data-terminal-close-selected]");
+		expect(closeSelected?.getAttribute("aria-label")).toBe("Close Terminal 1");
+		expect(closeSelected?.getAttribute("aria-hidden")).toBeNull();
 		const second = list.querySelectorAll("[role=tab]")[1] as HTMLElement;
 		await act(async () => {
 			const event = new window.Event("keydown", { bubbles: true, cancelable: true });
