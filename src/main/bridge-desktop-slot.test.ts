@@ -98,6 +98,37 @@ describe("which computer runs need the slot", () => {
 	});
 });
 
+describe("desktop slot: background runs (input that never takes the foreground)", () => {
+	it("run beside other sessions without asking for the slot while this session holds none", async () => {
+		const h = harness();
+		const { run, state } = acting();
+		await expect(h.core.runBackground(run)).resolves.toBe("ran");
+		expect(state.ran).toBe(1);
+		expect(h.frames).toEqual([]);
+		expect(h.core.holding).toBe(false);
+	});
+
+	it("are tracked like any acting run while the slot is held: a revoke aborts one in flight", async () => {
+		const h = harness();
+		await take(h, false);
+		const { run, state } = acting({ hang: true });
+		const pending = h.core.runBackground(run);
+		await settle();
+		await h.core.revoke("stop");
+		expect(state.inner?.aborted).toBe(true);
+		await expect(pending).resolves.toBe(REVOKED);
+	});
+
+	it("are blocked with every other input while a failed revoke keeps the slot", async () => {
+		const h = harness(() => Promise.reject(new Error("stuck")));
+		await take(h, false);
+		await expect(h.core.revoke("stop")).rejects.toThrow("stuck");
+		const { run, state } = acting();
+		await expect(h.core.runBackground(run)).rejects.toThrow("input is blocked");
+		expect(state.ran).toBe(0);
+	});
+});
+
 describe("desktop slot: read-only runs", () => {
 	it("pass without asking for the slot", async () => {
 		const h = harness();

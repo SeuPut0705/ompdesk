@@ -67,8 +67,8 @@ function patchSupervisor(pi: ExtensionAPI): boolean {
 	proto.run = function run(this: SlotController, ...args: RunArgs): Promise<unknown> {
 		controllers.add(this);
 		const [code, timeoutMs, snapshot, signal, context] = args;
-		if (!needsSlot(snapshot)) return core.runReadOnly(() => original.apply(this, args));
-		return core.runActing({
+		if (snapshot.readOnly) return core.runReadOnly(() => original.apply(this, args));
+		return (needsSlot(snapshot) ? core.runActing.bind(core) : core.runBackground.bind(core))({
 			signal,
 			run: own => original.call(this, code, timeoutMs, snapshot, own, context),
 			stale: () => notice(DESKTOP_SLOT_STALE_NOTICE),

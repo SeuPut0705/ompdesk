@@ -103,6 +103,16 @@ export class DesktopSlotCore {
 		}
 	}
 
+	/**
+	 * A run that sends input but never the foreground (`needsSlot` false, not read-only): with no slot held it runs
+	 * beside other sessions' without asking. While this session holds the slot, lets go of it or failed to, it is an
+	 * acting run like any other, so a revoke still aborts it and a failed revoke still blocks it.
+	 */
+	runBackground<T>(acting: ActingRun<T>): Promise<T> {
+		if (this.#holding || this.#leaving || this.#failed) return this.runActing(acting);
+		return acting.run(acting.signal);
+	}
+
 	/** An acting run: runs when the slot is held, otherwise queues for it (see the module comment). */
 	async runActing<T>(acting: ActingRun<T>): Promise<T> {
 		const { signal } = acting;
