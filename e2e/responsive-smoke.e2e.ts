@@ -400,11 +400,12 @@ const STRIP_ROOMS: readonly { height: number; draft?: number }[] = [
 	{ height: 360, draft: 1 },
 ];
 for (const { height, draft } of STRIP_ROOMS) {
-	const name = draft ? `1280×${height} desktop with a draft` : `1280×${height} desktop`;
+	// 1000 px beside the sidebar: a pane too narrow to dock the board even beside a narrowed column.
+	const name = draft ? `1000×${height} desktop with a draft` : `1000×${height} desktop`;
 	test(`responsive smoke ${name}: the expanded work strip stays in its pane, clear of the composer`, async () => {
 		if (!browser) throw new Error("the browser is not up");
 		const look: Look = {
-			width: 1280,
+			width: 1000,
 			height,
 			dpr: 1,
 			orientation: "landscape",

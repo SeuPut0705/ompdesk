@@ -188,14 +188,14 @@ describe("WorkBoard visibility", () => {
 
 	it("hides in a pane too narrow for it and returns when the pane widens", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
-		await mount(1100);
+		await mount(760);
 		expect(board()).toBeNull();
 		expect(pane.hasAttribute("data-work-board")).toBe(false);
 		// Too narrow to dock: the status strip says the same essentials and expands into the board.
 		expect(pane.querySelector("[data-work-strip]")).not.toBeNull();
 		await resize(1600);
 		expect(board()).not.toBeNull();
-		await resize(900);
+		await resize(760);
 		expect(board()).toBeNull();
 		expect(pane.hasAttribute("data-work-board")).toBe(false);
 	});

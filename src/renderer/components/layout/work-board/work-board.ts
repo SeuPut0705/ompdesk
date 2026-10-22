@@ -60,12 +60,15 @@ export function workBoardFitsNarrowed(paneWidth: number): boolean {
 }
 
 /**
- * Whether the board docks in a pane this wide: beside the full 48rem column everywhere, and on a tablet held sideways
- * (the web build's `tablet-landscape` shell, where a strip would hide what fits) also beside a column narrowed to
- * `WORK_BOARD_MIN_TRANSCRIPT`. A desktop window keeps the full column (the user's rule: its transcript never narrows).
+ * Whether the board docks in a pane this wide: beside the full 48rem column, or beside a column narrowed to
+ * `WORK_BOARD_MIN_TRANSCRIPT` in a desktop window and on a tablet held sideways. Only a phone and a portrait tablet
+ * keep the strip whatever their width. A desktop window narrowed its column for the board too since 22 Oct 2026 (the
+ * user's report: on a Windows laptop at 150 % scaling, a 1280 px window beside the sidebar, the board never docked
+ * and only the strip showed; before, a desktop window kept the full column, docking from a 1137 px pane).
  */
 export function workBoardDocks(paneWidth: number, shell: string | null): boolean {
-	return workBoardFits(paneWidth) || (shell === "tablet-landscape" && workBoardFitsNarrowed(paneWidth));
+	if (workBoardFits(paneWidth)) return true;
+	return shell !== "phone" && shell !== "tablet-portrait" && workBoardFitsNarrowed(paneWidth);
 }
 
 /** The docked board's width in a pane this wide (`workBoardFits` first): wide where the margin has room for it. */

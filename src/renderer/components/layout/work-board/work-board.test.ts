@@ -60,7 +60,7 @@ describe("work board breakpoint", () => {
 		expect(first - WORK_BOARD_WIDE_WIDTH - WORK_BOARD_GAP).toBeGreaterThanOrEqual(transcriptColumnWidth(first));
 	});
 
-	it("docks on a tablet held sideways beside a column narrowed to what still reads, never on a desktop", () => {
+	it("docks in a desktop window and on a tablet held sideways beside a column narrowed to what still reads", () => {
 		// Measured panes, web build, sidebar at its default 248 px: iPad Pro 12.9" (1366 → 1118), iPad Air (1180 → 932)
 		// and iPad mini (1133 → 885) sideways, all docked; a 1024 px tablet (776) keeps the strip until its sidebar
 		// folds (1024).
@@ -87,10 +87,12 @@ describe("work board breakpoint", () => {
 			pane - WORK_BOARD_WIDTH - WORK_BOARD_GAP - 2 * Math.min(40, Math.max(16, pane * 0.03));
 		expect(text(narrowest)).toBeGreaterThanOrEqual(WORK_BOARD_MIN_TRANSCRIPT);
 		expect(text(narrowest - 1)).toBeLessThan(WORK_BOARD_MIN_TRANSCRIPT);
-		// A desktop window (no shell) and a portrait tablet keep the full column: the strip.
-		expect(workBoardDocks(1118, null)).toBe(false);
+		// A desktop window (no shell) docks the same way: a 1280 px window beside the sidebar (a Windows laptop at 150 %
+		// scaling) has a 1032 px pane. A portrait tablet and a phone keep the strip.
+		expect(workBoardDocks(1032, null)).toBe(true);
+		expect(workBoardDocks(776, null)).toBe(false);
 		expect(workBoardDocks(1118, "tablet-portrait")).toBe(false);
-		expect(workBoardDocks(1137, null)).toBe(true);
+		expect(workBoardDocks(1118, "phone")).toBe(false);
 	});
 
 	it("shows the strip wherever it cannot dock, and nothing only with the pref off", () => {

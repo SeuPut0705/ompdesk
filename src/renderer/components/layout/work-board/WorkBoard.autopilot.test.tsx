@@ -269,7 +269,7 @@ describe("an Autopilot tab's work board", () => {
 
 describe("the run is reachable in every layout", () => {
 	const cases: { name: string; width: number; setup?: () => void }[] = [
-		{ name: "a narrow window", width: 1000 },
+		{ name: "a narrow window", width: 780 },
 		{ name: "a split pane too narrow for the board", width: 700 },
 		{
 			name: "the side panel open on Terminal",
@@ -298,7 +298,7 @@ describe("the run is reachable in every layout", () => {
 
 	it("a reveal for another tab leaves this pane's strip closed", async () => {
 		useAutopilotStore.getState().apply(running);
-		await mount(1000);
+		await mount(760);
 		await act(async () => useUiStore.getState().revealWorkBoard("t2"));
 		await settle();
 		expect($("[data-work-strip-panel]")).toBeNull();
