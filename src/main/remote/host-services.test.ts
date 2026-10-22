@@ -3121,6 +3121,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			shiftedReads: false,
 			settingsReads: false,
 			rosterReads: false,
+			toolOutputs: false,
 		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
@@ -3224,6 +3225,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				shiftedReads: false,
 				settingsReads: false,
 				rosterReads: false,
+				toolOutputs: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3275,6 +3277,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				shiftedReads: false,
 				settingsReads: false,
 				rosterReads: false,
+				toolOutputs: false,
 			},
 		});
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3359,6 +3362,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				shiftedReads,
 				settingsReads: listReads,
 				rosterReads: listReads,
+				toolOutputs: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
