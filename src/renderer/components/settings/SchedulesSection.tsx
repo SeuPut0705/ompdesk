@@ -309,7 +309,12 @@ export function SchedulesSection() {
 					</ul>
 				)}
 				{state.runs.length > RUNS_SHOWN && (
-					<Button onClick={() => setShowAllRuns(value => !value)} size="sm" variant="ghost">
+					<Button
+						aria-expanded={showAllRuns}
+						onClick={() => setShowAllRuns(value => !value)}
+						size="sm"
+						variant="ghost"
+					>
 						{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: state.runs.length })}
 					</Button>
 				)}

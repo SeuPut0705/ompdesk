@@ -182,7 +182,12 @@ export function WorkOutcome({
 					{restCommands.map(renderCommand)}
 				</ul>
 				{rows > VISIBLE_ROWS ? (
-					<button type="button" className="omp-work-outcome-more" onClick={() => setShowAll(value => !value)}>
+					<button
+						type="button"
+						className="omp-work-outcome-more"
+						aria-expanded={showAll}
+						onClick={() => setShowAll(value => !value)}
+					>
 						{showAll ? t("chat.work.fewer") : t("chat.work.more", { count: rows - VISIBLE_ROWS })}
 					</button>
 				) : null}

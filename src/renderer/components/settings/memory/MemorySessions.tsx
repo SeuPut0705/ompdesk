@@ -158,7 +158,13 @@ function ObservationBlock({ observation }: { observation: AiMemoryObservation })
 				</pre>
 			)}
 			{long && (
-				<Button className="self-start" onClick={() => setMore(value => !value)} size="sm" variant="ghost">
+				<Button
+					className="self-start"
+					aria-expanded={more}
+					onClick={() => setMore(value => !value)}
+					size="sm"
+					variant="ghost"
+				>
 					{t(more ? "memory.sessions.less" : "memory.sessions.more")}
 				</Button>
 			)}

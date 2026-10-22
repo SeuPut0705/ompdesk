@@ -192,6 +192,7 @@ export function DebugRenderer({ args, result, isError, isPartial, partialResult 
 				<div>
 					<button
 						type="button"
+						aria-expanded={varsOpen}
 						onClick={() => setVarsOpen(v => !v)}
 						className="flex items-center gap-1 text-omp-xs font-semibold uppercase tracking-wider text-[var(--omp-dim)] transition-colors hover:text-[var(--omp-text)]"
 					>

@@ -236,7 +236,12 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 					</div>
 					{collapsible && (
 						<div>
-							<Button onClick={() => setBodyExpanded(expanded => !expanded)} size="sm" variant="ghost">
+							<Button
+								aria-expanded={bodyExpanded}
+								onClick={() => setBodyExpanded(expanded => !expanded)}
+								size="sm"
+								variant="ghost"
+							>
 								{bodyExpanded
 									? t("prCenter.collapse")
 									: t("prCenter.expand", { count: String(bodyLines.length - BODY_COLLAPSE_LINES) })}

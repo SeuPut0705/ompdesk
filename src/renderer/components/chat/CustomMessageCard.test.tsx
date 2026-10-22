@@ -46,6 +46,12 @@ describe("async-result card", () => {
 		expect(markup).not.toContain("[task]");
 	});
 
+	it("says whether a job's long output is open on its more-lines toggle", () => {
+		const output = Array.from({ length: 8 }, (_, line) => `line ${line + 1}`).join("\n");
+		const markup = html(asyncResult({ jobs: [{ jobId: "batch-1", type: "bash", label: "gui tests" }] }, output));
+		expect(markup).toMatch(/<button[^>]*aria-expanded="false"[^>]*>[^<]*more line/);
+	});
+
 	it("names a subagent job once when its id is its label", () => {
 		const markup = html(
 			asyncResult({ jobs: [{ jobId: "Sleeper", type: "task", label: "Sleeper", durationMs: 67_000 }] }),

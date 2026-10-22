@@ -213,6 +213,7 @@ function CollapsibleText({ text, lines, className }: { text: string; lines: numb
 			{omitted > 0 && (
 				<button
 					type="button"
+					aria-expanded={open}
 					onClick={() => setOpen(v => !v)}
 					className="omp-pressable mt-0.5 text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
 				>
