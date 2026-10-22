@@ -128,7 +128,7 @@ export function ProviderPicker({
 									<li key={provider.id}>
 										<button
 											aria-label={t("providers.picker.connect", { provider: provider.name })}
-											className="flex h-8 w-full items-center gap-2 rounded-(--sc-radius-md) px-2 text-left text-sc-md text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+											className="flex h-8 w-full items-center gap-2 rounded-(--sc-radius-md) px-2 text-left text-sc-md text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
 											data-provider-connect={provider.id}
 											disabled={!loginReady || busy}
 											onClick={() => void login.start(provider.id)}
@@ -216,7 +216,7 @@ function FeaturedCard({
 			) : (
 				<button
 					aria-label={t("providers.picker.connect", { provider: def.label })}
-					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) outline-none hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
+					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
 					data-provider-connect={startId}
 					disabled={!loginReady || busy}
 					onClick={() => void login.start(startId)}
@@ -241,7 +241,7 @@ function FeaturedCard({
 			)}
 			{!connected && apiKeyId && (
 				<button
-					className="mt-auto flex min-h-11 w-full items-center rounded-b-(--sc-radius-lg) border-t border-(--sc-border-subtle) py-1 pr-3 pl-11 text-left text-sc-sm text-(--sc-text-muted) underline-offset-2 outline-none hover:bg-(--sc-hover) hover:text-(--sc-text) hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+					className="mt-auto flex min-h-11 w-full items-center rounded-b-(--sc-radius-lg) border-t border-(--sc-border-subtle) py-1 pr-3 pl-11 text-left text-sc-sm text-(--sc-text-muted) underline-offset-2 hover:bg-(--sc-hover) hover:text-(--sc-text) hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
 					data-provider-connect={apiKeyId}
 					disabled={!loginReady || busyId(apiKeyId)}
 					onClick={() => void login.start(apiKeyId)}

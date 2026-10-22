@@ -2275,7 +2275,7 @@ export function Sidebar() {
 							>
 								<button
 									aria-expanded={archivedOpen || query.length > 0}
-									className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+									className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 									data-roving-item="archived"
 									onClick={() => setArchivedOpen(!archivedOpen)}
 									onFocus={() => setFocusKey("archived")}

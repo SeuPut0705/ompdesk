@@ -149,7 +149,7 @@ function DeviceHeader({
 			<button
 				{...handle}
 				aria-expanded={!folded}
-				className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) outline-none select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 				data-roving-item={`device:${deviceId}`}
 				data-sidebar-device-toggle={deviceId}
 				onClick={() => useSidebarFolds.getState().setDeviceFolded(deviceId, !folded)}

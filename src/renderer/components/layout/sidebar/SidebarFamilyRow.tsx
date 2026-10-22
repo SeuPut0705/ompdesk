@@ -102,7 +102,7 @@ export function FamilyRow({
 				<button
 					{...buttonProps}
 					aria-current={selected ? "true" : undefined}
-					className="min-w-0 flex-1 truncate text-left text-sc-sm text-(--sc-text-muted) outline-none after:absolute after:inset-0 after:rounded-(--sc-radius-md) focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring)"
+					className="min-w-0 flex-1 truncate text-left text-sc-sm text-(--sc-text-muted) after:absolute after:inset-0 after:rounded-(--sc-radius-md) focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring)"
 					onClick={onOpen}
 					title={tooltip}
 					type="button"

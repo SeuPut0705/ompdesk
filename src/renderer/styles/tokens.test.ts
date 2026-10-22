@@ -248,3 +248,28 @@ describe("usage gauge fills", () => {
 		);
 	});
 });
+
+describe("focus ring utilities", () => {
+	it("never pair outline-none with a focus-visible outline, which it switches off", () => {
+		// Tailwind 4's `outline-none` sets `--tw-outline-style: none`, and `focus-visible:outline-2` draws
+		// `outline-style: var(--tw-outline-style)`: together the ring never shows (the sidebar's usage toggle, every
+		// ListRow title). Without `outline-none` the base `:focus-visible` rule and the utility draw it.
+		const offenders: string[] = [];
+		const walk = (folder: string) => {
+			for (const entry of readdirSync(folder, { withFileTypes: true })) {
+				const path = join(folder, entry.name);
+				if (entry.isDirectory()) walk(path);
+				else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+					for (const line of readFileSync(path, "utf8").split("\n"))
+						if (
+							/(?:^|[\s"`'])outline-none\b/.test(line) &&
+							/focus-visible:(?:after:)?outline-(?:\d|\()/.test(line)
+						)
+							offenders.push(`${path}: ${line.trim().slice(0, 120)}`);
+				}
+			}
+		};
+		walk(join(dir, ".."));
+		expect(offenders).toEqual([]);
+	});
+});

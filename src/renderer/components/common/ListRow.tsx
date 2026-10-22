@@ -142,7 +142,7 @@ export function ListRow({
 					<button
 						{...buttonProps}
 						aria-current={selected ? "true" : undefined}
-						className="block w-full truncate text-left text-sc-md text-(--sc-text) outline-none after:absolute after:inset-0 after:rounded-(--sc-radius-md) focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed"
+						className="block w-full truncate text-left text-sc-md text-(--sc-text) after:absolute after:inset-0 after:rounded-(--sc-radius-md) focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed"
 						disabled={disabled}
 						onClick={onClick}
 						title={titleText}

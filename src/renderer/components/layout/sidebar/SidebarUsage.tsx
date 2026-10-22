@@ -51,7 +51,7 @@ export function SidebarUsage({
 		>
 			<button
 				aria-expanded={!collapsed}
-				className="flex h-6 w-full min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) outline-none hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				className="flex h-6 w-full min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
 				data-sidebar-usage-toggle
 				onClick={() => useSidebarFolds.getState().setUsageCollapsed(!collapsed)}
 				type="button"

@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cx } from "../../../lib/format";
 
 const BASE =
-	"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)";
+	"flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)";
 
 export interface SidebarFoldButtonProps extends Omit<ComponentProps<"button">, "type"> {
 	folded: boolean;
