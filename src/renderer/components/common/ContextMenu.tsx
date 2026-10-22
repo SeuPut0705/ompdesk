@@ -206,7 +206,7 @@ export function ContextMenu({
 		// item that moved focus on purpose (a picker or overlay it opened, which
 		// focused its own field as it mounted) keeps it.
 		const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-		const restorePlace = restore ? placeOf(restore) : [];
+		const restorePlace = placeOf(restore);
 		const panel = menuRef.current;
 		const unregisterLayer = registerDialogLayer(panel);
 		const onDown = (event: PointerEvent) => {

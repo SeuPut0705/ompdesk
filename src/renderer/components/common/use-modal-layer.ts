@@ -24,7 +24,7 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 	useBackLayer(open, onClose);
 	const restoreRef = useRef<HTMLElement | null>(null);
 	/** Where the opener sat, for when the dialog's action removed it (a confirmed delete takes its row). */
-	const restorePlace = useRef<Place>([]);
+	const restorePlace = useRef<Place>(placeOf(null));
 	/** The dialog closed while topmost: focus goes back to its opener once the commit is over. */
 	const restorePending = useRef(false);
 
@@ -32,7 +32,7 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 		if (!open) return;
 		const unregisterLayer = registerDialogLayer(panelRef.current);
 		restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-		restorePlace.current = restoreRef.current ? placeOf(restoreRef.current) : [];
+		restorePlace.current = placeOf(restoreRef.current);
 		const panel = panelRef.current;
 		const active = document.activeElement;
 		// Preserve a caller-autofocused control inside the new dialog, but never

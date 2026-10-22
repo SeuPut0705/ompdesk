@@ -325,6 +325,42 @@ describe("Modal", () => {
 		}
 	});
 
+	it("leaves focus to the tab change when the opener's session tab was switched away", async () => {
+		// The workspace slot shows one session at a time: ⌃Tab's switcher closes over the new tab's pane, which took the
+		// old one's place. Its transcript is no place near the old composer, and focusing it kept the new composer from
+		// getting the next keystroke (composer-flows e2e).
+		const slot = document.createElement("div");
+		const oldPane = document.createElement("div");
+		oldPane.setAttribute("data-tab-id", "tab-a");
+		const opener = document.createElement("textarea");
+		oldPane.append(opener);
+		slot.append(oldPane);
+		document.body.appendChild(slot);
+		activeElement = opener;
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			activeElement = this;
+		});
+
+		await mount(
+			<Modal open onClose={() => {}} title="Switch tab">
+				<button type="button">Tab B</button>
+			</Modal>,
+		);
+		const newPane = document.createElement("div");
+		newPane.setAttribute("data-tab-id", "tab-b");
+		const transcript = document.createElement("div");
+		transcript.tabIndex = 0;
+		newPane.append(transcript);
+		oldPane.replaceWith(newPane);
+		await render(
+			<Modal open={false} onClose={() => {}} title="Switch tab">
+				<button type="button">Tab B</button>
+			</Modal>,
+		);
+		expect(activeElement).not.toBe(transcript);
+		slot.remove();
+	});
+
 	it("closes only the topmost dialog for each Escape press", async () => {
 		const closeBottom = vi.fn();
 		const closeTop = vi.fn();

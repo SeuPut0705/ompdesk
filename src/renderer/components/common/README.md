@@ -21,7 +21,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | An icon-only action | `IconButton` (`label` required: name and tooltip; `pressed` toggles, `loading` shows work) | `Button` without text, a bare icon with a `title` |
 | Copy to clipboard | `CopyButton` | your own icon swap |
 | An action that reads as a link inside text (a name in a sentence, "Add a note", a commit hash) | `LinkButton` (`accent`, `muted`) | an underlined `<button>` of your own |
-| A list of actions | `MenuButton` (⋯ menus), `ContextMenu` (right click, `anchorFromEvent`); both, like `Modal`, give focus back to the opener or, when the chosen item removed it, to what took its place (`focus-place.ts`) | a hand-made popover of buttons |
+| A list of actions | `MenuButton` (⋯ menus), `ContextMenu` (right click, `anchorFromEvent`); both, like `Modal`, give focus back to the opener or, when the chosen item removed it, to what took its place in the same session tab (`focus-place.ts`; a tab switch hands focus to the new composer instead) | a hand-made popover of buttons |
 | A setting that applies at once | `Switch` (bare), `SwitchField` (settings-style row), `SwitchTile` (two-column grid) | a checkbox |
 | A choice applied on submit, or rows picked from a list | `Checkbox` (`indeterminate` for select-all), `Radio` | a raw `<input type="checkbox">` |
 | One of 2–5 short values, applied at once (thinking level, approval, rotation) | `SegmentedChoice` (a radio group; `fit`, `selectOnArrow`) | `Tabs` (they switch views), hand-made `role="radio"` buttons |

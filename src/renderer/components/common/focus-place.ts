@@ -7,18 +7,31 @@ import { isTabbable } from "./popover-focus";
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** Each ancestor of an element, nearest first, with the index of the child on the way to it. */
-export type Place = Array<{ parent: Element; index: number }>;
+/**
+ * Each ancestor of an element, nearest first, with the index of the child on the way to it, and the session tab the
+ * element belonged to (a session pane's `data-tab-id`).
+ */
+export interface Place {
+	steps: Array<{ parent: Element; index: number }>;
+	tab: string | null;
+}
 
-export function placeOf(element: Element): Place {
-	const place: Place = [];
+const NOWHERE: Place = { steps: [], tab: null };
+
+export function placeOf(element: Element | null): Place {
+	if (!element) return NOWHERE;
+	const steps: Place["steps"] = [];
 	for (let node = element; node.parentElement; node = node.parentElement) {
-		place.push({
+		steps.push({
 			parent: node.parentElement,
 			index: Array.prototype.indexOf.call(node.parentElement.children, node),
 		});
 	}
-	return place;
+	return { steps, tab: tabOf(element) };
+}
+
+function tabOf(element: Element): string | null {
+	return element.closest("[data-tab-id]")?.getAttribute("data-tab-id") ?? null;
 }
 
 /**
@@ -27,7 +40,12 @@ export function placeOf(element: Element): Place {
  * focus of a dialog whose action removed its opener fell to the page, and the next Tab started over from the top.
  */
 export function focusNear(place: Place, panel: HTMLElement | null): void {
-	for (const { parent, index } of place) {
+	// An opener whose session tab was switched away (⌃Tab's switcher closes over the new tab, whose composer took the
+	// old one's place) has no place near it: the tab change hands focus to the new composer (lib/tab-focus.ts), and a
+	// control picked here (the new transcript) would keep it from doing so.
+	const tabs = Array.from(document.querySelectorAll("[data-tab-id]"), pane => pane.getAttribute("data-tab-id"));
+	if (place.tab !== null && !tabs.includes(place.tab)) return;
+	for (const { parent, index } of place.steps) {
 		if (!parent.isConnected) continue;
 		// The body holds portals (other dialogs, the toast stack): focus there is no place near the opener, and a
 		// toast holding focus never expires. An opener whose whole layer went (a gallery dialog) has no place left.
@@ -39,6 +57,7 @@ export function focusNear(place: Place, panel: HTMLElement | null): void {
 					element instanceof HTMLElement &&
 					element.matches(FOCUSABLE) &&
 					isTabbable(element) &&
+					tabOf(element) === place.tab &&
 					!panel?.contains(element),
 			);
 			if (children.indexOf(child) < index) candidates.reverse();
