@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.59.0] - 2026-10-22
+
+사이드바의 코드/채팅 탭이 사라지고 한 목록에 프로젝트, 그 아래 채팅이 나와요. 보낸 메시지가 입력한 줄바꿈을 그대로 보여 줘요.
+
+### 바뀐 것
+- 사이드바에 코드/채팅 전환이 없어요. 프로젝트들 아래에 기기마다 '채팅' 섹션이 있고, 접을 수 있으며 버튼 하나로 새 채팅을 열어요. 검색 한 줄이 프로젝트와 채팅을 함께 찾아요.
+- 오토파일럿이 한 사이클에 서로 독립된 개선 여러 개를 동시에 진행하고, 항목마다 커밋해요.
+
+### 고친 것
+- Shift+Enter로 넣은 줄바꿈이 보낸 메시지에서 한 줄로 붙어 보였어요.
+- 휴대폰 입력창 아래 줄의 칩, 오토파일럿 '실행 보기' 칩, 컨텍스트 링이 손가락으로 누르기에 작았어요. 이제 36px 터치 영역이에요.
+- 연결한 컴퓨터로 가는 데이터를 줄였어요: 컨텍스트 링은 현재 모델의 압축 시점만, 오토파일럿 상태는 바뀐 부분만 받아요(두 컴퓨터가 모두 이 버전일 때).
+
+<!-- en -->
+
+The sidebar's Code/Chat tabs are gone: one list shows the projects and then the chats. A sent message keeps the line breaks you typed.
+
+### Changed
+- The sidebar has no Code/Chat switch. Under the projects each device has a Chats section, foldable, with one button for a new chat; one search finds projects and chats alike.
+- Autopilot works on several independent improvements side by side in one cycle, with one commit each.
+
+### Fixed
+- Line breaks typed with Shift+Enter ran together into one line in the sent message.
+- On phones the composer's chips, Autopilot's "Show the run" chip and the context ring were small to tap; they are now 36 px touch targets.
+- Less data crosses to a paired computer: the context ring asks only for the current model's compaction point, and an Autopilot run's status sends only what changed (once both computers run this version).
+
 ## [0.58.0] - 2026-10-22
 
 오토파일럿의 남은 후속 작업이 오래돼도 목록에서 사라지지 않고 어느 사이클이 남겼는지 보여요. 휴대폰과 태블릿의 실행 설정 시트에서 스위치와 (i)를 누르기 쉬워졌어요.
