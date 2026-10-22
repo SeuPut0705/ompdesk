@@ -1182,13 +1182,27 @@ html[data-shell="phone"] :is(.omp-composer-toolbar, .omp-composer-send-cluster) 
 	--hit-gap-y: 18px;
 }
 
-/* The chips of the row's scroller sit 4 px apart (the row has to hold +, Run, Thinking, Delegation, the model and the
-   context chip at 390 px, and the model chip is its provider mark and a short name): each one's reach stops at the
-   midpoint, so a chip never covers its neighbour's edge. Stop, Send and the queue pill keep the 8 px and 18 px above. */
-html[data-shell="phone"] .omp-composer-scroll,
+/* The chips of the row's scroller sit 10 px apart (the row scrolls sideways, so the extra 6 px per gap costs no chrome
+   height): each one's reach stops at the midpoint, so a chip never covers its neighbour's edge. A 26 px chip (inside
+   its border) reached 30 px across with the old 4 px gap, 32 for the wider ones (22 Oct 2026 responsive audit:
+   30×40 to 32×42); 10 px gives 36. Stop, Send and the queue pill keep the 8 px and 18 px above. */
+html[data-shell="phone"] .omp-composer-scroll {
+	gap: 10px;
+	--hit-gap-x: 10px;
+}
+
+/* The context ring at the scroller's end: 28 px, so 8 px reaches 36 (it reached 32 at 4 px, 22 Oct 2026 audit). */
 html[data-shell="phone"] .omp-composer-scroll .omp-composer-send-cluster {
-	gap: 4px;
-	--hit-gap-x: 4px;
+	gap: 8px;
+	--hit-gap-x: 8px;
+}
+
+/* Autopilot's "Show the run" chip is an icon chip 24 px wide (22 inside its border): 10 px gaps reached 32 and the
+   audit measured 26×40 (22 Oct 2026). It bounds at 14 px (22 + 14 = 36), and 2 px of margin on each side keeps the
+   7 px it reaches clear of the 5 px its neighbours reach into the 12 px between them. */
+html[data-shell="phone"] .omp-composer-scroll > [data-autopilot-chip-open] {
+	margin-inline: 2px;
+	--hit-gap-x: 14px;
 }
 
 /* Prompt suggestions on touch: ONE row above the composer, scrolling sideways (never wrapping, so the chrome
