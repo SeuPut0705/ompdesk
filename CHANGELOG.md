@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.61.14] - 2026-10-23
+
+키보드와 화면 읽기 프로그램으로 작업 기록을 볼 때 걸리던 곳을 고쳤어요.
+
+### 고친 것
+- 파일 쓰기 카드의 내용 펼침 버튼을 화면 읽기 프로그램이 "파일 내용"이라고 읽어요. 펼칠 때 화살표가 돌아가고 키보드 포커스 테두리가 보여요.
+- 작업판의 "+N개 더", 어드바이저 카드의 "메모 N개 더", 진단 목록의 "진단 N개 더"를 누르면 포커스가 페이지 처음으로 빠지지 않고 새로 드러난 첫 줄로 가요.
+
+<!-- en -->
+
+Smoother keyboard and screen reader use in the work record.
+
+### Fixed
+- The write card's content toggle reads as "File content" to screen readers, its chevron turns as it opens and it shows the keyboard focus ring.
+- The work board's "+N more", the advisor card's "N more notes" and the diagnostics list's "N more" no longer drop the keyboard focus at the top of the page: it moves to the first row they reveal.
+
 ## [0.61.13] - 2026-10-23
 
 검색 창의 키보드 이동과 화면 읽기 프로그램이 읽는 내용을 다듬었어요.
