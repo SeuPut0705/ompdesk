@@ -29,6 +29,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { processAlive } from "../src/main/process-alive";
 
 export type SlotKind = "build" | "playwright" | "vitest" | "other";
 export const SLOT_KINDS: readonly SlotKind[] = ["build", "playwright", "vitest", "other"];
@@ -176,15 +177,6 @@ function removeStale(locks: Locks, dir: string, what: string, holder: string): v
 	}
 	locks.say(`[build-lock] removing a stale ${what} held by ${holder}`);
 	fs.rmSync(gone, { recursive: true, force: true });
-}
-
-function processAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
 }
 
 /** Live waiters of `kind`, oldest first; dead and untouched tickets are dropped. */

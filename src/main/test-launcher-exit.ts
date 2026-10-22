@@ -1,15 +1,8 @@
+import { processAlive } from "./process-alive";
+
 /** Set by playwright.config.ts in every runner and worker: the pid of the process that launches test apps. */
 export const LAUNCHER_PID_ENV = "OMP_GUI_TEST_LAUNCHER_PID";
 const CHECK_MS = 1000;
-
-const pidAlive = (pid: number): boolean => {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
-};
 
 /**
  * A test launch ends when the process that launched it is gone. Playwright's exit handler is the only thing that
@@ -23,7 +16,7 @@ const pidAlive = (pid: number): boolean => {
 export function exitWithLauncher(
 	env: NodeJS.ProcessEnv,
 	exit: () => void,
-	alive: (pid: number) => boolean = pidAlive,
+	alive: (pid: number) => boolean = processAlive,
 ): NodeJS.Timeout | null {
 	const launcher = Number(env[LAUNCHER_PID_ENV]);
 	delete env[LAUNCHER_PID_ENV];

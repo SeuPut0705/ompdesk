@@ -15,7 +15,11 @@
 /** How often a worker looks for its parent. */
 export const ORPHAN_CHECK_MS = 2_000;
 
-/** True while the process `pid` exists (signal 0 tests for it and sends nothing; EPERM is a live process of another user). */
+/**
+ * True while the process `pid` exists (signal 0 tests for it and sends nothing; EPERM is a live process of another
+ * user). `src/main/process-alive.ts`'s rule, copied: this file's test runs it in plain Node, which cannot import an
+ * extensionless TypeScript module.
+ */
 function alive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
