@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.9] - 2026-10-23
+
+연결한 컴퓨터에 다시 붙을 때 받는 양이 줄고, 접기 화살표가 부드럽게 돌아요.
+
+### 빨라진 것
+- 연결이 끊겼다 돌아온 기기가 탭의 Autopilot 상태, 설정, 대화 내용을 처음부터 다시 받지 않고 바뀐 부분만 받아요(재연결 한 번에 약 1MB가 줄어요).
+
+### 고친 것
+- 작업판에서 사라졌다 돌아오고 다시 사라진 행이 첫 퇴장의 남은 시간만큼만 흐려지고 끊겼어요. 이제 매번 끝까지 흐려져요.
+- 대화의 작업 카드, 도구 카드, 생각, 읽기 묶음, 할 일 줄의 접기 화살표가 돌지 않고 바로 뒤집혔어요. 이제 펼칠 때 돌아요.
+
+<!-- en -->
+
+A device that reconnects downloads less, and disclosure arrows turn smoothly.
+
+### Faster
+- A device whose link comes back no longer downloads its tab's Autopilot status, settings and transcript whole: it gets only what changed (about 1 MB less per reconnect).
+
+### Fixed
+- A work board row that left, came back and left again faded only for what was left of its first exit. It now fades out fully every time.
+- The disclosure arrows of work cards, tool cards, thinking, read groups and todo lines flipped instead of turning. They now turn as the row opens.
+
 ## [0.61.8] - 2026-10-23
 
 Autopilot을 일시정지하면 확실히 멈춰요.
