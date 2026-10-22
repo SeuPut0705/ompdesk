@@ -43,7 +43,7 @@ export {
 	type MasterDetailProps,
 	useMasterDetail,
 } from "./MasterDetail";
-export { Modal, type ModalPlacement, type ModalProps, type ModalSize } from "./Modal";
+export { Modal, type ModalAnchor, type ModalPlacement, type ModalProps, type ModalSize } from "./Modal";
 export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";
 export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover";

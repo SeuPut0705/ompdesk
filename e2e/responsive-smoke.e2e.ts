@@ -527,3 +527,35 @@ test("responsive audit: a scroller lets through only what it scrolls", async () 
 	expect(flagged.some(at => at.includes("scrolled"))).toBe(false);
 	await page.close();
 });
+
+/**
+ * The model picker opens right above the composer it changes (its right edge on the composer's, the model chip's
+ * side) and leaves the window behind it as it is: no dimming, no blur (the user's call, 22 Oct 2026).
+ */
+test("responsive smoke 1280 desktop: the model picker sits on the composer and dims nothing", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 1280,
+		height: 800,
+		dpr: 1,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await openLook(browser, look, { origin });
+	await show(page, look, "model-picker");
+	const panel = await page.locator(".omp-dialog-panel").boundingBox();
+	const composer = await page.locator('.omp-session-pane[data-active="true"] .omp-composer-box').boundingBox();
+	if (!panel || !composer) throw new Error("expected the picker and the composer");
+	expect(panel.y + panel.height).toBeLessThanOrEqual(composer.y);
+	expect(composer.y - (panel.y + panel.height)).toBeLessThanOrEqual(16);
+	expect(Math.abs(panel.x + panel.width - (composer.x + composer.width))).toBeLessThanOrEqual(2);
+	const overlay = await page.locator(".omp-dialog-overlay").evaluate(node => ({
+		background: getComputedStyle(node).backgroundColor,
+		blur: getComputedStyle(node).backdropFilter,
+	}));
+	expect(overlay.background).toBe("rgba(0, 0, 0, 0)");
+	expect(overlay.blur).toBe("none");
+	await page.context().close();
+});

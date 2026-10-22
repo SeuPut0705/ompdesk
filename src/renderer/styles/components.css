@@ -527,6 +527,11 @@
 	max-height: min(72dvh, 36rem);
 }
 
+/* A dialog placed above its anchor (the model picker over the composer) is no taller than the room above it. */
+.omp-dialog-overlay--above .omp-dialog-panel {
+	max-height: min(var(--omp-dialog-room), 36rem);
+}
+
 .omp-dialog-size-full {
 	width: calc(100vw - 2rem);
 	height: calc(100dvh - 2rem);

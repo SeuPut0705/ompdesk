@@ -13,7 +13,7 @@
  */
 
 import { X } from "lucide-react";
-import { forwardRef, type HTMLAttributes, type ReactNode, useId, useRef } from "react";
+import { type CSSProperties, forwardRef, type HTMLAttributes, type ReactNode, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { useShellMode } from "../../hooks/use-shell-mode";
@@ -25,8 +25,17 @@ import { useModalLayer } from "./use-modal-layer";
 
 export type ModalSize = "sm" | "md" | "lg" | "full" | "picker" | "picker-compact";
 
-/** Overlay alignment: centered (default) or top-anchored (command-palette style). */
-export type ModalPlacement = "center" | "top";
+/**
+ * Overlay alignment: centered (default), top-anchored (command-palette style), or `above` the box `anchor` names
+ * (the model picker over its composer), its right edge on the box's.
+ */
+export type ModalPlacement = "center" | "top" | "above";
+
+/** The viewport box a dialog placed `above` sits on (`getBoundingClientRect`'s top and right). */
+export interface ModalAnchor {
+	top: number;
+	right: number;
+}
 
 const SIZE_CLASSES: Record<ModalSize, string> = {
 	sm: "omp-dialog-size-sm",
@@ -120,8 +129,12 @@ export interface ModalProps {
 	size?: ModalSize;
 	/** Hide the title bar entirely (chromeless dialogs like the command palette). */
 	chromeless?: boolean;
-	/** Overlay alignment: centered (default) or top-anchored picker style. */
+	/** Overlay alignment: centered (default), top-anchored picker style, or above `anchor`. */
 	placement?: ModalPlacement;
+	/** For placement `above`: the box to sit on. Without one the dialog falls back to `top`. */
+	anchor?: ModalAnchor | null;
+	/** Dim and blur what is behind the dialog (default). Off: the window stays as it is; a click outside still closes. */
+	backdrop?: boolean;
 	/** Accessible name for the dialog (required when chromeless — no visible title). */
 	ariaLabel?: string;
 	/** Extra classes for the panel. */
@@ -151,6 +164,8 @@ export function Modal({
 	size = "md",
 	chromeless,
 	placement = "center",
+	anchor,
+	backdrop = true,
 	ariaLabel,
 	panelClassName,
 	bodyClassName = "omp-body-pad px-5 py-4",
@@ -187,16 +202,31 @@ export function Modal({
 	// Render on the opening commit so the focus/layer effect sees a real panel.
 	// `mounted` only extends the closing phase for the exit animation.
 	if (!mounted || !shown) return null;
+	const above = placement === "above" && anchor && !sheet && !container ? anchor : null;
 
 	return createPortal(
 		<div
 			className={cx(
-				"omp-dialog-overlay inset-0 z-(--sc-z-dialog) flex justify-center bg-(--sc-overlay) p-4 backdrop-blur-[2px]",
+				"omp-dialog-overlay inset-0 z-(--sc-z-dialog) flex p-4",
+				backdrop && "bg-(--sc-overlay) backdrop-blur-[2px]",
 				container ? "absolute" : "fixed",
 				closing ? "omp-fade-out" : "omp-fade-in",
-				placement === "top" ? "items-start pt-[12dvh]" : "items-center",
+				above
+					? "omp-dialog-overlay--above items-end justify-end"
+					: placement === "center"
+						? "items-center justify-center"
+						: "items-start justify-center pt-[12dvh]",
 				sheet && "omp-dialog-overlay--sheet",
 			)}
+			style={
+				above
+					? ({
+							paddingBottom: `${Math.max(16, window.innerHeight - above.top + 8)}px`,
+							paddingRight: `${Math.max(16, window.innerWidth - above.right)}px`,
+							"--omp-dialog-room": `${Math.max(160, above.top - 24)}px`,
+						} as CSSProperties)
+					: undefined
+			}
 			inert={closing}
 			onMouseDown={event => {
 				if (closing) return;

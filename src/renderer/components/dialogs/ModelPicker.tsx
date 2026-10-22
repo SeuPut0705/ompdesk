@@ -14,6 +14,7 @@ import {
 	useCallback,
 	useEffect,
 	useId,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -33,7 +34,17 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ErrorDetail, Kbd, Modal, SearchField, SkeletonRows, Spinner } from "../common";
+import {
+	Badge,
+	Button,
+	ErrorDetail,
+	Kbd,
+	Modal,
+	type ModalAnchor,
+	SearchField,
+	SkeletonRows,
+	Spinner,
+} from "../common";
 import { ThinkingLevelField } from "../layout/composer/ThinkingControl";
 import { persistDefaultModel } from "../onboarding/default-model";
 import { ProviderMark } from "../settings/providers/ProviderMark";
@@ -129,6 +140,22 @@ export function ModelPicker() {
 			requestVersion.current++;
 		};
 	}, [open, load]);
+
+	// The picker opens over the focused session's composer, its right edge on the composer's (the model chip's
+	// side), and leaves the window as it is behind it. Without a composer on screen (a page open) it opens at the top.
+	const [anchor, setAnchor] = useState<ModalAnchor | null>(null);
+	useLayoutEffect(() => {
+		if (!open) return undefined;
+		const measure = () => {
+			const box = document
+				.querySelector('.omp-session-pane[data-active="true"] .omp-composer-box')
+				?.getBoundingClientRect();
+			setAnchor(box && box.width > 0 && box.height > 0 ? { top: box.top, right: box.right } : null);
+		};
+		measure();
+		window.addEventListener("resize", measure);
+		return () => window.removeEventListener("resize", measure);
+	}, [open]);
 
 	// Stock's MRU order; an omp without it (or a failed read) just shows no Recent group.
 	useEffect(() => {
@@ -309,12 +336,14 @@ export function ModelPicker() {
 
 	return (
 		<Modal
+			anchor={anchor}
 			ariaLabel={t("modelPicker.searchLabel")}
+			backdrop={false}
 			bodyClassName="p-0"
 			chromeless
 			onClose={close}
 			open={open}
-			placement="top"
+			placement={anchor ? "above" : "top"}
 			size="picker-compact"
 		>
 			<div className="flex h-full min-h-0 flex-col">
