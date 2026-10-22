@@ -976,12 +976,17 @@ html[data-platform="darwin"] .omp-sidebar-search {
    ============================================================================ */
 
 @media (prefers-reduced-motion: reduce) {
+	/* Animations end at once, still firing animationend (exits wait on it). Transitions do not run at all: at 0.01 ms
+	   every element still began one on any style change, so code that styled an element and measured it in the same
+	   task read the old value (mermaid's labels came out 0 wide and a five-node flowchart 2107×2188). Nothing waits
+	   on transitionend. */
 	*,
 	*::before,
 	*::after {
 		animation-duration: 0.01ms !important;
 		animation-iteration-count: 1 !important;
-		transition-duration: 0.01ms !important;
+		transition-duration: 0s !important;
+		transition-delay: 0s !important;
 	}
 
 

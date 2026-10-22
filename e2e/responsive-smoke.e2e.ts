@@ -344,3 +344,35 @@ test("responsive smoke 1100 desktop: Memory's tabs and the Run popover's choices
 	expect(found).toEqual([]);
 	await page.context().close();
 });
+
+/**
+ * With Reduce motion on (every look here emulates it), a diagram still lays out: the global rule once forced every
+ * element's transitions to 0.01 ms, so a label mermaid styled and then measured read its pre-transition size and the
+ * stress transcript's five-node flowchart came out 2107×2188 with its labels collapsed (22 Oct 2026).
+ */
+test("responsive smoke 1280 desktop: a mermaid diagram lays out under Reduce motion", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 1280,
+		height: 800,
+		dpr: 1,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await openLook(browser, look, { origin });
+	expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+	const diagram = page.locator('[data-figure="mermaid"] [data-zoomable-image] img').first();
+	await diagram.scrollIntoViewIfNeeded({ timeout: 30_000 });
+	await expect(diagram).toBeVisible();
+	const size = await diagram.evaluate(img => ({
+		width: (img as HTMLImageElement).naturalWidth,
+		height: (img as HTMLImageElement).naturalHeight,
+	}));
+	// About 200×300 laid out; the broken layout was ten times that.
+	expect(size.width).toBeGreaterThan(100);
+	expect(size.width).toBeLessThan(600);
+	expect(size.height).toBeLessThan(600);
+	await page.context().close();
+});
