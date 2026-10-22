@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.61.3] - 2026-10-22
+
+체크박스가 앱 어디서나 같은 모양과 크기로 그려지고, 고르는 창의 키보드 이동이 바로잡혔어요. 작업판이 연결한 컴퓨터를 덜 자주 묻습니다.
+
+### 고친 것
+- 설정, 대화상자, 변경 사항 목록의 체크박스와 라디오 버튼이 곳마다 크기가 달랐어요. 이제 모두 같은 크기와 강조색으로 그려져요.
+- 명령 팔레트, 세션·브랜치·파일 고르기 창에서 Tab을 누르면 결과 줄을 하나씩 거쳤어요. 이제 검색칸에서 Tab을 누르면 목록을 건너뛰어요.
+- 생각 수준, 도구 승인 같은 한 줄 선택에서 고른 값이 쓸 수 없는 값이면 키보드로 그 줄에 들어갈 수 없었어요.
+
+### 빨라진 것
+- 턴이 도는 동안 작업판이 파일을 읽기만 하는 호출이 끝날 때마다 아직 main에 없는 작업을 다시 읽었어요(연결한 컴퓨터의 탭은 분당 열 번 가까이). 이제 편집이나 명령처럼 체크아웃을 바꿀 수 있는 호출 뒤에만 읽어요.
+
+<!-- en -->
+
+Checkboxes look and size the same everywhere in the app, and keyboard movement in the pickers is fixed. The work board asks a paired computer less often.
+
+### Fixed
+- Checkboxes and radio buttons in Settings, dialogs and the Changes list had different sizes from place to place. They now all draw at one size in the accent colour.
+- In the command palette and the session, branch and file pickers, Tab walked through every result row. Tab from the search field now leaves the list.
+- In a one-line choice such as the thinking level or tool approval, the keyboard could not reach the row when its held value was unavailable.
+
+### Faster
+- While a turn ran, the work board read the branch's unlanded work again after every finished call, even one that only read files (about ten times a minute on a paired computer's tab). It now reads it only after a call that can change the checkout, such as an edit or a command.
+
 ## [0.61.2] - 2026-10-22
 
 연결한 컴퓨터에서 도는 세션도 사이드바에서 하위 세션과 서브에이전트를 보여 줘요. 휴대폰에서 붙어 있는 버튼이 서로의 탭을 가져가던 곳들을 고쳤어요.
