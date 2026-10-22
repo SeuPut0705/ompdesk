@@ -10,10 +10,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostView, RemoteState } from "../../../shared/ipc-types";
 import { LINK_NOTICE_GRACE_MS } from "../../../shared/link-notice";
+import { autoDeviceColor } from "../../lib/device-color";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useRemoteStore } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
+import { useSidebarFolds } from "../../stores/sidebar-folds";
 import { useTabsStore } from "../../stores/tabs";
 import { TitleBar } from "../layout/TitleBar";
 import { RemoteTabBanner } from "./RemoteTabBanner";
@@ -79,6 +81,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
 	useSessionStore.getState().reset();
+	useSidebarFolds.getState().reset();
 	vi.useRealTimers();
 });
 
@@ -117,6 +120,18 @@ describe("remote tab chip", () => {
 		expect(document.body.querySelector('[role="status"]')?.textContent).not.toContain(
 			translate("remote.tab.statusReconnecting"),
 		);
+	});
+
+	it("wears the device's color, the automatic one or the one chosen on its sidebar header", async () => {
+		useRemoteStore.getState().apply(remoteState([{ deviceId: "dev-studio", name: "studio", state: "online" }]));
+		seedTab("dev-studio");
+		await mount(<TitleBar />);
+		const chip = () => document.body.querySelector('[data-device-chip="dev-studio"]');
+		expect(chip()?.getAttribute("data-device-color")).toBe(autoDeviceColor("dev-studio"));
+		await act(async () => useSidebarFolds.getState().setDeviceColor("dev-studio", "pink"));
+		expect(chip()?.getAttribute("data-device-color")).toBe("pink");
+		await act(async () => useSidebarFolds.getState().setDeviceColor("dev-studio", "none"));
+		expect(chip()?.hasAttribute("data-device-color")).toBe(false);
 	});
 
 	it("shows no chip on a local tab", async () => {

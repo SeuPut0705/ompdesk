@@ -4588,7 +4588,8 @@ html[data-gpu="software"] .omp-working-arc-part[data-arc="head"] {
 .omp-device-header[data-device-color]:hover {
 	background-color: color-mix(in oklab, var(--device-color) 22%, transparent);
 }
-.omp-device-header[data-device-color] [data-device-glyph] {
+.omp-device-header[data-device-color] [data-device-glyph],
+[data-device-chip][data-device-color] [data-device-glyph] {
 	color: var(--device-color);
 }
 
