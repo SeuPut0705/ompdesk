@@ -109,7 +109,10 @@ test("system omp persists settings and sessions and serves every stats route", a
 		// No provider in this profile (Apple's keyless on-device model does not
 		// count), so the inline first-run setup takes the empty session.
 		const setup = page.getByRole("region", { name: "Set up OMPdesk", exact: true });
-		await expect(setup).toBeVisible();
+		// The check runs once the session is ready and reads omp's provider catalog first: on a cold hosted runner
+		// that read outlasted the default 10 s once (v0.59.0's release run), so the region gets the 30 s the
+		// sidecar's other real-omp waits here have.
+		await expect(setup).toBeVisible({ timeout: 30_000 });
 		await expect(setup.getByRole("searchbox", { name: "Search providers" })).toBeVisible();
 		// The popular providers are their own group on top, each with stock's own login id, and the rest follow.
 		const featured = setup.locator("[data-featured-provider]");
