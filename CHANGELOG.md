@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.12] - 2026-10-23
+
+키보드로 질문 카드와 목록을 다룰 때 걸리던 곳을 고쳤어요.
+
+### 고친 것
+- 질문이 여러 개인 카드에서 위쪽 단계 칩에 Tab으로 닿고, ←/→와 Home/End로 질문을 오가요. 화살표로 옮긴 뒤에도 포커스가 칩에 남아요.
+- 컴포저 자동완성, 입력 기록 검색, 기술 선택 목록에서 마우스를 한 행에 둔 채 키보드로 강조를 옮기면 두 행이 칠해지던 것을 하나만 칠해요.
+- 탭 개요 검색에서 결과가 없을 때 ↓를 누르면 결과가 다시 나와도 Enter가 아무것도 고르지 않던 것을 고쳤어요. 검색어를 바꾸면 강조가 맨 위 결과로 돌아가요.
+
+<!-- en -->
+
+Fixes for moving through question cards and lists with the keyboard.
+
+### Fixed
+- In a card with several questions, the step chips at the top are reachable with Tab, and ←/→ and Home/End move between questions; focus stays on the chip after an arrow.
+- The composer's completions, the history search and the skill picker draw one highlight: moving it with the keyboard while the pointer rests on another row no longer paints two rows.
+- In the tab overview's search, ↓ with no results no longer leaves Enter picking nothing once results come back, and a changed query starts at the top match.
+
 ## [0.61.11] - 2026-10-23
 
 연결한 컴퓨터끼리 주고받는 데이터가 약 3분의 1로 줄고, 키보드로 고르는 목록과 탭이 제대로 움직여요.
