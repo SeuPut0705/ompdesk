@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.6] - 2026-10-22
+
+키보드로 고르는 목록과 폰의 버튼 탭을 다듬었어요.
+
+### 고친 것
+- 명령 팔레트·세션·브랜치·모델·스킬 피커에서 검색칸이 결과 목록을 이끄는 칸이 됐어요. 화면 읽기 프로그램이 목록과 지금 고른 항목을 읽고, Tab 한 번이면 목록을 벗어나요.
+- 설정의 모델·프로바이더 선택에서 검색칸의 Enter가 첫 번째 일치 항목을 골라요(없으면 입력한 값). '직접 입력값 사용'과 '지우기' 행에도 화살표로 닿아요.
+- 320px 폰에서 두 줄로 넘어간 대화상자 아래쪽 버튼(모델 설정의 취소와 적용 등)과 설정 › 권한의 스캔 범위와 스캔 버튼이 서로의 탭을 가로채지 않아요.
+
+<!-- en -->
+
+Keyboard pickers and phone button taps, refined.
+
+### Fixed
+- In the command palette and the session, branch, model and skill pickers the search field now drives the result list: a screen reader reads the list and the highlighted row, and one Tab leaves the list.
+- In Settings' model and provider dropdowns Enter in the search picks the first match (or the typed value when nothing matches), and the arrows reach the "Use …" and "Clear" rows.
+- On a 320 px phone a dialog's buttons that wrap to a second line (model setup's Cancel and Apply, for one) and Settings › Permissions' scan scope and Scan no longer take each other's taps.
+
 ## [0.61.5] - 2026-10-22
 
 연결한 컴퓨터의 탭에서 서브에이전트가 일할 때 주고받는 양이 줄었고, 태블릿 사이드바에서 오프라인 컴퓨터 이름이 잘리지 않아요.
