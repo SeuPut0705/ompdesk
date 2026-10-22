@@ -81,7 +81,6 @@
 	"components/tools/renderers/Diagnostics.tsx": 1,
 	"components/tools/renderers/ReadGroupCard.tsx": 1,
 	"components/tools/renderers/WebSearchRenderer.tsx": 1,
-	"components/tools/renderers/WriteRenderer.tsx": 1,
 	"lib/diff.tsx": 1,
 	"lib/markdown.tsx": 1
 }

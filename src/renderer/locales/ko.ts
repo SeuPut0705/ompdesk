@@ -3477,6 +3477,7 @@ export const ko: Record<string, string> = {
 	"tools.read.reading": "읽는 중…",
 	"tools.read.empty": "내용 없음",
 	"tools.path.openFailed": "파일을 열 수 없어요",
+	"tools.write.content": "파일 내용",
 	"tools.write.lines": "{count}줄",
 	"tools.write.overwritten": "기존 파일을 덮어썼어요 (diff 없음)",
 	"tools.grep.searching": "검색 중…",

@@ -58,6 +58,8 @@ describe("WriteRenderer", () => {
 		expect(container.textContent).not.toContain("Overwrote");
 		expect(container.textContent).not.toContain("+1");
 
+		// The toggle is icons only: its name says what it opens.
+		expect(container.querySelector('button[aria-expanded="false"]')?.getAttribute("aria-label")).toBe("File content");
 		await expand();
 		expect(container.textContent).toContain("const a = 1;");
 	});

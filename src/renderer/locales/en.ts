@@ -3490,6 +3490,7 @@ export const en: Record<string, string> = {
 	"tools.read.reading": "Reading…",
 	"tools.read.empty": "No content",
 	"tools.path.openFailed": "Couldn't open file",
+	"tools.write.content": "File content",
 	"tools.write.lines": "{count} line{plural}",
 	"tools.write.overwritten": "Overwrote existing file (diff unavailable)",
 	"tools.grep.searching": "searching…",

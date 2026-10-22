@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FilePlus2, Settings2 } from "lucide-react";
+import { FilePlus2, Settings2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { DiffView } from "../../../lib/diff";
 import { cx, headLines, languageFromPath, resultDetails, resultText } from "../../../lib/format";
@@ -8,6 +8,7 @@ import { asRecord, asString } from "../../../lib/wire-value";
 import { CodeBlock } from "../../chat/CodeBlock";
 import { MermaidBlock } from "../../chat/MermaidBlock";
 import { SvgBlock } from "../../chat/SvgBlock";
+import { DisclosureButton } from "../../common";
 import { unifiedDiffStats } from "../diff-stats";
 import { PathLink } from "../media/PathLink";
 import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "../ToolCard";
@@ -218,19 +219,18 @@ export function WriteRenderer({
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-				<button
-					type="button"
-					onClick={() => setOpen(v => !v)}
-					aria-expanded={open}
-					className="flex shrink-0 items-center gap-1.5 transition-colors hover:text-[var(--omp-text)]"
-				>
-					{open ? (
-						<ChevronDown size={12} className="shrink-0 text-[var(--omp-dim)]" />
-					) : (
-						<ChevronRight size={12} className="shrink-0 text-[var(--omp-dim)]" />
-					)}
-					<FilePlus2 size={12} className="shrink-0 text-[var(--omp-dim)]" />
-				</button>
+				{/* Its own box: the disclosure is full width, this one is as wide as its icons. */}
+				<span className="flex shrink-0">
+					<DisclosureButton
+						aria-label={t("tools.write.content")}
+						chevronClassName="size-3 text-[var(--omp-dim)]"
+						className="gap-1.5 transition-colors hover:text-[var(--omp-text)]"
+						onToggle={() => setOpen(v => !v)}
+						open={open}
+					>
+						<FilePlus2 aria-hidden size={12} className="shrink-0 text-[var(--omp-dim)]" />
+					</DisclosureButton>
+				</span>
 				<PathLink path={openPath} className="truncate">
 					<ToolPathTarget path={path} />
 				</PathLink>
