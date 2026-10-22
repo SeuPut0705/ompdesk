@@ -23,6 +23,7 @@ export function JumpToLatest({ pinned, className, type, ...rest }: JumpToLatestP
 		<button
 			aria-hidden={pinned || undefined}
 			aria-label={label}
+			data-jump-to-latest
 			className={cx(
 				"absolute left-1/2 flex h-9 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--omp-border)] bg-[var(--omp-bg-elevated)] px-4 text-omp-md font-medium text-[var(--omp-text)] shadow-[var(--omp-shadow-md)] transition-all hover:bg-[var(--omp-selected-bg)]",
 				pinned ? "pointer-events-none translate-y-12 opacity-0" : "translate-y-0 opacity-100",

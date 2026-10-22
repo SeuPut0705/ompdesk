@@ -50,7 +50,8 @@ function followProbe(page: Page) {
 	const gap = () => scroll.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight);
 	const height = () => scroll.evaluate(node => node.scrollHeight);
 	const viewport = () => scroll.evaluate(node => node.clientHeight);
-	const jump = page.getByRole("button", { name: "Jump to latest", exact: true });
+	// While pinned the control leaves the accessibility tree (no role to find it by), so it is found by its hook.
+	const jump = page.locator("[data-jump-to-latest]").first();
 	// The control is always mounted and fades out while pinned, so Playwright's
 	// visibility check cannot tell "offered" from "hidden"; interactivity can.
 	const jumpOffered = () => jump.evaluate(node => getComputedStyle(node).pointerEvents !== "none");

@@ -298,7 +298,7 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 						)}
 					</div>
 				</div>
-				<JumpToLatest className="bottom-3" data-jump-to-latest onClick={stick.jumpToLatest} pinned={stick.pinned} />
+				<JumpToLatest className="bottom-3" onClick={stick.jumpToLatest} pinned={stick.pinned} />
 			</div>
 		</SessionRuntimeProvider>
 	);
