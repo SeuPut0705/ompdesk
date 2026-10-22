@@ -24,10 +24,10 @@ import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../
 import {
 	type HostLiveSession,
 	type HostView,
-	type IpcSessionsChanged,
 	IPC_EVENTS,
 	type IpcHostOmpUpdate,
 	type IpcHostSchedules,
+	type IpcSessionsChanged,
 	type RemoteDirListing,
 	type RemoteState,
 	type RemoteTailnetPhase,

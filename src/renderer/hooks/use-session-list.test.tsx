@@ -29,7 +29,7 @@ interface MockOmp {
 		delete: Mock<() => Promise<void>>;
 		rename: Mock<() => Promise<void>>;
 	};
-	events: { onSessionsChanged: Mock<(callback: () => void) => () => void> };
+	events: { onSessionsChanged: Mock<(callback: (change: { device?: string }) => void) => () => void> };
 }
 
 function session(path: string): SessionInfo {
@@ -47,7 +47,7 @@ function session(path: string): SessionInfo {
 	};
 }
 
-let onSessionsChanged: (() => void) | undefined;
+let onSessionsChanged: ((change: { device?: string }) => void) | undefined;
 let listResult: SessionInfo[];
 
 function installMockOmp(): MockOmp {
@@ -58,7 +58,7 @@ function installMockOmp(): MockOmp {
 			rename: vi.fn(async () => {}),
 		},
 		events: {
-			onSessionsChanged: vi.fn((callback: () => void) => {
+			onSessionsChanged: vi.fn((callback: (change: { device?: string }) => void) => {
 				onSessionsChanged = callback;
 				return () => {};
 			}),
@@ -128,7 +128,7 @@ describe("useSessionList silent refresh", () => {
 		// visible twitch).
 		listResult = [session("/s/one.jsonl"), session("/s/two.jsonl")];
 		await act(async () => {
-			onSessionsChanged?.();
+			onSessionsChanged?.({});
 		});
 		await flush(400);
 
@@ -157,7 +157,7 @@ describe("useSessionList silent refresh", () => {
 
 		// The next good read clears it; the error is not sticky.
 		await act(async () => {
-			onSessionsChanged?.();
+			onSessionsChanged?.({});
 		});
 		await flush(400);
 
@@ -197,8 +197,8 @@ describe("useSessionList silent refresh", () => {
 		// Same path/modified/size/title → the list keeps its rows and its array.
 		listResult = [session("/s/one.jsonl"), session("/s/two.jsonl")];
 		await act(async () => {
-			onSessionsChanged?.();
-			onSessionsChanged?.();
+			onSessionsChanged?.({});
+			onSessionsChanged?.({});
 		});
 		await flush(400);
 		expect(omp.sessions.list).toHaveBeenCalledTimes(2);
@@ -207,7 +207,7 @@ describe("useSessionList silent refresh", () => {
 		// One row grows: only that row is replaced.
 		listResult = [session("/s/one.jsonl"), { ...session("/s/two.jsonl"), size: 99 }];
 		await act(async () => {
-			onSessionsChanged?.();
+			onSessionsChanged?.({});
 		});
 		await flush(400);
 		const next = seen.at(-1);
@@ -229,7 +229,7 @@ describe("useSessionList silent refresh", () => {
 		});
 		listResult = [session("/s/one.jsonl"), session("/s/two.jsonl")];
 		await act(async () => {
-			onSessionsChanged?.();
+			onSessionsChanged?.({});
 		});
 		await flush(400);
 		// The debounced refresh waits behind the in-flight first read.
