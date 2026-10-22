@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.58.0] - 2026-10-22
+
+오토파일럿의 남은 후속 작업이 오래돼도 목록에서 사라지지 않고 어느 사이클이 남겼는지 보여요. 휴대폰과 태블릿의 실행 설정 시트에서 스위치와 (i)를 누르기 쉬워졌어요.
+
+### 바뀐 것
+- 작업 현황의 남은 후속 작업 줄마다 그 일을 남긴 사이클 번호(#N)가 보여요. 오래 기다린 항목을 알아볼 수 있어요.
+
+### 고친 것
+- 오토파일럿 실행이 길어지면 아무도 하지 않은 후속 작업이 30 사이클 뒤에 말없이 목록에서 사라졌어요. 이제 그 일을 한 사이클이 닫거나 ✕로 치울 때까지 남아요.
+- 휴대폰과 태블릿의 실행 설정 시트에서 스위치 타일의 (i)와 스위치가 손가락으로 누르기에 작았어요. 이제 서로를 가리지 않는 36px 터치 영역이에요.
+
+<!-- en -->
+
+An Autopilot follow-up no longer drops off the list as it ages, and each says which cycle left it. On phones and tablets the Run sheet's switches and (i) are easier to tap.
+
+### Changed
+- Each follow-up left on the work board shows the cycle that left it (#N), so one that has waited long stands out.
+
+### Fixed
+- In a long Autopilot run a follow-up nobody did vanished from the list 30 cycles later without a word; it now stays until a cycle that does it closes it or you dismiss it with ✕.
+- On phones and tablets a Run sheet switch tile's (i) and switch were small to tap; they are now 36 px touch targets that keep clear of each other.
+
 ## [0.57.0] - 2026-10-22
 
 오토파일럿 백로그가 없어지고, Windows 노트북 같은 좁은 데스크톱 창에서도 작업 현황이 채팅 오른쪽에 붙으며, Windows에서 오른쪽 패널 버튼이 창 버튼 줄 아래로 내려왔어요.
