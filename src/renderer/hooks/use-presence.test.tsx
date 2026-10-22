@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePresence } from "./use-presence";
 
 const { document, window } = parseHTML("<html><body></body></html>");
@@ -38,5 +38,27 @@ describe("usePresence", () => {
 		await act(async () => root?.render(<List items={["j1"]} />));
 		for (const rows of renders) expect(new Set(rows.map(row => row.replace(":exiting", ""))).size).toBe(rows.length);
 		expect(renders.at(-1)).toEqual(["j1"]);
+	});
+});
+
+describe("usePresence timers", () => {
+	it("gives a row that leaves again its whole exit, not what was left of the earlier one", async () => {
+		vi.useFakeTimers();
+		try {
+			root = createRoot(document.createElement("div") as unknown as Element);
+			await act(async () => root?.render(<List items={["j1"]} />));
+			await act(async () => root?.render(<List items={[]} />));
+			await act(async () => vi.advanceTimersByTime(60));
+			await act(async () => root?.render(<List items={["j1"]} />));
+			await act(async () => vi.advanceTimersByTime(60));
+			await act(async () => root?.render(<List items={[]} />));
+			// 180 ms after the first exit began: the earlier timer must not cut the second exit short.
+			await act(async () => vi.advanceTimersByTime(60));
+			expect(renders.at(-1)).toEqual(["j1:exiting"]);
+			await act(async () => vi.advanceTimersByTime(120));
+			expect(renders.at(-1)).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

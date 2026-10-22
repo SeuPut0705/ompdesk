@@ -14,12 +14,19 @@ export interface Presence<T> {
 export function usePresence<T>(items: readonly T[], keyOf: (item: T) => string, ms = 180): Presence<T>[] {
 	const previous = useRef<readonly T[]>(items);
 	const [ghosts, setGhosts] = useState<{ item: T; key: string; index: number }[]>([]);
-	const timers = useRef<number[]>([]);
+	// One timer per leaving key: a key that comes back cancels its exit, so leaving again starts a whole new one.
+	const timers = useRef(new Map<string, number>());
 	const keyRef = useRef(keyOf);
 	keyRef.current = keyOf;
 
 	useEffect(() => {
 		const keys = new Set(items.map(keyRef.current));
+		for (const key of keys) {
+			const timer = timers.current.get(key);
+			if (timer === undefined) continue;
+			window.clearTimeout(timer);
+			timers.current.delete(key);
+		}
 		const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 		const gone = reduced
 			? []
@@ -33,15 +40,20 @@ export function usePresence<T>(items: readonly T[], keyOf: (item: T) => string, 
 			return kept.length === current.length && added.length === 0 ? current : [...kept, ...added];
 		});
 		for (const entry of gone) {
-			timers.current.push(
-				window.setTimeout(() => setGhosts(current => current.filter(ghost => ghost.key !== entry.key)), ms),
+			window.clearTimeout(timers.current.get(entry.key));
+			timers.current.set(
+				entry.key,
+				window.setTimeout(() => {
+					timers.current.delete(entry.key);
+					setGhosts(current => current.filter(ghost => ghost.key !== entry.key));
+				}, ms),
 			);
 		}
 	}, [items, ms]);
 
 	useEffect(
 		() => () => {
-			for (const timer of timers.current) window.clearTimeout(timer);
+			for (const timer of timers.current.values()) window.clearTimeout(timer);
 		},
 		[],
 	);
