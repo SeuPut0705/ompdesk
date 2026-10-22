@@ -1532,16 +1532,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		affordance: { kind: "action", run: () => void focusWorkBoard() },
 	});
 	add({
-		name: "toggle-work-board",
-		label: t("cmd.workBoard"),
-		description: t("cmd.workBoard.desc"),
-		category: "settings",
-		affordance: {
-			kind: "action",
-			run: () => useUiStore.getState().setWorkBoard(!useUiStore.getState().workBoard),
-		},
-	});
-	add({
 		name: "expand-tools",
 		label: t("hotkeys.row.expandTools"),
 		category: "settings",

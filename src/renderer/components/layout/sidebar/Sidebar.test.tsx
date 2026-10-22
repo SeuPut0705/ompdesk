@@ -2937,8 +2937,9 @@ describe("Sidebar device sections", () => {
 		seedStores();
 		pairHost("online");
 		await mount(<Sidebar />);
-		const host = () => container.querySelector('[data-sidebar-device="dev-studio"] .omp-device-header');
-		const local = () => container.querySelector('[data-sidebar-device-header="local"]');
+		const host = () =>
+			container.querySelector('[data-sidebar-device="dev-studio"] .omp-device-header') as unknown as Element | null;
+		const local = () => container.querySelector('[data-sidebar-device-header="local"]') as unknown as Element | null;
 		const auto = host()?.getAttribute("data-device-color");
 		expect(DEVICE_COLORS).toContain(auto);
 		expect(local()?.hasAttribute("data-device-color")).toBe(false);

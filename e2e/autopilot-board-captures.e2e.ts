@@ -2,8 +2,7 @@
  * Opt-in captures of an Autopilot run's home on the work board (`OMP_GUI_AUTOPILOT_BOARD_SHOTS=<dir>`, optional
  * `OMP_GUI_AUTOPILOT_BOARD_LABEL=<prefix>`), on the dev harness (`vite.harness.config.ts`) with a run's status put into
  * the focused tab's Autopilot store. Every layout a run must be reachable in: the board docked in a wide window, a
- * narrow window, a split pane too narrow for the board, the side panel open on Terminal, the board dismissed with ✕
- * and a phone; each × light/dark × en/ko. Where the board cannot dock, the composer chip's "open" button expands the
+ * narrow window, a split pane too narrow for the board, the side panel open on Terminal and a phone; each × light/dark × en/ko. Where the board cannot dock, the composer chip's "open" button expands the
  * strip into the board. Writes `<label>-<layout>-<theme>-<lang>.png`.
  * Behaviour is covered by `WorkBoard.autopilot.test.tsx`, `ComposerModes.autopilot.test.tsx`, `work-board.test.ts`.
  */
@@ -32,14 +31,13 @@ async function freePort(): Promise<number> {
 	return promise;
 }
 
-type Layout = "wide" | "narrow" | "split" | "panel" | "dismissed" | "phone";
+type Layout = "wide" | "narrow" | "split" | "panel" | "phone";
 
 const LAYOUTS: readonly { layout: Layout; viewport: { width: number; height: number }; mobile?: boolean }[] = [
 	{ layout: "wide", viewport: { width: 1700, height: 950 } },
 	{ layout: "narrow", viewport: { width: 1000, height: 820 } },
 	{ layout: "split", viewport: { width: 1700, height: 950 } },
 	{ layout: "panel", viewport: { width: 1700, height: 950 } },
-	{ layout: "dismissed", viewport: { width: 1700, height: 950 } },
 	{ layout: "phone", viewport: { width: 390, height: 844 }, mobile: true },
 ];
 
@@ -181,7 +179,6 @@ if (SHOTS) {
 						});
 					if (layout === "panel") await ui("setPanelTab", "terminal");
 					if (layout === "panel") await page.evaluate(() => window.__stores?.ui.setState({ panelVisible: true }));
-					if (layout === "dismissed") await ui("setWorkBoard", false);
 					await page.waitForTimeout(600);
 					await fs.mkdir(SHOTS, { recursive: true });
 					const file = (name: string) => path.join(SHOTS, `${LABEL}-${name}-${theme}-${lang}.png`);

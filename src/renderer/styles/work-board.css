@@ -15,16 +15,17 @@
 	scrollbar-width: thin;
 }
 
-/* Head: one line (pulse, name, plan progress, close), the project of a linked worktree, then the meters line. */
+/* Head: one line (pulse, name, plan progress), the project of a linked worktree, then the meters line. The board has
+   no close: it docks whenever a pane has room and nothing opened it again (the user's call, 22 Oct 2026). */
 .omp-work-board-head {
 	display: grid;
-	grid-template-columns: auto auto minmax(0, 1fr) auto;
+	grid-template-columns: auto auto minmax(0, 1fr);
 	align-items: center;
 	column-gap: var(--sc-space-2);
 	row-gap: var(--sc-space-1);
 	padding-inline: var(--sc-space-1-5);
-	/* A touch reach stops at the head's padding: the ✕ at the board's edge reached past it and the board, a scroller,
-	   grew a horizontal scrollbar. */
+	/* A touch reach stops at the head's padding: a control at the board's edge reached past it and the board, a
+	   scroller, grew a horizontal scrollbar. */
 	--hit-gap-x: calc(2 * var(--sc-space-1-5));
 }
 

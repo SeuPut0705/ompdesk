@@ -160,7 +160,7 @@ const sections = () =>
 
 beforeEach(() => {
 	observers.length = 0;
-	useUiStore.setState({ workBoard: true, panelVisible: false, panelTab: "diff" });
+	useUiStore.setState({ panelVisible: false, panelTab: "diff" });
 });
 
 afterEach(async () => {
@@ -173,7 +173,7 @@ afterEach(async () => {
 	useToolsStore.getState().reset();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
-	useUiStore.setState({ workBoard: true, panelVisible: false, panelTab: "diff" });
+	useUiStore.setState({ panelVisible: false, panelTab: "diff" });
 });
 
 describe("an Autopilot tab's work board", () => {
@@ -276,7 +276,6 @@ describe("the run is reachable in every layout", () => {
 			width: 1600,
 			setup: () => useUiStore.setState({ panelVisible: true, panelTab: "terminal" }),
 		},
-		{ name: "the board dismissed with ✕", width: 1600, setup: () => useUiStore.setState({ workBoard: false }) },
 	];
 	for (const { name, width, setup } of cases)
 		it(`in ${name}: the strip names the run and "show the run" expands it into the board`, async () => {
@@ -302,13 +301,5 @@ describe("the run is reachable in every layout", () => {
 		await act(async () => useUiStore.getState().revealWorkBoard("t2"));
 		await settle();
 		expect($("[data-work-strip-panel]")).toBeNull();
-	});
-
-	it("the dismissed board stays off for a session that is no run", async () => {
-		useUiStore.setState({ workBoard: false });
-		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });
-		await mount(1600);
-		expect($("[data-work-chip]")).toBeNull();
-		expect($("[data-work-board-panel]")).toBeNull();
 	});
 });

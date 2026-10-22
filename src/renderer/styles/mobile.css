@@ -553,10 +553,9 @@ html[data-shell="phone"] kbd {
 	display: none;
 }
 
-/* The board names and hides itself in its own header; under the strip the strip names it and a pref toggle has no place. */
+/* The board names itself in its own header; under the strip the strip names it. */
 .omp-work-strip-panel .omp-work-board-pulse,
-.omp-work-strip-panel .omp-work-board-name,
-.omp-work-strip-panel .omp-work-board-hide {
+.omp-work-strip-panel .omp-work-board-name {
 	display: none;
 }
 

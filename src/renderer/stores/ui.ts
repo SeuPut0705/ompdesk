@@ -239,11 +239,6 @@ interface UiStore {
 	/** A shown reasoning block starts open (Settings › Appearance › Thinking: expanded; default off). */
 	thinkingExpanded: boolean;
 	/**
-	 * The work board may dock in this window (default on; never stored): it docks whenever a pane has room
-	 * (`workBoardFits`), its ✕ hides it for this window, the palette's "Work board" brings it back.
-	 */
-	workBoard: boolean;
-	/**
 	 * A request to show the work board of the pane holding `tabId` (an Autopilot run's home): `seq` bumps per request.
 	 * A docked board unfolds the run's section and scrolls to it; the status strip expands. Never the side panel.
 	 */
@@ -371,7 +366,6 @@ interface UiStore {
 	setFontSize: (size: number) => void;
 	setNotifications: (enabled: boolean) => void;
 	setThinkingExpanded: (enabled: boolean) => void;
-	setWorkBoard: (enabled: boolean) => void;
 	setTranscriptDetail: (detail: TranscriptDetail) => void;
 	/**
 	 * User keybinding overrides (B3 remap layer): actionId → replacement chord
@@ -467,7 +461,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	linkPreview: false,
 	panelSide: "right",
 	thinkingExpanded: false,
-	workBoard: true,
 	workBoardReveal: null,
 	transcriptDetail: "compact",
 	toggleSidebar: () => set({ sidebarVisible: !get().sidebarVisible }),
@@ -734,7 +727,6 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	setFontSize: size => set({ fontSize: size }),
 	setNotifications: enabled => set({ notifications: enabled }),
 	setThinkingExpanded: enabled => set({ thinkingExpanded: enabled }),
-	setWorkBoard: enabled => set({ workBoard: enabled }),
 	revealWorkBoard: tabId => set({ workBoardReveal: { tabId, seq: (get().workBoardReveal?.seq ?? 0) + 1 } }),
 	setTranscriptDetail: detail => set({ transcriptDetail: detail }),
 	keymapOverrides: {} as KeymapOverrides,

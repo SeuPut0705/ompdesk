@@ -13,7 +13,7 @@
  * Empty sections collapse, and a board with no section at all takes no room.
  */
 
-import { Check, Pause, X } from "lucide-react";
+import { Check, Pause } from "lucide-react";
 import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
@@ -45,7 +45,7 @@ import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
-import { IconButton, Kbd } from "../../common";
+import { Kbd } from "../../common";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
@@ -365,13 +365,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				) : (
 					<span />
 				)}
-				<IconButton
-					className="omp-work-board-hide"
-					icon={<X />}
-					label={t("workBoard.hide")}
-					onClick={() => useUiStore.getState().setWorkBoard(false)}
-					size="sm"
-				/>
 				{autopilotTab ? (
 					<Suspense fallback={null}>
 						<AutopilotBoardHead />
@@ -626,15 +619,12 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
  * Mount point inside a session pane's chat region. It owns the gates — the user's pref and the side panel (the board
  * never sits beside it) — and the pane's width, which it watches itself (`workBoardFits`, `workBoardWidth`). Where the
  * board cannot dock (a phone, a tablet, a narrow window, a split pane, the side panel open) the pane shows the status
- * strip under its header instead, which expands into the same board: never nothing while the pref is on, nor in an
- * Autopilot tab. A reveal for this pane's tab (`revealWorkBoard`: the composer chip's or the dock's "show the run")
+ * strip under its header instead, which expands into the same board: never nothing. A reveal for this pane's tab (`revealWorkBoard`: the composer chip's or the dock's "show the run")
  * unfolds the run's section and brings it into view, docked, or expands the strip.
  */
 export function WorkBoardHost() {
-	const enabled = useUiStore(state => state.workBoard);
 	const panelOpen = useUiStore(state => state.panelVisible);
 	const reveal = useUiStore(state => state.workBoardReveal);
-	const run = useAutopilotStore(isLiveAutopilot);
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
@@ -665,7 +655,7 @@ export function WorkBoardHost() {
 		return () => observer.disconnect();
 	}, []);
 	const shell = useShellMode();
-	const form = workBoardForm({ enabled, panelOpen, fits: workBoardDocks(paneWidth, shell), run });
+	const form = workBoardForm({ panelOpen, fits: workBoardDocks(paneWidth, shell) });
 	useEffect(() => {
 		if (!reveal || reveal.seq === seenReveal.current) return;
 		seenReveal.current = reveal.seq;

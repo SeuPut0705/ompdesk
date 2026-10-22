@@ -215,7 +215,6 @@ test("a 30-task plan's bar stays left of its count, and the count and close stay
 					const count = head
 						.querySelector(".omp-work-board-progress > span[aria-hidden]")
 						?.getBoundingClientRect();
-					const close = box(".omp-work-board-hide");
 					const name = box(".omp-work-board-name");
 					const headBox = head.getBoundingClientRect();
 					const last = bar?.lastElementChild?.getBoundingClientRect();
@@ -223,7 +222,6 @@ test("a 30-task plan's bar stays left of its count, and the count and close stay
 						barClearOfCount: !!last && !!count && last.right <= count.left,
 						barAfterName: !!bar && !!name && bar.getBoundingClientRect().left >= name.right,
 						countInHead: !!count && count.right <= headBox.right,
-						closeInHead: !!close && close.right <= headBox.right + 0.5,
 					};
 				});
 				expect({ fontSize, width, ...geometry }).toEqual({
@@ -232,7 +230,6 @@ test("a 30-task plan's bar stays left of its count, and the count and close stay
 					barClearOfCount: true,
 					barAfterName: true,
 					countInHead: true,
-					closeInHead: true,
 				});
 			}
 	} finally {

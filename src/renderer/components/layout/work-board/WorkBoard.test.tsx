@@ -148,7 +148,7 @@ function tool(patch: Partial<ToolEntry>): ToolEntry {
 
 beforeEach(() => {
 	observers.length = 0;
-	useUiStore.setState({ workBoard: true, panelVisible: false });
+	useUiStore.setState({ panelVisible: false });
 });
 
 afterEach(async () => {
@@ -171,7 +171,7 @@ afterEach(async () => {
 	useToolsStore.getState().reset();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
-	useUiStore.setState({ workBoard: true, panelVisible: false });
+	useUiStore.setState({ panelVisible: false });
 });
 
 describe("WorkBoard visibility", () => {
@@ -212,9 +212,6 @@ describe("WorkBoard visibility", () => {
 		await act(async () => useUiStore.setState({ panelVisible: false }));
 		expect(board()).not.toBeNull();
 		expect(pane.querySelector("[data-work-strip]")).toBeNull();
-		await act(async () => useUiStore.getState().setWorkBoard(false));
-		expect(board()).toBeNull();
-		expect(pane.querySelector("[data-work-strip]")).toBeNull();
 	});
 
 	it("takes no room while it has nothing to show", async () => {
@@ -223,16 +220,13 @@ describe("WorkBoard visibility", () => {
 		expect(pane.hasAttribute("data-work-board")).toBe(false);
 	});
 
-	it("hides itself from its own button for this window only, saving no preference", async () => {
+	it("has no close: nothing would open it again", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		await mount();
-		const hide = [...pane.querySelectorAll("button")].find(
-			button => button.getAttribute("aria-label") === "Hide work board",
-		) as unknown as HTMLButtonElement;
-		await act(async () => hide.click());
-		expect(useUiStore.getState().workBoard).toBe(false);
-		expect(prefsSet).not.toHaveBeenCalledWith("workBoard", expect.anything());
-		expect(board()).toBeNull();
+		expect(board()).not.toBeNull();
+		expect(pane.querySelector(".omp-work-board-head button[aria-label]")?.getAttribute("aria-label")).not.toMatch(
+			/hide|close/i,
+		);
 	});
 });
 

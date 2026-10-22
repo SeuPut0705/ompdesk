@@ -96,11 +96,9 @@ describe("work board breakpoint", () => {
 	});
 
 	it("shows the strip wherever it cannot dock, and nothing only with the pref off", () => {
-		expect(workBoardForm({ enabled: true, panelOpen: false, fits: true })).toBe("docked");
-		expect(workBoardForm({ enabled: true, panelOpen: false, fits: false })).toBe("strip");
-		expect(workBoardForm({ enabled: true, panelOpen: true, fits: true })).toBe("strip");
-		expect(workBoardForm({ enabled: false, panelOpen: false, fits: true })).toBe("off");
-		expect(workBoardForm({ enabled: false, panelOpen: true, fits: false })).toBe("off");
+		expect(workBoardForm({ panelOpen: false, fits: true })).toBe("docked");
+		expect(workBoardForm({ panelOpen: false, fits: false })).toBe("strip");
+		expect(workBoardForm({ panelOpen: true, fits: true })).toBe("strip");
 	});
 });
 

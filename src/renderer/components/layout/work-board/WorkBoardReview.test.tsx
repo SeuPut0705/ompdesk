@@ -117,7 +117,7 @@ beforeEach(() => {
 	observers.length = 0;
 	listed = [];
 	commandForTab.mockClear();
-	useUiStore.setState({ workBoard: true, panelVisible: false });
+	useUiStore.setState({ panelVisible: false });
 	useWorkBoardStore.getState().reset();
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
