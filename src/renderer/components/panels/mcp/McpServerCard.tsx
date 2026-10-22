@@ -258,7 +258,7 @@ export function McpServerCard({
 						disabled={disabled}
 						icon={<MoreHorizontal />}
 						items={items}
-						label={t("extPanel.mcp.menu")}
+						label={t("extPanel.mcp.menu", { name: server.name })}
 						size="sm"
 					/>
 				)}

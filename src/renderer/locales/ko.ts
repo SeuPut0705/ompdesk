@@ -1796,7 +1796,7 @@ export const ko: Record<string, string> = {
 	"extPanel.action.disable": "비활성화",
 	"extPanel.action.reconnect": "다시 연결",
 	"extPanel.action.remove": "제거",
-	"extPanel.mcp.menu": "서버 메뉴",
+	"extPanel.mcp.menu": "{name} 서버 메뉴",
 	"extPanel.mcp.removeConfirm": "프로젝트 MCP 설정에서 {name} 서버를 제거할까요? 여기서는 되돌릴 수 없어요.",
 	"extPanel.mcp.removeTitle": "MCP 서버를 제거할까요?",
 	"extPanel.hookToggleFailed": "훅을 업데이트하지 못했어요",

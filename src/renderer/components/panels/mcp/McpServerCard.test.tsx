@@ -194,6 +194,6 @@ describe("McpServerCard sign-in", () => {
 
 	it("keeps the ⋯ menu beside the inline button", async () => {
 		await mount(server({ authState: "required" }));
-		expect(document.querySelector('button[aria-label="Server actions"]')).not.toBeNull();
+		expect(document.querySelector('button[aria-label="Actions for docs"]')).not.toBeNull();
 	});
 });

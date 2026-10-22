@@ -4,6 +4,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
 import { asArray, asNonEmptyString, asRecord } from "../../../lib/wire-value";
+import { LinkButton } from "../../common";
 
 /**
  * LSP diagnostics stock attaches to edit/write results and late-diagnostic
@@ -194,8 +195,7 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 				</div>
 			))}
 			{hidden > 0 && (
-				<button
-					type="button"
+				<LinkButton
 					onClick={event => {
 						const list = event.currentTarget.parentElement;
 						revealAndFocus(
@@ -204,10 +204,11 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 							() => list?.querySelector(`[data-diag-row="${shownCount}"]`),
 						);
 					}}
-					className="omp-pressable text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
+					className="text-omp-xs font-medium"
+					tone="muted"
 				>
 					{t("chat.custom.moreDiagnostics", { count: hidden, plural: hidden === 1 ? "" : "s" })}
-				</button>
+				</LinkButton>
 			)}
 		</div>
 	);

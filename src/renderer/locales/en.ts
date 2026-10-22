@@ -1809,7 +1809,7 @@ export const en: Record<string, string> = {
 	"extPanel.action.disable": "Disable",
 	"extPanel.action.reconnect": "Reconnect",
 	"extPanel.action.remove": "Remove",
-	"extPanel.mcp.menu": "Server actions",
+	"extPanel.mcp.menu": "Actions for {name}",
 	"extPanel.mcp.removeConfirm": "Remove {name} from the project MCP config? This cannot be undone here.",
 	"extPanel.mcp.removeTitle": "Remove MCP server?",
 	"extPanel.hookToggleFailed": "Couldn't update hook",
