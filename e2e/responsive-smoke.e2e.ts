@@ -315,6 +315,22 @@ for (const look of TOUCH_LOOKS) {
 	});
 }
 
+/**
+ * An offline host's header carries an "Offline" badge, drawn 11 px on a sideways tablet, under the audit's 11.5 px
+ * floor (22 Oct 2026). It is the header's own size now.
+ */
+test("responsive smoke 1024 tablet: a device header's offline badge is readable", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = { width: 1024, height: 768, dpr: 2, orientation: "landscape", theme: "light", lang: "ko" };
+	const page = await openLook(browser, look, { origin });
+	await show(page, look, "sidebar");
+	const found = (await measure(page, look))
+		.filter(issue => issue.kind === "small-text" && issue.at.includes("omp-device-header"))
+		.map(issue => `${issue.at} ${issue.detail}`);
+	expect(found).toEqual([]);
+	await page.context().close();
+});
+
 test("responsive smoke 390: a tap on the drawer's edge strip reaches the control under it", async () => {
 	if (!browser) throw new Error("the browser is not up");
 	const look = TOUCH_LOOKS[0] as Look;
