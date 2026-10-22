@@ -635,6 +635,18 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	background-color: var(--sc-sidebar-row-selected);
 }
 
+/* On the selected row's wash the quiet text (an age, a mark) and a waiting title's warning fell under 4.5:1 (light
+   4.17 and 4.22, solarized-light and sepia lower): they read at secondary there, the warning a fifth toward the text
+   color. Pinned by the "over sidebar selection" pairs of lib/theme-contrast.ts. */
+.omp-sidebar-session-row[data-active="true"] {
+	--sc-text-subtle: var(--sc-text-secondary);
+	--sc-text-muted: var(--sc-text-secondary);
+}
+
+.omp-sidebar-session-row[data-active="true"] .omp-live-text[data-working="waiting"] {
+	color: color-mix(in srgb, var(--sc-warning) 80%, var(--sc-text));
+}
+
 /* While a split shows several sessions every one of them is selected; the pane that has focus adds a quiet edge
    on the right (the left edge belongs to the row's state bar, sidebar.css `data-signal`). */
 .omp-sidebar-session-row[data-pane-focus="true"] {

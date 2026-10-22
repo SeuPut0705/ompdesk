@@ -275,7 +275,7 @@ export function SidebarDeviceSection({
 				/>
 				{host.state === "offline" ? (
 					<span
-						className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-xs text-(--sc-text-subtle)"
+						className="shrink-0 rounded-(--sc-radius-sm) bg-(--sc-hover) px-1 text-sc-xs text-(--sc-text-secondary)"
 						data-device-offline
 						title={t("remote.sidebar.offline")}
 					>

@@ -8,12 +8,14 @@
  * that prints the worst pairs.
  */
 
-import { contrastRatio, flatten } from "./theme-color";
+import { contrastRatio, flatten, mix, withAlpha } from "./theme-color";
 import { resolveTokenColor, THEMES, type ThemeDefinition, type ThemeName, type ThemeTokenKey } from "./themes";
 
 export const AA_TEXT = 4.5;
 export const AAA_TEXT = 7;
 export const UI_BOUNDARY = 3;
+/** How far a waiting session's warning title on the sidebar's selected row leans toward the text color. */
+export const SELECTED_WARNING_MIX = 0.2;
 
 /** The surfaces body text sits on. */
 const TEXT_SURFACES: ThemeTokenKey[] = [
@@ -111,6 +113,23 @@ export function contrastPairs(name: ThemeName): ContrastPair[] {
 	add("badge", surface(theme, "--omp-badge-text"), surface(theme, "--omp-badge-bg"), text);
 	const selected = flatten(resolveTokenColor(theme, "--omp-selection-bg"), surface(theme, "--omp-bg-primary"));
 	add("text over selection", surface(theme, "--omp-text"), selected, text);
+
+	// The sidebar's current session sits on a 9 % text wash (global.css `--sc-sidebar-row-selected`); there its quiet
+	// text reads at secondary (`--sc-text-subtle` and `--sc-text-muted` are lifted to it; muted alone fell under 4.5:1 on solarized-light and sepia) and a waiting title's warning is mixed a fifth toward
+	// the text color (`SELECTED_WARNING_MIX`).
+	const sidebarSelected = flatten(withAlpha(surface(theme, "--omp-text"), 0.09), surface(theme, "--omp-sidebar-bg"));
+	add(
+		"secondary over sidebar selection",
+		paint(theme, "--omp-text-secondary", sidebarSelected),
+		sidebarSelected,
+		text,
+	);
+	add(
+		"waiting title over sidebar selection",
+		mix(paint(theme, "--omp-warning", sidebarSelected), surface(theme, "--omp-text"), SELECTED_WARNING_MIX),
+		sidebarSelected,
+		text,
+	);
 
 	// The terminal's 16 colors on its surface (--sc-surface-1 = the sidebar).
 	const terminal = surface(theme, "--omp-sidebar-bg");
