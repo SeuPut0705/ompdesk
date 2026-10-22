@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.57.0] - 2026-10-22
+
+오토파일럿 백로그가 없어지고, Windows 노트북 같은 좁은 데스크톱 창에서도 작업 현황이 채팅 오른쪽에 붙으며, Windows에서 오른쪽 패널 버튼이 창 버튼 줄 아래로 내려왔어요.
+
+### 바뀐 것
+- 오토파일럿 백로그를 없앴어요. 사이클이 남긴 후속 작업은 그 일을 한 사이클이 닫거나 ✕로 치우고, 다음 사이클이 먼저 할 일은 실행 탭 입력창에 적어요. 집중 영역은 실행 섹션에서 바꿔요.
+
+### 고친 것
+- 배율을 높인 Windows 노트북처럼 좁은 데스크톱 창에서는 작업 현황이 위쪽 띠로만 보였어요. 이제 대화 칸을 조금 좁혀 오른쪽에 붙여요.
+- Windows에서 오른쪽 패널의 닫기 버튼이 창의 최소화·최대화·닫기 버튼 바로 옆에 있어 창을 닫기 쉬웠어요. 이제 패널 버튼들은 창 버튼 줄 아래 줄에 있어요.
+- 연결한 컴퓨터로 턴이 끝날 때 보내는 답변을 다시 통째로 보내지 않아요(두 컴퓨터가 모두 이 버전일 때).
+
+<!-- en -->
+
+The Autopilot backlog is gone, the work board docks beside the chat in narrower desktop windows such as a Windows laptop's, and on Windows the right panel's buttons sit below the window's caption buttons.
+
+### Changed
+- The Autopilot backlog is removed. A follow-up a cycle leaves is closed by the cycle that does it or by ✕, and what the next cycle should do first is typed into the run's composer. Focus areas are changed in the run's section.
+
+### Fixed
+- In a narrower desktop window, such as a Windows laptop at a higher scale, the work board showed only as the strip at the top; it now docks on the right beside a slightly narrower chat column.
+- On Windows the right panel's close button sat right beside the window's minimize, maximize and close buttons, so the window was easy to close by mistake; the panel's buttons now sit on a row below them.
+- A paired computer no longer receives each reply whole again when a turn ends (once both computers run this version).
+
 ## [0.56.0] - 2026-10-22
 
 연결한 컴퓨터에서 작업 중인 세션이 열어 보기 전에도 사이드바에 작업 중으로 보이고, 상단 바 위에 뜬 창이나 메뉴를 누르면 창이 끌리던 문제를 고쳤어요.
