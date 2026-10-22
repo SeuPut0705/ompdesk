@@ -137,9 +137,9 @@ function buttons(): TestElement[] {
 
 const REMOVE_LABEL = "Remove folder";
 
-/** Icon-only row actions are named by aria-label (the confirm button carries the same verb as text). */
+/** Icon-only row actions are named by aria-label, folder included (the confirm button carries the bare verb). */
 function removeButtons(): TestElement[] {
-	return buttons().filter(button => button.getAttribute("aria-label") === REMOVE_LABEL);
+	return buttons().filter(button => button.getAttribute("aria-label")?.startsWith("Remove /"));
 }
 
 function findButton(text: string): TestElement {

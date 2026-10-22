@@ -105,7 +105,7 @@ describe("KeyboardSection", () => {
 		// button is skipped by Tab and its row can never be remapped by keyboard.
 		await mount();
 		const rebind = [...document.body.querySelectorAll("button")].filter(
-			button => button.getAttribute("aria-label") === "Change shortcut",
+			button => button.getAttribute("aria-label")?.startsWith("Change the shortcut for "),
 		);
 		expect(rebind).toHaveLength(KEYMAP_ACTIONS.length);
 		for (const button of rebind) {

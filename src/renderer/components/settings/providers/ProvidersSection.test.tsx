@@ -511,7 +511,7 @@ describe("ProvidersSection", () => {
 		};
 		try {
 			await mount(<ProvidersSection />);
-			await act(async () => button(translate("providers.edit"))?.click());
+			await act(async () => button(translate("providers.editFor", { provider: "my-proxy" }))?.click());
 			expect(text()).toContain(translate("providerCfg.title.edit"));
 			await act(async () => button(translate("providerCfg.form.cancel"))?.click());
 			expect(shown.at(-1)?.closest("[data-custom-provider]")?.getAttribute("data-custom-provider")).toBe("my-proxy");

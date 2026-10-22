@@ -230,13 +230,13 @@ function CustomEndpoints({
 											<>
 												<IconButton
 													icon={<Pencil />}
-													label={t("providers.edit")}
+													label={t("providers.editFor", { provider: config.id })}
 													onClick={() => onEdit(config)}
 													size="sm"
 												/>
 												<IconButton
 													icon={<Trash2 />}
-													label={t("providerCfg.list.delete")}
+													label={t("providerCfg.list.deleteFor", { provider: config.id })}
 													onClick={() => onDelete(config)}
 													size="sm"
 												/>

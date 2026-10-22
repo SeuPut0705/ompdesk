@@ -399,7 +399,11 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 									<IconButton
 										size="sm"
 										icon={<Trash2 />}
-										label={t("providerCfg.form.headerRemove")}
+										label={
+											name.trim()
+												? t("providerCfg.form.headerRemoveFor", { header: name.trim() })
+												: t("providerCfg.form.headerRemove")
+										}
 										disabled={readonly || disabled}
 										onClick={() => commitHeaders(headerRows.filter((_, i) => i !== index))}
 									/>

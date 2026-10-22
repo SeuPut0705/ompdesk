@@ -562,7 +562,11 @@ export function CustomProviderForm({ editing, existing, options, onSaved, onCanc
 										<IconButton
 											disabled={locked}
 											icon={<Trash2 />}
-											label={t("providerCfg.form.headerRemove")}
+											label={
+												row.name.trim()
+													? t("providerCfg.form.headerRemoveFor", { header: row.name.trim() })
+													: t("providerCfg.form.headerRemove")
+											}
 											onClick={() => setHeaders(prev => prev.filter(item => item.key !== row.key))}
 											size="sm"
 										/>

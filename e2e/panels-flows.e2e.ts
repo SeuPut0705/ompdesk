@@ -404,7 +404,7 @@ test("provider and account flows", async () => {
 		await expect(savedRow).toBeInViewport({ ratio: 1 });
 		await expect(savedRow.locator("button").first()).toBeFocused();
 		await rec.shoot("custom-added");
-		await custom.getByRole("button", { name: "Edit provider" }).click();
+		await custom.getByRole("button", { name: "Edit audit-proxy" }).click();
 		await expect(settings.getByText("Edit provider", { exact: true }).first()).toBeVisible();
 		await rec.shoot("custom-edit");
 		await settings.getByRole("button", { name: "Remove stored key" }).click();
@@ -420,7 +420,7 @@ test("provider and account flows", async () => {
 		await expect(savedRow).toBeInViewport({ ratio: 1 });
 		await expect(savedRow.locator("button").first()).toBeFocused();
 		await rec.shoot("custom-saved");
-		await custom.getByRole("button", { name: "Delete" }).click();
+		await custom.getByRole("button", { name: "Delete audit-proxy" }).click();
 		const del = page.getByRole("alertdialog").or(page.getByRole("dialog", { name: "Delete provider" }));
 		await expect(del).toBeVisible();
 		await rec.shoot("custom-delete-confirm");

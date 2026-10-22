@@ -146,7 +146,7 @@ export function WorkspaceSection() {
 									<IconButton
 										disabled={mutating || busy || !sidecarReady}
 										icon={<Trash2 />}
-										label={t("workspaceDirs.remove")}
+										label={t("workspaceDirs.removeFor", { folder: directory.path })}
 										onClick={() => setConfirmRemove(directory.path)}
 										size="sm"
 									/>

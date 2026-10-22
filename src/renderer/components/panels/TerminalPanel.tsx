@@ -549,7 +549,7 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 							</button>
 							<IconButton
 								icon={<X />}
-								label={t("panel.terminal.close")}
+								label={t("panel.terminal.closeFor", { number: index + 1 })}
 								onClick={() => void close(session.id)}
 								size="sm"
 							/>
