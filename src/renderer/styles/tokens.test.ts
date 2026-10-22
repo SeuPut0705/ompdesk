@@ -10,7 +10,7 @@
  *    interactive boundaries and the focus ring ≥ 3:1.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { STATUS_ON_SOFT_MIX } from "../lib/theme-contrast";
@@ -168,5 +168,45 @@ describe("status text on a soft wash", () => {
 			expect(SHARED[`--sc-${name}-on-soft`]).toBe(
 				`color-mix(in srgb, var(--sc-${name}) ${status}%, var(--sc-text))`,
 			);
+	});
+});
+
+describe("status text on its own soft wash", () => {
+	const STATUSES = "accent|success|warning|danger|info";
+	// A glyph needs 3:1, which the bare status color holds on its wash; only text needs the -on-soft color.
+	const ICON_ONLY = new Set([".omp-composer-mic[data-recording],\n.omp-composer-mic[data-recording]:hover"]);
+
+	it("draws a status color as text on that status's soft wash with --sc-<status>-on-soft, in every stylesheet", () => {
+		const offenders: string[] = [];
+		for (const file of readdirSync(dir).filter(name => name.endsWith(".css"))) {
+			const css = readFileSync(join(dir, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+			for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+				const selector = (rule[1] ?? "").trim();
+				const body = rule[2] ?? "";
+				const wash = new RegExp(`background(?:-color)?:\\s*var\\(--sc-(${STATUSES})-soft\\)`).exec(body)?.[1];
+				if (!wash || ICON_ONLY.has(selector)) continue;
+				if (new RegExp(`(?:^|[;\\s])color:\\s*var\\(--sc-${wash}\\)`).test(body))
+					offenders.push(`${file}: ${selector}`);
+			}
+		}
+		expect(offenders).toEqual([]);
+	});
+
+	it("does the same in the components' class strings", () => {
+		const offenders: string[] = [];
+		const walk = (folder: string) => {
+			for (const entry of readdirSync(folder, { withFileTypes: true })) {
+				const path = join(folder, entry.name);
+				if (entry.isDirectory()) walk(path);
+				else if (entry.name.endsWith(".tsx") && !entry.name.endsWith(".test.tsx")) {
+					for (const line of readFileSync(path, "utf8").split("\n")) {
+						const wash = new RegExp(`bg-\\(--sc-(${STATUSES})-soft\\)`).exec(line)?.[1];
+						if (wash && line.includes(`text-(--sc-${wash})`)) offenders.push(`${path}: ${line.trim()}`);
+					}
+				}
+			}
+		};
+		walk(join(dir, "..", "components"));
+		expect(offenders).toEqual([]);
 	});
 });
