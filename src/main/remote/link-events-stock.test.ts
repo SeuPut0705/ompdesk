@@ -177,6 +177,8 @@ describe.skipIf(!existsSync(omp))("a run of the installed omp over a slim link",
 		);
 		// The device rebuilds the very messages the host's pool delivered.
 		const rebuilt = JSON.parse(JSON.stringify(sent)).flatMap((event: AgentSessionEvent) => decoder.events([event]));
-		expect(rebuilt.find((event: AgentSessionEvent) => event.type === "agent_end").messages).toEqual(original.messages);
+		expect(rebuilt.find((event: AgentSessionEvent) => event.type === "agent_end").messages).toEqual(
+			original.messages,
+		);
 	}, 120_000);
 });
