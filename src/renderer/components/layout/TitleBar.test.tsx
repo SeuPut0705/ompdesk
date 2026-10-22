@@ -267,6 +267,8 @@ describe("TitleBar", () => {
 		await act(async () => new Promise<void>(resolve => setTimeout(resolve, 0)));
 		const name = document.querySelector("[data-titlebar-session-name]");
 		expect(name?.textContent).toContain("Build the Tally app");
+		// The session's name is the window's level-one heading (axe page-has-heading-one).
+		expect(document.querySelector("h1[data-titlebar-heading]")?.textContent).toBe("Build the Tally app");
 		expect(container.textContent).not.toContain(translate("sidebar.newSession"));
 	});
 

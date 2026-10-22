@@ -436,6 +436,11 @@ export function TitleBar() {
 						/>
 					</>
 				)}
+				{/* The window's main heading for a screen reader's heading navigation: the session's name (the visible name is
+				    the rename button, whose accessible name says so). */}
+				<h1 className="sr-only" data-titlebar-heading="">
+					{displayName}
+				</h1>
 				{editingName ? (
 					<div className="relative w-72 min-w-0">
 						<Input
