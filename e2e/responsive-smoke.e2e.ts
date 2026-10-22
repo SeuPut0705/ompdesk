@@ -254,6 +254,8 @@ const TOUCH_LOOKS: readonly Look[] = [
 ];
 const TAP_SURFACES = [
 	"session-idle",
+	// A draft enables Send, which then counts as a target beside the context ring.
+	"composer-long-draft",
 	"sidebar",
 	"banner-update-error",
 	"composer-attach-menu",
