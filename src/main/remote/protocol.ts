@@ -102,6 +102,39 @@ export const ClientHello = z.object({
 	slimReadGroups: z.boolean().optional(),
 });
 
+/**
+ * What a connection's device reads beyond whole frames, from its hello (each flag above). A later capability counts
+ * only with the ones it builds on: a device that dropped one gets whole frames for everything resting on it.
+ */
+export interface LinkSlim {
+	events: boolean;
+	progress: boolean;
+	autopilot: boolean;
+	ends: boolean;
+	readGroups: boolean;
+}
+
+export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
+	const events = hello.slimEvents === true;
+	const ends = events && hello.slimEnds === true;
+	return {
+		events,
+		progress: events && hello.slimProgress === true,
+		autopilot: events && hello.slimAutopilot === true,
+		ends,
+		readGroups: ends && hello.slimReadGroups === true,
+	};
+}
+
+/** Each capability's name in the host's `open` log line (`slim`). */
+export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
+	events: "events",
+	progress: "progress",
+	autopilot: "autopilot",
+	ends: "ends",
+	readGroups: "reads",
+};
+
 export const HostHelloMessage = z.object({
 	t: z.literal("hello"),
 	protocol: z.number(),

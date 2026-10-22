@@ -1619,7 +1619,7 @@ export class LocalHostServices implements HostServices {
 	#emit(tab: HostTab, name: TabEventName, arg: unknown): void {
 		const { conn } = tab;
 		if (!conn) return;
-		if (!conn.slimEvents) {
+		if (!conn.slim?.events) {
 			this.#send(tab, conn, name, arg);
 			return;
 		}
@@ -1642,11 +1642,12 @@ export class LocalHostServices implements HostServices {
 	#sender(tab: HostTab, conn: HostConnection): NonNullable<HostTab["linkEvents"]> {
 		if (tab.linkEvents?.conn === conn) return tab.linkEvents;
 		tab.linkEvents?.sender.dispose();
+		const { progress = false, autopilot = false, ends = false, readGroups = false } = conn.slim ?? {};
 		const sender = createLinkEventSender({
-			progress: conn.slimProgress === true,
-			autopilot: conn.slimAutopilot === true,
-			ends: conn.slimEnds === true,
-			readGroups: conn.slimReadGroups === true,
+			progress,
+			autopilot,
+			ends,
+			readGroups,
 			send: (name, arg) => this.#send(tab, conn, name, arg),
 		});
 		tab.linkEvents = { conn, sender };

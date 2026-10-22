@@ -21,9 +21,12 @@ import {
 	ClientHello,
 	HANDSHAKE_VERSION,
 	HelloVersion,
+	type LinkSlim,
 	Opening,
 	PROTOCOL_VERSION,
 	type RefusalCode,
+	SLIM_LOG_NAMES,
+	slimOf,
 	WireRequest,
 } from "./protocol";
 import { Link, type WireMessage } from "./wire";
@@ -51,16 +54,8 @@ export interface HostServices {
 
 export interface HostConnection {
 	readonly peer: PeerInfo;
-	/** The device's hello asked for slim `events` and `subagentFrame` (`link-events.ts`); absent for an older device. */
-	readonly slimEvents?: boolean;
-	/** It also rebuilds progress snapshots from deltas and takes subagent frames in arrays (`slimProgress`, protocol.ts). */
-	readonly slimProgress?: boolean;
-	/** It also rebuilds an Autopilot status from a delta against the last one (`slimAutopilot`, protocol.ts). */
-	readonly slimAutopilot?: boolean;
-	/** It also resolves a message sent as a reference to one this connection already carried (`slimEnds`, protocol.ts). */
-	readonly slimEnds?: boolean;
-	/** It also puts back the read groups a reference carries (`slimReadGroups`, protocol.ts). */
-	readonly slimReadGroups?: boolean;
+	/** What the device reads beyond whole frames (`slimOf`, protocol.ts); absent for an older device. */
+	readonly slim?: LinkSlim;
 	/** Push `{t:"evt"}`; throws when the event exceeds the frame cap. */
 	emit(event: string, data: unknown): void;
 	close(): void;
@@ -116,42 +111,23 @@ export interface RemoteHostOptions {
 export type RemoteHostEvent = "peersChanged" | "connectionsChanged" | "listenChanged";
 
 /** The slim capabilities a connection has, as one line for the log (`none` for a device that reads whole frames). */
-function slimNames(conn: PeerConnection): string {
-	const names = [
-		conn.slimEvents && "events",
-		conn.slimProgress && "progress",
-		conn.slimAutopilot && "autopilot",
-		conn.slimEnds && "ends",
-		conn.slimReadGroups && "reads",
-	];
-	return names.filter(Boolean).join(",") || "none";
+function slimNames(slim: LinkSlim): string {
+	const names = (Object.keys(SLIM_LOG_NAMES) as Array<keyof LinkSlim>).filter(key => slim[key]);
+	return names.map(key => SLIM_LOG_NAMES[key]).join(",") || "none";
 }
 
 class PeerConnection implements HostConnection {
 	readonly link: Link;
 	peer: PeerInfo;
-	readonly slimEvents: boolean;
-	readonly slimProgress: boolean;
-	readonly slimAutopilot: boolean;
-	readonly slimEnds: boolean;
-	readonly slimReadGroups: boolean;
+	readonly slim: LinkSlim;
 	/** The device's OMPdesk version, from its hello. */
 	readonly appVersion: string;
 
-	constructor(
-		link: Link,
-		peer: PeerInfo,
-		slim: { events: boolean; progress: boolean; autopilot: boolean; ends: boolean; reads: boolean },
-		appVersion: string,
-	) {
+	constructor(link: Link, peer: PeerInfo, slim: LinkSlim, appVersion: string) {
 		this.link = link;
 		this.peer = peer;
 		this.appVersion = appVersion;
-		this.slimEvents = slim.events;
-		this.slimProgress = slim.progress;
-		this.slimAutopilot = slim.autopilot;
-		this.slimEnds = slim.ends;
-		this.slimReadGroups = slim.reads;
+		this.slim = slim;
 	}
 
 	emit(event: string, data: unknown): void {
@@ -465,19 +441,7 @@ export class RemoteHost {
 			...this.#opts.hello(),
 		});
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
-		const slimEvents = hello.slimEvents === true;
-		const conn = new PeerConnection(
-			link,
-			current,
-			{
-				events: slimEvents,
-				progress: slimEvents && hello.slimProgress === true,
-				autopilot: slimEvents && hello.slimAutopilot === true,
-				ends: slimEvents && hello.slimEnds === true,
-				reads: slimEvents && hello.slimEnds === true && hello.slimReadGroups === true,
-			},
-			hello.appVersion,
-		);
+		const conn = new PeerConnection(link, current, slimOf(hello), hello.appVersion);
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		// The device's build and what it can read: a busy traffic line is read against them (whole frames to an older
@@ -486,7 +450,7 @@ export class RemoteHost {
 			deviceId: current.deviceId,
 			ms: openedAt - acceptedAt,
 			appVersion: conn.appVersion,
-			slim: slimNames(conn),
+			slim: slimNames(conn.slim),
 		});
 		const { logLink } = this.#opts;
 		if (logLink)
