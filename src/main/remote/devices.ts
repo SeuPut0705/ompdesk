@@ -447,8 +447,16 @@ export class RemoteDevices {
 			throw codedError(remoteErrorCode(code), error instanceof Error ? error.message : String(error));
 		}
 		this.#found.set(nodeId, found.address);
+		// Its open tabs go on over the new link: left on the closed one they read "offline" while the host is online.
+		const tabs = this.#links.get(paired.deviceId)?.tabs;
 		this.#unlink(paired.deviceId);
 		this.#link(paired.deviceId);
+		const link = this.#links.get(paired.deviceId);
+		if (tabs && link)
+			for (const [rtab, tab] of tabs) {
+				link.tabs.set(rtab, tab);
+				tab.relink(link.client);
+			}
 		this.#markComputers();
 		this.#broadcastState();
 		return this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name);
@@ -546,12 +554,15 @@ export class RemoteDevices {
 			kind,
 			fresh,
 			offlineMessage: this.#deps.offlineMessage,
+			// Through the device's current link: Connect pressed again makes a new one and moves the tab onto it.
 			onDispose: () => {
-				if (link.tabs.get(rtab) === sidecar) link.tabs.delete(rtab);
+				const current = this.#links.get(deviceId) ?? link;
+				if (current.tabs.get(rtab) === sidecar) current.tabs.delete(rtab);
 			},
-			deferClose: closing => link.closes.defer(closing),
+			deferClose: closing => (this.#links.get(deviceId) ?? link).closes.defer(closing),
 			...(this.#deps.keepHostTabsOnQuit ? { keepOnHost: this.#deps.keepHostTabsOnQuit } : {}),
-			stalledMessage: seconds => this.#deps.stalledMessage(link.client.host.name, seconds),
+			stalledMessage: seconds =>
+				this.#deps.stalledMessage((this.#links.get(deviceId) ?? link).client.host.name, seconds),
 			...(this.#deps.startTimeoutMs === undefined ? {} : { startTimeoutMs: this.#deps.startTimeoutMs }),
 			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),
 		});

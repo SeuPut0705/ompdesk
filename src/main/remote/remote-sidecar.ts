@@ -138,7 +138,7 @@ export class PendingTabCloses {
 }
 
 export class RemoteSidecar extends EventEmitter implements SidecarLike {
-	readonly #link: RemoteLink;
+	#link: RemoteLink;
 	readonly #rtab: string;
 	readonly #linkEvents = createLinkEventDecoder();
 	/** One per read that crosses as deltas (`encodedReadKey`). */
@@ -397,6 +397,17 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			default:
 				this.emit(message.name, message.arg);
 		}
+	}
+
+	/**
+	 * The host's link was made again (Connect pressed for a host already paired: a new client, the old one closed):
+	 * the tab goes on over the new one, as after a dropped link, instead of staying on the closed one for good.
+	 */
+	relink(link: RemoteLink): void {
+		if (this.#disposed) return;
+		this.#link = link;
+		this.#opened = null;
+		this.linkStateChanged(link.state);
 	}
 
 	/** The link to the host changed state. */

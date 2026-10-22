@@ -103,6 +103,18 @@ describe("computers of the tailnet", () => {
 	});
 });
 
+describe("connecting again to a host already paired", () => {
+	it("moves the host's open tabs onto the new link, so they do not read offline while the host is online", async () => {
+		const { a, hostId } = await rig.connected();
+		const tab = a.devices.createSidecar(hostId, "t1", "/work", "agent", true);
+		expect(tab.offline).toBe(false);
+		await a.devices.connect("nSTUDIO");
+		await until(a, state => state.hosts[0]?.state === "online");
+		expect(tab.offline).toBe(false);
+		expect(tab.status).not.toBe("error");
+	});
+});
+
 describe("blocking", () => {
 	it("blocks the device's node: it drops, is refused, and connects again once unblocked", async () => {
 		const { a, b } = await rig.connected();
