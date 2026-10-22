@@ -224,9 +224,10 @@ describe("WorkBoard visibility", () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0)]);
 		await mount();
 		expect(board()).not.toBeNull();
-		expect(pane.querySelector(".omp-work-board-head button[aria-label]")?.getAttribute("aria-label")).not.toMatch(
-			/hide|close/i,
+		const labels = [...pane.querySelectorAll("[data-work-board-panel] button[aria-label]")].map(
+			button => button.getAttribute("aria-label") ?? "",
 		);
+		expect(labels.filter(label => /hide|close/i.test(label))).toEqual([]);
 	});
 });
 
