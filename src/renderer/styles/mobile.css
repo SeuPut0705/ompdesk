@@ -1477,9 +1477,10 @@ html[data-shell="phone"][data-input="touch"] .omp-work-findings {
 	gap: 14px;
 	--hit-gap-x: 14px;
 	--hit-gap-y: 14px;
-	/* The head above ends in 6 px of padding, all of it its Steps toggle's (below): the chips' 7 px reach up starts
-	   past it. */
-	margin-top: 1px;
+	/* The head above ends in 6 px of padding, all of it its Steps toggle's 6 px reach down (below): 7 px under it the
+	   chips' 7 px reach up starts where the toggle's ends (at 1 px it took the toggle's bottom edge on a 412 px phone,
+	   22 Oct 2026 responsive audit). */
+	margin-top: 7px;
 }
 
 /* A work card's Steps toggle reaches 6 px up and down, within the head's own padding (6 px on a phone, 8 elsewhere):

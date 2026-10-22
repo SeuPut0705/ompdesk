@@ -343,9 +343,10 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] .omp-update-card')).toMatch(
 			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
 		);
-		// A phone's work-card findings (24 px chips) sit 14 px apart each way and reach 36.
+		// A phone's work-card findings (24 px chips) sit 14 px apart each way and reach 36, 7 px under the head so their
+		// reach up starts where the Steps toggle's 6 px reach down ends (at 1 px a chip took its edge at 412 px).
 		expect(rule('html[data-shell="phone"][data-input="touch"] .omp-work-findings')).toMatch(
-			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px;[^}]*margin-top:\s*7px/,
 		);
 		declares("../components/dialogs/WorktreeDialog.tsx", "data-worktree-base");
 		expect(rule('html[data-input="touch"] [data-worktree-base]')).toMatch(/--hit-gap-y:\s*6px/);
