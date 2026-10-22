@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.16] - 2026-10-23
+
+키보드로 목록을 다루다 포커스를 잃던 곳을 더 고쳤어요.
+
+### 고친 것
+- 확인 대화상자로 세션, 폴더, 프로바이더 같은 줄을 지우면 포커스가 페이지 처음으로 빠지지 않고 그 자리의 다음 줄(마지막 줄이었다면 앞 줄)로 가요.
+- 긴 diff의 "줄 N개 더 보기", 파일 보기의 "줄 모두 보기", 컨텍스트 검사기의 "모두 보기"를 누르면 새로 드러난 첫 줄로 포커스가 가요.
+- MCP 서버 카드의 ⋯ 메뉴 버튼을 화면 읽기 프로그램이 "{서버} 서버 메뉴"처럼 서버 이름과 함께 읽어요.
+
+<!-- en -->
+
+More places where the keyboard focus got lost in a list now keep it.
+
+### Fixed
+- Deleting a row (a session, a folder, a provider) through a confirmation dialog no longer drops the focus at the top of the page: it moves to the row that took its place, or the one before it when it was the last.
+- A long diff's "Show N more lines", the file viewer's "Show all lines" and the context inspector's "Show all" move the focus to the first row they reveal.
+- Each MCP server card's ⋯ menu button reads with its server's name to screen readers ("Actions for {server}").
+
 ## [0.61.15] - 2026-10-23
 
 목록마다 같은 이름이던 아이콘 버튼을 화면 읽기 프로그램이 줄마다 구별해 읽어요.
