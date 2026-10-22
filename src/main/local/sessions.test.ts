@@ -3,7 +3,7 @@ import { transcriptPageMessages, transcriptRunStart } from "../../../resources/g
 import type { AgentMessage, MessagesPage } from "../../shared/rpc-types";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { GuiBridgeClient } from "../bridge-client";
-import { handlers } from "./sessions";
+import { BACKWARD_PAGE_BUDGET, handlers } from "./sessions";
 import type { LocalCommandContext } from "./types";
 
 const T = "2026-01-01T00:00:00.000Z";
@@ -89,6 +89,32 @@ describe("get_transcript_page", () => {
 		leaf = "different";
 		await expect(page({ type: "get_transcript_page", cursor: older.prevCursor, limit: 200 }, ctx)).rejects.toThrow(
 			"stale",
+		);
+	});
+
+	it("reads a heavy tail in fewer messages, within its budget, and the rest page by page above it", async () => {
+		// Typed prompts every 2 messages, so every message starts or joins a short run; each weighs about 6 KB.
+		const heavy = Array.from({ length: 400 }, (_, i) =>
+			message(`u${i}`, i === 0 ? null : `u${i - 1}`, user(`${"tool output line\n".repeat(400)}${i}`, i)),
+		);
+		const { ctx } = pagedBridge(heavy, () => "u399");
+		const page = handlers.get_transcript_page as (
+			command: Record<string, unknown>,
+			ctx: LocalCommandContext,
+		) => Promise<MessagesPage>;
+		const tail = await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, ctx);
+		expect(JSON.stringify(tail.messages).length).toBeLessThanOrEqual(BACKWARD_PAGE_BUDGET);
+		expect(tail.messages.length).toBeGreaterThanOrEqual(20);
+		expect(tail.messages.at(-1)?.entryId).toBe("u399");
+		expect(tail.startIndex).toBe(400 - tail.messages.length);
+		// The page above starts where this one does, so nothing is skipped or read twice.
+		const older = await page({ type: "get_transcript_page", cursor: tail.prevCursor, limit: 200 }, ctx);
+		expect(older.messages.at(-1)?.entryId).toBe(`u${(tail.startIndex ?? 0) - 1}`);
+		expect(JSON.stringify(older.messages).length).toBeLessThanOrEqual(BACKWARD_PAGE_BUDGET);
+		// A light transcript still comes in one page of what was asked.
+		const { ctx: light } = pagedBridge(chain(300), () => "u299");
+		expect((await page({ type: "get_transcript_page", fromEnd: true, limit: 200 }, light)).messages).toHaveLength(
+			200,
 		);
 	});
 

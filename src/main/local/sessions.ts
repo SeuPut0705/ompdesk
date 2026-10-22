@@ -15,6 +15,14 @@ import { type LocalCommandContext, LocalCommandError, type LocalHandler } from "
 
 const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 256;
+/**
+ * What a page read from the end may weigh (JSON characters): one whose messages weigh more is read again with half as
+ * many, down to {@link MIN_BACKWARD_PAGE}, and the rest comes as older pages when the reader scrolls up. The 200
+ * messages a window asks for were 961 KB on one tail page of this repository's Autopilot session (tool results of file
+ * reads and checks), sent to a paired phone on every open (22 Oct 2026).
+ */
+export const BACKWARD_PAGE_BUDGET = 256 * 1024;
+const MIN_BACKWARD_PAGE = 20;
 
 const TranscriptCursor = z
 	.object({
@@ -98,8 +106,14 @@ export const handlers: Record<string, LocalHandler> = {
 		const backward = command.fromEnd === true || cursor?.backward === true;
 		const metadata = backward && !cursor ? await transcriptPage(ctx, 0, 0) : undefined;
 		const endIndex = cursor?.offset ?? metadata?.total ?? limit;
-		const offset = backward ? Math.max(0, endIndex - limit) : (cursor?.offset ?? 0);
-		const page = await transcriptPage(ctx, offset, backward ? endIndex - offset : limit, backward);
+		let take = backward ? Math.min(limit, endIndex) : limit;
+		let offset = backward ? endIndex - take : (cursor?.offset ?? 0);
+		let page = await transcriptPage(ctx, offset, take, backward);
+		while (backward && take > MIN_BACKWARD_PAGE && JSON.stringify(page.messages).length > BACKWARD_PAGE_BUDGET) {
+			take = Math.max(MIN_BACKWARD_PAGE, Math.floor(take / 2));
+			offset = endIndex - take;
+			page = await transcriptPage(ctx, offset, take, true);
+		}
 		if (
 			(cursor && (page.leafId !== cursor.leafId || page.total !== cursor.total)) ||
 			(metadata && (page.leafId !== metadata.leafId || page.total !== metadata.total))
