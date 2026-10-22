@@ -63,8 +63,8 @@ test("a host's work-folder sessions sit among the chats on the host and on the d
 		const tabId = await openHostFolder(a, deviceId, hostWork);
 		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
 		const tab = (await a.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tabId);
-		const deviceRow = section.locator(`[data-device-session=${cssString(tab?.sessionPath ?? `tab:${tabId}`)}]`);
-		await expect(section.locator(`[data-sidebar-chats="${deviceId}"]`).locator(deviceRow)).toHaveCount(1, {
+		const deviceRowSelector = `[data-device-session=${cssString(tab?.sessionPath ?? `tab:${tabId}`)}]`;
+		await expect(section.locator(`[data-sidebar-chats="${deviceId}"] ${deviceRowSelector}`)).toHaveCount(1, {
 			timeout: 30_000,
 		});
 		await expect(section.locator(`[data-device-group=${cssString(hostWork)}]`)).toHaveCount(0);
