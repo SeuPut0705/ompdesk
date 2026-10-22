@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.2] - 2026-10-22
+
+연결한 컴퓨터에서 도는 세션도 사이드바에서 하위 세션과 서브에이전트를 보여 줘요. 휴대폰에서 붙어 있는 버튼이 서로의 탭을 가져가던 곳들을 고쳤어요.
+
+### 고친 것
+- 연결한 컴퓨터에서 도는 세션의 사이드바 줄에 하위 세션과 서브에이전트가 보이지 않았어요. 이제 이 컴퓨터의 세션처럼 줄 끝의 칩으로 펼쳐 보고, 그 세션이 연 하위 세션은 따로 흩어지지 않고 그 아래에 모여요.
+- 휴대폰에서 오토파일럿 시작 창의 (i)를 누르면 옆의 '오토파일럿 시작'이 눌렸어요.
+- 좁은 휴대폰에서 가져오기 창의 '모두 선택'이 위 검색칸의 탭을, 디버그 콘솔의 아래 예시 버튼이 위 예시 버튼의 탭을 가져갔어요.
+- 휴대폰에서 작업 카드의 결과 칩이 바로 위 '진행 단계' 펼침 버튼의 탭을 가져갔어요.
+
+<!-- en -->
+
+Sessions running on a paired computer show their child sessions and subagents in the sidebar too. Several places on a phone where neighbouring buttons took each other's taps are fixed.
+
+### Fixed
+- A session running on a paired computer showed no child sessions or subagents in the sidebar. Its row now opens them from the chip at its end, like this computer's sessions, and the sessions it opened gather under it instead of being loose rows.
+- On a phone, a tap on the (i) of the Autopilot start sheet went to Start beside it.
+- On a narrow phone, the import dialog's select-all took the search field's taps, and the debug console's lower example button took the upper one's.
+- On a phone, a work card's finding chips took taps meant for the Steps toggle just above them.
+
 ## [0.61.1] - 2026-10-22
 
 연결한 컴퓨터에 다시 연결해도 열린 탭이 '기기가 오프라인'으로 멈추지 않아요.
