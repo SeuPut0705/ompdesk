@@ -364,20 +364,39 @@ export function createReadDecoder(): (wire: unknown) => unknown {
  * capability it needs: `get_autopilot` (`slimAutopilotReads`), and the two reads a device repeats on every hydration
  * of a tab (`slimListReads`): the slash command list (about 100 KB with the built-in skill packs, and it seldom
  * changes) and the transcript's tail page (up to 256 K characters; an idle session's is the same page again). A tail
- * read keeps its own chain per limit; a page read by cursor goes whole.
+ * read keeps its own chain per limit; a page read by cursor goes whole. Settings' reads (`slimSettingsReads`) keep a
+ * chain per command and arguments.
  */
 export function encodedReadKey(command: {
 	type: string;
 	fromEnd?: unknown;
 	cursor?: unknown;
 	limit?: unknown;
-}): { key: string; needs: "autopilotReads" | "listReads" } | null {
+	forceRefresh?: unknown;
+	compact?: unknown;
+	paths?: unknown;
+}): { key: string; needs: "autopilotReads" | "listReads" | "settingsReads" } | null {
 	if (command.type === "get_autopilot") return { key: command.type, needs: "autopilotReads" };
 	if (command.type === "get_available_commands") return { key: command.type, needs: "listReads" };
 	if (command.type === "get_transcript_page" && command.fromEnd === true && command.cursor === undefined)
 		return { key: `${command.type}:${String(command.limit)}`, needs: "listReads" };
+	if (SETTINGS_READS.has(command.type)) {
+		const args = [command.forceRefresh, command.compact, command.paths].map(value => JSON.stringify(value) ?? "");
+		return { key: `${command.type}:${args.join(":")}`, needs: "settingsReads" };
+	}
 	return null;
 }
+
+/**
+ * The reads Settings makes on a host's tab each time it opens (`slimSettingsReads`), measured on a link on 22 Oct
+ * 2026: the model catalog 363 KB, the settings schema 227 KB, the model roles 117 KB, every one whole each time.
+ */
+const SETTINGS_READS: ReadonlySet<string> = new Set([
+	"get_providers",
+	"get_settings_schema",
+	"get_model_roles",
+	"get_settings",
+]);
 
 interface ProgressEncoder {
 	update(event: ToolUpdate): ToolUpdate;

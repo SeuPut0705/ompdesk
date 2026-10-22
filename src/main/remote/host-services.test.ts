@@ -3119,6 +3119,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			autopilotReads: false,
 			listReads: false,
 			shiftedReads: false,
+			settingsReads: false,
 		};
 		override emit(event: string, data: unknown): void {
 			if (JSON.stringify(data).length > CAP) throw new FrameTooLargeError(JSON.stringify(data).length);
@@ -3220,6 +3221,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				autopilotReads: false,
 				listReads: false,
 				shiftedReads: false,
+				settingsReads: false,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3269,6 +3271,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				autopilotReads,
 				listReads: false,
 				shiftedReads: false,
+				settingsReads: false,
 			},
 		});
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3351,6 +3354,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				autopilotReads: true,
 				listReads,
 				shiftedReads,
+				settingsReads: listReads,
 			},
 		});
 		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -3421,6 +3425,40 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 		const shifted = await second(true);
 		const indexed = await second(false);
 		expect(shifted * 10).toBeLessThan(indexed);
+	});
+
+	it("sends Settings' reads as deltas of the last one of the same command and arguments", async () => {
+		const { sidecar, ask } = await connected(true);
+		let generation = 1;
+		const catalog = () => ({
+			providers: Array.from({ length: 30 }, (_, i) => ({ id: `p${i}`, name: `Provider ${i} `.repeat(20) })),
+			models: Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, name: `Model ${i} `.repeat(10) })),
+			generation,
+		});
+		sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: command.type === "get_providers" ? catalog() : { roles: [command.type], paths: command },
+		});
+		const decode = createReadDecoder();
+		const first = await ask({ type: "get_providers" });
+		generation = 2;
+		const second = await ask({ type: "get_providers" });
+		expect(size(second) * 10).toBeLessThan(size(first));
+		expect([decode(data(first)), decode(data(second))]).toEqual([{ ...catalog(), generation: 1 }, catalog()]);
+		// A forced refresh is its own chain: its first answer goes whole.
+		expect(data(await ask({ type: "get_providers", forceRefresh: true }))).toMatchObject({
+			"~read": expect.any(String),
+			status: catalog(),
+		});
+	});
+
+	it("sends Settings' reads whole to a device that reads lists but not settings", async () => {
+		const { x, ask } = await connected(true);
+		x.slim.settingsReads = false;
+		expect(data(await ask({ type: "get_settings_schema" }))).toEqual(page(40));
+		expect(data(await ask({ type: "get_settings_schema" }))).toEqual(page(40));
 	});
 
 	it("sends both whole to a device that did not ask", async () => {

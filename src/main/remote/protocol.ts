@@ -109,6 +109,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * `slimShiftedReads` (only ever sent with `slimListReads`): such a delta's list may also be compared at an offset
  * (`shift`), as a running session's tail page starts later on each read. A device without it (v0.60.0) would read
  * the items at the wrong place, so its lists are compared index by index.
+ *
+ * `slimSettingsReads` (only ever sent with `slimListReads`): the device also rebuilds the reads Settings makes each
+ * time it opens on a host's tab (`get_providers`, `get_settings_schema`, `get_model_roles`, `get_settings`) sent as
+ * numbered deltas. A device without it (v0.61.3 and older) gets them whole.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -125,6 +129,7 @@ export const ClientHello = z.object({
 	slimAutopilotReads: z.boolean().optional(),
 	slimListReads: z.boolean().optional(),
 	slimShiftedReads: z.boolean().optional(),
+	slimSettingsReads: z.boolean().optional(),
 });
 
 /**
@@ -142,6 +147,7 @@ export interface LinkSlim {
 	autopilotReads: boolean;
 	listReads: boolean;
 	shiftedReads: boolean;
+	settingsReads: boolean;
 }
 
 export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
@@ -160,6 +166,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		autopilotReads,
 		listReads,
 		shiftedReads: listReads && hello.slimShiftedReads === true,
+		settingsReads: listReads && hello.slimSettingsReads === true,
 	};
 }
 
@@ -175,6 +182,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	autopilotReads: "status",
 	listReads: "lists",
 	shiftedReads: "shift",
+	settingsReads: "settings",
 };
 
 export const HostHelloMessage = z.object({
