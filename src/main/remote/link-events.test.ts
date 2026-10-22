@@ -969,3 +969,44 @@ describe("a running tool's output that got shorter", () => {
 		expect(delivered.flat()).toEqual(overTheWire(events));
 	});
 });
+
+describe("a running tool's output, any sequence of updates", () => {
+	/** A small seeded generator, so a failing sequence reproduces. */
+	function random(seed: number): () => number {
+		let state = seed >>> 0;
+		return () => {
+			state = (state * 1664525 + 1013904223) >>> 0;
+			return state / 2 ** 32;
+		};
+	}
+
+	it("reaches the device exactly as stock sent it: grown, shrunk, slid, replaced, repetitive or empty", () => {
+		for (let seed = 1; seed <= 200; seed++) {
+			const next = random(seed);
+			const pick = (n: number) => Math.floor(next() * n);
+			const alphabet = pick(2) === 0 ? "a" : "ab\nc";
+			const chunk = () => Array.from({ length: pick(90) }, () => alphabet[pick(alphabet.length)]).join("");
+			let text = "";
+			const events: AgentSessionEvent[] = [];
+			for (let step = 0; step < 30; step++) {
+				const move = pick(6);
+				if (move <= 1) text += chunk();
+				else if (move === 2) text = text.slice(pick(text.length + 1));
+				else if (move === 3) text = text.slice(0, pick(text.length + 1));
+				else if (move === 4) text = text.slice(pick(text.length + 1)) + chunk();
+				else text = chunk();
+				events.push({
+					type: "tool_execution_update",
+					toolCallId: `call-${pick(2)}`,
+					toolName: "bash",
+					args: {},
+					partialResult: { content: [{ type: "text", text }], details: {} },
+				} as unknown as AgentSessionEvent);
+			}
+			const encoder = createLinkEventEncoder({ toolOutputs: true });
+			const decoder = createLinkEventDecoder();
+			const delivered = events.map(event => decoder.events(overTheWire(encoder.events([event]))));
+			expect(delivered.flat(), `seed ${seed}`).toEqual(overTheWire(events));
+		}
+	});
+});
