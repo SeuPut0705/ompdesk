@@ -605,7 +605,9 @@ describe("an Autopilot status a device reads", () => {
 	it("never rebuilds from a copy an earlier connection's encoder sent", () => {
 		const decode = createStatusReadDecoder();
 		const before = createStatusReadEncoder();
-		expect(decode(overTheWire(before(status(10), false)))).toEqual(status(10));
+		// The same length as `first`, so a delta of `first` would apply to it cleanly and rebuild the wrong status.
+		const stale = status(90, { state: "paused" });
+		expect(decode(overTheWire(before(stale, false)))).toEqual(stale);
 		// The link came back: a new encoder, whose first answer this side never read.
 		const after = createStatusReadEncoder();
 		after(first, false);
