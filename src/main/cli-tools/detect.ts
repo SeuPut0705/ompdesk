@@ -5,7 +5,7 @@
  * the install that the user's own shell runs.
  */
 import { execFile } from "node:child_process";
-import { accessSync, constants, readFileSync, realpathSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, win32 } from "node:path";
 import type { CliSkipReason, CliToolId } from "../../shared/cli-update";
 import { parseOmpVersion } from "../omp-runtime";
@@ -190,6 +190,21 @@ export function cmdShimTarget(shim: string, text: string): string | null {
 	return target ? win32.join(win32.dirname(shim), target) : null;
 }
 
+/**
+ * The file a Windows Bun shim runs, or null for bytes that name none. Bun links a bin on Windows as a copy of its
+ * `bun_shim_impl.exe` beside a `<bin>.bunx` file (bun's `install/windows-shim/BinLinkingShim.zig`): the `.bunx`
+ * starts with the target as UTF-16LE up to a `"`, relative to the folder above the shim's own (`node_modules` for
+ * `node_modules\.bin\x.exe`; `%USERPROFILE%\.bun` for a global's `.bun\bin\x.exe`, whose path then starts
+ * `install\global\node_modules\`). Only the `.exe` is on PATH, so only this file names the package.
+ */
+export function bunxShimTarget(exe: string, bytes: Buffer): string | null {
+	const text = bytes.toString("utf16le");
+	const end = text.indexOf('"');
+	const target = end > 0 ? text.slice(0, end) : "";
+	if (!target || win32.isAbsolute(target) || /^[\\/]/.test(target) || target.includes("\0")) return null;
+	return win32.join(win32.dirname(win32.dirname(exe)), target);
+}
+
 /** Find and classify `id`; null when it is not installed (OMPdesk never installs a vendor CLI). */
 export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<CliDetection | null> {
 	const spec = CLI_TOOL_SPECS[id];
@@ -209,6 +224,8 @@ export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<Cl
 	try {
 		real = realpathSync(path);
 		if (win && /\.cmd$/i.test(real)) real = cmdShimTarget(real, readFileSync(real, "utf8")) ?? real;
+		else if (win && /\.exe$/i.test(real) && existsSync(real.replace(/\.exe$/i, ".bunx")))
+			real = bunxShimTarget(real, readFileSync(real.replace(/\.exe$/i, ".bunx"))) ?? real;
 	} catch {
 		// A dangling link resolves to itself; classification then reads its own path.
 	}

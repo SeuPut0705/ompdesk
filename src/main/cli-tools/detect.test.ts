@@ -10,6 +10,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { CLI_TOOLS } from "../../shared/cli-update";
 import { CLI_TOOL_SPECS, relevantTools } from "./catalog";
 import {
+	bunxShimTarget,
 	classifyInstall,
 	cmdShimTarget,
 	detectCliTool,
@@ -302,6 +303,39 @@ describe("cmdShimTarget (Windows npm globals are .cmd shims, not links)", () => 
 	});
 });
 
+/** A `.bunx` as bun encodes one (BinLinkingShim.zig): the target, `"`, a 0 char, shebang data, the flags. */
+function bunx(target: string): Buffer {
+	const launcher = "node ";
+	const flags = Buffer.alloc(2);
+	flags.writeUInt16LE(0b111 | (5478 << 3));
+	const lengths = Buffer.alloc(8);
+	lengths.writeUInt32LE(target.length * 2, 0);
+	lengths.writeUInt32LE(launcher.length * 2, 4);
+	return Buffer.concat([Buffer.from(`${target}"\0${launcher}`, "utf16le"), lengths, flags]);
+}
+
+describe("bunxShimTarget (Windows Bun globals are a shim .exe beside a .bunx)", () => {
+	it("reads the package file a global's shim runs, so its Bun install owns it", () => {
+		const shim = "C:\\Users\\u\\.bun\\bin\\codex.exe";
+		const target = bunxShimTarget(shim, bunx("install\\global\\node_modules\\@openai\\codex\\bin\\codex.js"));
+		expect(target).toBe("C:\\Users\\u\\.bun\\install\\global\\node_modules\\@openai\\codex\\bin\\codex.js");
+		expect(classifyInstall(target ?? shim, CLI_TOOL_SPECS.codex, WIN).owner).toEqual({
+			method: "bun",
+			name: "@openai/codex",
+			bunRoot: "C:\\Users\\u\\.bun",
+			root: "C:\\Users\\u\\.bun\\install\\global\\node_modules\\@openai\\codex",
+		});
+	});
+
+	it("reads a project's node_modules\\.bin shim, and names nothing for bytes that are no shim", () => {
+		expect(bunxShimTarget("D:\\app\\node_modules\\.bin\\tool.exe", bunx("tool\\cli.js"))).toBe(
+			"D:\\app\\node_modules\\tool\\cli.js",
+		);
+		expect(bunxShimTarget("D:\\bin\\tool.exe", Buffer.from("MZ\u0090\u0000", "latin1"))).toBeNull();
+		expect(bunxShimTarget("D:\\bin\\tool.exe", bunx("C:\\elsewhere\\tool.js"))).toBeNull();
+	});
+});
+
 const made: string[] = [];
 // Not the developer's own Homebrew: its claude or gh would answer for a PATH that holds none.
 process.env.OMP_GUI_TEST_BREW_DIRS = "";
@@ -466,6 +500,33 @@ describe.runIf(process.platform === "win32")("detectCliTool on Windows", () => {
 			installed: "0.50.1",
 			skip: null,
 			owner: { method: "npm", name: "@openai/codex", prefix: bin, root: pkg },
+		});
+	});
+
+	it("follows a Bun global's shim .exe and its .bunx to the package, so Bun's install owns it", async () => {
+		const { root } = await sandbox();
+		const bunHome = path.join(root, ".bun");
+		const bin = path.join(bunHome, "bin");
+		const pkg = path.join(bunHome, "install", "global", "node_modules", "@openai", "codex");
+		await fs.mkdir(path.join(pkg, "bin"), { recursive: true });
+		await fs.mkdir(bin, { recursive: true });
+		await fs.writeFile(path.join(pkg, "bin", "codex.js"), "");
+		await fs.writeFile(path.join(pkg, "package.json"), JSON.stringify({ name: "@openai/codex", version: "0.51.0" }));
+		await fs.writeFile(path.join(bin, "codex.exe"), "MZ");
+		await fs.writeFile(
+			path.join(bin, "codex.bunx"),
+			bunx("install\\global\\node_modules\\@openai\\codex\\bin\\codex.js"),
+		);
+		const ctx: InstallContext = { platform: "win32", toolsDir: path.join(root, "tools"), brew: null };
+		const never = async () => {
+			throw new Error("the version comes from the package manifest");
+		};
+		expect(await detectCliTool("codex", { pathEnv: bin, env: {}, ctx, probe: never })).toMatchObject({
+			path: path.join(bin, "codex.exe"),
+			real: path.join(pkg, "bin", "codex.js"),
+			installed: "0.51.0",
+			skip: null,
+			owner: { method: "bun", name: "@openai/codex", bunRoot: bunHome, root: pkg },
 		});
 	});
 });
