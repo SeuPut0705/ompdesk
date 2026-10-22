@@ -691,7 +691,8 @@ export interface AutopilotConfigureParams {
 }
 
 export interface AutopilotSetStateParams {
-	state: AutopilotState;
+	/** Absent: the journal's state (and its reason) stays; main sends none with a push's in-flight mark. */
+	state?: AutopilotState;
 	reason?: AutopilotPauseReason | AutopilotEndReason;
 	detail?: string;
 	/** `null` clears the in-flight mark; a push neither replaces nor clears a release mark (`inFlightAfter`). */

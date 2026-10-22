@@ -123,11 +123,14 @@ export class World {
 			case AUTOPILOT_BRIDGE_METHODS.status:
 				return current ?? { active: false };
 			case AUTOPILOT_BRIDGE_METHODS.setState: {
-				if (current) {
+				// As the bridge's `nextStateEntry`: a change that names no state keeps the journal's state and reason.
+				if (current && params.state !== undefined) {
 					current.state = params.state as AutopilotStatus["state"];
 					current.reason = params.reason as AutopilotStatus["reason"];
 					current.detail = params.detail as string | undefined;
 					current.quotaResetAt = params.quotaResetAt as number | undefined;
+				}
+				if (current) {
 					if ("inFlight" in params && current.ship) {
 						current.ship.inFlight = (params.inFlight as never) ?? undefined;
 					}

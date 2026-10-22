@@ -73,7 +73,6 @@ import {
 	type EndReport,
 	finalizeCycle,
 	followupDismissals,
-	inFlightAfter,
 	initialStateEntry,
 	isDuplicateTitle,
 	type JournalEntry,
@@ -84,6 +83,7 @@ import {
 	parseEndReport,
 	pendingNotes,
 	pendingShipRequests,
+	setStatePatch,
 	shipLevelOf,
 	totalsOf,
 	usageDelta,
@@ -917,16 +917,7 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 	}
 	function setStateMethod(params: AutopilotSetStateParams): AutopilotStatus {
 		const prev = requireRun();
-		const next = appendState(
-			{
-				state: params.state,
-				...(params.reason ? { reason: params.reason } : {}),
-				...(params.detail ? { detail: params.detail } : {}),
-				...(params.quotaResetAt ? { quotaResetAt: params.quotaResetAt } : {}),
-				...(params.inFlight !== undefined ? { inFlight: inFlightAfter(prev.inFlight, params.inFlight) } : {}),
-			},
-			prev,
-		);
+		const next = appendState(setStatePatch(params, prev), prev);
 		if (next.state === "stopping" && prev.state !== "stopping" && host.isStreaming()) {
 			host.record({ type: "fixture_autopilot_steer", customType: "autopilot-stop" });
 		}

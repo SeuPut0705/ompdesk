@@ -69,7 +69,6 @@ import {
 	type EndReport,
 	finalizeCycle,
 	followupDismissals,
-	inFlightAfter,
 	initialStateEntry,
 	isDuplicateTitle,
 	type JournalEntry,
@@ -82,6 +81,7 @@ import {
 	pendingShipRequests,
 	proposeReleaseCheck,
 	releaseReadiness,
+	setStatePatch,
 	shipLevelOf,
 	totalsOf,
 	type UsageTotals,
@@ -1087,19 +1087,6 @@ async function disarm(session: Session): Promise<AutopilotStatus> {
 	await restoreTools(session, state.excludedTools, mounted);
 	pendingToolRestore = { excluded: [...state.excludedTools], mounted: [...mounted] };
 	return publish(session);
-}
-
-function setStatePatch(
-	params: AutopilotSetStateParams,
-	prev: AutopilotStateEntry,
-): Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> {
-	return {
-		state: params.state,
-		...(params.reason ? { reason: params.reason } : {}),
-		...(params.detail ? { detail: params.detail } : {}),
-		...(params.quotaResetAt ? { quotaResetAt: params.quotaResetAt } : {}),
-		...(params.inFlight !== undefined ? { inFlight: inFlightAfter(prev.inFlight, params.inFlight) } : {}),
-	};
 }
 
 function setState(session: Session, params: AutopilotSetStateParams): AutopilotStatus {

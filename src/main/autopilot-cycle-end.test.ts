@@ -15,6 +15,7 @@ import {
 	remote,
 	start,
 	tmp,
+	win,
 	world,
 } from "./autopilot-test-rig";
 import { gitSync } from "./local/git/test-repos";
@@ -88,7 +89,24 @@ describe("a cycle's end", () => {
 			.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState)
 			.map(call => call.params?.inFlight ?? null);
 		expect(flags).toEqual([expect.objectContaining({ kind: "push" }), null]);
-		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params?.state).toBe("running");
+		// The in-flight marks name no state: the journal's own stays, whatever this process last read.
+		expect(
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).map(call => call.params?.state ?? null),
+		).toEqual([null, null]);
+	});
+
+	it("a pause given while the cycle's push runs stays: the push's marks never journal the run running again", async () => {
+		await start({ type: "set_autopilot", action: "start", preset: "push" });
+		const sha = await commit(path.join(tmp, "wt-2026-10-17"), "a.txt");
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		await autopilot.handleCommand(win, sidecar, "ap-1", { type: "set_autopilot", action: "pause" }, "2");
+		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ commit: sha }) });
+		await autopilot.idle();
+		expect(gitSync(remote, "rev-parse", "refs/heads/autopilot/2026-10-17")).toBe(sha);
+		expect(world.statuses.get("ap-1")).toMatchObject({ state: "paused", reason: "user_pause" });
+		expect(
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).map(call => call.params?.state ?? null),
+		).not.toContain("running");
 	});
 
 	it("does not push a red cycle, nor anything when auto push is off", async () => {

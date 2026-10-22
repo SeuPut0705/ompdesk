@@ -191,7 +191,7 @@ describe("the branch a run is on", () => {
 			refs: ["refs/remotes/origin/main"],
 			sha,
 		});
-		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params?.state).toBe("running");
+		expect(world.statuses.get("ap-1")?.state).toBe("running");
 		// The user's own folder was not touched.
 		expect(gitSync(main, "rev-parse", "--abbrev-ref", "HEAD")).toBe("dev");
 	});

@@ -48,6 +48,7 @@ import {
 	redStreak,
 	releaseReadiness,
 	rotation,
+	setStatePatch,
 	shipLevelOf,
 	totalsOf,
 	usageDelta,
@@ -522,6 +523,18 @@ describe("state entries", () => {
 		const back = nextStateEntry(waiting, { state: "running" }, 4_000);
 		expect(back).not.toHaveProperty("quotaResetAt");
 		expect(back).not.toHaveProperty("detail");
+	});
+	it("a push's in-flight mark that names no state leaves the user's pause and its reason as they are", () => {
+		const paused = nextStateEntry(start, { state: "paused", reason: "user_pause" }, 2_000);
+		const marked = nextStateEntry(
+			paused,
+			setStatePatch({ inFlight: { kind: "push", startedAt: 3_000 } }, paused),
+			3_000,
+		);
+		expect(marked).toMatchObject({ state: "paused", reason: "user_pause", inFlight: { kind: "push" } });
+		const cleared = nextStateEntry(marked, setStatePatch({ inFlight: null }, marked), 4_000);
+		expect(cleared).toMatchObject({ state: "paused", reason: "user_pause" });
+		expect(cleared.inFlight).toBeUndefined();
 	});
 });
 

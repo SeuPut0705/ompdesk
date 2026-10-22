@@ -1760,7 +1760,11 @@ export class Autopilot {
 		}
 	}
 
-	/** Journal a state through the bridge, keeping what the last status said about the rest. */
+	/**
+	 * Journal a state through the bridge, keeping what the last status said about the rest. A change that names no
+	 * state (a push's in-flight mark) sends none: the journal keeps its own, which a pause given after this process
+	 * last read the status has already changed (a push's mark once wrote `running` over the user's Pause).
+	 */
 	async #setState(
 		run: Run,
 		change: {
@@ -1776,9 +1780,9 @@ export class Autopilot {
 		const reason = change.reason ?? (sameState ? current?.reason : undefined);
 		const detail = change.detail ?? (sameState ? current?.detail : undefined);
 		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.setState, {
-			state: change.state ?? current?.state ?? "running",
-			...(reason ? { reason } : {}),
-			...(detail ? { detail } : {}),
+			...(change.state !== undefined ? { state: change.state } : {}),
+			...(change.state !== undefined && reason ? { reason } : {}),
+			...(change.state !== undefined && detail ? { detail } : {}),
 			...(change.inFlight !== undefined ? { inFlight: change.inFlight } : {}),
 			...(change.quotaResetAt !== undefined ? { quotaResetAt: change.quotaResetAt } : {}),
 		});

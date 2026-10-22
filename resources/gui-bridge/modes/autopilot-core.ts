@@ -23,6 +23,7 @@ import {
 	type AutopilotNote,
 	type AutopilotNudgeReason,
 	type AutopilotPauseReason,
+	type AutopilotSetStateParams,
 	type AutopilotSettings,
 	type AutopilotShipLevel,
 	type AutopilotShipPolicy,
@@ -328,6 +329,23 @@ export function inFlightAfter(
 ): InFlightMark | undefined {
 	if (change === undefined || (prev?.kind === "release" && change?.kind !== "release")) return prev;
 	return change ?? undefined;
+}
+
+/**
+ * What main's `setState` changes in the journal's state. A change that names no state (a push's in-flight mark)
+ * keeps the journal's own: main's last read can be older than a pause the user just gave.
+ */
+export function setStatePatch(
+	params: AutopilotSetStateParams,
+	prev: AutopilotStateEntry,
+): Partial<Omit<AutopilotStateEntry, "at" | "activeMs">> {
+	return {
+		...(params.state !== undefined ? { state: params.state } : {}),
+		...(params.reason ? { reason: params.reason } : {}),
+		...(params.detail ? { detail: params.detail } : {}),
+		...(params.quotaResetAt ? { quotaResetAt: params.quotaResetAt } : {}),
+		...(params.inFlight !== undefined ? { inFlight: inFlightAfter(prev.inFlight, params.inFlight) } : {}),
+	};
 }
 
 // ---------------------------------------------------------------------------------------------
