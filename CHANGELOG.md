@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.18] - 2026-10-23
+
+지난 두 버전에서 알림이 화면에 남아 버튼을 가리던 문제를 고쳤어요.
+
+### 고친 것
+- 템플릿 갤러리처럼 이미 닫힌 창에서 연 편집기를 닫으면 알림(토스트)의 닫기 버튼으로 포커스가 가서, 알림이 사라지지 않고 아래 버튼을 가리던 문제를 고쳤어요(0.61.16부터).
+- 사이드바에서 선택된 세션 줄의 시간·표시와 기다리는 세션의 제목, 연결된 컴퓨터의 "오프라인" 표시가 모든 테마에서 읽기 쉬운 대비를 가져요.
+- 첫 실행 화면의 제목 단계가 건너뛰지 않아, 화면 읽기 프로그램의 제목 이동이 이어져요.
+
+<!-- en -->
+
+A toast no longer stays on screen covering buttons, as it could in the last two versions.
+
+### Fixed
+- Closing an editor opened from a dialog that had already closed (the template gallery) moved the focus to a toast's close button, and the toast then stayed on screen over the buttons beneath it (since 0.61.16).
+- On the sidebar's selected session row the age and marks, a waiting session's title and a paired computer's "Offline" tag read at full contrast in every theme.
+- The first-run screen's headings no longer skip a level, so a screen reader's heading navigation runs through them.
+
 ## [0.61.17] - 2026-10-23
 
 키보드와 화면 읽기 프로그램으로 대화 기록과 사이드바를 다룰 때 걸리던 곳을 더 고쳤어요.
