@@ -22,6 +22,7 @@ import {
 	protocol,
 	session,
 	shell,
+	systemPreferences,
 } from "electron";
 import Store from "electron-store";
 import {
@@ -94,7 +95,7 @@ import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
 import { poolTabFor, registerDiagnosticBundleIpc } from "./diagnostic-bundle";
-import { currentDiagnosticsReport, registerDiagnosticsIpc } from "./diagnostics";
+import { currentDiagnosticsReport, type DiagnosticsDeps, registerDiagnosticsIpc } from "./diagnostics";
 import { DiskCare, registerDiskCareIpc } from "./disk/care";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
@@ -107,6 +108,7 @@ import {
 	confirmHardwareTrial,
 	handleGpuProcessGone,
 	recordGpuIdentity,
+	softwareCompositing,
 } from "./gpu-fallback";
 import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
@@ -1013,7 +1015,7 @@ app.whenReady().then(() => {
 	});
 	setupService = setup;
 	registerSetupIpc(ipc, setup);
-	const diagnostics = {
+	const diagnostics: DiagnosticsDeps = {
 		system: () => ({
 			appVersion: appVersion(),
 			packaged: app.isPackaged,
@@ -1035,6 +1037,13 @@ app.whenReady().then(() => {
 				devices: state.host.peers.flatMap(peer => (peer.online && peer.appVersion ? [peer.appVersion] : [])),
 			};
 		},
+		display: async () => ({
+			rendering: (await softwareCompositing()) ? "software" : "hardware",
+			reducedMotion:
+				typeof systemPreferences.getAnimationSettings === "function"
+					? systemPreferences.getAnimationSettings().prefersReducedMotion
+					: null,
+		}),
 	};
 	registerDiagnosticsIpc(ipc, diagnostics);
 	registerDiagnosticBundleIpc(ipc, {

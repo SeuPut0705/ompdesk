@@ -106,6 +106,15 @@ describe("buildDiagnosticsReport", () => {
 		expect(buildDiagnosticsReport(INPUT)).not.toContain("## Paired computers");
 	});
 
+	it("says how the window draws: software rendering and Reduce motion change what a person sees", () => {
+		const report = buildDiagnosticsReport({ ...INPUT, display: { rendering: "software", reducedMotion: true } });
+		expect(report).toContain("Display: software rendering, Reduce motion on");
+		expect(buildDiagnosticsReport({ ...INPUT, display: { rendering: "hardware", reducedMotion: false } })).toContain(
+			"Display: hardware rendering, Reduce motion off",
+		);
+		expect(buildDiagnosticsReport(INPUT)).not.toContain("Display:");
+	});
+
 	it("redacts the whole report, the setup paths and every log line", () => {
 		const secret = `ghp_${"a1B2".repeat(9)}`;
 		const report = buildDiagnosticsReport({

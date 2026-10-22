@@ -46,6 +46,15 @@ export interface DiagnosticsInput {
 	logLines: readonly string[];
 	/** The OMPdesk versions of the paired computers connected now, never their names: a mismatch explains a refusal. */
 	paired?: PairedVersions | null;
+	/** How the window draws: a bug seen only in software rendering or under Reduce motion is told apart by it. */
+	display?: DiagnosticsDisplay | null;
+}
+
+export interface DiagnosticsDisplay {
+	/** `software`: no GPU compositing (a crash fallback, safe mode, a VM). */
+	rendering: "hardware" | "software";
+	/** The OS's Reduce motion setting; null where Electron cannot tell. */
+	reducedMotion: boolean | null;
 }
 
 export interface PairedVersions {
@@ -108,6 +117,11 @@ export function buildDiagnosticsReport(input: DiagnosticsInput): string {
 		`Electron: ${system.electron}, Chrome ${system.chrome}, Node ${system.node}`,
 		`OS: ${system.platform} ${system.osVersion} (kernel ${system.osRelease}), ${system.arch}`,
 		`Language: ${system.language ?? "unknown"}`,
+		...(input.display
+			? [
+					`Display: ${input.display.rendering} rendering, Reduce motion ${input.display.reducedMotion === null ? "unknown" : input.display.reducedMotion ? "on" : "off"}`,
+				]
+			: []),
 		"",
 		"## Machine setup",
 		...setupLines(setup),
@@ -209,6 +223,8 @@ export interface DiagnosticsDeps {
 	runtimeLogPath: () => string;
 	/** The connected paired computers' versions; absent before remote devices exist. */
 	pairedVersions?: () => PairedVersions | null;
+	/** How the window draws (software rendering, Reduce motion). */
+	display?: () => Promise<DiagnosticsDisplay>;
 	now?: () => Date;
 }
 
@@ -220,6 +236,7 @@ export async function currentDiagnosticsReport(deps: DiagnosticsDeps): Promise<s
 		setup: deps.setupState(),
 		logLines: await readDiagnosticsLog(deps.runtimeLogPath()),
 		paired: deps.pairedVersions?.() ?? null,
+		display: deps.display ? await deps.display().catch(() => null) : null,
 	});
 }
 
