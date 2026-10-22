@@ -16,6 +16,8 @@ const TOP = 5;
 const MAX_KINDS = 128;
 const MAX_OPEN_REQUESTS = 256;
 const MAX_NAME_CHARS = 64;
+/** What a message crossing as a reference to a copy already sent carries in place of itself (`link-events.ts`). */
+const SENT_REF = "~sent";
 
 export interface TrafficRow {
 	kind: string;
@@ -35,6 +37,12 @@ export interface TrafficWindow {
 	 * every type in it, so a busy minute (2.15 MB in 21 Oct 2026's log) could not say which events made it.
 	 */
 	batchedBytes: Record<string, number>;
+	/**
+	 * The messages of an `agent_end` that crossed whole instead of as a reference to the copy their `message_start` or
+	 * `message_end` carried (`slimEnds`), their JSON size by role (`custom:<customType>` for a custom message). Two
+	 * computers on 0.57.0 still sent a 49 KB `agent_end`, and the line could not say which messages it held.
+	 */
+	wholeEnds: Record<string, number>;
 }
 
 /** Tab events whose `arg` names its own frame type; the type belongs in the kind (`subagentFrame/subagent_progress`). */
@@ -57,6 +65,7 @@ export class LinkTraffic {
 	readonly #rows = new Map<string, TrafficRow>();
 	readonly #batched = new Map<string, number>();
 	readonly #batchedBytes = new Map<string, number>();
+	readonly #wholeEnds = new Map<string, number>();
 	/** Methods of requests seen, by id, until their answer passes: an answer is sized under its request's method. */
 	readonly #methods = new Map<number, string>();
 	#tx = 0;
@@ -84,10 +93,12 @@ export class LinkTraffic {
 			rows: [...this.#rows.values()].sort((a, b) => b.bytes - a.bytes),
 			batched: Object.fromEntries(this.#batched),
 			batchedBytes: Object.fromEntries(this.#batchedBytes),
+			wholeEnds: Object.fromEntries(this.#wholeEnds),
 		};
 		this.#rows.clear();
 		this.#batched.clear();
 		this.#batchedBytes.clear();
+		this.#wholeEnds.clear();
 		this.#tx = 0;
 		this.#rx = 0;
 		return window;
@@ -121,6 +132,18 @@ export class LinkTraffic {
 		return typeof type === "string" ? `${base}/${name(type)}` : base;
 	}
 
+	#countWholeEnds(item: unknown): void {
+		const messages = (item as { messages?: unknown } | null)?.messages;
+		if (!Array.isArray(messages)) return;
+		for (const message of messages) {
+			if (typeof message !== "object" || message === null || SENT_REF in message) continue;
+			const { role, customType } = message as { role?: unknown; customType?: unknown };
+			const key = role === "custom" ? `custom:${name(customType)}` : name(role);
+			if (!this.#wholeEnds.has(key) && this.#wholeEnds.size >= MAX_KINDS) continue;
+			this.#wholeEnds.set(key, (this.#wholeEnds.get(key) ?? 0) + jsonBytes(message));
+		}
+	}
+
 	#tabEventKind(data: unknown): string {
 		const { name: tabEvent, arg } = (data ?? {}) as { name?: unknown; arg?: unknown };
 		const base = `evt ${TAB_EVENT} ${name(tabEvent)}`;
@@ -130,6 +153,7 @@ export class LinkTraffic {
 				const type = name((item as { type?: unknown } | null)?.type);
 				this.#batched.set(type, (this.#batched.get(type) ?? 0) + 1);
 				this.#batchedBytes.set(type, (this.#batchedBytes.get(type) ?? 0) + jsonBytes(item));
+				if (type === "agent_end") this.#countWholeEnds(item);
 			}
 			// A flush of subagent frames (`slimProgress`) holds frames of several types: one kind, each type counted.
 			return tabEvent === "events" ? base : `${base}/batch`;
@@ -171,6 +195,7 @@ export function logLinkTraffic(
 			top: JSON.stringify(window.rows.slice(0, TOP)),
 			events: JSON.stringify(Object.fromEntries(events)),
 			eventBytes: JSON.stringify(Object.fromEntries(eventBytes)),
+			...(Object.keys(window.wholeEnds).length > 0 ? { wholeEnds: JSON.stringify(window.wholeEnds) } : {}),
 		});
 	};
 	const timer = setInterval(flush, options.everyMs ?? TRAFFIC_LOG_MS);

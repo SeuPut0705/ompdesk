@@ -77,6 +77,27 @@ describe("LinkTraffic", () => {
 		expect(batchedBytes.message_end).toBeGreaterThan(3_000);
 	});
 
+	it("weighs the messages of an agent_end that crossed whole by role, never one that crossed as a reference", () => {
+		const traffic = new LinkTraffic();
+		const reply = { role: "assistant", content: [{ type: "text", text: "done" }] };
+		const brief = { role: "custom", customType: "goal-continuation", content: "go on" };
+		const end = {
+			type: "agent_end",
+			messages: [
+				{ "~sent": "user:1" },
+				reply,
+				{ "~sent": "assistant:2", entryId: "e", set: { completedAt: 3 } },
+				brief,
+			],
+		};
+		traffic.record("tx", tabEvent("events", [end]), 900);
+
+		expect(traffic.take().wholeEnds).toEqual({
+			assistant: Buffer.byteLength(JSON.stringify(reply)),
+			"custom:goal-continuation": Buffer.byteLength(JSON.stringify(brief)),
+		});
+	});
+
 	it("names a tab event that batches subagent frames one kind and counts its frames by type", () => {
 		const traffic = new LinkTraffic();
 		const batch = [{ type: "subagent_progress" }, { type: "subagent_event" }, { type: "subagent_event" }];
@@ -92,6 +113,6 @@ describe("LinkTraffic", () => {
 		for (let method = 0; method < 1_000; method++)
 			traffic.record("rx", { t: "req", id: method, method: `m${method}` }, 10);
 		expect(traffic.take().rows.length).toBeLessThanOrEqual(128);
-		expect(traffic.take()).toEqual({ tx: 0, rx: 0, rows: [], batched: {}, batchedBytes: {} });
+		expect(traffic.take()).toEqual({ tx: 0, rx: 0, rows: [], batched: {}, batchedBytes: {}, wholeEnds: {} });
 	});
 });
