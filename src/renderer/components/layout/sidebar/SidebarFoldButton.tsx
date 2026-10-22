@@ -18,6 +18,7 @@ export interface SidebarFoldButtonProps extends Omit<ComponentProps<"button">, "
 export function SidebarFoldButton({ folded, icon, className, children, ...rest }: SidebarFoldButtonProps) {
 	const Chevron = folded ? ChevronRight : ChevronDown;
 	return (
+		// controls-ok: the sidebar's one fold header, shared by the project, host project and Chats rows.
 		<button {...rest} aria-expanded={!folded} className={cx(BASE, className)} type="button">
 			<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 			{icon}
