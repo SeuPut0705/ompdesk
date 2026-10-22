@@ -92,6 +92,7 @@ function PanelHeader({ bare }: { bare?: boolean }) {
 			)}
 			<IconButton
 				className="no-drag shrink-0"
+				data-panel-close=""
 				icon={<X />}
 				label={t("panel.close")}
 				onClick={togglePanel}

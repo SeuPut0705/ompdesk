@@ -570,3 +570,27 @@ test("responsive smoke 1280 desktop: the model picker sits on the composer and d
 	expect(await region(".omp-dialog-overlay")).toBe("no-drag");
 	await page.context().close();
 });
+
+test("responsive smoke 1280 Windows window: the side panel's close sits at its header's start, away from the caption buttons", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = { width: 1280, height: 800, dpr: 1, orientation: "landscape", theme: "light", lang: "en" };
+	const page = await openLook(browser, look, { origin, query: "&platform=win32" });
+	// The page marks its platform from navigator.platform, which is the machine running the test: say Windows.
+	await page.evaluate(() => {
+		document.documentElement.dataset.platform = "win32";
+	});
+	await show(page, look, "panel-files");
+	const header = page.locator(".omp-panel-topbar").first();
+	const close = header.locator("[data-panel-close]");
+	const views = header.locator("[aria-pressed]").first();
+	const [closeBox, viewsBox, headerBox] = await Promise.all([
+		close.boundingBox(),
+		views.boundingBox(),
+		header.boundingBox(),
+	]);
+	if (!closeBox || !viewsBox || !headerBox) throw new Error("expected the panel header, its views and its close");
+	// Windows draws minimize, maximize and close over the header's right end: the panel's ✕ is at the other end.
+	expect(closeBox.x).toBeLessThan(viewsBox.x);
+	expect(closeBox.x - headerBox.x).toBeLessThan(40);
+	await page.context().close();
+});

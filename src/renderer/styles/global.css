@@ -287,6 +287,14 @@ html[data-platform="win32"] {
 	padding-right: calc(var(--sc-space-2) + var(--sc-caption-buttons));
 }
 
+/* On Windows the caption buttons (minimize, maximize, close) sit over a right-docked panel's header: its own close
+   goes to the header's other end, so the two ✕ never stand side by side (the user closed the window reaching for the
+   panel's, 22 Oct 2026). */
+html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar [data-panel-close] {
+	order: -1;
+	margin-inline-start: calc(var(--sc-space-1) * -1);
+}
+
 /* Side panel docked left (Settings › General › Window): it takes the
    top-left corner from the session view when the sidebar is hidden, and
    gives the top-right corner (Windows caption buttons) back to it. */
