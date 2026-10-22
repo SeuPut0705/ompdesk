@@ -522,8 +522,25 @@ describe("a device that asks for slim events", () => {
 		);
 	}, 60_000);
 
+	it("receives a running tool's output as what follows each update, a tenth of what an older device gets", async () => {
+		const scenario = { kind: "tool-wait", seconds: 0, outputLines: 150 };
+		const updates = async (device: DeviceKind) => {
+			const session = await openSession({ device });
+			session.recorder.reset();
+			await session.turn(scenario);
+			const bytes = session.recorder.inner.get("events/tool_execution_update")?.bytes ?? 0;
+			session.recorder.stop();
+			await session.rig.dispose();
+			return bytes;
+		};
+		const older = await updates("older");
+		const current = await updates("current");
+		expect(older).toBeGreaterThan(300_000);
+		expect(current * 10, `${current} B against ${older} B`).toBeLessThanOrEqual(older);
+	}, 60_000);
+
 	it("delivers the same stream to the renderer as an older device does", async () => {
-		const scenario = { kind: "tool-wait", seconds: 0 };
+		const scenario = { kind: "tool-wait", seconds: 0, outputLines: 40 };
 		const rendered = async (options: { device?: DeviceKind }) => {
 			// The pool's per-window slimmer turns what a sidecar delivers into what a window receives.
 			const slim = createMessageUpdateSlimmer();

@@ -21,6 +21,8 @@ interface Scenario {
 	seconds?: number;
 	/** `subagent`: stream exactly this many messages instead of working `seconds`. */
 	messages?: number;
+	/** `tool-wait`: the call streams this many output lines first, each update carrying the whole output so far. */
+	outputLines?: number;
 }
 
 const WORDS = [
@@ -186,9 +188,22 @@ function progressOf(index: number, tools: number, startMs: number, text: string)
 	};
 }
 
-async function toolWait(emit: (event: object) => void, seconds: number): Promise<void> {
+async function toolWait(emit: (event: object) => void, seconds: number, outputLines = 0): Promise<void> {
 	await streamMessage(emit, 0, 12, 0, { id: "call-1", name: "bash", command: "sleep 30" });
 	emit({ type: "tool_execution_start", toolCallId: "call-1", toolName: "bash", args: { command: "sleep 30" } });
+	// Stock's bash (tools/bash.ts): every update carries the call's whole output so far.
+	let streamed = "";
+	for (let line = 0; line < outputLines; line++) {
+		streamed += `✓ test ${line} passed in ${line % 9} ms: src/main/remote/link-events.test.ts\n`;
+		emit({
+			type: "tool_execution_update",
+			toolCallId: "call-1",
+			toolName: "bash",
+			args: { command: "sleep 30" },
+			partialResult: { content: [{ type: "text", text: streamed }], details: {} },
+		});
+		await sleep(2);
+	}
 	await sleep(seconds * 1000);
 	const output = Array.from({ length: 200 }, (_, line) => `line ${line}: src/main/remote/link-events.ts`).join("\n");
 	const result = { content: [{ type: "text", text: output }], details: { exitCode: 0 } };
@@ -315,7 +330,7 @@ async function run(scenario: Scenario): Promise<void> {
 	if (scenario.kind === "stream") {
 		await streamMessage(emit, scenario.thinkingTokens ?? 0, scenario.textTokens ?? 0, scenario.tokenMs ?? 12);
 	} else if (scenario.kind === "tool-wait") {
-		await toolWait(emit, scenario.seconds ?? 10);
+		await toolWait(emit, scenario.seconds ?? 10, scenario.outputLines);
 	} else {
 		await subagent(emit, scenario);
 	}
