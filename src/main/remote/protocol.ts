@@ -81,6 +81,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  *
  * `slimAutopilot` (only ever sent with `slimEvents`): the device also rebuilds an `autopilot_update` status sent as a
  * delta against the last one of its tab (`link-events.ts`). A device without it (v0.52.7 and older) gets whole ones.
+ *
+ * `slimEnds` (only ever sent with `slimEvents`): the device also resolves a `message_end` or `agent_end` message sent
+ * as a reference to the same message this connection already carried whole (`link-events.ts`). A device without it
+ * (v0.53.0 and older) gets every message whole.
  */
 export const ClientHello = z.object({
 	t: z.literal("hello"),
@@ -90,6 +94,7 @@ export const ClientHello = z.object({
 	slimEvents: z.boolean().optional(),
 	slimProgress: z.boolean().optional(),
 	slimAutopilot: z.boolean().optional(),
+	slimEnds: z.boolean().optional(),
 });
 
 export const HostHelloMessage = z.object({

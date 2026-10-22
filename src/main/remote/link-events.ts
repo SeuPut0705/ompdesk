@@ -21,6 +21,12 @@
  * 100 KB after 90 cycles, sent several times a cycle), crosses whole once and after that as what changed from the
  * last one: the top-level fields that differ, and of a list (the cycles) only its length and the items that differ
  * ({@link createStatusEncoder}). The decoder rebuilds the status the host's pool delivered.
+ *
+ * With `slimEnds` a message crosses whole once: a `message_end` whose message equals its `message_start` (a prompt, a
+ * tool result, a custom message), and each `agent_end` message equal, but for its journal `entryId`, to the one its
+ * `message_end` carried, cross as a reference to it ({@link createEndsEncoder}). Stock otherwise sends a tool result
+ * three times and a reply twice (measured on a paired host, 22 Oct 2026: `message_start`, `message_end` and
+ * `agent_end` were 36 % of a slim link's event bytes).
  */
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -58,6 +64,8 @@ export interface LinkEventEncoderOptions {
 	progress?: boolean;
 	/** The device rebuilds an Autopilot status from a delta against the last one (`slimAutopilot`). */
 	autopilot?: boolean;
+	/** The device resolves a message sent as a reference to one this encoder already sent whole (`slimEnds`). */
+	ends?: boolean;
 }
 
 export interface LinkEventEncoder {
@@ -338,11 +346,120 @@ function createProgressDecoder(): ProgressDecoder {
 	};
 }
 
+const SENT = "~sent";
+/** The messages a connection keeps for references; the oldest go first, the same on both ends. */
+const ENDS_KEPT = 256;
+
+type AgentMessageOf<T extends AgentSessionEvent["type"]> =
+	Extract<AgentSessionEvent, { type: T }> extends {
+		message: infer M;
+	}
+		? M
+		: never;
+type WireMessage = AgentMessageOf<"message_end">;
+
+const SentRef = z.object({ "~sent": z.string(), entryId: z.string().optional() }).strict();
+
+function messageKey(message: WireMessage): string {
+	const { role, timestamp } = message as { role?: unknown; timestamp?: unknown };
+	const call = (message as { toolCallId?: unknown }).toolCallId;
+	return `${String(role)}\u0000${String(timestamp)}${typeof call === "string" ? `\u0000${call}` : ""}`;
+}
+
+/** The messages one end of a connection holds for references, in the order both ends saw them. */
+function sentMessages<T>(): { get(key: string): T | undefined; set(key: string, value: T): void; clear(): void } {
+	const kept = new Map<string, T>();
+	return {
+		get: key => kept.get(key),
+		set(key, value) {
+			kept.delete(key);
+			kept.set(key, value);
+			if (kept.size > ENDS_KEPT) kept.delete(kept.keys().next().value as string);
+		},
+		clear: () => kept.clear(),
+	};
+}
+
+function withoutEntryId(message: WireMessage): { message: WireMessage; entryId?: string } {
+	const { entryId, ...rest } = message as WireMessage & { entryId?: unknown };
+	return typeof entryId === "string" ? { message: rest as WireMessage, entryId } : { message };
+}
+
+/**
+ * Sends a message whole the first time this connection carries it, and as `{"~sent": key}` (with the journal
+ * `entryId` an `agent_end` adds) when a `message_end` or `agent_end` carries the same message again.
+ */
+function createEndsEncoder(): (event: AgentSessionEvent) => AgentSessionEvent {
+	const sent = sentMessages<string>();
+	const remember = (message: WireMessage): string => {
+		const json = JSON.stringify(message);
+		sent.set(messageKey(message), json);
+		return json;
+	};
+	return event => {
+		if (event.type === "message_start") {
+			remember(event.message);
+			return event;
+		}
+		if (event.type === "message_end") {
+			const key = messageKey(event.message);
+			const before = sent.get(key);
+			// Set again either way: the decoder keeps every message_end it resolves, and both ends evict in one order.
+			if (remember(event.message) === before)
+				return { ...event, message: { [SENT]: key } as unknown as WireMessage };
+			return event;
+		}
+		if (event.type !== "agent_end" || !event.messages) return event;
+		let changed = false;
+		const messages = event.messages.map(message => {
+			const { message: bare, entryId } = withoutEntryId(message);
+			const key = messageKey(bare);
+			if (sent.get(key) !== JSON.stringify(bare)) return message;
+			changed = true;
+			return { [SENT]: key, ...(entryId === undefined ? {} : { entryId }) } as unknown as WireMessage;
+		});
+		if (event.isTerminal !== false) sent.clear();
+		return changed ? { ...event, messages } : event;
+	};
+}
+
+/** The inverse of {@link createEndsEncoder}; null for a reference to a message this decoder never held. */
+function createEndsDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | null {
+	const kept = sentMessages<WireMessage>();
+	const resolve = (message: WireMessage): WireMessage | null => {
+		const ref = SentRef.safeParse(message);
+		if (!ref.success) return message;
+		const whole = kept.get(ref.data[SENT]);
+		if (!whole) return null;
+		return ref.data.entryId === undefined ? whole : ({ ...whole, entryId: ref.data.entryId } as WireMessage);
+	};
+	return event => {
+		if (event.type === "message_start" || event.type === "message_end") {
+			const message = resolve(event.message);
+			if (!message) return null;
+			kept.set(messageKey(message), message);
+			return message === event.message ? event : { ...event, message };
+		}
+		if (event.type !== "agent_end" || !event.messages) return event;
+		let changed = false;
+		const messages: WireMessage[] = [];
+		for (const message of event.messages) {
+			const resolved = resolve(message);
+			if (!resolved) return null;
+			if (resolved !== message) changed = true;
+			messages.push(resolved);
+		}
+		if (event.isTerminal !== false) kept.clear();
+		return changed ? { ...event, messages } : event;
+	};
+}
+
 export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): LinkEventEncoder {
 	const slim = createMessageUpdateSlimmer();
 	const drop = usageDropper();
 	const progress = options.progress ? createProgressEncoder() : null;
 	const status = options.autopilot ? createStatusEncoder() : null;
+	const ends = options.ends ? createEndsEncoder() : null;
 	return {
 		events(batch) {
 			const slimmed = slim(batch);
@@ -350,6 +467,11 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 			for (const [index, event] of slimmed.entries()) {
 				let next: AgentSessionEvent = event;
 				if (event.type === "message_update") next = drop("", event);
+				else if (
+					ends &&
+					(event.type === "message_start" || event.type === "message_end" || event.type === "agent_end")
+				)
+					next = ends(event);
 				else if (event.type === "tool_execution_update" && progress) next = progress.update(event);
 				else if (event.type === "autopilot_update" && status)
 					next = { ...event, status: status(event.status) } as unknown as AgentSessionEvent;
@@ -449,6 +571,7 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 	const restoreSubagent = usageRestorer();
 	const progress = createProgressDecoder();
 	const decodeStatus = createStatusDecoder();
+	const ends = createEndsDecoder();
 	const autopilot = (event: Extract<AgentSessionEvent, { type: "autopilot_update" }>): AgentSessionEvent | null => {
 		const status = decodeStatus(event.status);
 		if (status === UNREBUILT) return null;
@@ -458,12 +581,18 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 		events(batch) {
 			let out: AgentSessionEvent[] | null = null;
 			for (const [index, event] of batch.entries()) {
+				const resolved =
+					event.type === "message_start" || event.type === "message_end" || event.type === "agent_end"
+						? ends(event)
+						: event;
 				const next =
-					event.type === "tool_execution_update"
-						? progress.update(event)
-						: event.type === "autopilot_update"
-							? autopilot(event)
-							: decode(event);
+					resolved === null
+						? null
+						: resolved.type === "tool_execution_update"
+							? progress.update(resolved)
+							: resolved.type === "autopilot_update"
+								? autopilot(resolved)
+								: decode(resolved);
 				if (next === event) {
 					out?.push(event);
 					continue;
@@ -501,6 +630,8 @@ export interface LinkEventSenderOptions {
 	progress: boolean;
 	/** The device sent `slimAutopilot`: an Autopilot status crosses as a delta against the last one. */
 	autopilot?: boolean;
+	/** The device sent `slimEnds`: a message this connection already carried crosses as a reference. */
+	ends?: boolean;
 	/** Sends one tab event; false when it did not go out (an event over the frame cap). */
 	send(name: "events" | "subagentFrame", arg: unknown): boolean;
 }
@@ -512,13 +643,13 @@ export interface LinkEventSenderOptions {
  * wire order, and events and frames never swap places.
  */
 export function createLinkEventSender(options: LinkEventSenderOptions): LinkEventSender {
-	const { progress, autopilot = false, send } = options;
-	let encoder = createLinkEventEncoder({ progress, autopilot });
+	const { progress, autopilot = false, ends = false, send } = options;
+	let encoder = createLinkEventEncoder({ progress, autopilot, ends });
 	let held: SubagentFrame[] = [];
 	let timer: NodeJS.Timeout | undefined;
 	const deliver = (name: "events" | "subagentFrame", arg: unknown): void => {
 		// The device never got it, so the next snapshot of each subagent must go whole, not as a delta against this one.
-		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot });
+		if (!send(name, arg)) encoder = createLinkEventEncoder({ progress, autopilot, ends });
 	};
 	const flush = (): void => {
 		clearTimeout(timer);

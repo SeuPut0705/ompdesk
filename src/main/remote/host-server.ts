@@ -57,6 +57,8 @@ export interface HostConnection {
 	readonly slimProgress?: boolean;
 	/** It also rebuilds an Autopilot status from a delta against the last one (`slimAutopilot`, protocol.ts). */
 	readonly slimAutopilot?: boolean;
+	/** It also resolves a message sent as a reference to one this connection already carried (`slimEnds`, protocol.ts). */
+	readonly slimEnds?: boolean;
 	/** Push `{t:"evt"}`; throws when the event exceeds the frame cap. */
 	emit(event: string, data: unknown): void;
 	close(): void;
@@ -113,7 +115,12 @@ export type RemoteHostEvent = "peersChanged" | "connectionsChanged" | "listenCha
 
 /** The slim capabilities a connection has, as one line for the log (`none` for a device that reads whole frames). */
 function slimNames(conn: PeerConnection): string {
-	const names = [conn.slimEvents && "events", conn.slimProgress && "progress", conn.slimAutopilot && "autopilot"];
+	const names = [
+		conn.slimEvents && "events",
+		conn.slimProgress && "progress",
+		conn.slimAutopilot && "autopilot",
+		conn.slimEnds && "ends",
+	];
 	return names.filter(Boolean).join(",") || "none";
 }
 
@@ -123,13 +130,14 @@ class PeerConnection implements HostConnection {
 	readonly slimEvents: boolean;
 	readonly slimProgress: boolean;
 	readonly slimAutopilot: boolean;
+	readonly slimEnds: boolean;
 	/** The device's OMPdesk version, from its hello. */
 	readonly appVersion: string;
 
 	constructor(
 		link: Link,
 		peer: PeerInfo,
-		slim: { events: boolean; progress: boolean; autopilot: boolean },
+		slim: { events: boolean; progress: boolean; autopilot: boolean; ends: boolean },
 		appVersion: string,
 	) {
 		this.link = link;
@@ -138,6 +146,7 @@ class PeerConnection implements HostConnection {
 		this.slimEvents = slim.events;
 		this.slimProgress = slim.progress;
 		this.slimAutopilot = slim.autopilot;
+		this.slimEnds = slim.ends;
 	}
 
 	emit(event: string, data: unknown): void {
@@ -459,6 +468,7 @@ export class RemoteHost {
 				events: slimEvents,
 				progress: slimEvents && hello.slimProgress === true,
 				autopilot: slimEvents && hello.slimAutopilot === true,
+				ends: slimEvents && hello.slimEnds === true,
 			},
 			hello.appVersion,
 		);

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentProgress, AgentSessionEvent, MessageContent, SubagentFrame } from "../../shared/rpc-types";
 import { BATCH_INTERVAL_MS } from "../event-batcher";
@@ -570,5 +571,79 @@ describe("an Autopilot run's status", () => {
 		expect(createLinkEventDecoder().events(sent[2] as AgentSessionEvent[])).toEqual(
 			overTheWire([update(statuses[2] as object)]),
 		);
+	});
+});
+
+describe("messages a connection already carried", () => {
+	/** Stock frames recorded from a real run (e2e/real-advisor.e2e.ts): prompts, replies, tool results, custom cards. */
+	const recording: { events: AgentSessionEvent[] } = JSON.parse(
+		readFileSync("e2e/fixtures/real-advisor-frames.json", "utf8"),
+	);
+	const ENDS: ReadonlySet<string> = new Set(["message_start", "message_end", "agent_end"]);
+	const endsBytes = (batches: AgentSessionEvent[][]): number =>
+		batches.flat().reduce((sum, event) => sum + (ENDS.has(event.type) ? JSON.stringify(event).length : 0), 0);
+
+	function send(events: AgentSessionEvent[], ends: boolean, decoder = createLinkEventDecoder()) {
+		const encoder = createLinkEventEncoder({ progress: true, autopilot: true, ends });
+		const wire = events.map(event => overTheWire(encoder.events([event])));
+		return { wire, delivered: wire.map(batch => decoder.events(batch)) };
+	}
+
+	it("reach the device as every event the host sent", () => {
+		const { delivered } = send(recording.events, true);
+		expect(delivered.flat()).toEqual(overTheWire(recording.events));
+	});
+
+	it("cross whole once: every committed message of a recorded run is a reference", () => {
+		const whole = send(recording.events, false).wire;
+		const slim = send(recording.events, true).wire;
+		// What is left is each message_start, the one whole copy.
+		expect(endsBytes(slim)).toBeLessThan(endsBytes(whole) * 0.55);
+		const agentEnds = slim.flat().filter(event => event.type === "agent_end");
+		expect(agentEnds.flatMap(event => event.messages ?? []).every(message => "~sent" in message)).toBe(true);
+	});
+
+	it("stay whole for a device that did not ask for references", () => {
+		expect(send(recording.events, false).wire.flat()).toEqual(overTheWire(recording.events));
+	});
+
+	it("go whole again when the committed copy differs from the one the stream carried", () => {
+		const prompt = { role: "user", content: "hi", timestamp: 7 } as const;
+		const decorated = { ...prompt, content: "hi (edited)", entryId: "e1" };
+		const events = [
+			{ type: "message_start", message: prompt },
+			{ type: "message_end", message: prompt },
+			{ type: "agent_end", messages: [decorated] },
+		] as AgentSessionEvent[];
+		const { wire, delivered } = send(events, true);
+		expect(JSON.stringify(wire[1])).toContain("~sent");
+		expect(JSON.stringify(wire[2])).toContain("hi (edited)");
+		expect(delivered.flat()).toEqual(overTheWire(events));
+	});
+
+	it("are never delivered half rebuilt: a reference a device holds nothing for is dropped, the rest kept", () => {
+		const { wire } = send(recording.events, true);
+		const end = wire.findIndex(batch => JSON.stringify(batch).includes("~sent"));
+		const turn = { type: "turn_start" } as AgentSessionEvent;
+		expect(createLinkEventDecoder().events([...(wire[end] ?? []), turn])).toEqual([turn]);
+	});
+
+	it("start whole again after a send that failed", () => {
+		const prompt = { role: "user", content: "hi", timestamp: 7 } as const;
+		const sent: unknown[] = [];
+		const sender = createLinkEventSender({
+			progress: true,
+			ends: true,
+			send: (_name, arg) => {
+				sent.push(overTheWire(arg));
+				return sent.length !== 1;
+			},
+		});
+		sender.events([{ type: "message_start", message: prompt }]);
+		sender.events([{ type: "message_end", message: prompt }]);
+		// The device never got the start, so the end comes whole.
+		expect(createLinkEventDecoder().events(sent[1] as AgentSessionEvent[])).toEqual([
+			{ type: "message_end", message: prompt },
+		]);
 	});
 });
