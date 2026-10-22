@@ -298,7 +298,7 @@ export function ImportForeignDialog() {
 				</>
 			}
 		>
-			<div className="mb-3 flex flex-wrap items-center gap-2">
+			<div className={cx("flex flex-wrap items-center gap-2", touch ? "mb-4" : "mb-3")}>
 				<Tabs
 					activeId={source}
 					ariaLabel={t("import.source")}
@@ -336,7 +336,9 @@ export function ImportForeignDialog() {
 					/>
 				</div>
 			</div>
-			<div className="mb-2 flex flex-wrap items-center gap-2">
+			{/* On touch the select-all line sits 16 px under the search field and reaches halfway: it took the field's
+			    bottom edge at 320 px (22 Oct 2026 responsive audit). */}
+			<div className={cx("mb-2 flex flex-wrap items-center gap-2", touch && "[--hit-gap-y:16px]")}>
 				<label className="mr-auto inline-flex items-center gap-2 text-sc-sm text-(--sc-text-secondary)">
 					<input
 						checked={allSelected}

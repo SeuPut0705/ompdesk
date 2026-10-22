@@ -257,6 +257,11 @@ describe("controls close enough to take each other's taps", () => {
 		declares("../components/agents/github/shared.tsx", "data-github-toolbar");
 		// The Autopilot sheet's Start took its warning (i)'s right edge on a 320 px phone (8 px apart, unbounded).
 		declares("../components/modes/AutopilotConfig.tsx", "data-autopilot-start-row");
+		// The debug console's example buttons wrapped 8 px apart at 320 px and Attach took Launch's bottom edge.
+		declares("../components/dialogs/DebugConsoleDialog.tsx", "data-debug-examples");
+		expect(rule('html[data-input="touch"] [data-debug-examples]')).toMatch(
+			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
 		expect(rule('html[data-input="touch"] [data-autopilot-start-row]')).toMatch(
 			/gap:\s*20px;[^}]*--hit-gap-x:\s*20px/,
 		);

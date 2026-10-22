@@ -2141,3 +2141,11 @@ html[data-input="touch"] [data-autopilot-start-row] {
 	gap: 20px;
 	--hit-gap-x: 20px;
 }
+
+/* The debug console's two example buttons wrap onto two lines on a narrow phone: Attach's reach took Launch's bottom
+   edge (22 Oct 2026 responsive audit, 320 px). 14 px apart on touch, each reaching halfway. */
+html[data-input="touch"] [data-debug-examples] {
+	gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}

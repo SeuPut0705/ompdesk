@@ -647,7 +647,7 @@ export function DebugConsoleDialog() {
 							<Bug aria-hidden className="size-(--sc-icon-md) text-(--sc-text-muted)" />
 							<span className="text-sc-md font-medium text-(--sc-text)">{t("debug.noSessions")}</span>
 							<span className="max-w-sm text-sc-sm text-(--sc-text-muted)">{t("debug.noSessionsHint")}</span>
-							<div className="mt-1 flex flex-wrap justify-center gap-2">
+							<div className="mt-1 flex flex-wrap justify-center gap-2" data-debug-examples>
 								<Button
 									icon={<Rocket />}
 									onClick={() => fillExample(LAUNCH_EXAMPLE)}
