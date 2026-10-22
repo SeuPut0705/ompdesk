@@ -1401,10 +1401,12 @@ html[data-shell="phone"] [data-autopilot-run-actions] {
 
 /* A finished work card's findings (the cause, Tests, Changes, Preview) and its copy button sit 10 px apart (a wrapped
    line 14 px) and reach 36 px (26 px chips 4 px apart reached 26), and its outcome summary ("Result") is a touch row tall. The row no longer
-   tucks 4 px up under the narrative, and keeps 10 px below, so the reach stays inside its card. */
+   tucks 4 px up under the narrative, and keeps 10 px below, so the reach stays inside its card. It sits 4 px under the
+   head, whose 8 px of padding is the Steps toggle's 6 px reach: the cause's 6 px reach up starts past it (flush, it
+   took the toggle's bottom edge on a tablet). */
 html[data-input="touch"] .omp-work-findings {
 	gap: 14px 10px;
-	margin-top: 0;
+	margin-top: 4px;
 	margin-bottom: 10px;
 	--hit-gap-x: 10px;
 	--hit-gap-y: 10px;

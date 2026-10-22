@@ -300,6 +300,11 @@ for (const look of TOUCH_LOOKS) {
 		const hosted = await openLook(browser, look, { origin, query: "&host=1" });
 		for (const id of HOST_SURFACES) await check(hosted, id);
 		await hosted.context().close();
+		// The busy work strip's finished card: its Steps toggle over its findings row (a tablet's toggle once lost its
+		// bottom edge to the failing step's cause).
+		const busy = await openLook(browser, look, { origin, query: "&board=busy" });
+		await check(busy, "board-strip");
+		await busy.context().close();
 		expect(found).toEqual([]);
 	});
 }

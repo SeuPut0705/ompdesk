@@ -240,7 +240,7 @@ describe("controls close enough to take each other's taps", () => {
 		// A finished work card's findings and copy reach 36 (26 before), staying clear of the steps header and inside the
 		// card; the phone Run sheet's Autopilot buttons sit 14 px apart (10 left a phone's 24 px buttons 32).
 		expect(rule('html[data-input="touch"] .omp-work-findings')).toMatch(
-			/gap:\s*14px 10px;[^}]*margin-top:\s*0;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
+			/gap:\s*14px 10px;[^}]*margin-top:\s*4px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
 		);
 		expect(rule('html[data-input="touch"] .omp-work-findings > .omp-work-cause')).toMatch(/--hit-gap-y:\s*12px/);
 		expect(rule('html[data-shell="phone"] .omp-work-findings > .omp-work-copy')).toMatch(/--hit-gap-y:\s*14px/);
