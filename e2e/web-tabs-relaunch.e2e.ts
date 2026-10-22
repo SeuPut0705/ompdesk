@@ -342,8 +342,7 @@ for (const how of ["quit", "SIGKILL"] as const)
 			const desktopTabs = await second.page.evaluate(() => window.omp.tabs.list());
 			expect(desktopTabs.filter(tab => tab.sessionPath === sessionPath)).toEqual([]);
 			const rows = second.page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]");
-			// The sidebar opens on its Chat lane; the session belongs to a project, so it lists under Code.
-			await second.page.getByRole("button", { name: "Show Code" }).click();
+			// The session belongs to a project, so it lists under that project's group.
 			const group = second.page.locator("[data-workspace-group] button[aria-expanded]").first();
 			if ((await group.getAttribute("aria-expanded")) === "false") await group.click();
 			await expect
