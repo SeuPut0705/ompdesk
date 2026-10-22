@@ -5,6 +5,7 @@
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { useT } from "../../../lib/i18n";
+import { revealAndFocus } from "../../../lib/reveal-focus";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work-board";
 
 /**
@@ -36,7 +37,7 @@ export function CappedRows<T>({
 					<button
 						className="omp-work-board-more"
 						data-board-more={hidden}
-						onClick={() => setAll(true)}
+						onClick={event => revealAndFocus(event.currentTarget, () => setAll(true))}
 						type="button"
 					>
 						{t("workBoard.moreTodos", { count: hidden })}

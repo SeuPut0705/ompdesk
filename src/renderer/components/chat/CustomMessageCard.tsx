@@ -28,6 +28,7 @@ import { cx, formatAgo, formatClock, formatDuration, headLines, resultDetails, r
 import { useT } from "../../lib/i18n";
 import { rememberedMailOpen, rememberMailOpen } from "../../lib/mail-open";
 import { MarkdownRenderer } from "../../lib/markdown";
+import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
 import { Badge, type BadgeVariant } from "../common/Badge";
 import {
@@ -372,7 +373,7 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 				{hidden > 0 && (
 					<button
 						type="button"
-						onClick={() => setExpanded(true)}
+						onClick={event => revealAndFocus(event.currentTarget, () => setExpanded(true))}
 						className="omp-pressable rounded-(--sc-radius-sm) text-sc-sm font-medium text-(--sc-text-muted) hover:text-(--sc-text)"
 					>
 						{t("chat.custom.moreNotes", { count: hidden, plural: hidden === 1 ? "" : "s" })}

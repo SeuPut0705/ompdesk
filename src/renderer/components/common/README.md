@@ -34,6 +34,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A row of a picker's listbox driven from its field (`aria-activedescendant`) | `OptionRow` (`active` highlight, `selected`, `size`) | a copied row class string |
 | A navigable row (sessions, agents, providers) | `ListRow` (one click target, actions on hover/focus) | a copied row class string |
 | A header that opens and folds what is under it (a diff file, an entry, an Advanced group) | `DisclosureButton` (`open`, `onToggle`; owns `aria-expanded`, the turning chevron and the focus ring) | a `<button aria-expanded>` with its own chevron swap |
+| A "show N more" control that disappears once the rest shows | `revealAndFocus` (`lib/reveal-focus.ts`: focus moves to the first revealed row) | a button that unmounts and drops focus on the page |
 | A tree | `TreeView` | nested lists with your own keys |
 | List beside detail, one pane on a phone | `MasterDetail`, `useMasterDetail`, `MasterDetailBack` (a page that lays out its own list) | your own two-column switch |
 | A destination page | `PageLayout` | a page frame of your own |
