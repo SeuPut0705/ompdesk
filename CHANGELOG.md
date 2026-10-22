@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.61.15] - 2026-10-23
+
+목록마다 같은 이름이던 아이콘 버튼을 화면 읽기 프로그램이 줄마다 구별해 읽어요.
+
+### 고친 것
+- 줄마다 반복되는 아이콘 버튼의 이름에 무엇에 대한 버튼인지 들어가요. 사용자 지정 프로바이더의 모델 상세·제거, 작업 폴더 제거, 단축키 변경·재설정, 프로바이더 편집·삭제, 헤더 제거, 터미널 닫기, SSH 포워딩 시작·멈추기·지우기, 일정 실행·중단, 키-값 행 제거, GitHub 알림 열기·읽음 표시, 탭 개요의 위·아래 이동이에요.
+- 사용자 지정 프로바이더의 모델 상세 버튼이 열렸는지 닫혔는지 알려요.
+
+<!-- en -->
+
+Icon buttons repeated on every row of a list now read differently for each row to screen readers.
+
+### Fixed
+- Icon buttons repeated on every row now say what they act on: a custom provider's model details and remove, removing a workspace folder, changing and resetting a shortcut, editing and deleting a provider, removing a header, closing a terminal, starting, stopping and removing an SSH forward, running and stopping a schedule, removing a key-value row, opening a GitHub notification and marking it read, and moving a tab in the tab overview.
+- A custom provider's model details button says whether the details are open.
+
 ## [0.61.14] - 2026-10-23
 
 키보드와 화면 읽기 프로그램으로 작업 기록을 볼 때 걸리던 곳을 고쳤어요.
