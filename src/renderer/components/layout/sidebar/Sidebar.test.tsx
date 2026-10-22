@@ -3207,7 +3207,8 @@ describe("Sidebar device sections", () => {
 		expect(badge?.getAttribute("title")).toBe(translate("remote.sidebar.offline"));
 		expect(section?.querySelector("[data-device-session]")).toBeNull();
 		expect(omp.sessions.list).not.toHaveBeenCalledWith("global", "dev-studio");
-		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')?.getAttribute("disabled")).not.toBeNull();
+		// Nothing can start there: no dead button takes the name's room in a narrow sidebar.
+		expect(section?.querySelector('[data-sidebar-device-add="dev-studio"]')).toBeNull();
 	});
 
 	it("puts the host's no-project sessions in its Chats section, by the host's own workspace, as the host does", async () => {

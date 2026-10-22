@@ -92,6 +92,7 @@ function DeviceHeader({
 	name,
 	children,
 	canAct = true,
+	offline = false,
 	onAction,
 	local,
 }: {
@@ -100,6 +101,8 @@ function DeviceHeader({
 	name: string;
 	children?: ReactNode;
 	canAct?: boolean;
+	/** The host is offline: its header drops the project button, which could start nothing there. */
+	offline?: boolean;
 	onAction: () => void;
 	/** This device's header (`data-sidebar-device-header="local"`); a host's sits in its `[data-device-state]` section. */
 	local?: boolean;
@@ -174,16 +177,22 @@ function DeviceHeader({
 					variant="ghost"
 				/>
 			</span>
-			<IconButton
-				className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-				data-sidebar-device-add={deviceId}
-				disabled={!canAct}
-				icon={<FolderPlus />}
-				label={t("remote.sidebar.addProject", { name })}
-				onClick={onAction}
-				size="sm"
-				tabIndex={-1}
-			/>
+			{offline ? (
+				// An offline host can start nothing: no dead button takes the name's room (a tablet's sidebar left
+				// "Old desktop" 36 px beside its offline badge and the gear).
+				<span className="w-1 shrink-0" />
+			) : (
+				<IconButton
+					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
+					data-sidebar-device-add={deviceId}
+					disabled={!canAct}
+					icon={<FolderPlus />}
+					label={t("remote.sidebar.addProject", { name })}
+					onClick={onAction}
+					size="sm"
+					tabIndex={-1}
+				/>
+			)}
 		</div>
 	);
 }
@@ -246,6 +255,7 @@ export function SidebarDeviceSection({
 		>
 			<DeviceHeader
 				canAct={online}
+				offline={host.state === "offline"}
 				deviceId={host.deviceId}
 				folded={collapsed}
 				name={host.name}
