@@ -413,7 +413,13 @@ for (const { height, draft } of STRIP_ROOMS) {
 		};
 		const page = await openLook(browser, look, { origin, query: "&board=busy" });
 		// Collapsed above room to open into, its chevron already points up (the panel's way).
-		if (height === 800) await expect(page.locator("[data-work-chip]")).toHaveAttribute("data-opens", "up");
+		if (height === 800) {
+			await expect(page.locator("[data-work-chip]")).toHaveAttribute("data-opens", "up");
+			// The strip says the plan and the running work: the dock's todo card and island do not say them again.
+			await expect(page.locator('[data-dock-card="todo"]')).toHaveCount(1);
+			await expect(page.locator('[data-dock-card="todo"]')).toBeHidden();
+			await expect(page.locator("[data-workspace-island]")).toBeHidden();
+		}
 		await show(page, look, "board-strip");
 		if (draft)
 			await page

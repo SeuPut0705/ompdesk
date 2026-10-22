@@ -883,10 +883,6 @@ html[data-shell] .omp-work-strip {
 	order: -1;
 }
 
-html[data-shell] .omp-session-pane:has(.omp-work-strip) :is([data-dock-card="todo"], [data-workspace-island]) {
-	display: none;
-}
-
 html[data-shell] .omp-session-pane:has(.omp-work-strip) :is(
 		[data-autopilot-dock],
 		[data-run-settings-trigger][data-mode="autopilot"] .omp-composer-control-label
