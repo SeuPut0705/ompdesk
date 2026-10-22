@@ -1,26 +1,28 @@
 # Changelog
 
-## [0.61.10] - 2026-10-23
+## [0.61.11] - 2026-10-23
 
-연결한 컴퓨터끼리 주고받는 데이터가 약 3분의 1로 줄고, 키보드로 고르는 곳 두 군데가 제대로 움직여요.
+연결한 컴퓨터끼리 주고받는 데이터가 약 3분의 1로 줄고, 키보드로 고르는 목록과 탭이 제대로 움직여요.
 
 ### 빨라진 것
 - 호스트가 연결한 기기에 보내는 큰 메시지를 압축해서 보내요. 대화와 Autopilot 상태 같은 데이터가 약 3배 작아져요. 양쪽 모두 이 버전이어야 하고, 예전 버전 기기는 지금처럼 받아요.
 
 ### 고친 것
 - MCP 서버 추가 화면의 전송 방식과 범위 카드를 화살표 키로 고를 수 있어요. 카드마다 Tab이 멈추지 않고, 화면 읽기 프로그램이 각 묶음의 이름을 읽어요.
-- 터미널 패널의 세션 탭이 Tab 한 번에 들어가고, 화살표와 Home/End로 세션을 바꿔요.
+- 터미널 패널의 세션 탭이 Tab 한 번에 들어가고, 화살표와 Home/End로 세션을 바꿔요. 화살표로 바꾼 뒤에도 포커스가 탭에 남아 다음 화살표가 셸로 가지 않아요.
+- 입력 기록 검색(Ctrl+R)과 컴포저의 `/`·`@`·`:` 자동완성에서 Tab을 누르면 결과를 하나씩 지나가지 않고 바로 목록을 벗어나요.
 
 <!-- en -->
 
-Data between paired computers shrinks to about a third, and two keyboard pickers move as they should.
+Data between paired computers shrinks to about a third, and keyboard lists and tabs move as they should.
 
 ### Faster
 - A host compresses the large messages it sends a paired device: transcripts, Autopilot status and the like get about 3x smaller. Both computers need this version; an older device receives as before.
 
 ### Fixed
 - The transport and scope cards of the MCP add-server screen are picked with the arrow keys, are one tab stop each, and screen readers name each group.
-- The terminal panel's session tabs are one tab stop, and the arrow keys and Home/End switch the session.
+- The terminal panel's session tabs are one tab stop, and the arrow keys and Home/End switch the session. Focus stays on the tab after a switch, so the next arrow does not go to the shell.
+- In the history search (Ctrl+R) and the composer's `/`, `@` and `:` completions, Tab leaves the list at once instead of walking every result.
 
 ## [0.61.9] - 2026-10-23
 
