@@ -2135,6 +2135,18 @@ html[data-input="touch"] [data-github-toolbar] {
 	--hit-gap-y: 14px;
 }
 
+/* A dialog's or sheet's footer wraps on a 320 px phone (model setup: Find evidence, Cancel, Apply), and a wrapped
+   button's reach took the one under it 8 px away; Settings › Permissions' scan scope and Scan wrap the same way. */
+html[data-input="touch"] :is(.omp-dialog-foot, .omp-sheet-foot) {
+	row-gap: 14px;
+	--hit-gap-y: 14px;
+}
+
+html[data-input="touch"] [data-security-scan-row] {
+	row-gap: 14px;
+	--hit-gap-y: 14px;
+}
+
 /* The Autopilot sheet's last line: the warning's (i) sits 8 px from Start, and Start's reach took the (i)'s right edge
    on a 320 px phone (22 Oct 2026 responsive audit). They sit 20 px apart on touch, each reaching halfway: the 16 px
    (i) reaches 36 across, as an (i) does in Settings. */

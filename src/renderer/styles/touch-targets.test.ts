@@ -268,6 +268,15 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] [data-github-toolbar]')).toMatch(
 			/row-gap:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);
+		// A dialog's or sheet's footer wrapped at 320 px and Cancel took Apply's top edge on the next line (model setup);
+		// Settings › Permissions' scan scope took Scan's top edge the same way (8 px apart, unbounded).
+		expect(rule('html[data-input="touch"] :is(.omp-dialog-foot, .omp-sheet-foot)')).toMatch(
+			/row-gap:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
+		declares("../components/settings/SecuritySection.tsx", "data-security-scan-row");
+		expect(rule('html[data-input="touch"] [data-security-scan-row]')).toMatch(
+			/row-gap:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
 		// The goal dock bar: an iPad held sideways handed a tap on Pause's right edge to Edit (8 px apart, unbounded).
 		declares("../components/chat/dock/GoalDockBar.tsx", "data-goal-dock");
 		expect(rule('html[data-input="touch"] [data-goal-dock]')).toMatch(

@@ -362,7 +362,7 @@ export function SecuritySection() {
 					</span>
 				</div>
 
-				<div className="flex flex-wrap items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2" data-security-scan-row>
 					<Select
 						aria-label={t("security.scan.scope")}
 						controlSize="sm"
