@@ -6,6 +6,7 @@ import { githubStateLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { asArray, asRecord } from "../../../lib/wire-value";
+import { IconButton } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 import { resultDetails } from "./result";
 
@@ -236,14 +237,14 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 					</span>
 				)}
 				{externalUrl && entity.number == null && !entity.title && (
-					<button
-						type="button"
-						title={t("tools.github.openInBrowser")}
+					<IconButton
+						className="ml-auto size-5! [&>svg]:size-3!"
+						data-github-open
+						icon={<ExternalLink />}
+						label={t("tools.github.openInBrowser")}
 						onClick={() => openExternal(externalUrl)}
-						className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] transition-colors hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-md-link)]"
-					>
-						<ExternalLink size={11} />
-					</button>
+						size="sm"
+					/>
 				)}
 			</div>
 
@@ -269,14 +270,14 @@ export function GithubRenderer({ args, result, isPartial, partialResult }: ToolR
 						</span>
 					)}
 					{externalUrl && (
-						<button
-							type="button"
-							title={t("tools.github.openInBrowser")}
+						<IconButton
+							className="size-5! [&>svg]:size-3!"
+							data-github-open
+							icon={<ExternalLink />}
+							label={t("tools.github.openInBrowser")}
 							onClick={() => openExternal(externalUrl)}
-							className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--omp-dim)] transition-colors hover:bg-[var(--omp-selected-bg)] hover:text-[var(--omp-md-link)]"
-						>
-							<ExternalLink size={11} />
-						</button>
+							size="sm"
+						/>
 					)}
 				</div>
 			)}

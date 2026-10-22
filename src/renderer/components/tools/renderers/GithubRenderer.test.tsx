@@ -62,3 +62,13 @@ describe("GithubRenderer state chip", () => {
 		expect(await chip("# Issue #3: Broken\nState: BRAND_NEW")).toBe("brand new");
 	});
 });
+
+describe("GithubRenderer open in browser", () => {
+	it("is a named button, so a screen reader and the focus tooltip say what it opens", async () => {
+		await chip("# Pull Request #7: Add a thing\nState: OPEN");
+		const open = document.querySelector("[data-github-open]");
+		expect(open?.tagName).toBe("BUTTON");
+		expect(open?.getAttribute("aria-label")).toBe("Open in browser");
+		expect(open?.getAttribute("type")).toBe("button");
+	});
+});

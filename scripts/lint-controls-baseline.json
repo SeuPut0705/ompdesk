@@ -91,7 +91,6 @@
 	"components/tools/renderers/BashRenderer.tsx": 1,
 	"components/tools/renderers/DebugRenderer.tsx": 1,
 	"components/tools/renderers/Diagnostics.tsx": 1,
-	"components/tools/renderers/GithubRenderer.tsx": 2,
 	"components/tools/renderers/ReadGroupCard.tsx": 1,
 	"components/tools/renderers/WebSearchRenderer.tsx": 1,
 	"components/tools/renderers/WriteRenderer.tsx": 1,
