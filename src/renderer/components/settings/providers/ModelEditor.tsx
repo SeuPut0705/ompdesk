@@ -38,6 +38,8 @@ interface ModelEditorProps {
 function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove, options }: ModelEditorProps) {
 	const t = useT();
 	const [expanded, setExpanded] = useState(false);
+	/** The model this row names, so its buttons say which model they act on in a list of several. */
+	const named = model.id.trim() || model.name?.trim() || "";
 	const [costDrafts, setCostDrafts] = useState<Record<CostField, string>>(() => ({
 		input: model.cost?.input?.toString() ?? "",
 		output: model.cost?.output?.toString() ?? "",
@@ -115,9 +117,12 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 				</div>
 				<IconButton
 					size="sm"
+					aria-expanded={expanded}
 					icon={expanded ? <ChevronDown /> : <ChevronRight />}
 					onClick={() => setExpanded(!expanded)}
-					label={expanded ? t("providerCfg.form.modelCollapse") : t("providerCfg.form.modelExpand")}
+					label={
+						named ? t("providerCfg.form.modelDetailsFor", { model: named }) : t("providerCfg.form.modelDetails")
+					}
 					disabled={disabled}
 				/>
 				{canRemove && (
@@ -125,7 +130,9 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 						size="sm"
 						icon={<Trash2 />}
 						onClick={() => onRemove(model.key)}
-						label={t("providerCfg.form.modelRemove")}
+						label={
+							named ? t("providerCfg.form.modelRemoveFor", { model: named }) : t("providerCfg.form.modelRemove")
+						}
 						disabled={readonly || disabled}
 					/>
 				)}

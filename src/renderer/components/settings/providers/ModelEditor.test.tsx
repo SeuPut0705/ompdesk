@@ -96,4 +96,24 @@ describe("ModelEditor pricing", () => {
 		expect(input.value).toBe("0.014");
 		expect(latest?.cost?.input).toBe(0.014);
 	});
+
+	it("names the model on its details toggle and says whether the details are open", async () => {
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<Harness onUpdate={() => undefined} />
+				</I18nProvider>,
+			);
+		});
+		const toggle = document.querySelector("button") as unknown as TestElement & {
+			getAttribute(name: string): string | null;
+		};
+		expect(toggle.getAttribute("aria-label")).toBe("Details of priced-model");
+		expect(toggle.getAttribute("aria-expanded")).toBe("false");
+		await dispatch(toggle, new Event("click", { bubbles: true, cancelable: true }));
+		expect(toggle.getAttribute("aria-expanded")).toBe("true");
+	});
 });
