@@ -25,7 +25,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useModelStore } from "../../stores/model";
-import { Button, Spinner } from "../common";
+import { Button, OptionRow, Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
 
 export type SettingRefKind = "model" | "provider";
@@ -108,7 +108,7 @@ function panelPlacement(rect: DOMRect): { top: number; left: number } {
 }
 
 const ROW_CLASS =
-	"flex w-full items-center gap-2 rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-md text-(--sc-text) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) focus-visible:bg-(--sc-hover) disabled:cursor-not-allowed disabled:opacity-50";
+	"gap-2 rounded-(--sc-radius-sm) px-2 text-sc-md text-(--sc-text) transition-colors duration-(--sc-duration-instant) focus-visible:bg-(--sc-hover) disabled:cursor-not-allowed";
 
 const GROUP_LABEL_CLASS =
 	"px-2 pt-2 pb-0.5 text-sc-2xs font-semibold tracking-wide text-(--sc-text-muted) uppercase first:pt-1";
@@ -371,15 +371,13 @@ export function ModelValueSelect({
 		// provider for a `*Provider` setting only fails when something later
 		// tries to call it.
 		return (
-			<button
-				aria-selected={selected}
-				className={cx(ROW_CLASS, selected && "bg-(--sc-selected)")}
+			<OptionRow
+				active={selected}
+				className={ROW_CLASS}
 				disabled={option.disabled === true}
 				key={option.value}
 				onClick={() => choose(option.value)}
-				role="option"
-				tabIndex={-1}
-				type="button"
+				size="sm"
 			>
 				<span className={cx("min-w-0 flex-1 truncate", option.label === undefined && "font-mono text-sc-sm")}>
 					{option.label ?? option.value}
@@ -395,7 +393,7 @@ export function ModelValueSelect({
 					</span>
 				)}
 				{selected && <Check aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-accent)" />}
-			</button>
+			</OptionRow>
 		);
 	};
 
@@ -478,32 +476,28 @@ export function ModelValueSelect({
 									</div>
 								)}
 								{queryIsCustom && (
-									<button
-										aria-selected={false}
+									<OptionRow
+										active={false}
 										className={ROW_CLASS}
 										onClick={() => choose(trimmedQuery)}
-										role="option"
-										tabIndex={-1}
-										type="button"
+										size="sm"
 									>
 										<span className="min-w-0 flex-1 truncate">
 											{t("modelValue.useCustom", { query: trimmedQuery })}
 										</span>
-									</button>
+									</OptionRow>
 								)}
 								{value !== "" && (
-									<button
-										aria-selected={false}
+									<OptionRow
+										active={false}
 										className={cx(ROW_CLASS, "mt-0.5 rounded-t-none border-t border-(--sc-divider)")}
 										onClick={() => choose("")}
-										role="option"
-										tabIndex={-1}
-										type="button"
+										size="sm"
 									>
 										<span className="min-w-0 flex-1 text-(--sc-text-muted)">
 											{clearLabel ?? t("modelValue.clear")}
 										</span>
-									</button>
+									</OptionRow>
 								)}
 							</>
 						)}

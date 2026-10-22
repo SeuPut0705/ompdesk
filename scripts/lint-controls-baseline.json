@@ -71,7 +71,7 @@
 	"components/panels/viewers/TextViews.tsx": 1,
 	"components/panels/work-tree/WorkTreePanel.tsx": 2,
 	"components/settings/ModelCompareSection.tsx": 1,
-	"components/settings/ModelValueSelect.tsx": 4,
+	"components/settings/ModelValueSelect.tsx": 1,
 	"components/settings/PeerLimitsDialog.tsx": 1,
 	"components/settings/ThemePicker.tsx": 1,
 	"components/settings/memory/MemoryHandoffs.tsx": 1,
