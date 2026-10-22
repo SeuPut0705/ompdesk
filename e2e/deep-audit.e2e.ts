@@ -379,7 +379,7 @@ async function mutateEntry(
 							}
 							await trigger.click();
 							if (initial === "") {
-								await row.getByRole("button", { name: /Clear/ }).click();
+								await row.getByRole("option", { name: /Clear/ }).click();
 							} else {
 								await pickerInput.fill(String(initial));
 								await row
@@ -554,7 +554,7 @@ async function mutateEntry(
 					await expect(pickerInput).toBeVisible();
 					if ((await pickerInput.count()) > 0) {
 						await pickerInput.fill(marker);
-						const custom = row.getByRole("button", { name: new RegExp(marker) });
+						const custom = row.getByRole("option", { name: new RegExp(marker) });
 						await expect(custom.last()).toBeVisible();
 						if ((await custom.count()) > 0) {
 							await custom.last().click();
