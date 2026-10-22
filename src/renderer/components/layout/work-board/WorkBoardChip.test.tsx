@@ -209,4 +209,30 @@ describe("WorkBoardChip, the phone's work strip", () => {
 			expect(panel()).toBeNull();
 		});
 	});
+
+	it("points its chevron the way the panel will open: upward from a strip low in its pane", async () => {
+		useTodoStore.setState({ turnActive: true });
+		const rects: Record<string, { top: number; bottom: number }> = {
+			"omp-session-pane": { top: 48, bottom: 800 },
+			"omp-work-strip": { top: 560, bottom: 600 },
+			"omp-composer-box": { top: 690, bottom: 790 },
+		};
+		const original = Element.prototype.getBoundingClientRect;
+		Element.prototype.getBoundingClientRect = function (this: Element) {
+			const rect = Object.entries(rects).find(([name]) => this.classList?.contains(name))?.[1] ?? {
+				top: 0,
+				bottom: 0,
+			};
+			return { ...rect, left: 0, right: 0, width: 0, height: rect.bottom - rect.top, x: 0, y: rect.top } as DOMRect;
+		};
+		try {
+			container.className = "omp-session-pane";
+			await mount();
+			const chip = container.querySelector("[data-work-chip]");
+			expect(chip?.getAttribute("data-opens")).toBe("up");
+		} finally {
+			Element.prototype.getBoundingClientRect = original;
+			container.className = "";
+		}
+	});
 });

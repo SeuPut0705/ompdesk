@@ -55,11 +55,11 @@ interface StripRoom {
  * when the pane resizes or anything beside the strip on the way up to it does (a card appearing in the dock moves the
  * strip without resizing it).
  */
-function useStripRoom(root: RefObject<HTMLDivElement | null>, shown: boolean): StripRoom | undefined {
+function useStripRoom(root: RefObject<HTMLDivElement | null>): StripRoom | undefined {
 	const [room, setRoom] = useState<StripRoom | undefined>(undefined);
 	useLayoutEffect(() => {
 		const strip = root.current;
-		if (!shown || !strip) return;
+		if (!strip) return;
 		const pane = strip.closest(".omp-session-pane") ?? document.documentElement;
 		const measure = (): void => {
 			const box = strip.getBoundingClientRect();
@@ -79,7 +79,7 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, shown: boolean): S
 		for (let node: Element = strip; node !== pane && node.parentElement; node = node.parentElement)
 			for (const sibling of node.parentElement.children) observer?.observe(sibling);
 		return () => observer?.disconnect();
-	}, [root, shown]);
+	}, [root]);
 	return room;
 }
 
@@ -121,7 +121,8 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	}, []);
 	useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
 	useBackLayer(open, close);
-	const room = useStripRoom(root, open || leaving);
+	// Measured while collapsed too: the chevron points the way the panel will open.
+	const room = useStripRoom(root);
 	const turnActive = useTodoStore(state => state.turnActive);
 	const phases = useTodoStore(state => state.phases);
 	const planVisible = useTodoStore(selectTodoCardVisible);
@@ -211,6 +212,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 				aria-expanded={open}
 				className="omp-work-chip"
 				data-open={open || undefined}
+				data-opens={room?.up ? "up" : undefined}
 				data-state={state}
 				data-work-chip=""
 				onClick={() => (open ? close() : setOpen(true))}

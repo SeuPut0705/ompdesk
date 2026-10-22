@@ -407,6 +407,15 @@ html[data-shell] .omp-composer-region.pb-3 {
 	transform: rotate(180deg);
 }
 
+/* A strip whose panel opens upward points up while collapsed and down (toward where it folds back) while open. */
+.omp-work-chip[data-opens="up"]:not([data-open]) .omp-work-chip-chevron {
+	transform: rotate(180deg);
+}
+
+.omp-work-chip[data-opens="up"][data-open] .omp-work-chip-chevron {
+	transform: none;
+}
+
 .omp-work-strip-panel {
 	position: absolute;
 	inset-inline: 0;
