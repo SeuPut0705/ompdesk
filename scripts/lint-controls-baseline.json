@@ -27,7 +27,6 @@
 	"components/dialogs/FeedbackDialog.tsx": 1,
 	"components/dialogs/ModelPicker.tsx": 1,
 	"components/dialogs/PromptCard.tsx": 1,
-	"components/dialogs/WorkspaceDialog.tsx": 2,
 	"components/layout/AccountLimit.tsx": 1,
 	"components/layout/PanelContainer.tsx": 1,
 	"components/layout/SplitWorkspace.tsx": 1,

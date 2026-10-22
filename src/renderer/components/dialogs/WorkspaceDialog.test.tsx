@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RemoteDirListing, SessionInfo } from "../../../shared/ipc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useRemotePickerStore, useRemoteStore } from "../../stores/remote";
+import { useSessionStore } from "../../stores/session";
 import { setFocusedSessionRuntime } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { RemoteFolderPickerHost } from "../remote/RemoteFolderPicker";
@@ -129,6 +130,7 @@ afterEach(async () => {
 	useRemotePickerStore.setState({ request: null });
 	useRemoteStore.getState().reset();
 	useTabsStore.getState().reset();
+	useSessionStore.getState().reset();
 	closed = 0;
 	vi.clearAllMocks();
 });
@@ -212,6 +214,33 @@ describe("WorkspaceDialog rows", () => {
 		expect(text).toContain("goZQw/project");
 		expect(text).toContain("goZQw/website");
 		expect(document.body.querySelector(`[title="${parent}/website"]`)).not.toBeNull();
+		omp.sessions.list.mockImplementation(async () => []);
+	});
+
+	it("marks the current project's row for screen readers and names each row by its project alone", async () => {
+		seedTab();
+		useSessionStore.setState({ cwd: "/Users/kim/code/app" });
+		const session = (cwd: string): SessionInfo => ({
+			path: `${cwd}/s.jsonl`,
+			id: cwd,
+			title: null,
+			cwd,
+			created: "2026-10-13T00:00:00Z",
+			modified: "2026-10-13T00:00:00Z",
+			messageCount: 1,
+			size: 1,
+			status: "complete",
+			firstMessage: "",
+		});
+		omp.sessions.list.mockResolvedValue([session("/Users/kim/code/app"), session("/Users/kim/code/site")]);
+		await mount("switch");
+		const rows = Array.from(document.body.querySelectorAll("button")).filter(button =>
+			["app", "site"].includes((button.textContent ?? "").trim()),
+		);
+		expect(rows.map(row => [row.textContent?.trim(), row.getAttribute("aria-current")])).toEqual([
+			["app", "true"],
+			["site", null],
+		]);
 		omp.sessions.list.mockImplementation(async () => []);
 	});
 });

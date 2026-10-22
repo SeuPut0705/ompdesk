@@ -11,7 +11,7 @@
 import { Check, Folder, FolderPlus } from "lucide-react";
 import { useMemo } from "react";
 import { useSessionList } from "../../hooks/use-session-list";
-import { basename, cx, shortenPath } from "../../lib/format";
+import { basename, shortenPath } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useProjectNames } from "../../lib/project-origin";
 import { pickWorkspaceDirectory, selectFocusedTabProject } from "../../lib/workspace-dirs";
@@ -20,7 +20,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Modal } from "../common";
+import { Button, ListRow, Modal } from "../common";
 
 interface WorkspaceRow {
 	cwd: string;
@@ -143,14 +143,14 @@ export function WorkspaceDialog({
 			size="md"
 		>
 			<div className="flex flex-col gap-2">
-				<button
-					type="button"
+				<Button
+					className="justify-start border-dashed"
+					icon={<FolderPlus aria-hidden />}
 					onClick={() => void addWorkspace()}
-					className="omp-pressable flex min-h-10 items-center gap-2.5 rounded-(--sc-radius-md) border border-dashed border-(--sc-border-subtle) px-3 py-2.5 text-sc-md font-medium text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text)"
+					size="lg"
 				>
-					<FolderPlus aria-hidden className="size-(--sc-icon-md)" />
 					{t("workspaces.add")}
-				</button>
+				</Button>
 
 				<div className="max-h-[46vh] overflow-y-auto">
 					{workspaces.length === 0 ? (
@@ -159,39 +159,28 @@ export function WorkspaceDialog({
 						workspaces.map(ws => {
 							const isCurrent = ws.cwd === cwd;
 							return (
-								<button
+								<ListRow
+									description={
+										// Middle-truncated: two projects deep under one parent differ only at the tail.
+										<span title={ws.cwd}>{shortenPath(ws.cwd)}</span>
+									}
 									key={ws.cwd}
-									type="button"
+									leading={<Folder aria-hidden />}
+									meta={
+										ws.sessionCount > 0 ? t("workspaces.sessionCount", { count: ws.sessionCount }) : undefined
+									}
 									onClick={() => void pick(ws.cwd)}
-									className={cx(
-										"omp-pressable group flex min-h-10 w-full items-center gap-3 rounded-(--sc-radius-md) px-2.5 py-2 text-left",
-										isCurrent ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-									)}
-								>
-									<Folder aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
-									<span className="min-w-0 flex-1">
-										<span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-											<span className={cx("truncate text-sc-md font-medium text-(--sc-text)")}>
-												{device === undefined ? projectNameOf(ws.cwd).name : ws.name}
+									selected={isCurrent}
+									title={device === undefined ? projectNameOf(ws.cwd).name : ws.name}
+									trailing={
+										isCurrent ? (
+											<span className="flex items-center gap-1 text-sc-xs font-medium text-(--sc-text-secondary)">
+												<Check aria-hidden className="size-(--sc-icon-sm)" />
+												{t("workspaces.current")}
 											</span>
-											{ws.sessionCount > 0 && (
-												<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
-													{t("workspaces.sessionCount", { count: ws.sessionCount })}
-												</span>
-											)}
-										</span>
-										{/* Middle-truncated: two projects deep under one parent differ only at the tail. */}
-										<span className="block truncate text-sc-xs text-(--sc-text-muted)" title={ws.cwd}>
-											{shortenPath(ws.cwd)}
-										</span>
-									</span>
-									{isCurrent ? (
-										<span className="flex shrink-0 items-center gap-1 text-sc-xs font-medium text-(--sc-text-secondary)">
-											<Check aria-hidden className="size-(--sc-icon-sm)" />
-											{t("workspaces.current")}
-										</span>
-									) : null}
-								</button>
+										) : undefined
+									}
+								/>
 							);
 						})
 					)}
