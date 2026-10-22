@@ -1385,14 +1385,13 @@ html[data-input="touch"] [data-choice-row] [role="radiogroup"] {
 }
 
 /* On the narrowest phones (320 px) a row of five or more choices drew a one-syllable segment 33 px ("끔" of the
-   thinking levels reached 35 across, the responsive audit of 22 Oct 2026): the row's lead glyph, decorative (the
-   radiogroup and the (i) name the group), gives its 16 px and the 8 px beside it to the segments, about 4.8 px each
-   of five, so every segment reaches 36 with no label drawn narrower. */
+   thinking levels reached 35 across, the responsive audit of 22 Oct 2026). The row keeps its lead glyph (one glyph and
+   its control per line, the Run sheet's rule) and closes its own 8 px gaps to 2 px instead: the 12 px it gains goes to
+   the segments, about 2.4 px each of five, so every segment reaches 36 with no label drawn narrower. The (i) keeps its
+   12 px margin, so its reach still stops short of the last segment's. */
 @media (max-width: 329px) {
-	html[data-input="touch"]
-		[data-choice-row]:has([role="radiogroup"] > [role="radio"]:nth-child(5))
-		> [data-setting-icon] {
-		display: none;
+	html[data-input="touch"] [data-choice-row]:has([role="radiogroup"] > [role="radio"]:nth-child(5)) {
+		gap: 2px;
 	}
 }
 
