@@ -23,7 +23,7 @@ Shipping is **Automatic** unless you pick another level:
 - With a remote, every **green** cycle that made a commit lands on the default branch. If someone else moved that branch meanwhile, OMPdesk merges in a separate checkout and runs the cycle's check on the merged result before it pushes; a conflict or a failing check lands nothing and tells the agent to merge first. A protected branch gets one pull request instead, updated by later cycles.
 - Without a remote, commits stay on your computer.
 - A red cycle, or one without a commit, never lands.
-- The project releases only if it already has a release procedure: in its rules files (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`) or in the Release section of `AUTOPILOT.md`. The agent decides when, and not again within 4 hours of the run's last release.
+- The project releases only if it already has a release procedure: in its rules files (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`) or in the Release section of `AUTOPILOT.md`. The agent decides when, by the project's own release rhythm and how long ago the run's last release went out; a fix for a broken release still ships at once.
 
 **Commit**, **Push** and **Release** under Advanced keep the commits local, push only the run's branch, or push and release.
 
