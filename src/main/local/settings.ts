@@ -160,7 +160,7 @@ export const handlers: Record<string, LocalHandler> = {
 			creditId: z.string().min(1).optional().parse(command.creditId),
 		}),
 	get_usage: (command, ctx) => ctx.bridge.request("usage", { refresh: command.refresh === true }),
-	get_model_roles: (_command, ctx) => ctx.bridge.request("model_roles"),
+	get_model_roles: (command, ctx) => ctx.bridge.request("model_roles", { compact: command.compact === true }),
 	set_model_role: (command, ctx) =>
 		ctx.bridge.request("model_role_set", { role: command.role, modelId: command.modelId ?? null }),
 	get_model_role_metadata: (_command, ctx) => ctx.bridge.request("model_role_metadata"),

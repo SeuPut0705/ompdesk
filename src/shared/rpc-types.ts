@@ -179,7 +179,8 @@ export type RpcCommand =
 	| { id?: string; type: "get_providers"; forceRefresh?: boolean }
 	| { id?: string; type: "set_plan_mode"; enabled: boolean }
 	| { id?: string; type: "get_plan_mode" }
-	| { id?: string; type: "get_model_roles" }
+	/** `compact`: candidates as indexes into one `candidateModels` list (`model-role-contracts.ts`); the RPC client expands it. */
+	| { id?: string; type: "get_model_roles"; compact?: boolean }
 	| { id?: string; type: "set_model_role"; role: string; modelId: string | null }
 	| { id?: string; type: "get_model_role_metadata" }
 	| { id?: string; type: "get_model_setup_facts" }

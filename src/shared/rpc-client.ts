@@ -1,3 +1,4 @@
+import { expandModelRoles } from "../../resources/gui-bridge/model-role-contracts";
 import type { AutopilotAction } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import type { SessionModelOverride } from "./model-restore";
@@ -545,7 +546,11 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 		getProviders: forceRefresh => rpcCommand({ type: "get_providers", forceRefresh }),
 		setPlanMode: enabled => rpcCommand({ type: "set_plan_mode", enabled }),
 		getPlanMode: () => rpcCommand({ type: "get_plan_mode" }),
-		getModelRoles: () => rpcCommand({ type: "get_model_roles" }),
+		// Each candidate model once on the wire (a host with many providers sent a paired device 882 KB of repeats).
+		getModelRoles: async () => {
+			const response = await rpcCommand({ type: "get_model_roles", compact: true });
+			return response.success ? { ...response, data: expandModelRoles(response.data) } : response;
+		},
 		setModelRole: (role, modelId) => rpcCommand({ type: "set_model_role", role, modelId }),
 		getModelRoleMetadata: () => rpcCommand({ type: "get_model_role_metadata" }),
 		getModelSetupFacts: () => rpcCommand({ type: "get_model_setup_facts" }),

@@ -39,6 +39,7 @@ import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
 import { idleSettingChanged } from "./idle-compaction";
+import { compactModelRoles } from "./model-role-contracts";
 import { releaseDelegationForWrite } from "./modes/delegation";
 import { OMPDESK_ROLES } from "./ompdesk-role-contracts";
 import { type RoleSettings, readRolePicks, roleConfigured, settleOmpdeskRoles, writeRolePick } from "./ompdesk-roles";
@@ -926,7 +927,10 @@ export const methods: BridgeMethods = {
 		usage: async (params, env) => usage(env, env.session(), asRecord(params).refresh === true),
 	}),
 	...guard("modelRoles", {
-		model_roles: async (_params, env) => ({ roles: modelRoles(env.session()) }),
+		model_roles: async (params, env) => {
+			const roles = modelRoles(env.session());
+			return asRecord(params).compact === true ? compactModelRoles(roles) : { roles };
+		},
 		model_role_metadata: async (_params, env) => ({ roles: roleMetadata(env.session()) }),
 		model_role_set: async (params, env) => {
 			const session = env.session();

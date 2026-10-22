@@ -55,3 +55,72 @@ export interface SkippedPreferred {
 	/** Provider ids that hold the preferred class of candidate, in stock's preference order; a key for any one of them lifts the skip. */
 	providers: string[];
 }
+
+/**
+ * `get_model_roles` on the wire. Every role lists its candidate models, and most roles take the same chat models, so
+ * the plain answer repeats one list once a role: a paired device's Settings read 882 KB for it from a host with many
+ * providers. A caller that asks (`compact: true`) gets each model once (`candidateModels`) and each role's
+ * candidates as indexes into it; {@link expandModelRoles} turns that back into the plain answer. An older host
+ * ignores the flag and answers plain, which expanding leaves as it is; an older device never asks. The bridge
+ * compacts, the RPC client (`src/shared/rpc-client.ts`) expands.
+ */
+
+export interface WireCandidate {
+	provider: string;
+	id: string;
+	name?: string;
+	kind?: string;
+}
+
+/** What compacting needs of a role: its candidates, whatever else it carries. */
+export interface RoleWithCandidates<C = WireCandidate> {
+	candidates?: C[];
+}
+
+export interface CompactModelRoles<R> {
+	roles: Array<Omit<R, "candidates"> & { candidates?: number[] }>;
+	candidateModels: WireCandidate[];
+}
+
+/** Each distinct candidate once, each role's candidates as indexes into that list, in the order the role lists them. */
+export function compactModelRoles<R extends RoleWithCandidates>(roles: R[]): CompactModelRoles<R> {
+	const candidateModels: WireCandidate[] = [];
+	const index = new Map<string, number>();
+	const at = (candidate: WireCandidate): number => {
+		const key = JSON.stringify([candidate.provider, candidate.id, candidate.name ?? null, candidate.kind ?? null]);
+		let found = index.get(key);
+		if (found === undefined) {
+			found = candidateModels.length;
+			candidateModels.push(candidate);
+			index.set(key, found);
+		}
+		return found;
+	};
+	return {
+		roles: roles.map(role => {
+			if (!role.candidates) return role as Omit<R, "candidates">;
+			return { ...role, candidates: role.candidates.map(at) };
+		}),
+		candidateModels,
+	};
+}
+
+/** The plain answer of `get_model_roles` from either form; anything that is not the compact form passes through. */
+export function expandModelRoles(data: unknown): unknown {
+	if (typeof data !== "object" || data === null) return data;
+	const { roles, candidateModels, ...rest } = data as { roles?: unknown; candidateModels?: unknown };
+	if (!Array.isArray(roles) || !Array.isArray(candidateModels)) return data;
+	return {
+		...rest,
+		roles: roles.map(role => {
+			const candidates = (role as { candidates?: unknown }).candidates;
+			if (!Array.isArray(candidates)) return role;
+			return {
+				...role,
+				candidates: candidates.flatMap(i =>
+					typeof i === "number" && candidateModels[i] ? [candidateModels[i]] : [],
+				),
+			};
+		}),
+	};
+}
