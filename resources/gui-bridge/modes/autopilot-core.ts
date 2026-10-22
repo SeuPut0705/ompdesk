@@ -534,7 +534,7 @@ export function pendingNotes(
 }
 
 /**
- * Follow-ups of the recent cycles that no later cycle did, newest first, without repeats. A later cycle did one when
+ * Follow-ups of the run's cycles that no later cycle did, newest first, without repeats. A later cycle did one when
  * its title is the follow-up's text or its report lists it under `resolved` (a title is a short name for the work and
  * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
  * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it ended
@@ -545,7 +545,9 @@ export function openFollowups(
 	records: readonly AutopilotCycleRecord[],
 	dismissed: readonly { text: string; at: number }[] = [],
 ): string[] {
-	const window = records.slice(-DUPLICATE_WINDOW);
+	// Every cycle of the run, not the duplicate check's recent window: a follow-up nobody did or dismissed stays open
+	// however long ago it was left (30 cycles on, an unfinished one used to leave the list without a word).
+	const window = records;
 	const open: string[] = [];
 	const seen = new Set<string>();
 	for (let i = window.length - 1; i >= 0; i--) {

@@ -560,6 +560,10 @@ describe("journal replay", () => {
 		expect(openFollowups(records)).toEqual(["add retries", "Docs for X"]);
 		expect(openFollowups([])).toEqual([]);
 	});
+	it("openFollowups: one nobody did stays open however many cycles ago it was left", () => {
+		const records = seq({ followups: ["Fix the drag area"] }, ...Array.from({ length: 60 }, () => ({})));
+		expect(openFollowups(records)).toEqual(["Fix the drag area"]);
+	});
 	it("openFollowups: a later cycle that resolves a follow-up closes it, whatever its title says", () => {
 		const records = seq(
 			{ followups: ["The land check's tail drops the first error", "Docs for X"] },
