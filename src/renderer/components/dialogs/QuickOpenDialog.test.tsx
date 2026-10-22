@@ -49,6 +49,9 @@ const list = vi.fn(
 );
 Object.assign(window as unknown as Record<string, unknown>, { omp: { fs: { list } } });
 
+const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
+if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scrollIntoView = () => {};
+
 let root: Root | null = null;
 
 async function settle(): Promise<void> {
@@ -152,6 +155,25 @@ describe("QuickOpenDialog", () => {
 		expect(painted.every(value => value === "")).toBe(true);
 		expect(field().value).toBe("");
 		expect(options()).toEqual(["README.md", "src/app.ts", "src/router.ts"]);
+	});
+
+	it("keeps a highlight after ↓ on no matches, and starts each query at the top match", async () => {
+		await mount();
+		const highlighted = () =>
+			Array.from(document.body.querySelectorAll('[role="option"]'))
+				.filter(option => option.getAttribute("aria-selected") === "true")
+				.map(option => option.getAttribute("data-path"));
+		await press("ArrowDown");
+		await press("ArrowDown");
+		expect(highlighted()).toEqual(["src/router.ts"]);
+		await type("zzz");
+		await press("ArrowDown");
+		await type("");
+		expect(highlighted()).toEqual(["README.md"]);
+		await press("ArrowDown");
+		await type("r");
+		expect(highlighted()).toHaveLength(1);
+		expect(highlighted()[0]).toBe(options()[0]);
 	});
 
 	it("says when nothing matches", async () => {

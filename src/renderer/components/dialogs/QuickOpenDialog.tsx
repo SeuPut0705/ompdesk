@@ -11,6 +11,7 @@ import type { FsTreeEntry } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import { rankQuickOpen } from "../../lib/quick-open";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
@@ -109,12 +110,10 @@ export function QuickOpenDialog() {
 
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
 		if (isImeKeyEvent(event)) return;
-		if (event.key === "ArrowDown") {
+		const target = listboxTarget(event.key, activeIndex, matches.length, { wrap: false });
+		if (target !== null) {
 			event.preventDefault();
-			setActiveIndex(index => Math.min(index + 1, matches.length - 1));
-		} else if (event.key === "ArrowUp") {
-			event.preventDefault();
-			setActiveIndex(index => Math.max(index - 1, 0));
+			setActiveIndex(target);
 		} else if (event.key === "Enter") {
 			event.preventDefault();
 			const path = matches[activeIndex];
@@ -145,7 +144,10 @@ export function QuickOpenDialog() {
 							controlSize="lg"
 							label={t("quickOpen.title")}
 							onKeyDown={onKeyDown}
-							onValueChange={setQuery}
+							onValueChange={value => {
+								setQuery(value);
+								setActiveIndex(0);
+							}}
 							placeholder={t("quickOpen.placeholder")}
 							ref={inputRef}
 							value={query}

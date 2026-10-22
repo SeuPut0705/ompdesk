@@ -12,6 +12,7 @@ import type { ThemeScheme } from "../../../shared/theme-names";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
+import { listboxTarget } from "../../lib/listbox-nav";
 import {
 	applyThemeByName,
 	getPersistedThemeSelection,
@@ -98,12 +99,10 @@ export function ThemePickerDialog() {
 
 	const onKey = (e: React.KeyboardEvent) => {
 		if (isImeKeyEvent(e)) return;
-		if (e.key === "ArrowDown") {
+		const target = listboxTarget(e.key, active, filtered.length, { wrap: false });
+		if (target !== null) {
 			e.preventDefault();
-			setActive(i => Math.min(filtered.length - 1, i + 1));
-		} else if (e.key === "ArrowUp") {
-			e.preventDefault();
-			setActive(i => Math.max(0, i - 1));
+			setActive(target);
 		} else if (e.key === "Enter") {
 			e.preventDefault();
 			const entry = filtered[active];
