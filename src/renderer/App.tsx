@@ -22,7 +22,6 @@ import { SessionSwitchDialog } from "./components/dialogs/SessionSwitchDialog";
 import { ShareSessionDialog } from "./components/dialogs/ShareSessionDialog";
 import { TabOverviewDialog } from "./components/dialogs/TabOverviewDialog";
 import { TabSwitcher, useTabSwitcherStore } from "./components/dialogs/TabSwitcher";
-import { ThemePickerDialog } from "./components/dialogs/ThemePickerDialog";
 import { WebDeviceNotice } from "./components/dialogs/WebDeviceNotice";
 import { WebPairingDialog } from "./components/dialogs/WebPairingDialog";
 import { WorktreeCloseDialog } from "./components/dialogs/WorktreeCloseDialog";
@@ -34,7 +33,7 @@ import { FirstRunGate } from "./components/onboarding/FirstRunGate";
 import { SetupTakeoverHost } from "./components/onboarding/SetupTakeover";
 import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
-import { SshPromptDialog } from "./components/settings/SshTools";
+import { SshPromptDialog } from "./components/settings/SshPromptDialog";
 import { useAwaitedInput } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useHostAppearance } from "./hooks/use-host-appearance";
@@ -120,6 +119,9 @@ const DebugConsoleDialog = lazyChunk(() =>
 );
 const ImportForeignDialog = lazyChunk(() =>
 	import("./components/dialogs/ImportForeignDialog").then(m => ({ default: m.ImportForeignDialog })),
+);
+const ThemePickerDialog = lazyChunk(() =>
+	import("./components/dialogs/ThemePickerDialog").then(m => ({ default: m.ThemePickerDialog })),
 );
 
 function FocusedSessionEffects() {
@@ -243,6 +245,11 @@ export function App() {
 	const [benchmarkMounted, setBenchmarkMounted] = useState(false);
 	if (benchmarkOpen && !benchmarkMounted) setBenchmarkMounted(true);
 	// The debug console keeps its request and result between opens: mounted from its first open on.
+	// The theme picker (and the theme previews it draws) loads on its first open and stays mounted after, so it
+	// closes with its own exit as before; it was the phone's first screen's to load at every start.
+	const themePickerOpen = useUiStore(s => s.themePickerOpen);
+	const [themePickerMounted, setThemePickerMounted] = useState(false);
+	if (themePickerOpen && !themePickerMounted) setThemePickerMounted(true);
 	const debugOpen = useUiStore(s => s.debugOpen);
 	const [debugMounted, setDebugMounted] = useState(false);
 	if (debugOpen && !debugMounted) setDebugMounted(true);
@@ -931,7 +938,11 @@ export function App() {
 					</Suspense>
 				) : null}
 				<Suspense fallback={null}>{modelSetupOpen && <ModelSetupDialog />}</Suspense>
-				<ThemePickerDialog />
+				{themePickerMounted ? (
+					<Suspense fallback={null}>
+						<ThemePickerDialog />
+					</Suspense>
+				) : null}
 				<Suspense fallback={null}>{importDialogOpen && <ImportForeignDialog />}</Suspense>
 				<Suspense fallback={null}>{feedbackOpen && <FeedbackDialog />}</Suspense>
 			</div>
