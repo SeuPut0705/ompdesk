@@ -776,6 +776,7 @@ function DeviceSessions({
 					count={chats.length}
 					deviceId={host.deviceId}
 					filtering={query.length > 0}
+					label={t("sidebar.chatsOn", { name: host.name })}
 					newChatData={{ "data-sidebar-device-new-chat": host.deviceId }}
 					newChatLabel={t("remote.sidebar.newChat", { name: host.name })}
 					onNewChat={onNewChat}

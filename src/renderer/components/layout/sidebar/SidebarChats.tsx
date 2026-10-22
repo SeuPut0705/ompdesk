@@ -18,6 +18,7 @@ export function SidebarChats({
 	canAdd = true,
 	onNewChat,
 	newChatData,
+	label,
 	children,
 }: {
 	/** `LOCAL_DEVICE` or a paired host's id: whose fold this is. */
@@ -31,13 +32,15 @@ export function SidebarChats({
 	onNewChat: () => void;
 	/** The new-chat button's hook attribute (this device's `data-sidebar-new-chat`, a host's `data-sidebar-device-new-chat`). */
 	newChatData: Record<string, string>;
+	/** The section's name when several devices list one (a host's says whose); this device's is plain "Chats". */
+	label?: string;
 	children: ReactNode;
 }) {
 	const t = useT();
 	const storedFold = useSidebarFolds(s => s.chats[deviceId] === true);
 	const folded = !filtering && storedFold;
 	return (
-		<section aria-label={t("sidebar.chats")} className="mt-1" data-sidebar-chats={deviceId}>
+		<section aria-label={label ?? t("sidebar.chats")} className="mt-1" data-sidebar-chats={deviceId}>
 			<div className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)">
 				<SidebarFoldButton
 					className="text-(--sc-text-muted) hover:text-(--sc-text)"

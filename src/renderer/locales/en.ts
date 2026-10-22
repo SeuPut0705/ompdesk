@@ -838,6 +838,7 @@ export const en: Record<string, string> = {
 	"sidebar.stopAndDelete": "Stop and delete",
 	"sidebar.stopFailed": "Couldn't stop the session",
 	"sidebar.chats": "Chats",
+	"sidebar.chatsOn": "Chats on {name}",
 	"project.worktree.autopilot": "Autopilot",
 	"project.worktree.agent": "Parallel work",
 	"project.worktree.tooltip": "Worktree of {project} · {path}",

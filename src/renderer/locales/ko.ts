@@ -823,6 +823,7 @@ export const ko: Record<string, string> = {
 	"sidebar.stopAndDelete": "멈추고 삭제",
 	"sidebar.stopFailed": "세션을 중단하지 못했어요",
 	"sidebar.chats": "채팅",
+	"sidebar.chatsOn": "{name}의 채팅",
 	"project.worktree.autopilot": "오토파일럿",
 	"project.worktree.agent": "병렬 작업",
 	"project.worktree.tooltip": "{project}의 워크트리 · {path}",

@@ -3038,6 +3038,11 @@ describe("Sidebar device sections", () => {
 			'[data-sidebar-device="dev-studio"] [data-sidebar-chats="dev-studio"] [data-sidebar-device-new-chat="dev-studio"]',
 		);
 		expect(host?.getAttribute("aria-label")).toBe(translate("remote.sidebar.newChat", { name: "studio" }));
+		// Each section is a landmark of its own name, so a screen reader's list of them tells the devices apart.
+		const sections = [...container.querySelectorAll("section[data-sidebar-chats]")].map(section =>
+			section.getAttribute("aria-label"),
+		);
+		expect(sections).toEqual([translate("sidebar.chats"), translate("sidebar.chatsOn", { name: "studio" })]);
 
 		// This device's starts a chat here; never on the host, never a folder dialog.
 		await fire(local, "onClick");
