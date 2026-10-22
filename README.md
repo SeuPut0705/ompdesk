@@ -61,6 +61,7 @@
 - **Skills.** Engineering playbooks from [pstack](https://github.com/cursor/plugins/tree/main/pstack), language and framework skills from [ECC](https://github.com/affaan-m/ECC), and reverse-engineering tools from REA. Each can be turned off in Settings.
 - **Small automations.** Plan or Goal mode picked per request, session titles that follow the work, and suggested next prompts. Each has its own switch in Settings › Agent behavior.
 - **Computer use.** On by default; one session drives the desktop at a time, and `/computer off` turns it off.
+- **Keyboard first.** F6 moves between the sidebar, conversation, composer, work board and side panel; every shortcut can be changed in Settings › Keyboard shortcuts.
 - **Keeps the computer working.** A charging laptop keeps running tasks with the lid closed, and finished worktrees and caches are cleaned up without losing anything.
 
 ## Install
