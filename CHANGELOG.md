@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.5] - 2026-10-22
+
+연결한 컴퓨터의 탭에서 서브에이전트가 일할 때 주고받는 양이 줄었고, 태블릿 사이드바에서 오프라인 컴퓨터 이름이 잘리지 않아요.
+
+### 빨라진 것
+- 서브에이전트가 도는 동안 3초마다 받던 서브에이전트 목록을 이제 바뀐 부분만 받아요. 진행 상황만 바뀐 에이전트는 바뀐 값만 와요. 두 컴퓨터가 모두 이 버전이어야 해요.
+- 서브에이전트의 제목을 되찾을 때 대화 전체(한 번에 수 MB) 대신 첫 지시문만 읽어요.
+
+### 고친 것
+- 태블릿 사이드바에서 오프라인 컴퓨터의 이름이 '오프라인' 표시와 쓸 수 없는 프로젝트 버튼에 밀려 몇 글자만 보였어요. 오프라인일 때는 그 버튼을 빼요.
+
+<!-- en -->
+
+Less moves over the link while subagents work on a paired computer's tab, and an offline computer's name is no longer cut in a tablet's sidebar.
+
+### Faster
+- The subagent list, read every 3 seconds while subagents run, now crosses as what changed; an agent whose progress moved sends only the values that changed. Both computers need this version.
+- Recovering a subagent's title reads only its first instruction instead of the whole conversation (several MB at a time).
+
+### Fixed
+- In a tablet's sidebar an offline computer's name showed only a few letters beside its offline badge and a project button that could do nothing. That button is gone while the computer is offline.
+
 ## [0.61.4] - 2026-10-22
 
 연결한 컴퓨터의 탭에서 설정을 열 때 주고받는 양이 크게 줄었어요. GitHub 카드의 열기 버튼과 작업판의 불필요한 다시 읽기도 고쳤어요.
