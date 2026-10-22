@@ -376,3 +376,31 @@ test("responsive smoke 1280 desktop: a mermaid diagram lays out under Reduce mot
 	expect(size.height).toBeLessThan(600);
 	await page.context().close();
 });
+
+/**
+ * A desktop window too narrow to dock the board (1280×800 beside the sidebar) keeps its work strip in the dock just
+ * above the composer, where the phone's sits under the header. Its panel opened downward there, over the composer
+ * and past the window's bottom edge, so the board's rows were cut off and the composer could not be clicked until
+ * the strip was collapsed (22 Oct 2026). It opens upward now, inside the window and clear of the composer.
+ */
+test("responsive smoke 1280 desktop: the expanded work strip stays in the window, clear of the composer", async () => {
+	if (!browser) throw new Error("the browser is not up");
+	const look: Look = {
+		width: 1280,
+		height: 800,
+		dpr: 1,
+		orientation: "landscape",
+		theme: "light",
+		lang: "en",
+		device: "electron",
+	};
+	const page = await openLook(browser, look, { origin, query: "&board=busy" });
+	await show(page, look, "board-strip");
+	const panel = await page.locator("[data-work-strip-panel]").boundingBox();
+	const composer = await page.locator(".omp-composer-box").first().boundingBox();
+	if (!panel || !composer) throw new Error("no strip panel or composer");
+	expect(panel.y, "panel's top").toBeGreaterThanOrEqual(0);
+	expect(panel.y + panel.height, "panel's bottom in the window").toBeLessThanOrEqual(look.height);
+	expect(panel.y + panel.height, "panel's bottom above the composer").toBeLessThanOrEqual(composer.y);
+	await page.context().close();
+});

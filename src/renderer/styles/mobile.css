@@ -424,6 +424,14 @@ html[data-shell] .omp-composer-region.pb-3 {
 	animation: omp-strip-in var(--sc-duration-med) var(--sc-ease-enter) both;
 }
 
+/* A desktop window keeps the strip in the dock just above the composer (the web build moves it under the header):
+   there the panel opens upward, inside the window and clear of the composer. */
+html:not([data-shell]) .omp-work-strip-panel {
+	top: auto;
+	bottom: 100%;
+	margin-bottom: var(--sc-space-1);
+}
+
 .omp-work-strip-panel[data-leaving] {
 	pointer-events: none;
 	animation: omp-strip-out var(--sc-duration-fast) var(--sc-ease-standard) both;
