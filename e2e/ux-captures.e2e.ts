@@ -156,7 +156,7 @@ for (const language of ["en", "ko"] as const)
 						await expect(aside).toBeVisible();
 						await shot(`${mode}-06-panel-views`);
 						await page.keyboard.press("Meta+k");
-						const search = page.getByRole("dialog").getByRole("searchbox");
+						const search = page.getByRole("dialog").getByRole("combobox");
 						await expect(search).toBeVisible();
 						await search.fill(label.jobs);
 						await page

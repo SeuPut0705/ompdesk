@@ -127,7 +127,7 @@ test("a chat tab runs omp with every tool in the default workspace", async () =>
 		await expect(aside.locator(".omp-panel-topbar").getByRole("button", { name, exact: true })).toBeVisible();
 	}
 	// The other views are modal sheets, reached from the command palette.
-	const palette = page.getByRole("dialog").getByRole("searchbox");
+	const palette = page.getByRole("dialog").getByRole("combobox");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+k", palette);
 	await palette.fill("Session tree");
 	await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: "Session tree" }).first().click();

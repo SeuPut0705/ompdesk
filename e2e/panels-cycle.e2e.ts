@@ -271,7 +271,7 @@ type SheetId = keyof (typeof SHEET_TITLES)["en"];
 /** Opens a session-view sheet the way a user does: through the command palette. */
 async function openSheet(page: Page, language: Language, id: SheetId): Promise<void> {
 	const title = SHEET_TITLES[language][id];
-	const search = page.getByRole("dialog").getByRole("searchbox");
+	const search = page.getByRole("dialog").getByRole("combobox");
 	await expect(async () => {
 		if (!(await search.isVisible())) await page.keyboard.press("ControlOrMeta+k");
 		await expect(search).toBeVisible({ timeout: 2_000 });

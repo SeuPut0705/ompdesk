@@ -252,7 +252,7 @@ export async function openDestination(
 	if (await button.isVisible()) return button.click();
 	const target = page.locator(`section[data-destination="${destination}"]`);
 	if (destination === "agents") return pressShortcutUntilVisible(page, "Alt+KeyA", target);
-	const search = page.getByRole("dialog").getByRole("searchbox");
+	const search = page.getByRole("dialog").getByRole("combobox");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 	await search.fill(paletteQuery);
 	await search.press("Enter");

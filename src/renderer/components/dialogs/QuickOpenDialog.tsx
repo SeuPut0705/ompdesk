@@ -139,7 +139,10 @@ export function QuickOpenDialog() {
 					<div className="min-w-0 flex-1">
 						<SearchField
 							aria-activedescendant={showOptions ? `${listboxId}-option-${activeIndex}` : undefined}
+							aria-autocomplete="list"
 							aria-controls={listboxId}
+							aria-expanded
+							role="combobox"
 							controlSize="lg"
 							label={t("quickOpen.title")}
 							onKeyDown={onKeyDown}

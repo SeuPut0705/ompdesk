@@ -731,7 +731,7 @@ for (const [language, theme] of [
 				work: language === "ko" ? "작업 트리" : "Work tree",
 			};
 			const openSheet = async (id: keyof typeof sheets) => {
-				const search = page.getByRole("dialog").getByRole("searchbox");
+				const search = page.getByRole("dialog").getByRole("combobox");
 				await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 				await search.fill(sheets[id]);
 				await page

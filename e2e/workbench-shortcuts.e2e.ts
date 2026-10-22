@@ -177,7 +177,7 @@ for (const [language, theme] of variants([
 				await expect(picker).toBeHidden();
 				await pressShortcutUntilVisible(page, QUICK_OPEN, quickOpen);
 				// Reopened ⌘P starts empty: typing lands on a fresh query, not "gamma".
-				const field = quickOpen.getByRole("searchbox");
+				const field = quickOpen.getByRole("combobox");
 				await expect(field).toHaveValue("");
 				await expect(field).toBeFocused();
 				await page.keyboard.type("alpha");

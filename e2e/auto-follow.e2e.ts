@@ -291,7 +291,7 @@ test("viewport resizes from the dock and composer never stop a pinned transcript
 		await expect(input).toBeVisible({ timeout: 60_000 });
 		// The dock's todo card is what resizes the viewport here. Beside the work board or its status strip only its
 		// collapsed peek steps aside (they say the plan instead); Edit todos opens it to edit, the board or not.
-		const search = page.getByRole("dialog").getByRole("searchbox");
+		const search = page.getByRole("dialog").getByRole("combobox");
 		const editTodos = async () => {
 			await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 			await search.fill("todo");

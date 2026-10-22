@@ -235,7 +235,10 @@ export function SessionPickerDialog() {
 					<div className="min-w-0 flex-1">
 						<SearchField
 							aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+							aria-autocomplete="list"
 							aria-controls={listboxId}
+							aria-expanded
+							role="combobox"
 							controlSize="lg"
 							label={t("sessionPicker.searchLabel")}
 							onKeyDown={onKeyDown}

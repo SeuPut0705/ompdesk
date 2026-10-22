@@ -86,7 +86,7 @@ test("@smoke isolated Preview loads a local HTTP page without shell privileges",
 		});
 		expect(security).toEqual({ title: "Local preview fixture", node: "undefined", ipc: "undefined" });
 		expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused())).toBe(false);
-		const palette = page.getByRole("dialog").getByRole("searchbox");
+		const palette = page.getByRole("dialog").getByRole("combobox");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+k", palette);
 		await palette.fill("Background tasks");
 		await page

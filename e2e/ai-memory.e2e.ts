@@ -144,7 +144,7 @@ test("ai-memory loads through an app-owned root, shows one memory section, and i
 		});
 
 		await test.step("Settings › Memory shows the server's data: counts, pages, handoffs", async () => {
-			const search = page.getByRole("dialog").getByRole("searchbox");
+			const search = page.getByRole("dialog").getByRole("combobox");
 			await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 			await search.fill("memory");
 			await page

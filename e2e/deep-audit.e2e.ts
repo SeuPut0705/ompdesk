@@ -810,7 +810,7 @@ test("deep GUI audit: settings pages and command discoverability", async () => {
 		await page.locator('aside button[data-command-center-entry="true"]').first().click();
 		const palette = page.getByRole("dialog");
 		await expect(palette).toBeVisible();
-		const search = palette.getByRole("searchbox").first();
+		const search = palette.getByRole("combobox").first();
 		const available = await page.evaluate(async () => window.omp.rpc.getAvailableCommands());
 		if (available.success) {
 			const commandEntries =
@@ -863,7 +863,7 @@ test("deep GUI audit: settings pages and command discoverability", async () => {
 				await button.click();
 				const nestedRows = palette.locator("button[data-palette-index]");
 				expect(await nestedRows.count(), `${name} did not render nested command rows`).toBeGreaterThan(0);
-				await expect(palette.getByRole("searchbox").first()).toBeVisible();
+				await expect(palette.getByRole("combobox").first()).toBeVisible();
 				evidence.commands.nestedSurfaces.push({
 					name,
 					status: "opened",
@@ -896,7 +896,7 @@ test("deep GUI audit: settings pages and command discoverability", async () => {
 			// Entering a submenu unmounts the clicked row and refocuses the search input
 			// on the next animation frame, which a headless (occluded) window can defer;
 			// a page-level Escape in that gap lands on <body> and never reaches the palette.
-			await palette.getByRole("searchbox").first().press("Escape");
+			await palette.getByRole("combobox").first().press("Escape");
 			await expect(palette.locator('button[data-command-kind="submenu"]')).toHaveCount(submenuCount);
 		}
 		await page.keyboard.press("Escape");

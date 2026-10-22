@@ -12,7 +12,7 @@ import { type Launched, launch, makeRig, phaseIs } from "./fixture/ai-memory-rig
 import { exitApp, pressShortcutUntilVisible } from "./harness";
 
 async function openMemory(page: Page) {
-	const search = page.getByRole("dialog").getByRole("searchbox");
+	const search = page.getByRole("dialog").getByRole("combobox");
 	await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 	await search.fill("memory");
 	// Once opened, the command also heads the palette's Recent group: either row opens the page.

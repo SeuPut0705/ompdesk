@@ -48,7 +48,7 @@ for (const theme of variants(["light", "dark"] as const)) {
 			await pressShortcutUntilVisible(page, "ControlOrMeta+j", aside);
 			await expect(aside.locator(".omp-panel-topbar button")).toHaveCount(5);
 			const openSheet = async (id: string, title: string) => {
-				const search = page.getByRole("dialog").getByRole("searchbox");
+				const search = page.getByRole("dialog").getByRole("combobox");
 				await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
 				await search.fill(title);
 				await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: title }).first().click();
