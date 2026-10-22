@@ -13,9 +13,10 @@
  *    (every test file that imports a changed file, directly or transitively).
  * 2. Then, unless `--no-e2e` or nothing matches: `bun run build` (reused when
  *    out/ matches) and the Playwright specs that touch what changed: a changed
- *    spec, or a spec whose file name or text mentions a changed source file's
- *    name (`layout/work-board/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`). That is a
- *    name match, not a dependency graph; the release gate (`bun run gate`)
+ *    spec, a spec whose file name or text mentions a changed source file's
+ *    name (`layout/work-board/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`), or a
+ *    spec that uses the English text a changed component shows ("Search themes…";
+ *    `scripts/changed-specs.ts`). That is a name match, not a dependency graph; the release gate (`bun run gate`)
  *    still runs every spec. A browser of Playwright's own (`chromium`,
  *    `webkit`) a picked spec imports but that is not installed gets one
  *    warning line, before the specs and again after a failed run.
@@ -28,7 +29,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { en } from "../src/renderer/locales/en";
 import { acquireLock, describeExit, type RunResult, run, runLocked } from "./build-lock";
+import { specsFor } from "./changed-specs";
 import { browsersNeeded, missingBrowsers, missingBrowsersNotice } from "./e2e-browsers";
 
 const args = process.argv.slice(2);
@@ -47,47 +50,17 @@ const changed = [
 
 const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
 const BIOME_DIRS = /^(?:src|e2e|resources|scripts)\//;
-const isTest = (file: string) => /\.(?:test|spec|bench)\.[cm]?[jt]sx?$/.test(file);
-
-/**
- * Words a source file answers to in a spec: `layout/work-board/WorkBoard.tsx` → work-board,
- * workboard; `auto-title-core.ts` → auto-title-core and auto-title.
- */
-function names(file: string): string[] {
-	const stem = path.basename(file).replace(/(?:\.(?:test|spec))?\.[^.]+$/, "");
-	const kebab = stem
-		.replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-		.replace(/_/g, "-")
-		.toLowerCase();
-	const bare = kebab.replace(/-(?:core|engine|contracts|service|store|stock|runner|utils|types)$/, "");
-	return [...new Set([kebab, bare, bare.replace(/-/g, ""), stem])].filter(
-		name => name.length >= 6 && name !== "index",
-	);
-}
-
-function specsFor(files: string[]): string[] {
-	const specs = readdirSync("e2e").filter(name => name.endsWith(".e2e.ts"));
-	const picked = new Set<string>();
-	const sources: string[] = [];
-	for (const file of files) {
-		if (file.startsWith("e2e/") && file.endsWith(".e2e.ts")) picked.add(path.basename(file));
-		else if (/^(?:src|resources)\//.test(file) && !isTest(file)) sources.push(file);
-	}
-	const texts = new Map(specs.map(spec => [spec, readFileSync(path.join("e2e", spec), "utf8")]));
-	for (const file of sources) {
-		for (const name of names(file)) {
-			for (const spec of specs) {
-				// A plain lowercase word ("window", "changes") is in every spec's text; only a
-				// hyphenated or camel-case name is distinctive enough to match the text.
-				const inText = /[-A-Z]/.test(name) && texts.get(spec)?.includes(name);
-				if (spec.includes(name) || inText) picked.add(spec);
-			}
-		}
-	}
-	return [...picked].sort().map(spec => `e2e/${spec}`);
-}
-
-const specs = flag("--no-e2e") ? [] : specsFor(changed);
+const specs = flag("--no-e2e")
+	? []
+	: specsFor(changed, {
+			specs: new Map(
+				readdirSync("e2e")
+					.filter(name => name.endsWith(".e2e.ts"))
+					.map(spec => [spec, readFileSync(path.join("e2e", spec), "utf8")]),
+			),
+			read: file => readFileSync(file, "utf8"),
+			strings: en,
+		});
 const supportChanged = changed.some(file => /^e2e\/(?!.*\.e2e\.ts$)/.test(file));
 
 if (flag("--list")) {

@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import { phrases, specsFor } from "./changed-specs";
+
+const strings = {
+	"themePicker.search": "Search themes…",
+	"themePicker.empty": "No themes match.",
+	"common.cancel": "Cancel",
+	"queue.moved": "Moved to the end of {lane} for now",
+};
+
+const picker = 'const x = t("themePicker.search"); const y = t("common.cancel"); t("themePicker.empty");';
+
+describe("specsFor", () => {
+	const specs = new Map([
+		["desktop.e2e.ts", 'await picker.getByPlaceholder("Search themes…").fill(label);'],
+		["smoke.e2e.ts", 'await page.getByRole("button", { name: "Cancel" }).click();'],
+		["theme-picker-dialog.e2e.ts", "// named after it"],
+	]);
+	const sources = { specs, read: () => picker, strings };
+
+	it("picks a spec that drives a changed component through the text it shows", () => {
+		expect(specsFor(["src/renderer/components/dialogs/ThemePickerDialog.tsx"], sources)).toEqual([
+			"e2e/desktop.e2e.ts",
+			"e2e/theme-picker-dialog.e2e.ts",
+		]);
+	});
+
+	it("reads no text for a file outside the renderer", () => {
+		expect(specsFor(["src/main/theme.ts"], { ...sources, read: () => picker })).toEqual([]);
+	});
+
+	it("keeps a changed spec and skips tests", () => {
+		expect(
+			specsFor(["e2e/smoke.e2e.ts", "src/renderer/components/dialogs/ThemePickerDialog.test.tsx"], sources),
+		).toEqual(["e2e/smoke.e2e.ts"]);
+	});
+});
+
+describe("phrases", () => {
+	it("takes only distinctive text, split at placeholders", () => {
+		expect(phrases(`${picker} t("queue.moved")`, strings).sort()).toEqual([
+			"Moved to the end of",
+			"No themes match.",
+			"Search themes…",
+		]);
+	});
+});
