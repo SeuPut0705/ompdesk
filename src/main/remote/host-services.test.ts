@@ -3326,6 +3326,55 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 			status(32),
 		]);
 	});
+
+	it("goes as a delta of the copy the device kept when it comes back on a new connection, whole when it reads another way", async () => {
+		const { services } = setup();
+		const slim = {
+			events: true,
+			progress: true,
+			autopilot: true,
+			ends: false,
+			readGroups: false,
+			toolResults: false,
+			endFields: false,
+			autopilotReads: true,
+			listReads: false,
+			shiftedReads: false,
+			settingsReads: false,
+			rosterReads: false,
+			toolOutputs: false,
+		};
+		let cycles = 30;
+		services.attachAutopilot(async (_target, command) => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: status(cycles++),
+		}));
+		const ask = async (conn: FakeConnection) => {
+			await services.call(conn.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, conn);
+			const answer = (await services.call(
+				conn.peer,
+				"tab.command",
+				{ rtab: "t1", command: { type: "get_autopilot" } },
+				conn,
+			)) as RpcResponse;
+			return JSON.parse(JSON.stringify(answer)) as RpcResponse;
+		};
+		const decode = createReadDecoder();
+		const first = await ask(Object.assign(new FakeConnection(peer("device-x")), { slim }));
+		const again = await ask(Object.assign(new FakeConnection(peer("device-x")), { slim }));
+		expect(JSON.stringify(again).length * 10).toBeLessThan(JSON.stringify(first).length);
+		expect([first, again].map(answer => decode(answer.success ? answer.data : null))).toEqual([
+			status(30),
+			status(31),
+		]);
+		const other = await ask(
+			Object.assign(new FakeConnection(peer("device-x")), { slim: { ...slim, rosterReads: true } }),
+		);
+		expect(decode(other.success ? other.data : null)).toEqual(status(32));
+		expect(JSON.stringify(other).length).toBeGreaterThan(JSON.stringify(first).length - 100);
+	});
 });
 
 describe("LocalHostServices the reads a device repeats on every hydration", () => {

@@ -340,8 +340,8 @@ const EncodedRead = z.union([
  * `slimRosterReads`).
  */
 export function createReadEncoder(shifts = false, fields = false): (status: unknown, fresh: boolean) => unknown {
-	// Unique to this encoder: a device keeps its copies across a reconnect, and the next connection's encoder must
-	// never name one of them.
+	// Unique to this encoder: a device keeps its copies across a reconnect, and a new encoder (a host that restarted,
+	// a device that reads another way) must never name one of them.
 	const epoch = randomUUID();
 	let next = 0;
 	let last: { id: string; status: object } | null = null;

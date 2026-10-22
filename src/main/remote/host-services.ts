@@ -300,8 +300,13 @@ interface HostTab extends RunTracking {
 	answered: Map<string, "device" | "host">;
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
 	linkEvents?: { conn: HostConnection; sender: LinkEventSender };
-	/** Answers to a device that reads them as deltas (`encodedReadKey`): one encoder per read and connection. */
-	reads?: { conn: HostConnection; encoders: Map<string, (status: unknown, fresh: boolean) => unknown> };
+	/**
+	 * Answers to a device that reads them as deltas (`encodedReadKey`): one encoder per read, kept across the device's
+	 * reconnects while it reads the same way (`slim`, as JSON). Its first read after a drop is then a delta of the copy
+	 * it kept, not the whole status again (about 1 MB of settings, Autopilot and transcript reads a reconnect, 25 a day
+	 * on a link on 22 Oct 2026); a device that lost the copy asks `fresh`.
+	 */
+	reads?: { slim: string; encoders: Map<string, (status: unknown, fresh: boolean) => unknown> };
 	/** The last `commandsUpdate` list a connection got (JSON): stock repeats an unchanged list, which goes no further. */
 	sentCommands?: { conn: HostConnection; json: string };
 	/** The session's id and name as its omp last reported them (this computer's sidebar row). */
@@ -1778,7 +1783,8 @@ export class LocalHostServices implements HostServices {
 	): RpcResponse {
 		const { conn } = tab;
 		if (!conn?.slim?.[read.needs] || !response.success) return response;
-		if (tab.reads?.conn !== conn) tab.reads = { conn, encoders: new Map() };
+		const slim = JSON.stringify(conn.slim);
+		if (tab.reads?.slim !== slim) tab.reads = { slim, encoders: new Map() };
 		let encode = tab.reads.encoders.get(read.key);
 		if (!encode) {
 			encode = createReadEncoder(conn.slim.shiftedReads, read.needs === "rosterReads");
