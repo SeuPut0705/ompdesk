@@ -16,7 +16,8 @@
  *    spec, a spec whose file name or text mentions a changed source file's
  *    name (`layout/work-board/WorkBoard.tsx` finds `e2e/work-board.e2e.ts`), or a
  *    spec that uses the English text a changed component shows ("Search themes…";
- *    `scripts/changed-specs.ts`). That is a name match, not a dependency graph; the release gate (`bun run gate`)
+ *    `scripts/changed-specs.ts`), and for a stylesheet the components using the classes of
+ *    the rules it touched. That is a name match, not a dependency graph; the release gate (`bun run gate`)
  *    still runs every spec. A browser of Playwright's own (`chromium`,
  *    `webkit`) a picked spec imports but that is not installed gets one
  *    warning line, before the specs and again after a failed run.
@@ -48,6 +49,31 @@ const changed = [
 	.filter(file => /^(?:src|e2e|resources|scripts)\//.test(file) && existsSync(file))
 	.sort();
 
+/** A file's changed lines against `base` in the new file (1-based); an untracked file is changed throughout. */
+function changedLines(file: string): number[] {
+	const hunks = git("diff", "-U0", base, "--", file).filter(line => line.startsWith("@@"));
+	if (hunks.length === 0)
+		return readFileSync(file, "utf8")
+			.split("\n")
+			.map((_, index) => index + 1);
+	return hunks.flatMap(hunk => {
+		const [, from, count] = /\+(\d+)(?:,(\d+))?/.exec(hunk) ?? [];
+		const start = Number(from);
+		const length = count === undefined ? 1 : Number(count);
+		// A deletion (`+N,0`) sits between line N and N+1: both may close or open the rule it touched.
+		return length === 0 ? [start, start + 1] : Array.from({ length }, (_, index) => start + index);
+	});
+}
+
+/** The renderer's source files whose text names a class (`git grep`, tracked files). */
+function rendererSourcesNaming(className: string): string[] {
+	try {
+		return git("grep", "-l", "-F", className, "--", "src/renderer/*.ts", "src/renderer/*.tsx");
+	} catch {
+		return [];
+	}
+}
+
 const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
 const BIOME_DIRS = /^(?:src|e2e|resources|scripts)\//;
 const specs = flag("--no-e2e")
@@ -60,6 +86,8 @@ const specs = flag("--no-e2e")
 			),
 			read: file => readFileSync(file, "utf8"),
 			strings: en,
+			changedLines: file => changedLines(file),
+			usersOf: className => rendererSourcesNaming(className),
 		});
 const supportChanged = changed.some(file => /^e2e\/(?!.*\.e2e\.ts$)/.test(file));
 

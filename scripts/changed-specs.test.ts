@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phrases, specsFor } from "./changed-specs";
+import { phrases, specsFor, touchedClasses } from "./changed-specs";
 
 const strings = {
 	"themePicker.search": "Search themes…",
@@ -43,5 +43,45 @@ describe("phrases", () => {
 			"No themes match.",
 			"Search themes…",
 		]);
+	});
+});
+
+describe("a stylesheet change", () => {
+	const css = [
+		"/* .omp-not-a-rule { } */",
+		".omp-composer-chip[data-active],",
+		".omp-composer-chip[data-active]:hover {",
+		"\tbackground: var(--sc-accent-soft);",
+		"\tcolor: var(--sc-accent-on-soft);",
+		"}",
+		"",
+		".omp-row { padding: 0; }",
+	].join("\n");
+
+	it("names the classes of the rules its changed lines touch", () => {
+		expect(touchedClasses(css, [5])).toEqual(["omp-composer-chip"]);
+		expect(touchedClasses(css, [8])).toEqual(["omp-row"]);
+		expect(touchedClasses(css, [1, 7])).toEqual([]);
+	});
+
+	it("picks the specs of the components using a touched class, and none for shared styling", () => {
+		const specs = new Map([
+			["composer-toolbar.e2e.ts", "// the Run chip"],
+			["smoke.e2e.ts", "nothing"],
+		]);
+		const read = (file: string) => (file.endsWith(".css") ? css : "");
+		const users: Record<string, string[]> = {
+			"omp-composer-chip": ["src/renderer/components/layout/composer/ComposerToolbar.tsx"],
+			"omp-row": Array.from({ length: 12 }, (_, index) => `src/renderer/components/Row${index}.tsx`),
+		};
+		const sources = {
+			specs,
+			read,
+			strings,
+			changedLines: () => [5],
+			usersOf: (name: string) => users[name] ?? [],
+		};
+		expect(specsFor(["src/renderer/styles/components.css"], sources)).toEqual(["e2e/composer-toolbar.e2e.ts"]);
+		expect(specsFor(["src/renderer/styles/components.css"], { ...sources, changedLines: () => [8] })).toEqual([]);
 	});
 });
