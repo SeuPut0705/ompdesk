@@ -405,9 +405,15 @@ function AskDialog({
 	// "cancelled by the user" and aborts the whole turn: Submit waits for an answer.
 	const submitBlocked = last && total === 1 && !multi && !isAnswered(0);
 
-	// Each step opens on its first option, so 1–9 and ↑/↓ work right away.
+	// Each step opens on its first option, so 1–9 and ↑/↓ work right away; a step the arrows picked on the step
+	// strip keeps focus there, so the next arrow moves on.
+	const stepFromStrip = useRef(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a step change moves focus.
 	useEffect(() => {
+		if (stepFromStrip.current) {
+			stepFromStrip.current = false;
+			return;
+		}
 		if (tabId && useTabsStore.getState().activeTabId !== tabId) return;
 		bodyRef.current?.querySelector<HTMLElement>("[data-choice]")?.focus();
 	}, [step, tabId]);
@@ -517,6 +523,7 @@ function AskDialog({
 							const next = rovingIndex(event.key, step, questions.length);
 							if (next === null) return;
 							event.preventDefault();
+							stepFromStrip.current = next !== step;
 							setStep(next);
 							event.currentTarget.querySelectorAll<HTMLElement>("[role=tab]")[next]?.focus();
 						}}

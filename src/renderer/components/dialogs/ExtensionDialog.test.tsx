@@ -302,9 +302,19 @@ describe("ExtensionDialog ask", () => {
 				(chips()[0] as unknown as TestElement).dispatchEvent(event);
 			});
 		};
+		const focused: unknown[] = [];
+		const focus = vi
+			.spyOn(HTMLElement.prototype as unknown as { focus(): void }, "focus")
+			.mockImplementation(function (this: unknown) {
+				focused.push(this);
+			});
 		await arrow("ArrowRight");
+		await flush();
 		expect(card().textContent).toContain("Run the tests first?");
 		expect(chips().map(chip => chip.getAttribute("tabindex"))).toEqual(["-1", "0"]);
+		// Focus ends on the step the arrow picked, not on the new question's first option.
+		expect(focused.at(-1)).toBe(chips()[1]);
+		focus.mockRestore();
 		await arrow("Home");
 		expect(card().textContent).toContain("Where should this deploy?");
 
