@@ -686,6 +686,12 @@ html[data-shell="phone"] [role="tablist"]::-webkit-scrollbar {
 	display: none;
 }
 
+/* That scroller clips anything outside its box, the focus ring of a tab at its edges included (only a sliver of the
+   first tab's ring showed in the Run sheet): a tab's ring is drawn inside it here. */
+html[data-shell="phone"] [role="tablist"] > [role="tab"]:focus-visible {
+	outline-offset: calc(-1 * var(--sc-focus-width));
+}
+
 /* The model picker's rows (the sheet itself is full height through the dialog size rule above). */
 html[data-shell="phone"] [data-model-option] {
 	min-height: 44px;

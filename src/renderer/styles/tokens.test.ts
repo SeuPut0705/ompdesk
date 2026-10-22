@@ -272,4 +272,11 @@ describe("focus ring utilities", () => {
 		walk(join(dir, ".."));
 		expect(offenders).toEqual([]);
 	});
+
+	it("draws a phone tab's ring inside it, where the sideways tab scroller clips anything outside", () => {
+		const css = readFileSync(join(dir, "mobile.css"), "utf8");
+		expect(css).toMatch(
+			/html\[data-shell="phone"\] \[role="tablist"\] > \[role="tab"\]:focus-visible \{\s*outline-offset: calc\(-1 \* var\(--sc-focus-width\)\);/,
+		);
+	});
 });
