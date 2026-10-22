@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import type { AutopilotShipActionParams, ShipQueueItem } from "../../resources/gui-bridge/modes/autopilot-contracts";
+import { checkLandCandidate, type LandCheckInput } from "./autopilot-land-check";
 import { type ShipDeps, ShipRunner, type ShipTarget } from "./autopilot-ship";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
 
@@ -76,4 +77,35 @@ export function installShipRig(): void {
 	afterEach(async () => {
 		await fs.rm(tmp, { recursive: true, force: true });
 	});
+}
+
+// Landing on the default branch (autopilot-ship-land*.test.ts).
+const landTarget = () => target({ landTo: "main" });
+export const land = async (ship: ShipRunner, sha?: string, check?: string) => {
+	ship.enqueue({ kind: "land", ...(sha ? { sha } : {}), ...(check ? { check } : {}) });
+	const [result] = await ship.drain(landTarget());
+	return result;
+};
+export const worktrees = () => gitSync(main, "worktree", "list", "--porcelain").match(/^worktree /gm)?.length;
+export const parents = (sha: string) => gitSync(remote, "rev-list", "--parents", "-n", "1", sha).split(" ").slice(1);
+export const contains = (ancestor: string, tip: string) =>
+	gitSync(remote, "merge-base", "--is-ancestor", ancestor, tip) === "";
+/** The real temporary-checkout check, recording which commits it ran on; `after` runs once each check ended. */
+export function checking(after?: (input: LandCheckInput, n: number) => Promise<void>) {
+	const checked: string[] = [];
+	const checkCandidate = async (input: LandCheckInput) => {
+		const result = await checkLandCandidate(input);
+		checked.push(input.sha);
+		await after?.(input, checked.length);
+		return result;
+	};
+	return { checked, checkCandidate };
+}
+/** Someone else's commit on the remote's default branch, made from the user's checkout. */
+export async function landElsewhere(file: string, text: string): Promise<string> {
+	await fs.writeFile(path.join(main, file), text);
+	gitSync(main, "add", file);
+	gitSync(main, "commit", "-q", "-m", `elsewhere ${file}`);
+	gitSync(main, "push", "-q", "origin", "main");
+	return gitSync(main, "rev-parse", "HEAD");
 }
