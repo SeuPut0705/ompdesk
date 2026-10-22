@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.8] - 2026-10-23
+
+Autopilot을 일시정지하면 확실히 멈춰요.
+
+### 고친 것
+- Autopilot 사이클이 끝나고 결과를 올리는 중에 누른 일시정지가 그 올리기 기록에 덮여, 실행이 다시 '실행 중'이 되고 다음 사이클이 시작됐어요. 이제 일시정지가 그대로 남아요.
+- 첫 실행과 설정의 프로바이더 고르기에서 '주요 프로바이더' 제목이 검색칸에 붙어 있었어요. '다른 프로바이더'와 같은 간격을 둬요.
+- 설정 › 모델 역할의 상태 줄이 사용량 막대를 문단 안에 담고 있던 잘못된 마크업을 고쳤어요.
+
+<!-- en -->
+
+Pausing Autopilot now always pauses it.
+
+### Fixed
+- A Pause given while an Autopilot cycle's result was being pushed was overwritten by that push's record: the run went back to running and started the next cycle. The pause now stays.
+- In the provider picker of first run and Settings, the Popular providers heading sat against the search field. It has the same space as Other providers.
+- A model role's status line in Settings › Model roles held its usage bar inside a paragraph, which is invalid markup.
+
 ## [0.61.7] - 2026-10-23
 
 연결한 컴퓨터의 탭에서 도구가 출력을 쏟아낼 때 주고받는 양이 크게 줄었어요.
