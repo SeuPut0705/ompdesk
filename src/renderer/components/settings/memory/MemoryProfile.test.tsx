@@ -31,6 +31,8 @@ describe("Memory › Profile", () => {
 		await mount(<MemoryProfile />);
 		expect(text("[data-memory-profile-status]")).toContain("Used in every session");
 		expect(text('[data-memory-profile-group="tools"]')).toContain("Use pnpm.");
+		// Under the Memory page's h2 a group is an h3: a skipped level broke heading navigation (axe heading-order).
+		expect(document.querySelector('[data-memory-profile-group="tools"] > h3')?.textContent).toBe("tools");
 		expect(text('[data-memory-profile-group="tools"]')).toContain("javascript");
 		await click(button("Edit"));
 		expect(useMemoryPageStore.getState().pending).toEqual({

@@ -46,9 +46,9 @@ export function MemoryProfile() {
 			)}
 			{groups.map(([category, entries]) => (
 				<section data-memory-profile-group={category} key={category}>
-					<h4 className="px-1 pt-3 pb-1 text-sc-xs font-semibold text-(--sc-text-muted) uppercase">
+					<h3 className="px-1 pt-3 pb-1 text-sc-xs font-semibold text-(--sc-text-muted) uppercase">
 						{category || t("memory.profile.general")}
-					</h4>
+					</h3>
 					{entries.map(entry => (
 						<div
 							className="flex min-w-0 items-center gap-2 border-b border-(--sc-divider) px-1 py-1.5 text-sc-sm"

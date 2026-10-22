@@ -467,6 +467,17 @@ describe("MobileWebSection ready", () => {
 		await mount();
 		expect(document.body.querySelector("#settings-mobile-web-confirm")).toBeNull();
 	});
+
+	it("leaves the allowed accounts and blocked devices to OMPdesk sharing while sharing is on, so each list shows once", async () => {
+		fake.set(readyMobileWebState());
+		fake.setBlocked([blockedDevice()]);
+		await mount();
+		expect(document.body.querySelector("[data-mobile-web-users]")).not.toBeNull();
+		expect(document.body.querySelector("[data-mobile-web-blocked]")).not.toBeNull();
+		await act(async () => useRemoteStore.setState({ state: { host: { enabled: true } } as RemoteState }));
+		expect(document.body.querySelector("[data-mobile-web-users]")).toBeNull();
+		expect(document.body.querySelector("[data-mobile-web-blocked]")).toBeNull();
+	});
 });
 
 describe("QR code", () => {

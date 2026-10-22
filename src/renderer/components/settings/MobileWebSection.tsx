@@ -87,8 +87,10 @@ function MobileWebHostSection() {
 			</SettingsSection>
 			{state.enabled && state.phase === "ready" && state.url && <MobileWebConnect state={state} url={state.url} />}
 			{(state.enabled || (devices?.length ?? 0) > 0) && <MobileWebDevices devices={devices ?? []} />}
-			{(blocked?.length ?? 0) > 0 && <MobileWebBlocked blocked={blocked ?? []} />}
-			{state.enabled && <MobileWebAllowedUsers state={state} />}
+			{/* Allowed accounts and blocked devices are one list for phones and computers: while sharing is on they show in
+			    its section (RemoteSection), once on the page. */}
+			{!sharing && (blocked?.length ?? 0) > 0 && <MobileWebBlocked blocked={blocked ?? []} />}
+			{!sharing && state.enabled && <MobileWebAllowedUsers state={state} />}
 		</div>
 	);
 }
