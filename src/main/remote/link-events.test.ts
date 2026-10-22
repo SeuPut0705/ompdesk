@@ -951,3 +951,21 @@ describe("a running tool's repetitive output", () => {
 		expect(delivered.flat()).toEqual(overTheWire(events));
 	});
 });
+
+describe("a running tool's output that got shorter", () => {
+	it("reaches the device as sent, never with the earlier text's tail glued on", () => {
+		const update = (text: string) =>
+			({
+				type: "tool_execution_update",
+				toolCallId: "short",
+				toolName: "bash",
+				args: {},
+				partialResult: { content: [{ type: "text", text }], details: {} },
+			}) as unknown as AgentSessionEvent;
+		const encoder = createLinkEventEncoder({ toolOutputs: true });
+		const decoder = createLinkEventDecoder();
+		const events = [update(`x${"a".repeat(64)}TAIL`), update("a".repeat(64))];
+		const delivered = events.map(event => decoder.events(overTheWire(encoder.events([event]))));
+		expect(delivered.flat()).toEqual(overTheWire(events));
+	});
+});

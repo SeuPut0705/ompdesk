@@ -759,7 +759,9 @@ function continuationOf(before: string, after: string): number {
 	if (probe === "") return -1;
 	let at = before.indexOf(probe, 1);
 	for (let tries = 0; at !== -1 && tries < CONTINUATION_TRIES; tries++) {
-		if (before.startsWith(after.slice(0, before.length - at), at)) return at;
+		// The kept part of `before` must fit inside `after`: a shorter `after` that matches only its start is no continuation.
+		const kept = before.length - at;
+		if (kept <= after.length && before.startsWith(after.slice(0, kept), at)) return at;
 		at = before.indexOf(probe, at + 1);
 	}
 	return -1;
