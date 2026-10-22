@@ -269,7 +269,7 @@ describe("BashRenderer", () => {
 			await act(async () => link.dispatchEvent(new Event("click", { bubbles: true })));
 			expect(opened).toEqual(["http://localhost:5173/"]);
 		} finally {
-			useUiStore.setState({ openPreview });
+			await act(async () => useUiStore.setState({ openPreview }));
 		}
 	});
 });
