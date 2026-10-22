@@ -1,7 +1,7 @@
 /**
  * Popover — a small, non-modal panel anchored to the control that opened it.
  *
- * Container policy (design-spec.md): use a Popover for quick, contextual
+ * Container policy (components/common/README.md): use a Popover for quick, contextual
  * controls that keep the page visible — run settings next to the composer,
  * session status from the title bar, a filter, a colour or emoji choice.
  * Content must fit without scrolling a long way; anything bigger is a Sheet

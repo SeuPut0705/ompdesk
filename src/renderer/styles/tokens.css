@@ -6,7 +6,7 @@
  * derived color washes (computed from the active palette with color-mix, so
  * named themes and plugin overlays retint them for free); and the --omp-*
  * compatibility aliases that keep unmigrated surfaces painting from the new
- * palette. Usage rules: design-spec.md (Tokens) and the style guide
+ * palette. Usage rules: components/common/README.md and the style guide
  * (OMP_GUI_STYLEGUIDE=1).
  *
  * Tailwind: write tokens as `bg-(--sc-surface-2)`, `text-(--sc-text-muted)`,

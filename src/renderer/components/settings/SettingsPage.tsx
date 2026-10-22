@@ -1,5 +1,5 @@
 /**
- * Settings — a destination page in the main area (design-spec §2, §3). A
+ * Settings — a destination page in the main area. A
  * flat left sub-nav (always fully visible), one search field, and the
  * selected section. Curated sections come first in plain language; the full
  * agent schema stays reachable under Advanced. The shell owns Esc/back.

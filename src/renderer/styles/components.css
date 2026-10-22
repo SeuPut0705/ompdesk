@@ -605,7 +605,7 @@
 	--omp-column-workspace: 104rem;
 }
 
-/* Transcript + composer: a ~72ch reading column (design-spec §8), narrower
+/* Transcript + composer: a ~72ch reading column, narrower
    than the settings/management canvas. */
 .omp-workspace-main {
 	--omp-column-reading: 48rem;
@@ -3094,8 +3094,7 @@ button.omp-file-chip-name:hover {
 	padding-inline: 0 var(--omp-scrollbar-size);
 }
 
-/* ⌃G: the composer expands in place over its session pane (design-spec §2.2
-   "Composer expands in place to the full main area"); the same field keeps
+/* ⌃G: the composer expands in place over its session pane; the same field keeps
    completion, history and paste behavior. */
 .omp-composer-region--expanded {
 	position: absolute;

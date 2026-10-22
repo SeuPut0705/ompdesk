@@ -30,10 +30,15 @@
  *
  * Locale (renderer .ts/.tsx, tests excluded): a number or date is formatted with `uiLocale()`, never the OS locale
  * (`toLocaleString()` with no locale; see scripts/lint-locale.mjs); an exception carries `locale-ok: <reason>`.
+ *
+ * Controls (renderer .tsx outside components/common, tests excluded): no new raw `<button>`, raw checkbox or radio, or
+ * hand-made `role="dialog"`; the shared components are catalogued in components/common/README.md (see
+ * scripts/lint-controls.mjs and its per-file baseline); an exception carries `controls-ok: <reason>`.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compareToBaseline, readBaseline, scanRenderer } from "./lint-controls.mjs";
 import { findImeViolations } from "./lint-ime.mjs";
 import { findLocaleViolations } from "./lint-locale.mjs";
 import { findUnhandledCalls } from "./lint-unhandled.mjs";
@@ -113,6 +118,8 @@ for (const name of readdirSync(STYLES)) {
 		}
 	});
 }
+
+violations.push(...compareToBaseline(scanRenderer(), readBaseline()));
 
 if (violations.length > 0) {
 	console.error(`surface policy: ${violations.length} violation(s)`);

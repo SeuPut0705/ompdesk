@@ -1,6 +1,6 @@
 /**
  * PageLayout — the frame of a destination page in the main area (Agents,
- * Insights; design-spec §2.1/§3): page header (title, one-line description,
+ * Insights): page header (title, one-line description,
  * page actions), optional Tabs row, then the body. Gutters follow the spec
  * (24px, 40px from 1280px window width).
  *

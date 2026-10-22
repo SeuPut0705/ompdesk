@@ -1,5 +1,5 @@
 /**
- * App shell (design-spec §2.1, §8):
+ * App shell:
  *
  *   Sidebar | main area | Side panel
  *

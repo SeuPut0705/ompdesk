@@ -105,7 +105,7 @@ export function InputArea() {
 	useEffect(() => {
 		if (!isStreaming) setMode("prompt");
 	}, [isStreaming]);
-	/** ⌃G: the composer expands in place to fill the session pane (design-spec §2.2). */
+	/** ⌃G: the composer expands in place to fill the session pane. */
 	const [expanded, setExpanded] = useState(false);
 	const { textareaRef, ownEdit, placeDraft, continueListAtCaret, insertAtCaret, fieldNarrow } = useComposerField({
 		text,

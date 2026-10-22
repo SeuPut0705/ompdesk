@@ -1,7 +1,7 @@
 /**
  * Sheet — a modal panel that slides in from a window edge over a scrim.
  *
- * Container policy (design-spec.md): use a Sheet for contextual detail that
+ * Container policy (components/common/README.md): use a Sheet for contextual detail that
  * needs more room than a popover but must not replace the page — the
  * inspector (changes, files, logs, queue, plan) when the window is too
  * narrow to dock it, a session's details, a filter panel. Same behavior as

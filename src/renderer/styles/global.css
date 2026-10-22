@@ -17,7 +17,7 @@
 	--animate-spin: spin var(--sc-motion-spin) linear infinite;
 
 	/* ompdesk type scale — `text-sc-*` sets size and its paired line-height.
-	   New and migrated surfaces use these steps; see design-spec.md. */
+	   New and migrated surfaces use these steps; see components/common/README.md. */
 	--text-sc-2xs: var(--sc-font-2xs);
 	--text-sc-2xs--line-height: var(--sc-leading-snug);
 	--text-sc-xs: var(--sc-font-xs);

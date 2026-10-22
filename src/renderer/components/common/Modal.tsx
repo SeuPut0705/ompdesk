@@ -2,7 +2,7 @@
  * Dialog (`Modal`) — a centered, modal layer. Backdrop click and Escape
  * close; focus is trapped while open and restored to the opener on close.
  *
- * Container policy (design-spec.md): dialogs are for SHORT, self-contained
+ * Container policy (components/common/README.md): dialogs are for SHORT, self-contained
  * tasks — confirm, rename, a small form (size sm/md) — and for pickers
  * (size "picker", placement "top": commands, model, session, branch,
  * theme). Destinations with navigation of their own (Settings, Insights,

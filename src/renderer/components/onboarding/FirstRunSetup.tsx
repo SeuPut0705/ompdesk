@@ -1,5 +1,5 @@
 /**
- * First-run setup, inline in the empty main area (design-spec §2.2): omp is
+ * First-run setup, inline in the empty main area: omp is
  * installed on this machine (main does it on its own; `SetupTakeover` shows it
  * full-window before this ever renders) → connect a provider (search, recommended first, sign-in or API
  * key inline, or a custom endpoint) → the default model is picked and saved on its own and setup ends,

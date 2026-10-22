@@ -6,7 +6,7 @@
  *    to the same color for every --omp-* key, and scTokensFor() mirrors the
  *    same --sc-* primitives — so picking "OMPdesk Light"/"OMPdesk Dark" by name looks
  *    exactly like following the OS.
- * 2. Contrast floors from design-spec.md: text ≥ 4.5:1 on every surface;
+ * 2. Contrast floors (lib/theme-contrast.ts): text ≥ 4.5:1 on every surface;
  *    interactive boundaries and the focus ring ≥ 3:1.
  */
 

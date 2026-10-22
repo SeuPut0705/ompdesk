@@ -1,5 +1,5 @@
 /**
- * Agents destination (design-spec §2.2): a full page in the main area with
+ * Agents destination: a full page in the main area with
  * four tabs — Live (the session's subagents), Definitions (enable, model and
  * prewalk overrides per agent), Pull requests and GitHub (issues, Actions,
  * releases, notifications, repositories). The active tab lives in the

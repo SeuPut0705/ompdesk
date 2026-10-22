@@ -1,6 +1,6 @@
 /**
  * Inline config for the Goal session mode, embedded in the
- * composer's mode Popover (design-spec §2.2: no Modes modal). The config is
+ * composer's mode Popover. The config is
  * self-contained: it loads its mode on mount through the mode RPCs
  * (get/set_goal), follows live sidecar
  * events (`goal_updated` → silent re-fetch) and renders compactly for a ~360px

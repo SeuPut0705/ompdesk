@@ -156,7 +156,7 @@ function ExecutionDurationRow() {
 }
 
 /**
- * Title bar of the session view (design-spec §2.3): sidebar toggle (when the
+ * Title bar of the session view: sidebar toggle (when the
  * sidebar is hidden) · project / session breadcrumb with inline rename ·
  * status as text · Session status popover · session menu · side panel toggle.
  * Model and run controls live beside the composer, where they affect the

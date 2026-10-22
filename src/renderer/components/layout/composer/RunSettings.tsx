@@ -1,5 +1,5 @@
 /**
- * The Run chip popover's run-behavior sections (design-spec §2.2 / §7 "실행 설정"): everything that tunes HOW the
+ * The Run chip popover's run-behavior sections: everything that tunes HOW the
  * next turns run — the speed switches (fast, slow, ultrafast) and the lower-frequency behavior toggles
  * (auto-compaction, context, auto-retry, prewalk, steering and interrupt policy) under "Advanced", both as switch tiles
  * two to a row (`SwitchTile`, one line each, the explanation behind an (i)), then Model roles.

@@ -41,7 +41,7 @@ function PanelViewSlot(props: PanelViewProps) {
 
 const MIN_WIDTH = 360;
 const MAX_WIDTH = 840;
-/** Docked default range (design-spec §8: 360–460px); dragging may widen it for diffs. */
+/** Docked default range; dragging may widen it for diffs. */
 const DEFAULT_MAX_WIDTH = 460;
 const PANEL_WIDTH_PREF = "gui.panelWidth";
 /** Share of the window an expanded file viewer takes (never narrower than the dragged width). */
@@ -189,7 +189,7 @@ function SidePanelViews({ actionRef }: { actionRef: (element: HTMLDivElement | n
 /**
  * Side panel: contextual session detail with primary views and secondary tools.
  * Docked (non-modal, resizable) at ≥ 1000px; below that it
- * is a right Sheet with a scrim (design-spec §3, §8). In a split view it
+ * is a right Sheet with a scrim. In a split view it
  * floats over the panes instead of squeezing both.
  */
 export function PanelContainer() {

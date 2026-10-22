@@ -12,7 +12,7 @@
  * Rows are colorless at rest; hover and selection are neutral washes.
  * `rowProps` / `buttonProps` pass extra attributes to the row and its
  * button — e.g. onContextMenu and a roving `tabIndex` for long lists (one
- * tab stop + arrow keys, design-spec §9.4).
+ * tab stop + arrow keys).
  */
 
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";

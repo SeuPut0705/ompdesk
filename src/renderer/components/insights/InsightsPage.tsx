@@ -1,5 +1,5 @@
 /**
- * Insights destination (design-spec §2.2): a full page in the main area.
+ * Insights destination: a full page in the main area.
  * - Stats, with an explicit scope switch: This session (session info +
  *   context window) · All sessions (the global omp stats across projects).
  * - Usage: provider quotas.

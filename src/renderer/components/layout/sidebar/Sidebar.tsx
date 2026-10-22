@@ -254,7 +254,7 @@ function rowMenuItems(items: readonly ContextMenuItem[]): ContextMenuItem[] {
 	];
 }
 
-/** Destinations in the sidebar footer (design-spec §2.1): the only three. */
+/** Destinations in the sidebar footer: the only three. */
 const DESTINATIONS: { id: PageDestination; labelKey: string; icon: typeof Bot }[] = [
 	{ id: "agents", labelKey: "destination.agents", icon: Bot },
 	{ id: "insights", labelKey: "destination.insights", icon: BarChart3 },
@@ -469,7 +469,7 @@ function focusRovingItem(item: HTMLElement) {
 }
 
 /**
- * Sessions-first sidebar (design-spec §2.1) and the app's only session
+ * Sessions-first sidebar and the app's only session
  * navigator: one search, sessions grouped by project and then the Chats section
  * (newest first, status as icon + text; every open tab keeps a row),
  * and a footer with the three destinations plus help.
