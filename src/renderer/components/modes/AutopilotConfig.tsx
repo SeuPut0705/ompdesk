@@ -24,7 +24,7 @@ import { AutopilotPauseButton, AutopilotStopButtons } from "../autopilot/Autopil
 import { FocusChips } from "../autopilot/FocusChips";
 import { useAutopilotActions } from "../autopilot/use-autopilot-actions";
 import { useAutopilotStateText } from "../autopilot/use-autopilot-state-text";
-import { Button, InlineNotice, SettingInfo, Tabs, TextArea, type TextAreaProps, Tooltip } from "../common";
+import { Button, InlineNotice, SettingInfo, Tabs, Tooltip } from "../common";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
 /** The sheet's shipping choice: a preset, or `auto` (main decides from the repository; nothing is sent). */
@@ -94,26 +94,6 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 	);
 }
 
-/**
- * A text box that reads as one line until it is first focused, then stays open at `focusRows` lines (the sheet stays
- * short until the user writes in it). It never collapses on blur: the blur of a press on Start happens at mousedown, so
- * a collapse reflowed the popover under the pointer, the release landed elsewhere and the click never reached Start.
- */
-function GrowArea({ focusRows, onFocus, className, ...rest }: TextAreaProps & { focusRows: number }) {
-	const [opened, setOpened] = useState(false);
-	return (
-		<TextArea
-			{...rest}
-			className={cx("resize-none py-1 text-sc-sm", className)}
-			onFocus={event => {
-				setOpened(true);
-				onFocus?.(event);
-			}}
-			rows={opened ? focusRows : 1}
-		/>
-	);
-}
-
 /** The release-procedure check: a small glyph, the full sentence in its tooltip and accessible name. */
 function ProcedureGlyph({ text, tone }: { text: string; tone: "ok" | "warning" }) {
 	const Glyph = tone === "ok" ? CircleCheck : TriangleAlert;
@@ -146,7 +126,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 
 	const [focus, setFocus] = useState<AutopilotArea[]>([]);
 	const [preset, setPreset] = useState<ShipChoice>(AUTO);
-	const [backlog, setBacklog] = useState("");
 	// The folder's branch is git's state now (the status the tab hydrated with may be hours old): read it again when the sheet opens.
 	useEffect(() => {
 		if (live || isRepo !== true) return;
@@ -180,16 +159,11 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 			: t(`autopilot.ship.preset.${preset}.desc`);
 
 	const start = async () => {
-		const items = backlog
-			.split("\n")
-			.map(line => line.trim())
-			.filter(Boolean);
 		// Only what the user chose is sent: main decides the rest (shipping from the repository, fan-out, notifications).
 		const started = await run({
 			action: "start",
 			...(focus.length > 0 ? { focus } : {}),
 			...(preset !== AUTO ? { preset } : {}),
-			...(items.length > 0 ? { backlog: items } : {}),
 		});
 		if (started) onStarted?.();
 	};
@@ -265,22 +239,6 @@ export function AutopilotModeConfig({ onStarted }: { onStarted?: () => void }) {
 							}
 						/>
 					</SettingsRow>
-					<SettingsRow
-						badge={<SettingInfo text={t("autopilot.sheet.backlogHint")} />}
-						compactControl
-						control={
-							<div className="w-44">
-								<GrowArea
-									aria-label={t("autopilot.sheet.backlog")}
-									focusRows={4}
-									onChange={event => setBacklog(event.target.value)}
-									placeholder={t("autopilot.sheet.backlogPlaceholder")}
-									value={backlog}
-								/>
-							</div>
-						}
-						label={t("autopilot.sheet.backlog")}
-					/>
 				</SettingsAdvanced>
 			</fieldset>
 

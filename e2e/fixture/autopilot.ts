@@ -35,21 +35,20 @@ import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import * as nodePath from "node:path";
 import {
-	AUTOPILOT_BACKLOG_ENTRY,
 	AUTOPILOT_CHILD_ENTRY,
 	AUTOPILOT_CYCLE_ENTRY,
+	AUTOPILOT_DISMISS_ENTRY,
 	AUTOPILOT_NOTE_ENTRY,
 	AUTOPILOT_OBJECTIVE,
 	AUTOPILOT_SHIP_ACTION_ENTRY,
 	AUTOPILOT_SHIP_REQUEST_ENTRY,
 	AUTOPILOT_STATE_ENTRY,
 	type AutopilotArmParams,
-	type AutopilotBacklogEvent,
-	type AutopilotBacklogParams,
 	type AutopilotConfigureParams,
 	type AutopilotCycleAmendParams,
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
+	type AutopilotDismissEvent,
 	type AutopilotNote,
 	type AutopilotReleaseProcedure,
 	type AutopilotSetStateParams,
@@ -64,7 +63,6 @@ import {
 	STALL_SECONDS,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
-	backlogItems,
 	boundGuide,
 	buildBegin,
 	buildStatus,
@@ -490,7 +488,6 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					cycle: cur.n,
 					settings: current.settings,
 					records,
-					backlog: backlogItems(entries()),
 					dismissed: followupDismissals(entries()),
 					notes: pendingNotes(entries(), records, cur.beganAt),
 					stopping: current.state === "stopping",
@@ -532,13 +529,6 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 					cur.report = mergeRepeatedEnd(cur.report, report);
 					publish();
 					return { text: { recorded: true, cycle: cur.n, repeated: true } };
-				}
-				const pinned = report.backlogId
-					? backlogItems(entries()).find(item => item.id === report.backlogId && !item.done)
-					: undefined;
-				if (pinned) {
-					const done: AutopilotBacklogEvent = { op: "done", id: pinned.id, cycle: cur.n, at: now() };
-					host.appendCustom(AUTOPILOT_BACKLOG_ENTRY, done);
 				}
 				cur.report = report;
 				cur.area = report.area;
@@ -1009,21 +999,12 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 			host.appendCustom(AUTOPILOT_NOTE_ENTRY, entry);
 			return publish();
 		},
-		[M.backlog]: params => {
+		[M.dismiss]: params => {
 			requireRun();
-			const p = params as unknown as AutopilotBacklogParams;
-			let event: AutopilotBacklogEvent;
-			if (p.op === "add") {
-				if (typeof p.text !== "string" || !p.text.trim()) throw new Error("backlog add needs text");
-				event = { op: "add", id: newId("b"), text: p.text.trim(), at: now() };
-			} else if (p.op === "remove") {
-				if (typeof p.id !== "string" || !p.id) throw new Error("backlog remove needs id");
-				event = { op: "remove", id: p.id, at: now() };
-			} else if (p.op === "dismiss") {
-				if (typeof p.text !== "string" || !p.text.trim()) throw new Error("backlog dismiss needs text");
-				event = { op: "dismiss", id: newId("d"), text: p.text.trim(), at: now() };
-			} else throw new Error("backlog op must be add, remove or dismiss");
-			host.appendCustom(AUTOPILOT_BACKLOG_ENTRY, event);
+			const text = params.text;
+			if (typeof text !== "string" || !text.trim()) throw new Error("dismiss needs text");
+			const event: AutopilotDismissEvent = { op: "dismiss", id: newId("d"), text: text.trim(), at: now() };
+			host.appendCustom(AUTOPILOT_DISMISS_ENTRY, event);
 			return publish();
 		},
 		[M.setState]: params => setStateMethod(params as unknown as AutopilotSetStateParams),

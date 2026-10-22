@@ -14,7 +14,6 @@ The run opens in a new tab on a new branch, `autopilot/<date>`, cut from the bra
 - **Shipping**: where green cycles go (below).
 - **Branch**: the folder's branch the run starts from.
 - **Focus** areas (design, performance, features, refactoring, tests, bugs, docs). None selected means all of them.
-- **Backlog**: items the agent does first, one per line.
 
 ## What happens to the work
 
@@ -29,8 +28,8 @@ Shipping is **Automatic** unless you pick another level:
 
 ## Steer it
 
-- **Work board.** The run's tab shows its board: the run's state, the cycle in flight and its step, the recent cycles (tap one for its commit, time and change, and **Revert**), what the cycles left for later, and the backlog. On a narrow window, a split pane or a phone, tap the strip under the header to open it.
-- **Left for later.** What earlier cycles found but did not do. Pin one to put it on the backlog, so the next cycle takes it first (it then shows only on the backlog); ✕ takes it off the agent's list. A later cycle that runs into the same thing again lists it again.
+- **Work board.** The run's tab shows its board: the run's state, the cycle in flight and its step, the recent cycles (tap one for its commit, time and change, and **Revert**), what the cycles left for later, and the focus areas (tap to change them). On a narrow window, a split pane or a phone, tap the strip under the header to open it.
+- **Left for later.** What earlier cycles found but did not do. A cycle that does one, or finds it no longer applies, closes it; ✕ takes it off the agent's list. A later cycle that runs into the same thing again lists it again. To have the next cycle do something first, type it into the run's composer.
 - **Your own words.** Type into the run's composer as in any session. The cycle in progress takes your message as a steer; a request to push or release is passed on to the runtime.
 - **`AUTOPILOT.md`.** At the start OMPdesk writes the project's guide (goals, priorities, paths not to touch, what done means, how it releases) and commits it as the run's first commit, so it reaches your default branch with the work. Edit it like any file; every cycle reads it again. The repository's rules files win where they differ.
 

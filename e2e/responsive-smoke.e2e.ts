@@ -178,7 +178,7 @@ for (const look of BOARD_LOOKS) {
 }
 
 /**
- * An Autopilot run's board (its controls, the log's copy, follow-ups with their pins, the backlog's ✕) docked beside
+ * An Autopilot run's board (its controls, the log's copy, follow-ups with their ✕) docked beside
  * an iPad mini held sideways and in the phone's expanded strip: it never scrolls sideways (a row button's reach once
  * did, by 2 px) and each of its controls is a 36 px target that takes only its own taps (24 to 28 px before 22 Oct
  * 2026). Beside it the goal dock bar, whose Pause handed its right edge's taps to Edit on that iPad.
@@ -200,9 +200,10 @@ for (const look of AUTOPILOT_LOOKS) {
 			await show(page, look, id);
 			if (id === "autopilot-board") {
 				const board = page.locator("[data-work-board-panel]").first();
-				expect(await board.locator("[data-autopilot-followup-pin]").count(), "a follow-up's pin").toBeGreaterThan(
-					0,
-				);
+				expect(
+					await board.locator("[data-autopilot-followup-dismiss]").count(),
+					"a follow-up's ✕",
+				).toBeGreaterThan(0);
 				expect(await page.locator(".omp-work-board-slot [data-work-board-panel]").count(), "docked").toBe(
 					look.form === "docked" ? 1 : 0,
 				);

@@ -592,7 +592,6 @@ function startOptions(args: Extract<AutopilotArgs, { action: "start" }>, ship: S
 		...(args.branch ? { branch: args.branch } : {}),
 		...(advanced.focus ? { focus: advanced.focus } : {}),
 		...(advanced.parallel !== undefined ? { maxParallel: advanced.parallel } : {}),
-		...(advanced.backlog ? { backlog: advanced.backlog } : {}),
 		...(advanced.limits ? { limits: advanced.limits } : {}),
 	};
 }

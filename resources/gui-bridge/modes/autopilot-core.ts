@@ -7,19 +7,18 @@
 import { AGENT_MESSAGE_START } from "../agent-control-contracts";
 import {
 	AUTOPILOT_AREAS,
-	AUTOPILOT_BACKLOG_ENTRY,
 	AUTOPILOT_CYCLE_ENTRY,
+	AUTOPILOT_DISMISS_ENTRY,
 	AUTOPILOT_GUIDE_MAX_BYTES,
 	AUTOPILOT_NOTE_ENTRY,
 	AUTOPILOT_SHIP_REQUEST_ENTRY,
 	AUTOPILOT_STATE_ENTRY,
 	type AutopilotArea,
-	type AutopilotBacklogEvent,
-	type AutopilotBacklogItem,
 	type AutopilotBeginResult,
 	type AutopilotChangeStat,
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
+	type AutopilotDismissEvent,
 	type AutopilotLimits,
 	type AutopilotNote,
 	type AutopilotNudgeReason,
@@ -517,25 +516,11 @@ export function cycleRecords(entries: readonly JournalEntry[]): AutopilotCycleRe
 	return [...byNumber.values()].sort((a, b) => a.n - b.n);
 }
 
-/** The follow-ups the person dismissed, in order (the backlog's `dismiss` events). */
+/** The follow-ups the person dismissed, in order. */
 export function followupDismissals(entries: readonly JournalEntry[]): { text: string; at: number }[] {
-	return customEntries<AutopilotBacklogEvent>(entries, AUTOPILOT_BACKLOG_ENTRY).flatMap(event =>
+	return customEntries<AutopilotDismissEvent>(entries, AUTOPILOT_DISMISS_ENTRY).flatMap(event =>
 		event.op === "dismiss" && event.text ? [{ text: event.text, at: event.at }] : [],
 	);
-}
-
-/** The pinned backlog: add/remove/done events replayed; removed items are gone, done ones stay marked. */
-export function backlogItems(entries: readonly JournalEntry[]): AutopilotBacklogItem[] {
-	const items = new Map<string, AutopilotBacklogItem>();
-	for (const event of customEntries<AutopilotBacklogEvent>(entries, AUTOPILOT_BACKLOG_ENTRY)) {
-		if (event.op === "add" && event.text) items.set(event.id, { id: event.id, text: event.text, done: false });
-		else if (event.op === "remove") items.delete(event.id);
-		else if (event.op === "done") {
-			const item = items.get(event.id);
-			if (item) items.set(event.id, { ...item, done: true, cycle: event.cycle });
-		}
-	}
-	return [...items.values()];
 }
 
 /** Notes the next `begin` has not delivered yet: added after the last cycle's (or the cycle in flight's) begin. */
@@ -553,32 +538,21 @@ export function pendingNotes(
  * its title is the follow-up's text or its report lists it under `resolved` (a title is a short name for the work and
  * almost never repeats a follow-up's sentence, so without `resolved` a finished follow-up stayed open for the whole
  * window and `begin` kept pointing the agent back at it). The person's dismissal after the cycle that left it ended
- * closes it too (`dismissed`, the backlog's `dismiss` events); a cycle that lists it again reopens it, even one that
- * was already running when the person dismissed it. One a pending backlog item names is the backlog's (listed there
- * instead); a done one closes it until a cycle after the one that did it leaves it again.
+ * closes it too (`dismissed`); a cycle that lists it again reopens it, even one that was already running when the
+ * person dismissed it.
  */
 export function openFollowups(
 	records: readonly AutopilotCycleRecord[],
 	dismissed: readonly { text: string; at: number }[] = [],
-	backlog: readonly AutopilotBacklogItem[] = [],
 ): string[] {
 	const window = records.slice(-DUPLICATE_WINDOW);
 	const open: string[] = [];
-	// A pending backlog item is the backlog's (it shows there, and `begin` lists it there); a done one closed what the
-	// cycles up to the one that did it left, and a later cycle that leaves it again reopens it.
-	const seen = new Set<string>(backlog.filter(item => !item.done).map(item => normalizeTitle(item.text)));
-	const doneBy = new Map<string, number>();
-	for (const item of backlog) {
-		if (!item.done) continue;
-		const key = normalizeTitle(item.text);
-		doneBy.set(key, Math.max(doneBy.get(key) ?? 0, item.cycle ?? Number.POSITIVE_INFINITY));
-	}
+	const seen = new Set<string>();
 	for (let i = window.length - 1; i >= 0; i--) {
 		for (const followup of window[i].followups ?? []) {
 			const key = normalizeTitle(followup);
 			if (!key || seen.has(key)) continue;
 			seen.add(key);
-			if (window[i].n <= (doneBy.get(key) ?? Number.NEGATIVE_INFINITY)) continue;
 			const done = (later: AutopilotCycleRecord) =>
 				normalizeTitle(later.title) === key || (later.resolved ?? []).some(text => normalizeTitle(text) === key);
 			if (window.slice(i + 1).some(done)) continue;
@@ -670,7 +644,6 @@ export function finalizeCycle(facts: FinalizeFacts): AutopilotCycleRecord {
 		summary: report.summary.trim(),
 		verify: report.verify,
 		...(report.commit ? { commit: report.commit } : {}),
-		...(report.backlogId ? { backlogId: report.backlogId } : {}),
 		followups: (report.followups ?? []).map(text => text.trim()).filter(Boolean),
 		...(report.resolved?.length ? { resolved: report.resolved.map(text => text.trim()).filter(Boolean) } : {}),
 		...(report.ship ? { ship: report.ship } : {}),
@@ -701,7 +674,6 @@ export function parseEndReport(input: Record<string, unknown>): EndReport | { er
 	};
 	if (typeof input.commit === "string" && input.commit.trim()) report.commit = input.commit.trim();
 	if (typeof input.check === "string" && input.check.trim()) report.check = input.check.trim();
-	if (typeof input.backlogId === "string" && input.backlogId) report.backlogId = input.backlogId;
 	if (Array.isArray(input.followups))
 		report.followups = input.followups.filter((x): x is string => typeof x === "string");
 	if (Array.isArray(input.resolved))
@@ -751,7 +723,6 @@ export interface BeginFacts {
 	cycle: number;
 	settings: AutopilotSettings;
 	records: readonly AutopilotCycleRecord[];
-	backlog: readonly AutopilotBacklogItem[];
 	/** Follow-ups the person dismissed ({@link followupDismissals}). */
 	dismissed?: readonly { text: string; at: number }[];
 	notes: readonly AutopilotNote[];
@@ -818,7 +789,7 @@ export function followupAge(records: readonly AutopilotCycleRecord[], text: stri
 /** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
 export function beginHints(
 	records: readonly AutopilotCycleRecord[],
-	facts: { open: readonly string[]; backlog: number; maxParallel: number | null },
+	facts: { open: readonly string[]; maxParallel: number | null },
 ): string[] {
 	const hints: string[] = [];
 	const carried = facts.open
@@ -840,7 +811,7 @@ export function beginHints(
 	if (docsOnly(records.at(-1))) {
 		hints.push("The last cycle changed documentation only: pick code, tests or a bug unless nothing else is left.");
 	}
-	if (facts.maxParallel !== 0 && facts.backlog + facts.open.length >= 2) {
+	if (facts.maxParallel !== 0 && facts.open.length >= 2) {
 		hints.push(
 			"Fan-out pays only when each item takes several minutes: a child costs about 20 s of set-up and its own copy of the context. Small items are faster and cheaper one after the other.",
 		);
@@ -860,13 +831,11 @@ export function buildBegin(facts: BeginFacts): AutopilotBeginResult {
 		...(record.reverted ? { reverted: true } : {}),
 	}));
 	const left = budgetLeft(settings.limits, facts.used, facts.activeMs, records.length);
-	const open = openFollowups(records, facts.dismissed, facts.backlog);
-	const backlog = facts.backlog.filter(item => !item.done);
-	const hints = beginHints(records, { open, backlog: backlog.length, maxParallel: settings.maxParallel });
+	const open = openFollowups(records, facts.dismissed);
+	const hints = beginHints(records, { open, maxParallel: settings.maxParallel });
 	return {
 		cycle: facts.cycle,
 		focus: settings.focus,
-		backlog,
 		notes: [...facts.notes],
 		rotation: rotation(records, settings.focus),
 		recent,
@@ -926,7 +895,7 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 	const running = state.state === "running" || state.state === "stopping";
 	const activeMs = state.activeMs + (running ? Math.max(0, now - state.at) : 0);
 	const cycle = Math.max(records.at(-1)?.n ?? 0, live?.n ?? 0);
-	const followups = openFollowups(records, followupDismissals(entries), backlogItems(entries));
+	const followups = openFollowups(records, followupDismissals(entries));
 	return {
 		active: true,
 		role: state.role ?? "parent",
@@ -955,7 +924,6 @@ export function buildStatus(entries: readonly JournalEntry[], now: number, live?
 		cycles: records.map(statusCycle),
 		...(redStreak(records) > 0 ? { redStreak: redStreak(records) } : {}),
 		...(followups.length > 0 ? { followups } : {}),
-		backlog: backlogItems(entries),
 		notes: pendingNotes(entries, records, live?.beganAt),
 		ship: {
 			policy: state.settings.ship,

@@ -17,8 +17,12 @@ export const AUTOPILOT_STATE_ENTRY = "ompdesk.autopilot";
 export const AUTOPILOT_CYCLE_ENTRY = "ompdesk.autopilot-cycle";
 /** A user instruction for the next cycle (`begin.notes` consumes it once). */
 export const AUTOPILOT_NOTE_ENTRY = "ompdesk.autopilot-note";
-/** A pinned backlog item: add | remove | done. */
-export const AUTOPILOT_BACKLOG_ENTRY = "ompdesk.autopilot-backlog";
+/**
+ * The person took a follow-up off the agent's list ({@link AutopilotDismissEvent}). The entry keeps the name of the
+ * backlog it once shared (removed 22 Oct 2026, the user's call), so dismissals journaled before stay read; the
+ * backlog's own add/remove/done events in older journals are ignored.
+ */
+export const AUTOPILOT_DISMISS_ENTRY = "ompdesk.autopilot-backlog";
 /** A verified "push now" / "release now" request from the user's own chat message. */
 export const AUTOPILOT_SHIP_REQUEST_ENTRY = "ompdesk.autopilot-ship-request";
 /** What the ShipRunner (main) did: pushes, merges, reverts. The audit allows exactly these. */
@@ -217,7 +221,7 @@ export function clipCycleSummary(text: string): string {
 
 /**
  * A title or follow-up as Autopilot compares them: case, punctuation and spacing ignored (Hangul kept). The duplicate
- * check, the follow-ups a cycle resolves or the person dismisses, and the board's "already on the backlog" all use it.
+ * check, the follow-ups a cycle resolves or the person dismisses all use it.
  */
 export function normalizeTitle(title: string): string {
 	return title
@@ -234,7 +238,6 @@ export interface AutopilotCycleRecord {
 	summary: string;
 	verify: CycleVerify | "unreported";
 	commit?: string;
-	backlogId?: string;
 	followups: string[];
 	/** Open follow-ups (their text as `begin` gave it) this cycle finished or found not to apply: they close. */
 	resolved?: string[];
@@ -262,21 +265,12 @@ export interface AutopilotNote {
 	at: number;
 }
 
-/** `dismiss`: the person took a follow-up off the agent's list ("Left for later"); `text` names it. */
-export interface AutopilotBacklogEvent {
-	op: "add" | "remove" | "done" | "dismiss";
-	id: string;
-	text?: string;
-	/** `done`: the cycle that did it. */
-	cycle?: number;
-	at: number;
-}
-
-export interface AutopilotBacklogItem {
+/** The person took a follow-up off the agent's list ("Left for later"); `text` names it. */
+export interface AutopilotDismissEvent {
+	op: "dismiss";
 	id: string;
 	text: string;
-	done: boolean;
-	cycle?: number;
+	at: number;
 }
 
 export const SHIP_KINDS = ["push", "pr", "merge", "land", "release", "revert"] as const;
@@ -357,7 +351,6 @@ export type AutopilotToolInput =
 			commit?: string;
 			/** The exact command that ran the repo's check: the runtime looks for it among the cycle's tool calls. */
 			check?: string;
-			backlogId?: string;
 			followups?: string[];
 			/** Open follow-ups this cycle finished or found not to apply, as `begin.openFollowups` wrote them. */
 			resolved?: string[];
@@ -371,7 +364,6 @@ export type AutopilotToolInput =
 export interface AutopilotBeginResult {
 	cycle: number;
 	focus: AutopilotArea[];
-	backlog: AutopilotBacklogItem[];
 	notes: AutopilotNote[];
 	rotation: {
 		suggested: AutopilotArea;
@@ -487,7 +479,6 @@ export interface AutopilotStatus {
 	redStreak?: number;
 	/** What the recent cycles left for later and no later cycle did (`openFollowups`, newest first); absent when none. */
 	followups?: string[];
-	backlog?: AutopilotBacklogItem[];
 	notes?: AutopilotNote[];
 	ship?: AutopilotShipState;
 	/** A session that is no run: the branches the sheet's picker offers (this folder's repository). */
@@ -530,7 +521,6 @@ export type AutopilotStartOptions = {
 	ship?: Partial<AutopilotShipPolicy>;
 	limits?: Partial<AutopilotLimits>;
 	maxParallel?: number;
-	backlog?: string[];
 	/** An agent's guide text (`ompdesk_autopilot`); without it Start uses the repo's AUTOPILOT.md or builds one. A missing Release section is added from the project's facts; the result is the branch's first commit when it differs. */
 	guide?: string;
 	/** Where the run commits and pushes; absent: a new `autopilot/<date>` branch. */
@@ -550,8 +540,6 @@ export type AutopilotAction =
 			limits?: Partial<AutopilotLimits>;
 	  }
 	| { action: "note"; text: string }
-	| { action: "backlog_add"; text: string }
-	| { action: "backlog_remove"; id: string }
 	| { action: "followup_dismiss"; text: string }
 	| {
 			action: "ship";
@@ -652,8 +640,8 @@ export const AUTOPILOT_BRIDGE_METHODS = {
 	configure: "modes.autopilot_configure",
 	/** `{text}`: a user instruction `begin.notes` consumes once. */
 	note: "modes.autopilot_note",
-	/** {@link AutopilotBacklogParams}. */
-	backlog: "modes.autopilot_backlog",
+	/** `{text}`: the person took that follow-up off the agent's list. */
+	dismiss: "modes.autopilot_dismiss",
 	/** {@link AutopilotSetStateParams}: main journals pauses, stopping, ended, waiting_quota. `stopping` also steers the agent. */
 	setState: "modes.autopilot_set_state",
 	/** {@link AutopilotShipAction} minus `at`: the ShipRunner's own ref moves, journaled for the audit. */
@@ -699,11 +687,6 @@ export interface AutopilotConfigureParams {
 	releaseBlocked?: string | null;
 	release?: AutopilotReleaseStatus | null;
 }
-
-export type AutopilotBacklogParams =
-	| { op: "add"; text: string }
-	| { op: "remove"; id: string }
-	| { op: "dismiss"; text: string };
 
 export interface AutopilotSetStateParams {
 	state: AutopilotState;

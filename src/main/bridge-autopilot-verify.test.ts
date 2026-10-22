@@ -289,7 +289,7 @@ describe("pick and the status's now", () => {
 });
 
 describe("begin hints", () => {
-	const facts = { open: [] as string[], backlog: 0, maxParallel: 0 };
+	const facts = { open: [] as string[], maxParallel: 0 };
 	it("counts how many cycles in a row carried a follow-up", () => {
 		const records = [
 			cycle(1, { followups: ["Emitter.once missing"] }),
@@ -318,9 +318,9 @@ describe("begin hints", () => {
 		expect(beginHints([docs, cycle(3)], facts)).toEqual([]);
 	});
 	it("fan-out advice only when fan-out is on and there are two items to tempt it", () => {
-		expect(beginHints([], { open: [], backlog: 2, maxParallel: 2 }).join(" ")).toContain("Fan-out pays only");
-		expect(beginHints([], { open: [], backlog: 2, maxParallel: 0 })).toEqual([]);
-		expect(beginHints([], { open: [], backlog: 1, maxParallel: 2 })).toEqual([]);
+		expect(beginHints([], { open: ["a", "b"], maxParallel: 2 }).join(" ")).toContain("Fan-out pays only");
+		expect(beginHints([], { open: ["a", "b"], maxParallel: 0 })).toEqual([]);
+		expect(beginHints([], { open: ["a"], maxParallel: 2 })).toEqual([]);
 	});
 	it("puts an open follow-up that names a defect ahead of docs and polish", () => {
 		const hints = beginHints([cycle(1)], { ...facts, open: ["truncate breaks on n < 0", "document the CLI"] });
@@ -356,7 +356,6 @@ describe("begin hints", () => {
 			cycle: 1,
 			settings: DEFAULT_AUTOPILOT_SETTINGS,
 			records: [],
-			backlog: [],
 			notes: [],
 			stopping: false,
 			branch: "autopilot/r",

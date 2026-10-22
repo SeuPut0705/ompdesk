@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	AUTOPILOT_AREAS,
-	AUTOPILOT_BACKLOG_ENTRY,
 	AUTOPILOT_CYCLE_ENTRY,
+	AUTOPILOT_DISMISS_ENTRY,
 	AUTOPILOT_NOTE_ENTRY,
 	AUTOPILOT_OBJECTIVE,
 	AUTOPILOT_SHIP_REQUEST_ENTRY,
@@ -18,7 +18,6 @@ import {
 	shipPolicyForPreset,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
-	backlogItems,
 	budgetLeft,
 	buildBegin,
 	buildStatus,
@@ -542,20 +541,6 @@ describe("journal replay", () => {
 		expect(customEntries([custom("x", { a: 1 }), custom("y", 5), { type: "message" }], "x")).toEqual([{ a: 1 }]);
 		expect(customEntries([custom("x", null)], "x")).toEqual([]);
 	});
-	it("backlog: add, remove, done", () => {
-		const entries = [
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "a", text: "first", at: 1 }),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "b", text: "second", at: 2 }),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "c", text: "third", at: 3 }),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "remove", id: "b", at: 4 }),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "done", id: "a", cycle: 6, at: 5 }),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "done", id: "zzz", cycle: 6, at: 6 }),
-		];
-		expect(backlogItems(entries)).toEqual([
-			{ id: "a", text: "first", done: true, cycle: 6 },
-			{ id: "c", text: "third", done: false },
-		]);
-	});
 	it("notes are pending until a begin happens after them", () => {
 		const entries = [
 			custom(AUTOPILOT_NOTE_ENTRY, { id: "1", text: "early", at: 100 }),
@@ -593,12 +578,12 @@ describe("journal replay", () => {
 			{ followups: [], startedAt: 2_000, durationMs: 500 },
 		);
 		const entries = [
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "b1", text: "Keyboard access", at: 1_500 }),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "dismiss", id: "d1", text: "trim  the LOG", at: 2_500 }),
+			// An older journal's backlog item is no dismissal.
+			custom(AUTOPILOT_DISMISS_ENTRY, { op: "add", id: "b1", text: "Docs for X", at: 1_500 }),
+			custom(AUTOPILOT_DISMISS_ENTRY, { op: "dismiss", id: "d1", text: "trim  the LOG", at: 2_500 }),
 		];
 		const dismissed = followupDismissals(entries);
 		expect(dismissed).toEqual([{ text: "trim  the LOG", at: 2_500 }]);
-		expect(backlogItems(entries).map(item => item.text)).toEqual(["Keyboard access"]);
 		expect(openFollowups(records, dismissed)).toEqual(["Docs for X"]);
 		const listedAgain = [
 			...records,
@@ -612,27 +597,6 @@ describe("journal replay", () => {
 		);
 		expect(openFollowups(inFlight, dismissed)).toEqual(["Trim the log"]);
 		expect(openFollowups(inFlight, [{ text: "Trim the log", at: 3_000 }])).toEqual([]);
-	});
-	it("openFollowups: a pending backlog item takes the follow-up; a done one closes it until a later cycle leaves it again", () => {
-		const records = seq({ followups: ["Trim the log", "Docs for X", "Keyboard access"] });
-		const backlog = [
-			{ id: "b1", text: "trim the log.", done: false },
-			{ id: "b2", text: "Keyboard access", done: true, cycle: 2 },
-		];
-		expect(openFollowups(records, [], backlog)).toEqual(["Docs for X"]);
-		// The item done in cycle 2 closes cycle 1's listing; cycle 5 leaving it again reopens it.
-		const later = [...records, ...seq({ n: 5, followups: ["Keyboard access"] })];
-		expect(openFollowups(later, [], backlog)).toEqual(["Keyboard access", "Docs for X"]);
-		const entries = [
-			custom(AUTOPILOT_CYCLE_ENTRY, records[0]),
-			custom(
-				AUTOPILOT_STATE_ENTRY,
-				initialStateEntry({ run: "r", root: "/r", branch: "b", baseBranch: "main", excludedTools: [], now: 1 }),
-			),
-			custom(AUTOPILOT_BACKLOG_ENTRY, { op: "add", id: "b1", text: "Trim the log", at: 9 }),
-		];
-		const status = buildStatus(entries, 10);
-		expect(status.active ? status.followups : null).toEqual(["Docs for X", "Keyboard access"]);
 	});
 	it("parseEndReport keeps the resolved follow-ups, and finalizeCycle records them", () => {
 		const report = parseEndReport({
@@ -705,7 +669,6 @@ describe("finalizeCycle / parseEndReport", () => {
 				summary: " done ",
 				verify: "green",
 				commit: "abc",
-				backlogId: "b1",
 				followups: [" a ", ""],
 				ship: { kind: "release", version: "1.2.3" },
 				children: [{ session: "s", branch: "x", outcome: "merged" }],
@@ -717,7 +680,6 @@ describe("finalizeCycle / parseEndReport", () => {
 			summary: "done",
 			verify: "green",
 			commit: "abc",
-			backlogId: "b1",
 			followups: ["a"],
 			ship: { kind: "release", version: "1.2.3" },
 			children: [{ session: "s", branch: "x", outcome: "merged" }],
@@ -772,10 +734,6 @@ describe("buildBegin / buildStatus", () => {
 			cycle: 15,
 			settings: state.settings,
 			records,
-			backlog: [
-				{ id: "a", text: "pinned", done: false },
-				{ id: "b", text: "old", done: true, cycle: 2 },
-			],
 			notes: [{ id: "n", text: "do x", at: 1 }],
 			stopping: false,
 			branch: state.branch,
@@ -786,7 +744,6 @@ describe("buildBegin / buildStatus", () => {
 		});
 		expect(begin.cycle).toBe(15);
 		expect(begin.focus).toEqual(["tests"]);
-		expect(begin.backlog).toEqual([{ id: "a", text: "pinned", done: false }]);
 		expect(begin.notes).toHaveLength(1);
 		expect(begin.recent).toHaveLength(10);
 		expect(begin.recent.at(-1)?.n).toBe(14);
@@ -808,7 +765,6 @@ describe("buildBegin / buildStatus", () => {
 			cycle: 2,
 			settings: DEFAULT_AUTOPILOT_SETTINGS,
 			records,
-			backlog: [],
 			notes: [],
 			stopping: true,
 			branch: "b",

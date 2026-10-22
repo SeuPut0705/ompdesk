@@ -556,7 +556,7 @@ describe("MCP install, pairing and Autopilot", () => {
 			"abort",
 			"configure",
 			"ship",
-			"backlog_add",
+			"followup_dismiss",
 			"note",
 			"pause",
 			"resume",

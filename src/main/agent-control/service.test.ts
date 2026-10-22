@@ -1959,7 +1959,6 @@ describe("ompdesk_autopilot", () => {
 				parallel: 2,
 				cadence: 4,
 				remote: "upstream",
-				backlog: ["one", "two"],
 				limits: { cycles: 10, usd: 5 },
 			},
 		});
@@ -1971,7 +1970,6 @@ describe("ompdesk_autopilot", () => {
 			branch: { kind: "new", name: "autopilot/night" },
 			focus: ["tests", "docs"],
 			maxParallel: 2,
-			backlog: ["one", "two"],
 			limits: { cycles: 10, usd: 5 },
 		});
 		const bad = await service.run("main0001", T.autopilot, { action: "start", advanced: { cadence: 4 } });

@@ -80,7 +80,7 @@ describe("quota command classification", () => {
 	it("counts an autopilot start or resume, not its stop, pause, notes, ship queue or main's own bridge calls", () => {
 		expect(commandUsesModel(command({ type: "set_autopilot", action: "start" }))).toBe(true);
 		expect(commandUsesModel(command({ type: "set_autopilot", action: "resume" }))).toBe(true);
-		for (const action of ["stop", "abort", "pause", "configure", "note", "backlog_add", "ship", "cancel_ship"]) {
+		for (const action of ["stop", "abort", "pause", "configure", "note", "followup_dismiss", "ship", "cancel_ship"]) {
 			expect(commandUsesModel(command({ type: "set_autopilot", action })), action).toBe(false);
 		}
 		for (const type of ["get_autopilot", "autopilot_branch_status", "autopilot_bridge"]) {

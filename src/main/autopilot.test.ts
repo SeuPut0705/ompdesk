@@ -185,26 +185,6 @@ describe("start", () => {
 		});
 	});
 
-	it("pins the sheet's backlog items once the run is armed and before the goal exists", async () => {
-		const { response } = await start({
-			type: "set_autopilot",
-			action: "start",
-			backlog: ["fix the flaky test", "document the CLI"],
-		});
-		expect(response.success).toBe(true);
-		const calls = world.calls.filter(call => call.tab === "ap-1");
-		const names = calls.map(call => call.name);
-		const pinned = calls.filter(call => call.name === AUTOPILOT_BRIDGE_METHODS.backlog);
-		expect(pinned.map(call => call.params)).toEqual([
-			{ op: "add", text: "fix the flaky test" },
-			{ op: "add", text: "document the CLI" },
-		]);
-		expect(names.indexOf(AUTOPILOT_BRIDGE_METHODS.backlog)).toBeGreaterThan(
-			names.indexOf(AUTOPILOT_BRIDGE_METHODS.arm),
-		);
-		expect(names.lastIndexOf(AUTOPILOT_BRIDGE_METHODS.backlog)).toBeLessThan(names.indexOf("set_goal"));
-	});
-
 	it("commits an agent's guide as the branch's first commit and leaves the user's branch alone", async () => {
 		const { response } = await start({
 			type: "set_autopilot",

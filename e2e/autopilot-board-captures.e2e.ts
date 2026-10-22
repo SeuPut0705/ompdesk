@@ -108,7 +108,6 @@ async function seedRun(page: Page): Promise<void> {
 				}),
 			],
 			redStreak: 2,
-			backlog: [{ id: "b1", text: "Keyboard access in settings", done: false }],
 			totals: { tokens: 1_840_000, usd: 6.2, tokensPerHour: 1_200_000, usdPerHour: 3.9 },
 			ship: {
 				policy: {

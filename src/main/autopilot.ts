@@ -587,14 +587,8 @@ export class Autopilot {
 			case "note":
 				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: action.text });
 				break;
-			case "backlog_add":
-				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.backlog, { op: "add", text: action.text });
-				break;
-			case "backlog_remove":
-				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.backlog, { op: "remove", id: action.id });
-				break;
 			case "followup_dismiss":
-				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.backlog, { op: "dismiss", text: action.text });
+				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.dismiss, { text: action.text });
 				break;
 			case "ship":
 				await this.#shipAction(run, action);
@@ -744,12 +738,6 @@ export class Autopilot {
 				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
 			};
 			run.status = await this.#bridge<AutopilotStatus>(newTab, AUTOPILOT_BRIDGE_METHODS.arm, arm);
-			for (const text of options.backlog ?? []) {
-				run.status = await this.#bridge<AutopilotStatus>(newTab, AUTOPILOT_BRIDGE_METHODS.backlog, {
-					op: "add",
-					text,
-				});
-			}
 			run.snapshot = await takeSnapshot(made.path, made.baseCwd).catch(() => null);
 			const tokenBudget = settings.limits.tokens;
 			const goalResponse = await this.#stockResponse(newTab, {

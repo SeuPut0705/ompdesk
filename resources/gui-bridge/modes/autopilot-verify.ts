@@ -172,7 +172,6 @@ export function mergeRepeatedEnd(first: EndReport, again: EndReport): EndReport 
 		...(first.children?.length ? {} : again.children?.length ? { children: again.children } : {}),
 		...(first.ship === undefined && again.ship !== undefined ? { ship: again.ship } : {}),
 		...(first.commit === undefined && again.commit !== undefined ? { commit: again.commit } : {}),
-		...(first.backlogId === undefined && again.backlogId !== undefined ? { backlogId: again.backlogId } : {}),
 	};
 }
 

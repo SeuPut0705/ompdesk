@@ -1,6 +1,6 @@
 /**
  * An Autopilot tab's work board is the run's home (there is no side panel view for it): the head names the run and
- * its state, then the cycle in flight with the controls, the cycles, shipping and the backlog, above the board's other
+ * its state, then the cycle in flight with the controls, the cycles, the follow-ups and shipping, above the board's other
  * sections. Wherever the board cannot dock (a narrow window, a split pane, the side panel open, the board dismissed
  * with ✕) the pane keeps the status strip, and the composer's "show the run" expands it into the board.
  */
@@ -143,7 +143,6 @@ const running: AutopilotStatus = {
 		),
 	),
 	redStreak: 2,
-	backlog: [{ id: "b1", text: "Keyboard access in settings", done: false }],
 	totals: { tokens: 1_840_000, usd: 6.2 },
 	ship: {
 		policy: { autoPush: false, autoRelease: { on: false, cadence: { kind: "agent" } }, remote: "origin", land: true },
@@ -158,26 +157,6 @@ const click = (selector: string) =>
 	act(async () => (pane.querySelector(selector) as unknown as HTMLButtonElement).click());
 const sections = () =>
 	[...pane.querySelectorAll("[data-board-section]")].map(item => item.getAttribute("data-board-section"));
-
-interface ReactProps {
-	onChange?: (event: object) => void;
-	onSubmit?: (event: object) => void;
-}
-
-/** linkedom fires no React synthetic events, so the test calls the element's own handlers. */
-function reactProps(element: Element | null): ReactProps {
-	const record = element as unknown as Record<string, unknown> | null;
-	const key = record ? Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$")) : undefined;
-	return record && key ? (record[key] as ReactProps) : {};
-}
-
-async function typeAndSubmit(selector: string, value: string): Promise<void> {
-	const input = pane.querySelector(selector) as unknown as HTMLInputElement;
-	Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set?.call(input, value);
-	await act(async () => reactProps(input as unknown as Element).onChange?.({ target: input, currentTarget: input }));
-	const form = (input as unknown as Element).closest("form");
-	await act(async () => reactProps(form).onSubmit?.({ preventDefault() {} }));
-}
 
 beforeEach(() => {
 	observers.length = 0;
@@ -207,7 +186,8 @@ describe("an Autopilot tab's work board", () => {
 		expect($("[data-board-autopilot-text]")?.textContent).toBe(
 			translate("autopilot.cycleArea", { n: 8, area: translate("autopilot.area.performance") }),
 		);
-		expect(sections().slice(0, 3)).toEqual(["autopilot", "cycles", "backlog"]);
+		expect(sections().slice(0, 2)).toEqual(["autopilot", "cycles"]);
+		expect(sections()).not.toContain("backlog");
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain("Cache the session list's first read");
 		expect($("[data-autopilot-child]")).not.toBeNull();
 		expect($("[data-autopilot-red-streak]")?.getAttribute("data-autopilot-red-streak")).toBe("2");
@@ -249,8 +229,6 @@ describe("an Autopilot tab's work board", () => {
 		await click("[data-autopilot-abort]");
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "abort" });
 		expect($('[data-ship-button="push"]')).toBeNull();
-		await typeAndSubmit("[data-autopilot-backlog-input]", "README screenshots");
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "backlog_add", text: "README screenshots" });
 	});
 
 	it("keeps an ended run's cycles and reason, with no controls", async () => {

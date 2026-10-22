@@ -1,6 +1,6 @@
 # Autopilot guide: OMPdesk
 
-Project-wide direction for Autopilot runs on this repository, shared across sessions and computers. The rules in `AGENTS.md` win wherever they differ from this guide, and Autopilot's hard limits can never be lifted by it. This file is direction, not a task list: a run's own backlog lives on its work board.
+Project-wide direction for Autopilot runs on this repository, shared across sessions and computers. The rules in `AGENTS.md` win wherever they differ from this guide, and Autopilot's hard limits can never be lifted by it. This file is direction, not a task list: a run's own follow-ups live on its work board.
 
 ## Goals and roadmap
 
@@ -52,7 +52,7 @@ Project-wide direction for Autopilot runs on this repository, shared across sess
 
 ## Long-lived ideas
 
-- (Ideas that outlast a single run go here, written by a maintainer. A run's backlog stays on its work board.)
+- (Ideas that outlast a single run go here, written by a maintainer. A run's follow-ups stay on its work board.)
 
 ## Release
 

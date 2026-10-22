@@ -1,6 +1,6 @@
-import { Pin, Plus, X } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { type AutopilotChildLive, normalizeTitle } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import { X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { AutopilotChildLive } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { formatCost, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -9,7 +9,7 @@ import { tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
-import { Button, IconButton, Input } from "../common";
+import { IconButton } from "../common";
 import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "../layout/work-board/board-parts";
 import { AreaIcon } from "./AreaIcon";
 import { AutopilotPauseButton, AutopilotStopButtons } from "./AutopilotControls";
@@ -177,60 +177,6 @@ function ChildRow({ child }: { child: AutopilotChildLive }) {
 	);
 }
 
-/** One text field and its button under the run's rows (a backlog item). */
-function SendField({
-	action,
-	label,
-	placeholder,
-	button,
-	icon,
-	field,
-}: {
-	action: "backlog_add";
-	label: string;
-	placeholder: string;
-	button: string;
-	icon: ReactNode;
-	/** The field's test hook (`data-autopilot-backlog-input`). */
-	field: "data-autopilot-backlog-input";
-}) {
-	const { pending, run } = useAutopilotActions();
-	const [value, setValue] = useState("");
-	const text = value.trim();
-	return (
-		<li className="omp-work-board-item">
-			<form
-				className="omp-work-board-actions flex-nowrap"
-				onSubmit={event => {
-					event.preventDefault();
-					if (text) void run({ action, text }).then(done => done && setValue(""));
-				}}
-			>
-				<Input
-					aria-label={label}
-					className="min-w-0 flex-1"
-					controlSize="sm"
-					{...{ [field]: "" }}
-					onChange={event => setValue(event.target.value)}
-					placeholder={placeholder}
-					value={value}
-				/>
-				<Button
-					data-autopilot-send={action}
-					disabled={!text || pending === action}
-					icon={icon}
-					loading={pending === action}
-					size="sm"
-					type="submit"
-					variant="secondary"
-				>
-					{button}
-				</Button>
-			</form>
-		</li>
-	);
-}
-
 /**
  * The run's first board section: the cycle in flight (its item, or "Picking an item…", with the step it is in), the
  * cycle's child sessions, the red streak from two on, where green cycles go and the controls. What the next cycle
@@ -288,6 +234,7 @@ function AutopilotRunSection() {
 				/>
 			)}
 			<ShipLandRow />
+			{!ended && <FocusRow />}
 			{!ended && (
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-actions" data-autopilot-controls>
@@ -302,18 +249,16 @@ function AutopilotRunSection() {
 
 /**
  * What the recent cycles left for later and no later cycle did: what the agent is likely to take next, before the
- * rotation's pick. One line each, the whole sentence in the tooltip; nothing while there is none. A pin puts one on
- * the backlog, which the next cycle takes before anything else; ✕ takes it off the agent's list (a later cycle that
- * leaves it again brings it back).
+ * rotation's pick. One line each, the whole sentence in the tooltip; nothing while there is none. ✕ takes one off the
+ * agent's list (a later cycle that leaves it again brings it back). What the next cycle should do first is typed into
+ * the tab's composer.
  */
 function AutopilotFollowupsSection() {
 	const t = useT();
 	const followups = useAutopilotStore(s => s.status.followups);
-	const backlog = useAutopilotStore(s => s.status.backlog);
 	const ended = useAutopilotStore(s => s.status.state === "ended");
 	const { run, pending } = useAutopilotActions();
 	if (!followups || followups.length === 0) return null;
-	const pinned = new Set((backlog ?? []).filter(item => !item.done).map(item => normalizeTitle(item.text)));
 	return (
 		<BoardSection count={followups.length} id="followups" title={t("autopilot.followups")}>
 			<CappedRows cap={SECTION_CAP.followups} items={followups}>
@@ -321,26 +266,14 @@ function AutopilotFollowupsSection() {
 					<BoardRow
 						action={
 							ended ? undefined : (
-								<span className="flex gap-3" data-board-row-actions>
-									{!pinned.has(normalizeTitle(text)) && (
-										<IconButton
-											data-autopilot-followup-pin=""
-											disabled={pending === "backlog_add"}
-											icon={<Pin />}
-											label={t("autopilot.followupPin")}
-											onClick={() => void run({ action: "backlog_add", text })}
-											size="sm"
-										/>
-									)}
-									<IconButton
-										data-autopilot-followup-dismiss=""
-										disabled={pending === "followup_dismiss"}
-										icon={<X />}
-										label={t("autopilot.followupDismiss")}
-										onClick={() => void run({ action: "followup_dismiss", text })}
-										size="sm"
-									/>
-								</span>
+								<IconButton
+									data-autopilot-followup-dismiss=""
+									disabled={pending === "followup_dismiss"}
+									icon={<X />}
+									label={t("autopilot.followupDismiss")}
+									onClick={() => void run({ action: "followup_dismiss", text })}
+									size="sm"
+								/>
 							)
 						}
 						data={{ "data-autopilot-followup": "" }}
@@ -355,94 +288,48 @@ function AutopilotFollowupsSection() {
 	);
 }
 
-/**
- * Items the user pinned (the agent takes them before any rotation pick), the focus areas the next cycles favour, and
- * a field to pin another. A tap on the focus row opens its toggles in place.
- */
-function AutopilotBacklogSection() {
+/** The focus areas the next cycles favour; a tap opens their toggles in place. */
+function FocusRow() {
 	const t = useT();
-	const backlog = useAutopilotStore(s => s.status.backlog);
 	const focus = useAutopilotStore(s => s.status.settings?.focus);
-	const state = useAutopilotStore(s => s.status.state);
 	const { run, pending } = useAutopilotActions();
-	const [focusOpen, setFocusOpen] = useState(false);
-	const ended = state === "ended";
-	const items = backlog ?? [];
-	if (ended && items.length === 0) return null;
+	const [open, setOpen] = useState(false);
 	const current = focus ?? [];
 	const focusText =
 		current.length > 0 ? current.map(area => t(`autopilot.area.${area}`)).join(", ") : t("autopilot.focus.all");
 	return (
-		<BoardSection
-			count={items.filter(item => !item.done).length || undefined}
-			id="backlog"
-			title={t("autopilot.backlog")}
-		>
-			{items.map(item => (
-				<BoardRow
-					action={
-						!item.done && !ended ? (
-							<IconButton
-								icon={<X />}
-								label={t("autopilot.backlogRemove")}
-								onClick={() => void run({ action: "backlog_remove", id: item.id })}
-								size="sm"
-							/>
-						) : undefined
-					}
-					data={{ "data-backlog-item": item.id }}
-					key={item.id}
-					label={<span className={item.done ? "text-(--sc-text-muted)" : undefined}>{item.text}</span>}
-					lead={<Dot tone={item.done ? "success" : "muted"} />}
-					meta={item.done && item.cycle !== undefined ? t("autopilot.cycleN", { n: item.cycle }) : undefined}
-					title={item.text}
-				/>
-			))}
-			{!ended && (
-				<>
-					<SendField
-						action="backlog_add"
-						button={t("autopilot.backlogAdd")}
-						field="data-autopilot-backlog-input"
-						icon={<Plus aria-hidden />}
-						label={t("autopilot.backlogAdd")}
-						placeholder={t("autopilot.backlogPlaceholder")}
-					/>
-					<BoardRow
-						data={{ "data-autopilot-focus-row": "", "data-board-expands": "", "data-open": String(focusOpen) }}
-						label={`${t("autopilot.focus.label")} · ${focusText}`}
-						lead={<Dot tone="muted" />}
-						onClick={() => setFocusOpen(!focusOpen)}
-						title={t("autopilot.focus.next")}
-					/>
-					{focusOpen && (
-						<li className="omp-work-board-item">
-							<div className="omp-work-board-detail">
-								<FocusChips
-									compact
-									disabled={pending === "configure"}
-									focus={current}
-									onToggle={area =>
-										void run({
-											action: "configure",
-											focus: current.includes(area)
-												? current.filter(other => other !== area)
-												: [...current, area],
-										})
-									}
-								/>
-							</div>
-						</li>
-					)}
-				</>
+		<>
+			<BoardRow
+				data={{ "data-autopilot-focus-row": "", "data-board-expands": "", "data-open": String(open) }}
+				label={`${t("autopilot.focus.label")} · ${focusText}`}
+				lead={<Dot tone="muted" />}
+				onClick={() => setOpen(!open)}
+				title={t("autopilot.focus.next")}
+			/>
+			{open && (
+				<li className="omp-work-board-item">
+					<div className="omp-work-board-detail">
+						<FocusChips
+							compact
+							disabled={pending === "configure"}
+							focus={current}
+							onToggle={area =>
+								void run({
+									action: "configure",
+									focus: current.includes(area) ? current.filter(other => other !== area) : [...current, area],
+								})
+							}
+						/>
+					</div>
+				</li>
 			)}
-		</BoardSection>
+		</>
 	);
 }
 
 /**
  * An Autopilot tab's board sections, the run's home: the cycle in flight with the controls, the cycles, the open
- * follow-ups, shipping and the backlog. The board's own sections (questions, subagents, todos, changes) follow them.
+ * follow-ups and shipping. The board's own sections (questions, subagents, todos, changes) follow them.
  */
 export function AutopilotBoardSections() {
 	return (
@@ -451,7 +338,6 @@ export function AutopilotBoardSections() {
 			<AutopilotCyclesSection />
 			<AutopilotFollowupsSection />
 			<AutopilotShipSection />
-			<AutopilotBacklogSection />
 		</>
 	);
 }

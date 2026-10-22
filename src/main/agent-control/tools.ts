@@ -457,11 +457,6 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 							type: "string",
 							description: "Git remote a push goes to; default origin, else the only remote.",
 						},
-						backlog: {
-							type: "array",
-							items: { type: "string" },
-							description: "Items the run takes before its own picks.",
-						},
 						limits: {
 							type: "object",
 							properties: {
@@ -565,7 +560,6 @@ const autopilotAdvanced = z
 			.string()
 			.regex(/^[^\s-][^\s]{0,99}$/, "remote is a git remote name")
 			.optional(),
-		backlog: z.array(z.string().trim().min(1).max(500)).optional(),
 		limits: z
 			.object({
 				tokens: positive.optional(),

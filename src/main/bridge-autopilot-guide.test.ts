@@ -89,7 +89,6 @@ describe("begin carries the guide", () => {
 			cycle: 1,
 			settings: DEFAULT_AUTOPILOT_SETTINGS,
 			records: [],
-			backlog: [],
 			notes: [],
 			stopping: false,
 			branch: "autopilot/r",

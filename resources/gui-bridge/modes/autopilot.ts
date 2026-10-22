@@ -20,11 +20,11 @@ import { guard } from "../health";
 import { registerPromptSection } from "../prompt-sections";
 import type { BridgeMethods } from "../types";
 import {
-	AUTOPILOT_BACKLOG_ENTRY,
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_ENTRY,
 	AUTOPILOT_CHILD_PROMPT_SECTION,
 	AUTOPILOT_CYCLE_ENTRY,
+	AUTOPILOT_DISMISS_ENTRY,
 	AUTOPILOT_END_REASONS,
 	AUTOPILOT_NOTE_ENTRY,
 	AUTOPILOT_PROMPT_SECTION,
@@ -33,14 +33,13 @@ import {
 	AUTOPILOT_STATE_ENTRY,
 	AUTOPILOT_TOOL,
 	type AutopilotArmParams,
-	type AutopilotBacklogEvent,
-	type AutopilotBacklogParams,
 	type AutopilotChangeStat,
 	type AutopilotChildEntry,
 	type AutopilotConfigureParams,
 	type AutopilotCycleAmendParams,
 	type AutopilotCycleArea,
 	type AutopilotCycleRecord,
+	type AutopilotDismissEvent,
 	type AutopilotEndReason,
 	type AutopilotEnsuredGuide,
 	type AutopilotFrame,
@@ -60,7 +59,6 @@ import {
 	STALL_SECONDS,
 } from "./autopilot-contracts";
 import {
-	backlogItems,
 	buildBegin,
 	buildStatus,
 	classifyStall,
@@ -704,7 +702,6 @@ async function runTool(
 				cycle: current.n,
 				settings: state.settings,
 				records,
-				backlog: backlogItems(entries),
 				dismissed: followupDismissals(entries),
 				notes: pendingNotes(entries, records, current.beganAt),
 				stopping: state.state === "stopping",
@@ -779,14 +776,8 @@ async function runTool(
 				...(followups.length > 0 ? { followups } : {}),
 				...(resolved.length > 0 ? { resolved } : {}),
 			};
-			const backlog = backlogItems(entries);
-			const pinned = report.backlogId ? backlog.find(item => item.id === report.backlogId && !item.done) : undefined;
 			const duplicate =
-				!pinned && report.area !== "user" && report.area !== "release" && isDuplicateTitle(records, report.title);
-			if (pinned) {
-				const done: AutopilotBacklogEvent = { op: "done", id: pinned.id, cycle: current.n, at: now() };
-				append(session, AUTOPILOT_BACKLOG_ENTRY, done);
-			}
+				report.area !== "user" && report.area !== "release" && isDuplicateTitle(records, report.title);
 			const seen = await observeReport(state.root, current, report);
 			current.report = seen.report;
 			current.verifyNote = seen.verdict.why;
@@ -899,7 +890,7 @@ function registerTool(pi: ExtensionAPI): void {
 		name: AUTOPILOT_TOOL,
 		label: "Autopilot",
 		description:
-			"Autopilot cycle ledger. op=begin: start the cycle (returns focus, backlog, notes, rotation, recent cycles, follow-ups, ship state, what to do next, hints). op=pick: name the item you chose after your audit (area + title). op=end: report the finished cycle (the runtime checks the commit and the check against your tool calls). op=ship: pass on the user's own push/release request (kind + their exact words as quote). op=propose_release: ask whether a release is due (auto release set to agent): it is by what landed since the last release, never by the time since it (3 user-visible changes, an urgent one, or one that waited a day).",
+			"Autopilot cycle ledger. op=begin: start the cycle (returns focus, notes, rotation, recent cycles, follow-ups, ship state, what to do next, hints). op=pick: name the item you chose after your audit (area + title). op=end: report the finished cycle (the runtime checks the commit and the check against your tool calls). op=ship: pass on the user's own push/release request (kind + their exact words as quote). op=propose_release: ask whether a release is due (auto release set to agent): it is by what landed since the last release, never by the time since it (3 user-visible changes, an urgent one, or one that waited a day).",
 		parameters: z.object({
 			op: z.enum(["begin", "pick", "end", "ship", "propose_release"]),
 			area: z
@@ -914,7 +905,6 @@ function registerTool(pi: ExtensionAPI): void {
 			verify: z.enum(["green", "red", "skipped"]).optional().describe("end: the repo's own check result"),
 			commit: z.string().optional().describe("end: commit hash"),
 			check: z.string().optional().describe("end: the exact command you ran as the repo's check"),
-			backlogId: z.string().optional().describe("end: the pinned backlog item this cycle did"),
 			followups: z.array(z.string()).optional().describe("end: items found but not done"),
 			resolved: z
 				.array(z.string())
@@ -1149,20 +1139,11 @@ function note(session: Session, params: unknown): AutopilotStatus {
 	return publish(session);
 }
 
-function backlog(session: Session, params: AutopilotBacklogParams): AutopilotStatus {
+function dismissFollowup(session: Session, params: { text?: unknown }): AutopilotStatus {
 	requireRun(session);
-	let event: AutopilotBacklogEvent;
-	if (params.op === "add") {
-		if (typeof params.text !== "string" || !params.text.trim()) throw new Error("backlog add needs text");
-		event = { op: "add", id: newId("b"), text: params.text.trim(), at: now() };
-	} else if (params.op === "remove") {
-		if (typeof params.id !== "string" || !params.id) throw new Error("backlog remove needs id");
-		event = { op: "remove", id: params.id, at: now() };
-	} else if (params.op === "dismiss") {
-		if (typeof params.text !== "string" || !params.text.trim()) throw new Error("backlog dismiss needs text");
-		event = { op: "dismiss", id: newId("d"), text: params.text.trim(), at: now() };
-	} else throw new Error("backlog op must be add, remove or dismiss");
-	append(session, AUTOPILOT_BACKLOG_ENTRY, event);
+	if (typeof params.text !== "string" || !params.text.trim()) throw new Error("dismiss needs text");
+	const event: AutopilotDismissEvent = { op: "dismiss", id: newId("d"), text: params.text.trim(), at: now() };
+	append(session, AUTOPILOT_DISMISS_ENTRY, event);
 	return publish(session);
 }
 
@@ -1242,7 +1223,7 @@ function methodsTable(): BridgeMethods {
 			[M.arm]: async (params, env) => arm(attach(env), parseArm(params)),
 			[M.configure]: async (params, env) => configure(attach(env), record(params) as AutopilotConfigureParams),
 			[M.note]: async (params, env) => note(attach(env), params),
-			[M.backlog]: async (params, env) => backlog(attach(env), record(params) as AutopilotBacklogParams),
+			[M.dismiss]: async (params, env) => dismissFollowup(attach(env), record(params)),
 			[M.setState]: async (params, env) => {
 				const p = record(params);
 				return setState(attach(env), p as unknown as AutopilotSetStateParams);

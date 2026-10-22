@@ -122,29 +122,6 @@ function all(selector: string): TestElement[] {
 	return Array.from(document.querySelectorAll(selector)) as unknown as TestElement[];
 }
 
-interface ReactProps {
-	onChange?: (event: object) => void;
-	onSubmit?: (event: object) => void;
-}
-
-/** linkedom fires no React synthetic events, so the test calls the element's own handlers. */
-function reactProps(element: Element | null): ReactProps {
-	const record = element as unknown as Record<string, unknown> | null;
-	const key = record ? Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$")) : undefined;
-	return record && key ? (record[key] as ReactProps) : {};
-}
-
-async function typeInto(selector: string, value: string): Promise<void> {
-	const input = document.querySelector(selector) as unknown as HTMLInputElement;
-	Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set?.call(input, value);
-	await act(async () => reactProps(input).onChange?.({ target: input, currentTarget: input }));
-}
-
-async function submit(selector: string): Promise<void> {
-	const form = document.querySelector(selector)?.closest("form") ?? null;
-	await act(async () => reactProps(form).onSubmit?.({ preventDefault() {} }));
-}
-
 function cycle(n: number, partial: Partial<AutopilotCycleRecord> = {}): AutopilotCycleRecord {
 	return {
 		n,
@@ -182,10 +159,6 @@ const status: AutopilotStatus = {
 		maxParallel: 3,
 	},
 	cycles: [cycle(1, { area: "design" }), cycle(2, { verify: "red", commit: undefined })],
-	backlog: [
-		{ id: "b1", text: "Keyboard access in settings", done: false },
-		{ id: "b2", text: "README screenshots", done: true, cycle: 1 },
-	],
 	totals: { tokens: 1_840_000, usd: 6.2 },
 	ship: {
 		policy: { autoPush: false, autoRelease: { on: false, cadence: { kind: "every", n: 5 } }, remote: "origin" },
@@ -196,7 +169,7 @@ const status: AutopilotStatus = {
 };
 
 describe("an Autopilot run on the work board", () => {
-	it("draws the head, the cycle in progress, the backlog, the cycles and shipping from the status", async () => {
+	it("draws the head, the cycle in progress, the focus areas, the cycles and shipping from the status", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply(status);
 		await mount();
@@ -206,7 +179,6 @@ describe("an Autopilot run on the work board", () => {
 		expect($('[data-board-section="autopilot"]')?.textContent).toContain(translate("autopilot.cycleN", { n: 3 }));
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain(translate("autopilot.area.performance"));
 		expect($("[data-autopilot-child]")).not.toBeNull();
-		expect(all("[data-backlog-item]")).toHaveLength(2);
 		await act(async () => $("[data-autopilot-focus-row]")?.click());
 		expect($('[data-focus-area="design"]')?.getAttribute("aria-pressed")).toBe("true");
 		expect(all("[data-autopilot-cycle]").map(row => row.getAttribute("data-autopilot-cycle"))).toEqual(["2", "1"]);
@@ -217,10 +189,10 @@ describe("an Autopilot run on the work board", () => {
 
 	it("keeps a fresh run to one-line rows: no empty-state sentences, no cycles section before the first cycle", async () => {
 		installMockOmp();
-		useAutopilotStore.getState().apply({ ...status, cycles: [], backlog: [], now: { n: 1, startedAt: Date.now() } });
+		useAutopilotStore.getState().apply({ ...status, cycles: [], now: { n: 1, startedAt: Date.now() } });
 		await mount();
 		expect($('[data-board-section="cycles"]')).toBeNull();
-		expect(all('[data-board-section="autopilot"] p, [data-board-section="backlog"] p')).toHaveLength(0);
+		expect(all('[data-board-section="autopilot"] p')).toHaveLength(0);
 	});
 
 	it("shows the picked item, what a cycle changed and why a reported green was not taken", async () => {
@@ -310,23 +282,11 @@ describe("an Autopilot run on the work board", () => {
 		expect($('[data-board-section="followups"] .omp-work-board-count')?.textContent).toBe("4");
 	});
 
-	it("pins or dismisses a follow-up, offers no pin for one already on the backlog, and nothing on an ended run", async () => {
+	it("dismisses a follow-up, and offers nothing on an ended run", async () => {
 		installMockOmp();
 		const followups = ["Fix the flaky resize test", "Trim the log"];
-		useAutopilotStore.getState().apply({
-			...status,
-			followups,
-			backlog: [{ id: "b1", text: "trim  the LOG ", done: false }],
-		});
+		useAutopilotStore.getState().apply({ ...status, followups });
 		await mount();
-		const pins = all("[data-autopilot-followup-pin]");
-		expect(pins).toHaveLength(1);
-		expect(all("[data-autopilot-followup] [data-autopilot-followup-pin]")).toHaveLength(1);
-		expect($("[data-autopilot-followup]:has([data-autopilot-followup-pin])")?.getAttribute("title")).toBe(
-			"Fix the flaky resize test",
-		);
-		await act(async () => pins[0]?.click());
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "backlog_add", text: "Fix the flaky resize test" });
 		expect(all("[data-autopilot-followup-dismiss]")).toHaveLength(2);
 		await act(async () => $("[data-autopilot-followup-dismiss]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "followup_dismiss", text: "Fix the flaky resize test" });
@@ -335,7 +295,6 @@ describe("an Autopilot run on the work board", () => {
 			useAutopilotStore.getState().apply({ ...status, followups, state: "ended", now: undefined }),
 		);
 		expect(all("[data-autopilot-followup]")).toHaveLength(2);
-		expect(all("[data-autopilot-followup-pin]")).toHaveLength(0);
 		expect(all("[data-autopilot-followup-dismiss]")).toHaveLength(0);
 	});
 
@@ -380,16 +339,13 @@ describe("an Autopilot run on the work board", () => {
 		expect($("[data-autopilot-controls]")).toBeNull();
 	});
 
-	it("adds a backlog item, and has no field for the next cycle (the composer says it)", async () => {
+	it("has no backlog and no field for the next cycle (the composer says it)", async () => {
 		installMockOmp();
-		useAutopilotStore.getState().apply(status);
+		useAutopilotStore.getState().apply({ ...status, followups: ["Trim the log"] });
 		await mount();
-		expect($("button[data-autopilot-send='backlog_add']")?.disabled).toBe(true);
-		expect(all("[data-board-section='autopilot'] input")).toHaveLength(0);
-
-		await typeInto("[data-autopilot-backlog-input]", "Fix the tab close race");
-		await submit("[data-autopilot-backlog-input]");
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "backlog_add", text: "Fix the tab close race" });
+		expect($('[data-board-section="backlog"]')).toBeNull();
+		expect(all("[data-work-board] input, [data-board-section] input")).toHaveLength(0);
+		expect(all("[data-autopilot-followup-pin]")).toHaveLength(0);
 	});
 
 	it("has no shipping section for a run that lands, and keeps its release under the run's rows", async () => {
