@@ -2,7 +2,7 @@
 
 [한국어](autopilot.ko.md) · [Back to the README](../README.md)
 
-Autopilot develops a project on its own, one cycle after another, until you end it. Each cycle audits the code, picks one item, implements it, runs the project's own check and commits. It works in a new git worktree, so your folder and your current branch are never touched.
+Autopilot develops a project on its own, one cycle after another, until you end it. Each cycle audits the code, picks the most valuable item plus any other independent ones it can finish alongside it (working on them side by side), implements them, runs the project's own check and commits each one. It works in a new git worktree, so your folder and your current branch are never touched.
 
 ## Start a run
 

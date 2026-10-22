@@ -823,7 +823,7 @@ export function beginHints(
 	}
 	if (facts.maxParallel !== 0 && facts.open.length >= 2) {
 		hints.push(
-			"Fan-out pays only when each item takes several minutes: a child costs about 20 s of set-up and its own copy of the context. Small items are faster and cheaper one after the other.",
+			"Child sessions pay only when each item takes several minutes: a child costs about 20 s of set-up and its own copy of the context. Run small independent items side by side as the task tool's subagents in this worktree instead, each on its own files.",
 		);
 	}
 	return hints;

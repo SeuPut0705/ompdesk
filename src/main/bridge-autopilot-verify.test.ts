@@ -318,7 +318,7 @@ describe("begin hints", () => {
 		expect(beginHints([docs, cycle(3)], facts)).toEqual([]);
 	});
 	it("fan-out advice only when fan-out is on and there are two items to tempt it", () => {
-		expect(beginHints([], { open: ["a", "b"], maxParallel: 2 }).join(" ")).toContain("Fan-out pays only");
+		expect(beginHints([], { open: ["a", "b"], maxParallel: 2 }).join(" ")).toContain("Child sessions pay only");
 		expect(beginHints([], { open: ["a", "b"], maxParallel: 0 })).toEqual([]);
 		expect(beginHints([], { open: ["a"], maxParallel: 2 })).toEqual([]);
 	});
