@@ -673,10 +673,11 @@
 
 /* What the board shows, its dock twin does not repeat: docked beside the pane, or as the status strip a pane without
    room for it shows (a phone, a narrow desktop window, the side panel open), whose line and panel hold the plan and
-   the running work. */
+   the running work. A todo card the person opened (Edit todos, or its own chevron) is the list to edit, which the
+   board does not offer, so only its collapsed one-line peek steps aside. */
 .omp-session-pane[data-work-board-running] [data-workspace-island],
-.omp-session-pane[data-work-board-todo] [data-dock-card="todo"],
-.omp-session-pane:has(.omp-work-strip) :is([data-dock-card="todo"], [data-workspace-island]) {
+.omp-session-pane[data-work-board-todo] [data-dock-card="todo"]:not([data-dock-expanded]),
+.omp-session-pane:has(.omp-work-strip) :is([data-dock-card="todo"]:not([data-dock-expanded]), [data-workspace-island]) {
 	display: none;
 }
 

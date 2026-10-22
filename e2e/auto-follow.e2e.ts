@@ -289,13 +289,20 @@ test("viewport resizes from the dock and composer never stop a pinned transcript
 		const { input, gap, viewport, jumpOffered, send, abort, fixture, scrollUp, ridesTheStream } = followProbe(page);
 		const dock = page.getByTestId("workspace-dock");
 		await expect(input).toBeVisible({ timeout: 60_000 });
-		// The dock's todo card is what resizes the viewport here; beside the work board or its status strip it steps
-		// aside (they say the plan instead), so the board is hidden for this window, as its ✕ or the palette does.
+		// The dock's todo card is what resizes the viewport here. Beside the work board or its status strip only its
+		// collapsed peek steps aside (they say the plan instead); Edit todos opens it to edit, the board or not.
 		const search = page.getByRole("dialog").getByRole("searchbox");
-		await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
-		await search.fill("Work board");
-		await page.getByRole("dialog").locator("button[data-palette-index]", { hasText: "Work board" }).first().click();
-		await expect(search).toBeHidden();
+		const editTodos = async () => {
+			await pressShortcutUntilVisible(page, "ControlOrMeta+k", search);
+			await search.fill("todo");
+			await page.getByRole("dialog").locator('button[data-command-name="todo"]').first().click();
+			await page
+				.getByRole("dialog")
+				.locator("button[data-palette-index]", { hasText: "Edit todos" })
+				.first()
+				.click();
+			await expect(search).toBeHidden();
+		};
 
 		await send("fixture stream");
 		await ridesTheStream(6);
@@ -311,22 +318,25 @@ test("viewport resizes from the dock and composer never stop a pinned transcript
 		await fixture("fixture:pause");
 		await settlesAtTail("held stream");
 
-		// The todo card appears between transcript and composer and takes its height
+		// Opened to edit, the todo card appears between transcript and composer and takes its height
 		// from the transcript viewport.
-		const before = await viewport();
 		await fixture("fixture:todo");
+		const before = await viewport();
+		await editTodos();
 		await expect(dock).toBeVisible();
 		await expect.poll(viewport).toBeLessThan(before);
 		await settlesAtTail("dock appeared");
 
-		// Expanding and collapsing a card resizes the viewport both ways.
+		// Collapsing the card (it steps aside for the board) and opening it again resizes the viewport both ways.
 		const card = dock.locator("button[aria-expanded]").first();
-		for (const step of ["toggled once", "toggled back"]) {
-			const height = await viewport();
-			await card.click();
-			await expect.poll(viewport).not.toBe(height);
-			await settlesAtTail(`dock card ${step}`);
-		}
+		const open = await viewport();
+		await card.click();
+		await expect.poll(viewport).toBeGreaterThan(open);
+		await settlesAtTail("dock card collapsed");
+		const closed = await viewport();
+		await editTodos();
+		await expect.poll(viewport).toBeLessThan(closed);
+		await settlesAtTail("dock card opened again");
 
 		// A growing composer shrinks the viewport the same way.
 		const height = await viewport();

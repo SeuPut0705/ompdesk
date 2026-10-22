@@ -84,6 +84,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 				hiddenForFocus && "opacity-75",
 			)}
 			data-dock-focused={focused || undefined}
+			data-dock-expanded={expanded || undefined}
 		>
 			<div className="sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-(--sc-elevated) px-3 py-1">
 				<button
