@@ -225,8 +225,8 @@ describe("Autopilot start sheet", () => {
 		const count = (selector: string) => document.querySelectorAll(`[data-autopilot-sheet] ${selector}`).length;
 		// Descriptions ride tooltips; the only paragraph left sits inside the closed ceilings disclosure.
 		expect(count("p:not(details p)")).toBe(0);
-		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(3);
-		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(3);
+		expect(count("[data-setting-row]")).toBeGreaterThanOrEqual(2);
+		expect(count("[data-setting-info]")).toBeGreaterThanOrEqual(2);
 		expect($("[data-autopilot-warning] .truncate")?.textContent).toBe(translate("autopilot.sheet.warningShort"));
 		// The release procedure is a glyph with the sentence as its name, not a line of text.
 		expect($("button[data-autopilot-no-procedure]")?.getAttribute("aria-label")).toBe(
@@ -236,7 +236,7 @@ describe("Autopilot start sheet", () => {
 		expect($("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
-	it("shows only Start with Advanced closed; shipping, branch, focus and backlog sit in that one disclosure, and no guide box", async () => {
+	it("shows only Start with Advanced closed; shipping, branch and focus sit in that one disclosure, and no guide box or backlog", async () => {
 		installMockOmp();
 		useAutopilotStore.getState().apply({
 			active: false,
@@ -254,14 +254,11 @@ describe("Autopilot start sheet", () => {
 		const has = (list: string[], key: string) => list.some(text => text.includes(translate(key)));
 		expect(outside).toHaveLength(0);
 		expect(sheet.querySelector("[data-autopilot-guide]")).toBeNull();
-		for (const key of [
-			"autopilot.sheet.ship",
-			"autopilot.sheet.branch",
-			"autopilot.sheet.focus",
-			"autopilot.sheet.backlog",
-		]) {
+		for (const key of ["autopilot.sheet.ship", "autopilot.sheet.branch", "autopilot.sheet.focus"]) {
 			expect(has(inside, key), `${key} inside`).toBe(true);
 		}
+		// No text box at all: what the run should do first is typed into the composer once it runs.
+		expect(sheet.querySelectorAll("textarea")).toHaveLength(0);
 		// Nothing to cap or limit: no parallel picker, no notifications, no ceilings, no remote field.
 		expect(sheet.querySelectorAll("select")).toHaveLength(0);
 		expect(sheet.querySelectorAll("input[type='number']")).toHaveLength(0);
@@ -281,24 +278,6 @@ describe("Autopilot start sheet", () => {
 		expect(document.body.textContent).toContain(
 			translate("autopilot.ship.preset.auto.descRemote", { remote: "origin" }),
 		);
-	});
-
-	it("changes no layout on blur: the backlog box keeps its rows and the sheet its row count", async () => {
-		installMockOmp();
-		useAutopilotStore.getState().apply({
-			active: false,
-			branches: { repo: "/work/app", remote: "origin", defaultBranch: "main", current: "main" },
-		});
-		await mount(<ComposerModes />);
-		await openSheet();
-		const sheet = $("[data-autopilot-sheet]") as unknown as Element;
-		const box = sheet.querySelector("textarea") as unknown as HTMLTextAreaElement;
-		await act(async () => handlersOf(box).onFocus?.({ target: box, currentTarget: box }));
-		const before = { rows: box.getAttribute("rows"), count: sheet.querySelectorAll("[data-setting-row]").length };
-		await act(async () => handlersOf(box).onBlur?.({ target: box, currentTarget: box }));
-		expect(box.getAttribute("rows")).toBe(before.rows);
-		expect(sheet.querySelectorAll("[data-setting-row]")).toHaveLength(before.count);
-		expect(sheet.querySelector("[data-settings-advanced]")?.getAttribute("open")).toBeNull();
 	});
 
 	it("holds Start back only outside a git repository: Plan mode or a Goal in this tab does not touch the run's own new tab", async () => {
@@ -346,19 +325,6 @@ describe("Autopilot start sheet", () => {
 			setFocusedSessionRuntime(null);
 		}
 	});
-
-	interface FieldHandlers {
-		onChange?: (event: object) => void;
-		onFocus?: (event: object) => void;
-		onBlur?: (event: object) => void;
-	}
-
-	/** linkedom fires no React synthetic events, so the test calls the element's own handlers, as React would. */
-	function handlersOf(element: HTMLTextAreaElement): FieldHandlers {
-		const record = element as unknown as Record<string, unknown>;
-		const key = Object.getOwnPropertyNames(record).find(name => name.startsWith("__reactProps$"));
-		return (key ? record[key] : {}) as FieldHandlers;
-	}
 
 	it("sends no guide: the app builds or completes AUTOPILOT.md itself at Start", async () => {
 		installMockOmp();
