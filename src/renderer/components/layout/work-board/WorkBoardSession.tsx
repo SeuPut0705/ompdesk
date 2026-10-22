@@ -233,19 +233,25 @@ function useUnlanded(): UnlandedSummary | null {
 	const { tools } = useRunStores();
 	const reread = useRef<number | null>(null);
 	const seenVersion = useRef(finishedVersion);
-	const seenCalls = useRef<Set<string> | null>(null);
+	// The calls finished before the board mounted are history: only a call that finishes after it counts.
+	const [mountedCalls] = useState(() => new Set(tools.getState().finishedTools.keys()));
+	const seenCalls = useRef(mountedCalls);
+	const seenHydration = useRef(tools.getState().hydrationVersion);
 	useEffect(() => {
 		if (finishedVersion === seenVersion.current) return;
 		seenVersion.current = finishedVersion;
 		// Only a call that can touch the checkout (an edit, a shell command, a subagent) moves what is unlanded.
+		// A transcript hydration replaces the map with history: those calls are seen, not new.
+		const { finishedTools, hydrationVersion } = tools.getState();
+		const history = hydrationVersion !== seenHydration.current;
+		seenHydration.current = hydrationVersion;
 		let touched = false;
-		const seen = seenCalls.current ?? new Set<string>();
-		for (const [key, entry] of tools.getState().finishedTools) {
+		const seen = seenCalls.current;
+		for (const [key, entry] of finishedTools) {
 			if (seen.has(key)) continue;
 			seen.add(key);
-			if (!LOOKS_ONLY.has(entry.toolName)) touched = true;
+			if (!history && !LOOKS_ONLY.has(entry.toolName)) touched = true;
 		}
-		seenCalls.current = seen;
 		if (!touched || !turnActive || reread.current) return;
 		reread.current = window.setTimeout(() => {
 			reread.current = null;

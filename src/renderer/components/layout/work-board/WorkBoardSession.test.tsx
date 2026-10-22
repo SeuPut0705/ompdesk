@@ -279,6 +279,32 @@ describe("Changed row", () => {
 		}));
 	}
 
+	it("never counts a call that finished before the board mounted as a new one", async () => {
+		vi.useFakeTimers();
+		try {
+			finishCall("old-edit", "edit");
+			await mount();
+			await act(async () => {
+				useTodoStore.getState().setTurnActive(true, Date.now());
+			});
+			await act(async () => finishCall("r1", "read"));
+			// A hydration brings older edits in as history.
+			await act(async () =>
+				useToolsStore.setState(state => ({
+					finishedTools: new Map([...state.finishedTools, ["older-bash", bash("git commit")]]),
+					finishedVersion: state.finishedVersion + 1,
+					hydrationVersion: state.hydrationVersion + 1,
+				})),
+			);
+			await act(async () => {
+				vi.advanceTimersByTime(10_000);
+			});
+			expect(getGitUnlanded).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("reads on mount, when a turn settles, and while it runs only after a call that can touch the checkout finishes, at most every 5 s", async () => {
 		vi.useFakeTimers();
 		try {
