@@ -16,6 +16,8 @@ export const AAA_TEXT = 7;
 export const UI_BOUNDARY = 3;
 /** How far a waiting session's warning title on the sidebar's selected row leans toward the text color. */
 export const SELECTED_WARNING_MIX = 0.2;
+/** How far a status color drawn as text on its own soft wash (`--sc-*-on-soft`: badges, chips) leans toward the text color. */
+export const STATUS_ON_SOFT_MIX = 0.35;
 
 /** The surfaces body text sits on. */
 const TEXT_SURFACES: ThemeTokenKey[] = [
@@ -130,6 +132,20 @@ export function contrastPairs(name: ThemeName): ContrastPair[] {
 		sidebarSelected,
 		text,
 	);
+
+	// Badges and chips: a status color as text on its own 12 % wash (`--sc-*-on-soft`), over every surface it is laid on
+	// and the sidebar's selected row (a waiting session's badge sits there).
+	for (const status of ["success", "warning", "error", "info", "accent"] as const) {
+		for (const base of [...TEXT_SURFACES.map(key => surface(theme, key)), sidebarSelected]) {
+			const bg = flatten(resolveTokenColor(theme, `--omp-${status}-dim`), base);
+			add(
+				`${status} badge on its wash over ${base}`,
+				mix(paint(theme, `--omp-${status}`, bg), surface(theme, "--omp-text"), STATUS_ON_SOFT_MIX),
+				bg,
+				text,
+			);
+		}
+	}
 
 	// The terminal's 16 colors on its surface (--sc-surface-1 = the sidebar).
 	const terminal = surface(theme, "--omp-sidebar-bg");

@@ -217,8 +217,8 @@ function toSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLin
 }
 
 const LINE_CLASS: Record<DiffLine["type"], string> = {
-	add: "bg-(--sc-success-soft) text-(--sc-success)",
-	remove: "bg-(--sc-danger-soft) text-(--sc-danger)",
+	add: "bg-(--sc-success-soft) text-(--sc-success-on-soft)",
+	remove: "bg-(--sc-danger-soft) text-(--sc-danger-on-soft)",
 	context: "text-(--sc-text-muted)",
 };
 

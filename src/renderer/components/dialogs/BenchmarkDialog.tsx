@@ -176,7 +176,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 						className={cx(
 							"rounded-(--sc-radius-md) border p-3 text-sc-sm",
 							error
-								? "border-(--sc-danger) bg-(--sc-danger-soft) text-(--sc-danger)"
+								? "border-(--sc-danger) bg-(--sc-danger-soft) text-(--sc-danger-on-soft)"
 								: "border-(--sc-border-subtle) text-(--sc-text-muted)",
 						)}
 					>

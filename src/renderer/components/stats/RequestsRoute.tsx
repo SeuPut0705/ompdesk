@@ -89,7 +89,7 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 				))}
 			</dl>
 			{row.errorMessage && (
-				<div className="mb-4 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-3 py-2 font-mono text-sc-xs break-words text-(--sc-danger)">
+				<div className="mb-4 rounded-(--sc-radius-md) bg-(--sc-danger-soft) px-3 py-2 font-mono text-sc-xs break-words text-(--sc-danger-on-soft)">
 					{row.errorMessage}
 				</div>
 			)}

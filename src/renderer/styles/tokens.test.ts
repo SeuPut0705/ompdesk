@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { STATUS_ON_SOFT_MIX } from "../lib/theme-contrast";
 import { SC_TOKEN_SOURCES, type ScTokenKey, scTokensFor, THEME_TOKEN_KEYS, THEMES } from "../lib/themes";
 
 type Scheme = "light" | "dark";
@@ -157,5 +158,15 @@ describe("hairline and spinner clock tokens", () => {
 	it("turns every spinner on one clock", () => {
 		expect(SHARED["--sc-motion-spin"]).toMatch(/^\d+ms$/);
 		expect(global).toMatch(/--animate-spin: spin var\(--sc-motion-spin\) linear infinite;/);
+	});
+});
+
+describe("status text on a soft wash", () => {
+	it("leans toward the text color as far as the contrast pairs measure", () => {
+		const status = Math.round((1 - STATUS_ON_SOFT_MIX) * 100);
+		for (const name of ["accent", "success", "warning", "danger", "info"])
+			expect(SHARED[`--sc-${name}-on-soft`]).toBe(
+				`color-mix(in srgb, var(--sc-${name}) ${status}%, var(--sc-text))`,
+			);
 	});
 });

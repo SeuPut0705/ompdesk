@@ -89,7 +89,7 @@ export function GoalDockBar({ inline = false }: { inline?: boolean }) {
 			</span>
 			{needsAnswer && !paused && (
 				<span
-					className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 text-sc-xs text-(--sc-warning)"
+					className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 text-sc-xs text-(--sc-warning-on-soft)"
 					data-goal-needs-answer
 				>
 					{t("dock.goal.needsAnswer")}

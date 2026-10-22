@@ -110,7 +110,7 @@ const QueueRow = memo(function QueueRow({
 				</button>
 				{moved && (
 					<span
-						className="max-w-full truncate rounded-full bg-(--sc-accent-soft) px-2 text-sc-xs whitespace-nowrap text-(--sc-accent)"
+						className="max-w-full truncate rounded-full bg-(--sc-accent-soft) px-2 text-sc-xs whitespace-nowrap text-(--sc-accent-on-soft)"
 						data-queue-moved-note
 					>
 						{t(moved.kind === "edit" ? "composerQueue.rowMoved" : "composerQueue.rowMovedLane", {

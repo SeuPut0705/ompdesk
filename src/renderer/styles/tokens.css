@@ -120,6 +120,13 @@
 	--sc-warning-soft: color-mix(in srgb, var(--sc-warning) 12%, transparent);
 	--sc-danger-soft: color-mix(in srgb, var(--sc-danger) 12%, transparent);
 	--sc-info-soft: color-mix(in srgb, var(--sc-info) 12%, transparent);
+	/* A status color as text on its own soft wash (badges, chips): a third toward the text color, so small type on the
+	   wash holds 4.5:1 over every surface, the sidebar's selected row included (lib/theme-contrast.ts STATUS_ON_SOFT_MIX). */
+	--sc-accent-on-soft: color-mix(in srgb, var(--sc-accent) 65%, var(--sc-text));
+	--sc-success-on-soft: color-mix(in srgb, var(--sc-success) 65%, var(--sc-text));
+	--sc-warning-on-soft: color-mix(in srgb, var(--sc-warning) 65%, var(--sc-text));
+	--sc-danger-on-soft: color-mix(in srgb, var(--sc-danger) 65%, var(--sc-text));
+	--sc-info-on-soft: color-mix(in srgb, var(--sc-info) 65%, var(--sc-text));
 
 	/* ── --omp-* compatibility aliases ──────────────────────────────────
 	   Unmigrated surfaces keep reading --omp-*; each resolves to its --sc-*

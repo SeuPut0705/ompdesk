@@ -16,11 +16,11 @@ export type BadgeVariant = "default" | "accent" | "success" | "warning" | "error
 
 const VARIANT_CLASSES: Record<BadgeVariant, string> = {
 	default: "bg-(--sc-surface-3) text-(--sc-text-secondary)",
-	accent: "bg-(--sc-accent-soft) text-(--sc-accent)",
-	success: "bg-(--sc-success-soft) text-(--sc-success)",
-	warning: "bg-(--sc-warning-soft) text-(--sc-warning)",
-	error: "bg-(--sc-danger-soft) text-(--sc-danger)",
-	info: "bg-(--sc-info-soft) text-(--sc-info)",
+	accent: "bg-(--sc-accent-soft) text-(--sc-accent-on-soft)",
+	success: "bg-(--sc-success-soft) text-(--sc-success-on-soft)",
+	warning: "bg-(--sc-warning-soft) text-(--sc-warning-on-soft)",
+	error: "bg-(--sc-danger-soft) text-(--sc-danger-on-soft)",
+	info: "bg-(--sc-info-soft) text-(--sc-info-on-soft)",
 	muted: "bg-transparent text-(--sc-text-muted)",
 };
 

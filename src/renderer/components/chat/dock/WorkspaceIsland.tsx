@@ -78,7 +78,7 @@ export function WorkspaceIsland() {
 					)}
 					{needsYou > 0 && (
 						<span
-							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning)"
+							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning-on-soft)"
 							data-island-needs-you
 						>
 							{t("dock.island.needsYou", { count: needsYou })}
@@ -104,7 +104,7 @@ export function WorkspaceIsland() {
 					)}
 					{opened.counts.waiting > 0 && (
 						<span
-							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning)"
+							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning-on-soft)"
 							data-island-sessions-need-you
 						>
 							{t("dock.island.needsYou", { count: opened.counts.waiting })}

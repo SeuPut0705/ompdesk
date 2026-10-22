@@ -33,7 +33,7 @@ export function FocusChips({
 							"inline-flex h-6 items-center rounded-full border text-sc-xs transition-colors disabled:opacity-50",
 							compact ? "gap-1 px-1.5" : "gap-1 px-2",
 							on
-								? "border-(--sc-accent) bg-(--sc-accent-soft) text-(--sc-accent)"
+								? "border-(--sc-accent) bg-(--sc-accent-soft) text-(--sc-accent-on-soft)"
 								: "border-(--sc-border) text-(--sc-text-secondary) hover:bg-(--sc-surface-2)",
 						)}
 						data-focus-area={area}
