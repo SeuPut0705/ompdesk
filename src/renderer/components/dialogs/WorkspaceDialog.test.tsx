@@ -261,6 +261,18 @@ describe("WorkspaceDialog rows", () => {
 		omp.sessions.list.mockImplementation(async () => []);
 	});
 
+	it("finds a Hangul folder that macOS spells decomposed by a composed query", async () => {
+		seedTab();
+		omp.sessions.list.mockResolvedValue([
+			sessionAt("/Users/kim/code/app"),
+			sessionAt("/Users/kim/code/\uD55C\uAE00".normalize("NFD")),
+		]);
+		await mount("switch");
+		await type("한글");
+		expect(options()).toHaveLength(1);
+		omp.sessions.list.mockImplementation(async () => []);
+	});
+
 	it("finds a project as it is typed and opens the one the arrows reach with Enter", async () => {
 		seedTab();
 		useSessionStore.setState({ cwd: "/Users/kim/code/app" });

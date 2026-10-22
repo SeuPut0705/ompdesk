@@ -96,7 +96,8 @@ export function WorkspaceDialog({
 		return workspaces
 			.map((ws, order) => {
 				const name = device === undefined ? projectNameOf(ws.cwd).name : ws.name;
-				return { ws, order, score: match(`${ws.cwd}/${name}`, false)?.score };
+				// macOS spells Hangul folder names decomposed (NFD); the matcher reads both sides composed.
+				return { ws, order, score: match(`${ws.cwd}/${name}`.normalize("NFC"), false)?.score };
 			})
 			.filter((row): row is { ws: WorkspaceRow; order: number; score: number } => row.score !== undefined)
 			.sort((a, b) => b.score - a.score || a.order - b.order)
