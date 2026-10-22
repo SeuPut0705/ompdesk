@@ -39,7 +39,7 @@ describe("CappedRows", () => {
 		const items = ["a", "b", "c", "d", "e"];
 		await act(async () =>
 			root?.render(
-				<I18nProvider language="en">
+				<I18nProvider>
 					<ul>
 						<li>
 							<button type="button">before</button>
