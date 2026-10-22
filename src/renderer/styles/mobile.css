@@ -1402,9 +1402,10 @@ html[data-shell="phone"][data-input="touch"] .omp-work-findings {
 	margin-top: 1px;
 }
 
-/* A work card's Steps toggle (24 px on a phone) reaches 6 px up and down, the head's own padding: unbounded it reached
-   10 and took the top of the findings row under the head, whose chips then took its bottom edge. */
-html[data-shell="phone"][data-input="touch"] .omp-work-head-side {
+/* A work card's Steps toggle reaches 6 px up and down, within the head's own padding (6 px on a phone, 8 elsewhere):
+   on a phone (24 px) unbounded it reached 10 and took the top of the findings row under the head, whose chips then
+   took its bottom edge; on a tablet (28 px) the live card's 4 px bound left it 32. */
+html[data-input="touch"] .omp-work-head-side {
 	--hit-gap-y: 12px;
 }
 
