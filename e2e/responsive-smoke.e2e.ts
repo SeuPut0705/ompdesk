@@ -27,6 +27,7 @@ const KEY_SURFACES = [
 	"transcript-stress",
 	"composer-mode-plan",
 	"model-picker",
+	"image-viewer",
 	"panel-files",
 	"settings-general",
 	"agents-live",

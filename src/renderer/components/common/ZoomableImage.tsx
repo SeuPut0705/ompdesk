@@ -198,7 +198,9 @@ export function ZoomableImage({
 				open={open}
 				panelClassName={cx(
 					"max-w-none bg-(--sc-bg)",
-					pane ? "h-full w-full max-h-full" : "h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)]",
+					// `!`: the full size's own rule (100dvh − 2rem, unlayered) would otherwise outgrow a pane under the title
+					// bar and cut the viewer's bottom edge off.
+					pane ? "h-full! w-full! max-h-full!" : "h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)]",
 				)}
 				size="full"
 			>
@@ -239,7 +241,8 @@ export function ZoomableImage({
 						)}
 						<IconButton icon={<X />} label={t("common.close")} onClick={close} size="sm" />
 					</div>
-					<div className="relative min-h-0 flex-1">
+					{/* Clear of a phone's or tablet's home bar. */}
+					<div className="relative mb-(--safe-b,0px) min-h-0 flex-1">
 						<div className="absolute inset-0 flex overflow-auto">
 							<button
 								aria-label={t(actualSize ? "image.fit" : "image.actualSize")}

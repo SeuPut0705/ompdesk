@@ -191,6 +191,24 @@ export const SURFACES: readonly Surface[] = [
 		settle: 900,
 	},
 	{
+		id: "image-viewer",
+		area: "A",
+		title: "A picture full size (the stress turns' mermaid diagram) under its own bar",
+		open: async page => {
+			await page.evaluate(() => {
+				const row = document.querySelector("[data-transcript-kind]");
+				let node = row?.parentElement ?? null;
+				while (node && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) node = node.parentElement;
+				if (node) node.scrollTop = node.scrollHeight;
+			});
+			const picture = page.locator("[data-zoomable-image]").last();
+			await picture.waitFor({ state: "visible", timeout: 15_000 });
+			await picture.click();
+		},
+		ready: "[data-image-viewer-head]",
+		settle: 600,
+	},
+	{
 		id: "composer-mode-plan",
 		area: "A",
 		title: "Mode popover › Plan",

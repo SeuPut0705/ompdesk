@@ -1335,11 +1335,13 @@ html[data-shell="phone"][data-input="touch"] [data-figure-header] :is([data-figu
 }
 
 /* The picture viewer's bar (common/ZoomableImage.tsx): on touch its buttons sit 10 px apart (14 on a phone, whose icon
-   buttons draw 24 px) and reach the 40 px bar's height, so each is a 36 px target that takes no neighbour's tap. */
+   buttons draw 24 px) in a bar 16 px taller than they are, reaching 8 px up and down, so each is a 36 px target that
+   takes no neighbour's tap. */
 html[data-input="touch"] [data-image-viewer-head] {
+	height: calc(var(--sc-control-sm) + 16px);
 	gap: 10px;
 	--hit-gap-x: 10px;
-	--hit-gap-y: 0px;
+	--hit-gap-y: 16px;
 }
 
 html[data-shell="phone"][data-input="touch"] [data-image-viewer-head] {
