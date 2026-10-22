@@ -43,7 +43,7 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
-import type { IpcHostedSession } from "../../shared/ipc-types";
+import type { HostLiveSession, IpcHostedSession } from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
@@ -119,6 +119,8 @@ import {
 	encodeBinaryRead,
 	GIT_METHODS,
 	KEPT_TABS_METHOD,
+	LIVE_SESSIONS_EVENT,
+	LIVE_SESSIONS_METHOD,
 	type KeptTab,
 	MEMORY_METHODS,
 	MemoryConclusionPullParams,
@@ -160,6 +162,8 @@ import { FrameTooLargeError } from "./wire";
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
 /** Session-index changes come in bursts while an agent writes; one push per burst. */
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
+/** A turn's start, its tool calls' asks and its end come in bursts: one push of the live sessions per burst. */
+export const LIVE_SESSIONS_DEBOUNCE_MS = 250;
 /** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
 
@@ -231,6 +235,8 @@ export interface HostServicesDeps {
 	 * after this computer restarts still spends its device's quota. Absent: kept in memory only.
 	 */
 	runChargesFile?: string;
+	/** The sessions this computer's own windows work on now (`SidecarPool.liveSessions`), for `liveSessions`. */
+	windowLiveSessions?: () => HostLiveSession[];
 }
 
 /** A call of the omp's that a device answers; `delivered` once a connection was handed it. */
@@ -448,6 +454,9 @@ export class LocalHostServices implements HostServices {
 	readonly #hostedListeners = new Set<() => void>();
 	/** `hostedSessions` as last announced: a listener hears only a real change. */
 	#hostedSnapshot = "[]";
+	/** `liveSessions` as last sent to the devices, and the timer that batches a burst of changes into one push. */
+	#liveSnapshot = "[]";
+	#liveTimer: NodeJS.Timeout | undefined;
 	#quota: PeerQuota | null = null;
 	#memory: HostMemory | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
@@ -697,7 +706,46 @@ export class LocalHostServices implements HostServices {
 		};
 	}
 
+	/**
+	 * The sessions this computer works on now, from its windows' tabs and the tabs it runs for every device: what a
+	 * device's section of this computer lights for rows no tab of the device holds. Waiting beats a turn, a turn beats
+	 * background work, when a window and a device's tab name the same file.
+	 */
+	liveSessions(): HostLiveSession[] {
+		const rank = { waiting: 3, turn: 2, background: 1 } as const;
+		const live = new Map<string, HostLiveSession["state"]>();
+		const add = (sessionPath: string, state: HostLiveSession["state"]) => {
+			const known = live.get(sessionPath);
+			if (!known || rank[state] > rank[known]) live.set(sessionPath, state);
+		};
+		for (const session of this.#deps.windowLiveSessions?.() ?? []) add(session.sessionPath, session.state);
+		for (const tab of this.#tabs.values()) {
+			if (tab.sessionFile === undefined || tab.viewsWindow) continue;
+			if (tab.asks.size > 0) add(tab.sessionFile, "waiting");
+			else if (tab.run.running) add(tab.sessionFile, runSettling(tab.run) ? "background" : "turn");
+		}
+		return [...live].map(([sessionPath, state]) => ({ sessionPath, state }));
+	}
+
+	/**
+	 * Something a session's work hangs on changed (a turn, background work, an ask, here or in a window): every
+	 * connected device hears the new list once a burst settles (`LIVE_SESSIONS_DEBOUNCE_MS`), and only when it differs.
+	 */
+	liveSessionsChanged(): void {
+		if (this.#liveTimer) return;
+		this.#liveTimer = setTimeout(() => {
+			this.#liveTimer = undefined;
+			const sessions = this.liveSessions();
+			const snapshot = JSON.stringify(sessions);
+			if (snapshot === this.#liveSnapshot) return;
+			this.#liveSnapshot = snapshot;
+			for (const conn of this.#conns) emitSafely(conn, LIVE_SESSIONS_EVENT, { sessions });
+		}, LIVE_SESSIONS_DEBOUNCE_MS);
+		this.#liveTimer.unref?.();
+	}
+
 	#hostedChanged(): void {
+		this.liveSessionsChanged();
 		const snapshot = JSON.stringify(this.hostedSessions());
 		if (snapshot === this.#hostedSnapshot) return;
 		this.#hostedSnapshot = snapshot;
@@ -816,6 +864,8 @@ export class LocalHostServices implements HostServices {
 			}
 			case KEPT_TABS_METHOD:
 				return { tabs: this.#keptTabs(peer) };
+			case LIVE_SESSIONS_METHOD:
+				return { sessions: this.liveSessions() };
 			case "tab.cancelWait":
 				this.#resume?.cancelWait(this.#tab(peer, parse(RtabParams, method, params).rtab).resumeId);
 				return null;
@@ -1128,6 +1178,8 @@ export class LocalHostServices implements HostServices {
 		for (const key of [...this.#tabs.keys()]) this.#closeTab(key);
 		clearTimeout(this.#sessionsTimer);
 		this.#sessionsTimer = undefined;
+		clearTimeout(this.#liveTimer);
+		this.#liveTimer = undefined;
 		this.#conns.clear();
 	}
 

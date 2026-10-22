@@ -58,8 +58,11 @@
  *   `host.memory.conclusions.push {conclusions}` → MemoryConclusionPushReply (insert-if-absent on the host's
  *   server: `written`, `same`, `skipped`, or `failed`). A host with memory off answers `{memory: false}`.
  *
+ * - The sessions the host works on now (any of its windows' tabs, the tabs it runs for any device):
+ *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
+ *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed` and `host.projects.changed`.
+ * `host.schedules.changed`, `host.projects.changed` and `host.liveSessions`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -134,6 +137,18 @@ export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
 export const SCHEDULES_EVENT = "host.schedules.changed";
 /** The host's sidebar project list changed (data: SidebarProjectsState); sent to every connected device. */
 export const PROJECTS_EVENT = "host.projects.changed";
+/**
+ * The sessions this computer works on now changed (data: {@link LiveSessionsReply}): its windows' tabs and the tabs it
+ * runs for any device, sent to every connected device so a row no tab of theirs holds still shows the work. An older
+ * device drops the name. `sessions.live {}` answers the same list (a device reads it as its link comes up).
+ */
+export const LIVE_SESSIONS_EVENT = "host.liveSessions";
+export const LIVE_SESSIONS_METHOD = "sessions.live";
+export const HostLiveSessionSchema = z.object({
+	sessionPath: z.string().min(1),
+	state: z.enum(["turn", "background", "waiting"]),
+});
+export const LiveSessionsReply = z.object({ sessions: z.array(z.unknown()) });
 /** This computer's device name changed (data: `{name}`); sent to every connected device. */
 export const HOST_NAME_EVENT = "host.name";
 /**

@@ -9,6 +9,8 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { generateKeyPair } from "./crypto";
+import { LIVE_SESSIONS_EVENT } from "./app-protocol";
+import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
@@ -348,6 +350,36 @@ describe("the tabs a host keeps for this device", () => {
 		);
 		expect(await a.devices.keptTabs(hostId)).toEqual([KEPT]);
 		expect(b.services.call.mock.calls.some(call => call[1] === "tabs.kept")).toBe(true);
+	});
+
+	it("shows what the host works on now: read as the link comes up, then as the host pushes it, gone while offline", async () => {
+		const { a, b } = await rig.pair();
+		b.services.call.mockImplementation(async (_peer, method) =>
+			method === "sessions.live" ? { sessions: [{ sessionPath: "/s/a.jsonl", state: "turn" }, { state: 7 }] } : null,
+		);
+		await a.devices.connect("nSTUDIO");
+		const read = await until(a, state => state.hosts[0]?.live !== undefined);
+		expect(read.hosts[0]?.live).toEqual([{ sessionPath: "/s/a.jsonl", state: "turn" }]);
+
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		conn.emit(LIVE_SESSIONS_EVENT, { sessions: [{ sessionPath: "/s/b.jsonl", state: "waiting" }] });
+		const pushed = await until(a, state => state.hosts[0]?.live?.[0]?.sessionPath === "/s/b.jsonl");
+		expect(pushed.hosts[0]?.live).toEqual([{ sessionPath: "/s/b.jsonl", state: "waiting" }]);
+
+		// While the link is down nobody knows what the host does: its rows go quiet instead of staying lit.
+		await b.devices.setHostEnabled(false);
+		const offline = await until(a, state => state.hosts[0]?.state !== "online");
+		expect(offline.hosts[0]?.live).toBeUndefined();
+	});
+
+	it("shows no live sessions from a host that does not know them (an older OMPdesk)", async () => {
+		const { a, b } = await rig.pair();
+		b.services.call.mockImplementation(async () => {
+			throw codedError("unsupported", "Unknown method sessions.live");
+		});
+		await a.devices.connect("nSTUDIO");
+		const online = await until(a, state => state.hosts[0]?.state === "online");
+		expect(online.hosts[0]?.live).toBeUndefined();
 	});
 
 	it("answers null for a host that does not know the method (an older OMPdesk), and rejects for one that is away", async () => {

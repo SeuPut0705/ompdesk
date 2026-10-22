@@ -31,6 +31,7 @@ The computer that shares itself listens on its Tailscale addresses only, never o
 - If a device disconnects, its tabs keep running for 10 minutes, waiting for it to come back.
 - With **Continue interrupted work after relaunch** on (the default), quitting or updating OMPdesk on the computer you sit at leaves its remote tabs running on the other computer, and they come back on the next launch. With it off, quitting asks first and then stops them.
 - The computer that runs the work shows those sessions in its own sidebar too, and you can type in them there; a question is answered by whichever side answers first.
+- A session the other computer is working on shows it in your sidebar (the moving light and the working circle, or the waiting colour for a question) even before you open it.
 - An Autopilot run in the other computer's folder belongs to that computer: it keeps running when you close it here, and its replies count against this device's daily limit until it ends.
 - **Limits** on a device's row caps how much of this computer's models it may use a day, in requests and tokens.
 - Memory is shared: rules, decisions and each turn's conclusion saved on one computer are recalled on the other, while memory is on at both.

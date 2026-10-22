@@ -22,6 +22,7 @@ import { hostname } from "node:os";
 import { z } from "zod";
 import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
+	type HostLiveSession,
 	type HostView,
 	IPC_EVENTS,
 	type IpcHostOmpUpdate,
@@ -50,9 +51,13 @@ import {
 	DEVICE_RENAME_EVENT,
 	DeviceNameSchema,
 	HOST_NAME_EVENT,
+	HostLiveSessionSchema,
 	KEPT_TABS_METHOD,
 	KeptTab,
 	KeptTabsReply,
+	LIVE_SESSIONS_EVENT,
+	LIVE_SESSIONS_METHOD,
+	LiveSessionsReply,
 	NAME_METHODS,
 	NameParams,
 	OMP_UPDATE_EVENT,
@@ -170,6 +175,8 @@ interface HostLink {
 	tabs: Map<string, RemoteSidecar>;
 	/** Tabs closed here while the host was unreachable; it is told when the link is back. */
 	closes: PendingTabCloses;
+	/** The host's sessions whose work goes on now (`host.liveSessions`); unset while offline or from an older host. */
+	live?: HostLiveSession[];
 }
 
 export class RemoteDevices {
@@ -871,9 +878,12 @@ export class RemoteDevices {
 		const link: HostLink = { client, tabs: new Map(), closes: new PendingTabCloses() };
 		client.on("state", state => {
 			for (const tab of link.tabs.values()) tab.linkStateChanged(state);
+			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
+			if (state !== "online") link.live = undefined;
 			this.#broadcastState();
 			if (state !== "online") return;
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
+			void this.#readLiveSessions(link);
 			// Its session list went stale while it was away (or never loaded).
 			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, undefined);
 			for (const listener of this.#hostOnline) listener(deviceId);
@@ -897,6 +907,10 @@ export class RemoteDevices {
 					const update: IpcHostSchedules = { device: deviceId, state: state.data };
 					this.#deps.broadcast(IPC_EVENTS.HOST_SCHEDULES_STATE, update);
 				}
+				return;
+			}
+			if (event === LIVE_SESSIONS_EVENT) {
+				this.#setLiveSessions(link, data);
 				return;
 			}
 			if (event === PROJECTS_EVENT) {
@@ -940,8 +954,28 @@ export class RemoteDevices {
 		this.#links.delete(deviceId);
 	}
 
+	/** The host's live sessions as the link comes up; a host that does not know the method (older OMPdesk) sends none. */
+	async #readLiveSessions(link: HostLink): Promise<void> {
+		try {
+			this.#setLiveSessions(link, await link.client.request<unknown>(LIVE_SESSIONS_METHOD, {}));
+		} catch {
+			// unsupported, or the link dropped again: the next push or link-up says it.
+		}
+	}
+
+	#setLiveSessions(link: HostLink, data: unknown): void {
+		const reply = LiveSessionsReply.safeParse(data);
+		if (!reply.success || link.client.state !== "online") return;
+		link.live = reply.data.sessions.flatMap(entry => {
+			const session = HostLiveSessionSchema.safeParse(entry);
+			return session.success ? [session.data] : [];
+		});
+		this.#broadcastState();
+	}
+
 	#hostView(deviceId: string): HostView | null {
-		const client = this.#links.get(deviceId)?.client;
+		const link = this.#links.get(deviceId);
+		const client = link?.client;
 		if (!client) return null;
 		const view = toHostView(deviceId, client.host.name, client.state);
 		if (client.hello) {
@@ -950,6 +984,7 @@ export class RemoteDevices {
 			// Only while connected: the last hello says nothing of a host that may have updated since.
 			if (client.state === "online") view.appVersion = client.hello.appVersion;
 		}
+		if (client.state === "online" && link.live) view.live = link.live;
 		return view;
 	}
 

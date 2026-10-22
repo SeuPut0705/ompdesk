@@ -12,6 +12,7 @@ import type {
 	CustomProvidersConfig,
 	CustomProviderView,
 	HostDesktopState,
+	HostLiveSession,
 	HostUpdateAction,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
@@ -47,6 +48,7 @@ import { withRemovalClaim } from "../worktree-removals";
 import {
 	AUTOPILOT_NOTICE_EVENT,
 	decodeBinaryRead,
+	LIVE_SESSIONS_EVENT,
 	MemoryConclusionPullReply,
 	MemoryPullReply,
 	OMP_UPDATE_EVENT,
@@ -57,7 +59,7 @@ import {
 	TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection } from "./host-server";
-import { type HostServicesDeps, LocalHostServices } from "./host-services";
+import { type HostServicesDeps, LIVE_SESSIONS_DEBOUNCE_MS, LocalHostServices } from "./host-services";
 import type { HostedTabView } from "./hosted-view";
 import { createLinkEventDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
@@ -1965,6 +1967,55 @@ describe("LocalHostServices for this computer's own windows", () => {
 		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
 		expect(services.hostedSessions()).toEqual([]);
 		expect(changed).toHaveBeenCalled();
+	});
+
+	it("tells every device which of its sessions work now, from its windows and the tabs it runs for devices", async () => {
+		vi.useFakeTimers();
+		let windows: HostLiveSession[] = [{ sessionPath: "/s/window.jsonl", state: "background" }];
+		const { services, sidecars } = setup(60_000, { windowLiveSessions: () => windows });
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("session", { sessionId: "s1", sessionFile: SESSION, sessionName: "Fix login" });
+		// Another device, which runs nothing here, reads the list as its link comes up.
+		expect(await services.call(y.peer, "sessions.live", {}, y)).toEqual({
+			sessions: [{ sessionPath: "/s/window.jsonl", state: "background" }],
+		});
+		const pushed = (conn: FakeConnection) =>
+			conn.events.filter(entry => entry.event === LIVE_SESSIONS_EVENT).map(entry => entry.data);
+
+		// x's tab starts a turn, then an ask opens in it: one push per burst, to both devices.
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		sidecar.emit("extensionUi", ask("ask-1"));
+		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
+		const waiting = {
+			sessions: [
+				{ sessionPath: "/s/window.jsonl", state: "background" },
+				{ sessionPath: SESSION, state: "waiting" },
+			],
+		};
+		expect(pushed(x)).toEqual([waiting]);
+		expect(pushed(y)).toEqual([waiting]);
+
+		// A window's turn ends, and a window takes up the same session the device's tab waits on: waiting still wins.
+		windows = [{ sessionPath: SESSION, state: "turn" }];
+		services.liveSessionsChanged();
+		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
+		expect(pushed(y).at(-1)).toEqual({ sessions: [{ sessionPath: SESSION, state: "waiting" }] });
+
+		// Nothing changed: nothing is sent again.
+		services.liveSessionsChanged();
+		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
+		expect(pushed(y)).toHaveLength(2);
+
+		windows = [];
+		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
+		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
+		expect(pushed(y).at(-1)).toEqual({ sessions: [] });
 	});
 
 	it("shows a hosted tab in a window here: its stream and commands, never its host tool calls, and leaving stops nothing", async () => {

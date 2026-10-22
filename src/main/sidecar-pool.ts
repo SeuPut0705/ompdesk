@@ -52,6 +52,7 @@ import {
 } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { codedError } from "../shared/ipc-error-codes";
 import {
+	type HostLiveSession,
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
 	type IpcOpenExtensionRequest,
@@ -2103,6 +2104,26 @@ export class SidecarPool {
 			if (entry.openedBy) fact.openedBy = entry.openedBy;
 			if (entry.openedBySession) fact.openedBySession = entry.openedBySession;
 			return [fact];
+		});
+	}
+
+	/**
+	 * The sessions this computer's windows work on now (a turn, background work, an open ask), for the devices paired
+	 * to it (`LocalHostServices.liveSessions`). A tab on a paired host and a view of a device's tab here are left out:
+	 * the host, and this computer's own list of the tabs it runs for devices, say those.
+	 */
+	liveSessions(): HostLiveSession[] {
+		const asking = new Set(this.#requestOwners.values());
+		return [...this.#entries].flatMap(entry => {
+			if (entry.device || entry.hostedView || !entry.sessionFile) return [];
+			const state: HostLiveSession["state"] | null = asking.has(entry)
+				? "waiting"
+				: entry.run.running
+					? runSettling(entry.run)
+						? "background"
+						: "turn"
+					: null;
+			return state ? [{ sessionPath: entry.sessionFile, state }] : [];
 		});
 	}
 

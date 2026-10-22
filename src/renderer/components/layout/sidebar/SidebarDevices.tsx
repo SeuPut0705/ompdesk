@@ -377,6 +377,10 @@ function DeviceSessions({
 		return result;
 	}, [rows, mode, projectList, query, hostTabs]);
 
+	// What the host works on now (its windows' tabs, the tabs it runs for any device): a row no tab here holds still
+	// wears the working cue, without a tap to open it first.
+	const hostLive = useMemo(() => new Map(host.live?.map(session => [session.sessionPath, session.state])), [host.live]);
+
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
 		hostTabs.find(
 			tab => tab.id === session.liveTabId || tab.sessionPath === session.path || tab.sessionId === session.id,
@@ -442,6 +446,11 @@ function DeviceSessions({
 	const renderRow = (session: DeviceSession) => {
 		const tab = tabFor(session);
 		const signal = tab ? tabSignalPresentation(tab) : null;
+		const live = tab ? undefined : hostLive.get(session.path);
+		const waiting = tab ? tab.awaitingInput !== undefined : live === "waiting";
+		const running = tab ? signal?.running === true && !waiting : live === "turn" || live === "background";
+		const settling = tab ? tab.settling === true : live === "background";
+		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;
 		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
 		const inVisibleSplit = !current && tab !== undefined && splitIds?.has(tab.id) === true;
@@ -455,10 +464,10 @@ function DeviceSessions({
 		const age = (
 			<TabLiveAge
 				iso={indexed ? session.modified : null}
-				running={signal?.running === true && tab?.awaitingInput === undefined}
-				settling={tab?.settling === true}
+				running={running}
+				settling={settling}
 				tabId={tab?.id ?? null}
-				waiting={tab?.awaitingInput !== undefined}
+				waiting={waiting}
 			/>
 		);
 		// A row the host has not written to disk yet has no file to delete; closing its tab is all there is.
@@ -549,18 +558,12 @@ function DeviceSessions({
 				selected={active}
 				title={
 					<>
-						<TabLiveTitle
-							running={signal?.running === true && tab?.awaitingInput === undefined}
-							settling={tab?.settling === true}
-							tabId={tab?.id ?? null}
-							text={title}
-							waiting={tab?.awaitingInput !== undefined}
-						/>
-						{signal?.running && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
-						{openElsewhere && !signal?.running && <span className="sr-only">, {t("sidebar.row.open")}</span>}
+						<TabLiveTitle running={running} settling={settling} tabId={tab?.id ?? null} text={title} waiting={waiting} />
+						{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
+						{openElsewhere && !working && <span className="sr-only">, {t("sidebar.row.open")}</span>}
 					</>
 				}
-				titleText={[title, openElsewhere && !signal?.running ? t("sidebar.row.open") : null]
+				titleText={[title, openElsewhere && !working ? t("sidebar.row.open") : null]
 					.filter(Boolean)
 					.join("\n")}
 			/>

@@ -2956,6 +2956,47 @@ describe("Sidebar device sections", () => {
 		expect(container.querySelector('[data-sidebar-device-add="dev-studio"]')).not.toBeNull();
 	});
 
+	it("lights a host's session that no tab here holds while the host works on it, before anyone opens it", async () => {
+		installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const row = () =>
+			container.querySelector('[data-device-session="/Users/kim/.omp/agent/sessions/app/one.jsonl"]') as Element;
+		expect(slotOf(row())).toBe("age");
+
+		const live = (state: "turn" | "background" | "waiting") =>
+			act(async () => {
+				const remote = useRemoteStore.getState().state;
+				if (!remote) throw new Error("no remote state");
+				useRemoteStore.getState().apply({
+					...remote,
+					hosts: [
+						{
+							deviceId: "dev-studio",
+							name: "studio",
+							state: "online",
+							live: [{ sessionPath: "/Users/kim/.omp/agent/sessions/app/one.jsonl", state }],
+						},
+					],
+				});
+			});
+		await live("turn");
+		expect(slotOf(row())).toBe("turn");
+		expect(row().textContent).toContain(translate("sidebar.signal.running"));
+		await live("background");
+		expect(slotOf(row())).toBe("background");
+		await live("waiting");
+		expect(slotOf(row())).toBe("age");
+		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
+
+		// The host no longer says it works on it (or the link went down): the row goes quiet.
+		pairHost("online");
+		await act(async () => {});
+		expect(slotOf(row())).toBe("age");
+		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBeNull();
+	});
+
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
 		const omp = installWithRemote();
 		seedStores();

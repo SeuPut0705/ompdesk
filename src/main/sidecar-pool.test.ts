@@ -2319,6 +2319,30 @@ describe("SidecarPool background tabs", () => {
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("awaitingConnection");
 		});
 
+		it("lists the sessions its windows work on for the paired devices: a turn, background work, an open ask", async () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			pool.acquire("/b", fw.win, "tab-b");
+			const a = sidecars[0];
+			a?.emitStatus("ready");
+			sidecars[1]?.emitStatus("ready");
+			// A tab with no file yet has nothing a device could list.
+			sidecars[1]?.emitAgentEvents(["agent_start"]);
+			expect(pool.liveSessions()).toEqual([]);
+
+			a?.emitAgentEvents(["agent_start"]);
+			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "turn" }]);
+			a?.emitUiRequest({ id: "ask-1", method: "confirm", title: "Deploy?", message: "" });
+			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "waiting" }]);
+			await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1", confirmed: true });
+			a?.emitAgentEvents(["agent_end"]);
+			a?.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "background" }]);
+			a?.emit("sessionSettled", { type: "session_settled" });
+			expect(pool.liveSessions()).toEqual([]);
+		});
+
 		it("keeps the running turn and its open ask when Windows ended the session under omp", async () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

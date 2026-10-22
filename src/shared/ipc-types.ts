@@ -1665,6 +1665,19 @@ export interface HostView {
 	home?: string;
 	/** The host's OMPdesk version, from its hello; absent while it is not connected. */
 	appVersion?: string;
+	/**
+	 * The host's sessions whose work goes on now, from any of its windows or the tabs it runs for any device: what
+	 * lights a row of the host's section that no tab of this computer holds. Only while connected, and only from a host
+	 * that pushes it (`host.liveSessions`); an older host leaves it absent.
+	 */
+	live?: HostLiveSession[];
+}
+
+/** A session a paired host works on now, by the working cue's rule (`live-work.ts`). */
+export interface HostLiveSession {
+	sessionPath: string;
+	/** `turn`: its own turn runs; `background`: the turn ended and work it started still runs; `waiting`: an ask is open. */
+	state: "turn" | "background" | "waiting";
 }
 
 /** A device that uses this computer (B role); recorded the first time Tailscale let it in. */

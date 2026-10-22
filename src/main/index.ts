@@ -824,6 +824,7 @@ app.whenReady().then(() => {
 		launchProfiles: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 		machine,
 		localTabs: sidecarPool,
+		windowLiveSessions: () => sidecarPool.liveSessions(),
 		trashItem: abs => shell.trashItem(abs),
 		// Autopilot runs paired devices started here, charged to them until they end (remote/hosted-autopilot.ts).
 		runChargesFile: join(app.getPath("userData"), "autopilot-device-runs.json"),
@@ -1582,7 +1583,12 @@ app.whenReady().then(() => {
 	sidecarPool.onRunningChange = () => {
 		syncWorkAwake();
 		turnResume.sync();
+		hostServices.liveSessionsChanged();
 	};
+	// An ask opening or answered in a window changes what the paired devices show of its session's row.
+	sidecarPool.observeTabs(activity => {
+		if (activity.type !== "step") hostServices.liveSessionsChanged();
+	});
 	sidecarPool.settleWatch = new SettleWatch({
 		facts: tabId => sidecarPool.settleFacts(tabId),
 		log: details => writeRuntimeLog({ source: "settle-watch", message: "still settling", details }),
