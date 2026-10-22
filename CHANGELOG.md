@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.61.23] - 2026-10-23
+
+프로젝트를 고르는 창에서 바로 찾을 수 있어요.
+
+### 새 기능
+- 타이틀바의 프로젝트 이름이나 빈 사이드바에서 여는 프로젝트 창에 검색이 생겼어요. 열면 바로 입력되고, 이름·경로로 거르며 ↑/↓와 Enter로 고르면 돼요. 한글 이름 폴더도 찾아요.
+
+### 고친 것
+- 설정의 계정·기기·플러그인 같은 목록에서 줄 아래 설명(경로, 계정)을 스크린 리더가 읽지 않아, 이름이 같은 두 줄을 구별할 수 없던 문제를 고쳤어요.
+
+<!-- en -->
+
+Find a project right in the project picker.
+
+### New
+- The project picker you open from the title bar's project name or an empty sidebar has a search: typing goes straight into it, it narrows by name and path, and ↑/↓ and Enter pick. Folders with Hangul names are found too.
+
+### Fixed
+- In lists such as Settings' accounts, devices and plugins, a screen reader now reads each row's second line (a path, an account), so two rows with the same title can be told apart.
+
 ## [0.61.22] - 2026-10-23
 
 키보드 사용과 작은 화면 손질을 고쳤어요.
