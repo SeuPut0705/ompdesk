@@ -1513,6 +1513,23 @@ describe("Sidebar menus and pinned ordering", () => {
 		for (const menu of menus) expect(menu.getAttribute("tabindex")).toBe(rowOf(menu) === stopRow ? "0" : "-1");
 	});
 
+	it("reaches a Chats section's New chat by keyboard: its header takes the roving stop, New chat is the next one", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+		const toggle = container.querySelector('[data-sidebar-chats="local"] [data-sidebar-chats-toggle]');
+		const newChat = container.querySelector('[data-sidebar-chats="local"] [data-sidebar-new-chat]');
+		expect(newChat?.getAttribute("tabindex")).toBe("-1");
+		// The list hears the header's focus (React's onFocus bubbles to it).
+		const list = container.querySelector('[data-tour="sessions"]') as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(list).find(key => key.startsWith("__reactProps$")) ?? "";
+		const onFocus = (list[propsKey] as { onFocus: (event: unknown) => void }).onFocus;
+		await act(async () => onFocus({ target: toggle }));
+		await flush();
+		expect(toggle?.getAttribute("tabindex")).toBe("0");
+		expect(newChat?.getAttribute("tabindex")).toBe("0");
+	});
+
 	it("a pinned project keeps its muted pin glyph; the ⋯ is hover/focus only and an unpinned one shows no pin", async () => {
 		installMockOmp(LIST);
 		seedStores();

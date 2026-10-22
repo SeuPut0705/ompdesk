@@ -1526,8 +1526,8 @@ export function Sidebar() {
 		if (item) focusRovingItem(item);
 	};
 	// After render, exactly one roving item is tabbable: the remembered one,
-	// else the current session, else the first row. Its row's ⋯ is the next
-	// tab stop (focus-within reveals it), so Tab then Enter opens the menu.
+	// else the current session, else the first row. Its row's ⋯ (or a section header's own action, such as the Chats
+	// section's New chat) is the next tab stop (focus-within reveals it), so Tab then Enter opens or runs it.
 	useEffect(() => {
 		const items = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? [])];
 		if (items.length === 0) return;
@@ -1537,7 +1537,9 @@ export function Sidebar() {
 			items[0];
 		for (const item of items) {
 			item.tabIndex = item === preferred ? 0 : -1;
-			const menu = item.closest(".omp-list-row")?.querySelector<HTMLElement>("[data-sidebar-row-menu]");
+			const menu =
+				item.closest(".omp-list-row")?.querySelector<HTMLElement>("[data-sidebar-row-menu]") ??
+				item.parentElement?.querySelector<HTMLElement>(":scope > [data-roving-action]");
 			if (menu) menu.tabIndex = item === preferred ? 0 : -1;
 		}
 	});
@@ -2387,6 +2389,12 @@ export function Sidebar() {
 					aria-label={t("sidebar.sessions")}
 					data-tour="sessions"
 					className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
+					// Any roving item that takes focus (a Chats or device header too, not only rows that set it themselves)
+					// becomes the list's tab stop, so its own action is the next one.
+					onFocus={event => {
+						const key = event.target instanceof HTMLElement ? event.target.dataset.rovingItem : undefined;
+						if (key && key !== focusKey) setFocusKey(key);
+					}}
 					onKeyDown={onListKeyDown}
 					ref={listRef}
 					role="group"

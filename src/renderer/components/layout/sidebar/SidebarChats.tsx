@@ -56,6 +56,8 @@ export function SidebarChats({
 				<IconButton
 					className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
 					{...newChatData}
+					// The next tab stop after the header while the header holds the list's roving focus (Sidebar.tsx).
+					data-roving-action=""
 					disabled={!canAdd}
 					icon={<MessageSquarePlus />}
 					label={newChatLabel}
