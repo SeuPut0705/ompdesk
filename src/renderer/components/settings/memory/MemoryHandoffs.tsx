@@ -33,7 +33,7 @@ export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {
 			{read.data && items.length === 0 && <MutedLine data-memory-empty>{t("memory.handoffs.empty")}</MutedLine>}
 			{items.map(item => (
 				<button
-					aria-pressed={item.id === openId}
+					aria-current={item.id === openId ? "true" : undefined}
 					className={LIST_ROW}
 					data-list-item
 					data-memory-handoff={item.id}

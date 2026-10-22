@@ -110,7 +110,7 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 						{!folded &&
 							list.map(page => (
 								<button
-									aria-pressed={open?.path === page.path}
+									aria-current={open?.path === page.path ? "true" : undefined}
 									className={LIST_ROW}
 									data-list-item
 									data-memory-page={page.path}

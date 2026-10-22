@@ -39,7 +39,7 @@ export function MemorySessions({ project }: { project: AiMemoryProjectRef }) {
 			{read.data && read.data.length === 0 && <MutedLine data-memory-empty>{t("memory.sessions.empty")}</MutedLine>}
 			{(read.data ?? []).map(session => (
 				<button
-					aria-pressed={session.id === openId}
+					aria-current={session.id === openId ? "true" : undefined}
 					className={LIST_ROW}
 					data-list-item
 					data-memory-session={session.id}

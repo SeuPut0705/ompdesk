@@ -52,6 +52,10 @@ describe("Memory › Pages", () => {
 		expect(api.readPage).toHaveBeenCalledWith({ ...PROJECT, path: "notes/n.md" });
 		expect(text("[data-memory-body]")).toContain("Body of Note N.");
 		expect(q("[data-memory-body] strong")?.textContent).toBe("Note N");
+		// The open page's row is the current item of the list, not a toggle button a screen reader reads as "pressed".
+		const row = q('[data-memory-page="notes/n.md"]');
+		expect(row?.getAttribute("aria-current")).toBe("true");
+		expect(row?.hasAttribute("aria-pressed")).toBe(false);
 	});
 
 	it("saves an edit through writePage and keeps kind, tier, tags and pin", async () => {
