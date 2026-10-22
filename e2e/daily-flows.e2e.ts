@@ -157,15 +157,17 @@ test("daily flow a: a quit mid-turn with subagents and a background job resumes 
 				window.omp.rpc.command({ type: "bash", command: "fixture:subagents" }),
 			);
 			expect(roster.success).toBe(true);
-			// The window has no room to dock the work board, so its status strip holds the running work (the dock's
-			// island steps aside beside it): opened, it lists both subagents and the shell.
+			// The work board lists both subagents and the shell: docked beside the transcript (the default window docks
+			// it beside a narrowed column), else in the status strip, opened.
+			const docked = page.locator(".omp-work-board-slot [data-work-board-panel]");
 			const strip = page.locator("[data-work-chip]");
-			await expect(strip).toBeVisible({ timeout: 15_000 });
-			await strip.click();
-			const panel = page.locator("[data-work-strip-panel]");
+			await expect(docked.or(strip).first()).toBeVisible({ timeout: 15_000 });
+			const inStrip = (await docked.count()) === 0;
+			if (inStrip) await strip.click();
+			const panel = inStrip ? page.locator("[data-work-strip-panel]") : docked;
 			await expect(panel.locator("[data-board-agent]")).toHaveCount(2, { timeout: 15_000 });
 			await expect(panel.locator("[data-board-job]").first()).toBeVisible();
-			await strip.click();
+			if (inStrip) await strip.click();
 			await expect(page.locator("[data-sidebar-subagents-toggle]")).toHaveCount(1);
 			await expect(page.locator(".omp-user-bubble")).toHaveText([new RegExp(`^${FLOW_A_PROMPT}`)]);
 			await expect(page.locator(".omp-session-sidebar .omp-sidebar-session-row[data-session-path]")).toHaveCount(1);
