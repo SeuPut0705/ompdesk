@@ -62,7 +62,8 @@ export function SegmentedChoice<V extends string>({
 }: SegmentedChoiceProps<V>) {
 	const enabled = options.filter(option => !disabled && !option.disabled);
 	const held = options.find(option => option.value === value);
-	const tabStop = held?.value ?? enabled[0]?.value;
+	// A disabled button takes no focus: a held option that is disabled hands the tab stop to the first enabled one.
+	const tabStop = enabled.find(option => option.value === held?.value)?.value ?? enabled[0]?.value;
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		const step = NEXT[event.key];
