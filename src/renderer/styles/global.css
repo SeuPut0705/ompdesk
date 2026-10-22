@@ -152,7 +152,7 @@ body {
                     fields (--omp-input-bg) keep their paint.
    5. Content     — COLORLESS. Cards, rows, chips, panels, and page sections
                     render transparent over the canvas and separate with
-                    hairline borders (.omp-card). Static bg-primary/secondary/
+                    hairline borders. Static bg-primary/secondary/
                     tertiary fills on content surfaces are lint errors.
    ============================================================================ */
 
@@ -590,13 +590,6 @@ html[data-gpu="software"] .omp-updating-hint {
 	}
 }
 
-.omp-color-fade {
-	transition:
-		background-color var(--omp-motion-fast) var(--omp-ease),
-		border-color var(--omp-motion-fast) var(--omp-ease),
-		color var(--omp-motion-fast) var(--omp-ease);
-}
-
 /* ============================================================================
    Session sidebar (Sidebar.tsx) — header, rows, empty states, footer chips
    ============================================================================ */
@@ -670,24 +663,6 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	background-color: transparent;
 	padding-inline: 2px;
 	color: var(--sc-text-subtle);
-}
-
-.omp-lift {
-	transition:
-		border-color var(--omp-motion-fast) var(--omp-ease),
-		background-color var(--omp-motion-fast) var(--omp-ease),
-		box-shadow var(--omp-motion-fast) var(--omp-ease),
-		transform var(--omp-motion-fast) var(--omp-ease);
-}
-
-.omp-lift:hover {
-	border-color: var(--omp-border-strong);
-	box-shadow: var(--omp-shadow-md);
-	transform: translateY(-2px);
-}
-
-.omp-lift:active {
-	transform: translateY(0) scale(0.99);
 }
 
 /* Empty-state entrance — logo, title, subtitle and starter cards cascade in. */

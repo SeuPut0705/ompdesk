@@ -443,21 +443,6 @@
 	color: var(--omp-dim);
 }
 
-/* ---------------------------------------------------------------------------
- * Diff lines
- * ------------------------------------------------------------------------- */
-.omp-diff-add {
-	background: var(--omp-diff-added-bg);
-	color: var(--omp-diff-added);
-}
-.omp-diff-del {
-	background: var(--omp-diff-removed-bg);
-	color: var(--omp-diff-removed);
-}
-.omp-diff-ctx {
-	color: var(--omp-diff-context);
-}
-
 /* A session title that changes while it is on screen (an automatic title evolving, a rename from another
    place) slides in softly instead of snapping; SwapText marks only a change, never the first paint. The
    global prefers-reduced-motion rule shortens it to nothing. */
@@ -541,10 +526,6 @@
 	max-height: min(60dvh, 44rem);
 }
 
-.omp-detail-drawer {
-	width: min(clamp(36rem, 40vw, 64rem), calc(100vw - 2rem));
-}
-
 /* ---------------------------------------------------------------------------
  * Editorial transcript — an open reading rail for long agent sessions.
  * The existing component chrome remains available outside this scope; this
@@ -554,9 +535,8 @@
  * Unified content column — every reading surface (transcript, composer,
  * settings, management pages) shares one centered, viewport-adaptive column
  * instead of each page inventing its own width/alignment. The reading column
- * caps prose surfaces; the workspace column gives management/detail pages
- * more room. Both center at large sizes and go full-bleed with a fluid
- * gutter at small sizes.
+ * caps prose surfaces, centers at large sizes and goes full-bleed with a
+ * fluid gutter at small sizes.
  * ------------------------------------------------------------------------- */
 .omp-workspace-main {
 	container: omp-workspace / inline-size;
@@ -602,27 +582,12 @@
 .omp-workspace-main {
 	--omp-column-pad: clamp(var(--sc-space-4), 3cqw, var(--sc-space-10));
 	--omp-column-reading: 60rem;
-	--omp-column-workspace: 104rem;
 }
 
 /* Transcript + composer: a ~72ch reading column, narrower
    than the settings/management canvas. */
 .omp-workspace-main {
 	--omp-column-reading: 48rem;
-}
-
-.omp-column {
-	width: 100%;
-	margin-inline: auto;
-	padding-inline: var(--omp-column-pad);
-}
-
-.omp-column-reading {
-	max-width: calc(var(--omp-column-reading) + 2 * var(--omp-column-pad));
-}
-
-.omp-column-workspace {
-	max-width: calc(var(--omp-column-workspace) + 2 * var(--omp-column-pad));
 }
 
 /* Work board (WorkBoard.tsx): a wide pane docks it in the right margin and shifts the transcript and composer
@@ -679,13 +644,6 @@
 .omp-session-pane[data-work-board-todo] [data-dock-card="todo"]:not([data-dock-expanded]),
 .omp-session-pane:has(.omp-work-strip) :is([data-dock-card="todo"]:not([data-dock-expanded]), [data-workspace-island]) {
 	display: none;
-}
-
-/* Surface policy card: the single content-card recipe (hairline, no fill). */
-.omp-card {
-	border: var(--sc-hairline) solid var(--sc-divider);
-	border-radius: var(--sc-radius-lg);
-	background: transparent;
 }
 
 .omp-transcript-editorial {
@@ -902,13 +860,6 @@
 	line-height: var(--sc-leading-normal);
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 4;
-}
-
-.omp-conversation-nav-preview-hint {
-	display: block;
-	margin-top: var(--sc-space-2);
-	color: var(--sc-text-muted);
-	font-size: var(--sc-font-xs);
 }
 
 .omp-transcript-editorial .omp-transcript-row {
@@ -2211,24 +2162,6 @@
 	font-weight: var(--sc-weight-medium);
 }
 
-.omp-work-fact {
-	display: inline-flex;
-	align-items: baseline;
-	flex-wrap: wrap;
-	gap: var(--sc-space-1);
-	min-width: 0;
-}
-
-.omp-work-fact::before {
-	content: "·";
-	margin-inline-end: var(--sc-space-1);
-	color: var(--sc-text-subtle);
-}
-
-.omp-work-fact[data-tone="danger"] {
-	color: var(--sc-danger);
-}
-
 .omp-work-diff {
 	display: inline-flex;
 	gap: var(--sc-space-1);
@@ -2292,11 +2225,6 @@
 	line-height: var(--sc-leading-normal);
 	white-space: normal;
 	overflow-wrap: anywhere;
-}
-
-.omp-work-outcome-agent {
-	margin-inline-end: var(--sc-space-1);
-	font-weight: var(--sc-weight-medium);
 }
 
 .omp-work-outcome-meta {
@@ -3661,10 +3589,6 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 
 	.omp-dialog-size-full {
 		height: calc(100dvh - 1rem);
-	}
-
-	.omp-detail-drawer {
-		width: calc(100vw - 1.5rem);
 	}
 }
 

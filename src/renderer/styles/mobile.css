@@ -214,12 +214,6 @@ html[data-shell="phone"] .omp-dialog-panel--sheet > div:last-child:not(:first-ch
 	box-shadow: var(--sc-shadow-lg);
 }
 
-.omp-action-sheet-title {
-	padding: 0 var(--sc-space-3) var(--sc-space-2);
-	font-size: var(--sc-font-sm);
-	color: var(--sc-text-muted);
-}
-
 /* A sheet's items are 44 px rows stacked flush, each the whole of its own target (the touch rows' 36 px rule above
    outranked this one, so every item's reach lay over the next item's top). */
 html .omp-action-sheet [data-menu-item] {
@@ -2107,10 +2101,6 @@ html[data-input="touch"] .omp-session-sidebar [data-sidebar-group-new][data-side
 
 	html[data-shell="phone"] .omp-composer-fold-4 .omp-composer-model-label {
 		max-width: none;
-	}
-
-	html[data-shell="phone"] .omp-status-chip [data-chip-badge] {
-		font-size: 12px;
 	}
 
 	/* Prompt suggestions: the row is 38 px (6 px more than portrait), so each 28 px chip reaches 5 px past its edge
