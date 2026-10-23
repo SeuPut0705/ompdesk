@@ -373,7 +373,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 													/>
 												</label>
 												<PanelListRow
-													aria-pressed={selected === file.path}
+													aria-current={selected === file.path ? "true" : undefined}
 													className="min-w-0 flex-1"
 													onClick={() => setSelected(file.path)}
 													title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}

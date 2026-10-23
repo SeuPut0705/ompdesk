@@ -149,6 +149,10 @@ describe("RepositoryChanges", () => {
 		await click(first);
 		await flush();
 		expect(getGitDiff).toHaveBeenCalledWith("src/a.ts");
+		// The open file is the list's current item, not a toggle a screen reader reads as "pressed".
+		const opened = document.querySelector('button[title="src/a.ts"]');
+		expect(opened?.getAttribute("aria-current")).toBe("true");
+		expect(opened?.hasAttribute("aria-pressed")).toBe(false);
 		expect(bodyText()).toContain("+1");
 		expect(bodyText()).toContain("−1");
 		expect(bodyText()).toContain("old");

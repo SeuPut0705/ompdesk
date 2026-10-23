@@ -310,7 +310,7 @@ function SessionRow({
 	if (location) details.push(location);
 	return (
 		<button
-			aria-pressed={selected}
+			aria-current={selected ? "true" : undefined}
 			className={cx(
 				"flex min-h-10 w-full flex-col gap-1 rounded-(--sc-radius-md) border border-transparent px-3 py-2 text-left",
 				selected ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
