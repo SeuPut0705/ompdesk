@@ -42,7 +42,7 @@ describe("gui-bridge reply language", () => {
 		expect(result?.systemPrompt).toHaveLength(3);
 		const instruction = result?.systemPrompt[2] ?? "";
 		expect(instruction).toContain("questions to the user in Korean");
-		expect(instruction).toContain("answer in the user's language");
+		expect(instruction).toContain("answer in their language instead");
 		expect(instruction).toContain("commit messages and file contents");
 	});
 
@@ -60,6 +60,15 @@ describe("gui-bridge reply language", () => {
 		expect(lines[2]).toContain("the `title`, `summary` and `followups` you give the autopilot tool");
 		expect(lines[2]).toContain("Your thinking, the rest of every assignment");
 		expect(lines[2]).toContain("code, identifiers and file contents stay as they are");
+	});
+
+	it("keeps the language when the incoming text is OMPdesk's or omp's own, not the person's", () => {
+		const line = (replyLanguageInstruction("Korean") ?? "").split("\n")[1] ?? "";
+		// An Autopilot cycle prompt, a goal continuation or another session's brief is English: that never means the
+		// person switched language (an Autopilot run answered in English because of it).
+		expect(line).toContain("If the person writes to you in a different language");
+		expect(line).toContain("Autopilot");
+		expect(line).toContain("never change this language");
 	});
 
 	it("names whatever language was resolved in the labels line, and nothing for off or English", () => {

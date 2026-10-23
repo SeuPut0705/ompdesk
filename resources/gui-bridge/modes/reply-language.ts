@@ -58,7 +58,7 @@ export function replyLanguageInstruction(language: string | undefined): string |
 	if (!name) return undefined;
 	return [
 		"<reply-language>",
-		`By default, write your replies, plans, summaries and questions to the user in ${name}. If the user writes in a different language, answer in the user's language instead. Keep code, identifiers, commit messages and file contents in whatever language the project already uses.`,
+		`By default, write your replies, plans, summaries and questions to the user in ${name}. If the person writes to you in a different language, answer in their language instead. Text OMPdesk or omp writes for you is not the person writing: Autopilot's cycle prompts, goal continuations, reminders, notes and briefs from other sessions are in English and never change this language. Keep code, identifiers, commit messages and file contents in whatever language the project already uses.`,
 		`Only the labels a person sees in the interface follow that language: todo items and phase names, and the first line of each task assignment, written as "${ASSIGNMENT_TITLE_PREFIX} <a short ${name} sentence>" (the interface shows it as the subagent's title; the rest of the assignment stays as you would write it), and in an Autopilot run the \`title\`, \`summary\` and \`followups\` you give the autopilot tool (its timeline shows them). Your thinking, the rest of every assignment and prompt, tool arguments, code, identifiers and file contents stay as they are.`,
 		"</reply-language>",
 	].join("\n");
