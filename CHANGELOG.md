@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.62.1] - 2026-10-23
+
+자동 업데이트 뒤 앱이 업데이트 전 그대로(트레이에 숨김, 최소화, 다른 앱 뒤) 돌아와요. 배포되지 못한 0.62.0의 내용도 이 버전에 들어 있어요.
+
+### 새로 생긴 것
+- 앱이 트레이에 숨어 있거나 최소화돼 있거나 다른 앱 뒤에 있을 때 자동 업데이트가 되면, 다시 켜진 앱도 그 상태 그대로예요. 예전에는 창이 원래 자리에 최대화돼 앞으로 튀어나왔어요.
+- 하위 세션을 연 에이전트가 세션 목록을 보면, 쉬고 있는 하위 세션이 일을 어디서 멈췄는지(끝남, 문제로 끝남, 막힘, 아무 보고 없이 멈춤) 함께 나와요.
+- 하위 세션이 판정 줄도 보고도 없이 턴을 끝내면, 보고해 달라고 한 번 요청하고 그래도 없으면 연 세션에 알려요.
+
+### 고친 것
+- 입력 없이 열었다가 다른 탭으로 떠난 빈 새 세션은 닫혀요. 사이드바에 행이 없어서 다시 찾을 수 없었어요.
+- 오토파일럿의 '남은 후속 작업'이 정리되지 않고 쌓이기만 했어요. 한 번 남기고 다시 언급하지 않은 항목도 이제 나이를 세서, 오토파일럿이 하거나 닫도록 해요.
+
+<!-- en -->
+
+After an automatic update the app comes back as it was (hidden in the tray, minimized, behind another app). This version also carries 0.62.0, whose release did not go out.
+
+### New
+- When an automatic update happens while the app sits in the tray, minimized or behind another app, the relaunched app stays that way; it used to come back maximized in front of you.
+- An agent that opened child sessions sees, for each idle one, where it left the work: finished, finished with a problem, blocked, or stopped without a report.
+- A child session that ends its turn with neither a verdict line nor a report is asked once to report; if it still says nothing, the session that opened it is told.
+
+### Fixed
+- An empty new session you opened and left for another tab without typing closes, since it had no sidebar row to find it again.
+- Autopilot's "Left for later" list only grew. A follow-up named once and never again now ages too, so the run either does it or closes it.
+
 ## [0.62.0] - 2026-10-23
 
 새 세션은 무언가 입력하기 전까지 사이드바에 생기지 않고, 워크트리에서 일한 하위 세션이 끝났다고 보고하면 그 브랜치의 git 상태가 함께 와요.
