@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.67.6] - 2026-10-23
+
+다른 omp를 기다리는 세션이 트레이와 연결된 기기의 세션 줄에서도 대기로 보이고, 내장 REA를 끈 탭은 더 빨리 열려요.
+
+### 고친 것
+- 다른 omp가 세션을 놓기를 기다리는 동안 메뉴 막대·트레이가 "오류"로 표시했어요. 이제 오류로 보이지 않아요.
+- 연결된 기기가 이 컴퓨터에서 연 세션이 그렇게 기다리면 이 컴퓨터 사이드바에 빨간 실패로 보였어요. 이제 기다리는 중으로 보여요.
+
+### 바뀐 것
+- 내장 REA를 꺼 두면 탭을 열 때 node와 npx를 실행해 확인하지 않아요. Node가 없는 컴퓨터에서는 탭마다 다시 확인했고, Windows에서는 한 번에 몇 초가 걸렸어요.
+
+<!-- en -->
+
+A session waiting for another omp reads as waiting in the tray and in a paired device's session rows too, and tabs open faster with the built-in REA off.
+
+### Fixed
+- The menu bar and tray reported an error while a session waited for another omp to let go of it. It no longer does.
+- A session a paired device opened on this computer showed a red failure in this computer's sidebar while it waited that way. It now reads as waiting.
+
+### Changed
+- With the built-in REA off, opening a tab no longer runs node and npx to check for them. Without Node it checked again for every tab, and on Windows each check took seconds.
+
 ## [0.67.5] - 2026-10-23
 
 연결된 컴퓨터가 재시작한 뒤 연결이 더 빨리 돌아와요.
