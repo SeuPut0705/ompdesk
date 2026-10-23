@@ -6,7 +6,9 @@
  *
  *   bun run check:changed [--base <ref>] [--no-e2e] [--list]
  *
- * "Changed" is the working tree against HEAD (or `--base`) plus untracked files.
+ * "Changed" is the working tree against HEAD (or `--base`) plus untracked files, under `src/`, `e2e/`,
+ * `resources/`, `scripts/` and the root configuration (`scripts/changed-scope.ts`): a root build input also builds,
+ * and a test-runner input (vitest's config, package.json, bun.lock) runs the whole vitest suite.
  *
  * 1. Side by side: typecheck (always whole: a type error shows up far from the
  *    edit), biome on the changed files, the surface policy, and `vitest related`
@@ -32,6 +34,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { en } from "../src/renderer/locales/en";
 import { acquireLock, describeExit, type RunResult, run, runLocked } from "./build-lock";
+import { changedScope } from "./changed-scope";
 import { specsFor } from "./changed-specs";
 import { browsersNeeded, missingBrowsers, missingBrowsersNotice } from "./e2e-browsers";
 
@@ -43,11 +46,13 @@ const git = (...a: string[]) =>
 	execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 << 20 })
 		.split("\n")
 		.filter(Boolean);
-const changed = [
-	...new Set([...git("diff", "--name-only", base, "--"), ...git("ls-files", "-o", "--exclude-standard")]),
-]
-	.filter(file => /^(?:src|e2e|resources|scripts)\//.test(file) && existsSync(file))
-	.sort();
+const scope = changedScope(
+	[...git("diff", "--name-only", base, "--"), ...git("ls-files", "-o", "--exclude-standard")].filter(file =>
+		existsSync(file),
+	),
+);
+const changed = scope.files;
+const sourceChanged = changed.filter(file => /^(?:src|e2e|resources|scripts)\//.test(file));
 
 /** A file's changed lines against `base` in the new file (1-based); an untracked file is changed throughout. */
 function changedLines(file: string): number[] {
@@ -75,10 +80,10 @@ function rendererSourcesNaming(className: string): string[] {
 }
 
 const BIOME_EXT = /\.(?:[cm]?[jt]sx?|json|jsonc|css)$/;
-const BIOME_DIRS = /^(?:src|e2e|resources|scripts)\//;
+const BIOME_DIRS = /^(?:(?:src|e2e|resources|scripts)\/|[^/]+$)/;
 const specs = flag("--no-e2e")
 	? []
-	: specsFor(changed, {
+	: specsFor(sourceChanged, {
 			specs: new Map(
 				readdirSync("e2e")
 					.filter(name => name.endsWith(".e2e.ts"))
@@ -108,7 +113,8 @@ const CHECKS: Array<readonly [string, string[]]> = [["types", ["bun", "run", "ch
 if (biomeFiles.length > 0)
 	CHECKS.push(["biome", ["bunx", "biome", "check", "--no-errors-on-unmatched", ...biomeFiles]]);
 CHECKS.push(["surfaces", ["node", "scripts/lint-surfaces.mjs"]]);
-if (relatedFiles.length > 0) {
+if (scope.allTests) CHECKS.push(["vitest", ["bunx", "vitest", "run"]]);
+else if (relatedFiles.length > 0) {
 	CHECKS.push(["vitest", ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...relatedFiles]]);
 }
 
@@ -140,6 +146,12 @@ if (supportChanged && specs.length === 0) {
 	);
 }
 if (specs.length === 0) {
+	// A root build input (the vite config, tsconfig, package.json) breaks the build without touching a spec's name.
+	if (scope.build) {
+		console.log("[check:changed] build (a root build input changed)");
+		const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
+		if (build.code !== 0) process.exit(1);
+	}
 	console.log(`[check:changed] PASSED in ${seconds(performance.now() - started)} (no e2e spec matches the change)`);
 	process.exit(0);
 }
