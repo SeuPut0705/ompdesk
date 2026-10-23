@@ -324,7 +324,9 @@ describe("ExtensionDialog ask", () => {
 		expect(card().textContent).toContain("Run the tests first?");
 		expect(card().querySelector('[data-ask-step="0"] svg')).not.toBeNull();
 		// The check mark is decorative: the chip's words say the step is answered.
-		expect(card().querySelector('[data-ask-step="0"] .sr-only')?.textContent).toBe(`, ${translate("extDialog.ask.stepAnswered")}`);
+		expect(card().querySelector('[data-ask-step="0"] .sr-only')?.textContent).toBe(
+			`, ${translate("extDialog.ask.stepAnswered")}`,
+		);
 		expect(card().querySelector('[data-ask-step="1"] .sr-only')).toBeNull();
 
 		// "2" picks the second option of the current question.
