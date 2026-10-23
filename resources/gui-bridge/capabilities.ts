@@ -69,6 +69,7 @@ export const FEATURES = {
 	autopilot: "Autopilot (guarded, unattended Goal loop)",
 	desktopSlot: "Desktop slot (one session drives the screen at a time)",
 	phoneImages: "HEIC photos from a phone converted for the model",
+	sessionOwner: "Opening a session only once another omp let go of it",
 	pstack: "pstack engineering mode (always-on playbook section)",
 	eccHint: "ECC skills named for the project's languages (prompt section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
@@ -1244,6 +1245,15 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			"@oh-my-pi/pi-tui/chat/image-loading": ["ensureSupportedImageInput()"],
 			[`${AGENT}/utils/image-resize`]: ["resizeImage()"],
+		},
+	},
+	sessionOwner: {
+		// stock-helper/sessions.ts `sessions.owned` (main's session-free.ts): whether another live omp holds a stored
+		// session's ownership lease, keyed by the header's id read past the title slot as stock does.
+		session: [],
+		modules: {
+			[`${AGENT}/session/session-storage`]: ["tryAcquireSessionLease()"],
+			[`${AGENT}/session/session-title-slot`]: ["parseTitleSlotFromContent()"],
 		},
 	},
 };

@@ -4360,6 +4360,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.todoStale": "An old todo list named to the agent when a new request starts",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
+	"bridgeHealth.feature.sessionOwner": "Opening a session only once another omp let go of it",
 	"bridgeHealth.feature.pstack": "pstack engineering mode",
 	"bridgeHealth.feature.eccHint": "ECC skills named for the project's languages",
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",

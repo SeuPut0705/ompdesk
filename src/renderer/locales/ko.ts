@@ -4347,6 +4347,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.todoStale": "새 요청이 오면 지난 작업의 할 일 목록을 에이전트에게 알려 주기",
 	"bridgeHealth.feature.visuals": "다이어그램 지침(Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "휴대폰 사진(HEIC) 모델용 변환",
+	"bridgeHealth.feature.sessionOwner": "다른 omp가 놓은 뒤에만 세션 열기",
 	"bridgeHealth.feature.pstack": "pstack 엔지니어링 모드",
 	"bridgeHealth.feature.eccHint": "프로젝트 언어에 맞는 ECC 스킬 안내",
 	"bridgeHealth.feature.backgroundChecks": "긴 검사 백그라운드 실행",
