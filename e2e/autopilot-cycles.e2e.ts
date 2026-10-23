@@ -79,7 +79,7 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(page.locator("[data-work-chip]").first()).toContainText(TEXT[language].running);
 				await page.locator("[data-autopilot-chip-open]").click();
 				const strip = page.locator("[data-work-strip-panel]");
-				await expect(strip.locator("[data-autopilot-stop]")).toBeVisible();
+				await expect(strip.locator("[data-autopilot-ship-stop]")).toBeVisible();
 				await expect(strip.locator("[data-autopilot-cycle-live], [data-autopilot-between]").first()).toBeVisible();
 				await capture(page, `${language}-${theme}-strip`);
 

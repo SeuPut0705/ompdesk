@@ -244,6 +244,11 @@ button.omp-work-board-row:hover {
 	padding: 0 var(--sc-space-1-5) var(--sc-space-1-5) 26px;
 }
 
+/* A row of controls that takes the board's whole width (an Autopilot run's three), not indented under a lead mark. */
+.omp-work-board-actions-full {
+	padding-left: var(--sc-space-1-5);
+}
+
 /* What a row opens in place under it (an Autopilot cycle's commit, time, change and revert), aligned with its text. */
 .omp-work-board-detail {
 	display: flex;

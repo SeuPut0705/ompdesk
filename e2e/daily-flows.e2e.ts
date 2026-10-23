@@ -1287,7 +1287,7 @@ test("daily flow f: settings, model, diagnostics bundle and autopilot chain with
 			await waitForStatus(page, run.tabId, s => s.state === "running", "the run is running");
 			expect((await activeTools(page, run.tabId)).includes("autopilot")).toBe(true);
 
-			await runSection.locator("[data-autopilot-stop]").click();
+			await runSection.locator("[data-autopilot-ship-stop]").click();
 			await expect(page.locator("[data-autopilot-state]").first()).toHaveAttribute("data-autopilot-state", "ended", {
 				timeout: 90_000,
 			});

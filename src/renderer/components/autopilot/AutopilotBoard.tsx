@@ -236,7 +236,7 @@ function AutopilotRunSection() {
 			<ShipLandRow />
 			{!ended && (
 				<li className="omp-work-board-item">
-					<div className="omp-work-board-actions" data-autopilot-controls>
+					<div className="omp-work-board-actions omp-work-board-actions-full" data-autopilot-controls>
 						<AutopilotControls />
 					</div>
 				</li>

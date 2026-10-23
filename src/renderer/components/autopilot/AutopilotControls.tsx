@@ -8,8 +8,9 @@ import { useAutopilotActions } from "./use-autopilot-actions";
 /**
  * A run's three controls in one row (the user's layout, 23 Oct 2026): Pause as a toggle (Resume while paused), Ship
  * then stop (the run lands its work and releases when a release is due, then ends; pressed again it cancels) and Stop
- * now. Stop now asks first while a push or a release is under way, since it may be half done. `compact` draws icons
- * alone (their names are the tooltip and the accessible name) for the dock's one-line row.
+ * now. Stop now asks first while a push or a release is under way, since it may be half done. On the board the three
+ * share the row in equal thirds, each its icon over its name, so the names fit a 264 px board in both languages;
+ * `compact` draws icons alone (their names are the tooltip and the accessible name) for the dock's one-line row.
  */
 export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 	const t = useT();
@@ -84,9 +85,9 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 					/>
 				</>
 			) : (
-				<div className="flex min-w-0 flex-1 items-center gap-1" data-autopilot-control-row>
+				<div className="grid min-w-0 flex-1 grid-cols-3 gap-1" data-autopilot-control-row>
 					<Button
-						className="min-w-0 flex-1"
+						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-col gap-0.5! px-1! py-1 text-sc-xs!"
 						data-autopilot-pause={paused ? undefined : ""}
 						data-autopilot-resume={paused ? "" : undefined}
 						disabled={pause.disabled}
@@ -97,11 +98,11 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						title={pause.title}
 						variant={paused ? "primary" : "secondary"}
 					>
-						<span className="truncate">{pause.label}</span>
+						<span className="max-w-full truncate">{pause.label}</span>
 					</Button>
 					<Button
 						aria-pressed={shipThenStop}
-						className="min-w-0 flex-1"
+						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-col gap-0.5! px-1! py-1 text-sc-xs!"
 						data-autopilot-ship-stop
 						disabled={ship.disabled}
 						icon={ship.icon}
@@ -111,10 +112,10 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						title={ship.title}
 						variant={shipThenStop ? "primary" : "secondary"}
 					>
-						<span className="truncate">{ship.label}</span>
+						<span className="max-w-full truncate">{ship.label}</span>
 					</Button>
 					<Button
-						className="min-w-0 flex-1"
+						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-col gap-0.5! px-1! py-1 text-sc-xs!"
 						data-autopilot-abort
 						disabled={abort.disabled}
 						icon={abort.icon}
@@ -124,7 +125,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						title={abort.title}
 						variant="danger"
 					>
-						<span className="truncate">{abort.label}</span>
+						<span className="max-w-full truncate">{abort.label}</span>
 					</Button>
 				</div>
 			)}
