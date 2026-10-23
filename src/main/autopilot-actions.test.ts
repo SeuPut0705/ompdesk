@@ -249,6 +249,53 @@ describe("release run", () => {
 		});
 	});
 
+	it("ship, then stop waits for the release run: a failed one is owed and repaired, a successful one ends the run", async () => {
+		build({ releaseProcedure: true });
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		world.busy.add("ap-1");
+		const chosen = Date.now();
+		await autopilot.handleCommand(
+			win,
+			sidecar,
+			"ap-1",
+			{ type: "set_autopilot", action: "stop_after_ship", enabled: true },
+			"2",
+		);
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		const cycle = async (n: number, version: string) => {
+			const sha = await commit(worktree, `c${n}.txt`);
+			autopilot.frame(sidecar, {
+				type: "autopilot_cycle_end",
+				record: record({
+					n,
+					commit: sha,
+					startedAt: chosen + n,
+					ship: { kind: "release", version, runUrl: `https://github.com/o/r/actions/runs/${n}` },
+				}),
+			});
+			await autopilot.idle();
+		};
+		const poll = async (conclusion: "success" | "failure") => {
+			setReleaseState({ status: "completed", conclusion });
+			polls.at(-1)?.run();
+			await autopilot.idle();
+			await autopilot.idle();
+		};
+		// Landed, its release still running: the run waits for it.
+		await cycle(2, "1.2.3");
+		expect(autopilot.isStopping("ap-1")).toBe(false);
+		// The release failed: owed, the run goes on.
+		await poll("failure");
+		expect(autopilot.isStopping("ap-1")).toBe(false);
+		expect((await autopilot.status(sidecar, "ap-1")).ship?.endAfterShip).toBe(true);
+		// The next cycle repairs and releases again; its release succeeds and the run ends.
+		await cycle(3, "1.2.4");
+		expect(autopilot.isStopping("ap-1")).toBe(false);
+		await poll("success");
+		expect(autopilot.isStopping("ap-1")).toBe(true);
+	});
+
 	it("a release without a run to watch is recorded as done", async () => {
 		build({ releaseProcedure: true });
 		await start({ type: "set_autopilot", action: "start", preset: "release" });

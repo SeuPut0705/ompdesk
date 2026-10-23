@@ -284,6 +284,10 @@ interface Run {
 	 * and the run ends once that cycle has ended and its work shipped. In memory only: a relaunch carries on running.
 	 */
 	endAfterShip?: number;
+	/** "Ship, then stop": the cycle's work shipped and its release run is still going; the run ends when it succeeds. */
+	shipStopWaitsRelease?: true;
+	/** "Ship, then stop": a release since the choice failed; the run ends only after a later one succeeds. */
+	releaseOwed?: true;
 	children: Map<string, ChildState>;
 	childBranches: Set<string>;
 	stopping: boolean;
@@ -964,6 +968,8 @@ export class Autopilot {
 		if (!enabled) {
 			if (run.endAfterShip === undefined) return;
 			run.endAfterShip = undefined;
+			run.shipStopWaitsRelease = undefined;
+			run.releaseOwed = undefined;
 			await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: STOP_AFTER_SHIP_CANCELLED }).catch(
 				() => undefined,
 			);
@@ -1240,7 +1246,15 @@ export class Autopilot {
 		// is told to repair and ship it.
 		if (run.endAfterShip !== undefined && record.startedAt >= run.endAfterShip) {
 			const unshipped = shipGap(record, results, own);
-			if (unshipped === null) {
+			if (unshipped === null && run.releaseItem !== undefined) {
+				// Its release run is still going: the run ends once it succeeds (`#checkRelease`).
+				run.shipStopWaitsRelease = true;
+			} else if (unshipped === null && run.releaseOwed) {
+				await this.#tellAgent(
+					run,
+					"Ship, then stop is still on: the release since the choice failed. Fix it and release again in the next cycle; the run stops once a release has succeeded.",
+				);
+			} else if (unshipped === null) {
 				run.endAfterShip = undefined;
 				await this.#beginStop(run, "user");
 			} else {
@@ -1673,6 +1687,19 @@ export class Autopilot {
 			title: this.#deps.text("autopilot.release.title"),
 			body: this.#deps.text(ok ? "autopilot.release.ok" : "autopilot.release.failed", { version }),
 		});
+		// "Ship, then stop" ends the run on a release that succeeded; a failed one is owed, and the next cycle repairs it.
+		if (run.endAfterShip !== undefined) {
+			const waited = run.shipStopWaitsRelease === true;
+			run.shipStopWaitsRelease = undefined;
+			if (!ok) run.releaseOwed = true;
+			else {
+				run.releaseOwed = undefined;
+				if (waited) {
+					run.endAfterShip = undefined;
+					await this.#beginStop(run, "user");
+				}
+			}
+		}
 		// A failed release run is reported (notice above, the run's status) and handed to the next cycle: never a pause.
 		if (!ok) {
 			await this.#tellAgent(
