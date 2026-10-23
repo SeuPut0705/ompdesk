@@ -1352,10 +1352,13 @@ export class LocalHostServices implements HostServices {
 	 */
 	#adopt(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): HostTab | undefined {
 		if (!params.sessionPath) return undefined;
-		const tab = this.#holder(params.sessionPath);
+		// This device's own tab on the file first (one it left, or one it still shows); another device's view of a
+		// window's tab holds no omp of its own, so this device views the window too.
+		const holders = [...this.#tabs.values()].filter(entry => entry.sessionFile === params.sessionPath);
+		const tab =
+			holders.find(entry => entry.peerId === peer.deviceId) ??
+			holders.find(entry => !(entry.viewsWindow && entry.peerId !== peer.deviceId));
 		if (!tab) return undefined;
-		// Another device's view of a window's tab holds no omp of its own: this device views the window too.
-		if (tab.viewsWindow && tab.peerId !== peer.deviceId) return undefined;
 		if (tab.peerId !== peer.deviceId || tab.conn === conn)
 			throw codedError("session_open_in_tab", "Session is already open in another tab on the host");
 		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
