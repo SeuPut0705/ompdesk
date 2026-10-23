@@ -30,7 +30,16 @@ describe("whenSessionFree", () => {
 			await whenSessionFree("/s/a.jsonl", { owned: c.owned(Number.POSITIVE_INFINITY), now: c.now, sleep: c.sleep }),
 		).toBe("owned");
 		expect(c.now()).toBeGreaterThanOrEqual(SESSION_FREE_WAIT_MS);
-		expect(c.now()).toBeLessThan(SESSION_FREE_WAIT_MS + 1_000);
+		expect(c.now()).toBeLessThanOrEqual(SESSION_FREE_WAIT_MS + 2_000);
+	});
+
+	it("asks fast while the owner is likely just closing, then every 2 s", async () => {
+		const c = clock();
+		await whenSessionFree("/s/a.jsonl", { owned: c.owned(Number.POSITIVE_INFINITY), now: c.now, sleep: c.sleep });
+		const gaps = c.asked.slice(1).map((at, i) => at - (c.asked[i] ?? 0));
+		expect(gaps.slice(0, 20).every(gap => gap === 250)).toBe(true);
+		expect(gaps.at(-1)).toBe(2_000);
+		expect(c.asked.length).toBeLessThan(60);
 	});
 
 	it("does not wait when it cannot tell", async () => {
