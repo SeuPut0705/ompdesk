@@ -970,7 +970,7 @@ All three bridge features (prompt suggestions, automatic titles, automatic mode)
 
 - `resources/omp-builtin/rea/.mcp.json` starts the dependency-free Node `rea-relay.mjs` via stock's `${OMP_PLUGIN_ROOT}` substitution, outside asar, as a directory `-e` on every eligible spawn (REA root = `resources/omp-builtin/rea/`; `resources/omp-builtin/` itself is OMPdesk's own root, see OMPdesk control tools). The relay runs pinned REA (`rea/rea-config.json` is the sole version pin), exposes 15 unchanged entry-tool schemas (`curatedTools`) plus `rea_catalog` / `rea_call`, and keeps the full catalog on demand instead of adding 207 xd:// mount-notice lines to each session.
 - The same root carries REA's `reverse-engineer-anything` skill in `rea/skills/` (stock loads an extension root's `skills/`), so it comes and goes with the server. It is vendored from the pinned release plus an OMPdesk section (mounted vs `rea_call` tools, no `rea setup`) by `bun run sync:rea-skill`, which every version bump runs (`packaging-config.test.ts` fails on a stale copy). The pin moves by itself: see Built-in skill packs stay current (`skills-bump.yml`; a new release must still list every `curatedTools` entry in its catalog).
-- Node/npx must satisfy REA's engines. Pref `builtinMcp.rea` (default on) governs tabs this machine spawns or hosts. stdin EOF kills the child process tree. Never write the user's MCP config.
+- Node/npx must satisfy REA's engines. Pref `builtinMcp.rea` (default on) governs tabs this machine spawns or hosts; while it is off a spawn runs no node/npx probe (the probe is not cached while Node is missing, and costs seconds on Windows). stdin EOF kills the child process tree. Never write the user's MCP config.
 
 ### Built-in pstack engineering mode
 

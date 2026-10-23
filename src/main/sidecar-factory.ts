@@ -14,7 +14,7 @@ import { normalizeUserProfile } from "../../resources/gui-bridge/modes/user-prof
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { agentControlEnabled } from "../shared/agent-control";
-import { reaExtensionArgs } from "../shared/builtin-mcp";
+import { reaEnabled, reaExtensionArgs } from "../shared/builtin-mcp";
 import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
 import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../shared/reply-language";
@@ -132,7 +132,9 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			bridgeDir,
 			builtinMcp: async () => {
 				const reaRoot = join(deps.builtinDir, "rea");
-				const rea = reaExtensionArgs(reaRoot, await builtinReaState(deps.builtinReaPref()));
+				// Off asks nothing: the probe runs node and npx (seconds on Windows) and is not cached while Node is missing.
+				const reaPref = deps.builtinReaPref();
+				const rea = reaEnabled(reaPref) ? reaExtensionArgs(reaRoot, await builtinReaState(reaPref)) : [];
 				// The control tools' skill loads with them; the tools themselves follow the switch live (hostTools).
 				const own =
 					deps.agentControlPref && agentControlEnabled(deps.agentControlPref()) ? ["-e", deps.builtinDir] : [];

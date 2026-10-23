@@ -9,6 +9,7 @@ import type { SidecarOptions } from "./sidecar";
 import { localSidecarFactory } from "./sidecar-factory";
 
 const created = vi.hoisted(() => [] as SidecarOptions[]);
+const reaProbes = vi.hoisted(() => ({ count: 0 }));
 
 // The factory only builds options; what a SidecarManager does with them is sidecar.test.ts's.
 vi.mock("./sidecar", () => ({
@@ -24,6 +25,13 @@ vi.mock("./sidecar", () => ({
 // i18n opens the Electron prefs store on import.
 vi.mock("./i18n", () => ({ ompFailureText: (reason: string) => reason }));
 vi.mock("electron", () => ({ app: {} }));
+// The node/npx probe runs real processes (seconds on Windows); these tests count it instead.
+vi.mock("./builtin-mcp", () => ({
+	builtinReaState: async (pref: unknown) => {
+		reaProbes.count++;
+		return { enabled: pref !== false, available: true, nodeVersion: "v24.0.0" };
+	},
+}));
 
 describe("localSidecarFactory", () => {
 	it("hands every tab it spawns, hosted ones included, the stored launch profiles", () => {
@@ -249,5 +257,36 @@ describe("localSidecarFactory", () => {
 			expect((await options.builtinMcp?.())?.args).toEqual([]);
 			args = ["-e", "/ud/ai-memory/omp-ext"];
 		}
+	});
+
+	it("asks for Node only while the built-in REA is on", async () => {
+		let rea: unknown = false;
+		created.length = 0;
+		const create = localSidecarFactory({
+			bridgeDir: "/bridge",
+			builtinDir: "/builtin",
+			builtinReaPref: () => rea,
+			proxyEnv: async () => ({}),
+			bridgeHealth: new BridgeHealth(() => {}),
+			sessionKinds: new SessionKindStore(path.join(os.tmpdir(), "omp-gui-factory-kinds.json")),
+			replyLanguagePref: () => undefined,
+			userProfilePref: () => undefined,
+			nextPromptPrefs: () => ({ suggestions: true, inline: true }),
+			autoTitlePrefs: () => ({ enabled: true, evolve: true, suppressed: false }),
+			judgeAssistPref: () => true,
+			delegationPref: () => undefined,
+			accountRotationPref: () => undefined,
+			accountRotationLedger: "/ledger.json",
+			launchProfilesPref: () => undefined,
+		});
+		create("/w/alpha", "agent", false);
+		const [options] = created;
+		reaProbes.count = 0;
+
+		expect((await options?.builtinMcp?.())?.args).toEqual([]);
+		expect(reaProbes.count).toBe(0);
+		rea = true;
+		expect((await options?.builtinMcp?.())?.args).toEqual(["-e", path.join("/builtin", "rea")]);
+		expect(reaProbes.count).toBe(1);
 	});
 });
