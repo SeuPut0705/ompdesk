@@ -7,7 +7,9 @@ export const en: Record<string, string> = {
 	"memory.phase.unreachable": "Not answering",
 	"memory.phase.failed": "Failed",
 	"memory.phase.unsupported": "Not available on this system",
-	"memory.overview.unsupportedReason": "Memory has no build for this computer.",
+	"memory.overview.unsupported.platform": "Memory has no build for this computer.",
+	"memory.overview.unsupported.paused":
+		"Memory does not set itself up in this launch (safe mode after repeated crashes, or a development build).",
 	"memory.overview.unreachableReason": "The memory server is not answering; OMPdesk keeps trying.",
 	"memory.step.stage": "preparing the program",
 	"memory.step.wire": "setting up the server and OMPdesk's extension",
@@ -71,7 +73,9 @@ export const ko: Record<string, string> = {
 	"memory.phase.unreachable": "응답 없음",
 	"memory.phase.failed": "실패",
 	"memory.phase.unsupported": "이 시스템에서는 쓸 수 없어요",
-	"memory.overview.unsupportedReason": "이 컴퓨터용 메모리 빌드가 없어요.",
+	"memory.overview.unsupported.platform": "이 컴퓨터용 메모리 빌드가 없어요.",
+	"memory.overview.unsupported.paused":
+		"이번 실행에서는 메모리를 스스로 설정하지 않아요(잇단 충돌 뒤의 안전 모드나 개발 빌드).",
 	"memory.overview.unreachableReason": "메모리 서버가 응답하지 않아요. OMPdesk가 계속 다시 시도해요.",
 	"memory.step.stage": "프로그램을 준비하는 중",
 	"memory.step.wire": "서버와 OMPdesk 확장을 준비하는 중",

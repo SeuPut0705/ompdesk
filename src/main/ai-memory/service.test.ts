@@ -946,7 +946,8 @@ describe("AiMemoryService", () => {
 		it("a dev build never runs a command: unsupported while on, off while off", async () => {
 			const { service, commands, prefs, persistEnabled } = await make({ automatic: false });
 			await service.start();
-			expect(service.state()).toMatchObject({ phase: "unsupported", enabled: true });
+			// Safe mode and a development build alike: paused, not a platform without a build.
+			expect(service.state()).toMatchObject({ phase: "unsupported", unsupported: "paused", enabled: true });
 			expect(service.state().detail).toContain("OMP_GUI_AI_MEMORY_BIN");
 			await service.setEnabled(false);
 			await service.retry();
@@ -957,7 +958,7 @@ describe("AiMemoryService", () => {
 			expect(commands()).toEqual([]);
 			prefs.enabled = false;
 			await service.start();
-			expect(service.state()).toMatchObject({ phase: "off", detail: null });
+			expect(service.state()).toMatchObject({ phase: "off", detail: null, unsupported: null });
 		});
 
 		it("an unsupported platform reports it and runs nothing", async () => {
@@ -969,6 +970,7 @@ describe("AiMemoryService", () => {
 				await service.start();
 				expect(service.state()).toMatchObject({
 					phase: "unsupported",
+					unsupported: "platform",
 					detail: "ai-memory has no build for this platform.",
 				});
 				expect(commands()).toEqual([]);

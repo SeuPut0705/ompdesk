@@ -128,7 +128,10 @@ export function MemoryOverview({
 					// phase, so the notice says only why (main's own detail is English and names the program). A failure
 					// keeps its raw cause under the phase; a server that does not answer is retried by main on its own.
 					unsupported ? (
-						<InlineNotice title={t("memory.overview.unsupportedReason")} tone="danger" />
+						<InlineNotice
+							title={t(`memory.overview.unsupported.${state.unsupported ?? "platform"}`)}
+							tone="danger"
+						/>
 					) : state.phase === "unreachable" ? (
 						<InlineNotice title={t("memory.overview.unreachableReason")} tone="danger" />
 					) : state.detail && problem ? (

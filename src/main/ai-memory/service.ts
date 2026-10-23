@@ -246,6 +246,7 @@ export class AiMemoryService {
 			wiring: { app: false, terminal: false },
 			stats: null,
 			detail: null,
+			unsupported: null,
 		};
 		this.#client =
 			deps.client ??
@@ -285,14 +286,19 @@ export class AiMemoryService {
 		try {
 			this.#patch({ wiring: await this.#wiring() });
 			if (!this.#platformOk) {
-				this.#patch({ phase: "unsupported", detail: "ai-memory has no build for this platform." });
+				this.#patch({
+					phase: "unsupported",
+					unsupported: "platform",
+					detail: "ai-memory has no build for this platform.",
+				});
 				return;
 			}
 			if (!automatic) {
 				this.#patch({
 					phase: enabled ? "unsupported" : "off",
+					unsupported: enabled ? "paused" : null,
 					detail: enabled
-						? "An unpackaged build does not change this machine. Set OMP_GUI_AI_MEMORY_BIN to run ai-memory."
+						? "This launch does not set ai-memory up (safe mode, or an unpackaged build: set OMP_GUI_AI_MEMORY_BIN)."
 						: null,
 				});
 				return;

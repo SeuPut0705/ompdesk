@@ -38,7 +38,7 @@ export function aiMemoryEnabled(value: unknown): boolean {
  * - `ready`: connected, and the server answers.
  * - `unreachable`: connected, but the server does not answer (stopped, crashed, port taken); main retries on its own.
  * - `failed`: staging or setup failed (`detail`); retried at the next launch or by Settings › Try again.
- * - `unsupported`: no build for this platform.
+ * - `unsupported`: this launch does not run memory (`unsupported` says why).
  */
 export type AiMemoryPhase = "off" | "starting" | "ready" | "unreachable" | "failed" | "unsupported";
 
@@ -69,6 +69,11 @@ export interface AiMemoryState {
 	/** From the server's /admin/status; null while it does not answer. */
 	stats: { pages: number; sessions: number; observations: number; diskBytes: number } | null;
 	detail: string | null;
+	/**
+	 * Why the phase is `unsupported`, null otherwise: `platform` = no build for this system; `paused` = this launch does
+	 * not set memory up by itself (safe mode after a crash loop, or a development or test build).
+	 */
+	unsupported: "platform" | "paused" | null;
 }
 
 export interface AiMemoryProjectRef {

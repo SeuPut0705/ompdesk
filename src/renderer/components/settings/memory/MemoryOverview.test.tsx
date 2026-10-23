@@ -98,6 +98,7 @@ describe("Memory › Overview", () => {
 				projects={[]}
 				state={memoryState({
 					phase: "unsupported",
+					unsupported: "platform",
 					detail: "ai-memory has no build for this platform.",
 					stats: null,
 				})}
@@ -106,6 +107,23 @@ describe("Memory › Overview", () => {
 		const shown = (document.body.textContent ?? "").toLowerCase().replace(".ai-memory.toml", "");
 		expect(shown).not.toContain("ai-memory");
 		expect(document.body.textContent).toContain("Memory has no build for this computer.");
+	});
+
+	it("a launch that pauses memory setup (safe mode) never calls it a missing build", async () => {
+		await mount(
+			<MemoryOverview
+				project={null}
+				projects={[]}
+				state={memoryState({
+					phase: "unsupported",
+					unsupported: "paused",
+					detail: "This launch does not set ai-memory up.",
+					stats: null,
+				})}
+			/>,
+		);
+		expect(document.body.textContent).not.toContain("has no build");
+		expect(document.body.textContent).toContain("Memory does not set itself up in this launch");
 	});
 
 	it("a server that does not answer says so in the UI language, not main's English", async () => {

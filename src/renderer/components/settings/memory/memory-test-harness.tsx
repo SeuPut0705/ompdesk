@@ -55,6 +55,7 @@ export function memoryState(extra: Partial<AiMemoryState> = {}): AiMemoryState {
 		wiring: { app: true, terminal: false },
 		stats: { pages: 5, sessions: 2, observations: 9, diskBytes: 2048 },
 		detail: null,
+		unsupported: null,
 		...extra,
 	};
 }

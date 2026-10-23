@@ -19,6 +19,7 @@ const STATE: AiMemoryState = {
 	wiring: { app: true, terminal: false },
 	stats: { pages: 12, sessions: 23, observations: 3982, diskBytes: 6_844_416 },
 	detail: null,
+	unsupported: null,
 };
 
 const ref = (path: string, title: string, kind: string, tier: string, minutes: number): AiMemoryPageRef => ({
