@@ -411,17 +411,16 @@ describe("files a reply names", () => {
 			"/up/this-computer/u1/report v2.docx",
 			"notes.md",
 			"C:\\Users\\kim\\My Docs\\plan.docx",
-			"kim",
 		]);
 		const text = doc.querySelector(".omp-user-text")?.textContent ?? "";
 		expect(text).not.toContain("this-computer");
 		// A file a sentence names reads as its name, linking to the file.
+		// A file a sentence names by its whole path reads as its name, linking to it; a relative one stays as written.
 		const links = [...doc.querySelectorAll(".omp-user-text a")];
 		expect(links.map(link => [link.textContent, link.getAttribute("href")])).toEqual([
-			["notes.md", "file://notes.md"],
 			["plan.docx", `file://${encodeURIComponent("C:\\Users\\kim\\My Docs\\plan.docx")}`],
 		]);
-		expect(text).toBe("Read this\nand notes.md too, with plan.docx and @kim");
+		expect(text).toBe("Read this\nand @notes.md too, with plan.docx and @kim");
 	});
 
 	it("keeps a text file it links inside the tab's folder as a citation and hands over one outside", async () => {

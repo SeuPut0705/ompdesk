@@ -57,9 +57,12 @@ const readImage = vi.fn(
 	}),
 );
 const saveCopy = vi.fn(async () => ({ ok: true, savedTo: "/Users/me/Downloads/app.zip" }));
+const revealCopy = vi.fn(async () => ({ ok: true }));
 const revealPath = vi.fn(async () => ({ ok: true }));
 const openPath = vi.fn(async () => ({ ok: true }));
-Object.assign(window, { omp: { fs: { stat, read, readImage, saveCopy }, system: { revealPath, openPath } } });
+Object.assign(window, {
+	omp: { fs: { stat, read, readImage, saveCopy, revealCopy }, system: { revealPath, openPath } },
+});
 
 // After the linkedom globals above: react-dom and the components read `document`/`window` when they load.
 const { createRoot } = await import("react-dom/client");
@@ -167,9 +170,12 @@ describe("FileCard", () => {
 		expect(container.querySelector("[data-file-card-action='reveal']")).toBeNull();
 		await click("[data-file-card-action='save']");
 		expect(saveCopy).toHaveBeenCalledWith("dist/app.zip", undefined);
-		expect(useToastStore.getState().toasts.map(toast => toast.message)).toEqual([
-			"Saved to /Users/me/Downloads/app.zip",
-		]);
+		const [saved] = useToastStore.getState().toasts;
+		expect(saved?.message).toBe("Saved to /Users/me/Downloads/app.zip");
+		// Its reveal shows the copy on this computer, never asking the host's tab in front.
+		await act(async () => saved?.action?.run());
+		expect(revealCopy).toHaveBeenCalledWith("/Users/me/Downloads/app.zip");
+		expect(revealPath).not.toHaveBeenCalled();
 		await click("button[aria-label='More for app.zip']");
 		expect(menuLabels()).toEqual(["Preview", "Save to this computer", "Copy path"]);
 	});

@@ -167,6 +167,7 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.FS_UPLOAD_TO_HOST]: never(OWN_TOOLS),
 	[C.IMAGE_TO_MODEL]: never(OWN_TOOLS),
 	[C.FS_SAVE_COPY]: never(OWN_TOOLS),
+	[C.FS_REVEAL_COPY]: never(OWN_TOOLS),
 	"terminal:shells": never(OWN_TOOLS),
 	"terminal:request": never(OWN_TOOLS),
 	[PREVIEW_COMMAND]: never(OWN_TOOLS),

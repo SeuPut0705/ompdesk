@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { extractFileMentions, removeFileMention, splitAttachedMentions } from "./file-mentions";
+import { extractFileMentions, removeFileMention, replaceFileMentions, splitAttachedMentions } from "./file-mentions";
 
 const stockFile = path.join(
 	os.homedir(),
@@ -52,5 +52,25 @@ describe("file mentions", () => {
 		});
 		expect(splitAttachedMentions("no files here")).toEqual({ text: "no files here", paths: [] });
 		expect(splitAttachedMentions("@a.pdf")).toEqual({ text: "", paths: ["a.pdf"] });
+	});
+
+	it("leaves code and people alone: a decorator, a package name and a handle are not attachments", () => {
+		const prompt = [
+			"Fix this:",
+			"```py",
+			"@pytest.fixture",
+			"def db(): ...",
+			"```",
+			"run `npm i @types/node`",
+			"@jin",
+		].join("\n");
+		expect(splitAttachedMentions(prompt)).toEqual({ text: prompt, paths: [] });
+		expect(replaceFileMentions(prompt, () => "X")).toBe(prompt);
+	});
+
+	it("keeps the punctuation around a mention it replaces", () => {
+		expect(replaceFileMentions("Fix @src/app.ts. Then (see @a/b.ts), ok", path => `[${path}]`)).toBe(
+			"Fix [src/app.ts]. Then (see [a/b.ts]), ok",
+		);
 	});
 });

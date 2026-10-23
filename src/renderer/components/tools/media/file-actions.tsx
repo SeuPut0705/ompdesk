@@ -73,7 +73,7 @@ export async function saveFileCopy(context: Pick<FileActionContext, "path" | "ta
 				savedTo && surface !== "web"
 					? {
 							label: t(PLATFORM === "windows" ? "markdown.path.revealExplorer" : "markdown.path.revealFinder"),
-							run: () => void runNative(t, () => window.omp.system.revealPath(savedTo)),
+							run: () => void runNative(t, () => window.omp.fs.revealCopy(savedTo)),
 						}
 					: undefined,
 		});

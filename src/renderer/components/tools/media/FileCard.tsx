@@ -265,7 +265,7 @@ function PagePreview({ path, name, tabId, onFailed }: PreviewProps) {
 	);
 	if (content === null) return null;
 	return (
-		<span aria-hidden className="omp-file-card-frame-box">
+		<span aria-hidden className="omp-file-card-frame-box" inert>
 			<iframe
 				// White canvas like a browser tab (and the Files viewer's frame): pages assume it.
 				className="omp-file-card-frame bg-white"

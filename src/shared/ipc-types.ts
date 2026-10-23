@@ -300,6 +300,7 @@ export const IPC_COMMANDS = {
 	/** A picture in a format models refuse (HEIC, TIFF, BMP, ...) made model-safe with stock's image path. */
 	IMAGE_TO_MODEL: "image:to-model",
 	FS_SAVE_COPY: "fs:save-copy",
+	FS_REVEAL_COPY: "fs:reveal-copy",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -2332,6 +2333,8 @@ export interface OmpApi {
 		imageToModel(image: { data: string; mimeType: string }): Promise<{ data: string; mimeType: string }>;
 		/** Save a copy of `path` (read for the tab's computer) where this device picks: a save dialog here, the phone's download. */
 		saveCopy(path: string, tabId?: string): Promise<IpcFsSaveCopyResult>;
+		/** Show a copy `saveCopy` wrote on this computer in Finder/Explorer (only a path it wrote, whatever tab is in front). */
+		revealCopy(savedTo: string): Promise<IpcOpenPathResult>;
 		/**
 		 * The absolute path of a dropped, pasted or picked `File` on the computer the tab runs on; "" when it has none.
 		 * Electron answers at once (`webUtils.getPathForFile`); a web page uploads the file to the host first.

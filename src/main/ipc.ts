@@ -2150,6 +2150,15 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	// "Save a copy" of a file a transcript names: this window's save dialog, then the bytes from the computer the tab
 	// runs on (copied here, or streamed part by part from a paired host). A web page's phone saves its own copy.
+	// The copies it wrote are remembered so "Reveal in Finder" on its toast shows them whatever tab is in front (a
+	// paired host's tab, whose paths mean nothing here, is usually the one it was saved from).
+	const savedCopies = new Set<string>();
+	ipc.handle(IPC_COMMANDS.FS_REVEAL_COPY, async (_caller, savedTo: unknown): Promise<IpcOpenPathResult> => {
+		if (typeof savedTo !== "string" || !savedCopies.has(savedTo))
+			return { ok: false, error: "Not a copy OMPdesk saved", code: "invalid_path" };
+		shell.showItemInFolder(savedTo);
+		return { ok: true };
+	});
 	ipc.handle(
 		IPC_COMMANDS.FS_SAVE_COPY,
 		async (caller, payload: IpcFsSaveCopyPayload): Promise<IpcFsSaveCopyResult> => {
@@ -2160,6 +2169,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				return { ok: false, error: "Only an OMPdesk window on this computer can save a file" };
 			const target = targetFor(deps, caller, payload.tabId);
 			const name = fileNameOf(payload.path) || "file";
+			const remember = (result: IpcFsSaveCopyResult): IpcFsSaveCopyResult => {
+				if (result.ok && result.savedTo) savedCopies.add(result.savedTo);
+				return result;
+			};
 			const pickDestination = async (defaultName: string): Promise<string | null> => {
 				if (win.isDestroyed()) return null;
 				const chosen = await dialog.showSaveDialog(win, { defaultPath: defaultName });
@@ -2174,26 +2187,28 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 						{ ...params, rtab: target.tabId, cwd: target.sidecar.cwd },
 						HOST_FS_READ_BINARY_TIMEOUT_MS,
 					);
-				return saveCopy({
-					name,
-					pickDestination,
-					source: {
-						kind: "remote",
-						remote: {
-							readRange: async (offset, length) =>
-								decodeBinaryRead(
-									await request("host.fs.readRange", { path: payload.path, offset, length }),
-									"host.fs.readRange",
-								),
-							readWhole: async () =>
-								decodeBinaryRead(await request("host.fs.readBinary", { path: payload.path })),
+				return remember(
+					await saveCopy({
+						name,
+						pickDestination,
+						source: {
+							kind: "remote",
+							remote: {
+								readRange: async (offset, length) =>
+									decodeBinaryRead(
+										await request("host.fs.readRange", { path: payload.path, offset, length }),
+										"host.fs.readRange",
+									),
+								readWhole: async () =>
+									decodeBinaryRead(await request("host.fs.readBinary", { path: payload.path })),
+							},
 						},
-					},
-				});
+					}),
+				);
 			}
 			const file = await resolveWorkspaceFile(cwdFor(deps, caller, payload.tabId), payload.path);
 			if (!file.ok) return file;
-			return saveCopy({ name, pickDestination, source: { kind: "local", abs: file.abs } });
+			return remember(await saveCopy({ name, pickDestination, source: { kind: "local", abs: file.abs } }));
 		},
 	);
 

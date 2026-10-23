@@ -22,7 +22,7 @@ import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
 import { Badge, Button, CopyButton, DisclosureButton, IconButton, MenuButton } from "../common";
 import type { GalleryImage } from "../common/ZoomableImage";
-import { referencedFiles } from "../tools/media/chat-media";
+import { isAbsoluteChatPath, referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType, MailNote, MemoryRecallNote, RecapCard } from "./CustomMessageCard";
@@ -54,14 +54,16 @@ const COMPACTION_METHOD_KEYS: Record<string, string> = {
 };
 
 /**
- * A file a sentence of the prompt names (`@path`), read as its name linking to the file rather than the whole path
- * (the card under the prompt shows the rest). A mention that names nothing path-like (`@kim`) stays as written.
+ * A file a sentence of the prompt names by its whole path (`@/Users/…/report.pdf`, what the composer inserts for a
+ * file outside the project or one it uploaded), read as its name linking to the file; the card under the prompt
+ * shows the rest. A relative mention (`@src/a.ts`) already reads well and stays as written.
  */
 function mentionLink(path: string): string | null {
-	if (!/[\\/.]/.test(path)) return null;
+	if (!isAbsoluteChatPath(path)) return null;
 	const name = basename(path) || path;
-	// As a `file:` URL the whole path survives the markdown pipeline (a Windows drive or a space included).
-	return `[${name.replace(/[\\[\]*_`<>]/g, "\\$&")}](file://${encodeURIComponent(path)})`;
+	// As a `file:` URL the whole path survives the markdown pipeline (a Windows drive, a space or a parenthesis included).
+	const url = encodeURIComponent(path).replace(/[()]/g, c => (c === "(" ? "%28" : "%29"));
+	return `[${name.replace(/[\\[\]*_`<>]/g, "\\$&")}](file://${url})`;
 }
 
 /**

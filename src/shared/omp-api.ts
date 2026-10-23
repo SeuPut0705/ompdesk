@@ -737,6 +737,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			/** A picture in a format models refuse, as the one stock's image path makes of it (PNG or JPEG). */
 			imageToModel: (image: { data: string; mimeType: string }) =>
 				transport.invoke(IPC_COMMANDS.IMAGE_TO_MODEL, image) as Promise<{ data: string; mimeType: string }>,
+			revealCopy: (savedTo: string) =>
+				transport.invoke(IPC_COMMANDS.FS_REVEAL_COPY, savedTo) as Promise<IpcOpenPathResult>,
 			saveCopy: (path: string, tabId?: string) =>
 				transport.invoke(IPC_COMMANDS.FS_SAVE_COPY, {
 					path,
