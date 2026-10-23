@@ -7,6 +7,7 @@
  * sessions before the list existed) and again after the session index changes. A folder the person removed stays out
  * until they open it again (`add`); a removed project's sessions are not touched.
  */
+import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import type { SessionInfo } from "../shared/ipc-types";
 import {
@@ -47,11 +48,29 @@ async function folderExists(path: string): Promise<boolean> {
 	);
 }
 
+/**
+ * The main checkout a linked worktree's `.git` file points at (`gitdir: <main>/.git/worktrees/<name>`), read without git:
+ * a git that could not answer (not installed yet, slow at startup on Windows) once listed every agent worktree as a
+ * project of its own (the user's report, 23 Oct 2026: a paired Windows host's section was a column of `gui-agent-…`).
+ */
+export async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
+	const text = await fs.readFile(path.join(cwd, ".git"), "utf8").catch(() => null);
+	const match = text ? /^gitdir:\s*(.+?)\s*$/m.exec(text) : null;
+	if (!match?.[1]) return null;
+	const gitdir = path.resolve(cwd, match[1]);
+	if (path.basename(path.dirname(gitdir)) !== "worktrees") return null;
+	const common = path.dirname(path.dirname(gitdir));
+	if (path.basename(common) !== ".git") return null;
+	const root = path.dirname(common);
+	return fs.realpath(root).catch(() => root);
+}
+
 /** A linked worktree names its main checkout; any other folder is its own project; a folder that is gone, none. */
 export async function projectOfFolder(cwd: string): Promise<string | null> {
 	if (!(await folderExists(cwd))) return null;
 	const origin = await readProjectOrigin(cwd);
-	return origin?.worktree ? origin.root : cwd;
+	if (origin?.worktree) return origin.root;
+	return (await linkedWorktreeRoot(cwd)) ?? cwd;
 }
 
 export class SidebarProjects {
@@ -165,21 +184,45 @@ export class SidebarProjects {
 			found.set(project, Math.max(found.get(project) ?? 0, created));
 		}
 		if (this.#disposed) return;
-		const listed = new Set(this.#state.projects.map(entry => entry.path));
+		// A listed folder that is a linked worktree (listed by a pass whose git could not tell) gives way to its project.
+		const moved = new Map<string, string>();
+		for (const { path: listedPath, missing } of this.#state.projects) {
+			if (missing) continue;
+			let project = this.#resolved.get(listedPath);
+			if (project === undefined) {
+				project = await this.#projectOf(listedPath);
+				this.#resolved.set(listedPath, project);
+			}
+			if (project && project !== listedPath && project !== workspace) moved.set(listedPath, project);
+		}
+		for (const [from, to] of moved) {
+			worktrees[from] = to;
+			found.set(
+				to,
+				Math.max(found.get(to) ?? 0, this.#state.projects.find(entry => entry.path === from)?.addedAt ?? 0),
+			);
+		}
+		if (this.#disposed) return;
+		const listed = new Set(this.#state.projects.filter(entry => !moved.has(entry.path)).map(entry => entry.path));
 		const added: SidebarProject[] = [];
 		for (const [path, addedAt] of found) {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
 			added.push({ path, addedAt: addedAt || this.#now() });
 		}
-		await this.#checkFolders(added, worktrees);
+		await this.#checkFolders(added, worktrees, moved);
 	}
 
 	/** Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added`. */
-	async #checkFolders(added: readonly SidebarProject[], worktrees: Record<string, string>): Promise<void> {
+	async #checkFolders(
+		added: readonly SidebarProject[],
+		worktrees: Record<string, string>,
+		moved: ReadonlyMap<string, string> = new Map(),
+	): Promise<void> {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
+		const kept = before.projects.filter(entry => !moved.has(entry.path));
 		const checked = await Promise.all(
-			[...before.projects, ...added].map(
+			[...kept, ...added].map(
 				async ({ path, addedAt }): Promise<SidebarProject> =>
 					(await exists(path)) ? { path, addedAt } : { path, addedAt, missing: true },
 			),
@@ -188,6 +231,7 @@ export class SidebarProjects {
 		if (this.#disposed || this.#state !== before) return;
 		const changed =
 			added.length > 0 ||
+			moved.size > 0 ||
 			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees);
 		if (changed) this.#commit({ projects: checked, worktrees });

@@ -1,6 +1,9 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SidebarProjectsState } from "../shared/sidebar-projects";
-import { SidebarProjects, type SidebarProjectsSession } from "./sidebar-projects";
+import { linkedWorktreeRoot, SidebarProjects, type SidebarProjectsSession } from "./sidebar-projects";
 
 const WORKSPACE = "/home/me/.omp/work";
 
@@ -74,6 +77,44 @@ describe("SidebarProjects", () => {
 		expect(h.projects.state().worktrees).toEqual({ "/home/me/.omp/wt/gui-alpha-1234567": "/work/alpha" });
 		// Kept across a relaunch.
 		expect(paths(h.reopen())).toEqual(["/work/alpha", "/work/beta"]);
+	});
+
+	it("moves a worktree folder an earlier pass listed as its own project under its project", async () => {
+		// A pass whose git could not tell (not installed yet, slow at a Windows startup) listed agent worktrees as projects.
+		const h = harness({
+			projects: [
+				{ path: "/work/beta", addedAt: 1 },
+				{ path: "/home/me/.omp/wt/gui-alpha-1234567", addedAt: 3 },
+			],
+			removed: [],
+			worktrees: {},
+		});
+		await h.projects.sync();
+		expect(h.projects.state().projects).toEqual([
+			{ path: "/work/beta", addedAt: 1 },
+			{ path: "/work/alpha", addedAt: 3 },
+		]);
+		expect(h.projects.state().worktrees).toEqual({ "/home/me/.omp/wt/gui-alpha-1234567": "/work/alpha" });
+	});
+
+	it("reads a linked worktree's main checkout from its .git file when git cannot answer", async () => {
+		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-sidebar-wt-")));
+		try {
+			const main = path.join(root, "repo");
+			const wt = path.join(root, "wt", "gui-agent-abc");
+			await fs.mkdir(path.join(main, ".git", "worktrees", "gui-agent-abc"), { recursive: true });
+			await fs.mkdir(wt, { recursive: true });
+			await fs.writeFile(
+				path.join(wt, ".git"),
+				`gitdir: ${path.join(main, ".git", "worktrees", "gui-agent-abc")}\n`,
+			);
+			expect(await linkedWorktreeRoot(wt)).toBe(main);
+			// A main checkout's .git is a folder; a plain folder has none: neither is a linked worktree.
+			expect(await linkedWorktreeRoot(main)).toBeNull();
+			expect(await linkedWorktreeRoot(root)).toBeNull();
+		} finally {
+			await fs.rm(root, { recursive: true, force: true });
+		}
 	});
 
 	it("keeps a project whose last session was deleted", async () => {
