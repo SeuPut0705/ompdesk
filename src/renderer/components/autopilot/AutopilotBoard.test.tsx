@@ -483,4 +483,29 @@ describe("Autopilot shipping confirmations", () => {
 		expect($("[data-ship-auto='release']")?.disabled).toBe(true);
 		expect(document.body.textContent).toContain(translate("autopilot.ship.noProcedure"));
 	});
+
+	it("lists a long run's older cycles, which the status leaves out, only when the person asks for them", async () => {
+		installMockOmp();
+		const getAutopilot = vi.fn(
+			async () =>
+				({
+					type: "response",
+					command: "get_autopilot",
+					success: true,
+					data: { ...status, cycles: Array.from({ length: 40 }, (_, index) => cycle(index + 1)) },
+				}) as RpcResponse,
+		);
+		(window as unknown as { omp: { rpc: Record<string, unknown> } }).omp.rpc.getAutopilot = getAutopilot;
+		const recent = Array.from({ length: 30 }, (_, index) => cycle(index + 11));
+		useAutopilotStore.getState().apply({ ...status, cycles: recent, cycleCount: 40 });
+		await mount();
+		expect(getAutopilot).not.toHaveBeenCalled();
+		const more = $('[data-board-section="cycles"] [data-board-more]');
+		expect(more?.getAttribute("data-board-more")).toBe("35");
+		await act(async () => more?.click());
+		await flush();
+		expect(getAutopilot).toHaveBeenCalledWith({ allCycles: true });
+		expect(all('[data-board-section="cycles"] [data-autopilot-cycle]')).toHaveLength(40);
+		expect($('[data-autopilot-cycle="1"]')).not.toBeNull();
+	});
 });

@@ -51,6 +51,7 @@ import {
 	NO_LIMITS,
 	type ShipQueueItem,
 	shipPolicyForPreset,
+	withRecentCycles,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import {
 	branchProblem,
@@ -424,7 +425,9 @@ export async function ghRunStatus(
 }
 
 /** The two commands the coordinator answers (`ipc.ts` routes them here). */
-export type AutopilotCommand = { type: "get_autopilot" } | ({ type: "set_autopilot" } & AutopilotAction);
+export type AutopilotCommand =
+	| { type: "get_autopilot"; allCycles?: boolean }
+	| ({ type: "set_autopilot" } & AutopilotAction);
 
 export class Autopilot {
 	readonly #deps: AutopilotDeps;
@@ -532,11 +535,15 @@ export class Autopilot {
 		const tabId = this.#tabOf.get(sidecar);
 		const run = tabId ? this.#runs.get(tabId) : undefined;
 		const status = frame.status as AutopilotStatus | undefined;
-		if (!run || !status?.active) return frame;
+		if (!status?.active) return frame;
+		if (!run) {
+			const recent = withRecentCycles(status);
+			return recent === status ? frame : { ...frame, status: recent };
+		}
 		run.status = status;
 		if (status.settings) run.settings = status.settings;
 		this.#titleByItem(run, status.now?.title);
-		return { ...frame, status: this.#overlaid(run, status) };
+		return { ...frame, status: withRecentCycles(this.#overlaid(run, status)) };
 	}
 
 	/** The run's title follows the cycle at work: its `pick`, else (a cycle that picked nothing) its record's title. */
@@ -582,7 +589,7 @@ export class Autopilot {
 		try {
 			const data =
 				command.type === "get_autopilot"
-					? await this.status(sidecar, tabId)
+					? await this.status(sidecar, tabId, command.allCycles === true)
 					: await this.#action(win, sidecar, tabId, command);
 			return { id, type: "response", command: command.type, success: true, data } as RpcResponse;
 		} catch (error) {
@@ -597,12 +604,16 @@ export class Autopilot {
 		}
 	}
 
-	/** `get_autopilot`: a run's whole status, or for any other tab what the start sheet needs. */
-	async status(sidecar: SidecarLike, tabId: string): Promise<AutopilotStatus> {
+	/**
+	 * `get_autopilot`: a run's status with its newest cycles (`allCycles`: every one), or for any other tab what the
+	 * start sheet needs.
+	 */
+	async status(sidecar: SidecarLike, tabId: string, allCycles = false): Promise<AutopilotStatus> {
+		const shown = (status: AutopilotStatus) => (allCycles ? status : withRecentCycles(status));
 		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
-		if (run) return this.#overlaid(run, await this.#fetchStatus(run));
+		if (run) return shown(this.#overlaid(run, await this.#fetchStatus(run)));
 		const status = await this.#bridge<AutopilotStatus>(tabId, AUTOPILOT_BRIDGE_METHODS.status, {}).catch(() => null);
-		if (status?.active) return status;
+		if (status?.active) return shown(status);
 		return this.#idleStatus(sidecar);
 	}
 
@@ -653,7 +664,7 @@ export class Autopilot {
 				run.ship.cancel(action.id);
 				break;
 		}
-		return this.#overlaid(run, await this.#fetchStatus(run));
+		return withRecentCycles(this.#overlaid(run, await this.#fetchStatus(run)));
 	}
 
 	// ----------------------------------------------------------------------------------------
@@ -812,7 +823,7 @@ export class Autopilot {
 		} finally {
 			run.starting = false;
 		}
-		return { ...this.#overlaid(run, await this.#fetchStatus(run)), tabId: newTab };
+		return { ...withRecentCycles(this.#overlaid(run, await this.#fetchStatus(run))), tabId: newTab };
 	}
 
 	#newRun(

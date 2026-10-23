@@ -452,3 +452,37 @@ describe("approval cards", () => {
 		]);
 	});
 });
+
+describe("a long run's cycles on the way to a window", () => {
+	it("are the newest 30 in an update and a read, every one when asked, and the coordinator keeps them all", async () => {
+		await start();
+		const worktree = path.join(tmp, "wt-2026-10-17");
+		const sha = await commit(worktree, "a.txt");
+		const status = world.statuses.get("ap-1") as AutopilotStatus;
+		status.cycles = Array.from({ length: 40 }, (_, index) =>
+			record({ n: index + 1, ...(index === 1 ? { commit: sha } : {}) }),
+		);
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		const out = autopilot.overlay(sidecar, { type: "autopilot_update", status }) as { status: AutopilotStatus };
+		expect(out.status.cycles?.map(cycle => cycle.n)).toEqual(Array.from({ length: 30 }, (_, index) => index + 11));
+		expect(out.status.cycleCount).toBe(40);
+		const read = dataOf<AutopilotStatus>(
+			await autopilot.handleCommand(win, sidecar, "ap-1", { type: "get_autopilot" }, "1"),
+		);
+		expect([read.cycles?.length, read.cycleCount]).toEqual([30, 40]);
+		const all = dataOf<AutopilotStatus>(
+			await autopilot.handleCommand(win, sidecar, "ap-1", { type: "get_autopilot", allCycles: true }, "2"),
+		);
+		expect(all.cycles?.length).toBe(40);
+		expect(all.cycleCount).toBeUndefined();
+		// A cycle the windows no longer list can still be reverted.
+		const reverted = await autopilot.handleCommand(
+			win,
+			sidecar,
+			"ap-1",
+			{ type: "set_autopilot", action: "ship", kind: "revert", cycle: 2 },
+			"3",
+		);
+		expect(reverted.success).toBe(true);
+	});
+});

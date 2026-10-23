@@ -245,7 +245,8 @@ export interface SessionRpcClient {
 	getGoal(): Promise<RpcResponse>;
 	guidedGoal(initial?: string): Promise<RpcResponse>;
 	setAgentsPaused(enabled: boolean): Promise<RpcResponse>;
-	getAutopilot(): Promise<RpcResponse>;
+	/** A run's status; `allCycles`: with every cycle record, not only the newest (`STATUS_CYCLES`). */
+	getAutopilot(options?: { allCycles?: boolean }): Promise<RpcResponse>;
 	setAutopilot(action: AutopilotAction): Promise<RpcResponse>;
 	autopilotBranchStatus(root: string, base: string, branch: string): Promise<RpcResponse>;
 	/** The desktop slot (who drives this computer's screen, who waits): `data` is a `DesktopSlotState`. */
@@ -610,7 +611,8 @@ export function createSessionRpcClient(transport: RpcTransport): SessionRpcClien
 			rpcCommand({ type: "get_transcript_page", cursor, limit, fromEnd }),
 		planApproval: (approved, option, feedback, savePath) =>
 			rpcCommand({ type: "plan_approval", approved, option, feedback, savePath }),
-		getAutopilot: () => rpcCommand({ type: "get_autopilot" }),
+		getAutopilot: options =>
+			rpcCommand(options?.allCycles ? { type: "get_autopilot", allCycles: true } : { type: "get_autopilot" }),
 		setAutopilot: action => rpcCommand({ type: "set_autopilot", ...action }),
 		autopilotBranchStatus: (root, base, branch) =>
 			rpcCommand({ type: "autopilot_branch_status", root, base, branch }),

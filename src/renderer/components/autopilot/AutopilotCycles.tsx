@@ -1,12 +1,15 @@
 import { Undo2 } from "lucide-react";
-import { useMemo, useState } from "react";
-import type {
-	AutopilotChildReport,
-	AutopilotCycleRecord,
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+	type AutopilotChildReport,
+	type AutopilotCycleRecord,
+	type AutopilotStatus,
+	cycleTotal,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { formatAutopilotLog } from "../../../shared/autopilot-log";
 import { formatCost, formatDuration, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { useTabRpc } from "../../lib/tab-rpc";
 import { useAutopilotStore } from "../../stores/autopilot";
 import { useUiStore } from "../../stores/ui";
 import { Badge, Button, ConfirmDialog, CopyButton, LinkButton } from "../common";
@@ -147,10 +150,12 @@ function CycleRow({
 export function AutopilotCyclesSection() {
 	const t = useT();
 	const cycles = useAutopilotStore(s => s.status.cycles);
+	const total = useAutopilotStore(s => cycleTotal(s.status));
 	const branch = useAutopilotStore(s => s.status.branch);
 	const { run, pending } = useAutopilotActions();
 	const [reverting, setReverting] = useState<AutopilotCycleRecord | null>(null);
-	const newestFirst = useMemo(() => [...(cycles ?? [])].sort((a, b) => b.n - a.n), [cycles]);
+	const { older, ready, loadAll } = useOlderCycles(total > (cycles?.length ?? 0));
+	const newestFirst = useMemo(() => merged(older, cycles ?? []), [older, cycles]);
 	if (newestFirst.length === 0) return null;
 	return (
 		<BoardSection
@@ -158,14 +163,21 @@ export function AutopilotCyclesSection() {
 				<CopyButton
 					data-autopilot-copy-log
 					label={t("autopilot.copyLog")}
-					text={() => formatAutopilotLog({ branch: branch ?? "autopilot", cycles: newestFirst })}
+					onFocus={loadAll}
+					onPointerEnter={loadAll}
+					text={() => {
+						const log = (all: readonly AutopilotCycleRecord[]) =>
+							formatAutopilotLog({ branch: branch ?? "autopilot", cycles: merged(all, newestFirst) });
+						// Read before the click (hover, focus) when it could be, so the copy stays inside the click.
+						return ready ? log(older) : loadAll().then(log);
+					}}
 				/>
 			}
-			count={newestFirst.length}
+			count={Math.max(total, newestFirst.length)}
 			id="cycles"
 			title={t("autopilot.timeline")}
 		>
-			<CappedRows cap={SHOWN_CYCLES} items={newestFirst}>
+			<CappedRows cap={SHOWN_CYCLES} items={newestFirst} onExpand={loadAll} total={total}>
 				{cycle => <CycleRow cycle={cycle} key={cycle.n} onRevert={setReverting} />}
 			</CappedRows>
 			<li className="contents">
@@ -186,4 +198,45 @@ export function AutopilotCyclesSection() {
 			</li>
 		</BoardSection>
 	);
+}
+
+/** Every cycle newest first, the newer copy of a cycle in both lists winning. */
+function merged(
+	older: readonly AutopilotCycleRecord[],
+	newer: readonly AutopilotCycleRecord[],
+): AutopilotCycleRecord[] {
+	const byN = new Map<number, AutopilotCycleRecord>();
+	for (const cycle of [...older, ...newer]) byN.set(cycle.n, cycle);
+	return [...byN.values()].sort((a, b) => b.n - a.n);
+}
+
+/**
+ * The cycles the status leaves out (it carries the newest `STATUS_CYCLES`): read once with `get_autopilot`
+ * `allCycles` when the person lists the older ones or copies the log, never before.
+ */
+function useOlderCycles(cut: boolean): {
+	older: readonly AutopilotCycleRecord[];
+	/** Nothing is left out, or what was is read. */
+	ready: boolean;
+	loadAll: () => Promise<readonly AutopilotCycleRecord[]>;
+} {
+	const rpc = useTabRpc();
+	const [older, setOlder] = useState<readonly AutopilotCycleRecord[]>([]);
+	const reading = useRef<Promise<readonly AutopilotCycleRecord[]> | null>(null);
+	const loadAll = useCallback((): Promise<readonly AutopilotCycleRecord[]> => {
+		if (!cut || older.length > 0) return Promise.resolve(older);
+		reading.current ??= rpc
+			.getAutopilot({ allCycles: true })
+			.then(response => {
+				const all = response.success ? ((response.data as AutopilotStatus | undefined)?.cycles ?? []) : [];
+				setOlder(all);
+				return all;
+			})
+			.catch(() => older)
+			.finally(() => {
+				reading.current = null;
+			});
+		return reading.current;
+	}, [cut, older, rpc]);
+	return { older, ready: !cut || older.length > 0, loadAll };
 }

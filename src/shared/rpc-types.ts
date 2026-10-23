@@ -280,7 +280,7 @@ export type RpcCommand =
 	| { id?: string; type: "guided_goal"; initial?: string }
 	| { id?: string; type: "set_agents_paused"; enabled: boolean }
 	// Autopilot (Settings: Mode tab "Autopilot"): gui-bridge modes/autopilot.ts + main's coordinator (src/main/autopilot.ts)
-	| { id?: string; type: "get_autopilot" }
+	| { id?: string; type: "get_autopilot"; allCycles?: boolean }
 	| ({ id?: string; type: "set_autopilot" } & AutopilotAction)
 	/** Commits the autopilot branch is ahead of / behind `base` (read-only git in the worktree). */
 	| { id?: string; type: "autopilot_branch_status"; root: string; base: string; branch: string }

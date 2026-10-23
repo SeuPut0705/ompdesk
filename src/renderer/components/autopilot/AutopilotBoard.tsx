@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AutopilotChildLive } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import { type AutopilotChildLive, cycleTotal } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
 import { formatCost, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -53,7 +53,7 @@ function useBranchStatus(): void {
 	const root = useAutopilotStore(s => s.status.root);
 	const base = useAutopilotStore(s => s.status.baseBranch);
 	const branch = useAutopilotStore(s => s.status.branch);
-	const finished = useAutopilotStore(s => s.status.cycles?.length ?? 0);
+	const finished = useAutopilotStore(s => cycleTotal(s.status));
 	const state = useAutopilotStore(s => s.status.state);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a finished cycle or a state change moves the branch.
 	useEffect(() => {

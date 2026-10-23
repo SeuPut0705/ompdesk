@@ -5,7 +5,7 @@
  * announces "Copied" to screen readers; a failed one raises an error toast,
  * since nothing on screen would otherwise say the clipboard is unchanged.
  * `text` may be a function so a large value (a log, a patch) is only built
- * when the user clicks. Every other IconButton prop passes through.
+ * when the user clicks, or read then (a promise). Every other IconButton prop passes through.
  */
 
 import { Check, Copy } from "lucide-react";
@@ -19,8 +19,8 @@ import { IconButton, type IconButtonProps } from "./IconButton";
 const COPIED_MS = 1500;
 
 export interface CopyButtonProps extends Omit<IconButtonProps, "icon" | "onClick" | "pressed"> {
-	/** The text to copy, or a function that builds it on click. */
-	text: string | (() => string);
+	/** The text to copy, or a function that builds or reads it on click. */
+	text: string | (() => string | Promise<string>);
 	/** Localized sentence for the failure toast; defaults to the shared one. */
 	failedMessage?: string;
 }
@@ -41,7 +41,10 @@ export function CopyButton({ text, failedMessage, className, size = "sm", ...res
 				data-copied={copied || undefined}
 				icon={copied ? <Check /> : <Copy />}
 				onClick={() => {
-					void copyText(typeof text === "function" ? text() : text).then(ok => {
+					const value = typeof text === "function" ? text() : text;
+					// A ready string is written at once, inside the click (WebKit allows a write only then).
+					const written = typeof value === "string" ? copyText(value) : value.then(copyText, () => false);
+					void written.then(ok => {
 						if (ok) setCopied(true);
 						else toast({ variant: "error", message: failedMessage ?? t("common.copyFailed") });
 					});

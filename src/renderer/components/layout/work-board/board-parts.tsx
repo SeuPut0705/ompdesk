@@ -15,20 +15,27 @@ import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work
  */
 export const SECTION_CAP = { waiting: 3, running: 4, opened: 3, followups: 3 } as const;
 
-/** The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. */
+/**
+ * The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. `total` counts
+ * items not loaded yet as hidden too, and `onExpand` is told of the tap so it can load them.
+ */
 export function CappedRows<T>({
 	items,
 	cap,
+	total = items.length,
+	onExpand,
 	children,
 }: {
 	items: readonly T[];
 	cap: number;
+	total?: number;
+	onExpand?: () => void;
 	children: (item: T) => ReactNode;
 }) {
 	const t = useT();
 	const [all, setAll] = useState(false);
-	const shown = all || items.length <= cap ? items : items.slice(0, cap);
-	const hidden = items.length - shown.length;
+	const shown = all || Math.max(items.length, total) <= cap ? items : items.slice(0, cap);
+	const hidden = all ? 0 : Math.max(items.length, total) - shown.length;
 	return (
 		<>
 			{shown.map(children)}
@@ -38,7 +45,12 @@ export function CappedRows<T>({
 					<button
 						className="omp-work-board-more"
 						data-board-more={hidden}
-						onClick={event => revealAndFocus(event.currentTarget, () => setAll(true))}
+						onClick={event =>
+							revealAndFocus(event.currentTarget, () => {
+								setAll(true);
+								onExpand?.();
+							})
+						}
 						type="button"
 					>
 						{t("workBoard.moreTodos", { count: hidden })}

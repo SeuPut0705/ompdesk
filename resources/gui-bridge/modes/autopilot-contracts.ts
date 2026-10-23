@@ -479,7 +479,13 @@ export interface AutopilotStatus {
 	startedAt?: number;
 	activeMs?: number;
 	settings?: AutopilotSettings;
+	/**
+	 * The run's cycle records, oldest first. What leaves main for a window or a device holds only the newest
+	 * {@link STATUS_CYCLES} ({@link withRecentCycles}); `get_autopilot` with `allCycles` answers every one.
+	 */
 	cycles?: AutopilotCycleRecord[];
+	/** How many cycles the run recorded, when `cycles` holds only the newest of them. */
+	cycleCount?: number;
 	/** Red cycles in a row (the repair counter the timeline shows); absent at zero. The run goes on: the next cycle repairs. */
 	redStreak?: number;
 	/** What the recent cycles left for later and no later cycle did (`openFollowups`, newest first); absent when none. */
@@ -494,6 +500,24 @@ export interface AutopilotStatus {
 	children?: AutopilotChildLive[];
 	/** Waiting for the account quota until this time (ms). */
 	quotaResetAt?: number;
+}
+
+/**
+ * Cycles a status carries to a window or a device. Every update sends the whole status, and a run's cycles grew it
+ * without end: 446 cycles were 505 KB a frame (23 Oct 2026), several frames a cycle, to every window and phone.
+ */
+export const STATUS_CYCLES = 30;
+
+/** The status with only its newest {@link STATUS_CYCLES} cycles, and how many there are in `cycleCount`. */
+export function withRecentCycles(status: AutopilotStatus): AutopilotStatus {
+	const cycles = status.cycles;
+	if (!cycles || cycles.length <= STATUS_CYCLES) return status;
+	return { ...status, cycles: cycles.slice(-STATUS_CYCLES), cycleCount: cycles.length };
+}
+
+/** How many cycles the run recorded, whether or not the status holds them all. */
+export function cycleTotal(status: AutopilotStatus): number {
+	return status.cycleCount ?? status.cycles?.length ?? 0;
 }
 
 /** Frame body of `autopilot_update`: the whole status (the screen is small; no diffing). */

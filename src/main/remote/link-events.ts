@@ -401,8 +401,10 @@ export function encodedReadKey(command: {
 	forceRefresh?: unknown;
 	compact?: unknown;
 	paths?: unknown;
+	allCycles?: unknown;
 }): { key: string; needs: "autopilotReads" | "listReads" | "settingsReads" | "rosterReads" } | null {
-	if (command.type === "get_autopilot") return { key: command.type, needs: "autopilotReads" };
+	if (command.type === "get_autopilot")
+		return { key: command.allCycles === true ? `${command.type}:all` : command.type, needs: "autopilotReads" };
 	if (command.type === "get_available_commands") return { key: command.type, needs: "listReads" };
 	if (command.type === "get_transcript_page" && command.fromEnd === true && command.cursor === undefined)
 		return { key: `${command.type}:${String(command.limit)}`, needs: "listReads" };
