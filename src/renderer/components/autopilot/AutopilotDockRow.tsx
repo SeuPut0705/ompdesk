@@ -3,7 +3,7 @@ import { useT } from "../../lib/i18n";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
 import { IconButton } from "../common";
-import { AutopilotStopButtons } from "./AutopilotControls";
+import { AutopilotControls } from "./AutopilotControls";
 import { useAutopilotStateText } from "./use-autopilot-state-text";
 
 /**
@@ -33,7 +33,7 @@ export function AutopilotDockRow({ inline = false }: { inline?: boolean }) {
 				onClick={() => useUiStore.getState().revealWorkBoard(tabId)}
 				size="sm"
 			/>
-			<AutopilotStopButtons />
+			<AutopilotControls compact />
 		</div>
 	);
 }

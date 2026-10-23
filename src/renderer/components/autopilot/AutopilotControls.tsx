@@ -1,47 +1,133 @@
-import { Pause, Play, Square } from "lucide-react";
+import { PackageCheck, Pause, Play, Square } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../../lib/i18n";
 import { useAutopilotStore } from "../../stores/autopilot";
-import { Button, ConfirmDialog } from "../common";
+import { Button, ConfirmDialog, IconButton } from "../common";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
 /**
- * End (after the cycle in progress) and abort (now): the two ways to stop a run. Abort asks first while a push or a
- * release is under way, since it may be half done. Shared by the work board, the dock row and the Mode tab.
+ * A run's three controls in one row (the user's layout, 23 Oct 2026): Pause as a toggle (Resume while paused), Ship
+ * then stop (the run lands its work and releases when a release is due, then ends; pressed again it cancels) and Stop
+ * now. Stop now asks first while a push or a release is under way, since it may be half done. `compact` draws icons
+ * alone (their names are the tooltip and the accessible name) for the dock's one-line row.
  */
-export function AutopilotStopButtons({ size = "sm" }: { size?: "sm" | "md" }) {
+export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 	const t = useT();
 	const state = useAutopilotStore(s => s.status.state);
 	const inFlight = useAutopilotStore(s => s.status.ship?.inFlight);
+	const shipThenStop = useAutopilotStore(s => s.status.ship?.endAfterShip === true);
 	const { pending, run } = useAutopilotActions();
 	const [confirming, setConfirming] = useState(false);
 	const stopping = state === "stopping";
 	const finished = state === "ended";
+	const paused = state === "paused";
+	const busy = pending !== null;
+
+	const pause = {
+		label: paused ? t("autopilot.resume") : t("autopilot.pause"),
+		title: paused ? t("autopilot.resumeTitle") : t("autopilot.pauseTitle"),
+		icon: paused ? <Play aria-hidden /> : <Pause aria-hidden />,
+		disabled: busy || (!paused && state !== "running" && state !== "waiting_quota"),
+		loading: pending === "pause" || pending === "resume",
+		onClick: () => void run({ action: paused ? "resume" : "pause" }),
+	};
+	const ship = {
+		label: stopping ? t("autopilot.stopping") : t("autopilot.shipThenStop"),
+		title: shipThenStop ? t("autopilot.shipThenStopArmed") : t("autopilot.shipThenStopTitle"),
+		icon: <PackageCheck aria-hidden />,
+		disabled: busy || stopping || finished,
+		loading: pending === "stop_after_ship",
+		onClick: () => void run({ action: "stop_after_ship", enabled: !shipThenStop }),
+	};
+	const abort = {
+		label: t("autopilot.abort"),
+		title: t("autopilot.abortTitle"),
+		icon: <Square aria-hidden className="fill-current" />,
+		disabled: busy || finished,
+		loading: pending === "abort",
+		onClick: () => (inFlight ? setConfirming(true) : void run({ action: "abort" })),
+	};
+
 	return (
 		<>
-			<Button
-				data-autopilot-stop
-				disabled={stopping || finished || pending !== null}
-				loading={pending === "stop"}
-				onClick={() => void run({ action: "stop" })}
-				size={size}
-				title={t("autopilot.stopTitle")}
-				variant="secondary"
-			>
-				{stopping ? t("autopilot.stopping") : t("autopilot.stop")}
-			</Button>
-			<Button
-				data-autopilot-abort
-				disabled={finished || pending !== null}
-				icon={<Square aria-hidden className="fill-current" />}
-				loading={pending === "abort"}
-				onClick={() => (inFlight ? setConfirming(true) : void run({ action: "abort" }))}
-				size={size}
-				title={t("autopilot.abortTitle")}
-				variant="danger"
-			>
-				{t("autopilot.abort")}
-			</Button>
+			{compact ? (
+				<>
+					<IconButton
+						data-autopilot-pause={paused ? undefined : ""}
+						data-autopilot-resume={paused ? "" : undefined}
+						disabled={pause.disabled}
+						icon={pause.icon}
+						label={pause.label}
+						loading={pause.loading}
+						onClick={pause.onClick}
+						size="sm"
+					/>
+					<IconButton
+						data-autopilot-ship-stop
+						disabled={ship.disabled}
+						icon={ship.icon}
+						label={ship.label}
+						loading={ship.loading}
+						onClick={ship.onClick}
+						pressed={shipThenStop}
+						size="sm"
+					/>
+					<IconButton
+						data-autopilot-abort
+						disabled={abort.disabled}
+						icon={abort.icon}
+						label={abort.label}
+						loading={abort.loading}
+						onClick={abort.onClick}
+						size="sm"
+						variant="danger"
+					/>
+				</>
+			) : (
+				<div className="flex min-w-0 flex-1 items-center gap-1" data-autopilot-control-row>
+					<Button
+						className="min-w-0 flex-1"
+						data-autopilot-pause={paused ? undefined : ""}
+						data-autopilot-resume={paused ? "" : undefined}
+						disabled={pause.disabled}
+						icon={pause.icon}
+						loading={pause.loading}
+						onClick={pause.onClick}
+						size="sm"
+						title={pause.title}
+						variant={paused ? "primary" : "secondary"}
+					>
+						<span className="truncate">{pause.label}</span>
+					</Button>
+					<Button
+						aria-pressed={shipThenStop}
+						className="min-w-0 flex-1"
+						data-autopilot-ship-stop
+						disabled={ship.disabled}
+						icon={ship.icon}
+						loading={ship.loading}
+						onClick={ship.onClick}
+						size="sm"
+						title={ship.title}
+						variant={shipThenStop ? "primary" : "secondary"}
+					>
+						<span className="truncate">{ship.label}</span>
+					</Button>
+					<Button
+						className="min-w-0 flex-1"
+						data-autopilot-abort
+						disabled={abort.disabled}
+						icon={abort.icon}
+						loading={abort.loading}
+						onClick={abort.onClick}
+						size="sm"
+						title={abort.title}
+						variant="danger"
+					>
+						<span className="truncate">{abort.label}</span>
+					</Button>
+				</div>
+			)}
 			<ConfirmDialog
 				confirmLabel={t("autopilot.abortConfirm.action")}
 				message={t(inFlight?.kind === "release" ? "autopilot.abortConfirm.release" : "autopilot.abortConfirm.push")}
@@ -55,40 +141,5 @@ export function AutopilotStopButtons({ size = "sm" }: { size?: "sm" | "md" }) {
 				warning={t("autopilot.abortConfirm.warning")}
 			/>
 		</>
-	);
-}
-
-/** Pause or resume the run (the Goal stays; the cycle in progress finishes first). */
-export function AutopilotPauseButton({ size = "sm" }: { size?: "sm" | "md" }) {
-	const t = useT();
-	const state = useAutopilotStore(s => s.status.state);
-	const { pending, run } = useAutopilotActions();
-	if (state === "paused") {
-		return (
-			<Button
-				data-autopilot-resume
-				icon={<Play aria-hidden />}
-				loading={pending === "resume"}
-				onClick={() => void run({ action: "resume" })}
-				size={size}
-				variant="primary"
-			>
-				{t("autopilot.resume")}
-			</Button>
-		);
-	}
-	return (
-		<Button
-			data-autopilot-pause
-			disabled={state !== "running" && state !== "waiting_quota"}
-			icon={<Pause aria-hidden />}
-			loading={pending === "pause"}
-			onClick={() => void run({ action: "pause" })}
-			size={size}
-			title={t("autopilot.pauseTitle")}
-			variant="secondary"
-		>
-			{t("autopilot.pause")}
-		</Button>
 	);
 }

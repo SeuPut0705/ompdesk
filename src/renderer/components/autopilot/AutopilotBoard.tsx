@@ -12,7 +12,7 @@ import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { IconButton } from "../common";
 import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "../layout/work-board/board-parts";
 import { AreaIcon } from "./AreaIcon";
-import { AutopilotPauseButton, AutopilotStopButtons } from "./AutopilotControls";
+import { AutopilotControls } from "./AutopilotControls";
 import { AutopilotCyclesSection } from "./AutopilotCycles";
 import { AutopilotShipSection, ShipLandRow } from "./AutopilotShip";
 import { autopilotStep, ratePrediction } from "./autopilot-view";
@@ -237,8 +237,7 @@ function AutopilotRunSection() {
 			{!ended && (
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-actions" data-autopilot-controls>
-						<AutopilotPauseButton />
-						<AutopilotStopButtons />
+						<AutopilotControls />
 					</div>
 				</li>
 			)}

@@ -333,6 +333,11 @@ export interface AutopilotShipState {
 	releaseBlocked?: string;
 	/** Landing fell back to a pull request because the remote refused the default branch push (said once, kept by main). */
 	landing?: { via: "pr"; url?: string; reason: string };
+	/**
+	 * The person chose "ship, then stop" (main's overlay): the run lands its work and releases when a release is due,
+	 * then ends after the first cycle that began after the choice.
+	 */
+	endAfterShip?: true;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -532,6 +537,8 @@ export type AutopilotStartOptions = {
 export type AutopilotAction =
 	| ({ action: "start" } & AutopilotStartOptions)
 	| { action: "stop" }
+	/** Ship, then stop: on (`enabled` true) the run ends after the next cycle that ships its work; off cancels it. */
+	| { action: "stop_after_ship"; enabled: boolean }
 	| { action: "abort" }
 	| { action: "pause" }
 	| { action: "resume" }

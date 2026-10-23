@@ -226,8 +226,8 @@ describe("an Autopilot tab's work board", () => {
 		await mount();
 		await click("[data-autopilot-pause]");
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "pause" });
-		await click("[data-autopilot-stop]");
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "stop" });
+		await click("[data-autopilot-ship-stop]");
+		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "stop_after_ship", enabled: true });
 		await click("[data-autopilot-abort]");
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "abort" });
 		expect($('[data-ship-button="push"]')).toBeNull();
@@ -239,7 +239,7 @@ describe("an Autopilot tab's work board", () => {
 		expect($("[data-autopilot-state]")?.getAttribute("data-autopilot-state")).toBe("ended");
 		expect($("[data-autopilot-reason]")?.getAttribute("data-autopilot-reason")).toBe("user");
 		expect($("[data-autopilot-cycle]")).not.toBeNull();
-		expect($("[data-autopilot-stop]")).toBeNull();
+		expect($("[data-autopilot-ship-stop]")).toBeNull();
 		expect($("[data-autopilot-pause]")).toBeNull();
 	});
 
@@ -291,7 +291,7 @@ describe("the run is reachable in every layout", () => {
 			expect($("[data-work-chip] .sr-only")?.textContent).toContain(translate("autopilot.name"));
 			await act(async () => useUiStore.getState().revealWorkBoard("t1"));
 			await settle();
-			expect($("[data-work-strip-panel] [data-autopilot-stop]")).not.toBeNull();
+			expect($("[data-work-strip-panel] [data-autopilot-ship-stop]")).not.toBeNull();
 			expect($("[data-work-strip-panel] [data-autopilot-cycle-live]")).not.toBeNull();
 			// Never the side panel: what it showed stays.
 			expect({ panelVisible: useUiStore.getState().panelVisible, panelTab: useUiStore.getState().panelTab }).toEqual(

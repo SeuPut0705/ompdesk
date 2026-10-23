@@ -92,8 +92,8 @@ describe("GoalDockBar for an Autopilot run", () => {
 		);
 		expect(useUiStore.getState().workBoardReveal?.seq).toBe(before + 1);
 		expect(useUiStore.getState().panelVisible).toBe(false);
-		await act(async () => (container.querySelector("[data-autopilot-stop]") as HTMLElement).click());
-		expect(setAutopilot).toHaveBeenCalledWith({ action: "stop" });
+		await act(async () => (container.querySelector("[data-autopilot-ship-stop]") as HTMLElement).click());
+		expect(setAutopilot).toHaveBeenCalledWith({ action: "stop_after_ship", enabled: true });
 		expect(setGoal).not.toHaveBeenCalled();
 	});
 

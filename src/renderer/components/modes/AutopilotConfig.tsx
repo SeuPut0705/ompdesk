@@ -20,7 +20,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
-import { AutopilotPauseButton, AutopilotStopButtons } from "../autopilot/AutopilotControls";
+import { AutopilotControls } from "../autopilot/AutopilotControls";
 import { FocusChips } from "../autopilot/FocusChips";
 import { useAutopilotActions } from "../autopilot/use-autopilot-actions";
 import { useAutopilotStateText } from "../autopilot/use-autopilot-state-text";
@@ -87,8 +87,7 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 				>
 					{t("autopilot.chip.open")}
 				</Button>
-				<AutopilotPauseButton />
-				<AutopilotStopButtons />
+				<AutopilotControls compact />
 			</div>
 		</div>
 	);

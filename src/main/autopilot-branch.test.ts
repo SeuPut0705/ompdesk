@@ -16,6 +16,7 @@ import {
 	installAutopilotRig,
 	main,
 	notices,
+	record,
 	runLogs,
 	start,
 	tmp,
@@ -69,6 +70,56 @@ describe("stop", () => {
 		await autopilot.idle();
 		expect(endedRoots).toEqual([root]);
 		expect(autopilot.runRootOf("ap-1")).toBeUndefined();
+	});
+
+	it("ship, then stop: the cycle that began after the choice ends the run; one that began before does not", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		world.busy.add("ap-1");
+		const chosen = Date.now();
+		await autopilot.handleCommand(
+			win,
+			sidecar,
+			"ap-1",
+			{ type: "set_autopilot", action: "stop_after_ship", enabled: true },
+			"2",
+		);
+		const notes = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).map(call => call.params?.text);
+		expect(notes.at(-1)).toContain("ship, then stop");
+		expect((await autopilot.status(sidecar, "ap-1")).ship?.endAfterShip).toBe(true);
+		// The cycle in flight when the person chose began before it: the run goes on.
+		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ startedAt: chosen - 60_000 }) });
+		await autopilot.idle();
+		expect(autopilot.isStopping("ap-1")).toBe(false);
+		// The next one carried the note; it ends the run.
+		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: 2, startedAt: chosen + 1 }) });
+		await autopilot.idle();
+		expect(autopilot.isStopping("ap-1")).toBe(true);
+	});
+
+	it("ship, then stop pressed again is cancelled, and a paused run resumes for it", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		await autopilot.handleCommand(win, sidecar, "ap-1", { type: "set_autopilot", action: "pause" }, "2");
+		await autopilot.handleCommand(
+			win,
+			sidecar,
+			"ap-1",
+			{ type: "set_autopilot", action: "stop_after_ship", enabled: true },
+			"3",
+		);
+		expect(world.stock("ap-1", "set_goal").map(call => call.params?.action ?? "create")).toContain("resume");
+		await autopilot.handleCommand(
+			win,
+			sidecar,
+			"ap-1",
+			{ type: "set_autopilot", action: "stop_after_ship", enabled: false },
+			"4",
+		);
+		expect((await autopilot.status(sidecar, "ap-1")).ship?.endAfterShip).toBeUndefined();
+		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: 2, startedAt: Date.now() + 1 }) });
+		await autopilot.idle();
+		expect(autopilot.isStopping("ap-1")).toBe(false);
 	});
 
 	it("a run mid-turn keeps going until the bridge says the last turn settled", async () => {

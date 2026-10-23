@@ -250,8 +250,8 @@ describe("an Autopilot run on the work board", () => {
 		expect($("[data-ship-auto='push']")).toBeNull();
 		await act(async () => $("[data-autopilot-pause]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "pause" });
-		await act(async () => $("[data-autopilot-stop]")?.click());
-		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "stop" });
+		await act(async () => $("[data-autopilot-ship-stop]")?.click());
+		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "stop_after_ship", enabled: true });
 		await act(async () => $("[data-autopilot-abort]")?.click());
 		expect(setAutopilot).toHaveBeenLastCalledWith({ action: "abort" });
 		await act(async () => $("[data-ship-item] button")?.click());

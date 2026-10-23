@@ -222,6 +222,11 @@ interface ChildState {
 	area?: string;
 }
 
+/** What the next cycle's `begin` hands the agent when the person chooses "ship, then stop" (English, like every note). */
+export const STOP_AFTER_SHIP_NOTE =
+	"The person chose to ship, then stop: finish this cycle's item and commit it (a green cycle lands as usual). Then call autopilot propose_release; if a release is due, run the release procedure in this cycle. End the cycle with `end` as usual: the run stops after it.";
+const STOP_AFTER_SHIP_CANCELLED = "The person cancelled 'ship, then stop': the run goes on as before.";
+
 interface Run {
 	tabId: string;
 	win: ClientWindow | null;
@@ -251,6 +256,11 @@ interface Run {
 	landing?: { via: "pr"; url?: string; reason: string };
 	/** Cycles whose commit the default branch got this launch (the end summary also asks git). */
 	landedCount: number;
+	/**
+	 * When the person chose "ship, then stop" (epoch ms): the first cycle that begins after it carries the note to ship,
+	 * and the run ends once that cycle has ended and its work shipped. In memory only: a relaunch carries on running.
+	 */
+	endAfterShip?: number;
 	children: Map<string, ChildState>;
 	childBranches: Set<string>;
 	stopping: boolean;
@@ -581,6 +591,9 @@ export class Autopilot {
 		switch (action.action) {
 			case "stop":
 				await this.#beginStop(run, "user");
+				break;
+			case "stop_after_ship":
+				await this.#stopAfterShip(run, action.enabled);
 				break;
 			case "abort":
 				this.#deps.pool.noteStopped(tabId);
@@ -919,6 +932,27 @@ export class Autopilot {
 		if (!this.#deps.pool.tabFacts(run.tabId)?.busy) this.#enqueue(run, () => this.#settled(run, reason));
 	}
 
+	/**
+	 * "Ship, then stop": the next cycle that begins is told to land its work and release when a release is due, and the
+	 * run ends after that cycle (`#cycleEnd`). A paused run resumes for it; a second press cancels it.
+	 */
+	async #stopAfterShip(run: Run, enabled: boolean): Promise<void> {
+		if (run.stopping) return;
+		if (!enabled) {
+			if (run.endAfterShip === undefined) return;
+			run.endAfterShip = undefined;
+			await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: STOP_AFTER_SHIP_CANCELLED }).catch(
+				() => undefined,
+			);
+			return;
+		}
+		if (run.endAfterShip !== undefined) return;
+		run.endAfterShip = Date.now();
+		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: STOP_AFTER_SHIP_NOTE });
+		const status = await this.#fetchStatus(run).catch(() => null);
+		if (status?.state === "paused") await this.#resume(run);
+	}
+
 	/** DeskTools: a stopping run opens and sends nothing new. */
 	isStopping(callerTabId: string): boolean {
 		return this.#runs.get(callerTabId)?.stopping === true;
@@ -1177,6 +1211,11 @@ export class Autopilot {
 		// This pipeline can outlive the next cycle's start: what the user queued after the frame arrived waits for that
 		// turn's end; everything queued before it, and this cycle's own push and land, go now.
 		await this.#drain(run, item => own.has(item.id) || item.at <= receivedAt);
+		// "Ship, then stop": the cycle that began after the choice shipped above; the run ends now.
+		if (run.endAfterShip !== undefined && record.startedAt >= run.endAfterShip) {
+			run.endAfterShip = undefined;
+			await this.#beginStop(run, "user");
+		}
 	}
 
 	async #audit(run: Run): Promise<AuditViolation[]> {
@@ -1743,6 +1782,7 @@ export class Autopilot {
 			...(run.releaseProcedure ? { releaseProcedure: run.releaseProcedure } : {}),
 			...(run.releaseBlocked && !run.releaseProcedure ? { releaseBlocked: run.releaseBlocked } : {}),
 			...(run.landing ? { landing: run.landing } : {}),
+			...(run.endAfterShip !== undefined ? { endAfterShip: true as const } : {}),
 		};
 		const children: AutopilotChildLive[] = [...run.children.values()].map(child => ({
 			tabId: child.tabId,

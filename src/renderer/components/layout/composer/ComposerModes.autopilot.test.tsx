@@ -409,7 +409,7 @@ describe("Autopilot start sheet", () => {
 		await openSheet();
 		expect($("[data-autopilot-run]")).not.toBeNull();
 		expect($("button[data-autopilot-start]")).toBeNull();
-		await act(async () => $("button[data-autopilot-stop]")?.click());
-		expect(setAutopilot).toHaveBeenCalledWith({ action: "stop" });
+		await act(async () => $("button[data-autopilot-ship-stop]")?.click());
+		expect(setAutopilot).toHaveBeenCalledWith({ action: "stop_after_ship", enabled: true });
 	});
 });
