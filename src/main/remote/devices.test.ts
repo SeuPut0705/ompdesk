@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import { LIVE_SESSIONS_EVENT, TAB_EVENT } from "./app-protocol";
+import { LIVE_SESSIONS_EVENT, MOBILE_WEB_LINK_EVENT, TAB_EVENT } from "./app-protocol";
 import { generateKeyPair } from "./crypto";
 import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
@@ -417,6 +417,26 @@ describe("the tabs a host keeps for this device", () => {
 		await b.devices.setHostEnabled(false);
 		const offline = await until(a, state => state.hosts[0]?.state !== "online");
 		expect(offline.hosts[0]?.live).toBeUndefined();
+	});
+
+	it("knows the host's own Mobile web address: read as the link comes up, then as the host pushes it", async () => {
+		const { a, b } = await rig.pair();
+		b.services.call.mockImplementation(async (_peer, method) =>
+			method === "host.mobileWeb.link" ? { url: "https://studio.tail1234.ts.net:8443" } : null,
+		);
+		await a.devices.connect("nSTUDIO");
+		const read = await until(a, state => state.hosts[0]?.webUrl !== undefined);
+		expect(read.hosts[0]?.webUrl).toBe("https://studio.tail1234.ts.net:8443");
+
+		const conn = b.services.call.mock.calls.find(call => call[1] === "host.mobileWeb.link")?.[3] as HostConnection;
+		conn.emit(MOBILE_WEB_LINK_EVENT, { url: null });
+		const off = await until(a, state => state.hosts[0]?.webUrl === undefined);
+		expect(off.hosts[0]?.webUrl).toBeUndefined();
+		// Never an address that is not https.
+		conn.emit(MOBILE_WEB_LINK_EVENT, { url: "http://studio:47831" });
+		conn.emit(LIVE_SESSIONS_EVENT, { sessions: [] });
+		const after = await until(a, state => state.hosts[0]?.live !== undefined);
+		expect(after.hosts[0]?.webUrl).toBeUndefined();
 	});
 
 	it("shows no live sessions from a host that does not know them (an older OMPdesk)", async () => {

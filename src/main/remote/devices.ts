@@ -59,6 +59,9 @@ import {
 	LIVE_SESSIONS_EVENT,
 	LIVE_SESSIONS_METHOD,
 	LiveSessionsReply,
+	MOBILE_WEB_LINK_EVENT,
+	MOBILE_WEB_LINK_METHOD,
+	MobileWebLinkReply,
 	NAME_METHODS,
 	NameParams,
 	OMP_UPDATE_EVENT,
@@ -178,6 +181,8 @@ interface HostLink {
 	closes: PendingTabCloses;
 	/** The host's sessions whose work goes on now (`host.liveSessions`); unset while offline or from an older host. */
 	live?: HostLiveSession[];
+	/** The host's Mobile web address (`host.mobileWeb.link`); unset while offline, not serving, or from an older host. */
+	webUrl?: string;
 }
 
 export class RemoteDevices {
@@ -894,11 +899,15 @@ export class RemoteDevices {
 		client.on("state", state => {
 			for (const tab of link.tabs.values()) tab.linkStateChanged(state);
 			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
-			if (state !== "online") link.live = undefined;
+			if (state !== "online") {
+				link.live = undefined;
+				link.webUrl = undefined;
+			}
 			this.#broadcastState();
 			if (state !== "online") return;
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
 			void this.#readLiveSessions(link);
+			void this.#readWebLink(link);
 			// Its session list went stale while it was away (or never loaded).
 			this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
 			for (const listener of this.#hostOnline) listener(deviceId);
@@ -926,6 +935,10 @@ export class RemoteDevices {
 			}
 			if (event === LIVE_SESSIONS_EVENT) {
 				this.#setLiveSessions(link, data);
+				return;
+			}
+			if (event === MOBILE_WEB_LINK_EVENT) {
+				this.#setWebLink(link, data);
 				return;
 			}
 			if (event === PROJECTS_EVENT) {
@@ -978,6 +991,24 @@ export class RemoteDevices {
 		}
 	}
 
+	/** The host's Mobile web address as the link comes up; an older host does not know the method. */
+	async #readWebLink(link: HostLink): Promise<void> {
+		try {
+			this.#setWebLink(link, await link.client.request<unknown>(MOBILE_WEB_LINK_METHOD, {}));
+		} catch {
+			// unsupported, or the link dropped again: the next push or link-up says it.
+		}
+	}
+
+	#setWebLink(link: HostLink, data: unknown): void {
+		const reply = MobileWebLinkReply.safeParse(data);
+		if (!reply.success || link.client.state !== "online") return;
+		const url = reply.data.url ?? undefined;
+		if (url === link.webUrl) return;
+		link.webUrl = url;
+		this.#broadcastState();
+	}
+
 	#setLiveSessions(link: HostLink, data: unknown): void {
 		const reply = LiveSessionsReply.safeParse(data);
 		if (!reply.success || link.client.state !== "online") return;
@@ -1000,6 +1031,7 @@ export class RemoteDevices {
 			if (client.state === "online") view.appVersion = client.hello.appVersion;
 		}
 		if (client.state === "online" && link.live) view.live = link.live;
+		if (client.state === "online" && link.webUrl) view.webUrl = link.webUrl;
 		return view;
 	}
 

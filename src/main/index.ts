@@ -826,6 +826,7 @@ app.whenReady().then(() => {
 		machine,
 		localTabs: sidecarPool,
 		windowLiveSessions: () => sidecarPool.liveSessions(),
+		mobileWebUrl: () => mobileWebService?.state().url ?? null,
 		trashItem: abs => shell.trashItem(abs),
 		// Autopilot runs paired devices started here, charged to them until they end (remote/hosted-autopilot.ts).
 		runChargesFile: join(app.getPath("userData"), "autopilot-device-runs.json"),
@@ -1711,6 +1712,7 @@ app.whenReady().then(() => {
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published
 	// address. The server it starts is the WebHost above. `OMP_GUI_TEST_TAILSCALE_OPEN` is a test's stand-in
 	// for "start the Tailscale app" (the fake CLI of e2e/fixture/fake-tailscale.ts), never set by users.
+	let lastMobileWebUrl: string | null = null;
 	const mobileWeb = new MobileWebService({
 		platform,
 		prefs: {
@@ -1750,6 +1752,11 @@ app.whenReady().then(() => {
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(MOBILE_WEB_STATE, state);
+			}
+			// Paired devices show this computer's page to their phones (`HostView.webUrl`): tell them when it moves.
+			if (state.url !== lastMobileWebUrl) {
+				lastMobileWebUrl = state.url;
+				hostServices.mobileWebLinkChanged(state.url);
 			}
 		},
 	});

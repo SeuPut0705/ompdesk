@@ -5842,6 +5842,7 @@ export const ko: Record<string, string> = {
 	"remote.picker.noMatch": "“{query}”와 맞는 폴더가 없어요.",
 	"remote.picker.truncated": "폴더가 너무 많아 일부만 보여요. 이름으로 찾으면 나머지도 보여요.",
 	"remote.sidebar.thisDevice": "이 기기",
+	"remote.sidebar.openWebPage": "{name} 페이지로 바로 가기",
 	"remote.sidebar.addProject": "{name}에 프로젝트 추가",
 	"remote.sidebar.newChat": "{name}에서 새 채팅",
 	"remote.sidebar.color": "{name} 색 바꾸기",

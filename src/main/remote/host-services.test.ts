@@ -51,6 +51,7 @@ import {
 	LIVE_SESSIONS_EVENT,
 	MemoryConclusionPullReply,
 	MemoryPullReply,
+	MOBILE_WEB_LINK_EVENT,
 	OMP_UPDATE_EVENT,
 	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
@@ -2016,6 +2017,18 @@ describe("LocalHostServices for this computer's own windows", () => {
 		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
 		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
 		expect(pushed(y).at(-1)).toEqual({ sessions: [] });
+	});
+
+	it("tells devices its own Mobile web address, and every connected device when it changes", async () => {
+		let url: string | null = "https://studio.tail1234.ts.net:8443";
+		const { services } = setup(60_000, { mobileWebUrl: () => url });
+		const x = new FakeConnection(peer("device-x"));
+		expect(await services.call(x.peer, "host.mobileWeb.link", {}, x)).toEqual({ url });
+		url = null;
+		services.mobileWebLinkChanged(url);
+		expect(x.events.filter(entry => entry.event === MOBILE_WEB_LINK_EVENT).map(entry => entry.data)).toEqual([
+			{ url: null },
+		]);
 	});
 
 	it("shows a hosted tab in a window here: its stream and commands, never its host tool calls, and leaving stops nothing", async () => {

@@ -45,6 +45,7 @@ import { ensureTabRuntime } from "../../../stores/tab-runtime";
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { setWebPwa, type WebPwa } from "../../../web/pwa";
 import { Sidebar } from "./Sidebar";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -103,6 +104,7 @@ interface MockOmp {
 	system: {
 		showOpenDialog: Mock<(filters?: unknown, options?: unknown) => Promise<string[] | null>>;
 		revealPath: Mock<(path: string) => Promise<{ ok: boolean }>>;
+		openExternal: Mock<(url: string) => Promise<void>>;
 	};
 	rpc: Record<string, Mock<(...args: unknown[]) => Promise<unknown>>>;
 	/** This computer's project list as main keeps it (src/main/sidebar-projects.ts), per device. */
@@ -151,6 +153,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		system: {
 			showOpenDialog: vi.fn(async () => null),
 			revealPath: vi.fn(async () => ({ ok: true })),
+			openExternal: vi.fn(async () => undefined),
 		},
 		rpc: new Proxy({} as MockOmp["rpc"], {
 			get: (target, prop) => {
@@ -3112,6 +3115,47 @@ describe("Sidebar device sections", () => {
 			expect.objectContaining({ kind: "chat", cwd: undefined, device: "dev-studio" }),
 		);
 		expect(omp.system.showOpenDialog).not.toHaveBeenCalled();
+	});
+
+	it("on a phone page, a host that serves its own page gets a button to go there; the desktop never shows it", async () => {
+		const NO_INSTALL = { kind: "none" };
+		installWithRemote();
+		seedStores();
+		pairHost("online");
+		const withUrl = () =>
+			act(async () => {
+				const remote = useRemoteStore.getState().state;
+				if (!remote) throw new Error("no remote state");
+				useRemoteStore.getState().apply({
+					...remote,
+					hosts: [
+						{
+							deviceId: "dev-studio",
+							name: "studio",
+							state: "online",
+							webUrl: "https://studio.tail1.ts.net:8443",
+						},
+					],
+				});
+			});
+		await mount(<Sidebar />);
+		await withUrl();
+		expect(container.querySelector('[data-sidebar-device-web="dev-studio"]')).toBeNull();
+
+		setWebPwa({
+			guidance: () => NO_INSTALL,
+			environment: () => ({}),
+			install: { onChange: () => () => undefined },
+		} as unknown as WebPwa);
+		try {
+			await withUrl();
+			const button = container.querySelector('[data-sidebar-device-web="dev-studio"]') as unknown as HTMLElement;
+			expect(button?.getAttribute("aria-label")).toBe(translate("remote.sidebar.openWebPage", { name: "studio" }));
+			await act(async () => button.click());
+			expect(window.omp.system.openExternal).toHaveBeenCalledWith("https://studio.tail1.ts.net:8443");
+		} finally {
+			setWebPwa(null as unknown as WebPwa);
+		}
 	});
 
 	it("lights a host's session that no tab here holds while the host works on it, before anyone opens it", async () => {

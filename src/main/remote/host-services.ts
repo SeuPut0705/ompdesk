@@ -131,6 +131,8 @@ import {
 	type MemoryPullReply,
 	MemoryPushParams,
 	type MemoryPushReply,
+	MOBILE_WEB_LINK_EVENT,
+	MOBILE_WEB_LINK_METHOD,
 	ModelOverrideInputSchema,
 	OMP_UPDATE_EVENT,
 	PROJECTS_EVENT,
@@ -237,6 +239,8 @@ export interface HostServicesDeps {
 	runChargesFile?: string;
 	/** The sessions this computer's own windows work on now (`SidecarPool.liveSessions`), for `liveSessions`. */
 	windowLiveSessions?: () => HostLiveSession[];
+	/** This computer's Mobile web address while it serves phones (`MobileWebState.url`), else null. */
+	mobileWebUrl?: () => string | null;
 }
 
 /** A call of the omp's that a device answers; `delivered` once a connection was handed it. */
@@ -742,6 +746,11 @@ export class LocalHostServices implements HostServices {
 	 * Something a session's work hangs on changed (a turn, background work, an ask, here or in a window): every
 	 * connected device hears the new list once a burst settles (`LIVE_SESSIONS_DEBOUNCE_MS`), and only when it differs.
 	 */
+	/** This computer's Mobile web address changed: every connected device hears it (`host.mobileWeb.changed`). */
+	mobileWebLinkChanged(url: string | null): void {
+		for (const conn of this.#conns) emitSafely(conn, MOBILE_WEB_LINK_EVENT, { url });
+	}
+
 	liveSessionsChanged(): void {
 		if (this.#liveTimer) return;
 		this.#liveTimer = setTimeout(() => {
@@ -877,6 +886,8 @@ export class LocalHostServices implements HostServices {
 				return { tabs: this.#keptTabs(peer) };
 			case LIVE_SESSIONS_METHOD:
 				return { sessions: this.liveSessions() };
+			case MOBILE_WEB_LINK_METHOD:
+				return { url: this.#deps.mobileWebUrl?.() ?? null };
 			case "tab.cancelWait":
 				this.#resume?.cancelWait(this.#tab(peer, parse(RtabParams, method, params).rtab).resumeId);
 				return null;

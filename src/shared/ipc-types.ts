@@ -1676,6 +1676,11 @@ export interface HostView {
 	 * that pushes it (`host.liveSessions`); an older host leaves it absent.
 	 */
 	live?: HostLiveSession[];
+	/**
+	 * The host's own Mobile web address while it serves phones (`https://<MagicDNS name>:<port>`): a phone viewing this
+	 * computer's page can go to the host's page directly. Only while connected, from a host that answers it.
+	 */
+	webUrl?: string;
 }
 
 /**

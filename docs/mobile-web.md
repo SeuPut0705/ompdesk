@@ -15,6 +15,8 @@ The page is served by OMPdesk on your computer and published only to your own [T
 
 When a new device connects, OMPdesk shows one quiet notice on the computer (for example "New device connected: SeuPut S25U") with a **Block** button. If you want to say yes first, turn on **Approve new devices on this computer** (off by default): a new device then waits for your OK in a dialog on the computer before it connects.
 
+Your other computers come along: the computers this one is connected to (Settings › Devices & connections) are listed on the phone too, and you can open their sessions through this computer. When such a computer has Mobile web on as well, its header in the phone's sidebar has a button that opens that computer's own page directly; the phone connects there the same way, by its Tailscale account.
+
 A device that opens the link while signed in to a *different* Tailscale account sees a page that says so and names the accounts that may open it.
 
 ## Notifications

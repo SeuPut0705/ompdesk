@@ -149,6 +149,15 @@ export const HostLiveSessionSchema = z.object({
 	state: z.enum(["turn", "background", "waiting"]),
 });
 export const LiveSessionsReply = z.object({ sessions: z.array(z.unknown()) });
+/**
+ * This computer's Mobile web address (data: {@link MobileWebLinkReply}): `https://<MagicDNS name>:<port>` while it serves
+ * phones, else null. A paired device shows it to its own phone page, so a phone can go to this computer's page directly
+ * (the address holds no secret: serve adds its path itself, and Tailscale identity still decides who gets in).
+ * `host.mobileWeb.link {}` answers it as the link comes up; the event tells every connected device of a change.
+ */
+export const MOBILE_WEB_LINK_EVENT = "host.mobileWeb.changed";
+export const MOBILE_WEB_LINK_METHOD = "host.mobileWeb.link";
+export const MobileWebLinkReply = z.object({ url: z.string().url().startsWith("https://").nullable() });
 /** This computer's device name changed (data: `{name}`); sent to every connected device. */
 export const HOST_NAME_EVENT = "host.name";
 /**

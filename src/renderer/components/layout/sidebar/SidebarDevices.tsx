@@ -10,6 +10,7 @@
 import {
 	ChevronDown,
 	ChevronRight,
+	ExternalLink,
 	FileArchive,
 	Folder,
 	FolderMinus,
@@ -35,6 +36,7 @@ import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { openExternal } from "../../../lib/open-external";
 import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
@@ -45,6 +47,7 @@ import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-proj
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { webPwa } from "../../../web/pwa";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import {
@@ -96,11 +99,14 @@ function DeviceHeader({
 	offline = false,
 	onAction,
 	local,
+	extra,
 }: {
 	deviceId: string;
 	folded: boolean;
 	name: string;
 	children?: ReactNode;
+	/** Another button before the project button (a phone's way to the host's own page). */
+	extra?: ReactNode;
 	canAct?: boolean;
 	/** The host is offline: its header drops the project button, which could start nothing there. */
 	offline?: boolean;
@@ -178,6 +184,7 @@ function DeviceHeader({
 					variant="ghost"
 				/>
 			</span>
+			{extra}
 			{offline ? (
 				// An offline host can start nothing: no dead button takes the name's room (a tablet's sidebar left
 				// "Old desktop" 36 px beside its offline badge and the gear).
@@ -236,6 +243,7 @@ export function SidebarDeviceSection({
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
 	const online = host.state === "online";
+	const webPage = webPwa() !== null;
 	const stateLabel = t(`remote.state.${host.state}`);
 	// While the link comes up the host's last known rows stand in (never read: an unlinked host is not asked), so the
 	// rows are already in place when it connects and nothing below them moves.
@@ -258,6 +266,21 @@ export function SidebarDeviceSection({
 				canAct={online}
 				offline={host.state === "offline"}
 				deviceId={host.deviceId}
+				extra={
+					// On a phone or tablet page: the host's own page, which this computer's paired host shares (the phone
+					// then talks to the host directly instead of through this computer).
+					webPage && online && host.webUrl ? (
+						<IconButton
+							className="text-(--sc-text-subtle) hover:text-(--sc-text)"
+							data-sidebar-device-web={host.deviceId}
+							icon={<ExternalLink />}
+							label={t("remote.sidebar.openWebPage", { name: host.name })}
+							onClick={() => openExternal(host.webUrl ?? "")}
+							size="sm"
+							tabIndex={-1}
+						/>
+					) : undefined
+				}
 				folded={collapsed}
 				name={host.name}
 				onAction={() =>

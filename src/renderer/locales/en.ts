@@ -5855,6 +5855,7 @@ export const en: Record<string, string> = {
 	"remote.picker.noMatch": "No folder here matches “{query}”.",
 	"remote.picker.truncated": "Too many folders to list them all here. Filter by name to find the rest.",
 	"remote.sidebar.thisDevice": "This device",
+	"remote.sidebar.openWebPage": "Open {name}'s own page",
 	"remote.sidebar.addProject": "Add project on {name}",
 	"remote.sidebar.newChat": "New chat on {name}",
 	"remote.sidebar.color": "Color for {name}",
