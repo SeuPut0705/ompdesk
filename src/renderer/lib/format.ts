@@ -495,3 +495,22 @@ export async function copyText(text: string): Promise<boolean> {
 		return false;
 	}
 }
+
+/**
+ * Copy text that is still being read. Call it inside the click: the write starts there with a `ClipboardItem` holding
+ * the promise, so WebKit, which allows a write only inside a user gesture, takes the text once it arrives (writing
+ * after the await lost the gesture on a phone's first tap). Without `ClipboardItem` it writes once the text is in.
+ */
+export function copyTextWhenRead(text: Promise<string>): Promise<boolean> {
+	const Item = (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
+	if (!Item || typeof navigator.clipboard?.write !== "function") return text.then(copyText, () => false);
+	try {
+		const blob = text.then(value => new Blob([value], { type: "text/plain" }));
+		return navigator.clipboard.write([new Item({ "text/plain": blob })]).then(
+			() => true,
+			() => false,
+		);
+	} catch {
+		return Promise.resolve(false);
+	}
+}

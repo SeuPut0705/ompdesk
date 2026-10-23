@@ -10,7 +10,7 @@
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
-import { copyText, cx } from "../../lib/format";
+import { copyText, copyTextWhenRead, cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { IconButton, type IconButtonProps } from "./IconButton";
@@ -43,7 +43,7 @@ export function CopyButton({ text, failedMessage, className, size = "sm", ...res
 				onClick={() => {
 					const value = typeof text === "function" ? text() : text;
 					// A ready string is written at once, inside the click (WebKit allows a write only then).
-					const written = typeof value === "string" ? copyText(value) : value.then(copyText, () => false);
+					const written = typeof value === "string" ? copyText(value) : copyTextWhenRead(value);
 					void written.then(ok => {
 						if (ok) setCopied(true);
 						else toast({ variant: "error", message: failedMessage ?? t("common.copyFailed") });

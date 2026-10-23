@@ -73,4 +73,42 @@ describe("CopyButton", () => {
 			["error", "Couldn't copy the log"],
 		]);
 	});
+
+	it("starts writing text still being read inside the click, so WebKit keeps the gesture", async () => {
+		const items: Array<Record<string, Promise<Blob>>> = [];
+		class FakeClipboardItem {
+			constructor(readonly parts: Record<string, Promise<Blob>>) {
+				items.push(parts);
+			}
+		}
+		const write = vi.fn(async (list: FakeClipboardItem[]) => {
+			await Promise.all(list.flatMap(item => Object.values(item.parts)));
+		});
+		const clipboard = { writeText, write };
+		Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
+		(globalThis as Record<string, unknown>).ClipboardItem = FakeClipboardItem;
+		try {
+			const { promise, resolve } = Promise.withResolvers<string>();
+			const host = await mount(<CopyButton label="Copy log" text={() => promise} />);
+			const button = host.querySelector("button[aria-label='Copy log']");
+			act(() => {
+				button?.dispatchEvent(new Event("click", { bubbles: true }));
+			});
+			// The write began in the click itself, before the text arrived.
+			expect(write).toHaveBeenCalledTimes(1);
+			await act(async () => {
+				resolve("the whole log");
+				await promise;
+			});
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(await (await items[0]?.["text/plain"])?.text()).toBe("the whole log");
+			expect(writeText).not.toHaveBeenCalled();
+			expect(button?.getAttribute("data-copied")).toBe("true");
+		} finally {
+			delete (globalThis as Record<string, unknown>).ClipboardItem;
+			Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+		}
+	});
 });
