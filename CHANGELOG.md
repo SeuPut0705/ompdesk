@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.67.0] - 2026-10-23
+
+다른 컴퓨터에서 실행 중인 탭에도 docx·PDF 같은 파일을 붙일 수 있어요. 연결된 컴퓨터의 프로젝트를 끌어서 옮기고, 여러 창 중 하나가 답을 기다리면 Dock과 트레이가 그걸 먼저 알려 줘요.
+
+### 새로 생긴 것
+- 연결된 컴퓨터에서 실행 중인 탭에 docx·PDF처럼 텍스트가 아닌 파일을 붙이면 그 컴퓨터로 보내고, 에이전트가 그곳 경로로 읽어요(최대 10 MB, 24시간 뒤 삭제). 텍스트 파일은 전처럼 바로 들어가요.
+- 연결된 컴퓨터 섹션의 프로젝트도 헤더를 끌어서 순서를 바꿔요.
+- 에이전트가 보는 세션 목록에 실행 중인 턴이 얼마나 됐는지 나와요.
+
+### 고친 것
+- 한 창이 질문·승인을 기다리는데 다른 창이 작업 중이면 Dock 배지·작업 표시줄·트레이가 "작업 중"만 보여 줘서 기다리는 창을 놓쳤어요. 이제 기다림이 먼저 보여요.
+- 사람이 오토파일럿 실행 탭에 직접 쓴 메시지에는 메모리 회상이 붙지 않았어요.
+- 하위 세션의 보고 본문이 메시지 감싸개를 닫거나 가짜 감싸개를 열 수 있었어요.
+- 이미 전달된 요청을 다시 보내면, 상대 탭에 입력 중인 초안이 있을 때 1분을 기다린 뒤 실패했어요. 보내는 사이 시작된 초안을 놓치던 것도 고쳤어요.
+
+### 바뀐 것
+- 오토파일럿이 멈춰 있을 때 다시 진행하라는 메시지가 멈춘 이유(계획 모드, 할 일이 모두 막힘, 실패한 턴)를 말해 줘요.
+
+<!-- en -->
+
+Tabs running on another computer now take .docx, PDF and other files. A paired computer's projects drag to a new place, and the dock and tray show a window waiting on you before another one at work.
+
+### New
+- A file that is no text (a .docx, a PDF) attached to a tab running on a paired computer goes to that computer, and the agent reads it by its path there (up to 10 MB, deleted after 24 hours). Text files still go into the prompt as before.
+- A paired computer's projects reorder by dragging their header too.
+- The session list agents read says how long a running turn has run.
+
+### Fixed
+- With one window waiting on a question or approval and another working, the dock badge, taskbar and tray showed only "working". Waiting now shows first.
+- A message a person typed into an Autopilot run's tab got no memory recall.
+- A child session's report could close its mail wrapper or open a forged one.
+- Sending a request again that was already delivered waited a minute and failed while the target held a draft; a draft started during the send was missed.
+
+### Changed
+- When Autopilot goes quiet, the message that wakes it names why (plan mode, every todo blocked, a failed turn).
+
 ## [0.66.0] - 2026-10-23
 
 사이드바의 세션 순서를 직접 바꾸고 기억해요. 연결된 컴퓨터의 프로젝트와 세션도 똑같이 옮길 수 있어요. 게시되지 못한 0.65.1의 고침도 함께 들어 있어요.
