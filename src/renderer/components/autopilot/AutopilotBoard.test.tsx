@@ -542,4 +542,34 @@ describe("Autopilot shipping confirmations", () => {
 		await flush();
 		expect(writeText.mock.calls[0]?.[0]).toContain("Cycle 1 title");
 	});
+
+	it("keeps every cycle in the read history while the run goes on past the newest 30", async () => {
+		installMockOmp();
+		const window30 = (last: number) => Array.from({ length: 30 }, (_, index) => cycle(last - 29 + index));
+		const getAutopilot = vi.fn(
+			async () =>
+				({
+					type: "response",
+					command: "get_autopilot",
+					success: true,
+					data: { ...status, cycles: Array.from({ length: 40 }, (_, index) => cycle(index + 1)) },
+				}) as RpcResponse,
+		);
+		(window as unknown as { omp: { rpc: Record<string, unknown> } }).omp.rpc.getAutopilot = getAutopilot;
+		const writeText = vi.fn(async (_text: string) => {});
+		Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: { writeText } });
+		useAutopilotStore.getState().apply({ ...status, cycles: window30(40), cycleCount: 40 });
+		await mount();
+		await act(async () => $('[data-board-section="cycles"] [data-board-more]')?.click());
+		await flush();
+		for (let last = 41; last <= 71; last++)
+			await act(async () =>
+				useAutopilotStore.getState().apply({ ...status, cycles: window30(last), cycleCount: last }),
+			);
+		expect(all('[data-board-section="cycles"] [data-autopilot-cycle]')).toHaveLength(71);
+		await act(async () => $("[data-autopilot-copy-log]")?.click());
+		await flush();
+		expect(writeText.mock.calls[0]?.[0]).toContain("Cycle 41 title");
+		expect(getAutopilot).toHaveBeenCalledTimes(1);
+	});
 });

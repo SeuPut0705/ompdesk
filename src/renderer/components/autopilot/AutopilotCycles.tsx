@@ -1,5 +1,5 @@
 import { Undo2 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type AutopilotChildReport,
 	type AutopilotCycleRecord,
@@ -154,7 +154,7 @@ export function AutopilotCyclesSection() {
 	const branch = useAutopilotStore(s => s.status.branch);
 	const { run, pending } = useAutopilotActions();
 	const [reverting, setReverting] = useState<AutopilotCycleRecord | null>(null);
-	const { older, ready, loadAll, prefetch } = useOlderCycles(total > (cycles?.length ?? 0));
+	const { older, ready, loadAll, prefetch } = useOlderCycles(total > (cycles?.length ?? 0), cycles);
 	const newestFirst = useMemo(() => merged(older, cycles ?? []), [older, cycles]);
 	if (newestFirst.length === 0) return null;
 	return (
@@ -214,7 +214,10 @@ function merged(
  * The cycles the status leaves out (it carries the newest `STATUS_CYCLES`): read once with `get_autopilot`
  * `allCycles` when the person lists the older ones or copies the log, never before.
  */
-function useOlderCycles(cut: boolean): {
+function useOlderCycles(
+	cut: boolean,
+	recent: readonly AutopilotCycleRecord[] | undefined,
+): {
 	older: readonly AutopilotCycleRecord[];
 	/** Nothing is left out, or what was is read. */
 	ready: boolean;
@@ -226,6 +229,11 @@ function useOlderCycles(cut: boolean): {
 	const rpc = useTabRpc();
 	const [older, setOlder] = useState<readonly AutopilotCycleRecord[]>([]);
 	const reading = useRef<Promise<readonly AutopilotCycleRecord[]> | null>(null);
+	// Once read, the history takes in every cycle the status brings: the status holds only the newest 30, so a board left
+	// open while 31 more cycles end would otherwise lose the ones between the read and the window.
+	useEffect(() => {
+		if (recent) setOlder(prev => (prev.length === 0 ? prev : merged(prev, recent)));
+	}, [recent]);
 	const loadAll = useCallback((): Promise<readonly AutopilotCycleRecord[]> => {
 		if (!cut || older.length > 0) return Promise.resolve(older);
 		reading.current ??= rpc
