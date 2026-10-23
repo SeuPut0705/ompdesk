@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
+import { useProjectOrigins } from "../../stores/project-origins";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { type SessionTab, useTabsStore } from "../../stores/tabs";
 import { PaneSwitcher, SplitPaneHeader } from "./SplitWorkspace";
@@ -40,6 +41,7 @@ afterEach(async () => {
 	root = undefined;
 	container?.remove();
 	useSidebarPrefs.setState({ groupAliases: {} });
+	useProjectOrigins.getState().reset();
 	useTabsStore.getState().reset();
 });
 
@@ -59,6 +61,24 @@ describe("split pane breadcrumb", () => {
 		useSidebarPrefs.setState({ groupAliases: { [tab.cwd]: "My project" } });
 		await mount();
 		expect(container.querySelector(`[title="${tab.cwd}"]`)?.textContent).toBe("My project");
+	});
+
+	it("marks an Autopilot run's worktree with its rocket, the word only for screen readers", async () => {
+		const cwd = "/wt/2026-10-23-run";
+		useProjectOrigins.setState({
+			origins: {
+				[cwd]: {
+					project: "app",
+					root: "/repo/app",
+					worktree: { kind: "autopilot", branch: "autopilot/2026-10-23", slug: "2026-10-23" },
+				},
+			},
+		});
+		await mount({ ...tab, cwd });
+		const worktree = container.querySelector("[data-pane-worktree]");
+		expect(worktree?.querySelector("svg")).not.toBeNull();
+		expect(worktree?.querySelector(".sr-only")?.textContent).toBe("Autopilot");
+		expect([...(worktree?.children ?? [])].every(child => child.matches("svg, .sr-only"))).toBe(true);
 	});
 });
 

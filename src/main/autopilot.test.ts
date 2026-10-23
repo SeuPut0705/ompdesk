@@ -96,21 +96,26 @@ describe("start", () => {
 		expect(await fs.stat(path.join(tmp, "wt-2026-10-17"))).toBeTruthy();
 	});
 
-	it("titles the run's session from the start, then by its first cycle's item, never over the user's own name", async () => {
+	it("titles the run's session by the folder, then by each cycle's item as it is picked, never over the user's own name", async () => {
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
-		expect(world.sessionNames.get("ap-1")).toBe(`Autopilot · ${path.basename(main)}`);
+		// No "Autopilot ·" word: the row's rocket mark says it is a run.
+		expect(world.sessionNames.get("ap-1")).toBe(path.basename(main));
 		const base = world.statuses.get("ap-1") as AutopilotStatus;
 		const picked = { ...base, now: { n: 1, startedAt: 1, area: "bugs" as const, title: "Fix slugify spaces" } };
 		autopilot.overlay(sidecar, { type: "autopilot_update", status: picked });
-		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces"));
+		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Fix slugify spaces"));
 		// Stock sends no update for an RPC rename: the windows are told by main.
-		expect(world.shownNames.get("ap-1")).toBe("Autopilot · Fix slugify spaces");
-		// The user renames it; a later cycle-1 frame changes nothing.
+		expect(world.shownNames.get("ap-1")).toBe("Fix slugify spaces");
+		// The next cycle's item names it in turn.
+		const second = { ...picked, now: { n: 2, startedAt: 2, area: "tests" as const, title: "Cover slugify edges" } };
+		autopilot.overlay(sidecar, { type: "autopilot_update", status: second });
+		await vi.waitFor(() => expect(world.sessionNames.get("ap-1")).toBe("Cover slugify edges"));
+		// The user renames it; a later cycle changes nothing.
 		world.sessionNames.set("ap-1", "mine");
 		autopilot.overlay(sidecar, {
 			type: "autopilot_update",
-			status: { ...picked, now: { ...picked.now, title: "x" } },
+			status: { ...picked, now: { n: 3, startedAt: 3, area: "docs" as const, title: "x" } },
 		});
 		await autopilot.idle();
 		expect(world.sessionNames.get("ap-1")).toBe("mine");

@@ -1,4 +1,4 @@
-import { ChevronRight, Columns2, Rows2, X, XCircle } from "lucide-react";
+import { ChevronRight, Columns2, Rocket, Rows2, X, XCircle } from "lucide-react";
 import { type CSSProperties, type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { worktreeLabel } from "../../../shared/project-origin";
@@ -184,11 +184,19 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 							className="omp-titlebar-crumb-sep size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)"
 						/>
 						<span
-							className="min-w-0 max-w-40 shrink-[3] truncate text-(--sc-text-muted)"
+							className="flex min-w-0 max-w-40 shrink-[3] items-center text-(--sc-text-muted)"
 							data-pane-worktree=""
 							title={shown.tooltip}
 						>
-							{worktreeLabel(shown.worktree, kindLabels)}
+							{/* An Autopilot run is its rocket alone, as in the title bar; the word is for screen readers. */}
+							{shown.worktree.worktree?.kind === "autopilot" ? (
+								<>
+									<Rocket aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+									<span className="sr-only">{worktreeLabel(shown.worktree, kindLabels)}</span>
+								</>
+							) : (
+								<span className="truncate">{worktreeLabel(shown.worktree, kindLabels)}</span>
+							)}
 						</span>
 					</>
 				)}

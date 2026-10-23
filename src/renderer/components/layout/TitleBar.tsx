@@ -13,6 +13,7 @@ import {
 	PanelLeft,
 	PanelRight,
 	Pencil,
+	Rocket,
 	Share2,
 	Wrench,
 	XCircle,
@@ -426,8 +427,18 @@ export function TitleBar() {
 								className="omp-titlebar-worktree flex min-w-0 max-w-40 shrink-[3] items-center gap-1 px-1 text-sc-sm text-(--sc-text-muted)"
 								data-titlebar-worktree=""
 							>
-								<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								<span className="truncate">{worktreeLabelText}</span>
+								{/* An Autopilot run is its rocket alone (the user's call, 23 Oct 2026), its word for screen readers. */}
+								{shown.worktree?.worktree?.kind === "autopilot" ? (
+									<>
+										<Rocket aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+										<span className="sr-only">{worktreeLabelText}</span>
+									</>
+								) : (
+									<>
+										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+										<span className="truncate">{worktreeLabelText}</span>
+									</>
+								)}
 							</span>
 						</Tooltip>
 						<ChevronRight

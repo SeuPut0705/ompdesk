@@ -263,8 +263,10 @@ interface Run {
 	/** The cycle-end pipeline of one run is sequential. */
 	chain: Promise<unknown>;
 	refreshing: boolean;
-	/** The title this run gave its session (`runSessionTitle`), and whether it already names the first cycle's item. */
-	title?: { name: string; item: boolean };
+	/** The title this run gave its session (`runSessionTitle`), and the cycle item it last named it after. */
+	title?: { name: string; item: string | null };
+	/** Renames go one after another, each checking the name the one before it set. */
+	titling?: Promise<void>;
 	refreshAgain: boolean;
 	stopPolling: (() => void) | null;
 	releaseItem?: string;
@@ -314,13 +316,14 @@ export function localDate(date: Date): string {
 const TITLE_ITEM_MAX = 40;
 
 /**
- * The run's session title, `<prefix> · <what>`: the repository's folder name from the moment the run starts, then its
- * first cycle's picked item. Stock's auto title names a session from the user's first message, and a run has none, so
- * without this the run's row read "Untitled".
+ * The run's session title: the repository's folder name from the moment the run starts, then the item of the cycle at
+ * work, renamed as each cycle picks its own. No "Autopilot" word: the row's rocket mark and the title bar's say it is a
+ * run (the user's call, 23 Oct 2026). Stock's auto title names a session from the user's first message, and a run has
+ * none, so without this the run's row read "Untitled".
  */
-export function runSessionTitle(prefix: string, what: string): string {
+export function runSessionTitle(what: string): string {
 	const text = what.replace(/\s+/g, " ").trim();
-	return `${prefix} · ${text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text}`;
+	return text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text;
 }
 
 /**
@@ -482,15 +485,15 @@ export class Autopilot {
 		if (!run || !status?.active) return frame;
 		run.status = status;
 		if (status.settings) run.settings = status.settings;
-		this.#titleByItem(run, status.now?.n === 1 ? status.now.title : undefined);
+		this.#titleByItem(run, status.now?.title);
 		return { ...frame, status: this.#overlaid(run, status) };
 	}
 
-	/** The run's title names its first cycle's item once: from `pick` while cycle 1 runs, else from cycle 1's record. */
+	/** The run's title follows the cycle at work: its `pick`, else (a cycle that picked nothing) its record's title. */
 	#titleByItem(run: Run, item: string | undefined): void {
-		if (!item || !run.title || run.title.item) return;
-		run.title = { ...run.title, item: true };
-		void this.#retitle(run, item);
+		if (!item?.trim() || !run.title || run.title.item === item) return;
+		run.title = { ...run.title, item };
+		run.titling = (run.titling ?? Promise.resolve()).then(() => this.#retitle(run, item));
 	}
 
 	/** The bridge's cycle end, stop request and settled frames. */
@@ -501,7 +504,7 @@ export class Autopilot {
 		if (frame.type === "autopilot_cycle_end") {
 			const record = frame.record as AutopilotCycleRecord;
 			const receivedAt = this.#now();
-			if (record.n === 1) this.#titleByItem(run, record.title);
+			this.#titleByItem(run, record.title);
 			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt));
 		} else if (frame.type === "autopilot_nudge") {
 			const reason = frame.reason as AutopilotNudgeReason;
@@ -1811,7 +1814,7 @@ export class Autopilot {
 
 	/** Names the run's session (`runSessionTitle`); a later rename only replaces the run's own title, never the user's. */
 	async #retitle(run: Run, what: string): Promise<void> {
-		const name = runSessionTitle(this.#deps.text("autopilot.sessionTitle"), what);
+		const name = runSessionTitle(what);
 		try {
 			if (run.title) {
 				const state = await this.#stock<{ sessionName?: string | null }>(run.tabId, { type: "get_state" });
@@ -1819,7 +1822,7 @@ export class Autopilot {
 			}
 			await this.#stock(run.tabId, { type: "set_session_name", name });
 			this.#deps.pool.noteSessionName(run.tabId, name);
-			run.title = { name, item: run.title?.item ?? false };
+			run.title = { name, item: run.title?.item ?? null };
 		} catch (error) {
 			this.#log(`naming the run's session failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
