@@ -786,6 +786,7 @@ export function LiveStepPeek({
 					const label = workNarrative(item.toolName, settledArgs(item), t, undefined, item.intent);
 					return (
 						<li key={step.ids[0]}>
+							{/* controls-ok: the omp-work-parallel-row class draws the whole control */}
 							<button
 								type="button"
 								className="omp-work-parallel-row"
@@ -973,6 +974,7 @@ export function LiveStepPeek({
 					<div className="omp-live-work-strip-lane" ref={setLaneSlot} />
 					{renderCatchUp()}
 					{expandedAgent === null ? null : (
+						// controls-ok: the omp-live-work-chip class draws the whole control
 						<button
 							type="button"
 							className="omp-live-work-chip omp-live-work-follow"
@@ -1031,6 +1033,7 @@ export function LiveStepPeek({
 										? "failed"
 										: "done";
 						return (
+							// controls-ok: the omp-live-work-chip class draws the whole control
 							<button
 								type="button"
 								key={step.ids[0]}
@@ -1059,6 +1062,7 @@ export function LiveStepPeek({
 				</div>
 				{renderCatchUp()}
 				{following && expandedAgent === null ? null : (
+					// controls-ok: the omp-live-work-chip class draws the whole control
 					<button
 						type="button"
 						className="omp-live-work-chip omp-live-work-follow"
@@ -1085,6 +1089,7 @@ export function LiveStepPeek({
 		// Steps that advanced while the reader was away matter only while the run goes on:
 		// a finished card states its outcome instead.
 		return catchUp > 0 && turnIsLive ? (
+			// controls-ok: the omp-live-work-chip class draws the whole control
 			<button
 				type="button"
 				className="omp-live-work-chip omp-work-catch-up"

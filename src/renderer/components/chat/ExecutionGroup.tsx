@@ -259,6 +259,7 @@ export function ExecutionGroup({
 	const lanes = new Set(agents.map(agent => agent.id));
 	const shownNotes = notes?.filter(note => !settlesLanesOnly(note, lanes));
 	const header = (
+		// controls-ok: the omp-execution-group-header class draws the whole control
 		<button
 			aria-expanded={expanded}
 			className={cx(
@@ -311,6 +312,7 @@ export function ExecutionGroup({
 		error || tests || changed || previewUrl ? (
 			<div className="omp-work-findings">
 				{error ? (
+					// controls-ok: the omp-work-cause class draws the whole control
 					<button
 						aria-label={`${t("chat.work.cause.open")}${error.cause ? `: ${error.cause}` : ""}`}
 						className="omp-work-cause"
@@ -325,6 +327,7 @@ export function ExecutionGroup({
 					</button>
 				) : null}
 				{tests ? (
+					// controls-ok: the omp-work-finding class draws the whole control
 					<button
 						aria-label={
 							tests.count !== undefined
@@ -343,6 +346,7 @@ export function ExecutionGroup({
 					</button>
 				) : null}
 				{changed ? (
+					// controls-ok: the omp-work-finding class draws the whole control
 					<button
 						className="omp-work-finding"
 						data-work-finding="changes"
@@ -355,6 +359,7 @@ export function ExecutionGroup({
 					</button>
 				) : null}
 				{previewUrl ? (
+					// controls-ok: the omp-work-finding class draws the whole control
 					<button
 						className="omp-work-finding"
 						data-work-finding="preview"
