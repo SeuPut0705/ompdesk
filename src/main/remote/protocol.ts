@@ -118,6 +118,10 @@ export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknow
  * numbered delta. A running turn with live subagents polls it every 3 s (about 32 KB each). A device without it
  * (v0.61.4 and older) gets it whole.
  *
+ * `slimJobsReads` (only ever sent with `slimListReads`): the device also rebuilds a `get_jobs` answer sent as a
+ * numbered delta, a changed row as its changed fields. The jobs poll asks it while a turn runs (about 23 KB each). A
+ * device without it (v0.65.0 and older) gets it whole.
+ *
  * `slimToolOutputs` (only ever sent with `slimEvents`): the device also rebuilds a `tool_execution_update` whose
  * running output, stock's whole text so far in every update, crosses as what follows the call's last update
  * (`{"~output": {from, add}}`). A device without it (v0.61.6 and older) gets every update's whole output.
@@ -149,6 +153,7 @@ export const ClientHello = z.object({
 	slimShiftedReads: z.boolean().optional(),
 	slimSettingsReads: z.boolean().optional(),
 	slimRosterReads: z.boolean().optional(),
+	slimJobsReads: z.boolean().optional(),
 	slimToolOutputs: z.boolean().optional(),
 	slimToolArgs: z.boolean().optional(),
 	deflate: z.boolean().optional(),
@@ -171,6 +176,7 @@ export interface LinkSlim {
 	shiftedReads: boolean;
 	settingsReads: boolean;
 	rosterReads: boolean;
+	jobsReads: boolean;
 	toolOutputs: boolean;
 	toolArgs: boolean;
 	deflate: boolean;
@@ -194,6 +200,7 @@ export function slimOf(hello: z.infer<typeof ClientHello>): LinkSlim {
 		shiftedReads: listReads && hello.slimShiftedReads === true,
 		settingsReads: listReads && hello.slimSettingsReads === true,
 		rosterReads: listReads && hello.slimRosterReads === true,
+		jobsReads: listReads && hello.slimJobsReads === true,
 		toolOutputs: events && hello.slimToolOutputs === true,
 		toolArgs: events && hello.slimToolArgs === true,
 		deflate: hello.deflate === true,
@@ -214,6 +221,7 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	shiftedReads: "shift",
 	settingsReads: "settings",
 	rosterReads: "roster",
+	jobsReads: "jobs",
 	toolOutputs: "outputs",
 	toolArgs: "args",
 	deflate: "deflate",

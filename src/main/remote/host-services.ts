@@ -1803,7 +1803,7 @@ export class LocalHostServices implements HostServices {
 		if (tab.reads?.slim !== slim) tab.reads = { slim, encoders: new Map() };
 		let encode = tab.reads.encoders.get(read.key);
 		if (!encode) {
-			encode = createReadEncoder(conn.slim.shiftedReads, read.needs === "rosterReads");
+			encode = createReadEncoder(conn.slim.shiftedReads, read.needs === "rosterReads" || read.needs === "jobsReads");
 			tab.reads.encoders.set(read.key, encode);
 		}
 		return { ...response, data: encode(response.data, fresh === true) };

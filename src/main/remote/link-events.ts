@@ -391,7 +391,8 @@ export function createReadDecoder(): (wire: unknown) => unknown {
  * changes) and the transcript's tail page (up to 256 K characters; an idle session's is the same page again). A tail
  * read keeps its own chain per limit; a page read by cursor goes whole. Settings' reads (`slimSettingsReads`) keep a
  * chain per command and arguments. The subagent roster (`slimRosterReads`), polled every 3 s while a turn runs live
- * subagents, keeps one chain.
+ * subagents, keeps one chain, and so does the background jobs list (`slimJobsReads`), which the jobs poll asks while
+ * a turn runs (about 23 KB an answer on 23 Oct 2026, each output tail whole every time).
  */
 export function encodedReadKey(command: {
 	type: string;
@@ -402,13 +403,14 @@ export function encodedReadKey(command: {
 	compact?: unknown;
 	paths?: unknown;
 	allCycles?: unknown;
-}): { key: string; needs: "autopilotReads" | "listReads" | "settingsReads" | "rosterReads" } | null {
+}): { key: string; needs: "autopilotReads" | "listReads" | "settingsReads" | "rosterReads" | "jobsReads" } | null {
 	if (command.type === "get_autopilot")
 		return { key: command.allCycles === true ? `${command.type}:all` : command.type, needs: "autopilotReads" };
 	if (command.type === "get_available_commands") return { key: command.type, needs: "listReads" };
 	if (command.type === "get_transcript_page" && command.fromEnd === true && command.cursor === undefined)
 		return { key: `${command.type}:${String(command.limit)}`, needs: "listReads" };
 	if (command.type === "get_subagents") return { key: command.type, needs: "rosterReads" };
+	if (command.type === "get_jobs") return { key: command.type, needs: "jobsReads" };
 	if (SETTINGS_READS.has(command.type)) {
 		const args = [command.forceRefresh, command.compact, command.paths].map(value => JSON.stringify(value) ?? "");
 		return { key: `${command.type}:${args.join(":")}`, needs: "settingsReads" };

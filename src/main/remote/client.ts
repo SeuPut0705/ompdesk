@@ -194,6 +194,7 @@ async function handshake(address: string, opts: HandshakeOptions): Promise<Hands
 			slimShiftedReads: true,
 			slimSettingsReads: true,
 			slimRosterReads: true,
+			slimJobsReads: true,
 			slimToolOutputs: true,
 			slimToolArgs: true,
 			deflate: true,

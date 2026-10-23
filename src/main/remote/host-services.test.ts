@@ -3157,6 +3157,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			shiftedReads: false,
 			settingsReads: false,
 			rosterReads: false,
+			jobsReads: false,
 			toolOutputs: false,
 			toolArgs: false,
 			deflate: false,
@@ -3263,6 +3264,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				shiftedReads: false,
 				settingsReads: false,
 				rosterReads: false,
+				jobsReads: false,
 				toolOutputs: false,
 				toolArgs: false,
 				deflate: false,
@@ -3317,6 +3319,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				shiftedReads: false,
 				settingsReads: false,
 				rosterReads: false,
+				jobsReads: false,
 				toolOutputs: false,
 				toolArgs: false,
 				deflate: false,
@@ -3384,6 +3387,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 			shiftedReads: false,
 			settingsReads: false,
 			rosterReads: false,
+			jobsReads: false,
 			toolOutputs: false,
 			toolArgs: false,
 			deflate: false,
@@ -3455,6 +3459,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				shiftedReads,
 				settingsReads: listReads,
 				rosterReads: listReads,
+				jobsReads: listReads,
 				toolOutputs: false,
 				toolArgs: false,
 				deflate: false,
@@ -3584,6 +3589,42 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 		expect(decode(data(second))).toEqual(roster());
 		x.slim.rosterReads = false;
 		expect(data(await ask({ type: "get_subagents" }))).toEqual(roster());
+	});
+
+	it("sends the background jobs list the jobs poll asks as deltas of the last one, whole to a device that did not ask", async () => {
+		const { sidecar, ask, x } = await connected(true);
+		let tick = 0;
+		const jobs = () => ({
+			rows: Array.from({ length: 6 }, (_, i) => ({
+				depth: 0,
+				cancellable: true,
+				job: {
+					id: `bg_${i}`,
+					type: "bash",
+					status: "running",
+					label: `bun test shard ${i}`,
+					startTime: 1000 + i,
+					command: `bun test --shard=${i}/6`,
+					// The poll's usual change: one job's output moved, the others stand.
+					resultPreview: `${"✓ passed a test\n".repeat(200)}${i === 0 ? tick : ""}`,
+				},
+			})),
+		});
+		sidecar.rpcClient.command = async (command: RpcCommand): Promise<RpcResponse> => ({
+			type: "response",
+			command: command.type,
+			success: true,
+			data: jobs(),
+		});
+		const decode = createReadDecoder();
+		const first = await ask({ type: "get_jobs" });
+		tick++;
+		const second = await ask({ type: "get_jobs" });
+		expect(size(second) * 4).toBeLessThan(size(first));
+		decode(data(first));
+		expect(decode(data(second))).toEqual(jobs());
+		x.slim.jobsReads = false;
+		expect(data(await ask({ type: "get_jobs" }))).toEqual(jobs());
 	});
 
 	it("sends Settings' reads whole to a device that reads lists but not settings", async () => {
