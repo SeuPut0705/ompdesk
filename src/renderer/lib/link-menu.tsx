@@ -1,12 +1,10 @@
 /**
  * Right-click menu for links in replies. Web links: open in the Preview
  * panel, open in the browser, copy. Mail links: open in the mail app, copy
- * the address. Local paths: open (viewer, or the Files tree for a folder),
- * open in the default app, reveal in Finder/Explorer, copy the path; the two
- * native actions are left out for a paired host's tab, whose files are not
- * on this machine.
+ * the address. Local paths: the file's own menu (file-actions.tsx: preview,
+ * open or show it where it lives, save a copy here, copy the path).
  */
-import { AppWindow, Copy, ExternalLink, FileText, FolderOpen, Globe, Mail } from "lucide-react";
+import { AppWindow, Copy, Globe, Mail } from "lucide-react";
 import { type MouseEvent, type ReactNode, useState } from "react";
 import {
 	anchorFromEvent,
@@ -14,12 +12,11 @@ import {
 	type ContextMenuAnchor,
 	type ContextMenuItem,
 } from "../components/common/ContextMenu";
-import { useTabsStore } from "../stores/tabs";
-import { toast, toastError } from "../stores/toast";
+import { fileActionItems, useFileSurface } from "../components/tools/media/file-actions";
+import { toast } from "../stores/toast";
 import { useUiStore } from "../stores/ui";
 import { copyText } from "./format";
 import { useT } from "./i18n";
-import { PLATFORM } from "./keymap";
 import { openExternal } from "./open-external";
 
 export type LinkMenuTarget = { kind: "web"; url: string } | { kind: "path"; path: string; line?: number; dir: boolean };
@@ -30,23 +27,12 @@ export function useLinkMenu(tabId: string | null): {
 	menu: ReactNode;
 } {
 	const t = useT();
-	const remote = useTabsStore(state => {
-		const id = tabId ?? state.activeTabId;
-		return state.tabs.some(tab => tab.id === id && tab.device !== undefined);
-	});
+	const surface = useFileSurface(tabId);
 	const [open, setOpen] = useState<{ anchor: ContextMenuAnchor; target: LinkMenuTarget } | null>(null);
 
 	const copy = async (text: string) => {
 		if (await copyText(text)) toast({ variant: "success", message: t("common.copied") });
 		else toast({ variant: "error", message: t("common.copyFailed") });
-	};
-	const native = async (run: () => Promise<{ ok: boolean; error?: string }>) => {
-		try {
-			const result = await run();
-			if (!result.ok) toastError({ title: t("markdown.link.nativeFailed"), error: result });
-		} catch (cause) {
-			toastError({ title: t("markdown.link.nativeFailed"), error: cause });
-		}
 	};
 	const items = (target: LinkMenuTarget): ContextMenuItem[] => {
 		if (target.kind === "web") {
@@ -87,41 +73,7 @@ export function useLinkMenu(tabId: string | null): {
 				},
 			];
 		}
-		const { path, line, dir } = target;
-		const list: ContextMenuItem[] = [
-			{
-				id: "open",
-				label: t(dir ? "markdown.path.showInFiles" : "markdown.path.open"),
-				icon: dir ? FolderOpen : FileText,
-				onSelect: () =>
-					dir
-						? useUiStore.getState().revealInFiles(path)
-						: useUiStore.getState().openFilePreview(path, line ? { line } : undefined),
-			},
-		];
-		if (!remote)
-			list.push(
-				{
-					id: "default-app",
-					label: t("markdown.path.openDefault"),
-					icon: ExternalLink,
-					onSelect: () => void native(() => window.omp.system.openPath(path, tabId ?? undefined)),
-				},
-				{
-					id: "reveal",
-					label: t(PLATFORM === "windows" ? "markdown.path.revealExplorer" : "markdown.path.revealFinder"),
-					icon: FolderOpen,
-					onSelect: () => void native(() => window.omp.system.revealPath(path, tabId ?? undefined)),
-				},
-			);
-		list.push({
-			id: "copy",
-			label: t("markdown.path.copy"),
-			icon: Copy,
-			separatorBefore: true,
-			onSelect: () => void copy(path),
-		});
-		return list;
+		return fileActionItems({ ...target, tabId, surface, t });
 	};
 
 	return {

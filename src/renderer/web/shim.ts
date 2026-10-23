@@ -21,6 +21,8 @@ import {
 	IPC_COMMANDS,
 	IPC_EVENTS,
 	type IpcFsReadBinaryResult,
+	type IpcFsSaveCopyPayload,
+	type IpcFsSaveCopyResult,
 	type IpcFsUploadToHostResult,
 	type OmpApi,
 } from "../../shared/ipc-types";
@@ -318,6 +320,20 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 				...asked,
 				destination: { kind: "path", path: chosen },
 			});
+		},
+		// "Save to this device" on a file the conversation names: its bytes, read on the computer, saved by this browser.
+		[C.FS_SAVE_COPY]: async (payload: unknown): Promise<IpcFsSaveCopyResult> => {
+			const { path, tabId } = (payload ?? {}) as Partial<IpcFsSaveCopyPayload>;
+			if (typeof path !== "string" || path === "")
+				return { ok: false, error: "No file to save", code: "invalid_path" };
+			const result = await readBinary([{ path, tabId }]);
+			if (!result.ok) return { ok: false, error: result.error ?? "The file could not be read", code: result.code };
+			const name = path.split(/[\\/]/).pop() || "file";
+			const outcome = await env.save(
+				name,
+				new Blob([result.data as Uint8Array<ArrayBuffer>], { type: result.mime }),
+			);
+			return outcome === "cancelled" ? { ok: false, cancelled: true } : { ok: true };
 		},
 		[C.SYSTEM_SAVE_IMAGE]: (name: unknown, mime: unknown, data: unknown) => {
 			const save = hooks().saveImage;

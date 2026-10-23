@@ -6,9 +6,9 @@
  * all plus a file that is gone; a finished subagent made media of its own.
  * Players stream from main's `omp-media://` (metadata loads, the 40 MB file
  * seeks, nothing autoplays), the picture a tool already showed is not drawn
- * twice, the PDF shows its first page, the page previews only on request in an
- * empty sandbox, the missing file is a chip, and the subagent transcript sheet
- * shows the same. Captures: light/dark × en/ko, a narrow window, a 2×2 split.
+ * twice, the PDF shows its first page, the page is drawn in an empty sandbox,
+ * every card offers its place (Finder/Explorer here) and its menu, the missing
+ * recording is a chip, and the subagent transcript sheet shows the same. Captures: light/dark × en/ko, a narrow window, a 2×2 split.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -118,7 +118,10 @@ for (const language of variants(["en", "ko"] as const))
 				await expect(reply).toBeVisible({ timeout: 30_000 });
 				const playerNamed = (name: string) => reply.locator(".omp-chat-media").filter({ hasText: name });
 				const replyVideo = playerNamed("clip.webm").locator("video");
+				// Players mount near the viewport, and the cards under them push the first ones up: bring each in.
+				await playerNamed("clip.webm").scrollIntoViewIfNeeded();
 				await expectLoadedAndIdle(replyVideo, "video");
+				await playerNamed("tone.mp3").scrollIntoViewIfNeeded();
 				await expectLoadedAndIdle(playerNamed("tone.mp3").locator("audio"), "audio");
 				const gone = reply.locator("[data-chat-media-unavailable='video']");
 				await expect(gone).toContainText("draft.mp4");
@@ -141,29 +144,53 @@ for (const language of variants(["en", "ko"] as const))
 				expect((await fs.stat(path.join(project, "out", "long.mp4"))).size).toBeGreaterThan(40 * 1024 * 1024);
 
 				// Pictures: the chart draws; the frame the read already showed is not drawn again.
-				const chart = reply.locator("[data-chat-file='image']");
+				const chart = reply.locator("[data-file-card='image']");
 				await expect(chart).toHaveCount(1);
 				await expect(chart).toContainText("chart.svg");
 				await expect
 					.poll(() => chart.locator("img").evaluate(image => (image as HTMLImageElement).naturalWidth))
 					.toBeGreaterThan(0);
 				// The PDF's first page.
-				const pdf = reply.locator("[data-chat-file='pdf']");
+				const pdf = reply.locator("[data-file-card='pdf']");
 				await pdf.scrollIntoViewIfNeeded();
 				await expect(pdf).toHaveAttribute("data-state", "ready");
+				await expect.poll(() => pdf.locator("canvas:not([hidden])").count()).toBe(1);
 				expect(await pdf.locator("canvas").evaluate(canvas => (canvas as HTMLCanvasElement).width)).toBeGreaterThan(
 					0,
 				);
-				// The page previews only on request, in an empty sandbox whose script never runs.
-				const page_ = reply.locator("[data-chat-file='html']");
-				await expect(page_.locator("iframe")).toHaveCount(0);
-				await page_.getByRole("button", { name: language === "en" ? "Preview" : "미리보기" }).click();
+				// The page is drawn in an empty sandbox whose script never runs, and takes no click of its own.
+				const page_ = reply.locator("[data-file-card='html']");
 				const frame = page_.locator("iframe");
 				await expect(frame).toHaveAttribute("sandbox", "");
 				await expect(page_.frameLocator("iframe").locator("h1")).toHaveText("Fixture page");
 				await expect(page_.frameLocator("iframe").locator("body")).not.toHaveAttribute("data-ran", "yes");
 				await page_.scrollIntoViewIfNeeded();
+				// Every card says where the file is and has its menu; the menu's Preview opens the Files viewer.
+				await expect(page_.locator("[data-file-card-action='reveal']")).toBeVisible();
+				await page_
+					.getByRole("button", { name: language === "en" ? "More for page.html" : "page.html 메뉴" })
+					.click();
+				await expect(page.getByRole("menuitem")).toHaveText(
+					language === "en"
+						? ["Preview", "Open in default app", "Reveal in Finder", "Save a copy…", "Copy path"]
+						: ["미리보기", "기본 앱으로 열기", "Finder에서 보기", "다른 곳에 저장…", "경로 복사"],
+				);
+				await page.keyboard.press("Escape");
+				// An archive has nothing to draw: a row named by its extension.
+				const bundle = reply.locator("[data-file-card='archive']");
+				await expect(bundle).toHaveAttribute("data-shape", "row");
+				await expect(bundle.locator("[data-file-card-meta]")).toHaveText("ZIP · 22 B");
 				await capture(page, `${language}-${theme}-documents`);
+
+				// A prompt's attachments: the line that only names them leaves the bubble, their cards come under it.
+				await input.fill("Check these please\n@out/bundle.zip @out/report.pdf");
+				await input.press("Enter");
+				const attached = page.locator("[data-prompt-files]").last();
+				await expect(attached.locator("[data-file-card]")).toHaveCount(2, { timeout: 15_000 });
+				await expect(attached.locator("[data-file-card='pdf']")).toHaveAttribute("data-state", "ready");
+				await expect(page.locator(".omp-user-text").last()).toHaveText("Check these please");
+				await attached.scrollIntoViewIfNeeded();
+				await capture(page, `${language}-${theme}-prompt-files`);
 
 				// The work outcome row plays the clip and the narration beside the frame it read.
 				const row = page.locator(".omp-work-images").last();
@@ -182,10 +209,11 @@ for (const language of variants(["en", "ko"] as const))
 				await reply.scrollIntoViewIfNeeded();
 				await capture(page, `${language}-${theme}-reply`);
 
-				// Open in Files: the Files viewer streams the same file.
+				// The player's menu previews the file: the Files viewer streams the same file.
 				await playerNamed("clip.webm")
-					.getByRole("button", { name: language === "en" ? "Open in Files" : "파일 패널에서 열기" })
+					.getByRole("button", { name: language === "en" ? "More for clip.webm" : "clip.webm 메뉴" })
 					.click();
+				await page.getByRole("menuitem", { name: language === "en" ? "Preview" : "미리보기" }).click();
 				const viewer = page.locator("[data-viewer='video'] video");
 				await expect(viewer).toBeVisible();
 				await expect
@@ -252,7 +280,7 @@ for (const language of variants(["en", "ko"] as const))
 				const narration = replyFiles.locator("[data-chat-media='audio']");
 				await narration.scrollIntoViewIfNeeded();
 				await expectLoadedAndIdle(narration.locator("audio"), "audio");
-				await expect(replyFiles.locator("[data-chat-file='image']")).toContainText("chart.svg");
+				await expect(replyFiles.locator("[data-file-card='image']")).toContainText("chart.svg");
 				await capture(page, `${language}-${theme}-subagent-sheet`);
 
 				// The project still holds what the agent wrote; the player read it, never moved it.

@@ -58,6 +58,7 @@
 ### Also built in
 
 - **Memory.** Decisions, rules and each turn's conclusion are kept locally and recalled when a later prompt needs them; your paired computers share them. Settings › Memory shows and edits it.
+- **Files in the chat.** Every file you attach or the agent hands over is a card with a preview: a picture, a PDF's first page, a page, a sheet's first rows. One click shows it in Finder or Explorer, or saves it to the device you are using when the file sits on another computer.
 - **Skills.** Engineering playbooks from [pstack](https://github.com/cursor/plugins/tree/main/pstack), language and framework skills from [ECC](https://github.com/affaan-m/ECC), and reverse-engineering tools from REA. Each can be turned off in Settings.
 - **Small automations.** Plan or Goal mode picked per request, session titles that follow the work, and suggested next prompts. Each has its own switch in Settings › Agent behavior.
 - **Computer use.** On by default; one session drives the desktop at a time, and `/computer off` turns it off.

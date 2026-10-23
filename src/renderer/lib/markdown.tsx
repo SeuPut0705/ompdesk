@@ -31,7 +31,7 @@ import { SvgBlock } from "../components/chat/SvgBlock";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/media/chat-media";
 import { FileCard } from "../components/tools/media/FileCard";
-import { ChatMedia, HtmlPreview, PdfThumb } from "../components/tools/media/ToolMedia";
+import { ChatMedia } from "../components/tools/media/ToolMedia";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { toastError } from "../stores/toast";
@@ -788,9 +788,7 @@ function MarkdownImage({ src, alt, title, ...props }: ComponentPropsWithoutRef<"
 		const media = chatMediaKind(classified.path);
 		if (media) return <ChatMedia kind={media} label={altText || undefined} path={classified.path} />;
 		const fileKind = chatReferenceKind(classified.path);
-		if (fileKind === "pdf") return <PdfThumb label={altText || undefined} path={classified.path} />;
-		if (fileKind === "html") return <HtmlPreview label={altText || undefined} path={classified.path} />;
-		if (fileKind === "document") return <FileCard path={classified.path} />;
+		if (fileKind && fileKind !== "image") return <FileCard label={altText || undefined} path={classified.path} />;
 		return (
 			<LocalMarkdownImage
 				path={classified.path}

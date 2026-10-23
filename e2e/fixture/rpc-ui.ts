@@ -3830,6 +3830,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				nodePath.join(out, "page.html"),
 				'<!doctype html><html><body><h1>Fixture page</h1><script>document.body.dataset.ran = "yes"</script><img src="https://example.com/beacon.png" alt=""></body></html>',
 			);
+			fs.writeFileSync(
+				nodePath.join(out, "bundle.zip"),
+				Buffer.from("PK\u0005\u0006".padEnd(22, "\u0000"), "latin1"),
+			);
 			const mediaAgent = "MediaMaker";
 			recordedMessages.set(mediaAgent, [
 				{
@@ -3959,7 +3963,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				content: [
 					{
 						type: "text",
-						text: "Rendered [the clip](out/clip.webm) with a narration in `out/tone.mp3`; the full take is `out/long.mp4`. Frame `out/frame.png`, chart `out/chart.svg`, report `out/report.pdf` and page `out/page.html`. The first draft `out/draft.mp4` is gone.",
+						text: "Rendered [the clip](out/clip.webm) with a narration in `out/tone.mp3`; the full take is `out/long.mp4`. Frame `out/frame.png`, chart `out/chart.svg`, report `out/report.pdf` and page `out/page.html`, all of it packed in `out/bundle.zip`. The first draft `out/draft.mp4` is gone.",
 					},
 				],
 				timestamp: Date.now(),

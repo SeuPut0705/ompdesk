@@ -4,10 +4,11 @@ import { memo, useState } from "react";
 import { MAIL_CUSTOM_TYPE } from "../../../../resources/gui-bridge/agent-control-contracts";
 import { MEMORY_RECALL_MESSAGE_TYPE } from "../../../../resources/gui-bridge/modes/memory-recall-contracts";
 import { parseAgentMessage } from "../../../shared/agent-control";
+import { extractFileMentions, replaceFileMentions, splitAttachedMentions } from "../../../shared/file-mentions";
 import type { AgentMessage, ImageContent, MessageContent, ToolCallContent } from "../../../shared/rpc-types";
 import { useShellInput } from "../../hooks/use-shell-mode";
 import { AnsiText, hasAnsi } from "../../lib/ansi";
-import { cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
+import { basename, cx, extractResultImage, formatClock, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { forkSessionFromMessageInNewTab, isRenderableMessageText } from "../../lib/messages";
@@ -25,7 +26,7 @@ import { referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
 import { CustomMessageCard, isCustomMessageCardType, MailNote, MemoryRecallNote, RecapCard } from "./CustomMessageCard";
-import { ReplyFiles } from "./ReplyFiles";
+import { type PromptFile, PromptFiles, ReplyFiles } from "./ReplyFiles";
 import { isRestartNote, RestartNote } from "./RestartNote";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TodoReminderNote } from "./TodoReminderNote";
@@ -51,6 +52,17 @@ const COMPACTION_METHOD_KEYS: Record<string, string> = {
 	snapcompact: "chat.context.compactionMethod.snapcompact",
 	shake: "chat.context.compactionMethod.shake",
 };
+
+/**
+ * A file a sentence of the prompt names (`@path`), read as its name linking to the file rather than the whole path
+ * (the card under the prompt shows the rest). A mention that names nothing path-like (`@kim`) stays as written.
+ */
+function mentionLink(path: string): string | null {
+	if (!/[\\/.]/.test(path)) return null;
+	const name = basename(path) || path;
+	// As a `file:` URL the whole path survives the markdown pipeline (a Windows drive or a space included).
+	return `[${name.replace(/[\\[\]*_`<>]/g, "\\$&")}](file://${encodeURIComponent(path)})`;
+}
 
 /**
  * An attached picture. Stock restores a journal's blob references when it loads
@@ -407,15 +419,21 @@ export const MessageBubble = memo(function MessageBubble({
 		: [];
 	const agentSent = agentMessages.find(agent => agent !== null) ?? null;
 	const userMentions = (() => {
-		if (!isUser) return { chips: [] as ModelMentionChip[], blocks: content };
+		if (!isUser) return { chips: [] as ModelMentionChip[], blocks: content, files: [] as PromptFile[] };
 		const chips: ModelMentionChip[] = [];
+		const files: PromptFile[] = [];
 		const blocks = content.map((block, index) => {
 			if (block.type !== "text") return block;
 			const extracted = extractModelMentions(agentMessages[index]?.body ?? block.text);
 			chips.push(...extracted.chips);
-			return { ...block, text: extracted.body };
+			// Files the prompt attached show as cards under it; a line that only named them leaves the text.
+			const attached = splitAttachedMentions(extracted.body);
+			const inText = new Set(extractFileMentions(attached.text));
+			for (const path of attached.paths)
+				if (!files.some(file => file.path === path)) files.push({ path, inText: inText.has(path) });
+			return { ...block, text: replaceFileMentions(attached.text, mentionLink) };
 		});
-		return { chips, blocks };
+		return { chips, blocks, files };
 	})();
 	const userGallery = isUser ? messageGallery(content, t("chat.attachedImage")) : [];
 	const customLabel =
@@ -484,6 +502,7 @@ export const MessageBubble = memo(function MessageBubble({
 					)}
 					{userMentions.blocks.map((block, i) => {
 						if (block.type === "text") {
+							if (block.text.trim() === "") return null;
 							return (
 								<div key={i} className="omp-user-text">
 									<MarkdownRenderer content={block.text} userText />
@@ -495,6 +514,7 @@ export const MessageBubble = memo(function MessageBubble({
 						}
 						return null;
 					})}
+					<PromptFiles files={userMentions.files} />
 					<MessageActions
 						branchDisabled={branching || switchPending}
 						className="omp-user-actions"

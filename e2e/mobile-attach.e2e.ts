@@ -408,6 +408,14 @@ for (const engine of ENGINES)
 				// What the agent reads at that path is the phone's file.
 				expect(await fs.readFile(hostPath ?? "")).toEqual(file.buffer);
 				await expect(field).toHaveValue("", { timeout: 30_000 });
+				// The sent bubble shows the file as a card the phone can save back to itself (it is on the computer).
+				const card = phone.locator("[data-prompt-files] [data-file-card]").last();
+				await expect(card).toHaveAttribute("title", hostPath ?? "", { timeout: 30_000 });
+				await expect(card.locator("[data-file-card-action='save']")).toHaveAttribute(
+					"aria-label",
+					/^(Save to this device|이 기기에 저장)$/,
+				);
+				await captureTo(CAPTURES, phone, `${engine.name}-${file.name}-sent`);
 			}
 
 			// A photo goes through the same single attach item: no `accept` filter, so the phone offers gallery, camera and files.

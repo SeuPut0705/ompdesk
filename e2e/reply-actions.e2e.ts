@@ -27,7 +27,7 @@ const TEXT = {
 		copyLink: "Copy link",
 		mail: "Open in mail app",
 		copyAddress: "Copy address",
-		open: "Open",
+		open: "Preview",
 		reveal: process.platform === "win32" ? "Show in Explorer" : "Reveal in Finder",
 		copyPath: "Copy path",
 		previewUrl: "Preview URL",
@@ -42,7 +42,7 @@ const TEXT = {
 		copyLink: "링크 복사",
 		mail: "메일 앱에서 열기",
 		copyAddress: "주소 복사",
-		open: "열기",
+		open: "미리보기",
 		reveal: process.platform === "win32" ? "탐색기에서 보기" : "Finder에서 보기",
 		copyPath: "경로 복사",
 		previewUrl: "미리보기 URL",
@@ -134,7 +134,7 @@ for (const language of variants(["en", "ko"] as const))
 				await page.keyboard.press("Escape");
 				await expect(menu).toHaveCount(0);
 
-				// Path link: open, default app, Finder, copy; Open shows the file.
+				// Path link: preview, default app, Finder, save a copy, copy; Preview shows the file.
 				const pathLink = reply.locator('a[data-path-link="file"]', { hasText: "src/app.ts" });
 				await expect(pathLink).toBeVisible({ timeout: 15_000 });
 				await pathLink.click({ button: "right" });
@@ -142,6 +142,7 @@ for (const language of variants(["en", "ko"] as const))
 					text.open,
 					language === "en" ? "Open in default app" : "기본 앱으로 열기",
 					text.reveal,
+					language === "en" ? "Save a copy…" : "다른 곳에 저장…",
 					text.copyPath,
 				]);
 				await capture(page, `${language}-${theme}-path-menu`);

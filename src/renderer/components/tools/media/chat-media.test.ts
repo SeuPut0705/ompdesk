@@ -25,6 +25,9 @@ describe("chat media kinds", () => {
 		expect(chatReferenceKind("data/rows.csv")).toBe("document");
 		expect(chatReferenceKind("old.doc")).toBe("document");
 		expect(chatReferenceKind("src/app.ts")).toBeNull();
+		expect(chatReferenceKind("dist/app.zip")).toBe("file");
+		expect(chatReferenceKind("OMPdesk.dmg")).toBe("file");
+		expect(chatReferenceKind("notes.md")).toBeNull();
 	});
 
 	it("reads local paths out of hrefs and leaves web and other schemes alone", () => {
@@ -145,5 +148,17 @@ describe("files a reply names", () => {
 			"```",
 		].join("\n");
 		expect(referencedFiles(reply)).toEqual([]);
+	});
+
+	it("takes an archive it quotes and any file it links by an absolute path, never a citation of code", () => {
+		const reply = [
+			"Packed `dist/app.zip`, wrote [the summary](/tmp/summary.md) and [notes](C:\\Users\\kim\\notes.txt).",
+			"The fix is in [a.ts](/w/src/a.ts:42), [b.ts](src/b.ts) and `src/c.ts`; logs are in [out](/tmp/out/).",
+		].join("\n");
+		expect(referencedFiles(reply)).toEqual([
+			{ path: "dist/app.zip", kind: "file" },
+			{ path: "/tmp/summary.md", kind: "file" },
+			{ path: "C:\\Users\\kim\\notes.txt", kind: "file" },
+		]);
 	});
 });

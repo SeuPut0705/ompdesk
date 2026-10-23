@@ -63,3 +63,43 @@ export function removeFileMention(text: string, path: string): string {
 	}
 	return result + text.slice(cursor);
 }
+
+/**
+ * A sent prompt shown with its attachments as cards: the text without the lines that hold nothing
+ * but mentions (what the composer's picker, drop and paste insert), and every path it mentions, in
+ * order. A mention inside a sentence stays in the text, which reads wrong without it.
+ */
+export function splitAttachedMentions(text: string): { text: string; paths: string[] } {
+	const tokens = mentionTokens(text);
+	if (tokens.length === 0) return { text, paths: [] };
+	const kept: string[] = [];
+	let lineStart = 0;
+	for (const line of text.split("\n")) {
+		const lineEnd = lineStart + line.length;
+		let rest = "";
+		let cursor = lineStart;
+		for (const token of tokens) {
+			if (token.start < lineStart || token.end > lineEnd) continue;
+			rest += text.slice(cursor, token.start);
+			cursor = token.end;
+		}
+		rest += text.slice(cursor, lineEnd);
+		const onlyMentions = cursor !== lineStart && rest.trim() === "";
+		if (!onlyMentions) kept.push(line);
+		lineStart = lineEnd + 1;
+	}
+	return { text: kept.join("\n").replace(/^\n+|\n+$/g, ""), paths: extractFileMentions(text) };
+}
+
+/** `text` with each mention replaced by what `replace` makes of its path (null keeps the mention as written). */
+export function replaceFileMentions(text: string, replace: (path: string) => string | null): string {
+	let result = "";
+	let cursor = 0;
+	for (const token of mentionTokens(text)) {
+		const next = replace(token.path);
+		if (next === null) continue;
+		result += text.slice(cursor, token.start) + next;
+		cursor = token.end;
+	}
+	return result + text.slice(cursor);
+}

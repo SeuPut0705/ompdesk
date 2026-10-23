@@ -1,11 +1,11 @@
 /**
- * The chat's players, thumbnails and previews. A local tab's audio/video plays
- * from main's `omp-media://` stream (any size, seekable); a paired host's tab
- * reads its bytes through `fs.readBinary` under the host's cap. Everything
+ * The chat's players and the files a reply names. A local tab's audio/video
+ * plays from main's `omp-media://` stream (any size, seekable); a paired host's
+ * tab reads its bytes through `fs.readBinary` under the host's cap. Everything
  * reads only once it nears the viewport, for the tab it belongs to; missing,
- * refused, oversized and undecodable files show their chip; a player never
- * autoplays or loops and starts muted; a page previews only on request, in an
- * empty sandbox; a picture a tool already showed is not drawn twice.
+ * refused, oversized and undecodable recordings show their chip; a player never
+ * autoplays or loops and starts muted; every other file is a FileCard
+ * (FileCard.test.tsx); a picture a tool already showed is not drawn twice.
  */
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
@@ -26,7 +26,7 @@ import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { MessageBubble } from "../../chat/MessageBubble";
 import { ReplyFiles } from "../../chat/ReplyFiles";
-import { ChatMedia, HtmlPreview, PdfThumb, ToolResultMedia } from "./ToolMedia";
+import { ChatMedia, ToolResultMedia } from "./ToolMedia";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -50,6 +50,7 @@ interface FsMock {
 	readBinary: Mock<ReadBinary>;
 	readImage: Mock<ReadImage>;
 	read: Mock<ReadText>;
+	stat: Mock<() => Promise<{ ok: boolean; mtimeMs: number; size: number }>>;
 }
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
@@ -85,6 +86,7 @@ function install(overrides: Partial<FsMock> = {}): FsMock {
 		releaseMediaStream: vi.fn(),
 		readBinary: vi.fn<ReadBinary>(async () => binaryFailure("file_not_found")),
 		readImage: vi.fn<ReadImage>(async () => ({ ok: true, dataUrl: PNG, mime: "image/png", size: 8 })),
+		stat: vi.fn(async () => ({ ok: true, mtimeMs: 1, size: 8 })),
 		read: vi.fn<ReadText>(
 			async () =>
 				({
@@ -250,11 +252,13 @@ describe("chat media player", () => {
 		);
 	});
 
-	it("opens the file in the Files viewer", async () => {
+	it("opens the file in the Files viewer from its menu", async () => {
 		install({ mediaStream: streams({ "out/demo.webm": { mime: "video/webm", size: 600 } }) });
 		await mount(<ChatMedia kind="video" path="out/demo.webm" />);
-		const open = container.querySelector("button[aria-label='Open in Files']") as unknown as HTMLButtonElement;
-		await act(async () => open.dispatchEvent(new Event("click", { bubbles: true })));
+		const more = container.querySelector("button[aria-label='More for demo.webm']") as unknown as HTMLButtonElement;
+		await act(async () => more.dispatchEvent(new Event("click", { bubbles: true })));
+		const preview = [...document.querySelectorAll("[role='menuitem']")].find(item => item.textContent === "Preview");
+		await act(async () => preview?.dispatchEvent(new Event("click", { bubbles: true })));
 		expect(useUiStore.getState().filePreviewPath).toBe("out/demo.webm");
 	});
 
@@ -274,69 +278,6 @@ describe("chat media player", () => {
 	});
 });
 
-describe("document previews", () => {
-	it("previews a page only on request, in an empty sandbox", async () => {
-		install();
-		await mount(<HtmlPreview path="site/index.html" />);
-		expect(fs.read).not.toHaveBeenCalled();
-		expect(container.querySelector("iframe")).toBeNull();
-		const toggle = container.querySelector("button[aria-label='Preview']") as unknown as HTMLButtonElement;
-		await act(async () => toggle.dispatchEvent(new Event("click", { bubbles: true })));
-		await settle();
-		const frame = container.querySelector("iframe");
-		expect(frame?.getAttribute("sandbox")).toBe("");
-		// linkedom keeps React's attribute spelling; a real DOM lowercases it to `srcdoc`.
-		expect(frame?.getAttribute("srcDoc")).toContain("<h1>Page</h1>");
-		expect(fs.read).toHaveBeenCalledWith("site/index.html", 200_000);
-		await act(async () =>
-			container
-				.querySelector("button[aria-label='Close preview']")
-				?.dispatchEvent(new Event("click", { bubbles: true })),
-		);
-		expect(container.querySelector("iframe")).toBeNull();
-	});
-
-	it("falls back to the chip for a page it cannot read", async () => {
-		install({
-			read: vi.fn<ReadText>(async () => ({ ok: false, content: "", truncated: false, size: 0 }) as IpcFsReadResult),
-		});
-		await mount(<HtmlPreview path="../outside.html" />);
-		await act(async () =>
-			container.querySelector("button[aria-label='Preview']")?.dispatchEvent(new Event("click", { bubbles: true })),
-		);
-		await settle();
-		expect(container.querySelector("iframe")).toBeNull();
-		expect(container.querySelector("[data-chat-file='html'].omp-file-chip")?.textContent).toContain("outside.html");
-	});
-
-	it("keeps a PDF it cannot read, or one too large to thumbnail, as its chip", async () => {
-		install({
-			readBinary: vi.fn<ReadBinary>(async path =>
-				path === "huge.pdf"
-					? {
-							ok: true,
-							data: new Uint8Array(512),
-							mime: "application/pdf",
-							size: 64 * 1024 * 1024,
-							truncated: true,
-						}
-					: binaryFailure("path_escapes_workspace"),
-			),
-		});
-		await mount(
-			<>
-				<PdfThumb path="../outside.pdf" />
-				<PdfThumb path="huge.pdf" />
-			</>,
-		);
-		const chips = [...container.querySelectorAll("[data-chat-file='pdf'].omp-file-chip")];
-		expect(chips.map(chip => chip.textContent)).toEqual(["outside.pdf", expect.stringContaining("huge.pdf")]);
-		expect(chips[1]?.getAttribute("title")).toContain("Too large to preview here (64.0 MB)");
-		// Only the size probe was read for the huge one.
-		expect(fs.readBinary.mock.calls.filter(call => call[0] === "huge.pdf")).toEqual([["huge.pdf", 512]]);
-	});
-});
-
 describe("files a reply names", () => {
 	beforeAll(() => preloadMarkdownPipeline());
 
@@ -353,8 +294,8 @@ describe("files a reply names", () => {
 		).document;
 		expect(html.querySelector("[data-chat-media='video']")).not.toBeNull();
 		expect(html.querySelector("img")).toBeNull();
-		expect(html.querySelector("[data-chat-file='pdf'] .omp-chat-thumb-caption")?.textContent).toBe("report");
-		expect(html.querySelector("[data-chat-file='html'] .omp-chat-media-name")?.textContent).toBe("site");
+		expect(html.querySelector("[data-file-card='pdf'] .omp-file-card-name")?.textContent).toBe("report");
+		expect(html.querySelector("[data-file-card='html'] .omp-file-card-name")?.textContent).toBe("site");
 	});
 
 	it("renders raw <video>/<audio> only as the chat player: no autoplay, loop, poster or handlers survive", () => {
@@ -396,8 +337,8 @@ describe("files a reply names", () => {
 		const list = parseHTML(`<div>${html}</div>`).document.querySelector("[aria-label='Files in this reply']");
 		expect(list?.querySelectorAll("[data-chat-media='video']")).toHaveLength(1);
 		expect(list?.querySelectorAll("[data-chat-media='audio']")).toHaveLength(1);
-		expect(list?.querySelector("[data-chat-file='pdf']")).not.toBeNull();
-		expect(list?.querySelector("[data-chat-file='html'] .omp-chat-media-name")?.textContent).toBe("index.html");
+		expect(list?.querySelector("[data-file-card='pdf']")).not.toBeNull();
+		expect(list?.querySelector("[data-file-card='html'] .omp-file-card-name")?.textContent).toBe("index.html");
 	});
 
 	it("draws pictures the reply names, except one a tool of this tab already showed", async () => {
@@ -425,13 +366,13 @@ describe("files a reply names", () => {
 				]}
 			/>,
 		);
-		const thumbs = [...container.querySelectorAll("[data-chat-file='image']")];
+		const thumbs = [...container.querySelectorAll("[data-file-card='image']")];
 		expect(thumbs).toHaveLength(1);
 		expect(thumbs[0]?.querySelector("img")?.getAttribute("src")).toBe(PNG);
 		expect(fs.readImage.mock.calls).toEqual([["./out/chart.svg"]]);
 	});
 
-	it("shows a picture it cannot read as its chip", async () => {
+	it("shows a picture it cannot read as its card's tile, never a broken image", async () => {
 		install({
 			readImage: vi.fn<ReadImage>(async () => ({
 				ok: false,
@@ -443,6 +384,61 @@ describe("files a reply names", () => {
 		});
 		await mount(<ReplyFiles references={[{ path: "gone.png", kind: "image" }]} />);
 		expect(container.querySelector("img")).toBeNull();
-		expect(container.querySelector("[data-image-unavailable]")?.textContent).toContain("gone.png");
+		expect(container.querySelector("[data-file-card='image'] .omp-file-card-tile")).not.toBeNull();
+		expect(container.querySelector("[data-file-card='image'] .omp-file-card-name")?.textContent).toBe("gone.png");
+	});
+
+	it("draws the files a prompt attached as cards under it, without the line that only named them", () => {
+		const html = renderToStaticMarkup(
+			<I18nProvider>
+				<MessageBubble
+					message={{
+						role: "user",
+						content: [
+							{
+								type: "text",
+								text: 'Read this\n@"/up/this-computer/u1/report v2.docx"\nand @notes.md too, with @"C:\\Users\\kim\\My Docs\\plan.docx" and @kim',
+							},
+						],
+						timestamp: "2026-10-14T00:00:00Z",
+					}}
+				/>
+			</I18nProvider>,
+		);
+		const doc = parseHTML(`<div>${html}</div>`).document;
+		const cards = [...doc.querySelectorAll("[data-prompt-files] [data-file-card]")];
+		expect(cards.map(card => card.getAttribute("title"))).toEqual([
+			"/up/this-computer/u1/report v2.docx",
+			"notes.md",
+			"C:\\Users\\kim\\My Docs\\plan.docx",
+			"kim",
+		]);
+		const text = doc.querySelector(".omp-user-text")?.textContent ?? "";
+		expect(text).not.toContain("this-computer");
+		// A file a sentence names reads as its name, linking to the file.
+		const links = [...doc.querySelectorAll(".omp-user-text a")];
+		expect(links.map(link => [link.textContent, link.getAttribute("href")])).toEqual([
+			["notes.md", "file://notes.md"],
+			["plan.docx", `file://${encodeURIComponent("C:\\Users\\kim\\My Docs\\plan.docx")}`],
+		]);
+		expect(text).toBe("Read this\nand notes.md too, with plan.docx and @kim");
+	});
+
+	it("keeps a text file it links inside the tab's folder as a citation and hands over one outside", async () => {
+		install();
+		useSessionStore.setState({ cwd: "/w" });
+		await mount(
+			<ReplyFiles
+				references={[
+					{ path: "/w/src/a.ts", kind: "file" },
+					{ path: "/tmp/summary.md", kind: "file" },
+					{ path: "/w/dist/app.zip", kind: "file" },
+				]}
+			/>,
+		);
+		expect([...container.querySelectorAll("[data-file-card]")].map(card => card.getAttribute("title"))).toEqual([
+			"/tmp/summary.md",
+			"/w/dist/app.zip",
+		]);
 	});
 });

@@ -1,13 +1,15 @@
 import type { ReactNode } from "react";
 import { basename } from "../../../lib/format";
 import { useUiStore } from "../../../stores/ui";
+import { FileActions } from "./file-actions";
 import { PathLink } from "./PathLink";
 
 /**
  * A file the transcript names but does not draw: its icon and basename. The
  * name opens the file natively (falling back to revealing it; a remote tab's
  * file opens in the Files viewer) or, with `opensIn="viewer"`, in the Files
- * viewer. `note` says why there is no preview (missing, too large).
+ * viewer. `note` says why there is no preview (missing, too large); `actions`
+ * adds the file's own buttons (file-actions.tsx) for one that is there.
  */
 export function FileChip({
 	path,
@@ -15,6 +17,7 @@ export function FileChip({
 	icon,
 	note,
 	opensIn = "native",
+	actions = false,
 	...data
 }: {
 	path: string;
@@ -22,6 +25,7 @@ export function FileChip({
 	icon: ReactNode;
 	note?: string;
 	opensIn?: "native" | "viewer";
+	actions?: boolean;
 } & Record<`data-${string}`, string | boolean | undefined>) {
 	const name = label || basename(path) || path;
 	const content = (
@@ -51,6 +55,7 @@ export function FileChip({
 					{content}
 				</PathLink>
 			)}
+			{actions ? <FileActions name={name} path={path} /> : null}
 		</span>
 	);
 }

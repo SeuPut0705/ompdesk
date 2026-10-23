@@ -111,9 +111,10 @@ describe("link menu", () => {
 
 	it("opens, opens natively and reveals a local file of this machine's tab", async () => {
 		expect(await openMenu({ kind: "path", path: "src/a.ts", line: 4, dir: false })).toEqual([
-			"Open",
+			"Preview",
 			"Open in default app",
 			"Reveal in Finder",
+			"Save a copy…",
 			"Copy path",
 		]);
 		await choose("Reveal in Finder");
@@ -123,16 +124,17 @@ describe("link menu", () => {
 
 	it("opens a file at its line and shows a folder in Files", async () => {
 		await openMenu({ kind: "path", path: "src/a.ts", line: 4, dir: false });
-		await choose("Open");
+		await choose("Preview");
 		expect(useUiStore.getState()).toMatchObject({ filePreviewPath: "src/a.ts", filePreviewLine: 4 });
 		await act(async () => root.unmount());
 		container.remove();
 		expect(await openMenu({ kind: "path", path: "out/", dir: true })).toContain("Show in Files");
 	});
 
-	it("keeps native actions off a paired host's tab", async () => {
+	it("keeps native actions off a paired host's tab and saves its file here instead", async () => {
 		expect(await openMenu({ kind: "path", path: "src/a.ts", dir: false }, "tab-remote")).toEqual([
-			"Open",
+			"Preview",
+			"Save to this computer",
 			"Copy path",
 		]);
 	});

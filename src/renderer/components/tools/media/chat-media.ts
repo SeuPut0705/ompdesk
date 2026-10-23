@@ -13,11 +13,13 @@ import { viewerKind } from "../../panels/viewers/file-kind";
 
 export type ChatMediaKind = "video" | "audio";
 /**
- * Files the chat previews without playing: a picture's thumbnail, a PDF's
- * first page, a page in a sandbox, a document's card (Word, Excel,
- * PowerPoint, CSV/TSV and other Office files; FileCard.tsx).
+ * Files the chat shows as a card (FileCard.tsx) without playing: a picture,
+ * a PDF's first page, a page in a sandbox, a document (Word, Excel,
+ * PowerPoint, CSV/TSV and other Office files), and any other file a reply
+ * hands over (`file`: an archive, an installer, a database, or a file it
+ * links outside the project).
  */
-export type ChatFileKind = "image" | "pdf" | "html" | "document";
+export type ChatFileKind = "image" | "pdf" | "html" | "document" | "file";
 export type ChatReferenceKind = ChatMediaKind | ChatFileKind;
 
 export interface ChatFileReference {
@@ -31,11 +33,21 @@ export function chatMediaKind(path: string): ChatMediaKind | null {
 	return kind === "video" || kind === "audio" ? kind : null;
 }
 
-/** Media, pictures (SVG included), PDFs, pages and documents by the Files viewer's extension table. */
+/**
+ * Media, pictures (SVG included), PDFs, pages, documents and other non-text files (archives,
+ * installers, databases) by the Files viewer's extension table; a text or source file is none:
+ * a reply names those to point at code, and they stay links in its text.
+ */
 export function chatReferenceKind(path: string): ChatReferenceKind | null {
 	const kind = viewerKind(path);
 	if (kind === "docx" || kind === "xlsx" || kind === "pptx" || kind === "csv" || kind === "office") return "document";
+	if (kind === "binary") return "file";
 	return kind === "video" || kind === "audio" || kind === "image" || kind === "pdf" || kind === "html" ? kind : null;
+}
+
+/** An absolute path (`/…`, `~/…`, `C:\…`, `\\server\…`): one the reply names outside the tab's folder can be. */
+export function isAbsoluteChatPath(path: string): boolean {
+	return /^(?:\/|~[\\/]|[A-Za-z]:[\\/]|\\\\)/.test(path);
 }
 
 /** `file:///a/b%20c.mp4` → `/a/b c.mp4` (malformed escapes stay as written). */
@@ -137,20 +149,26 @@ export function referencedFiles(markdown: string): ChatFileReference[] {
 		prose.push(line);
 	}
 	const text = prose.join("\n");
-	const candidates: { index: number; href: string }[] = [];
+	const candidates: { index: number; href: string; linked: boolean }[] = [];
 	for (const match of text.matchAll(LINK)) {
-		if (!match[1]) candidates.push({ index: match.index, href: match[2] ?? "" });
+		if (!match[1]) candidates.push({ index: match.index, href: match[2] ?? "", linked: true });
 	}
-	for (const match of text.matchAll(DEFINITION)) candidates.push({ index: match.index, href: match[1] ?? "" });
+	for (const match of text.matchAll(DEFINITION))
+		candidates.push({ index: match.index, href: match[1] ?? "", linked: true });
 	for (const match of text.matchAll(CODE_SPAN)) {
 		const quoted = (match[1] ?? "").trim();
-		if (quoted && !/[\s*?{}$|<>;&]/.test(quoted)) candidates.push({ index: match.index, href: quoted });
+		if (quoted && !/[\s*?{}$|<>;&]/.test(quoted))
+			candidates.push({ index: match.index, href: quoted, linked: false });
 	}
 	const seen = new Set<string>();
 	const references: ChatFileReference[] = [];
-	for (const { href } of candidates.sort((a, b) => a.index - b.index)) {
+	for (const { href, linked } of candidates.sort((a, b) => a.index - b.index)) {
 		const path = localFilePath(href.startsWith("<") ? href.slice(1, -1) : href);
-		const kind = path ? chatReferenceKind(path) : null;
+		// A text file the reply links by an absolute path is one it hands over (`/tmp/report.md`), not code it
+		// cites: a citation carries a line, and one inside the tab's folder is dropped by ReplyFiles.
+		const handedOver =
+			path !== null && linked && isAbsoluteChatPath(path) && !/(?::\d+|#L\d+)$/.test(href) && !/[\\/]$/.test(path);
+		const kind = path ? (chatReferenceKind(path) ?? (handedOver ? "file" : null)) : null;
 		// `out/a.mp4` and `./out/a.mp4` are one file.
 		const key = path?.replace(/^(?:\.[\\/])+/, "") ?? "";
 		if (!path || !kind || seen.has(key)) continue;

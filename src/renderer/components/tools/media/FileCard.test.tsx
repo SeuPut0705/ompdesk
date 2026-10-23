@@ -1,15 +1,20 @@
 /**
- * File cards (A26 draft attachments, A111 reply documents): what the card
- * reads off the tab's files (fs.stat / fs.read) and how it reads; the draft
- * strip's mention parsing, hidden non-files and removal. Linkedom harness.
+ * File cards (draft attachments, the files a reply or prompt names): what the
+ * card reads off the tab's files (fs.stat / fs.read / fs.readImage) and how it
+ * draws them (a card with what it holds, a row for the rest); what a person can
+ * do with the file from where they sit (show it in Finder here, save it here
+ * from a paired host); the draft strip's mention parsing, hidden non-files and
+ * removal. Linkedom harness.
  */
 
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { IpcFsReadResult, IpcFsStatResult } from "../../../../shared/ipc-types";
+import type { IpcFsReadImageResult, IpcFsReadResult, IpcFsStatResult } from "../../../../shared/ipc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { useTabsStore } from "../../../stores/tabs";
+import { useToastStore } from "../../../stores/toast";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -25,6 +30,12 @@ Object.assign(globalThis as Record<string, unknown>, {
 const files: Record<string, { stat: IpcFsStatResult; content?: string }> = {
 	"data/rows.csv": { stat: { ok: true, mtimeMs: 1, size: 2_048 }, content: "name,qty\nbolt,3\nnut,9\n" },
 	"notes.md": { stat: { ok: true, mtimeMs: 1, size: 40 }, content: "# Notes\nline two\nline three\n" },
+	"dist/app.zip": { stat: { ok: true, mtimeMs: 1, size: 1_024 } },
+	"/tmp/board.html": {
+		stat: { ok: true, mtimeMs: 1, size: 7_900 },
+		content: "<h1>Board</h1><script>alert(1)</script>",
+	},
+	"shots/home.png": { stat: { ok: true, mtimeMs: 1, size: 8 } },
 };
 const missing: IpcFsStatResult = { ok: false, mtimeMs: 0, size: 0, error: "gone", code: "file_not_found" };
 const stat = vi.fn(async (path: string): Promise<IpcFsStatResult> => files[path]?.stat ?? missing);
@@ -37,7 +48,18 @@ const read = vi.fn(
 		size: files[path]?.stat.size ?? 0,
 	}),
 );
-Object.assign(window, { omp: { fs: { stat, read } } });
+const readImage = vi.fn(
+	async (): Promise<IpcFsReadImageResult> => ({
+		ok: true,
+		dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+		mime: "image/png",
+		size: 8,
+	}),
+);
+const saveCopy = vi.fn(async () => ({ ok: true, savedTo: "/Users/me/Downloads/app.zip" }));
+const revealPath = vi.fn(async () => ({ ok: true }));
+const openPath = vi.fn(async () => ({ ok: true }));
+Object.assign(window, { omp: { fs: { stat, read, readImage, saveCopy }, system: { revealPath, openPath } } });
 
 // After the linkedom globals above: react-dom and the components read `document`/`window` when they load.
 const { createRoot } = await import("react-dom/client");
@@ -71,7 +93,24 @@ afterEach(async () => {
 	vi.useRealTimers();
 	stat.mockClear();
 	read.mockClear();
+	saveCopy.mockClear();
+	revealPath.mockClear();
+	useTabsStore.setState({ tabs: [], activeTabId: null });
+	useToastStore.setState({ toasts: [] });
 });
+
+async function click(selector: string): Promise<void> {
+	const target = container.querySelector(selector);
+	if (!target) throw new Error(`no ${selector}`);
+	await act(async () => {
+		target.dispatchEvent(new Event("click", { bubbles: true }));
+	});
+	for (let i = 0; i < 3; i++) await act(async () => await Promise.resolve());
+}
+
+function menuLabels(): string[] {
+	return [...document.querySelectorAll("[role='menuitem']")].map(item => item.textContent ?? "");
+}
 
 describe("FileCard", () => {
 	it("shows a CSV's first rows with its row count and size", async () => {
@@ -88,6 +127,51 @@ describe("FileCard", () => {
 		await act(async () => root.unmount());
 		await render(<FileCard hideMissing path="out/report.xlsx" />);
 		expect(container.querySelector("[data-file-card]")).toBeNull();
+	});
+
+	it("draws what a file holds as a card and anything else as a row named by its extension", async () => {
+		await render(
+			<>
+				<FileCard path="/tmp/board.html" />
+				<FileCard path="shots/home.png" />
+				<FileCard path="dist/app.zip" />
+			</>,
+		);
+		const cards = [...container.querySelectorAll("[data-file-card]")];
+		expect(cards.map(card => [card.getAttribute("data-file-card"), card.getAttribute("data-shape")])).toEqual([
+			["html", "card"],
+			["image", "card"],
+			["archive", "row"],
+		]);
+		expect(meta()).toEqual(["Web page · 7.7 KB", "Image · 8 B", "ZIP · 1.0 KB"]);
+		// The page is drawn in an empty sandbox that takes no click; the picture is the file's own bytes.
+		const frame = cards[0]?.querySelector("iframe");
+		expect(frame?.getAttribute("sandbox")).toBe("");
+		expect(frame?.getAttribute("srcDoc")).toContain("<h1>Board</h1>");
+		expect(cards[1]?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,iVBORw0KGgo=");
+		expect(cards[2]?.querySelector("iframe, img, table")).toBeNull();
+	});
+
+	it("on this computer, reveals the file in Finder and offers to open it in its app", async () => {
+		useTabsStore.setState({ tabs: [{ id: "t1" } as never], activeTabId: "t1" });
+		await render(<FileCard path="dist/app.zip" />);
+		await click("[data-file-card-action='reveal']");
+		expect(revealPath).toHaveBeenCalledWith("dist/app.zip", undefined);
+		await click("button[aria-label='More for app.zip']");
+		expect(menuLabels()).toEqual(["Preview", "Open in default app", "Reveal in Finder", "Save a copy…", "Copy path"]);
+	});
+
+	it("on a paired computer's tab, saves the file here and offers nothing native", async () => {
+		useTabsStore.setState({ tabs: [{ id: "t1", device: "host-1" } as never], activeTabId: "t1" });
+		await render(<FileCard path="dist/app.zip" />);
+		expect(container.querySelector("[data-file-card-action='reveal']")).toBeNull();
+		await click("[data-file-card-action='save']");
+		expect(saveCopy).toHaveBeenCalledWith("dist/app.zip", undefined);
+		expect(useToastStore.getState().toasts.map(toast => toast.message)).toEqual([
+			"Saved to /Users/me/Downloads/app.zip",
+		]);
+		await click("button[aria-label='More for app.zip']");
+		expect(menuLabels()).toEqual(["Preview", "Save to this computer", "Copy path"]);
 	});
 });
 

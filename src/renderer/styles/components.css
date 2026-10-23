@@ -2476,68 +2476,259 @@ button.omp-file-chip-name:hover {
 	aspect-ratio: 16 / 10;
 }
 
-/* A picture or a PDF's first page the reply names: a thumbnail like the outcome row's. */
-.omp-chat-thumb {
-	display: inline-grid;
+/* A file the conversation names (FileCard.tsx): a card showing what it holds, or a row with its
+   type, then its name, "type · size" and its actions (its place, and a menu). */
+.omp-file-card {
+	position: relative;
+	display: inline-flex;
+	flex-direction: column;
+	width: min(15rem, 100%);
+	min-width: 0;
+	overflow: hidden;
+	border: var(--sc-hairline) solid var(--sc-border-subtle);
+	border-radius: var(--sc-radius-lg);
+	background: var(--sc-surface-1);
 	vertical-align: top;
+	transition: border-color var(--sc-duration-fast);
 }
 
-.omp-chat-thumb-slot,
-.omp-chat-thumb-page {
+.omp-file-card:hover,
+.omp-file-card:focus-within {
+	border-color: color-mix(in oklab, var(--sc-accent) 45%, var(--sc-border-subtle));
+}
+
+.omp-file-card[data-shape="row"] {
+	flex-direction: row;
+	align-items: center;
+	gap: var(--sc-space-2);
+	width: min(20rem, 100%);
+	padding: var(--sc-space-1-5) var(--sc-space-1) var(--sc-space-1-5) var(--sc-space-1-5);
+}
+
+.omp-file-card-view {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 100%;
 	aspect-ratio: 16 / 10;
 	overflow: hidden;
-	border: var(--sc-hairline) solid var(--sc-divider);
-	border-radius: var(--sc-radius-md);
+	border-bottom: var(--sc-hairline) solid var(--sc-divider);
+	background: var(--sc-surface-2);
 }
 
-.omp-chat-thumb-page:has(> canvas:not([hidden])) {
-	align-items: start;
-	aspect-ratio: auto;
-	max-height: 15rem;
+.omp-file-card-view[data-preview="pdf"],
+.omp-file-card-view[data-preview="sheet"],
+.omp-file-card-view[data-preview="csv"] {
+	align-items: flex-start;
 }
 
-.omp-chat-thumb-page canvas {
-	display: block;
-	width: 100%;
-	height: auto;
+/* The whole preview opens the file; over a drawn page it is a clear layer that takes the click. */
+.omp-file-card-open {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
 }
 
-.omp-chat-thumb-page:focus-visible {
+.omp-file-card-open:disabled {
+	cursor: default;
+}
+
+.omp-file-card-open:focus-visible {
 	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
 	outline-offset: -2px;
 }
 
-.omp-chat-thumb-caption {
+/* What a file holds, over its tile: transparent to clicks (the tile's button opens the file), except a picture's zoom. */
+.omp-file-card-drawn {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: inherit;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.omp-file-card-drawn:has(> table, > .omp-file-card-slide, > .omp-file-card-frame-box, > canvas:not([hidden]), > button) {
+	background: var(--sc-surface-2);
+}
+
+.omp-file-card-drawn .omp-file-card-zoom {
+	pointer-events: auto;
+}
+
+.omp-file-card-zoom {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+.omp-file-card-image {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.omp-file-card-page {
+	display: block;
+	width: 100%;
+	height: auto;
+	background: white;
+}
+
+/* A page drawn at four times the card's width and scaled down: it reads like the page, and never takes a click. */
+.omp-file-card-frame-box {
+	position: absolute;
+	inset: 0;
 	overflow: hidden;
-	color: var(--sc-text-subtle);
-	font-size: var(--sc-font-2xs);
+	pointer-events: none;
+}
+
+.omp-file-card-frame {
+	width: 400%;
+	height: 400%;
+	border: 0;
+	transform: scale(0.25);
+	transform-origin: 0 0;
+}
+
+.omp-file-card-table {
+	width: 100%;
+	table-layout: fixed;
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-xs);
+}
+
+.omp-file-card-table td {
+	overflow: hidden;
+	padding: var(--sc-space-0-5) var(--sc-space-1);
+	border-bottom: var(--sc-hairline) solid var(--sc-divider);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.omp-chat-thumb:has(> [data-image-unavailable]) .omp-chat-thumb-caption {
-	display: none;
-}
-
-/* A page the reply names: its name and a Preview toggle; open, an empty-sandbox frame above them. */
-.omp-chat-html {
-	display: inline-grid;
-	gap: var(--sc-space-1);
-	width: min(32rem, 100%);
-	min-width: 0;
-	vertical-align: top;
-}
-
-.omp-chat-html-frame {
-	display: block;
+.omp-file-card-slide {
+	display: -webkit-box;
+	align-self: stretch;
+	align-content: center;
 	width: 100%;
-	height: 18rem;
-	border: var(--sc-hairline) solid var(--sc-divider);
+	overflow: hidden;
+	padding: 0 var(--sc-space-3);
+	color: var(--sc-text-secondary);
+	font-size: var(--sc-font-sm);
+	font-weight: 500;
+	text-align: center;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+}
+
+/* The file's type at a glance: its glyph on a quiet accent wash. */
+.omp-file-card-tile {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 2.25rem;
+	height: 2.25rem;
 	border-radius: var(--sc-radius-md);
+	background: color-mix(in oklab, var(--sc-accent) 12%, var(--sc-surface-2));
+	color: var(--sc-accent);
+}
+
+.omp-file-card-view .omp-file-card-tile {
+	width: 3rem;
+	height: 3rem;
+}
+
+.omp-file-card-tile-icon {
+	width: var(--sc-icon-md);
+	height: var(--sc-icon-md);
+}
+
+.omp-file-card-view .omp-file-card-tile-icon {
+	width: var(--sc-icon-lg);
+	height: var(--sc-icon-lg);
+}
+
+.omp-file-card[data-state="missing"] .omp-file-card-tile {
+	background: var(--sc-surface-2);
+	color: var(--sc-text-subtle);
+}
+
+.omp-file-card-foot {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: var(--sc-space-1);
+	min-width: 0;
+	padding: var(--sc-space-1-5) var(--sc-space-1) var(--sc-space-1-5) var(--sc-space-2);
+}
+
+.omp-file-card[data-shape="row"] .omp-file-card-foot {
+	padding: 0;
+}
+
+.omp-file-card-caption {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.omp-file-card-name {
+	overflow: hidden;
+	color: var(--sc-text);
+	font-size: var(--sc-font-sm);
+	font-weight: 500;
+	text-align: start;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.omp-file-card-name:hover:not(:disabled) {
+	color: var(--sc-accent);
+}
+
+.omp-file-card-name:disabled {
+	cursor: default;
+}
+
+.omp-file-card-name:focus-visible {
+	border-radius: var(--sc-radius-sm);
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
+}
+
+.omp-file-card-meta {
+	overflow: hidden;
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-xs);
+	font-variant-numeric: tabular-nums;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.omp-file-card[data-state="missing"] .omp-file-card-meta {
+	color: var(--sc-warning);
+}
+
+.omp-file-card-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: var(--sc-space-0-5);
+	--hit-gap-x: var(--sc-space-0-5);
+}
+
+/* Files a prompt attached: under its text, inside the bubble. */
+.omp-prompt-files {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--sc-space-2);
+	margin-top: var(--sc-space-2);
 }
 
 /* Pictures, players and named files under a message in the subagent transcript sheet. */

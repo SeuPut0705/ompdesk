@@ -51,7 +51,7 @@
 	"components/settings/providers/ProviderPicker.tsx": 3,
 	"components/stats/AllSessionsStats.tsx": 1,
 	"components/tools/ToolCard.tsx": 1,
-	"components/tools/media/FileCard.tsx": 2,
+	"components/tools/media/FileCard.tsx": 1,
 	"components/tools/media/PathLink.tsx": 1,
 	"lib/markdown.tsx": 1
 }

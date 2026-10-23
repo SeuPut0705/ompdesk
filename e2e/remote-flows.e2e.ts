@@ -5,7 +5,8 @@
  * - the Terminal runs B's shell in B's folder, and "Run in terminal" types into it;
  * - Files lists, edits, saves, keeps file tabs and searches B's project;
  * - Changes commits, pushes and shows the history of B's repository;
- * - the agent's media plays (over the link, capped) and its file cards open B's files;
+ * - the agent's media plays (over the link, capped), its file cards open B's files,
+ *   and a file of B saves to A over the link in parts;
  * - the context inspector reads B's omp.
  * Captures in the test output directory.
  */
@@ -98,6 +99,7 @@ for (const language of variants(["en", "ko"] as const))
 				host = await launchRemote(hostProfile);
 				client = await launchRemote(clientProfile);
 				const a = client.page;
+				const clientApp = client.app;
 				const deviceId = await connectHost(host.page, a, "Host B");
 				const remoteTab = await openHostFolder(a, deviceId, hostProfile.project);
 				const hostFile = (rel: string) => path.join(hostProfile.project, rel);
@@ -218,11 +220,25 @@ for (const language of variants(["en", "ko"] as const))
 					const long = reply.locator("[data-chat-media-too-large='video']").filter({ hasText: "long.mp4" });
 					await long.scrollIntoViewIfNeeded();
 					await expect(long).toBeVisible({ timeout: 20_000 });
-					await expect(reply.locator("[data-chat-file='pdf']")).toHaveAttribute("data-state", "ready", {
+					await expect(reply.locator("[data-file-card='pdf']")).toHaveAttribute("data-state", "ready", {
 						timeout: 20_000,
 					});
 					expect(await exists(clientFile("out/clip.webm"))).toBe(false);
 					await capture(a, `${language}-${theme}-media`);
+
+					// A file of the host's tab saves to this computer: the 40 MB take comes over the link in parts,
+					// byte for byte, into the place this computer's save dialog picks (stubbed: no native sheet in a test).
+					const saved = path.join(clientProfile.project, "..", "saved-long.mp4");
+					await clientApp.evaluate(({ dialog }, filePath) => {
+						dialog.showSaveDialog = (async () => ({ canceled: false, filePath })) as typeof dialog.showSaveDialog;
+					}, saved);
+					await expect(long.locator("[data-file-card-action='reveal']")).toHaveCount(0);
+					await long.getByRole("button", { name: t("fileCard.saveHere") }).click();
+					await expect
+						.poll(async () => (await fs.stat(saved).catch(() => null))?.size ?? 0, { timeout: 60_000 })
+						.toBe((await fs.stat(hostFile("out/long.mp4"))).size);
+					expect(Buffer.compare(await fs.readFile(saved), await fs.readFile(hostFile("out/long.mp4")))).toBe(0);
+					await expect(a.getByText(t("fileCard.saved", { path: saved }))).toBeVisible();
 
 					await fs.mkdir(hostFile("docs"));
 					await Promise.all([

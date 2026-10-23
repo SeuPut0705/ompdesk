@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { extractFileMentions, removeFileMention } from "./file-mentions";
+import { extractFileMentions, removeFileMention, splitAttachedMentions } from "./file-mentions";
 
 const stockFile = path.join(
 	os.homedir(),
@@ -41,5 +41,16 @@ describe("file mentions", () => {
 		expect(removeFileMention("(see @a.ts)", "a.ts")).toBe("(see )");
 		expect(removeFileMention("@a.ts, @a.ts", "a.ts")).toBe(", ");
 		expect(removeFileMention("mail a@b.com", "b.com")).toBe("mail a@b.com");
+	});
+
+	it("takes the lines that only attach files out of a sent prompt and keeps a mention a sentence needs", () => {
+		const prompt =
+			'Summarize this\n@"/up/this-computer/u1/report v2.docx" @data/rows.csv\nand compare with @notes.md please\n@data/rows.csv';
+		expect(splitAttachedMentions(prompt)).toEqual({
+			text: "Summarize this\nand compare with @notes.md please",
+			paths: ["/up/this-computer/u1/report v2.docx", "data/rows.csv", "notes.md"],
+		});
+		expect(splitAttachedMentions("no files here")).toEqual({ text: "no files here", paths: [] });
+		expect(splitAttachedMentions("@a.pdf")).toEqual({ text: "", paths: ["a.pdf"] });
 	});
 });

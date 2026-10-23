@@ -844,6 +844,13 @@ html[data-input="touch"] .omp-live-work-chips {
 	--hit-gap-y: 12px;
 }
 
+/* A file card's place and menu buttons sit 10 px apart on touch, each reaching half of it (36 px targets). */
+html[data-input="touch"] .omp-file-card-actions {
+	gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 6px;
+}
+
 /* ── Phone density: smaller and denser than the desktop, like a phone chat app ────────────────────────────── */
 /* A phone is read at arm's length on 390 px: type, controls, gutters and the chrome around the transcript shrink so
    the conversation keeps the screen. Only `data-shell="phone"` (web build) gets this; a tablet keeps the desktop
