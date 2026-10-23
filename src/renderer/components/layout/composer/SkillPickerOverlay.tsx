@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Kbd, OptionRow, SearchField } from "../../common";
+import { Kbd, LinkButton, OptionRow, SearchField } from "../../common";
 
 /**
  * Searchable skill picker opened from the composer's + menu: one line per
@@ -185,15 +185,15 @@ export function SkillPickerOverlay({ skills, onSelect, onManage, onClose }: Skil
 					<Kbd shortcut="↵" />
 					{t("input.skills.hintInsert")}
 				</span>
-				<button
-					className="ml-auto inline-flex min-w-0 items-center gap-1 rounded-(--sc-radius-sm) px-1.5 py-0.5 text-sc-2xs text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"
+				<LinkButton
+					className="ml-auto inline-flex min-w-0 items-center gap-1 px-1.5 py-0.5 text-sc-2xs"
 					data-skill-manage
 					onClick={onManage}
-					type="button"
+					tone="muted"
 				>
 					<Puzzle aria-hidden className="size-3 shrink-0" />
 					<span className="truncate">{t("input.addMenu.manage")}</span>
-				</button>
+				</LinkButton>
 			</div>
 		</div>
 	);
