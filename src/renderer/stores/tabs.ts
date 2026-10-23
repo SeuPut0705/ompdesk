@@ -33,7 +33,6 @@ export type { SplitAxis, SplitLayout, SplitPlacement } from "../../shared/split-
 
 import { useEffect } from "react";
 import { create, type StoreApi } from "zustand";
-import { stripTitlePrefix } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { AgentControlViewEvent } from "../../shared/agent-control";
 import type {
 	IpcOpenExtensionRequest,
@@ -61,7 +60,7 @@ import { maxSplitPanes } from "../hooks/use-shell-mode";
 import { autoCloseHeld } from "../lib/agent-auto-close";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
-import { sessionDisplayTitle } from "../lib/session-title";
+import { sessionDisplayTitle, shownSessionName } from "../lib/session-title";
 import { beginTabRoute, openingTab, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
 import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
@@ -363,7 +362,7 @@ async function focusTab(previousTabId: string | null, id: string, view: SplitVie
  */
 export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): string {
 	// `||` everywhere: empty-string titles (never-generated auto-title slot) fall through like null. A worktree
-	// tab that is an Autopilot run or a parallel child reads as its project and kind (`acme-web · Autopilot`):
+	// tab that is a parallel child reads as its project and kind (`acme-web · Parallel work`), an Autopilot run as its project:
 	// the cwd basename is the hash-suffixed dir (gui-<name>-<hash7>), unreadable, and the worktree name is a date
 	// or a random slug. Untitled chats are global: their internal process cwd must never masquerade as a
 	// selected workspace in the tab strip.
@@ -371,14 +370,14 @@ export function tabChipLabel(tab: SessionTab, tabs: readonly SessionTab[]): stri
 		if (entry.kind === "chat") return translate("sidebar.newSession");
 		const worktree = entry.worktree;
 		const kind = worktree ? worktreeKindOf(worktree.branch) : "other";
-		if (worktree && kind !== "other") {
-			const label = translate(kind === "autopilot" ? "project.worktree.autopilot" : "project.worktree.agent");
-			return `${pathBaseName(worktree.baseCwd)} · ${label}`;
-		}
+		// A run is its project alone: its rocket says it is a run.
+		if (worktree && kind === "autopilot") return pathBaseName(worktree.baseCwd);
+		if (worktree && kind !== "other")
+			return `${pathBaseName(worktree.baseCwd)} · ${translate("project.worktree.agent")}`;
 		return worktree?.name || basename(entry.cwd) || translate("sidebar.newSession");
 	};
 	const base = tab.title || tab.task || untitledBase(tab);
-	if (tab.title || tab.task) return stripTitlePrefix(base);
+	if (tab.title || tab.task) return shownSessionName(base);
 	let occurrence = 0;
 	for (const entry of tabs) {
 		if (entry.title || entry.task) continue;

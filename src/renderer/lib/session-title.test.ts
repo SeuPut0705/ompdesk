@@ -54,3 +54,17 @@ describe("a session another session's agent opened (ompdesk_session_open, an Aut
 		);
 	});
 });
+
+describe("an Autopilot run's name", () => {
+	it("drops the word an earlier build put in front of it: the row's rocket says it is a run", () => {
+		expect(sessionDisplayTitle({ title: "오토파일럿 · 길드 하우스 정리", firstMessage: "" }, "New session")).toBe(
+			"길드 하우스 정리",
+		);
+		expect(sessionDisplayTitle({ title: "Autopilot · rng-arena", firstMessage: "" }, "New session")).toBe(
+			"rng-arena",
+		);
+		expect(sessionDisplayTitle({ title: "Autopilot notes", firstMessage: "" }, "New session")).toBe(
+			"Autopilot notes",
+		);
+	});
+});
