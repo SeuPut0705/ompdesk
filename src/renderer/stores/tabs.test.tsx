@@ -51,7 +51,7 @@ import { useQueueStore } from "./queue";
 import { type SessionStore, useSessionStore } from "./session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
 import { useSubagentsStore } from "./subagents";
-import { tabReady } from "./tab-ready-gate";
+import { READY_WAIT_CAP_MS, tabReady } from "./tab-ready-gate";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
 	endTabSignIn,
@@ -1323,6 +1323,27 @@ describe("tabs store applyTabStatus", () => {
 
 		await useTabsStore.getState().switchTab("t1");
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+	});
+
+	it("lets a held command go after the two-minute cap when the tab never comes up", async () => {
+		vi.useFakeTimers();
+		try {
+			seedTabs();
+			useTabsStore
+				.getState()
+				.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "error", sessionHeld: true });
+			let released = false;
+			void tabReady("t1")?.then(() => {
+				released = true;
+			});
+			await vi.advanceTimersByTimeAsync(READY_WAIT_CAP_MS - 1);
+			expect(released).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			// Out it goes, to fail the way any command to a tab that is not up does.
+			expect(released).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("holds a held tab's commands until its session opens, as a starting tab's", async () => {
