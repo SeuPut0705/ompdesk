@@ -142,7 +142,9 @@ async function expectDrawn({ app, page }: Launched, info: TestInfo, name: string
 				screen = await pixelStats(app, file);
 				return screen.colors;
 			},
-			{ message: `${name}: the window shows one flat color on screen`, timeout: 10_000 },
+			// One capture is a cold PowerShell loading System.Windows.Forms: on a busy runner the first took over 10 s and
+			// the poll ended with no value at all (v0.61.30's release, the app drawn 2 s after launch).
+			{ message: `${name}: the window shows one flat color on screen`, timeout: 30_000 },
 		)
 		.toBeGreaterThan(8);
 	await info.attach(`${name}-screen`, { path: file, contentType: "image/png" });
