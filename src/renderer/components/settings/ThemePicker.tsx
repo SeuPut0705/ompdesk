@@ -108,9 +108,10 @@ function ThemeCard({ selection, selected, label, title, preview, onChoose }: The
 					</span>
 				)}
 			</span>
-			<span className="flex items-center gap-1 truncate px-0.5 text-sc-sm text-(--sc-text-secondary)">
-				{selection === "system" && <Monitor aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
-				<span className="truncate">{label}</span>
+			{/* A name wraps to a second line rather than cutting off: "High Contrast Light" outgrew a tablet's card. */}
+			<span className="flex items-start gap-1 px-0.5 text-sc-sm leading-snug text-(--sc-text-secondary)">
+				{selection === "system" && <Monitor aria-hidden className="mt-0.5 size-(--sc-icon-sm) shrink-0" />}
+				<span className="line-clamp-2 min-w-0 break-words">{label}</span>
 			</span>
 		</button>
 	);
