@@ -3010,6 +3010,23 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		return { host, service, a: a as string, b: b as string, fire };
 	}
 
+	it("says where an idle session it opened left the work: its verdict, its report, or neither", async () => {
+		const { host, service, a, b } = await family();
+		for (const id of [a, b]) {
+			const tab = host.tabsById.get(id) as FakeTab;
+			tab.busy = false;
+		}
+		(host.tabsById.get(a) as FakeTab).last = "Fixed the parser.\nResult: ok";
+		(host.tabsById.get(b) as FakeTab).last = "Looked around a bit.";
+		const listed = (await service.run("boss0001", T.list, {})).text;
+		expect(listed).toContain("idle, finished: Result ok");
+		expect(listed).toContain("idle, ended its turn with no verdict line and no done report");
+
+		await service.run(b, T.report, { kind: "done", text: "B is finished" });
+		const result = (await service.run("boss0001", T.result, { session: b })).text;
+		expect(result).toContain("idle, finished: reported done");
+	});
+
 	it("names the dispatch in the child's task, and a done report reaches the opener between its steps", async () => {
 		const { host, service, a } = await family();
 		expect(prompts(host, a)[0]).toContain('[ompdesk dispatch d1: report with ompdesk_report, dispatch "d1"]');

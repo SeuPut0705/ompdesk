@@ -88,6 +88,7 @@ import {
 import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
 import { custodyOf } from "./custody";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
+import { pickupOf } from "./pickup";
 import {
 	type AnswerArgs,
 	ARGS,
@@ -1436,6 +1437,18 @@ export class AgentControl {
 		return "idle";
 	}
 
+	/** An idle session the caller opened says where it left the work (pickup.ts); every other line is as it is. */
+	#withPickup(caller: ControlTab, tab: ControlTab, session: SessionState, line: string): string {
+		if (line !== "idle" || this.#host.parentOf(tab.tabId) !== caller.tabId) return line;
+		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
+		const pickup = pickupOf({
+			answer: session.last,
+			...(report ? { report: { kind: report.kind, at: report.at } } : {}),
+			...(tab.busySince !== undefined ? { busySince: tab.busySince } : {}),
+		});
+		return pickup ? `idle, ${pickup}` : line;
+	}
+
 	/** `"local"` is this computer (null); a paired host by id or name, else a readable failure naming them. */
 	#device(wanted: string): ControlDevice | null {
 		const lowered = wanted.toLowerCase();
@@ -1562,7 +1575,7 @@ export class AgentControl {
 					};
 				const session = await this.#state(tab);
 				const line = this.#stateLine(tab, session);
-				const parts = [line, `folder ${tab.cwd}`];
+				const parts = [this.#withPickup(caller, tab, session, line), `folder ${tab.cwd}`];
 				if (tab.worktree) parts.push(`worktree ${tab.worktree.branch}`);
 				if (tab.deviceName) parts.push(`on ${tab.deviceName}`);
 				const model = session.state?.model;
@@ -2127,7 +2140,7 @@ export class AgentControl {
 		const body = session.last ? cut(session.last, perAnswer) : "(no answer yet)";
 		return {
 			settled: settled || waits(tab),
-			text: `${label(tab)} [${tab.tabId}]: ${line}.${todos ? ` ${todos}.` : ""}${hint}\nLast answer:\n${body}`,
+			text: `${label(tab)} [${tab.tabId}]: ${this.#withPickup(caller, tab, session, line)}.${todos ? ` ${todos}.` : ""}${hint}\nLast answer:\n${body}`,
 		};
 	}
 
