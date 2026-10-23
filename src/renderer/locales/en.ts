@@ -900,7 +900,7 @@ export const en: Record<string, string> = {
 	"sidebar.family.kind.subagent": "Subagent",
 	"sidebar.family.kind.worktree": "Worktree session",
 	"sidebar.family.kind.session": "Session",
-	"sidebar.subagents.usage": "{tokens} tokens · {tools} tool calls",
+	"sidebar.subagents.usage": "{tokens} tokens · {tools} tool call{toolsPlural}",
 	"sidebar.subagents.groupMenu": "Subagent rows",
 	"sidebar.subagents.expandAll": "Expand all",
 	"sidebar.subagents.collapseAll": "Collapse all",
@@ -1889,7 +1889,8 @@ export const en: Record<string, string> = {
 	"shake.confirmImages": "Remove every image from the model's context for this session?",
 	"shake.confirmThinking": "Remove every assistant thinking block from this session's model context?",
 	"fresh.success": "Provider stream state reset — the next turn starts a fresh exchange.",
-	"reloadPlugins.success": "Reloaded: {plugins} plugins, {skills} skills, {commands} commands.",
+	"reloadPlugins.success":
+		"Reloaded: {plugins} plugin{pluginsPlural}, {skills} skill{skillsPlural}, {commands} command{commandsPlural}.",
 
 	"forceTool.title": "Force tool",
 	"forceTool.none": "No tool forced",
@@ -2924,7 +2925,7 @@ export const en: Record<string, string> = {
 	"stats.stopped.title": "All-sessions stats are off right now",
 	"stats.stopped.desc": "The stats server isn't running. Try again or restart OMPdesk.",
 	"stats.emptyRange": "No data in this range",
-	"stats.syncDetail": "{messages} messages from {files} files",
+	"stats.syncDetail": "{messages} message{messagesPlural} from {files} file{filesPlural}",
 	"stats.syncBackground": "Sync is still running in the background; pages update as it lands.",
 	"stats.col.requests": "Requests",
 	"stats.col.tokens": "Tokens",
