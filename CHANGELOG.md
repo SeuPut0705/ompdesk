@@ -1,23 +1,31 @@
 # Changelog
 
-## [0.65.1] - 2026-10-23
+## [0.66.0] - 2026-10-23
 
-긴 오토파일럿 실행의 이전 사이클 보기와 로그 복사가 이제 빠짐없이 돼요. 연결된 컴퓨터로 가는 백그라운드 작업 목록도 바뀐 부분만 보내요.
+사이드바의 세션 순서를 직접 바꾸고 기억해요. 연결된 컴퓨터의 프로젝트와 세션도 똑같이 옮길 수 있어요. 게시되지 못한 0.65.1의 고침도 함께 들어 있어요.
+
+### 새로 생긴 것
+- 세션 메뉴의 "위로 이동/아래로 이동"(또는 Alt+↑/↓)으로 프로젝트 안이나 채팅 목록 안의 세션 순서를 바꿔요. 순서는 다시 열어도 그대로이고, 고정한 세션은 계속 맨 위예요.
+- 연결된 컴퓨터 섹션의 프로젝트와 세션도 메뉴로 위·아래로 옮기고, 이 컴퓨터가 그 순서를 기억해요.
 
 ### 고친 것
 - 보드를 열어 둔 채 사이클이 30개 넘게 지나가면, 그 사이 사이클이 펼친 이력과 복사한 로그에서 빠졌어요.
-- 휴대폰에서 긴 실행의 로그 복사를 처음 누르면 이전 사이클을 읽는 동안 복사 권한이 사라져 실패했어요.
+- 휴대폰에서 긴 오토파일럿 실행의 로그 복사를 처음 누르면 이전 사이클을 읽는 동안 복사 권한이 사라져 실패했어요.
 
 ### 바뀐 것
 - 실행 중에 연결된 컴퓨터가 반복해서 묻는 백그라운드 작업 목록이 매번 통째로 가지 않고 바뀐 부분만 가요.
 
 <!-- en -->
 
-Older cycles of a long Autopilot run now show and copy in full, and the background jobs list a paired computer keeps asking for crosses as what changed.
+Sessions in the sidebar now keep the order you give them, and a paired computer's projects and sessions move the same way. The fixes of 0.65.1, which never published, are in this release too.
+
+### New
+- Move up / Move down in a session's menu (or Alt+↑/↓) reorders it within its project or the Chats section. The order survives a relaunch, and pinned sessions stay on top.
+- A paired computer's projects and sessions move up and down from their menus too, and this computer remembers that order.
 
 ### Fixed
 - With the board left open while more than 30 cycles ended, the cycles in between went missing from the expanded history and the copied log.
-- On a phone, the first tap on a long run's Copy log failed: reading the older cycles outlasted the tap's permission to copy.
+- On a phone, the first tap on a long Autopilot run's Copy log failed: reading the older cycles outlasted the tap's permission to copy.
 
 ### Changed
 - The background jobs list a paired computer asks for while work runs crosses as what changed instead of whole every time.
