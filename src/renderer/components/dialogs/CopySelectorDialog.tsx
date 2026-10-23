@@ -70,7 +70,10 @@ export function CopySelectorDialog() {
 	const selected = flat[selectedIndex]?.target;
 
 	useEffect(() => {
-		listRef.current?.querySelector(`[data-copy-index="${selectedIndex}"]`)?.scrollIntoView({ block: "nearest" });
+		const row = listRef.current?.querySelector<HTMLElement>(`[data-copy-index="${selectedIndex}"]`);
+		row?.scrollIntoView?.({ block: "nearest" });
+		// The arrows move the choice; focus follows it from a row so a screen reader reads the row it moved to.
+		if (row && listRef.current?.contains(document.activeElement) && document.activeElement !== row) row.focus();
 	}, [selectedIndex]);
 
 	const copyTarget = async (target: CopyTarget | undefined): Promise<void> => {
@@ -135,7 +138,7 @@ export function CopySelectorDialog() {
 					) : (
 						flat.map((item, index) => (
 							<button
-								aria-pressed={index === selectedIndex}
+								aria-current={index === selectedIndex ? "true" : undefined}
 								className={`flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) py-1.5 pr-2 text-left text-sc-md ${
 									index === selectedIndex
 										? "bg-(--sc-selected) text-(--sc-text)"
