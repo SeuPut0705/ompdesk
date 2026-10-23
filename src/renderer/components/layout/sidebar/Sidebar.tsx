@@ -1,6 +1,5 @@
 import { closestCenter, DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
 	AlertTriangle,
 	Archive,
@@ -156,6 +155,7 @@ import {
 } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
+import { SortableProject } from "./SortableProject";
 import {
 	CHILD_TOKEN,
 	hostOpenedChildren,
@@ -344,33 +344,6 @@ function useHelpItems(customizeSidebar: () => void): ContextMenuItem[] {
 			onSelect: customizeSidebar,
 		},
 	];
-}
-
-/**
- * A project group the user can drag to a new place. Pointer-only, armed after a
- * short move so a plain click still toggles the group; the group menu's
- * "위로/아래로 이동" is the keyboard path.
- */
-function SortableProject({
-	id,
-	disabled,
-	children,
-}: {
-	id: string;
-	disabled: boolean;
-	children: (dragHandle: Record<string, unknown>) => ReactNode;
-}) {
-	const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id, disabled });
-	return (
-		<div
-			className={cx("mt-2 first:mt-0", isDragging && "relative z-(--sc-z-raised) opacity-80")}
-			data-dragging={isDragging || undefined}
-			ref={setNodeRef}
-			style={{ transform: CSS.Translate.toString(transform), transition }}
-		>
-			{children(listeners ?? {})}
-		</div>
-	);
 }
 
 /** Footer: Agents · Stats (each shown only while pinned) · Settings, with the help menu closing the Settings row. */

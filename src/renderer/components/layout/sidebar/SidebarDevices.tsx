@@ -7,6 +7,9 @@
  * browses the host's disk with the remote folder picker, the Chats section's
  * button starts a chat on the host.
  */
+
+import { closestCenter, DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
 	ArrowDown,
 	ArrowUp,
@@ -39,7 +42,7 @@ import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
-import { CHATS_ORDER_KEY, hostOrderKey, moveInOrder, orderByManual } from "../../../lib/project-order";
+import { CHATS_ORDER_KEY, hostOrderKey, moveInOrder, orderByManual, reorderProjects } from "../../../lib/project-order";
 import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
@@ -67,6 +70,7 @@ import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
 import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
+import { SortableProject } from "./SortableProject";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
 
@@ -494,15 +498,32 @@ function DeviceSessions({
 	}, [rows, projectList, query, hostTabs, hostWorkspace, ordered, groupOrder, host.deviceId]);
 
 	/** Moves a project of this host up or down; the other projects of every device keep their order. */
-	const moveGroup = (cwd: string, delta: number) => {
-		const visible = groups.map(group => group.cwd);
-		const next = moveInOrder(visible, cwd, delta);
-		if (!next) return;
+	const saveGroupOrder = (next: readonly string[]) => {
 		const prefix = hostOrderKey(host.deviceId, "");
 		const others = useSidebarPrefs.getState().groupOrder.filter(key => !key.startsWith(prefix));
 		void useSidebarPrefs
 			.getState()
 			.setGroupOrder([...others, ...next.map(item => hostOrderKey(host.deviceId, item))]);
+	};
+	const moveGroup = (cwd: string, delta: number) => {
+		const next = moveInOrder(
+			groups.map(group => group.cwd),
+			cwd,
+			delta,
+		);
+		if (next) saveGroupOrder(next);
+	};
+	// Dragging a project header moves it, as on this computer's own list (a 6 px move arms it, so a click still folds).
+	const groupSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+	const onGroupDragEnd = ({ active, over }: DragEndEvent) => {
+		if (!over || active.id === over.id) return;
+		saveGroupOrder(
+			reorderProjects(
+				groups.map(group => group.cwd),
+				String(active.id),
+				String(over.id),
+			),
+		);
 	};
 	/** The list a session row sits in (its project, or the Chats section) and that list's visible order. */
 	const listOf = (session: DeviceSession): { key: string; paths: string[] } | null => {
@@ -823,86 +844,99 @@ function DeviceSessions({
 	return (
 		<div className="space-y-px">
 			{dialog}
-			{groups.map(group => {
-				const groupCollapsed = !query && deviceGroupFolds[deviceGroupKey(host.deviceId, group.cwd)] === true;
-				const FolderIcon = groupCollapsed ? Folder : FolderOpen;
-				const name = basename(group.cwd) || group.cwd;
-				const groupIndex = query ? -1 : groups.indexOf(group);
-				const groupItems: ContextMenuItem[] = [
-					...(groupIndex === -1
-						? []
-						: [
-								{
-									id: "group-move-up",
-									label: t("sidebar.menu.moveUp"),
-									icon: ArrowUp,
-									disabled: groupIndex <= 0,
-									onSelect: () => moveGroup(group.cwd, -1),
-								},
-								{
-									id: "group-move-down",
-									label: t("sidebar.menu.moveDown"),
-									icon: ArrowDown,
-									disabled: groupIndex >= groups.length - 1,
-									onSelect: () => moveGroup(group.cwd, 1),
-								},
-							]),
-					{
-						id: "remove",
-						separatorBefore: groupIndex !== -1,
-						label: t("sidebar.menu.removeProject"),
-						icon: FolderMinus,
-						onSelect: () => void useSidebarProjects.getState().remove(host.deviceId, group.cwd),
-					},
-				];
-				return (
-					<div data-device-group={group.cwd} data-project-missing={group.missing ? "" : undefined} key={group.cwd}>
-						<div
-							className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
-							onContextMenu={event => setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })}
-						>
-							<SidebarFoldButton
-								className={group.missing ? "text-(--sc-text-subtle)" : "text-(--sc-text-muted)"}
-								data-roving-item={`device-group:${host.deviceId}:${group.cwd}`}
-								onClick={() =>
-									useSidebarFolds.getState().setDeviceGroupFolded(host.deviceId, group.cwd, !groupCollapsed)
-								}
-								tabIndex={-1}
-								title={group.missing ? `${group.cwd}\n${t("sidebar.project.missing")}` : group.cwd}
-								folded={groupCollapsed}
-								icon={<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
-							>
-								<span className="min-w-0 flex-1 truncate">{name}</span>
-								{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
-							</SidebarFoldButton>
-							<IconButton
-								className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-								icon={<MoreHorizontal />}
-								label={t("sidebar.groupMenu")}
-								onClick={event => {
-									const rect = event.currentTarget.getBoundingClientRect();
-									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: groupItems, label: name });
-								}}
-								size="sm"
-								tabIndex={-1}
-							/>
-							<IconButton
-								className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
-								data-device-group-new={group.cwd}
-								disabled={group.missing}
-								icon={<Plus />}
-								label={t("sidebar.menu.newAgentHere")}
-								onClick={() => void onOpen({ cwd: group.cwd, kind: "agent" })}
-								size="sm"
-								tabIndex={-1}
-							/>
-						</div>
-						{!groupCollapsed && (
-							<div className="space-y-px">{group.sessions.map(session => renderRow(session))}</div>
-						)}
-					</div>
-				);
-			})}
+			<DndContext collisionDetection={closestCenter} onDragEnd={onGroupDragEnd} sensors={groupSensors}>
+				<SortableContext items={groups.map(group => group.cwd)} strategy={verticalListSortingStrategy}>
+					{groups.map(group => {
+						const groupCollapsed = !query && deviceGroupFolds[deviceGroupKey(host.deviceId, group.cwd)] === true;
+						const FolderIcon = groupCollapsed ? Folder : FolderOpen;
+						const name = basename(group.cwd) || group.cwd;
+						const groupIndex = query ? -1 : groups.indexOf(group);
+						const groupItems: ContextMenuItem[] = [
+							...(groupIndex === -1
+								? []
+								: [
+										{
+											id: "group-move-up",
+											label: t("sidebar.menu.moveUp"),
+											icon: ArrowUp,
+											disabled: groupIndex <= 0,
+											onSelect: () => moveGroup(group.cwd, -1),
+										},
+										{
+											id: "group-move-down",
+											label: t("sidebar.menu.moveDown"),
+											icon: ArrowDown,
+											disabled: groupIndex >= groups.length - 1,
+											onSelect: () => moveGroup(group.cwd, 1),
+										},
+									]),
+							{
+								id: "remove",
+								separatorBefore: groupIndex !== -1,
+								label: t("sidebar.menu.removeProject"),
+								icon: FolderMinus,
+								onSelect: () => void useSidebarProjects.getState().remove(host.deviceId, group.cwd),
+							},
+						];
+						return (
+							<SortableProject className="" disabled={query.length > 0} id={group.cwd} key={group.cwd}>
+								{dragHandle => (
+									<div data-device-group={group.cwd} data-project-missing={group.missing ? "" : undefined}>
+										<div
+											className="group/head flex h-8 items-center rounded-(--sc-radius-md) hover:bg-(--sc-hover)"
+											onContextMenu={event =>
+												setRowMenu({ ...anchorFromEvent(event), items: groupItems, label: name })
+											}
+											{...dragHandle}
+										>
+											<SidebarFoldButton
+												className={group.missing ? "text-(--sc-text-subtle)" : "text-(--sc-text-muted)"}
+												data-roving-item={`device-group:${host.deviceId}:${group.cwd}`}
+												onClick={() =>
+													useSidebarFolds
+														.getState()
+														.setDeviceGroupFolded(host.deviceId, group.cwd, !groupCollapsed)
+												}
+												tabIndex={-1}
+												title={group.missing ? `${group.cwd}\n${t("sidebar.project.missing")}` : group.cwd}
+												folded={groupCollapsed}
+												icon={<FolderIcon aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
+											>
+												<span className="min-w-0 flex-1 truncate">{name}</span>
+												{group.missing && <span className="sr-only">, {t("sidebar.project.missing")}</span>}
+											</SidebarFoldButton>
+											<IconButton
+												className="omp-sidebar-project-menu pointer-events-none text-(--sc-text-subtle) opacity-0 transition-opacity duration-(--sc-duration-fast) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 hover:text-(--sc-text) [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+												icon={<MoreHorizontal />}
+												label={t("sidebar.groupMenu")}
+												onClick={event => {
+													const rect = event.currentTarget.getBoundingClientRect();
+													setRowMenu({ x: rect.left, y: rect.bottom + 4, items: groupItems, label: name });
+												}}
+												size="sm"
+												tabIndex={-1}
+											/>
+											<IconButton
+												className="mr-1 text-(--sc-text-subtle) hover:text-(--sc-text)"
+												data-device-group-new={group.cwd}
+												disabled={group.missing}
+												icon={<Plus />}
+												label={t("sidebar.menu.newAgentHere")}
+												onClick={() => void onOpen({ cwd: group.cwd, kind: "agent" })}
+												size="sm"
+												tabIndex={-1}
+											/>
+										</div>
+										{!groupCollapsed && (
+											<div className="space-y-px">{group.sessions.map(session => renderRow(session))}</div>
+										)}
+									</div>
+								)}
+							</SortableProject>
+						);
+					})}
+				</SortableContext>
+			</DndContext>
 			{(chats.length > 0 || !query) && (
 				<SidebarChats
 					canAdd={read}
