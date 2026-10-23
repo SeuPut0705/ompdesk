@@ -12,11 +12,23 @@ import type { TrayState } from "../../shared/ipc-types";
 import { contextUsageView } from "../lib/context-usage";
 import { basename } from "../lib/format";
 import { useLang } from "../lib/i18n";
+import type { AwaitedInput } from "../stores/extension-ui";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
 import { useAwaitedInput } from "./use-awaited-input";
 import { useSessionList } from "./use-session-list";
+
+/** What the tray says of the focused session. A session another omp still holds is a wait that ends by itself, not an error. */
+export function trayStatusOf(state: {
+	status: string;
+	sessionHeld: boolean;
+	awaitedInput: AwaitedInput | null;
+	isStreaming: boolean;
+}): TrayState["status"] {
+	if (state.status === "error" && !state.sessionHeld) return "error";
+	return state.awaitedInput ?? (state.isStreaming ? "streaming" : "idle");
+}
 
 export function useTraySync(): void {
 	const { lang } = useLang();
@@ -28,6 +40,7 @@ export function useTraySync(): void {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const awaitedInput = useAwaitedInput();
 	const status = useSessionStore(s => s.status);
+	const sessionHeld = useSessionStore(s => s.sidecarHeld);
 	const contextUsage = useSessionStore(s => s.contextUsage);
 	// Primitives so the push effect re-runs on a real change, not a new object.
 	const contextView = contextUsageView(contextUsage);
@@ -48,8 +61,7 @@ export function useTraySync(): void {
 			.slice(0, 9)
 			.map(wsCwd => ({ cwd: wsCwd, name: basename(wsCwd) || wsCwd, current: wsCwd === cwd }));
 
-		const trayStatus: TrayState["status"] =
-			status === "error" ? "error" : (awaitedInput ?? (isStreaming ? "streaming" : "idle"));
+		const trayStatus = trayStatusOf({ status, sessionHeld, awaitedInput, isStreaming });
 
 		window.omp.tray.pushState({
 			status: trayStatus,
@@ -74,6 +86,7 @@ export function useTraySync(): void {
 		isStreaming,
 		awaitedInput,
 		status,
+		sessionHeld,
 		contextPercent,
 		contextTokens,
 		sessions,
