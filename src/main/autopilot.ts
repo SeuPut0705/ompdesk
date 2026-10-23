@@ -326,6 +326,19 @@ export function runSessionTitle(what: string): string {
 	return text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text;
 }
 
+/** The names earlier builds gave a run's session: "Autopilot · …" / "오토파일럿 · …". */
+const OLD_RUN_TITLE = /^(?:Autopilot|오토파일럿) · /;
+
+/**
+ * Whether a run this process adopts (a relaunch) may go on naming its session: the name is one the run gave it (its
+ * folder, a cycle's item, an earlier build's "Autopilot · …") or none. A name the person typed is theirs: never this.
+ */
+export function runOwnsTitle(name: string, folders: readonly string[], items: readonly string[]): boolean {
+	const shown = name.trim();
+	if (!shown || OLD_RUN_TITLE.test(shown)) return true;
+	return [...folders, ...items].some(what => what.trim() !== "" && runSessionTitle(what) === shown);
+}
+
 /**
  * The settings of a start: defaults, then what the start sent. Nothing is stored between runs: shipping nobody chose is
  * decided per repository at the start (`#start`), notifications are the stops a person must know of.
@@ -862,6 +875,7 @@ export class Autopilot {
 			release,
 		});
 		run.status = status;
+		await this.#adoptTitle(run, status, [checkoutRoot, status.root]);
 		run.snapshot = await takeSnapshot(status.root, checkoutRoot).catch(() => null);
 		if (status.ship?.release?.state === "pending" && status.ship.release.runUrl) {
 			this.#pollRelease(run, status.ship.release.version, status.ship.release.runUrl);
@@ -1810,6 +1824,24 @@ export class Autopilot {
 		const response = await this.#stockResponse(tabId, command);
 		if (!response.success) throw new Error(response.error ?? `${String(command.type)} failed`);
 		return response.data as T;
+	}
+
+	/** A relaunch's run takes over naming its session, from the next cycle, while the name is still the run's own. */
+	async #adoptTitle(run: Run, status: AutopilotStatus, folders: readonly string[]): Promise<void> {
+		const state = await this.#stock<{ sessionName?: string | null }>(run.tabId, { type: "get_state" }).catch(
+			() => null,
+		);
+		if (!state) return;
+		const name = state.sessionName ?? "";
+		const items = [...(status.cycles ?? []).map(cycle => cycle.title ?? ""), status.now?.title ?? ""];
+		if (
+			runOwnsTitle(
+				name,
+				folders.map(folder => basename(folder)),
+				items,
+			)
+		)
+			run.title = { name, item: null };
 	}
 
 	/** Names the run's session (`runSessionTitle`); a later rename only replaces the run's own title, never the user's. */

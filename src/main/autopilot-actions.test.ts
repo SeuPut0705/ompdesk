@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	type AutopilotArmParams,
@@ -621,5 +621,32 @@ describe("restart", () => {
 		done.emit("status", { status: "ready" });
 		await autopilot.idle();
 		expect(world.stock("done", "set_goal")).toHaveLength(0);
+	});
+
+	it("goes on naming its session after the cycle at work when the name is still the run's own", async () => {
+		const pick = (title: string) => ({
+			...(world.statuses.get("t1") as AutopilotStatus),
+			now: { n: 4, startedAt: 4, area: "bugs" as const, title },
+		});
+		// An earlier build named it "Autopilot · <folder>": the relaunched run takes it over.
+		world.sessionNames.set("t1", "Autopilot · app");
+		const sidecar = await relaunched("now");
+		autopilot.overlay(sidecar as unknown as SidecarLike, { type: "autopilot_update", status: pick("Fix the slug") });
+		await vi.waitFor(() => expect(world.sessionNames.get("t1")).toBe("Fix the slug"));
+	});
+
+	it("leaves a name the person typed alone after a relaunch", async () => {
+		world.sessionNames.set("t1", "My overnight run");
+		const sidecar = await relaunched("now");
+		autopilot.overlay(sidecar as unknown as SidecarLike, {
+			type: "autopilot_update",
+			status: {
+				...(world.statuses.get("t1") as AutopilotStatus),
+				now: { n: 4, startedAt: 4, title: "Fix the slug" },
+			},
+		});
+		await autopilot.idle();
+		expect(world.sessionNames.get("t1")).toBe("My overnight run");
+		expect(world.stock("t1", "set_session_name")).toHaveLength(0);
 	});
 });
