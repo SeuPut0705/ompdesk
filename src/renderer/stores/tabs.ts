@@ -62,6 +62,7 @@ import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import { sessionDisplayTitle, shownSessionName } from "../lib/session-title";
 import { beginTabRoute, openingTab, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
+import { isSessionHeld } from "../lib/tab-signal";
 import { limitTabs, readTabSnapshot, rememberTabs, tabSnapshotEntry } from "../lib/tab-snapshot";
 import { readUnreadMarks, restoredUnread, writeUnreadMarks } from "../lib/unread-marks";
 import { webRuntime } from "../web/runtime";
@@ -293,7 +294,7 @@ function projectSessionTab(
 		pendingSessionPath: previous?.pendingSessionPath,
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
-		...(info.status === "error" && info.sessionHeld === true ? { sessionHeld: true as const } : {}),
+		...(isSessionHeld(info) ? { sessionHeld: true as const } : {}),
 		...(info.resuming === true ? { resuming: true } : {}),
 		...(info.settling === true ? { settling: true as const } : {}),
 		...(info.status === "running" && info.runningSince !== undefined ? { runningSince: info.runningSince } : {}),

@@ -15,6 +15,7 @@ import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../
 import type { IpcHostedSession } from "../../../../shared/ipc-types";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
 import { type CostKinds, costKinds, NO_COST } from "../../../lib/spend";
+import { isTabFailed } from "../../../lib/tab-signal";
 import type { SessionTab } from "../../../stores/tabs";
 import {
 	buildSubagentFamilyRows,
@@ -92,11 +93,7 @@ function tabState(
 	if (tab.awaitingInput !== undefined) return "waiting";
 	if (tab.status === "running" || tab.compacting === true) return "running";
 	// Another omp still holding the session is a wait that ends by itself, not a failure.
-	if (
-		(tab.status === "error" && tab.sessionHeld !== true) ||
-		tab.lastRun?.stopReason === "error" ||
-		tab.lastRun?.stopReason === "aborted"
-	)
+	if (isTabFailed(tab) || tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted")
 		return "failed";
 	return "idle";
 }
@@ -240,7 +237,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			? "waiting"
 			: session.status === "running"
 				? "running"
-				: session.status === "error" && session.sessionHeld !== true
+				: isTabFailed(session)
 					? "failed"
 					: "idle";
 		if (state === "idle") continue;

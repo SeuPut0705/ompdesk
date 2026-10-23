@@ -96,7 +96,7 @@ import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../..
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { tabSignalPresentation } from "../../../lib/tab-signal";
+import { isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
@@ -1805,7 +1805,7 @@ export function Sidebar() {
 		const review = reviewOf.get(tab.id);
 		const failed =
 			review?.failed === true ||
-			(tab.status === "error" && tab.sessionHeld !== true) ||
+			isTabFailed(tab) ||
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
 		const waiting = tab.awaitingInput !== undefined || review?.waiting === true;

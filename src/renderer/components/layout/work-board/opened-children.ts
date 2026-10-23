@@ -6,6 +6,7 @@
  */
 
 import type { AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
+import { isTabFailed } from "../../../lib/tab-signal";
 import type { SessionTab } from "../../../stores/tabs";
 import { type ChildStatus, openedChildStatus } from "../sidebar/sidebar-family";
 
@@ -70,7 +71,7 @@ export function openedChildRows(input: {
 		const item = review.get(tab.id);
 		const failed =
 			item?.failed === true ||
-			(tab.status === "error" && tab.sessionHeld !== true) ||
+			isTabFailed(tab) ||
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
 		const unmerged =

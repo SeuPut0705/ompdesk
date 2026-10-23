@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { SessionTab } from "../stores/tabs";
-import { tabSignalPresentation } from "./tab-signal";
+import { isSessionHeld, isTabFailed, tabSignalPresentation } from "./tab-signal";
 
 function tab(overrides: Partial<SessionTab>): SessionTab {
 	return { kind: "agent", id: "a", cwd: "/work/a", status: "ready", unreadDone: false, ...overrides };
@@ -40,6 +40,19 @@ describe("tabSignalPresentation", () => {
 			running: false,
 		});
 		expect(tabSignalPresentation(tab({ status: "error" })).labelKey).toBe("titlebar.status.error");
+	});
+
+	it("tells a held session from a failed one, the rule every surface reads", () => {
+		expect([
+			isSessionHeld({ status: "error", sessionHeld: true }),
+			isTabFailed({ status: "error", sessionHeld: true }),
+		]).toEqual([true, false]);
+		expect([isSessionHeld({ status: "error" }), isTabFailed({ status: "error" })]).toEqual([false, true]);
+		// A stale flag on a tab that is no longer failing says nothing.
+		expect([isSessionHeld({ status: "ready", sessionHeld: true }), isTabFailed({ status: "ready" })]).toEqual([
+			false,
+			false,
+		]);
 	});
 
 	it("keeps a finished background run readable over the idle state", () => {

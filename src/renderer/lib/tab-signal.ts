@@ -7,6 +7,19 @@ export interface TabSignalPresentation {
 	running: boolean;
 }
 
+/**
+ * The tab's `error` is a session another omp still holds: a wait that ends by itself (the tab opens the session once
+ * that omp lets go), never a failure. The one rule every surface reads (row, pane header, child rows, work tree, tray).
+ */
+export function isSessionHeld(tab: { status: string; sessionHeld?: boolean }): boolean {
+	return tab.status === "error" && tab.sessionHeld === true;
+}
+
+/** The tab failed: an `error` that is no held session. */
+export function isTabFailed(tab: { status: string; sessionHeld?: boolean }): boolean {
+	return tab.status === "error" && !isSessionHeld(tab);
+}
+
 /** A tab's signal; any tab-shaped state works (the sidebar's row of a paired device's tab on this computer too). */
 export function tabSignalPresentation(
 	tab: Pick<SessionTab, "status" | "compacting" | "awaitingInput" | "unreadDone" | "sessionHeld">,
@@ -28,7 +41,7 @@ export function tabSignalPresentation(
 		return { active: false, color: "var(--omp-dim)", labelKey: "titlebar.status.ready", running: false };
 	}
 	// Another omp still holds the session: the tab opens it by itself, a wait like connecting, never a failure.
-	if (tab.status === "starting" || (tab.status === "error" && tab.sessionHeld === true)) {
+	if (tab.status === "starting" || isSessionHeld(tab)) {
 		const labelKey = tab.status === "starting" ? "titlebar.status.connecting" : "titlebar.status.sessionHeld";
 		return { active: true, color: "var(--omp-warning)", labelKey, running: false };
 	}

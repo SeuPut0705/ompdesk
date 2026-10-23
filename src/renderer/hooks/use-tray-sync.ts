@@ -12,6 +12,7 @@ import type { TrayState } from "../../shared/ipc-types";
 import { contextUsageView } from "../lib/context-usage";
 import { basename } from "../lib/format";
 import { useLang } from "../lib/i18n";
+import { isTabFailed } from "../lib/tab-signal";
 import type { AwaitedInput } from "../stores/extension-ui";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
@@ -26,7 +27,7 @@ export function trayStatusOf(state: {
 	awaitedInput: AwaitedInput | null;
 	isStreaming: boolean;
 }): TrayState["status"] {
-	if (state.status === "error" && !state.sessionHeld) return "error";
+	if (isTabFailed(state)) return "error";
 	return state.awaitedInput ?? (state.isStreaming ? "streaming" : "idle");
 }
 

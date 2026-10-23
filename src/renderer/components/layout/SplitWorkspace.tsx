@@ -8,6 +8,7 @@ import { isDrawerMode, maxSplitPanes, useShellMode } from "../../hooks/use-shell
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
+import { isSessionHeld } from "../../lib/tab-signal";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
@@ -151,7 +152,7 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	// Compacting and (re)starting keep the spinner.
 	const running = tab.status === "running" && tab.awaitingInput === undefined;
 	// Another omp still holding the session is a wait that ends by itself: the spinner, not the failure mark.
-	const held = tab.status === "error" && tab.sessionHeld === true;
+	const held = isSessionHeld(tab);
 	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting" || held;
 	const failed = !held && (tab.status === "error" || tab.status === "exited");
 	const live = useTabLive({
