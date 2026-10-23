@@ -50,6 +50,7 @@ import {
 	acceptFromFilters,
 	createPathForFile,
 	holdsInlineImage,
+	holdUpload,
 	liftInlineImages,
 	UploadFailed,
 	type UploadFailure,
@@ -441,10 +442,11 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	 * `fs.uploadToHost`: a frame holds 1 MB, so the file goes to this computer by `POST /upload` first and the
 	 * call names that upload; the computer sends its bytes on to the paired host.
 	 */
-	const uploadToHost = async (tabId: string, file: File): Promise<IpcFsUploadToHostResult> => {
-		const upload = await pathForFile(file);
-		return transport.invoke<IpcFsUploadToHostResult>(C.FS_UPLOAD_TO_HOST, { tabId, name: file.name, upload });
-	};
+	const uploadToHost = (tabId: string, file: File): Promise<IpcFsUploadToHostResult> =>
+		holdUpload(async () => {
+			const upload = await pathForFile(file);
+			return transport.invoke<IpcFsUploadToHostResult>(C.FS_UPLOAD_TO_HOST, { tabId, name: file.name, upload });
+		});
 	const api: OmpApi = { ...shared, fs: { ...shared.fs, pathForFile, uploadToHost } };
 
 	return {

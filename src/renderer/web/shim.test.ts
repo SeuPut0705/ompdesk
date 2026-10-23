@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import type { OmpTransport } from "../../shared/omp-api";
 import { PREVIEW_STREAM_PDF } from "../../shared/preview";
@@ -9,6 +9,7 @@ import type { SaveOutcome } from "./download";
 import { registerWebHostHooks } from "./host-hooks";
 import type { FetchLike } from "./session";
 import { createWebOmp, type ShimEnv } from "./shim";
+import { uploadsInFlight } from "./upload";
 
 const C = IPC_COMMANDS;
 const E = IPC_EVENTS;
@@ -382,6 +383,23 @@ describe("the web shim", () => {
 			fetchReply.current = () => new Response(JSON.stringify({ path: "/up/big.bin" }));
 			await expect(web.api.fs.pathForFile(file)).resolves.toBe("/up/big.bin");
 			expect(fetches).toHaveLength(2);
+		});
+
+		it("counts a file for a paired host's tab as on its way until the computer has sent it on", async () => {
+			let forward = (_: unknown): void => {};
+			const forwarded = new Promise(resolve => {
+				forward = resolve;
+			});
+			const { web, fetchReply, invoked } = setup({ [IPC_COMMANDS.FS_UPLOAD_TO_HOST]: forwarded });
+			fetchReply.current = () => new Response(JSON.stringify({ path: "/up/dev/1/report.docx" }));
+			const sending = web.api.fs.uploadToHost("t1", new File(["PK"], "report.docx"));
+			await vi.waitFor(() => expect(invoked.map(call => call.channel)).toContain(IPC_COMMANDS.FS_UPLOAD_TO_HOST));
+			// The POST is done; the computer is still forwarding: a reload now would lose the file.
+			expect(uploadsInFlight()).toBe(1);
+			expect(invoked.at(-1)?.args).toEqual([{ tabId: "t1", name: "report.docx", upload: "/up/dev/1/report.docx" }]);
+			forward({ ok: true, path: "C:/Users/me/report.docx" });
+			await expect(sending).resolves.toEqual({ ok: true, path: "C:/Users/me/report.docx" });
+			expect(uploadsInFlight()).toBe(0);
 		});
 
 		it("does not upload a file over 25 MB", async () => {

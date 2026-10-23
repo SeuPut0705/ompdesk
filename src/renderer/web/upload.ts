@@ -30,6 +30,19 @@ export function uploadsInFlight(): number {
 	return inFlight;
 }
 
+/**
+ * Counts `work` in {@link uploadsInFlight} until it settles: a file still on its way on (a paired host's tab: the
+ * computer forwards it after the POST) is as much cut by a reload as one still posting.
+ */
+export async function holdUpload<T>(work: () => Promise<T>): Promise<T> {
+	inFlight++;
+	try {
+		return await work();
+	} finally {
+		inFlight--;
+	}
+}
+
 /** POST `file` to the host; its host path. Throws on any failure. */
 export async function uploadFile(file: File, deps: UploadDeps): Promise<string> {
 	const body = new FormData();
