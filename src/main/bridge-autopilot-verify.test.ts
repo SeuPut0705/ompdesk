@@ -290,14 +290,22 @@ describe("pick and the status's now", () => {
 
 describe("begin hints", () => {
 	const facts = { open: [] as string[], maxParallel: 0 };
-	it("counts how many cycles in a row carried a follow-up", () => {
+	it("counts how many cycles a follow-up has been open, listed again or not", () => {
 		const records = [
 			cycle(1, { followups: ["Emitter.once missing"] }),
 			cycle(2, { followups: ["emitter.once   missing!", "x"] }),
 			cycle(3, { followups: ["Emitter.once missing"] }),
 		];
 		expect(followupAge(records, "Emitter.once missing")).toBe(3);
-		expect(followupAge([...records, cycle(4)], "Emitter.once missing")).toBe(0);
+		// Left once and never listed again, it still ages: the list never only grows.
+		expect(followupAge([...records, cycle(4), cycle(5)], "Emitter.once missing")).toBe(5);
+		expect(followupAge([...records, cycle(4), cycle(5)], "x")).toBe(4);
+		// Done or resolved, it counts again only from the cycle that left it anew.
+		const resolved = [...records, cycle(4, { resolved: ["Emitter.once missing"] }), cycle(5)];
+		expect(followupAge(resolved, "Emitter.once missing")).toBe(0);
+		expect(
+			followupAge([...resolved, cycle(6, { followups: ["Emitter.once missing"] })], "Emitter.once missing"),
+		).toBe(1);
 	});
 	it("asks for a decision on a follow-up carried three cycles or more, oldest first, at most two", () => {
 		const records = ["a", "b", "c"].map((_, i) =>
@@ -305,7 +313,7 @@ describe("begin hints", () => {
 		);
 		const hints = beginHints(records, { ...facts, open: ["new one", "old one", "older one"] });
 		expect(hints).toHaveLength(2);
-		expect(hints[0]).toContain("carried for 3 cycles");
+		expect(hints[0]).toContain("open for 3 cycles");
 		expect(hints.join("\n")).not.toContain("new one");
 	});
 	it("says nothing when nothing stands out", () => {

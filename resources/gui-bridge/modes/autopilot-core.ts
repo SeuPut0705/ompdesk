@@ -803,15 +803,25 @@ export function writeOffNote(report: { title: string; summary: string; followups
 	return "This report calls a problem a limitation. If it is fixable, it is a bug: call end again with it in followups so the next cycle picks it first.";
 }
 
-/** Consecutive cycles, ending with the last one, whose follow-ups name `text` (case, punctuation and spacing ignored). */
+/**
+ * How many cycles `text` has been open (case, punctuation and spacing ignored): from the first cycle that left it after
+ * the last one that did or resolved it, through the newest cycle. A follow-up left once and never listed again ages
+ * too: counting only cycles that listed it again in a row kept such a one at 0, so `begin` never asked for a decision
+ * and the run's list only grew.
+ */
 export function followupAge(records: readonly AutopilotCycleRecord[], text: string): number {
 	const key = normalizeTitle(text);
-	let age = 0;
+	let first = -1;
 	for (let i = records.length - 1; i >= 0; i--) {
-		if (!(records[i].followups ?? []).some(followup => normalizeTitle(followup) === key)) break;
-		age++;
+		const record = records[i];
+		if (
+			normalizeTitle(record.title) === key ||
+			(record.resolved ?? []).some(resolved => normalizeTitle(resolved) === key)
+		)
+			break;
+		if ((record.followups ?? []).some(followup => normalizeTitle(followup) === key)) first = i;
 	}
-	return age;
+	return first < 0 ? 0 : records.length - first;
 }
 
 /** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
@@ -827,7 +837,7 @@ export function beginHints(
 		.slice(0, 2);
 	for (const { text, age } of carried) {
 		hints.push(
-			`The follow-up "${text}" has been carried for ${age} cycles: do it now if the guide ranks it in scope, or drop it and say why in followups, before another small finding.`,
+			`The follow-up "${text}" has been open for ${age} cycles: do it now if the guide ranks it in scope; if it is done, no longer applies or is not worth doing, list its exact text in end.resolved and say why in the summary, before another small finding.`,
 		);
 	}
 	const defects = facts.open.filter(text => DEFECT.test(text)).slice(0, 2);
