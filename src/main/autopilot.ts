@@ -227,6 +227,29 @@ export const STOP_AFTER_SHIP_NOTE =
 	"The person chose to ship, then stop: finish this cycle's item and commit it (a green cycle lands as usual). Then call autopilot propose_release; if a release is due, run the release procedure in this cycle. End the cycle with `end` as usual: the run stops after it.";
 const STOP_AFTER_SHIP_CANCELLED = "The person cancelled 'ship, then stop': the run goes on as before.";
 
+/**
+ * Why a cycle's work did not ship, or null when it did: green with a commit, and every push or land this cycle queued
+ * went through (a land the default branch refused for a pull request counts: that pull request is where it ships).
+ * With nothing queued (no remote), the green commit is all there is to ship.
+ */
+export function shipGap(
+	record: Pick<AutopilotCycleRecord, "verify" | "commit">,
+	results: readonly ShipResult[],
+	own: ReadonlySet<string>,
+): string | null {
+	if (record.verify !== "green") return `its check was ${record.verify}`;
+	if (!record.commit) return "it made no commit";
+	for (const id of own) {
+		const result = results.find(entry => entry.item.id === id);
+		if (!result) return "its push did not run";
+		if (result.item.kind === "land") {
+			const kind = result.land?.kind;
+			if (kind !== "landed" && kind !== "pr") return `its land did not go through (${kind ?? result.item.state})`;
+		} else if (result.item.state !== "done") return `its ${result.item.kind} failed`;
+	}
+	return null;
+}
+
 interface Run {
 	tabId: string;
 	win: ClientWindow | null;
@@ -1140,7 +1163,7 @@ export class Autopilot {
 		// start, so a cycle the journal shows in flight (`begin` called, no record yet) holds the queue too.
 		const status = await this.#fetchStatus(run).catch(() => null);
 		const cycleInFlight = status?.now !== undefined && (status.state === "running" || status.state === "stopping");
-		if (!this.#deps.pool.tabFacts(run.tabId)?.busy && !cycleInFlight) this.#enqueue(run, () => this.#drain(run));
+		if (!this.#deps.pool.tabFacts(run.tabId)?.busy && !cycleInFlight) this.#enqueue(run, async () => void (await this.#drain(run)));
 	}
 
 	// ----------------------------------------------------------------------------------------
@@ -1210,11 +1233,21 @@ export class Autopilot {
 		}
 		// This pipeline can outlive the next cycle's start: what the user queued after the frame arrived waits for that
 		// turn's end; everything queued before it, and this cycle's own push and land, go now.
-		await this.#drain(run, item => own.has(item.id) || item.at <= receivedAt);
-		// "Ship, then stop": the cycle that began after the choice shipped above; the run ends now.
+		const results = await this.#drain(run, item => own.has(item.id) || item.at <= receivedAt);
+		// "Ship, then stop": a cycle that began after the choice ends the run only once its work shipped. One that did not
+		// (red, no commit, a refused push, a land the default branch did not take) leaves the choice on, and the next cycle
+		// is told to repair and ship it.
 		if (run.endAfterShip !== undefined && record.startedAt >= run.endAfterShip) {
-			run.endAfterShip = undefined;
-			await this.#beginStop(run, "user");
+			const unshipped = shipGap(record, results, own);
+			if (unshipped === null) {
+				run.endAfterShip = undefined;
+				await this.#beginStop(run, "user");
+			} else {
+				await this.#tellAgent(
+					run,
+					`Ship, then stop is still on: this cycle did not ship (${unshipped}). Repair it in the next cycle, commit, and end it green; the run stops once that work has landed.`,
+				);
+			}
 		}
 	}
 
@@ -1251,9 +1284,9 @@ export class Autopilot {
 	}
 
 	/** Run the ShipRunner's queue; a refused or repeatedly unreachable push stops the run. */
-	async #drain(run: Run, accept?: (item: ShipQueueItem) => boolean): Promise<void> {
+	async #drain(run: Run, accept?: (item: ShipQueueItem) => boolean): Promise<ShipResult[]> {
 		const waiting = run.ship.queue().filter(item => item.state === "queued" && (accept?.(item) ?? true));
-		if (waiting.length === 0) return;
+		if (waiting.length === 0) return [];
 		const pushing = waiting.some(item => item.kind === "push" || item.kind === "pr" || item.kind === "land");
 		if (pushing) {
 			await this.#setState(run, { inFlight: { kind: "push", startedAt: this.#now() } }).catch(() => undefined);
@@ -1288,6 +1321,7 @@ export class Autopilot {
 				`The push of ${run.branch} failed: ${result.item.detail ?? "unknown reason"}. Autopilot never forces a push: run git fetch, merge ${run.settings.ship.remote}/${run.branch} into the branch, check again, and the next green cycle pushes it.`,
 			);
 		}
+		return results;
 	}
 
 	/**

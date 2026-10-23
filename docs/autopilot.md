@@ -38,7 +38,7 @@ Shipping is **Automatic** unless you pick another level:
 The run's controls sit in one row on the work board:
 
 - **Pause** lets the current turn finish and starts no new cycle; pressed again (**Resume**) it goes on.
-- **Ship, then stop** has the next cycle finish its item, land it and release when a release is due, then ends the run. Press it again to cancel.
+- **Ship, then stop** has the next cycle finish its item, land it and release when a release is due, then ends the run. A cycle that does not ship (a failing check, a land the default branch did not take) keeps it on, and the next cycle repairs and ships. Press it again to cancel.
 - **Stop now** stops the turn at once and pauses the run.
 
 The run does not stop on its own for a red cycle, a failed check or a rejected push: the next cycle repairs it. It pauses only for you, for a git change it did not expect, when the repository folder is gone, and, with **Continue interrupted work after relaunch** off, when OMPdesk closes. On a usage limit it waits and continues at the reset by itself. A crash, an update or a normal quit continues the run on the next launch.

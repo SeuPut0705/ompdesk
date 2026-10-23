@@ -6,23 +6,28 @@ import {
 	type AutopilotStatus,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { QUOTA_FALLBACK_MS } from "../shared/quota-reset";
+import { shipGap } from "./autopilot";
+import type { LandOutcome, ShipResult } from "./autopilot-ship";
 import {
 	afters,
 	autopilot,
 	build,
 	clock,
+	commit,
 	endedRoots,
 	type FakeSidecar,
 	installAutopilotRig,
 	main,
 	notices,
 	record,
+	remote,
 	runLogs,
 	start,
 	tmp,
 	win,
 	world,
 } from "./autopilot-test-rig";
+import { gitSync } from "./local/git/test-repos";
 import type { SidecarLike } from "./sidecar-types";
 
 installAutopilotRig();
@@ -72,7 +77,7 @@ describe("stop", () => {
 		expect(autopilot.runRootOf("ap-1")).toBeUndefined();
 	});
 
-	it("ship, then stop: the cycle that began after the choice ends the run; one that began before does not", async () => {
+	it("ship, then stop: only a cycle after the choice whose work landed ends the run; a red one is told to repair", async () => {
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
 		world.busy.add("ap-1");
@@ -84,17 +89,54 @@ describe("stop", () => {
 			{ type: "set_autopilot", action: "stop_after_ship", enabled: true },
 			"2",
 		);
-		const notes = world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).map(call => call.params?.text);
-		expect(notes.at(-1)).toContain("ship, then stop");
+		const notes = () =>
+			world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.note).map(call => String(call.params?.text));
+		expect(notes().at(-1)).toContain("ship, then stop");
 		expect((await autopilot.status(sidecar, "ap-1")).ship?.endAfterShip).toBe(true);
+		const worktree = path.join(tmp, "wt-2026-10-17");
 		// The cycle in flight when the person chose began before it: the run goes on.
-		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ startedAt: chosen - 60_000 }) });
+		const early = await commit(worktree, "early.txt");
+		autopilot.frame(sidecar, {
+			type: "autopilot_cycle_end",
+			record: record({ commit: early, startedAt: chosen - 60_000 }),
+		});
 		await autopilot.idle();
 		expect(autopilot.isStopping("ap-1")).toBe(false);
-		// The next one carried the note; it ends the run.
-		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: 2, startedAt: chosen + 1 }) });
+		// The next one ended red: nothing shipped, the choice stays on and the agent is told to repair.
+		autopilot.frame(sidecar, {
+			type: "autopilot_cycle_end",
+			record: record({ n: 2, verify: "red", startedAt: chosen + 1 }),
+		});
 		await autopilot.idle();
+		expect(autopilot.isStopping("ap-1")).toBe(false);
+		expect(notes().at(-1)).toMatch(/^Ship, then stop is still on: this cycle did not ship \(its check was red\)/);
+		expect((await autopilot.status(sidecar, "ap-1")).ship?.endAfterShip).toBe(true);
+		// Repaired, green, landed on main: the run ends.
+		const sha = await commit(worktree, "fixed.txt");
+		autopilot.frame(sidecar, {
+			type: "autopilot_cycle_end",
+			record: record({ n: 3, commit: sha, startedAt: chosen + 2 }),
+		});
+		await autopilot.idle();
+		expect(gitSync(remote, "rev-parse", "refs/heads/main")).toBe(sha);
 		expect(autopilot.isStopping("ap-1")).toBe(true);
+	});
+
+	it("shipGap names what kept a cycle's work from shipping", () => {
+		const land = (kind: LandOutcome["kind"]): ShipResult =>
+			({ item: { id: "l", kind: "land", state: "done" }, land: { kind } }) as unknown as ShipResult;
+		const push = (state: "done" | "failed"): ShipResult =>
+			({ item: { id: "p", kind: "push", state } }) as unknown as ShipResult;
+		expect(shipGap({ verify: "green", commit: "abc" }, [], new Set())).toBeNull();
+		expect(shipGap({ verify: "skipped", commit: "abc" }, [], new Set())).toBe("its check was skipped");
+		expect(shipGap({ verify: "green" }, [], new Set())).toBe("it made no commit");
+		expect(shipGap({ verify: "green", commit: "abc" }, [land("landed")], new Set(["l"]))).toBeNull();
+		expect(shipGap({ verify: "green", commit: "abc" }, [land("pr")], new Set(["l"]))).toBeNull();
+		expect(shipGap({ verify: "green", commit: "abc" }, [land("behind")], new Set(["l"]))).toBe(
+			"its land did not go through (behind)",
+		);
+		expect(shipGap({ verify: "green", commit: "abc" }, [push("failed")], new Set(["p"]))).toBe("its push failed");
+		expect(shipGap({ verify: "green", commit: "abc" }, [], new Set(["p"]))).toBe("its push did not run");
 	});
 
 	it("ship, then stop pressed again is cancelled, and a paused run resumes for it", async () => {
