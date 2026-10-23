@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.63.1] - 2026-10-23
+
+오토파일럿의 '배포 후 중단'이 실제로 배포된 사이클에서만 실행을 끝내요.
+
+### 고친 것
+- '배포 후 중단'을 누른 뒤 사이클이 검사에 실패하거나 main에 반영되지 못해도 실행이 그냥 끝났어요(0.63.0). 이제 배포되지 않은 사이클이면 버튼을 켠 채 계속하고, 다음 사이클이 고쳐서 배포한 뒤 끝내요.
+
+<!-- en -->
+
+Autopilot's "Ship, then stop" ends a run only once a cycle has actually shipped.
+
+### Fixed
+- After "Ship, then stop", a cycle whose check failed or whose work did not land still ended the run (0.63.0). A cycle that did not ship now keeps the choice on, and the next cycle repairs, ships, then ends.
+
 ## [0.63.0] - 2026-10-23
 
 오토파일럿 버튼이 일시정지, 배포 후 중단, 즉시 중단 세 개로 바뀌었어요. 0.62.1에서 준비 중인 새 탭에 보낸 프롬프트가 탭과 함께 사라지던 문제도 고쳤어요.
