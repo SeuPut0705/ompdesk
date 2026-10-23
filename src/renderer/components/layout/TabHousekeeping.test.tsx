@@ -283,6 +283,49 @@ describe("TabHousekeeping", () => {
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-empty", "t-real"]);
 	});
 
+	it("closes an empty new session the person showed and left, never one it never showed", async () => {
+		omp.sessions.list.mockResolvedValue([]);
+		const fresh = { kind: "agent" as const, cwd: "/work/infron", status: "ready" as const, unreadDone: false };
+		useTabsStore.setState({
+			tabs: [
+				{ ...fresh, id: "t-left", unstarted: true },
+				{ ...fresh, id: "t-background", unstarted: true },
+				{ ...fresh, id: "t-now", unstarted: true },
+			],
+			activeTabId: "t-left",
+			bundles: new Map(),
+		});
+		await mount(<TabHousekeeping />);
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+
+		await act(async () => {
+			useTabsStore.setState({ activeTabId: "t-now" });
+		});
+		await flush();
+		expect(omp.tabs.close).toHaveBeenCalledWith("t-left");
+		expect(omp.tabs.close).not.toHaveBeenCalledWith("t-background");
+		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-background", "t-now"]);
+	});
+
+	it("keeps a new session the person left once it holds something", async () => {
+		omp.sessions.list.mockResolvedValue([]);
+		const fresh = { kind: "agent" as const, cwd: "/work/infron", status: "ready" as const, unreadDone: false };
+		useTabsStore.setState({
+			tabs: [
+				{ ...fresh, id: "t-left", unstarted: false },
+				{ ...fresh, id: "t-now", unstarted: true },
+			],
+			activeTabId: "t-left",
+			bundles: new Map(),
+		});
+		await mount(<TabHousekeeping />);
+		await act(async () => {
+			useTabsStore.setState({ activeTabId: "t-now" });
+		});
+		await flush();
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+	});
+
 	it("an armed close auto-cancels after the timeout", async () => {
 		useTabsStore.setState({
 			tabs: [

@@ -119,6 +119,13 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 		await a.keyboard.press("Escape");
 		await expect(a.locator("[data-settings-page]")).toHaveCount(0);
 
+		// ── A: its own tab holds work (an empty new session left for another is closed, `unstarted`) ──
+		const startTab = (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		await a.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Local work" }),
+			startTab,
+		);
+
 		// ── A: open a session on B from the sidebar device section ──
 		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
 		await expect(section).toHaveAttribute("data-device-state", "online");
