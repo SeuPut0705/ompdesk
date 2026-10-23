@@ -119,8 +119,8 @@ export function openedChildRows(input: {
 			item.branch !== undefined && item.state !== "running" && (item.commitsAhead > 0 || item.uncommitted > 0);
 		rows.push({
 			key: item.tabId,
-			// A paired device's list names that device's tabs: this window opens one by its session file there.
-			tabId: item.device ? null : item.tabId,
+			// A paired host's list names that host's tabs: this window opens one by its session file where it runs.
+			tabId: item.foreign ? null : item.tabId,
 			...(item.sessionPath ? { sessionPath: item.sessionPath } : {}),
 			...(item.device ? { device: deviceName?.(item.device) ?? item.device, deviceId: item.device } : {}),
 			title: item.title,

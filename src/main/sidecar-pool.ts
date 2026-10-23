@@ -419,6 +419,8 @@ export class SidecarPool {
 		| null = null;
 	/** A paired host took a host tool result this computer sent (`RemoteSidecar`'s `hostReplyDelivered`), by call id. */
 	hostReplyDelivered: ((id: string) => void) | null = null;
+	/** This computer's own device id: a host's review list names a child that runs here by it. */
+	selfDeviceId: (() => string) | null = null;
 	/** Main-process persistence hook. The primary window installs this at startup. */
 	onWindowTabsChanged: ((win: ClientWindow, layout: PersistedTabLayout | null) => void) | null = null;
 	/** Some tab may have started or finished running a turn (keep-awake while working). */
@@ -920,7 +922,10 @@ export class SidecarPool {
 		// windows, never of this computer, so they come tagged with the device that opens them (agent-control.ts).
 		sidecar.on(AGENT_REVIEW_EVENT, (review: AgentReviewResult) => {
 			if (!this.#byTabId.has(entry.tabId) || !entry.device || !Array.isArray(review?.items)) return;
-			const event = { tabId: entry.tabId, ...reviewFromDevice(review, entry.device) } satisfies AgentReviewEvent;
+			const event = {
+				tabId: entry.tabId,
+				...reviewFromDevice(review, entry.device, this.selfDeviceId?.()),
+			} satisfies AgentReviewEvent;
 			for (const win of this.windowsShowingTab(entry.tabId))
 				if (!win.isDestroyed()) win.webContents.send(AGENT_CONTROL_REVIEW, event);
 		});

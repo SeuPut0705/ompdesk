@@ -227,16 +227,32 @@ export interface AgentReviewItem {
 	waiting?: true;
 	/** What it waits on when `waiting`: its open card's question (a stock `ask`, an approval) or its plan's title. */
 	question?: string;
-	/**
-	 * The paired device the list came from (its id), for a window viewing that device's session: the children are tabs
-	 * of that device's windows, so this window holds none of them and opens one there by its session file.
-	 */
+	/** The paired device the child runs on (its id), as the computer that built the list sees it; absent = that computer. */
 	device?: string;
+	/**
+	 * The list came from a paired host (a window viewing that host's session): its tab ids are the host's, so this
+	 * window opens the child by its session file on `device` (absent = this computer).
+	 */
+	foreign?: true;
 }
 
-/** A paired device's review list as this computer's windows read it: each item opens on that device. */
-export function reviewFromDevice<T extends { items: readonly AgentReviewItem[] }>(review: T, device: string): T {
-	return { ...review, items: review.items.map(item => ({ ...item, device })) };
+/**
+ * A paired host's review list as this computer's windows read it. Each child keeps the machine it runs on: the host
+ * for its own (`device` absent there), the device the host named for one opened elsewhere, and none for one that runs
+ * on this computer (`self`, this computer's own id), which opens here.
+ */
+export function reviewFromDevice<T extends { items: readonly AgentReviewItem[] }>(
+	review: T,
+	host: string,
+	self: string | undefined,
+): T {
+	return {
+		...review,
+		items: review.items.map(({ device, ...item }) => {
+			const runsOn = device ?? host;
+			return { ...item, foreign: true as const, ...(runsOn === self ? {} : { device: runsOn }) };
+		}),
+	};
 }
 
 /**

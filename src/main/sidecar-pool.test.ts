@@ -1366,12 +1366,25 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 			undefined,
 			"host-b",
 		);
-		const review = { items: [{ tabId: "host-child", title: "Child", state: "running" }], usage: {} };
+		pool.selfDeviceId = () => "me";
+		// The host's own child, one the host opened on this computer, and one on a third computer.
+		const review = {
+			items: [
+				{ tabId: "host-child", title: "Child", state: "running" },
+				{ tabId: "here-child", title: "Here", state: "running", device: "me" },
+				{ tabId: "c-child", title: "On C", state: "running", device: "dev-c" },
+			],
+			usage: {},
+		};
 		sidecars.at(-1)?.emit("agentReview", review);
 		expect(fw.sent.filter(entry => entry.channel === AGENT_CONTROL_REVIEW).map(entry => entry.data)).toEqual([
 			{
 				tabId: "tab-host",
-				items: [{ tabId: "host-child", title: "Child", state: "running", device: "host-b" }],
+				items: [
+					{ tabId: "host-child", title: "Child", state: "running", foreign: true, device: "host-b" },
+					{ tabId: "here-child", title: "Here", state: "running", foreign: true },
+					{ tabId: "c-child", title: "On C", state: "running", foreign: true, device: "dev-c" },
+				],
 				usage: {},
 			},
 		]);

@@ -24,10 +24,12 @@ function ChildLine({ row, now }: { row: OpenedChildRow; now: number }) {
 				data-status={row.status ?? "open"}
 				onClick={() => {
 					if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
-					else if (row.sessionPath && row.deviceId)
-						void useTabsStore
-							.getState()
-							.openTab({ sessionPath: row.sessionPath, device: row.deviceId, kind: "agent" });
+					else if (row.sessionPath)
+						void useTabsStore.getState().openTab({
+							sessionPath: row.sessionPath,
+							kind: "agent",
+							...(row.deviceId ? { device: row.deviceId } : {}),
+						});
 				}}
 				title={[title, activity].filter(Boolean).join("\n")}
 				type="button"

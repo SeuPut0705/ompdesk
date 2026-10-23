@@ -3009,6 +3009,7 @@ export class AgentControl {
 		const item: AgentReviewItem = {
 			tabId: tab.tabId,
 			...(tab.sessionPath ? { sessionPath: tab.sessionPath } : {}),
+			...(tab.device ? { device: tab.device } : {}),
 			title: tab.title || tab.task || "",
 			state: running ? "running" : conflict ? "conflict" : "needs-review",
 			commitsAhead: 0,

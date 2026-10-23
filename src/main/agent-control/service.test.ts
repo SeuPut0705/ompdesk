@@ -1520,7 +1520,8 @@ describe("a worktree child on a paired host", () => {
 	it("lists its branch in the review queue and removes its worktree on delete, both on that host", async () => {
 		const { host, service, ids } = await remoteChildren();
 		const items = await service.reviewItems("main0001");
-		expect(items.find(item => item.tabId === ids[0])).toMatchObject({ commitsAhead: 2 });
+		// It names the computer the child runs on, so a device viewing this session opens it there, not here.
+		expect(items.find(item => item.tabId === ids[0])).toMatchObject({ commitsAhead: 2, device: desktop.id });
 		const deleted = await service.run("main0001", T.stop, { session: ids[1], delete: true });
 		expect(deleted.text).toContain("Removed its worktree /wt/omp/agent/b and branch omp/agent/b.");
 		expect(host.gitCalls.length).toBeGreaterThan(0);

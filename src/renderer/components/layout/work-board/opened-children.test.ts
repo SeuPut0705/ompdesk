@@ -121,7 +121,13 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 						state: "running",
 						sessionPath: "/b/kid.jsonl",
 						device: "dev-b",
+						foreign: true,
 					}),
+				],
+				// The host opened this one on this computer: it opens here by its file; the host's tab id means nothing here.
+				[
+					"here-kid",
+					review("here-kid", { title: "Here", state: "running", sessionPath: "/a/kid.jsonl", foreign: true }),
 				],
 			]),
 			closed: [],
@@ -136,9 +142,11 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 				deviceId: "dev-b",
 				status: "running",
 			}),
+			expect.objectContaining({ key: "here-kid", tabId: null, sessionPath: "/a/kid.jsonl", status: "running" }),
 		]);
+		expect(rows[1]?.deviceId).toBeUndefined();
 		// It works there, so the strip and the background cue count it; a child main closed does not.
-		expect(openedChildCounts(rows)).toMatchObject({ total: 1, running: 1 });
+		expect(openedChildCounts(rows)).toMatchObject({ total: 2, running: 2 });
 		const withClosed = openedChildRows({
 			parent,
 			tabs: [],

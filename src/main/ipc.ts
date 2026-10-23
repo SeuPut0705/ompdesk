@@ -560,6 +560,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 	// A paired host took a host tool result: a control call's record may now be forgotten in time (call-journal.ts).
 	sidecarPool.hostReplyDelivered = id => agentControl.acknowledge(id);
+	sidecarPool.selfDeviceId = () => deps.remoteDevices.deviceId;
 
 	// Session index changes: this window set, and every device using this
 	// computer as its host.
@@ -762,7 +763,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
 			const data = response.data as AgentReviewResult | null | undefined;
 			if (cmd.type !== "agent_control_review" || !response.success || !Array.isArray(data?.items)) return response;
-			return { ...response, data: reviewFromDevice(data, sidecar.device) };
+			return { ...response, data: reviewFromDevice(data, sidecar.device, deps.remoteDevices.deviceId) };
 		}
 		// The work board's opened-session list (src/main/agent-control): answered here, never sent to omp.
 		if (cmd.type === "agent_control_review") {
