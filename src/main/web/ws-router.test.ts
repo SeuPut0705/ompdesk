@@ -890,6 +890,21 @@ describe("binary and media results", () => {
 		expect(r.blobs.size).toBe(1);
 	});
 
+	it("hands a file the page saves for itself out like a read: behind a blob URL past the inline size", async () => {
+		const r = rig();
+		r.invoke.mockResolvedValueOnce({
+			ok: true,
+			data: new Uint8Array(600 * 1024),
+			mime: "application/zip",
+			size: 600 * 1024,
+		});
+		r.frame({ t: "inv", id: 1, ch: IPC_COMMANDS.FS_SAVE_COPY, a: [{ path: "out/app.zip" }] });
+		await r.settle();
+		const [saved] = r.socket.frames("res") as { v: Record<string, unknown> }[];
+		expect(saved?.v).not.toHaveProperty("data");
+		expect(saved?.v.blobUrl).toMatch(/^\/blob\/[\w-]+$/);
+	});
+
 	it("hands a player's stream out as a /blob URL and translates the release back", async () => {
 		const open = vi.fn();
 		const r = rig();

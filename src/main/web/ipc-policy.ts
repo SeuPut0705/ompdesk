@@ -315,7 +315,7 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 		dir: "invoke",
 		permission: "workspace",
 		mode: "web",
-		web: "The page reads the bytes (FS_READ_BINARY) and the phone's browser saves or shares them",
+		web: "A web window gets the file's bytes (a paired host's in parts, up to 100 MB) behind a /blob URL; the phone's browser saves or shares them",
 	},
 	"terminal:shells": { dir: "invoke", permission: "workspace", mode: "pass" },
 	"terminal:request": {

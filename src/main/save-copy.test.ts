@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { codedError } from "../shared/ipc-error-codes";
 import { HOST_DOWNLOAD_MAX_BYTES, HOST_DOWNLOAD_PART_BYTES, type IpcFsReadBinaryResult } from "../shared/ipc-types";
-import { fileNameOf, SAVE_COPY_TEMP_SUFFIX, type SaveCopyRemote, saveCopy } from "./save-copy";
+import { fileNameOf, readRemoteFile, SAVE_COPY_TEMP_SUFFIX, type SaveCopyRemote, saveCopy } from "./save-copy";
 
 let dir: string;
 let source: string;
@@ -331,5 +331,61 @@ describe("saveCopy of a file on a paired host", () => {
 			).resolves.toEqual({ ok: false, cancelled: true });
 			expect(readdirSync(out)).toEqual([]);
 		});
+	});
+});
+
+describe("readRemoteFile, for a phone that saves a paired host's file in its own browser", () => {
+	const PART = HOST_DOWNLOAD_PART_BYTES;
+
+	it("reads a file past one link frame in parts, byte for byte", async () => {
+		const bytes = pattern(PART * 2 + 99);
+		const remote = hostOf(bytes);
+		const read = await readRemoteFile(remote, 100 * 1024 * 1024);
+		expect(read).toMatchObject({ ok: true, size: bytes.length });
+		expect(Buffer.compare(Buffer.from(read.data), Buffer.from(bytes))).toBe(0);
+		expect(remote.readRange.mock.calls).toEqual([
+			[0, PART],
+			[PART, PART],
+			[PART * 2, 99],
+		]);
+	});
+
+	it("refuses a file past what a page holds before reading more than its first part", async () => {
+		const remote = hostOf(pattern(PART + 1));
+		await expect(readRemoteFile(remote, PART)).resolves.toMatchObject({ ok: false, code: "file_too_large" });
+		expect(remote.readRange).toHaveBeenCalledTimes(1);
+	});
+
+	it("takes one whole read from a host that does not stream, and asks for an update past it", async () => {
+		const bytes = pattern(3000);
+		const older = (whole: IpcFsReadBinaryResult) => ({
+			readRange: vi.fn<SaveCopyRemote["readRange"]>(async () => {
+				throw codedError("unsupported", "Unknown method host.fs.readRange");
+			}),
+			readWhole: vi.fn<SaveCopyRemote["readWhole"]>(async () => whole),
+		});
+		await expect(readRemoteFile(older(slice(bytes, 0, bytes.length)), PART)).resolves.toMatchObject({
+			ok: true,
+			size: 3000,
+		});
+		await expect(
+			readRemoteFile(older(refusal("file_too_large", "too big", 50 * 1024 * 1024)), PART),
+		).resolves.toMatchObject({ ok: false, code: "unsupported", error: expect.stringContaining("Update OMPdesk") });
+	});
+
+	it("fails rather than answering half a file when a part fails or the file changes", async () => {
+		const bytes = pattern(PART + 10);
+		const dropped = hostOf(bytes, async (offset, length) => {
+			if (offset > 0) throw codedError("remote_offline", "The link dropped");
+			return slice(bytes, offset, length);
+		});
+		await expect(readRemoteFile(dropped, 100 * 1024 * 1024)).resolves.toMatchObject({
+			ok: false,
+			code: "remote_offline",
+		});
+		const changed = hostOf(bytes, async (offset, length) =>
+			slice(bytes, offset, length, offset > 0 ? 5 : bytes.length),
+		);
+		await expect(readRemoteFile(changed, 100 * 1024 * 1024)).resolves.toMatchObject({ ok: false });
 	});
 });

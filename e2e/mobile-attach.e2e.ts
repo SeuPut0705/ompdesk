@@ -416,6 +416,14 @@ for (const engine of ENGINES)
 					/^(Save to this device|이 기기에 저장)$/,
 				);
 				await captureTo(CAPTURES, phone, `${engine.name}-${file.name}-sent`);
+				// Saving it brings the computer's bytes down into this browser (a download where no share sheet exists).
+				if (engine.name === "chromium" && !(await phone.evaluate(() => typeof navigator.share === "function"))) {
+					const download = phone.waitForEvent("download");
+					await card.locator("[data-file-card-action='save']").click();
+					const saved = await (await download).path();
+					expect(await fs.readFile(saved)).toEqual(file.buffer);
+					expect((await download).suggestedFilename()).toBe(file.name);
+				}
 			}
 
 			// A photo goes through the same single attach item: no `accept` filter, so the phone offers gallery, camera and files.

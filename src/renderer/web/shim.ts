@@ -134,8 +134,13 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	};
 
 	/** `FS_READ_BINARY`, with the bytes the page's viewers expect (`data: Uint8Array`). */
-	async function readBinary(args: unknown[]): Promise<IpcFsReadBinaryResult> {
-		const wire = await transport.invoke<WireReadBinary>(C.FS_READ_BINARY, ...args);
+	function readBinary(args: unknown[]): Promise<IpcFsReadBinaryResult> {
+		return readBytes(C.FS_READ_BINARY, args);
+	}
+
+	/** A call that answers a file's bytes on the wire (inline or by `/blob`), as the bytes. */
+	async function readBytes(channel: string, args: unknown[]): Promise<IpcFsReadBinaryResult> {
+		const wire = await transport.invoke<WireReadBinary>(channel, ...args);
 		const { dataBase64, blobUrl, ...rest } = wire;
 		if (wire.data instanceof Uint8Array) return { ...rest, data: wire.data };
 		if (typeof dataBase64 === "string") return { ...rest, data: base64ToBytes(dataBase64) };
@@ -321,12 +326,13 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 				destination: { kind: "path", path: chosen },
 			});
 		},
-		// "Save to this device" on a file the conversation names: its bytes, read on the computer, saved by this browser.
+		// "Save to this device" on a file the conversation names: its bytes, from the computer, saved by this browser.
 		[C.FS_SAVE_COPY]: async (payload: unknown): Promise<IpcFsSaveCopyResult> => {
 			const { path, tabId } = (payload ?? {}) as Partial<IpcFsSaveCopyPayload>;
 			if (typeof path !== "string" || path === "")
 				return { ok: false, error: "No file to save", code: "invalid_path" };
-			const result = await readBinary([{ path, tabId }]);
+			// The computer answers the whole file (a paired host's in parts, past one read's cap), not a viewer's read.
+			const result = await readBytes(C.FS_SAVE_COPY, [{ path, tabId }]);
 			if (!result.ok) return { ok: false, error: result.error ?? "The file could not be read", code: result.code };
 			const name = path.split(/[\\/]/).pop() || "file";
 			const outcome = await env.save(

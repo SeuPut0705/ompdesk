@@ -827,7 +827,9 @@ export class WsConnection {
 			const keyed = typeof payload === "object" && payload !== null && "key" in payload && payload.key;
 			return keyed ? result : withoutSecretPrefs(result);
 		}
-		if (channel === IPC_COMMANDS.FS_READ_BINARY) return this.#binaryResult(result);
+		// A file the page saves for itself (`FS_SAVE_COPY` from a web window answers the bytes) rides like a read.
+		if (channel === IPC_COMMANDS.FS_READ_BINARY || channel === IPC_COMMANDS.FS_SAVE_COPY)
+			return this.#binaryResult(result);
 		if (channel === IPC_COMMANDS.FS_MEDIA_STREAM) return this.#mediaResult(result);
 		return result;
 	}

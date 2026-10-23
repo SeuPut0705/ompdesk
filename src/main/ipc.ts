@@ -148,7 +148,7 @@ import { uploadToHost } from "./remote/host-upload";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
-import { fileNameOf, saveCopy } from "./save-copy";
+import { fileNameOf, readRemoteFile, type SaveCopyRemote, saveCopy } from "./save-copy";
 import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
@@ -175,6 +175,7 @@ import { attachHere, type UploadStore } from "./web/uploads";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
+	FS_BINARY_LOCAL_MAX_BYTES,
 	listWorkspace,
 	mutateWorkspace,
 	readPlanFile,
@@ -2161,13 +2162,34 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	});
 	ipc.handle(
 		IPC_COMMANDS.FS_SAVE_COPY,
-		async (caller, payload: IpcFsSaveCopyPayload): Promise<IpcFsSaveCopyResult> => {
+		async (caller, payload: IpcFsSaveCopyPayload): Promise<IpcFsSaveCopyResult | IpcFsReadBinaryResult> => {
 			if (typeof payload?.path !== "string" || payload.path.length === 0)
 				return { ok: false, error: "Invalid path", code: "invalid_path" };
-			const win = caller.browserWindow;
-			if (!win || (caller.win && isWebWindow(caller.win.webContents.id)))
-				return { ok: false, error: "Only an OMPdesk window on this computer can save a file" };
 			const target = targetFor(deps, caller, payload.tabId);
+			const hostRequest = (device: string, method: string, params: object) =>
+				remoteDevices.request(
+					device,
+					method,
+					{ ...params, rtab: target?.tabId, cwd: target?.sidecar.cwd },
+					HOST_FS_READ_BINARY_TIMEOUT_MS,
+				);
+			const hostFile = (device: string): SaveCopyRemote => ({
+				readRange: async (offset, length) =>
+					decodeBinaryRead(
+						await hostRequest(device, "host.fs.readRange", { path: payload.path, offset, length }),
+						"host.fs.readRange",
+					),
+				readWhole: async () =>
+					decodeBinaryRead(await hostRequest(device, "host.fs.readBinary", { path: payload.path })),
+			});
+			// A phone's page saves in its own browser: it gets the file's bytes (ws-router puts them behind a `/blob`
+			// URL), a paired host's file in parts as a save here reads it, up to what a page holds.
+			if (caller.win && isWebWindow(caller.win.webContents.id)) {
+				if (target?.device) return readRemoteFile(hostFile(target.device), FS_BINARY_LOCAL_MAX_BYTES);
+				return readWorkspaceBinary(cwdFor(deps, caller, payload.tabId), { path: payload.path });
+			}
+			const win = caller.browserWindow;
+			if (!win) return { ok: false, error: "Only an OMPdesk window on this computer can save a file" };
 			const name = fileNameOf(payload.path) || "file";
 			const remember = (result: IpcFsSaveCopyResult): IpcFsSaveCopyResult => {
 				if (result.ok && result.savedTo) savedCopies.add(result.savedTo);
@@ -2178,34 +2200,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				const chosen = await dialog.showSaveDialog(win, { defaultPath: defaultName });
 				return chosen.canceled || !chosen.filePath ? null : chosen.filePath;
 			};
-			if (target?.device) {
-				const device = target.device;
-				const request = (method: string, params: object) =>
-					remoteDevices.request(
-						device,
-						method,
-						{ ...params, rtab: target.tabId, cwd: target.sidecar.cwd },
-						HOST_FS_READ_BINARY_TIMEOUT_MS,
-					);
+			if (target?.device)
 				return remember(
-					await saveCopy({
-						name,
-						pickDestination,
-						source: {
-							kind: "remote",
-							remote: {
-								readRange: async (offset, length) =>
-									decodeBinaryRead(
-										await request("host.fs.readRange", { path: payload.path, offset, length }),
-										"host.fs.readRange",
-									),
-								readWhole: async () =>
-									decodeBinaryRead(await request("host.fs.readBinary", { path: payload.path })),
-							},
-						},
-					}),
+					await saveCopy({ name, pickDestination, source: { kind: "remote", remote: hostFile(target.device) } }),
 				);
-			}
 			const file = await resolveWorkspaceFile(cwdFor(deps, caller, payload.tabId), payload.path);
 			if (!file.ok) return file;
 			return remember(await saveCopy({ name, pickDestination, source: { kind: "local", abs: file.abs } }));

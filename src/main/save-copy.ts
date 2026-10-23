@@ -183,6 +183,66 @@ async function saveRemote(remote: SaveCopyRemote, request: SaveCopyRequest): Pro
 	return { ok: true, savedTo: dest };
 }
 
+/**
+ * A paired host's file whole in memory, for a page that saves it in its own browser (the phone): the same parts as a
+ * save here, up to `capBytes` (a page holds the bytes), and one `host.fs.readBinary` from a host that does not stream.
+ */
+export async function readRemoteFile(remote: SaveCopyRemote, capBytes: number): Promise<IpcFsReadBinaryResult> {
+	const fail = (error: unknown, size = 0): IpcFsReadBinaryResult => {
+		const code = ipcErrorCode(error);
+		return {
+			ok: false,
+			data: new Uint8Array(0),
+			mime: "application/octet-stream",
+			size,
+			truncated: false,
+			error: error instanceof Error ? error.message : String(error),
+			...(code ? { code } : {}),
+		};
+	};
+	let first: IpcFsReadBinaryResult;
+	try {
+		first = await remote.readRange(0, HOST_DOWNLOAD_PART_BYTES);
+	} catch (error) {
+		if (ipcErrorCode(error) !== "unsupported") return fail(error);
+		try {
+			const whole = await remote.readWhole();
+			return whole.ok || whole.code !== "file_too_large"
+				? whole
+				: fail(codedError("unsupported", UPDATE_HOST_ERROR), whole.size);
+		} catch (cause) {
+			return fail(cause);
+		}
+	}
+	if (!first.ok) return first;
+	const { size, mime } = first;
+	if (size > capBytes)
+		return fail(
+			codedError(
+				"file_too_large",
+				`File is ${size} bytes, over the ${capBytes}-byte limit for saving to this device`,
+			),
+			size,
+		);
+	const data = new Uint8Array(size);
+	let written = 0;
+	let part = first;
+	try {
+		for (;;) {
+			data.set(part.data.subarray(0, size - written), written);
+			written += part.data.length;
+			if (written >= size) break;
+			if (part.data.length === 0) throw new Error("The other computer stopped sending the file early");
+			part = await remote.readRange(written, Math.min(HOST_DOWNLOAD_PART_BYTES, size - written));
+			if (!part.ok) throw refused(part);
+			if (part.size !== size) throw new Error("The file changed on the other computer while it was being read");
+		}
+	} catch (error) {
+		return fail(error, size);
+	}
+	return { ok: true, data, mime, size, truncated: false };
+}
+
 export function saveCopy(request: SaveCopyRequest): Promise<IpcFsSaveCopyResult> {
 	const { source } = request;
 	return source.kind === "local" ? saveLocal(source.abs, request) : saveRemote(source.remote, request);

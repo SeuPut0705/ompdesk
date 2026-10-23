@@ -201,7 +201,7 @@ describe("the web shim", () => {
 
 		it("saves a copy to this device from the computer's bytes, and nothing when the person cancels", async () => {
 			const read = {
-				[C.FS_READ_BINARY]: {
+				[C.FS_SAVE_COPY]: {
 					ok: true,
 					mime: "application/zip",
 					size: 3,
@@ -212,8 +212,8 @@ describe("the web shim", () => {
 			const { web, log, invoked } = setup(read);
 			await expect(web.api.fs.saveCopy("/work/dist/app.zip", "t1")).resolves.toEqual({ ok: true });
 			expect(log.saved).toEqual([{ name: "app.zip", size: 3, type: "application/zip" }]);
-			// The page never asks the computer to save: the bytes come down and this browser keeps them.
-			expect(invoked.map(call => call.channel)).toEqual([C.FS_READ_BINARY]);
+			// The computer answers the whole file's bytes (not a viewer's capped read) and this browser keeps them.
+			expect(invoked).toEqual([{ channel: C.FS_SAVE_COPY, args: [{ path: "/work/dist/app.zip", tabId: "t1" }] }]);
 			const cancelled = setup(read, { save: async () => "cancelled" });
 			await expect(cancelled.web.api.fs.saveCopy("/work/dist/app.zip")).resolves.toEqual({
 				ok: false,
