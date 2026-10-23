@@ -60,8 +60,8 @@ for (const [language, theme] of variants([
 			await page.getByRole("button", { name: ko ? "사이드 패널" : "Side panel", exact: true }).click();
 			await aside.getByRole("button", { name: ko ? "터미널" : "Terminal", exact: true }).click();
 			const viewport = aside.locator("[data-terminal-viewport]");
-			// C104: the default-shell pref starts bash.
-			await viewport.click();
+			// C104: the default-shell pref starts bash. Keys typed before xterm has mounted its input reach nothing.
+			await viewport.locator(".xterm-helper-textarea").focus();
 			await page.keyboard.type("echo shell=$0\n");
 			await expect(viewport).toContainText(/shell=.*bash/, { timeout: 20_000 });
 

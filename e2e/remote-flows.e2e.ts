@@ -107,7 +107,8 @@ for (const language of variants(["en", "ko"] as const))
 					if (process.platform === "win32") return;
 					const aside = await panelView(a, language, "terminal");
 					const viewport = aside.locator("[data-terminal-viewport]");
-					await viewport.click();
+					// Keys typed before xterm has mounted its input reach nothing: wait for it, then type.
+					await viewport.locator(".xterm-helper-textarea").focus();
 					await a.keyboard.type("echo where=$PWD\n");
 					await expect(viewport).toContainText(`where=${hostProfile.project}`, { timeout: 20_000 });
 					// A fence in the agent's reply runs in that same shell on B.

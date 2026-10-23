@@ -233,7 +233,8 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 			const aside = a.locator("aside[data-docked]");
 			await aside.getByRole("button", { name: "Terminal", exact: true }).click();
 			const viewport = aside.locator("[data-terminal-viewport]");
-			await viewport.click();
+			// Keys typed before xterm has mounted its input reach nothing: wait for it, then type.
+			await viewport.locator(".xterm-helper-textarea").focus();
 			await a.keyboard.type("echo where=$PWD\n");
 			await expect(viewport).toContainText(`where=${host.project}`, { timeout: 20_000 });
 			await a.screenshot({ path: "test-results/remote-terminal.png", scale: "css", animations: "disabled" });
