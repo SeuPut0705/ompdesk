@@ -686,7 +686,9 @@ export function Sidebar() {
 	// brand-new session has no file yet): synthesize it from the tab and, for
 	// the focused tab, the attached session's live identity. The empty start
 	// tab (`placeholder`: startup, or what a deleted session's last tab gives
-	// way to) is no session until its first run, so it has no row until then.
+	// way to) and every new session nobody has written to yet (`unstarted`: a
+	// fresh tab, or one ⌘N reset) are no session until their first run, so they
+	// have no row until then.
 	// Such a row's `created` is when this sidebar first saw the tab, kept per tab
 	// (later tabs of one render a millisecond apart): one shared "now" tied every
 	// live row, so they sorted by path, oldest first, and flipped to newest first
@@ -704,7 +706,7 @@ export function Sidebar() {
 		let stamp = Date.now();
 		const rows: SidebarSession[] = [];
 		for (const tab of localTabs) {
-			if (tab.placeholder === true) continue;
+			if (tab.placeholder === true || tab.unstarted === true) continue;
 			const focused = tab.id === activeTabId;
 			const id = (focused ? sessionId : "") || tab.sessionId || "";
 			const path = (focused ? sessionFile : null) ?? tab.sessionPath ?? "";

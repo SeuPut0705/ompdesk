@@ -264,6 +264,8 @@ interface PoolEntry extends RunTracking {
 	kind: "agent" | "chat";
 	/** Untargeted startup tab; disposed when the user opens an explicit tab. */
 	placeholder: boolean;
+	/** A new session with no run yet (`IpcTabInfo.unstarted`): set at a fresh spawn and by `new_session`. */
+	unstarted?: boolean;
 	/**
 	 * Git-worktree binding (plan/20). Set at acquire from the spawn payload, or
 	 * once by `bindWorktree` while a `worktree.onStart` tab is still starting;
@@ -588,6 +590,7 @@ export class SidecarPool {
 				device,
 				kind,
 				placeholder,
+				...(sessionPath ? {} : { unstarted: true }),
 				worktree,
 				status: sidecar.status,
 				run: idleRun(),
@@ -1070,8 +1073,10 @@ export class SidecarPool {
 			let stepped = false;
 			for (const event of events) {
 				if (trackRunEvent(entry, event)) runEnded = true;
-				if (event.type === "agent_start") entry.placeholder = false;
-				else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") stepped = true;
+				if (event.type === "agent_start") {
+					entry.placeholder = false;
+					entry.unstarted = undefined;
+				} else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") stepped = true;
 				else if (event.type === "auto_retry_start") retryStarted = true;
 				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
 					if (event.type === "plan_proposal")
@@ -2141,6 +2146,18 @@ export class SidecarPool {
 	}
 
 	/** The user is changing which session or branch this tab shows (`TOUCH_COMMANDS`): a scheduled retry no longer applies. */
+	/**
+	 * Whether a tab holds a new session nobody has written to yet (`IpcTabInfo.unstarted`). A `new_session` reset
+	 * makes it one again; the person's first prompt or shell command ends it (a run's `agent_start` does too).
+	 */
+	noteUnstarted(tabId: string, unstarted: boolean): void {
+		const entry = this.#byTabId.get(tabId);
+		if (!entry || (entry.unstarted === true) === unstarted) return;
+		entry.unstarted = unstarted || undefined;
+		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+		this.#notifyWindowTabsChanged(entry.win);
+	}
+
 	noteTouched(tabId: string): void {
 		const entry = this.#byTabId.get(tabId);
 		if (!entry) return;
@@ -2454,6 +2471,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 		cwd: entry.sidecar.cwd,
 		kind: entry.kind,
 		placeholder: entry.placeholder,
+		...(entry.unstarted ? { unstarted: true } : {}),
 		sessionPath: entry.sessionFile ?? null,
 		// "running" only makes sense on a live connection — a restarting sidecar
 		// reports its connection state even with a dead in-flight run.

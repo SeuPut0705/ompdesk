@@ -337,6 +337,9 @@ interface PrefsSchema {
 
 /** The first-run credential check is only worth it while it beats omp's boot; past this it says "cannot tell". */
 const SIGNED_IN_TIMEOUT_MS = 10_000;
+
+/** Commands that carry what the person typed into a session: a prompt, a steer or follow-up, a shell or eval line. */
+const TYPED_COMMANDS: ReadonlySet<string> = new Set(["prompt", "steer", "follow_up", "bash", "eval"]);
 /** Shown notifications that switch to a tab on click, kept alive until then. */
 const liveNotifications = new Set<Notification>();
 /** Windows whose close already cancels their pending notification summary. */
@@ -868,6 +871,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		// The user is moving the tab to another session or branch: a scheduled retry of its old failure is off.
 		if (issuerTabId && TOUCH_COMMANDS[cmd.type]) sidecarPool.noteTouched(issuerTabId);
+		// What the person typed makes a new session one: it gets its sidebar row now, not at the run's start.
+		if (issuerTabId && TYPED_COMMANDS.has(cmd.type)) sidecarPool.noteUnstarted(issuerTabId, false);
 		// A provider sign-in's own requests belong to its login panel, also for a page that reloads before
 		// `login` answers (EXTENSION_UI_OPEN tags them).
 		const signIn = cmd.type === "login" ? issuerTabId : null;
@@ -909,6 +914,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				if (cmd.type === "switch_session") {
 					const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
 					if (!cancelled) sidecarPool.noteSessionFile(issuerTabId, cmd.sessionPath);
+				} else if (cmd.type === "new_session") {
+					const cancelled = (response.data as { cancelled?: boolean } | undefined)?.cancelled ?? false;
+					if (!cancelled) sidecarPool.noteUnstarted(issuerTabId, true);
 				} else if (cmd.type === "get_state") {
 					const state = response.data as RpcSessionState | undefined;
 					sidecarPool.noteSessionFile(issuerTabId, state?.sessionFile ?? null);

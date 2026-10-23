@@ -1429,6 +1429,11 @@ export interface IpcTabInfo {
 	kind: SessionKind;
 	/** Disposable untargeted startup tab. Cleared permanently when its first run starts. */
 	placeholder?: boolean;
+	/**
+	 * A new session nobody has written to yet: a fresh tab, or one a `new_session` just reset. It has no sidebar
+	 * row until its first run starts (the user's rule: opening a new session creates nothing they did not type).
+	 */
+	unstarted?: boolean;
 	/** Present when the tab was spawned bound to a git worktree. */
 	worktree?: IpcTabWorktree;
 	/** Authoritative transcript attached to this tab, available before session_info_update; null clears it. */

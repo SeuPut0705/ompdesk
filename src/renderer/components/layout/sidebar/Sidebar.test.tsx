@@ -1378,6 +1378,34 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(lane?.textContent).toContain("Session /work/alpha/kept");
 	});
 
+	it("lists a new session only once its first run starts", async () => {
+		installMockOmp([]);
+		useSessionStore.setState({ cwd: "/work/alpha", isStreaming: false });
+		const fresh = { cwd: "/work/alpha", status: "ready" as const, kind: "agent" as const, unreadDone: false };
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t-new", ...fresh, unstarted: true },
+				{ id: "t-host", ...fresh, device: "host-1", unstarted: true },
+			],
+			activeTabId: "t-new",
+			bundles: new Map(),
+		});
+		await mount(<Sidebar />);
+		const newRows = () =>
+			[...container.querySelectorAll(".omp-sidebar-session-row")].filter(row =>
+				(row.textContent ?? "").includes("New session"),
+			);
+		expect(newRows()).toHaveLength(0);
+
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "t-new" ? { ...tab, status: "running", unstarted: false } : tab)),
+			}));
+		});
+		await flush();
+		expect(newRows()).toHaveLength(1);
+	});
+
 	it("sessions started without a project share the Chats section with chats", async () => {
 		const chat = session("/elsewhere/chat.jsonl", "/elsewhere", { kind: "chat" });
 		const noProject = session("/default/work/agent.jsonl", "/default/work");

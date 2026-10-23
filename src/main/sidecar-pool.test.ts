@@ -212,7 +212,15 @@ describe("SidecarPool session kind", () => {
 		fw.sent.length = 0;
 		chatSidecar?.emitStatus("ready");
 		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
-			{ kind: "chat", tabId: "tab-chat", cwd: "/b", status: "ready", placeholder: false, sessionPath: null },
+			{
+				kind: "chat",
+				tabId: "tab-chat",
+				cwd: "/b",
+				status: "ready",
+				placeholder: false,
+				unstarted: true,
+				sessionPath: null,
+			},
 		]);
 
 		// GET_TABS exposes the immutable kind for every tab.
@@ -303,9 +311,18 @@ describe("SidecarPool tabs", () => {
 				active: true,
 				visible: true,
 				placeholder: false,
+				unstarted: true,
 				sessionPath: null,
 			},
-			{ kind: "agent", tabId: "tab-b", cwd: "/b", status: "starting", placeholder: false, sessionPath: null },
+			{
+				kind: "agent",
+				tabId: "tab-b",
+				cwd: "/b",
+				status: "starting",
+				placeholder: false,
+				unstarted: true,
+				sessionPath: null,
+			},
 		]);
 	});
 
@@ -450,6 +467,7 @@ describe("SidecarPool tabs", () => {
 				active: true,
 				visible: true,
 				placeholder: false,
+				unstarted: true,
 				sessionPath: null,
 			},
 			{
@@ -737,6 +755,7 @@ describe("SidecarPool tabs", () => {
 				cwd: "/b",
 				status: "starting",
 				placeholder: false,
+				unstarted: true,
 				sessionPath: null,
 				sessionId: "sess-1",
 				title: "Fix flaky test",
@@ -750,6 +769,7 @@ describe("SidecarPool tabs", () => {
 			cwd: "/b",
 			status: "starting",
 			placeholder: false,
+			unstarted: true,
 			sessionPath: null,
 			sessionId: "sess-1",
 			title: "Fix flaky test",
@@ -765,6 +785,7 @@ describe("SidecarPool tabs", () => {
 				cwd: "/b",
 				status: "ready",
 				placeholder: false,
+				unstarted: true,
 				sessionPath: null,
 				sessionId: "sess-1",
 				title: "Fix flaky test",
@@ -929,6 +950,29 @@ describe("SidecarPool tabs", () => {
 		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ tabId: "tab-idle", placeholder: false });
 		expect(pool.tabLayoutForWindow(fw.win)?.tabs[0]).not.toHaveProperty("placeholder");
 		expect(snapshots.at(-1)?.tabs[0]).not.toHaveProperty("placeholder");
+	});
+
+	it("marks a new session unstarted until it is written to, and again after new_session", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-new");
+		pool.acquire("/a", fw.win, "tab-stored", "/sessions/a.jsonl");
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.unstarted)).toEqual([true, undefined]);
+
+		sidecars[0]?.emitAgentEvents(["agent_start"]);
+		expect(pool.tabsForWindow(fw.win)[0]).not.toHaveProperty("unstarted");
+
+		fw.sent.length = 0;
+		pool.noteUnstarted("tab-new", true);
+		pool.noteUnstarted("tab-new", true);
+		expect(pool.tabsForWindow(fw.win)[0]).toMatchObject({ unstarted: true });
+		expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).map(s => s.data)).toEqual([
+			expect.objectContaining({ tabId: "tab-new", unstarted: true }),
+		]);
+
+		// The person's first prompt or shell line lists it at once.
+		pool.noteUnstarted("tab-new", false);
+		expect(pool.tabsForWindow(fw.win)[0]).not.toHaveProperty("unstarted");
 	});
 
 	it("releases a tab: disposed, pool shrinks, active falls back to a sibling", () => {

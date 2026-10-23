@@ -102,6 +102,8 @@ export interface SessionTab {
 	kind: SessionKind;
 	/** Untargeted startup tab that may be replaced while still truly empty. */
 	placeholder?: boolean;
+	/** A new session with no run yet (`IpcTabInfo.unstarted`): it has no sidebar row until its first run. */
+	unstarted?: boolean;
 	/**
 	 * Git-worktree binding (plan/20), immutable from spawn. Drives the chip's
 	 * GitBranch marker, the untitled label (worktree name over the hash-suffixed
@@ -275,6 +277,7 @@ function projectSessionTab(
 		compacting: info.compacting ?? previous?.compacting ?? false,
 		kind: info.kind ?? previous?.kind ?? "agent",
 		placeholder: info.placeholder ?? previous?.placeholder,
+		unstarted: info.unstarted === true,
 		worktree: info.worktree ?? previous?.worktree,
 		device: info.device ?? previous?.device,
 		title: info.title === undefined ? (sessionChanged ? undefined : previous?.title) : (info.title ?? undefined),
@@ -808,6 +811,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 						status: "starting",
 						kind,
 						placeholder: args?.placeholder === true,
+						unstarted: !args?.sessionPath,
 						worktree: args?.worktree,
 						device,
 						unreadDone: false,

@@ -361,6 +361,8 @@ function DeviceSessions({
 		const live: DeviceSession[] = hostTabs
 			.filter(
 				tab =>
+					// A new session nobody wrote to yet is no row (see Sidebar).
+					tab.unstarted !== true &&
 					!(tab.sessionPath && listedPaths.has(tab.sessionPath)) &&
 					!(tab.sessionId && listedIds.has(tab.sessionId)),
 			)
