@@ -51,6 +51,8 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 const PROBE_TIMEOUT_MS = 3_000;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+/** An address step older than this when the host's computer connects here is stuck, not slow: a live host answers in tens of ms. */
+const STALE_STEP_MS = 1_000;
 
 /**
  * A remote failure with a stable code: the host's refusal (`REFUSAL_CODES` in protocol.ts), this side's
@@ -309,6 +311,10 @@ export class RemoteClient {
 	/** Ends the attempt under way when the host's computer shows it is up; `#rerun` then names the next one. */
 	#cancel: AbortController | null = null;
 	#rerun: WakeTrigger | null = null;
+	/** The address step under way: when it began, and a count that tells it from the next one. */
+	#stepAt = 0;
+	#step = 0;
+	#staleTimer: NodeJS.Timeout | undefined;
 	#retryTimer: NodeJS.Timeout | undefined;
 	#backoff = RECONNECT_MIN_MS;
 	#onlineAt: number | null = null;
@@ -361,16 +367,15 @@ export class RemoteClient {
 	 * window in front, the tailnet's node of the host back). Offline or waiting out a backoff: start over from a 1 s
 	 * backoff and try now. Online: send a ping and drop the link if nothing answers within `WAKE_CHECK_MS`, then try
 	 * now, instead of waiting for the 30 s dead timer. An attempt already running is the one that is trying now,
-	 * except on `peer`: the host's computer connected to this one, so a dial that still waits on an address (a
-	 * restarting host's ports time out, 5 s each) is ended and tried again at once.
+	 * except on `peer`: the host's computer connected to this one, so a dial that has waited on an address for
+	 * `STALE_STEP_MS` (a restarting host's ports time out, 5 s each) is ended and tried again at once. A younger one
+	 * is left to finish (a live host answers in tens of ms): both computers reconnecting to each other at once would
+	 * otherwise end each other's handshakes over and over.
 	 */
 	wake(trigger: WakeTrigger): void {
 		if (!this.#running) return;
 		if (this.#attempting) {
-			if (trigger === "peer" && this.#cancel) {
-				this.#rerun = trigger;
-				this.#cancel.abort();
-			}
+			if (trigger === "peer") this.#cancelStale(this.#step);
 			return;
 		}
 		const link = this.#link;
@@ -385,6 +390,7 @@ export class RemoteClient {
 
 	/** Stop reconnecting and drop the link; pending requests reject `remote_offline`. */
 	close(): void {
+		clearTimeout(this.#staleTimer);
 		this.#running = false;
 		this.#clearRetry();
 		this.#link?.destroy();
@@ -456,6 +462,8 @@ export class RemoteClient {
 		let refused = addresses.length > 0;
 		for (const address of addresses) {
 			if (!this.#running || cancel.signal.aborted) break;
+			this.#step += 1;
+			this.#stepAt = Date.now();
 			try {
 				const { link, hello } = await handshake(address, {
 					identity: this.#opts.identity,
@@ -569,6 +577,20 @@ export class RemoteClient {
 	#clearRetry(): void {
 		clearTimeout(this.#retryTimer);
 		this.#retryTimer = undefined;
+	}
+
+	/** End address step `step` once it has run `STALE_STEP_MS`, unless it ended first. */
+	#cancelStale(step: number): void {
+		clearTimeout(this.#staleTimer);
+		if (!this.#attempting || this.#step !== step || !this.#cancel) return;
+		const left = this.#stepAt + STALE_STEP_MS - Date.now();
+		if (left > 0) {
+			this.#staleTimer = setTimeout(() => this.#cancelStale(step), left);
+			this.#staleTimer.unref?.();
+			return;
+		}
+		this.#rerun = "peer";
+		this.#cancel.abort();
 	}
 
 	#retryNow(trigger: WakeTrigger): void {

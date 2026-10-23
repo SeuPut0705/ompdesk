@@ -199,6 +199,62 @@ describe("ports", () => {
 	});
 });
 
+describe("two computers that use each other as hosts", () => {
+	it("reconnect to each other at once and stay connected (each one's link opening never ends the other's dial)", async () => {
+		await rig.pickPort();
+		const lines: { message: string; details: Record<string, unknown> }[] = [];
+		const logLink = (message: string, details: Record<string, unknown>) => lines.push({ message, details });
+		const laptopNode = studioNode({ nodeId: "nLAPTOP", name: "laptop" });
+		const b = await rig.computer(
+			"Studio",
+			fakeTailnet({
+				peers: [laptopNode],
+				whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]),
+			}),
+			{ logLink },
+		);
+		const a = await rig.computer(
+			"Laptop",
+			fakeTailnet({
+				peers: [studioNode()],
+				whois: new Map([[LOOPBACK, { nodeId: "nSTUDIO", nodeName: "studio", login: LOGIN }]]),
+			}),
+			{ logLink },
+		);
+		for (const c of [a, b]) {
+			c.devices.start();
+			await c.devices.setHostEnabled(true);
+			await until(c, state => state.host.port !== null);
+		}
+		await a.devices.connect("nSTUDIO");
+		await b.devices.connect("nLAPTOP");
+		await until(a, state => state.hosts[0]?.state === "online");
+		await until(b, state => state.hosts[0]?.state === "online");
+
+		// Both apps restart together (an update on each): every link drops, then both listen again.
+		await Promise.all([a.devices.setHostEnabled(false), b.devices.setHostEnabled(false)]);
+		await until(a, state => state.hosts[0]?.state !== "online");
+		await until(b, state => state.hosts[0]?.state !== "online");
+		const reopened = lines.length;
+		await Promise.all([a.devices.setHostEnabled(true), b.devices.setHostEnabled(true)]);
+		await until(a, state => state.hosts[0]?.state === "online");
+		await until(b, state => state.hosts[0]?.state === "online");
+		const settled = lines.length;
+		await new Promise(resolve => setTimeout(resolve, 3_000));
+
+		expect(a.devices.state().hosts[0]?.state).toBe("online");
+		expect(b.devices.state().hosts[0]?.state).toBe("online");
+		expect(lines.slice(settled).filter(line => line.message === "down" || line.message === "attempt")).toEqual([]);
+		// One dial each way, neither ended by the other's link opening (a `peer` retry would be one ended mid-handshake).
+		expect(
+			lines
+				.slice(reopened)
+				.filter(line => line.message === "attempt")
+				.map(line => line.details.trigger),
+		).toEqual(["backoff", "backoff"]);
+	}, 20_000);
+});
+
 describe("a host link after the computer wakes or the network returns", () => {
 	/** A relay a test can silence: both directions drop every byte but the connections stay open, as a dead path does. */
 	async function silenceableRelay(target: number): Promise<{ port: number; silence: { on: boolean } }> {
