@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.61.30] - 2026-10-23
+
+한국어 화면에 영어로 남아 있던 문장 몇 개를 고쳤어요.
+
+### 고친 것
+- LSP 진단 도구 카드의 머리가 '2 diagnostics' 대신 '진단 2개'처럼 화면 언어로 개수를 말해요.
+- 설정 › 메모리가 상태를 화면 언어로 설명해요. 이 컴퓨터용 빌드가 없을 때, 잇단 충돌 뒤의 안전 모드나 개발 빌드라 이번 실행에서 메모리를 설정하지 않을 때(전에는 이것도 '빌드가 없다'고 했어요), 메모리 서버가 응답하지 않을 때(OMPdesk가 계속 다시 시도해요) 각각 다른 문장이 나와요.
+
+<!-- en -->
+
+A few sentences that stayed in English on a Korean screen now follow your language.
+
+### Fixed
+- The LSP diagnostics card's header counts in your language ("진단 2개" instead of "2 diagnostics").
+- Settings › Memory explains its state in your language: no build for this computer; memory not set up in this launch because of safe mode after repeated crashes or a development build (it used to call that a missing build too); and a memory server that is not answering, which OMPdesk keeps retrying.
+
 ## [0.61.29] - 2026-10-23
 
 여러 질문 카드에서 답한 단계를 스크린 리더도 알려 줘요. 배포되지 못한 0.61.28의 내용(오토파일럿 로켓 아이콘, 시스템 언어로 답하기)도 이 버전에 들어 있어요.
