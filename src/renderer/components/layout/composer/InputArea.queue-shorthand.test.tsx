@@ -1257,8 +1257,26 @@ describe("InputArea file intake", () => {
 		expect(useComposerStore.getState().draft).toBe('@docs/spec.pdf @"/Users/me/My Deck.pptx" @src ');
 	});
 
-	it("pastes a clipboard file without a path as its text and refuses a pathless binary", async () => {
+	it("attaches a dropped picture stock cannot convert for the model as a file, with no warning", async () => {
+		await mountWithPaths({ "IMG_0001.HEIC": "/Users/me/Pictures/IMG_0001.HEIC" });
+		(window.omp.fs as unknown as Record<string, unknown>).imageToModel = async () => {
+			throw new Error("This picture could not be read");
+		};
+		const heic = new File([new Uint8Array([0, 0, 0, 24, 102, 116])], "IMG_0001.HEIC", { type: "image/heic" });
+		await act(async () => dropFiles([heic], [{ webkitGetAsEntry: () => ({ isDirectory: false }) }]));
+		await flush();
+		expect(useComposerStore.getState().draft).toBe("@/Users/me/Pictures/IMG_0001.HEIC ");
+		expect(useComposerStore.getState().images).toEqual([]);
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
+	it("pastes a clipboard file without a path as its text and saves a pathless binary on this computer", async () => {
 		await mountWithPaths({});
+		const saved: string[] = [];
+		(window.omp.fs as unknown as Record<string, unknown>).uploadToHost = async (_tabId: string, file: File) => {
+			saved.push(file.name);
+			return { ok: true, path: `/up/this-computer/1/${file.name}` };
+		};
 		const { onPaste } = reactProps<{ onPaste: (event: object) => void }>(findTextarea());
 		const files = [
 			new File(["line one\nline two"], "notes.txt", { type: "text/plain" }),
@@ -1276,11 +1294,12 @@ describe("InputArea file intake", () => {
 		await flush();
 		expect(prevented).toBe(true);
 		const draft = useComposerStore.getState().draft;
-		expect(draft).toMatch(/^\[Paste #\d+, \d+ chars\] $/);
-		expect(expandPasteMarkers(draft)).toBe(`<attachment name="notes.txt">\nline one\nline two\n</attachment> `);
-		expect(useToastStore.getState().toasts.map(item => item.message)).toEqual([
-			translate("input.files.noPath", { name: "blob.bin" }),
-		]);
+		expect(saved).toEqual(["blob.bin"]);
+		expect(draft).toMatch(/^@\/up\/this-computer\/1\/blob\.bin \[Paste #\d+, \d+ chars\] $/);
+		expect(expandPasteMarkers(draft)).toBe(
+			`@/up/this-computer/1/blob.bin <attachment name="notes.txt">\nline one\nline two\n</attachment> `,
+		);
+		expect(useToastStore.getState().toasts).toEqual([]);
 	});
 
 	it("offers every file type in the + menu picker", async () => {

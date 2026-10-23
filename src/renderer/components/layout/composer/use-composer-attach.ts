@@ -14,6 +14,8 @@ import { pasteMarkerText, storePaste } from "../../../lib/paste-blobs";
 import type { ComposerImage } from "../../../stores/composer";
 import { useHostView } from "../../../stores/remote";
 import { toast } from "../../../stores/toast";
+import { webRuntime } from "../../../web/runtime";
+import { UPLOAD_MAX_BYTES } from "../../../web/upload";
 import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { fileToImage } from "./input-area-utils";
 
@@ -87,18 +89,26 @@ export function useComposerAttach({
 		});
 	};
 
-	/** A remote tab's .docx, PDF or large file goes to the computer the tab runs on; its path there is the mention. */
+	/**
+	 * A file the tab's computer cannot read by a path (a remote tab's .docx, PDF or large file; a local tab's pasted
+	 * one) goes to the computer the tab runs on, this one included; its path there is the mention.
+	 */
 	const sendToHost = async (file: File): Promise<string> => {
+		const local = historyDevice === undefined;
+		const max = local ? UPLOAD_MAX_BYTES : HOST_UPLOAD_MAX_BYTES;
 		const reason = (key: Parameters<typeof t>[0], extra: Record<string, string> = {}) =>
-			new Error(t(key, { name: file.name, device: hostName, size: formatBytes(HOST_UPLOAD_MAX_BYTES), ...extra }));
-		if (!runtimeTabId) throw reason("input.files.hostFailed", { reason: "no tab" });
-		if (file.size > HOST_UPLOAD_MAX_BYTES) throw reason("input.files.hostTooLarge");
+			new Error(t(key, { name: file.name, device: hostName, size: formatBytes(max), ...extra }));
+		const tooLarge = local ? "input.files.localTooLarge" : "input.files.hostTooLarge";
+		const failed = local ? "input.files.localFailed" : "input.files.hostFailed";
+		if (!runtimeTabId) throw reason(failed, { reason: "no tab" });
+		if (file.size > max) throw reason(tooLarge);
 		const result = await withSendingChip(file.name, window.omp.fs.uploadToHost(runtimeTabId, file));
 		if (result.ok && result.path) return result.path;
-		if (result.code === "file_too_large") throw reason("input.files.hostTooLarge");
-		if (result.code === "upload_refused") throw reason("input.files.hostRefused");
-		if (result.code === "unsupported") throw reason("input.files.remoteBinary");
-		throw reason("input.files.hostFailed", { reason: result.error ?? "" });
+		if (result.code === "file_too_large") throw reason(tooLarge);
+		if (result.code === "upload_refused")
+			throw reason(local ? "input.files.localRefused" : "input.files.hostRefused");
+		if (result.code === "unsupported" && !local) throw reason("input.files.remoteBinary");
+		throw reason(failed, { reason: result.error ?? "" });
 	};
 
 	/**
@@ -111,7 +121,10 @@ export function useComposerAttach({
 	 * chip shows each one on its way, and one that failed says why. Settles once
 	 * everything has landed, with the field focused.
 	 */
-	const attachFiles = async (files: readonly File[], options?: { directories?: ReadonlySet<File> }): Promise<void> => {
+	const attachFiles = async (
+		files: readonly File[],
+		options?: { directories?: ReadonlySet<File>; asFiles?: ReadonlySet<File> },
+	): Promise<void> => {
 		if (files.length === 0) return;
 		try {
 			const intake = await intakeComposerFiles(files, {
@@ -124,6 +137,7 @@ export function useComposerAttach({
 				remote: historyDevice !== undefined,
 				sendToHost,
 				directories: options?.directories,
+				asFiles: options?.asFiles,
 			});
 			if (!mountedRef.current) return;
 			// A mention the draft already holds is not typed in again.
@@ -140,8 +154,6 @@ export function useComposerAttach({
 			if (pieces.length > 0) insertAtCaret(pieces.join(" "));
 			const reasons = {
 				empty: "input.files.empty",
-				tooLarge: "input.files.tooLarge",
-				binary: "input.files.noPath",
 				unreadable: "input.files.unreadable",
 				remoteFolder: "input.files.remoteFolder",
 			} as const;
@@ -155,14 +167,18 @@ export function useComposerAttach({
 					});
 			}
 			if (intake.images.length > 0) {
+				// A picture that cannot be read as one here (HEIC in Chromium, a damaged file) is attached as a file.
+				const notImages = new Set<File>();
 				const read = await Promise.all(
 					intake.images.map(file =>
-						fileToImage(file).catch(() => {
-							toast({ variant: "warning", message: t("input.files.unreadable", { name: file.name }) });
+						// A format models refuse goes through stock's conversion in main; a web page's host converts it.
+						fileToImage(file, webRuntime() ? undefined : window.omp.fs.imageToModel).catch(() => {
+							notImages.add(file);
 							return null;
 						}),
 					),
 				);
+				if (notImages.size > 0 && mountedRef.current) await attachFiles([...notImages], { asFiles: notImages });
 				const added = read.filter(image => image !== null);
 				if (mountedRef.current && added.length > 0)
 					setImages(previous => {

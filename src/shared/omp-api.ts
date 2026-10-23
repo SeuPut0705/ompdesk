@@ -732,6 +732,9 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 					name: file.name,
 					data: new Uint8Array(await file.arrayBuffer()),
 				}) as Promise<IpcFsUploadToHostResult>,
+			/** A picture in a format models refuse, as the one stock's image path makes of it (PNG or JPEG). */
+			imageToModel: (image: { data: string; mimeType: string }) =>
+				transport.invoke(IPC_COMMANDS.IMAGE_TO_MODEL, image) as Promise<{ data: string; mimeType: string }>,
 		},
 
 		editor: {

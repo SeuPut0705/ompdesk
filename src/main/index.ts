@@ -1709,6 +1709,7 @@ app.whenReady().then(() => {
 		desktopSlotRef,
 		relaunchContinuation: tabId => turnResume.relaunchContinuation(tabId),
 		mediaStreams,
+		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		schedules: () => scheduleService,
 		sidebarProjects,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.

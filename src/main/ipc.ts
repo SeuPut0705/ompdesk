@@ -170,9 +170,10 @@ import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
 import { type RelaunchContinuation, TOUCH_COMMANDS } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
-import type { ClientWindow } from "./web/client-window";
+import { type ClientWindow, isWebWindow } from "./web/client-window";
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
 import { writeDialogPreload } from "./web/preview-dialog";
+import { attachHere, type UploadStore } from "./web/uploads";
 import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
@@ -236,6 +237,11 @@ export interface IpcDeps {
 	worktreePrompts: WorktreePrompts;
 	/** `omp-media://` URLs handed to players (registered as a protocol in index.ts). */
 	mediaStreams: MediaStreams;
+	/**
+	 * Where a file attached to a prompt of this computer's own tab lands when it has no path here (pasted, dragged out
+	 * of another app): the phones' upload folder (web/uploads.ts), its limits and its 24-hour lifetime.
+	 */
+	uploads?: Pick<UploadStore, "store">;
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
@@ -2143,15 +2149,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 	);
 
-	// A file attached to a prompt of a paired host's tab: its bytes go to that host, which answers its path there.
+	// A file attached to a prompt that its tab's computer cannot read by a path: its bytes go to the computer the tab
+	// runs on (a paired host, or this one for a pasted file with no path), which answers its path there.
 	ipc.handle(
 		IPC_COMMANDS.FS_UPLOAD_TO_HOST,
 		async (caller, payload: IpcFsUploadToHostPayload): Promise<IpcFsUploadToHostResult> => {
 			const target = targetFor(deps, caller, payload?.tabId);
-			if (!target?.device) return { ok: false, error: "This tab runs on this computer", code: "invalid_path" };
 			const data = payload?.data;
 			if (!(data instanceof Uint8Array) || typeof payload?.name !== "string")
 				return { ok: false, error: "No file to send", code: "invalid_path" };
+			if (!target?.device) {
+				// A web page's file already reaches this computer as its upload (`pathForFile`): only a desktop window sends.
+				if (caller.win && isWebWindow(caller.win.webContents.id))
+					return { ok: false, error: "This tab runs on this computer", code: "invalid_path" };
+				if (!deps.uploads)
+					return { ok: false, error: "This computer does not take attached files", code: "unsupported" };
+				return attachHere(deps.uploads, payload.name, data);
+			}
 			if (data.byteLength > HOST_UPLOAD_MAX_BYTES)
 				return { ok: false, error: "File too large to send", code: "file_too_large" };
 			return remoteFs(
@@ -2166,6 +2180,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			);
 		},
 	);
+
+	// A picture models refuse (HEIC, TIFF, BMP, ...) converted by stock's own image path, as a phone's photo is.
+	ipc.handle(IPC_COMMANDS.IMAGE_TO_MODEL, async (_caller, image: { data?: unknown; mimeType?: unknown }) => {
+		if (typeof image?.data !== "string" || typeof image?.mimeType !== "string")
+			throw codedError("invalid_path", "No picture to convert");
+		return stockHelperRequest<{ data: string; mimeType: string }>("image.toModel", {
+			type: "image",
+			data: image.data,
+			mimeType: image.mimeType,
+		});
+	});
 
 	// A player's stream URL: same resolution and roots as FS_READ_BINARY, audio/video only.
 	// A paired host's tab has none (`remote_path_native`): the renderer reads it through

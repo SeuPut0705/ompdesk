@@ -238,8 +238,10 @@ export function editFieldText(el: HTMLTextAreaElement, next: string): boolean {
  * IPC message, the session file and the request.
  */
 export const IMAGE_MAX_SIDE = 1568;
-/** Formats re-encoded when downscaled; GIF (maybe animated) and others go as they are. */
+/** Formats re-encoded when downscaled; GIF (maybe animated) goes as it is. */
 const RESIZABLE_TYPES: Record<string, true> = { "image/png": true, "image/jpeg": true, "image/webp": true };
+/** The picture formats every provider takes (stock pi-ai's Anthropic, OpenAI and Gemini converters agree on these). */
+const MODEL_IMAGE_TYPES: Record<string, true> = { ...RESIZABLE_TYPES, "image/gif": true };
 
 function readDataUrl(blob: Blob): Promise<string> {
 	const { promise, resolve, reject } = Promise.withResolvers<string>();
@@ -274,7 +276,28 @@ async function downscaled(file: File): Promise<Blob | null> {
 	}
 }
 
-export async function fileToImage(file: File): Promise<ComposerImage> {
+/** A format models take as it is: JPEG, PNG, GIF and WebP. */
+export function isModelImageType(mimeType: string): boolean {
+	return MODEL_IMAGE_TYPES[mimeType] === true;
+}
+
+/**
+ * The picture as an image attachment: JPEG, PNG, GIF and WebP as they are (scaled to fit); any other format through
+ * `toModel` (stock's image path in main), or as it is when there is none (a web page: the host converts it as it
+ * lands). Throws when it cannot be read or converted: the caller attaches it as a file.
+ */
+export async function fileToImage(
+	file: File,
+	toModel?: (image: { data: string; mimeType: string }) => Promise<{ data: string; mimeType: string }>,
+): Promise<ComposerImage> {
+	if (!isModelImageType(file.type) && toModel) {
+		const raw = await readDataUrl(file);
+		const converted = await toModel({ data: raw.slice(raw.indexOf(",") + 1), mimeType: file.type });
+		return {
+			content: { type: "image", data: converted.data, mimeType: converted.mimeType },
+			preview: `data:${converted.mimeType};base64,${converted.data}`,
+		};
+	}
 	const blob = (await downscaled(file)) ?? file;
 	const dataUrl = await readDataUrl(blob);
 	return {

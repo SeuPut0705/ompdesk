@@ -297,6 +297,8 @@ export const IPC_COMMANDS = {
 	/** Forget a stream URL the renderer no longer plays (send, no reply) */
 	FS_MEDIA_RELEASE: "fs:media-release",
 	FS_UPLOAD_TO_HOST: "fs:upload-to-host",
+	/** A picture in a format models refuse (HEIC, TIFF, BMP, ...) made model-safe with stock's image path. */
+	IMAGE_TO_MODEL: "image:to-model",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -2297,8 +2299,10 @@ export interface OmpApi {
 		/** A seekable `omp-media://` URL for a local tab's audio/video file; release it when done. */
 		mediaStream(path: string, tabId?: string): Promise<IpcFsMediaStreamResult>;
 		releaseMediaStream(url: string): void;
-		/** Sends a file attached to a prompt to the paired host the tab runs on; answers its path there. */
+		/** Sends a file attached to a prompt to the computer the tab runs on (a paired host, or this one for a pathless file); answers its path there. */
 		uploadToHost(tabId: string, file: File): Promise<IpcFsUploadToHostResult>;
+		/** A picture in a format models refuse, as the one stock's image path makes of it (PNG or JPEG). */
+		imageToModel(image: { data: string; mimeType: string }): Promise<{ data: string; mimeType: string }>;
 		/**
 		 * The absolute path of a dropped, pasted or picked `File` on the computer the tab runs on; "" when it has none.
 		 * Electron answers at once (`webUtils.getPathForFile`); a web page uploads the file to the host first.

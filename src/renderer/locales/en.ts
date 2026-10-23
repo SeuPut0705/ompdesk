@@ -483,13 +483,15 @@ export const en: Record<string, string> = {
 	"input.files.empty": "{name} is empty, so it wasn't attached.",
 	"input.files.remoteFolder":
 		"{name} is a folder on this computer; a tab running on {device} can't open it. Attach its files instead.",
-	"input.files.tooLarge": "{name} is over 5 MB, so its text wasn't attached.",
-	"input.files.noPath": "{name} has no file path on this computer. Save it to a folder first, then attach it.",
 	"input.files.remoteBinary":
 		"{name} can't be sent to {device}: its OMPdesk is too old to take files. Update OMPdesk there, then attach it again.",
 	"input.files.hostTooLarge": "{name} is too large to send to {device} (up to {size}).",
 	"input.files.hostRefused": "{device} didn't take {name}. Try again later.",
 	"input.files.hostFailed": "Couldn't send {name} to {device}: {reason}",
+	"input.files.localTooLarge": "{name} is too large to attach (up to {size}).",
+	"input.files.localRefused":
+		"{name} wasn't attached: today's attached files on this computer passed their limit. Try again later.",
+	"input.files.localFailed": "Couldn't attach {name}: {reason}",
 	"input.files.unreadable": "Couldn't read {name}.",
 	"input.files.sending": "Sending {name} to your computer…",
 	"input.files.sendingList": "Files on their way to your computer",

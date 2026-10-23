@@ -8,8 +8,10 @@
  * upload that failed is refused with its reason. A file the tab's machine
  * cannot reach by path (a remote tab, or a clipboard blob without a path)
  * falls back to its text, wrapped like a pasted attachment; a remote tab's
- * binary or oversized file is sent to the computer the tab runs on and named
- * by its path there; anything else is refused with a reason.
+ * binary or oversized file is sent to the computer the tab runs on (this one
+ * for a pathless file of a local tab) and named by its path there; anything
+ * else is refused with a reason. A picture that cannot be read as one (a
+ * format the composer cannot draw, a damaged file) is attached as a file.
  */
 
 /** Stock auto-read ceiling for a mentioned text file (`MAX_AUTO_READ_TEXT_BYTES`). */
@@ -49,7 +51,7 @@ function isDocument(file: File): boolean {
 	return file.type === "application/pdf" || (extension !== undefined && DOCUMENT_EXTENSIONS.has(extension));
 }
 
-export type ComposerFileRejection = "empty" | "tooLarge" | "binary" | "unreadable" | "notSent" | "remoteFolder";
+export type ComposerFileRejection = "empty" | "unreadable" | "notSent" | "remoteFolder";
 
 export interface ComposerFileIntake {
 	images: File[];
@@ -74,12 +76,20 @@ export interface ComposerFileIntakeOptions {
 	/** The tab's omp runs on another device, so this machine's paths mean nothing there. */
 	remote: boolean;
 	/**
-	 * A remote tab's file that is no text to inline (a .docx, a PDF, a text over the inline cap): sends it to the
-	 * computer the tab runs on and answers its path there. Rejects with why it was not sent, in words.
+	 * A file with no path the tab's computer can read that is no text to inline (a .docx, a PDF, a binary, a text
+	 * over the inline cap): sends it to the computer the tab runs on, a paired host or this one, and answers its path
+	 * there. Rejects with why it was not sent, in words.
 	 */
-	sendToHost?: (file: File) => Promise<string>;
+	sendToHost: (file: File) => Promise<string>;
 	/** The files that are folders: a drop reports one as a file of zero bytes, which is no reason to refuse it. */
 	directories?: ReadonlySet<File>;
+	/** Pictures that could not be read as one: they go the way of any other file (a mention, or sent). */
+	asFiles?: ReadonlySet<File>;
+}
+
+/** An SVG is text the agent reads (a picture attachment of it is no format any provider takes). */
+function attachesAsImage(file: File, options: ComposerFileIntakeOptions): boolean {
+	return file.type.startsWith("image/") && file.type !== "image/svg+xml" && options.asFiles?.has(file) !== true;
 }
 
 const LEADING_PUNCTUATION = /^[`"'([{<]/;
@@ -100,7 +110,7 @@ export function fileMentionFor(path: string, cwd: string): string {
 	return target.includes('"') ? `@'${target}'` : `@"${target}"`;
 }
 
-async function readText(file: File): Promise<string | ComposerFileRejection> {
+async function readText(file: File): Promise<string | "empty" | "tooLarge" | "binary" | "unreadable"> {
 	if (file.size === 0) return "empty";
 	if (file.size > MAX_INLINE_TEXT_BYTES) return "tooLarge";
 	try {
@@ -125,7 +135,7 @@ export async function intakeComposerFiles(
 			intake.rejected.push({ name: file.name, reason: "empty" });
 			continue;
 		}
-		if (file.type.startsWith("image/")) {
+		if (attachesAsImage(file, options)) {
 			intake.images.push(file);
 			continue;
 		}
@@ -159,8 +169,9 @@ export async function intakeComposerFiles(
 			mention(path);
 			continue;
 		}
-		const text = isDocument(file) && options.remote && options.sendToHost ? "binary" : await readText(file);
-		if ((text === "binary" || text === "tooLarge") && options.remote && options.sendToHost) {
+		// No path to name it by: a document, a binary or an oversized file goes to the computer the tab runs on.
+		const text = isDocument(file) ? "binary" : await readText(file);
+		if (text === "binary" || text === "tooLarge") {
 			try {
 				mention(await options.sendToHost(file));
 			} catch (error) {
@@ -168,8 +179,7 @@ export async function intakeComposerFiles(
 			}
 			continue;
 		}
-		if (text === "empty" || text === "tooLarge" || text === "binary" || text === "unreadable")
-			intake.rejected.push({ name: file.name, reason: text });
+		if (text === "empty" || text === "unreadable") intake.rejected.push({ name: file.name, reason: text });
 		else intake.texts.push({ name: file.name, content: text });
 	}
 	return intake;

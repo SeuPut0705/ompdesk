@@ -97,6 +97,29 @@ describe("fileToImage", () => {
 		expect(undecodable.content).toEqual({ type: "image", data: "AQID", mimeType: "image/jpeg" });
 		expect(drawn).toEqual([]);
 	});
+	it("hands a format no model takes to stock's conversion, and throws when it cannot convert", async () => {
+		const asked: string[] = [];
+		const toModel = async (image: { data: string; mimeType: string }) => {
+			asked.push(image.mimeType);
+			if (image.mimeType === "image/x-unknown") throw new Error("This picture could not be read");
+			return { data: "UE5H", mimeType: "image/png" };
+		};
+		const heic = await fileToImage(
+			new File([new Uint8Array([1, 2, 3])], "IMG.HEIC", { type: "image/heic" }),
+			toModel,
+		);
+		expect(heic.content).toEqual({ type: "image", data: "UE5H", mimeType: "image/png" });
+		expect(heic.preview).toBe("data:image/png;base64,UE5H");
+		// A format models take never goes to the conversion.
+		await fileToImage(new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" }), toModel);
+		expect(asked).toEqual(["image/heic"]);
+		await expect(
+			fileToImage(new File([new Uint8Array([1])], "odd.x", { type: "image/x-unknown" }), toModel),
+		).rejects.toThrow();
+		// No conversion here (a web page): as it is, for the host to convert.
+		const raw = await fileToImage(new File([new Uint8Array([1, 2, 3])], "IMG.HEIC", { type: "image/heic" }));
+		expect(raw.content.mimeType).toBe("image/heic");
+	});
 });
 
 describe("mentionToken", () => {

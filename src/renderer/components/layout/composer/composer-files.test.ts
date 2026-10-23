@@ -26,10 +26,15 @@ describe("fileMentionFor", () => {
 });
 
 describe("intakeComposerFiles", () => {
+	/** Never called unless a test says so: a file with a path, a text or a refusal never goes to the computer. */
+	const unsent = async (file: File): Promise<string> => {
+		throw new Error(`${file.name} should not have been sent`);
+	};
 	const local = (paths: Record<string, string>) => ({
 		cwd: "/work",
 		pathFor: (file: File) => paths[file.name] ?? "",
 		remote: false,
+		sendToHost: unsent,
 	});
 
 	it("attaches images and mentions every other local file or folder by path", async () => {
@@ -64,17 +69,34 @@ describe("intakeComposerFiles", () => {
 		expect(sent).toEqual([]);
 	});
 
-	it("falls back to the text of a file without a path and refuses what it cannot read", async () => {
+	it("inlines the text of a file without a path and saves any other kind on this computer, refusing only an empty one", async () => {
 		const note = new File(["hello\nworld"], "note.md", { type: "text/markdown" });
 		const empty = new File([], "empty.txt", { type: "text/plain" });
 		const blob = new File([new Uint8Array([1, 0, 2])], "blob.bin");
-		const intake = await intakeComposerFiles([note, empty, blob], local({}));
-		expect(intake.mentions).toEqual([]);
+		const pdf = new File(["%PDF-1.7\n"], "spec.pdf", { type: "application/pdf" });
+		const saved: string[] = [];
+		const intake = await intakeComposerFiles([note, empty, blob, pdf], {
+			...local({}),
+			sendToHost: async file => {
+				saved.push(file.name);
+				return `/up/this-computer/1/${file.name}`;
+			},
+		});
+		expect(saved).toEqual(["blob.bin", "spec.pdf"]);
+		expect(intake.mentions).toEqual(["@/up/this-computer/1/blob.bin", "@/up/this-computer/1/spec.pdf"]);
 		expect(intake.texts).toEqual([{ name: "note.md", content: "hello\nworld" }]);
-		expect(intake.rejected).toEqual([
-			{ name: "empty.txt", reason: "empty" },
-			{ name: "blob.bin", reason: "binary" },
-		]);
+		expect(intake.rejected).toEqual([{ name: "empty.txt", reason: "empty" }]);
+	});
+
+	it("attaches a picture it cannot read as one as a file, and an SVG as the text it is", async () => {
+		const heic = new File([new Uint8Array([0, 0, 0, 24])], "photo.heic", { type: "image/heic" });
+		const svg = new File(["<svg/>"], "logo.svg", { type: "image/svg+xml" });
+		const intake = await intakeComposerFiles([heic, svg], {
+			...local({ "photo.heic": "/Users/me/photo.heic", "logo.svg": "/work/logo.svg" }),
+			asFiles: new Set([heic]),
+		});
+		expect(intake.images).toEqual([]);
+		expect(intake.mentions).toEqual(["@/Users/me/photo.heic", "@logo.svg"]);
 	});
 
 	it("refuses an empty file with a path as it refuses an empty pasted one, and folds the same file twice", async () => {
@@ -90,15 +112,6 @@ describe("intakeComposerFiles", () => {
 		expect(intake.duplicates).toBe(1);
 	});
 
-	it("never mentions this machine's paths for a tab on another device", async () => {
-		const code = new File(["const a = 1;\n"], "a.ts");
-		const pdf = new File([new Uint8Array([37, 80, 68, 70, 0])], "spec.pdf", { type: "application/pdf" });
-		const intake = await intakeComposerFiles([code, pdf], { ...local({ "a.ts": "/work/a.ts" }), remote: true });
-		expect(intake.mentions).toEqual([]);
-		expect(intake.texts).toEqual([{ name: "a.ts", content: "const a = 1;\n" }]);
-		expect(intake.rejected).toEqual([{ name: "spec.pdf", reason: "binary" }]);
-	});
-
 	it("sends a remote tab's binary file to the computer the tab runs on and mentions its path there", async () => {
 		const code = new File(["const a = 1;\n"], "a.ts");
 		const docx = new File([new Uint8Array([80, 75, 3, 4, 0])], "계약서 수정.docx");
@@ -108,7 +121,8 @@ describe("intakeComposerFiles", () => {
 		});
 		const sent: string[] = [];
 		const intake = await intakeComposerFiles([code, docx, pdf], {
-			...local({}),
+			// This machine's own paths never reach the other computer.
+			...local({ "a.ts": "/work/a.ts", "계약서 수정.docx": "/Users/me/계약서 수정.docx" }),
 			cwd: "C:\\Users\\admin\\repo",
 			remote: true,
 			sendToHost: async file => {
@@ -133,6 +147,7 @@ describe("intakeComposerFiles", () => {
 		const intake = await intakeComposerFiles([notes, pdf], {
 			cwd: "/work",
 			remote: false,
+			sendToHost: unsent,
 			pathFor: async file => {
 				if (file.name === "spec.pdf") throw new Error("Couldn't send spec.pdf to your computer.");
 				return "/up/dev/1/notes.txt";

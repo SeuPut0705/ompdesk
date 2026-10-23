@@ -474,13 +474,15 @@ export const ko: Record<string, string> = {
 	"input.files.empty": "{name} 파일이 비어 있어서 첨부하지 않았어요.",
 	"input.files.remoteFolder":
 		"{name}은 이 컴퓨터의 폴더라서 {device} 컴퓨터에서 실행 중인 탭은 열 수 없어요. 안의 파일을 첨부해 주세요.",
-	"input.files.tooLarge": "{name} 파일이 5MB를 넘어서 내용을 첨부하지 않았어요.",
-	"input.files.noPath": "{name} 파일은 이 컴퓨터의 경로가 없어요. 폴더에 저장한 뒤 첨부해 주세요.",
 	"input.files.remoteBinary":
 		"{name} 파일을 {device} 컴퓨터로 보낼 수 없어요. 그쪽 OMPdesk가 오래돼 파일을 받지 못해요. 업데이트한 뒤 다시 첨부해 주세요.",
 	"input.files.hostTooLarge": "{name} 파일은 {device} 컴퓨터로 보내기엔 너무 커요(최대 {size}).",
 	"input.files.hostRefused": "{device} 컴퓨터가 {name} 파일을 받지 않았어요. 잠시 뒤 다시 해 주세요.",
 	"input.files.hostFailed": "{name} 파일을 {device} 컴퓨터로 보내지 못했어요: {reason}",
+	"input.files.localTooLarge": "{name} 파일은 첨부하기엔 너무 커요(최대 {size}).",
+	"input.files.localRefused":
+		"{name} 파일을 첨부하지 못했어요. 오늘 이 컴퓨터에 첨부한 파일이 한도를 넘었어요. 잠시 뒤 다시 해 주세요.",
+	"input.files.localFailed": "{name} 파일을 첨부하지 못했어요: {reason}",
 	"input.files.unreadable": "{name} 파일을 읽지 못했어요.",
 	"input.files.sending": "{name} 파일을 컴퓨터로 보내는 중…",
 	"input.files.sendingList": "컴퓨터로 보내는 중인 파일",

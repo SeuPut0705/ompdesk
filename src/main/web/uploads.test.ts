@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { safeUploadName, UPLOAD_TTL_MS, UploadError, UploadStore } from "./uploads";
+import { attachHere, LOCAL_UPLOAD_DEVICE, safeUploadName, UPLOAD_TTL_MS, UploadError, UploadStore } from "./uploads";
 
 let root: string;
 beforeEach(() => {
@@ -124,6 +124,28 @@ describe("UploadStore", () => {
 		await expect(uploads.take("dev1", join(root, "dev1"))).rejects.toMatchObject({ status: 404 });
 		await expect(uploads.take("dev1", join(root, "dev1", "..", "dev2", "x", "y"))).rejects.toMatchObject({
 			status: 404,
+		});
+	});
+});
+
+describe("attachHere", () => {
+	it("keeps a pathless file of this computer's own tab in its own folder, and says why when it cannot", async () => {
+		const uploads = store();
+		const kept = await attachHere(uploads, "clip.bin", new Uint8Array([1, 0, 2]));
+		if (!kept.ok) throw new Error(kept.error);
+		expect(kept.path).toContain(join(root, LOCAL_UPLOAD_DEVICE));
+		expect([...readFileSync(kept.path)]).toEqual([1, 0, 2]);
+
+		expect(await attachHere(uploads, "big.bin", new Uint8Array(fileMaxBytes + 1))).toMatchObject({
+			ok: false,
+			code: "file_too_large",
+		});
+		await attachHere(uploads, "a.bin", new Uint8Array(fileMaxBytes));
+		await attachHere(uploads, "b.bin", new Uint8Array(fileMaxBytes));
+		// The day's room is spent: the composer says so instead of a raw error.
+		expect(await attachHere(uploads, "c.bin", new Uint8Array(fileMaxBytes))).toMatchObject({
+			ok: false,
+			code: "upload_refused",
 		});
 	});
 });
