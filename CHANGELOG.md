@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.67.4] - 2026-10-23
+
+다른 omp를 기다리는 세션이 제목 표시줄과 에이전트가 보는 세션 목록에서도 대기로 보여요.
+
+### 고친 것
+- 다른 omp가 세션을 놓기를 기다리는 탭의 제목 표시줄 상태가 빨간 "오류"였어요. 이제 "세션을 기다리는 중"으로 보여요.
+- 에이전트가 보는 세션 목록이 그런 세션을 멈춘 것으로 알렸어요. 이제 기다리는 중이며 스스로 열린다고 알려요.
+- 연결된 컴퓨터에서 실행 중인 탭에 폴더를 끌어 놓으면 "비어 있어서 첨부하지 않았어요"라고 떴어요. 이제 폴더는 그 컴퓨터로 보낼 수 없으니 안의 파일을 첨부하라고 알려요.
+
+<!-- en -->
+
+A session waiting for another omp shows as waiting in the title bar and in the session list agents read, too.
+
+### Fixed
+- The title bar showed a red "Error" for a tab waiting for another omp to let go of its session. It now reads "Waiting for the session".
+- The session list agents read reported such a session as stopped. It now says it is waiting and opens by itself.
+- A folder dropped on a tab running on a paired computer was refused as "empty". It now says a folder cannot reach that computer and to attach its files instead.
+
 ## [0.67.3] - 2026-10-23
 
 다른 omp가 세션을 놓기를 기다리는 탭이 오류가 아니라 기다리는 중으로 보여요.
