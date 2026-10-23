@@ -51,6 +51,7 @@ import { useQueueStore } from "./queue";
 import { type SessionStore, useSessionStore } from "./session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
 import { useSubagentsStore } from "./subagents";
+import { tabReady } from "./tab-ready-gate";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
 	endTabSignIn,
@@ -1322,6 +1323,29 @@ describe("tabs store applyTabStatus", () => {
 
 		await useTabsStore.getState().switchTab("t1");
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
+	});
+
+	it("holds a held tab's commands until its session opens, as a starting tab's", async () => {
+		seedTabs();
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "error", sessionHeld: true });
+		const waiting = tabReady("t1");
+		expect(waiting).not.toBeNull();
+		let released = false;
+		void waiting?.then(() => {
+			released = true;
+		});
+		// The other omp let go: the tab starts, still held back, then is ready.
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "starting" });
+		await Promise.resolve();
+		expect(released).toBe(false);
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+		await waiting;
+		expect(released).toBe(true);
+		// A failed tab is no wait: its command goes out (and fails) now.
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "error" });
+		expect(tabReady("t1")).toBeNull();
 	});
 
 	it("keeps a session another omp holds as a wait until any other status replaces it", () => {

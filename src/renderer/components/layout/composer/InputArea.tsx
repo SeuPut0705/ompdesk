@@ -69,6 +69,8 @@ export function InputArea() {
 	/** A chat tab only differs in wording: it has no project to work in. */
 	const isChat = useActiveTabKind() === "chat";
 	const status = useSessionStore(s => s.status);
+	// Another omp still holds the session: the tab opens it by itself, so a message waits for it as for a start.
+	const sendStatus = useSessionStore(s => (s.status === "error" && s.sidecarHeld ? "starting" : s.status));
 	const sessionId = useSessionStore(s => s.sessionId);
 	const queuedMessageCount = useSessionStore(s => s.queuedMessageCount);
 	const cwd = useSessionStore(s => s.cwd);
@@ -250,7 +252,7 @@ export function InputArea() {
 		text,
 		images,
 		sending,
-		status,
+		status: sendStatus,
 		isStreaming,
 		mode,
 		queuedMessageCount,
@@ -334,7 +336,7 @@ export function InputArea() {
 	});
 	const sendDisabled =
 		!routeReady ||
-		(status !== "ready" && status !== "starting") ||
+		(sendStatus !== "ready" && sendStatus !== "starting") ||
 		sending ||
 		submissionUncertain ||
 		(!text.trim() && images.length === 0);

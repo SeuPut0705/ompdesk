@@ -272,6 +272,17 @@ describe("a tab whose omp is still starting", () => {
 		expect(JSON.stringify(sent())).toContain("typed while starting");
 	});
 
+	it("a tab waiting for another omp to let go of its session takes the message too, and sends it once it opens", async () => {
+		input.current = null;
+		await mount();
+		await act(async () => useSessionStore.setState({ status: "error", sidecarHeld: true }));
+		await typeInto("typed while held");
+		const send = document.querySelector('button[aria-label="Send"]') as unknown as TestElement | null;
+		expect(send?.getAttribute("disabled")).toBeNull();
+		await act(async () => propsOf(send)?.onClick?.({ preventDefault: () => {} }));
+		expect(JSON.stringify(sent())).toContain("typed while held");
+	});
+
 	it("a failed or exited tab still refuses with the connecting toast", async () => {
 		input.current = null;
 		await mount();

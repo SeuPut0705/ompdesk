@@ -1263,7 +1263,11 @@ useTabsStore.subscribe(state => {
 // once and the first message leaves when the omp is ready. A tab that is gone, failed or exited releases it too;
 // the command then fails the way it always did, and the composer restores the draft.
 installTabReadyGate(tabId => {
-	const starting = () => useTabsStore.getState().tabs.find(tab => tab.id === tabId)?.status === "starting";
+	// A tab waiting for another omp to let go of its session opens it by itself, then starts: its commands wait too.
+	const starting = () => {
+		const tab = useTabsStore.getState().tabs.find(entry => entry.id === tabId);
+		return tab !== undefined && (tab.status === "starting" || isSessionHeld(tab));
+	};
 	if (!starting()) return null;
 	return new Promise<void>(resolve => {
 		const release = () => {
