@@ -161,6 +161,30 @@ describe("buildWorkTree", () => {
 		]);
 	});
 
+	it("reads a session another omp still holds as no failure, here and from a paired device", () => {
+		const held = input({
+			tabs: [...input().tabs.filter(t => t.id !== "boss"), tab("boss", { status: "error", sessionHeld: true })],
+		});
+		expect(buildWorkTree(held)[0]?.root).toMatchObject({ key: "tab:boss", state: null });
+		const failed = input({ tabs: [...input().tabs.filter(t => t.id !== "boss"), tab("boss", { status: "error" })] });
+		expect(buildWorkTree(failed)[0]?.root).toMatchObject({ key: "tab:boss", state: "failed" });
+
+		const hosted: IpcHostedSession[] = [
+			{
+				sessionPath: "/s/h1.jsonl",
+				cwd: "/repo",
+				kind: "agent",
+				status: "error",
+				sessionHeld: true,
+				device: "Phone",
+			},
+			{ sessionPath: "/s/h2.jsonl", cwd: "/repo", kind: "agent", status: "error", device: "Phone" },
+		];
+		expect(buildWorkTree(input({ tabs: [tab("solo")], hosted })).map(family => family.root.key)).toEqual([
+			"hosted:/s/h2.jsonl",
+		]);
+	});
+
 	it("never loops on an opener cycle", () => {
 		const tabs = [tab("p", { openedBy: "q" }), tab("q", { openedBy: "p" }), tab("r", { title: "R" })];
 		expect(() => buildWorkTree(input({ tabs, subagents: new Map(), closed: [] }))).not.toThrow();

@@ -86,10 +86,17 @@ const NO_AGENTS: ReadonlyMap<string, SubagentSnapshot> = new Map();
 const NO_OWNERS: ReadonlyMap<string, string> = new Map();
 
 /** The token a tab's own state reads as (the same reading the sidebar gives a session row). */
-function tabState(tab: Pick<SessionTab, "status" | "awaitingInput" | "compacting" | "lastRun">): FamilyState {
+function tabState(
+	tab: Pick<SessionTab, "status" | "awaitingInput" | "compacting" | "lastRun" | "sessionHeld">,
+): FamilyState {
 	if (tab.awaitingInput !== undefined) return "waiting";
 	if (tab.status === "running" || tab.compacting === true) return "running";
-	if (tab.status === "error" || tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted")
+	// Another omp still holding the session is a wait that ends by itself, not a failure.
+	if (
+		(tab.status === "error" && tab.sessionHeld !== true) ||
+		tab.lastRun?.stopReason === "error" ||
+		tab.lastRun?.stopReason === "aborted"
+	)
 		return "failed";
 	return "idle";
 }
@@ -233,7 +240,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 			? "waiting"
 			: session.status === "running"
 				? "running"
-				: session.status === "error"
+				: session.status === "error" && session.sessionHeld !== true
 					? "failed"
 					: "idle";
 		if (state === "idle") continue;
