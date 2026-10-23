@@ -63,9 +63,12 @@ import {
 	type PendingInstall,
 	parsePendingInstall,
 	previousInstallDetails,
+	relaunchPresence,
 	type SwapLogEntry,
 	scrubUpdateText,
 	type UpdateLogDetails,
+	type WindowPresence,
+	windowPresenceOf,
 } from "./update-log-core";
 import { releaseUpdateProvider } from "./update-provider";
 import { type PlatformRelease, UPDATE_METADATA_ERROR, UPDATE_PLATFORM_ERROR } from "./update-release";
@@ -191,19 +194,53 @@ function pendingInstallPath(): string {
 	return path.join(app.getPath("userData"), "update-install.json");
 }
 
+/** How the windows sat when the install began (read before the quit tears them down). */
+let presenceAtInstall: WindowPresence | undefined;
+
+function currentWindowPresence(): WindowPresence | undefined {
+	return windowPresenceOf(
+		BrowserWindow.getAllWindows()
+			.filter(win => !win.isDestroyed())
+			.map(win => ({ visible: win.isVisible(), minimized: win.isMinimized(), focused: win.isFocused() })),
+	);
+}
+
+/**
+ * How the relaunch an update made should show its windows: as they sat when the install began (hidden in the tray,
+ * minimized, behind another app), read from the install marker before the first window opens. Null for any other
+ * launch, and for an install the person started in front of the app.
+ */
+export function readRelaunchPresence(): WindowPresence | null {
+	try {
+		return relaunchPresence(parsePendingInstall(fs.readFileSync(pendingInstallPath(), "utf8")), Date.now()) ?? null;
+	} catch {
+		return null;
+	}
+}
+
 /** The install's helper starts (macOS swap script or Windows NSIS installer): one line, and the marker the next launch reads. */
 function noteInstallHelper(mode: InstallHelperMode, trigger: InstallTrigger, extra: UpdateLogDetails = {}): void {
+	const presence = presenceAtInstall ?? currentWindowPresence();
 	const pending: PendingInstall = {
 		from: appVersion(),
 		to: current.state === "downloaded" ? current.version : "unknown",
 		mode,
 		trigger,
 		at: Date.now(),
+		...(presence ? { presence } : {}),
 	};
 	try {
 		fs.writeFileSync(pendingInstallPath(), JSON.stringify(pending));
 	} catch {}
-	logUpdate("swap", { event: "helper", mode, from: pending.from, to: pending.to, trigger, ...extra });
+	logUpdate("swap", {
+		event: "helper",
+		mode,
+		from: pending.from,
+		to: pending.to,
+		trigger,
+		...(presence ? { presence } : {}),
+		...extra,
+	});
 }
 
 /**
@@ -213,6 +250,7 @@ function noteInstallHelper(mode: InstallHelperMode, trigger: InstallTrigger, ext
  */
 function beginInstall(trigger: InstallTrigger): void {
 	installTrigger = trigger;
+	presenceAtInstall = currentWindowPresence();
 	if (trigger !== "auto") logUpdate("scheduler", { event: "install", trigger });
 	if (current.state === "downloaded") {
 		broadcast({ state: "downloaded", version: current.version, mode: current.mode, installing: true });

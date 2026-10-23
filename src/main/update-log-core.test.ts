@@ -4,7 +4,10 @@ import {
 	type PendingInstall,
 	parsePendingInstall,
 	previousInstallDetails,
+	RELAUNCH_PRESENCE_MS,
+	relaunchPresence,
 	scrubUpdateText,
+	windowPresenceOf,
 } from "./update-log-core";
 
 const pending: PendingInstall = {
@@ -42,6 +45,29 @@ describe("parsePendingInstall", () => {
 		expect(parsePendingInstall(JSON.stringify({ ...pending, mode: "squirrel" }))).toBeUndefined();
 		expect(parsePendingInstall(JSON.stringify({ ...pending, at: "yesterday" }))).toBeUndefined();
 		expect(parsePendingInstall("null")).toBeUndefined();
+	});
+});
+
+describe("relaunch presence", () => {
+	const win = (visible: boolean, minimized = false, focused = false) => ({ visible, minimized, focused });
+
+	it("reads how the windows sat when an install began", () => {
+		expect(windowPresenceOf([win(false), win(false)])).toBe("hidden");
+		expect(windowPresenceOf([win(true, true), win(false)])).toBe("minimized");
+		expect(windowPresenceOf([win(true), win(true, true)])).toBe("behind");
+		// In front of the person (a click on Restart & install) or no window at all: the relaunch shows as always.
+		expect(windowPresenceOf([win(true, false, true)])).toBeUndefined();
+		expect(windowPresenceOf([])).toBeUndefined();
+	});
+
+	it("keeps it through the marker and applies it only to the relaunch the install made", () => {
+		const hidden = { ...pending, presence: "hidden" as const };
+		expect(parsePendingInstall(JSON.stringify(hidden))).toEqual(hidden);
+		expect(parsePendingInstall(JSON.stringify({ ...pending, presence: "maximized" }))).toEqual(pending);
+		expect(relaunchPresence(hidden, pending.at + 20_000)).toBe("hidden");
+		expect(relaunchPresence(hidden, pending.at + RELAUNCH_PRESENCE_MS + 1)).toBeUndefined();
+		expect(relaunchPresence(pending, pending.at + 20_000)).toBeUndefined();
+		expect(relaunchPresence(undefined, pending.at)).toBeUndefined();
 	});
 });
 

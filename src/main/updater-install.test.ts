@@ -9,7 +9,7 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, type UpdateStatus } from "../shared/ipc-types";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
-import { appAutoUpdatePrefChanged, setupUpdater } from "./updater";
+import { appAutoUpdatePrefChanged, readRelaunchPresence, setupUpdater } from "./updater";
 import { type IpcCaller, IpcRegistry } from "./web/ipc-registry";
 
 const mocks = vi.hoisted(() => {
@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
 		sent: [] as UpdateStatus[],
 		runtimeLog: [] as Array<{ message: string; details: Record<string, unknown> }>,
 		userData: { dir: "" },
+		windowVisible: true,
 	};
 });
 
@@ -40,6 +41,9 @@ vi.mock("electron", () => ({
 	BrowserWindow: {
 		getAllWindows: () => [
 			{
+				isDestroyed: () => false,
+				isVisible: () => mocks.windowVisible,
+				isMinimized: () => false,
 				isFocused: () => false,
 				webContents: { send: (_channel: string, status: UpdateStatus) => mocks.sent.push(status) },
 			},
@@ -134,6 +138,18 @@ describe("Restart & install on Windows", () => {
 		});
 		await restartAndInstall();
 		expect(heardWhenInstallerStarted).toMatchObject({ state: "downloaded", version: "0.45.0", installing: true });
+	});
+
+	it("records how the windows sat, so the relaunch comes back the same way", async () => {
+		mocks.windowVisible = false;
+		try {
+			await restartAndInstall();
+		} finally {
+			mocks.windowVisible = true;
+		}
+		const helper = mocks.runtimeLog.find(report => report.details.event === "helper");
+		expect(helper?.details).toMatchObject({ mode: "nsis", presence: "hidden" });
+		expect(readRelaunchPresence()).toBe("hidden");
 	});
 
 	it("starts nothing when clicked again while the install is under way", async () => {

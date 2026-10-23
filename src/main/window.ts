@@ -23,6 +23,7 @@ import {
 	shouldRestartForChangedResources,
 } from "./renderer-recovery";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
+import type { WindowPresence } from "./update-log-core";
 import type { ClientWindow } from "./web/client-window";
 import { type Rect, restoreWithinDisplays } from "./window-bounds";
 import { micaSupported, windowChromeOptions } from "./window-chrome";
@@ -90,6 +91,8 @@ export class WindowManager {
 	#launchResourceIdentity = this.#readResourceIdentity();
 	#resourceRestartScheduled = false;
 	#windowClosedListeners = new Set<(record: WindowRecord) => void>();
+	/** How windows created now first show (an update's relaunch restoring its windows); null: in front, as always. */
+	launchPresence: WindowPresence | null = null;
 	/**
 	 * Subscribe to window teardown (tray aggregates, tab-layout persistence).
 	 * A listener set rather than one slot because more than one consumer needs
@@ -186,10 +189,15 @@ export class WindowManager {
 		this.#loadRenderer(record);
 		this.#markSoftwareCompositing(win);
 
+		// The relaunch an update made while the app sat in the tray, minimized or behind another app comes back that
+		// way, never in front of the person (`readRelaunchPresence`); set only while the launch restores its windows.
+		const presence = this.launchPresence;
 		showOnFirstPaint(win, win.webContents, () => {
 			if (win.isDestroyed()) return;
+			if (presence === "hidden") return;
+			if (presence === "minimized") win.minimize();
 			// OMP_GUI_HEADLESS (e2e): index.ts makes windows transparent; never take focus.
-			if (process.env.OMP_GUI_HEADLESS === "1") win.showInactive();
+			else if (presence === "behind" || process.env.OMP_GUI_HEADLESS === "1") win.showInactive();
 			else win.show();
 		});
 

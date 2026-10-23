@@ -37,6 +37,33 @@ export interface PendingInstall {
 	trigger: string;
 	/** Epoch ms the helper was launched. */
 	at: number;
+	/** How the app's windows sat when the install began, so the relaunch comes back the same way (absent: in front). */
+	presence?: WindowPresence;
+}
+
+/**
+ * How the windows sat when an install began: all hidden (closed to the tray, or the macOS app with no window
+ * shown), all minimized, or shown while another app had the focus. The relaunch an automatic update makes opens
+ * them that way instead of in front of the person.
+ */
+export type WindowPresence = "hidden" | "minimized" | "behind";
+
+export function windowPresenceOf(
+	windows: readonly { visible: boolean; minimized: boolean; focused: boolean }[],
+): WindowPresence | undefined {
+	const shown = windows.filter(win => win.visible);
+	if (shown.length === 0) return windows.length > 0 ? "hidden" : undefined;
+	if (shown.every(win => win.minimized)) return "minimized";
+	if (!windows.some(win => win.focused)) return "behind";
+	return undefined;
+}
+
+/** The relaunch an install made reads its presence only this soon after the helper started; a later launch is the person's. */
+export const RELAUNCH_PRESENCE_MS = 15 * 60_000;
+
+export function relaunchPresence(pending: PendingInstall | undefined, now: number): WindowPresence | undefined {
+	if (!pending?.presence || now - pending.at > RELAUNCH_PRESENCE_MS || now < pending.at) return undefined;
+	return pending.presence;
 }
 
 export function parsePendingInstall(raw: string): PendingInstall | undefined {
@@ -47,12 +74,19 @@ export function parsePendingInstall(raw: string): PendingInstall | undefined {
 		return undefined;
 	}
 	if (typeof value !== "object" || value === null) return undefined;
-	const { from, to, mode, trigger, at } = value as Record<string, unknown>;
+	const { from, to, mode, trigger, at, presence } = value as Record<string, unknown>;
 	if (typeof from !== "string" || typeof to !== "string" || typeof trigger !== "string" || typeof at !== "number") {
 		return undefined;
 	}
 	if (mode !== "relaunch" && mode !== "nsis") return undefined;
-	return { from, to, mode, trigger, at };
+	return {
+		from,
+		to,
+		mode,
+		trigger,
+		at,
+		...(presence === "hidden" || presence === "minimized" || presence === "behind" ? { presence } : {}),
+	};
 }
 
 /** The lines the swap script ends an entry with (`SWAP_SCRIPT` in updater-state.ts). */

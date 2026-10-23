@@ -172,6 +172,7 @@ import {
 	appVersion,
 	checkForUpdate,
 	downloadUpdate,
+	readRelaunchPresence,
 	restartableUpdate,
 	restartIntoUpdate,
 	setupUpdater,
@@ -1785,6 +1786,10 @@ app.whenReady().then(() => {
 	// Read before the first window restores: every tab change rewrites the store,
 	// so a later read would only see the just-restored primary window.
 	const savedLayouts = readSavedTabLayouts();
+	// An update's relaunch comes back as the app sat when it began: hidden in the tray, minimized or behind another
+	// app (the user's rule, 23 Oct 2026: it reopened maximized in front of them). Only the windows this launch restores.
+	const relaunchPresence = explicitStartupCwd ? null : readRelaunchPresence();
+	windowManager.launchPresence = relaunchPresence;
 	spawnWindow(explicitStartupCwd);
 	markStartup("window-created");
 	// A bare launch restores the saved session in full. The window above carries
@@ -1793,6 +1798,9 @@ app.whenReady().then(() => {
 	if (!explicitStartupCwd) {
 		for (const layout of savedLayouts.slice(1)) spawnWindowWithLayout(layout);
 	}
+	windowManager.launchPresence = null;
+	// macOS activates the relaunched app; one that comes back in the tray gives the focus straight back.
+	if (relaunchPresence === "hidden" && process.platform === "darwin") app.hide();
 	// Each paired phone's or tablet's tabs come back into its window, as the host's sessions (web/web-tab-layouts.ts).
 	if (webHost) {
 		const paired = new Set(webHost.devices.list().map(device => device.deviceId));
