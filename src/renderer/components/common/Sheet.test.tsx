@@ -57,6 +57,18 @@ describe("Sheet placements", () => {
 		expect(document.querySelector("[data-sheet-handle]")).toBeNull();
 	});
 
+	it("names itself with a heading, so the sections inside it (h3) follow in order", async () => {
+		await mount(
+			<Sheet onClose={() => {}} open title="Work tree">
+				<h3>Sessions</h3>
+			</Sheet>,
+		);
+		const dialog = document.querySelector('[role="dialog"]');
+		const heading = dialog?.querySelector("h2");
+		expect(heading?.textContent).toBe("Work tree");
+		expect(dialog?.getAttribute("aria-labelledby")).toBe(heading?.getAttribute("id"));
+	});
+
 	it("closes on Escape", async () => {
 		const onClose = vi.fn();
 		await mount(

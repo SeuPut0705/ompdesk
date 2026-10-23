@@ -128,9 +128,9 @@ export function SheetSurface({
 			) : (
 				<div className="omp-sheet-head flex shrink-0 items-start justify-between gap-3 border-b border-(--sc-divider) py-3 pr-3 pl-5">
 					<div className="min-w-0 pt-1">
-						<div className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
+						<h2 className="text-sc-lg font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
-						</div>
+						</h2>
 						{description && <div className="mt-0.5 text-sc-sm text-(--sc-text-muted)">{description}</div>}
 					</div>
 					{onClose && (

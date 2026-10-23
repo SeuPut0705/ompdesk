@@ -108,7 +108,9 @@ export const SETTINGS_SECTIONS = [
 	"advanced",
 ] as const;
 
-const PANELS = ["terminal", "diff", "preview", "files", "jobs", "plan", "logs", "queue", "tree", "memory"] as const;
+/** The side panel's views (`PANEL_TABS`); the other session views open as sheets (`VIEW_SHEETS`, stores/ui.ts). */
+const PANELS = ["terminal", "diff", "preview", "files"] as const;
+const VIEW_SHEETS = ["jobs", "plan", "logs", "tree", "work"] as const;
 
 const DIALOG_FLAGS: ReadonlyArray<{ id: string; action: string; args?: unknown[]; title: string }> = [
 	{ id: "dialog-rename", action: "openRenameDialog", title: "Rename session" },
@@ -306,6 +308,18 @@ export const SURFACES: readonly Surface[] = [
 				await ui(page, "setPanelTab", panel);
 			},
 			ready: "[data-sheet-panel], [data-panel-tabbar], .omp-panel-topbar",
+			settle: 900,
+		}),
+	),
+	...VIEW_SHEETS.map(
+		(view): Surface => ({
+			id: `sheet-${view}`,
+			area: "A",
+			title: `View sheet › ${view}`,
+			open: async page => {
+				await ui(page, "openViewSheet", view);
+			},
+			ready: `[data-view-sheet="${view}"]`,
 			settle: 900,
 		}),
 	),
