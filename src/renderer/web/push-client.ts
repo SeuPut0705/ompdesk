@@ -14,6 +14,7 @@ import {
 	type WebPushStateResponse,
 	type WebPushSubscriptionJson,
 } from "../../shared/web-push";
+import { translate } from "../lib/i18n";
 import type { FetchLike } from "./session";
 
 /** Why push can or cannot work on this page right now. */
@@ -161,9 +162,9 @@ export class PushClient {
 			cache: "no-store",
 			...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),
 		});
-		if (!response.ok) throw new Error(`The computer refused the notification request (${response.status})`);
+		if (!response.ok) throw new Error(translate("web.push.error.refused", { status: response.status }));
 		const parsed: unknown = await response.json();
-		if (!isStateResponse(parsed)) throw new Error("The computer sent an unreadable notification state");
+		if (!isStateResponse(parsed)) throw new Error(translate("web.push.error.unreadable"));
 		this.#host = parsed;
 		return parsed;
 	}
@@ -196,7 +197,7 @@ export class PushClient {
 		if (permission !== "granted") return this.#set({ permission, subscribed: false });
 		const host = this.#host ?? (await this.#request("GET"));
 		const manager = await this.#env.pushManager();
-		if (!manager) throw new Error("The service worker is not ready yet");
+		if (!manager) throw new Error(translate("web.push.error.worker"));
 		const key = urlBase64ToBytes(host.publicKey);
 		let subscription = await manager.getSubscription();
 		const stored = subscription?.options?.applicationServerKey;
@@ -207,7 +208,7 @@ export class PushClient {
 		}
 		subscription ??= await manager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
 		const json = subscription.toJSON();
-		if (!isSubscriptionJson(json)) throw new Error("The browser gave no usable push subscription");
+		if (!isSubscriptionJson(json)) throw new Error(translate("web.push.error.subscription"));
 		const reply = await this.#request("POST", { subscription: json });
 		return this.#set({
 			permission,

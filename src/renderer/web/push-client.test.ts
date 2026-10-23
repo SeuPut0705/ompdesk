@@ -1,5 +1,6 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { WebPushRequest, WebPushStateResponse } from "../../shared/web-push";
+import { loadLocale, setLanguageOverride, translate } from "../lib/i18n";
 import {
 	PushClient,
 	type PushEnv,
@@ -132,6 +133,20 @@ describe("PushClient.load", () => {
 		await expect(bad.client.load()).rejects.toThrow("401");
 		const garbled = setup({ env: { fetch: async () => Response.json({ nope: true }) } });
 		await expect(garbled.client.load()).rejects.toThrow("unreadable");
+	});
+
+	it("words its reasons in the page's language: Settings shows them under the failure", async () => {
+		await loadLocale("ko");
+		setLanguageOverride("ko");
+		try {
+			const bad = setup({ env: { fetch: async () => new Response("no", { status: 401 }) } });
+			await expect(bad.client.load()).rejects.toThrow(translate("web.push.error.refused", { status: 401 }));
+			const garbled = setup({ env: { fetch: async () => Response.json({ nope: true }) } });
+			await expect(garbled.client.load()).rejects.toThrow(translate("web.push.error.unreadable"));
+			expect(translate("web.push.error.unreadable")).not.toMatch(/[a-z]{4}/);
+		} finally {
+			setLanguageOverride(null);
+		}
 	});
 });
 
