@@ -9,7 +9,7 @@ Autopilot develops a project on its own, one cycle after another, until you end 
 1. Open a session in a git repository.
 2. In the composer, open the Run chip, choose **Autopilot** under Mode, and press **Start Autopilot**.
 
-The run opens in a new tab on a new branch, `autopilot/<date>`, cut from the branch checked out in your folder. Nothing else needs to be set. **Advanced** in the same place has:
+The run opens in a new tab on a new branch, `autopilot/<date>`, cut from the branch checked out in your folder. The tab is named after the item the cycle at work picked and is renamed each cycle (a name you give it yourself stays); a rocket on its sidebar row, title bar and board marks it as a run. Nothing else needs to be set. **Advanced** in the same place has:
 
 - **Shipping**: where green cycles go (below).
 - **Branch**: the folder's branch the run starts from.
