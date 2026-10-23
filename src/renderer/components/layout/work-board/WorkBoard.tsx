@@ -349,7 +349,17 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			   they fit (each item's details are its tooltip). */}
 			<header className="omp-work-board-head">
 				<span aria-hidden className="omp-work-board-pulse" data-state={pulse} />
-				<h2 className="omp-work-board-name">{autopilotTab ? t("autopilot.name") : t("workBoard.label")}</h2>
+				<h2 className="omp-work-board-name" data-board-name>
+					{autopilotTab ? (
+						// A run's board is named by its rocket (the user's call, 23 Oct 2026); the word is for screen readers.
+						<>
+							<Rocket aria-hidden className="inline size-(--sc-icon-sm) align-[-0.125em]" />
+							<span className="sr-only">{t("autopilot.name")}</span>
+						</>
+					) : (
+						t("workBoard.label")
+					)}
+				</h2>
 				{plan ? (
 					<span
 						className="omp-work-board-progress"

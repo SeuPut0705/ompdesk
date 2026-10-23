@@ -25,7 +25,7 @@ export function AutopilotDockRow({ inline = false }: { inline?: boolean }) {
 			data-goal-row={inline || undefined}
 		>
 			<Rocket aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={inline ? 14 : 16} />
-			<span className="shrink-0 text-sc-md font-medium text-(--sc-text)">{t("autopilot.name")}</span>
+			<span className="sr-only">{t("autopilot.name")}</span>
 			<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text-muted)">{text}</span>
 			<IconButton
 				icon={<LayoutDashboard />}

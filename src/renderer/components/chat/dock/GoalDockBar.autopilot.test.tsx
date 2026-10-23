@@ -76,7 +76,8 @@ describe("GoalDockBar for an Autopilot run", () => {
 		useAutopilotStore.getState().apply({ active: true, state: "running", cycle: 4, now: { n: 4, startedAt: 1 } });
 		await mount();
 		expect(container.querySelector("[data-autopilot-dock]")).not.toBeNull();
-		expect(container.textContent).toContain(translate("autopilot.name"));
+		// The rocket says it is a run; its word is only for screen readers.
+		expect(container.querySelector("[data-autopilot-dock] .sr-only")?.textContent).toBe(translate("autopilot.name"));
 		expect(container.textContent).toContain(translate("autopilot.cycleN", { n: 4 }));
 		expect(container.querySelector(`[aria-label="${translate("dock.goal.pause")}"]`)).toBeNull();
 		expect(container.querySelector(`[aria-label="${translate("dock.goal.drop")}"]`)).toBeNull();

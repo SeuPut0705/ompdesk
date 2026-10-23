@@ -181,7 +181,9 @@ describe("an Autopilot tab's work board", () => {
 		useSessionStore.setState({ goal: { objective: "Autopilot: keep developing" }, goalState: { status: "active" } });
 		useAutopilotStore.getState().apply(running);
 		await mount();
-		expect($(".omp-work-board-name")?.textContent).toBe(translate("autopilot.name"));
+		// The rocket names a run's board; the word is only for screen readers (the user's call, 23 Oct 2026).
+		expect($(".omp-work-board-name svg")).not.toBeNull();
+		expect($(".omp-work-board-name .sr-only")?.textContent).toBe(translate("autopilot.name"));
 		expect($("[data-autopilot-state]")?.getAttribute("data-autopilot-state")).toBe("running");
 		expect($("[data-board-autopilot-text]")?.textContent).toBe(
 			translate("autopilot.cycleArea", { n: 8, area: translate("autopilot.area.performance") }),
