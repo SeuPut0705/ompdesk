@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.63.0] - 2026-10-23
+
+오토파일럿 버튼이 일시정지, 배포 후 중단, 즉시 중단 세 개로 바뀌었어요. 0.62.1에서 준비 중인 새 탭에 보낸 프롬프트가 탭과 함께 사라지던 문제도 고쳤어요.
+
+### 새로 생긴 것
+- 오토파일럿 버튼이 한 줄에 아이콘과 함께 세 개예요. 일시정지는 다시 누르면 재개되고, 배포 후 중단은 다음 사이클이 하던 작업을 main에 반영하고 릴리스할 때가 됐으면 릴리스까지 한 뒤 끝내요(다시 누르면 취소). 즉시 중단은 지금 바로 멈춰요.
+- 입력란에 글을 쓰고 있는 세션에는 다른 에이전트가 보낸 메시지가 바로 턴을 시작하지 않고, 그 글을 보내거나 지울 때까지 기다려요.
+
+### 고친 것
+- 새 탭이 준비되기 전에 프롬프트를 보내고 다른 탭으로 옮기면, 탭이 프롬프트와 함께 닫혔어요(0.62.1). 이제 보내는 중인 프롬프트가 있는 탭은 그대로 남아요.
+
+<!-- en -->
+
+Autopilot's controls are now Pause, Ship then stop, and Stop now. A prompt sent to a new tab before it was ready no longer disappears with the tab (0.62.1).
+
+### New
+- Autopilot's three controls sit in one row with icons. Pause resumes when pressed again; Ship then stop has the next cycle land its work and release when a release is due, then ends the run (press again to cancel); Stop now stops at once.
+- A message another agent sends to a session you are typing in waits until you send or clear your text, instead of starting a turn under your hands.
+
+### Fixed
+- Sending a prompt to a new tab before it was ready and then switching tabs closed the tab with the prompt (0.62.1). A tab with a prompt on its way now stays.
+
 ## [0.62.1] - 2026-10-23
 
 자동 업데이트 뒤 앱이 업데이트 전 그대로(트레이에 숨김, 최소화, 다른 앱 뒤) 돌아와요. 배포되지 못한 0.62.0의 내용도 이 버전에 들어 있어요.
