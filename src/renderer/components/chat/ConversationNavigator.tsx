@@ -40,6 +40,7 @@ export function ConversationNavigator({ activeIndex, anchors, onNavigate }: Conv
 					const clock = previewIndex === index ? formatShortClock(anchor.timestamp) : "";
 					return (
 						<div key={anchor.key} className="omp-conversation-nav-slot">
+							{/* controls-ok: the omp-conversation-nav-marker class draws the marker and its focus ring */}
 							<button
 								ref={element => {
 									buttonsRef.current[index] = element;
