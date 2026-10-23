@@ -2241,8 +2241,10 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(host.mails.filter(mail => mail.to === child.tabId)).toHaveLength(1);
 		expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
 
-		// Its next turn still says nothing: the opener hears of it, once, without a turn.
-		child.last = "Still looking.";
+		// Its next turn still says nothing, word for word the same: the opener hears of it, once, without a turn.
+		child.busy = true;
+		await service.autoClose("main0001");
+		child.busy = false;
 		await service.autoClose("main0001");
 		await service.autoClose("main0001");
 		const toOpener = host.mails.filter(mail => mail.to === "main0001");

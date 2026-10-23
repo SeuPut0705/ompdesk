@@ -971,7 +971,10 @@ export class AgentControl {
 	 * Children asked once to report after a turn that ended with neither a verdict line nor a done report, per tab: the
 	 * dispatch it was asked on, the answer it had then, and whether its opener has been told it still did not.
 	 */
-	readonly #nudged = new Map<string, { dispatch: string | undefined; answer: string; toldOpener: boolean }>();
+	readonly #nudged = new Map<
+		string,
+		{ dispatch: string | undefined; answer: string; ran: boolean; toldOpener: boolean }
+	>();
 	/** Callers whose `autoClose` pass is in flight. */
 	readonly #sweeping = new Set<string>();
 	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
@@ -3267,6 +3270,8 @@ export class AgentControl {
 				if (!this.#openedBy(callerTabId, tabs).has(tab.tabId) || this.#closing.has(tab.tabId)) continue;
 				if (tab.busy || waits(tab)) {
 					this.#collected.delete(tab.tabId);
+					const asked = this.#nudged.get(tab.tabId);
+					if (asked && tab.busy) asked.ran = true;
 					continue;
 				}
 				if (!tab.autoClosable || tab.hidden) continue;
@@ -3317,15 +3322,16 @@ export class AgentControl {
 			text,
 		});
 		if (!asked || asked.dispatch !== dispatch) {
-			this.#nudged.set(tab.tabId, { dispatch, answer, toldOpener: false });
+			this.#nudged.set(tab.tabId, { dispatch, answer, ran: false, toldOpener: false });
 			const text = `OMPdesk: your turn ended with no \`Result: ok\` / \`Result: problem — <reason>\` line and no ompdesk_report about this work. Report where it stands now with ompdesk_report (kind done, blocked or question${dispatch ? `, dispatch "${dispatch}"` : ""}), and end your final answer with the Result line.`;
 			await this.#host
 				.mail(tab.tabId, text, quiet(text), { triggerTurn: true, deliverAs: "aside" })
 				.catch(() => undefined);
 			return;
 		}
-		// Still nothing after the turn it was asked in (a new answer is in): its opener hears of it, once.
-		if (asked.toldOpener || answer === asked.answer) return;
+		// Still nothing after the turn it was asked in (seen running since, or a new answer is in): its opener hears of
+		// it, once.
+		if (asked.toldOpener || (!asked.ran && answer === asked.answer)) return;
 		asked.toldOpener = true;
 		const text = `${label(tab)} ended its turn again without a verdict line or a report, after OMPdesk asked it to report. Read its answer (ompdesk_session_result) or ask it where the work stands.`;
 		await this.#host.mail(caller.tabId, text, quiet(text), deliveryFor("note")).catch(() => undefined);
