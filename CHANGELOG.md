@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.67.2] - 2026-10-23
+
+다른 omp가 잡고 있어 열지 못한 세션이, 그 omp가 놓으면 스스로 열리고 끊긴 턴도 이어서 진행돼요.
+
+### 고친 것
+- 다른 omp(터미널, 또는 닫히는 중인 이전 OMPdesk)가 세션을 계속 잡고 있어 열지 못한 탭은 다시 시작을 누를 때까지 멈춰 있었어요. 이제 그 omp가 놓는 순간 스스로 열려요.
+- 그런 탭에 재시작으로 끊긴 턴이 있으면 이어 하기를 포기했어요. 이제 세션이 열리기를 기다렸다가 이어 가요.
+- 세션 소유 확인에 쓰는 omp 내부가 omp 업데이트로 사라지면 조용히 넘어갔어요. 이제 다른 호환성 문제처럼 알려 줘요.
+
+<!-- en -->
+
+A session another omp held opens by itself once that omp lets go, and the turn a restart cut off goes on.
+
+### Fixed
+- A tab that could not open its session because another omp (a terminal, or OMPdesk's last launch still closing) kept it waited for Restart. It now opens the session the moment that omp lets go.
+- A relaunch gave up continuing such a tab's cut-off turn; it now waits for the session to open and continues it.
+- The omp internals the session owner check uses went unchecked; an omp without them is now reported like any other compatibility problem.
+
 ## [0.67.1] - 2026-10-23
 
 업데이트로 다시 시작한 뒤 이어서 하던 세션이 두 파일로 갈라지던 것을 고쳤어요.
