@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.65.0] - 2026-10-23
+
+연결된 컴퓨터와 휴대폰으로 가는 데이터가 크게 줄었어요. 오토파일럿 실행이 길어져도 상태 업데이트가 커지지 않고, 실행 중인 도구가 진행을 알릴 때마다 같은 호출 내용을 되풀이해 보내지 않아요.
+
+### 바뀐 것
+- 오토파일럿 상태 업데이트는 최근 30개 사이클만 담아요(446사이클 실행에서 한 번에 약 500 KB였어요). 이전 사이클은 보드의 "+N개 더"를 누르거나 로그를 복사할 때 읽어요.
+- 연결된 컴퓨터로 가는 도구 진행 업데이트가 호출 내용(하위 에이전트 지시문 등)을 처음 한 번만 보내요.
+
+### 고친 것
+- 연결된 컴퓨터에서 지워진 작업 폴더(gui-agent-…)의 세션이 이 컴퓨터의 연결된 컴퓨터 섹션에 폴더별 그룹으로 계속 보였어요. 이제 그 컴퓨터에서처럼 숨겨요.
+
+<!-- en -->
+
+Much less data goes to paired computers and phones. A long Autopilot run's status updates no longer grow with every cycle, and a running tool's progress no longer repeats the whole call with every update.
+
+### Changed
+- Autopilot status updates carry the newest 30 cycles (a 446-cycle run's update was about 500 KB). Older cycles are read when you tap "+N more" on the board or copy the log.
+- A running tool's progress updates to a paired computer carry the call's arguments (a subagent's assignment and the like) once.
+
+### Fixed
+- Sessions in a folder deleted on a paired computer (gui-agent-…) kept showing in that computer's section here, grouped by folder. They are now hidden, as they are on that computer.
+
 ## [0.64.0] - 2026-10-23
 
 두 번째 기기도 이 컴퓨터 창에 열린 세션을 함께 볼 수 있고, 연결된 컴퓨터 사이드바에 줄줄이 생기던 빈 에이전트 작업 폴더가 정리돼요. 휴대폰에서 연결된 다른 컴퓨터 페이지로 바로 갈 수 있어요.
