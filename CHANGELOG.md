@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.71.0] - 2026-10-23
+
+연결된 다른 컴퓨터에서 돌아가는 세션을 볼 때도 작업 현황이 그 컴퓨터에서 보는 것과 같아요. 오토파일럿은 남은 후속 작업을 끝낸 뒤 닫는 걸 잊지 않아요.
+
+### 새로 생긴 것
+- 오토파일럿 사이클이 하는 일이 남은 후속 작업과 겹쳐 보이면, 에이전트에게 그 항목을 알려 주고 다 한 뒤 닫으라고 해요. 이미 끝난 후속 작업이 목록에 오래 남지 않아요.
+
+### 고친 것
+- 다른 컴퓨터의 창에서 돌아가는 세션(오토파일럿 실행 포함)을 이 기기에서 보면 작업 현황에 **하위 세션**이 비어 있었어요. 이제 그 컴퓨터가 가진 목록과 바뀐 파일을 그대로 보여 주고, 바뀔 때마다 바로 따라가요. 하위 세션을 누르면 그 컴퓨터에서 열려요.
+- 휴대폰에서 연결된 다른 컴퓨터의 파일을 저장할 때 11MB가 넘으면 실패했어요. 이제 나눠 받아서 100MB까지 저장해요.
+
+<!-- en -->
+
+Viewing a session that runs on a paired computer now shows the same work board that computer shows. Autopilot no longer forgets to close a follow-up it has done.
+
+### Added
+- When an Autopilot cycle's item looks like an open follow-up, the agent is told which one and asked to close it once done, so finished follow-ups no longer linger in the list.
+
+### Fixed
+- Viewing a session that runs in a window of a paired computer (an Autopilot run included) showed an empty **Child sessions** section on the board. It now shows that computer's list and changed files, follows each change at once, and a child opens on that computer.
+- Saving a paired computer's file from a phone failed past 11 MB. It is now read in parts, up to 100 MB.
+
 ## [0.70.0] - 2026-10-23
 
 대화에 나온 파일이 미리보기가 있는 카드로 보여요. 버튼 하나로 Finder나 탐색기에서 위치를 보거나, 다른 컴퓨터에 있는 파일이면 지금 쓰는 기기에 저장해요.
