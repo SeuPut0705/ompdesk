@@ -46,7 +46,12 @@ const methods = {
 };
 const input = createInterface({ input: process.stdin });
 input.on("close", () => process.exit(0));
-input.on("line", createDispatcher(methods, line => process.stdout.write(line + "\\n"), false));
+const dispatch = createDispatcher(methods, line => process.stdout.write(line + "\\n"), false);
+// Every withdrawal the worker read, so a test can release a gate only once the worker knows what to skip.
+input.on("line", line => {
+	if (line.includes('"cancel"')) appendFileSync(${JSON.stringify(path.join(dir, "cancels"))}, line + "\\n");
+	dispatch(line);
+});
 `,
 	);
 	return script;
@@ -93,6 +98,15 @@ describe("StockHelper request timeout", () => {
 		const mutate = helper.request("mutate", "late");
 		await expect(mutate).rejects.toThrow("timed out");
 		await gatedTimedOut;
+		// Both withdrawals reach the worker through its stdin pipe, which on a loaded Windows runner arrives after
+		// the release file below (release run 39918441333 ran "late"): the gate opens once the worker has read them.
+		await vi.waitFor(
+			async () =>
+				expect(
+					(await fs.readFile(path.join(dir, "cancels"), "utf8").catch(() => "")).trim().split("\n"),
+				).toHaveLength(2),
+			{ timeout: 10_000 },
+		);
 		// The withdrawn mutation sits behind the gated request; once that ends it must be skipped. The lane is
 		// serial, so the fresh mutation is answered only after the late answer and the withdrawal.
 		await fs.writeFile(path.join(dir, "release"), "");
