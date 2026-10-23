@@ -1,12 +1,14 @@
 /**
  * "Save a copy" of a file the transcript names (ipc.ts `FS_SAVE_COPY`): the person picks where it goes, then the bytes
  * land there from the computer the tab runs on. A file on this computer is copied. A file on a paired host streams in
- * parts (`host.fs.readRange`) into `<dest>.ompdesk-download` and is renamed onto the destination once whole, so a
+ * parts (`host.fs.readRange`) into a temp file of its own beside it (`<dest>.<random>.ompdesk-download`, created
+ * exclusively, so no file already there is touched) and is renamed onto the destination once whole, so a
  * dropped link never leaves half a file under the chosen name. A host from before `host.fs.readRange` still sends a file
  * that fits one `host.fs.readBinary`; a larger one asks for that computer's OMPdesk to be updated.
  * The dialog and the host link are injected; the destination is the person's own folder, so it is written with
  * `original-fs` like other modules that touch user folders.
  */
+import { randomUUID } from "node:crypto";
 import type { FileHandle } from "node:fs/promises";
 import { promises as fsp } from "original-fs";
 import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
@@ -22,6 +24,11 @@ const PROBE_BYTES = 64 * 1024;
 
 /** The in-progress file next to the destination. */
 export const SAVE_COPY_TEMP_SUFFIX = ".ompdesk-download";
+
+/** The temp file a download of `dest` writes: beside it (one rename), named so it never collides with a file there. */
+function tempFor(dest: string): string {
+	return `${dest}.${randomUUID().slice(0, 8)}${SAVE_COPY_TEMP_SUFFIX}`;
+}
 
 const UPDATE_HOST_ERROR =
 	"That computer's OMPdesk is too old to send a file this large. Update OMPdesk on that computer.";
@@ -80,10 +87,13 @@ async function writeThroughTemp(
 	dest: string,
 	produce: (write: (data: Uint8Array) => Promise<void>) => Promise<void>,
 ): Promise<void> {
-	const temp = `${dest}${SAVE_COPY_TEMP_SUFFIX}`;
+	const temp = tempFor(dest);
 	let handle: FileHandle | undefined;
+	let created = false;
 	try {
-		const open = await fsp.open(temp, "w");
+		// `wx`: created here or not at all, so a file (or a link) already at that name is never truncated or removed.
+		const open = await fsp.open(temp, "wx");
+		created = true;
 		handle = open;
 		await produce(data => writeAll(open, data));
 		handle = undefined;
@@ -91,7 +101,7 @@ async function writeThroughTemp(
 		await fsp.rename(temp, dest);
 	} catch (error) {
 		await handle?.close().catch(() => undefined);
-		await fsp.rm(temp, { force: true }).catch(() => undefined);
+		if (created) await fsp.rm(temp, { force: true }).catch(() => undefined);
 		throw error;
 	}
 }

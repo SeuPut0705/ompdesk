@@ -133,7 +133,33 @@ describe("saveCopy of a file on a paired host", () => {
 			return slice(bytes, offset, length);
 		});
 		await saveCopy({ name: "big.bin", pickDestination: picks(dest), source: remoteSource(remote) });
-		expect(seen).toEqual([[`big.bin${SAVE_COPY_TEMP_SUFFIX}`]]);
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toEqual([expect.stringMatching(/^big\.bin\.[0-9a-f]{8}\.ompdesk-download$/)]);
+		expect(seen[0]?.[0]?.endsWith(SAVE_COPY_TEMP_SUFFIX)).toBe(true);
+	});
+
+	it("never touches a file already beside the destination under a download's name, on success or failure", async () => {
+		const bytes = pattern(PART + 10);
+		const dest = join(out, "big.bin");
+		const bystander = join(out, `big.bin${SAVE_COPY_TEMP_SUFFIX}`);
+		writeFileSync(bystander, "the person's own file");
+		await expect(
+			saveCopy({ name: "big.bin", pickDestination: picks(dest), source: remoteSource(hostOf(bytes)) }),
+		).resolves.toEqual({ ok: true, savedTo: dest });
+		expect(readFileSync(bystander, "utf8")).toBe("the person's own file");
+		const failing = hostOf(bytes, async (offset, length) => {
+			if (offset > 0) throw codedError("remote_offline", "The link dropped");
+			return slice(bytes, offset, length);
+		});
+		const again = join(out, "again.bin");
+		const ownName = join(out, `again.bin${SAVE_COPY_TEMP_SUFFIX}`);
+		writeFileSync(ownName, "also theirs");
+		await expect(
+			saveCopy({ name: "again.bin", pickDestination: picks(again), source: remoteSource(failing) }),
+		).resolves.toMatchObject({ ok: false, code: "remote_offline" });
+		expect(readFileSync(ownName, "utf8")).toBe("also theirs");
+		expect(readFileSync(bystander, "utf8")).toBe("the person's own file");
+		expect(readdirSync(out).sort()).toEqual(["again.bin.ompdesk-download", "big.bin", "big.bin.ompdesk-download"]);
 	});
 
 	it("saves an empty file", async () => {
