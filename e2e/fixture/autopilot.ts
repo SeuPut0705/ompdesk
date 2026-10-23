@@ -24,7 +24,7 @@
  *   `noContinue` (stock stops continuing: the stall timer runs), `card` (an approval card raised mid-turn),
  *   `forgeQuote` (the agent calls `ship push` with words the user never said), `release` (what a due release cycle
  *   does: `{tools, version, runUrl, verify}`), `endTwice` (a second `end` with another title: the first report
- *   stands). Every cycle names its item with `pick` after `begin`, as the bridge's `begin.pick` tells the agent.
+ *   stands), `followups` / `resolved` (the report's lists). Every cycle names its item with `pick` after `begin`, as the bridge's `begin.pick` tells the agent.
  * - `childMs` (800) / `childTokens` / `childUsd`: a child session's turn (a session armed with role child).
  *
  * The agent's tool calls and their outcome are recorded in `OMP_GUI_TEST_RECORD` as `fixture_autopilot_tool`,
@@ -131,6 +131,9 @@ interface CycleScript {
 	forgeQuote?: string;
 	/** The agent calls `end` a second time with another title (a stop steer, a second thought): the first report stands. */
 	endTwice?: boolean;
+	/** The `end` report's `followups` (items found, not done) and `resolved` (earlier follow-ups this cycle closed). */
+	followups?: string[];
+	resolved?: string[];
 	/** What the bridge would have measured of this cycle (`change`) and why it did not take a green claim (`verifyNote`). */
 	change?: AutopilotCycleRecord["change"];
 	verifyNote?: AutopilotCycleRecord["verifyNote"];
@@ -777,6 +780,8 @@ export function createAutopilotFake(host: AutopilotFakeHost) {
 						summary: releasing ? "Ran the release procedure." : `Fixture cycle ${n}.`,
 						verify,
 						...(commit ? { commit } : {}),
+						...(cs.followups ? { followups: cs.followups } : {}),
+						...(cs.resolved ? { resolved: cs.resolved } : {}),
 						...(releasing && cs.release?.version
 							? {
 									ship: {
