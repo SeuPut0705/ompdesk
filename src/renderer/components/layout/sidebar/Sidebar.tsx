@@ -2372,6 +2372,21 @@ export function Sidebar() {
 								controlSize="lg"
 								data-sidebar-filter
 								label={t("sidebar.filter")}
+								onKeyDown={event => {
+									// From the filter into the list: ↓ to its first row, Enter to the first session it shows (a
+									// row's own Enter then opens it), so a match is never Tab presses away.
+									if (isImeKeyEvent(event) || (event.key !== "ArrowDown" && event.key !== "Enter")) return;
+									const items = [
+										...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? []),
+									];
+									const target =
+										event.key === "Enter"
+											? items.find(item => item.dataset.rovingItem?.startsWith("session:"))
+											: items[0];
+									if (!target) return;
+									event.preventDefault();
+									focusRovingItem(target);
+								}}
 								onValueChange={setFilter}
 								placeholder={t("sidebar.filterPlaceholder")}
 								value={filter}

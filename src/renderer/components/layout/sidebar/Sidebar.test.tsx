@@ -550,6 +550,32 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(container.textContent).toContain("No matching sessions");
 	});
 
+	it("goes from the filter into the list: ↓ to its first row, Enter to the first session it matches", async () => {
+		installMockOmp(LIST);
+		seedStores();
+		await mount(<Sidebar />);
+		const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+		const props = reactProps<{
+			onChange: (event: { target: { value: string } }) => void;
+			onKeyDown: (event: { key: string; nativeEvent: { isComposing: boolean }; preventDefault: () => void }) => void;
+		}>(field);
+		await act(async () => props.onChange({ target: { value: "three" } }));
+		await flush();
+		const focused: Element[] = [];
+		for (const item of container.querySelectorAll("[data-roving-item]"))
+			Object.assign(item, { focus: () => focused.push(item as unknown as Element) });
+		const press = async (key: string) => {
+			const preventDefault = vi.fn();
+			await act(async () => props.onKeyDown({ key, nativeEvent: { isComposing: false }, preventDefault }));
+			return preventDefault;
+		};
+
+		expect(await press("ArrowDown")).toHaveBeenCalled();
+		expect(focused[0]).toBe(container.querySelector("[data-roving-item]"));
+		expect(await press("Enter")).toHaveBeenCalled();
+		expect(focused[1]).toBe(rowButton("Session /work/beta/three"));
+	});
+
 	it("replaces an untouched empty tab instead of opening a second one", async () => {
 		const omp = installMockOmp(LIST);
 		useSessionStore.setState({ sessionId: "empty", cwd: "/work/alpha", isStreaming: false, messageCount: 0 });
