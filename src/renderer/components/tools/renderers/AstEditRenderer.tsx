@@ -110,7 +110,6 @@ export function ParseIssues({ details }: { details: Record<string, unknown> | un
 					? t("tools.astedit.parseIssuesCapped", { shown: parseErrors.length, total: parseErrorsTotal })
 					: t("tools.astedit.parseIssues", {
 							count: parseErrors.length,
-							plural: parseErrors.length === 1 ? "" : "s",
 						})}
 			</div>
 			{parseErrors.map((err, i) => (
@@ -179,14 +178,9 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 					<Chip>
 						{t("tools.astedit.replacements", {
 							count: totalReplacements,
-							plural: totalReplacements === 1 ? "" : "s",
 						})}
 					</Chip>
-					{totalReplacements > 0 && (
-						<Chip>
-							{t("tools.astedit.files", { count: filesTouched, plural: filesTouched === 1 ? "" : "s" })}
-						</Chip>
-					)}
+					{totalReplacements > 0 && <Chip>{t("tools.astedit.files", { count: filesTouched })}</Chip>}
 					{scope && <Chip title={scope}>{t("tools.astedit.scope", { path: scope })}</Chip>}
 					{filesSearched > 0 && <Chip>{t("tools.astedit.searched", { count: filesSearched })}</Chip>}
 					{limitReached && <Chip warning>{t("tools.astedit.limitChip")}</Chip>}

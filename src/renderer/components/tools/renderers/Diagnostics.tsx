@@ -207,7 +207,7 @@ export function DiagnosticsList({ files, showPaths }: { files: readonly FileDiag
 					className="text-omp-xs font-medium"
 					tone="muted"
 				>
-					{t("chat.custom.moreDiagnostics", { count: hidden, plural: hidden === 1 ? "" : "s" })}
+					{t("chat.custom.moreDiagnostics", { count: hidden })}
 				</LinkButton>
 			)}
 		</div>
@@ -227,7 +227,7 @@ export function DiagnosticsChip({ files }: { files: readonly FileDiagnostics[] }
 				errored ? "text-(--sc-danger)" : "text-(--sc-warning)",
 			)}
 		>
-			{t("tools.diagnostics.count", { count, plural: count === 1 ? "" : "s" })}
+			{t("tools.diagnostics.count", { count })}
 		</span>
 	);
 }
@@ -245,7 +245,7 @@ export function DiagnosticsSection({ files }: { files: readonly FileDiagnostics[
 			const key = match ? SUMMARY_COUNT_KEYS[match[2]] : undefined;
 			if (!match || !key) return part;
 			const count = Number(match[1]);
-			return t(key, { count, plural: count === 1 ? "" : "s" });
+			return t(key, { count });
 		})
 		.join(", ");
 	const Icon = errored ? XCircle : AlertTriangle;

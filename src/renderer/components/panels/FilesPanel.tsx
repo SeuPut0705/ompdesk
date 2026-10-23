@@ -866,7 +866,6 @@ export function FilesPanel() {
 					<span className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)" data-file-count>
 						{t(truncated ? "filesPanel.countMore" : "filesPanel.count", {
 							count: fileCount,
-							plural: fileCount === 1 ? "" : "s",
 						})}
 					</span>
 				)}

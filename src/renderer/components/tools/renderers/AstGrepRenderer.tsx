@@ -41,7 +41,7 @@ export function AstGrepRenderer({ args, result, isError, isPartial, partialResul
 			{settled && (
 				<div className="flex flex-wrap items-center gap-1">
 					<Chip>{t("tools.grep.matches", { count: matchCount, plural: matchCount === 1 ? "" : "es" })}</Chip>
-					<Chip>{t("tools.grep.files", { count: fileCount, plural: fileCount === 1 ? "" : "s" })}</Chip>
+					<Chip>{t("tools.grep.files", { count: fileCount })}</Chip>
 					{scope && <Chip title={scope}>{t("tools.astedit.scope", { path: scope })}</Chip>}
 					{filesSearched > 0 && <Chip>{t("tools.astedit.searched", { count: filesSearched })}</Chip>}
 					{limitReached && <Chip warning>{t("tools.astedit.limitChip")}</Chip>}

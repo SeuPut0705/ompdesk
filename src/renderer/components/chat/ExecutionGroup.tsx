@@ -180,7 +180,6 @@ export function ExecutionGroup({
 	});
 	const totalSteps = Math.max(0, stepCount - skipped);
 	const plural = totalSteps === 1 ? "" : "s";
-	const countPlural = (count: number) => (count === 1 ? "" : "s");
 	// One fact line for every finished card: failures once, then what the whole run produced.
 	const facts: string[] = [];
 	if (failed > 0) facts.push(t("chat.work.commandsFailed", { count: failed }));
@@ -192,7 +191,6 @@ export function ExecutionGroup({
 		const removed = outcome.files.reduce((sum, file) => sum + (file.removed ?? 0), 0);
 		const files = t("chat.work.filesChanged", {
 			count: outcome.files.length,
-			plural: countPlural(outcome.files.length),
 		});
 		facts.push(hasStats ? `${files} +${added} −${removed}` : files);
 	}
@@ -214,13 +212,11 @@ export function ExecutionGroup({
 	const otherCommands = outcome.commands.filter(
 		command => command.interrupted || command.unknown || !checkKind(command.command),
 	).length;
-	if (otherCommands)
-		facts.push(t("chat.work.commandsRun", { count: otherCommands, plural: countPlural(otherCommands) }));
+	if (otherCommands) facts.push(t("chat.work.commandsRun", { count: otherCommands }));
 	// The failing step, the passing test run and a dev server's address: the findings row's chips.
-	if (agents.length)
-		facts.push(t("chat.work.agentsDone", { count: agents.length, plural: countPlural(agents.length) }));
+	if (agents.length) facts.push(t("chat.work.agentsDone", { count: agents.length }));
 	if (facts.length === produced) {
-		if (reads) facts.push(t("chat.process.kind.read", { count: reads, plural: countPlural(reads) }));
+		if (reads) facts.push(t("chat.process.kind.read", { count: reads }));
 		if (searches) facts.push(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
 	}
 	if (facts.length === produced) facts.push(t("chat.work.stepCount", { total: totalSteps, plural }));
@@ -228,7 +224,7 @@ export function ExecutionGroup({
 		state === "running" && running > 0
 			? t("chat.process.statusRunning", { running, total: totalSteps, plural })
 			: state === "running" && runningAgents > 0
-				? t("chat.process.statusAgents", { count: runningAgents, plural: countPlural(runningAgents) })
+				? t("chat.process.statusAgents", { count: runningAgents })
 				: state === "running"
 					? t("chat.process.statusWorking", { total: totalSteps, plural })
 					: facts.join(" · ");

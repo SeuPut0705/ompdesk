@@ -245,7 +245,6 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 					<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
 						{t("diffPanel.repositorySummary", {
 							count: changes.files.length,
-							plural: changes.files.length === 1 ? "" : "s",
 						})}
 					</span>
 				)}

@@ -179,9 +179,9 @@ export function TodoRenderer({ args, result, isError, isPartial, partialResult }
 		<div className="flex flex-col gap-2">
 			<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-muted)]">
 				<ListTodo size={12} className="text-[var(--omp-dim)]" />
-				{t("tools.todo.phases", { count: phases.length, plural: phases.length === 1 ? "" : "s" })}
+				{t("tools.todo.phases", { count: phases.length })}
 				<span className="text-[var(--omp-dim)]">·</span>
-				{t("tools.todo.tasks", { count: totalTasks, plural: totalTasks === 1 ? "" : "s" })}
+				{t("tools.todo.tasks", { count: totalTasks })}
 				{isPartial && <span className="text-[var(--omp-accent)]">{t("tools.todo.updating")}</span>}
 			</div>
 			{phases.map((phase, phaseIndex) => {

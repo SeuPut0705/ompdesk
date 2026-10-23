@@ -114,7 +114,7 @@ export function ResolveRenderer({
 					<span
 						className="shrink-0 rounded bg-[var(--omp-bg-tertiary)] px-1 py-px font-mono text-omp-xxs tabular-nums text-[var(--omp-muted)]" // surface-ok: tiny ops count pill
 					>
-						{t("tools.resolve.ops", { count: ops, plural: ops === 1 ? "" : "s" })}
+						{t("tools.resolve.ops", { count: ops })}
 					</span>
 				)}
 			</div>

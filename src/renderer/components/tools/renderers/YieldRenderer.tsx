@@ -33,11 +33,10 @@ export function YieldRenderer({ args, result, isError, isPartial }: ToolRenderer
 		typeof args.key === "number" ? t("tools.yield.item", { key: args.key }) : sections.join(", ") || undefined;
 	const record = asRecord(data);
 	const size = Array.isArray(data)
-		? t("tools.yield.items", { count: data.length, plural: data.length === 1 ? "" : "s" })
+		? t("tools.yield.items", { count: data.length })
 		: record
 			? t("tools.yield.fields", {
 					count: Object.keys(record).length,
-					plural: Object.keys(record).length === 1 ? "" : "s",
 				})
 			: undefined;
 	const note =

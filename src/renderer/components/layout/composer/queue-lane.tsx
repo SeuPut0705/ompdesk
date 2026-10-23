@@ -75,7 +75,7 @@ export function QueueImageTiles({ images, count }: { images?: ImageContent[]; co
 					+{count - 3}
 				</span>
 			)}
-			<span className="sr-only">{t("composerQueue.images", { count, plural: count === 1 ? "" : "s" })}</span>
+			<span className="sr-only">{t("composerQueue.images", { count })}</span>
 		</span>
 	);
 }

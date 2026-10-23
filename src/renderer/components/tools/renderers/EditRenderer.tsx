@@ -270,7 +270,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 				{remaining > 0 && isPartial && (
 					<div className="flex items-center gap-1.5 text-omp-sm text-[var(--omp-dim)]">
 						<Circle aria-hidden size={7} className="fill-current text-[var(--omp-accent)]" />
-						{t("tools.edit.morePending", { count: remaining, plural: remaining === 1 ? "" : "s" })}
+						{t("tools.edit.morePending", { count: remaining })}
 					</div>
 				)}
 			</div>
@@ -290,9 +290,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 					{t("tools.edit.failed")}
 					<ErrorDetail className="mt-1 whitespace-pre-wrap" error={cappedError} />
 					{omitted > 0 && (
-						<div className="mt-1 text-omp-xs opacity-70">
-							{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}
-						</div>
+						<div className="mt-1 text-omp-xs opacity-70">{t("tools.read.more", { count: omitted })}</div>
 					)}
 				</div>
 			</div>

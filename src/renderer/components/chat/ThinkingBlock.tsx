@@ -112,10 +112,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 
 	const trimmed = formatted.trim();
 	const words = trimmed ? trimmed.split(/\s+/).length : 0;
-	const meta = isLive
-		? null
-		: (duration ??
-			t("chat.thinking.words", { count: words.toLocaleString(uiLocale()), plural: words === 1 ? "" : "s" }));
+	const meta = isLive ? null : (duration ?? t("chat.thinking.words", { count: words.toLocaleString(uiLocale()) }));
 
 	return (
 		<div className="omp-thinking-block min-w-0">

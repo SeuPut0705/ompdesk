@@ -286,7 +286,6 @@ export function restoreAbortedQueue(composer: ComposerStore, restored: RpcAbortA
 			variant: "info",
 			message: translate("input.queueRestore.merged", {
 				count: items.length,
-				plural: items.length === 1 ? "" : "s",
 			}),
 		});
 	}

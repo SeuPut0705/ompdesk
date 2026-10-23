@@ -107,7 +107,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 	if (cfg) {
 		const count = asNumber(cfg.count) ?? 0;
 		const modified = asNumber(cfg.modified) ?? 0;
-		meta.push(t("tools.cfg.settings", { count, plural: count === 1 ? "" : "s" }));
+		meta.push(t("tools.cfg.settings", { count }));
 		if (modified) meta.push(t("tools.cfg.modified", { count: modified }));
 	}
 	if (isUrl) {
@@ -120,7 +120,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 	}
 	if (suffixFrom) meta.push(t("tools.read.correctedFrom", { path: suffixFrom }));
 	if (elidedSpans !== undefined) {
-		meta.push(t("tools.read.summary", { count: elidedSpans, plural: elidedSpans === 1 ? "" : "s" }));
+		meta.push(t("tools.read.summary", { count: elidedSpans }));
 	}
 	const HeadIcon = cfgPath !== null ? Settings2 : isUrl ? Globe : FileText;
 
@@ -143,7 +143,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 						)}
 						{conflicts > 0 && (
 							<span className="shrink-0 text-sc-xs text-(--sc-warning)">
-								{t("tools.read.conflicts", { count: conflicts, plural: conflicts === 1 ? "" : "s" })}
+								{t("tools.read.conflicts", { count: conflicts })}
 							</span>
 						)}
 					</div>
@@ -180,7 +180,7 @@ export function ReadRenderer({ args, result, isError, isPartial, partialResult, 
 					/>
 					{omitted > 0 && (
 						<div className="text-center font-mono text-omp-xs text-[var(--omp-dim)]">
-							{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}
+							{t("tools.read.more", { count: omitted })}
 						</div>
 					)}
 				</>

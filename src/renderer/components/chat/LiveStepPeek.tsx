@@ -569,7 +569,6 @@ export function LiveStepPeek({
 						waitingNames.every(name => narrative.includes(name))
 						? t("chat.process.statusAgents", {
 								count: waitingNames.length,
-								plural: waitingNames.length === 1 ? "" : "s",
 							})
 						: t("chat.work.waitingFor", { names: waitingFor })
 					: selected === "thinking" && turnIsLive
@@ -1095,7 +1094,7 @@ export function LiveStepPeek({
 					setExpandedAgent(null);
 				}}
 			>
-				{t("chat.work.catchUp", { count: catchUp, plural: catchUp === 1 ? "" : "s" })}
+				{t("chat.work.catchUp", { count: catchUp })}
 			</button>
 		) : null;
 	}

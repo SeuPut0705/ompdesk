@@ -631,7 +631,7 @@ function ResultOutputPreview({ text }: { text: string }) {
 			</pre>
 			{omitted > 0 && (
 				<div className="font-mono text-omp-xs text-[var(--omp-dim)]">
-					{t("tools.read.more", { count: omitted, plural: omitted === 1 ? "" : "s" })}
+					{t("tools.read.more", { count: omitted })}
 				</div>
 			)}
 		</div>

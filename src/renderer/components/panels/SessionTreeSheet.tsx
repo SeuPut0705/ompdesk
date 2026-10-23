@@ -833,7 +833,6 @@ function SessionTreeView({ tree, active }: { tree: SessionTreeController; active
 								{tree.filterMode === "all"
 									? t("sessionTree.messageCount", {
 											count: layout.nodeCount,
-											plural: layout.nodeCount === 1 ? "" : "s",
 										})
 									: t("sessionTree.shownOfTotal", {
 											shown: layout.nodeCount,
@@ -842,7 +841,6 @@ function SessionTreeView({ tree, active }: { tree: SessionTreeController; active
 								{layout.forkCount > 0 &&
 									` · ${t("sessionTree.forkCount", {
 										count: layout.forkCount,
-										plural: layout.forkCount === 1 ? "" : "s",
 									})}`}
 							</span>
 						)}

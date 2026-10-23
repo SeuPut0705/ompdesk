@@ -61,11 +61,7 @@ export function GlobRenderer({ args, result, isPartial, partialResult, livePrevi
 								{t(timedOut ? "tools.glob.timedOut" : "tools.grep.truncated")}
 							</span>
 						)}
-						<span>
-							{isPartial
-								? t("tools.glob.matching")
-								: t("tools.glob.paths", { count, plural: count === 1 ? "" : "s" })}
-						</span>
+						<span>{isPartial ? t("tools.glob.matching") : t("tools.glob.paths", { count })}</span>
 					</span>
 				</div>
 			)}

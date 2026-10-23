@@ -345,12 +345,9 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 				<Lightbulb aria-hidden className={HEADER_ICON_CLASS} />
 				<span className="shrink-0">{t("chat.custom.advisor")}</span>
 				<span className={HEADER_META_CLASS}>
-					· {t("chat.custom.advisorNotes", { count: notes.length, plural: notes.length === 1 ? "" : "s" })}
+					· {t("chat.custom.advisorNotes", { count: notes.length })}
 					{blockers > 0 && (
-						<span className="text-(--sc-danger)">
-							{" "}
-							· {t("chat.custom.blockers", { count: blockers, plural: blockers === 1 ? "" : "s" })}
-						</span>
+						<span className="text-(--sc-danger)"> · {t("chat.custom.blockers", { count: blockers })}</span>
 					)}
 				</span>
 			</div>
@@ -561,9 +558,7 @@ function SkillCard({ message }: { message: AgentMessage }) {
 					{path && <span className="min-w-0 truncate text-(--sc-text-muted)">{path}</span>}
 					{path && lineCount != null && <span aria-hidden>·</span>}
 					{lineCount != null && (
-						<span className="shrink-0">
-							{t("chat.custom.skillLines", { count: lineCount, plural: lineCount === 1 ? "" : "s" })}
-						</span>
+						<span className="shrink-0">{t("chat.custom.skillLines", { count: lineCount })}</span>
 					)}
 				</div>
 			)}

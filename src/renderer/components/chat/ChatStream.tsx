@@ -1858,7 +1858,7 @@ export function HistoryExpander({
 			size="sm"
 			variant="secondary"
 		>
-			{t("chat.compaction.showEarlier", { count, plural: count === 1 ? "" : "s" })}
+			{t("chat.compaction.showEarlier", { count })}
 		</Button>
 	);
 }

@@ -229,9 +229,7 @@ export function GroupedMatchList({
 				</div>
 			))}
 			{hidden > 0 && (
-				<div className="px-2 pt-0.5 text-[var(--omp-dim)]">
-					{t("tools.read.more", { count: hidden, plural: hidden === 1 ? "" : "s" })}
-				</div>
+				<div className="px-2 pt-0.5 text-[var(--omp-dim)]">{t("tools.read.more", { count: hidden })}</div>
 			)}
 		</div>
 	);
@@ -286,9 +284,7 @@ export function GrepRenderer({ args, result, isPartial, partialResult, livePrevi
 								? t("tools.grep.searching")
 								: t("tools.grep.matches", { count: matchCount, plural: matchCount === 1 ? "" : "es" })}
 						</span>
-						{!isPartial && fileCount > 0 && (
-							<span>{t("tools.grep.files", { count: fileCount, plural: fileCount === 1 ? "" : "s" })}</span>
-						)}
+						{!isPartial && fileCount > 0 && <span>{t("tools.grep.files", { count: fileCount })}</span>}
 					</span>
 				</div>
 			)}

@@ -197,7 +197,7 @@ export function WriteRenderer({
 						/>
 						{!livePreview && previewOmitted > 0 && (
 							<div className="text-omp-xs text-[var(--omp-dim)]">
-								{t("tools.read.more", { count: previewOmitted, plural: previewOmitted === 1 ? "" : "s" })}
+								{t("tools.read.more", { count: previewOmitted })}
 							</div>
 						)}
 					</>
@@ -243,7 +243,7 @@ export function WriteRenderer({
 						<span className="text-[var(--omp-success)]">{t("tools.write.executable")}</span>
 					)}
 					<DiagnosticsChip files={diagnostics} />
-					<span>{t("tools.write.lines", { count: lineCount, plural: lineCount === 1 ? "" : "s" })}</span>
+					<span>{t("tools.write.lines", { count: lineCount })}</span>
 				</span>
 			</div>
 			{open && isError && errorText?.head && (
