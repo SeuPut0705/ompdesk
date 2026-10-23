@@ -350,7 +350,7 @@ html[data-shell] .omp-composer-region.pb-3 {
 	color: var(--sc-text-muted);
 }
 
-.omp-pane-switcher > button[aria-pressed="true"] {
+.omp-pane-switcher > button[aria-current="true"] {
 	background: var(--sc-selected);
 	color: var(--sc-text);
 }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { type SessionTab, useTabsStore } from "../../stores/tabs";
-import { SplitPaneHeader } from "./SplitWorkspace";
+import { PaneSwitcher, SplitPaneHeader } from "./SplitWorkspace";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -92,5 +92,33 @@ describe("split pane header working title", () => {
 		await mount({ ...tab, status: "starting" });
 		expect(light()).toBeNull();
 		expect(container.querySelector("[role='status']")).not.toBeNull();
+	});
+});
+
+describe("pane switcher", () => {
+	it("marks the pane on screen as the group's current item, never as a pressed toggle", async () => {
+		container = document.createElement("div") as unknown as globalThis.HTMLElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container);
+		const picked: string[] = [];
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<PaneSwitcher
+						activeTabId="b"
+						ids={["a", "b"]}
+						labelFor={id => `pane ${id}`}
+						onPick={id => picked.push(id)}
+					/>
+				</I18nProvider>,
+			);
+		});
+		const buttons = [...container.querySelectorAll(".omp-pane-switcher > button")];
+		expect(buttons.map(button => button.getAttribute("aria-current"))).toEqual([null, "true"]);
+		expect(container.querySelector("[aria-pressed]")).toBeNull();
+		await act(async () => {
+			buttons[0].dispatchEvent(new Event("click", { bubbles: true }));
+		});
+		expect(picked).toEqual(["a"]);
 	});
 });

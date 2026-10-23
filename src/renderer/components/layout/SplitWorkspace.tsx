@@ -452,14 +452,37 @@ export function SplitWorkspace() {
 	if (!single || !split) return workspace;
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-			<div aria-label={t("split.switcher")} className="omp-pane-switcher" role="group">
-				{splitTabIds(split).map(id => (
-					<button aria-pressed={id === activeTabId} key={id} onClick={() => void switchTab(id)} type="button">
-						<span className="truncate">{labelFor(id)}</span>
-					</button>
-				))}
-			</div>
+			<PaneSwitcher
+				activeTabId={activeTabId}
+				ids={splitTabIds(split)}
+				labelFor={labelFor}
+				onPick={id => void switchTab(id)}
+			/>
 			{workspace}
+		</div>
+	);
+}
+
+/** The panes of a split shown one at a time: one button per pane, the one on screen the group's current item. */
+export function PaneSwitcher({
+	ids,
+	activeTabId,
+	labelFor,
+	onPick,
+}: {
+	ids: readonly string[];
+	activeTabId: string | null;
+	labelFor: (id: string) => string | null;
+	onPick: (id: string) => void;
+}) {
+	const t = useT();
+	return (
+		<div aria-label={t("split.switcher")} className="omp-pane-switcher" role="group">
+			{ids.map(id => (
+				<button aria-current={id === activeTabId || undefined} key={id} onClick={() => onPick(id)} type="button">
+					<span className="truncate">{labelFor(id)}</span>
+				</button>
+			))}
 		</div>
 	);
 }
