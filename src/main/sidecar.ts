@@ -566,6 +566,7 @@ export class SidecarManager extends EventEmitter {
 					"error",
 					this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
 				);
+				this.#whenSessionLetGo(seq);
 				return;
 			}
 			if (!resolution.ok) {
@@ -579,6 +580,24 @@ export class SidecarManager extends EventEmitter {
 			this.#builtinMcp = builtinMcp;
 			this.#spawn();
 		});
+	}
+
+	/**
+	 * A tab left `error` because another omp keeps its session starts by itself once that omp lets go (it may close
+	 * minutes later: a terminal, or a last launch still finishing a long tool), so the person never has to notice and
+	 * press Restart. Each round is another `sessionFree` wait; a Restart, a new start or dispose ends it.
+	 */
+	#whenSessionLetGo(seq: number): void {
+		const sessionPath = this.#resumeSessionPath;
+		const sessionFree = this.#options.sessionFree;
+		if (!sessionPath || !sessionFree) return;
+		void sessionFree(sessionPath)
+			.catch(() => "free" as const)
+			.then(outcome => {
+				if (this.#disposed || seq !== this.#startSeq || this.status !== "error") return;
+				if (outcome === "free") this.start();
+				else this.#whenSessionLetGo(seq);
+			});
 	}
 
 	#spawn(): void {

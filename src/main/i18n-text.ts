@@ -268,8 +268,8 @@ export const MAIN_TEXT = {
 		ko: "omp가 설치되어 있지 않아요. OMPdesk가 알아서 설치해요. 직접 하려면 `bun install -g @oh-my-pi/pi-coding-agent`를 실행한 뒤 다시 시작을 눌러 주세요.",
 	},
 	"omp.sessionOwned": {
-		en: "This session is still open in another omp (a terminal, or OMPdesk's last launch closing). Opening it here too would split it into a second file. Close the other one, then press Restart.",
-		ko: "이 세션이 아직 다른 omp(터미널, 또는 닫히는 중인 이전 OMPdesk)에 열려 있어요. 여기서도 열면 세션이 두 파일로 갈라져요. 다른 쪽을 닫은 뒤 다시 시작을 눌러 주세요.",
+		en: "This session is still open in another omp (a terminal, or OMPdesk's last launch closing). Opening it here too would split it into a second file. Close the other one: it opens here by itself then, or press Restart.",
+		ko: "이 세션이 아직 다른 omp(터미널, 또는 닫히는 중인 이전 OMPdesk)에 열려 있어요. 여기서도 열면 세션이 두 파일로 갈라져요. 다른 쪽을 닫으면 여기서 알아서 열려요. 다시 시작을 눌러도 돼요.",
 	},
 	"omp.overrideMissing": {
 		en: "OMP_GUI_OMP points at a missing file ({path}). Fix or unset it, then press Restart.",

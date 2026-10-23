@@ -253,19 +253,23 @@ describe("SidecarManager", () => {
 		}
 	});
 
-	it("opens nothing on a session another omp keeps owning, and says why with Restart", async () => {
+	it("opens nothing on a session another omp keeps owning, says why, and opens it by itself once that omp lets go", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-held-"));
 		const logPath = path.join(tempDir, "argv.json");
 		const sessionPath = path.join(tempDir, "s.jsonl");
 		await fs.writeFile(sessionPath, "{}\n");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, "spawned");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
 		);
+		let held = true;
 		const sidecar = new SidecarManager({
 			omp: ompAt(binaryPath),
 			cwd: tempDir,
-			sessionFree: async () => "owned",
+			sessionFree: async () => {
+				await new Promise(resolve => setTimeout(resolve, 50));
+				return held ? "owned" : "free";
+			},
 			sessionOwnedText: () => "still open in another omp",
 		});
 		try {
@@ -278,6 +282,11 @@ describe("SidecarManager", () => {
 			expect(await failed).toMatchObject({ status: "error", message: "still open in another omp" });
 			await new Promise(resolve => setTimeout(resolve, 200));
 			await expect(fs.access(logPath)).rejects.toThrow();
+			// The other omp exits: the tab opens the session itself, with no Restart.
+			const ready = waitForReady(sidecar);
+			held = false;
+			await ready;
+			expect(JSON.parse(await fs.readFile(logPath, "utf8"))).toContain(sessionPath);
 		} finally {
 			sidecar.dispose();
 			await fs.rm(tempDir, RM_TEMP);
