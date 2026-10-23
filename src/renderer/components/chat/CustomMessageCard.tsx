@@ -32,6 +32,7 @@ import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
 import { Badge, type BadgeVariant } from "../common/Badge";
 import { DisclosureButton } from "../common/DisclosureButton";
+import { LinkButton } from "../common/LinkButton";
 import {
 	asFileDiagnostics,
 	DiagnosticsList,
@@ -213,16 +214,14 @@ function CollapsibleText({ text, lines, className }: { text: string; lines: numb
 				{open ? text : head}
 			</pre>
 			{omitted > 0 && (
-				<button
-					type="button"
+				<LinkButton
 					aria-expanded={open}
+					className="mt-0.5 block text-omp-xs font-medium"
 					onClick={() => setOpen(v => !v)}
-					className="omp-pressable mt-0.5 text-omp-xs font-medium text-[var(--omp-dim)] hover:text-[var(--omp-text)]"
+					tone="muted"
 				>
-					{open
-						? t("chat.custom.showLess")
-						: t("chat.custom.moreLines", { count: omitted, plural: omitted === 1 ? "" : "s" })}
-				</button>
+					{open ? t("chat.custom.showLess") : t("chat.custom.moreLines", { count: omitted })}
+				</LinkButton>
 			)}
 		</div>
 	);
@@ -372,13 +371,13 @@ function AdvisorCard({ message }: { message: AgentMessage }) {
 					</div>
 				))}
 				{hidden > 0 && (
-					<button
-						type="button"
+					<LinkButton
+						className="block text-sc-sm font-medium"
 						onClick={event => revealAndFocus(event.currentTarget, () => setExpanded(true))}
-						className="omp-pressable rounded-(--sc-radius-sm) text-sc-sm font-medium text-(--sc-text-muted) hover:text-(--sc-text)"
+						tone="muted"
 					>
-						{t("chat.custom.moreNotes", { count: hidden, plural: hidden === 1 ? "" : "s" })}
-					</button>
+						{t("chat.custom.moreNotes", { count: hidden })}
+					</LinkButton>
 				)}
 			</div>
 		</CardFrame>

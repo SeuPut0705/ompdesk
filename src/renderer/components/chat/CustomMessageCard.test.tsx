@@ -94,6 +94,14 @@ describe("standalone cards", () => {
 		expect(handoff).toContain(">Handoff<");
 	});
 
+	it("folds advisor notes past the first ones behind a counted button", () => {
+		const notes = Array.from({ length: 5 }, (_, n) => ({ note: `Note ${n + 1}.` }));
+		const markup = card("advisor", { notes });
+		expect(markup).toContain("Note 1.");
+		expect(markup).not.toContain("Note 5.");
+		expect(markup).toMatch(/<button[^>]*type="button"[^>]*>Show \d+ more notes?<\/button>/);
+	});
+
 	it("names no skill rather than an English placeholder when stock sent none", () => {
 		const skill = card("skill-prompt", {});
 		expect(skill).toContain(">Skill<");
