@@ -2373,15 +2373,15 @@ export function Sidebar() {
 								data-sidebar-filter
 								label={t("sidebar.filter")}
 								onKeyDown={event => {
-									// From the filter into the list: ↓ to its first row, Enter to the first session it shows (a
-									// row's own Enter then opens it), so a match is never Tab presses away.
+									// From the filter into the list: ↓ to its first row, Enter to the first session it shows, this
+									// device's or a paired host's (a row's own Enter then opens it), so a match is never Tab presses away.
 									if (isImeKeyEvent(event) || (event.key !== "ArrowDown" && event.key !== "Enter")) return;
 									const items = [
 										...(listRef.current?.querySelectorAll<HTMLElement>("[data-roving-item]") ?? []),
 									];
 									const target =
 										event.key === "Enter"
-											? items.find(item => item.dataset.rovingItem?.startsWith("session:"))
+											? items.find(item => /^(?:device-)?session:/.test(item.dataset.rovingItem ?? ""))
 											: items[0];
 									if (!target) return;
 									event.preventDefault();

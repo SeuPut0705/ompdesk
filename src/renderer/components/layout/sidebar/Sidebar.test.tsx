@@ -3161,6 +3161,30 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector("[data-device-group]")).toBeNull();
 	});
 
+	it("takes Enter in Find sessions to a host's session when the filter matches only that", async () => {
+		installWithRemote();
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const field = container.querySelector('input[aria-label="Filter sessions"]') as unknown as Element;
+		const props = reactProps<{
+			onChange: (event: { target: { value: string } }) => void;
+			onKeyDown: (event: { key: string; nativeEvent: { isComposing: boolean }; preventDefault: () => void }) => void;
+		}>(field);
+		await act(async () => props.onChange({ target: { value: "Remote fix" } }));
+		await flush();
+		const hostRow = container.querySelector(
+			'[data-sidebar-device="dev-studio"] [data-device-session] button',
+		) as unknown as Record<string, unknown>;
+		expect(hostRow).not.toBeNull();
+		const focus = vi.fn();
+		hostRow.focus = focus;
+		const preventDefault = vi.fn();
+		await act(async () => props.onKeyDown({ key: "Enter", nativeEvent: { isComposing: false }, preventDefault }));
+		expect(preventDefault).toHaveBeenCalled();
+		expect(focus).toHaveBeenCalled();
+	});
+
 	it("puts a host worktree's session under its project, as the host's git says, and removes them together", async () => {
 		const omp = installWithRemote();
 		const WT = "/Users/kim/.omp/wt/gui-agent-a1b2c3-0a1b2c3";
