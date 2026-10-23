@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.69.0] - 2026-10-23
+
+거의 모든 종류의 파일을 첨부할 수 있어요. 모델이 받지 않는 사진은 바꿔서 보내고, 연결된 컴퓨터의 탭에는 25MB까지 보낼 수 있어요.
+
+### 새로 생긴 것
+- HEIC, TIFF, BMP, AVIF처럼 모델이 받지 않는 형식의 사진은 첨부하는 순간 PNG나 JPEG로 바꿔요. 바꿀 수 없는 사진은 파일로 첨부돼요.
+- Finder에서 복사해 붙여넣거나 다른 앱에서 끌어온, 경로가 없는 파일도 첨부돼요. 이 컴퓨터에 잠깐 저장한 뒤 그 경로로 첨부하고 24시간 뒤 지워요(한 파일 25MB까지).
+- 연결된 컴퓨터에서 실행 중인 탭에 25MB까지 보낼 수 있어요(전에는 10MB). 10MB를 넘으면 상대 컴퓨터도 0.69.0 이상이어야 해요.
+
+### 고친 것
+- 휴대폰에서 AVIF, TIFF, BMP 사진을 보내면 모델이 받지 않는 형식 그대로 갔어요. 이제 HEIC처럼 바꿔서 보내요.
+
+<!-- en -->
+
+Almost any kind of file attaches: pictures in formats models refuse are converted, and a tab on a paired computer takes up to 25 MB.
+
+### Added
+- A picture in a format models refuse (HEIC, TIFF, BMP, AVIF, ...) is converted to PNG or JPEG as you attach it. One that cannot be converted attaches as a file.
+- A file with no path on this computer (copied in Finder and pasted, dragged out of another app) attaches too: it is kept on this computer for 24 hours and attached by that path (up to 25 MB a file).
+- A tab running on a paired computer takes files up to 25 MB (was 10 MB). Past 10 MB the other computer needs 0.69.0 or later too.
+
+### Fixed
+- An AVIF, TIFF or BMP picture sent from a phone reached the model in a format it refuses. It is now converted, as a HEIC is.
+
 ## [0.68.0] - 2026-10-23
 
 다른 omp를 기다리는 탭에도 메시지를 보낼 수 있어요. 세션이 열리면 그때 나가요.
