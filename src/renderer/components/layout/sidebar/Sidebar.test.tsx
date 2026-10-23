@@ -3284,8 +3284,19 @@ describe("Sidebar device sections", () => {
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
 		expect(useSidebarPrefs.getState().groupOrder).toEqual(["dev-studio\n/code/web", "dev-studio\n/code/app"]);
 		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
-		// This computer's own projects never move with the host's.
-		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).not.toBeNull();
+		// This computer's own projects never move with the host's, and moving them keeps the host's order.
+		const local = () =>
+			[...container.querySelectorAll("[data-workspace-group]")].map(group =>
+				group.getAttribute("data-workspace-group"),
+			);
+		const [, second] = local();
+		await fire(container.querySelector(`[data-workspace-group="${second}"]`), "onContextMenu");
+		await fire(menuItem("Move up"), "onClick");
+		expect(local()[0]).toBe(second);
+		expect(useSidebarPrefs.getState().groupOrder).toEqual(
+			expect.arrayContaining(["dev-studio\n/code/web", "dev-studio\n/code/app"]),
+		);
+		expect(groups()).toEqual(["/code/web", "/code/app"]);
 	});
 
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {

@@ -87,6 +87,7 @@ import {
 	orderByManual,
 	orderProjects,
 	reorderProjects,
+	withLocalProjectOrder,
 } from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
@@ -1248,11 +1249,15 @@ export function Sidebar() {
 	};
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
 		if (!over || active.id === over.id) return;
-		void useSidebarPrefs.getState().setGroupOrder(
-			reorderProjects(
-				allGroups.map(group => group.cwd),
-				String(active.id),
-				String(over.id),
+		const prefs = useSidebarPrefs.getState();
+		void prefs.setGroupOrder(
+			withLocalProjectOrder(
+				prefs.groupOrder,
+				reorderProjects(
+					allGroups.map(group => group.cwd),
+					String(active.id),
+					String(over.id),
+				),
 			),
 		);
 	};
@@ -2616,11 +2621,15 @@ export function Sidebar() {
 										const target = allGroups[to];
 										setGroupMenu(null);
 										if (!target) return;
-										void useSidebarPrefs.getState().setGroupOrder(
-											reorderProjects(
-												allGroups.map(item => item.cwd),
-												groupMenu.group.cwd,
-												target.cwd,
+										const prefs = useSidebarPrefs.getState();
+										void prefs.setGroupOrder(
+											withLocalProjectOrder(
+												prefs.groupOrder,
+												reorderProjects(
+													allGroups.map(item => item.cwd),
+													groupMenu.group.cwd,
+													target.cwd,
+												),
 											),
 										);
 									};

@@ -58,3 +58,11 @@ export function hostOrderKey(deviceId: string, list: string): string {
 
 /** The key the sidebar orders a device's Chats section under (`local` for this computer). */
 export const CHATS_ORDER_KEY = "\u0000chats";
+
+/**
+ * The stored project order after this computer's own projects took `local`'s order: every paired host's entries
+ * (their `hostOrderKey`, which holds a newline no folder path has) stay as they were.
+ */
+export function withLocalProjectOrder(stored: readonly string[], local: readonly string[]): string[] {
+	return [...local, ...stored.filter(key => key.includes("\n"))];
+}
