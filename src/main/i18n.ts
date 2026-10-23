@@ -1,5 +1,6 @@
 import { app } from "electron";
 import Store from "electron-store";
+import { fillText } from "../shared/fill-text";
 import { isUiLanguage, type UiLanguage, uiLanguageFromLocale } from "../shared/ui-language";
 import type { EditLabels } from "./editable-context-menu";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
@@ -20,10 +21,7 @@ export function mainT(
 	language = getMainLanguage(),
 	params?: Record<string, string | number>,
 ): string {
-	if (!params) return MAIN_TEXT[key][language];
-	return MAIN_TEXT[key][language].replace(/\{(\w+)\}/g, (match, name: string) =>
-		name in params ? String(params[name]) : match,
-	);
+	return fillText(MAIN_TEXT[key][language], params);
 }
 
 /** The edit items' names, for the Edit menu and the text-field context menu. */

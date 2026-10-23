@@ -279,12 +279,12 @@ export const MAIN_TEXT = {
 	"quit.keepWorking": { en: "Keep working", ko: "계속 사용" },
 	"quit.quitAnyway": { en: "Quit anyway", ko: "그래도 종료" },
 	"quit.workingBody": {
-		en: "{working} of {total} sessions are still working in {windows} window(s). Quitting stops them and their agents.",
+		en: "Still working: {working} of {total} session{totalPlural}, in {windows} window{windowsPlural}. Quitting stops them and their agents.",
 		ko: "{windows}개 창에서 세션 {total}개 중 {working}개가 아직 실행 중이에요. 종료하면 세션과 에이전트가 모두 중단돼요.",
 	},
 	"quit.workingTitle": { en: "Sessions are still running", ko: "아직 실행 중인 세션이 있어요" },
 	"restart.body": {
-		en: "OMPdesk's installed files were replaced while it was running, so this window can no longer load them reliably. {working} of {total} sessions are still working.",
+		en: "OMPdesk's installed files were replaced while it was running, so this window can no longer load them reliably. Still working: {working} of {total} session{totalPlural}.",
 		ko: "OMPdesk 실행 중에 설치 파일이 교체되어 이 창에서 더 이상 안정적으로 불러올 수 없어요. 세션 {total}개 중 {working}개가 아직 실행 중이에요.",
 	},
 	"restart.later": { en: "Later", ko: "나중에" },

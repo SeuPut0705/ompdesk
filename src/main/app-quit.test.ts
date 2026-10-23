@@ -5,6 +5,7 @@
  */
 import type { MessageBoxOptions } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fillText } from "../shared/fill-text";
 import { confirmQuit, installQuitGuard, requestQuit, setQuitResumes } from "./app-quit";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import { QUIT_EXIT_TIMEOUT_MS } from "./quit-watchdog";
@@ -36,8 +37,7 @@ vi.mock("./runtime-log", () => ({ writeRuntimeLog: electron.log }));
 // The real ./i18n opens the prefs store at load; the text table is what matters here.
 vi.mock("./i18n", () => ({
 	getMainLanguage: () => "en",
-	mainT: (key: MainTextKey, _language: string, params: Record<string, number> = {}) =>
-		MAIN_TEXT[key].en.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name])),
+	mainT: (key: MainTextKey, _language: string, params?: Record<string, number>) => fillText(MAIN_TEXT[key].en, params),
 }));
 
 let working = true;
@@ -69,7 +69,7 @@ describe("confirmQuit", () => {
 			defaultId: 1,
 			cancelId: 1,
 			message: "Sessions are still running",
-			detail: "1 of 2 sessions are still working in 1 window(s). Quitting stops them and their agents.",
+			detail: "Still working: 1 of 2 sessions, in 1 window. Quitting stops them and their agents.",
 		});
 		electron.showMessageBox.mockResolvedValueOnce({ response: 1 });
 		expect(await confirmQuit()).toBe(false);
