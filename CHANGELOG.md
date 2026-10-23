@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.67.3] - 2026-10-23
+
+다른 omp가 세션을 놓기를 기다리는 탭이 오류가 아니라 기다리는 중으로 보여요.
+
+### 고친 것
+- 다른 omp가 잡고 있는 세션을 기다리는 탭이 빨간 "omp를 사용할 수 없어요" 배너로 보였어요. 이제 스스로 풀리는 대기로 노란 "세션을 기다리는 중" 배너가 보여요.
+- 연결된 컴퓨터의 탭이 그렇게 기다릴 때 이 기기에서는 여전히 빨간 오류로 보였어요.
+
+### 바뀐 것
+- 그렇게 기다리는 동안 세션이 풀렸는지 처음 5초만 자주 확인하고, 그 뒤로는 2초마다 확인해요.
+
+<!-- en -->
+
+A tab waiting for another omp to let go of its session shows a wait, not a failure.
+
+### Fixed
+- A tab waiting for a session another omp held showed the red "omp unavailable" banner. It now shows a yellow "Waiting for the session" banner: the wait ends by itself.
+- A paired computer's tab waiting that way still showed the red error on this device.
+
+### Changed
+- While a tab waits that way, it checks whether the session is free often for the first 5 seconds, then every 2 seconds.
+
 ## [0.67.2] - 2026-10-23
 
 다른 omp가 잡고 있어 열지 못한 세션이, 그 omp가 놓으면 스스로 열리고 끊긴 턴도 이어서 진행돼요.
