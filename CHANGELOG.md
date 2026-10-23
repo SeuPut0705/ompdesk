@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.65.1] - 2026-10-23
+
+긴 오토파일럿 실행의 이전 사이클 보기와 로그 복사가 이제 빠짐없이 돼요. 연결된 컴퓨터로 가는 백그라운드 작업 목록도 바뀐 부분만 보내요.
+
+### 고친 것
+- 보드를 열어 둔 채 사이클이 30개 넘게 지나가면, 그 사이 사이클이 펼친 이력과 복사한 로그에서 빠졌어요.
+- 휴대폰에서 긴 실행의 로그 복사를 처음 누르면 이전 사이클을 읽는 동안 복사 권한이 사라져 실패했어요.
+
+### 바뀐 것
+- 실행 중에 연결된 컴퓨터가 반복해서 묻는 백그라운드 작업 목록이 매번 통째로 가지 않고 바뀐 부분만 가요.
+
+<!-- en -->
+
+Older cycles of a long Autopilot run now show and copy in full, and the background jobs list a paired computer keeps asking for crosses as what changed.
+
+### Fixed
+- With the board left open while more than 30 cycles ended, the cycles in between went missing from the expanded history and the copied log.
+- On a phone, the first tap on a long run's Copy log failed: reading the older cycles outlasted the tap's permission to copy.
+
+### Changed
+- The background jobs list a paired computer asks for while work runs crosses as what changed instead of whole every time.
+
 ## [0.65.0] - 2026-10-23
 
 연결된 컴퓨터와 휴대폰으로 가는 데이터가 크게 줄었어요. 오토파일럿 실행이 길어져도 상태 업데이트가 커지지 않고, 실행 중인 도구가 진행을 알릴 때마다 같은 호출 내용을 되풀이해 보내지 않아요.
