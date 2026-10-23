@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.24] - 2026-10-23
+
+명령 팔레트에서 프로젝트를 옮기고, 스크린 리더가 목록을 바르게 읽어요.
+
+### 새 기능
+- 명령 팔레트에 **프로젝트 전환**이 생겼어요. 타이틀바를 누르지 않아도 최근 프로젝트를 찾아 이 탭을 옮길 수 있어요.
+
+### 고친 것
+- 설정 › 메모리의 페이지·인계·세션, Changes 패널의 파일, 디버그 콘솔의 세션, /copy 대상 목록에서 열린 줄을 스크린 리더가 '눌린 토글 버튼'으로 읽던 문제를 고쳤어요. 이제 목록의 현재 항목으로 읽어요.
+- /copy 대상 목록에서 ↑/↓로 옮기면 포커스도 따라가, 스크린 리더가 옮겨 간 줄을 읽어요.
+
+<!-- en -->
+
+Switch projects from the command palette, and screen readers read lists right.
+
+### New
+- The command palette has **Switch project**: find a recent project and move this tab to it without the title bar.
+
+### Fixed
+- In Settings › Memory (pages, handoffs, sessions), the Changes panel's files, the debug console's sessions and the /copy targets, a screen reader read the open row as a pressed toggle button; it now reads it as the list's current item.
+- In the /copy targets, ↑/↓ move the focus with the choice, so a screen reader reads the row it moved to.
+
 ## [0.61.23] - 2026-10-23
 
 프로젝트를 고르는 창에서 바로 찾을 수 있어요.
