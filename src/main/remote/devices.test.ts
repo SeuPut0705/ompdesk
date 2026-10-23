@@ -245,13 +245,15 @@ describe("two computers that use each other as hosts", () => {
 		expect(a.devices.state().hosts[0]?.state).toBe("online");
 		expect(b.devices.state().hosts[0]?.state).toBe("online");
 		expect(lines.slice(settled).filter(line => line.message === "down" || line.message === "attempt")).toEqual([]);
-		// One dial each way, neither ended by the other's link opening (a `peer` retry would be one ended mid-handshake).
-		expect(
-			lines
-				.slice(reopened)
-				.filter(line => line.message === "attempt")
-				.map(line => line.details.trigger),
-		).toEqual(["backoff", "backoff"]);
+		// One dial each way, neither ended by the other's link opening: an ended dial is run again, a second attempt
+		// line for that host. Which wakes a dial is a race, and both are right: its backoff ran out, or the other's
+		// link reached this computer's host first (`peer`) and the waiting dial went at once (a slow Windows runner
+		// sees the second, twice in a row on 23 Oct 2026).
+		const attempts = lines.slice(reopened).filter(line => line.message === "attempt");
+		expect(attempts.map(line => line.details.deviceId).sort()).toEqual(
+			[a.devices.state().hosts[0]?.deviceId, b.devices.state().hosts[0]?.deviceId].sort(),
+		);
+		for (const attempt of attempts) expect(["backoff", "peer"]).toContain(attempt.details.trigger);
 	}, 20_000);
 });
 
