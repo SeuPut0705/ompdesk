@@ -3158,6 +3158,7 @@ describe("LocalHostServices tab events past the link's frame cap", () => {
 			settingsReads: false,
 			rosterReads: false,
 			toolOutputs: false,
+			toolArgs: false,
 			deflate: false,
 		};
 		override emit(event: string, data: unknown): void {
@@ -3263,6 +3264,7 @@ describe("LocalHostServices an Autopilot status on the link", () => {
 				settingsReads: false,
 				rosterReads: false,
 				toolOutputs: false,
+				toolArgs: false,
 				deflate: false,
 			},
 		});
@@ -3316,6 +3318,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 				settingsReads: false,
 				rosterReads: false,
 				toolOutputs: false,
+				toolArgs: false,
 				deflate: false,
 			},
 		});
@@ -3382,6 +3385,7 @@ describe("LocalHostServices a get_autopilot answer on the link", () => {
 			settingsReads: false,
 			rosterReads: false,
 			toolOutputs: false,
+			toolArgs: false,
 			deflate: false,
 		};
 		let cycles = 30;
@@ -3452,6 +3456,7 @@ describe("LocalHostServices the reads a device repeats on every hydration", () =
 				settingsReads: listReads,
 				rosterReads: listReads,
 				toolOutputs: false,
+				toolArgs: false,
 				deflate: false,
 			},
 		});
