@@ -508,4 +508,38 @@ describe("Autopilot shipping confirmations", () => {
 		expect(all('[data-board-section="cycles"] [data-autopilot-cycle]')).toHaveLength(40);
 		expect($('[data-autopilot-cycle="1"]')).not.toBeNull();
 	});
+
+	it("keeps the older cycles' row and copies nothing when reading them fails, and reads them on the next try", async () => {
+		installMockOmp();
+		const failed = { type: "response", command: "get_autopilot", success: false, error: "link down" } as RpcResponse;
+		const read = {
+			type: "response",
+			command: "get_autopilot",
+			success: true,
+			data: { ...status, cycles: Array.from({ length: 40 }, (_, index) => cycle(index + 1)) },
+		} as RpcResponse;
+		const getAutopilot = vi.fn(async () => failed);
+		(window as unknown as { omp: { rpc: Record<string, unknown> } }).omp.rpc.getAutopilot = getAutopilot;
+		const writeText = vi.fn(async (_text: string) => {});
+		Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: { writeText } });
+		useAutopilotStore.getState().apply({
+			...status,
+			cycles: Array.from({ length: 30 }, (_, index) => cycle(index + 11)),
+			cycleCount: 40,
+		});
+		await mount();
+		await act(async () => $("[data-autopilot-copy-log]")?.click());
+		await flush();
+		expect(writeText).not.toHaveBeenCalled();
+		await act(async () => $('[data-board-section="cycles"] [data-board-more]')?.click());
+		await flush();
+		expect($('[data-board-section="cycles"] [data-board-more]')?.getAttribute("data-board-more")).toBe("35");
+		getAutopilot.mockImplementation(async () => read);
+		await act(async () => $('[data-board-section="cycles"] [data-board-more]')?.click());
+		await flush();
+		expect(all('[data-board-section="cycles"] [data-autopilot-cycle]')).toHaveLength(40);
+		await act(async () => $("[data-autopilot-copy-log]")?.click());
+		await flush();
+		expect(writeText.mock.calls[0]?.[0]).toContain("Cycle 1 title");
+	});
 });

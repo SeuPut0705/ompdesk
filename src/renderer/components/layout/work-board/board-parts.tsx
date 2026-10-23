@@ -17,7 +17,8 @@ export const SECTION_CAP = { waiting: 3, running: 4, opened: 3, followups: 3 } a
 
 /**
  * The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. `total` counts
- * items not loaded yet as hidden too, and `onExpand` is told of the tap so it can load them.
+ * items not loaded yet as hidden too, and `onExpand` is told of the tap so it can load them; when that load fails the
+ * row comes back, so the person can try again.
  */
 export function CappedRows<T>({
 	items,
@@ -29,7 +30,7 @@ export function CappedRows<T>({
 	items: readonly T[];
 	cap: number;
 	total?: number;
-	onExpand?: () => void;
+	onExpand?: () => void | Promise<unknown>;
 	children: (item: T) => ReactNode;
 }) {
 	const t = useT();
@@ -48,7 +49,7 @@ export function CappedRows<T>({
 						onClick={event =>
 							revealAndFocus(event.currentTarget, () => {
 								setAll(true);
-								onExpand?.();
+								Promise.resolve(onExpand?.()).catch(() => setAll(false));
 							})
 						}
 						type="button"

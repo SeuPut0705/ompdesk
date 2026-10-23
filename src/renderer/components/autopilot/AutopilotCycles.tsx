@@ -154,7 +154,7 @@ export function AutopilotCyclesSection() {
 	const branch = useAutopilotStore(s => s.status.branch);
 	const { run, pending } = useAutopilotActions();
 	const [reverting, setReverting] = useState<AutopilotCycleRecord | null>(null);
-	const { older, ready, loadAll } = useOlderCycles(total > (cycles?.length ?? 0));
+	const { older, ready, loadAll, prefetch } = useOlderCycles(total > (cycles?.length ?? 0));
 	const newestFirst = useMemo(() => merged(older, cycles ?? []), [older, cycles]);
 	if (newestFirst.length === 0) return null;
 	return (
@@ -163,8 +163,8 @@ export function AutopilotCyclesSection() {
 				<CopyButton
 					data-autopilot-copy-log
 					label={t("autopilot.copyLog")}
-					onFocus={loadAll}
-					onPointerEnter={loadAll}
+					onFocus={prefetch}
+					onPointerEnter={prefetch}
 					text={() => {
 						const log = (all: readonly AutopilotCycleRecord[]) =>
 							formatAutopilotLog({ branch: branch ?? "autopilot", cycles: merged(all, newestFirst) });
@@ -218,7 +218,10 @@ function useOlderCycles(cut: boolean): {
 	older: readonly AutopilotCycleRecord[];
 	/** Nothing is left out, or what was is read. */
 	ready: boolean;
+	/** Rejects when the read failed. */
 	loadAll: () => Promise<readonly AutopilotCycleRecord[]>;
+	/** Reads ahead (hover, focus); a failure is left for the click to report. */
+	prefetch: () => void;
 } {
 	const rpc = useTabRpc();
 	const [older, setOlder] = useState<readonly AutopilotCycleRecord[]>([]);
@@ -228,15 +231,19 @@ function useOlderCycles(cut: boolean): {
 		reading.current ??= rpc
 			.getAutopilot({ allCycles: true })
 			.then(response => {
-				const all = response.success ? ((response.data as AutopilotStatus | undefined)?.cycles ?? []) : [];
+				// A failed read is an error, never an empty history: the copy says it failed and the row stays.
+				if (!response.success) throw new Error(response.error ?? "get_autopilot failed");
+				const all = (response.data as AutopilotStatus | undefined)?.cycles ?? [];
 				setOlder(all);
 				return all;
 			})
-			.catch(() => older)
 			.finally(() => {
 				reading.current = null;
 			});
 		return reading.current;
 	}, [cut, older, rpc]);
-	return { older, ready: !cut || older.length > 0, loadAll };
+	const prefetch = useCallback(() => {
+		loadAll().catch(() => undefined);
+	}, [loadAll]);
+	return { older, ready: !cut || older.length > 0, loadAll, prefetch };
 }
