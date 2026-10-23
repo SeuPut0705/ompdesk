@@ -137,9 +137,17 @@ function parseWorktree(value: unknown): IpcTabWorktree | undefined {
  * fresh tab at the same cwd instead of making the whole startup fail. Remote
  * descriptors (`device`) skip both disk checks: their paths live on the host.
  */
+/**
+ * What a restore left out or changed of a saved tab, for the launch's `tab-layout` log line: `folder` (its folder is
+ * gone), `deleted` (its session was deleted), `duplicate` (another tab of this layout holds that session), `fresh` (its
+ * session file is missing without a tombstone, so it comes back as a new session in its folder).
+ */
+export type TabLayoutDrop = { reason: "folder" | "deleted" | "duplicate" | "fresh"; sessionPath?: string; cwd: string };
+
 export function sanitizePersistedTabLayout(
 	value: unknown,
 	paths: TabLayoutPathChecks = diskPathChecks,
+	dropped?: (drop: TabLayoutDrop) => void,
 ): PersistedTabLayout | null {
 	if (!isRecord(value) || value.version !== TAB_LAYOUT_VERSION || !Array.isArray(value.tabs)) return null;
 	const requestedActiveIndex =
@@ -154,17 +162,30 @@ export function sanitizePersistedTabLayout(
 		const cwd = nonEmptyString(candidate.cwd);
 		const kind = parseKind(candidate.kind);
 		const device = nonEmptyString(candidate.device);
-		if (!cwd || !kind || (!device && !paths.directoryExists(cwd))) continue;
-
+		if (!cwd || !kind) continue;
 		const storedSessionPath = nonEmptyString(candidate.sessionPath);
+		const drop = (reason: TabLayoutDrop["reason"]): void =>
+			dropped?.({ reason, cwd, ...(storedSessionPath ? { sessionPath: storedSessionPath } : {}) });
+		if (!device && !paths.directoryExists(cwd)) {
+			drop("folder");
+			continue;
+		}
+
 		// A deleted session's tab is gone with it: never a fresh tab in its folder, which is kept only for a file
 		// that is missing without having been deleted (a session never written).
-		if (storedSessionPath && deletedSessions().has(storedSessionPath, device)) continue;
+		if (storedSessionPath && deletedSessions().has(storedSessionPath, device)) {
+			drop("deleted");
+			continue;
+		}
 		const sessionPath =
 			storedSessionPath && (device || paths.fileExists(storedSessionPath)) ? storedSessionPath : undefined;
+		if (storedSessionPath && !sessionPath) drop("fresh");
 		// The same path on two machines is two files (F-OWN keys device + path too).
 		const sessionKey = sessionPath && `${device ?? ""}\u0000${sessionPath}`;
-		if (sessionKey && sessionPaths.has(sessionKey)) continue;
+		if (sessionKey && sessionPaths.has(sessionKey)) {
+			drop("duplicate");
+			continue;
+		}
 		if (sessionKey) sessionPaths.add(sessionKey);
 
 		const descriptor: PersistedTabDescriptor = { cwd, kind };
@@ -255,11 +276,12 @@ export function sanitizePersistedTabLayout(
 export function sanitizePersistedTabLayouts(
 	value: unknown,
 	paths: TabLayoutPathChecks = diskPathChecks,
+	dropped?: (drop: TabLayoutDrop) => void,
 ): PersistedTabLayout[] {
 	const candidates = Array.isArray(value) ? value : [value];
 	const layouts: PersistedTabLayout[] = [];
 	for (const candidate of candidates) {
-		const layout = sanitizePersistedTabLayout(candidate, paths);
+		const layout = sanitizePersistedTabLayout(candidate, paths, dropped);
 		if (layout) layouts.push(layout);
 	}
 	return layouts;

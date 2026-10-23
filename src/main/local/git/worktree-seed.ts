@@ -113,6 +113,8 @@ interface CopyState {
 	bytes: number;
 	skipped: { path: string; reason: string }[];
 	full: boolean;
+	/** Links recreated with an absolute target in the main checkout, and where that target is in the worktree. */
+	absolute: { to: string; mapped: string }[];
 }
 
 /**
@@ -179,6 +181,8 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 			const link = await fs.readlink(from);
 			if (process.platform === "win32") await fs.symlink(path.resolve(path.dirname(to), link), to, "junction");
 			else await fs.symlink(link, to);
+			if (path.isAbsolute(link))
+				state.absolute.push({ to, mapped: path.join(state.target, path.relative(state.root, real)) });
 			return;
 		}
 	}
@@ -193,13 +197,35 @@ async function copyEntry(state: CopyState, rel: string): Promise<void> {
 	state.bytes += stat.size;
 }
 
+/**
+ * A link written with an absolute path into the main checkout points at the worktree's own copy once one exists (a
+ * tracked file, or one this seed copied): the worktree's edits then reach what it links to, never the main checkout's
+ * file. A target the worktree has no copy of keeps the main checkout's (`modules -> /repo/store`, a shared store).
+ */
+async function pointLinksAtWorktree(state: CopyState): Promise<void> {
+	for (const { to, mapped } of state.absolute) {
+		if (!(await fs.lstat(mapped).catch(() => null))) continue;
+		await fs.rm(to, { force: true });
+		if (process.platform === "win32") await fs.symlink(mapped, to, "junction");
+		else await fs.symlink(path.relative(path.dirname(to), mapped), to);
+	}
+}
+
 /** Copies the main checkout's `.worktreeinclude` matches into `target`; null when the repo has no such file. */
 export async function seedWorktree(primary: string, target: string): Promise<WorktreeSeedReport | null> {
 	const root = await fs.realpath(primary);
 	const listFile = path.join(root, WORKTREE_INCLUDE_FILE);
 	const stat = await fs.stat(listFile).catch(() => null);
 	if (!stat?.isFile()) return null;
-	const state: CopyState = { root, target: await fs.realpath(target), files: 0, bytes: 0, skipped: [], full: false };
+	const state: CopyState = {
+		root,
+		target: await fs.realpath(target),
+		files: 0,
+		bytes: 0,
+		skipped: [],
+		full: false,
+		absolute: [],
+	};
 	if (stat.size > MAX_INCLUDE_BYTES) {
 		state.skipped.push({ path: WORKTREE_INCLUDE_FILE, reason: "too_large" });
 		return { copied: 0, bytes: 0, skipped: state.skipped };
@@ -237,6 +263,7 @@ export async function seedWorktree(primary: string, target: string): Promise<Wor
 			state.skipped.push({ path: rel, reason: error instanceof Error ? error.message : String(error) });
 		}
 	}
+	await pointLinksAtWorktree(state);
 	return { copied: state.files, bytes: state.bytes, skipped: state.skipped };
 }
 

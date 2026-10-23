@@ -136,6 +136,23 @@ describe("seedWorktree", () => {
 		expect((await fs.lstat(path.join(target, "modules"))).isSymbolicLink()).toBe(true);
 		expect(await fs.readFile(path.join(target, "modules", "pkg.js"), "utf8")).toBe("x\n");
 	});
+	it("points a link written with an absolute path at the worktree's own copy, never the main checkout's", async () => {
+		await fs.mkdir(path.join(repo, "conf"));
+		await fs.writeFile(path.join(repo, "conf", "app.json"), "{}\n");
+		await fs.writeFile(path.join(repo, ".gitignore"), "linked\n");
+		gitSync(repo, "add", "conf");
+		gitSync(repo, "commit", "-qam", "conf");
+		await fs.symlink(path.join(repo, "conf"), path.join(repo, "linked"), "junction");
+		await fs.writeFile(path.join(repo, ".worktreeinclude"), "linked\n");
+		const target = await freshWorktree("absolute");
+
+		const report = await seedWorktree(repo, target);
+
+		expect(report?.skipped).toEqual([]);
+		await fs.writeFile(path.join(target, "conf", "app.json"), '{"branch":true}\n');
+		expect(await fs.readFile(path.join(target, "linked", "app.json"), "utf8")).toBe('{"branch":true}\n');
+		expect(await fs.readFile(path.join(repo, "conf", "app.json"), "utf8")).toBe("{}\n");
+	});
 	itWithFileSymlinks(
 		"copies an ignored file link on Windows, where making a file symlink needs Developer Mode",
 		async () => {

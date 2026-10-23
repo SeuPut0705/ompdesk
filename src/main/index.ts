@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { homedir, release } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import {
 	app,
 	BrowserWindow,
@@ -158,7 +158,7 @@ import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
 import { seedSpellchecker } from "./system-languages";
-import { type PersistedTabLayout, sanitizePersistedTabLayouts } from "./tab-layout";
+import { type PersistedTabLayout, sanitizePersistedTabLayouts, type TabLayoutDrop } from "./tab-layout";
 import { execFileExecutor, startTailscaleApp } from "./tailscale/cli";
 import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/locate";
 import { MobileWebService } from "./tailscale/service";
@@ -516,11 +516,45 @@ function installMainRuntimeLogging(): void {
  * The saved session: one tab layout per window. Reads tolerate both the current
  * array and the pre-multi-window single layout written by older builds.
  */
-function readSavedTabLayouts(): PersistedTabLayout[] {
+function readSavedTabLayouts(options: { log?: boolean } = {}): PersistedTabLayout[] {
 	const store = prefsStore();
-	const layouts = sanitizePersistedTabLayouts(store.get("tabLayouts"));
-	if (layouts.length > 0) return layouts;
-	return sanitizePersistedTabLayouts(store.get("tabLayout"));
+	const drops: TabLayoutDrop[] = [];
+	const collect = options.log ? (drop: TabLayoutDrop) => drops.push(drop) : undefined;
+	let layouts = sanitizePersistedTabLayouts(store.get("tabLayouts"), undefined, collect);
+	if (layouts.length === 0) layouts = sanitizePersistedTabLayouts(store.get("tabLayout"), undefined, collect);
+	if (options.log) logLayoutRestore(layouts, drops);
+	return layouts;
+}
+
+/**
+ * One `tab-layout` line per launch: how many saved tabs come back, and which were left out or start fresh and why
+ * (`TabLayoutDrop`), so a tab "missing after a relaunch" is explained from the log, never guessed.
+ */
+function logLayoutRestore(layouts: readonly PersistedTabLayout[], drops: readonly TabLayoutDrop[]): void {
+	const count = (reason: TabLayoutDrop["reason"]) => drops.filter(drop => drop.reason === reason).length;
+	writeRuntimeLog({
+		source: "tab-layout",
+		message: drops.length > 0 ? "restored, some tabs left out or fresh" : "restored",
+		details: {
+			level: "info",
+			windows: layouts.length,
+			tabs: layouts.reduce((sum, layout) => sum + layout.tabs.length, 0),
+			folderGone: count("folder"),
+			deleted: count("deleted"),
+			duplicate: count("duplicate"),
+			fresh: count("fresh"),
+			...(drops.length > 0
+				? {
+						dropped: drops
+							.slice(0, 20)
+							.map(
+								drop => `${drop.reason}: ${drop.sessionPath ? basename(drop.sessionPath) : basename(drop.cwd)}`,
+							)
+							.join("; "),
+					}
+				: {}),
+		},
+	});
 }
 
 /**
@@ -1804,7 +1838,7 @@ app.whenReady().then(() => {
 	logWatcher.start();
 	// Read before the first window restores: every tab change rewrites the store,
 	// so a later read would only see the just-restored primary window.
-	const savedLayouts = readSavedTabLayouts();
+	const savedLayouts = readSavedTabLayouts({ log: true });
 	// An update's relaunch comes back as the app sat when it began: hidden in the tray, minimized or behind another
 	// app (the user's rule, 23 Oct 2026: it reopened maximized in front of them). Only the windows this launch restores.
 	const relaunchPresence = explicitStartupCwd ? null : readRelaunchPresence();

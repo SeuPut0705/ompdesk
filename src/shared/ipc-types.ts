@@ -479,6 +479,11 @@ export type RuntimeErrorSource =
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
 	/**
+	 * The launch's restore of saved tabs (src/main/index.ts `logLayoutRestore`): counts restored and, by reason, left
+	 * out (folder gone, session deleted, a duplicate) or started fresh (its session file missing).
+	 */
+	| "tab-layout"
+	/**
 	 * An Autopilot run's summary when it ends or pauses (src/main/autopilot.ts `runLog`): `message` is ended or paused,
 	 * `details.summary` the line its notification shows (cycles, commits, landed or pushed, why it stopped).
 	 */

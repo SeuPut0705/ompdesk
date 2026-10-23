@@ -5,6 +5,7 @@ import {
 	MAX_PERSISTED_TITLE,
 	sanitizePersistedTabLayout,
 	sanitizePersistedTabLayouts,
+	type TabLayoutDrop,
 	type TabLayoutPathChecks,
 } from "./tab-layout";
 
@@ -268,6 +269,31 @@ describe("persisted tab layout", () => {
 		expect(sanitizePersistedTabLayout(value, pathChecks(["/a", "/b"], []))?.tabs).toEqual([
 			{ cwd: "/h", kind: "agent", sessionPath: "/host/gone.jsonl", device: "host-c" },
 			{ cwd: "/b", kind: "agent" },
+		]);
+		initDeletedSessions(null);
+	});
+
+	it("says which saved tabs a restore leaves out or starts fresh, and why", () => {
+		initDeletedSessions(null);
+		deletedSessions().add("/sessions/deleted.jsonl");
+		const value = {
+			version: 1,
+			activeIndex: 0,
+			tabs: [
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/kept.jsonl" },
+				{ cwd: "/gone", kind: "agent", sessionPath: "/sessions/elsewhere.jsonl" },
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/deleted.jsonl" },
+				{ cwd: "/a", kind: "agent", sessionPath: "/sessions/kept.jsonl" },
+				{ cwd: "/b", kind: "agent", sessionPath: "/sessions/unwritten.jsonl" },
+			],
+		};
+		const drops: TabLayoutDrop[] = [];
+		sanitizePersistedTabLayout(value, pathChecks(["/a", "/b"], ["/sessions/kept.jsonl"]), drop => drops.push(drop));
+		expect(drops).toEqual([
+			{ reason: "folder", cwd: "/gone", sessionPath: "/sessions/elsewhere.jsonl" },
+			{ reason: "deleted", cwd: "/a", sessionPath: "/sessions/deleted.jsonl" },
+			{ reason: "duplicate", cwd: "/a", sessionPath: "/sessions/kept.jsonl" },
+			{ reason: "fresh", cwd: "/b", sessionPath: "/sessions/unwritten.jsonl" },
 		]);
 		initDeletedSessions(null);
 	});
