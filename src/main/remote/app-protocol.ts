@@ -375,6 +375,8 @@ export const TabStatusArg = z.object({
 		message: z.string().optional(),
 		restart: z.object({ attempt: z.number(), maxAttempts: z.number() }).optional(),
 		modelFallback: z.string().optional(),
+		/** The host's tab waits for another omp there to let go of its session, and opens it by itself then. */
+		sessionHeld: z.literal(true).optional(),
 	}),
 	processAlive: z.boolean(),
 	cwd: z.string(),

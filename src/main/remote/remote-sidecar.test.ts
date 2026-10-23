@@ -402,6 +402,16 @@ describe("RemoteSidecar", () => {
 		expect(sidecar.statusPayload).toMatchObject({ status: "error", message: "No workspace" });
 	});
 
+	it("passes on a host tab's wait for another omp there to let go of its session, so the pane shows a wait", async () => {
+		const { sidecar } = setup();
+		sidecar.start();
+		await settle();
+		sidecar.handleEvent(
+			hostStatus("error", { statusPayload: { message: "still open in another omp", sessionHeld: true } }),
+		);
+		expect(sidecar.statusPayload).toMatchObject({ status: "error", sessionHeld: true });
+	});
+
 	it("hands a host's session_deleted refusal to the pool as a deleted session, never an error tab", async () => {
 		const { link, sidecar, statuses } = setup();
 		const deleted: Array<string | null> = [];

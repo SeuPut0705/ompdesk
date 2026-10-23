@@ -82,7 +82,10 @@ export interface RemoteSidecarOptions {
 	log?: (step: RemoteTabLogStep, details: Record<string, string | number | boolean>) => void;
 }
 
-type StatusDetail = Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback" | "reconnecting">;
+type StatusDetail = Pick<
+	SidecarStatusPayload,
+	"message" | "restart" | "modelFallback" | "reconnecting" | "sessionHeld"
+>;
 
 /**
  * A tab that has not come up this long after its bring-up began is reported, not left on the skeleton: the
