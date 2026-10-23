@@ -13,7 +13,7 @@
  * Empty sections collapse, and a board with no section at all takes no room.
  */
 
-import { Check, Pause } from "lucide-react";
+import { Check, Pause, Rocket } from "lucide-react";
 import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
@@ -27,7 +27,7 @@ import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/fo
 import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
-import { useProjectNames } from "../../../lib/project-origin";
+import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
@@ -244,8 +244,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	}, [tabId]);
 	const boardCwd = useSessionStore(state => state.cwd);
 	const boardProject = useProjectNames(useMemo(() => (boardCwd ? [boardCwd] : []), [boardCwd]));
-	// Only a linked worktree gets a line: `acme-web · Autopilot` instead of its folder name.
+	// Only a linked worktree gets a line: `acme-web · Parallel work` instead of its folder name; a run `acme-web` and its rocket.
 	const projectLine = boardCwd ? boardProject(boardCwd) : null;
+	const kindLabels = useWorktreeKindLabels();
 
 	const turnActive = useTodoStore(state => state.turnActive);
 	const turnStartedAt = useTodoStore(state => state.turnStartedAt);
@@ -372,7 +373,16 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				) : null}
 				{projectLine?.worktree ? (
 					<span className="omp-work-board-project" data-board-project title={projectLine.tooltip}>
-						{projectLine.name}
+						{projectLine.worktree.worktree?.kind === "autopilot" ? (
+							// A run is its project and the rocket, as in the title bar; the word is for screen readers.
+							<>
+								{projectLine.worktree.project}
+								<Rocket aria-hidden className="ms-1 inline size-3 align-[-0.125em]" />
+								<span className="sr-only"> · {kindLabels.autopilot}</span>
+							</>
+						) : (
+							projectLine.name
+						)}
 					</span>
 				) : null}
 				<div className="omp-work-board-meters">

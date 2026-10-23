@@ -10,6 +10,7 @@ import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
+import { useProjectOrigins } from "../../../stores/project-origins";
 import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
@@ -171,6 +172,7 @@ afterEach(async () => {
 	useToolsStore.getState().reset();
 	useSessionStore.getState().reset();
 	useTabsStore.getState().reset();
+	useProjectOrigins.getState().reset();
 	useUiStore.setState({ panelVisible: false });
 });
 
@@ -411,6 +413,29 @@ describe("WorkBoard sections", () => {
 		expect(row?.getAttribute("title")).toContain("50.0k / 200.0k tokens");
 		expect(row?.getAttribute("title")).toContain("1m 30s / 30m");
 		expect(getGoal).toHaveBeenCalled();
+	});
+
+	it("names an Autopilot run's worktree by its project and the rocket, the word only for screen readers", async () => {
+		useProjectOrigins.setState({
+			origins: {
+				"/wt/run": {
+					project: "acme-web",
+					root: "/repo/acme-web",
+					worktree: { kind: "autopilot", branch: "autopilot/2026-10-23", slug: "2026-10-23" },
+				},
+			},
+		});
+		useSessionStore.setState({
+			cwd: "/wt/run",
+			goal: { objective: "Ship the release" },
+			goalState: { status: "active" },
+		});
+		goal = { enabled: true, status: "active", objective: "Ship the release" };
+		await mount();
+		const line = pane.querySelector("[data-board-project]");
+		expect(line?.querySelector("svg")).not.toBeNull();
+		expect(line?.querySelector(".sr-only")?.textContent).toBe(" · Autopilot");
+		expect(line?.textContent).toBe("acme-web · Autopilot");
 	});
 
 	it("moves the goal's budget as stock's goal frames arrive inside a turn", async () => {
