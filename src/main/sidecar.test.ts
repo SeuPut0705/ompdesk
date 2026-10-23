@@ -279,7 +279,11 @@ describe("SidecarManager", () => {
 				}),
 			);
 			sidecar.restart(undefined, sessionPath);
-			expect(await failed).toMatchObject({ status: "error", message: "still open in another omp" });
+			expect(await failed).toMatchObject({
+				status: "error",
+				message: "still open in another omp",
+				sessionHeld: true,
+			});
 			await new Promise(resolve => setTimeout(resolve, 200));
 			await expect(fs.access(logPath)).rejects.toThrow();
 			// The other omp exits: the tab opens the session itself, with no Restart.

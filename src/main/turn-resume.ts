@@ -361,17 +361,20 @@ export const RESUME_COMMAND_TIMEOUT_MS = 2 * 60_000;
  */
 function whenReady(sidecar: SidecarLike): Promise<boolean> {
 	if (sidecar.status === "ready") return Promise.resolve(true);
-	// No further status comes on its own: `startTab` starts only an asleep tab.
-	if (sidecar.status === "error" || sidecar.status === "exited") return Promise.resolve(false);
+	// No further status comes on its own (`startTab` starts only an asleep tab), except for a session another omp
+	// still holds: the tab opens it by itself once that omp lets go (`sessionHeld`), so the continuation waits on.
+	const ended = (payload: { status: string; sessionHeld?: true }) =>
+		(payload.status === "error" && payload.sessionHeld !== true) || payload.status === "exited";
+	if (ended(sidecar.statusPayload ?? { status: sidecar.status })) return Promise.resolve(false);
 	const { promise, resolve } = Promise.withResolvers<boolean>();
 	const finish = (ready: boolean) => {
 		clearTimeout(timer);
 		sidecar.off("status", listener);
 		resolve(ready);
 	};
-	const listener = (payload: { status: string }) => {
+	const listener = (payload: { status: string; sessionHeld?: true }) => {
 		if (payload.status === "ready") finish(true);
-		else if (payload.status === "error" || payload.status === "exited") finish(false);
+		else if (ended(payload)) finish(false);
 	};
 	const timer = setTimeout(() => finish(false), RESUME_READY_TIMEOUT_MS);
 	sidecar.on("status", listener);

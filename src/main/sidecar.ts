@@ -565,6 +565,10 @@ export class SidecarManager extends EventEmitter {
 				this.#setStatus(
 					"error",
 					this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
+					undefined,
+					undefined,
+					undefined,
+					true,
 				);
 				this.#whenSessionLetGo(seq);
 				return;
@@ -1106,10 +1110,19 @@ export class SidecarManager extends EventEmitter {
 		restart?: SidecarRestartProgress,
 		modelFallback?: string,
 		sessionEnded?: true,
+		sessionHeld?: true,
 	): void {
 		this.#status = status;
-		this.#statusDetail = { message, restart, modelFallback, sessionEnded };
-		this.emit("status", { status, message, cwd: this.#options.cwd, restart, modelFallback, sessionEnded });
+		this.#statusDetail = { message, restart, modelFallback, sessionEnded, ...(sessionHeld ? { sessionHeld } : {}) };
+		this.emit("status", {
+			status,
+			message,
+			cwd: this.#options.cwd,
+			restart,
+			modelFallback,
+			sessionEnded,
+			...(sessionHeld ? { sessionHeld } : {}),
+		});
 	}
 
 	#cleanup(): void {

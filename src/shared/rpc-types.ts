@@ -2825,4 +2825,9 @@ export interface SidecarStatusPayload {
 	 * machine, not by omp. Main keeps that turn's resume marker for the next launch (`resumeFacts`).
 	 */
 	sessionEnded?: true;
+	/**
+	 * On `error`: the tab's session is still held by another live omp; the tab opens it by itself once that omp lets
+	 * go (SidecarManager `#whenSessionLetGo`), so a relaunch's continuation waits for that `ready` instead of giving up.
+	 */
+	sessionHeld?: true;
 }

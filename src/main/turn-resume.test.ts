@@ -221,6 +221,7 @@ function fakeSidecar(answers: Partial<Record<string, RpcResponse | Error>> = {},
 	const events = new EventEmitter();
 	const sidecar = Object.assign(events, {
 		status,
+		statusPayload: { status } as { status: string; sessionHeld?: true },
 		rpcClient: {
 			command: async (cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> => {
 				commands.push(cmd);
@@ -231,9 +232,10 @@ function fakeSidecar(answers: Partial<Record<string, RpcResponse | Error>> = {},
 			},
 		},
 	});
-	const setStatus = (next: string) => {
+	const setStatus = (next: string, detail: { sessionHeld?: true } = {}) => {
 		sidecar.status = next;
-		sidecar.emit("status", { status: next });
+		sidecar.statusPayload = { status: next, ...detail };
+		sidecar.emit("status", sidecar.statusPayload);
 	};
 	return {
 		sidecar: sidecar as unknown as SidecarLike,
@@ -266,7 +268,7 @@ interface Harness {
 	resume: TurnResume;
 	pool: ResumePool;
 	/** Moves the tab's sidecar to another status (a spawn becoming ready, a crash). */
-	setStatus: (status: string) => void;
+	setStatus: (status: string, detail?: { sessionHeld?: true }) => void;
 	/** How many `status` listeners the resume left on the sidecar. */
 	statusListeners: () => number;
 	/** Every `setScheduledRetry` call the resume made, in order (`undefined` = cleared). */
@@ -532,6 +534,23 @@ describe("TurnResume launch", () => {
 		await settle();
 		const notReady = { tab: "restored", action: "restore", ready: false, cancelled: false };
 		expect(h.logs.at(-1)).toEqual(["continue", notReady]);
+	});
+
+	it("keeps a continuation waiting while another omp holds its session, and restores it once the tab opens", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED }, status: "starting" });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored" }));
+		h.resume.launch();
+		await settle();
+		// The owner wait ran out: the tab is error but opens the session by itself once the other omp lets go.
+		h.setStatus("error", { sessionHeld: true });
+		await settle();
+		expect(h.commands.filter(command => command.type === "restore_interrupted")).toEqual([]);
+		expect(h.store.read().map(entry => entry.sessionPath)).toEqual(["/s/a.jsonl"]);
+		h.setStatus("ready");
+		await settle();
+		expect(h.commands.filter(command => command.type === "restore_interrupted")).toHaveLength(1);
+		expect(h.logs.at(-1)).toMatchObject(["continue", { tab: "restored", restored: "turn", started: true }]);
 	});
 
 	it("continues the focused tab before its split's panes and the background tabs, not in marker order", async () => {
