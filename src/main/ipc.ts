@@ -56,6 +56,8 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsSaveCopyPayload,
+	IpcFsSaveCopyResult,
 	IpcFsSearchResult,
 	IpcFsStatResult,
 	IpcFsUploadToHostPayload,
@@ -146,6 +148,7 @@ import { uploadToHost } from "./remote/host-upload";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
+import { fileNameOf, saveCopy } from "./save-copy";
 import type { ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "./session-mutations";
@@ -179,6 +182,7 @@ import {
 	readWorkspaceFile,
 	readWorkspaceImage,
 	resolveWithin,
+	resolveWorkspaceFile,
 	resolveWorkspaceMedia,
 	statWorkspacePath,
 } from "./workspace-fs";
@@ -2141,6 +2145,55 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				);
 			}
 			return readWorkspaceBinary(cwdFor(deps, caller, payload?.tabId), request);
+		},
+	);
+
+	// "Save a copy" of a file a transcript names: this window's save dialog, then the bytes from the computer the tab
+	// runs on (copied here, or streamed part by part from a paired host). A web page's phone saves its own copy.
+	ipc.handle(
+		IPC_COMMANDS.FS_SAVE_COPY,
+		async (caller, payload: IpcFsSaveCopyPayload): Promise<IpcFsSaveCopyResult> => {
+			if (typeof payload?.path !== "string" || payload.path.length === 0)
+				return { ok: false, error: "Invalid path", code: "invalid_path" };
+			const win = caller.browserWindow;
+			if (!win || (caller.win && isWebWindow(caller.win.webContents.id)))
+				return { ok: false, error: "Only an OMPdesk window on this computer can save a file" };
+			const target = targetFor(deps, caller, payload.tabId);
+			const name = fileNameOf(payload.path) || "file";
+			const pickDestination = async (defaultName: string): Promise<string | null> => {
+				if (win.isDestroyed()) return null;
+				const chosen = await dialog.showSaveDialog(win, { defaultPath: defaultName });
+				return chosen.canceled || !chosen.filePath ? null : chosen.filePath;
+			};
+			if (target?.device) {
+				const device = target.device;
+				const request = (method: string, params: object) =>
+					remoteDevices.request(
+						device,
+						method,
+						{ ...params, rtab: target.tabId, cwd: target.sidecar.cwd },
+						HOST_FS_READ_BINARY_TIMEOUT_MS,
+					);
+				return saveCopy({
+					name,
+					pickDestination,
+					source: {
+						kind: "remote",
+						remote: {
+							readRange: async (offset, length) =>
+								decodeBinaryRead(
+									await request("host.fs.readRange", { path: payload.path, offset, length }),
+									"host.fs.readRange",
+								),
+							readWhole: async () =>
+								decodeBinaryRead(await request("host.fs.readBinary", { path: payload.path })),
+						},
+					},
+				});
+			}
+			const file = await resolveWorkspaceFile(cwdFor(deps, caller, payload.tabId), payload.path);
+			if (!file.ok) return file;
+			return saveCopy({ name, pickDestination, source: { kind: "local", abs: file.abs } });
 		},
 	);
 

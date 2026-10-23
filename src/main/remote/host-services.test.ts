@@ -19,7 +19,7 @@ import type {
 	IpcModelSetupRunResult,
 	ModelOverrideInput,
 } from "../../shared/ipc-types";
-import { HOST_UPLOAD_PART_BYTES } from "../../shared/ipc-types";
+import { HOST_DOWNLOAD_PART_BYTES, HOST_UPLOAD_PART_BYTES } from "../../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
@@ -2958,6 +2958,47 @@ describe("LocalHostServices host.* calls", () => {
 		await expect(services.call(x.peer, "host.fs.readBinary", { rtab: "t1" }, x)).rejects.toThrow(
 			/Invalid host.fs.readBinary/,
 		);
+	});
+
+	it("serves one slice of a tab's file for a download in parts, confined like readBinary", async () => {
+		const { services } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const project = join(workDir, "project");
+		mkdirSync(project);
+		const bytes = new Uint8Array(5000);
+		for (let index = 0; index < bytes.length; index++) bytes[index] = (index * 13 + 5) % 256;
+		writeFileSync(join(project, "data.bin"), bytes);
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: project, fresh: true }, x);
+
+		const slice = async (offset: number, length: number) =>
+			decodeBinaryRead(
+				JSON.parse(
+					JSON.stringify(
+						await services.call(x.peer, "host.fs.readRange", { rtab: "t1", path: "data.bin", offset, length }, x),
+					),
+				),
+				"host.fs.readRange",
+			);
+		const middle = await slice(1000, 2000);
+		expect(middle).toMatchObject({ ok: true, size: 5000, truncated: true });
+		expect(middle.data).toEqual(bytes.slice(1000, 3000));
+		const tail = await slice(4000, 2000);
+		expect(tail).toMatchObject({ ok: true, size: 5000, truncated: false });
+		expect(tail.data).toEqual(bytes.slice(4000));
+		expect((await slice(5000, 10)).data).toHaveLength(0);
+
+		await expect(
+			services.call(x.peer, "host.fs.readRange", { rtab: "t1", path: "../outside.bin", offset: 0, length: 10 }, x),
+		).resolves.toMatchObject({ ok: false, code: "path_escapes_workspace" });
+		await expect(
+			services.call(x.peer, "host.fs.readRange", { rtab: "t1", path: "missing.bin", offset: 0, length: 10 }, x),
+		).resolves.toMatchObject({ ok: false, code: "file_not_found" });
+		for (const bad of [
+			{ rtab: "t1", path: "data.bin", offset: -1, length: 10 },
+			{ rtab: "t1", path: "data.bin", offset: 0, length: HOST_DOWNLOAD_PART_BYTES + 1 },
+			{ rtab: "t1", path: "data.bin", offset: 0 },
+		])
+			await expect(services.call(x.peer, "host.fs.readRange", bad, x)).rejects.toThrow(/Invalid host.fs.readRange/);
 	});
 
 	it("caps a remote binary read to fit one link frame", async () => {

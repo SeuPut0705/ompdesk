@@ -15,6 +15,9 @@
  *   `workspace.default`, `launchProfile.get|update`
  * - `host.fs.readBinary {rtab?, cwd?, path, maxBytes?}` → HostFsReadBinaryReply: the file
  *   viewer's bytes, base64 on the link, capped at FS_BINARY_REMOTE_MAX_BYTES by the host
+ * - `host.fs.readRange {rtab?, cwd?, path, offset, length}` → HostFsReadBinaryReply: one slice of a file for a
+ *   download in parts (`HostFsReadRangeParams`: `length` at most HOST_DOWNLOAD_PART_BYTES), `size` the whole file's,
+ *   `truncated` while bytes remain past the slice; an older host answers `unsupported`
  * - `host.files.upload {name, dataBase64}` → `{path}`: a file attached to a prompt of a tab the host runs (a .docx,
  *   a PDF: anything not inlined as text), stored in the host's upload folder (`UploadStore.store`, 24 h); an older
  *   host answers `unsupported`
@@ -87,7 +90,12 @@ import type {
 	ModelOverrideInput,
 	UpdateStatus,
 } from "../../shared/ipc-types";
-import { HOST_UPLOAD_FRAME_BYTES, HOST_UPLOAD_PART_BYTES } from "../../shared/ipc-types";
+import {
+	HOST_DOWNLOAD_MAX_BYTES,
+	HOST_DOWNLOAD_PART_BYTES,
+	HOST_UPLOAD_FRAME_BYTES,
+	HOST_UPLOAD_PART_BYTES,
+} from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
@@ -751,6 +759,13 @@ export const HostUploadPartParams = z.object({
 /** A part that is not the last answers how many bytes the host holds so far; the last one answers the path. */
 export const HostUploadPartReply = z.union([HostUploadReply, z.object({ received: z.number().int() })]);
 
+/** `host.fs.readRange` params beyond the fs root (`rtab?`, `cwd?`, which host-services adds): one bounded slice of a file. */
+export const HostFsReadRangeParams = z.object({
+	path: z.string().min(1),
+	offset: z.number().int().min(0).max(HOST_DOWNLOAD_MAX_BYTES),
+	length: z.number().int().min(0).max(HOST_DOWNLOAD_PART_BYTES),
+});
+
 /** `host.fs.readBinary` reply: IpcFsReadBinaryResult with `data` as base64, since the link carries JSON. */
 export const HostFsReadBinaryReply = z.object({
 	ok: z.boolean(),
@@ -776,11 +791,11 @@ export function encodeBinaryRead(result: IpcFsReadBinaryResult): HostFsReadBinar
 /**
  * Client side: parse the host's reply and decode the base64 straight into an
  * exact-size Uint8Array (its own ArrayBuffer, so IPC clones only these bytes).
- * A malformed reply throws `remote_protocol`.
+ * A malformed reply throws `remote_protocol` naming `method` (the readBinary shape serves `host.fs.readRange` too).
  */
-export function decodeBinaryRead(raw: unknown): IpcFsReadBinaryResult {
+export function decodeBinaryRead(raw: unknown, method = "host.fs.readBinary"): IpcFsReadBinaryResult {
 	const parsed = HostFsReadBinaryReply.safeParse(raw);
-	if (!parsed.success) throw codedError("remote_protocol", "Malformed host.fs.readBinary reply");
+	if (!parsed.success) throw codedError("remote_protocol", `Malformed ${method} reply`);
 	const { data, code, ...rest } = parsed.data;
 	const bytes = new Uint8Array(Buffer.byteLength(data, "base64"));
 	Buffer.from(bytes.buffer).write(data, "base64");

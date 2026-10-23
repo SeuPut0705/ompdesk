@@ -305,6 +305,12 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 		web: "The page uploads the file to this computer first (POST /upload); the router reads it back and sends it on",
 	},
 	[C.IMAGE_TO_MODEL]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.FS_SAVE_COPY]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "The page reads the bytes (FS_READ_BINARY) and the phone's browser saves or shares them",
+	},
 	"terminal:shells": { dir: "invoke", permission: "workspace", mode: "pass" },
 	"terminal:request": {
 		dir: "invoke",

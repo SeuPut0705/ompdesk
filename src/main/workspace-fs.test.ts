@@ -8,6 +8,8 @@ import {
 	mutateWorkspace,
 	readWorkspaceBinary,
 	readWorkspaceImage,
+	readWorkspaceRange,
+	resolveWorkspaceFile,
 	sniffMime,
 	statWorkspacePath,
 } from "./workspace-fs";
@@ -148,6 +150,99 @@ describe("readWorkspaceBinary", () => {
 			ok: false,
 			code: "invalid_path",
 		});
+	});
+});
+
+describe("readWorkspaceRange", () => {
+	const bytes = Uint8Array.from({ length: 1000 }, (_, index) => (index * 7 + 3) % 256);
+
+	it("returns the requested slice with the whole file's size and whether bytes remain", async () => {
+		writeFileSync(join(root, "blob.bin"), bytes);
+		const middle = await readWorkspaceRange(root, { path: "blob.bin", offset: 100, length: 250 });
+		expect(middle).toMatchObject({ ok: true, size: 1000, truncated: true, mime: "application/octet-stream" });
+		expect(middle.data).toEqual(bytes.slice(100, 350));
+		const tail = await readWorkspaceRange(root, { path: "blob.bin", offset: 900, length: 500 });
+		expect(tail).toMatchObject({ ok: true, size: 1000, truncated: false });
+		expect(tail.data).toEqual(bytes.slice(900));
+	});
+
+	it("sniffs the type from the file's start only, else from the extension", async () => {
+		writeFileSync(join(root, "pic.png"), fileOf(PNG, 300));
+		await expect(readWorkspaceRange(root, { path: "pic.png", offset: 0, length: 100 })).resolves.toMatchObject({
+			mime: "image/png",
+		});
+		writeFileSync(join(root, "song.mp3"), new Uint8Array(300));
+		await expect(readWorkspaceRange(root, { path: "song.mp3", offset: 100, length: 100 })).resolves.toMatchObject({
+			mime: "audio/mpeg",
+		});
+	});
+
+	it("clamps the length to the cap and answers empty data past the end", async () => {
+		writeFileSync(join(root, "blob.bin"), bytes);
+		const capped = await readWorkspaceRange(root, { path: "blob.bin", offset: 0, length: 900 }, 64);
+		expect(capped.data).toEqual(bytes.slice(0, 64));
+		expect(capped.truncated).toBe(true);
+		const past = await readWorkspaceRange(root, { path: "blob.bin", offset: 1000, length: 10 });
+		expect(past).toMatchObject({ ok: true, size: 1000, truncated: false });
+		expect(past.data).toHaveLength(0);
+		await expect(readWorkspaceRange(root, { path: "blob.bin", offset: 5000, length: 10 })).resolves.toMatchObject({
+			ok: true,
+			size: 1000,
+		});
+	});
+
+	it("refuses what readWorkspaceBinary refuses", async () => {
+		const workspace = join(root, "ws");
+		mkdirSync(join(workspace, "sub"), { recursive: true });
+		writeFileSync(join(root, "outside.bin"), bytes);
+		const range = { offset: 0, length: 10 };
+		await expect(readWorkspaceRange(workspace, { path: "../outside.bin", ...range })).resolves.toMatchObject({
+			ok: false,
+			code: "path_escapes_workspace",
+		});
+		await expect(readWorkspaceRange(null, { path: "outside.bin", ...range })).resolves.toMatchObject({
+			ok: false,
+			code: "no_workspace",
+		});
+		await expect(readWorkspaceRange(workspace, { path: "missing.bin", ...range })).resolves.toMatchObject({
+			ok: false,
+			code: "file_not_found",
+		});
+		await expect(readWorkspaceRange(workspace, { path: "sub", ...range })).resolves.toMatchObject({
+			ok: false,
+			code: "not_a_file",
+		});
+		await expect(readWorkspaceRange(workspace, { path: "", ...range })).resolves.toMatchObject({
+			ok: false,
+			code: "invalid_path",
+		});
+		await expect(readWorkspaceRange(workspace, { path: "sub", offset: -1, length: 10 })).resolves.toMatchObject({
+			ok: false,
+			code: "invalid_path",
+		});
+	});
+});
+
+describe("resolveWorkspaceFile", () => {
+	it("answers a regular file's absolute path and size, confined like a read", async () => {
+		const workspace = join(root, "ws");
+		mkdirSync(join(workspace, "sub"), { recursive: true });
+		writeFileSync(join(workspace, "a.txt"), "hello");
+		await expect(resolveWorkspaceFile(workspace, "a.txt")).resolves.toEqual({
+			ok: true,
+			abs: join(workspace, "a.txt"),
+			size: 5,
+		});
+		await expect(resolveWorkspaceFile(workspace, "sub")).resolves.toMatchObject({ ok: false, code: "not_a_file" });
+		await expect(resolveWorkspaceFile(workspace, "gone.txt")).resolves.toMatchObject({
+			ok: false,
+			code: "file_not_found",
+		});
+		await expect(resolveWorkspaceFile(workspace, "../a.txt")).resolves.toMatchObject({
+			ok: false,
+			code: "path_escapes_workspace",
+		});
+		await expect(resolveWorkspaceFile(workspace, "")).resolves.toMatchObject({ ok: false, code: "invalid_path" });
 	});
 });
 

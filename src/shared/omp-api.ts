@@ -55,6 +55,8 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsSaveCopyPayload,
+	IpcFsSaveCopyResult,
 	IpcFsUploadToHostResult,
 	IpcHostedSession,
 	IpcHostOmpUpdate,
@@ -735,6 +737,11 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			/** A picture in a format models refuse, as the one stock's image path makes of it (PNG or JPEG). */
 			imageToModel: (image: { data: string; mimeType: string }) =>
 				transport.invoke(IPC_COMMANDS.IMAGE_TO_MODEL, image) as Promise<{ data: string; mimeType: string }>,
+			saveCopy: (path: string, tabId?: string) =>
+				transport.invoke(IPC_COMMANDS.FS_SAVE_COPY, {
+					path,
+					tabId,
+				} satisfies IpcFsSaveCopyPayload) as Promise<IpcFsSaveCopyResult>,
 		},
 
 		editor: {

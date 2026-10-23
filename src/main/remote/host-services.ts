@@ -108,6 +108,7 @@ import {
 	readWorkspaceBinary,
 	readWorkspaceFile,
 	readWorkspaceImage,
+	readWorkspaceRange,
 	statWorkspacePath,
 } from "../workspace-fs";
 import { searchWorkspace } from "../workspace-search";
@@ -120,6 +121,7 @@ import {
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
+	HostFsReadRangeParams,
 	HostUploadParams,
 	HostUploadPartParams,
 	KEPT_TABS_METHOD,
@@ -387,6 +389,7 @@ const FsListParams = z.object({
 	maxEntries: z.number().optional(),
 });
 const FsReadParams = z.object({ ...FsRoot, path: z.string(), maxBytes: z.number().optional() });
+const FsReadRangeParams = HostFsReadRangeParams.extend(FsRoot);
 const FsReadImageParams = z.object({ ...FsRoot, path: z.string() });
 const FsMutateParams = z.object({ ...FsRoot, mutation: z.unknown() });
 const FsSearchParams = z.object({ ...FsRoot, request: z.unknown() });
@@ -1005,6 +1008,10 @@ export class LocalHostServices implements HostServices {
 					FS_BINARY_REMOTE_MAX_BYTES,
 				);
 				return encodeBinaryRead(result);
+			}
+			case "host.fs.readRange": {
+				const { rtab, cwd, ...payload } = parse(FsReadRangeParams, method, params);
+				return encodeBinaryRead(await readWorkspaceRange(this.#fsRoot(peer, rtab, cwd), payload));
 			}
 			case "fs.readPlan": {
 				const { rtab, cwd, ...payload } = parse(FsReadPlanParams, method, params);

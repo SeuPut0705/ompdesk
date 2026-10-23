@@ -299,6 +299,7 @@ export const IPC_COMMANDS = {
 	FS_UPLOAD_TO_HOST: "fs:upload-to-host",
 	/** A picture in a format models refuse (HEIC, TIFF, BMP, ...) made model-safe with stock's image path. */
 	IMAGE_TO_MODEL: "image:to-model",
+	FS_SAVE_COPY: "fs:save-copy",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -1295,13 +1296,35 @@ export interface IpcFsReadBinaryResult {
 
 /**
  * Largest file one `host.files.upload` carries: its base64 must fit one link frame (16 MiB). A larger one goes in
- * parts (`host.files.uploadPart`, `HOST_UPLOAD_PART_BYTES` each), which a host from before 0.68.1 does not take.
+ * parts (`host.files.uploadPart`, `HOST_UPLOAD_PART_BYTES` each), which a host from before 0.69.0 does not take.
  */
 export const HOST_UPLOAD_FRAME_BYTES = 10 * 1024 * 1024;
 /** One part of a file sent in parts: its base64 (about 10.7 MB) fits a link frame with room to spare. */
 export const HOST_UPLOAD_PART_BYTES = 8 * 1024 * 1024;
 /** Largest file a prompt of a paired host's tab may carry: the host's own limit for an attached file (web/uploads.ts). */
 export const HOST_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+
+/** One part of a file read from a paired host to save here (`host.fs.readRange`): its base64 fits a link frame. */
+export const HOST_DOWNLOAD_PART_BYTES = 8 * 1024 * 1024;
+/** Largest file a desktop window saves from a paired host's tab (streamed to disk part by part). */
+export const HOST_DOWNLOAD_MAX_BYTES = 1024 * 1024 * 1024;
+
+/** Save a copy of a file the transcript names, read on the computer its tab runs on, where this window picks. */
+export interface IpcFsSaveCopyPayload {
+	path: string;
+	tabId?: string;
+}
+
+export interface IpcFsSaveCopyResult {
+	ok: boolean;
+	/** The person closed the save dialog: nothing written, nothing to say. */
+	cancelled?: boolean;
+	/** Where the copy went on this computer (absent on a phone, whose browser saves it). */
+	savedTo?: string;
+	error?: string;
+	/** `file_not_found`, `not_a_file`, `file_too_large` (past HOST_DOWNLOAD_MAX_BYTES), `unsupported` (an older host past one frame). */
+	code?: IpcErrorCode;
+}
 
 /** A file attached to a prompt of a paired host's tab (`host.files.upload`): its bytes go to that host. */
 export interface IpcFsUploadToHostPayload {
@@ -2307,6 +2330,8 @@ export interface OmpApi {
 		uploadToHost(tabId: string, file: File): Promise<IpcFsUploadToHostResult>;
 		/** A picture in a format models refuse, as the one stock's image path makes of it (PNG or JPEG). */
 		imageToModel(image: { data: string; mimeType: string }): Promise<{ data: string; mimeType: string }>;
+		/** Save a copy of `path` (read for the tab's computer) where this device picks: a save dialog here, the phone's download. */
+		saveCopy(path: string, tabId?: string): Promise<IpcFsSaveCopyResult>;
 		/**
 		 * The absolute path of a dropped, pasted or picked `File` on the computer the tab runs on; "" when it has none.
 		 * Electron answers at once (`webUtils.getPathForFile`); a web page uploads the file to the host first.

@@ -32,7 +32,7 @@ import type {
 	IpcFsStatResult,
 	RemoteDirListing,
 } from "../shared/ipc-types";
-import { FS_LIST_MAX_ENTRIES, FS_WRITE_MAX_BYTES } from "../shared/ipc-types";
+import { FS_LIST_MAX_ENTRIES, FS_WRITE_MAX_BYTES, HOST_DOWNLOAD_PART_BYTES } from "../shared/ipc-types";
 
 const FS_LIST_DEFAULT_DEPTH = 8;
 const FS_LIST_MAX_DEPTH = 16;
@@ -581,6 +581,93 @@ export async function readWorkspaceBinary(
 		const message = err instanceof Error ? err.message : String(err);
 		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
 		return fail(message, missing ? "file_not_found" : undefined);
+	}
+}
+
+export interface WorkspaceRangePayload {
+	path: string;
+	offset: number;
+	length: number;
+}
+
+/**
+ * One slice of a file for a download in parts (`host.fs.readRange`): resolved and confined like
+ * `readWorkspaceBinary`. `length` is clamped to `capBytes` (never above HOST_DOWNLOAD_PART_BYTES); an `offset` at or
+ * past the end answers empty data with the file's size. `truncated` says bytes remain past this slice; `mime` is
+ * sniffed from the file's start only when the slice holds it, else from the extension.
+ */
+export async function readWorkspaceRange(
+	cwd: string | null,
+	payload: WorkspaceRangePayload,
+	capBytes: number = HOST_DOWNLOAD_PART_BYTES,
+): Promise<IpcFsReadBinaryResult> {
+	const fail = (error: string, code?: IpcErrorCode): IpcFsReadBinaryResult => ({
+		ok: false,
+		data: new Uint8Array(0),
+		mime: OCTET_STREAM,
+		size: 0,
+		truncated: false,
+		error,
+		...(code ? { code } : {}),
+	});
+	if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
+	if (!Number.isSafeInteger(payload.offset) || payload.offset < 0) return fail("Invalid offset", "invalid_path");
+	const target = resolveReadPath(cwd, payload.path);
+	if ("error" in target) return fail(target.error, target.code);
+	const length = clampInt(payload.length, 0, Math.min(capBytes, HOST_DOWNLOAD_PART_BYTES), 0);
+	try {
+		const stat = await fsp.stat(target.abs);
+		if (!stat.isFile()) return fail("Not a file", "not_a_file");
+		const want = Math.max(0, Math.min(length, stat.size - payload.offset));
+		const buffer = new Uint8Array(want);
+		const handle = await fsp.open(target.abs, "r");
+		let read = 0;
+		try {
+			while (read < want) {
+				const { bytesRead } = await handle.read(buffer, read, want - read, payload.offset + read);
+				if (bytesRead === 0) break;
+				read += bytesRead;
+			}
+		} finally {
+			await handle.close();
+		}
+		// A file that shrank since the stat: an exact-size copy, not a view of the larger buffer.
+		const data = read === want ? buffer : buffer.slice(0, read);
+		return {
+			ok: true,
+			data,
+			mime: sniffMime(payload.offset === 0 ? data.subarray(0, SNIFF_HEADER_BYTES) : new Uint8Array(0), target.abs),
+			size: stat.size,
+			truncated: payload.offset + data.length < stat.size,
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
+		return fail(message, missing ? "file_not_found" : undefined);
+	}
+}
+
+export type WorkspaceFileResult =
+	| { ok: true; abs: string; size: number }
+	| { ok: false; error: string; code?: IpcErrorCode };
+
+/** The regular file `target` names, resolved like a read (relative paths confined to `cwd`); a copy of it is saved from `abs`. */
+export async function resolveWorkspaceFile(cwd: string | null, target: unknown): Promise<WorkspaceFileResult> {
+	if (typeof target !== "string" || target.length === 0)
+		return { ok: false, error: "Invalid path", code: "invalid_path" };
+	const resolved = resolveReadPath(cwd, target);
+	if ("error" in resolved) return { ok: false, error: resolved.error, code: resolved.code };
+	try {
+		const stat = await fsp.stat(resolved.abs);
+		if (!stat.isFile()) return { ok: false, error: "Not a file", code: "not_a_file" };
+		return { ok: true, abs: resolved.abs, size: stat.size };
+	} catch (err) {
+		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
+		return {
+			ok: false,
+			error: err instanceof Error ? err.message : String(err),
+			...(missing ? { code: "file_not_found" as const } : {}),
+		};
 	}
 }
 
