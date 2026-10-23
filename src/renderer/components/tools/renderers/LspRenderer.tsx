@@ -210,7 +210,7 @@ export function LspRenderer({ args, result, isError, isPartial, partialResult }:
 		parsed.kind === "diagnostics"
 			? // Header must reflect the summary totals, not the capped preview:
 				// "50 diagnostics" beside a "100 errors" badge contradicted itself.
-				`${Math.max(parsed.errors + parsed.warnings, parsed.items.length)} diagnostic${Math.max(parsed.errors + parsed.warnings, parsed.items.length) === 1 ? "" : "s"}`
+				t("tools.diagnostics.count", { count: Math.max(parsed.errors + parsed.warnings, parsed.items.length) })
 			: parsed.kind === "references"
 				? t("tools.lsp.results", { count: parsed.count })
 				: parsed.kind === "symbols"

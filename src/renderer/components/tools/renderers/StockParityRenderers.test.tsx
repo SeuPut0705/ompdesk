@@ -467,6 +467,35 @@ describe("glob and grep limits (stock tools/glob.ts, tools/grep.ts)", () => {
 	});
 });
 
+describe("lsp diagnostics header", () => {
+	it("counts the diagnostics in the UI language, not in English", async () => {
+		const realLocalStorage = (globalThis as Record<string, unknown>).localStorage;
+		(globalThis as Record<string, unknown>).localStorage = {
+			getItem: (key: string) => (key === "omp.lang" ? "ko" : null),
+			setItem: () => {},
+		};
+		try {
+			await mount(
+				<LspRenderer
+					args={{ action: "diagnostics", file: "src/a.ts" }}
+					result={{
+						content: [
+							{
+								type: "text",
+								text: "2 error(s)\nsrc/a.ts:3:1 [error] Missing semicolon\nsrc/a.ts:9:4 [error] Unknown name",
+							},
+						],
+					}}
+				/>,
+			);
+			expect(container.textContent).toContain("진단 2개");
+			expect(container.textContent).not.toContain("2 diagnostics");
+		} finally {
+			(globalThis as Record<string, unknown>).localStorage = realLocalStorage;
+		}
+	});
+});
+
 describe("lsp server failures (stock tools/lsp.ts)", () => {
 	it("shows a failed server instead of a clean result", async () => {
 		await mount(
