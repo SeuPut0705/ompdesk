@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.68.0] - 2026-10-23
+
+다른 omp를 기다리는 탭에도 메시지를 보낼 수 있어요. 세션이 열리면 그때 나가요.
+
+### 새로 생긴 것
+- 다른 omp가 세션을 놓기를 기다리는 탭은 보내기가 막혀 있었어요. 이제 시작 중인 탭처럼 메시지를 받아 두었다가 세션이 열리면 보내요(최대 2분).
+
+### 고친 것
+- 그렇게 기다리는 세션이 작업 트리에서 실패(✕)로 보였어요.
+- 태블릿 너비에서 테마 카드의 "고대비 밝게" 같은 긴 이름이 잘렸어요. 이제 두 줄로 넘어가요.
+
+<!-- en -->
+
+A tab waiting for another omp to let go of its session takes your message and sends it once the session opens.
+
+### Added
+- A tab waiting for another omp to let go of its session refused a send. It now holds the message, as a starting tab does, and sends it once the session opens (up to 2 minutes).
+
+### Fixed
+- The Work tree showed such a waiting session as failed (✕).
+- A long theme name such as "High Contrast Light" was cut off on a theme card at tablet width. It now wraps to a second line.
+
 ## [0.67.6] - 2026-10-23
 
 다른 omp를 기다리는 세션이 트레이와 연결된 기기의 세션 줄에서도 대기로 보이고, 내장 REA를 끈 탭은 더 빨리 열려요.
