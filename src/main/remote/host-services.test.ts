@@ -2227,6 +2227,19 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		expect(view.started).toEqual([]);
 	});
 
+	it("a second device views the same window's session too, never refused as open in another tab", async () => {
+		const { services, local, x } = await viewing();
+		const y = new FakeConnection(peer("device-y"));
+		const opened = await services.call(y.peer, "tab.open", { rtab: "u1", cwd: workDir, sessionPath: SESSION }, y);
+		expect(opened).toEqual({ cwd: workDir, kind: "agent", attached: true, viewing: true });
+		expect(local.viewed.map(entry => entry.origin.deviceId)).toEqual(["device-x", "device-y"]);
+		// The same connection asking again under another rtab is still refused: one tab a session per device.
+		const refused = await services
+			.call(x.peer, "tab.open", { rtab: "t2", cwd: workDir, sessionPath: SESSION }, x)
+			.catch(error => error);
+		expect(ipcErrorCode(refused)).toBe("session_open_in_tab");
+	});
+
 	it("the device's close only leaves; the window's close ends the device's tab quietly", async () => {
 		const first = await viewing();
 		await first.services.call(first.x.peer, "tab.close", { rtab: "t1" }, first.x);

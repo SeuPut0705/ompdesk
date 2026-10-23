@@ -1354,6 +1354,8 @@ export class LocalHostServices implements HostServices {
 		if (!params.sessionPath) return undefined;
 		const tab = this.#holder(params.sessionPath);
 		if (!tab) return undefined;
+		// Another device's view of a window's tab holds no omp of its own: this device views the window too.
+		if (tab.viewsWindow && tab.peerId !== peer.deviceId) return undefined;
 		if (tab.peerId !== peer.deviceId || tab.conn === conn)
 			throw codedError("session_open_in_tab", "Session is already open in another tab on the host");
 		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
