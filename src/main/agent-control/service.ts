@@ -1964,7 +1964,10 @@ export class AgentControl {
 	 */
 	async #untilDraftSent(caller: ControlTab, target: ControlTab): Promise<void> {
 		const deadline = Date.now() + DRAFT_WAIT_MS;
-		let drafting = target.drafting === true;
+		// The live tab, never the listing `target` came from: the person may have started typing since.
+		const draftingNow = (): boolean =>
+			(this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId) ?? target).drafting === true;
+		let drafting = draftingNow();
 		while (drafting) {
 			const left = deadline - Date.now();
 			if (left <= 0)
@@ -1972,7 +1975,7 @@ export class AgentControl {
 					`The person is typing in ${label(target)} (a draft sits in its composer): nothing was sent, so their message and yours do not collide. Try again once they have sent it, or report with ompdesk_report.`,
 				);
 			await this.#nextChange(Math.min(1000, left));
-			drafting = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId)?.drafting === true;
+			drafting = draftingNow();
 		}
 	}
 

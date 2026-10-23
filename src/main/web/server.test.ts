@@ -40,6 +40,7 @@ type Handler = (caller: IpcCaller, ...args: unknown[]) => unknown;
 let userData: string;
 let staticRoot: string;
 let host: WebHost;
+let hostDeps: WebHostDeps;
 let base: string;
 let port: number;
 let handlers: Map<string, Handler>;
@@ -120,6 +121,7 @@ beforeEach(async () => {
 		onUnpairedAuth: unpaired,
 		language: () => "en",
 	};
+	hostDeps = deps;
 	host = new WebHost(deps);
 	({ port } = await host.start({ port: 0 }));
 	// What the service tells the server once serve is published: this address and the secret path.
@@ -783,6 +785,19 @@ describe("WebSocket", () => {
 		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));
 		await host.stop();
 		expect(await closed).toBe(1001);
+	});
+});
+
+describe("uploads", () => {
+	it("expire with the page never served: a paired computer's files land there with Mobile web off", async () => {
+		let clock = Date.now();
+		const quiet = new WebHost({ ...hostDeps, now: () => clock });
+		const stored = await quiet.uploads.store("mac-device", "report.docx", Buffer.from("PK"));
+		expect(existsSync(stored.path)).toBe(true);
+		clock += 25 * 3_600_000;
+		expect(await quiet.keepUploadsSwept()).toBe(1);
+		expect(existsSync(stored.path)).toBe(false);
+		await quiet.stop();
 	});
 });
 

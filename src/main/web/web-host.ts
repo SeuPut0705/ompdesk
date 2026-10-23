@@ -229,9 +229,7 @@ export class WebHost {
 		const started = await this.server.start(options);
 		// Until Mobile web confirms serve's handler, a request under this host's secret is answered 503, not 404.
 		this.server.configure({ publicPort: started.port, pendingPrefix: this.serveSecret() });
-		this.#sweeper ??= setInterval(() => this.#sweep(), UPLOAD_SWEEP_MS);
-		this.#sweeper.unref();
-		this.#sweep();
+		void this.keepUploadsSwept();
 		const root = this.#deps.staticRoot();
 		if (root) {
 			this.#archiving ??= this.assets
@@ -247,19 +245,31 @@ export class WebHost {
 	 * writes into userData after it.
 	 */
 	async stop(): Promise<void> {
-		clearInterval(this.#sweeper);
-		this.#sweeper = undefined;
 		this.notifier.dispose();
 		await Promise.all([this.server.stop(), this.#archiving, this.#sweeping]);
 	}
 
-	#sweep(): void {
+	/**
+	 * Deletes uploads past their 24 hours, now and every hour until the app quits, whether or not the page is served:
+	 * a paired computer's attached files land here too (`host.files.upload`), with Mobile web off. Answers the sweep it
+	 * runs now; one already running is joined.
+	 */
+	keepUploadsSwept(): Promise<number> {
+		if (!this.#sweeper) {
+			this.#sweeper = setInterval(() => void this.#sweep(), UPLOAD_SWEEP_MS);
+			this.#sweeper.unref();
+		}
+		return this.#sweep();
+	}
+
+	#sweep(): Promise<number> {
 		this.#sweeping ??= this.uploads
 			.sweep()
 			.catch(() => 0)
 			.finally(() => {
 				this.#sweeping = null;
 			});
+		return this.#sweeping;
 	}
 
 	/** The secret path of the serve handler's target (made on first use, kept 0600). */

@@ -1714,6 +1714,8 @@ app.whenReady().then(() => {
 		language: () => getMainLanguage(),
 		log: message => console.warn(`[web-push] ${message}`),
 	});
+	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.
+	void webHost.keepUploadsSwept();
 	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
 	sidecarPool.observeTabs(activity => webHost?.tabActivity(activity));
 	webAutopilotNotice.current = (tabId, notice) => webHost?.autopilotNotice(tabId, notice);

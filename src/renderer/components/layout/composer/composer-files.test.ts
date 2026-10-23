@@ -85,7 +85,10 @@ describe("intakeComposerFiles", () => {
 	it("sends a remote tab's binary file to the computer the tab runs on and mentions its path there", async () => {
 		const code = new File(["const a = 1;\n"], "a.ts");
 		const docx = new File([new Uint8Array([80, 75, 3, 4, 0])], "계약서 수정.docx");
-		const pdf = new File([new Uint8Array([37, 80, 68, 70, 0])], "spec.pdf", { type: "application/pdf" });
+		// A PDF whose head holds no NUL is still a document, never pasted as its source.
+		const pdf = new File(["%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n"], "spec.pdf", {
+			type: "application/pdf",
+		});
 		const sent: string[] = [];
 		const intake = await intakeComposerFiles([code, docx, pdf], {
 			...local({}),

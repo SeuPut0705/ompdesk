@@ -665,6 +665,37 @@ describe("ompdesk_session_send", () => {
 		}
 	});
 
+	it("sees a draft the person starts while the send reads the target's journal", async () => {
+		vi.useFakeTimers();
+		try {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
+			// host.ts builds new tab objects on every read: a listing is a snapshot.
+			host.tabs = () => [...host.tabsById.values()].map(tab => ({ ...tab }));
+			let release = (): void => {};
+			const held = new Promise<void>(resolve => {
+				release = resolve;
+			});
+			const command = host.command;
+			host.command = async (tabId, request, timeoutMs) => {
+				if (request.type === "get_transcript_page") await held;
+				return command(tabId, request, timeoutMs);
+			};
+			const service = control(host);
+			const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
+			await vi.advanceTimersByTimeAsync(10);
+			(host.tabsById.get("work0002") as FakeTab).drafting = true;
+			release();
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(prompts(host, "work0002")).toEqual([]);
+			(host.tabsById.get("work0002") as FakeTab).drafting = false;
+			for (const listener of host.listeners) listener();
+			expect((await sending).isError).toBeFalsy();
+			expect(prompts(host, "work0002")).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("answers a repeat of a delivered request at once, never waiting on the person's draft", async () => {
 		vi.useFakeTimers();
 		try {

@@ -23,6 +23,32 @@ export const MAX_COMPOSER_IMAGES = 20;
 /** Bytes sniffed for a NUL to tell text from binary (stock `isProbablyBinary` reads a head too). */
 const BINARY_SNIFF_BYTES = 8000;
 
+/**
+ * Documents stock reads through its read tool (markit), never as their bytes: a PDF can hold no NUL in its first
+ * 8,000 bytes and would read as text. A remote tab sends them to its computer whatever their head looks like.
+ */
+const DOCUMENT_EXTENSIONS = new Set([
+	"pdf",
+	"doc",
+	"docx",
+	"xls",
+	"xlsx",
+	"ppt",
+	"pptx",
+	"odt",
+	"ods",
+	"odp",
+	"rtf",
+	"epub",
+	"hwp",
+	"hwpx",
+]);
+
+function isDocument(file: File): boolean {
+	const extension = /\.([^.]+)$/.exec(file.name)?.[1]?.toLowerCase();
+	return file.type === "application/pdf" || (extension !== undefined && DOCUMENT_EXTENSIONS.has(extension));
+}
+
 export type ComposerFileRejection = "empty" | "tooLarge" | "binary" | "unreadable" | "notSent";
 
 export interface ComposerFileIntake {
@@ -128,7 +154,7 @@ export async function intakeComposerFiles(
 			mention(path);
 			continue;
 		}
-		const text = await readText(file);
+		const text = isDocument(file) && options.remote && options.sendToHost ? "binary" : await readText(file);
 		if ((text === "binary" || text === "tooLarge") && options.remote && options.sendToHost) {
 			try {
 				mention(await options.sendToHost(file));
