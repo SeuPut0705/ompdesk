@@ -255,7 +255,8 @@ describe("listDirectories", () => {
 			entries: [{ name: "omp-gui-remote-Ab12", path: join(root, "omp-gui-remote-Ab12") }],
 			truncated: false,
 		});
-		// Making 2001 folders took past 20 s on a loaded Windows runner (Defender scans each).
+		// 2001 folders: the whole file takes 4-6 s on a Windows runner, and this test once passed 20 s there (run
+		// 39932292435; which step was slow is not known), so it gets room.
 	}, 90_000);
 });
 
