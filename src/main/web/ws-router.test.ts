@@ -360,9 +360,18 @@ describe("hello and calls", () => {
 	});
 
 	it("tells the formats models refuse from the ones they take", () => {
-		for (const mime of ["image/heic", "image/heif", "image/HEIC", "image/heic-sequence", "image/heif-sequence"])
+		for (const mime of [
+			"image/heic",
+			"image/heif",
+			"image/HEIC",
+			"image/heic-sequence",
+			"image/heif-sequence",
+			"image/avif",
+			"image/tiff",
+			"image/bmp",
+		])
 			expect(convertsForModel(mime)).toBe(true);
-		for (const mime of ["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "text/plain"])
+		for (const mime of ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "text/plain"])
 			expect(convertsForModel(mime)).toBe(false);
 	});
 

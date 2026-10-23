@@ -48,11 +48,19 @@ function bmp(): string {
 	return Buffer.concat([header, pixels]).toString("base64");
 }
 
+/** A 2×2 AVIF (encoded once with Bun.Image). */
+const AVIF =
+	"AAAAIGZ0eXBhdmlmAAAAAE1pUHJhdmlmbWlhZm1pZjEAAAEhbWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAAAOcGl0bQAAAAAAAQAAACNpaW5mAAAAAAABAAAAFWluZmUCAAAAAAEAAGF2MDEAAAAAgWlwcnAAAABgaXBjbwAAABNjb2xybmNseAACAAIABoAAAAAMY2xsaQDLAEAAAAAUaXNwZQAAAAAAAAACAAAAAgAAAAlpcm90AAAAABBwaXhpAAAAAAMICAgAAAAMYXYxQ4EADAAAAAAZaXBtYQAAAAAAAAABAAEGgQIDBYaEAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAAVEAAAAcAAAAAW1kYXQAAAAAAAAALBIACgwAAAAABn/8CBAQNCAyChABmAAQQQQgBUg=";
+
 describe.skipIf(!existsSync(realRoot))("image.toModel on the installed omp", () => {
-	it("turns a BMP into a format models take, and refuses bytes that are no picture", async () => {
+	it("turns a BMP and an AVIF into a format models take, and refuses bytes that are no picture", async () => {
 		const converted = await toModel(bmp(), "image/bmp");
 		expect(converted.error).toBeUndefined();
 		expect(["image/png", "image/jpeg"]).toContain(converted.result?.mimeType);
+		// A phone's AVIF takes the same road (ws-router.ts convertsForModel).
+		const avif = await toModel(AVIF, "image/avif");
+		expect(avif.error).toBeUndefined();
+		expect(["image/png", "image/jpeg"]).toContain(avif.result?.mimeType);
 
 		const broken = await toModel(Buffer.from("not a picture").toString("base64"), "image/heic");
 		expect(broken.error).toBeTruthy();

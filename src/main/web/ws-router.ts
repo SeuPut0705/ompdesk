@@ -301,9 +301,13 @@ export interface InlineImage {
 	mimeType: string;
 }
 
-/** Whether a picture's format is one models refuse and a phone camera makes (HEIC/HEIF, an iPhone's default). */
+/**
+ * Whether a picture's format is one models refuse (anything but JPEG, PNG, GIF and WebP: an iPhone's HEIC, AVIF,
+ * TIFF, BMP, ...): stock's image path converts it as it lands. An SVG never comes as a picture (composer-files.ts).
+ */
 export function convertsForModel(mimeType: string): boolean {
-	return /^image\/hei[cf](-sequence)?$/i.test(mimeType.trim());
+	const type = mimeType.trim().toLowerCase();
+	return type.startsWith("image/") && !/^image\/(jpe?g|png|gif|webp)$/.test(type);
 }
 
 /** The command and the tab a model-using RPC payload names, for the quota. */
