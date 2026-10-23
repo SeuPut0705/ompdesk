@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.61.28] - 2026-10-23
+
+오토파일럿은 글자 대신 로켓 아이콘으로 보이고, 시스템 언어로 답해요.
+
+### 고친 것
+- 사이드바 줄, 작업 보드 머리와 프로젝트 줄, 대화 아래 상태 줄, 폰의 작업 줄에서 '오토파일럿' 글자 대신 로켓 아이콘이 보여요. 스크린 리더는 그대로 '오토파일럿'이라고 읽어요.
+- 이전 버전이 세션 이름 앞에 써 넣은 '오토파일럿 · '이 더는 보이지 않아요. 이름 없는 실행 탭도 프로젝트 이름만 보여요.
+- 오토파일럿이 시스템 언어 대신 영어로 답하던 문제를 고쳤어요. 앱이 대신 쓰는 영어 안내(사이클 시작, 목표 이어하기, 알림)를 사람이 언어를 바꾼 것으로 읽지 않아요. 직접 다른 언어로 쓸 때만 그 언어를 따라요.
+
+<!-- en -->
+
+Autopilot shows as a rocket instead of a word, and answers in your language.
+
+### Fixed
+- The sidebar row, the work board's heading and project line, the status row under the conversation and the phone's work strip show a rocket instead of the word Autopilot; screen readers still say it.
+- The "Autopilot · " an earlier version wrote in front of a session's name no longer shows, and an unnamed run's tab shows its project alone.
+- Autopilot answered in English instead of your language: the English prompts the app writes for it (a cycle's start, a goal's continuation, reminders) no longer read as you switching language. Only what you type yourself in another language changes it.
+
 ## [0.61.27] - 2026-10-23
 
 오토파일럿 세션 이름이 지금 하는 일을 말하고, 검색 칸에서 키보드로 바로 결과에 가요.
