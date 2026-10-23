@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.71.1] - 2026-10-23
+
+다른 컴퓨터의 세션을 볼 때 작업 현황의 하위 세션이 제대로 세어지고, 실제로 돌고 있는 컴퓨터에서 열려요.
+
+### 고친 것
+- 다른 컴퓨터의 세션을 볼 때 하위 세션 줄은 보였지만, 띠와 "작업 중" 표시에는 0개로 세어졌어요. 이제 진행 중인 하위 세션으로 세요.
+- 그 세션이 하위 세션을 이 기기나 또 다른 컴퓨터에서 열었으면, 누를 때 엉뚱한 컴퓨터에서 열려고 했어요. 이제 하위 세션이 실제로 도는 컴퓨터에서 열려요. 대화 안 목록과 작업 트리에서 눌러도 같아요.
+
+<!-- en -->
+
+Viewing another computer's session, its child sessions on the work board now count as at work and open on the computer they run on.
+
+### Fixed
+- Viewing another computer's session showed its child sessions as rows but counted none of them on the strip and the "working" cue. They now count as at work.
+- A child that session opened on this device or a third computer tried to open on the wrong computer. It now opens where it runs, from the board, the transcript's list and the Work tree alike.
+
 ## [0.71.0] - 2026-10-23
 
 연결된 다른 컴퓨터에서 돌아가는 세션을 볼 때도 작업 현황이 그 컴퓨터에서 보는 것과 같아요. 오토파일럿은 남은 후속 작업을 끝낸 뒤 닫는 걸 잊지 않아요.
