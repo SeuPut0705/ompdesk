@@ -4275,6 +4275,7 @@ export const en: Record<string, string> = {
 	"sidecar.exited": "omp exited unexpectedly. Restart it to continue.",
 	"sidecar.notResponding": "omp isn't responding. Restart it to continue.",
 	"sidecar.restartingTitle": "Restarting omp",
+	"sidecar.heldTitle": "Waiting for the session",
 	"sidecar.attempt": "Restart attempt {attempt}/{maxAttempts}",
 	"sidecar.exhausted": "Gave up after {maxAttempts} restart attempts. Check the Logs panel, then restart.",
 	"sidecar.project": "Project: {cwd}",

@@ -116,6 +116,18 @@ describe("SidecarBanner", () => {
 		expect(container.textContent).not.toContain(translate("sidecar.title"));
 	});
 
+	it("shows a session another omp still holds as a wait that ends by itself, not a failure", async () => {
+		useSessionStore.getState().setStatus("error", "/tmp/project");
+		useSessionStore.getState().setSidecarError("This session is still open in another omp.", null, true);
+		await mount(<SidecarBanner />);
+
+		expect(container.textContent).toContain(translate("sidecar.heldTitle"));
+		expect(container.textContent).toContain("This session is still open in another omp.");
+		expect(container.textContent).not.toContain(translate("sidecar.title"));
+		expect(container.querySelector("[role='status']")).not.toBeNull();
+		expect(container.querySelector("[role='alert']")).toBeNull();
+	});
+
 	it("marks an exhausted crash loop as a failure with the last reason", async () => {
 		useSessionStore.getState().setStatus("error", "/tmp/project");
 		useSessionStore.getState().setSidecarError("Exit code 1 — omp: command not found", {

@@ -836,6 +836,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						.setSidecarError(
 							payload.message ?? translate("events.sidecarProcessFailed"),
 							payload.restart ?? null,
+							payload.status === "error" && payload.sessionHeld === true,
 						),
 				);
 			}

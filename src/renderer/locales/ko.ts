@@ -4262,6 +4262,7 @@ export const ko: Record<string, string> = {
 	"sidecar.exited": "omp가 예기치 않게 종료됐어요. 계속하려면 다시 시작하세요.",
 	"sidecar.notResponding": "omp가 응답하지 않아요. 계속하려면 다시 시작하세요.",
 	"sidecar.restartingTitle": "omp 다시 시작 중",
+	"sidecar.heldTitle": "세션을 기다리는 중",
 	"sidecar.attempt": "다시 시작 시도 {attempt}/{maxAttempts}",
 	"sidecar.exhausted": "다시 시작을 {maxAttempts}번 시도한 뒤 중단했어요. 로그 패널을 확인한 뒤 다시 시작하세요.",
 	"sidecar.project": "프로젝트: {cwd}",

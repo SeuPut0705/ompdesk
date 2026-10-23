@@ -21,6 +21,8 @@ export function SidecarBanner() {
 	const cwd = useSessionStore(s => s.cwd);
 	const sidecarError = useSessionStore(s => s.sidecarError);
 	const sidecarRestart = useSessionStore(s => s.sidecarRestart);
+	// Another omp still holds the session: the tab opens it by itself, so this is a wait, not a failure.
+	const held = useSessionStore(s => s.sidecarHeld);
 	const sidecarDismissed = useSessionStore(s => s.sidecarDismissed);
 	const clearSidecarError = useSessionStore(s => s.clearSidecarError);
 	const dismissSidecarBanner = useSessionStore(s => s.dismissSidecarBanner);
@@ -59,9 +61,9 @@ export function SidecarBanner() {
 	return (
 		<Banner
 			live
-			variant={restarting ? "warning" : "danger"}
+			variant={restarting || held ? "warning" : "danger"}
 			className="rounded-none border-x-0 border-t-0 px-4"
-			title={restarting ? t("sidecar.restartingTitle") : t("sidecar.title")}
+			title={held ? t("sidecar.heldTitle") : restarting ? t("sidecar.restartingTitle") : t("sidecar.title")}
 			onDismiss={dismissSidecarBanner}
 			actions={
 				<Button
