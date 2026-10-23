@@ -63,6 +63,7 @@ export function SidebarUsage({
 				const label = report.account?.trim() || report.provider;
 				const email = shortAccountLabel(label);
 				return (
+					// controls-ok: the omp-sidebar-usage-line class draws the whole row
 					<button
 						className="omp-sidebar-usage-line"
 						data-in-use={inUse || undefined}
@@ -80,6 +81,7 @@ export function SidebarUsage({
 				);
 			})}
 			{more > 0 ? (
+				// controls-ok: the omp-sidebar-usage-more class draws the whole row
 				<button
 					className="omp-sidebar-usage-more"
 					onClick={() => useUiStore.getState().openProviders()}

@@ -16,6 +16,7 @@ export function TodoReminderNote({ message, reminder }: { message: AgentMessage;
 	const age = formatAgo(message.timestamp);
 	return (
 		<>
+			{/* controls-ok: the omp-work-notes-line class draws the whole row */}
 			<button
 				type="button"
 				className="omp-work-notes-line"

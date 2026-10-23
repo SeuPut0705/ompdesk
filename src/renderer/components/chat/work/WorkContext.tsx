@@ -40,6 +40,7 @@ function WorkTodo() {
 		: summary;
 	return (
 		<div className="omp-work-todo" data-open={open} ref={rowRef}>
+			{/* controls-ok: the omp-work-context-row class draws the whole row */}
 			<button
 				type="button"
 				className="omp-work-context-row omp-work-todo-toggle"
@@ -77,6 +78,7 @@ function WorkTodoSnapshot({ snapshot }: { snapshot: TodoSnapshot }) {
 	return (
 		<div className="omp-work-context" data-todo-snapshot={snapshot.id}>
 			<div className="omp-work-todo" data-open={open}>
+				{/* controls-ok: the omp-work-context-row class draws the whole row */}
 				<button
 					type="button"
 					className="omp-work-context-row omp-work-todo-toggle"

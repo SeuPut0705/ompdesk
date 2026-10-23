@@ -34,6 +34,7 @@ export function CappedRows<T>({
 			{shown.map(children)}
 			{hidden > 0 && (
 				<li className="omp-work-board-item">
+					{/* controls-ok: the omp-work-board-more class draws the whole row */}
 					<button
 						className="omp-work-board-more"
 						data-board-more={hidden}
@@ -87,6 +88,7 @@ export function BoardSection({
 			data-tone={tone}
 		>
 			<h3 className="omp-work-board-title" id={headId}>
+				{/* controls-ok: the omp-work-board-fold class draws the whole row */}
 				<button
 					aria-expanded={!folded}
 					className="omp-work-board-fold"
@@ -149,6 +151,7 @@ export function BoardRow({
 	return (
 		<li aria-hidden={exiting || undefined} className="omp-work-board-item" data-exiting={exiting || undefined}>
 			{onClick ? (
+				// controls-ok: the omp-work-board-row class draws the whole row
 				<button className="omp-work-board-row" onClick={onClick} title={title} type="button" {...data}>
 					{body}
 				</button>
