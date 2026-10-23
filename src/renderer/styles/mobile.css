@@ -1567,8 +1567,9 @@ html[data-shell="phone"] .omp-restored-queue [data-restored-note] > span {
 	white-space: nowrap;
 }
 
-/* The side panel's own toolbars, rows and the live work card hold neighbours 4 px apart. */
-html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, .omp-live-step) {
+/* The side panel's own toolbars, rows and the live work card hold neighbours 4 px apart; so do the session views that
+   open as sheets (`[data-view-sheet]`: jobs, plan, logs, tree, work), which were panel views until 21 Oct 2026. */
+html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet], .omp-inspector, .omp-live-step) {
 	--hit-gap-x: 4px;
 	--hit-gap-y: 4px;
 }
@@ -1578,7 +1579,7 @@ html[data-shell] :is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector, 
    way to the next, where the desktop's 0–4 px spacing let each icon take its neighbour's edge. The terminal's key bar
    keeps its own 4 px rhythm (below). */
 html[data-input="touch"]
-	:is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector)
+	:is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet], .omp-inspector)
 	:is(div, span, form).flex:not(.flex-col, [data-staged], [data-terminal-keybar], [data-terminal-keybar] *):has(
 		> button + button
 	) {
@@ -1590,12 +1591,51 @@ html[data-input="touch"]
 /* On a phone the same icons draw 24 px behind a 1 px border, their ::after starting from the 22 px inside: 14 px apart
    and bounded at 14 each reaches 36 (10 and 12 left the terminal's, the Files view's and the Preview's 32×34). */
 html[data-shell="phone"][data-input="touch"]
-	:is([data-sheet-panel]:has(.omp-panel-topbar), .omp-inspector)
+	:is([data-sheet-panel]:has(.omp-panel-topbar), [data-view-sheet], .omp-inspector)
 	:is(div, span, form).flex:not(.flex-col, [data-staged], [data-terminal-keybar], [data-terminal-keybar] *):has(
 		> button + button
 	) {
 	column-gap: 14px;
 	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
+/* The session views that open as sheets put a copy button (an IconButton and its sr-only status) beside other icons; the
+   cluster rule above needs adjacent buttons, so these get the same room by any button sibling. Each of their rows (a
+   worktree to remove or restore) and section heads (an h3 of icons) is a touch row, its buttons 10 px from the next
+   row's (a responsive audit at 390, 412 and 834 found 12 stolen taps there once the views became sheets). */
+html[data-input="touch"] [data-view-sheet] :is(div, span, form).flex:not(.flex-col):has(> button ~ button) {
+	column-gap: 10px;
+	--hit-gap-x: 10px;
+	--hit-gap-y: 12px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-view-sheet] :is(div, span, form).flex:not(.flex-col):has(> button ~ button) {
+	column-gap: 16px;
+	--hit-gap-x: 16px;
+	--hit-gap-y: 16px;
+}
+
+html[data-input="touch"] [data-view-sheet] :is(.omp-work-tree-row, h3) {
+	min-height: var(--sc-row-touch);
+	--hit-gap-x: 14px;
+	--hit-gap-y: 10px;
+}
+
+/* A section head of these sheets is a touch row too, its 16 px info glyph reaching 36 between 20 px neighbours. */
+html[data-input="touch"] [data-view-sheet] h3 {
+	padding-block: 0;
+	column-gap: 20px;
+}
+
+html[data-input="touch"] [data-view-sheet] h3 > [data-setting-info] {
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
+}
+
+/* A phone's icons draw 24 px behind a 1 px border and reach from the 22 px inside: rows 2 px taller and 14 px apart. */
+html[data-shell="phone"][data-input="touch"] [data-view-sheet] :is(.omp-work-tree-row, h3) {
+	min-height: calc(var(--sc-row-touch) + 2px);
 	--hit-gap-y: 14px;
 }
 
