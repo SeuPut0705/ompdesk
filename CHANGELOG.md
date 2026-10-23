@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.64.0] - 2026-10-23
+
+두 번째 기기도 이 컴퓨터 창에 열린 세션을 함께 볼 수 있고, 연결된 컴퓨터 사이드바에 줄줄이 생기던 빈 에이전트 작업 폴더가 정리돼요. 휴대폰에서 연결된 다른 컴퓨터 페이지로 바로 갈 수 있어요.
+
+### 새로 생긴 것
+- 휴대폰 페이지의 사이드바에서, 연결된 다른 컴퓨터도 모바일 웹을 켜 두었다면 그 컴퓨터 머리글의 버튼으로 그 컴퓨터 페이지로 바로 갈 수 있어요.
+
+### 고친 것
+- 한 기기가 이미 보고 있는 이 컴퓨터 창의 세션을 두 번째 기기가 열면 '[session_open_in_tab] Session is already open in another tab on the host' 오류가 났어요. 이제 두 기기 모두 같은 세션을 함께 봐요.
+- 연결된 컴퓨터의 사이드바에 에이전트 작업 폴더(gui-agent-…)가 빈 프로젝트로 줄줄이 보였어요. 이제 원래 프로젝트 아래로 합쳐지고, 사라진 작업 폴더는 목록에서 빠져요.
+- 원격 연결 직후 목록을 읽지 못하면, 삭제한 세션이 예전 목록 그대로 남아 보였어요. 이제 읽을 때까지 다시 읽어서 실제 목록으로 바뀌어요.
+- 오토파일럿 '배포 후 중단'이 릴리스 실행이 끝나기 전에 멈췄어요. 이제 릴리스가 성공할 때까지 기다리고, 실패하면 고쳐서 다시 릴리스한 뒤 끝내요.
+
+<!-- en -->
+
+A second device can view a session this computer's window shows, and the empty agent worktree folders that piled up in a paired computer's sidebar are gone. From the phone you can go straight to another paired computer's page.
+
+### New
+- On the phone page, a paired computer that has Mobile web on gets a button on its sidebar header that opens that computer's own page.
+
+### Fixed
+- A second device opening a session this computer's window showed, while another device viewed it, got "[session_open_in_tab] Session is already open in another tab on the host". Both devices now view the session.
+- A paired computer's sidebar listed agent worktree folders (gui-agent-…) as empty projects. They now group under their project, and gone ones leave the list.
+- When the first list read after connecting failed, sessions deleted on the host stayed visible from the last known list. The list now reads again until it answers.
+- Autopilot's "Ship, then stop" ended before a release run finished. It now waits for the release to succeed, and a failed one is repaired and released again first.
+
 ## [0.63.1] - 2026-10-23
 
 오토파일럿의 '배포 후 중단'이 실제로 배포된 사이클에서만 실행을 끝내요.
