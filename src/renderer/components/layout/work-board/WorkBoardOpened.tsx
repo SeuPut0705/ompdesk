@@ -46,14 +46,19 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 				? report
 				: [status === "running" ? null : statusLabel, mergeNote].filter(Boolean).join(" · ");
 	// A closed child whose folder is gone says so before the click (the open then offers Restore when it was saved).
-	const storedCwd = !row.tabId && row.sessionPath ? row.cwd : undefined;
+	const storedCwd = !row.tabId && !row.deviceId && row.sessionPath ? row.cwd : undefined;
 	const projectName = useProjectNames(storedCwd ? [storedCwd] : []);
 	const gone = storedCwd !== undefined && projectName(storedCwd).gone;
 	const activity = childActivity(row);
 	const open = () => {
 		if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
 		else if (row.sessionPath)
-			void useTabsStore.getState().openTab({ cwd: row.cwd, sessionPath: row.sessionPath, kind: "agent" });
+			void useTabsStore.getState().openTab({
+				cwd: row.cwd,
+				sessionPath: row.sessionPath,
+				kind: "agent",
+				...(row.deviceId ? { device: row.deviceId } : {}),
+			});
 	};
 	return (
 		<BoardRow

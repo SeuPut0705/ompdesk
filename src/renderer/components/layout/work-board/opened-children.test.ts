@@ -109,6 +109,36 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 		expect(openedChildCounts(rows)).toMatchObject({ total: 3, running: 1, waiting: 1 });
 	});
 
+	it("opens a child of a paired host's session on that host: the list came from there, this window holds no tab", () => {
+		const rows = openedChildRows({
+			parent,
+			tabs: [tab("boss", { sessionPath: "/s/boss.jsonl", device: "dev-b" })],
+			review: new Map([
+				[
+					"host-kid",
+					review("host-kid", {
+						title: "Cycle child",
+						state: "running",
+						sessionPath: "/b/kid.jsonl",
+						device: "dev-b",
+					}),
+				],
+			]),
+			closed: [],
+			deviceName: id => (id === "dev-b" ? "PC-B" : id),
+		});
+		expect(rows).toEqual([
+			expect.objectContaining({
+				key: "host-kid",
+				tabId: null,
+				sessionPath: "/b/kid.jsonl",
+				device: "PC-B",
+				deviceId: "dev-b",
+				status: "running",
+			}),
+		]);
+	});
+
 	it("puts a child whose question waits on the opener first, with its last report", () => {
 		const rows = openedChildRows({
 			parent,

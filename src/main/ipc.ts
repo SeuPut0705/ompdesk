@@ -29,10 +29,12 @@ import { ACCOUNT_ROTATION_PREF, isAccountRotationMode } from "../shared/account-
 import {
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
+	type AgentReviewResult,
 	agentControlEnabled,
 	agentHiddenPaths,
 	isAgentControlTool,
 	parseAgentMessage,
+	reviewFromDevice,
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
@@ -217,6 +219,8 @@ export interface IpcDeps {
 		| "onHostedSessionsChange"
 		| "sidecarOf"
 		| "attachAutopilot"
+		| "attachAgentReview"
+		| "agentReviewChanged"
 		| "chargeRun"
 		| "runEvents"
 		| "endRun"
@@ -748,6 +752,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			parseAgentMessage(cmd.message) === null
 		)
 			agentControl.noteUserPrompt(issuerTabId);
+		// A tab viewing a paired host's window session: the sessions its agent opened are that host's tabs, which only
+		// the host's control tools know. It answers (host-services `attachAgentReview`), and each item opens there.
+		if (
+			(cmd.type === "agent_control_review" || cmd.type === "agent_control_family_edits") &&
+			sidecar.device &&
+			sidecar.shared === true
+		) {
+			const response = await client.command({ ...cmd, id: _id } as RpcCommand, payload.timeoutMs);
+			const data = response.data as AgentReviewResult | null | undefined;
+			if (cmd.type !== "agent_control_review" || !response.success || !Array.isArray(data?.items)) return response;
+			return { ...response, data: reviewFromDevice(data, sidecar.device) };
+		}
 		// The work board's opened-session list (src/main/agent-control): answered here, never sent to omp.
 		if (cmd.type === "agent_control_review") {
 			if (!issuerTabId)
@@ -1060,6 +1076,39 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			handle: (win, sidecar, tabId, command) => autopilot.handleCommand(win, sidecar, tabId, command, undefined),
 		}),
 	);
+	// A device viewing a window's session here: the sessions that session's agent opened are this computer's tabs, so
+	// its work board's list and "Changed" row are answered by this computer's control tools (the window tab's own).
+	deps.hostedTabs.attachAgentReview(async (target, command) => {
+		const owner = target.sessionPath ? sidecarPool.sessionOwner(target.sessionPath) : null;
+		const win = owner ? sidecarPool.windowOfTab(owner.tabId) : null;
+		if (!owner || !win)
+			return {
+				type: "response",
+				command: command.type,
+				success: false,
+				error: "That session's tab is gone on this computer.",
+			} as RpcResponse;
+		try {
+			const data =
+				command.type === "agent_control_family_edits"
+					? await agentControl.familyEdits(
+							win,
+							owner.tabId,
+							typeof command.since === "number" ? command.since : undefined,
+						)
+					: command.live === true
+						? (await agentControl.liveReview(owner.tabId), null)
+						: await agentControl.review(win, owner.tabId);
+			return { type: "response", command: command.type, success: true, data } as RpcResponse;
+		} catch (error) {
+			return {
+				type: "response",
+				command: command.type,
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			} as RpcResponse;
+		}
+	});
 	// A device viewing any session of a run it is charged for (the run or a child) counts none of its replies twice.
 	deps.hostedTabs.attachRunLookup(sessionPath => {
 		const owner = sidecarPool.sessionOwner(sessionPath);
@@ -1157,6 +1206,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			changed: key => prefChanged(null, key),
 		},
 		sweepMs: process.env.OMP_GUI_TEST_AGENT_SWEEP_MS ? Number(process.env.OMP_GUI_TEST_AGENT_SWEEP_MS) : undefined,
+		// A paired device viewing the parent's session hears its list too (host-services `agentReviewChanged`).
+		reviewSent: (callerTabId, review) => {
+			const sessionPath = sidecarPool.sessionFileOf(callerTabId);
+			if (sessionPath) deps.hostedTabs.agentReviewChanged(sessionPath, review);
+		},
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,

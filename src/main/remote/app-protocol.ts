@@ -140,9 +140,15 @@ export const TAB_EVENT_NAMES = [
 	// The turn the tab's omp runs (TabRunArg), sent just before the status on every re-attach: a device that lost the
 	// link meanwhile saw none of the turn's start or end. An older device drops the name and keeps its old reading.
 	"run",
+	// The review list of the window's session the tab views (AgentReviewResult): the sessions its agent opened are the
+	// host's tabs, which the device's work board lists from this. An older device drops the name.
+	"agentReview",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
+
+/** The tab event with the review list of a window's session a device views (`agentReview`, AgentReviewResult). */
+export const AGENT_REVIEW_EVENT = "agentReview" satisfies TabEventName;
 
 export const TAB_EVENT = "tab.event";
 export const SESSIONS_CHANGED_EVENT = "sessions.changed";

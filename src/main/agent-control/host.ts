@@ -174,6 +174,8 @@ export interface AgentControlHostDeps {
 	text: AgentControlHost["text"];
 	/** How often opened sessions are looked at for closing; 0 turns the timer off (default 10 s). */
 	sweepMs?: number;
+	/** A parent's review list went to its windows: a paired device viewing that session hears it too. */
+	reviewSent?: (callerTabId: string, review: AgentReviewResult) => void;
 	/** Where accepted reports wait for their receiver's journal (`mail-outbox.ts`); absent: kept in memory only. */
 	mailOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
@@ -497,6 +499,7 @@ export class AgentControlRuntime {
 		for (const win of own && !showing.includes(own) ? [own, ...showing] : showing)
 			if (!win.isDestroyed())
 				win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, ...review } satisfies AgentReviewEvent);
+		this.#deps.reviewSent?.(callerTabId, review);
 		this.#sendChildren(callerTabId, review.items);
 	}
 

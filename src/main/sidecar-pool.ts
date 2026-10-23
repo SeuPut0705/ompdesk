@@ -50,6 +50,12 @@ import {
 	type PromptOrigin,
 	type PromptOriginLabel,
 } from "../../resources/gui-bridge/prompt-origin-contracts";
+import {
+	AGENT_CONTROL_REVIEW,
+	type AgentReviewEvent,
+	type AgentReviewResult,
+	reviewFromDevice,
+} from "../shared/agent-control";
 import { codedError } from "../shared/ipc-error-codes";
 import {
 	type HostLiveSession,
@@ -101,6 +107,7 @@ import { createMessageUpdateSlimmer } from "./message-update-slim";
 import { noteOmpExit } from "./omp-exits";
 import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
+import { AGENT_REVIEW_EVENT } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
 import type { SettleWatch } from "./settle-watch";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -909,6 +916,14 @@ export class SidecarPool {
 		});
 		// A paired host told this tab it views a window of that host (RemoteSidecar `shared`): the lists say so.
 		sidecar.on("shared", () => this.#sendTabLists(entry));
+		// The review list of the host's session this tab views: the sessions its agent opened are tabs of that host's
+		// windows, never of this computer, so they come tagged with the device that opens them (agent-control.ts).
+		sidecar.on(AGENT_REVIEW_EVENT, (review: AgentReviewResult) => {
+			if (!this.#byTabId.has(entry.tabId) || !entry.device || !Array.isArray(review?.items)) return;
+			const event = { tabId: entry.tabId, ...reviewFromDevice(review, entry.device) } satisfies AgentReviewEvent;
+			for (const win of this.windowsShowingTab(entry.tabId))
+				if (!win.isDestroyed()) win.webContents.send(AGENT_CONTROL_REVIEW, event);
+		});
 		// The paired device's tab a hosted view shows ended (closed, deleted, revoked): the window's tab goes as a
 		// viewer's does when its owner closes it, never as an exited omp (its list no longer names the shared tab).
 		sidecar.on(VIEW_ENDED_EVENT, () => {

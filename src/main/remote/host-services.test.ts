@@ -2494,6 +2494,37 @@ describe("LocalHostServices: Autopilot of a device's tab", () => {
 		expect(view.commands).toEqual([]);
 	});
 
+	it("answers a device viewing a window's session with this computer's list of the sessions it opened, and pushes it", async () => {
+		const context = setup();
+		const view = new FakeHostSidecar(workDir, "agent");
+		view.setStatus("ready");
+		context.local.views.set("/s/run.jsonl", view);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/run.jsonl" }, x);
+		const asked: { sessionPath?: string; command: unknown }[] = [];
+		const review = { items: [{ tabId: "child-1", title: "Child", state: "running" }], usage: {} };
+		context.services.attachAgentReview(async (target, command) => {
+			asked.push({ sessionPath: target.sessionPath, command });
+			return { type: "response", command: command.type, success: true, data: review } as RpcResponse;
+		});
+		const send = (command: Record<string, unknown>) =>
+			context.services.call(x.peer, "tab.command", { rtab: "t1", command }, x);
+		await expect(send({ type: "agent_control_review" })).resolves.toMatchObject({ success: true, data: review });
+		await expect(send({ type: "agent_control_family_edits", since: 5 })).resolves.toMatchObject({ success: true });
+		expect(asked).toEqual([
+			{ sessionPath: "/s/run.jsonl", command: { type: "agent_control_review" } },
+			{ sessionPath: "/s/run.jsonl", command: { type: "agent_control_family_edits", since: 5 } },
+		]);
+		// The window's omp never hears them: they are not its commands.
+		expect(view.commands).toEqual([]);
+		// A change of the list reaches the device viewing that session, and no other.
+		context.services.agentReviewChanged("/s/other.jsonl", review);
+		context.services.agentReviewChanged("/s/run.jsonl", review);
+		expect(x.tabEvents().filter(event => event.name === "agentReview")).toEqual([
+			{ rtab: "t1", name: "agentReview", arg: review },
+		]);
+	});
+
 	it("charges an Autopilot run a device started here for its reply tokens until it ends, across a relaunch", async () => {
 		const file = join(workDir, "autopilot-device-runs.json");
 		const stored = new Map<string, PeerInfo>([["device-x", peer("device-x")]]);

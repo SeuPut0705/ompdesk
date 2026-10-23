@@ -34,6 +34,8 @@ export interface OpenedChildRow {
 	question?: string;
 	/** The paired device it runs on, by name; absent = this computer. */
 	device?: string;
+	/** That device's id, for a child this window holds no tab of: it opens there by its session file. */
+	deviceId?: string;
 }
 
 export interface OpenedChildCounts {
@@ -115,8 +117,10 @@ export function openedChildRows(input: {
 			item.branch !== undefined && item.state !== "running" && (item.commitsAhead > 0 || item.uncommitted > 0);
 		rows.push({
 			key: item.tabId,
-			tabId: item.tabId,
+			// A paired device's list names that device's tabs: this window opens one by its session file there.
+			tabId: item.device ? null : item.tabId,
 			...(item.sessionPath ? { sessionPath: item.sessionPath } : {}),
+			...(item.device ? { device: deviceName?.(item.device) ?? item.device, deviceId: item.device } : {}),
 			title: item.title,
 			status: openedChildStatus({
 				waiting: item.waiting === true,

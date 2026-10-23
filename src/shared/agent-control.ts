@@ -227,6 +227,16 @@ export interface AgentReviewItem {
 	waiting?: true;
 	/** What it waits on when `waiting`: its open card's question (a stock `ask`, an approval) or its plan's title. */
 	question?: string;
+	/**
+	 * The paired device the list came from (its id), for a window viewing that device's session: the children are tabs
+	 * of that device's windows, so this window holds none of them and opens one there by its session file.
+	 */
+	device?: string;
+}
+
+/** A paired device's review list as this computer's windows read it: each item opens on that device. */
+export function reviewFromDevice<T extends { items: readonly AgentReviewItem[] }>(review: T, device: string): T {
+	return { ...review, items: review.items.map(item => ({ ...item, device })) };
 }
 
 /**

@@ -115,6 +115,7 @@ import { searchWorkspace } from "../workspace-search";
 import { sessionOpenFolders } from "../worktree-orphans";
 import { removalHolds } from "../worktree-removals";
 import {
+	AGENT_REVIEW_EVENT,
 	AUTOPILOT_NOTICE_EVENT,
 	type AutopilotNoticeEvent,
 	BenchmarkOptionsSchema,
@@ -349,6 +350,16 @@ export type HostedAutopilot = (
 	command: { type: "get_autopilot" | "set_autopilot" } & Record<string, unknown>,
 ) => Promise<RpcResponse>;
 
+/**
+ * This computer's OMPdesk control tools answering a device's `agent_control_review` / `agent_control_family_edits` for
+ * a tab that views a window's session here (`viewForDevice`): the sessions that session's agent opened are this
+ * computer's tabs, which only its own control tools know (`attachAgentReview`).
+ */
+export type HostedAgentReview = (
+	target: HostedAutopilotTarget,
+	command: { type: "agent_control_review" | "agent_control_family_edits" } & Record<string, unknown>,
+) => Promise<RpcResponse>;
+
 const Rtab = z.string().min(1).max(128);
 const AbsolutePath = z.string().min(1).refine(isAbsolute, "absolute path required");
 const SessionPath = z.string().endsWith(".jsonl");
@@ -491,6 +502,7 @@ export class LocalHostServices implements HostServices {
 	#memory: HostMemory | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
+	#agentReview: HostedAgentReview | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
 	/** The run (worktree root) a window tab holding a session belongs to: the run itself or one of its children. */
@@ -542,6 +554,20 @@ export class LocalHostServices implements HostServices {
 	 */
 	attachAutopilot(autopilot: HostedAutopilot): void {
 		this.#autopilot = autopilot;
+	}
+
+	/** This computer's control tools for a device viewing a window's session (see {@link HostedAgentReview}). */
+	attachAgentReview(review: HostedAgentReview): void {
+		this.#agentReview = review;
+	}
+
+	/**
+	 * The review list of the session `sessionPath` changed on this computer: every device tab viewing it hears it (a
+	 * device's own tab is its own opener, so its list is the device's).
+	 */
+	agentReviewChanged(sessionPath: string, review: unknown): void {
+		for (const tab of this.#tabs.values())
+			if (tab.viewsWindow && tab.sessionFile === sessionPath) this.#emit(tab, AGENT_REVIEW_EVENT, review);
 	}
 
 	/** A device tab's sidecar by its resume id (the coordinator reads a start's source tab through it). */
@@ -1844,17 +1870,22 @@ export class LocalHostServices implements HostServices {
 		command: RpcCommand,
 		timeoutMs: number | undefined,
 	): Promise<RpcResponse> {
+		const target: HostedAutopilotTarget = {
+			tabId: tab.resumeId,
+			peer: tab.peerId,
+			sidecar: tab.sidecar,
+			...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
+			viewsWindow: tab.viewsWindow === true,
+		};
 		if (this.#autopilot && (command.type === "get_autopilot" || command.type === "set_autopilot"))
-			return this.#autopilot(
-				{
-					tabId: tab.resumeId,
-					peer: tab.peerId,
-					sidecar: tab.sidecar,
-					...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
-					viewsWindow: tab.viewsWindow === true,
-				},
-				command,
-			);
+			return this.#autopilot(target, command);
+		// The sessions a window's session opened are this computer's: its control tools answer for a device viewing it.
+		if (
+			this.#agentReview &&
+			tab.viewsWindow &&
+			(command.type === "agent_control_review" || command.type === "agent_control_family_edits")
+		)
+			return this.#agentReview(target, command);
 		// A device's prompt is typed there: memory recall runs for it here, even in an Autopilot run's tab. Only for a
 		// prompt that goes in (one past the device's daily limit never reaches this).
 		await noteTypedPrompt(client, command);

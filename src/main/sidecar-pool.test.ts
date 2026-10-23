@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { AGENT_CONTROL_REVIEW } from "../shared/agent-control";
 import { codedError } from "../shared/ipc-error-codes";
 import { IPC_EVENTS, type IpcExtensionUiPayload, type IpcTabStatusPayload } from "../shared/ipc-types";
 import type {
@@ -1347,6 +1348,33 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(hostTab?.disposed).toBe(true);
 		expect(deletedSessions().has("/sessions/gone.jsonl", "host-b")).toBe(true);
 		initDeletedSessions(null);
+	});
+
+	it("passes a paired host's review list of the session a tab views to its windows, each item opening on that host", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire(
+			"/a",
+			fw.win,
+			"tab-host",
+			"/sessions/run.jsonl",
+			"agent",
+			undefined,
+			false,
+			false,
+			false,
+			undefined,
+			"host-b",
+		);
+		const review = { items: [{ tabId: "host-child", title: "Child", state: "running" }], usage: {} };
+		sidecars.at(-1)?.emit("agentReview", review);
+		expect(fw.sent.filter(entry => entry.channel === AGENT_CONTROL_REVIEW).map(entry => entry.data)).toEqual([
+			{
+				tabId: "tab-host",
+				items: [{ tabId: "host-child", title: "Child", state: "running", device: "host-b" }],
+				usage: {},
+			},
+		]);
 	});
 
 	it("a desktop window's restored layout skips a session another desktop window already holds (one session, one tab)", () => {
