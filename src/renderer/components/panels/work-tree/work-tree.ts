@@ -36,7 +36,7 @@ export type WorkTreeKind = FamilyKind | "branch";
 export type WorkTreeTarget =
 	| { kind: "tab"; tabId: string }
 	| { kind: "subagent"; tabId: string; agentId: string }
-	| { kind: "stored"; sessionPath: string; cwd?: string };
+	| { kind: "stored"; sessionPath: string; cwd?: string; device?: string };
 
 export interface WorkTreeNode {
 	key: string;
@@ -188,7 +188,12 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 						target: child.tabId
 							? { kind: "tab", tabId: child.tabId }
 							: child.sessionPath
-								? { kind: "stored", sessionPath: child.sessionPath, ...(child.cwd ? { cwd: child.cwd } : {}) }
+								? {
+										kind: "stored",
+										sessionPath: child.sessionPath,
+										...(child.cwd ? { cwd: child.cwd } : {}),
+										...(child.deviceId ? { device: child.deviceId } : {}),
+									}
 								: null,
 					},
 					childDone,

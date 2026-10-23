@@ -13,8 +13,10 @@ import { type ChildStatus, openedChildStatus } from "../sidebar/sidebar-family";
 export interface OpenedChildRow {
 	/** The tab id, or the session file of one main closed after its work landed. */
 	key: string;
-	/** Null once the tab closed: the session is stored and opens as a pick. */
+	/** Null when this window holds no tab of it: one main closed (`closed`), or a paired host's child that opens there. */
 	tabId: string | null;
+	/** Main closed it after its work landed: a stored session, no child at work (never counted). */
+	closed?: true;
 	sessionPath?: string;
 	/** Where a stored one reopens. */
 	cwd?: string;
@@ -39,7 +41,7 @@ export interface OpenedChildRow {
 }
 
 export interface OpenedChildCounts {
-	/** Every child with a tab, finished ones included. */
+	/** Every child still open (a tab here or on its host), finished ones included. */
 	total: number;
 	running: number;
 	waiting: number;
@@ -143,6 +145,7 @@ export function openedChildRows(input: {
 		rows.push({
 			key: child.path,
 			tabId: null,
+			closed: true,
 			sessionPath: child.path,
 			...(child.cwd ? { cwd: child.cwd } : {}),
 			title: child.title,
@@ -155,8 +158,9 @@ export function openedChildRows(input: {
 export function openedChildCounts(rows: readonly OpenedChildRow[]): OpenedChildCounts {
 	const counts: OpenedChildCounts = { total: 0, running: 0, waiting: 0, done: 0 };
 	for (const row of rows) {
-		// Closed by main after their work landed: a stored session, no child at work.
-		if (row.tabId === null) continue;
+		// Closed by main after their work landed: a stored session, no child at work. A paired host's child has no tab
+		// here either and still counts.
+		if (row.closed) continue;
 		counts.total++;
 		if (row.status === "running") counts.running++;
 		else if (row.status === "waiting") counts.waiting++;

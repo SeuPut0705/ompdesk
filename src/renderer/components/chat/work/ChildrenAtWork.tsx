@@ -39,7 +39,7 @@ export function useChildrenAtWork(): { tabId: string | null; rows: OpenedChildRo
 	const tabId = runtimeTabId ?? activeTabId;
 	const { rows } = useOpenedChildren(tabId);
 	const atWork = useMemo(
-		() => rows.filter(row => row.tabId !== null && (row.status === "running" || row.status === "waiting")),
+		() => rows.filter(row => !row.closed && (row.status === "running" || row.status === "waiting")),
 		[rows],
 	);
 	return { tabId, rows: atWork };

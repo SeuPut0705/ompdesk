@@ -137,6 +137,16 @@ describe("openedChildRows: the sessions an agent opened as children of its sessi
 				status: "running",
 			}),
 		]);
+		// It works there, so the strip and the background cue count it; a child main closed does not.
+		expect(openedChildCounts(rows)).toMatchObject({ total: 1, running: 1 });
+		const withClosed = openedChildRows({
+			parent,
+			tabs: [],
+			review: new Map(),
+			closed: [{ path: "/s/old.jsonl", openedBySession: "/s/boss.jsonl", title: "Old", cwd: "/w", closedAt: 1 }],
+		});
+		expect(withClosed[0]).toMatchObject({ tabId: null, closed: true });
+		expect(openedChildCounts(withClosed).total).toBe(0);
 	});
 
 	it("puts a child whose question waits on the opener first, with its last report", () => {

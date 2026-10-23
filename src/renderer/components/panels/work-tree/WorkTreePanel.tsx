@@ -118,7 +118,13 @@ function open(node: WorkTreeNode): void {
 	if (target.kind === "subagent")
 		useUiStore.getState().openSubagentPanel({ tabId: target.tabId, agentId: target.agentId });
 	else if (target.kind === "tab") void useTabsStore.getState().switchTab(target.tabId);
-	else void useTabsStore.getState().openTab({ cwd: target.cwd, sessionPath: target.sessionPath, kind: "agent" });
+	else
+		void useTabsStore.getState().openTab({
+			cwd: target.cwd,
+			sessionPath: target.sessionPath,
+			kind: "agent",
+			...(target.device ? { device: target.device } : {}),
+		});
 }
 
 const TreeRow = memo(function TreeRow({
