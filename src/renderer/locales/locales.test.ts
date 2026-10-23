@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { translate } from "../lib/i18n";
 import { en } from "./en";
 import { ko } from "./ko";
 
@@ -199,6 +200,36 @@ describe("en file counts", () => {
 	it("say '1 file', not '1 files'", () => {
 		for (const key of ["filesPanel.count", "diffPanel.repositorySummary"]) {
 			expect(en[key], key).toContain("{plural}");
+		}
+	});
+});
+
+describe("en counts of one", () => {
+	it("say the noun in the singular wherever one can be counted", () => {
+		const cases: Array<[string, Record<string, number | string>]> = [
+			["modelCompare.count", { shown: 1, total: 1 }],
+			["extPanel.countFiltered.hooks", { shown: 1, total: 1 }],
+			["extPanel.countFiltered.mcp", { shown: 1, total: 1 }],
+			["extPanel.countFiltered.commands", { shown: 1, total: 1 }],
+			["sessionTree.shownOfTotal", { shown: 1, total: 1 }],
+			["settings.skills.count", { shown: 1, total: 1 }],
+			["github.issues.commentCount", { count: 1 }],
+			["github.releases.downloads", { count: 1 }],
+			["settings.search.count", { count: 1 }],
+			["ssh.ready.hosts", { count: 1 }],
+			["tools.eval.cells", { count: 1 }],
+			["extensionUpdate.count", { count: 1 }],
+			["import.messages", { count: 1 }],
+			["workTree.orphans.removed", { count: 1 }],
+			["todoCmd.exportCopied", { count: 1 }],
+			["hostUi.update.running", { count: 1 }],
+			["hostUi.quit.running", { count: 1 }],
+		];
+		for (const [key, params] of cases) {
+			expect(en[key], key).toBeDefined();
+			const text = translate(key, params);
+			expect(text, key).not.toMatch(/\b1 (?:of 1 )?[a-z]+s\b/);
+			expect(text, key).not.toMatch(/\b1 [a-z]+ are\b/);
 		}
 	});
 });
