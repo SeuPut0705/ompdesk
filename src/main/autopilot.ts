@@ -1163,7 +1163,8 @@ export class Autopilot {
 		// start, so a cycle the journal shows in flight (`begin` called, no record yet) holds the queue too.
 		const status = await this.#fetchStatus(run).catch(() => null);
 		const cycleInFlight = status?.now !== undefined && (status.state === "running" || status.state === "stopping");
-		if (!this.#deps.pool.tabFacts(run.tabId)?.busy && !cycleInFlight) this.#enqueue(run, async () => void (await this.#drain(run)));
+		if (!this.#deps.pool.tabFacts(run.tabId)?.busy && !cycleInFlight)
+			this.#enqueue(run, async () => void (await this.#drain(run)));
 	}
 
 	// ----------------------------------------------------------------------------------------
