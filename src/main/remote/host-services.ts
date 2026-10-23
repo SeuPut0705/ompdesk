@@ -43,7 +43,7 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { codedError } from "../../shared/ipc-error-codes";
-import type { HostLiveSession, IpcHostedSession } from "../../shared/ipc-types";
+import { HOST_UPLOAD_MAX_BYTES, type HostLiveSession, type IpcHostedSession } from "../../shared/ipc-types";
 import { ModelSetupRequestSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
@@ -121,6 +121,7 @@ import {
 	encodeBinaryRead,
 	GIT_METHODS,
 	HostUploadParams,
+	HostUploadPartParams,
 	KEPT_TABS_METHOD,
 	type KeptTab,
 	LIVE_SESSIONS_EVENT,
@@ -167,6 +168,8 @@ import { FrameTooLargeError } from "./wire";
 export const HOST_TAB_GRACE_MS = 10 * 60_000;
 /** Session-index changes come in bursts while an agent writes; one push per burst. */
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
+/** Parts of a file that wait this long for the next one are dropped (the sender gave up or went away). */
+export const UPLOAD_PART_IDLE_MS = 2 * 60_000;
 /** A turn's start, its tool calls' asks and its end come in bursts: one push of the live sessions per burst. */
 export const LIVE_SESSIONS_DEBOUNCE_MS = 250;
 /** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
@@ -454,6 +457,8 @@ export class LocalHostServices implements HostServices {
 	readonly #deps: HostServicesDeps;
 	readonly #graceMs: number;
 	readonly #tabs = new Map<string, HostTab>();
+	/** Files a device sends in parts (`host.files.uploadPart`), by device and upload id, until the last part lands. */
+	readonly #parts = new Map<string, { chunks: Buffer[]; bytes: number; next: number; timer?: NodeJS.Timeout }>();
 	/** Live connections that have talked to us; `sessions.changed` goes to each. */
 	readonly #conns = new Set<HostConnection>();
 	/** Each connected device's latest connection, for events meant for one device. */
@@ -984,15 +989,11 @@ export class LocalHostServices implements HostServices {
 			}
 			case "host.files.upload": {
 				const { name, dataBase64 } = parse(HostUploadParams, method, params);
-				if (!this.#deps.uploads) throw codedError("unsupported", "This computer does not take attached files");
-				try {
-					const stored = await this.#deps.uploads.store(peer.deviceId, name, Buffer.from(dataBase64, "base64"));
-					return { path: stored.path };
-				} catch (error) {
-					if (error instanceof UploadError)
-						throw codedError(error.status === 413 ? "file_too_large" : "upload_refused", error.message);
-					throw error;
-				}
+				return this.#storeUpload(peer, name, Buffer.from(dataBase64, "base64"));
+			}
+			case "host.files.uploadPart": {
+				const part = parse(HostUploadPartParams, method, params);
+				return this.#uploadPart(peer, part);
 			}
 			case "host.fs.readBinary": {
 				const { rtab, cwd, ...payload } = parse(FsReadParams, method, params);
@@ -2010,6 +2011,57 @@ export class LocalHostServices implements HostServices {
 			},
 		});
 		return null;
+	}
+
+	async #storeUpload(peer: PeerInfo, name: string, bytes: Buffer): Promise<{ path: string }> {
+		if (!this.#deps.uploads) throw codedError("unsupported", "This computer does not take attached files");
+		try {
+			return { path: (await this.#deps.uploads.store(peer.deviceId, name, bytes)).path };
+		} catch (error) {
+			if (error instanceof UploadError)
+				throw codedError(error.status === 413 ? "file_too_large" : "upload_refused", error.message);
+			throw error;
+		}
+	}
+
+	/**
+	 * One part of a file past a link frame: parts come in order and are held until the last, which stores the whole
+	 * file as `host.files.upload` does. A file past the attached-file limit, a part out of order, or parts left
+	 * waiting for `UPLOAD_PART_IDLE_MS` are dropped.
+	 */
+	async #uploadPart(
+		peer: PeerInfo,
+		part: { upload: string; index: number; last: boolean; name: string; dataBase64: string },
+	): Promise<{ path: string } | { received: number }> {
+		const key = `${peer.deviceId}\n${part.upload}`;
+		const held = this.#parts.get(key);
+		const drop = () => {
+			const entry = this.#parts.get(key);
+			if (entry) clearTimeout(entry.timer);
+			this.#parts.delete(key);
+		};
+		if ((held?.next ?? 0) !== part.index) {
+			drop();
+			throw codedError("invalid_path", "A part of this file arrived out of order; attach it again");
+		}
+		const chunk = Buffer.from(part.dataBase64, "base64");
+		const entry = held ?? { chunks: [], bytes: 0, next: 0 };
+		clearTimeout(entry.timer);
+		entry.chunks.push(chunk);
+		entry.bytes += chunk.byteLength;
+		entry.next += 1;
+		if (entry.bytes > HOST_UPLOAD_MAX_BYTES) {
+			drop();
+			throw codedError("file_too_large", "file too large");
+		}
+		if (!part.last) {
+			entry.timer = setTimeout(drop, UPLOAD_PART_IDLE_MS);
+			entry.timer.unref?.();
+			this.#parts.set(key, entry);
+			return { received: entry.bytes };
+		}
+		drop();
+		return this.#storeUpload(peer, part.name, Buffer.concat(entry.chunks));
 	}
 
 	#fsRoot(peer: PeerInfo, rtab: string | undefined, cwd: string | undefined): string | null {

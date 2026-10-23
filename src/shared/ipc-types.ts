@@ -1294,10 +1294,14 @@ export interface IpcFsReadBinaryResult {
 }
 
 /**
- * Largest file a prompt of a paired host's tab may carry (`host.files.upload`): its base64 must fit one link frame
- * (16 MiB).
+ * Largest file one `host.files.upload` carries: its base64 must fit one link frame (16 MiB). A larger one goes in
+ * parts (`host.files.uploadPart`, `HOST_UPLOAD_PART_BYTES` each), which a host from before 0.68.1 does not take.
  */
-export const HOST_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export const HOST_UPLOAD_FRAME_BYTES = 10 * 1024 * 1024;
+/** One part of a file sent in parts: its base64 (about 10.7 MB) fits a link frame with room to spare. */
+export const HOST_UPLOAD_PART_BYTES = 8 * 1024 * 1024;
+/** Largest file a prompt of a paired host's tab may carry: the host's own limit for an attached file (web/uploads.ts). */
+export const HOST_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 
 /** A file attached to a prompt of a paired host's tab (`host.files.upload`): its bytes go to that host. */
 export interface IpcFsUploadToHostPayload {

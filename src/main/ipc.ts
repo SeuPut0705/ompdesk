@@ -8,6 +8,7 @@
  * host through RemoteDevices. Native open/reveal of a host path is refused
  * (`remote_path_native`): this machine cannot see that disk.
  */
+
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -90,7 +91,6 @@ import type {
 	SessionKind,
 } from "../shared/ipc-types";
 import {
-	HOST_UPLOAD_MAX_BYTES,
 	IPC_COMMANDS,
 	IPC_EVENTS,
 	type IpcSessionsChanged,
@@ -139,15 +139,10 @@ import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
 import { createTabCheck } from "./preview/preview-check";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
-import {
-	decodeBinaryRead,
-	HOST_FS_READ_BINARY_TIMEOUT_MS,
-	HOST_UPLOAD_TIMEOUT_MS,
-	HostUploadReply,
-	ModelOverrideInputSchema,
-} from "./remote/app-protocol";
+import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
+import { uploadToHost } from "./remote/host-upload";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
@@ -2166,17 +2161,17 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					return { ok: false, error: "This computer does not take attached files", code: "unsupported" };
 				return attachHere(deps.uploads, payload.name, data);
 			}
-			if (data.byteLength > HOST_UPLOAD_MAX_BYTES)
-				return { ok: false, error: "File too large to send", code: "file_too_large" };
-			return remoteFs(
-				{ ...target, device: target.device },
-				"host.files.upload",
-				{ name: payload.name, dataBase64: Buffer.from(data).toString("base64") },
-				(error, code): IpcFsUploadToHostResult => ({ ok: false, error, ...(code ? { code } : {}) }),
-				{
-					timeoutMs: HOST_UPLOAD_TIMEOUT_MS,
-					decode: raw => ({ ok: true, path: HostUploadReply.parse(raw).path }),
-				},
+			const device = target.device;
+			return uploadToHost(
+				(method, params, timeoutMs) =>
+					remoteDevices.request(
+						device,
+						method,
+						{ ...params, rtab: target.tabId, cwd: target.sidecar.cwd },
+						timeoutMs,
+					),
+				payload.name,
+				data,
 			);
 		},
 	);

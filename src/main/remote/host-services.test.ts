@@ -19,6 +19,7 @@ import type {
 	IpcModelSetupRunResult,
 	ModelOverrideInput,
 } from "../../shared/ipc-types";
+import { HOST_UPLOAD_PART_BYTES } from "../../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS, timeoutForCommand } from "../../shared/rpc-client";
@@ -1894,6 +1895,46 @@ describe("LocalHostServices", () => {
 				.services.call(x.peer, "host.files.upload", { name: "a.pdf", dataBase64: "AA==" }, x)
 				.catch((error: unknown) => error);
 			expect(ipcErrorCode(older)).toBe("unsupported");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("builds a file past one link frame from its parts, in order, and drops parts out of order or past the limit", async () => {
+		const root = mkdtempSync(join(tmpdir(), "host-uploads-"));
+		try {
+			const { services } = setup(60_000, { uploads: new UploadStore({ root }) });
+			const x = new FakeConnection(peer("device-x"));
+			const part = (upload: string, index: number, last: boolean, bytes: Buffer) =>
+				services.call(
+					x.peer,
+					"host.files.uploadPart",
+					{ upload, index, last, name: "scan.pdf", dataBase64: bytes.toString("base64") },
+					x,
+				);
+			const first = Buffer.alloc(1000, 1);
+			const second = Buffer.alloc(10, 2);
+			expect(await part("upload-aaaa", 0, false, first)).toEqual({ received: 1000 });
+			const { path } = (await part("upload-aaaa", 1, true, second)) as { path: string };
+			expect(path.startsWith(join(root, "device-x"))).toBe(true);
+			expect(readFileSync(path)).toEqual(Buffer.concat([first, second]));
+
+			// A part that skips one drops what was held: the file is never stored with a hole in it.
+			await part("upload-bbbb", 0, false, first);
+			const skipped = await part("upload-bbbb", 2, true, second).catch((error: unknown) => error);
+			expect(ipcErrorCode(skipped)).toBe("invalid_path");
+			const again = await part("upload-bbbb", 1, true, second).catch((error: unknown) => error);
+			expect(ipcErrorCode(again)).toBe("invalid_path");
+
+			// Past the attached-file limit, whatever the parts say.
+			const big = Buffer.alloc(HOST_UPLOAD_PART_BYTES, 3);
+			let tooLarge: unknown;
+			for (let index = 0; index < 4 && tooLarge === undefined; index++)
+				tooLarge = await part("upload-cccc", index, false, big).then(
+					() => undefined,
+					(error: unknown) => error,
+				);
+			expect(ipcErrorCode(tooLarge)).toBe("file_too_large");
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

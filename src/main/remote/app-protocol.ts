@@ -18,6 +18,9 @@
  * - `host.files.upload {name, dataBase64}` → `{path}`: a file attached to a prompt of a tab the host runs (a .docx,
  *   a PDF: anything not inlined as text), stored in the host's upload folder (`UploadStore.store`, 24 h); an older
  *   host answers `unsupported`
+ * - `host.files.uploadPart {upload, index, last, name, dataBase64}` → `{received}`, the last `{path}`: the same for
+ *   a file past one frame (`HOST_UPLOAD_FRAME_BYTES`), in parts sent in order; a host from before 0.68.1 answers
+ *   `unsupported`
  * - Settings, Usage and Stats of a remote tab read the host's own machine
  *   (machine-services.ts): `host.models.list {}` → CustomProvidersConfig (providers + stock options),
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
@@ -84,7 +87,7 @@ import type {
 	ModelOverrideInput,
 	UpdateStatus,
 } from "../../shared/ipc-types";
-import { HOST_UPLOAD_MAX_BYTES } from "../../shared/ipc-types";
+import { HOST_UPLOAD_FRAME_BYTES, HOST_UPLOAD_PART_BYTES } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
@@ -721,18 +724,32 @@ const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /**
  * A file this device attaches to a prompt of a tab the host runs (`host.files.upload`): its bytes cross the link
- * once, base64 in one frame (`HOST_UPLOAD_MAX_BYTES`), and land in the host's upload folder, where the agent reads it
- * by path. Text files go inline in the prompt instead and need none of this.
+ * once, base64 in one frame (`HOST_UPLOAD_FRAME_BYTES`), and land in the host's upload folder, where the agent reads it
+ * by path. A larger file crosses in parts (`host.files.uploadPart`), in order, the last answering the path. Text files
+ * go inline in the prompt instead and need none of this.
  */
 export const HOST_UPLOAD_TIMEOUT_MS = 120_000;
 export const HostUploadParams = z.object({
 	name: z.string().min(1).max(1024),
 	dataBase64: z
 		.string()
-		.max(Math.ceil(HOST_UPLOAD_MAX_BYTES / 3) * 4)
+		.max(Math.ceil(HOST_UPLOAD_FRAME_BYTES / 3) * 4)
 		.regex(BASE64),
 });
 export const HostUploadReply = z.object({ path: z.string().min(1) });
+export const HostUploadPartParams = z.object({
+	/** Names the file the parts build, the sender's own random id. */
+	upload: z.string().min(8).max(64),
+	index: z.number().int().min(0),
+	last: z.boolean(),
+	name: z.string().min(1).max(1024),
+	dataBase64: z
+		.string()
+		.max(Math.ceil(HOST_UPLOAD_PART_BYTES / 3) * 4)
+		.regex(BASE64),
+});
+/** A part that is not the last answers how many bytes the host holds so far; the last one answers the path. */
+export const HostUploadPartReply = z.union([HostUploadReply, z.object({ received: z.number().int() })]);
 
 /** `host.fs.readBinary` reply: IpcFsReadBinaryResult with `data` as base64, since the link carries JSON. */
 export const HostFsReadBinaryReply = z.object({
