@@ -557,6 +557,7 @@ export class AgentControlRuntime {
 			cwd: info.cwd,
 			...(info.device ? { device: info.device, deviceName: this.#deps.deviceName(info.device) } : {}),
 			status: info.status,
+			...(this.#deps.pool.sidecarOf(info.tabId)?.statusPayload?.sessionHeld ? { sessionHeld: true } : {}),
 			busy: facts?.busy === true,
 			...(info.resuming ? { resuming: true } : {}),
 			asks,

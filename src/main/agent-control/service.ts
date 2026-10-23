@@ -120,6 +120,8 @@ export interface ControlTab {
 	device?: string;
 	deviceName?: string;
 	status: TabStatus;
+	/** `error` because another live omp still holds its session; the tab opens it by itself once that omp lets go. */
+	sessionHeld?: true;
 	/** A turn runs (stock run state as the pool tracks it). */
 	busy: boolean;
 	/**
@@ -1448,6 +1450,8 @@ export class AgentControl {
 				return "starting";
 			case "error":
 			case "exited": {
+				if (tab.sessionHeld)
+					return "waiting for another omp process to let go of this session (it opens here by itself then; nothing to do)";
 				const link = tab.device ? this.#host.devices().find(entry => entry.id === tab.device) : undefined;
 				if (link && link.state !== "online")
 					return `${link.name} is ${link.state} (its link is down; tools wait a moment for it, then this session answers again)`;

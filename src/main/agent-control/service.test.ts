@@ -441,6 +441,17 @@ describe("ompdesk_sessions", () => {
 		expect(reads.every(entry => (entry.command as { brief?: boolean }).brief === true)).toBe(true);
 	});
 
+	it("says a session waiting for another omp to let go of it is waiting, not stopped", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "held0002", title: "Held", status: "error", sessionHeld: true },
+			{ tabId: "dead0003", title: "Dead", status: "error" },
+		);
+		const result = await control(host).run("main0001", T.list, {});
+		expect(result.text).toMatch(/held0002 "Held".*\n\s+waiting for another omp process to let go of this session/);
+		expect(result.text).toMatch(/dead0003 "Dead".*\n\s+stopped \(error\)/);
+	});
+
 	it("refuses when the switch is off or the caller's tab is gone", async () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		host.enabled = () => false;
