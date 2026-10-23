@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	type AutopilotArmParams,
+	type AutopilotBranchChoice,
 	type AutopilotCycleRecord,
 	type AutopilotStatus,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
@@ -379,4 +380,35 @@ export function dataOf<T>(response: RpcResponse): T {
 
 export function errorOf(response: RpcResponse): string | undefined {
 	return response.success ? undefined : response.error;
+}
+
+// The branches a run can be put on (autopilot-branch-*.test.ts): helpers and a repository with `feature/x` on both
+// sides and `remote-only` on the remote alone.
+export function branchChoiceWorld() {
+	const startOn = (branch: AutopilotBranchChoice, extra: { preset?: "push" } = {}) =>
+		start({ type: "set_autopilot", action: "start", branch, ...extra });
+	const rootOf = (response: RpcResponse) => dataOf<AutopilotStatus>(response).root ?? "";
+	const refusal = (response: RpcResponse) => ({
+		error: errorOf(response),
+		code: "code" in response ? response.code : undefined,
+	});
+	const armed = () => world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.arm)[0]?.params;
+	async function cycleEnd(n = 1): Promise<void> {
+		autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {
+			type: "autopilot_cycle_end",
+			record: record({ n }),
+		});
+		await autopilot.idle();
+	}
+
+	beforeEach(() => {
+		gitSync(main, "branch", "feature/x");
+		gitSync(main, "push", "-q", "origin", "feature/x");
+		// On the remote only: pushed, then deleted locally.
+		gitSync(main, "branch", "remote-only");
+		gitSync(main, "push", "-q", "origin", "remote-only");
+		gitSync(main, "branch", "-D", "remote-only");
+	});
+
+	return { startOn, rootOf, refusal, armed, cycleEnd };
 }
