@@ -19,7 +19,7 @@
  *   a PDF: anything not inlined as text), stored in the host's upload folder (`UploadStore.store`, 24 h); an older
  *   host answers `unsupported`
  * - `host.files.uploadPart {upload, index, last, name, dataBase64}` → `{received}`, the last `{path}`: the same for
- *   a file past one frame (`HOST_UPLOAD_FRAME_BYTES`), in parts sent in order; a host from before 0.68.1 answers
+ *   a file past one frame (`HOST_UPLOAD_FRAME_BYTES`), in parts sent in order; a host from before 0.69.0 answers
  *   `unsupported`
  * - Settings, Usage and Stats of a remote tab read the host's own machine
  *   (machine-services.ts): `host.models.list {}` → CustomProvidersConfig (providers + stock options),

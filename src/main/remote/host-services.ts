@@ -170,6 +170,8 @@ export const HOST_TAB_GRACE_MS = 10 * 60_000;
 const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
 /** Parts of a file that wait this long for the next one are dropped (the sender gave up or went away). */
 export const UPLOAD_PART_IDLE_MS = 2 * 60_000;
+/** Files one device may be sending in parts at once (each up to HOST_UPLOAD_MAX_BYTES held until its last part). */
+export const UPLOAD_PARTS_PER_DEVICE = 2;
 /** A turn's start, its tool calls' asks and its end come in bursts: one push of the live sessions per burst. */
 export const LIVE_SESSIONS_DEBOUNCE_MS = 250;
 /** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
@@ -2043,6 +2045,13 @@ export class LocalHostServices implements HostServices {
 		if ((held?.next ?? 0) !== part.index) {
 			drop();
 			throw codedError("invalid_path", "A part of this file arrived out of order; attach it again");
+		}
+		// Parts wait in memory: a device builds at most a few files at once, so what it holds stays bounded.
+		if (!held && !part.last) {
+			const prefix = `${peer.deviceId}\n`;
+			const open = [...this.#parts.keys()].filter(other => other.startsWith(prefix)).length;
+			if (open >= UPLOAD_PARTS_PER_DEVICE)
+				throw codedError("upload_refused", "Too many files are on their way from this device; try again later");
 		}
 		const chunk = Buffer.from(part.dataBase64, "base64");
 		const entry = held ?? { chunks: [], bytes: 0, next: 0 };

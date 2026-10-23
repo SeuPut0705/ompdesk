@@ -62,7 +62,13 @@ import {
 	TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection } from "./host-server";
-import { type HostServicesDeps, LIVE_SESSIONS_DEBOUNCE_MS, LocalHostServices } from "./host-services";
+import {
+	type HostServicesDeps,
+	LIVE_SESSIONS_DEBOUNCE_MS,
+	LocalHostServices,
+	UPLOAD_PART_IDLE_MS,
+	UPLOAD_PARTS_PER_DEVICE,
+} from "./host-services";
 import type { HostedTabView } from "./hosted-view";
 import { createLinkEventDecoder, createReadDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
@@ -1926,6 +1932,16 @@ describe("LocalHostServices", () => {
 			const again = await part("upload-bbbb", 1, true, second).catch((error: unknown) => error);
 			expect(ipcErrorCode(again)).toBe("invalid_path");
 
+			// A device builds a bounded number of files at once; one that ends, fails or expires gives its room back.
+			await part("upload-dddd", 0, false, first);
+			await part("upload-eeee", 0, false, first);
+			const crowded = await part("upload-ffff", 0, false, first).catch((error: unknown) => error);
+			expect(ipcErrorCode(crowded)).toBe("upload_refused");
+			await part("upload-dddd", 1, true, second);
+			expect(await part("upload-ffff", 0, false, first)).toEqual({ received: 1000 });
+			await part("upload-eeee", 5, true, second).catch(() => {});
+			await part("upload-ffff", 5, true, second).catch(() => {});
+
 			// Past the attached-file limit, whatever the parts say.
 			const big = Buffer.alloc(HOST_UPLOAD_PART_BYTES, 3);
 			let tooLarge: unknown;
@@ -1936,6 +1952,32 @@ describe("LocalHostServices", () => {
 				);
 			expect(ipcErrorCode(tooLarge)).toBe("file_too_large");
 		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("drops parts left waiting and gives their room back", async () => {
+		const root = mkdtempSync(join(tmpdir(), "host-uploads-"));
+		vi.useFakeTimers();
+		try {
+			const { services } = setup(60_000, { uploads: new UploadStore({ root }) });
+			const x = new FakeConnection(peer("device-x"));
+			const part = (upload: string, index: number, last: boolean) =>
+				services.call(
+					x.peer,
+					"host.files.uploadPart",
+					{ upload, index, last, name: "a.bin", dataBase64: Buffer.alloc(10).toString("base64") },
+					x,
+				);
+			for (let n = 0; n < UPLOAD_PARTS_PER_DEVICE; n++) await part(`upload-idle-${n}`, 0, false);
+			await vi.advanceTimersByTimeAsync(UPLOAD_PART_IDLE_MS);
+			// The held parts are gone: their next part has nothing to join, and a new file has room again.
+			expect(ipcErrorCode(await part("upload-idle-0", 1, true).catch((error: unknown) => error))).toBe(
+				"invalid_path",
+			);
+			expect(await part("upload-new0", 0, false)).toEqual({ received: 10 });
+		} finally {
+			vi.useRealTimers();
 			rmSync(root, { recursive: true, force: true });
 		}
 	});

@@ -1,7 +1,7 @@
 /**
  * A file attached to a prompt of a paired host's tab, sent to that host (ipc.ts `FS_UPLOAD_TO_HOST`): up to one link
  * frame in one `host.files.upload`, which every host takes; a larger file in `host.files.uploadPart` parts, in order,
- * the last answering the path. A host from before 0.68.1 refuses parts as `unsupported`.
+ * the last answering the path. A host from before 0.69.0 refuses parts as `unsupported`.
  */
 import { randomUUID } from "node:crypto";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
