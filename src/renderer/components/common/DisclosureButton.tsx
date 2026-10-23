@@ -46,7 +46,7 @@ export function DisclosureButton({
 					"omp-disclosure-chevron shrink-0",
 					chevronClassName ?? "size-(--sc-icon-sm) text-(--sc-text-muted)",
 				)}
-				// `transform`, which `.omp-disclosure-chevron` eases (Tailwind's `rotate-*` sets `rotate` instead).
+				// `.omp-disclosure-chevron` eases both `transform` and `rotate` (styles/chevron-motion.test.ts).
 				style={open ? { transform: "rotate(90deg)" } : undefined}
 			/>
 			{children}
