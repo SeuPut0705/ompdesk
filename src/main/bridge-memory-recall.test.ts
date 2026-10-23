@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AUTOPILOT_STATE_ENTRY } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { setJudgeAssistStockLoader } from "../../resources/gui-bridge/modes/judge-assist-engine";
-import { install } from "../../resources/gui-bridge/modes/memory-recall";
+import { install, methods } from "../../resources/gui-bridge/modes/memory-recall";
 import {
 	MEMORY_ENV,
 	MEMORY_RECALL_MESSAGE_TYPE,
@@ -185,6 +185,19 @@ describe("memory recall hook", () => {
 		).toBeUndefined();
 		expect(await run({ prompt: "안녕" }, ctx())).toBeUndefined();
 		const armed = [{ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: { state: "running" } }];
+		expect(await run({ prompt: PROMPT }, ctx("main", armed))).toBeUndefined();
+		expect(requests).toEqual([]);
+	});
+
+	it("recalls for a prompt a person typed into an Autopilot run's tab, once, and never for the run's own", async () => {
+		const run = hook();
+		const armed = [{ type: "custom", customType: AUTOPILOT_STATE_ENTRY, data: { state: "running" } }];
+		await methods.memory_recall_typed({ text: `  ${PROMPT}\n` });
+		expect(await run({ prompt: PROMPT }, ctx("main", armed))).toMatchObject({
+			message: { customType: MEMORY_RECALL_MESSAGE_TYPE },
+		});
+		requests = [];
+		// The mark is spent: the run's next prompt with the same words is its own.
 		expect(await run({ prompt: PROMPT }, ctx("main", armed))).toBeUndefined();
 		expect(requests).toEqual([]);
 	});

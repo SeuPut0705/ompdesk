@@ -16,7 +16,8 @@
  *
  * Quiet on every failure: memory off (no state file), no token yet, the server down or slower than
  * {@link RECALL_TIMEOUT_MS}, an older server, nothing relevant. The prompt goes on unchanged and only a debug line says
- * why. Never on a subagent, another agent's message or an Autopilot run (its prompts are the run's, not a person's).
+ * why. Never on a subagent or another agent's message, and in an Autopilot run only for a prompt main says a person
+ * typed (`memory_recall_typed`): the run's own prompts are the run's, not a person's.
  */
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -32,6 +33,7 @@ import {
 	RECALL_TIMEOUT_MS,
 } from "./memory-recall-contracts";
 import {
+	createTypedPrompts,
 	field,
 	freshCandidates,
 	type RecallCandidate,
@@ -45,6 +47,9 @@ import {
 	sessionScope,
 	shouldRecall,
 } from "./memory-recall-core";
+
+/** What main said a person typed into this omp's tab, for the prompt's turn to find. */
+const typed = createTypedPrompts();
 
 /** Remembered session scopes (`<session id>\n<cwd>`), newest last; one omp holds one session, a switch adds one. */
 const REMEMBERED_MAX = 8;
@@ -148,7 +153,7 @@ export function install(pi: RecallHost): void {
 			const env = parseMemoryEnv(await readFile(stateFile, "utf8").catch(() => undefined));
 			if (!env) return undefined;
 			const run = lastStateEntry(ctx.sessionManager.getBranch());
-			if (run && run.state !== "ended") return undefined;
+			if (run && run.state !== "ended" && !typed.take(event.prompt)) return undefined;
 			const query = recallQuery(event.prompt);
 			if (!query) return undefined;
 			const signal = AbortSignal.timeout(RECALL_TIMEOUT_MS);
@@ -217,5 +222,12 @@ export function install(pi: RecallHost): void {
 	});
 }
 
-/** Hooks only: recall has no bridge methods. */
-export const methods = {};
+/** `memory_recall_typed {text}`: main's word, just before the prompt goes in, that a person typed it. */
+export const methods = {
+	memory_recall_typed: async (params: unknown) => {
+		const text = (params as { text?: unknown } | null)?.text;
+		if (typeof text !== "string") throw new Error("memory_recall_typed needs text");
+		typed.note(text);
+		return { ok: true };
+	},
+};

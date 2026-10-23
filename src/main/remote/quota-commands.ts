@@ -232,6 +232,7 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"mcp_reauth_cancel",
 	"mcp_reload",
 	"mcp_test",
+	"memory_recall_typed",
 	"move_session",
 	"negotiate_protocol",
 	"new_session",

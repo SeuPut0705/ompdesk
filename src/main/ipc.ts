@@ -122,6 +122,7 @@ import type { MainTextKey } from "./i18n-text";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "./launch-profile-store";
 import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
 import { WORKTREE_PREPARE_BUDGET_MS } from "./local/git/worktree-seed";
+import { noteTypedPrompt } from "./local/prompt-origin";
 import { renameStoredSession } from "./local/session-files";
 import type { LogWatcher } from "./log-watcher";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
@@ -887,6 +888,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				if (origin)
 					await client.command({ type: "prompt_origin_set", origin, text: cmd.message }).catch(() => undefined);
 			}
+			// A person typed it: memory recall runs for it even in an Autopilot run's tab (gui-bridge modes/memory-recall.ts).
+			if (!sidecar.device) await noteTypedPrompt(client, cmd as RpcCommand);
 			// Every Stop leaves one line naming who asked (turn-stop-log.ts); omp gets it without that origin, while a
 			// paired host's tab gets it with, so the host logs it too.
 			const outgoing = dispatchedCommand({ ...cmd, id: _id } as RpcCommand, {

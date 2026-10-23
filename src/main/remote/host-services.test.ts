@@ -657,9 +657,12 @@ describe("LocalHostServices", () => {
 		const refused = await send("steer").catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("remote_limit_reached");
 		await expect(send("get_state")).resolves.toMatchObject({ success: true });
+		// Each prompt that went in was named typed first (memory recall in an Autopilot run's tab); a refused one was not.
 		expect(sidecars[0]?.commands.map(command => command.type)).toEqual([
+			"memory_recall_typed",
 			"prompt",
 			"get_state",
+			"memory_recall_typed",
 			"follow_up",
 			"get_state",
 		]);
@@ -760,7 +763,7 @@ describe("LocalHostServices", () => {
 			const outcomes = await Promise.all(settled);
 			expect(outcomes.filter(outcome => outcome === "ran")).toHaveLength(1);
 			expect(outcomes.filter(outcome => outcome === "remote_limit_reached")).toHaveLength(4);
-			expect(sidecar.commands).toHaveLength(1);
+			expect(sidecar.commands.filter(command => command.type !== "memory_recall_typed")).toHaveLength(1);
 			expect(used(stored)).toBe(3);
 		});
 

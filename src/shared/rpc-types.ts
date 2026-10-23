@@ -325,6 +325,8 @@ export type RpcCommand =
 	| { id?: string; type: "complete_inline"; draft: string; requestId: string }
 	// Which device typed the next prompt of a tab several windows show: gui-bridge prompt-origin.ts (main only)
 	| { id?: string; type: "prompt_origin_set"; origin: { deviceId: string; name: string }; text: string }
+	// A person typed the prompt about to go in: gui-bridge modes/memory-recall.ts (main only)
+	| { id?: string; type: "memory_recall_typed"; text: string }
 
 	// Domain actions (mutating)
 	| { id?: string; type: "set_skill_enabled"; name: string; enabled: boolean }

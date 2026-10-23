@@ -35,6 +35,41 @@ export function shouldRecall(prompt: string, agentKind: string | undefined): boo
 	return text !== "" && !/^[/!$]/.test(text) && !AGENT_MESSAGE_START.test(prompt);
 }
 
+/** How long main's word that a person typed a prompt waits for that prompt's turn, and how many it keeps. */
+const TYPED_TTL_MS = 10 * 60_000;
+const TYPED_MAX = 16;
+
+/**
+ * Prompts main says a person typed into a tab (`memory_recall_typed`, sent just before the prompt reaches the omp).
+ * An Autopilot run's own prompts (its cycles, nudges, notes) are never recalled for; the person's own messages in the
+ * run's tab are, as in any session (this repository's run took 43 typed messages and recalled for none, 23 Oct 2026).
+ */
+export function createTypedPrompts(now: () => number = Date.now): {
+	note(text: string): void;
+	/** True once for a prompt main named, consuming it. */
+	take(text: string): boolean;
+} {
+	let pending: { text: string; at: number }[] = [];
+	return {
+		note(text) {
+			pending = [
+				...pending.filter(entry => now() - entry.at < TYPED_TTL_MS).slice(-(TYPED_MAX - 1)),
+				{
+					text: text.trim(),
+					at: now(),
+				},
+			];
+		},
+		take(text) {
+			pending = pending.filter(entry => now() - entry.at < TYPED_TTL_MS);
+			const index = pending.findIndex(entry => entry.text === text.trim());
+			if (index < 0) return false;
+			pending.splice(index, 1);
+			return true;
+		},
+	};
+}
+
 // ---------------------------------------------------------------------------------------------
 // Terms
 // ---------------------------------------------------------------------------------------------

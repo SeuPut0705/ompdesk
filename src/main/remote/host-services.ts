@@ -70,6 +70,7 @@ import { discardOpenedWorktree, savedWorktreesForSpawn } from "../disk/saved-wor
 import { type ExtensionApplyPlan, extensionApplyDecision, mergeApplyPlans } from "../extension-reload";
 import { type LaunchProfilePrefs, readLaunchProfile, updateLaunchProfile } from "../launch-profile-store";
 import { createWorktree, tablessWorktreeBridge } from "../local/git/worktree";
+import { noteTypedPrompt } from "../local/prompt-origin";
 import type { BridgeClient } from "../local/types";
 import type { MachineServices } from "../machine-services";
 import { noteOmpExit } from "../omp-exits";
@@ -1810,7 +1811,7 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/** The tab's omp answers a command, except Autopilot's, which this computer's coordinator answers. */
-	#run(
+	async #run(
 		tab: HostTab,
 		client: NonNullable<SidecarLike["rpcClient"]>,
 		command: RpcCommand,
@@ -1827,6 +1828,9 @@ export class LocalHostServices implements HostServices {
 				},
 				command,
 			);
+		// A device's prompt is typed there: memory recall runs for it here, even in an Autopilot run's tab. Only for a
+		// prompt that goes in (one past the device's daily limit never reaches this).
+		await noteTypedPrompt(client, command);
 		return client.command(command, timeoutMs);
 	}
 
