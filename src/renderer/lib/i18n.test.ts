@@ -25,6 +25,9 @@ describe("translate", () => {
 		expect(translate("sessionPicker.messageCount", { count: "1,204" })).toBe("1,204 messages");
 		expect(translate("fileCard.count.rows", { count: "1+" })).toBe("1+ rows");
 		expect(translate("fileCard.count.rows", { count: "1" })).toBe("1 row");
+		expect(
+			translate("filesPanel.contentSearch.count", { matches: 1, files: 1, matchPlural: "", filePlural: "" }),
+		).toBe("1 match in 1 file");
 		// A caller that says the plural keeps its word.
 		expect(translate("sessionTree.messageCount", { count: 1, plural: "s" })).toBe("1 messages");
 	});

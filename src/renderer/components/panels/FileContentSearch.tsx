@@ -148,6 +148,8 @@ export function FileContentSearch({ tabId, focusSeq }: { tabId: string | undefin
 								{
 									matches: state.result.matches.length,
 									files: groups.length,
+									matchPlural: state.result.matches.length === 1 ? "" : "es",
+									filePlural: groups.length === 1 ? "" : "s",
 								},
 							)}
 						</p>

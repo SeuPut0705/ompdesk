@@ -3412,7 +3412,7 @@ export const en: Record<string, string> = {
 	"filesPanel.contentSearch.searching": "Searching files…",
 	"filesPanel.contentSearch.none": "No matches in the project.",
 	"filesPanel.contentSearch.failed": "Couldn't search the files.",
-	"filesPanel.contentSearch.count": "{matches} matches in {files} files",
+	"filesPanel.contentSearch.count": "{matches} match{matchPlural} in {files} file{filePlural}",
 	"filesPanel.contentSearch.countMore": "First {matches} matches in {files} files. Narrow the search to see the rest.",
 	"hotkeys.row.prCenter": "Pull requests",
 	"hotkeys.row.settings": "Settings",

@@ -28,7 +28,7 @@ const LABELS = {
 		contentSearch: "Search in files",
 		query: "Text to find in files",
 		matchCase: "Match case",
-		count: "1 matches in 1 files",
+		count: "1 match in 1 file",
 		sidePanel: "Side panel",
 		edit: "Edit",
 		editor: "Contents of notes.md",
