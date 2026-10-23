@@ -10,6 +10,7 @@
 import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import type { SessionInfo } from "../shared/ipc-types";
+import { pathBaseName } from "../shared/project-origin";
 import {
 	parseSidebarProjects,
 	type SidebarProject,
@@ -72,6 +73,9 @@ export async function projectOfFolder(cwd: string): Promise<string | null> {
 	if (origin?.worktree) return origin.root;
 	return (await linkedWorktreeRoot(cwd)) ?? cwd;
 }
+
+/** The folder name of a checkout OMPdesk makes under the worktree root (`gui-<name>-<hash7>`). */
+const OMPDESK_WORKTREE_FOLDER = /^gui-.+-[0-9a-f]{7}$/;
 
 export class SidebarProjects {
 	readonly #deps: SidebarProjectsDeps;
@@ -221,17 +225,22 @@ export class SidebarProjects {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
 		const kept = before.projects.filter(entry => !moved.has(entry.path));
-		const checked = await Promise.all(
-			[...kept, ...added].map(
-				async ({ path, addedAt }): Promise<SidebarProject> =>
-					(await exists(path)) ? { path, addedAt } : { path, addedAt, missing: true },
-			),
-		);
+		const checked = (
+			await Promise.all(
+				[...kept, ...added].map(
+					async ({ path, addedAt }): Promise<SidebarProject> =>
+						(await exists(path)) ? { path, addedAt } : { path, addedAt, missing: true },
+				),
+			)
+		)
+			// A checkout OMPdesk made (`gui-<name>-<hash7>`) that is gone was a worktree, never a project: it leaves.
+			.filter(entry => !(entry.missing && OMPDESK_WORKTREE_FOLDER.test(pathBaseName(entry.path))));
 		// Something else changed the list meanwhile: the next pass checks again.
 		if (this.#disposed || this.#state !== before) return;
 		const changed =
 			added.length > 0 ||
 			moved.size > 0 ||
+			checked.length !== kept.length + added.length ||
 			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
 			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees);
 		if (changed) this.#commit({ projects: checked, worktrees });

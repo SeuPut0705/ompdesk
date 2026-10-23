@@ -97,6 +97,26 @@ describe("SidebarProjects", () => {
 		expect(h.projects.state().worktrees).toEqual({ "/home/me/.omp/wt/gui-alpha-1234567": "/work/alpha" });
 	});
 
+	it("drops a listed OMPdesk worktree folder that is gone, never a project of the person's that is", async () => {
+		const h = harness({
+			projects: [
+				{ path: "/work/beta", addedAt: 1 },
+				{ path: "/home/me/.omp/wt/gui-agent-m41hj7-5a1b2c3", addedAt: 2 },
+				{ path: "/work/gui-tool-1234567x", addedAt: 3 },
+			],
+			removed: [],
+			worktrees: {},
+		});
+		h.gone.add("/work/beta");
+		h.gone.add("/home/me/.omp/wt/gui-agent-m41hj7-5a1b2c3");
+		h.gone.add("/work/gui-tool-1234567x");
+		await h.projects.sync();
+		expect(h.projects.state().projects).toEqual([
+			{ path: "/work/beta", addedAt: 1, missing: true },
+			{ path: "/work/gui-tool-1234567x", addedAt: 3, missing: true },
+		]);
+	});
+
 	it("reads a linked worktree's main checkout from its .git file when git cannot answer", async () => {
 		const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-sidebar-wt-")));
 		try {
