@@ -108,6 +108,18 @@ describe("Memory › Overview", () => {
 		expect(document.body.textContent).toContain("Memory has no build for this computer.");
 	});
 
+	it("a server that does not answer says so in the UI language, not main's English", async () => {
+		await mount(
+			<MemoryOverview
+				project={null}
+				projects={[]}
+				state={memoryState({ phase: "unreachable", detail: "The server does not answer.", stats: null })}
+			/>,
+		);
+		expect(document.body.textContent).not.toContain("The server does not answer.");
+		expect(document.body.textContent).toContain("The memory server is not answering; OMPdesk keeps trying.");
+	});
+
 	it("a failed start shows the cause and Try again", async () => {
 		await mount(
 			<MemoryOverview

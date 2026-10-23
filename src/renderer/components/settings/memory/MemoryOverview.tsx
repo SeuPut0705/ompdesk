@@ -126,9 +126,11 @@ export function MemoryOverview({
 				footer={
 					// "Unavailable here" carries its reason as a sentence in the UI language: the badge already names the
 					// phase, so the notice says only why (main's own detail is English and names the program). A failure
-					// keeps its raw cause under the phase.
+					// keeps its raw cause under the phase; a server that does not answer is retried by main on its own.
 					unsupported ? (
 						<InlineNotice title={t("memory.overview.unsupportedReason")} tone="danger" />
+					) : state.phase === "unreachable" ? (
+						<InlineNotice title={t("memory.overview.unreachableReason")} tone="danger" />
 					) : state.detail && problem ? (
 						<InlineNotice detail={state.detail} title={t(`memory.phase.${state.phase}`)} tone="danger" />
 					) : undefined
