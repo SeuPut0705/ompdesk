@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.61.25] - 2026-10-23
+
+영어 화면에서 하나일 때 단수로 읽어요.
+
+### 고친 것
+- 화면 언어가 영어일 때 개수가 하나인데 복수로 나오던 문구를 고쳤어요. 이제 "1 session", "1 file", 파일 내용 검색의 "1 match in 1 file", 사이드바 하위 에이전트의 "1 tool call", 플러그인 다시 불러오기의 "1 plugin", 통계 동기화의 "1 message from 1 file"로 나와요.
+
+<!-- en -->
+
+English counts read right when there is one.
+
+### Fixed
+- With the English interface, a count of one showed a plural: it now reads "1 session", "1 file", "1 match in 1 file" in content search, "1 tool call" on a sidebar subagent, "1 plugin" when plugins reload and "1 message from 1 file" when stats sync.
+
 ## [0.61.24] - 2026-10-23
 
 명령 팔레트에서 프로젝트를 옮기고, 스크린 리더가 목록을 바르게 읽어요.
