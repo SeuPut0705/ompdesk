@@ -481,6 +481,8 @@ export const en: Record<string, string> = {
 	"input.files.duplicates": "{count} already attached, so not added again.",
 	"input.dropFiles": "Drop files or folders to attach",
 	"input.files.empty": "{name} is empty, so it wasn't attached.",
+	"input.files.remoteFolder":
+		"{name} is a folder on this computer; a tab running on {device} can't open it. Attach its files instead.",
 	"input.files.tooLarge": "{name} is over 5 MB, so its text wasn't attached.",
 	"input.files.noPath": "{name} has no file path on this computer. Save it to a folder first, then attach it.",
 	"input.files.remoteBinary":

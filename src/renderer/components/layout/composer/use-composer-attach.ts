@@ -143,11 +143,16 @@ export function useComposerAttach({
 				tooLarge: "input.files.tooLarge",
 				binary: "input.files.noPath",
 				unreadable: "input.files.unreadable",
+				remoteFolder: "input.files.remoteFolder",
 			} as const;
 			for (const rejection of intake.rejected) {
 				if (rejection.reason === "notSent")
 					toast({ variant: "error", message: rejection.message ?? rejection.name });
-				else toast({ variant: "warning", message: t(reasons[rejection.reason], { name: rejection.name }) });
+				else
+					toast({
+						variant: "warning",
+						message: t(reasons[rejection.reason], { name: rejection.name, device: hostName }),
+					});
 			}
 			if (intake.images.length > 0) {
 				const read = await Promise.all(

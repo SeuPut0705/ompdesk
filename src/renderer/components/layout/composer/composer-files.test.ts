@@ -47,6 +47,23 @@ describe("intakeComposerFiles", () => {
 		expect(intake.rejected).toEqual([]);
 	});
 
+	it("says a folder cannot reach a tab on another computer, never that it is empty", async () => {
+		const folder = new File([], "src");
+		const sent: string[] = [];
+		const intake = await intakeComposerFiles([folder], {
+			...local({}),
+			remote: true,
+			directories: new Set([folder]),
+			sendToHost: async (file: File) => {
+				sent.push(file.name);
+				return "/host/src";
+			},
+		});
+		expect(intake.rejected).toEqual([{ name: "src", reason: "remoteFolder" }]);
+		expect(intake.mentions).toEqual([]);
+		expect(sent).toEqual([]);
+	});
+
 	it("falls back to the text of a file without a path and refuses what it cannot read", async () => {
 		const note = new File(["hello\nworld"], "note.md", { type: "text/markdown" });
 		const empty = new File([], "empty.txt", { type: "text/plain" });

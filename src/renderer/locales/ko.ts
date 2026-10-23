@@ -472,6 +472,8 @@ export const ko: Record<string, string> = {
 	"input.files.duplicates": "{count}개는 이미 첨부돼 있어서 다시 넣지 않았어요.",
 	"input.dropFiles": "파일이나 폴더를 놓으면 첨부돼요",
 	"input.files.empty": "{name} 파일이 비어 있어서 첨부하지 않았어요.",
+	"input.files.remoteFolder":
+		"{name}은 이 컴퓨터의 폴더라서 {device} 컴퓨터에서 실행 중인 탭은 열 수 없어요. 안의 파일을 첨부해 주세요.",
 	"input.files.tooLarge": "{name} 파일이 5MB를 넘어서 내용을 첨부하지 않았어요.",
 	"input.files.noPath": "{name} 파일은 이 컴퓨터의 경로가 없어요. 폴더에 저장한 뒤 첨부해 주세요.",
 	"input.files.remoteBinary":

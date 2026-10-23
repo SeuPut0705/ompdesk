@@ -49,7 +49,7 @@ function isDocument(file: File): boolean {
 	return file.type === "application/pdf" || (extension !== undefined && DOCUMENT_EXTENSIONS.has(extension));
 }
 
-export type ComposerFileRejection = "empty" | "tooLarge" | "binary" | "unreadable" | "notSent";
+export type ComposerFileRejection = "empty" | "tooLarge" | "binary" | "unreadable" | "notSent" | "remoteFolder";
 
 export interface ComposerFileIntake {
 	images: File[];
@@ -143,6 +143,11 @@ export async function intakeComposerFiles(
 				message: error instanceof Error ? error.message : String(error),
 			});
 		};
+		// A folder on this computer cannot reach a tab running on another one (its path means nothing there).
+		if (options.remote && options.directories?.has(file)) {
+			intake.rejected.push({ name: file.name, reason: "remoteFolder" });
+			continue;
+		}
 		let path: string;
 		try {
 			path = options.remote ? "" : await options.pathFor(file);
