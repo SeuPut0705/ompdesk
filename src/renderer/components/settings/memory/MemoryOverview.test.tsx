@@ -91,6 +91,23 @@ describe("Memory › Overview", () => {
 		expect(api.overview).not.toHaveBeenCalled();
 	});
 
+	it("an unsupported system says why in the UI language, never main's English cause", async () => {
+		await mount(
+			<MemoryOverview
+				project={null}
+				projects={[]}
+				state={memoryState({
+					phase: "unsupported",
+					detail: "ai-memory has no build for this platform.",
+					stats: null,
+				})}
+			/>,
+		);
+		const shown = (document.body.textContent ?? "").toLowerCase().replace(".ai-memory.toml", "");
+		expect(shown).not.toContain("ai-memory");
+		expect(document.body.textContent).toContain("Memory has no build for this computer.");
+	});
+
 	it("a failed start shows the cause and Try again", async () => {
 		await mount(
 			<MemoryOverview

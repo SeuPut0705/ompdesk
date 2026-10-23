@@ -124,10 +124,11 @@ export function MemoryOverview({
 					</span>
 				}
 				footer={
-					// "Unavailable here" carries its reason as a sentence: the badge already names the phase, so the
-					// notice says only why. A failure keeps its raw cause under the phase.
-					state.detail && unsupported ? (
-						<InlineNotice title={state.detail} tone="danger" />
+					// "Unavailable here" carries its reason as a sentence in the UI language: the badge already names the
+					// phase, so the notice says only why (main's own detail is English and names the program). A failure
+					// keeps its raw cause under the phase.
+					unsupported ? (
+						<InlineNotice title={t("memory.overview.unsupportedReason")} tone="danger" />
 					) : state.detail && problem ? (
 						<InlineNotice detail={state.detail} title={t(`memory.phase.${state.phase}`)} tone="danger" />
 					) : undefined
