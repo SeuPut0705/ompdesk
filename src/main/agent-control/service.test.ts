@@ -3025,6 +3025,12 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		await service.run(b, T.report, { kind: "done", text: "B is finished" });
 		const result = (await service.run("boss0001", T.result, { session: b })).text;
 		expect(result).toContain("idle, finished: reported done");
+
+		// New work (dispatch d2): the done report for d1 no longer says where it stands.
+		await service.run("boss0001", T.send, { session: b, message: "now do C" });
+		(host.tabsById.get(b) as FakeTab).busy = false;
+		const after = (await service.run("boss0001", T.result, { session: b })).text;
+		expect(after).toContain("idle, ended its turn with no verdict line and no done report");
 	});
 
 	it("names the dispatch in the child's task, and a done report reaches the opener between its steps", async () => {

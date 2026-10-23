@@ -1441,10 +1441,13 @@ export class AgentControl {
 	#withPickup(caller: ControlTab, tab: ControlTab, session: SessionState, line: string): string {
 		if (line !== "idle" || this.#host.parentOf(tab.tabId) !== caller.tabId) return line;
 		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
+		const dispatch = this.#mailbox.current(tab.tabId);
 		const pickup = pickupOf({
 			answer: session.last,
-			...(report ? { report: { kind: report.kind, at: report.at } } : {}),
-			...(tab.busySince !== undefined ? { busySince: tab.busySince } : {}),
+			...(report
+				? { report: { kind: report.kind, ...(report.dispatch ? { dispatch: report.dispatch } : {}) } }
+				: {}),
+			...(dispatch ? { dispatch } : {}),
 		});
 		return pickup ? `idle, ${pickup}` : line;
 	}
