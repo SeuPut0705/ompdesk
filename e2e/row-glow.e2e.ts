@@ -134,8 +134,13 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page; profile
 /** Three running tabs (ids[0..2]) and a fourth idle one in front. */
 async function threeRunning(page: Page): Promise<string[]> {
 	const tabs = () => page.evaluate(() => window.omp.tabs.list());
+	// A tab is typed into before the next one is opened: an empty tab the person leaves is closed.
+	const type = (tabId: string, command: { type: "prompt"; message: string } | { type: "bash"; command: string }) =>
+		page.evaluate(([id, body]) => window.omp.rpc.commandForTab(id, body), [tabId, command] as const);
 	const ids = [(await tabs())[0]?.tabId ?? ""];
 	for (let i = 0; i < 3; i++) {
+		await expect.poll(async () => (await tabs()).find(tab => tab.tabId === ids[i])?.status).toBe("ready");
+		await type(ids[i] ?? "", { type: "prompt", message: "fixture running" });
 		const before = (await tabs()).map(tab => tab.tabId);
 		await page.keyboard.press("ControlOrMeta+t");
 		await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
@@ -144,11 +149,8 @@ async function threeRunning(page: Page): Promise<string[]> {
 		await expect.poll(async () => (await tabs()).find(tab => tab.tabId === created.tabId)?.status).toBe("ready");
 		ids.push(created.tabId);
 	}
-	for (const id of ids.slice(0, 3))
-		await page.evaluate(
-			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture running" }),
-			id,
-		);
+	// The idle tab holds something typed too, so it has a sidebar row.
+	await type(ids[3] ?? "", { type: "bash", command: "fixture:title:Idle" });
 	return ids;
 }
 

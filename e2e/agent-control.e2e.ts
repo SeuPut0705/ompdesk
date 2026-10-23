@@ -123,11 +123,15 @@ test("with full control off, deleting a session the agent did not open needs the
 	// Settings › Tools & extensions › "Give agents full control of OMPdesk" off, as the person would store it.
 	await page.evaluate(() => window.omp.prefs.set("agentControlFull", false));
 	// A second tab the user opened (⌘T): not the agent's.
+	// The main tab holds something typed, so leaving it for the new tab does not close it as an empty one.
+	await fixtureCommand(main, "fixture:title:Main agent");
 	const before = (await tabs()).map(tab => tab.tabId);
 	await page.keyboard.press("ControlOrMeta+t");
 	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
 	const theirs = (await tabs()).find(tab => !before.includes(tab.tabId))?.tabId ?? "";
 	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
+	// The user typed in it, so it stays when the person goes back to the main tab.
+	await fixtureCommand(theirs, "fixture:title:Theirs");
 	// The main agent asks; its card waits on the main tab, which the sidebar marks "Needs input".
 
 	const pending = call("ompdesk_session_stop", { session: theirs, delete: true });
@@ -157,11 +161,15 @@ test("with full control off, deleting a session the agent did not open needs the
 
 test("by default (full control) the agent deletes a session it did not open with no card", async () => {
 	test.setTimeout(150_000);
+	// The main tab holds something typed, so leaving it for the new tab does not close it as an empty one.
+	await fixtureCommand(main, "fixture:title:Main agent");
 	const before = (await tabs()).map(tab => tab.tabId);
 	await page.keyboard.press("ControlOrMeta+t");
 	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
 	const theirs = (await tabs()).find(tab => !before.includes(tab.tabId))?.tabId ?? "";
 	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
+	// The user typed in it, so it stays when the person goes back to the main tab.
+	await fixtureCommand(theirs, "fixture:title:Theirs");
 	const result = await call("ompdesk_session_stop", { session: theirs, delete: true });
 	expect(result.text).toMatch(/Stopped, closed and deleted|no saved file yet/);
 	await expect(page.getByText("[OMPdesk]")).toHaveCount(0);

@@ -78,6 +78,12 @@ async function launchOf(sessionId: string): Promise<{ argv: string[]; cwd: strin
 test("a chat tab runs omp with every tool in the default workspace", async () => {
 	// A fresh agent tab (⌘T) in the startup project is the reference launch.
 	const [startup] = await tabs();
+	// Typed into, so leaving it for the new tab does not close it as an empty one.
+	if (startup)
+		await page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Startup" }),
+			startup.tabId,
+		);
 	await pressUntil("ControlOrMeta+t", async () => (await tabs()).length === 2);
 	const agentTab = (await tabs()).find(tab => tab.tabId !== startup?.tabId);
 	if (!agentTab) throw new Error("No agent tab");

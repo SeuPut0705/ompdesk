@@ -61,7 +61,14 @@ test("a host's tab shows a streamed reply, live and finished, as a local tab doe
 		client = await launchRemote(clientProfile);
 		const a = client.page;
 		const deviceId = await connectHost(host.page, a, "Host B");
+		const startTab = (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		// The start tab holds something typed, so it stays (and its folder's group shows) once another tab is in front.
+		await a.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Local work" }),
+			startTab,
+		);
 		const remoteTab = await openHostFolder(a, deviceId, hostProfile.project);
+		await a.locator(`.omp-session-pane[data-tab-id="${remoteTab}"] .omp-composer-input`).fill("a draft");
 		await a
 			.getByRole("region", { name: "This device" })
 			.getByRole("button", { name: "New agent session here" })
@@ -69,6 +76,8 @@ test("a host's tab shows a streamed reply, live and finished, as a local tab doe
 		const localTab =
 			(await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.active && !tab.device)?.tabId ?? "";
 		expect(localTab).not.toBe("");
+		// A draft keeps this empty tab when the other one comes to the front (an empty one left is closed, `unstarted`).
+		await a.locator(`.omp-session-pane[data-tab-id="${localTab}"] .omp-composer-input`).fill("a draft");
 
 		const activate = async (tabId: string) => {
 			const pane = a.locator(`.omp-session-pane[data-tab-id="${tabId}"]`);

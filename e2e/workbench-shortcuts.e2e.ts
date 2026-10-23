@@ -212,5 +212,10 @@ async function openTab(page: Page): Promise<string> {
 		)
 		.toBe("ready");
 	await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(created.tabId);
+	// Typed into, so leaving it for another tab does not close it as an empty one.
+	await page.evaluate(
+		id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Extra" }),
+		created.tabId,
+	);
 	return created.tabId;
 }

@@ -309,10 +309,11 @@ for (const variant of VARIANTS)
 			await card.getByRole("button", { name: variant.language === "ko" ? "자세히 보기" : "See details" }).click();
 			await expect(notice).toBeVisible();
 			await expect(card).toHaveCount(0);
-			// The release's own notes, not the whole file: no other release heading.
+			// The release's own notes, not the whole file: no other release heading. The dialog's title is its one h2
+			// (dialog titles are headings), and the notes carry none of their own.
 			await expect(notice.locator("li").first()).toBeVisible();
 			await expect(notice).not.toContainText("## [");
-			await expect(notice.locator("h2")).toHaveCount(0);
+			await expect(notice.locator("h2")).toHaveCount(1);
 			await capture(page, `${variant.name}-01-whats-new`);
 			await page.keyboard.press("Escape");
 			await expect(notice).toHaveCount(0);
@@ -321,7 +322,8 @@ for (const variant of VARIANTS)
 			await pressShortcutUntilVisible(page, "ControlOrMeta+K", page.locator(".omp-command-list"));
 			await page.keyboard.type(variant.language === "ko" ? "변경 내역" : "What's new");
 			await page.keyboard.press("Enter");
-			const all = page.getByRole("dialog").filter({ has: page.locator("h2") });
+			// Every dialog title is an h2 now: the whole changelog is the one that also lists the previous release.
+			const all = page.getByRole("dialog").filter({ hasText: PREVIOUS_VERSION });
 			await expect(all).toBeVisible();
 			await page.keyboard.press("Escape");
 			await expect(all).toHaveCount(0);

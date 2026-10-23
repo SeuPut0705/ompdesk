@@ -199,6 +199,12 @@ test("the local rows do not move across the first remote read of a relaunch", as
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const hostId = await connectHost(host.page, client.page, "Studio B");
+		// The client's own session, typed into so it keeps a row (an empty one has none) and survives the host tab opening.
+		const local = (await client.page.evaluate(() => window.omp.tabs.list())).find(tab => !tab.device)?.tabId ?? "";
+		await client.page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Local session" }),
+			local,
+		);
 		// A session of the host's own, so its section has rows to load on the next launch.
 		await openHostFolder(client.page, hostId, hostProfile.project);
 		const input = client.page.locator("[data-composer-input]").first();

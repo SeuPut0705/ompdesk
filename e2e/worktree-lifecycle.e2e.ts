@@ -61,6 +61,19 @@ async function launch(policy: string, language: "en" | "ko" = "en"): Promise<voi
 	// The tab's omp can be ready before React mounted (a hosted runner: sidecar-ready 2568 ms, renderer-mounted
 	// 2750 ms), and a ⌘T pressed meanwhile reaches no keydown listener.
 	await expect(page.locator("[data-composer-input]").first()).toBeVisible({ timeout: 30_000 });
+	// The start tab holds a typed command, so opening the next tab does not close it as an empty one left behind.
+	const start = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active);
+	if (!start) throw new Error("No start tab");
+	await typeInto(start.tabId, "Start");
+}
+
+/** Something the person typed: a tab nobody wrote to is unstarted, and one shown then left empty is closed. */
+async function typeInto(tabId: string, title: string): Promise<void> {
+	await page.evaluate(
+		([id, name]) => window.omp.rpc.commandForTab(id, { type: "bash", command: `fixture:title:${name}` }),
+		[tabId, title] as const,
+	);
+	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === tabId)?.unstarted).not.toBe(true);
 }
 
 test.afterEach(async () => {
@@ -211,6 +224,7 @@ test.describe("worktree.onStart = ask, worktree.onExit = keep", () => {
 		await expect(question).toContainText(project);
 		await question.getByRole("button", { name: "Use this checkout" }).click();
 		await expect.poll(async () => (await tabs()).filter(tab => tab.status === "ready").length).toBe(2);
+		await typeInto((await tabs()).find(tab => tab.active)?.tabId ?? "", "Plain");
 		const plain = (await tabs()).find(tab => tab.active);
 		expect(plain?.cwd).toBe(project);
 		expect(plain?.worktree).toBeUndefined();

@@ -45,6 +45,12 @@ test("dragging a session previews and splits on the hovered side", async () => {
 		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.tabId).not.toBe(first);
 		// The new tab's omp must be up before the test talks to it.
 		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.status).toBe("ready");
+		// A tab nobody typed in has no sidebar row; the split's two panes each need theirs.
+		const second = (await tabs()).find(tab => tab.active)?.tabId ?? "";
+		await page.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Second session" }),
+			second,
+		);
 
 		const row = page.locator(`[data-session-path="tab:${first}"]`);
 		await expect(row).toContainText("Refactor auth flow");

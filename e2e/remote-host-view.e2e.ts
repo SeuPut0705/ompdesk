@@ -44,6 +44,12 @@ test("the host's own window lists, views and works in a session its paired devic
 				.map(frame => ({ by: frame.recordedBy, message: String(frame.message) }));
 		const launches = async () =>
 			(await readRecords(hostProfile.record)).filter(frame => frame.type === "launch").length;
+		// The host's own tab holds work (an empty new session left for another is closed, `unstarted`).
+		const hostStart = (await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+		await b.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Host work" }),
+			hostStart,
+		);
 
 		// The device's agent opens a session on the host, in the host's project, and waits for its first answer.
 		const call = await controlToolCaller(a, clientProfile.record);

@@ -358,6 +358,11 @@ for (const language of variants(["en", "ko"] as const))
 				const deviceId = await connectHost(b, a, "Host B");
 				const localTab = (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.device === undefined);
 				if (!localTab) throw new Error("expected A's own tab");
+				// A's own tab holds work (an empty new session has no row, and is closed once left, `unstarted`).
+				await a.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Local work" }),
+					localTab.tabId,
+				);
 
 				// ── A opens the session B's user typed in, from B's section of the sidebar ──
 				const section = a.locator(`[data-sidebar-device="${deviceId}"]`);

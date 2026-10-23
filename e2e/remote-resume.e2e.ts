@@ -108,6 +108,15 @@ async function markers(profile: RemoteProfile): Promise<Marker[]> {
 	}
 }
 
+/** The window's own start tab holds something typed: an empty one left for another tab is closed (`unstarted`). */
+async function holdLocalWork(page: Page): Promise<void> {
+	const start = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId ?? "";
+	await page.evaluate(
+		id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Local work" }),
+		start,
+	);
+}
+
 async function send(page: Page, text: string): Promise<void> {
 	const input = page.locator("textarea").first();
 	await input.fill(text);
@@ -870,6 +879,7 @@ test("a device quitting with the host's running tab in the background: its relau
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await holdLocalWork(client.page);
 		await openHostFolder(client.page, deviceId, hostProfile.project);
 		await send(client.page, "fixture running");
 		await expect.poll(() => markers(hostProfile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);
@@ -932,6 +942,7 @@ test("a host's running tab the saved layout lost comes back after the device rel
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const deviceId = await connectHost(host.page, client.page, "Host B");
+		await holdLocalWork(client.page);
 		await openHostFolder(client.page, deviceId, hostProfile.project);
 		await send(client.page, "fixture running");
 		await expect.poll(() => markers(hostProfile), { timeout: 30_000 }).toMatchObject([{ reason: "running" }]);

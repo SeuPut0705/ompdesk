@@ -112,9 +112,29 @@ test("a tapped notification opens its tab on a cold start, and the link is spent
 		await inUse(phone);
 		const spawn = () =>
 			phone.evaluate(async cwd => (await window.omp.tabs.spawn({ cwd, kind: "agent" }))?.tabId ?? null, project);
-		const first = await spawn();
-		const notified = await spawn();
-		if (!first || !notified) throw new Error("no tabs");
+		// Each holds something the person typed as soon as it exists: an empty tab has no sidebar row and closes once left.
+		const spawnTyped = async (title: string) => {
+			const id = await spawn();
+			if (!id) throw new Error("no tab");
+			await expect
+				.poll(() => phone.evaluate(async t => (await window.omp.tabs.list()).find(x => x.tabId === t)?.status, id))
+				.toBe("ready");
+			await phone.evaluate(
+				([tab, name]) => window.omp.rpc.commandForTab(tab, { type: "bash", command: `fixture:title:${name}` }),
+				[id, title] as const,
+			);
+			return id;
+		};
+		const first = await spawnTyped("First tab");
+		const notified = await spawnTyped("Notified tab");
+		await expect
+			.poll(() =>
+				phone.evaluate(
+					async ids => (await window.omp.tabs.list()).filter(t => ids.includes(t.tabId) && !t.unstarted).length,
+					[first, notified],
+				),
+			)
+			.toBe(2);
 		await phone.evaluate(id => window.omp.tabs.setActive(id), first);
 		await phone.reload();
 		await inUse(phone);

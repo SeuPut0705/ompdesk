@@ -92,6 +92,24 @@ for (const [language, theme] of variants([
 			await expect.poll(() => activeTab(page).then(tab => tab.status)).toBe("ready");
 			await page.keyboard.press("ControlOrMeta+t");
 			await expect.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).length).toBe(2);
+			// The new tab holds a typed command, so leaving it for the saved one does not close it as empty.
+			const extra = await activeTab(page);
+			await expect
+				.poll(
+					async () =>
+						(await page.evaluate(() => window.omp.tabs.list())).find(t => t.tabId === extra.tabId)?.status,
+				)
+				.toBe("ready");
+			await page.evaluate(
+				id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Scratch" }),
+				extra.tabId,
+			);
+			await expect
+				.poll(
+					async () =>
+						(await page.evaluate(() => window.omp.tabs.list())).find(t => t.tabId === extra.tabId)?.unstarted,
+				)
+				.toBeFalsy();
 			await page.keyboard.press("ControlOrMeta+1");
 			await expect.poll(() => activeTab(page).then(tab => tab.tabId)).toBe(saved.tabId);
 			await page.keyboard.press("ControlOrMeta+w");
