@@ -771,6 +771,8 @@ export class RemoteDevices {
 				admit: (visitor, name) => this.#admit(visitor, name),
 				log: this.#deps.log,
 				logLink: this.#deps.logLink,
+				// The computer that just connected may be one this device uses as a host: it is up, so dial it now.
+				peerOpened: deviceId => this.#links.get(deviceId)?.client.wake("peer"),
 				renameSelf: (name, by) => {
 					console.info(`[remote] ${by.name} (${by.deviceId}) renamed this computer to "${name}"`);
 					this.setDeviceName(name);

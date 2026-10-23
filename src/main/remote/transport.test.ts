@@ -609,6 +609,45 @@ describe("a link that dropped or went silent", () => {
 		});
 	});
 
+	it("the host's computer connecting to this one ends a dial still waiting on it and tries again at once", async () => {
+		const rig = await startHost();
+		const { a, paired } = await connectedClient(rig);
+		// A restarting host: its port takes the connection and answers nothing until the app is back.
+		const restarting = { on: true };
+		const held = new Set<Socket>();
+		const relay = await listenFake(inbound => {
+			held.add(inbound);
+			inbound.on("error", () => {});
+			if (restarting.on) return;
+			const outbound = connect({ host: LOOPBACK, port: rig.port });
+			held.add(outbound);
+			inbound.pipe(outbound).pipe(inbound);
+			inbound.on("close", () => outbound.destroy());
+			outbound.on("close", () => inbound.destroy());
+			outbound.on("error", () => {});
+		});
+		cleanups.push(() => {
+			for (const socket of held) socket.destroy();
+		});
+		const { lines, log } = linkLog();
+		const remote = client(a, { ...paired, addresses: [`${LOOPBACK}:${relay.port}`] }, undefined, log);
+		remote.connect();
+		await untilState(remote, "connecting");
+		await new Promise(resolve => setTimeout(resolve, 200));
+		restarting.on = false;
+
+		const woke = Date.now();
+		remote.wake("peer");
+		await untilState(remote, "online");
+
+		// The held handshake would have waited out its 10 s before the next dial.
+		expect(Date.now() - woke).toBeLessThan(3_000);
+		expect(lines.filter(line => line.message === "attempt").map(line => line.details.trigger)).toEqual([
+			"start",
+			"peer",
+		]);
+	}, 15_000);
+
 	it("logs an outage: down with the reason, each attempt, up with how long it lasted", async () => {
 		const rig = await startHost();
 		const { a, hosts, paired } = await connectedClient(rig);

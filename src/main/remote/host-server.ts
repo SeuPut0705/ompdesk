@@ -105,6 +105,8 @@ export interface RemoteHostOptions {
 	 * minute (`traffic`: bytes and frames by kind, never a payload), for the runtime log (`remote-link`).
 	 */
 	logLink?: (event: "open" | "closed" | "traffic", details: Record<string, unknown>) => void;
+	/** A device's link opened: its computer is up now (this one may still be dialing it as a host). */
+	peerOpened?: (deviceId: string) => void;
 	now?: () => number;
 }
 
@@ -470,6 +472,7 @@ export class RemoteHost {
 		link.listen(message => this.#onMessage(conn, message));
 		this.#emitter.emit("peersChanged");
 		this.#emitter.emit("connectionsChanged");
+		this.#opts.peerOpened?.(current.deviceId);
 	}
 
 	#disconnected(conn: PeerConnection): void {

@@ -28,7 +28,11 @@ import { Link, WAKE_CHECK_MS, type WireMessage } from "./wire";
 export type LinkState = "connecting" | "online" | "offline";
 
 /** What may say the network or the computer changed: the client checks (online) or retries (offline) at once. */
-export type WakeTrigger = "resume" | "unlock" | "online" | "tailnet" | "focus";
+/**
+ * What may say the network or the computer changed: the client checks (online) or retries (offline) at once.
+ * `peer`: the host's computer just connected to this one, so it is up now, even while a dial to it still hangs.
+ */
+export type WakeTrigger = "resume" | "unlock" | "online" | "tailnet" | "focus" | "peer";
 
 type AttemptTrigger = "start" | "connect" | "backoff" | WakeTrigger;
 
@@ -66,10 +70,12 @@ export class RemoteError extends Error {
 	}
 }
 
-function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket> {
+function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS, signal?: AbortSignal): Promise<Socket> {
 	const socket = connect({ host: target.host, port: target.port });
 	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
+	const cancelled = () => fail(new Error("dial cancelled"));
 	const fail = (error: Error) => {
+		signal?.removeEventListener("abort", cancelled);
 		socket.destroy();
 		const refused = "code" in error && (error.code === "ECONNREFUSED" || error.code === "ECONNRESET");
 		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused));
@@ -77,10 +83,13 @@ function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS): Promise<Socket>
 	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out")));
 	socket.once("error", fail);
 	socket.once("connect", () => {
+		signal?.removeEventListener("abort", cancelled);
 		socket.setTimeout(0);
 		socket.off("error", fail);
 		resolve(socket);
 	});
+	if (signal?.aborted) cancelled();
+	else signal?.addEventListener("abort", cancelled, { once: true });
 	return promise;
 }
 
@@ -90,10 +99,10 @@ function asRemoteError(error: unknown): RemoteError {
 	return new RemoteError("unreachable", error instanceof Error ? error.message : String(error));
 }
 
-async function dialAddress(address: string, timeoutMs?: number): Promise<Link> {
+async function dialAddress(address: string, timeoutMs?: number, signal?: AbortSignal): Promise<Link> {
 	const target = parseAddress(address);
 	if (!target) throw new RemoteError("unreachable", `invalid address: ${address}`);
-	return new Link(await dial(target, timeoutMs));
+	return new Link(await dial(target, timeoutMs, signal));
 }
 
 /** What a probe found at an address: a host that lets this device in, or one that refuses it (and why). */
@@ -126,6 +135,8 @@ interface HandshakeOptions {
 	appVersion: string;
 	/** The host this device pinned: its id and key must answer. Null on first contact (the key is pinned then). */
 	expected: { deviceId: string; staticPub: string } | null;
+	/** Ends the dial or the handshake under way (`unreachable`). */
+	signal?: AbortSignal;
 }
 
 interface Handshake {
@@ -139,7 +150,9 @@ interface Handshake {
  * DH(eA,sB)), so only the holder of the host key this device pinned can read or answer the link.
  */
 async function handshake(address: string, opts: HandshakeOptions): Promise<Handshake> {
-	const link = await dialAddress(address);
+	const link = await dialAddress(address, undefined, opts.signal);
+	const cancelled = () => link.destroy();
+	opts.signal?.addEventListener("abort", cancelled, { once: true });
 	try {
 		const { identity } = opts;
 		const eph = generateKeyPair();
@@ -293,6 +306,9 @@ export class RemoteClient {
 	#link: Link | null = null;
 	#running = false;
 	#attempting = false;
+	/** Ends the attempt under way when the host's computer shows it is up; `#rerun` then names the next one. */
+	#cancel: AbortController | null = null;
+	#rerun: WakeTrigger | null = null;
 	#retryTimer: NodeJS.Timeout | undefined;
 	#backoff = RECONNECT_MIN_MS;
 	#onlineAt: number | null = null;
@@ -344,10 +360,19 @@ export class RemoteClient {
 	 * The network or the computer may have changed under the link (wake from sleep, unlock, the network back, a
 	 * window in front, the tailnet's node of the host back). Offline or waiting out a backoff: start over from a 1 s
 	 * backoff and try now. Online: send a ping and drop the link if nothing answers within `WAKE_CHECK_MS`, then try
-	 * now, instead of waiting for the 30 s dead timer. An attempt already running is the one that is trying now.
+	 * now, instead of waiting for the 30 s dead timer. An attempt already running is the one that is trying now,
+	 * except on `peer`: the host's computer connected to this one, so a dial that still waits on an address (a
+	 * restarting host's ports time out, 5 s each) is ended and tried again at once.
 	 */
 	wake(trigger: WakeTrigger): void {
-		if (!this.#running || this.#attempting) return;
+		if (!this.#running) return;
+		if (this.#attempting) {
+			if (trigger === "peer" && this.#cancel) {
+				this.#rerun = trigger;
+				this.#cancel.abort();
+			}
+			return;
+		}
 		const link = this.#link;
 		if (!link) {
 			this.#retryNow(trigger);
@@ -423,24 +448,29 @@ export class RemoteClient {
 			this.#opts.log?.("attempt", { deviceId: this.deviceId, n: outage.attempts, delayMs, trigger });
 		}
 		this.#setState("connecting");
+		const cancel = new AbortController();
+		this.#cancel = cancel;
 		const addresses = await this.#addresses();
 		let failure = new RemoteError("unreachable", "no address to dial");
 		// Every address refused: the computer is there and the app is not (a timeout anywhere says otherwise).
 		let refused = addresses.length > 0;
 		for (const address of addresses) {
-			if (!this.#running) break;
+			if (!this.#running || cancel.signal.aborted) break;
 			try {
 				const { link, hello } = await handshake(address, {
 					identity: this.#opts.identity,
 					name: this.#opts.name(),
 					appVersion: this.#opts.appVersion,
 					expected: { deviceId: this.deviceId, staticPub: this.#host.staticPub },
+					signal: cancel.signal,
 				});
 				if (!this.#running) {
 					link.destroy();
 					break;
 				}
 				this.#attempting = false;
+				this.#cancel = null;
+				this.#rerun = null;
 				this.#online(link, hello, address);
 				return;
 			} catch (error) {
@@ -451,7 +481,14 @@ export class RemoteClient {
 			}
 		}
 		this.#attempting = false;
+		this.#cancel = null;
 		if (!this.#running) return;
+		const rerun = this.#rerun;
+		this.#rerun = null;
+		if (rerun) {
+			this.#retryNow(rerun);
+			return;
+		}
 		this.#error = failure.code;
 		if (!outage.downLogged) {
 			outage.downLogged = true;
