@@ -34,6 +34,12 @@ export interface SidebarProjectsState {
 	 * paired device cannot ask the host's git): its sessions are rows of that project, never a project of their own.
 	 */
 	worktrees: Record<string, string>;
+	/**
+	 * Session folders that are gone from disk (a removed worktree, a deleted folder), as that computer sees it: a paired
+	 * device hides their sessions the way this computer's own sidebar does, unless a tab holds one. Absent from an older
+	 * host.
+	 */
+	gone?: string[];
 }
 
 export type SidebarProjectsRequest =
@@ -87,5 +93,8 @@ export function parseSidebarProjects(value: unknown): SidebarProjectsState {
 	if (rawWorktrees && typeof rawWorktrees === "object" && !Array.isArray(rawWorktrees))
 		for (const [cwd, project] of Object.entries(rawWorktrees))
 			if (cwd && typeof project === "string" && project) worktrees[cwd] = project;
-	return { projects, removed, worktrees };
+	const gone = Array.isArray(record.gone)
+		? [...new Set(record.gone.filter((path): path is string => typeof path === "string" && path.length > 0))]
+		: [];
+	return { projects, removed, worktrees, ...(gone.length > 0 ? { gone } : {}) };
 }

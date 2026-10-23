@@ -701,6 +701,7 @@ export const SidebarProjectsStateSchema: z.ZodType<SidebarProjectsState, z.ZodTy
 	removed: z.array(ProjectPath),
 	// An older host sends none: its sessions then group by their own folder, as before.
 	worktrees: z.record(ProjectPath, ProjectPath).default({}),
+	gone: z.array(ProjectPath).optional(),
 });
 
 /** A host-level stats read waits for the host's own stats request (15 s) plus the link. */

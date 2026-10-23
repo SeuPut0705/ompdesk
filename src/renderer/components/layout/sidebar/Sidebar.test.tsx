@@ -3289,6 +3289,32 @@ describe("Sidebar device sections", () => {
 		expect(section?.textContent).not.toContain("Worktree fix");
 	});
 
+	it("hides a host session whose folder is gone there (a removed worktree), as this computer's own sidebar does", async () => {
+		const omp = installWithRemote();
+		const WT = "/Users/kim/.omp/wt/gui-agent-m41hj7-5a1b2c3";
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio"
+				? [
+						...REMOTE,
+						session("/Users/kim/.omp/agent/sessions/wt/old.jsonl", WT, { title: "Old agent work", device }),
+					]
+				: LIST,
+		);
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [{ path: "/Users/kim/code/app", addedAt: 1 }],
+			removed: [],
+			worktrees: {},
+			gone: [WT],
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		expect(section?.querySelector(`[data-device-group="${WT}"]`)).toBeNull();
+		expect(section?.textContent).not.toContain("Old agent work");
+		expect(section?.textContent).toContain("Remote fix");
+	});
+
 	it("shows the host's own project list, empty projects too, and removes one there", async () => {
 		const omp = installWithRemote();
 		omp.sidebarProjects.lists["dev-studio"] = {

@@ -137,6 +137,16 @@ describe("SidebarProjects", () => {
 		}
 	});
 
+	it("names the session folders that are gone, for a paired device to hide their sessions", async () => {
+		const h = harness();
+		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z"), session("/gone", "2026-10-02T00:00:00Z")]);
+		await h.projects.sync();
+		expect(h.projects.state().gone).toEqual(["/gone"]);
+		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z")]);
+		await h.projects.sync();
+		expect(h.projects.state().gone).toBeUndefined();
+	});
+
 	it("keeps a project whose last session was deleted", async () => {
 		const h = harness();
 		h.setSessions([session("/work/alpha", "2026-10-01T00:00:00Z"), session("/work/beta", "2026-10-02T00:00:00Z")]);

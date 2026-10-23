@@ -177,12 +177,16 @@ export class SidebarProjects {
 		const found = new Map<string, number>();
 		// A linked worktree's folder → its project: a paired device groups the host's sessions by it (git runs here).
 		const worktrees: Record<string, string> = {};
+		// Session folders that are gone: a paired device hides their sessions, as this computer's sidebar does.
+		const gone: string[] = [];
 		for (const [cwd, created] of newest) {
 			let project = this.#resolved.get(cwd);
 			if (project === undefined) {
 				project = await this.#projectOf(cwd);
-				this.#resolved.set(cwd, project);
+				// A gone folder may come back (a restored worktree): asked again next pass.
+				if (project !== null) this.#resolved.set(cwd, project);
 			}
+			if (project === null) gone.push(cwd);
 			if (project === null || project === workspace) continue;
 			if (project !== cwd) worktrees[cwd] = project;
 			found.set(project, Math.max(found.get(project) ?? 0, created));
@@ -213,7 +217,7 @@ export class SidebarProjects {
 			if (listed.has(path) || this.#state.removed.includes(path)) continue;
 			added.push({ path, addedAt: addedAt || this.#now() });
 		}
-		await this.#checkFolders(added, worktrees, moved);
+		await this.#checkFolders(added, worktrees, moved, gone.sort());
 	}
 
 	/** Marks each listed project whose folder is gone (and unmarks one that came back); commits with `added`. */
@@ -221,6 +225,7 @@ export class SidebarProjects {
 		added: readonly SidebarProject[],
 		worktrees: Record<string, string>,
 		moved: ReadonlyMap<string, string> = new Map(),
+		gone: readonly string[] | undefined = this.#state.gone,
 	): Promise<void> {
 		const exists = this.#deps.exists ?? folderExists;
 		const before = this.#state;
@@ -242,8 +247,14 @@ export class SidebarProjects {
 			moved.size > 0 ||
 			checked.length !== kept.length + added.length ||
 			checked.some((entry, index) => entry.missing !== before.projects[index]?.missing) ||
-			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees);
-		if (changed) this.#commit({ projects: checked, worktrees });
+			JSON.stringify(worktrees) !== JSON.stringify(before.worktrees) ||
+			JSON.stringify(gone ?? []) !== JSON.stringify(before.gone ?? []);
+		if (changed)
+			this.#commit({
+				projects: checked,
+				worktrees,
+				...(gone && gone.length > 0 ? { gone: [...gone] } : { gone: undefined }),
+			});
 	}
 
 	#commit(next: Partial<SidebarProjectsState>): void {

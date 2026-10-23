@@ -418,15 +418,17 @@ function DeviceSessions({
 
 	const groups = useMemo(() => {
 		const removed = new Set(projectList.removed);
+		const gone = new Set(projectList.gone ?? []);
 		const held = new Set(hostTabs.flatMap(tab => [tab.sessionPath, tab.sessionId].filter(Boolean)));
 		const byCwd = new Map<string, DeviceSession[]>();
 		for (const session of rows) {
 			if (isChatSession(session, hostWorkspace)) continue;
 			// A linked worktree's session is a row of its project (the host's git says which), never a project of its own.
 			const project = projectList.worktrees[session.cwd] ?? session.cwd;
-			// A project removed from the sidebar takes its sessions with it, unless a tab holds one.
+			// A project removed from the sidebar takes its sessions with it, and a folder gone on the host (a removed
+			// worktree) its sessions, as this computer's own sidebar does: unless a tab holds one.
 			if (
-				removed.has(project) &&
+				(removed.has(project) || gone.has(session.cwd)) &&
 				session.liveTabId === undefined &&
 				!held.has(session.path) &&
 				!held.has(session.id)
