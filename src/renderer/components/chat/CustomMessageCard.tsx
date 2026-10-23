@@ -31,6 +31,7 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
 import { Badge, type BadgeVariant } from "../common/Badge";
+import { DisclosureButton } from "../common/DisclosureButton";
 import {
 	asFileDiagnostics,
 	DiagnosticsList,
@@ -783,29 +784,23 @@ export function MailNote({ message }: { message: AgentMessage }) {
 			data-agent-mail={kind}
 			data-open={open || undefined}
 		>
-			<button
-				type="button"
-				aria-expanded={open}
+			<DisclosureButton
 				aria-controls={bodyId}
-				onClick={toggle}
-				className="flex min-h-7 w-fit max-w-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-sm) px-1 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)"
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+				className="min-h-7 min-w-0 rounded-(--sc-radius-sm) px-1 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)"
+				inline
+				onToggle={toggle}
+				open={open}
 			>
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						open && "rotate-90",
-					)}
-				/>
 				<span className="min-w-0 truncate font-medium">{t("chat.custom.mail", { from })}</span>
 				<span aria-hidden>·</span>
 				<span className={cx("shrink-0", waits && "text-(--sc-warning)")}>{t(`chat.custom.mail.kind.${kind}`)}</span>
-			</button>
+			</DisclosureButton>
 			{open && (
 				<div
 					id={bodyId}
 					className={cx(
-						"ms-[calc(var(--sc-icon-sm)+0.625rem)] mt-1 flex min-w-0 flex-col gap-1.5 border-s-2 ps-3 text-sc-sm text-(--sc-text-secondary)",
+						"ms-[calc(var(--sc-icon-sm)+0.75rem)] mt-1 flex min-w-0 flex-col gap-1.5 border-s-2 ps-3 text-sc-sm text-(--sc-text-secondary)",
 						waits ? "border-(--sc-warning)" : "border-(--sc-border-subtle)",
 					)}
 					data-agent-mail-body

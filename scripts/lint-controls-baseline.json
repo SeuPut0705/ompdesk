@@ -4,7 +4,7 @@
 	"components/autopilot/FocusChips.tsx": 1,
 	"components/chat/ChatStream.tsx": 2,
 	"components/chat/ConversationNavigator.tsx": 1,
-	"components/chat/CustomMessageCard.tsx": 4,
+	"components/chat/CustomMessageCard.tsx": 3,
 	"components/chat/ExecutionGroup.tsx": 5,
 	"components/chat/LiveStepPeek.tsx": 5,
 	"components/chat/TodoReminderNote.tsx": 1,
