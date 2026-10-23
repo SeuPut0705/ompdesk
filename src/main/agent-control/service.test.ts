@@ -654,6 +654,27 @@ describe("ompdesk_session_send", () => {
 		}
 	});
 
+	it("answers a repeat of a delivered request at once, never waiting on the person's draft", async () => {
+		vi.useFakeTimers();
+		try {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
+			const service = control(host);
+			const args = { session: "work0002", message: "please review", request_id: "r1" };
+			expect((await service.run("main0001", T.send, args)).isError).toBeFalsy();
+			(host.tabsById.get("work0002") as FakeTab).drafting = true;
+			let answered: { text: string; isError?: boolean } | undefined;
+			void service.run("main0001", T.send, args).then(result => {
+				answered = result;
+			});
+			await vi.advanceTimersByTimeAsync(10);
+			expect(answered?.isError).toBeFalsy();
+			expect(answered?.text).toMatch(/already delivered; nothing sent again/);
+			expect(prompts(host, "work0002")).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("delivers a steer to a running session and a follow-up by default", async () => {
 		const host = new FakeHost({ tabId: "main0001" }, { tabId: "work0002", busy: true });
 		const service = control(host);

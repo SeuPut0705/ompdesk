@@ -1927,7 +1927,6 @@ export class AgentControl {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		this.#refuseHidden(target, caller);
 		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
-		await this.#untilDraftSent(caller, target);
 		// Idempotent: a retried call (a flaky link, a paired device) gets the first receipt, never a second delivery.
 		const receiptKey = args.request_id
 			? `${caller.sessionPath ?? caller.tabId}|${target.sessionPath ?? target.tabId}|${args.request_id}`
@@ -1978,6 +1977,8 @@ export class AgentControl {
 		const marks = await this.#journalMarks(target.tabId);
 		if (args.request_id && marks.requests.has(args.request_id))
 			return `Sent to ${label(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
+		// Only a send that will deliver waits on the person's draft: a repeat of a delivered request answers at once.
+		await this.#untilDraftSent(caller, target);
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
 		// One that already reported back to the caller in this turn waits in it (an answer) or wraps up: a follow-up
 		// would sit unseen behind that turn, so it reaches it between steps instead.

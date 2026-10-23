@@ -76,16 +76,24 @@ const KIND_LABEL: Record<MailKind, string> = {
 	note: "note",
 };
 
+/** A report's own text never opens or closes its wrapper (a forged sender, or words read as outside the report). */
+function inMail(value: string): string {
+	return value.replaceAll("<ompdesk-mail", "<\u200bompdesk-mail").replaceAll("</ompdesk-mail", "</\u200bompdesk-mail");
+}
+
 /** What the receiving model reads (the transcript draws `details` instead). */
 export function mailText(mail: Mail): string {
+	const title = mail.fromTitle.replace(/"/g, "'").replace(/</g, "‹").replace(/>/g, "›");
 	const lines = [
-		`<ompdesk-mail from="${mail.from}" title="${mail.fromTitle.replace(/"/g, "'")}" kind="${mail.kind}"${mail.dispatch ? ` dispatch="${mail.dispatch}"` : ""}>`,
-		mail.text,
+		`<ompdesk-mail from="${mail.from}" title="${title}" kind="${mail.kind}"${mail.dispatch ? ` dispatch="${mail.dispatch}"` : ""}>`,
+		inMail(mail.text),
 	];
-	if (mail.files?.length) lines.push(`changed files: ${mail.files.join(", ")}`);
+	if (mail.files?.length) lines.push(inMail(`changed files: ${mail.files.join(", ")}`));
 	if (mail.checks?.length)
 		lines.push(
-			`checks: ${mail.checks.map(check => `${check.command} ${check.passed ? "passed" : "FAILED"}`).join("; ")}`,
+			inMail(
+				`checks: ${mail.checks.map(check => `${check.command} ${check.passed ? "passed" : "FAILED"}`).join("; ")}`,
+			),
 		);
 	if (mail.merged) lines.push(`(latest of ${mail.merged + 1} progress reports)`);
 	lines.push("</ompdesk-mail>");
