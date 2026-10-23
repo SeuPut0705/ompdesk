@@ -108,6 +108,7 @@ function IntentGroup({ group }: { group: StepGroup }) {
 	const state = running ? "running" : failed ? "error" : outcomes.includes("interrupted") ? "aborted" : "done";
 	return (
 		<div className="omp-step-group" data-step-group="" data-open={open} data-state={state}>
+			{/* controls-ok: the omp-step-group-header class draws the whole control */}
 			<button
 				aria-expanded={open}
 				className={cx("omp-step-group-header", TOOL_ROW_CLASS)}

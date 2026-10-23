@@ -89,6 +89,7 @@ export function WorkNotes({ messages, live = false }: { messages: readonly Agent
 					const age = formatAgo(message.timestamp);
 					return (
 						<li key={key} className={itemClass}>
+							{/* controls-ok: the omp-work-notes-line class draws the whole control */}
 							<button
 								type="button"
 								className="omp-work-notes-line"

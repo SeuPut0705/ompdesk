@@ -34,6 +34,7 @@ export function FileChip({
 		<span {...data} className="omp-file-chip" title={[note, path].filter(Boolean).join(" · ") || undefined}>
 			{icon}
 			{opensIn === "viewer" ? (
+				// controls-ok: the omp-file-chip-name class draws the whole control
 				<button
 					type="button"
 					className="omp-file-chip-name font-mono"

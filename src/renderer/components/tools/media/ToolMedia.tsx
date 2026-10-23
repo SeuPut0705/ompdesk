@@ -291,6 +291,7 @@ export function PdfThumb({ path, label }: { path: string; label?: string }) {
 			ref={ref}
 			title={path}
 		>
+			{/* controls-ok: the omp-chat-thumb-page class draws the whole control */}
 			<button
 				type="button"
 				className="omp-chat-thumb-page"

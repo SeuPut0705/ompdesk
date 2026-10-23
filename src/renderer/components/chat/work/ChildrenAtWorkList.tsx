@@ -17,6 +17,7 @@ function ChildLine({ row, now }: { row: OpenedChildRow; now: number }) {
 	const clock = row.status === "running" && row.since ? formatElapsed(Math.max(0, now - row.since)) : "";
 	return (
 		<li>
+			{/* controls-ok: the omp-children-at-work-row class draws the whole control */}
 			<button
 				className="omp-children-at-work-row"
 				data-child-at-work={row.key}

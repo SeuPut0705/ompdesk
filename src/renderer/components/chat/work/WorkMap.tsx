@@ -220,6 +220,7 @@ export function WorkMap({
 							data-open={open}
 							data-motion={laneMotion}
 						>
+							{/* controls-ok: the omp-work-card-button class draws the whole control */}
 							<button
 								type="button"
 								className="omp-work-card-button"

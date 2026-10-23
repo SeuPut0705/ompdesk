@@ -62,6 +62,7 @@ export function ReadGroupCard({
 
 	return (
 		<div className={cx("omp-read-group", pad)}>
+			{/* controls-ok: the omp-read-group-header class draws the whole control */}
 			<button
 				type="button"
 				aria-expanded={open}

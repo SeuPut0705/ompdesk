@@ -112,6 +112,7 @@ export function WorkOutcome({
 				<WorkStatus state={stoppedRow ? "stopped" : failed ? "failed" : "complete"} label={status} motion={false} />
 				{command.output ? (
 					// A stopped command keeps what it printed before the stop one click away.
+					// controls-ok: the omp-work-outcome-main class draws the whole control
 					<button
 						type="button"
 						className="omp-work-outcome-main omp-work-outcome-toggle font-mono"

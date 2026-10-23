@@ -139,6 +139,7 @@ export function NextPromptChips({
 		>
 			{visible.map((text, index) => (
 				<Fragment key={`${index}:${text}`}>
+					{/* controls-ok: the omp-next-chip class draws the whole control */}
 					<button
 						aria-keyshortcuts={touch ? undefined : `Alt+${index + 1}`}
 						aria-label={t("input.chips.chip", { index: index + 1, text })}
@@ -170,6 +171,7 @@ export function NextPromptChips({
 						{!touch && <Kbd shortcut={`⌥${index + 1}`} />}
 					</button>
 					{touch && onSend && armed === index && (
+						// controls-ok: the omp-next-chip class draws the whole control
 						<button
 							className="omp-next-chip omp-next-chip-send"
 							data-next-chip-send

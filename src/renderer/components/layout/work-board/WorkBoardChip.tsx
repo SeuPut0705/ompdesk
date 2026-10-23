@@ -226,6 +226,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	return (
 		<div className="omp-work-strip" data-work-strip="" ref={root}>
 			{watch}
+			{/* controls-ok: the omp-work-chip class draws the whole control */}
 			<button
 				aria-controls={open || leaving ? PANEL_ID : undefined}
 				aria-expanded={open}

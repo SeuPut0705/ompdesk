@@ -45,6 +45,7 @@ export function AccountLimit() {
 			{accounts.map(({ report, inUse }) => {
 				const fullLabel = report.account?.trim() || report.provider;
 				return (
+					// controls-ok: the omp-work-board-account class draws the whole control
 					<button
 						className="omp-work-board-account"
 						data-board-account={report.provider}

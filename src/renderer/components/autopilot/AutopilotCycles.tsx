@@ -74,6 +74,7 @@ function CycleRow({
 	const title = cycle.title.trim() || t("autopilot.untitled");
 	return (
 		<li className="omp-work-board-item" data-autopilot-cycle={cycle.n} data-verify={cycle.verify}>
+			{/* controls-ok: the omp-work-board-row class draws the whole control */}
 			<button
 				aria-expanded={open}
 				className="omp-work-board-row"
