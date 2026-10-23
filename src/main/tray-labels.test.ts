@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { TrayState } from "../shared/ipc-types";
 import {
+	aggregateProgress,
 	aggregateTrayStatus,
 	approvalLabel,
 	formatTokens,
@@ -113,12 +114,22 @@ describe("aggregateTrayStatus", () => {
 		// A streaming window pushed before an erroring one must not mask the error.
 		expect(aggregateTrayStatus(windows(["streaming", "error"]))).toBe("error");
 		expect(aggregateTrayStatus(windows(["idle", "error"]))).toBe("error");
-		expect(aggregateTrayStatus(windows(["approval", "streaming"]))).toBe("streaming");
+		// Waiting on the person outranks another window's work.
+		expect(aggregateTrayStatus(windows(["approval", "streaming"]))).toBe("approval");
+		expect(aggregateTrayStatus(windows(["streaming", "input"]))).toBe("input");
+		expect(aggregateTrayStatus(windows(["idle", "streaming"]))).toBe("streaming");
 		expect(aggregateTrayStatus(windows(["idle", "approval"]))).toBe("approval");
 		expect(aggregateTrayStatus(windows(["idle", "input"]))).toBe("input");
 		// Windows waiting on different things read neutral.
 		expect(aggregateTrayStatus(windows(["approval", "input"]))).toBe("input");
 		expect(aggregateTrayStatus(windows(["approval", "approval"]))).toBe("approval");
+	});
+
+	it("shows the app icon waiting while any window waits on the person, whatever another one runs", () => {
+		expect(aggregateProgress(["working", "waiting"])).toBe("waiting");
+		expect(aggregateProgress(["waiting", "working", "idle"])).toBe("waiting");
+		expect(aggregateProgress(["idle", "working"])).toBe("working");
+		expect(aggregateProgress([])).toBe("idle");
 	});
 
 	it("is idle with nothing to aggregate", () => {

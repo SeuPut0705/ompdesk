@@ -166,7 +166,7 @@ import { type SessionFolderState, type SpawnTabRemote, sessionFolderState, spawn
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
 import { setTrayState } from "./tray";
-import { aggregateTrayStatus } from "./tray-labels";
+import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
 import { type RelaunchContinuation, TOUCH_COMMANDS } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
 import { appVersion } from "./updater";
@@ -391,11 +391,6 @@ const trayStates = new Map<number, TrayState>();
 const progressStates = new Map<number, RunProgressState>();
 
 /** Collapse per-window run-progress to one: any working > waiting > idle. */
-function aggregateProgress(states: RunProgressState[]): RunProgressState {
-	if (states.some(s => s === "working")) return "working";
-	if (states.some(s => s === "waiting")) return "waiting";
-	return "idle";
-}
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;

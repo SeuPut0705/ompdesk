@@ -6,7 +6,7 @@ import {
 	type AutopilotStatus,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import { QUOTA_FALLBACK_MS } from "../shared/quota-reset";
-import { shipGap } from "./autopilot";
+import { NUDGE_MESSAGES, shipGap } from "./autopilot";
 import type { LandOutcome, ShipResult } from "./autopilot-ship";
 import {
 	afters,
@@ -384,6 +384,18 @@ describe("a failed turn", () => {
 		autopilot.frame(sidecar, { type: "autopilot_nudge", reason: "no_progress" });
 		await autopilot.idle();
 		expect(world.stock("ap-1", "prompt")).toHaveLength(1);
+	});
+
+	it("tells the quiet run why it went quiet, so a run whose todos are all blocked picks another item", async () => {
+		await start();
+		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
+		autopilot.frame(sidecar, { type: "autopilot_nudge", reason: "blocked" });
+		await autopilot.idle();
+		const asked = world.stock("ap-1", "prompt").map(call => call.params?.message);
+		expect(asked).toEqual([NUDGE_MESSAGES.blocked]);
+		expect(NUDGE_MESSAGES.blocked).toMatch(/every todo item is blocked/);
+		expect(NUDGE_MESSAGES.plan).toMatch(/plan mode/);
+		expect(new Set(Object.values(NUDGE_MESSAGES)).size).toBe(4);
 	});
 
 	it("waits while TurnResume holds a scheduled retry, or a turn is running again", async () => {

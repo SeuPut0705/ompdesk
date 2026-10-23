@@ -27,6 +27,7 @@ import {
 	checksRun,
 	currentStep,
 	DRAFT_WAIT_MS,
+	elapsedText,
 	type OpenedChild,
 	parseVerdict,
 	renderMessage,
@@ -399,6 +400,7 @@ describe("ompdesk_sessions", () => {
 				tabId: "work0002",
 				title: "Worker",
 				busy: true,
+				busySince: Date.now() - 12 * 60_000 - 5_000,
 				last: "I fixed the parser and ran the tests.",
 				subagents: [{ id: "s1", status: "running" }],
 				todos: [
@@ -423,7 +425,7 @@ describe("ompdesk_sessions", () => {
 		const result = await control(host).run("main0001", T.list, {});
 		expect(result.isError).toBe(false);
 		expect(result.text).toContain("4 sessions");
-		expect(result.text).toMatch(/work0002 "Worker".*\n\s+running, running bash \(run vitest\)/);
+		expect(result.text).toMatch(/work0002 "Worker".*\n\s+running, running bash \(run vitest\), for 12 min;/);
 		expect(result.text).toContain("1 subagent(s) running");
 		expect(result.text).toContain("todos 1/2 done (now: test it)");
 		expect(result.text).toContain("last answer: I fixed the parser");
@@ -445,6 +447,15 @@ describe("ompdesk_sessions", () => {
 		expect((await control(host).run("main0001", T.list, {})).text).toMatch(/turned off/);
 		const other = new FakeHost({ tabId: "main0001" });
 		expect((await control(other).run("zzzz9999", T.list, {})).isError).toBe(true);
+	});
+});
+
+describe("elapsedText", () => {
+	it("says how long a turn has run in seconds, minutes, then hours and minutes", () => {
+		expect(elapsedText(40_400)).toBe("40 s");
+		expect(elapsedText(12 * 60_000 + 59_000)).toBe("12 min");
+		expect(elapsedText(2 * 3_600_000)).toBe("2 h");
+		expect(elapsedText(2 * 3_600_000 + 5 * 60_000)).toBe("2 h 5 min");
 	});
 });
 

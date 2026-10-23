@@ -334,8 +334,17 @@ const REASON_TEXT: Partial<Record<AutopilotPauseReason | AutopilotEndReason, Mai
 	tab_closed: "autopilot.reason.tab_closed",
 };
 
-/** What a nudge asks the quiet run for. */
-const NUDGE_MESSAGE = "Autopilot: no cycle is running. Call `autopilot begin` and continue with the next cycle.";
+/**
+ * What a nudge asks the quiet run for, by why it went quiet: the agent is told the reason, so a run whose items are all
+ * blocked picks another instead of waiting on them again. Idea after OpenRig's reason-tagged wake messages.
+ */
+export const NUDGE_MESSAGES: Record<AutopilotNudgeReason | "error", string> = {
+	no_progress: "Autopilot: no cycle is running. Call `autopilot begin` and continue with the next cycle.",
+	plan: "Autopilot: plan mode stopped the run and is off now; nobody approves plans here. Call `autopilot begin` and continue with the next cycle.",
+	blocked:
+		"Autopilot: every todo item is blocked, so the run stopped. If a cycle is open, end it with each blocker as a follow-up; then call `autopilot begin` and pick an item that is not blocked.",
+	error: "Autopilot: the last turn failed and nothing retried it. Call `autopilot begin` and continue; repeat the failed step only if the failure looks transient, otherwise record it as a follow-up and pick another item.",
+};
 /** The least time between two nudges of a run, and after a failed model turn. */
 const NUDGE_MS = 20_000;
 const ERROR_NUDGE_MS = 60_000;
@@ -1451,7 +1460,7 @@ export class Autopilot {
 		}
 		await this.#stockResponse(run.tabId, {
 			type: "prompt",
-			message: NUDGE_MESSAGE,
+			message: NUDGE_MESSAGES[reason],
 			streamingBehavior: "followUp",
 		}).catch(error => this.#log(`nudge: ${String(error)}`));
 	}

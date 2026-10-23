@@ -482,6 +482,16 @@ function responseData<T>(response: RpcResponse, what: string): T {
 	return response.data as T;
 }
 
+/** How long a turn has run, for a session's state line (`running, <step>, for 12 min`). */
+export function elapsedText(ms: number): string {
+	const seconds = Math.max(0, Math.round(ms / 1000));
+	if (seconds < 60) return `${seconds} s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes} min`;
+	const rest = minutes % 60;
+	return `${Math.floor(minutes / 60)} h${rest ? ` ${rest} min` : ""}`;
+}
+
 function oneLine(text: string, max: number): string {
 	const flat = text.replace(/\s+/g, " ").trim();
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
@@ -1444,7 +1454,8 @@ export class AgentControl {
 				return `stopped (${tab.status})`;
 			}
 		}
-		if (tab.busy || state?.isStreaming) return `running${step ? `, ${step}` : ""}`;
+		if (tab.busy || state?.isStreaming)
+			return `running${step ? `, ${step}` : ""}${tab.busySince ? `, for ${elapsedText(Date.now() - tab.busySince)}` : ""}`;
 		if (state && state.isSettled === false) return "running (background work still going)";
 		return "idle";
 	}

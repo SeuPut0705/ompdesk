@@ -5,7 +5,7 @@
  * are the parts worth testing.
  */
 
-import type { TrayState } from "../shared/ipc-types";
+import type { RunProgressState, TrayState } from "../shared/ipc-types";
 import type { UiLanguage } from "../shared/ui-language";
 
 export type TrayStatus = TrayState["status"];
@@ -72,7 +72,9 @@ export function statusLabel(lang: TrayLang, status: TrayStatus): string {
  */
 export function aggregateTrayStatus(states: Iterable<TrayState>): TrayStatus {
 	// Precedence is app-global, so a single early return on the first window's
-	// streaming would hide a later window's error.
+	// streaming would hide a later window's error. A window waiting on the person
+	// outranks another one working, as inside one window (App.tsx): work goes on
+	// by itself, an answer does not.
 	let streaming = false;
 	let waiting: "approval" | "input" | null = null;
 	for (const { status } of states) {
@@ -81,7 +83,7 @@ export function aggregateTrayStatus(states: Iterable<TrayState>): TrayStatus {
 		if (status === "approval" || status === "input")
 			waiting = waiting === null || waiting === status ? status : "input";
 	}
-	return streaming ? "streaming" : (waiting ?? "idle");
+	return waiting ?? (streaming ? "streaming" : "idle");
 }
 
 const APPROVAL_KEYS: Record<TrayApprovalMode, TrayLabelKey> = {
@@ -147,4 +149,17 @@ export function menuSignature(state: TrayState): string {
 		tokens,
 		workspaces,
 	].join("\u0002");
+}
+
+/**
+ * The app icon's progress over every window (dock badge, taskbar bar): one waiting on the person outranks one working,
+ * as `aggregateTrayStatus` and each window's own state do.
+ */
+export function aggregateProgress(states: Iterable<RunProgressState>): RunProgressState {
+	let working = false;
+	for (const state of states) {
+		if (state === "waiting") return "waiting";
+		if (state === "working") working = true;
+	}
+	return working ? "working" : "idle";
 }
