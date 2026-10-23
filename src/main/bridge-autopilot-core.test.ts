@@ -28,6 +28,7 @@ import {
 	dueForRelease,
 	finalizeCycle,
 	followupDismissals,
+	followupsLikeCycle,
 	greenCyclesSinceRelease,
 	hourlyRates,
 	inFlightAfter,
@@ -588,6 +589,28 @@ describe("journal replay", () => {
 		expect(openFollowups(records)).toEqual(["Docs for X"]);
 		const reopened = seq({ followups: ["Docs for X"] }, { resolved: ["Docs for X"] }, { followups: ["Docs for X"] });
 		expect(openFollowups(reopened)).toEqual(["Docs for X"]);
+	});
+	it("followupsLikeCycle: names the open follow-ups a cycle's title and summary cover, never a passing word", () => {
+		const open = [
+			"헌터 특성 구현 (traits.md 기본안: 추적, 덫 설치)",
+			"보스 패턴 3단계 밸런스 조정",
+			"Flaky login test on Windows",
+			"사용자 방향 확인 필요: 상점 UI를 탭으로 나눌지",
+		];
+		expect(
+			followupsLikeCycle(open, { title: "헌터 특성 구현", summary: "traits.md 기본안대로 추적과 덫을 넣었다" }),
+		).toEqual(["헌터 특성 구현 (traits.md 기본안: 추적, 덫 설치)"]);
+		expect(followupsLikeCycle(open, { title: "Fix the flaky login test" })).toEqual(["Flaky login test on Windows"]);
+		// One shared word ("UI", "test") is no match.
+		expect(followupsLikeCycle(open, { title: "상점 아이콘 교체", summary: "UI 정리" })).toEqual([]);
+		expect(followupsLikeCycle(open, { title: "Add a smoke test" })).toEqual([]);
+		// One the report already resolved is not named again.
+		expect(
+			followupsLikeCycle(open, {
+				title: "Fix the flaky login test",
+				resolved: ["flaky login test on windows"],
+			}),
+		).toEqual([]);
 	});
 	it("openFollowups: one the person dismissed after the cycle that left it closes, until a later cycle lists it again", () => {
 		const records = seq(

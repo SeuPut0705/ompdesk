@@ -69,6 +69,7 @@ import {
 	type EndReport,
 	finalizeCycle,
 	followupDismissals,
+	followupsLikeCycle,
 	initialStateEntry,
 	isDuplicateTitle,
 	type JournalEntry,
@@ -76,6 +77,7 @@ import {
 	lastStateEntry,
 	mergeSettings,
 	nextStateEntry,
+	openFollowups,
 	parseEndReport,
 	pendingNotes,
 	pendingShipRequests,
@@ -745,7 +747,17 @@ async function runTool(
 			current.area = area as AutopilotCycleArea;
 			current.title = title;
 			publish(session);
-			return toolText({ picked: true, cycle: current.n });
+			const like = followupsLikeCycle(openFollowups(records, followupDismissals(entries)), { title });
+			return toolText({
+				picked: true,
+				cycle: current.n,
+				...(like.length > 0
+					? {
+							openFollowups: like,
+							note: "These open follow-ups look like this item. Work them in with it, and list the ones this cycle does in end.resolved with their exact text.",
+						}
+					: {}),
+			});
 		}
 		case "end": {
 			const parsed = endReportOrThrow(params);
@@ -766,7 +778,7 @@ async function runTool(
 					recorded: true,
 					cycle: current.n,
 					repeated: true,
-					note: "This cycle was already reported and the first report stands (only follow-ups, children and ship were added). Stop now.",
+					note: "This cycle was already reported and the first report stands (only follow-ups, resolved follow-ups, children and ship were added). Stop now.",
 				});
 			}
 			const followups = [...new Set([...(current.report?.followups ?? []), ...(parsed.followups ?? [])])];
@@ -786,9 +798,17 @@ async function runTool(
 			current.checkCommand = seen.verdict.check;
 			current.area = report.area as AutopilotCycleArea;
 			publish(session);
+			const stillOpen = followupsLikeCycle(openFollowups(records, followupDismissals(entries)), report);
 			return toolText({
 				recorded: true,
 				cycle: current.n,
+				...(stillOpen.length > 0
+					? {
+							stillOpen,
+							closeThem:
+								"These open follow-ups look like what this cycle did. If it did one, or it no longer applies, call end again with its exact text in resolved; otherwise leave them.",
+						}
+					: {}),
 				...(duplicate
 					? { duplicate: true, note: "This title repeats a recent cycle: pick a different item next cycle." }
 					: {}),

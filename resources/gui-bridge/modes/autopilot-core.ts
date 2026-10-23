@@ -824,6 +824,42 @@ export function followupAge(records: readonly AutopilotCycleRecord[], text: stri
 	return first < 0 ? 0 : records.length - first;
 }
 
+/** The words of a follow-up, title or summary that name something: two or more letters, lower-cased, deduped. */
+function followupWords(text: string): Set<string> {
+	const words = new Set<string>();
+	for (const match of text
+		.normalize("NFKC")
+		.toLowerCase()
+		.matchAll(/[\p{L}\p{N}]{2,}/gu))
+		words.add(match[0]);
+	return words;
+}
+
+/**
+ * The open follow-ups this cycle looks like it did: at least {@link FOLLOWUP_MATCH_WORDS} of a follow-up's words and
+ * {@link FOLLOWUP_MATCH_SHARE} of them appear in the cycle's title and summary. A follow-up is a sentence and a
+ * title a short name, so the exact match `openFollowups` closes by almost never happens: a run on 23 Oct 2026 carried
+ * 12 open follow-ups, among them the item its next cycle was doing, a superseded one and one already partly done,
+ * because nothing asked the agent to close them. Only a hint: the agent decides, listing the done ones in `resolved`.
+ */
+export function followupsLikeCycle(
+	open: readonly string[],
+	cycle: { title: string; summary?: string; resolved?: readonly string[] },
+): string[] {
+	const said = followupWords(`${cycle.title} ${cycle.summary ?? ""}`);
+	const closed = new Set((cycle.resolved ?? []).map(normalizeTitle));
+	return open.filter(text => {
+		if (closed.has(normalizeTitle(text))) return false;
+		const words = [...followupWords(text)];
+		const shared = words.filter(word => said.has(word)).length;
+		return shared >= FOLLOWUP_MATCH_WORDS && shared / words.length >= FOLLOWUP_MATCH_SHARE;
+	});
+}
+
+/** {@link followupsLikeCycle}: words a follow-up and the cycle must share, and their share of the follow-up's. */
+export const FOLLOWUP_MATCH_WORDS = 2;
+export const FOLLOWUP_MATCH_SHARE = 0.4;
+
 /** What the run's own history says about this pick: follow-ups carried too long, a docs-only last cycle, fan-out cost. */
 export function beginHints(
 	records: readonly AutopilotCycleRecord[],
