@@ -1,0 +1,194 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { RM_TEMP } from "../../test-fake-omp";
+import { getGitChanges } from "./changes";
+import * as scm from "./scm";
+import { gitSync, initRepo, pathExists } from "./test-repos";
+
+// Each test runs a few dozen real git processes; a git start costs ~10 ms on a Mac but 100-300 ms on a Windows
+// runner, so the remote and history tests need far longer than vitest's 5 s there. A timed-out test also keeps
+// running git in `dir` while afterEach deletes it (EBUSY).
+vi.setConfig({ testTimeout: 60_000 });
+// Host git config must not shape these repos: a runner's git names a bare remote's HEAD `master`, a Mac's `main`.
+// Every git here (gitSync and the code under test) inherits process.env. An empty file, not os.devNull:
+// Windows git can't open `\\.\nul` as a config path.
+let emptyConfigDir: string;
+beforeAll(async () => {
+	emptyConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-scm-config-"));
+	const emptyConfig = path.join(emptyConfigDir, "gitconfig");
+	await fs.writeFile(emptyConfig, "");
+	vi.stubEnv("GIT_CONFIG_GLOBAL", emptyConfig);
+	vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+});
+afterAll(async () => {
+	vi.unstubAllEnvs();
+	await fs.rm(emptyConfigDir, RM_TEMP);
+});
+
+let dir: string;
+let root: string;
+beforeEach(async () => {
+	dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-scm-"));
+	root = path.join(dir, "repo");
+	await initRepo(root);
+});
+afterEach(async () => {
+	await fs.rm(dir, RM_TEMP);
+});
+
+describe("branches, merge, stash and operations", () => {
+	it("creates, switches, renames and deletes branches", async () => {
+		await scm.branch(root, { action: "create", name: "feature/x" });
+		expect(gitSync(root, "branch", "--show-current")).toBe("feature/x");
+		await scm.branch(root, { action: "switch", name: "main" });
+		await scm.branch(root, { action: "rename", name: "feature/x", newName: "feature/y" });
+		const list = await scm.branches(root);
+		expect(list.map(entry => [entry.name, entry.current])).toEqual(
+			expect.arrayContaining([
+				["main", true],
+				["feature/y", false],
+			]),
+		);
+		await expect(scm.branch(root, { action: "delete", name: "main" })).rejects.toMatchObject({ code: "git_failed" });
+		await scm.branch(root, { action: "delete", name: "feature/y" });
+		expect((await scm.branches(root)).map(entry => entry.name)).toEqual(["main"]);
+		await expect(scm.branch(root, { action: "create", name: "bad name" })).rejects.toMatchObject({
+			code: "invalid_name",
+		});
+	});
+
+	it("names the worktree that holds a branch and refuses to switch to it", async () => {
+		gitSync(root, "worktree", "add", "-q", "-b", "held", path.join(dir, "held"));
+		const held = (await scm.branches(root)).find(entry => entry.name === "held");
+		expect(held?.worktree).toBeTruthy();
+		await expect(scm.branch(root, { action: "switch", name: "held" })).rejects.toMatchObject({
+			code: "branch_checked_out",
+		});
+	});
+
+	it("stops a conflicting merge with a conflict count, blocks commit and aborts", async () => {
+		gitSync(root, "switch", "-q", "-c", "side");
+		await fs.writeFile(path.join(root, "README.md"), "side\n");
+		gitSync(root, "commit", "-qam", "side");
+		gitSync(root, "switch", "-q", "main");
+		await fs.writeFile(path.join(root, "README.md"), "main\n");
+		gitSync(root, "commit", "-qam", "main");
+		expect(await scm.branch(root, { action: "merge", name: "side" })).toEqual({ conflicts: 1 });
+		const changes = await getGitChanges(root);
+		expect(changes.head?.operation).toBe("merge");
+		expect(changes.files.find(file => file.path === "README.md")?.status).toBe("UU");
+		await expect(scm.commit(root, { message: "merge" })).rejects.toMatchObject({ code: "git_failed" });
+		await expect(scm.operation(root, "continue")).rejects.toMatchObject({ code: "git_failed" });
+		await scm.operation(root, "abort");
+		expect((await getGitChanges(root)).head?.operation).toBeNull();
+	});
+
+	it("stashes untracked work and pops it back", async () => {
+		await fs.writeFile(path.join(root, "wip.txt"), "wip\n");
+		await scm.stash(root, "push", "wip");
+		expect((await getGitChanges(root)).head?.stashes).toBe(1);
+		expect(await pathExists(path.join(root, "wip.txt"))).toBe(false);
+		expect(await scm.stash(root, "pop")).toEqual({ conflicts: 0 });
+		expect(await pathExists(path.join(root, "wip.txt"))).toBe(true);
+	});
+});
+
+describe("history", () => {
+	it("pages the log, searches it and reads a commit's files and diff", async () => {
+		await fs.writeFile(path.join(root, "a.txt"), "one\n");
+		gitSync(root, "add", ".");
+		gitSync(root, "commit", "-qm", "add a");
+		gitSync(root, "tag", "v1");
+		gitSync(root, "mv", "a.txt", "b.txt");
+		await fs.appendFile(path.join(root, "b.txt"), "two\n");
+		gitSync(root, "add", ".");
+		gitSync(root, "commit", "-qm", "rename to b");
+		gitSync(root, "remote", "add", "origin", "git@github.com:o/r.git");
+
+		const page = await scm.log(root, { limit: 2 });
+		expect(page.commits.map(entry => entry.subject)).toEqual(["rename to b", "add a"]);
+		expect(page.more).toBe(true);
+		expect(page.commits[0]?.refs).toEqual(["main"]);
+		expect(page.commits[1]?.tags).toEqual(["v1"]);
+		expect(page.commitUrl).toBe("https://github.com/o/r/commit/{sha}");
+		expect((await scm.log(root, { skip: 2 })).commits.map(entry => entry.subject)).toEqual(["init"]);
+		expect((await scm.log(root, { query: "RENAME" })).commits.map(entry => entry.subject)).toEqual(["rename to b"]);
+
+		const head = page.commits[0]!;
+		const detail = await scm.commitDetail(root, head.sha);
+		expect(detail.files).toEqual([{ path: "b.txt", oldPath: "a.txt", status: "R", added: 1, removed: 0 }]);
+		const diff = await scm.commitDiff(root, head.sha, "b.txt");
+		expect(diff.diff).toContain("+two");
+		await expect(scm.commitDetail(root, "not-a-sha")).rejects.toMatchObject({ code: "invalid_name" });
+	});
+
+	it("reverts, cherry-picks, resets, tags and branches from a commit", async () => {
+		await fs.writeFile(path.join(root, "a.txt"), "a\n");
+		gitSync(root, "add", ".");
+		gitSync(root, "commit", "-qm", "add a");
+		const added = gitSync(root, "rev-parse", "HEAD");
+		expect(await scm.historyAction(root, { action: "revert", sha: added })).toEqual({ conflicts: 0 });
+		expect(await pathExists(path.join(root, "a.txt"))).toBe(false);
+		expect(await scm.historyAction(root, { action: "cherry_pick", sha: added })).toEqual({ conflicts: 0 });
+		expect(await pathExists(path.join(root, "a.txt"))).toBe(true);
+		await scm.historyAction(root, { action: "tag", sha: added, name: "marked" });
+		expect(gitSync(root, "tag")).toBe("marked");
+		await scm.historyAction(root, { action: "delete_tag", sha: added, name: "marked" });
+		expect(gitSync(root, "tag")).toBe("");
+		await scm.historyAction(root, { action: "reset", sha: added, mode: "hard" });
+		expect(gitSync(root, "rev-parse", "HEAD")).toBe(added);
+		await scm.historyAction(root, { action: "branch", sha: added, name: "from-a" });
+		expect(gitSync(root, "branch", "--show-current")).toBe("from-a");
+		await scm.historyAction(root, { action: "checkout", sha: added });
+		expect((await getGitChanges(root)).head?.branch).toBeNull();
+	});
+
+	it("moves a commit earlier or later on the current line, and refuses the tip, a dirty tree and pushed commits", async () => {
+		const commitFile = (name: string) => {
+			gitSync(root, "commit", "-qm", name, "--allow-empty");
+			return gitSync(root, "rev-parse", "HEAD");
+		};
+		const subjects = () => gitSync(root, "log", "--format=%s").split("\n");
+		const a = commitFile("a");
+		commitFile("b");
+		const c = commitFile("c");
+		expect(subjects()).toEqual(["c", "b", "a", "init"]);
+		expect(await scm.historyAction(root, { action: "move_earlier", sha: c })).toEqual({ conflicts: 0 });
+		expect(subjects()).toEqual(["b", "c", "a", "init"]);
+		expect(await scm.historyAction(root, { action: "move_later", sha: a })).toEqual({ conflicts: 0 });
+		expect(subjects()).toEqual(["b", "a", "c", "init"]);
+		const head = gitSync(root, "rev-parse", "HEAD");
+		await expect(scm.historyAction(root, { action: "move_later", sha: head })).rejects.toMatchObject({
+			code: "git_failed",
+		});
+
+		await fs.writeFile(path.join(root, "README.md"), "dirty\n");
+		await expect(scm.historyAction(root, { action: "move_earlier", sha: head })).rejects.toMatchObject({
+			code: "dirty_worktree",
+		});
+		gitSync(root, "checkout", "--", "README.md");
+
+		const remote = path.join(dir, "remote.git");
+		gitSync(dir, "init", "-q", "--bare", "-b", "main", "remote.git");
+		gitSync(root, "remote", "add", "origin", remote);
+		gitSync(root, "push", "-q", "-u", "origin", "HEAD");
+		await expect(scm.historyAction(root, { action: "move_earlier", sha: head })).rejects.toMatchObject({
+			code: "commit_pushed",
+		});
+	});
+
+	it("stops a move that conflicts as a rebase the user continues or aborts", async () => {
+		await fs.writeFile(path.join(root, "a.txt"), "one\n");
+		gitSync(root, "add", ".");
+		gitSync(root, "commit", "-qm", "one");
+		await fs.writeFile(path.join(root, "a.txt"), "two\n");
+		gitSync(root, "commit", "-qam", "two");
+		const two = gitSync(root, "rev-parse", "HEAD");
+		expect(await scm.historyAction(root, { action: "move_earlier", sha: two })).toEqual({ conflicts: 1 });
+		expect((await getGitChanges(root)).head?.operation).toBe("rebase");
+		await scm.operation(root, "abort");
+		expect(gitSync(root, "rev-parse", "HEAD")).toBe(two);
+	});
+});
