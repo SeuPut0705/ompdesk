@@ -70,7 +70,7 @@ export function openedChildRows(input: {
 		const item = review.get(tab.id);
 		const failed =
 			item?.failed === true ||
-			tab.status === "error" ||
+			(tab.status === "error" && tab.sessionHeld !== true) ||
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
 		const unmerged =

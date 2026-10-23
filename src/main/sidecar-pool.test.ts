@@ -2406,6 +2406,25 @@ describe("SidecarPool background tabs", () => {
 			expect(fact()).toMatchObject({ running: false, awaitingUi: false });
 		});
 
+		it("tells every window a session another omp holds is a wait: TAB_STATUS and the tab list carry it until it opens", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			const listed = () => pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a");
+
+			a?.emit("status", { status: "error", cwd: "/a", message: "still open in another omp", sessionHeld: true });
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ status: "error", sessionHeld: true });
+			expect(listed()?.sessionHeld).toBe(true);
+
+			// Any other failure is one, and the session opening ends the wait.
+			a?.emit("status", { status: "error", cwd: "/a", message: "crashed" });
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("sessionHeld");
+			a?.emit("status", { status: "error", cwd: "/a", sessionHeld: true });
+			a?.emitStatus("ready");
+			expect(listed()).not.toHaveProperty("sessionHeld");
+		});
+
 		it("holds a scheduled retry in main: TAB_STATUS pushes it, GET_TABS re-reads it after a reload, and clearing removes it", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

@@ -135,6 +135,8 @@ export interface SessionTab {
 	awaitingInput?: AwaitedInput;
 	/** The tab's turn waits for the internet connection and continues by itself once it is back (main's turn-resume). */
 	awaitingConnection?: boolean;
+	/** `status` is `error` only because another omp still holds the session: a wait that ends by itself, not a failure. */
+	sessionHeld?: true;
 	/** A relaunch continues the tab's interrupted work and its turn has not started yet (main's turn-resume). */
 	resuming?: boolean;
 	/** `status` is `running` only for stock's background work after the turn ended (main's `settling`). */
@@ -291,6 +293,7 @@ function projectSessionTab(
 		pendingSessionPath: previous?.pendingSessionPath,
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
+		...(info.status === "error" && info.sessionHeld === true ? { sessionHeld: true as const } : {}),
 		...(info.resuming === true ? { resuming: true } : {}),
 		...(info.settling === true ? { settling: true as const } : {}),
 		...(info.status === "running" && info.runningSince !== undefined ? { runningSince: info.runningSince } : {}),

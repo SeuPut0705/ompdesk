@@ -32,6 +32,16 @@ describe("tabSignalPresentation", () => {
 		expect(tabSignalPresentation(tab({ status: "starting" })).active).toBe(true);
 	});
 
+	it("shows a session another omp still holds as a wait, not a failure", () => {
+		expect(tabSignalPresentation(tab({ status: "error", sessionHeld: true }))).toEqual({
+			active: true,
+			color: "var(--omp-warning)",
+			labelKey: "titlebar.status.sessionHeld",
+			running: false,
+		});
+		expect(tabSignalPresentation(tab({ status: "error" })).labelKey).toBe("titlebar.status.error");
+	});
+
 	it("keeps a finished background run readable over the idle state", () => {
 		expect(tabSignalPresentation(tab({ status: "ready", unreadDone: true })).labelKey).toBe("tabs.done");
 	});

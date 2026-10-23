@@ -1804,7 +1804,7 @@ export function Sidebar() {
 		const review = reviewOf.get(tab.id);
 		const failed =
 			review?.failed === true ||
-			tab.status === "error" ||
+			(tab.status === "error" && tab.sessionHeld !== true) ||
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
 		const waiting = tab.awaitingInput !== undefined || review?.waiting === true;

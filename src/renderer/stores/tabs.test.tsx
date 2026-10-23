@@ -1324,6 +1324,17 @@ describe("tabs store applyTabStatus", () => {
 		expect(useTabsStore.getState().tabs.find(tab => tab.id === "t1")?.unreadDone).toBe(false);
 	});
 
+	it("keeps a session another omp holds as a wait until any other status replaces it", () => {
+		seedTabs();
+		const t1 = () => useTabsStore.getState().tabs.find(tab => tab.id === "t1");
+		useTabsStore
+			.getState()
+			.applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "error", sessionHeld: true });
+		expect(t1()?.sessionHeld).toBe(true);
+		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "error" });
+		expect(t1()).not.toHaveProperty("sessionHeld");
+	});
+
 	it("does not badge the active tab's own run settling", () => {
 		seedTabs();
 		useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "running" });

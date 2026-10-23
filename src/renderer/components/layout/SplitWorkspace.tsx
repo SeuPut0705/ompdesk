@@ -150,8 +150,10 @@ export function SplitPaneHeader({ tab, label }: { tab: SessionTab; label: string
 	// opened sessions still working behind an idle turn; a still warning colour while it waits on the person.
 	// Compacting and (re)starting keep the spinner.
 	const running = tab.status === "running" && tab.awaitingInput === undefined;
-	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting";
-	const failed = tab.status === "error" || tab.status === "exited";
+	// Another omp still holding the session is a wait that ends by itself: the spinner, not the failure mark.
+	const held = tab.status === "error" && tab.sessionHeld === true;
+	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting" || held;
+	const failed = !held && (tab.status === "error" || tab.status === "exited");
 	const live = useTabLive({
 		running,
 		settling: tab.settling === true,

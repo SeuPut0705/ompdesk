@@ -314,6 +314,8 @@ interface PoolEntry extends RunTracking {
 	sessionFile?: string;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
+	/** The `error` status is a session another omp still holds: a wait that ends by itself (`IpcTabInfo.sessionHeld`). */
+	sessionHeld?: boolean;
 	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
 	planProposal?: PendingPlan;
 	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
@@ -849,6 +851,7 @@ export class SidecarPool {
 		const { sidecar, win } = entry;
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			entry.status = payload.status;
+			entry.sessionHeld = payload.status === "error" && payload.sessionHeld === true;
 			// A restart/exit kills any in-flight run along with the process, and the asks and approvals
 			// it had open: the next process never heard of them, so none may outlive it as "asking".
 			// A paired host's link blip is no such exit: its omp still holds the ask, so the route (and a
@@ -2489,6 +2492,7 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.worktree !== undefined) payload.worktree = entry.worktree;
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
 	if (entry.awaitingConnection) payload.awaitingConnection = true;
+	if (entry.sessionHeld && payload.status === "error") payload.sessionHeld = true;
 	if (entry.resuming) payload.resuming = true;
 	if (entry.scheduledRetry) payload.scheduledRetry = entry.scheduledRetry;
 	if (entry.device !== undefined) payload.device = entry.device;
