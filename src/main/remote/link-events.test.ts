@@ -1010,3 +1010,74 @@ describe("a running tool's output, any sequence of updates", () => {
 		}
 	});
 });
+
+describe("a running call's arguments", () => {
+	const assignment = "Title: Read the board\n".padEnd(3000, "x");
+	const args = { agent: "task", tasks: [{ id: "A", assignment }] };
+	const start = (id: string) =>
+		({ type: "tool_execution_start", toolCallId: id, toolName: "task", args }) as unknown as AgentSessionEvent;
+	const update = (id: string, n: number, withArgs: unknown = args) =>
+		({
+			type: "tool_execution_update",
+			toolCallId: id,
+			toolName: "task",
+			args: withArgs,
+			partialResult: { content: [{ type: "text", text: `step ${n}` }], details: {} },
+		}) as unknown as AgentSessionEvent;
+	const end = (id: string) =>
+		({
+			type: "tool_execution_end",
+			toolCallId: id,
+			toolName: "task",
+			result: {},
+			isError: false,
+		}) as AgentSessionEvent;
+
+	function cross(events: AgentSessionEvent[], toolArgs: boolean) {
+		const encoder = createLinkEventEncoder({ toolArgs });
+		const decoder = createLinkEventDecoder();
+		const wire = events.map(event => overTheWire(encoder.events([event])));
+		return { wire, delivered: wire.flatMap(batch => decoder.events(batch)), bytes: JSON.stringify(wire).length };
+	}
+
+	it("cross once: every update after the start reaches the device with them, at a tenth of the bytes", () => {
+		const events = [start("t1"), ...Array.from({ length: 20 }, (_, n) => update("t1", n)), end("t1")];
+		const slim = cross(events, true);
+		expect(slim.delivered).toEqual(overTheWire(events));
+		expect(slim.bytes * 10).toBeLessThan(cross(events, false).bytes);
+	});
+
+	it("go whole when they changed, for another call, and after the call ended", () => {
+		const changed = { ...args, tasks: [] };
+		const events = [start("t1"), update("t1", 1), update("t1", 2, changed), update("t1", 3, changed)];
+		const later = [start("t2"), update("t2", 1), end("t2"), update("t2", 2)];
+		const { wire, delivered } = cross([...events, ...later], true);
+		expect(delivered).toEqual(overTheWire([...events, ...later]));
+		const refs = wire.flat().map(event => JSON.stringify((event as { args?: unknown }).args) === '{"~args":true}');
+		expect(refs).toEqual([false, true, false, true, false, true, false, false]);
+	});
+
+	it("cross in a subagent's frames the same way", () => {
+		const frames = [start("s1"), update("s1", 1), update("s1", 2)].map(
+			event => ({ type: "subagent_event", payload: { id: "a1", event } }) as unknown as SubagentFrame,
+		);
+		const encoder = createLinkEventEncoder({ toolArgs: true });
+		const decoder = createLinkEventDecoder();
+		const wire = frames.map(frame => overTheWire(encoder.subagentFrame(frame)));
+		expect(wire.map(frame => decoder.subagentFrame(frame as WireSubagentFrame))).toEqual(
+			frames.map(frame => overTheWire(slimSubagentFrame(frame))),
+		);
+		expect(JSON.stringify(wire).length * 2).toBeLessThan(JSON.stringify(frames).length);
+	});
+
+	it("are never delivered half: an update naming arguments the device never held is dropped", () => {
+		const { wire } = cross([start("t1"), update("t1", 1)], true);
+		const turn = { type: "turn_start" } as AgentSessionEvent;
+		expect(createLinkEventDecoder().events([...(wire[1] ?? []), turn])).toEqual([turn]);
+	});
+
+	it("stay whole for a device that did not ask", () => {
+		const events = [start("t1"), update("t1", 1)];
+		expect(cross(events, false).wire.flat()).toEqual(overTheWire(events));
+	});
+});

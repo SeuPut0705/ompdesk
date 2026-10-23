@@ -844,6 +844,74 @@ function createOutputDecoder(): {
 	};
 }
 
+const ARGS = "~args";
+
+/** What stands for a call's arguments the device already holds. */
+const ArgsRef = z.object({ "~args": z.literal(true) }).strict();
+
+/** A call's arguments as a tool event carries them: `tool_execution_start` and every `tool_execution_update`. */
+function argsOf(event: AgentSessionEvent): { id: string; args: unknown } | null {
+	if (event.type !== "tool_execution_start" && event.type !== "tool_execution_update") return null;
+	return { id: event.toolCallId, args: (event as { args?: unknown }).args };
+}
+
+/**
+ * Stock repeats a running call's whole arguments in every `tool_execution_update` (`args: executionArgs`,
+ * pi-agent-core's agent-loop): a task call's are every assignment it hands out, several KB, sent with each progress
+ * snapshot. After the call's start the link carries `{"~args": true}` for arguments equal to the last ones it sent
+ * for that call; changed arguments go whole.
+ */
+function createArgsEncoder(): {
+	encode(scope: string, event: AgentSessionEvent): AgentSessionEvent;
+	forget(scope: string, event: AgentSessionEvent): void;
+} {
+	const sent = sentMessages<string>();
+	return {
+		encode(scope, event) {
+			const call = argsOf(event);
+			if (!call || call.args === undefined) return event;
+			const key = `${scope}\u0000${call.id}`;
+			const json = JSON.stringify(call.args);
+			const before = sent.get(key);
+			sent.set(key, json);
+			if (event.type !== "tool_execution_update" || before !== json) return event;
+			return { ...event, args: { [ARGS]: true } } as unknown as AgentSessionEvent;
+		},
+		forget(scope, event) {
+			const which = forgetsOutputs(event);
+			if (which === "all") sent.clear();
+			else if (which !== null) sent.set(`${scope}\u0000${which}`, "");
+		},
+	};
+}
+
+/** The inverse of {@link createArgsEncoder}; null for an update that names arguments this decoder never held. */
+function createArgsDecoder(): {
+	decode(scope: string, event: AgentSessionEvent): AgentSessionEvent | null;
+	forget(scope: string, event: AgentSessionEvent): void;
+} {
+	const held = sentMessages<unknown>();
+	return {
+		decode(scope, event) {
+			const call = argsOf(event);
+			if (!call || call.args === undefined) return event;
+			const key = `${scope}\u0000${call.id}`;
+			if (!ArgsRef.safeParse(call.args).success) {
+				held.set(key, call.args);
+				return event;
+			}
+			const args = held.get(key);
+			if (args === undefined) return null;
+			return { ...event, args } as AgentSessionEvent;
+		},
+		forget(scope, event) {
+			const which = forgetsOutputs(event);
+			if (which === "all") held.clear();
+			else if (which !== null) held.set(`${scope}\u0000${which}`, undefined);
+		},
+	};
+}
+
 /** The inverse of {@link createEndsEncoder}; null for a reference to a message this decoder never held. */
 function createEndsDecoder(): (event: AgentSessionEvent) => AgentSessionEvent | null {
 	const kept = sentMessages<WireMessage>();
@@ -890,9 +958,11 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 	const ends = options.ends ? createEndsEncoder(options.readGroups === true, options.endFields === true) : null;
 	const tools = ends && options.toolResults ? createToolResultEncoder() : null;
 	const outputs = options.toolOutputs ? createOutputEncoder() : null;
+	const args = options.toolArgs ? createArgsEncoder() : null;
 	const update = (scope: string, event: ToolUpdate): ToolUpdate => {
 		const next = progress ? progress.update(event) : event;
-		return outputs ? outputs.update(scope, next) : next;
+		const output = outputs ? outputs.update(scope, next) : next;
+		return args ? (args.encode(scope, output) as ToolUpdate) : output;
 	};
 	return {
 		events(batch) {
@@ -901,6 +971,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 			for (const [index, event] of slimmed.entries()) {
 				let next: AgentSessionEvent = event;
 				outputs?.forget("", event);
+				args?.forget("", event);
 				if (event.type === "message_update") next = drop("", event);
 				else if (
 					ends &&
@@ -910,6 +981,7 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 					if (tools) next = tools(next);
 				} else if (event.type === "tool_execution_end" && tools) next = tools(event);
 				else if (event.type === "tool_execution_update") next = update("", event);
+				else if (event.type === "tool_execution_start" && args) next = args.encode("", event);
 				else if (event.type === "autopilot_update" && status)
 					next = { ...event, status: status(event.status) } as unknown as AgentSessionEvent;
 				if (next === event) continue;
@@ -924,9 +996,11 @@ export function createLinkEventEncoder(options: LinkEventEncoderOptions = {}): L
 			if (slimmed.type !== "subagent_event") return slimmed;
 			const { event } = slimmed.payload;
 			outputs?.forget(slimmed.payload.id, event);
+			args?.forget(slimmed.payload.id, event);
 			let next: AgentSessionEvent = event;
 			if (event.type === "message_update") next = drop(slimmed.payload.id, event);
 			else if (event.type === "tool_execution_update") next = update(slimmed.payload.id, event);
+			else if (event.type === "tool_execution_start" && args) next = args.encode(slimmed.payload.id, event);
 			return next === event ? slimmed : { type: slimmed.type, payload: { ...slimmed.payload, event: next } };
 		},
 	};
@@ -1012,8 +1086,10 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 	const ends = createEndsDecoder();
 	const tools = createToolResultDecoder();
 	const outputs = createOutputDecoder();
+	const args = createArgsDecoder();
 	const update = (scope: string, event: ToolUpdate): ToolUpdate | null => {
-		const whole = outputs.update(scope, event);
+		const argued = args.decode(scope, event) as ToolUpdate | null;
+		const whole = argued === null ? null : outputs.update(scope, argued);
 		return whole === null ? null : progress.update(whole);
 	};
 	const autopilot = (event: Extract<AgentSessionEvent, { type: "autopilot_update" }>): AgentSessionEvent | null => {
@@ -1026,6 +1102,8 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 			let out: AgentSessionEvent[] | null = null;
 			for (const [index, event] of batch.entries()) {
 				outputs.forget("", event);
+				args.forget("", event);
+				if (event.type === "tool_execution_start") args.decode("", event);
 				const tool = tools(event);
 				const resolved =
 					tool === null
@@ -1055,6 +1133,8 @@ export function createLinkEventDecoder(): LinkEventDecoder {
 			if (frame.type !== "subagent_event") return frame;
 			const { event } = frame.payload;
 			outputs.forget(frame.payload.id, event);
+			args.forget(frame.payload.id, event);
+			if (event.type === "tool_execution_start") args.decode(frame.payload.id, event);
 			let next: AgentSessionEvent | null = event;
 			if (event.type === "tool_execution_update") next = update(frame.payload.id, event);
 			else if (event.type === "message_update") next = restoreSubagent(frame.payload.id, event);

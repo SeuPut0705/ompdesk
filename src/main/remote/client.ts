@@ -195,6 +195,7 @@ async function handshake(address: string, opts: HandshakeOptions): Promise<Hands
 			slimSettingsReads: true,
 			slimRosterReads: true,
 			slimToolOutputs: true,
+			slimToolArgs: true,
 			deflate: true,
 		});
 		const message = await link.receive(HANDSHAKE_TIMEOUT_MS);
