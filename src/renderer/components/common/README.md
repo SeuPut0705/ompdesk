@@ -77,6 +77,11 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
   `styles/mobile.css`, never from drawing a control bigger.
 - Every control has a name: a visible label (preferred) or `aria-label`; a placeholder is an example, never the label.
 - Colour is never the only cue: a state is also a word, a shape or an icon.
+- Say the state the control has. A row whose detail shows beside or under the list (Memory's pages, a changed file,
+  a `/copy` target) is the list's current item: `aria-current="true"`, which `ListRow` sets from `selected` and
+  `PanelListRow` and Memory's rows draw from. `aria-pressed` is for a toggle the person turns on and off (a filter
+  chip, a held modifier key, a pause); on a row a screen reader reads it as "toggle button, pressed". A picker row
+  driven from its field is an `OptionRow` (`aria-selected`).
 - Content surfaces are colourless; the surface policy in `styles/global.css` says which tokens may paint
   (`scripts/lint-surfaces.mjs`). Tokens and contrast floors: `styles/tokens.css`, `lib/theme-contrast.ts`.
 - User-visible text goes through `useT()` with the same key in `locales/en.ts` and `locales/ko.ts`.
