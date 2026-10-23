@@ -119,10 +119,21 @@ const flush = () => {
 	return promise;
 };
 
-const until = async (predicate: () => boolean): Promise<void> => {
-	for (let i = 0; i < 20_000 && !predicate(); i++) await flush();
-	expect(predicate()).toBe(true);
-};
+/** Resolves once `done(frames)` holds: checked now and again on each frame the socket brings, never by a count of turns. */
+function arrived(socket: WebSocket, frames: unknown[], done: (frames: unknown[]) => boolean): Promise<void> {
+	return new Promise(settle => {
+		if (done(frames)) return settle();
+		const check = () => {
+			if (!done(frames)) return;
+			socket.off("message", check);
+			settle();
+		};
+		socket.on("message", check);
+	});
+}
+
+const isAnswer = (id: number) => (frame: unknown) =>
+	(frame as { t?: string; id?: number }).t === "res" && (frame as { id?: number }).id === id;
 
 beforeEach(async () => {
 	userData = mkdtempSync(join(tmpdir(), "web-push-it-"));
@@ -258,9 +269,14 @@ async function phone(
 		ws.once("open", () => opened.resolve(ws));
 		ws.once("error", opened.reject);
 		socket = await opened.promise;
-		await until(() => host.router.isConnected(deviceId));
+		// The hello comes once the router holds the connection.
+		await arrived(socket, frames, received => received.length > 0);
+		expect(host.router.isConnected(deviceId)).toBe(true);
 		socket.send(JSON.stringify({ t: "presence", visible: options.visible }));
-		await until(() => host.router.isDeviceVisible(deviceId) === options.visible);
+		// The socket's frames are handled in order: the answer to a call sent after the presence means it was read.
+		socket.send(JSON.stringify({ t: "inv", id: 9000, ch: "presence-read", a: [] }));
+		await arrived(socket, frames, received => received.some(isAnswer(9000)));
+		expect(host.router.isDeviceVisible(deviceId)).toBe(options.visible);
 	}
 	return { cookie, deviceId, subscription, socket, frames };
 }
@@ -450,7 +466,8 @@ describe("subscription lifecycle", () => {
 
 	it("announces push in hello", async () => {
 		const p = await phone({ visible: true });
-		await until(() => p.frames.length > 0);
+		if (!p.socket) throw new Error("not connected");
+		await arrived(p.socket, p.frames, received => received.length > 0);
 		expect(p.frames[0]).toMatchObject({ t: "hello", features: { push: true } });
 	});
 });
