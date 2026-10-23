@@ -967,6 +967,11 @@ export class AgentControl {
 	readonly #conflicts = new Map<string, string[]>();
 	/** Opened sessions whose answer the opener read (a result, a read, a compare, a merge) since they last ran. */
 	readonly #collected = new Set<string>();
+	/**
+	 * Children asked once to report after a turn that ended with neither a verdict line nor a done report, per tab: the
+	 * dispatch it was asked on, the answer it had then, and whether its opener has been told it still did not.
+	 */
+	readonly #nudged = new Map<string, { dispatch: string | undefined; answer: string; toldOpener: boolean }>();
 	/** Callers whose `autoClose` pass is in flight. */
 	readonly #sweeping = new Set<string>();
 	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
@@ -3269,12 +3274,61 @@ export class AgentControl {
 				// not run yet this launch (no lastRun). One this launch opened waits for its first turn to end.
 				if (tab.status !== "ready" && !(tab.restored && tab.status === "asleep")) continue;
 				if (!tab.lastRun && !tab.restored) continue;
-				const decision = autoCloseDecision(await this.#autoCloseFacts(tab, openerIdle));
+				const facts = await this.#autoCloseFacts(tab, openerIdle);
+				const decision = autoCloseDecision(facts);
 				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
+				else await this.#nudgeSilent(caller, tab, facts);
 			}
 		} finally {
 			this.#sweeping.delete(callerTabId);
 		}
+	}
+
+	/**
+	 * A child whose turn ended well but said nothing about its work (no verdict line, no report on its current dispatch)
+	 * is asked once to report; if its next turn still says nothing, its opener is told once. Never a child the person
+	 * typed into, one restored by a relaunch, a failed or stopped turn, or one still working. Idea after OpenRig's stuck
+	 * sweep and its custody rule that a closed item names how it ended (mvschwarz/openrig,
+	 * docs/as-built/architecture/coordination-primitive.md, Apache-2.0).
+	 */
+	async #nudgeSilent(caller: ControlTab, tab: ControlTab, facts: AutoCloseFacts): Promise<void> {
+		if (
+			!facts.openedByAgent ||
+			!facts.idle ||
+			!facts.settled ||
+			!facts.answered ||
+			facts.ended !== "ok" ||
+			facts.result !== "missing" ||
+			facts.userTouched ||
+			tab.restored
+		)
+			return;
+		const dispatch = this.#mailbox.current(tab.tabId);
+		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
+		if (report && report.dispatch === dispatch) return;
+		const answer = (await this.#state(tab)).last ?? "";
+		const asked = this.#nudged.get(tab.tabId);
+		const quiet = (text: string) => ({
+			id: `nudge:${tab.sessionPath ?? tab.tabId}:${dispatch ?? ""}:${text.length}`,
+			from: caller.tabId,
+			fromTitle: caller.title,
+			kind: "note",
+			label: "note",
+			text,
+		});
+		if (!asked || asked.dispatch !== dispatch) {
+			this.#nudged.set(tab.tabId, { dispatch, answer, toldOpener: false });
+			const text = `OMPdesk: your turn ended with no \`Result: ok\` / \`Result: problem — <reason>\` line and no ompdesk_report about this work. Report where it stands now with ompdesk_report (kind done, blocked or question${dispatch ? `, dispatch "${dispatch}"` : ""}), and end your final answer with the Result line.`;
+			await this.#host
+				.mail(tab.tabId, text, quiet(text), { triggerTurn: true, deliverAs: "aside" })
+				.catch(() => undefined);
+			return;
+		}
+		// Still nothing after the turn it was asked in (a new answer is in): its opener hears of it, once.
+		if (asked.toldOpener || answer === asked.answer) return;
+		asked.toldOpener = true;
+		const text = `${label(tab)} ended its turn again without a verdict line or a report, after OMPdesk asked it to report. Read its answer (ompdesk_session_result) or ask it where the work stands.`;
+		await this.#host.mail(caller.tabId, text, quiet(text), deliveryFor("note")).catch(() => undefined);
 	}
 
 	async #autoCloseFacts(tab: ControlTab, openerIdle: boolean): Promise<AutoCloseFacts> {
