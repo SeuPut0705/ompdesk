@@ -105,15 +105,24 @@ function paths(params: unknown): { sessionsRoot: string; sessionPath?: string } 
 	return { sessionsRoot, sessionPath };
 }
 
-/** The session id in a journal's header line (stock keys the ownership lease by it); undefined when unreadable. */
+/**
+ * The session id in a journal's header (stock keys the ownership lease by it); undefined when unreadable. Read as
+ * stock's `readSessionHeaderIdSync` does: a 64 KB prefix, past the fixed-width title slot stock writes first
+ * (`parseTitleSlotFromContent`, session-title-slot), then the header line.
+ */
 async function sessionHeaderId(sessionPath: string): Promise<string | undefined> {
-	const head = await Bun.file(sessionPath)
+	let prefix = await Bun.file(sessionPath)
 		.slice(0, 64 * 1024)
 		.text()
 		.catch(() => "");
-	const line = head.split("\n", 1)[0] ?? "";
+	const slots = await importFromOmp("@oh-my-pi/pi-coding-agent/session/session-title-slot").catch(() => null);
+	const parseSlot = slots?.parseTitleSlotFromContent;
+	if (typeof parseSlot !== "function") throw new Error("stock session-title-slot exports changed");
+	if ((parseSlot as (content: string) => unknown)(prefix)) prefix = prefix.slice(prefix.indexOf("\n") + 1);
+	const end = prefix.indexOf("\n");
+	if (end === -1) return undefined;
 	try {
-		const entry: unknown = JSON.parse(line);
+		const entry: unknown = JSON.parse(prefix.slice(0, end));
 		if (typeof entry === "object" && entry !== null && "type" in entry && entry.type === "session" && "id" in entry)
 			return typeof entry.id === "string" ? entry.id : undefined;
 	} catch {}

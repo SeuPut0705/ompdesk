@@ -29,8 +29,18 @@ describe.skipIf(!stockRoot)("sessions.owned against stock's ownership lease (ins
 		const sessionsRoot = path.join(dir, "sessions");
 		await fs.mkdir(path.join(sessionsRoot, "-p"), { recursive: true });
 		const sessionPath = path.join(sessionsRoot, "-p", "2026-10-23T00-00-00-000Z_owned-1.jsonl");
-		await fs.writeFile(sessionPath, `${JSON.stringify({ type: "session", id: "owned-1", cwd: dir })}\n`);
 		const env = { OMP_PACKAGE_ROOT: stockRoot ?? "", PI_TEST_SESSION_OWNERS_DIR: path.join(dir, "owners") };
+		// A titled journal as stock writes it: its fixed-width title slot first, then the session header.
+		const titleSlot = path.join(stockRoot ?? "", "src", "session", "session-title-slot.ts");
+		const writer = bun(
+			[
+				"-e",
+				`const { serializeTitleSlot } = await import(${JSON.stringify(titleSlot)}); await Bun.write(${JSON.stringify(sessionPath)}, serializeTitleSlot({ title: "Autopilot run", source: "auto", updatedAt: "2026-10-23T00:00:00.000Z" }) + ${JSON.stringify(`${JSON.stringify({ type: "session", id: "owned-1", cwd: dir })}\n`)});`,
+			],
+			env,
+		);
+		expect((await once(writer, "exit"))[0]).toBe(0);
+		expect((await fs.readFile(sessionPath, "utf8")).split("\n")[0]).not.toContain('"type":"session"');
 
 		const helper = bun([path.resolve("resources/gui-bridge/stock-helper/host.ts")], env);
 		const lines = createInterface({ input: helper.stdout });
