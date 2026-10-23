@@ -35,6 +35,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { SettingEntry, SidecarStatus } from "../../../shared/rpc-types";
 import { useShellMode } from "../../hooks/use-shell-mode";
 import { useLang, useT } from "../../lib/i18n";
+import { isImeKeyEvent } from "../../lib/ime";
 import { PLATFORM } from "../../lib/keymap";
 import { type FocusedHost, useFocusedHost } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
@@ -403,6 +404,17 @@ export function SettingsPage() {
 	const searchField = (
 		<SearchField
 			label={t("settings.searchPlaceholder")}
+			onKeyDown={event => {
+				// The results sit past the section list: Enter opens the first one, ↓ goes to the list.
+				if (isImeKeyEvent(event) || !results?.length) return;
+				if (event.key === "Enter") {
+					event.preventDefault();
+					navigate(results[0].target, results[0].rowId);
+				} else if (event.key === "ArrowDown") {
+					event.preventDefault();
+					document.querySelector<HTMLElement>("[data-settings-search-results] [data-search-key] button")?.focus();
+				}
+			}}
 			onValueChange={setQuery}
 			placeholder={listPlaceholder ? t(listPlaceholder) : t("settings.searchPlaceholder")}
 			ref={searchRef}

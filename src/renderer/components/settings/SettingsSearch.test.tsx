@@ -28,12 +28,17 @@ Object.assign(globalThis, {
 	cancelAnimationFrame: (id: number) => clearTimeout(id),
 });
 
+// A result scrolls its row into view; linkedom draws nothing.
+Object.assign(HTMLElement.prototype, { scrollIntoView: () => {} });
+
 const notConnected = { type: "response", command: "test", success: false, error: "not connected" };
 Object.assign(window as unknown as Record<string, unknown>, {
 	omp: {
 		prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 		system: { info: vi.fn(async () => ({ deviceLanguage: "en-US" })) },
 		sidecar: { restart: vi.fn(async () => {}) },
+		// What a search result opens reads it: the REA row on Tools › MCP servers.
+		builtinRea: { get: vi.fn(() => new Promise(() => {})) },
 		events: { onConfigUpdate: vi.fn(() => () => {}) },
 		rpc: {
 			getSettingsSchema: vi.fn(async () => notConnected),
@@ -100,6 +105,49 @@ describe("settings search", () => {
 
 		expect(document.querySelector('[data-search-key="gui:builtinRea"]')).not.toBeNull();
 		expect(current()).toBeNull();
+	});
+
+	it("opens the first result on Enter in the search field, and goes to the results on ↓", async () => {
+		useSessionStore.setState({ status: "starting" });
+		useUiStore.setState({ settingsTab: "advanced" });
+		root = createRoot(document.body as unknown as globalThis.Element);
+		await act(async () => {
+			root?.render(
+				<I18nProvider>
+					<SettingsPage />
+				</I18nProvider>,
+			);
+		});
+		const field = document.querySelector('input[type="search"]') as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(field).find(key => key.startsWith("__reactProps$")) ?? "";
+		const props = () =>
+			field[propsKey] as {
+				onChange: (event: object) => void;
+				onKeyDown: (event: object) => void;
+			};
+		const type = async (value: string) => {
+			const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value");
+			descriptor?.set?.call(field, value);
+			await act(async () => props().onChange({ target: field, currentTarget: field }));
+		};
+		const press = async (key: string) => {
+			const preventDefault = vi.fn();
+			await act(async () => props().onKeyDown({ key, nativeEvent: { isComposing: false }, preventDefault }));
+			return preventDefault;
+		};
+
+		await type("rea");
+		const first = document.querySelector('[data-search-key="gui:builtinRea"] button') as unknown as {
+			focus: () => void;
+		};
+		const focus = vi.fn();
+		first.focus = focus;
+		expect(await press("ArrowDown")).toHaveBeenCalled();
+		expect(focus).toHaveBeenCalled();
+
+		expect(await press("Enter")).toHaveBeenCalled();
+		expect(useUiStore.getState().settingsTab).toBe("tools:mcp");
+		expect(document.querySelector("[data-settings-search-results]")).toBeNull();
 	});
 
 	it("names the keyboard section's own search briefly enough to fit the field", async () => {
