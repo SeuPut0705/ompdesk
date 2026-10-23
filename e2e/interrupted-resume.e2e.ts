@@ -26,8 +26,8 @@ type Theme = "light" | "dark";
 const TEXT = {
 	en: {
 		waiting: "Waiting for the internet connection…",
-		notice: "Re-running 1 background task(s) the restart stopped",
-		subagents: "Continuing 1 background task(s) after the restart",
+		notice: "Re-running 1 background task the restart stopped",
+		subagents: "Continuing 1 background task after the restart",
 		cancel: "Cancel",
 	},
 	ko: {

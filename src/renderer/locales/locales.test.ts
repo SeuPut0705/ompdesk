@@ -225,12 +225,23 @@ describe("en counts of one", () => {
 			["hostUi.update.running", { count: 1 }],
 			["hostUi.quit.running", { count: 1 }],
 			["insights.session.turns", { user: 1, assistant: 1 }],
+			["worktree.seedCopied", { count: 1, failed: 1, skipped: 1 }],
+			["worktree.seedCopiedSkipped", { count: 1, failed: 1, skipped: 1 }],
+			["chat.restartJobs", { count: 1, failed: 1, skipped: 1 }],
+			["chat.restartSubagents", { count: 1, failed: 1, skipped: 1 }],
+			["modelSetup.undo.done", { count: 1, failed: 1, skipped: 1 }],
+			["modelSetup.undo.partial", { count: 1, failed: 1, skipped: 1 }],
+			["modelSetup.review.dropped", { count: 1, failed: 1, skipped: 1 }],
+			["modelSetup.apply.partial", { count: 1, failed: 1, skipped: 1 }],
+			["todoPanel.reminderCount", { count: 1, failed: 1, skipped: 1 }],
 		];
 		for (const [key, params] of cases) {
 			expect(en[key], key).toBeDefined();
 			const text = translate(key, params);
 			expect(text, key).not.toMatch(/\b1 (?:of 1 )?[a-z]+s\b/);
 			expect(text, key).not.toMatch(/\b1 [a-z]+ are\b/);
+			expect(text, key).not.toMatch(/\(s\)/);
+			expect(text, key).not.toMatch(/\b1 [a-z]+ need\b/);
 		}
 	});
 });

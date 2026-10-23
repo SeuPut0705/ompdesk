@@ -131,7 +131,7 @@ describe("stock todo reminder after a reload", () => {
 		);
 		const line = container.querySelector<HTMLButtonElement>(".omp-live-step .omp-work-notes [data-todo-reminder]");
 		expect(line?.textContent).toContain("Todo reminder");
-		expect(line?.textContent).toContain("2 todo(s) need attention");
+		expect(line?.textContent).toContain("Needs attention: 2 todos");
 		expect(container.textContent).not.toMatch(RAW);
 		await act(async () => line?.click());
 		expect([...container.querySelectorAll(".omp-todo-reminder-list li li")].map(item => item.textContent)).toEqual([

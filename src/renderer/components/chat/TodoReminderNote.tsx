@@ -6,8 +6,8 @@ import { useT } from "../../lib/i18n";
 import type { TodoReminder } from "./todo-reminder";
 
 /**
- * A persisted stock todo reminder as the line the live card showed ("Todo reminder — N todo(s)
- * need attention"); opening it lists the todos it named. Used inside a work card's notes and,
+ * A persisted stock todo reminder as the line the live card showed ("Todo reminder — Needs
+ * attention: N todos"); opening it lists the todos it named. Used inside a work card's notes and,
  * when no work run owns the reminder, as its own transcript row.
  */
 export function TodoReminderNote({ message, reminder }: { message: AgentMessage; reminder: TodoReminder }) {

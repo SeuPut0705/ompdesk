@@ -497,7 +497,7 @@ describe("MessageBubble restart notice", () => {
 			}),
 		);
 		expect(html).toContain("data-restart-jobs");
-		expect(html).toContain("Re-running 2 background task(s) the restart stopped");
+		expect(html).toContain("Re-running 2 background tasks the restart stopped");
 		expect(html).toContain('title="Watch release CI"');
 		expect(html).not.toContain("omp-user-bubble");
 		expect(html).not.toContain("omp-user-turn");
@@ -507,7 +507,7 @@ describe("MessageBubble restart notice", () => {
 	});
 
 	it("says one task for a notice with no details, and stays hidden when the message is not displayed", () => {
-		expect(render(notice(undefined))).toContain("Re-running 1 background task(s)");
+		expect(render(notice(undefined))).toContain("Re-running 1 background task");
 		expect(render({ ...notice(undefined), display: false })).toBe("");
 	});
 
@@ -519,13 +519,13 @@ describe("MessageBubble restart notice", () => {
 		});
 		expect(subagents).toContain("data-restart-subagents");
 		expect(subagents).not.toContain("data-restart-jobs");
-		expect(subagents).toContain("Continuing 2 background task(s) after the restart");
+		expect(subagents).toContain("Continuing 2 background tasks after the restart");
 		expect(subagents).toContain('title="v0.38.0 배포"');
 		expect(subagents).not.toContain("working again");
 		expect(subagents).not.toContain("omp-user-bubble");
 		const both = render(notice({ jobs: [{ id: "bg_1" }], subagents: [{ id: "Scout" }] }));
-		expect(both).toContain("Re-running 1 background task(s) the restart stopped");
-		expect(both).toContain("Continuing 1 background task(s) after the restart");
+		expect(both).toContain("Re-running 1 background task the restart stopped");
+		expect(both).toContain("Continuing 1 background task after the restart");
 	});
 
 	it("shows a continued turn as its own muted line, never the notice text", () => {
