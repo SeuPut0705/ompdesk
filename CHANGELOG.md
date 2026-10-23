@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.61.31] - 2026-10-23
+
+폰 페이지의 연결 오류 알림도 화면 언어로 나와요. 배포되지 못한 0.61.30의 내용(LSP 진단 개수, 설정 › 메모리의 상태 문장)도 이 버전에 들어 있어요.
+
+### 고친 것
+- 폰 페이지에서 컴퓨터와의 연결이 끊기거나 닫혀 동작이 실패하면, 알림이 한국어 화면에도 'The link to the computer dropped' 같은 영어로 나왔어요. 이제 '컴퓨터와의 연결이 끊겼어요'처럼 화면 언어로 나와요.
+
+<!-- en -->
+
+Connection errors on the phone page follow your language too. This version also carries 0.61.30, whose release did not go out (the LSP diagnostics count and Settings › Memory's state sentences).
+
+### Fixed
+- When an action on the phone page failed because the link to the computer dropped or closed, its notice was in English on a Korean screen ("The link to the computer dropped"); it now follows your language.
+
 ## [0.61.30] - 2026-10-23
 
 한국어 화면에 영어로 남아 있던 문장 몇 개를 고쳤어요.
