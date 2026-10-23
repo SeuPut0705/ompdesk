@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.67.1] - 2026-10-23
+
+업데이트로 다시 시작한 뒤 이어서 하던 세션이 두 파일로 갈라지던 것을 고쳤어요.
+
+### 고친 것
+- 업데이트 재시작 직후, 아직 닫히는 중인 이전 omp가 세션을 잡고 있는데 새 omp가 같은 세션을 열면 작업이 새 파일로 갈라졌어요. 이제 이전 omp가 세션을 놓을 때까지 기다렸다가 열어요. 다른 omp(터미널 등)가 계속 잡고 있으면 열지 않고, 이유와 다시 시작 버튼을 보여 줘요.
+- 휴대폰에서 연결된 컴퓨터의 탭에 파일을 붙이면, 이 컴퓨터가 그 파일을 넘겨주는 동안 페이지가 새로 고쳐져 파일이 사라질 수 있었어요.
+- 새 worktree로 복사한 링크가 절대 경로로 원래 체크아웃을 가리키면, 새 worktree가 원래 체크아웃의 파일을 읽고 썼어요.
+
+### 바뀐 것
+- 다시 실행할 때 저장된 탭이 빠지거나 새 세션으로 바뀐 이유를 로그에 남겨요.
+
+<!-- en -->
+
+A session continued after an update's restart no longer splits into two files.
+
+### Fixed
+- Right after an update's restart, a new omp could open a session the last launch's omp, still closing, held: the work went on in a second file. The session now opens once the old omp lets go of it; one another omp (a terminal) keeps holding is not opened, and the tab says why with a Restart button.
+- A file a phone attached to a paired computer's tab could be lost when the page reloaded while this computer was still forwarding it.
+- A link copied into a new worktree that pointed at the main checkout by absolute path made the worktree read and write the main checkout's file.
+
+### Changed
+- A relaunch logs which saved tabs it left out or started as new sessions, and why.
+
 ## [0.67.0] - 2026-10-23
 
 다른 컴퓨터에서 실행 중인 탭에도 docx·PDF 같은 파일을 붙일 수 있어요. 연결된 컴퓨터의 프로젝트를 끌어서 옮기고, 여러 창 중 하나가 답을 기다리면 Dock과 트레이가 그걸 먼저 알려 줘요.
