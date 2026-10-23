@@ -205,6 +205,7 @@ describe("sidebar-prefs store with unreadable prefs", () => {
 		groupAliases: { "/work/a": "Alias" },
 		archivedSessions: ["s9"],
 		groupOrder: ["/work/b", "/work/a"],
+		sessionOrder: { "/work/a": ["/s/2.jsonl", "/s/1.jsonl"] },
 	};
 
 	afterEach(() => {
@@ -239,6 +240,7 @@ describe("sidebar-prefs store with unreadable prefs", () => {
 		await useSidebarPrefs.getState().toggleAgentHidden("/s/new.jsonl");
 		await useSidebarPrefs.getState().setGroupAlias("/work/a", "Renamed");
 		await useSidebarPrefs.getState().setGroupOrder(["/work/a"]);
+		await useSidebarPrefs.getState().setSessionOrder("/work/a", ["/s/1.jsonl"]);
 		await useSidebarPrefs.getState().setSessionsArchived(["s1"], true);
 		await useSidebarPrefs.getState().toggleRailPin("usage");
 		useSidebarPrefs.getState().touchWorkspace("/work/new");
@@ -268,6 +270,7 @@ describe("sidebar-prefs store with unreadable prefs", () => {
 				groupAliases: { "/work/a": "Alias" },
 				archivedSessions: ["s9"],
 				groupOrder: ["/work/b", "/work/a"],
+				sessionOrder: { "/work/a": ["/s/2.jsonl", "/s/1.jsonl"] },
 			}),
 		);
 	});

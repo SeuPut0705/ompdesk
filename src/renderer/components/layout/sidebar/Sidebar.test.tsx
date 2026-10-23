@@ -1092,7 +1092,38 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
 	});
 
-	it("right-click on a session row opens the 12-item session menu", async () => {
+	it("Move up and down reorder a project's sessions, kept in the sidebar prefs, and pins stay on top", async () => {
+		const omp = installMockOmp(LIST);
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		await mount(<Sidebar />);
+		const alpha = () =>
+			[...container.querySelectorAll("[data-session-path]")]
+				.map(element => (element as unknown as Element).getAttribute("data-session-path"))
+				.filter(path => path?.startsWith("/work/alpha/"));
+		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
+		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
+		expect(menuItem("Move down").hasAttribute("disabled")).toBe(true);
+		await fire(menuItem("Move up"), "onClick");
+		expect(alpha()).toEqual(["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"]);
+		expect(useSidebarPrefs.getState().sessionOrder["/work/alpha"]).toEqual([
+			"/work/alpha/two.jsonl",
+			"/work/alpha/one.jsonl",
+		]);
+		expect(omp.prefs.set).toHaveBeenCalledWith(
+			"sidebar",
+			expect.objectContaining({
+				sessionOrder: { "/work/alpha": ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"] },
+			}),
+		);
+		// A pinned session stays on top: the one below it cannot trade places with it.
+		await act(async () => useSidebarPrefs.setState({ pinnedSessions: ["/work/alpha/one.jsonl"] }));
+		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
+		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
+		expect(menuItem("Move up").hasAttribute("disabled")).toBe(true);
+	});
+
+	it("right-click on a session row opens the session menu", async () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
 		await mount(<Sidebar />);
@@ -1110,6 +1141,8 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Save diagnostic bundle (anonymized)",
 			"Rename session",
 			"Pin to top",
+			"Move up",
+			"Move down",
 			"Move to project…",
 			"Archive",
 			"Copy file path",
@@ -1551,6 +1584,8 @@ describe("Sidebar menus and pinned ordering", () => {
 			"Hide from other agents",
 			"Save diagnostic bundle",
 			"Save diagnostic bundle (anonymized)",
+			"Move up",
+			"Move down",
 			"Copy file path",
 			"Show in folder",
 		]);
@@ -3200,6 +3235,59 @@ describe("Sidebar device sections", () => {
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBeNull();
 	});
 
+	it("Move up and down reorder a host's projects and sessions, kept in this computer's prefs under the host's id", async () => {
+		const omp = installWithRemote();
+		const host = [
+			session("/s/app/one.jsonl", "/code/app", {
+				title: "App one",
+				device: "dev-studio",
+				created: "2026-01-03T00:00:00Z",
+			}),
+			session("/s/app/two.jsonl", "/code/app", {
+				title: "App two",
+				device: "dev-studio",
+				created: "2026-01-02T00:00:00Z",
+			}),
+			session("/s/web/one.jsonl", "/code/web", {
+				title: "Web one",
+				device: "dev-studio",
+				created: "2026-01-01T00:00:00Z",
+			}),
+		];
+		omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? host : LIST));
+		seedStores();
+		useSidebarPrefs.setState({ hydrated: true });
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		const groups = () =>
+			[...(section()?.querySelectorAll("[data-device-group]") ?? [])].map(group =>
+				group.getAttribute("data-device-group"),
+			);
+		const rows = () =>
+			[...(section()?.querySelectorAll("[data-device-session]") ?? [])].map(row =>
+				row.getAttribute("data-device-session"),
+			);
+		expect(groups()).toEqual(["/code/app", "/code/web"]);
+		expect(rows()).toEqual(["/s/app/one.jsonl", "/s/app/two.jsonl", "/s/web/one.jsonl"]);
+
+		await fire(section()?.querySelector('[data-device-session="/s/app/two.jsonl"]') ?? null, "onContextMenu");
+		await fire(menuItem("Move up"), "onClick");
+		expect(rows()).toEqual(["/s/app/two.jsonl", "/s/app/one.jsonl", "/s/web/one.jsonl"]);
+		expect(useSidebarPrefs.getState().sessionOrder).toEqual({
+			"dev-studio\n/code/app": ["/s/app/two.jsonl", "/s/app/one.jsonl"],
+		});
+
+		await fire(section()?.querySelector('[data-device-group="/code/web"] > div') ?? null, "onContextMenu");
+		expect(menuItem("Move down").hasAttribute("disabled")).toBe(true);
+		await fire(menuItem("Move up"), "onClick");
+		expect(groups()).toEqual(["/code/web", "/code/app"]);
+		expect(useSidebarPrefs.getState().groupOrder).toEqual(["dev-studio\n/code/web", "dev-studio\n/code/app"]);
+		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
+		// This computer's own projects never move with the host's.
+		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).not.toBeNull();
+	});
+
 	it("lists an online host's projects and sessions under its own header and opens them remotely", async () => {
 		const omp = installWithRemote();
 		seedStores();
@@ -4300,6 +4388,8 @@ describe("Sidebar on a touch screen", () => {
 			"Hide from other agents",
 			"Save diagnostic bundle",
 			"Save diagnostic bundle (anonymized)",
+			"Move up",
+			"Move down",
 			"Copy file path",
 			"Show in folder",
 		]);

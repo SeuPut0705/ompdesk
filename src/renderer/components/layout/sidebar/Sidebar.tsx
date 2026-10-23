@@ -81,7 +81,13 @@ import { copyText, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { actionKbd, onEscape } from "../../../lib/keymap";
-import { orderProjects, reorderProjects } from "../../../lib/project-order";
+import {
+	CHATS_ORDER_KEY,
+	moveInOrder,
+	orderByManual,
+	orderProjects,
+	reorderProjects,
+} from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
@@ -586,6 +592,7 @@ export function Sidebar() {
 	const hosts = usePairedHosts();
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
+	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
@@ -651,6 +658,21 @@ export function Sidebar() {
 			return createdAt(b) - createdAt(a) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 		},
 		[pinnedSessions],
+	);
+	/** A list's sessions in the order the person set (Move up/down), pinned ones first; the ones never placed on top. */
+	const inListOrder = useCallback(
+		<T extends SessionInfo>(sessions: readonly T[], list: string): T[] => {
+			const sorted = sessions.toSorted(byPinThenRecency);
+			const manual = sessionOrder[list];
+			if (!manual) return sorted;
+			const at = new Map(sorted.map((session, index) => [session.path, index]));
+			return orderByManual(sorted, session => session.path, {
+				pinned: pinnedSessions,
+				manual,
+				recency: session => -(at.get(session.path) ?? 0),
+			});
+		},
+		[byPinThenRecency, sessionOrder, pinnedSessions],
 	);
 	// Stock can write a session file before its first message (a header and
 	// settings entries, e.g. the one stock `new_session` writes at once). Such a file
@@ -954,11 +976,11 @@ export function Sidebar() {
 	// The Chats section: chats and other no-project sessions, one recency-ordered list.
 	const chatSessions = useMemo(
 		() =>
-			allSessions
-				.filter(session => isChatSession(session, defaultWorkspace))
-				.filter(matchesFilter)
-				.toSorted(byPinThenRecency),
-		[allSessions, defaultWorkspace, matchesFilter, byPinThenRecency],
+			inListOrder(
+				allSessions.filter(session => isChatSession(session, defaultWorkspace)).filter(matchesFilter),
+				CHATS_ORDER_KEY,
+			),
+		[allSessions, defaultWorkspace, matchesFilter, inListOrder],
 	);
 
 	// Code sessions stay grouped by project: pinned first, then the order the user
@@ -1040,7 +1062,7 @@ export function Sidebar() {
 		const result: WorkspaceGroup[] = [...byKey.values()].map(entry => {
 			const shown = projectName(entry.cwd);
 			// The project's own order; an Autopilot run's children follow its row, newest first.
-			const sorted = entry.sessions.toSorted(byPinThenRecency);
+			const sorted = inListOrder(entry.sessions, entry.cwd);
 			const sessions = sorted.filter(session => !runParentOf.has(session.path));
 			const children = sorted.filter(session => runParentOf.has(session.path));
 			const placed = new Set<string>();
@@ -1076,7 +1098,7 @@ export function Sidebar() {
 		groupAliases,
 		pinnedGroups,
 		groupOrder,
-		byPinThenRecency,
+		inListOrder,
 		projectName,
 		runParentOf,
 		familyRootOf,
@@ -1196,6 +1218,34 @@ export function Sidebar() {
 	const localFolded = localFoldedPref && sectionHosts.length > 0 && query.length === 0;
 	// A drag arms only after 6px of movement, so clicking a project still toggles it.
 	const projectSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+	/**
+	 * The list a stored session's row sits in (its project, or Chats) and that list's rows in order; null while a filter
+	 * shows only some rows (a move there would forget where the hidden ones were) or for a row of no such list.
+	 */
+	const sessionListOf = (session: SidebarSession): { key: string; paths: string[] } | null => {
+		if (query || session.liveTabId !== undefined) return null;
+		// A new session's live row (no file yet) has no place to keep: it stays on top until it has one.
+		const stored = (rows: readonly SidebarSession[]) =>
+			rows.filter(row => row.liveTabId === undefined && !runParentOf.has(row.path)).map(row => row.path);
+		if (chatSessions.some(item => item.path === session.path))
+			return { key: CHATS_ORDER_KEY, paths: stored(chatSessions) };
+		const group = allGroups.find(item => item.sessions.some(row => row.path === session.path));
+		if (!group || runParentOf.has(session.path)) return null;
+		return { key: group.cwd, paths: stored(group.sessions) };
+	};
+	/** A neighbour on the other side of the pinned rows' edge never trades places: pins stay on top. */
+	const canMoveSession = (session: SidebarSession, delta: number): boolean => {
+		const list = sessionListOf(session);
+		const neighbour = list?.paths[list.paths.indexOf(session.path) + delta];
+		return neighbour !== undefined && pinnedSessions.includes(neighbour) === pinnedSessions.includes(session.path);
+	};
+	const moveSession = (session: SidebarSession, delta: number): boolean => {
+		const list = sessionListOf(session);
+		const next = canMoveSession(session, delta) && list && moveInOrder(list.paths, session.path, delta);
+		if (!list || !next) return false;
+		void useSidebarPrefs.getState().setSessionOrder(list.key, next);
+		return true;
+	};
 	const onProjectDragEnd = ({ active, over }: DragEndEvent) => {
 		if (!over || active.id === over.id) return;
 		void useSidebarPrefs.getState().setGroupOrder(
@@ -1957,6 +2007,9 @@ export function Sidebar() {
 							if (opensMenu(event)) {
 								event.preventDefault();
 								setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
+							} else if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+								// Alt+↑/↓ moves the row in its list, as a project header and a device section do.
+								if (moveSession(session, event.key === "ArrowUp" ? -1 : 1)) event.preventDefault();
 							} else if (event.key === "F2" && indexed) {
 								event.preventDefault();
 								startRename(session);
@@ -2811,6 +2864,32 @@ export function Sidebar() {
 											}, failed);
 										},
 									},
+									...(() => {
+										const list = sessionListOf(sessionMenu.session);
+										if (!list) return [];
+										return [
+											{
+												id: "session-move-up",
+												label: t("sidebar.menu.moveUp"),
+												icon: ArrowUp,
+												disabled: !canMoveSession(sessionMenu.session, -1),
+												onSelect: () => {
+													setSessionMenu(null);
+													moveSession(sessionMenu.session, -1);
+												},
+											},
+											{
+												id: "session-move-down",
+												label: t("sidebar.menu.moveDown"),
+												icon: ArrowDown,
+												disabled: !canMoveSession(sessionMenu.session, 1),
+												onSelect: () => {
+													setSessionMenu(null);
+													moveSession(sessionMenu.session, 1);
+												},
+											},
+										];
+									})(),
 									...(sessionMenu.session.kind === "chat"
 										? []
 										: [

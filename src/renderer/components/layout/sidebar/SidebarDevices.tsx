@@ -8,6 +8,8 @@
  * button starts a chat on the host.
  */
 import {
+	ArrowDown,
+	ArrowUp,
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
@@ -37,12 +39,14 @@ import { hideNativeDragImage } from "../../../lib/drag-image";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
+import { CHATS_ORDER_KEY, hostOrderKey, moveInOrder, orderByManual } from "../../../lib/project-order";
 import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
+import { useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
@@ -364,6 +368,9 @@ function DeviceSessions({
 	const split = useTabsStore(state => state.split);
 	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const deviceGroupFolds = useSidebarFolds(s => s.deviceGroups);
+	// The order the person set for this host's projects and each of its lists, kept with this computer's own.
+	const groupOrder = useSidebarPrefs(s => s.groupOrder);
+	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
 	const hostTabs = useMemo(
 		() => allTabs.filter(tab => tab.device === host.deviceId && !nested?.has(tab.id)),
 		[allTabs, host.deviceId, nested],
@@ -414,7 +421,24 @@ function DeviceSessions({
 			)
 			.toSorted((a, b) => createdAt(b) - createdAt(a));
 	}, [sessions, hostTabs, host.deviceId, query, nested]);
-	const chats = useMemo(() => rows.filter(session => isChatSession(session, hostWorkspace)), [rows, hostWorkspace]);
+	/** A list's sessions in the order the person set, newest first for the ones never placed (as before any move). */
+	const ordered = useMemo(() => {
+		const key = (session: DeviceSession) => session.path;
+		return (sessions: readonly DeviceSession[], list: string) => {
+			const manual = sessionOrder[hostOrderKey(host.deviceId, list)];
+			if (!manual) return [...sessions];
+			const at = new Map(sessions.map((session, index) => [session.path, index]));
+			return orderByManual(sessions, key, { pinned: [], manual, recency: session => -(at.get(session.path) ?? 0) });
+		};
+	}, [sessionOrder, host.deviceId]);
+	const chats = useMemo(
+		() =>
+			ordered(
+				rows.filter(session => isChatSession(session, hostWorkspace)),
+				CHATS_ORDER_KEY,
+			),
+		[rows, hostWorkspace, ordered],
+	);
 
 	const groups = useMemo(() => {
 		const removed = new Set(projectList.removed);
@@ -446,7 +470,7 @@ function DeviceSessions({
 		}
 		const result = [...byCwd.entries()].map(([cwd, groupSessions]) => ({
 			cwd,
-			sessions: groupSessions,
+			sessions: ordered(groupSessions, cwd),
 			missing: false,
 		}));
 		const needle = query.toLocaleLowerCase();
@@ -458,8 +482,44 @@ function DeviceSessions({
 			else if (!needle || project.path.toLocaleLowerCase().includes(needle))
 				result.push({ cwd: project.path, sessions: [], missing: project.missing === true });
 		}
-		return result;
-	}, [rows, projectList, query, hostTabs, hostWorkspace]);
+		// The order the person set (by its host-scoped key); a project never placed keeps today's place, on top.
+		const at = new Map(result.map((group, index) => [group.cwd, index]));
+		const prefix = hostOrderKey(host.deviceId, "");
+		const manual = groupOrder.filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length));
+		return orderByManual(result, group => group.cwd, {
+			pinned: [],
+			manual,
+			recency: group => -(at.get(group.cwd) ?? 0),
+		});
+	}, [rows, projectList, query, hostTabs, hostWorkspace, ordered, groupOrder, host.deviceId]);
+
+	/** Moves a project of this host up or down; the other projects of every device keep their order. */
+	const moveGroup = (cwd: string, delta: number) => {
+		const visible = groups.map(group => group.cwd);
+		const next = moveInOrder(visible, cwd, delta);
+		if (!next) return;
+		const prefix = hostOrderKey(host.deviceId, "");
+		const others = useSidebarPrefs.getState().groupOrder.filter(key => !key.startsWith(prefix));
+		void useSidebarPrefs
+			.getState()
+			.setGroupOrder([...others, ...next.map(item => hostOrderKey(host.deviceId, item))]);
+	};
+	/** The list a session row sits in (its project, or the Chats section) and that list's visible order. */
+	const listOf = (session: DeviceSession): { key: string; paths: string[] } | null => {
+		// A filtered list shows only some rows: a move there would forget where the hidden ones were.
+		if (query || session.liveTabId !== undefined) return null;
+		// A row the host has no file for yet (a new tab's) has no place to keep.
+		const stored = (list: readonly DeviceSession[]) =>
+			list.filter(row => row.liveTabId === undefined).map(row => row.path);
+		if (chats.some(item => item.path === session.path)) return { key: CHATS_ORDER_KEY, paths: stored(chats) };
+		const group = groups.find(item => item.sessions.some(row => row.path === session.path));
+		return group ? { key: group.cwd, paths: stored(group.sessions) } : null;
+	};
+	const moveSession = (session: DeviceSession, delta: number) => {
+		const list = listOf(session);
+		const next = list && moveInOrder(list.paths, session.path, delta);
+		if (list && next) void useSidebarPrefs.getState().setSessionOrder(hostOrderKey(host.deviceId, list.key), next);
+	};
 
 	// What the host works on now (its windows' tabs, the tabs it runs for any device): a row no tab here holds still
 	// wears the working cue, without a tap to open it first.
@@ -562,8 +622,28 @@ function DeviceSessions({
 		const closeSession = () => {
 			if (tab) void useTabsStore.getState().closeTab(tab.id);
 		};
+		const list = listOf(session);
+		const index = list ? list.paths.indexOf(session.path) : -1;
 		const menuItems: ContextMenuItem[] = [
 			...(tab ? [{ id: "close", label: t("sidebar.menu.closeSession"), icon: X, onSelect: closeSession }] : []),
+			...(list
+				? [
+						{
+							id: "move-up",
+							label: t("sidebar.menu.moveUp"),
+							icon: ArrowUp,
+							disabled: index <= 0,
+							onSelect: () => moveSession(session, -1),
+						},
+						{
+							id: "move-down",
+							label: t("sidebar.menu.moveDown"),
+							icon: ArrowDown,
+							disabled: index === -1 || index >= list.paths.length - 1,
+							onSelect: () => moveSession(session, 1),
+						},
+					]
+				: []),
 			// Stock's `/dump` runs in the omp the tab drives, on the host: a session no tab holds has nothing to dump.
 			...[false, true].map(anonymizedItem => ({
 				id: anonymizedItem ? "dump-bundle-anonymized" : "dump-bundle",
@@ -747,9 +827,29 @@ function DeviceSessions({
 				const groupCollapsed = !query && deviceGroupFolds[deviceGroupKey(host.deviceId, group.cwd)] === true;
 				const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 				const name = basename(group.cwd) || group.cwd;
+				const groupIndex = query ? -1 : groups.indexOf(group);
 				const groupItems: ContextMenuItem[] = [
+					...(groupIndex === -1
+						? []
+						: [
+								{
+									id: "group-move-up",
+									label: t("sidebar.menu.moveUp"),
+									icon: ArrowUp,
+									disabled: groupIndex <= 0,
+									onSelect: () => moveGroup(group.cwd, -1),
+								},
+								{
+									id: "group-move-down",
+									label: t("sidebar.menu.moveDown"),
+									icon: ArrowDown,
+									disabled: groupIndex >= groups.length - 1,
+									onSelect: () => moveGroup(group.cwd, 1),
+								},
+							]),
 					{
 						id: "remove",
+						separatorBefore: groupIndex !== -1,
 						label: t("sidebar.menu.removeProject"),
 						icon: FolderMinus,
 						onSelect: () => void useSidebarProjects.getState().remove(host.deviceId, group.cwd),

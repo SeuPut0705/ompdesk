@@ -23,6 +23,7 @@ interface SidebarPrefsBlob {
 	groupAliases?: Record<string, string>;
 	workspaceLastUsed?: Record<string, number>;
 	groupOrder?: string[];
+	sessionOrder?: Record<string, string[]>;
 	archivedSessions?: string[];
 	railPins?: string[];
 	/** Session files the user hid from other agents (the OMPdesk control tools; main reads this field too). */
@@ -80,6 +81,11 @@ interface SidebarPrefsStore {
 	workspaceLastUsed: Record<string, number>;
 	/** Project order the user set by dragging (cwds, top first); empty = by recency. */
 	groupOrder: string[];
+	/**
+	 * Session order the user set in a list (session paths, top first), by the list's key: a project's cwd here,
+	 * `<deviceId>\n<cwd>` for a paired host's project. A list with no entry, or a session not in it, goes by creation.
+	 */
+	sessionOrder: Record<string, string[]>;
 	/** Ids of sessions hidden from the lists until restored. */
 	archivedSessions: string[];
 	/** Footer shortcuts in `RAIL_PINS` order. */
@@ -93,6 +99,7 @@ interface SidebarPrefsStore {
 	toggleAgentHidden: (path: string) => Promise<void>;
 	setGroupAlias: (cwd: string, alias: string | null) => Promise<void>;
 	setGroupOrder: (order: string[]) => Promise<void>;
+	setSessionOrder: (list: string, order: string[]) => Promise<void>;
 	setSessionsArchived: (ids: readonly string[], archived: boolean) => Promise<void>;
 	toggleRailPin: (pin: RailPin) => Promise<void>;
 	touchWorkspace: (cwd: string) => void;
@@ -100,6 +107,20 @@ interface SidebarPrefsStore {
 }
 
 const MAX_RECENT_WORKSPACES = 100;
+/** Lists whose session order is kept (the most recently ordered first), and sessions kept per list. */
+const MAX_ORDERED_LISTS = 300;
+const MAX_ORDERED_SESSIONS = 500;
+
+function validSessionOrder(value: unknown): Record<string, string[]> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const out: Record<string, string[]> = {};
+	for (const [list, order] of Object.entries(value).slice(-MAX_ORDERED_LISTS)) {
+		if (!list || !Array.isArray(order)) continue;
+		const paths = order.filter((path): path is string => typeof path === "string" && path.length > 0);
+		if (paths.length > 0) out[list] = paths.slice(0, MAX_ORDERED_SESSIONS);
+	}
+	return out;
+}
 
 function validRecencyMap(value: unknown): Record<string, number> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -135,6 +156,7 @@ function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
 		groupAliases: state.groupAliases,
 		workspaceLastUsed: state.workspaceLastUsed,
 		groupOrder: state.groupOrder,
+		sessionOrder: state.sessionOrder,
 		archivedSessions: state.archivedSessions,
 		railPins: state.railPins,
 		agentHidden: state.agentHidden,
@@ -167,6 +189,7 @@ function stateFromBlob(value: unknown): Partial<SidebarPrefsStore> {
 		groupOrder: Array.isArray(blob?.groupOrder)
 			? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
 			: [],
+		sessionOrder: validSessionOrder(blob?.sessionOrder),
 		archivedSessions: Array.isArray(blob?.archivedSessions)
 			? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
 			: [],
@@ -222,6 +245,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 		groupAliases: {},
 		workspaceLastUsed: {},
 		groupOrder: [],
+		sessionOrder: {},
 		archivedSessions: [],
 		railPins: [...DEFAULT_RAIL_PINS],
 		agentHidden: [],
@@ -260,6 +284,15 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 
 		setGroupOrder: order => write("sidebar.reorderFailed", () => ({ groupOrder: [...new Set(order)] })),
 
+		setSessionOrder: (list, order) =>
+			write("sidebar.reorderFailed", state => {
+				// The list just ordered moves to the end, so the oldest ordered lists are the ones a cap drops.
+				const { [list]: _previous, ...rest } = state.sessionOrder;
+				return {
+					sessionOrder: validSessionOrder({ ...rest, [list]: [...new Set(order)] }),
+				};
+			}),
+
 		setSessionsArchived: (ids, archived) =>
 			write("sidebar.archiveFailed", state => ({
 				archivedSessions: archived
@@ -290,6 +323,7 @@ export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
 				groupAliases: {},
 				workspaceLastUsed: {},
 				groupOrder: [],
+				sessionOrder: {},
 				archivedSessions: [],
 				agentHidden: [],
 				railPins: [...DEFAULT_RAIL_PINS],
