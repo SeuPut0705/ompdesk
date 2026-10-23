@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.61.32] - 2026-10-23
+
+폰에서 열 수 없는 링크가 이유를 화면 언어로 말하고, 시트와 대화 상자의 제목을 화면 읽기 프로그램이 제목으로 찾아요.
+
+### 고친 것
+- 폰 페이지에서 열 수 없는 링크를 누르면 알림이 'Only web and mail links open from here' 같은 영어로 나왔어요. 이제 '여기서는 웹과 메일 링크만 열 수 있어요'처럼 화면 언어로 나와요.
+- 시트(작업 트리, 백그라운드 작업 등)와 대화 상자의 제목이 이제 제목 요소예요. 화면 읽기 프로그램의 제목 탐색에 잡히고, 안의 소제목도 단계를 건너뛰지 않아요.
+
+<!-- en -->
+
+A link the phone cannot open says why in your language, and sheet and dialog titles are headings for screen readers.
+
+### Fixed
+- Tapping a link the phone page cannot open showed an English notice ("Only web and mail links open from here"); it now follows your language.
+- Sheet titles (Work tree, Background tasks and the rest) and dialog titles are headings now, so a screen reader's heading navigation finds them and the section headings inside follow in order.
+
 ## [0.61.31] - 2026-10-23
 
 폰 페이지의 연결 오류 알림도 화면 언어로 나와요. 배포되지 못한 0.61.30의 내용(LSP 진단 개수, 설정 › 메모리의 상태 문장)도 이 버전에 들어 있어요.
