@@ -93,8 +93,14 @@ function translateForLang(lang: Lang, key: string, params?: Record<string, strin
 	if (!params) return str;
 	// One pass: a value is never re-scanned (a path holding "{name}" stays literal), a placeholder
 	// repeated in a string is filled everywhere, and "$&"-style patterns in a value are not special.
+	// `{plural}` is "s" unless `count` is 1, when the caller does not say otherwise ("1 session", "2 sessions"). A
+	// count passed already formatted ("1,204") is read back; "1+" is more than one.
+	const filled =
+		params.count !== undefined && !Object.hasOwn(params, "plural")
+			? { ...params, plural: Number(String(params.count).replace(/[,\s\u00a0\u202f']/g, "")) === 1 ? "" : "s" }
+			: params;
 	return str.replace(/\{(\w+)\}/g, (match, name: string) =>
-		Object.hasOwn(params, name) ? String(params[name]) : match,
+		Object.hasOwn(filled, name) ? String(filled[name]) : match,
 	);
 }
 

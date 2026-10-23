@@ -17,4 +17,15 @@ describe("translate", () => {
 	it("leaves a placeholder without a value alone", () => {
 		expect(translate("workspaceDirs.added", {})).toContain("{path}");
 	});
+
+	it("says one of a thing in the singular and any other count in the plural, formatted counts included", () => {
+		expect(translate("workspaces.sessionCount", { count: 1 })).toBe("1 session");
+		expect(translate("workspaces.sessionCount", { count: 2 })).toBe("2 sessions");
+		expect(translate("workspaces.sessionCount", { count: 0 })).toBe("0 sessions");
+		expect(translate("sessionPicker.messageCount", { count: "1,204" })).toBe("1,204 messages");
+		expect(translate("fileCard.count.rows", { count: "1+" })).toBe("1+ rows");
+		expect(translate("fileCard.count.rows", { count: "1" })).toBe("1 row");
+		// A caller that says the plural keeps its word.
+		expect(translate("sessionTree.messageCount", { count: 1, plural: "s" })).toBe("1 messages");
+	});
 });
