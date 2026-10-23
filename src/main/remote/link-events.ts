@@ -902,6 +902,8 @@ function createArgsDecoder(): {
 			}
 			const args = held.get(key);
 			if (args === undefined) return null;
+			// The encoder refreshed this call's place when it sent the reference: both ends evict the same calls.
+			held.set(key, args);
 			return { ...event, args } as AgentSessionEvent;
 		},
 		forget(scope, event) {

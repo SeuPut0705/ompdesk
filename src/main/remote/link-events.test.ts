@@ -1081,3 +1081,25 @@ describe("a running call's arguments", () => {
 		expect(cross(events, false).wire.flat()).toEqual(overTheWire(events));
 	});
 });
+
+describe("a running call's arguments past the kept window", () => {
+	it("reach the device when other calls started between its updates", () => {
+		const args = { command: "x".repeat(200) };
+		const start = (id: string) =>
+			({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args }) as unknown as AgentSessionEvent;
+		const update = (id: string) =>
+			({
+				type: "tool_execution_update",
+				toolCallId: id,
+				toolName: "bash",
+				args,
+				partialResult: { content: [{ type: "image" }], details: {} },
+			}) as unknown as AgentSessionEvent;
+		const others = Array.from({ length: 255 }, (_, n) => start(`o${n}`));
+		const events = [start("A"), ...others, update("A"), start("late"), update("A")];
+		const encoder = createLinkEventEncoder({ toolArgs: true });
+		const decoder = createLinkEventDecoder();
+		const delivered = events.flatMap(event => decoder.events(overTheWire(encoder.events([event]))));
+		expect(delivered).toEqual(overTheWire(events));
+	});
+});
