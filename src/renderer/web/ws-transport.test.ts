@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WebClientFrame, WebServerFrame } from "../../shared/web-protocol";
+import { loadLocale, setLanguageOverride, translate } from "../lib/i18n";
 import { UnpairedError } from "./session";
 import {
 	type ResyncCause,
@@ -418,6 +419,23 @@ describe("WsTransport", () => {
 		await settle();
 		expect(sockets).toHaveLength(1);
 		await expect(transport.invoke("a:b")).rejects.toThrow("not paired");
+	});
+
+	it("words a failed call in the page's language: a toast shows this message", async () => {
+		await loadLocale("ko");
+		setLanguageOverride("ko");
+		try {
+			const { transport, last } = setup();
+			transport.start();
+			await settle();
+			last().serve(HELLO());
+			const call = transport.invoke("tabs:list").catch((error: Error) => error.message);
+			last().drop();
+			expect(await call).toBe(translate("web.call.dropped"));
+			expect(await call).not.toContain("computer");
+		} finally {
+			setLanguageOverride(null);
+		}
 	});
 
 	it("treats a refused ticket as an unpaired device", async () => {

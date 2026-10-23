@@ -19,6 +19,7 @@
 import type { OmpTransport } from "../../shared/omp-api";
 import type { WebClientFrame, WebFeatures, WebServerFrame } from "../../shared/web-protocol";
 import { WEB_PROTOCOL_VERSION } from "../../shared/web-protocol";
+import { translate } from "../lib/i18n";
 import { UnpairedError } from "./session";
 
 export type WsConnectionState =
@@ -226,7 +227,7 @@ export class WsTransport implements OmpTransport {
 					return;
 				}
 				if (byteLength(text) > MAX_FRAME_BYTES) {
-					reject(new Error("This request is larger than the link to the computer allows (1 MB)"));
+					reject(new Error(translate("web.call.tooLarge")));
 					return;
 				}
 				this.#pending.set(id, { resolve: value => resolve(value as T), reject });
@@ -453,7 +454,7 @@ export class WsTransport implements OmpTransport {
 		this.#clearTimer(this.#ackTimer);
 		this.#helloTimer = this.#heartbeatTimer = this.#ackTimer = null;
 		if (this.#pending.size > 0) this.#lostCalls = true;
-		for (const pending of this.#pending.values()) pending.reject(new Error("The link to the computer dropped"));
+		for (const pending of this.#pending.values()) pending.reject(new Error(translate("web.call.dropped")));
 		this.#pending.clear();
 		if (code === CLOSE_REVOKED) {
 			this.#unpaired();
@@ -488,9 +489,7 @@ export class WsTransport implements OmpTransport {
 
 	#wait(run: () => void, fail: (error: Error) => void): void {
 		if (this.#state === "unpaired" || this.#state === "outdated" || this.#state === "closed") {
-			fail(
-				new Error(this.#state === "unpaired" ? "This device is not paired" : "The link to the computer is closed"),
-			);
+			fail(new Error(translate(this.#state === "unpaired" ? "web.call.unpaired" : "web.call.closed")));
 			return;
 		}
 		const entry: Waiting = {
@@ -498,7 +497,7 @@ export class WsTransport implements OmpTransport {
 			fail,
 			timer: this.#after(this.#connectWaitMs, () => {
 				this.#waiting.delete(entry);
-				fail(new Error("The computer is not reachable"));
+				fail(new Error(translate("web.call.unreachable")));
 			}),
 		};
 		this.#waiting.add(entry);
