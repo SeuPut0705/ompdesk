@@ -233,7 +233,11 @@ function open(
 	paired: Paired | null,
 	ticket: string,
 	headers: Record<string, string> = {},
-): Promise<{ socket: WebSocket; frames: WebServerFrame[] }> {
+): Promise<{
+	socket: WebSocket;
+	frames: WebServerFrame[];
+	arrived: (done: (frames: WebServerFrame[]) => boolean) => Promise<void>;
+}> {
 	return new Promise((resolve, reject) => {
 		const socket = new WebSocket(`ws://127.0.0.1:${port}/${SECRET}/ws`, ["ompdesk.v1", `ticket.${ticket}`], {
 			headers: {
@@ -247,7 +251,19 @@ function open(
 		sockets.push(socket);
 		const frames: WebServerFrame[] = [];
 		socket.on("message", data => frames.push(JSON.parse(data.toString()) as WebServerFrame));
-		socket.once("open", () => resolve({ socket, frames }));
+		// Wait for the frame itself, never a count of event-loop turns: a busy Windows runner took longer than
+		// 20,000 setImmediate turns to answer an invoke (release run 39877683766).
+		const arrived = (done: (frames: WebServerFrame[]) => boolean) =>
+			new Promise<void>(settle => {
+				if (done(frames)) return settle();
+				const check = () => {
+					if (!done(frames)) return;
+					socket.off("message", check);
+					settle();
+				};
+				socket.on("message", check);
+			});
+		socket.once("open", () => resolve({ socket, frames, arrived }));
 		socket.once("error", reject);
 		socket.once("unexpected-response", (_req, res) => reject(new Error(`status ${res.statusCode}`)));
 	});
@@ -598,8 +614,8 @@ describe("blocking a device", () => {
 	it("revokes every record of the blocked node, closing its sockets with 4401", async () => {
 		const first = await pair({ name: "Safari" });
 		await pair({ name: "Home Screen app" });
-		const { socket, frames } = await open(first, await ticketFor(first));
-		await until(() => frames.length > 0);
+		const { socket, frames, arrived } = await open(first, await ticketFor(first));
+		await arrived(frames => frames.length > 0);
 		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));
 		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
 		expect(await closed).toBe(4401);
@@ -697,11 +713,11 @@ describe("WebSocket", () => {
 
 	it("sends hello, then answers an invoke of a passthrough channel with the device's virtual window as the caller", async () => {
 		const paired = await pair();
-		const { socket, frames } = await open(paired, await ticketFor(paired));
-		await until(() => frames.length > 0);
+		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
+		await arrived(frames => frames.length > 0);
 		expect(frames[0]).toMatchObject({ t: "hello", protocol: 1, resumed: false, features: { upload: true } });
 		socket.send(JSON.stringify({ t: "inv", id: 5, ch: IPC_COMMANDS.SESSIONS_LIST, a: [{ scope: "global" }] }));
-		await until(() => frames.some(frame => frame.t === "res"));
+		await arrived(frames => frames.some(frame => frame.t === "res"));
 		const res = frames.find(frame => frame.t === "res");
 		expect(res).toMatchObject({ t: "res", id: 5, ok: true, v: { browserWindow: null, args: [{ scope: "global" }] } });
 		expect((res as { v: { win: number } }).v.win).toBeLessThan(0);
@@ -710,10 +726,10 @@ describe("WebSocket", () => {
 
 	it("refuses a policy-boundary channel and a missing handler with an error frame", async () => {
 		const paired = await pair();
-		const { socket, frames } = await open(paired, await ticketFor(paired));
+		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
 		socket.send(JSON.stringify({ t: "inv", id: 1, ch: WEB_DEVICES_LIST, a: [] }));
 		socket.send(JSON.stringify({ t: "inv", id: 2, ch: IPC_COMMANDS.SESSIONS_RENAME, a: [] }));
-		await until(() => frames.filter(frame => frame.t === "res").length === 2);
+		await arrived(frames => frames.filter(frame => frame.t === "res").length === 2);
 		const results = frames.filter(frame => frame.t === "res");
 		expect(results[0]).toMatchObject({ id: 1, ok: false, e: { code: "web_forbidden" } });
 		expect(results[1]).toMatchObject({ id: 2, ok: false });
@@ -744,8 +760,8 @@ describe("WebSocket", () => {
 
 	it("closes the device's sockets with 4401 on revoke, destroys its window and its upload folder", async () => {
 		const paired = await pair();
-		const { socket, frames } = await open(paired, await ticketFor(paired));
-		await until(() => frames.length > 0);
+		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
+		await arrived(frames => frames.length > 0);
 		const win = host.windows.windowFor(paired.deviceId);
 		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));
 		const released = vi.fn();
@@ -820,9 +836,9 @@ describe("uploads and blobs", () => {
 		const file = join(userData, "clip.bin");
 		writeFileSync(file, "0123456789");
 		const paired = await pair();
-		const { socket, frames } = await open(paired, await ticketFor(paired));
+		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
 		socket.send(JSON.stringify({ t: "inv", id: 1, ch: WEB_HOST_CHANNELS.BLOB_OPEN, a: [{ path: file }] }));
-		await until(() => frames.some(frame => frame.t === "res"));
+		await arrived(frames => frames.some(frame => frame.t === "res"));
 		const opened = (frames.find(frame => frame.t === "res") as { v: WebBlobOpenResult }).v;
 		if (!opened.ok) throw new Error(opened.error);
 		const part = await fetch(`${base}${opened.url}`, {
@@ -1020,8 +1036,8 @@ describe("/api/push", () => {
 
 	it("announces push in hello", async () => {
 		const paired = await pair();
-		const { frames } = await open(paired, await ticketFor(paired));
-		await until(() => frames.length > 0);
+		const { frames, arrived } = await open(paired, await ticketFor(paired));
+		await arrived(frames => frames.length > 0);
 		expect(frames[0]).toMatchObject({ t: "hello", features: { push: true } });
 	});
 });
