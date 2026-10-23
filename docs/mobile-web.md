@@ -19,7 +19,7 @@ A device that opens the link while signed in to a *different* Tailscale account 
 
 ## Notifications
 
-In the phone's **Settings › Mobile web**, **Notifications on this device** is opt-in per device. Turn it on to hear when an agent finishes, fails or asks something while the page is closed. **Hide content** shows only what happened, without session names or text.
+In the phone's **Settings › Devices & connections › Mobile web**, **Notifications on this device** is opt-in per device. Turn it on to hear when an agent finishes, fails or asks something while the page is closed. **Hide content** shows only what happened, without session names or text.
 
 ## Control who can do what
 
