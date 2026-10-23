@@ -286,7 +286,9 @@ describe("the run is reachable in every layout", () => {
 			useAutopilotStore.getState().apply(running);
 			await mount(width);
 			expect($("[data-work-board-panel]")).toBeNull();
-			expect($("[data-work-chip]")?.textContent).toContain(translate("autopilot.name"));
+			// The rocket says it is a run; the word stays only for screen readers.
+			expect($("[data-work-chip] [data-work-chip-run]")).not.toBeNull();
+			expect($("[data-work-chip] .sr-only")?.textContent).toContain(translate("autopilot.name"));
 			await act(async () => useUiStore.getState().revealWorkBoard("t1"));
 			await settle();
 			expect($("[data-work-strip-panel] [data-autopilot-stop]")).not.toBeNull();

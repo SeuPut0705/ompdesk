@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, GitBranch, SquareTerminal } from "lucide-react";
+import { Bot, ChevronDown, GitBranch, Rocket, SquareTerminal } from "lucide-react";
 import {
 	type CSSProperties,
 	type ReactNode,
@@ -254,6 +254,13 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 								{plan.active ? <span className="omp-work-chip-active">{plan.active}</span> : null}
 							</span>
 						</>
+					) : waiting === 0 && !failed && autopilotState ? (
+						// A run is its rocket, then its state (the user's call, 23 Oct 2026); the word is for screen readers.
+						<span className="inline-flex min-w-0 items-center gap-1.5">
+							<Rocket aria-hidden className="size-(--sc-icon-sm) shrink-0" data-work-chip-run />
+							<span className="sr-only">{t("autopilot.name")} · </span>
+							<span className="truncate">{autopilotState}</span>
+						</span>
 					) : (
 						label
 					)}
