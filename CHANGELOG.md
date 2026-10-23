@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.67.5] - 2026-10-23
+
+연결된 컴퓨터가 재시작한 뒤 연결이 더 빨리 돌아와요.
+
+### 고친 것
+- 연결된 컴퓨터가 업데이트로 재시작한 뒤, 그 컴퓨터는 이미 이쪽에 다시 붙었는데도 이 컴퓨터의 연결은 응답 없는 포트를 하나씩 기다리느라 30초 가까이 걸렸어요. 이제 상대가 다시 접속하는 순간 바로 연결해요.
+- 다른 omp가 세션을 놓기를 기다리는 탭이 사이드바 행, 분할 창 머리, 그 세션을 연 쪽의 하위 세션 줄에서 빨간 실패로 보였어요. 이제 어디서든 기다리는 중으로 보여요.
+
+<!-- en -->
+
+A paired computer's link comes back sooner after it restarts.
+
+### Fixed
+- After a paired computer restarted for an update, this computer's link waited out each silent port in turn and took close to 30 seconds, while the other computer had already connected here. It now reconnects the moment the other computer connects.
+- A tab waiting for another omp to let go of its session showed a red failure in its sidebar row, its split pane header and its opener's child row. It now reads as waiting everywhere.
+
 ## [0.67.4] - 2026-10-23
 
 다른 omp를 기다리는 세션이 제목 표시줄과 에이전트가 보는 세션 목록에서도 대기로 보여요.
