@@ -3247,6 +3247,8 @@ export const ko: Record<string, string> = {
 	"chat.work.openChanges": "변경 사항 열기",
 	"chat.work.chip.error": "오류",
 	"chat.work.chip.tests": "테스트",
+	"chat.work.chip.testsPassed": "테스트 통과",
+	"chat.work.chip.testsPassedCount": "테스트 {count}개 통과",
 	"chat.work.chip.testsOpen": "테스트 실행 보기",
 	"chat.work.chip.preview": "미리보기",
 	"chat.work.chip.previewOpen": "미리보기에서 {url} 열기",

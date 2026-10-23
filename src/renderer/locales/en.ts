@@ -3255,6 +3255,8 @@ export const en: Record<string, string> = {
 	"chat.work.openChanges": "Open Changes",
 	"chat.work.chip.error": "Error",
 	"chat.work.chip.tests": "Tests",
+	"chat.work.chip.testsPassed": "Tests passed",
+	"chat.work.chip.testsPassedCount": "{count} test{plural} passed",
 	"chat.work.chip.testsOpen": "Show the test run",
 	"chat.work.chip.preview": "Preview",
 	"chat.work.chip.previewOpen": "Open {url} in Preview",

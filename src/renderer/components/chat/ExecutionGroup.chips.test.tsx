@@ -117,6 +117,8 @@ describe("work card chips", () => {
 			["ls-1", bash("ls", "a", 0, 2_000)],
 		]);
 		expect(chip("tests")?.textContent).toBe("Tests128");
+		// The ✓ is decorative: the chip's name says the tests passed.
+		expect(chip("tests")?.getAttribute("aria-label")).toBe("128 tests passed");
 		expect(body()).toBeNull();
 		await click(chip("tests"));
 		expect(body()).not.toBeNull();

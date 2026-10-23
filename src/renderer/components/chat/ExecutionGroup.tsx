@@ -330,6 +330,11 @@ export function ExecutionGroup({
 				) : null}
 				{tests ? (
 					<button
+						aria-label={
+							tests.count !== undefined
+								? t("chat.work.chip.testsPassedCount", { count: tests.count })
+								: t("chat.work.chip.testsPassed")
+						}
 						className="omp-work-finding"
 						data-work-finding="tests"
 						onClick={() => show(tests.toolCallId)}
