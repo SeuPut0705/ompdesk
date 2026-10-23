@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.61.26] - 2026-10-23
+
+스크린 리더가 하나만 고르는 버튼을 바르게 읽고, 영어 화면의 개수 문구를 마저 다듬었어요.
+
+### 고친 것
+- 피드백 창의 유형(버그·기능 요청·질문)을 스크린 리더가 '눌린 토글 세 개'로 읽던 문제를 고쳤어요. 이제 하나를 고르는 라디오 묶음이고, 화살표로 골라요.
+- 휴대폰과 세로 태블릿에서 분할 보기를 한 칸씩 볼 때, 창 전환 줄의 지금 창을 '눌린 토글'이 아니라 현재 항목으로 읽어요.
+- 화면 언어가 영어일 때 하나인데 복수로 나오던 문구를 마저 고쳤어요. 설정 검색 결과, eval 셀, 이슈 댓글, SSH 호스트, 확장 스킬, 가져오기 메시지, 'N of M' 목록, 인사이트의 메시지 카드가 해당돼요.
+- 영어 화면에서 'file(s)', 'task(s)' 같은 표기를 없앴어요. 이제 수에 맞게 '1 file', '2 files'로 나와요.
+- 영어 화면의 종료·재시작 확인창이 '1 of 1 sessions are still working in 1 window(s)' 대신 'Still working: 1 of 1 session, in 1 window.'로 나와요.
+
+<!-- en -->
+
+Screen readers read pick-one buttons right, and the remaining English counts are fixed.
+
+### Fixed
+- A screen reader read the feedback dialog's type (Bug, Feature request, Question) as three pressed toggle buttons; it is now one radio group, picked with the arrow keys.
+- On a phone or portrait tablet showing a split one pane at a time, the switcher reads the pane on screen as its current item, not a pressed toggle.
+- More English counts of one read in the singular: settings search results, eval cells, issue comments, SSH hosts, extension skills, import messages, "N of M" lists and the Insights message card.
+- English text no longer writes "file(s)" or "task(s)": it says "1 file" or "2 files".
+- The quit and restart confirmations read "Still working: 1 of 1 session, in 1 window." instead of "1 of 1 sessions are still working in 1 window(s)."
+
 ## [0.61.25] - 2026-10-23
 
 영어 화면에서 하나일 때 단수로 읽어요.
