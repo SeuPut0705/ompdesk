@@ -7,17 +7,20 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { StoreApi } from "zustand";
 import type { IpcSpawnTabPayload, IpcTabInfo, IpcTabStatusPayload, SessionInfo } from "../../../shared/ipc-types";
-import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
+import type { AgentMessage, RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { closeActiveTab } from "../../lib/tab-close";
 import { useComposerStore } from "../../stores/composer";
-import { useMessagesStore } from "../../stores/messages";
+import { type MessagesStore, useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
 import { useQueueStore } from "../../stores/queue";
 import { useSessionStore } from "../../stores/session";
+import { deleteSessionRuntime } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useSubagentsStore } from "../../stores/subagents";
+import { createTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
 import { useTodoStore } from "../../stores/todo";
 import { useToolsStore } from "../../stores/tools";
@@ -305,6 +308,31 @@ describe("TabHousekeeping", () => {
 		expect(omp.tabs.close).toHaveBeenCalledWith("t-left");
 		expect(omp.tabs.close).not.toHaveBeenCalledWith("t-background");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-background", "t-now"]);
+	});
+
+	it("keeps a new session the person left with a prompt still waiting for its omp", async () => {
+		omp.sessions.list.mockResolvedValue([]);
+		const fresh = { kind: "agent" as const, cwd: "/work/infron", status: "starting" as const, unreadDone: false };
+		useTabsStore.setState({
+			tabs: [
+				{ ...fresh, id: "t-sent", unstarted: true },
+				{ ...fresh, id: "t-now", unstarted: true },
+			],
+			activeTabId: "t-sent",
+			bundles: new Map(),
+		});
+		// Enter before the tab was ready: the draft is gone, the prompt an optimistic live row the ready gate holds.
+		const runtime = createTabRuntime("t-sent");
+		(runtime.stores.get("messages") as StoreApi<MessagesStore>).setState({
+			liveMessages: [{ role: "user", content: "fix the parser", timestamp: 1 } as AgentMessage],
+		});
+		await mount(<TabHousekeeping />);
+		await act(async () => {
+			useTabsStore.setState({ activeTabId: "t-now" });
+		});
+		await flush();
+		expect(omp.tabs.close).not.toHaveBeenCalled();
+		deleteSessionRuntime("t-sent");
 	});
 
 	it("keeps a new session the person left once it holds something", async () => {

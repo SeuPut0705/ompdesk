@@ -72,6 +72,12 @@ export function TabHousekeeping({ confirmCloseMs = CONFIRM_CLOSE_MS }: { confirm
 				!session.isCompacting &&
 				session.messageCount === 0 &&
 				messages.messages.length === 0 &&
+				// A prompt sent while the tab starts or the mode choice is asked: the draft is already empty, the prompt
+				// only an optimistic live row the ready gate still holds.
+				messages.liveMessages.length === 0 &&
+				!composer.sending &&
+				!composer.decidingMode &&
+				composer.restoredQueue.length === 0 &&
 				queue.steering.length === 0 &&
 				queue.followUp.length === 0 &&
 				composer.draft.trim().length === 0 &&
