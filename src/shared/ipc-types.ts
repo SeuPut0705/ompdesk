@@ -1601,6 +1601,8 @@ export interface IpcHostedSession {
 	settling?: true;
 	/** An ask or approval of the omp waits for an answer (from the device or a window here). */
 	awaitingInput?: true;
+	/** With `status` `error`: another omp still holds the session, a wait (as {@link IpcTabInfo.sessionHeld}). */
+	sessionHeld?: true;
 	/** The paired device's name. */
 	device: string;
 }

@@ -96,8 +96,9 @@ class FakeHostSidecar extends EventEmitter {
 	) {
 		super();
 	}
+	held = false;
 	get statusPayload() {
-		return { status: this.status, cwd: this.cwd };
+		return { status: this.status, cwd: this.cwd, ...(this.held ? { sessionHeld: true as const } : {}) };
 	}
 	start(): void {
 		this.started.push({ resume: undefined });
@@ -2004,6 +2005,14 @@ describe("LocalHostServices for this computer's own windows", () => {
 		sidecar.emit("extensionUi", ask("ask-1"));
 		expect(services.hostedSessions()[0]?.awaitingInput).toBe(true);
 		expect(changed).toHaveBeenCalled();
+
+		// Another omp still holds the session: a wait this computer's sidebar shows as one, never as a failure.
+		sidecar.held = true;
+		sidecar.setStatus("error");
+		expect(services.hostedSessions()[0]).toMatchObject({ status: "error", sessionHeld: true });
+		sidecar.held = false;
+		sidecar.setStatus("error");
+		expect(services.hostedSessions()[0]).not.toHaveProperty("sessionHeld");
 
 		changed.mockClear();
 		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);

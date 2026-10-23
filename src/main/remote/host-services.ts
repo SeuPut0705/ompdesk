@@ -688,6 +688,7 @@ export class LocalHostServices implements HostServices {
 				device: tab.origin.name,
 			};
 			if (session.status === "running" && runSettling(tab.run)) session.settling = true;
+			if (session.status === "error" && sidecar.statusPayload?.sessionHeld) session.sessionHeld = true;
 			if (tab.sessionId !== undefined) session.sessionId = tab.sessionId;
 			if (tab.title) session.title = tab.title;
 			if (tab.asks.size > 0) session.awaitingInput = true;
