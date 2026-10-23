@@ -104,4 +104,19 @@ describe("FeedbackDialog", () => {
 		expect(body).toContain("TypeError: boundary crashed");
 		expect(body).toContain("Error details");
 	});
+
+	it("picks the type as one radio of a group, and the issue carries it", async () => {
+		useUiStore.setState({ feedbackOpen: true, feedbackPrefill: { description: "Add a dark theme" } });
+		await mount();
+		const group = field('[role="radiogroup"]');
+		const radios = [...group.querySelectorAll('[role="radio"]')] as InstanceType<typeof HTMLElement>[];
+		expect(radios.map(radio => radio.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+		expect(document.querySelector("[aria-pressed]")).toBeNull();
+		await act(async () => {
+			radios[1].dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
+		});
+		expect(radios.map(radio => radio.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
+		await submit();
+		expect(new URL(openExternal.mock.calls[0][0]).searchParams.get("labels")).toBe("gui,enhancement");
+	});
 });

@@ -21,7 +21,6 @@
 	"components/dialogs/CopySelectorDialog.tsx": 1,
 	"components/dialogs/DebugConsoleDialog.tsx": 1,
 	"components/dialogs/ExtensionDialog.tsx": 1,
-	"components/dialogs/FeedbackDialog.tsx": 1,
 	"components/dialogs/ModelPicker.tsx": 1,
 	"components/dialogs/PromptCard.tsx": 1,
 	"components/layout/AccountLimit.tsx": 1,

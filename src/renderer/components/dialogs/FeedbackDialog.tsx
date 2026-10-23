@@ -6,13 +6,13 @@
  */
 
 import { ExternalLink } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { buildIssueUrl, FEEDBACK_KINDS, type FeedbackKind, formatErrorTail } from "../../../shared/feedback";
 import type { SystemInfo } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { useUiStore } from "../../stores/ui";
-import { Button, Checkbox, Input, Modal, TextArea } from "../common";
+import { Button, Checkbox, Input, Modal, SegmentedChoice, TextArea } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 
 const LOG_TAIL_LINES = 20;
@@ -24,6 +24,7 @@ export function FeedbackDialog() {
 	const close = useUiStore(state => state.closeFeedback);
 
 	const [kind, setKind] = useState<FeedbackKind>("bug");
+	const kindLabelId = useId();
 	const [title, setTitle] = useState("");
 	const [description, setDescription] = useState("");
 	const [includeEnv, setIncludeEnv] = useState(true);
@@ -99,26 +100,17 @@ export function FeedbackDialog() {
 		>
 			<div className="space-y-4">
 				<div>
-					<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)">
+					<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)" id={kindLabelId}>
 						{t("feedback.kind")}
 					</span>
-					<div className="flex flex-wrap gap-1.5" role="group" aria-label={t("feedback.kind")}>
-						{FEEDBACK_KINDS.map(value => (
-							<button
-								key={value}
-								type="button"
-								aria-pressed={kind === value}
-								onClick={() => setKind(value)}
-								className={`omp-pressable min-h-8 rounded-(--sc-radius-md) px-3 py-1.5 text-sc-sm font-medium ${
-									kind === value
-										? "bg-(--sc-selected) text-(--sc-text)"
-										: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"
-								}`}
-							>
-								{t(`feedback.kind.${value}`)}
-							</button>
-						))}
-					</div>
+					<SegmentedChoice
+						aria-labelledby={kindLabelId}
+						fit="content"
+						onChange={setKind}
+						optionAttr="data-feedback-kind"
+						options={FEEDBACK_KINDS.map(value => ({ value, label: t(`feedback.kind.${value}`) }))}
+						value={kind}
+					/>
 				</div>
 
 				<Input
