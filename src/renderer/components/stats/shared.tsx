@@ -109,7 +109,7 @@ export function MetricCard({
 			>
 				{value}
 			</div>
-			{/* The detail wraps: a clipped "0 from you · 0 rep…" hides the figure it explains. */}
+			{/* The detail wraps: a clipped "You 0 · Assist…" hides the figure it explains. */}
 			{sub && <div className="text-sc-xs break-words text-(--sc-text-muted)">{sub}</div>}
 		</div>
 	);

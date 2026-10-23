@@ -224,6 +224,7 @@ describe("en counts of one", () => {
 			["todoCmd.exportCopied", { count: 1 }],
 			["hostUi.update.running", { count: 1 }],
 			["hostUi.quit.running", { count: 1 }],
+			["insights.session.turns", { user: 1, assistant: 1 }],
 		];
 		for (const [key, params] of cases) {
 			expect(en[key], key).toBeDefined();

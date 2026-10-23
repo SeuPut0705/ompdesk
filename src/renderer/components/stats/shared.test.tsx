@@ -62,11 +62,11 @@ describe("MetricCard", () => {
 		const { document: doc } = parseHTML(
 			renderToStaticMarkup(
 				<MetricGrid>
-					<MetricCard label="Messages" sub="12 from you · 14 replies" value="26" />
+					<MetricCard label="Messages" sub="You 12 · Assistant 14" value="26" />
 				</MetricGrid>,
 			),
 		);
-		const sub = [...doc.querySelectorAll("div")].find(node => node.textContent === "12 from you · 14 replies");
+		const sub = [...doc.querySelectorAll("div")].find(node => node.textContent === "You 12 · Assistant 14");
 		expect(sub?.className).not.toContain("truncate");
 		expect(doc.querySelector("div")?.className).toContain("auto-fill");
 	});

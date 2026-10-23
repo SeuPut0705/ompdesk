@@ -4159,7 +4159,7 @@ export const en: Record<string, string> = {
 	"insights.session.notConnectedHint": "Open a session to see its numbers, or look at every session instead.",
 	"insights.session.loadFailed": "Couldn't load session stats",
 	"insights.session.inOut": "In {input} · out {output}",
-	"insights.session.turns": "{user} from you · {assistant} replies",
+	"insights.session.turns": "You {user} · Assistant {assistant}",
 	"insights.advisor.title": "Advisor",
 	"insights.advisor.calls": "Model calls",
 	"insights.advisor.callsSub": "since its context last started",
