@@ -26,6 +26,7 @@ import {
 	type ControlTab,
 	checksRun,
 	currentStep,
+	DRAFT_WAIT_MS,
 	type OpenedChild,
 	parseVerdict,
 	renderMessage,
@@ -626,6 +627,31 @@ describe("ompdesk_session_send", () => {
 		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
 		expect(result.text).toContain("it was idle and starts on it");
 		expect(prompts(host, "work0002")).toEqual([wrapAgentMessage("please review", "Boss")]);
+	});
+
+	it("waits while the person types into the target, then sends; gives up after a minute with nothing sent", async () => {
+		vi.useFakeTimers();
+		try {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", drafting: true });
+			const service = control(host);
+			const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
+			await vi.advanceTimersByTimeAsync(5_000);
+			expect(prompts(host, "work0002")).toEqual([]);
+			(host.tabsById.get("work0002") as FakeTab).drafting = false;
+			for (const listener of host.listeners) listener();
+			expect((await sending).text).toContain("it was idle and starts on it");
+			expect(prompts(host, "work0002")).toHaveLength(1);
+
+			(host.tabsById.get("work0002") as FakeTab).drafting = true;
+			const refused = service.run("main0001", T.send, { session: "work0002", message: "and this" });
+			await vi.advanceTimersByTimeAsync(DRAFT_WAIT_MS + 1_000);
+			const result = await refused;
+			expect(result.isError).toBe(true);
+			expect(result.text).toContain("The person is typing in");
+			expect(prompts(host, "work0002")).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("delivers a steer to a running session and a follow-up by default", async () => {

@@ -571,6 +571,7 @@ export class AgentControlRuntime {
 			...(autoClosable && !this.#parents.has(info.tabId) ? { restored: true } : {}),
 			looked: info.active === true || info.visible === true || (info.viewerCount ?? 0) > 0,
 			userTouched: this.#userPrompted.has(info.tabId) || this.#deps.pool.hasDraft(info.tabId),
+			...(this.#deps.pool.hasDraft(info.tabId) ? { drafting: true } : {}),
 			...(facts?.runningSince !== undefined ? { busySince: facts.runningSince } : {}),
 			...(formerIds.length > 0 ? { formerIds } : {}),
 		};

@@ -148,6 +148,8 @@ export interface ControlTab {
 	looked?: boolean;
 	/** The person typed a draft into it or sent it a prompt of their own. */
 	userTouched?: boolean;
+	/** The person has a draft in its composer now (any window or device showing it). */
+	drafting?: boolean;
 	/**
 	 * Opened by an agent before this launch (its opener is known only from the tab layout the relaunch restored): this
 	 * launch saw neither its turns nor a person's prompt to it, so its transcript says how it ended.
@@ -407,6 +409,8 @@ const TURN_START_WAIT_MS = 1_500;
  * to 5 s per address to dial, `RemoteClient`), so a call made during one goes through instead of failing.
  */
 const LINK_WAIT_MS = 15_000;
+/** How long a send waits for the person to send or clear a draft they are typing into its target (`#untilDraftSent`). */
+export const DRAFT_WAIT_MS = 60_000;
 /** Back on the link, a device's tab re-attaches (`error` → `starting` → its status) within this. */
 const REATTACH_WAIT_MS = 10_000;
 /** A device or tab that is not there yet is looked at again this often. */
@@ -1923,6 +1927,7 @@ export class AgentControl {
 		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
 		this.#refuseHidden(target, caller);
 		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
+		await this.#untilDraftSent(caller, target);
 		// Idempotent: a retried call (a flaky link, a paired device) gets the first receipt, never a second delivery.
 		const receiptKey = args.request_id
 			? `${caller.sessionPath ?? caller.tabId}|${target.sessionPath ?? target.tabId}|${args.request_id}`
@@ -1939,6 +1944,25 @@ export class AgentControl {
 			return await delivery;
 		} finally {
 			this.#inflight.delete(receiptKey);
+		}
+	}
+
+	/**
+	 * A message never starts a turn under the person's hands: while they have a draft in the target's composer, a send
+	 * waits for it to be sent or cleared (`DRAFT_WAIT_MS`), then fails saying so. Idea after OpenRig's draft-aware
+	 * delivery (mvschwarz/openrig ROADMAP, Apache-2.0).
+	 */
+	async #untilDraftSent(caller: ControlTab, target: ControlTab): Promise<void> {
+		const deadline = Date.now() + DRAFT_WAIT_MS;
+		let drafting = target.drafting === true;
+		while (drafting) {
+			const left = deadline - Date.now();
+			if (left <= 0)
+				fail(
+					`The person is typing in ${label(target)} (a draft sits in its composer): nothing was sent, so their message and yours do not collide. Try again once they have sent it, or report with ompdesk_report.`,
+				);
+			await this.#nextChange(Math.min(1000, left));
+			drafting = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId)?.drafting === true;
 		}
 	}
 
