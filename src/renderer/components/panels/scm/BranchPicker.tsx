@@ -2,10 +2,12 @@
  * Branch chip and picker for the Changes panel: the current branch (or a
  * detached HEAD), a filter, local then remote branches newest first, and per
  * branch merge into the current one, rename and delete. Creating takes the
- * filter text. A branch another worktree holds says where and cannot be switched to.
+ * filter text; Enter in the filter creates only when no branch it matches can be
+ * switched to, else it goes to that branch. A branch another worktree holds says
+ * where and cannot be switched to.
  */
 import { GitBranch, GitMerge, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { RpcGitBranch } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
 import { useFocusedScope } from "../../../lib/focused-scope";
@@ -83,6 +85,25 @@ export function BranchPicker({
 		void runner.run(key, command, { failure, success });
 	};
 
+	const listRef = useRef<HTMLDivElement>(null);
+	const fieldRef = useRef<HTMLInputElement>(null);
+	/** The branches a key can land on, in the order shown: never the current one or one another worktree holds. */
+	const rows = (): HTMLButtonElement[] =>
+		Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("button[data-branch-row]") ?? []).filter(
+			row => !row.disabled,
+		);
+	// ↑/↓ walk the branches; ↑ from the first goes back to the filter. A row's ⋯ stays on Tab.
+	const moveBetweenRows = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+		if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+		const all = rows();
+		const index = all.indexOf(event.currentTarget);
+		if (index < 0) return;
+		event.preventDefault();
+		const next = index + (event.key === "ArrowDown" ? 1 : -1);
+		if (next < 0) fieldRef.current?.focus();
+		else all[Math.min(next, all.length - 1)]?.focus();
+	};
+
 	const row = (item: RpcGitBranch) => {
 		const held = item.worktree !== null;
 		return (
@@ -90,7 +111,9 @@ export function BranchPicker({
 				<button
 					aria-current={item.current ? "true" : undefined}
 					className={cx(PANEL_ROW, "min-w-0 flex-1", item.current && "bg-(--sc-selected)")}
+					data-branch-row
 					disabled={item.current || held}
+					onKeyDown={moveBetweenRows}
 					onClick={() =>
 						act("switch", { type: "git_branch", action: "switch", name: item.name }, t("scm.branch.switchFailed"))
 					}
@@ -184,10 +207,20 @@ export function BranchPicker({
 				<div className="flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-2 p-2">
 					<SearchField
 						autoFocus
+						ref={fieldRef}
 						controlSize="sm"
 						label={t("scm.branch.filter")}
 						onKeyDown={event => {
-							if (event.key === "Enter" && !isImeKeyEvent(event) && query.trim() && !exact) {
+							if (isImeKeyEvent(event)) return;
+							// A branch the filter matches comes first: Enter or ↓ goes to it (Enter there switches), so a
+							// typed part of a name never makes a new branch by itself. Enter creates only when nothing matches.
+							const first = rows()[0];
+							if ((event.key === "ArrowDown" || event.key === "Enter") && first) {
+								event.preventDefault();
+								first.focus();
+								return;
+							}
+							if (event.key === "Enter" && query.trim() && !exact) {
 								event.preventDefault();
 								act(
 									"create",
@@ -200,7 +233,7 @@ export function BranchPicker({
 						placeholder={t("scm.branch.filter")}
 						value={query}
 					/>
-					<div className="max-h-[min(24rem,60dvh)] overflow-y-auto">
+					<div className="max-h-[min(24rem,60dvh)] overflow-y-auto" ref={listRef}>
 						{query.trim() && !exact && (
 							<button
 								className={PANEL_ROW}
