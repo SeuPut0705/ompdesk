@@ -62,11 +62,17 @@ test("a host's work-folder sessions sit among the chats on the host and on the d
 		// The device opens its own tab in the host's work folder: its section follows the host's rule.
 		const tabId = await openHostFolder(a, deviceId, hostWork);
 		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
-		const tab = (await a.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tabId);
-		const deviceRowSelector = `[data-device-session=${cssString(tab?.sessionPath ?? `tab:${tabId}`)}]`;
-		await expect(section.locator(`[data-sidebar-chats="${deviceId}"] ${deviceRowSelector}`)).toHaveCount(1, {
-			timeout: 30_000,
-		});
+		// The row's key is the tab's until the host names its session file, then the file's: read it on every look.
+		await expect
+			.poll(
+				async () => {
+					const tab = (await a.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tabId);
+					const deviceRowSelector = `[data-device-session=${cssString(tab?.sessionPath ?? `tab:${tabId}`)}]`;
+					return section.locator(`[data-sidebar-chats="${deviceId}"] ${deviceRowSelector}`).count();
+				},
+				{ timeout: 30_000 },
+			)
+			.toBe(1);
 		await expect(section.locator(`[data-device-group=${cssString(hostWork)}]`)).toHaveCount(0);
 	} finally {
 		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
