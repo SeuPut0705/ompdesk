@@ -287,7 +287,7 @@ describe("ModelSetupDialog full auto", () => {
 			["agent", ["advisor"]],
 			["io", ["image"]],
 		]);
-		expect(document.querySelector('[data-model-setup-group="agent"] h4')?.textContent).toBe(
+		expect(document.querySelector('[data-model-setup-group="agent"] h3')?.textContent).toBe(
 			translate("modelRoles.group.agent"),
 		);
 	});

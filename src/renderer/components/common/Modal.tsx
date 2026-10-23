@@ -117,9 +117,9 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 			{!chromeless && (
 				<div className="omp-dialog-head flex min-h-13 shrink-0 items-start justify-between gap-3 py-3 pr-3 pl-5">
 					<div className="min-w-0 pt-0.5">
-						<div className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
+						<h2 className="text-sc-xl font-semibold tracking-(--sc-tracking-tight) break-words" id={titleId}>
 							{title}
-						</div>
+						</h2>
 						{description && (
 							<p className="mt-1 text-sc-sm leading-relaxed text-(--sc-text-muted)" id={descriptionId}>
 								{description}

@@ -500,9 +500,9 @@ export function ModelSetupDialog() {
 						<div className="space-y-3">
 							{rowGroups.map(group => (
 								<section data-model-setup-group={group.id} key={group.id}>
-									<h4 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+									<h3 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
 										{t(`modelRoles.group.${group.id}`)}
-									</h4>
+									</h3>
 									<ul className="space-y-0.5 [html[data-input=touch]_&]:space-y-1">
 										{group.rows.map(row => (
 											<RoleRow
@@ -535,9 +535,9 @@ export function ModelSetupDialog() {
 								)}
 								{evidence.plan.sources.length > 0 && (
 									<div>
-										<h4 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
+										<h3 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
 											{t("modelSetup.review.sources")}
-										</h4>
+										</h3>
 										<ul className="space-y-1">
 											{evidence.plan.sources.map(source => (
 												<li key={source.url}>

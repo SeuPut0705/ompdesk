@@ -73,6 +73,18 @@ afterEach(async () => {
 });
 
 describe("Modal", () => {
+	it("names itself with a heading the dialog is labelled by", async () => {
+		await mount(
+			<Modal open onClose={() => {}} title="Model setup">
+				<h3>Conversation</h3>
+			</Modal>,
+		);
+		const dialog = document.querySelector("[role='dialog']");
+		const heading = dialog?.querySelector("h2");
+		expect(heading?.textContent).toBe("Model setup");
+		expect(dialog?.getAttribute("aria-labelledby")).toBe(heading?.getAttribute("id"));
+	});
+
 	it("associates supporting copy with the dialog and retains it during exit", async () => {
 		await mount(
 			<Modal open onClose={() => {}} title="Handoff" description="Your current session stays available.">
