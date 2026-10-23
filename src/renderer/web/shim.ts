@@ -28,6 +28,7 @@ import {
 	type WebModelsText,
 	type WebModelsWriteResult,
 } from "../../shared/web-host";
+import { translate } from "../lib/i18n";
 import type { WebChrome } from "./chrome";
 import { type LocalChannels, parseOmpUrl } from "./deep-link";
 import { base64ToBytes, type SaveOutcome } from "./download";
@@ -265,7 +266,7 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 
 	const invokeOverrides: Record<string, (...args: unknown[]) => Promise<unknown>> = {
 		[C.SYSTEM_OPEN_EXTERNAL]: async (url: unknown) => {
-			if (typeof url !== "string") throw new Error("A link is required");
+			if (typeof url !== "string") throw new Error(translate("web.link.invalid"));
 			const link = parseOmpUrl(url);
 			if (link) {
 				env.channels.emit(E.DEEP_LINK, link);
@@ -277,9 +278,9 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 			try {
 				parsed = new URL(url);
 			} catch {
-				throw new Error("Not a link");
+				throw new Error(translate("web.link.invalid"));
 			}
-			if (!EXTERNAL_SCHEMES.has(parsed.protocol)) throw new Error("Only web and mail links open from here");
+			if (!EXTERNAL_SCHEMES.has(parsed.protocol)) throw new Error(translate("web.link.scheme"));
 			env.browser.open(parsed.href);
 		},
 		[C.SYSTEM_OPEN_PATH]: (path: unknown, tabId: unknown) => {

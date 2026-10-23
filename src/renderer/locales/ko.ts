@@ -6605,6 +6605,8 @@ export const ko: Record<string, string> = {
 	"mobileWeb.request.approve": "허용",
 	"mobileWeb.request.decline": "거절",
 	"mobileWeb.request.failed": "요청에 응답하지 못했어요",
+	"web.link.invalid": "링크가 아니에요",
+	"web.link.scheme": "여기서는 웹과 메일 링크만 열 수 있어요",
 	"web.call.dropped": "컴퓨터와의 연결이 끊겼어요",
 	"web.call.closed": "컴퓨터와의 연결이 닫혔어요",
 	"web.call.unpaired": "이 기기는 페어링되어 있지 않아요",

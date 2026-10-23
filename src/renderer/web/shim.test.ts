@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import type { OmpTransport } from "../../shared/omp-api";
 import { PREVIEW_STREAM_PDF } from "../../shared/preview";
+import { loadLocale, setLanguageOverride, translate } from "../lib/i18n";
 import type { WebChrome } from "./chrome";
 import { LocalChannels } from "./deep-link";
 import type { SaveOutcome } from "./download";
@@ -129,6 +130,21 @@ describe("the web shim", () => {
 			await expect(web.api.system.openExternal("file:///etc/passwd")).rejects.toThrow();
 			await expect(web.api.system.openExternal("not a url")).rejects.toThrow();
 			expect(log.opened).toEqual([]);
+		});
+
+		it("says why a link does not open in the page's language: the toast shows this message", async () => {
+			await loadLocale("ko");
+			setLanguageOverride("ko");
+			try {
+				const { web } = setup();
+				await expect(web.api.system.openExternal("file:///etc/passwd")).rejects.toThrow(
+					translate("web.link.scheme"),
+				);
+				await expect(web.api.system.openExternal("not a url")).rejects.toThrow(translate("web.link.invalid"));
+				expect(translate("web.link.scheme")).not.toMatch(/[a-z]{4}/);
+			} finally {
+				setLanguageOverride(null);
+			}
 		});
 
 		it("routes an omp:// link on the page", async () => {

@@ -6627,6 +6627,8 @@ export const en: Record<string, string> = {
 	"mobileWeb.request.approve": "Approve",
 	"mobileWeb.request.decline": "Decline",
 	"mobileWeb.request.failed": "Couldn't answer the request",
+	"web.link.invalid": "Not a link",
+	"web.link.scheme": "Only web and mail links open from here",
 	"web.call.dropped": "The link to the computer dropped",
 	"web.call.closed": "The link to the computer is closed",
 	"web.call.unpaired": "This device is not paired",
