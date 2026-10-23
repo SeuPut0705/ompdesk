@@ -264,9 +264,12 @@ export interface SidecarOptions {
 	shellEnv?: () => Promise<Record<string, string>>;
 	/**
 	 * Waits until no other live omp owns the stored session this start opens (session-free.ts): one that still owns it
-	 * would make the new omp move the session to another file. Absent (tests): no wait.
+	 * would make the new omp move the session to another file. `owned` (still held when the wait ran out) opens
+	 * nothing: the tab is `error` with `sessionOwnedText`, and Restart waits again. Absent (tests): no wait.
 	 */
-	sessionFree?: (sessionPath: string) => Promise<unknown>;
+	sessionFree?: (sessionPath: string) => Promise<"free" | "owned">;
+	/** The localized reason a start gave up on a session another omp holds. */
+	sessionOwnedText?: () => string;
 	/**
 	 * The reply language's English name (`Korean`; the Settings choice, else the
 	 * device language), passed to omp as `OMP_GUI_REPLY_LANGUAGE` for the
@@ -554,10 +557,17 @@ export class SidecarManager extends EventEmitter {
 			shellEnv ? shellEnv().catch(fallback) : Promise.resolve({}),
 			this.#options.builtinMcp?.().catch(() => ({ args: [] })) ?? Promise.resolve({ args: [] }),
 			this.#resumeSessionPath && this.#options.sessionFree
-				? this.#options.sessionFree(this.#resumeSessionPath).catch(() => undefined)
-				: undefined,
-		]).then(([resolution, proxyVars, shellVars, builtinMcp]) => {
+				? this.#options.sessionFree(this.#resumeSessionPath).catch(() => "free" as const)
+				: ("free" as const),
+		]).then(([resolution, proxyVars, shellVars, builtinMcp, session]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
+			if (session === "owned") {
+				this.#setStatus(
+					"error",
+					this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
+				);
+				return;
+			}
 			if (!resolution.ok) {
 				// No usable omp: nothing ran, nothing failed. Machine setup installs it and main starts this tab then.
 				this.#setStatus("waiting", resolution.error);

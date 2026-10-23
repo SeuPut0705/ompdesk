@@ -21,7 +21,7 @@ import { deviceLanguageTag, replyLanguageName, resolveReplyLanguage } from "../s
 import { bootModelSelector } from "./boot-model";
 import type { BridgeConnectResult, BridgeHealth } from "./bridge-health";
 import { builtinReaState } from "./builtin-mcp";
-import { ompFailureText } from "./i18n";
+import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
 import { systemOmp } from "./omp-runtime";
 import { writeRuntimeLog } from "./runtime-log";
@@ -32,7 +32,7 @@ import { markStartup } from "./startup-timing";
 
 export interface LocalSidecarDeps {
 	/** Waits until no other live omp owns a stored session a start opens (session-free.ts). */
-	sessionFree?: (sessionPath: string) => Promise<unknown>;
+	sessionFree?: (sessionPath: string) => Promise<"free" | "owned">;
 	/** The gui-bridge extension directory. */
 	bridgeDir: string;
 	/** OMPdesk's own extension root (`resources/omp-builtin`): the control tools' skill; REA is its `rea/` sub-root. */
@@ -158,7 +158,9 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			promptOrigin: origin,
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
-			...(deps.sessionFree ? { sessionFree: deps.sessionFree } : {}),
+			...(deps.sessionFree
+				? { sessionFree: deps.sessionFree, sessionOwnedText: () => mainT("omp.sessionOwned") }
+				: {}),
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
 			nextPrompt: deps.nextPromptPrefs,

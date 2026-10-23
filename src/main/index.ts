@@ -723,15 +723,14 @@ app.whenReady().then(() => {
 		sessionFree: async sessionPath => {
 			const started = Date.now();
 			const outcome = await whenSessionFree(sessionPath, { owned: path => sessionIndex.ownedElsewhere(path) });
-			if (outcome === "timeout" || Date.now() - started > 1_000)
+			if (outcome === "owned" || Date.now() - started > 1_000)
 				writeRuntimeLog({
 					source: "session-owner",
 					message:
-						outcome === "timeout"
-							? "session still owned elsewhere; opening anyway"
-							: "waited for the session's owner",
+						outcome === "owned" ? "session still owned elsewhere; not opened" : "waited for the session's owner",
 					details: { level: "info", session: basename(sessionPath), waitedMs: Date.now() - started },
 				});
+			return outcome;
 		},
 		builtinReaPref: () => prefsStore().get(REA_PREF),
 		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),

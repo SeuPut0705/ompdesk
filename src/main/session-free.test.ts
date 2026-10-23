@@ -24,11 +24,11 @@ describe("whenSessionFree", () => {
 		expect(c.asked.at(-1)).toBe(1_000);
 	});
 
-	it("opens it anyway once the wait runs out (an omp in a terminal can hold it for good)", async () => {
+	it("says the session is still owned once the wait runs out, so nothing opens it (an omp in a terminal)", async () => {
 		const c = clock();
 		expect(
 			await whenSessionFree("/s/a.jsonl", { owned: c.owned(Number.POSITIVE_INFINITY), now: c.now, sleep: c.sleep }),
-		).toBe("timeout");
+		).toBe("owned");
 		expect(c.now()).toBeGreaterThanOrEqual(SESSION_FREE_WAIT_MS);
 		expect(c.now()).toBeLessThan(SESSION_FREE_WAIT_MS + 1_000);
 	});
