@@ -29,6 +29,7 @@ import {
 	Tabs,
 } from "../common";
 import { GithubSignIn } from "../onboarding/GithubSignIn";
+import { ListButton } from "./github/shared";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
 
@@ -58,33 +59,23 @@ function ChecksIcon({ item }: { item: RpcPrListItem }) {
 
 function PrListRow({ item, active, onSelect }: { item: RpcPrListItem; active: boolean; onSelect: () => void }) {
 	return (
-		<li>
-			<button
-				aria-current={active ? "true" : undefined}
-				className={cx(
-					"flex w-full flex-col gap-1 rounded-(--sc-radius-md) px-3 py-2 text-left",
-					active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
+		<ListButton active={active} onSelect={onSelect}>
+			<span className="flex w-full items-center gap-2">
+				<ChecksIcon item={item} />
+				<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{item.title}</span>
+				{item.isDraft && (
+					<GitPullRequestDraft aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 				)}
-				onClick={onSelect}
-				type="button"
-			>
-				<span className="flex w-full items-center gap-2">
-					<ChecksIcon item={item} />
-					<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{item.title}</span>
-					{item.isDraft && (
-						<GitPullRequestDraft aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-					)}
-				</span>
-				<span className="flex w-full items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
-					<span className="shrink-0 tabular-nums">#{item.number}</span>
-					<span className="min-w-0 truncate">{item.authorLogin}</span>
-					<span className="min-w-0 flex-1 truncate font-mono">{item.headRefName}</span>
-					<span className="shrink-0 tabular-nums text-(--sc-success)">+{item.additions}</span>
-					<span className="shrink-0 tabular-nums text-(--sc-danger)">−{item.deletions}</span>
-					<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
-				</span>
-			</button>
-		</li>
+			</span>
+			<span className="flex w-full items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
+				<span className="shrink-0 tabular-nums">#{item.number}</span>
+				<span className="min-w-0 truncate">{item.authorLogin}</span>
+				<span className="min-w-0 flex-1 truncate font-mono">{item.headRefName}</span>
+				<span className="shrink-0 tabular-nums text-(--sc-success)">+{item.additions}</span>
+				<span className="shrink-0 tabular-nums text-(--sc-danger)">−{item.deletions}</span>
+				<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
+			</span>
+		</ListButton>
 	);
 }
 

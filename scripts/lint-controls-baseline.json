@@ -1,5 +1,4 @@
 {
-	"components/agents/PullRequests.tsx": 1,
 	"components/agents/github/shared.tsx": 1,
 	"components/autopilot/AutopilotCycles.tsx": 1,
 	"components/autopilot/FocusChips.tsx": 1,
