@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.70.0] - 2026-10-23
+
+대화에 나온 파일이 미리보기가 있는 카드로 보여요. 버튼 하나로 Finder나 탐색기에서 위치를 보거나, 다른 컴퓨터에 있는 파일이면 지금 쓰는 기기에 저장해요.
+
+### 새로 생긴 것
+- 에이전트가 답변에서 건넨 파일은 답변 아래 카드로 보여요. 사진, PDF 첫 쪽, 웹 페이지, 엑셀·CSV의 첫 줄, 프레젠테이션 제목을 그대로 보여 주고, 압축 파일이나 프로그램 같은 다른 파일은 종류와 크기가 적힌 줄로 보여요. 누르면 파일 패널에서 미리 보고, 오른쪽 클릭이나 ⋯ 메뉴로 기본 앱에서 열기, 다른 곳에 저장, 경로 복사를 할 수 있어요.
+- 이 컴퓨터의 탭에서는 카드 버튼이 Finder나 탐색기에서 파일 위치를 보여 줘요.
+- 연결된 다른 컴퓨터의 탭에서는 **이 컴퓨터에 저장**으로 파일을 가져와요. 최대 1GB까지 나눠서 받고, 끝나면 저장한 위치를 알려 줘요. 휴대폰에서는 같은 버튼이 휴대폰에 저장해요.
+- 내가 붙인 파일도 보낸 메시지 아래에 카드로 보여요. 첨부만 적힌 긴 경로 줄은 메시지에서 빠지고, 문장 속 긴 경로는 파일 이름 링크로 보여요.
+
+<!-- en -->
+
+Files the conversation names show as cards with a preview. One button shows a file in Finder or Explorer, or saves it to the device you are using when it sits on another computer.
+
+### Added
+- A file the agent hands over in a reply is a card under it: a picture, a PDF's first page, a web page, a spreadsheet's or CSV's first rows, a presentation's title; an archive, a program or another file is a row with its type and size. A click previews it in the Files panel; a right click or the ⋯ menu opens it in its app, saves a copy or copies its path.
+- On this computer's tab, the card's button shows the file in Finder or Explorer.
+- On a paired computer's tab, **Save to this computer** brings the file here, up to 1 GB, in parts, and says where it went. On a phone the same button saves it to the phone.
+- Files you attach show as cards under the sent message too. A line that only named them leaves the message, and a long path inside a sentence reads as the file's name.
+
 ## [0.69.0] - 2026-10-23
 
 거의 모든 종류의 파일을 첨부할 수 있어요. 모델이 받지 않는 사진은 바꿔서 보내고, 연결된 컴퓨터의 탭에는 25MB까지 보낼 수 있어요.
