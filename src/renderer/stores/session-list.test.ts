@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionInfo } from "../../shared/ipc-types";
 import { resetSnapshotsForTest, snapshots } from "../lib/snapshot-cache";
-import { resetSessionListFeeds, sessionListFeed } from "./session-list";
+import { READ_RETRY_MS, resetSessionListFeeds, sessionListFeed } from "./session-list";
 
 class Memory {
 	readonly map = new Map<string, string>();
@@ -61,6 +61,31 @@ describe("session list snapshot", () => {
 		await vi.waitFor(() => expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/a", "/c"]));
 		expect(feed.store.getState().sessions[0]).toBe(kept);
 		release();
+	});
+
+	it("a host's last-known rows are replaced once a read answers, though the first reads failed", async () => {
+		vi.useFakeTimers();
+		try {
+			// Rows from before sessions were deleted on the host; the link has just come up and the host does not answer yet.
+			snapshots().write("sessions", "device:dev-1", "global", [row("/gone"), row("/kept")]);
+			let fail = true;
+			install(async () => {
+				if (fail) throw new Error("remote_offline");
+				return [row("/kept")];
+			});
+			const feed = sessionListFeed("global", "dev-1");
+			const release = feed.retain();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(feed.store.getState().error).toBe("remote_offline");
+			await vi.advanceTimersByTimeAsync(READ_RETRY_MS);
+			fail = false;
+			await vi.advanceTimersByTimeAsync(READ_RETRY_MS * 2);
+			expect(feed.store.getState().sessions.map(s => s.path)).toEqual(["/kept"]);
+			expect(feed.store.getState().live).toBe(true);
+			release();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("is loading only when nothing is known, and a host's list is never another host's", () => {

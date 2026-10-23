@@ -72,6 +72,10 @@ function reconcile(previous: SessionInfo[], fetched: SessionInfo[]): SessionInfo
 	return changed ? next : previous;
 }
 
+/** A held list whose read failed reads again after this, doubling up to {@link READ_RETRY_MAX_MS}. */
+export const READ_RETRY_MS = 2_000;
+export const READ_RETRY_MAX_MS = 30_000;
+
 /** Feeds someone shows right now (`retain`ed). */
 const heldRefreshes = new Set<() => void>();
 
@@ -98,6 +102,9 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 	let inFlight = false;
 	let queued = false;
 	let debounceTimer: number | undefined;
+	let retryTimer: number | undefined;
+	/** Failed reads in a row while held: each retry waits longer (`READ_RETRY_MS`, doubled, at most `READ_RETRY_MAX_MS`). */
+	let failures = 0;
 	let unsubscribe: (() => void) | null = null;
 
 	const refresh = (showSpinner = false): void => {
@@ -114,6 +121,7 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 				list => {
 					if (version !== generation) return;
 					loaded = true;
+					failures = 0;
 					const state = store.getState();
 					const sessions = reconcile(state.sessions, list);
 					if (sessions !== state.sessions || state.isLoading || !state.live || state.error !== null)
@@ -138,6 +146,14 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 					// sidebar would otherwise claim "no sessions yet" for a failure.
 					if (version !== generation) return;
 					store.setState({ error: cause instanceof Error ? cause.message : String(cause), isLoading: false });
+					// The rows on screen may be a last-known copy (a paired host's from before sessions were deleted there):
+					// a list someone shows reads again until one answers, instead of waiting for the next change push.
+					if (holders > 0) {
+						window.clearTimeout(retryTimer);
+						const wait = Math.min(READ_RETRY_MS * 2 ** failures, READ_RETRY_MAX_MS);
+						failures++;
+						retryTimer = window.setTimeout(() => refresh(), wait);
+					}
 				},
 			)
 			.finally(() => {
@@ -165,6 +181,8 @@ function createSessionListFeed(scope: SessionListScope, device: string | undefin
 			holders--;
 			if (holders > 0) return;
 			window.clearTimeout(debounceTimer);
+			window.clearTimeout(retryTimer);
+			failures = 0;
 			unsubscribe?.();
 			unsubscribe = null;
 			heldRefreshes.delete(refresh);
