@@ -19,7 +19,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { Badge, Button, CopyButton, IconButton, MenuButton } from "../common";
+import { Badge, Button, CopyButton, DisclosureButton, IconButton, MenuButton } from "../common";
 import type { GalleryImage } from "../common/ZoomableImage";
 import { referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
@@ -251,21 +251,15 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 						)}
 						{message.summary && (
 							<>
-								<button
-									type="button"
-									aria-expanded={expanded}
-									onClick={() => setExpanded(open => !open)}
-									className="-ms-1.5 mt-1 flex min-h-7 w-fit max-w-full items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary)"
+								<DisclosureButton
+									chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+									className="-ms-1.5 mt-1 min-h-7 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary)"
+									inline
+									onToggle={() => setExpanded(open => !open)}
+									open={expanded}
 								>
-									<ChevronRight
-										aria-hidden
-										className={cx(
-											"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-											expanded && "rotate-90",
-										)}
-									/>
 									{t("chat.context.details")}
-								</button>
+								</DisclosureButton>
 								{expanded && (
 									<div className={cx("mt-2", PREVIEW_SCROLL_LG)}>
 										<MarkdownRenderer content={message.summary} />

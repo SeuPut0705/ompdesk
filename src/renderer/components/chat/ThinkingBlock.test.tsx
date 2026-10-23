@@ -111,6 +111,16 @@ describe("ThinkingBlock", () => {
 		expect(container.querySelector("code.language-ts")).toBeNull();
 	});
 
+	it("turns its chevron with transform, the property the shared disclosure turn eases", async () => {
+		await mountExpandedThinking(HEADLINED_THINKING);
+		const header = container.querySelector(".omp-thinking-header") as unknown as Element;
+		expect(header.getAttribute("aria-expanded")).toBe("true");
+		const chevron = header.querySelector(".omp-disclosure-chevron");
+		// Tailwind's `rotate-90` sets `rotate`, which `.omp-disclosure-chevron`'s transition never eases.
+		expect(chevron?.getAttribute("class")).not.toContain("rotate-90");
+		expect(chevron?.getAttribute("style")).toContain("rotate(90deg)");
+	});
+
 	it("does not mount markdown while the live block is collapsed", async () => {
 		useUiStore.getState().setThinkingExpanded(false);
 		useMessagesStore.setState({ streamingThinking: HEADLINED_THINKING });

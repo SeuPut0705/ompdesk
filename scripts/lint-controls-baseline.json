@@ -8,8 +8,6 @@
 	"components/chat/CustomMessageCard.tsx": 4,
 	"components/chat/ExecutionGroup.tsx": 5,
 	"components/chat/LiveStepPeek.tsx": 5,
-	"components/chat/MessageBubble.tsx": 1,
-	"components/chat/ThinkingBlock.tsx": 1,
 	"components/chat/TodoReminderNote.tsx": 1,
 	"components/chat/dock/DockCard.tsx": 1,
 	"components/chat/dock/WorkspaceIsland.tsx": 3,

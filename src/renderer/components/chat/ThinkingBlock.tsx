@@ -1,4 +1,3 @@
-import { ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { STREAM_FORMAT_FLUSH_MS, useThrottledText } from "../../hooks/use-throttled-text";
@@ -14,6 +13,7 @@ import {
 } from "../../lib/thinking";
 import { useMessagesStore } from "../../stores/messages";
 import { useUiStore } from "../../stores/ui";
+import { DisclosureButton } from "../common";
 import { formatTokenRate } from "./TurnOutputMeter";
 
 export interface ThinkingBlockProps {
@@ -119,20 +119,14 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 
 	return (
 		<div className="omp-thinking-block min-w-0">
-			<button
-				type="button"
-				aria-expanded={open}
+			<DisclosureButton
 				aria-label={t(open ? "chat.thinking.hide" : "chat.thinking.show")}
-				onClick={() => setOpen(v => !v)}
-				className="omp-thinking-header flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-left text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary)"
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+				className="omp-thinking-header min-h-7 min-w-0 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-muted) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary)"
+				inline
+				onToggle={() => setOpen(v => !v)}
+				open={open}
 			>
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"omp-thinking-chevron omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						open && "rotate-90",
-					)}
-				/>
 				<span className={cx("omp-thinking-state font-medium", isLive && "omp-thinking-shimmer")}>
 					{t(isLive ? "chat.thinking.live" : "chat.thinking.done")}
 				</span>
@@ -140,7 +134,7 @@ export function ThinkingBlock({ text, live = false, startTime, endTime }: Thinki
 				{meta ? (
 					<span className="omp-thinking-meta -ms-1 shrink-0 tabular-nums text-(--sc-text-subtle)">· {meta}</span>
 				) : null}
-			</button>
+			</DisclosureButton>
 			{open ? (
 				<div className="omp-thinking-body text-sc-sm text-(--sc-text-muted)">
 					{isLive ? (

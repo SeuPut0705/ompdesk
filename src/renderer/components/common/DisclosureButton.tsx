@@ -15,12 +15,15 @@ export interface DisclosureButtonProps extends Omit<ComponentProps<"button">, "t
 	onToggle: () => void;
 	/** The chevron's own classes (size and colour); `size-(--sc-icon-sm)` and muted by default. */
 	chevronClassName?: string;
+	/** As wide as its label (a toggle inside text: thinking, a summary's details) instead of the whole row. */
+	inline?: boolean;
 }
 
 export function DisclosureButton({
 	open,
 	onToggle,
 	chevronClassName,
+	inline,
 	className,
 	children,
 	...rest
@@ -30,7 +33,8 @@ export function DisclosureButton({
 			{...rest}
 			aria-expanded={open}
 			className={cx(
-				"flex w-full items-center gap-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+				"flex items-center gap-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)",
+				inline ? "w-fit max-w-full" : "w-full",
 				className,
 			)}
 			onClick={onToggle}
