@@ -19,6 +19,7 @@ export const en: Record<string, string> = {
 	"chat.history.updating": "Updating…",
 	"chat.history.failed": "Couldn't load earlier messages.",
 	"extDialog.ask.step": "{current} of {total}",
+	"extDialog.ask.stepAnswered": "answered",
 	"extDialog.ask.next": "Next",
 	"extDialog.ask.back": "Back",
 	"extDialog.ask.addNote": "Add a note",

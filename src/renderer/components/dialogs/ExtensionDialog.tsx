@@ -549,6 +549,7 @@ function AskDialog({
 							>
 								{isAnswered(index) && <Check aria-hidden className="size-3 text-(--sc-success)" />}
 								<span className="max-w-32 truncate">{item.header || index + 1}</span>
+								{isAnswered(index) && <span className="sr-only">{`, ${t("extDialog.ask.stepAnswered")}`}</span>}
 							</button>
 						))}
 					</div>

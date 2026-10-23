@@ -19,6 +19,7 @@ export const ko: Record<string, string> = {
 	"chat.history.updating": "최신 내용으로 갱신하고 있어요…",
 	"chat.history.failed": "이전 메시지를 불러오지 못했어요.",
 	"extDialog.ask.step": "{current}/{total}",
+	"extDialog.ask.stepAnswered": "답함",
 	"extDialog.ask.next": "다음",
 	"extDialog.ask.back": "이전",
 	"extDialog.ask.addNote": "메모 추가",
