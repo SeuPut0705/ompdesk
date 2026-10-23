@@ -179,6 +179,7 @@ import {
 	updateStatus,
 } from "./updater";
 import { IpcRegistry } from "./web/ipc-registry";
+import { UploadStore } from "./web/uploads";
 import { WebClientWindow } from "./web/web-client-window";
 import { WebHost } from "./web/web-host";
 import { WebTabLayouts } from "./web/web-tab-layouts";
@@ -439,6 +440,13 @@ let worktreePrompts: WorktreePrompts | null = null;
 let worktreeLifecycle: WorktreeLifecycle | null = null;
 let setupService: SetupService | null = null;
 let webHost: WebHost | null = null;
+/** The phones' upload folder, also where a paired computer's attached files land; WebHost's own store once it exists. */
+let earlyUploads: UploadStore | null = null;
+function hostUploads(): UploadStore {
+	if (webHost) return webHost.uploads;
+	earlyUploads ??= new UploadStore({ root: join(app.getPath("userData"), "web-uploads") });
+	return earlyUploads;
+}
 /** Paired web devices' tab layouts, by device (pref `webTabLayouts`). */
 const webTabLayouts = new WebTabLayouts({
 	get: () => prefsStore().get("webTabLayouts"),
@@ -812,6 +820,8 @@ app.whenReady().then(() => {
 	});
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
+		// A paired computer's attached files land in the phones' upload folder (24 h); `webHost` is made later.
+		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		// `devices` is created below; a host tab only opens once it serves connections.
 		hostName: (): string => devices.deviceName(),
 		sessionIndex,

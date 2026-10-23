@@ -98,6 +98,7 @@ import { disposeTerminals, terminalRequest } from "../terminal/requests";
 import { detectShells } from "../terminal/shells";
 import type { ResumeFact, ResumeMarker, TurnResume } from "../turn-resume";
 import { dispatchedCommand, recordTurnStop, STOP_COMMANDS } from "../turn-stop-log";
+import { UploadError, type UploadStore } from "../web/uploads";
 import {
 	FS_BINARY_REMOTE_MAX_BYTES,
 	listDirectories,
@@ -119,6 +120,7 @@ import {
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
+	HostUploadParams,
 	KEPT_TABS_METHOD,
 	type KeptTab,
 	LIVE_SESSIONS_EVENT,
@@ -242,6 +244,8 @@ export interface HostServicesDeps {
 	windowLiveSessions?: () => HostLiveSession[];
 	/** This computer's Mobile web address while it serves phones (`MobileWebState.url`), else null. */
 	mobileWebUrl?: () => string | null;
+	/** Where a device's attached files land (`host.files.upload`): the phones' upload folder, same limits and lifetime. */
+	uploads?: Pick<UploadStore, "store">;
 }
 
 /** A call of the omp's that a device answers; `delivered` once a connection was handed it. */
@@ -976,6 +980,18 @@ export class LocalHostServices implements HostServices {
 			case "fs.readImage": {
 				const { rtab, cwd, ...payload } = parse(FsReadImageParams, method, params);
 				return readWorkspaceImage(this.#fsRoot(peer, rtab, cwd), payload);
+			}
+			case "host.files.upload": {
+				const { name, dataBase64 } = parse(HostUploadParams, method, params);
+				if (!this.#deps.uploads) throw codedError("unsupported", "This computer does not take attached files");
+				try {
+					const stored = await this.#deps.uploads.store(peer.deviceId, name, Buffer.from(dataBase64, "base64"));
+					return { path: stored.path };
+				} catch (error) {
+					if (error instanceof UploadError)
+						throw codedError(error.status === 413 ? "file_too_large" : "upload_refused", error.message);
+					throw error;
+				}
 			}
 			case "host.fs.readBinary": {
 				const { rtab, cwd, ...payload } = parse(FsReadParams, method, params);

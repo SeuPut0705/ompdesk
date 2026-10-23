@@ -294,6 +294,21 @@ describe("hello and calls", () => {
 		expect(uploads.take).toHaveBeenCalledWith("dev1", "/up/dev1/a/image.jpeg");
 	});
 
+	it("reads a file the page uploaded back into a send to a paired host, and refuses one it no longer holds", async () => {
+		const { frame, socket, callers, uploaded } = rig();
+		uploaded.set("/up/dev1/b/report.docx", Buffer.from("DOCX"));
+		const request = { tabId: "t1", name: "report.docx", upload: "/up/dev1/b/report.docx" };
+		frame({ t: "inv", id: 3, ch: IPC_COMMANDS.FS_UPLOAD_TO_HOST, a: [request] });
+		await vi.waitFor(() => expect(socket.frames("res")).toMatchObject([{ id: 3, ok: true }]));
+		expect(callers[0]?.args).toEqual([
+			{ tabId: "t1", name: "report.docx", data: new Uint8Array(Buffer.from("DOCX")) },
+		]);
+		frame({ t: "inv", id: 4, ch: IPC_COMMANDS.FS_UPLOAD_TO_HOST, a: [request] });
+		await vi.waitFor(() => expect(socket.frames("res")).toHaveLength(2));
+		expect(callers).toHaveLength(1);
+		expect(socket.frames("res")[1]).toMatchObject({ id: 4, ok: false, e: { code: "file_not_found" } });
+	});
+
 	it("passes inline pictures and calls without pictures on unchanged, without touching the uploads", async () => {
 		const { frame, settle, callers, uploads } = rig();
 		const inline = {

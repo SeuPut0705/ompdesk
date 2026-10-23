@@ -15,6 +15,9 @@
  *   `workspace.default`, `launchProfile.get|update`
  * - `host.fs.readBinary {rtab?, cwd?, path, maxBytes?}` → HostFsReadBinaryReply: the file
  *   viewer's bytes, base64 on the link, capped at FS_BINARY_REMOTE_MAX_BYTES by the host
+ * - `host.files.upload {name, dataBase64}` → `{path}`: a file attached to a prompt of a tab the host runs (a .docx,
+ *   a PDF: anything not inlined as text), stored in the host's upload folder (`UploadStore.store`, 24 h); an older
+ *   host answers `unsupported`
  * - Settings, Usage and Stats of a remote tab read the host's own machine
  *   (machine-services.ts): `host.models.list {}` → CustomProvidersConfig (providers + stock options),
  *   `host.models.upsert {input: CustomProviderInput}`, `host.models.delete {id}`,
@@ -81,6 +84,7 @@ import type {
 	ModelOverrideInput,
 	UpdateStatus,
 } from "../../shared/ipc-types";
+import { HOST_UPLOAD_MAX_BYTES } from "../../shared/ipc-types";
 import type { ModelSetupStatus } from "../../shared/model-setup";
 import { OMP_UPDATE_FAILURE_REASONS, type OmpUpdateState } from "../../shared/omp-update";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest } from "../../shared/rpc-types";
@@ -712,6 +716,21 @@ export const HOST_FS_READ_BINARY_TIMEOUT_MS = 60_000;
 
 /** Standard base64 (what Buffer emits); a plain character class stays linear on a 15 MB string. */
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/**
+ * A file this device attaches to a prompt of a tab the host runs (`host.files.upload`): its bytes cross the link
+ * once, base64 in one frame (`HOST_UPLOAD_MAX_BYTES`), and land in the host's upload folder, where the agent reads it
+ * by path. Text files go inline in the prompt instead and need none of this.
+ */
+export const HOST_UPLOAD_TIMEOUT_MS = 120_000;
+export const HostUploadParams = z.object({
+	name: z.string().min(1).max(1024),
+	dataBase64: z
+		.string()
+		.max(Math.ceil(HOST_UPLOAD_MAX_BYTES / 3) * 4)
+		.regex(BASE64),
+});
+export const HostUploadReply = z.object({ path: z.string().min(1) });
 
 /** `host.fs.readBinary` reply: IpcFsReadBinaryResult with `data` as base64, since the link carries JSON. */
 export const HostFsReadBinaryReply = z.object({

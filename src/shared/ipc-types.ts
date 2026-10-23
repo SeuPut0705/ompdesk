@@ -296,6 +296,7 @@ export const IPC_COMMANDS = {
 	FS_MEDIA_STREAM: "fs:media-stream",
 	/** Forget a stream URL the renderer no longer plays (send, no reply) */
 	FS_MEDIA_RELEASE: "fs:media-release",
+	FS_UPLOAD_TO_HOST: "fs:upload-to-host",
 	/** Open a session (or a fresh window) in a new parallel window with its own sidecar */
 	SESSION_OPEN_NEW_WINDOW: "session:open-new-window",
 	/** Fresh window pulls the session it was opened for (one-shot) */
@@ -1280,6 +1281,29 @@ export interface IpcFsReadBinaryResult {
 	code?: IpcErrorCode;
 }
 
+/**
+ * Largest file a prompt of a paired host's tab may carry (`host.files.upload`): its base64 must fit one link frame
+ * (16 MiB).
+ */
+export const HOST_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
+/** A file attached to a prompt of a paired host's tab (`host.files.upload`): its bytes go to that host. */
+export interface IpcFsUploadToHostPayload {
+	/** The host's tab the prompt goes to. */
+	tabId: string;
+	name: string;
+	data: Uint8Array;
+}
+
+export interface IpcFsUploadToHostResult {
+	ok: boolean;
+	/** The file's path on the host, for an `@` mention there. */
+	path?: string;
+	error?: string;
+	/** `file_too_large` past `HOST_UPLOAD_MAX_BYTES`, `upload_refused` (the host's daily limit), `unsupported` (older host). */
+	code?: IpcErrorCode;
+}
+
 export interface IpcFsMediaStreamPayload {
 	/** Visible tab whose workspace resolves relative paths. */
 	tabId?: string;
@@ -2256,6 +2280,8 @@ export interface OmpApi {
 		/** A seekable `omp-media://` URL for a local tab's audio/video file; release it when done. */
 		mediaStream(path: string, tabId?: string): Promise<IpcFsMediaStreamResult>;
 		releaseMediaStream(url: string): void;
+		/** Sends a file attached to a prompt to the paired host the tab runs on; answers its path there. */
+		uploadToHost(tabId: string, file: File): Promise<IpcFsUploadToHostResult>;
 		/**
 		 * The absolute path of a dropped, pasted or picked `File` on the computer the tab runs on; "" when it has none.
 		 * Electron answers at once (`webUtils.getPathForFile`); a web page uploads the file to the host first.

@@ -728,7 +728,12 @@ export class WsConnection {
 		const refund = dir === "invoke" ? this.#meter(channel, args, win) : null;
 		try {
 			// Synchronous unless a picture came by upload, so plain calls keep their order and timing.
-			const landed = holdsBlock(args, isWebUploadedImage) ? await this.#landUploads(args) : args;
+			const landed =
+				channel === IPC_COMMANDS.FS_UPLOAD_TO_HOST
+					? await this.#landHostUpload(args)
+					: holdsBlock(args, isWebUploadedImage)
+						? await this.#landUploads(args)
+						: args;
 			if (dir === "send") {
 				registry.send(channel, caller, this.#translate(channel, landed));
 				return undefined;
@@ -882,6 +887,21 @@ export class WsConnection {
 			});
 		});
 		return landed as unknown[];
+	}
+
+	/**
+	 * A file a page attaches to a paired host's tab came to this computer by `POST /upload` first (a frame holds 1 MB):
+	 * its bytes are read back here (`UploadStore.take`, this device's own uploads only) and go on to the host.
+	 */
+	async #landHostUpload(args: readonly unknown[]): Promise<unknown[]> {
+		const request = args[0];
+		if (typeof request !== "object" || request === null) return [...args];
+		const { upload, ...rest } = request as { upload?: unknown };
+		if (typeof upload !== "string") throw codedError("invalid_path", "No uploaded file named");
+		const bytes = await this.#router.deps.uploads.take(this.deviceId, upload).catch(() => {
+			throw codedError("file_not_found", "The file is no longer on the computer; attach it again");
+		});
+		return [{ ...rest, data: new Uint8Array(bytes) }, ...args.slice(1)];
 	}
 
 	/** `FS_MEDIA_RELEASE` names the `/blob` URL the page holds; the handler knows the `omp-media://` one. */

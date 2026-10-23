@@ -57,6 +57,8 @@ import type {
 	IpcFsReadResult,
 	IpcFsSearchResult,
 	IpcFsStatResult,
+	IpcFsUploadToHostPayload,
+	IpcFsUploadToHostResult,
 	IpcGetLaunchProfilePayload,
 	IpcGetSessionOwnerPayload,
 	IpcModelSetupRunResult,
@@ -88,6 +90,7 @@ import type {
 	SessionKind,
 } from "../shared/ipc-types";
 import {
+	HOST_UPLOAD_MAX_BYTES,
 	IPC_COMMANDS,
 	IPC_EVENTS,
 	type IpcSessionsChanged,
@@ -136,7 +139,13 @@ import { openLocalPath } from "./open-path";
 import { registerPreviewHost } from "./preview/host";
 import { createTabCheck } from "./preview/preview-check";
 import { runVisualizeTool, VISUALIZE_TOOL, VisualStore } from "./preview/visuals";
-import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, ModelOverrideInputSchema } from "./remote/app-protocol";
+import {
+	decodeBinaryRead,
+	HOST_FS_READ_BINARY_TIMEOUT_MS,
+	HOST_UPLOAD_TIMEOUT_MS,
+	HostUploadReply,
+	ModelOverrideInputSchema,
+} from "./remote/app-protocol";
 import type { RemoteDevices } from "./remote/devices";
 import type { LocalHostServices } from "./remote/host-services";
 import { hostedAutopilot } from "./remote/hosted-autopilot";
@@ -2136,6 +2145,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				);
 			}
 			return readWorkspaceBinary(cwdFor(deps, caller, payload?.tabId), request);
+		},
+	);
+
+	// A file attached to a prompt of a paired host's tab: its bytes go to that host, which answers its path there.
+	ipc.handle(
+		IPC_COMMANDS.FS_UPLOAD_TO_HOST,
+		async (caller, payload: IpcFsUploadToHostPayload): Promise<IpcFsUploadToHostResult> => {
+			const target = targetFor(deps, caller, payload?.tabId);
+			if (!target?.device) return { ok: false, error: "This tab runs on this computer", code: "invalid_path" };
+			const data = payload?.data;
+			if (!(data instanceof Uint8Array) || typeof payload?.name !== "string")
+				return { ok: false, error: "No file to send", code: "invalid_path" };
+			if (data.byteLength > HOST_UPLOAD_MAX_BYTES)
+				return { ok: false, error: "File too large to send", code: "file_too_large" };
+			return remoteFs(
+				{ ...target, device: target.device },
+				"host.files.upload",
+				{ name: payload.name, dataBase64: Buffer.from(data).toString("base64") },
+				(error, code): IpcFsUploadToHostResult => ({ ok: false, error, ...(code ? { code } : {}) }),
+				{
+					timeoutMs: HOST_UPLOAD_TIMEOUT_MS,
+					decode: raw => ({ ok: true, path: HostUploadReply.parse(raw).path }),
+				},
+			);
 		},
 	);
 

@@ -7,8 +7,9 @@
  * through markit). A web page's path is the file's upload on the computer; an
  * upload that failed is refused with its reason. A file the tab's machine
  * cannot reach by path (a remote tab, or a clipboard blob without a path)
- * falls back to its text, wrapped like a pasted attachment; anything else is
- * refused with a reason.
+ * falls back to its text, wrapped like a pasted attachment; a remote tab's
+ * binary or oversized file is sent to the computer the tab runs on and named
+ * by its path there; anything else is refused with a reason.
  */
 
 /** Stock auto-read ceiling for a mentioned text file (`MAX_AUTO_READ_TEXT_BYTES`). */
@@ -46,6 +47,11 @@ export interface ComposerFileIntakeOptions {
 	pathFor: (file: File) => string | Promise<string>;
 	/** The tab's omp runs on another device, so this machine's paths mean nothing there. */
 	remote: boolean;
+	/**
+	 * A remote tab's file that is no text to inline (a .docx, a PDF, a text over the inline cap): sends it to the
+	 * computer the tab runs on and answers its path there. Rejects with why it was not sent, in words.
+	 */
+	sendToHost?: (file: File) => Promise<string>;
 	/** The files that are folders: a drop reports one as a file of zero bytes, which is no reason to refuse it. */
 	directories?: ReadonlySet<File>;
 }
@@ -97,26 +103,40 @@ export async function intakeComposerFiles(
 			intake.images.push(file);
 			continue;
 		}
-		let path: string;
-		try {
-			path = options.remote ? "" : await options.pathFor(file);
-		} catch (error) {
+		const mention = (path: string): void => {
+			const token = fileMentionFor(path, options.cwd);
+			// The same file twice in one drop or pick is one mention.
+			if (seen[token]) intake.duplicates++;
+			else intake.mentions.push(token);
+			seen[token] = true;
+		};
+		const notSent = (error: unknown): void => {
 			intake.rejected.push({
 				name: file.name,
 				reason: "notSent",
 				message: error instanceof Error ? error.message : String(error),
 			});
+		};
+		let path: string;
+		try {
+			path = options.remote ? "" : await options.pathFor(file);
+		} catch (error) {
+			notSent(error);
 			continue;
 		}
 		if (path) {
-			const mention = fileMentionFor(path, options.cwd);
-			// The same file twice in one drop or pick is one mention.
-			if (seen[mention]) intake.duplicates++;
-			else intake.mentions.push(mention);
-			seen[mention] = true;
+			mention(path);
 			continue;
 		}
 		const text = await readText(file);
+		if ((text === "binary" || text === "tooLarge") && options.remote && options.sendToHost) {
+			try {
+				mention(await options.sendToHost(file));
+			} catch (error) {
+				notSent(error);
+			}
+			continue;
+		}
 		if (text === "empty" || text === "tooLarge" || text === "binary" || text === "unreadable")
 			intake.rejected.push({ name: file.name, reason: text });
 		else intake.texts.push({ name: file.name, content: text });

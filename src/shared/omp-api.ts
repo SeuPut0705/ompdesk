@@ -55,6 +55,7 @@ import type {
 	IpcFsReadPlanPayload,
 	IpcFsReadPlanResult,
 	IpcFsReadResult,
+	IpcFsUploadToHostResult,
 	IpcHostedSession,
 	IpcHostOmpUpdate,
 	IpcHostSchedules,
@@ -725,6 +726,12 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			mediaStream: (path: string, tabId?: string) =>
 				transport.invoke(IPC_COMMANDS.FS_MEDIA_STREAM, { path, tabId }) as Promise<IpcFsMediaStreamResult>,
 			releaseMediaStream: (url: string) => transport.send(IPC_COMMANDS.FS_MEDIA_RELEASE, url),
+			uploadToHost: async (tabId: string, file: File) =>
+				transport.invoke(IPC_COMMANDS.FS_UPLOAD_TO_HOST, {
+					tabId,
+					name: file.name,
+					data: new Uint8Array(await file.arrayBuffer()),
+				}) as Promise<IpcFsUploadToHostResult>,
 		},
 
 		editor: {

@@ -37,6 +37,8 @@ export const IPC_ERROR_CODES = [
 	"image_too_large",
 	"unsupported_image",
 	"file_too_large",
+	// A paired host refused a file attached to a prompt there (its daily upload limit, an empty file).
+	"upload_refused",
 	"path_escapes_roots",
 	"unknown_tab",
 	"no_window",

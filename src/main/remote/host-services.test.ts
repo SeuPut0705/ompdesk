@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +43,7 @@ import type { MachineServices } from "../machine-services";
 import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { setTurnStopLog } from "../turn-stop-log";
+import { UploadError, UploadStore } from "../web/uploads";
 import { FS_BINARY_REMOTE_MAX_BYTES } from "../workspace-fs";
 import { withRemovalClaim } from "../worktree-removals";
 import {
@@ -1858,6 +1859,43 @@ describe("LocalHostServices", () => {
 		await expect(services.call(x.peer, "tab.open", { rtab: "t", cwd: "relative", fresh: true }, x)).rejects.toThrow();
 		const unknown = await services.call(x.peer, "shell.exec", {}, x).catch((error: unknown) => error);
 		expect(ipcErrorCode(unknown)).toBe("unsupported");
+	});
+
+	it("keeps a file a device attaches in its own upload folder and answers the path, refusing as the store does", async () => {
+		const root = mkdtempSync(join(tmpdir(), "host-uploads-"));
+		try {
+			const { services } = setup(60_000, { uploads: new UploadStore({ root }) });
+			const x = new FakeConnection(peer("device-x"));
+			const bytes = Buffer.from([80, 75, 3, 4, 0, 1, 2]);
+			const { path } = (await services.call(
+				x.peer,
+				"host.files.upload",
+				{ name: "계약서 수정.docx", dataBase64: bytes.toString("base64"), rtab: "t", cwd: workDir },
+				x,
+			)) as { path: string };
+			expect(path.startsWith(join(root, "device-x"))).toBe(true);
+			expect(path.endsWith("계약서 수정.docx")).toBe(true);
+			expect(readFileSync(path)).toEqual(bytes);
+
+			const full = setup(60_000, {
+				uploads: {
+					store: async () => {
+						throw new UploadError(413, "too large");
+					},
+				},
+			});
+			const tooLarge = await full.services
+				.call(x.peer, "host.files.upload", { name: "a.pdf", dataBase64: "AA==" }, x)
+				.catch((error: unknown) => error);
+			expect(ipcErrorCode(tooLarge)).toBe("file_too_large");
+
+			const older = await setup()
+				.services.call(x.peer, "host.files.upload", { name: "a.pdf", dataBase64: "AA==" }, x)
+				.catch((error: unknown) => error);
+			expect(ipcErrorCode(older)).toBe("unsupported");
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("preserves tail direction, page size and backward cursor for remote transcript commands", async () => {

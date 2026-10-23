@@ -82,6 +82,31 @@ describe("intakeComposerFiles", () => {
 		expect(intake.rejected).toEqual([{ name: "spec.pdf", reason: "binary" }]);
 	});
 
+	it("sends a remote tab's binary file to the computer the tab runs on and mentions its path there", async () => {
+		const code = new File(["const a = 1;\n"], "a.ts");
+		const docx = new File([new Uint8Array([80, 75, 3, 4, 0])], "계약서 수정.docx");
+		const pdf = new File([new Uint8Array([37, 80, 68, 70, 0])], "spec.pdf", { type: "application/pdf" });
+		const sent: string[] = [];
+		const intake = await intakeComposerFiles([code, docx, pdf], {
+			...local({}),
+			cwd: "C:\\Users\\admin\\repo",
+			remote: true,
+			sendToHost: async file => {
+				sent.push(file.name);
+				if (file.name === "spec.pdf") throw new Error("spec.pdf is too large to send to Windows PC (up to 10 MB).");
+				return `C:\\Users\\admin\\AppData\\Roaming\\ompdesk\\web-uploads\\mac\\1\\${file.name}`;
+			},
+		});
+		expect(sent).toEqual(["계약서 수정.docx", "spec.pdf"]);
+		expect(intake.texts).toEqual([{ name: "a.ts", content: "const a = 1;\n" }]);
+		expect(intake.mentions).toEqual([
+			'@"C:\\Users\\admin\\AppData\\Roaming\\ompdesk\\web-uploads\\mac\\1\\계약서 수정.docx"',
+		]);
+		expect(intake.rejected).toEqual([
+			{ name: "spec.pdf", reason: "notSent", message: "spec.pdf is too large to send to Windows PC (up to 10 MB)." },
+		]);
+	});
+
 	it("refuses a file whose upload failed with why, and never inlines it instead (a web page)", async () => {
 		const notes = new File(["hello\n"], "notes.txt", { type: "text/plain" });
 		const pdf = new File([new Uint8Array([37, 80, 68, 70])], "spec.pdf", { type: "application/pdf" });

@@ -17,7 +17,13 @@ import {
 	type DiagnosticBundleRequest,
 	type DiagnosticBundleResult,
 } from "../../shared/diagnostic-bundle";
-import { IPC_COMMANDS, IPC_EVENTS, type IpcFsReadBinaryResult, type OmpApi } from "../../shared/ipc-types";
+import {
+	IPC_COMMANDS,
+	IPC_EVENTS,
+	type IpcFsReadBinaryResult,
+	type IpcFsUploadToHostResult,
+	type OmpApi,
+} from "../../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../../shared/omp-api";
 import { PREVIEW_SAVE_PDF, PREVIEW_STREAM_PDF } from "../../shared/preview";
 import {
@@ -431,7 +437,15 @@ export function createWebOmp(env: ShimEnv): WebOmp {
 	};
 
 	const shared = createOmpApi(shimTransport);
-	const api: OmpApi = { ...shared, fs: { ...shared.fs, pathForFile } };
+	/**
+	 * `fs.uploadToHost`: a frame holds 1 MB, so the file goes to this computer by `POST /upload` first and the
+	 * call names that upload; the computer sends its bytes on to the paired host.
+	 */
+	const uploadToHost = async (tabId: string, file: File): Promise<IpcFsUploadToHostResult> => {
+		const upload = await pathForFile(file);
+		return transport.invoke<IpcFsUploadToHostResult>(C.FS_UPLOAD_TO_HOST, { tabId, name: file.name, upload });
+	};
+	const api: OmpApi = { ...shared, fs: { ...shared.fs, pathForFile, uploadToHost } };
 
 	return {
 		api,

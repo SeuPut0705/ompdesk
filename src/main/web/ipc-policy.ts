@@ -298,6 +298,12 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	},
 	[C.FS_MEDIA_STREAM]: { dir: "invoke", permission: "workspace", mode: "web", web: "A /blob URL with range requests" },
 	[C.FS_MEDIA_RELEASE]: { dir: "send", permission: "workspace", mode: "web", web: "Releases the /blob URL" },
+	[C.FS_UPLOAD_TO_HOST]: {
+		dir: "invoke",
+		permission: "workspace",
+		mode: "web",
+		web: "The page uploads the file to this computer first (POST /upload); the router reads it back and sends it on",
+	},
 	"terminal:shells": { dir: "invoke", permission: "workspace", mode: "pass" },
 	"terminal:request": {
 		dir: "invoke",

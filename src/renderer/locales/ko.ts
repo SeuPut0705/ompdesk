@@ -474,7 +474,10 @@ export const ko: Record<string, string> = {
 	"input.files.tooLarge": "{name} 파일이 5MB를 넘어서 내용을 첨부하지 않았어요.",
 	"input.files.noPath": "{name} 파일은 이 컴퓨터의 경로가 없어요. 폴더에 저장한 뒤 첨부해 주세요.",
 	"input.files.remoteBinary":
-		"{name} 파일은 다른 기기로 보낼 수 없어요. 다른 기기에서 실행 중인 탭에는 이미지와 텍스트 파일만 첨부할 수 있어요.",
+		"{name} 파일을 {device} 컴퓨터로 보낼 수 없어요. 그쪽 OMPdesk가 오래돼 파일을 받지 못해요. 업데이트한 뒤 다시 첨부해 주세요.",
+	"input.files.hostTooLarge": "{name} 파일은 {device} 컴퓨터로 보내기엔 너무 커요(최대 {size}).",
+	"input.files.hostRefused": "{device} 컴퓨터가 {name} 파일을 받지 않았어요. 잠시 뒤 다시 해 주세요.",
+	"input.files.hostFailed": "{name} 파일을 {device} 컴퓨터로 보내지 못했어요: {reason}",
 	"input.files.unreadable": "{name} 파일을 읽지 못했어요.",
 	"input.files.sending": "{name} 파일을 컴퓨터로 보내는 중…",
 	"input.files.sendingList": "컴퓨터로 보내는 중인 파일",

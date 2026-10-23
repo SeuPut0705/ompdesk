@@ -5,11 +5,14 @@
 import type { ChangeEvent, RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { extractFileMentions } from "../../../../shared/file-mentions";
+import { HOST_UPLOAD_MAX_BYTES } from "../../../../shared/ipc-types";
 import { FILE_DRAG_TYPE, readFileDrag } from "../../../lib/file-drag";
 import { trackFilePick } from "../../../lib/file-pick";
+import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { pasteMarkerText, storePaste } from "../../../lib/paste-blobs";
 import type { ComposerImage } from "../../../stores/composer";
+import { useHostView } from "../../../stores/remote";
 import { toast } from "../../../stores/toast";
 import { fileTextAttachment, intakeComposerFiles } from "./composer-files";
 import { fileToImage } from "./input-area-utils";
@@ -73,6 +76,30 @@ export function useComposerAttach({
 	const [sendingFiles, setSendingFiles] = useState<SendingFile[]>([]);
 	const sendingFileId = useRef(0);
 	const [dragActive, setDragActive] = useState(false);
+	const hostName = useHostView(historyDevice)?.name ?? historyDevice ?? "";
+
+	/** Shows a file's chip while `sending` runs, whatever it ends with. */
+	const withSendingChip = <T>(name: string, sending: Promise<T>): Promise<T> => {
+		const id = ++sendingFileId.current;
+		setSendingFiles(previous => [...previous, { id, name }]);
+		return sending.finally(() => {
+			if (mountedRef.current) setSendingFiles(previous => previous.filter(entry => entry.id !== id));
+		});
+	};
+
+	/** A remote tab's .docx, PDF or large file goes to the computer the tab runs on; its path there is the mention. */
+	const sendToHost = async (file: File): Promise<string> => {
+		const reason = (key: Parameters<typeof t>[0], extra: Record<string, string> = {}) =>
+			new Error(t(key, { name: file.name, device: hostName, size: formatBytes(HOST_UPLOAD_MAX_BYTES), ...extra }));
+		if (!runtimeTabId) throw reason("input.files.hostFailed", { reason: "no tab" });
+		if (file.size > HOST_UPLOAD_MAX_BYTES) throw reason("input.files.hostTooLarge");
+		const result = await withSendingChip(file.name, window.omp.fs.uploadToHost(runtimeTabId, file));
+		if (result.ok && result.path) return result.path;
+		if (result.code === "file_too_large") throw reason("input.files.hostTooLarge");
+		if (result.code === "upload_refused") throw reason("input.files.hostRefused");
+		if (result.code === "unsupported") throw reason("input.files.remoteBinary");
+		throw reason("input.files.hostFailed", { reason: result.error ?? "" });
+	};
 
 	/**
 	 * Picker, drop and clipboard files (composer-files.ts): images attach, other
@@ -92,14 +119,10 @@ export function useComposerAttach({
 				pathFor: file => {
 					const path = window.omp.fs.pathForFile(file);
 					// This machine's own path answers at once; an upload shows its chip until it lands.
-					if (typeof path === "string") return path;
-					const id = ++sendingFileId.current;
-					setSendingFiles(previous => [...previous, { id, name: file.name }]);
-					return path.finally(() => {
-						if (mountedRef.current) setSendingFiles(previous => previous.filter(entry => entry.id !== id));
-					});
+					return typeof path === "string" ? path : withSendingChip(file.name, path);
 				},
 				remote: historyDevice !== undefined,
+				sendToHost,
 				directories: options?.directories,
 			});
 			if (!mountedRef.current) return;
@@ -118,7 +141,7 @@ export function useComposerAttach({
 			const reasons = {
 				empty: "input.files.empty",
 				tooLarge: "input.files.tooLarge",
-				binary: historyDevice === undefined ? "input.files.noPath" : "input.files.remoteBinary",
+				binary: "input.files.noPath",
 				unreadable: "input.files.unreadable",
 			} as const;
 			for (const rejection of intake.rejected) {

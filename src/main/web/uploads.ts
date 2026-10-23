@@ -96,17 +96,40 @@ export class UploadStore {
 			if (!(file instanceof File)) throw new UploadError(400, "missing file field");
 			if (file.size > this.#fileMax) throw new UploadError(413, "file too large");
 			if (file.size > room) throw new UploadError(429, "daily upload limit reached");
-			const name = safeUploadName(file.name);
-			const folder = join(this.#root, deviceId, randomUUID());
-			await mkdir(folder, { recursive: true, mode: 0o700 });
-			const target = join(folder, name);
-			await writeFile(target, new Uint8Array(await file.arrayBuffer()), { mode: 0o600 });
-			return { path: target, name, size: file.size };
+			return await this.#write(deviceId, file.name, new Uint8Array(await file.arrayBuffer()));
 		} finally {
 			const left = (this.#pending.get(deviceId) ?? 0) - reserve;
 			if (left > 0) this.#pending.set(deviceId, left);
 			else this.#pending.delete(deviceId);
 		}
+	}
+
+	/**
+	 * A file a paired computer attached to a prompt of a tab it runs here (`host.files.upload`): the same folder,
+	 * limits and lifetime as a phone's upload, so the agent reads it by its path here.
+	 */
+	async store(deviceId: string, name: string, bytes: Uint8Array): Promise<StoredUpload> {
+		if (bytes.byteLength === 0) throw new UploadError(400, "empty file");
+		if (bytes.byteLength > this.#fileMax) throw new UploadError(413, "file too large");
+		const used = (await this.#liveBytes(deviceId)) + (this.#pending.get(deviceId) ?? 0);
+		if (bytes.byteLength > this.#dailyMax - used) throw new UploadError(429, "daily upload limit reached");
+		this.#pending.set(deviceId, (this.#pending.get(deviceId) ?? 0) + bytes.byteLength);
+		try {
+			return await this.#write(deviceId, name, bytes);
+		} finally {
+			const left = (this.#pending.get(deviceId) ?? 0) - bytes.byteLength;
+			if (left > 0) this.#pending.set(deviceId, left);
+			else this.#pending.delete(deviceId);
+		}
+	}
+
+	async #write(deviceId: string, rawName: string, bytes: Uint8Array): Promise<StoredUpload> {
+		const name = safeUploadName(rawName);
+		const folder = join(this.#root, deviceId, randomUUID());
+		await mkdir(folder, { recursive: true, mode: 0o700 });
+		const target = join(folder, name);
+		await writeFile(target, bytes, { mode: 0o600 });
+		return { path: target, name, size: bytes.byteLength };
 	}
 
 	/**

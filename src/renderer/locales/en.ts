@@ -483,7 +483,10 @@ export const en: Record<string, string> = {
 	"input.files.tooLarge": "{name} is over 5 MB, so its text wasn't attached.",
 	"input.files.noPath": "{name} has no file path on this computer. Save it to a folder first, then attach it.",
 	"input.files.remoteBinary":
-		"{name} can't be sent to the other device. A tab running elsewhere only takes images and text files.",
+		"{name} can't be sent to {device}: its OMPdesk is too old to take files. Update OMPdesk there, then attach it again.",
+	"input.files.hostTooLarge": "{name} is too large to send to {device} (up to {size}).",
+	"input.files.hostRefused": "{device} didn't take {name}. Try again later.",
+	"input.files.hostFailed": "Couldn't send {name} to {device}: {reason}",
 	"input.files.unreadable": "Couldn't read {name}.",
 	"input.files.sending": "Sending {name} to your computer…",
 	"input.files.sendingList": "Files on their way to your computer",
