@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.61.27] - 2026-10-23
+
+오토파일럿 세션 이름이 지금 하는 일을 말하고, 검색 칸에서 키보드로 바로 결과에 가요.
+
+### 새 기능
+- 오토파일럿 실행의 세션 이름이 '오토파일럿 · 폴더' 대신 지금 사이클이 하는 일로 바뀌어요. 사이클마다 새로 붙고, 직접 바꾼 이름은 그대로 둬요. 오토파일럿이라는 표시는 타이틀바와 분할 창 머리의 로켓 아이콘이 해요.
+- 사이드바의 '세션 찾기'에서 ↓를 누르면 목록으로, Enter를 누르면 걸러진 첫 세션으로 가요. 페어한 컴퓨터의 세션도 포함해요.
+- 설정 검색에서 Enter를 누르면 첫 결과가 열리고, ↓를 누르면 결과 목록으로 가요.
+
+### 고친 것
+- 앱이 다시 시작된 뒤 이어진 오토파일럿 실행도 사이클마다 세션 이름을 바꿔요.
+- Changes 패널의 브랜치 고르기에서 이름 일부를 치고 Enter를 누르면 그 글자로 새 브랜치를 만들던 문제를 고쳤어요. 이제 일치하는 브랜치로 가고, 화살표로 브랜치 사이를 오가요. 새로 만들기는 일치하는 브랜치가 없을 때만 해요.
+- 작업 카드의 테스트 칩을 스크린 리더가 '테스트 128개 통과'로 읽어요. 전에는 통과했다는 사실이 ✓ 그림에만 있었어요.
+
+<!-- en -->
+
+An Autopilot session is named after what it is doing now, and search fields take you to their results by keyboard.
+
+### New
+- An Autopilot run's session is named after the work of the cycle at hand, renamed each cycle, instead of "Autopilot · folder"; a name you typed stays. The rocket in the title bar and the split pane's header says it is a run.
+- In the sidebar's Find sessions, ↓ goes to the list and Enter to the first session it shows, a paired computer's sessions included.
+- In the settings search, Enter opens the first result and ↓ goes to the results.
+
+### Fixed
+- An Autopilot run that resumed after the app restarted goes on naming its session after each cycle.
+- In the Changes panel's branch picker, typing part of a name and pressing Enter created a branch with that name; it now goes to the matching branch, the arrows walk the branches, and Enter creates only when nothing matches.
+- A screen reader reads the work card's tests chip as "128 tests passed"; the pass was only in its check mark.
+
 ## [0.61.26] - 2026-10-23
 
 스크린 리더가 하나만 고르는 버튼을 바르게 읽고, 영어 화면의 개수 문구를 마저 다듬었어요.
