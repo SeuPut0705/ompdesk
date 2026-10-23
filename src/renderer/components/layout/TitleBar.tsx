@@ -313,6 +313,8 @@ export function TitleBar() {
 	};
 
 	const working = isStreaming || isCompacting;
+	// Another omp still holds the session: the tab opens it by itself, a wait like connecting, not a failure.
+	const sessionHeld = useSessionStore(s => s.sidecarHeld);
 	const [tone, statusLabel]: [StatusTone, string] = unpaired
 		? ["error", t("remote.tab.statusRemoved")]
 		: reconnecting
@@ -329,9 +331,11 @@ export function TitleBar() {
 								? ["pending", t("titlebar.status.waiting")]
 								: status === "restarting"
 									? ["pending", t("titlebar.status.restarting")]
-									: status === "error" || status === "exited"
-										? ["error", t(`titlebar.status.${status}`)]
-										: ["ready", t(`titlebar.status.${status}`)];
+									: status === "error" && sessionHeld
+										? ["pending", t("titlebar.status.sessionHeld")]
+										: status === "error" || status === "exited"
+											? ["error", t(`titlebar.status.${status}`)]
+											: ["ready", t(`titlebar.status.${status}`)];
 
 	const ui = useUiStore.getState;
 	const sessionMenuItems: ContextMenuItem[] = [

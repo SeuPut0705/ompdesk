@@ -8,7 +8,7 @@
 
 const SOURCE = /^(?:src|e2e|resources|scripts)\//;
 const ROOT_CONFIG =
-	/^(?:[^/]+\.config\.[cm]?ts|tsconfig[^/]*\.json|package\.json|bun\.lock|bunfig\.toml|biome\.jsonc?)$/;
+	/^(?:[^/]+\.config\.[cm]?ts|vitest[^/]*\.[cm]?ts|tsconfig[^/]*\.json|package\.json|bun\.lock|bunfig\.toml|biome\.jsonc?)$/;
 /** Root files the build reads (`scripts/build-cache.ts` hashes these too). */
 const BUILD_INPUT = /^(?:electron\.vite\.config\.ts|tsconfig[^/]*\.json|package\.json|bun\.lock)$/;
 /** Root files that decide which tests vitest runs and with what. */

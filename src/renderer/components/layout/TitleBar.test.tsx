@@ -9,7 +9,7 @@ import { I18nProvider, translate } from "../../lib/i18n";
 import type { ExtensionUiStore } from "../../stores/extension-ui";
 import { useMessagesStore } from "../../stores/messages";
 import { useRemoteStore } from "../../stores/remote";
-import { useSessionStore } from "../../stores/session";
+import { type SessionStore, useSessionStore } from "../../stores/session";
 import {
 	deleteSessionRuntime,
 	SessionRuntimeProvider,
@@ -540,6 +540,24 @@ describe("TitleBar", () => {
 		});
 		expect(container.textContent).toContain(translate("remote.tab.statusRemoved"));
 		expect(container.textContent).not.toContain(translate("remote.tab.statusReconnecting"));
+		deleteSessionRuntime("t1");
+	});
+
+	it("shows a session another omp still holds as a wait, not an error", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/tmp/project", status: "error", kind: "agent", unreadDone: false }],
+			activeTabId: "t1",
+		});
+		await mount("t1");
+		const session = sessionRuntimeStore<SessionStore>("t1", "session");
+		await act(async () => {
+			session?.getState().setStatus("error", "/tmp/project");
+			session?.getState().setSidecarError("still open in another omp", null, true);
+		});
+		expect(container.textContent).toContain(translate("titlebar.status.sessionHeld"));
+		expect(container.textContent).not.toContain(translate("titlebar.status.error"));
+		await act(async () => session?.getState().setSidecarError("crashed", null, false));
+		expect(container.textContent).toContain(translate("titlebar.status.error"));
 		deleteSessionRuntime("t1");
 	});
 });
