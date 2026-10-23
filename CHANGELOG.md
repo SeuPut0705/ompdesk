@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.61.29] - 2026-10-23
+
+여러 질문 카드에서 답한 단계를 스크린 리더도 알려 줘요. 배포되지 못한 0.61.28의 내용(오토파일럿 로켓 아이콘, 시스템 언어로 답하기)도 이 버전에 들어 있어요.
+
+### 고친 것
+- 질문이 여러 개인 카드의 단계 칩에서, 답한 단계는 ✓ 그림으로만 보여 스크린 리더는 어느 질문에 답했는지 알 수 없었어요. 이제 칩 이름에 '답함'이 함께 읽혀요.
+
+<!-- en -->
+
+Screen readers now say which steps of a multi-question card you answered. This version also carries 0.61.28, whose release did not go out (Autopilot's rocket icon, answers in your language).
+
+### Fixed
+- A multi-question card's step chips showed an answered step only as a check mark, so a screen reader could not tell which questions were answered; the chip's name now says "answered".
+
 ## [0.61.28] - 2026-10-23
 
 오토파일럿은 글자 대신 로켓 아이콘으로 보이고, 시스템 언어로 답해요.
