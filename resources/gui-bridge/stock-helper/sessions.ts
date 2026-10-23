@@ -105,6 +105,21 @@ function paths(params: unknown): { sessionsRoot: string; sessionPath?: string } 
 	return { sessionsRoot, sessionPath };
 }
 
+/** The session id in a journal's header line (stock keys the ownership lease by it); undefined when unreadable. */
+async function sessionHeaderId(sessionPath: string): Promise<string | undefined> {
+	const head = await Bun.file(sessionPath)
+		.slice(0, 64 * 1024)
+		.text()
+		.catch(() => "");
+	const line = head.split("\n", 1)[0] ?? "";
+	try {
+		const entry: unknown = JSON.parse(line);
+		if (typeof entry === "object" && entry !== null && "type" in entry && entry.type === "session" && "id" in entry)
+			return typeof entry.id === "string" ? entry.id : undefined;
+	} catch {}
+	return undefined;
+}
+
 /** Stock session-listing's placeholder when its bounded prefix scan finds no first prompt. */
 const NO_MESSAGES = "(no messages)";
 /** First message of a session that has conversation but no prompt text (e.g. an image-only prompt). */
@@ -303,6 +318,25 @@ export const methods: Record<string, (params: unknown) => Promise<unknown>> = {
 		} finally {
 			await manager.close();
 		}
+	},
+	/**
+	 * Whether another live omp process owns the session (stock's ownership lease, `tryAcquireSessionLease`, keyed by
+	 * the journal header's id). An omp that opens a session owned elsewhere moves it to a new file, so main waits for
+	 * the owner to let go before it starts one on it (an update's relaunch while the last launch's omp still exits).
+	 * Probing takes the lease for an instant and releases it before answering.
+	 */
+	"sessions.owned": async params => {
+		const { sessionPath } = paths(params);
+		if (!sessionPath) throw new Error("Invalid session path");
+		const id = await sessionHeaderId(sessionPath);
+		if (!id) return false;
+		const storage = await importFromOmp("@oh-my-pi/pi-coding-agent/session/session-storage");
+		const tryAcquire = storage.tryAcquireSessionLease;
+		if (typeof tryAcquire !== "function") return false;
+		const lease = (tryAcquire as (sessionId: string) => { release(): void } | null)(id);
+		if (!lease) return true;
+		lease.release();
+		return false;
 	},
 	/**
 	 * A stored session's transcript, read-only: stock `loadSessionMessagesReadOnly` (no writer, no lock, safe against a

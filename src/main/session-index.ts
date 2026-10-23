@@ -207,6 +207,14 @@ export class SessionIndex {
 	}
 
 	/** A stored session's transcript, read-only (the control tools' `ompdesk_session_read` of a session no tab holds). */
+	/** Whether another live omp process owns this computer's stored session (stock's ownership lease). */
+	async ownedElsewhere(sessionPath: string): Promise<boolean> {
+		const target = resolve(sessionPath);
+		const root = `${resolve(this.#sessionsDir)}${sep}`;
+		if (!target.startsWith(root) || !target.endsWith(".jsonl")) return false;
+		return this.#store.owned(target);
+	}
+
 	async readMessages(sessionPath: string): Promise<AgentMessage[]> {
 		const target = resolve(sessionPath);
 		const root = `${resolve(this.#sessionsDir)}${sep}`;

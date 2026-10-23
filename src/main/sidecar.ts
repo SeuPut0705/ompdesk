@@ -263,6 +263,11 @@ export interface SidecarOptions {
 	 */
 	shellEnv?: () => Promise<Record<string, string>>;
 	/**
+	 * Waits until no other live omp owns the stored session this start opens (session-free.ts): one that still owns it
+	 * would make the new omp move the session to another file. Absent (tests): no wait.
+	 */
+	sessionFree?: (sessionPath: string) => Promise<unknown>;
+	/**
 	 * The reply language's English name (`Korean`; the Settings choice, else the
 	 * device language), passed to omp as `OMP_GUI_REPLY_LANGUAGE` for the
 	 * gui-bridge's reply-language instruction. Same point-of-use pattern as
@@ -548,6 +553,9 @@ export class SidecarManager extends EventEmitter {
 			proxyEnv ? proxyEnv().catch(fallback) : Promise.resolve({}),
 			shellEnv ? shellEnv().catch(fallback) : Promise.resolve({}),
 			this.#options.builtinMcp?.().catch(() => ({ args: [] })) ?? Promise.resolve({ args: [] }),
+			this.#resumeSessionPath && this.#options.sessionFree
+				? this.#options.sessionFree(this.#resumeSessionPath).catch(() => undefined)
+				: undefined,
 		]).then(([resolution, proxyVars, shellVars, builtinMcp]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
 			if (!resolution.ok) {

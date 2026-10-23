@@ -140,6 +140,7 @@ import { migrateRetiredPrefs } from "./retired-prefs";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { layoutsToSave } from "./saved-layouts";
 import { ompRunLauncher, ScheduleService } from "./schedules";
+import { whenSessionFree } from "./session-free";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { setSessionDeleteLog } from "./session-mutations";
@@ -719,6 +720,19 @@ app.whenReady().then(() => {
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
+		sessionFree: async sessionPath => {
+			const started = Date.now();
+			const outcome = await whenSessionFree(sessionPath, { owned: path => sessionIndex.ownedElsewhere(path) });
+			if (outcome === "timeout" || Date.now() - started > 1_000)
+				writeRuntimeLog({
+					source: "session-owner",
+					message:
+						outcome === "timeout"
+							? "session still owned elsewhere; opening anyway"
+							: "waited for the session's owner",
+					details: { level: "info", session: basename(sessionPath), waitedMs: Date.now() - started },
+				});
+		},
 		builtinReaPref: () => prefsStore().get(REA_PREF),
 		agentControlPref: () => prefsStore().get(AGENT_CONTROL_PREF),
 		pstackPref: () => prefsStore().get(PSTACK_PREF),

@@ -552,6 +552,11 @@ export type RuntimeErrorSource =
 	| "settle-watch"
 	/** An omp sidecar that exited and is restarting (src/main/sidecar-factory.ts): `message` is the reason, `details` the attempt and stderr. */
 	| "sidecar-restart"
+	/**
+	 * A start that waited for another live omp to let go of its session (src/main/session-free.ts): `message` says
+	 * whether it was let go or the wait ran out, `details` the session file's name and the wait.
+	 */
+	| "session-owner"
 	/** A goal's time-limit update that failed (src/main/sidecar-factory.ts): `message` is the error. */
 	| "goal-time-limit"
 	/** A bridge call that was slow or timed out (src/main/local/slow-bridge-call.ts): `details` is where the time went. */

@@ -49,6 +49,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"memory-sync": true,
 	"settle-watch": true,
 	"sidecar-restart": true,
+	"session-owner": true,
 	"goal-time-limit": true,
 	"slow-bridge-call": true,
 	unknown: true,

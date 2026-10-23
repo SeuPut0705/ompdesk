@@ -215,6 +215,43 @@ describe("SidecarManager", () => {
 		}
 	});
 
+	it("opens a stored session only once no other omp owns it, so the session never moves to a new file", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-owned-"));
+		const logPath = path.join(tempDir, "argv.json");
+		const sessionPath = path.join(tempDir, "s.jsonl");
+		await fs.writeFile(sessionPath, "{}\n");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+		);
+		let letGo = (): void => {};
+		const released = new Promise<void>(resolve => {
+			letGo = resolve;
+		});
+		const waited: string[] = [];
+		const sidecar = new SidecarManager({
+			omp: ompAt(binaryPath),
+			cwd: tempDir,
+			sessionFree: async file => {
+				waited.push(file);
+				await released;
+			},
+		});
+		try {
+			const ready = waitForReady(sidecar);
+			sidecar.restart(undefined, sessionPath);
+			await new Promise(resolve => setTimeout(resolve, 300));
+			expect(waited).toEqual([sessionPath]);
+			await expect(fs.access(logPath)).rejects.toThrow();
+			letGo();
+			await ready;
+			expect(JSON.parse(await fs.readFile(logPath, "utf8"))).toContain(sessionPath);
+		} finally {
+			sidecar.dispose();
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+
 	it("routes prompt results, settled state, and text-mode command output as dedicated frames", async () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-output-"));
 		const binaryPath = await writeFakeOmp(

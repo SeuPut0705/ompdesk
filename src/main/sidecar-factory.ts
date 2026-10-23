@@ -31,6 +31,8 @@ import { SidecarManager } from "./sidecar";
 import { markStartup } from "./startup-timing";
 
 export interface LocalSidecarDeps {
+	/** Waits until no other live omp owns a stored session a start opens (session-free.ts). */
+	sessionFree?: (sessionPath: string) => Promise<unknown>;
 	/** The gui-bridge extension directory. */
 	bridgeDir: string;
 	/** OMPdesk's own extension root (`resources/omp-builtin`): the control tools' skill; REA is its `rea/` sub-root. */
@@ -156,6 +158,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			promptOrigin: origin,
 			proxyEnv: deps.proxyEnv,
 			shellEnv: shellSpawnEnv,
+			...(deps.sessionFree ? { sessionFree: deps.sessionFree } : {}),
 			replyLanguage: () => resolveReplyLanguage(deps.replyLanguagePref(), replyLanguageName(deviceLanguage())),
 			userProfile: () => normalizeUserProfile(deps.userProfilePref()),
 			nextPrompt: deps.nextPromptPrefs,
