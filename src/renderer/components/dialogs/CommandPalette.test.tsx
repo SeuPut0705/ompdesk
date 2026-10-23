@@ -298,6 +298,13 @@ describe("row execution", () => {
 		expect(useUiStore.getState().commandPaletteOpen).toBe(true);
 		// The top level is replaced by the submenu's own rows.
 		expect(rows().some(row => row.textContent?.includes(translate("cmd.plan")))).toBe(false);
+		// The chip naming the submenu steps back to the root list.
+		const back = palette().querySelector(
+			`button[aria-label="${translate("palette.hintBack")}: ${translate("cmd.security")}"]`,
+		);
+		if (!back) throw new Error("missing the submenu's back chip");
+		await click(back);
+		expect(rows().some(row => row.textContent?.includes(translate("cmd.plan")))).toBe(true);
 	});
 });
 

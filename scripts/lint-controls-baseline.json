@@ -17,7 +17,6 @@
 	"components/chat/work/WorkNotes.tsx": 1,
 	"components/chat/work/WorkOutcome.tsx": 1,
 	"components/dialogs/BenchmarkDialog.tsx": 1,
-	"components/dialogs/CommandPalette.tsx": 1,
 	"components/dialogs/CopySelectorDialog.tsx": 1,
 	"components/dialogs/DebugConsoleDialog.tsx": 1,
 	"components/dialogs/ExtensionDialog.tsx": 1,

@@ -557,15 +557,16 @@ export function CommandPalette() {
 			<div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
 				<div className="flex items-center gap-2.5 border-b border-(--sc-divider) p-4">
 					{submenu && (
-						<button
+						<Button
 							aria-label={`${t("palette.hintBack")}: ${submenu.label}`}
-							className="flex shrink-0 items-center gap-1 rounded-(--sc-radius-sm) px-1.5 py-0.5 text-sc-sm font-medium text-(--sc-accent) hover:bg-(--sc-hover)"
+							className="gap-1 px-1.5 text-(--sc-accent) hover:text-(--sc-accent)"
+							icon={<X aria-hidden />}
 							onClick={leaveSubmenu}
-							type="button"
+							size="sm"
+							variant="ghost"
 						>
-							<X aria-hidden className="size-(--sc-icon-sm)" />
 							{submenu.label}
-						</button>
+						</Button>
 					)}
 					<div className="min-w-0 flex-1">
 						<SearchField
