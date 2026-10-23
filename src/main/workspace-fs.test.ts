@@ -255,7 +255,8 @@ describe("listDirectories", () => {
 			entries: [{ name: "omp-gui-remote-Ab12", path: join(root, "omp-gui-remote-Ab12") }],
 			truncated: false,
 		});
-	});
+		// Making 2001 folders took past 20 s on a loaded Windows runner (Defender scans each).
+	}, 90_000);
 });
 
 describe("Files panel writes", () => {

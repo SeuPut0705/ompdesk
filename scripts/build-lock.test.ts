@@ -159,7 +159,10 @@ describe("bun scripts/build-lock.ts", () => {
 			stderr += chunk;
 		});
 		const exited = new Promise<number | null>(resolve => child.once("close", resolve));
-		await vi.waitFor(() => expect(stderr).toMatch(/waiting for .*\.legacy \(held by old@checkout 10:00:00 pid 1/));
+		// A loaded Windows runner takes over a second to start bun and print the line (vi.waitFor's default).
+		await vi.waitFor(() => expect(stderr).toMatch(/waiting for .*\.legacy \(held by old@checkout 10:00:00 pid 1/), {
+			timeout: 15_000,
+		});
 		expect(entries()).toHaveLength(0);
 		fs.rmSync(legacy, { recursive: true });
 		expect(await exited).toBe(0);
