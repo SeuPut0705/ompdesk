@@ -1396,6 +1396,8 @@ describe("Sidebar menus and pinned ordering", () => {
 				(row.textContent ?? "").includes("New session"),
 			);
 		expect(newRows()).toHaveLength(0);
+		// Its folder still shows as a project, with its + to start another session there.
+		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).not.toBeNull();
 
 		await act(async () => {
 			useTabsStore.setState(state => ({

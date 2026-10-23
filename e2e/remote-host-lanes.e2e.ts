@@ -62,6 +62,13 @@ test("a host's work-folder sessions sit among the chats on the host and on the d
 		// The device opens its own tab in the host's work folder: its section follows the host's rule.
 		const tabId = await openHostFolder(a, deviceId, hostWork);
 		const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
+		// A new session lists nothing until something is written to it (Sidebar's `unstarted` rule).
+		await expect
+			.poll(async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status, {
+				timeout: 30_000,
+			})
+			.toBe("ready");
+		await a.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), tabId);
 		// The row's key is the tab's until the host names its session file, then the file's: read it on every look.
 		await expect
 			.poll(

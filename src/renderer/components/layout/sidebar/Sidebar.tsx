@@ -183,6 +183,8 @@ interface WorkspaceGroup {
 	missing?: boolean;
 	/** In this computer's project list: shown with no session too. */
 	listed?: boolean;
+	/** A new, still empty tab works in it: shown with no session too. */
+	open?: boolean;
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
@@ -1014,6 +1016,18 @@ export function Sidebar() {
 			if (!entry.members.includes(key)) entry.members.push(key);
 			entry.folded.push(session);
 		}
+		// A folder a new, still empty tab works in keeps its project's group (with its + and ⋯) though the tab has no
+		// row yet: a window opened on a folder with no session shows that folder.
+		const open = new Set<string>();
+		for (const tab of localTabs) {
+			if (tab.unstarted !== true || tab.placeholder === true || isChatSession(tab, defaultWorkspace)) continue;
+			const shown = projectName(tab.cwd);
+			const key = shown.worktree ? keyOfRoot(shown.root) : tab.cwd;
+			if (removed.has(key)) continue;
+			open.add(key);
+			const entry = groupFor(key);
+			if (!entry.members.includes(key)) entry.members.push(key);
+		}
 		const addedAt = new Map<string, number>();
 		const missing = new Set<string>();
 		for (const project of projectList.projects) {
@@ -1046,6 +1060,7 @@ export function Sidebar() {
 				sessions,
 				folded: entry.folded.toSorted((a, b) => createdAt(a) - createdAt(b) || (a.path < b.path ? -1 : 1)),
 				...(addedAt.has(entry.cwd) ? { listed: true } : {}),
+				...(open.has(entry.cwd) ? { open: true } : {}),
 				...(missing.has(entry.cwd) ? { missing: true } : {}),
 			};
 		});
@@ -1068,6 +1083,8 @@ export function Sidebar() {
 		foldedRootOf,
 		heldByTab,
 		projectList,
+		localTabs,
+		defaultWorkspace,
 	]);
 	// A session matches when it does or when something it opened does: its family shows with it.
 	const matchesFamilyFilter = useCallback(
@@ -2042,7 +2059,7 @@ export function Sidebar() {
 		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a group made
 		// only of those, with nothing to show, is not drawn. A project of the list is, empty or not.
 		const loose = group.folded.map(child => familyChildFor(child)).filter(isShownOpened);
-		if (!group.listed && group.sessions.length === 0 && loose.length === 0) return null;
+		if (!group.listed && !group.open && group.sessions.length === 0 && loose.length === 0) return null;
 		return (
 			<SortableProject disabled={query.length > 0 || renamingGroupCwd !== null} id={group.cwd} key={group.cwd}>
 				{dragHandle => (

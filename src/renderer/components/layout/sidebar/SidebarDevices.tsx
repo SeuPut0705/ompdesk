@@ -413,6 +413,12 @@ function DeviceSessions({
 			list.push(session);
 			byCwd.set(project, list);
 		}
+		// A new, still empty tab has no row (see Sidebar), but its folder keeps its group.
+		for (const tab of hostTabs) {
+			if (tab.unstarted !== true || isChatSession(tab, hostWorkspace)) continue;
+			const project = projectList.worktrees[tab.cwd] ?? tab.cwd;
+			if (!removed.has(project) && !byCwd.has(project)) byCwd.set(project, []);
+		}
 		const result = [...byCwd.entries()].map(([cwd, groupSessions]) => ({
 			cwd,
 			sessions: groupSessions,
