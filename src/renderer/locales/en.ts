@@ -1159,6 +1159,7 @@ export const en: Record<string, string> = {
 	"cmd.attach.desc": "Add pictures or files to the message",
 	"cmd.move": "Move session",
 	"cmd.move.desc": "Move the session to another folder",
+	"cmd.switchProject.desc": "Find a recent project and switch this tab to it",
 	"cmd.addDir": "Add folder",
 	"cmd.addDir.desc": "Add a folder to this session (multi-root)",
 	"cmd.removeDir": "Remove folder",

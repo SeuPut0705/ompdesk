@@ -1145,6 +1145,7 @@ export const ko: Record<string, string> = {
 	"cmd.attach.desc": "사진이나 파일을 메시지에 추가",
 	"cmd.move": "세션 이동",
 	"cmd.move.desc": "세션을 다른 폴더로 이동",
+	"cmd.switchProject.desc": "최근 프로젝트를 찾아 이 탭을 그곳으로 옮겨요",
 	"cmd.addDir": "폴더 추가",
 	"cmd.addDir.desc": "프로젝트 폴더 추가(멀티 루트)",
 	"cmd.removeDir": "폴더 제거",

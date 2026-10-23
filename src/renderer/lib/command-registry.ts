@@ -1437,6 +1437,13 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 		return true;
 	};
 	add({
+		name: "switch-project",
+		label: t("titlebar.switchProject"),
+		description: t("cmd.switchProject.desc"),
+		category: "workspace",
+		affordance: { kind: "picker", open: () => useUiStore.getState().openProjectPicker() },
+	});
+	add({
 		name: "open-project",
 		label: t("sidebar.project.open"),
 		category: "workspace",

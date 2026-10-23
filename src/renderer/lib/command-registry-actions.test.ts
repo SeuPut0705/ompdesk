@@ -85,7 +85,7 @@ beforeEach(() => {
 	ctx = { ...baseCtx, hydrateSession, rpc: { ...baseCtx.rpc, setPrewalk: rpc.setPrewalk } };
 	useToastStore.setState({ toasts: [] });
 	useSessionStore.setState({ isStreaming: false, isCompacting: false, prewalkArmed: false });
-	useUiStore.setState({ forceToolOpen: false });
+	useUiStore.setState({ forceToolOpen: false, projectPickerOpen: false });
 });
 
 afterEach(() => {
@@ -212,6 +212,13 @@ describe("one-shot action wiring", () => {
 		affordance.open();
 		expect(useUiStore.getState().forceToolOpen).toBe(true);
 	});
+	it("switch-project opens the searchable recent-projects picker, not the folder dialog", () => {
+		const affordance = wired("switch-project");
+		expect(affordance.kind).toBe("picker");
+		if (affordance.kind === "picker") affordance.open();
+		expect(useUiStore.getState().projectPickerOpen).toBe(true);
+	});
+
 	it("restart forwards the active session origin to the sidecar", async () => {
 		useSessionStore.setState({ sessionFile: "/tmp/session.json" });
 		const affordance = wired("restart");

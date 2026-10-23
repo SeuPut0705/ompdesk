@@ -205,7 +205,7 @@ export function TitleBar() {
 		!isChat && cwd ? (groupAliases[cwd] ?? shown.worktree?.project ?? shown.name) : t("sidebar.chats");
 
 	const [editingName, setEditingName] = useState(false);
-	const [workspaceOpen, setWorkspaceOpen] = useState(false);
+	const workspaceOpen = useUiStore(s => s.projectPickerOpen);
 	const [statusOpen, setStatusOpen] = useState(false);
 	const [draft, setDraft] = useState("");
 	const [stats, setStats] = useState<SessionStats | null>(null);
@@ -406,7 +406,7 @@ export function TitleBar() {
 					<Button
 						className="omp-titlebar-project min-w-12 max-w-48 shrink-[4]! px-2 font-normal text-(--sc-text-muted) hover:text-(--sc-text)"
 						disabled={isStreaming}
-						onClick={() => setWorkspaceOpen(true)}
+						onClick={() => useUiStore.getState().openProjectPicker()}
 						size="sm"
 						title={isStreaming ? t("titlebar.abortHint") : undefined}
 						variant="ghost"
@@ -591,7 +591,7 @@ export function TitleBar() {
 					{t("sessionStatus.openInsights")}
 				</Button>
 			</Popover>
-			<WorkspaceDialog onClose={() => setWorkspaceOpen(false)} open={workspaceOpen} />
+			<WorkspaceDialog onClose={() => useUiStore.getState().closeProjectPicker()} open={workspaceOpen} />
 		</header>
 	);
 }

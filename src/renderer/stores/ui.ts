@@ -188,6 +188,8 @@ interface UiStore {
 	activeToolsOpen: boolean;
 	shareSessionOpen: boolean;
 	forceToolOpen: boolean;
+	/** The recent-projects picker the title bar's project name opens (also the palette's "Switch project"). */
+	projectPickerOpen: boolean;
 	btwRequest: string | null;
 	debugOpen: boolean;
 	liveOpen: boolean;
@@ -331,6 +333,8 @@ interface UiStore {
 	closeViewSheet: () => void;
 	openForceTool: () => void;
 	closeForceTool: () => void;
+	openProjectPicker: () => void;
+	closeProjectPicker: () => void;
 	openBtw: (question: string) => void;
 	closeBtw: () => void;
 	openDebug: () => void;
@@ -649,6 +653,9 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	forceToolOpen: false,
 	openForceTool: () => set({ forceToolOpen: true }),
 	closeForceTool: () => set({ forceToolOpen: false }),
+	projectPickerOpen: false,
+	openProjectPicker: () => set({ projectPickerOpen: true }),
+	closeProjectPicker: () => set({ projectPickerOpen: false }),
 	btwRequest: null,
 	openBtw: question => set({ btwRequest: question }),
 	closeBtw: () => set({ btwRequest: null }),
@@ -708,6 +715,7 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 			activeToolsOpen: false,
 			shareSessionOpen: false,
 			forceToolOpen: false,
+			projectPickerOpen: false,
 			btwRequest: null,
 			debugOpen: false,
 			liveOpen: false,
