@@ -86,6 +86,7 @@ import {
 	type WorktreeRemoval,
 } from "./branches";
 import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
+import { custodyOf } from "./custody";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
 import {
 	type AnswerArgs,
@@ -2035,6 +2036,14 @@ export class AgentControl {
 			: to === parent
 				? args.kind
 				: "note";
+		// A worktree child that says it is done reports what its git holds with it (custody.ts).
+		const custody =
+			to === parent && (kind === "done" || kind === "review") && caller.worktree
+				? await this.#host
+						.branchFacts(caller.worktree, caller.device)
+						.then(facts => custodyOf(facts, args.files))
+						.catch(() => null)
+				: null;
 		const mail: Mail = {
 			// The same report from the same session file is the same id, so a call stock re-runs after a relaunch
 			// (its result lost in the crash) is recognized by the receiver's journal instead of arriving twice.
@@ -2057,7 +2066,7 @@ export class AgentControl {
 			fromTitle: caller.title,
 			to,
 			kind,
-			text: args.text,
+			text: custody ? `${args.text}\n\n${custody.line}` : args.text,
 			...(args.files ? { files: args.files } : {}),
 			...(args.checks ? { checks: args.checks } : {}),
 			...(args.dispatch ? { dispatch: args.dispatch } : {}),
@@ -2069,7 +2078,11 @@ export class AgentControl {
 		if (parent) this.#host.reviewChanged?.(parent);
 		if (outcome !== "duplicate" && outcome !== "stale" && WAITS_AFTER_REPORT.has(args.kind))
 			this.#reportedAt.set(`${caller.tabId}\n${to}`, Date.now());
-		const waiting = await this.#queuedNote(caller, tabs);
+		const waiting =
+			(await this.#queuedNote(caller, tabs)) +
+			(custody?.gap && outcome !== "duplicate" && outcome !== "stale"
+				? ` It carries what your git holds, and that disagrees with the report: ${custody.gap} Then report again.`
+				: "");
 		switch (outcome) {
 			case "duplicate":
 				return `Report ${mail.id} was already delivered; nothing sent again.${waiting}`;

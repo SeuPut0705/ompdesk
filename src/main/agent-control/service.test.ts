@@ -1264,6 +1264,38 @@ describe("ompdesk_session_stop delete on a worktree child it opened", () => {
 	});
 });
 
+describe("a worktree child's done report", () => {
+	it("carries what its git holds, and tells the child what disagrees with the report", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.facts.set("omp/agent/a", { ...clean, uncommitted: 2, untracked: 0 });
+		const result = await service.run(ids[0], T.report, {
+			kind: "done",
+			text: "Finished",
+			files: ["src/a.ts", "src/c.ts"],
+		});
+		const mail = host.mails.at(-1);
+		expect(mail?.to).toBe("main0001");
+		expect(mail?.content).toContain(
+			"Git (omp/agent/a): 2 commit(s) not in main yet; 2 uncommitted file(s); reported but unchanged: src/c.ts.",
+		);
+		expect(result.text).toContain("your worktree still has 2 uncommitted file(s)");
+		expect(result.text).toContain("the files you named src/c.ts are not in your branch's change");
+
+		host.facts.set("omp/agent/b", { ...clean, branch: "omp/agent/b", untracked: 0, merged: true });
+		const landed = await service.run(ids[1], T.report, { kind: "done", text: "Landed", files: ["./src/b.ts"] });
+		expect(host.mails.at(-1)?.content).toContain("Git (omp/agent/b): landed.");
+		expect(landed.text).toBe("Delivered.");
+	});
+
+	it("reports as before when its git cannot be read", async () => {
+		const { host, service, ids } = await withWorktreeChildren();
+		host.facts.clear();
+		const result = await service.run(ids[0], T.report, { kind: "done", text: "Finished" });
+		expect(result.text).toBe("Delivered.");
+		expect(host.mails.at(-1)?.content).not.toContain("Git (");
+	});
+});
+
 describe("ompdesk_compare", () => {
 	it("gives each worktree child's branch, diff stat, uncommitted work and final answer, and runs no tests", async () => {
 		const { service, ids, host } = await withWorktreeChildren();
