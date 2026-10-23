@@ -67,6 +67,16 @@ function walk(root: string, dir: string, files: string[]): void {
 	}
 }
 
+/** Whether a changed path (repository-relative, either separator) is one `inputFiles` hashes: it can change out/. */
+export function isBuildInput(file: string): boolean {
+	const rel = file.replaceAll("\\", "/");
+	if (!rel.includes("/")) return ROOT_INPUT.test(rel);
+	if (BUILD_SCRIPTS.includes(rel)) return true;
+	if (!INPUT_DIRS.some(dir => rel.startsWith(`${dir}/`))) return false;
+	if (rel === "resources/ai-memory-bin" || rel.startsWith("resources/ai-memory-bin/")) return false;
+	return !TEST_FILE.test(rel) || rel.startsWith("src/renderer/");
+}
+
 /** Every input file under `root`, relative and sorted. */
 export function inputFiles(root: string): string[] {
 	const files = fs

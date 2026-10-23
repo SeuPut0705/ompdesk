@@ -21,9 +21,19 @@ describe("changedScope", () => {
 			changedScope(["src/main/ipc.ts", "AGENTS.md", "docs/updates.md", "README.ko.md", "src/main/ipc.ts"]),
 		).toEqual({
 			files: ["src/main/ipc.ts"],
-			build: false,
+			build: true,
 			allTests: false,
 		});
 		expect(changedScope(["AGENTS.md"]).files).toEqual([]);
+	});
+
+	it("builds for app source and resources even when no e2e spec matches, never for a main test or a script alone", () => {
+		expect(changedScope(["src/main/sidecar-factory.ts"]).build).toBe(true);
+		expect(changedScope(["resources/gui-bridge/modes/plan.ts"]).build).toBe(true);
+		// Tailwind scans the renderer's tests for class names.
+		expect(changedScope(["src/renderer/hooks/use-tray-sync.test.ts"]).build).toBe(true);
+		expect(changedScope(["src/main/sidecar-factory.test.ts", "e2e/smoke.e2e.ts"]).build).toBe(false);
+		expect(changedScope(["scripts/changed-scope.ts"]).build).toBe(false);
+		expect(changedScope(["scripts/check-main-bundle.ts"]).build).toBe(true);
 	});
 });

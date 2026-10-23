@@ -146,9 +146,10 @@ if (supportChanged && specs.length === 0) {
 	);
 }
 if (specs.length === 0) {
-	// A root build input (the vite config, tsconfig, package.json) breaks the build without touching a spec's name.
+	// App source, resources or a root build input can break the bundle (an import main cannot resolve, the bundle check)
+	// without touching a spec's name.
 	if (scope.build) {
-		console.log("[check:changed] build (a root build input changed)");
+		console.log("[check:changed] build (a build input changed)");
 		const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
 		if (build.code !== 0) process.exit(1);
 	}

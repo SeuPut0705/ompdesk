@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inputHash, rebuildReason, STAMP, writeStamp } from "./build-cache";
+import { inputFiles, inputHash, isBuildInput, rebuildReason, STAMP, writeStamp } from "./build-cache";
 
 const ENV: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/bin", HOME: "/home/a" };
 
@@ -127,5 +127,15 @@ describe("build cache", () => {
 	it("OMPDESK_FORCE_BUILD=1 always rebuilds", () => {
 		built();
 		expect(reason({ ...ENV, OMPDESK_FORCE_BUILD: "1" })).toBe("OMPDESK_FORCE_BUILD=1");
+	});
+});
+
+describe("isBuildInput", () => {
+	it("says yes for every file this checkout's build hashes, and no for a test or doc outside them", () => {
+		const root = path.resolve(__dirname, "..");
+		for (const file of inputFiles(root)) expect(isBuildInput(file), file).toBe(true);
+		expect(isBuildInput("src/main/ipc.test.ts")).toBe(false);
+		expect(isBuildInput("AGENTS.md")).toBe(false);
+		expect(isBuildInput("e2e/smoke.e2e.ts")).toBe(false);
 	});
 });
