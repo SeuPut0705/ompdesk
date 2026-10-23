@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.62.0] - 2026-10-23
+
+새 세션은 무언가 입력하기 전까지 사이드바에 생기지 않고, 워크트리에서 일한 하위 세션이 끝났다고 보고하면 그 브랜치의 git 상태가 함께 와요.
+
+### 새로 생긴 것
+- 워크트리에서 일하는 하위 세션이 끝났다(또는 검토해 달라)고 보고하면, 상위 세션이 받는 보고 끝에 그 브랜치의 git 상태가 한 줄로 붙어요. 아직 main에 안 들어간 커밋, 커밋 안 된 파일, 보고했지만 바뀌지 않은 파일이 나와요. 보고와 git이 어긋나면 하위 세션에 고친 뒤 다시 보고하라고 바로 알려 줘요.
+
+### 고친 것
+- 새 세션(⌘T, 프로젝트의 +, ⌘N)을 열기만 해도 사이드바에 "새 세션" 행이 생겼어요. 이제 첫 메시지나 명령을 입력할 때 생겨요. 빈 탭이 열린 폴더는 프로젝트로 그대로 보여서 +와 ⋯를 계속 쓸 수 있어요.
+- 폰에서 알림 켜기가 실패하면 이유가 영어로 나왔어요. 이제 화면 언어로 나와요.
+- 폰의 보기 시트(작업 트리, 계획, 로그)에서 붙어 있는 버튼을 누르면 옆 버튼이 눌리던 것을 고쳤어요.
+
+<!-- en -->
+
+A new session appears in the sidebar only once you type into it, and a worktree child that reports done brings its branch's git state along.
+
+### New
+- When a child session working in a worktree reports done (or asks for review), the report its opener gets ends with one line of that branch's git state: commits not in main yet, uncommitted files, files it named that did not change. When the report and its git disagree, the child is told at once to fix that and report again.
+
+### Fixed
+- Opening a new session (⌘T, a project's +, ⌘N) put a "New session" row in the sidebar right away. The row now appears with your first message or command; the folder of an empty tab still shows as a project, with its + and ⋯.
+- A failed attempt to turn on notifications on the phone gave its reason in English; it now follows your language.
+- In the phone's view sheets (Work tree, Plan, Logs) a tap on a button next to another could press the neighbour; each button keeps its own taps now.
+
 ## [0.61.32] - 2026-10-23
 
 폰에서 열 수 없는 링크가 이유를 화면 언어로 말하고, 시트와 대화 상자의 제목을 화면 읽기 프로그램이 제목으로 찾아요.
