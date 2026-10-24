@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.71.7] - 2026-10-24
+
+응답하지 않는 포트 하나 때문에 다른 컴퓨터와의 연결을 포기하지 않아요.
+
+### 고친 것
+- 0.71.6은 첫 포트에서 응답이 없으면 상대 컴퓨터가 잠든 것으로 보고 나머지 포트를 건너뛰었어요. 그런데 방화벽이 그 포트 하나만 막았거나 예전에 쓰던 포트가 바뀐 경우에도 그렇게 되어, 열려 있는 예비 포트에 끝내 닿지 못할 수 있었어요. 이제 포트를 0.25초 간격으로 차례로 두드리고 먼저 열리는 곳으로 연결해요. 응답 없는 포트 하나는 0.25초만 쓰고, 앞쪽 포트가 제때 열리면 그쪽을 써요.
+
+<!-- en -->
+
+One port that answers nothing no longer makes a device give up on another computer.
+
+### Fixed
+- 0.71.6 took no answer on the first port to mean the other computer was asleep and skipped its other ports. A firewall dropping just that port, or a remembered port that had moved, did the same, so a device could never reach the fallback port that was open. Ports are now dialed a quarter second apart and the first to connect is used: a silent port costs a quarter second, and an earlier port that answers in time still wins.
+
 ## [0.71.6] - 2026-10-24
 
 다른 컴퓨터와 연결할 포트를 Windows가 막아 두어도 공유가 꺼지지 않고, 다른 포트로 알아서 연결해요.
