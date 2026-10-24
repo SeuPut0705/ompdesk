@@ -74,7 +74,7 @@ import {
 	TAB_EVENT,
 	TabEventMessage,
 } from "./app-protocol";
-import { connectFirst, type ProbeResult, probeHost, RemoteClient, RemoteError, type WakeTrigger } from "./client";
+import { connectFirst, type ProbeResult, probeAny, RemoteClient, RemoteError, type WakeTrigger } from "./client";
 import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor } from "./host-server";
 import type { LocalHostServices } from "./host-services";
 import { HostStore, type PairedHost } from "./hosts-store";
@@ -801,26 +801,15 @@ export class RemoteDevices {
 	/** Where a node's host answers: the first candidate port that answers a probe, on the node's address. */
 	async #probeNode(node: TailnetNode): Promise<{ address: string | null; probe: ProbeResult }> {
 		const ip = node.ips.find(candidate => isIPv4(candidate)) ?? node.ips.find(candidate => isIP(candidate) !== 0);
-		let probe: ProbeResult = { ok: false, code: "unreachable" };
-		if (!ip) return { address: null, probe };
+		if (!ip) return { address: null, probe: { ok: false, code: "unreachable" } };
 		const last = this.#found.get(node.nodeId);
 		const candidates = remotePortCandidates().map(port => formatAddress({ host: ip, port }));
 		const addresses = last && candidates.includes(last) ? [last, ...candidates.filter(a => a !== last)] : candidates;
-		for (const address of addresses) {
-			try {
-				probe = await probeHost(address);
-			} catch (error) {
-				// No answer at all: the computer is away, and its other ports would each wait out the timeout too.
-				if (error instanceof RemoteError && error.timedOut) break;
-				continue;
-			}
-			// This computer itself (a test's two apps on one address).
-			if (probe.ok && probe.deviceId === this.#identity.deviceId) continue;
-			this.#found.set(node.nodeId, address);
-			return { address, probe };
-		}
-		this.#found.delete(node.nodeId);
-		return { address: null, probe };
+		// This computer itself (a test's two apps on one address) is passed over.
+		const found = await probeAny(addresses, answer => answer.ok && answer.deviceId === this.#identity.deviceId);
+		if (found.address) this.#found.set(node.nodeId, found.address);
+		else this.#found.delete(node.nodeId);
+		return found;
 	}
 
 	/** Probe every computer of the tailnet (not phones) and push the list while views watch it. */

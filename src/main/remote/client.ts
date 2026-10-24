@@ -63,15 +63,12 @@ export class RemoteError extends Error {
 	readonly code: string;
 	/** The dial was refused or reset: the computer answered and nothing listens (not a timeout or no route). */
 	readonly refused: boolean;
-	/** The dial got no answer at all: the computer is not answering, on any port (asleep, off the tailnet). */
-	readonly timedOut: boolean;
 
-	constructor(code: string, message: string = code, refused = false, timedOut = false) {
+	constructor(code: string, message: string = code, refused = false) {
 		super(message);
 		this.name = "RemoteError";
 		this.code = code;
 		this.refused = refused;
-		this.timedOut = timedOut;
 	}
 }
 
@@ -79,13 +76,13 @@ function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS, signal?: AbortSi
 	const socket = connect({ host: target.host, port: target.port });
 	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
 	const cancelled = () => fail(new Error("dial cancelled"));
-	const fail = (error: Error, timedOut = false) => {
+	const fail = (error: Error) => {
 		signal?.removeEventListener("abort", cancelled);
 		socket.destroy();
 		const refused = "code" in error && (error.code === "ECONNREFUSED" || error.code === "ECONNRESET");
-		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused, timedOut));
+		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused));
 	};
-	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out"), true));
+	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out")));
 	socket.once("error", fail);
 	socket.once("connect", () => {
 		signal?.removeEventListener("abort", cancelled);
@@ -110,6 +107,73 @@ async function dialAddress(address: string, timeoutMs?: number, signal?: AbortSi
 	return new Link(await dial(target, timeoutMs, signal));
 }
 
+/** A dial to a port no answer has come from yet starts this long after the one before it (or as soon as that one fails). */
+export const DIAL_STAGGER_MS = 250;
+
+/**
+ * The first of `addresses` (a host's candidate ports, best first) whose TCP connect succeeds. Dials start
+ * `DIAL_STAGGER_MS` apart, the next at once when the latest fails, so a port that answers nothing (a firewall that
+ * drops it, a stale remembered port) costs a quarter second, never its whole timeout, and an earlier port that answers
+ * in time still wins. The others are closed. Rejects `unreachable` once every one failed, `refused` when every one
+ * was refused (the computer is up and nothing listens).
+ */
+export function firstToConnect(
+	addresses: readonly string[],
+	timeoutMs = CONNECT_TIMEOUT_MS,
+	signal?: AbortSignal,
+): Promise<{ address: string; link: Link }> {
+	const { promise, resolve, reject } = Promise.withResolvers<{ address: string; link: Link }>();
+	if (addresses.length === 0) {
+		reject(new RemoteError("unreachable", "no address to dial"));
+		return promise;
+	}
+	const others = new AbortController();
+	const abort = () => others.abort();
+	signal?.addEventListener("abort", abort, { once: true });
+	let next = 0;
+	let pending = 0;
+	let done = false;
+	let allRefused = true;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const finish = () => {
+		done = true;
+		clearTimeout(timer);
+		signal?.removeEventListener("abort", abort);
+	};
+	const start = () => {
+		clearTimeout(timer);
+		if (done || next >= addresses.length) return;
+		const address = addresses[next++] as string;
+		pending += 1;
+		dialAddress(address, timeoutMs, others.signal).then(
+			link => {
+				pending -= 1;
+				if (done) {
+					link.destroy();
+					return;
+				}
+				finish();
+				others.abort();
+				resolve({ address, link });
+			},
+			error => {
+				pending -= 1;
+				if (done) return;
+				const failure = asRemoteError(error);
+				allRefused &&= failure.refused;
+				if (next < addresses.length) start();
+				else if (pending === 0) {
+					finish();
+					reject(new RemoteError(failure.code, failure.message, allRefused));
+				}
+			},
+		);
+		if (next < addresses.length) timer = setTimeout(start, DIAL_STAGGER_MS);
+	};
+	start();
+	return promise;
+}
+
 /** What a probe found at an address: a host that lets this device in, or one that refuses it (and why). */
 export type ProbeResult =
 	| { ok: true; deviceId: string; name: string; appVersion: string }
@@ -120,7 +184,42 @@ export type ProbeResult =
  * when nothing (or something else) answers there.
  */
 export async function probeHost(address: string): Promise<ProbeResult> {
-	const link = await dialAddress(address, PROBE_TIMEOUT_MS);
+	return probeOn(address, await dialAddress(address, PROBE_TIMEOUT_MS));
+}
+
+/**
+ * Where a computer's host answers: the first of `addresses` that connects (`firstToConnect`) and answers a probe that
+ * `skip` does not set aside (this computer itself, in a test's two apps on one address). `address` null: none did;
+ * `probe` then holds the last refusal heard, else `unreachable`.
+ */
+export async function probeAny(
+	addresses: readonly string[],
+	skip: (probe: ProbeResult) => boolean = () => false,
+): Promise<{ address: string | null; probe: ProbeResult }> {
+	let probe: ProbeResult = { ok: false, code: "unreachable" };
+	let remaining = [...addresses];
+	while (remaining.length > 0) {
+		let connected: { address: string; link: Link };
+		try {
+			connected = await firstToConnect(remaining, PROBE_TIMEOUT_MS);
+		} catch {
+			break;
+		}
+		remaining = remaining.filter(address => address !== connected.address);
+		let answer: ProbeResult;
+		try {
+			answer = await probeOn(connected.address, connected.link);
+		} catch {
+			continue;
+		}
+		probe = answer;
+		if (skip(answer)) continue;
+		return { address: connected.address, probe: answer };
+	}
+	return { address: null, probe };
+}
+
+async function probeOn(address: string, link: Link): Promise<ProbeResult> {
 	try {
 		link.send({ t: "probe", v: HANDSHAKE_VERSION });
 		const reply = ProbeReply.safeParse(await link.receive(PROBE_TIMEOUT_MS));
@@ -155,7 +254,10 @@ interface Handshake {
  * DH(eA,sB)), so only the holder of the host key this device pinned can read or answer the link.
  */
 async function handshake(address: string, opts: HandshakeOptions): Promise<Handshake> {
-	const link = await dialAddress(address, undefined, opts.signal);
+	return handshakeOn(address, await dialAddress(address, undefined, opts.signal), opts);
+}
+
+async function handshakeOn(address: string, link: Link, opts: HandshakeOptions): Promise<Handshake> {
 	const cancelled = () => link.destroy();
 	opts.signal?.addEventListener("abort", cancelled, { once: true });
 	try {
@@ -463,12 +565,25 @@ export class RemoteClient {
 		let failure = new RemoteError("unreachable", "no address to dial");
 		// Every address refused: the computer is there and the app is not (a timeout anywhere says otherwise).
 		let refused = addresses.length > 0;
-		for (const address of addresses) {
+		let remaining = addresses;
+		while (remaining.length > 0) {
 			if (!this.#running || cancel.signal.aborted) break;
 			this.#step += 1;
 			this.#stepAt = Date.now();
+			let connected: { address: string; link: Link };
 			try {
-				const { link, hello } = await handshake(address, {
+				connected = await firstToConnect(remaining, CONNECT_TIMEOUT_MS, cancel.signal);
+			} catch (error) {
+				failure = asRemoteError(error);
+				refused &&= failure.refused;
+				break;
+			}
+			const address = connected.address;
+			remaining = remaining.filter(other => other !== address);
+			// Something listens there: the attempt was not refused everywhere.
+			refused = false;
+			try {
+				const { link, hello } = await handshakeOn(address, connected.link, {
 					identity: this.#opts.identity,
 					name: this.#opts.name(),
 					appVersion: this.#opts.appVersion,
@@ -486,11 +601,8 @@ export class RemoteClient {
 				return;
 			} catch (error) {
 				failure = asRemoteError(error);
-				refused &&= failure.refused;
 				// The host itself answered: other addresses reach the same verdict.
 				if (failure.code !== "unreachable") break;
-				// Its computer answered nothing: its other ports would each wait out the same timeout.
-				if (failure.timedOut) break;
 			}
 		}
 		this.#attempting = false;
