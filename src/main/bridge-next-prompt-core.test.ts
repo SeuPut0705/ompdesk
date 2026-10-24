@@ -55,6 +55,7 @@ import {
 	suggestionStateKey,
 	type Timers,
 	userRegister,
+	userVoice,
 } from "../../resources/gui-bridge/modes/next-prompt-core";
 
 /** A virtual clock: timers fire only when the test advances it. */
@@ -138,15 +139,15 @@ describe("candidates", () => {
  * while this user writes short casual requests ("배포해줘", "더 순환해", "1,2,3,6번 먼저 만들어 줘").
  */
 describe("candidates sound like the user (reported: long, polite, the assistant's voice)", () => {
-	it("holds Korean, Chinese and Japanese to 40 characters and other scripts to 60", () => {
-		expect(MAX_CANDIDATE_CHARS_CJK).toBe(40);
+	it("holds Korean, Chinese and Japanese to 48 characters (40 asked) and other scripts to 60", () => {
+		expect(MAX_CANDIDATE_CHARS_CJK).toBe(48);
 		expect(MAX_CANDIDATE_CHARS).toBe(60);
-		expect(fitCandidateLength("가".repeat(40))).toHaveLength(40);
-		expect(fitCandidateLength("가".repeat(41))).toBeUndefined();
+		expect(fitCandidateLength("가".repeat(48))).toHaveLength(48);
+		expect(fitCandidateLength("가".repeat(49))).toBeUndefined();
 		// One Hangul, Han or kana character is enough: a mixed line is measured as CJK.
-		expect(fitCandidateLength(`TitleLang ${"가".repeat(30)}`)).toHaveLength(40);
-		expect(fitCandidateLength(`TitleLang ${"가".repeat(31)}`)).toBeUndefined();
-		expect(fitCandidateLength("確認".repeat(21))).toBeUndefined();
+		expect(fitCandidateLength(`TitleLang ${"가".repeat(38)}`)).toHaveLength(48);
+		expect(fitCandidateLength(`TitleLang ${"가".repeat(39)}`)).toBeUndefined();
+		expect(fitCandidateLength("確認".repeat(25))).toBeUndefined();
 		expect(fitCandidateLength("x".repeat(60))).toHaveLength(60);
 		expect(fitCandidateLength("x".repeat(41))).toHaveLength(41);
 		expect(fitCandidateLength("x".repeat(61))).toBeUndefined();
@@ -161,17 +162,21 @@ describe("candidates sound like the user (reported: long, polite, the assistant'
 			"Run the tests.",
 		);
 		expect(
-			fitCandidateLength("확인해줘。그리고 실패하면 원인 찾아서 고친 다음에 커밋하고 바로 배포까지 전부 해줘"),
+			fitCandidateLength(
+				"확인해줘。그리고 실패하면 원인 찾아서 고친 다음에 커밋하고 바로 배포까지 전부 다 해줘 부탁해",
+			),
 		).toBe("확인해줘。");
 		expect(
-			fitCandidateLength("테스트 돌리고, 실패하면 원인 찾아서 고친 다음에 커밋하고 바로 배포까지 전부 해줘"),
+			fitCandidateLength(
+				"테스트 돌리고, 실패하면 원인 찾아서 고친 다음에 커밋하고 바로 배포까지 전부 다 해줘 부탁해",
+			),
 		).toBeUndefined();
 		// A dot inside a version is no sentence end.
 		expect(
 			fitCandidateLength("Bump to v0.32.1 and redeploy the macOS and the Windows builds to the release page"),
 		).toBeUndefined();
 		// A first sentence that is itself too long drops the line.
-		expect(fitCandidateLength(`${"가".repeat(41)}. 해줘`)).toBeUndefined();
+		expect(fitCandidateLength(`${"가".repeat(49)}. 해줘`)).toBeUndefined();
 	});
 
 	it("recognises the assistant offering, promising or addressing the user", () => {
@@ -263,9 +268,6 @@ describe("candidates sound like the user (reported: long, polite, the assistant'
 		expect(SUGGEST_INSTRUCTIONS).toContain("never repeat, reword or re-ask what they already sent");
 		expect(SUGGEST_INSTRUCTIONS).toContain(
 			"<user-style> names their register (in Korean 반말 or 존댓말): every candidate uses it.",
-		);
-		expect(SUGGEST_INSTRUCTIONS).toContain(
-			`never over ${MAX_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages`,
 		);
 	});
 });
@@ -967,6 +969,69 @@ describe("nothing to approve (reported: '좋아 그 방향으로 가' for work a
 		expect(state).toContain("last-reply: reports work done or underway; it asks the user nothing");
 		expect(buildAppState(extractFacts(reported))).not.toContain("sessions-");
 		expect(SUGGEST_INSTRUCTIONS).toMatch(/when it reports work done or underway, never approve/);
+	});
+});
+
+/**
+ * Measured on 16 real moments of one user (24 Oct 2026, the user's report "프롬프트 추천하는것 제대로 개선좀"): what the
+ * small model wrote that the person would never send, whatever the prompt says, is caught in code.
+ */
+describe("candidates the person would never send (measured on 16 real moments)", () => {
+	it("drops a line naming the request's own field names", () => {
+		expect(cleanCandidates("그 last-failure 어디서 난 거야?\n처리함 기능은 언제 들어가?")).toEqual([
+			"처리함 기능은 언제 들어가?",
+		]);
+	});
+
+	it("takes the user's own openers and final punctuation, so a reworded duplicate goes too", () => {
+		const style = [
+			"두 손가락 확대를 막아야함",
+			"릴리즈는 알아서 하기로 한거잖아",
+			"원격 세션은 하위세션을 확인할수가 없음",
+		];
+		expect(
+			cleanCandidates(
+				"좋아, 지금 바로 v0.71.2로 릴리스해줘.\n지금 바로 v0.71.2로 릴리스해줘\n412px 작업 카드 건도 고쳐줘.",
+				{
+					style,
+				},
+			),
+		).toEqual(["지금 바로 v0.71.2로 릴리스해줘", "412px 작업 카드 건도 고쳐줘"]);
+		// A user who opens with 좋아 and ends with a period keeps both.
+		const opener = ["좋아, 그렇게 해줘.", "좋아, 배포해.", "테스트도 돌려."];
+		expect(userVoice(opener)).toMatchObject({ periods: true });
+		expect(cleanCandidates("좋아, 412px 작업 카드 건도 고쳐줘.", { style: opener })).toEqual([
+			"좋아, 412px 작업 카드 건도 고쳐줘.",
+		]);
+	});
+
+	it("tells the register from the latest messages that show one, past the ones ending in a noun", () => {
+		const sent = [
+			"배포해줘",
+			"다 끝나면 알려줘",
+			"이미지는 허용",
+			"그리고 전부 릴리즈 진행",
+			"모바일에서 원격으로 해봤는데 확대되어버림 모든공간에서",
+			"두 손가락 확대",
+			"OpenRig",
+			"https://example.com",
+		];
+		expect(userRegister(sent)).toBe("casual");
+		expect(userRegister(["확인 부탁드립니다", "이미지는 허용", "https://example.com"])).toBe("polite");
+	});
+
+	it("reads an offer in the reply's closing paragraphs as a decision the user may answer", () => {
+		const reply = (text: string) => [
+			{ role: "user", content: "고쳐줘" },
+			{ role: "assistant", content: text },
+		];
+		for (const text of [
+			"이번에는 테스트와 문서만 바뀌었어요.\n\n지금 바로 써야 하면 말씀해 주세요. 그러면 v0.71.2로 릴리스할게요.",
+			"고칠 방법은 두 가지예요. 원하시면 이어서 할게요.\n\n- 기다리는 항목 나눠 보여 주기\n- 겹치는 항목 합치기",
+			"Done.\n\nLet me know if you want the docs updated too.",
+		])
+			expect(awaitsDecision(reply(text)), text).toBe(true);
+		expect(awaitsDecision(reply("원인을 찾아서 고쳤어요.\n\n배포까지 끝났어요."))).toBe(false);
 	});
 });
 

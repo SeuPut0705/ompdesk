@@ -129,7 +129,7 @@ export interface NextPromptSession {
 		appendModelUsage?(usage: Record<string, unknown>, owner: { sessionId: string; parentId: string | null }): unknown;
 		/** The journal: the last suggestion is written there and read back by an omp started on the session later. */
 		appendCustomEntry?(customType: string, data: unknown): unknown;
-		getBranch?(): ReadonlyArray<{ type?: string; customType?: string; data?: unknown }>;
+		getBranch?(): ReadonlyArray<{ type?: string; customType?: string; data?: unknown; message?: unknown }>;
 	};
 	getTodoPhases?(): ReadonlyArray<{ tasks: ReadonlyArray<{ content: string; status: string }> }>;
 	getPlanModeState?(): { enabled: boolean; planFilePath?: string } | undefined;
@@ -443,6 +443,24 @@ function lastFor(session: NextPromptSession): NextPromptLast | undefined {
 	};
 }
 
+/**
+ * What the user typed in this session, oldest first ({@link sentTexts}), from the journal's branch when the session
+ * has one: after a compaction `session.messages` keeps only a few of them, too few to tell the register (measured: 6
+ * of 16 real moments named none) or to catch a candidate that restates an earlier request.
+ */
+function typedTexts(session: NextPromptSession): string[] {
+	try {
+		const branch = session.sessionManager.getBranch?.();
+		if (branch && branch.length > 0)
+			return sentTexts(
+				branch.flatMap(entry => (entry.type === "message" && "message" in entry ? [entry.message] : [])),
+			);
+	} catch {
+		// The live messages below.
+	}
+	return sentTexts(session.messages);
+}
+
 /** Kept for the next hydration, and journaled so an omp started on the session later has it too. */
 function keepSuggestion(session: NextPromptSession, entry: Kept): void {
 	keep(sessionKey(session), entry);
@@ -619,7 +637,7 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		if (signal.aborted) return;
 		const appState = judged === undefined ? ruleAppState : moment(session, judged).appState;
 		requests.suggest++;
-		const sent = sentTexts(messages);
+		const sent = typedTexts(session);
 		const register = userRegister(sent);
 		const prompt = buildSuggestionRequest(renderTranscript(messages, SUGGEST_TRANSCRIPT_CHARS), appState, register);
 		const { text, message } = await ask(session, stock, resolved, SUGGEST_INSTRUCTIONS, prompt, {
@@ -642,6 +660,7 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 			register,
 			sent: new SentMessages(sent),
 			decisionPending: awaitsDecision(messages, judged),
+			style: sent,
 		});
 		const ms = Math.round(performance.now() - started);
 		host?.logger.debug("next-prompt suggestion", {
@@ -849,7 +868,7 @@ export const handlers: EngineMethods = {
 			if (abort.signal.aborted) return none;
 			requests.inline++;
 			const messages = session.messages;
-			const sent = sentTexts(messages);
+			const sent = typedTexts(session);
 			const register = userRegister(sent);
 			const transcript = renderTranscript(messages, INLINE_TRANSCRIPT_CHARS);
 			const { text } = await ask(

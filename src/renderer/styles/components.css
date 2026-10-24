@@ -3509,7 +3509,8 @@ button.omp-file-chip-name:hover {
 	align-items: center;
 	gap: var(--sc-space-2);
 	min-width: 0;
-	max-width: min(100%, 44em);
+	/* A Korean candidate of MAX_CANDIDATE_CHARS_CJK (48) shows whole beside its padding and number. */
+	max-width: min(100%, 52em);
 	height: var(--sc-control-sm);
 	padding-inline: var(--sc-space-3);
 	border: 1px solid var(--sc-border-subtle);

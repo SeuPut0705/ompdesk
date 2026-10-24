@@ -15,6 +15,7 @@
  */
 import { isUtf8Mojibake } from "../mojibake";
 import {
+	ASKED_CANDIDATE_CHARS_CJK,
 	INLINE_DEBOUNCE_MS,
 	INLINE_MAX_DRAFT_CHARS,
 	INLINE_MIN_DRAFT_CHARS,
@@ -173,8 +174,18 @@ const ASKS_USER: readonly RegExp[] = [
 ];
 
 /**
- * Whether the assistant's last reply waits for the user to decide something: an `ask` still open, or its final
- * paragraph puts a question or a choice to them. A reply that reports work done or underway asks nothing, and then an
+ * An offer the reply makes: a next step it takes once told to ("원하시면 이어서 할게요", "지금 써야 하면 말씀해 주세요",
+ * "let me know if …"). Measured on 16 real moments (24 Oct 2026): 5 replies ended on such an offer, often with the
+ * options as a list after it, and the final-line patterns read all 5 as asking nothing.
+ */
+const OFFERS_USER: readonly RegExp[] = [
+	/(?:원하시|필요하시|괜찮으시)면|말씀해 ?주(?:세요|시면)|알려 ?주시면|정해 ?주시면|골라 ?주시면/u,
+	/\b(?:if you(?:['’]d| would)? (?:like|want|prefer)|let me know|want me to)\b/i,
+];
+
+/**
+ * Whether the assistant's last reply waits for the user to decide something: an `ask` still open, its final
+ * paragraph puts a question or a choice to them, or its last two paragraphs offer a next step ({@link OFFERS_USER}). A reply that reports work done or underway asks nothing, and then an
  * approval ("좋아 그 방향으로 가") is a message with nothing to approve.
  *
  * `judged` is the judge model's reading of the reply's text (judge-assist-engine.ts `replyNeedsUser`): when it
@@ -195,7 +206,9 @@ export function awaitsDecision(messages: readonly unknown[], judged?: boolean): 
 		if (judged !== undefined) return judged;
 		const paragraphs = text.split(/\n\s*\n/).filter(part => part.trim() !== "");
 		const tail = (paragraphs.at(-1) ?? "").split("\n").filter(line => line.trim() !== "");
-		return tail.some(line => ASKS_USER.some(pattern => pattern.test(line.trim())));
+		if (tail.some(line => ASKS_USER.some(pattern => pattern.test(line.trim())))) return true;
+		const closing = paragraphs.slice(-2).join("\n");
+		return OFFERS_USER.some(pattern => pattern.test(closing));
 	}
 	return false;
 }
@@ -286,11 +299,46 @@ export function matchRegister(text: string, register: KoreanRegister | undefined
 	return register === "casual" && DEFERENCE.test(out) ? undefined : out;
 }
 
+/** The request's own tags and `<app-state>` field names: the model quoting its input ("그 last-failure 어디서 난 거야?"). */
+const PROMPT_WORDS =
+	/<\/?(?:app-state|user-style|conversation|draft)>|\b(?:last-failure|last-turn|last-reply|files-changed|running-now|sessions-working-now|sessions-waiting-for-an-answer|question-answered|user-ran)\b/;
+
+/** Openers a model puts before a request ("좋아, …", "응, …", "OK, …"); kept only when this user opens that way. */
+const OPENER = /^(좋아|좋아요|응|그래|오케이|ㅇㅋ|네|넵|ok|okay|great|sure|alright)\s*[,.!]\s+(?=\S)/iu;
+
+/** How this user writes beyond the register: the openers they use, and whether they end messages with a period. */
+export interface UserVoice {
+	openers: ReadonlySet<string>;
+	periods: boolean;
+}
+
+/** {@link UserVoice} from what they typed ({@link sentTexts}); a period counts when a third of their messages end in one. */
+export function userVoice(sent: readonly string[]): UserVoice {
+	const openers = new Set<string>();
+	let periods = 0;
+	for (const text of sent) {
+		const opener = /^\s*(\S+?)[\s,.!]/u.exec(text)?.[1];
+		if (opener) openers.add(opener.toLowerCase());
+		if (/(?<!\.)\.\s*$/u.test(text)) periods++;
+	}
+	return { openers, periods: sent.length > 0 && periods * 3 >= sent.length };
+}
+
+/** A candidate in the user's own style: an opener they never use comes off, and a final period they never write. */
+function inUserVoice(text: string, voice: UserVoice): string {
+	let out = text;
+	const opener = OPENER.exec(out);
+	if (opener?.[1] && !voice.openers.has(opener[1].toLowerCase())) out = out.slice(opener[0].length);
+	if (!voice.periods) out = out.replace(/(?<!\.)\.$/u, "");
+	return out;
+}
+
 /**
- * One reply line → a candidate message, or undefined (empty, NONE, a preamble, the assistant's voice, UTF-8 the
- * model wrote as Windows-1252 ({@link isUtf8Mojibake}), a register it cannot take, too long).
+ * One reply line → a candidate message, or undefined (empty, NONE, a preamble, the assistant's voice, the request's own
+ * tags, UTF-8 the model wrote as Windows-1252 ({@link isUtf8Mojibake}), a register it cannot take, too long). With
+ * `voice` the line takes the user's style ({@link inUserVoice}).
  */
-export function cleanCandidateLine(line: string, register?: KoreanRegister): string | undefined {
+export function cleanCandidateLine(line: string, register?: KoreanRegister, voice?: UserVoice): string | undefined {
 	let text = oneLine(line).replace(LIST_MARKER, "");
 	const quoted = WRAPPING_QUOTES.exec(text);
 	if (quoted) text = (quoted[1] ?? quoted[2] ?? quoted[3] ?? quoted[4] ?? "").trim();
@@ -298,7 +346,8 @@ export function cleanCandidateLine(line: string, register?: KoreanRegister): str
 	// "Here are three options:" is the model talking, not a message to type.
 	if (text.endsWith(":")) return undefined;
 	// Checked on the whole line: one sentence in the assistant's voice means the model was answering, not predicting.
-	if (isAssistantVoice(text)) return undefined;
+	if (isAssistantVoice(text) || PROMPT_WORDS.test(text)) return undefined;
+	if (voice) text = inUserVoice(text, voice);
 	// Before the length limit: 반말 is shorter, so a converted line may fit where the polite one did not.
 	const voiced = matchRegister(text, register);
 	return voiced === undefined ? undefined : fitCandidateLength(voiced);
@@ -407,6 +456,8 @@ export interface CleanOptions {
 	sent?: SentMessages;
 	/** `false`: the last reply asks nothing ({@link awaitsDecision}), so a pure approval ({@link isApprovalOnly}) is dropped. */
 	decisionPending?: boolean;
+	/** What the user typed ({@link sentTexts}): candidates take their openers and final punctuation ({@link userVoice}). */
+	style?: readonly string[];
 	max?: number;
 }
 
@@ -422,8 +473,9 @@ export function cleanCandidates(reply: string, options: CleanOptions = {}): stri
 	if (first === undefined || /^\s*none\.?\s*$/i.test(first)) return [];
 	const seen = new Set<string>();
 	const out: string[] = [];
+	const voice = options.style ? userVoice(options.style) : undefined;
 	for (const line of lines) {
-		const text = cleanCandidateLine(line, options.register);
+		const text = cleanCandidateLine(line, options.register, voice);
 		if (text === undefined) continue;
 		const key = candidateKey(text);
 		if (key === "" || seen.has(key) || options.sent?.isCopy(text)) continue;
@@ -766,7 +818,7 @@ export const SUGGEST_INSTRUCTIONS = [
 	`Write exactly ${MAX_CANDIDATES} candidates, the most likely first, one per line (${MAX_CANDIDATES} lines): no numbering, no quotes, no preamble, no markdown. Make them different next steps, not rewordings of one.`,
 	"Each candidate is a message the user sends to the assistant. Write as the user, never as the assistant: never address the user, never offer, promise or announce what you will do, never explain or comment.",
 	"Write each one as this user would: their voice, language, tone and typical length, as their own messages in the conversation show; mirror how they phrase requests, never repeat, reword or re-ask what they already sent. <user-style> names their register (in Korean 반말 or 존댓말): every candidate uses it.",
-	`Keep every candidate short, usually 3 to 8 words: never over ${MAX_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages.`,
+	`Keep every candidate short, usually 3 to 8 words: never over ${ASKED_CANDIDATE_CHARS_CJK} characters in Korean, Chinese or Japanese, or ${MAX_CANDIDATE_CHARS} in other languages.`,
 	"Follow up on the latest assistant reply: answer what it asked, redirect it, ask for the next step, or report a result. Approve it only when last-reply in <app-state> says it asks the user to decide: when it reports work done or underway, never approve, confirm or tell it to go ahead (nothing waits for a yes); suggest checking on or changing the running work, something else still pending, or waiting for the result.",
 	"Never suggest what is already done, already started, already planned or already handed to someone: no request the user already made, no choice they already gave, nothing the latest reply says it did, will do or is doing (asking for part of its plan again is a repeat too).",
 	"running-now and sessions-working-now in <app-state> are work in progress at this moment (subagents, background jobs, and sessions the assistant opened and handed work to). Never ask for it again; while it runs the user can wait for it, check on it, change it, or ask for something unrelated. sessions-waiting-for-an-answer asked the assistant a question: the user may want it answered.",
@@ -840,11 +892,19 @@ export function renderTranscript(messages: readonly unknown[], budget: number): 
 const REGISTER_MESSAGES = 6;
 
 /**
- * The user's Korean register: the majority ({@link koreanRegister}) over the first lines of their last
- * {@link REGISTER_MESSAGES} typed messages (`sent` is {@link sentTexts}).
+ * The user's Korean register: the majority over their latest {@link REGISTER_MESSAGES} typed messages that show one
+ * (`sent` is {@link sentTexts}), each read by its first line, else its last. A message ending in a noun or a link
+ * shows none ("이미지는 허용", "전부 릴리즈 진행"), and a user who writes many such had no register among their last six:
+ * measured on 16 real moments of one 반말 user, 6 named none and one showed two 존댓말 candidates.
  */
 export function userRegister(sent: readonly string[]): KoreanRegister | undefined {
-	return koreanRegister(sent.slice(-REGISTER_MESSAGES).map(text => text.split("\n", 1)[0] ?? ""));
+	const shown: string[] = [];
+	for (let index = sent.length - 1; index >= 0 && shown.length < REGISTER_MESSAGES; index--) {
+		const lines = (sent[index] ?? "").split("\n").filter(line => line.trim() !== "");
+		const line = [lines[0], lines.at(-1)].find(candidate => candidate && koreanRegisterOf(candidate));
+		if (line) shown.push(line);
+	}
+	return koreanRegister(shown);
 }
 
 /** The explicit register line of `<user-style>`: the small model follows a named register far better than examples. */

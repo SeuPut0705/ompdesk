@@ -230,15 +230,15 @@ test("after a turn the best candidate is the placeholder, the others are chips, 
 	}
 });
 
-// Reported: chips cut with "…" in the real app. A candidate is at most 40 characters in Korean (next-prompt-core);
+// Reported: chips cut with "…" in the real app. A candidate is at most 48 characters in Korean (MAX_CANDIDATE_CHARS_CJK);
 // two chips that long take a row each and show whole, on one line, with the full text as the tooltip.
 test("the longest Korean candidates fit their chips whole, one line each, with the text as the tooltip", async () => {
 	test.setTimeout(120_000);
 	const longest = [
-		"대화 언어를 꺼 둔 상태에서도 한국어 메시지면 한국어 제목이 나오게 해줘",
-		"세션 제목 언어 수정이 끝나면 실제 한국어 세션으로 한 번 더 확인해 줘",
+		"대화 언어를 꺼 둔 상태에서도 한국어 메시지면 한국어 제목이 바로 나오도록 다시 고쳐줘",
+		"세션 제목 언어 수정이 끝나면 실제 한국어 세션으로 한 번 더 확인하고 결과 꼭 알려줘",
 	];
-	for (const text of longest) expect(text).toHaveLength(40);
+	for (const text of longest) expect(text).toHaveLength(48);
 	const launched = await launch({ language: "ko", script: { candidates: ["제목 다시 만들어줘", ...longest] } });
 	try {
 		const { page } = launched;

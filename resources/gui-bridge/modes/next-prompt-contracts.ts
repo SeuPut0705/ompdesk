@@ -106,8 +106,14 @@ export const MAX_CANDIDATES = 3;
  * one-line placeholder show it whole. Korean, Chinese and Japanese pack a word into one or two characters, so their
  * limit is lower than the one for Latin and other scripts.
  */
-export const MAX_CANDIDATE_CHARS_CJK = 40;
+export const MAX_CANDIDATE_CHARS_CJK = 48;
 export const MAX_CANDIDATE_CHARS = 60;
+/**
+ * What the request asks for in Korean, Chinese or Japanese, under {@link MAX_CANDIDATE_CHARS_CJK}: the model overshoots
+ * a stated limit by a few characters, and with the limit both asked and enforced at 40 the most useful candidate of 3
+ * of 32 real samples (41, 42 and 48 characters) was dropped (24 Oct 2026).
+ */
+export const ASKED_CANDIDATE_CHARS_CJK = 40;
 
 /** Where the cheap request ran. `provider/id`, and the stock role that resolved it. */
 export interface NextPromptModelUsed {
