@@ -4,7 +4,7 @@
 	"files": {
 		"README.md": "4c379d9fb209640e8a9e2ed0fab25c94eaf44991d1687c0fe3f84b662b3f38b5",
 		"UPSTREAM-LICENSE": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e",
-		"adapter.md": "5cc7865144888d31ea0cb7d5476ca909fab95c81f45b9a696592f8ac173a99af",
+		"adapter.md": "32755752d3efa32ef3d4d3d3066a96d5399ff8bff80f8982873d3fe6761048d8",
 		"agents/comment-sicko.md": "b14ea3e357d387d872050360e8899ef5a6dbb96824fb0a36e88e705e3ab14bc6",
 		"agents/pstack-agent.md": "69659328d6a05732a350f4b9187afad508fe39f4d5ba1bcc699675d1d83d7b93",
 		"pstack-config.json": "79f2fa567445420471c3e1687125d87e2a43195be434cfd1517c9d7e32e1eb21",
@@ -86,7 +86,7 @@
 		"skills/principle-subtract-before-you-add/SKILL.md": "79f10754b5b8bf5a0d12035425bdc13176d6b6522c3ff46055d969042b42821e",
 		"skills/principle-test-behavior-not-implementation/SKILL.md": "aa1e039063485e4c8860f8b9ee52087824e4315dee552685be20af718c34c044",
 		"skills/principle-type-system-discipline/SKILL.md": "4405886c11c767de75d3a38a01b0bfc41630cfd476b678855496db279339bca2",
-		"skills/pstack-adapter/SKILL.md": "360aef3610989d3a0d8737bd4e3befdc2b6351d77325b7d296fd3fd89923a6ad",
+		"skills/pstack-adapter/SKILL.md": "685718212c91c07916974667dabe6c7747447c19fae9d24ff3032856fa883a82",
 		"skills/pstack-tdd/SKILL.md": "ba255c7dba9739684525b04e0ab8515fa0b62bec7466be5c27d48e635262d597",
 		"skills/pstack-teach/SKILL.md": "2dd746459cc988d1b205af3a070342e3bc5426ef4a88895581e8add5a810578d",
 		"skills/recall/SKILL.md": "322831d428ecadc520ed18af5278c9a3a99016adc33fe71f89ca698760d3feee",
