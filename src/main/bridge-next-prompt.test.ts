@@ -6,10 +6,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JUDGE_ASSIST_TIMEOUT_MS } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import { setJudgeAssistEnabled, setJudgeAssistStockLoader } from "../../resources/gui-bridge/modes/judge-assist-engine";
-import type {
-	NextPromptConfigFrame,
-	NextPromptState,
-	NextPromptUpdate,
+import {
+	NEXT_PROMPT_ENTRY,
+	type NextPromptConfigFrame,
+	type NextPromptState,
+	type NextPromptUpdate,
 } from "../../resources/gui-bridge/modes/next-prompt-contracts";
 import { SUGGEST_DEBOUNCE_MS } from "../../resources/gui-bridge/modes/next-prompt-core";
 import {
@@ -435,6 +436,76 @@ describe("regeneration", () => {
 
 	it("refuses an unknown refresh reason", async () => {
 		await expect(handlers.next_prompt_refresh({ reason: "turn" }, world.env)).rejects.toThrow("reason");
+	});
+});
+
+describe("the session's last suggestion (a page that reloads, a tab shown again, a relaunch)", () => {
+	type Journal = Array<{ type: string; customType?: string; data?: unknown; message?: unknown }>;
+	function withJournal(w: World, journal: Journal): void {
+		Object.assign(w.session.sessionManager, {
+			appendCustomEntry: (customType: string, data: unknown) =>
+				void journal.push({ type: "custom", customType, data }),
+			getBranch: () => journal,
+		});
+	}
+	const state = async (w: World = world) => (await handlers.next_prompt_state({}, w.env)) as NextPromptState;
+
+	it("answers it with the state, and an empty one once a new run made it stale", async () => {
+		await turnEnds();
+		expect((await state()).last).toMatchObject({
+			candidates: ["commit it", "push it", "run the linter"],
+			used: { model: "fake/smol-1", role: "smol" },
+			sessionFile: "/sessions/one.jsonl",
+			sessionId: "sess-1",
+		});
+		expect(typeof (await state()).last?.at).toBe("number");
+		world.hooks.get("agent_start")?.({}, main);
+		expect((await state()).last).toMatchObject({ candidates: [], sessionFile: "/sessions/one.jsonl" });
+	});
+
+	it("journals it, and an omp started on the session reads it back without asking the model", async () => {
+		const journal: Journal = [];
+		withJournal(world, journal);
+		await turnEnds();
+		expect(journal).toEqual([
+			{
+				type: "custom",
+				customType: NEXT_PROMPT_ENTRY,
+				data: expect.objectContaining({ candidates: ["commit it", "push it", "run the linter"] }),
+			},
+		]);
+		// A relaunch: a new omp on the same session file, nothing in memory.
+		resetNextPromptState();
+		const again = build();
+		withJournal(again, journal);
+		await handlers.next_prompt_set({ suggestions: true, inline: true }, again.env);
+		expect((await state(again)).last?.candidates).toEqual(["commit it", "push it", "run the linter"]);
+		// The moment is the same: an emptied draft asks the model nothing.
+		await handlers.next_prompt_draft({ empty: false }, again.env);
+		await handlers.next_prompt_draft({ empty: true }, again.env);
+		await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS);
+		await flush();
+		expect(again.calls).toHaveLength(0);
+	});
+
+	it("never answers a journaled one a later message made stale", async () => {
+		const journal: Journal = [
+			{ type: "custom", customType: NEXT_PROMPT_ENTRY, data: { candidates: ["old"], at: 1, key: "k" } },
+			{ type: "message", message: { role: "user", content: "next" } },
+		];
+		withJournal(world, journal);
+		await handlers.next_prompt_set({ suggestions: true, inline: true }, world.env);
+		expect((await state()).last).toBeUndefined();
+	});
+
+	it("keeps the suggestion when the person types and clears the draft: the moment did not move", async () => {
+		await turnEnds();
+		await handlers.next_prompt_draft({ empty: false }, world.env);
+		await handlers.next_prompt_draft({ empty: true }, world.env);
+		await vi.advanceTimersByTimeAsync(SUGGEST_DEBOUNCE_MS);
+		await flush();
+		expect(world.calls).toHaveLength(1);
+		expect(updates(world)).toHaveLength(1);
 	});
 });
 

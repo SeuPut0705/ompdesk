@@ -1285,11 +1285,13 @@ installTabReadyGate(tabId => {
 // A run starting in any tab — background ones included, whose agent_start never
 // reaches the renderer — makes that session's remembered suggestion stale. It lives
 // here, not in stores/next-prompt.ts, which use-rpc-events (imported by this file) loads.
+// Only an idle tab starting to run is a new run: a paired host's tab coming back from a
+// lost link (starting → running) still runs the turn its suggestion was made after.
 useTabsStore.subscribe((next, previous) => {
 	if (next.tabs === previous.tabs) return;
 	for (const tab of next.tabs) {
 		if (tab.status !== "running") continue;
-		if (previous.tabs.find(prior => prior.id === tab.id)?.status === "running") continue;
+		if (previous.tabs.find(prior => prior.id === tab.id)?.status !== "ready") continue;
 		useNextPromptStore.getState().clear(tab.sessionPath, tab.sessionId);
 	}
 });

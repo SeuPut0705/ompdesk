@@ -14,7 +14,11 @@
  * - Enabled by `OMP_GUI_NEXT_PROMPT` at spawn and `next_prompt_set` afterwards (Settings › Agent behavior,
  *   prefs `nextPromptSuggestions` / `nextPromptInline`).
  * - The renderer reports whether its composer draft is empty (`next_prompt_draft`); typing aborts the pending
- *   or running suggestion, emptying the draft asks again when the state moved.
+ *   or running suggestion, emptying the draft asks again only when the state moved (the person's own deleted draft
+ *   brings the suggestion they saw back, never a new one).
+ * - The session's last suggestion is kept (and journaled as `NEXT_PROMPT_ENTRY`) and `next_prompt_state` answers
+ *   it as `last`: a page that missed the frame (a tab in the background, a reload, a hidden phone, a paired host's
+ *   lost link) or an omp started on the session later (a relaunch, an update) shows it again on its next hydration.
  * - Cost: one request per finished turn (a few k tokens in, ≤ 512 out, reasoning off) and, while typing, at most
  *   one per 2 s of typing pauses (cached per draft). `next_prompt_state.requests` counts both.
  * - The user's own `next-prompt` extension is detected through the loaded extension list; the renderer then
@@ -26,9 +30,11 @@ import {
 	type InlineCompletion,
 	inlineEffective,
 	MAX_NEXT_PROMPT_CHILDREN,
+	NEXT_PROMPT_ENTRY,
 	NEXT_PROMPT_REFRESH_REASONS,
 	type NextPromptChild,
 	type NextPromptConfigFrame,
+	type NextPromptLast,
 	type NextPromptModelUsed,
 	type NextPromptSettings,
 	type NextPromptState,
@@ -121,6 +127,9 @@ export interface NextPromptSession {
 		getSessionId(): string;
 		getLeafId(): string | null;
 		appendModelUsage?(usage: Record<string, unknown>, owner: { sessionId: string; parentId: string | null }): unknown;
+		/** The journal: the last suggestion is written there and read back by an omp started on the session later. */
+		appendCustomEntry?(customType: string, data: unknown): unknown;
+		getBranch?(): ReadonlyArray<{ type?: string; customType?: string; data?: unknown }>;
 	};
 	getTodoPhases?(): ReadonlyArray<{ tasks: ReadonlyArray<{ content: string; status: string }> }>;
 	getPlanModeState?(): { enabled: boolean; planFilePath?: string } | undefined;
@@ -323,6 +332,19 @@ const requests = { suggest: 0, inline: 0 };
 /** Last suggestion's state key per session (session file, else id): "did the state move since?". */
 const lastKeys = new Map<string, string>();
 
+/** A session's last suggestion: candidates empty once a run made it stale (or nothing fitted); `key` its moment. */
+interface Kept {
+	candidates: string[];
+	used?: NextPromptModelUsed;
+	at: number;
+	key?: string;
+}
+/**
+ * The last suggestion per session key; `null` = the journal was read and holds none still valid. Absent: not read
+ * yet (an omp that just started on a stored session reads the journal once).
+ */
+const kept = new Map<string, Kept | null>();
+
 const scheduler = new SuggestionScheduler({ run: (trigger, signal) => generate(trigger, signal) });
 
 function mainSession(): NextPromptSession | undefined {
@@ -358,6 +380,82 @@ function remember(key: string, stateKey: string): void {
 	lastKeys.delete(key);
 	lastKeys.set(key, stateKey);
 	for (const stale of [...lastKeys.keys()].slice(0, Math.max(0, lastKeys.size - KEYS_KEPT))) lastKeys.delete(stale);
+}
+
+function keep(key: string, entry: Kept | null): void {
+	kept.delete(key);
+	kept.set(key, entry);
+	for (const stale of [...kept.keys()].slice(0, Math.max(0, kept.size - KEYS_KEPT))) kept.delete(stale);
+}
+
+/** What `NEXT_PROMPT_ENTRY` holds, or null for anything else. */
+function journaled(data: unknown): Kept | null {
+	if (typeof data !== "object" || data === null) return null;
+	const value = data as Record<string, unknown>;
+	if (!Array.isArray(value.candidates) || typeof value.at !== "number") return null;
+	const candidates = value.candidates.filter((text): text is string => typeof text === "string" && text.trim() !== "");
+	const used = value.used as Record<string, unknown> | undefined;
+	return {
+		candidates,
+		at: value.at,
+		...(typeof value.key === "string" ? { key: value.key } : {}),
+		...(used && typeof used.model === "string" && typeof used.role === "string"
+			? { used: { model: used.model, role: used.role } }
+			: {}),
+	};
+}
+
+/**
+ * The journal's last suggestion, valid while no message followed it (a prompt, a reply, a tool result: the moment it
+ * was made for has passed). Custom messages (a recap, a session report) leave it standing, as they do on screen.
+ */
+function fromJournal(session: NextPromptSession): Kept | null {
+	let branch: ReturnType<NonNullable<NextPromptSession["sessionManager"]["getBranch"]>>;
+	try {
+		branch = session.sessionManager.getBranch?.() ?? [];
+	} catch {
+		return null;
+	}
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry?.type === "message") return null;
+		if (entry?.type === "custom" && entry.customType === NEXT_PROMPT_ENTRY) return journaled(entry.data);
+	}
+	return null;
+}
+
+/** The session's last suggestion, read from the journal the first time this omp is asked about the session. */
+function lastFor(session: NextPromptSession): NextPromptLast | undefined {
+	const key = sessionKey(session);
+	let entry = kept.get(key);
+	if (entry === undefined) {
+		entry = fromJournal(session);
+		keep(key, entry);
+		// Made for the moment this omp sees too: a trigger that finds the moment unchanged asks the model nothing.
+		if (entry?.key && !lastKeys.has(key) && moment(session).key === entry.key) remember(key, entry.key);
+	}
+	if (!entry) return undefined;
+	return {
+		candidates: [...entry.candidates],
+		...(entry.used ? { used: entry.used } : {}),
+		at: entry.at,
+		...identity(session),
+	};
+}
+
+/** Kept for the next hydration, and journaled so an omp started on the session later has it too. */
+function keepSuggestion(session: NextPromptSession, entry: Kept): void {
+	keep(sessionKey(session), entry);
+	try {
+		session.sessionManager.appendCustomEntry?.(NEXT_PROMPT_ENTRY, {
+			candidates: entry.candidates,
+			...(entry.used ? { used: entry.used } : {}),
+			at: entry.at,
+			...(entry.key ? { key: entry.key } : {}),
+		});
+	} catch (error) {
+		host?.logger.debug("next-prompt suggestion not journaled", { error: errorText(error) });
+	}
 }
 
 /** The user's own `next-prompt` extension is loaded and active (its widget is ignored while this feature is on). */
@@ -411,6 +509,13 @@ async function currentState(session: NextPromptSession | undefined): Promise<Nex
 		...(failure ? { unavailable: failure.reason, ...(failure.detail ? { detail: failure.detail } : {}) } : {}),
 		requests: { ...requests },
 	};
+}
+
+/** `next_prompt_state`: the feature's state and the main session's last suggestion. */
+async function stateWithLast(session: NextPromptSession | undefined): Promise<NextPromptState> {
+	const state = await currentState(session);
+	const last = session && settings.suggestions ? lastFor(session) : undefined;
+	return last ? { ...state, last } : state;
 }
 
 /** Pushes the feature's current state (settings, legacy extension, model, availability). */
@@ -548,6 +653,7 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		});
 		const wasUnavailable = unavailable !== undefined;
 		unavailable = undefined;
+		keepSuggestion(session, { candidates, used: resolved.used, at: Date.now(), key: stateKey });
 		const update: NextPromptUpdate = {
 			type: "next_prompt_update",
 			status: "ready",
@@ -602,8 +708,10 @@ export function install(pi: NextPromptHost): void {
 	const main = (ctx: HookContext) => ctx.agent.kind === "main";
 	pi.on("agent_start", (_event, ctx) => {
 		if (!main(ctx)) return;
-		// A new run makes any pending or running suggestion stale.
+		// A new run makes any pending or running suggestion stale, and the one shown too.
 		scheduler.cancel();
+		const session = mainSession();
+		if (session) keep(sessionKey(session), { candidates: [], at: Date.now() });
 	});
 	pi.on("agent_end", (_event, ctx) => {
 		if (main(ctx)) request("turn");
@@ -652,7 +760,10 @@ export const handlers: EngineMethods = {
 			scheduler.cancel();
 			inlineAbort?.abort();
 			const session = mainSession();
-			if (session) emitFrame({ type: "next_prompt_update", status: "cleared", ...identity(session) });
+			if (session) {
+				keep(sessionKey(session), { candidates: [], at: Date.now() });
+				emitFrame({ type: "next_prompt_update", status: "cleared", ...identity(session) });
+			}
 		}
 		if (!next.inline) inlineAbort?.abort();
 		if (enabledNow) request("refresh");
@@ -662,7 +773,7 @@ export const handlers: EngineMethods = {
 
 	next_prompt_state: async (_params, env) => {
 		attach(env);
-		return currentState(mainSession());
+		return stateWithLast(mainSession());
 	},
 
 	/** `{empty}`: the composer draft is (not) empty. Typing aborts a pending suggestion; emptying it asks again when the state moved. */
@@ -674,7 +785,8 @@ export const handlers: EngineMethods = {
 		draftEmpty = empty;
 		if (!changed) return { empty };
 		if (!empty) scheduler.cancel();
-		else request("refresh");
+		// Asks only when the moment moved, or no suggestion was made for it (typing dropped the request).
+		else request("draft");
 		return { empty };
 	},
 
@@ -792,6 +904,7 @@ export function resetNextPromptState(): void {
 	requests.suggest = 0;
 	requests.inline = 0;
 	lastKeys.clear();
+	kept.clear();
 	compactedSinceSuggestion = false;
 }
 

@@ -75,8 +75,12 @@ export const NEXT_PROMPT_UNAVAILABLE: readonly NextPromptUnavailable[] = [
 	"error",
 ];
 
-/** What caused a (re)generation. */
-export type NextPromptTrigger = "turn" | "compaction" | "bash" | "switch" | "refresh";
+/**
+ * What caused a (re)generation. Only `refresh` (the renderer asking past an unchanged moment) is forced; `draft` (the
+ * person emptied the composer) asks only when the moment moved since the last suggestion, so typing and clearing a
+ * draft keeps the suggestion the person saw instead of replacing it.
+ */
+export type NextPromptTrigger = "turn" | "compaction" | "bash" | "switch" | "refresh" | "draft";
 
 /** The renderer-reported reasons of `refresh_next_prompt`; the bridge adds `turn`, `compaction` and `switch` itself. */
 export const NEXT_PROMPT_REFRESH_REASONS = ["bash", "switch", "refresh"] as const;
@@ -132,6 +136,28 @@ export interface NextPromptUpdate {
 	ms?: number;
 }
 
+/**
+ * Journal entry type (`sessionManager.appendCustomEntry`) holding a session's last suggestion: `{candidates, used?,
+ * at, key}`. An omp started on the session (a relaunch, an update's restart) answers it as `last` until a later
+ * message makes it stale, so a suggestion outlives the process that made it.
+ */
+export const NEXT_PROMPT_ENTRY = "ompdesk.next-prompt";
+
+/**
+ * The session's last suggestion (`NextPromptState.last`): what the bridge pushed last for it, kept so a page that
+ * missed the frame (its tab was in the background, a reload, a phone that was hidden, a paired host's link that
+ * dropped, a relaunch) gets it back on its next hydration. Empty `candidates`: a run made the last one stale, or
+ * nothing natural fitted.
+ */
+export interface NextPromptLast {
+	candidates: string[];
+	used?: NextPromptModelUsed;
+	/** When it was made, epoch ms on the clock of the computer the session runs on. */
+	at: number;
+	sessionFile?: string;
+	sessionId?: string;
+}
+
 /** What a tab's bridge reports about the feature (`get_next_prompt`, and the `next_prompt_config` frame). */
 export interface NextPromptState {
 	suggestions: boolean;
@@ -144,6 +170,8 @@ export interface NextPromptState {
 	detail?: string;
 	/** Requests this omp has made since it started, by kind (the cost of the feature). */
 	requests: { suggest: number; inline: number };
+	/** The main session's last suggestion (`get_next_prompt` only; absent: none known, or an older bridge). */
+	last?: NextPromptLast;
 }
 
 /** The `next_prompt_config` frame. */

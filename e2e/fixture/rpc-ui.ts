@@ -20,6 +20,8 @@ import {
 import { autopilotRunning } from "../../resources/gui-bridge/modes/autopilot-core";
 import { parseJudgeAssistEnv } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import {
+	NEXT_PROMPT_ENTRY,
+	type NextPromptLast,
 	type NextPromptModelUsed,
 	type NextPromptSettings,
 	type NextPromptState,
@@ -616,6 +618,8 @@ export function runRpcUi(): void {
 	const write = (frame: object) => {
 		if ("type" in frame && frame.type === "agent_start") {
 			cancelRecap();
+			// The bridge's next-prompt engine: a new run makes the session's last suggestion stale.
+			nextPromptRunStarted();
 			// A turn that starts while the plan waits replies to it (bridge modes/plan.ts `settlePending`).
 			resolvePlan();
 		}
@@ -837,6 +841,35 @@ export function runRpcUi(): void {
 			: { model: nextPromptUsed() }),
 		requests: { ...nextPromptRequests },
 	});
+	/**
+	 * The session's last suggestion (the bridge's `kept`): set by every ready frame, emptied by a new run, and read
+	 * once from the journal (`NEXT_PROMPT_ENTRY`, written only with `OMP_GUI_TEST_SESSION_FILES`) by an omp started
+	 * on the session, valid while no message followed it. `undefined`: the journal was not read yet.
+	 */
+	let nextPromptKept: Omit<NextPromptLast, "sessionFile" | "sessionId"> | null | undefined;
+	const nextPromptFromJournal = (): Omit<NextPromptLast, "sessionFile" | "sessionId"> | null => {
+		const branch = activeBranch();
+		for (let index = branch.length - 1; index >= 0; index--) {
+			const entry = branch[index];
+			if (entry?.type === "message") return null;
+			if (entry?.type === "custom" && entry.customType === NEXT_PROMPT_ENTRY) {
+				const data = entry.data as { candidates?: unknown; at?: unknown } | undefined;
+				return Array.isArray(data?.candidates) && typeof data.at === "number"
+					? { candidates: data.candidates.map(String), at: data.at, used: nextPromptUsed() }
+					: null;
+			}
+		}
+		return null;
+	};
+	const nextPromptLastState = (): NextPromptState => {
+		const state = nextPromptState();
+		if (!nextPromptSettings.suggestions) return state;
+		if (nextPromptKept === undefined) nextPromptKept = nextPromptFromJournal();
+		return nextPromptKept ? { ...state, last: { ...nextPromptKept, ...nextPromptSession() } } : state;
+	};
+	const nextPromptRunStarted = () => {
+		nextPromptKept = { candidates: [], at: Date.now() };
+	};
 	const pushBridgeEvent = (event: object) => {
 		const frame = `${JSON.stringify({ event })}\n`;
 		for (const socket of bridgeClients) socket.write(frame);
@@ -972,15 +1005,18 @@ export function runRpcUi(): void {
 		}
 		const recovered = nextPromptFailure !== undefined;
 		nextPromptFailure = undefined;
+		const candidates = nextPromptScript.candidates ?? [
+			"Run the tests",
+			"Commit these changes",
+			"Explain what you changed",
+		];
+		nextPromptKept = { candidates, at: Date.now(), used: nextPromptUsed() };
+		if (sessionFile) append({ type: "custom", customType: NEXT_PROMPT_ENTRY, data: nextPromptKept }, Date.now());
 		pushBridgeEvent({
 			type: "next_prompt_update",
 			status: "ready",
 			trigger,
-			candidates: nextPromptScript.candidates ?? [
-				"Run the tests",
-				"Commit these changes",
-				"Explain what you changed",
-			],
+			candidates,
 			used: nextPromptUsed(),
 			ms,
 			...nextPromptSession(),
@@ -2084,12 +2120,13 @@ export function runRpcUi(): void {
 			if (!nextPromptSettings.suggestions) {
 				clearTimeout(nextPromptTimer);
 				nextPromptTimer = undefined;
+				nextPromptKept = { candidates: [], at: Date.now() };
 				pushBridgeEvent({ type: "next_prompt_update", status: "cleared", ...nextPromptSession() });
 			}
 			emitNextPromptConfig();
 			return nextPromptState();
 		},
-		next_prompt_state: () => nextPromptState(),
+		next_prompt_state: () => nextPromptLastState(),
 		// gui-bridge modes/auto-title.ts (contracts in resources/gui-bridge/modes/auto-title-contracts.ts).
 		auto_title_set: params => {
 			autoTitleSettings = normalizeAutoTitle(params);

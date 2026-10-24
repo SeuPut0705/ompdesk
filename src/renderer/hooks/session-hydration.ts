@@ -28,6 +28,7 @@ import {
 	snapshotModelSelection,
 	useModelStore,
 } from "../stores/model";
+import { useNextPromptStore } from "../stores/next-prompt";
 import type { PendingPlanProposal, PlanApprovalStore } from "../stores/plan-approval";
 import { type QueueStore, useQueueStore } from "../stores/queue";
 import { type SessionStore, snapshotModeState, useSessionStore } from "../stores/session";
@@ -309,9 +310,18 @@ export function nextPromptPatch(state: NextPromptState): Pick<SessionStore, "nex
  * the feature answers unsupported_omp and the field stays null (legacy widget path). next_prompt_config follows. */
 export async function syncNextPrompt(tabId: string, command: TabCommand, isCurrent: HydrationGuard): Promise<void> {
 	const before = withSessionRuntime(tabId, () => useSessionStore.getState().nextPrompt);
+	const since = Date.now();
 	try {
 		const res = await command({ type: "get_next_prompt" });
 		if (!isCurrent() || !res.success || !res.data) return;
+		// The session's last suggestion: what this page missed while the frame could not reach it.
+		const last = (res.data as NextPromptState).last;
+		if (last)
+			withSessionRuntime(tabId, () => {
+				const session = useSessionStore.getState();
+				const key = last.sessionFile || last.sessionId || session.sessionFile || session.sessionId;
+				if (key) useNextPromptStore.getState().recordLast(key, last, since);
+			});
 		// A next_prompt_config frame that landed meanwhile is fresher than this reply.
 		if (withSessionRuntime(tabId, () => useSessionStore.getState().nextPrompt) !== before) return;
 		// get_next_prompt wire payload is NextPromptState; `data` crosses the bridge as unknown.
