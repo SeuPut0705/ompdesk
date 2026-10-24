@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.71.6] - 2026-10-24
+
+다른 컴퓨터와 연결할 포트를 Windows가 막아 두어도 공유가 꺼지지 않고, 다른 포트로 알아서 연결해요.
+
+### 고친 것
+- Windows는 Hyper-V, WSL, Docker용으로 포트를 100개씩 묶어 막아 두는데, 공유에 쓰는 포트 다섯 개(47821~47825)가 모두 그 안에 들면 그 PC는 어떤 포트로도 기다리지 않아 다른 기기가 연결할 수 없었어요. 이제 멀리 떨어진 예비 포트로 옮겨 기다리고, 다른 기기도 그 포트까지 찾아가요. 두 쪽 모두 이 버전이면 따로 할 일 없이 연결돼요.
+- 컴퓨터의 주소 하나(예: IPv6)에서 포트를 못 열면 공유 전체가 꺼지던 것을, 다른 기기가 연결하는 주소만 열리면 공유하도록 고쳤어요.
+- 상대 컴퓨터가 잠들어 응답이 없을 때 포트마다 시간 초과를 기다리지 않고 바로 다음 시도로 넘어가요.
+
+<!-- en -->
+
+When Windows reserves the ports sharing uses, sharing no longer turns off: it moves to another port and devices find it by themselves.
+
+### Fixed
+- Windows reserves ports in blocks of 100 for Hyper-V, WSL and Docker. When the five sharing ports (47821–47825) all fell in such a block, that PC listened on none and no device could connect. It now moves to fallback ports far from that block, and devices look there too. With both ends on this version, they connect with nothing to do.
+- A computer whose port could not be opened on one of its addresses (an IPv6 one, say) turned sharing off entirely; it now shares as long as the address devices connect to opens.
+- When the other computer is asleep and answers nothing, a connection attempt no longer waits out a timeout on each port before the next try.
+
 ## [0.71.5] - 2026-10-24
 
 시계가 맞지 않는 다른 컴퓨터에서 실행 중인 세션의 추천이 사라지지 않도록 고쳤어요.
