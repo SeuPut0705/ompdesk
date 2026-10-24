@@ -54,7 +54,16 @@ describe("addresses and ports", () => {
 	it("reads the port override from the environment, and offers it with its successors", () => {
 		delete process.env.OMP_GUI_REMOTE_PORT;
 		expect(remotePort()).toBe(DEFAULT_REMOTE_PORT);
-		expect(remotePortCandidates()).toEqual([47821, 47822, 47823, 47824, 47825]);
+		const ports = remotePortCandidates();
+		expect(ports.slice(0, 5)).toEqual([47821, 47822, 47823, 47824, 47825]);
+		// A block of reserved or taken ports (Windows reserves 100-port ranges for Hyper-V, WSL and Docker) never
+		// leaves a host nowhere to listen: the fallbacks lie in other blocks, below every OS's dynamic range.
+		const fallbacks = ports.slice(5);
+		expect(fallbacks.length).toBeGreaterThanOrEqual(4);
+		const blocks = new Set(ports.map(port => Math.floor(port / 1000)));
+		expect(blocks.size).toBe(fallbacks.length + 1);
+		for (const port of fallbacks) expect(port).toBeGreaterThan(1024);
+		for (const port of fallbacks) expect(port).toBeLessThan(49152);
 		process.env.OMP_GUI_REMOTE_PORT = "50111";
 		expect(remotePort()).toBe(50111);
 		expect(remotePortCandidates()).toEqual([50111, 50112, 50113, 50114, 50115]);

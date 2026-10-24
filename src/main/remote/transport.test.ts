@@ -77,11 +77,19 @@ interface HostRig {
 	addresses: { hosts: string[] };
 }
 
+function realListen(server: Server, port: number, host: string): Promise<number> {
+	const { promise, resolve, reject } = Promise.withResolvers<number>();
+	server.once("error", reject);
+	server.listen(port, host, () => resolve((server.address() as AddressInfo).port));
+	return promise;
+}
+
 async function startHost(
 	b: Side = side(),
 	port = 0,
 	bindHosts = [LOOPBACK],
 	logLink?: RemoteHostOptions["logLink"],
+	bindPort?: RemoteHostOptions["bindPort"],
 ): Promise<HostRig> {
 	const peers = new PeerStore(b.dir);
 	const gate = { next: (_ip: string) => visitor() };
@@ -102,6 +110,7 @@ async function startHost(
 		appVersion: APP_VERSION,
 		hello: () => MACHINE,
 		logLink,
+		bindPort,
 	});
 	await host.start();
 	cleanups.push(() => host.stop());
@@ -377,6 +386,27 @@ describe("listening", () => {
 		expect(rig.host.port).toBeNull();
 		expect(rig.host.addresses()).toEqual([]);
 		expect(rig.host.listenError).toBeNull();
+	});
+
+	it("skips a port the system reserves as it skips a busy one (Windows answers EACCES for its excluded ranges)", async () => {
+		const held = await heldRun(2);
+		await held.release(0);
+		await held.release(1);
+		const base = held.base;
+		const rig = await startHost(side(), base, [LOOPBACK], undefined, (server, port, host) => {
+			if (port === base) return Promise.reject(Object.assign(new Error("listen EACCES"), { code: "EACCES" }));
+			return realListen(server, port, host);
+		});
+		expect(rig.host.port).toBe(base + 1);
+		expect(rig.host.listenError).toBeNull();
+	});
+
+	it("listens on the address devices dial when another of its addresses cannot be bound", async () => {
+		// TEST-NET-1 belongs to no computer: binding it fails as a Windows IPv6 tailnet address once did.
+		const rig = await startHost(side(), 0, [LOOPBACK, "192.0.2.10"]);
+		expect(rig.host.port).not.toBeNull();
+		expect(rig.host.addresses()).toEqual([`${LOOPBACK}:${rig.host.port}`]);
+		expect((await probeHost(`${LOOPBACK}:${rig.host.port}`)).ok).toBe(true);
 	});
 
 	it("takes the next port of its list when the first is busy, and says so when all are", async () => {
