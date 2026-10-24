@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.71.3] - 2026-10-24
+
+휴대폰에서 앱 화면은 어디서도 확대되지 않고, 연 파일과 사진만 두 손가락으로 확대돼요.
+
+### 새로 생긴 것
+- 파일 패널에서 연 파일(사진, PDF, 문서, 표, 코드 등)을 두 손가락으로 확대할 수 있어요. 확대한 뒤에는 한 손가락으로 옮기고, 가장자리에 닿으면 이어서 스크롤돼요. 다른 파일을 열면 원래 크기로 시작해요.
+
+### 고친 것
+- 브라우저의 "확대 강제 허용" 설정(Chrome 접근성, 삼성 인터넷 웹사이트 확대)이 켜져 있으면 휴대폰 화면이 여전히 두 손가락으로 확대됐어요. 이제 그런 설정이 있어도 앱 화면은 확대되지 않아요.
+
+<!-- en -->
+
+On a phone the app never zooms anywhere; only opened files and pictures zoom with two fingers.
+
+### Added
+- A file opened in the Files panel (a picture, PDF, document, sheet, code and more) zooms with two fingers. Zoomed, one finger moves it and scrolls on once it reaches an edge. Another file starts at its own size.
+
+### Fixed
+- With the browser's own forced zoom on (Chrome's accessibility setting, Samsung Internet's website zoom), a pinch still zoomed the phone's page. The app no longer zooms with such a setting either.
+
 ## [0.71.2] - 2026-10-23
 
 휴대폰에서 두 손가락으로 벌려도 앱 화면이 확대되지 않아요. 사진은 크게 띄운 뒤 두 손가락으로 확대할 수 있어요.
