@@ -111,6 +111,19 @@ describe("readRulesText", () => {
 		expect(statedByRules(index, { title: "제목", body: "본문", gist })).toBe(true);
 	});
 
+	it("counts a rule stated in the repository's .omp/rules files, not only in AGENTS.md", async () => {
+		await mkdir(join(root, ".git"));
+		await mkdir(join(root, ".omp", "rules"), { recursive: true });
+		await writeFile(join(root, "AGENTS.md"), "# Core\n- Unrelated filler line about window chrome and tray icons.\n");
+		await writeFile(
+			join(root, ".omp", "rules", "packaging.md"),
+			'---\ndescription: "Packaging"\n---\n- Packaged apps keep only Electron\'s en-US and ko locales; never en alone.\n',
+		);
+		const index = rulesIndex(await readRulesText(root));
+		const gist = "Packaged builds keep only the en-US and ko Electron locales.";
+		expect(statedByRules(index, { title: "제목", body: "본문", gist })).toBe(true);
+	});
+
 	it("is empty without a folder or a rules file, and reads the folder itself outside a repository", async () => {
 		expect(await readRulesText("")).toBe("");
 		expect(await readRulesText(join(root, "missing"))).toBe("");

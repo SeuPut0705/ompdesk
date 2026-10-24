@@ -13,10 +13,12 @@
  * Read-only: the file is never written, and it is read whole up to `RULES_FILE_BYTES` (4 MB: OMPdesk's own AGENTS.md is
  * over 400 KB, and a cut at 200 KB missed half its rules).
  */
-import { open, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export const RULES_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
+/** omp's project rules folder: a repository can keep its rules there instead of one large AGENTS.md (this one does). */
+export const RULES_DIR = ".omp/rules";
 export const RULES_FILE_BYTES = 4 * 1024 * 1024;
 export const RULES_COVERAGE = 0.6;
 export const RULES_MIN_SHARED = 3;
@@ -167,9 +169,18 @@ async function head(file: string): Promise<string> {
 	}
 }
 
-/** The rules files at the root of the repository `cwd` is in, joined; empty when there are none (or no `cwd`). */
+/**
+ * The rules files at the root of the repository `cwd` is in, then each `.omp/rules/*.md` in name order, joined (each
+ * read whole up to `RULES_FILE_BYTES`); empty when there are none (or no `cwd`).
+ */
 export async function readRulesText(cwd: string): Promise<string> {
 	if (!cwd) return "";
 	const root = await repositoryRoot(cwd);
-	return (await Promise.all(RULES_FILES.map(name => head(join(root, name))))).filter(Boolean).join("\n");
+	const ruleFiles = (await readdir(join(root, RULES_DIR)).catch(() => [] as string[]))
+		.filter(name => name.endsWith(".md"))
+		.sort()
+		.map(name => join(RULES_DIR, name));
+	return (await Promise.all([...RULES_FILES, ...ruleFiles].map(name => head(join(root, name)))))
+		.filter(Boolean)
+		.join("\n");
 }
