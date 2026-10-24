@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.71.5] - 2026-10-24
+
+시계가 맞지 않는 다른 컴퓨터에서 실행 중인 세션의 추천이 사라지지 않도록 고쳤어요.
+
+### 고친 것
+- 연결된 다른 컴퓨터의 시계가 이 기기보다 느리면, 연결이 잠깐 끊긴 사이 그 컴퓨터가 만든 추천이 다시 연결돼도 보이지 않았어요. 이제 두 컴퓨터의 시간을 비교하지 않고 추천마다 붙은 고유 번호로 판단해요. 이미 넘어간 추천은 그 컴퓨터의 시계가 빨라도 되살아나지 않아요.
+
+<!-- en -->
+
+Suggestions of a session running on a computer whose clock is off no longer go missing.
+
+### Fixed
+- When a paired computer's clock ran behind this device's, a suggestion it made while the link was briefly down never showed after the link came back. Each suggestion now carries its own identity and the two computers' clocks are never compared; a suggestion you already moved past stays gone even when the other computer's clock runs ahead.
+
 ## [0.71.4] - 2026-10-24
 
 추천 메시지가 더 이상 사라지지 않아요. 다른 탭에 있다가 돌아와도, 새로고침하거나 앱을 다시 켜도, 휴대폰이나 연결된 다른 컴퓨터에서 봐도 그 세션의 추천이 그대로 보여요. 추천 내용도 조금 더 내 말투와 답의 흐름에 맞게 다듬었어요.
