@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.72.1] - 2026-10-25
+
+모든 세션의 첫 요청이 약 5천 토큰 가벼워졌고, 다른 에이전트가 연 세션은 일을 마친 뒤 보고하느라 모델을 두 번 더 부르지 않아요.
+
+### 바뀐 것
+- 세션이 쓸 수 있는 도구(xd:// 장치) 목록이 요청마다 두 번 실렸어요. 시스템 프롬프트에 한 번, 알림 메시지에 한 번이었어요. 실제 OMPdesk 세션의 첫 요청을 재 보니 장치 63개 중 59개가 두 번 들어가 5,117토큰을 차지했어요(36,007 → 30,890). 이제 프롬프트에 이미 있는 장치는 알림에서 빼고, 모든 장치가 정확히 한 번씩만 나가요.
+- 다른 에이전트가 연 세션은 일을 마치면 완료 보고 도구의 설명서를 읽고 보고를 보낸 뒤에야 답했어요. 모델을 두 번 더 부른 거예요(간단한 일 8초 중 2.4초). 이제 마지막 답의 `Result` 줄을 OMPdesk가 그대로 완료 보고로 전해요. 질문, 막힘, 중간 진행 보고는 전처럼 세션이 직접 보내요.
+
+<!-- en -->
+
+Every session's first request is about 5k tokens lighter, and a session another agent opened no longer calls the model twice more to report that it finished.
+
+### Changed
+- The list of tools a session can use (xd:// devices) went out twice per request: in the system prompt and again in a notice. Measured on a real OMPdesk session's first request, 59 of 63 devices appeared twice, 5,117 tokens (36,007 → 30,890). A notice the prompt already covers now stays out of the request, and every device goes out exactly once.
+- A session another agent opened read the report tool's docs and sent its done report before answering: two extra model calls (2.4 s of an 8 s small task). OMPdesk now delivers its final answer's `Result` line as the done report. Questions, blockers and progress are still the session's own reports.
+
 ## [0.72.0] - 2026-10-25
 
 에이전트가 OMPdesk 저장소에서 일할 때 매 요청에 싣는 규칙이 13분의 1로 줄었고, 앱을 끄거나 업데이트할 때 일하던 백그라운드 에이전트가 사라지지 않아요.
