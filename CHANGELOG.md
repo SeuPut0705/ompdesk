@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.71.4] - 2026-10-24
+
+추천 메시지가 더 이상 사라지지 않아요. 다른 탭에 있다가 돌아와도, 새로고침하거나 앱을 다시 켜도, 휴대폰이나 연결된 다른 컴퓨터에서 봐도 그 세션의 추천이 그대로 보여요. 추천 내용도 조금 더 내 말투와 답의 흐름에 맞게 다듬었어요.
+
+### 고친 것
+- 답이 끝났을 때 그 탭을 보고 있지 않았거나(다른 탭, 휴대폰이 꺼져 있을 때, 다른 컴퓨터와의 연결이 잠깐 끊겼을 때), 새로고침하거나 앱을 다시 켜면 추천이 사라졌어요. 이제 세션마다 마지막 추천을 기억해 두었다가 다시 보여 줘요. 다시 켤 때도 모델에 새로 묻지 않아요.
+- 입력창에 뭔가 적었다가 지우면 추천이 새로 만들어지면서 바뀌거나 사라졌어요. 이제 보던 추천이 그대로 돌아와요.
+- 답이 "원하시면 …할게요", "…하면 말씀해 주세요"처럼 다음 할 일을 제안하면, 그 제안에 답하는 추천이 나오도록 했어요.
+- 반말로 쓰는데 존댓말 추천이 나오던 경우를 줄였어요. 대화가 길어져 앞부분이 요약된 뒤에도 내 말투를 세션 전체에서 읽어요.
+- "좋아,"처럼 내가 쓰지 않는 첫마디와 문장 끝 마침표를 추천에서 떼어요. 내부 표시 이름이 추천에 섞여 나오던 것도 걸러요.
+- 조금 긴 추천(41~48자)이 통째로 버려지지 않게 했어요.
+
+<!-- en -->
+
+Suggested messages no longer disappear. Coming back from another tab, after a reload or a relaunch, on a phone or from a paired computer, the session's suggestion is still there. The suggestions also follow your own wording and the reply a little more closely.
+
+### Fixed
+- A suggestion made while its tab was not on screen (another tab in front, a phone in the background, a paired computer's link briefly down), or one shown before a reload or a relaunch, was gone. Each session now keeps its last suggestion and shows it again, without asking the model again after a relaunch.
+- Typing into the composer and clearing it made a new suggestion that replaced or removed the one shown. The suggestion you saw now comes back.
+- A reply that offers a next step ("if you want, I'll …", "let me know if …") now gets suggestions that answer the offer.
+- Fewer polite suggestions for someone who writes casual Korean: the register is read from the whole session, even after a long conversation was compacted.
+- An opener you never use ("좋아,") and a final period you never write come off suggestions, and internal field names no longer leak into them.
+- A slightly long suggestion (41 to 48 Korean characters) is no longer thrown away.
+
 ## [0.71.3] - 2026-10-24
 
 휴대폰에서 앱 화면은 어디서도 확대되지 않고, 연 파일과 사진만 두 손가락으로 확대돼요.
