@@ -2390,6 +2390,21 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
 		});
 
+		it("still sends the done mail after a progress report or a question on the same dispatch", async () => {
+			for (const kind of ["progress", "question", "note"] as const) {
+				const { host, service, child } = await finishedChild({
+					patch: { last: "Parser fixed in a.ts.\nResult: ok" },
+				});
+				await service.run(child.tabId, T.report, { kind, text: "half way", dispatch: "d1" });
+				await service.autoClose("main0001");
+				const done = host.mails.filter(
+					mail => mail.to === "main0001" && mail.content.includes("Parser fixed in a.ts."),
+				);
+				expect(done, kind).toHaveLength(1);
+				expect(done[0]?.delivery, kind).toEqual({ triggerTurn: true, deliverAs: "aside" });
+			}
+		});
+
 		it("sends none for a failed or stopped turn, or one the person typed into", async () => {
 			for (const patch of [
 				{ lastRun: { stopReason: "error" } },

@@ -3359,7 +3359,9 @@ export class AgentControl {
 			return;
 		const dispatch = this.#mailbox.current(tab.tabId);
 		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
-		if (report && report.dispatch === dispatch) return;
+		// Only a finishing report of this dispatch stands for the answer: a milestone's progress, a note or a question the
+		// opener has since answered leave the finish to tell.
+		if (report && report.dispatch === dispatch && (report.kind === "done" || report.kind === "review")) return;
 		if (this.#autoDoneFor.get(tab.tabId) === (dispatch ?? "")) return;
 		const answer = ((await this.#state(tab)).last ?? "").trim();
 		if (!parseWorkerResult(answer)) return;
