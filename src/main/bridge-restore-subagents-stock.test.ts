@@ -155,9 +155,14 @@ interface Omp {
 	bridge: GuiBridgeClient;
 	frames: Array<{ type: string; [key: string]: unknown }>;
 	send(command: Record<string, unknown>): Promise<Record<string, unknown>>;
-	/** What a restart does to omp: an update's approved quit (SIGTERM, stock journals the exit) or a crash. */
-	kill(signal?: "SIGKILL" | "SIGTERM"): Promise<void>;
+	/**
+	 * What a restart does to omp: an update's approved quit (SIGTERM, stock journals the exit), a crash, or the way
+	 * SidecarManager stops it, closing its stdin (`EOF`; stock disposes the session and parks its background subagents).
+	 */
+	kill(signal?: Signal): Promise<void>;
 }
+
+type Signal = "SIGKILL" | "SIGTERM" | "EOF";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterAll(async () => {
@@ -220,9 +225,10 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 	});
 	const bridge = new GuiBridgeClient(address);
 	let counter = 0;
-	const kill = async (signal: "SIGKILL" | "SIGTERM" = "SIGKILL") => {
+	const kill = async (signal: Signal = "SIGKILL") => {
 		bridge.close();
-		child.kill(signal);
+		if (signal === "EOF") child.stdin.end();
+		else child.kill(signal);
 		await exited;
 		removeBridgeAddress(address);
 	};
@@ -283,7 +289,7 @@ interface Restored {
 }
 
 /** One isolated omp life whose parent runs `script` until the subagent is mid-call, killed, then relaunched. */
-async function cutOff(script: readonly Step[], signal: "SIGKILL" | "SIGTERM") {
+async function cutOff(script: readonly Step[], signal: Signal) {
 	const provider = await startProvider(script);
 	cleanups.push(() => provider.close());
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-revive-"));
@@ -368,6 +374,39 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 	it("sends nothing when stock's restore continues the parent's own turn: its cut-off `wait` reruns", async () => {
 		const { second, isolated, outcome, id } = await cutOff([SPAWN, WAIT], "SIGTERM");
 		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: false });
+		await expect
+			.poll(
+				() =>
+					second.frames.some(
+						frame => frame.type === "tool_execution_start" && JSON.stringify(frame).includes('"wait"'),
+					),
+				{ timeout: 30_000 },
+			)
+			.toBe(true);
+		expect(mainJournal(isolated).some(entry => entry.customType === "ompdesk-restart-subagents")).toBe(false);
+	}, 240_000);
+
+	// 24 Oct 2026, two subagents lost: a graceful stop (stdin closed, as SidecarManager stops omp) disposes the session,
+	// stock parks its background subagents without a tombstone and their transcripts end on a "Request was aborted"
+	// reply, which stock's `hasRestorableTurn` reads as a finished turn: the relaunch's `wait` found nothing to wait for.
+	it("revives a background subagent a graceful stop (stdin closed) cut off, and tells the idle parent once", async () => {
+		const { provider, isolated, second, outcome, id } = await cutOff([SPAWN, { text: "SPAWNED" }], "EOF");
+		expect(outcome).toMatchObject({ turn: false, subagents: [id], followUp: true });
+		await expect.poll(() => provider.subagentRequests, { timeout: 90_000 }).toBeGreaterThan(1);
+		await expect
+			.poll(() => roster(second), { timeout: 30_000 })
+			.toEqual([expect.objectContaining({ id, status: "running" })]);
+		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
+		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
+		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
+	}, 240_000);
+
+	it("revives a background subagent a graceful stop cut off while the parent waited on it: its `wait` reruns", async () => {
+		const { second, isolated, outcome, id } = await cutOff([SPAWN, WAIT], "EOF");
+		expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: false });
+		await expect
+			.poll(() => roster(second), { timeout: 30_000 })
+			.toEqual([expect.objectContaining({ id, status: "running" })]);
 		await expect
 			.poll(
 				() =>

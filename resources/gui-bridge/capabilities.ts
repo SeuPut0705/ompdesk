@@ -179,6 +179,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"sessionManager.appendMessage()",
 			"isStreaming",
 			"getGoalModeState()",
+			"asyncJobManager",
+			"sessionManager.getSessionFile()",
 		],
 		modules: {
 			"@oh-my-pi/pi-agent-core": ["agentPauseGate.paused", "agentPauseGate.pausedAt"],
@@ -192,7 +194,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			[`${AGENT}/utils/tool-choice`]: ["buildNamedToolChoice()"],
 			[`${AGENT}/task/restore`]: ["restoreSession()"],
-			[`${AGENT}/session/exit-diagnostics`]: ["createInterruptedTurnAbortMessage()"],
+			[`${AGENT}/session/exit-diagnostics`]: ["createInterruptedTurnAbortMessage()", "hasRestorableTurn()"],
+			// A subagent a graceful stop parked on an aborted reply gets stock's interrupted-turn record appended
+			// through stock's writer before the restore (composer.restore_interrupted).
+			[`${AGENT}/session/sub-sessions`]: ["collectSubSessions()"],
+			[`${AGENT}/session/session-manager`]: [
+				"SessionManager.open()",
+				"SessionManager.prototype.appendMessage()",
+				"SessionManager.prototype.close()",
+				"extractSessionInit()",
+			],
 			[`${AGENT}/internal-urls/local-protocol`]: ["resolveLocalRoot()", "resolveLocalUrlToPath()"],
 			[`${AGENT}/slash-commands/builtin-completions`]: ["buildMcpArgumentCompletions()"],
 			[`${AGENT}/slash-commands/builtin-registry`]: ["BUILTIN_SLASH_COMMANDS"],

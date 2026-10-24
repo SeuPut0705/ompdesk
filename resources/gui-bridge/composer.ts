@@ -7,6 +7,8 @@
  * fails its own method, not the whole bridge.
  */
 import { createHash } from "node:crypto";
+import { join } from "node:path";
+import type { AssistantMessage } from "@oh-my-pi/pi-ai";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import type { RestoreOptions } from "@oh-my-pi/pi-coding-agent/task/restore";
 import type { AgentMessage } from "../../src/shared/rpc-types";
@@ -22,6 +24,7 @@ import {
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
+	subagentCutByShutdown,
 	turnCutBehindNotes,
 } from "./restart-core";
 import type { BridgeMethods } from "./types";
@@ -130,6 +133,61 @@ async function sharePreview(session: Session) {
 		redactionEnabled,
 		...(truncated ? { truncated: true } : {}),
 	};
+}
+
+// ── Restore ──────────────────────────────────────────────────────────────────
+/**
+ * Closes, with stock's own interrupted-turn record, the background subagents a graceful stop parked on an aborted
+ * reply (`subagentCutByShutdown`), so stock's `restoreSession` revives them: it reads that reply as a finished turn.
+ * The record goes through stock's session writer; a subagent stock cannot revive (no `session_init`, isolated) or
+ * whose record stock cannot build is left alone. A subagent whose transcript cannot be written is reported to
+ * `onFailure`, never blocks the restore of the others or of the session's own turn.
+ */
+async function closeShutdownSubagents(
+	session: Session,
+	branch: readonly JournalEntry[],
+	startedAt: number,
+	onFailure: (id: string, error: unknown) => void,
+): Promise<void> {
+	const sessionFile = session.sessionManager.getSessionFile();
+	if (!sessionFile?.endsWith(".jsonl") || !session.asyncJobManager) return;
+	// Late imports isolate a moved stock internal from the other composer adapters.
+	const { collectSubSessions } = await import("@oh-my-pi/pi-coding-agent/session/sub-sessions");
+	const diagnostics = await import("@oh-my-pi/pi-coding-agent/session/exit-diagnostics");
+	const { SessionManager, extractSessionInit } = await import("@oh-my-pi/pi-coding-agent/session/session-manager");
+	requireFn(diagnostics, "hasRestorableTurn", "composer", "session/exit-diagnostics");
+	requireFn(SessionManager, "open", "composer", "session/session-manager");
+	const subSessions = await collectSubSessions(sessionFile);
+	for (const [key, sub] of Object.entries(subSessions)) {
+		if (sub.aborted || diagnostics.hasRestorableTurn(sub.entries)) continue;
+		if (!subagentCutByShutdown(sub.entries as readonly JournalEntry[], branch, startedAt)) continue;
+		const init = extractSessionInit(sub.entries);
+		if (!init || init.isolated) continue;
+		// What stock would have recorded had the exit not been read as clean: it builds the record from the
+		// transcript up to the aborted reply, under that reply's own model.
+		const tailAt = sub.entries.findLastIndex(entry => entry.type === "message");
+		const tail = sub.entries[tailAt];
+		if (tail?.type !== "message" || tail.message.role !== "assistant") continue;
+		const { api, provider, model } = tail.message as AssistantMessage;
+		const interrupted = diagnostics.createInterruptedTurnAbortMessage(
+			sub.entries.slice(0, tailAt),
+			{ api, provider, model },
+			{ assumeExit: true },
+		);
+		if (!interrupted) continue;
+		// A subagent's transcript sits at `<session>/<id>.jsonl`, its children's under `<session>/<id>/`.
+		const file = `${join(sessionFile.slice(0, -".jsonl".length), ...key.split("/"))}.jsonl`;
+		try {
+			const writer = await SessionManager.open(file, undefined, undefined, { throwIfMissing: true });
+			try {
+				writer.appendMessage(interrupted);
+			} finally {
+				await writer.close();
+			}
+		} catch (error) {
+			onFailure(sub.agentId, error);
+		}
+	}
 }
 
 // ── Methods ──────────────────────────────────────────────────────────────────
@@ -319,6 +377,8 @@ export const methods: BridgeMethods = {
 		 * running at the cut, so a turn stock's journal shows ended between a message and the model's
 		 * answer (`requestCutAtExit`: a clean exit record and no reply after it) is closed first with
 		 * stock's own interrupted-turn record, which stock's restore then continues (`cutBeforeRequest`).
+		 * A background subagent a graceful stop (stdin closed) parked on an aborted reply, which stock's restore
+		 * reads as finished, is closed the same way first (`closeShutdownSubagents`), so stock revives it.
 		 * Stock leaves the agent unaware of some of
 		 * what the restart did; one follow-up tells it (displayed, shown in the transcript as muted lines
 		 * and never as a message, so it carries on without narrating the restart; `followUp` says it went):
@@ -361,6 +421,14 @@ export const methods: BridgeMethods = {
 						)
 					: undefined;
 			if (abort) session.sessionManager.appendMessage(abort);
+			// Before stock reads the subagents' transcripts: a graceful stop left some of them parked on an aborted reply.
+			await closeShutdownSubagents(session, branch, startedAt, (id, error) =>
+				env.emit({
+					type: "notice",
+					level: "error",
+					message: `Continuing the background agent ${id} after the restart failed: ${error instanceof Error ? error.message : String(error)}`,
+				}),
+			);
 			// The buses a live `task` run reports its subagents on (the task tool's stock `ToolSession`), as
 			// `omp --restore` passes main.ts's own: without them a revived subagent runs unseen, since omp's RPC
 			// subagent registry (`get_subagents`, the `subagent_*` frames) listens on `subagentEventBus` only.

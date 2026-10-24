@@ -17,6 +17,7 @@ import {
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
+	subagentCutByShutdown,
 	turnCutBehindNotes,
 } from "../../resources/gui-bridge/restart-core";
 
@@ -289,6 +290,74 @@ describe("turnCutBehindNotes", () => {
 	it("counts a failed reply like an aborted one", () => {
 		const failed: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "error" } };
 		expect(turnCutBehindNotes([wait, abortedResult, failed, mail], startedAt)).toBe(true);
+	});
+});
+
+describe("subagentCutByShutdown", () => {
+	/** The relaunch started at 14:50:00; the parent's dispose journaled its exit at 14:48:11.385 (the 24 Oct 2026 repro). */
+	const startedAt = Date.parse("2026-10-24T14:50:00.000Z");
+	const at = (time: string) => `2026-10-24T${time}Z`;
+	const parentExit: JournalEntry = {
+		type: "custom",
+		customType: "session_exit",
+		timestamp: at("14:48:11.385"),
+		data: { reason: "dispose", kind: "normal", pendingToolCalls: [{ toolName: "wait" }] },
+	};
+	const parentReply: JournalEntry = {
+		type: "message",
+		timestamp: at("14:47:51.481"),
+		message: { role: "assistant" },
+	};
+	const parent = [parentReply, parentExit];
+	const call: JournalEntry = {
+		type: "message",
+		timestamp: at("14:48:07.384"),
+		message: { role: "assistant", stopReason: "toolUse" },
+	};
+	const abortedResult: JournalEntry = {
+		type: "message",
+		timestamp: at("14:48:11.396"),
+		message: { role: "toolResult" },
+	};
+	const aborted: JournalEntry = {
+		type: "message",
+		timestamp: at("14:48:11.442"),
+		message: { role: "assistant", stopReason: "aborted" },
+	};
+	const ownExit: JournalEntry = { type: "custom", customType: "session_exit", timestamp: at("14:48:11.445") };
+
+	it("finds the transcript a graceful stop parked: an aborted reply after the parent's exit, then its own exit", () => {
+		expect(subagentCutByShutdown([call, abortedResult, aborted, ownExit], parent, startedAt)).toBe(true);
+		expect(subagentCutByShutdown([call, abortedResult, aborted], parent, startedAt)).toBe(true);
+	});
+
+	it("leaves a reply that is not an abort: a finished turn, a failure, a cut tool call", () => {
+		const finished: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "stop" } };
+		const failed: JournalEntry = { ...aborted, message: { role: "assistant", stopReason: "error" } };
+		expect(subagentCutByShutdown([call, abortedResult, finished, ownExit], parent, startedAt)).toBe(false);
+		expect(subagentCutByShutdown([call, abortedResult, failed, ownExit], parent, startedAt)).toBe(false);
+		expect(subagentCutByShutdown([call, abortedResult], parent, startedAt)).toBe(false);
+		expect(subagentCutByShutdown([], parent, startedAt)).toBe(false);
+	});
+
+	it("leaves an abort that came before the parent's exit: the parent cancelled the job, or a limit ran out", () => {
+		const cancelled: JournalEntry = { ...aborted, timestamp: at("14:31:02.000") };
+		expect(subagentCutByShutdown([call, abortedResult, cancelled, ownExit], parent, startedAt)).toBe(false);
+	});
+
+	it("leaves an abort this process made, and a parent that journaled no exit of the processes it replaced", () => {
+		const late: JournalEntry = { ...aborted, timestamp: at("14:51:00.000") };
+		expect(subagentCutByShutdown([call, abortedResult, late], parent, startedAt)).toBe(false);
+		expect(subagentCutByShutdown([call, abortedResult, aborted], [parentReply], startedAt)).toBe(false);
+		const ownLife: JournalEntry = { ...parentExit, timestamp: at("14:51:30.000") };
+		expect(subagentCutByShutdown([call, abortedResult, aborted], [ownLife], startedAt)).toBe(false);
+	});
+
+	it("reads the parent's last exit before this process: an earlier relaunch's exit does not date a newer abort", () => {
+		const earlier: JournalEntry = { ...parentExit, timestamp: at("12:00:00.000") };
+		expect(subagentCutByShutdown([call, abortedResult, aborted], [earlier, ...parent], startedAt)).toBe(true);
+		const next: JournalEntry = { ...parentExit, timestamp: at("14:49:00.000") };
+		expect(subagentCutByShutdown([call, abortedResult, aborted], [...parent, next], startedAt)).toBe(false);
 	});
 });
 

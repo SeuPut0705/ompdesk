@@ -205,6 +205,37 @@ export function turnCutBehindNotes(branch: readonly JournalEntry[], startedAt: n
 		.some(entry => entry.type === "custom_message" && entry.customType !== EVAL_STATE_CONTEXT);
 }
 
+/**
+ * A background subagent the processes this one replaced took down when they shut down, which stock's restore cannot
+ * see: `entries` are its transcript, `parent` the session's journal.
+ *
+ * A graceful stop (stdin closed: OMPdesk's app quit and update restart) disposes the session; the task executor parks
+ * its subagents without a tombstone (abort kind `shutdown`) and their transcripts end on an aborted assistant reply
+ * ("Request was aborted"). Stock's `hasRestorableTurn` reads that as a finished turn, so the relaunch revives nothing:
+ * the parent's `wait` finds nothing to wait for and the work is lost (24 Oct 2026, two subagents, ~40 min redone). Only
+ * a SIGKILL or a crash leaves the unanswered tool call stock does revive.
+ *
+ * The reply is the shutdown's when the parent's last `session_exit` before `startedAt` (this process's start, epoch ms)
+ * came first (stock journals it as the dispose starts, the subagent's abort follows within moments) and the reply is
+ * journaled before `startedAt`. An abort from before that exit (the parent cancelled the job, a runtime limit) or a
+ * parent that journaled no exit proves nothing, so the subagent stays as it is; one the user stopped has a tombstone,
+ * which the caller checks. The caller also leaves to stock a transcript it already revives (`hasRestorableTurn`).
+ */
+export function subagentCutByShutdown(
+	entries: readonly JournalEntry[],
+	parent: readonly JournalEntry[],
+	startedAt: number,
+): boolean {
+	const exit = parent.findLast(entry => isExit(entry) && journaledBefore(entry, startedAt));
+	const exitAt = exit?.timestamp === undefined ? Number.NaN : Date.parse(exit.timestamp);
+	const tail = entries.findLast(entry => entry.type === "message");
+	if (!Number.isFinite(exitAt) || tail?.message?.role !== "assistant" || tail.message.stopReason !== "aborted") {
+		return false;
+	}
+	const abortedAt = tail.timestamp === undefined ? Number.NaN : Date.parse(tail.timestamp);
+	return abortedAt >= exitAt && abortedAt < startedAt;
+}
+
 /** A subagent stock `restoreSession` revived: its id and what it was asked to do. */
 export interface RevivedSubagent {
 	id: string;
