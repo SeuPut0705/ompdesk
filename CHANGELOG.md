@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.72.0] - 2026-10-25
+
+에이전트가 OMPdesk 저장소에서 일할 때 매 요청에 싣는 규칙이 13분의 1로 줄었고, 앱을 끄거나 업데이트할 때 일하던 백그라운드 에이전트가 사라지지 않아요.
+
+### 바뀐 것
+- OMPdesk 저장소의 규칙 파일(AGENTS.md)은 792 KB였고, 이 저장소에서 연 모든 세션이 요청마다 이 파일을 통째로 실었어요. 한 단어짜리 답에도 프롬프트가 32만 토큰이었어요. 이제 모든 작업에 필요한 내용(59 KB)만 남기고, 영역별 상세 규칙 17개는 `.omp/rules/`로 옮겼어요. omp가 규칙 목록을 보여 주면 에이전트는 필요한 규칙만 읽어요. 같은 세션의 첫 프롬프트는 약 2만 4천 토큰이에요. 내용은 한 줄도 빠지지 않았고, 규칙 파일이 다시 64 KB를 넘으면 테스트가 막아요.
+- 에이전트 안내에 한 가지를 더했어요. 서브에이전트(`task`)는 부모와 같은 폴더에서 일해서, 손으로 만든 git 워크트리를 넘겨도 수정이 부모 폴더로 들어가요. 실제로 이렇게 다른 작업의 커밋에 남의 수정이 섞인 일이 있었어요. 이제 따로 폴더가 필요한 작업은 워크트리 세션으로 열라고 안내해요.
+
+### 고친 것
+- 앱을 끄거나 업데이트로 재시작할 때 백그라운드 서브에이전트가 일하던 중이면, 다시 켰을 때 그 작업이 사라졌어요. 부모 에이전트는 "기다릴 작업이 없다"는 답만 받아서 같은 일을 처음부터 다시 시켜야 했어요. 이제 재시작 뒤 그 서브에이전트가 하던 작업을 이어서 하고, 결과도 부모에게 전해져요.
+
+<!-- en -->
+
+Agents working in the OMPdesk repository now carry a thirteenth of the rules on every request, and background agents at work survive quitting or updating the app.
+
+### Changed
+- The repository's AGENTS.md was 792 KB, and every session opened here carried all of it on every request: a one-word reply cost a 320k-token prompt. AGENTS.md now keeps what every change needs (59 KB); each area's detailed rules move verbatim to 17 files in `.omp/rules/`, which omp lists and an agent reads when it works there. The same session's first prompt is about 24k tokens. No line was dropped, and a test stops the file from passing 64 KB again.
+- Agents are told that a `task` subagent works in its parent's checkout: a git worktree made by hand and handed to one isolates nothing, and its edits land in the parent's folder (in a real session they were committed with another unit). Work that needs its own checkout goes to a worktree session.
+
+### Fixed
+- Quitting or updating OMPdesk while a background subagent worked lost that work: after the relaunch the parent was told there was nothing to wait for and had to start it over. The subagent now goes on where it stopped after the relaunch and its result reaches the parent.
+
 ## [0.71.7] - 2026-10-24
 
 응답하지 않는 포트 하나 때문에 다른 컴퓨터와의 연결을 포기하지 않아요.
