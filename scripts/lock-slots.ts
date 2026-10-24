@@ -141,12 +141,15 @@ function ageMs(dir: string): number | undefined {
 	return stat ? Date.now() - stat.mtimeMs : undefined;
 }
 
+/** What `readOwner` names a lock folder whose owner file is not there (not yet written, or already removed). */
+const NO_OWNER = "(no owner file yet)";
+
 function readOwner(dir: string): { holder: string; since?: number; command?: string } {
 	let text: string;
 	try {
 		text = fs.readFileSync(path.join(dir, "owner"), "utf8");
 	} catch {
-		return { holder: "(no owner file yet)" };
+		return { holder: NO_OWNER };
 	}
 	const lines = text.split("\n");
 	const since = Number(/^since (\d+)$/m.exec(text)?.[1]);
@@ -247,12 +250,14 @@ export async function acquireSlot(locks: Locks, kind: SlotKind, who: Who): Promi
 			fs.utimesSync(ticket, now, now);
 			const blocker = legacyHolder(locks);
 			if (blocker) {
-				behind = blocker;
-				if (reported !== blocker) {
+				// A lock being removed loses its owner file before its folder (one step after the other on Windows):
+				// the holder named so far stays the one this waited behind.
+				if (blocker !== NO_OWNER || !behind) behind = blocker;
+				if (reported !== behind) {
 					locks.say(
-						`[build-lock] waiting for ${locks.legacyDir} (held by ${blocker}; the old single lock holds every slot)`,
+						`[build-lock] waiting for ${locks.legacyDir} (held by ${behind}; the old single lock holds every slot)`,
 					);
-					reported = blocker;
+					reported = behind;
 				}
 			} else {
 				const lease = tryTake(locks, kind, who, ticket, started);

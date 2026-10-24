@@ -169,4 +169,28 @@ describe("bun scripts/build-lock.ts", () => {
 		expect(stderr).toMatch(/\[lock\] waited \d+\.\ds for old@checkout 10:00:00 pid 1/);
 		expect(entries()[0]?.waitedMs).toBeGreaterThan(0);
 	});
+
+	it("names the old lock's holder although its owner file goes before its folder", async () => {
+		const legacy = path.join(dir, "locks.legacy");
+		fs.mkdirSync(legacy);
+		fs.writeFileSync(path.join(legacy, "owner"), "old@checkout 10:00:00 pid 1\n");
+		const child = spawn("bun", [LOCK, "--kind", "playwright", "--", "node", "-e", "0"], { env: env() });
+		let stderr = "";
+		child.stderr.on("data", chunk => {
+			stderr += chunk;
+		});
+		const exited = new Promise<number | null>(resolve => child.once("close", resolve));
+		await vi.waitFor(() => expect(stderr).toMatch(/waiting for .*\.legacy/), { timeout: 15_000 });
+		// Windows removes a folder's files first: the waiter sees the folder without its owner for a while. The waiter
+		// touches its queue ticket on every poll, so a touch after the owner went means it looked at least once.
+		const queue = path.join(dir, "locks", "playwright.queue");
+		const ticket = path.join(queue, fs.readdirSync(queue)[0] ?? "");
+		fs.rmSync(path.join(legacy, "owner"));
+		const removedAt = Date.now();
+		await vi.waitFor(() => expect(fs.statSync(ticket).mtimeMs).toBeGreaterThan(removedAt + 25), { timeout: 15_000 });
+		fs.rmSync(legacy, { recursive: true });
+		expect(await exited).toBe(0);
+		expect(stderr).not.toMatch(/no owner file yet/);
+		expect(stderr).toMatch(/\[lock\] waited \d+\.\ds for old@checkout 10:00:00 pid 1/);
+	});
 });
