@@ -11,6 +11,7 @@
 - 반말로 쓰는데 존댓말 추천이 나오던 경우를 줄였어요. 대화가 길어져 앞부분이 요약된 뒤에도 내 말투를 세션 전체에서 읽어요.
 - "좋아,"처럼 내가 쓰지 않는 첫마디와 문장 끝 마침표를 추천에서 떼어요. 내부 표시 이름이 추천에 섞여 나오던 것도 걸러요.
 - 조금 긴 추천(41~48자)이 통째로 버려지지 않게 했어요.
+- 좁은 분할 창에서는 가장 알맞은 추천을 입력창 안내 문구 대신 첫 칩으로 보여 줘요. 안내 문구가 잘리지 않아요.
 
 <!-- en -->
 
@@ -23,6 +24,7 @@ Suggested messages no longer disappear. Coming back from another tab, after a re
 - Fewer polite suggestions for someone who writes casual Korean: the register is read from the whole session, even after a long conversation was compacted.
 - An opener you never use ("좋아,") and a final period you never write come off suggestions, and internal field names no longer leak into them.
 - A slightly long suggestion (41 to 48 Korean characters) is no longer thrown away.
+- In a narrow split pane the best suggestion leads the chips instead of being the composer's placeholder, so it is never cut.
 
 ## [0.71.3] - 2026-10-24
 

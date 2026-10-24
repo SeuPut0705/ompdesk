@@ -84,12 +84,6 @@ export function InputArea() {
 	/** "Enter sends on mobile": a touch device's Enter sends instead of adding a line. */
 	const enterSends = useUiStore(state => state.displayPreferences.mobileEnterSends === true);
 	const enterNewline = composerEnterNewline(touchInput, enterSends);
-	const {
-		view: nextPromptView,
-		key: nextPromptKey,
-		placeholderPrompt,
-		chips: chipList,
-	} = useComposerSuggestions({ isStreaming, sessionFile, sessionId, touchInput });
 
 	// Draft lives in the composer store (not local state) so session-tab
 	// switches snapshot/restore it per tab. Value + updater-form setter are
@@ -114,6 +108,12 @@ export function InputArea() {
 		setText,
 		expanded,
 	});
+	const {
+		view: nextPromptView,
+		key: nextPromptKey,
+		placeholderPrompt,
+		chips: chipList,
+	} = useComposerSuggestions({ isStreaming, sessionFile, sessionId, touchInput, narrow: fieldNarrow });
 	const commands = useComposerCommands({ rpc, status, sessionId, runtimeTabId });
 	const {
 		menu,

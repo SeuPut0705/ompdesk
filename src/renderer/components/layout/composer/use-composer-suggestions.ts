@@ -25,6 +25,7 @@ export function useComposerSuggestions({
 	sessionFile,
 	sessionId,
 	touchInput,
+	narrow = false,
 }: {
 	isStreaming: boolean;
 	sessionFile: string | null;
@@ -33,6 +34,9 @@ export function useComposerSuggestions({
 	 * text is never shown twice; no inline ghost requests at all (the phone keyboard has its own suggestions
 	 * and IME composition dominates). A tap on a chip fills the field, a long press offers "send now". */
 	touchInput: boolean;
+	/** The field is narrower than a hint fits on one line (a pane of a split): the best candidate leads the chips
+	 * there too, since a placeholder the field cannot hold is cut (a suggestion kept across a relaunch showed so). */
+	narrow?: boolean;
 }): ComposerSuggestions {
 	/** `next-prompt` extension suggestion: gray placeholder, Tab on an empty composer
 	 * accepts it. Remembered per session (stores/next-prompt.ts) so a deleted draft or a
@@ -42,12 +46,13 @@ export function useComposerSuggestions({
 	const view = useNextPrompt();
 	/** The built-in's best candidate (or, while it is off, the legacy widget's entry): already empty unless ready and idle. */
 	const nextPrompt = view.best;
+	const bestAsChip = touchInput || narrow;
 	const chips = useMemo(
 		() =>
-			touchInput
+			bestAsChip
 				? [...(nextPrompt === undefined ? [] : [nextPrompt]), ...view.chips].slice(0, MAX_NEXT_PROMPT_CHIPS)
 				: view.chips,
-		[touchInput, nextPrompt, view.chips],
+		[bestAsChip, nextPrompt, view.chips],
 	);
 	// The legacy widget feeds the memory only while the built-in is off: with it on, a recorded
 	// widget would overwrite the built-in's entry.
@@ -57,5 +62,5 @@ export function useComposerSuggestions({
 	useEffect(() => {
 		if (isStreaming) useNextPromptStore.getState().clear(key);
 	}, [isStreaming, key]);
-	return { view, key, placeholderPrompt: touchInput ? undefined : nextPrompt, chips };
+	return { view, key, placeholderPrompt: bestAsChip ? undefined : nextPrompt, chips };
 }
