@@ -9,6 +9,7 @@
  */
 import { IPC_EVENTS } from "../../shared/ipc-types";
 import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
+import { blockPageZoom } from "../lib/no-page-zoom";
 import { snapshots } from "../lib/snapshot-cache";
 import { WebChrome } from "./chrome";
 import { mountConnectionBanner } from "./connection-banner";
@@ -355,6 +356,8 @@ async function bootApp(): Promise<void> {
 
 async function boot(): Promise<void> {
 	document.documentElement.dataset.platform = "web";
+	// A pinch never zooms the app, the pairing screen included (iOS ignores the viewport meta for it).
+	blockPageZoom();
 	// The current language's strings download beside the app (main.tsx waits for them before its first render).
 	void loadLocale(getCurrentLanguage());
 	if (location.pathname === "/pair") {

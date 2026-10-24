@@ -110,7 +110,10 @@ html[data-shell] body {
 	width: 100%;
 	height: auto;
 	padding-inline: var(--safe-l) var(--safe-r);
-	touch-action: manipulation;
+	/* An app, not a document: no pinch zoom, no double-tap zoom (pan-x pan-y is manipulation without pinch-zoom). The
+	   viewport meta says the same for Chrome; iOS ignores both for a pinch, so `lib/no-page-zoom.ts` refuses its
+	   gesture events. A view that handles its own pinch (the preview stream) sets touch-action: none. */
+	touch-action: pan-x pan-y;
 }
 
 html[data-shell] button,
