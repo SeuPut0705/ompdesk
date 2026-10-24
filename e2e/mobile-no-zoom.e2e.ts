@@ -80,3 +80,65 @@ test("a pinch and a double tap on a phone's page leave it unzoomed", async () =>
 	expect(await scale(), "double tap").toBe(1);
 	await context.close();
 });
+
+test("two fingers zoom a picture in the viewer, never the page, and one finger then moves it", async () => {
+	if (!browser) throw new Error("no browser");
+	const context = await browser.newContext({ ...devices["iPhone 15"], viewport: { width: 390, height: 844 } });
+	const page = await context.newPage();
+	await page.goto(`${origin}/harness.html?lang=en&stress=1`);
+	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+	await page.evaluate(() => {
+		const row = document.querySelector("[data-transcript-kind]");
+		let node = row?.parentElement ?? null;
+		while (node && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) node = node.parentElement;
+		if (node) node.scrollTop = node.scrollHeight;
+	});
+	const picture = page.locator("[data-zoomable-image]").last();
+	await picture.waitFor({ state: "visible", timeout: 15_000 });
+	await picture.click();
+	const viewer = page.locator("[data-image-viewer]");
+	await expect(viewer).toBeVisible();
+	const image = viewer.locator("img");
+	const imageScale = () =>
+		image.evaluate(node => {
+			const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+			return { scale: matrix.a, x: matrix.e, y: matrix.f };
+		});
+	const box = await viewer.boundingBox();
+	if (!box) throw new Error("no viewer");
+	const center = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+	const cdp = await context.newCDPSession(page);
+	await cdp.send("Input.synthesizePinchGesture", { ...center, scaleFactor: 2.5, gestureSourceType: "touch" });
+	await page.waitForTimeout(300);
+	expect(await page.evaluate(() => window.visualViewport?.scale ?? 1), "the page").toBe(1);
+	const zoomed = await imageScale();
+	expect(zoomed.scale).toBeGreaterThan(1.8);
+	// A tap does not drop the zoom into actual size: the pinch's own lift is no click.
+	await expect(viewer).toHaveAttribute("aria-pressed", "false");
+
+	await cdp.send("Input.synthesizeScrollGesture", {
+		...center,
+		xDistance: 80,
+		yDistance: 0,
+		gestureSourceType: "touch",
+		speed: 400,
+	});
+	await page.waitForTimeout(300);
+	const moved = await imageScale();
+	expect(moved.scale).toBeCloseTo(zoomed.scale, 2);
+	expect(moved.x).toBeGreaterThan(zoomed.x + 40);
+	expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+
+	// Closing and opening again starts from the fit.
+	await page.keyboard.press("Escape");
+	await picture.click();
+	await expect(viewer).toBeVisible();
+	expect((await imageScale()).scale).toBe(1);
+	// A tap zooms in around the finger, the next one back to the fit; neither is actual size, which a mouse click keeps.
+	await viewer.tap();
+	await expect.poll(async () => (await imageScale()).scale).toBeCloseTo(2.5, 2);
+	await viewer.tap();
+	await expect.poll(async () => (await imageScale()).scale).toBe(1);
+	await expect(viewer).toHaveAttribute("aria-pressed", "false");
+	await context.close();
+});
