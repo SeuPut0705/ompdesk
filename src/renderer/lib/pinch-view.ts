@@ -67,3 +67,12 @@ export function tapView(view: PinchView, at: Point, box: Box): PinchView {
 	if (view.scale > 1) return FIT_VIEW;
 	return clampView({ scale: TAP_ZOOM_SCALE, x: at.x - at.x * TAP_ZOOM_SCALE, y: at.y - at.y * TAP_ZOOM_SCALE }, box);
 }
+
+/**
+ * One finger moves a zoomed view as far as its edges allow and hands back what is left (`leftover`, in screen
+ * pixels), so the caller can scroll what is under the finger by it: a zoomed file still scrolls on past the edge.
+ */
+export function panWithin(view: PinchView, delta: Point, box: Box): { view: PinchView; leftover: Point } {
+	const next = view.scale <= 1 ? view : clampView({ ...view, x: view.x + delta.x, y: view.y + delta.y }, box);
+	return { view: next, leftover: { x: delta.x - (next.x - view.x), y: delta.y - (next.y - view.y) } };
+}

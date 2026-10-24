@@ -11,9 +11,17 @@ describe("blockPageZoom: iOS's pinch never zooms a phone's page", () => {
 		};
 		const stop = blockPageZoom(target as unknown as Document);
 		expect(["gesturestart", "gesturechange", "gestureend"].map(fire)).toEqual([true, true, true]);
-		// A touch still reaches the page: a view that pinches by itself keeps working.
-		expect(fire("touchmove")).toBe(false);
+		// One finger still scrolls; two fingers moving are a pinch the browser never gets.
+		const touch = (count: number) => {
+			const event = new Event("touchmove", { cancelable: true });
+			Object.defineProperty(event, "touches", { value: { length: count } });
+			target.dispatchEvent(event);
+			return event.defaultPrevented;
+		};
+		expect(touch(1)).toBe(false);
+		expect(touch(2)).toBe(true);
 		stop();
 		expect(fire("gesturestart")).toBe(false);
+		expect(touch(2)).toBe(false);
 	});
 });

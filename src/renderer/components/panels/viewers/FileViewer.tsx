@@ -17,6 +17,7 @@ import {
 	FileVideo,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { PinchZoomArea } from "../../common/PinchZoomArea";
 import { type FileIconKind, fileIconKind, type ViewerKind, viewerKind } from "./file-kind";
 import { HexView } from "./HexView";
 import { AvView, ImageView } from "./MediaViews";
@@ -67,9 +68,12 @@ export function FileViewer({
 	};
 	return (
 		<FileInfoContext.Provider value={onInfo}>
-			<div className="h-full min-h-0" data-viewer-kind={kind} key={path}>
-				{views[kind]}
-			</div>
+			{/* A new file starts unzoomed: the key remounts the area with it. */}
+			<PinchZoomArea className="h-full" key={path}>
+				<div className="h-full min-h-0" data-viewer-kind={kind}>
+					{views[kind]}
+				</div>
+			</PinchZoomArea>
 		</FileInfoContext.Provider>
 	);
 }

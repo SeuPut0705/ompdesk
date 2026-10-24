@@ -57,6 +57,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A panel fed by free-form data | `PanelErrorBoundary` | an unguarded subtree |
 | Back to the newest row of a scrolled transcript | `JumpToLatest` | another floating button |
 | An image that opens full size | `ZoomableImage` | your own viewer |
+| Content that zooms with two fingers on a touch screen (an opened file) | `PinchZoomArea` | the browser's page zoom (the page never zooms) |
 | Ages, costs, account usage | `TimeAgo`, `CostAmount`, `UsageGauges` | formatting them again |
 | Work going on | `LiveText`/`LiveSweep` (`LiveShimmer`), `WorkingArc` | a new animation |
 | The app's mark | `BrandMark` | an inline copy of the π |

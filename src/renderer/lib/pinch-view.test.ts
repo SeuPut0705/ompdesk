@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIT_VIEW, MAX_PINCH_SCALE, panView, pinchView, tapView } from "./pinch-view";
+import { FIT_VIEW, MAX_PINCH_SCALE, panView, panWithin, pinchView, tapView } from "./pinch-view";
 
 const box = { width: 400, height: 600 };
 
@@ -79,5 +79,22 @@ describe("panView and tapView", () => {
 		const view = tapView(FIT_VIEW, { x: 100, y: 200 }, box);
 		expect(view).toEqual({ scale: 2.5, x: -150, y: -300 });
 		expect(tapView(view, { x: 100, y: 200 }, box)).toEqual(FIT_VIEW);
+	});
+});
+
+describe("panWithin: a zoomed file moves to its edge, then what is under the finger scrolls", () => {
+	it("hands back the part of a move the edge stopped", () => {
+		const zoomed = { scale: 2, x: -380, y: -300 };
+		expect(panWithin(zoomed, { x: 0, y: -100 }, box)).toEqual({
+			view: { scale: 2, x: -380, y: -400 },
+			leftover: { x: 0, y: 0 },
+		});
+		// 20 px to the left edge of the picture: 20 move it, 30 are left to scroll.
+		expect(panWithin(zoomed, { x: -50, y: 0 }, box)).toEqual({
+			view: { scale: 2, x: -400, y: -300 },
+			leftover: { x: -30, y: 0 },
+		});
+		// Not zoomed: the whole move is left to the page's own scrolling.
+		expect(panWithin(FIT_VIEW, { x: 5, y: -40 }, box)).toEqual({ view: FIT_VIEW, leftover: { x: 5, y: -40 } });
 	});
 });
