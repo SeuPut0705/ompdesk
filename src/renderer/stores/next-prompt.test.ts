@@ -99,6 +99,53 @@ describe("next-prompt store", () => {
 		});
 	});
 
+	describe("recordLast orders nothing by two computers' clocks (a paired host's runs on its own)", () => {
+		it("takes a suggestion a host made after this page let the last one go, its clock two minutes behind", () => {
+			vi.useFakeTimers({ now: 200_000 });
+			try {
+				const store = useNextPromptStore.getState();
+				store.recordUpdate("/a.jsonl", update({ id: "s1", candidates: ["before the run"] }));
+				// The person sent a message: the page lets s1 go at its own 200 000.
+				store.clear("/a.jsonl");
+				// The link dropped; the host ran the turn and made s2, at 90 000 on its clock (two minutes behind).
+				vi.setSystemTime(210_000);
+				store.recordLast("/a.jsonl", { id: "s2", candidates: ["after the run"], at: 90_000 }, Date.now());
+				expect(texts()).toEqual({ "/a.jsonl": ["after the run"] });
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("drops a read the page let the suggestion go during, whatever it answers", () => {
+			vi.useFakeTimers({ now: 200_000 });
+			try {
+				const store = useNextPromptStore.getState();
+				const since = Date.now();
+				vi.setSystemTime(200_500);
+				store.clear("/a.jsonl");
+				store.recordLast("/a.jsonl", { id: "s9", candidates: ["answered before the run"], at: 1 }, since);
+				expect(texts()).toEqual({});
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("never brings back the suggestion the page let go, however far ahead the host's clock is", () => {
+			vi.useFakeTimers({ now: 200_000 });
+			try {
+				const store = useNextPromptStore.getState();
+				store.recordUpdate("/a.jsonl", update({ id: "s1", candidates: ["before the run"] }));
+				store.clear("/a.jsonl");
+				// A read that began after the clear still found s1 (the host had not started the run yet).
+				vi.setSystemTime(201_000);
+				store.recordLast("/a.jsonl", { id: "s1", candidates: ["before the run"], at: 900_000 }, Date.now());
+				expect(texts()).toEqual({});
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+	});
+
 	describe("recordUpdate", () => {
 		it("stores ready candidates with the model used", () => {
 			const used = { model: "p/small", role: "smol" };

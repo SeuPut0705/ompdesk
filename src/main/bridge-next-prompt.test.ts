@@ -474,12 +474,23 @@ describe("the session's last suggestion (a page that reloads, a tab shown again,
 				data: expect.objectContaining({ candidates: ["commit it", "push it", "run the linter"] }),
 			},
 		]);
+		// One identity in the frame, the journal and `last`: a page tells it from a newer one without two clocks.
+		const frame = world.frames.find(
+			(event): event is NextPromptUpdate =>
+				(event as NextPromptUpdate).type === "next_prompt_update" && (event as NextPromptUpdate).status === "ready",
+		);
+		expect(frame?.id).toEqual(expect.any(String));
+		expect((journal[0]?.data as { id?: string } | undefined)?.id).toBe(frame?.id);
+		expect((await state()).last?.id).toBe(frame?.id);
 		// A relaunch: a new omp on the same session file, nothing in memory.
 		resetNextPromptState();
 		const again = build();
 		withJournal(again, journal);
 		await handlers.next_prompt_set({ suggestions: true, inline: true }, again.env);
-		expect((await state(again)).last?.candidates).toEqual(["commit it", "push it", "run the linter"]);
+		expect((await state(again)).last).toMatchObject({
+			id: frame?.id,
+			candidates: ["commit it", "push it", "run the linter"],
+		});
 		// The moment is the same: an emptied draft asks the model nothing.
 		await handlers.next_prompt_draft({ empty: false }, again.env);
 		await handlers.next_prompt_draft({ empty: true }, again.env);
