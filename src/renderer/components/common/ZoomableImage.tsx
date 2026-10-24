@@ -7,7 +7,8 @@
  * position, open in default app, close) that keeps clear of the window's own
  * controls. The picture fits that area;
  * a click toggles actual size (scrollable) for screenshots whose detail the
- * fit scale hides. With a `gallery` (every picture of one message or result),
+ * fit scale hides. On a touch screen, whose page never zooms, two fingers zoom
+ * the picture, one finger moves it and a tap zooms in or back (`use-pinch-view`). With a `gallery` (every picture of one message or result),
  * the viewer steps through it with ←/→ and its buttons; a picture that is a
  * file (`path`) also opens in the system's default app. Right-click offers
  * open, copy, save as (and default app / remove when they apply).
@@ -22,6 +23,7 @@ import { toast, toastError } from "../../stores/toast";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { IconButton } from "./IconButton";
 import { Modal } from "./Modal";
+import { usePinchView } from "./use-pinch-view";
 
 export interface GalleryImage {
 	src: string;
@@ -66,6 +68,7 @@ export function ZoomableImage({
 	const tabId = useRuntimeTabId();
 	const [open, setOpen] = useState(false);
 	const [actualSize, setActualSize] = useState(false);
+	const pinch = usePinchView();
 	const [index, setIndex] = useState(0);
 	const thumbRef = useRef<HTMLButtonElement>(null);
 	const [pane, setPane] = useState<HTMLElement | null>(null);
@@ -77,6 +80,7 @@ export function ZoomableImage({
 	const close = () => {
 		setOpen(false);
 		setActualSize(false);
+		pinch.reset();
 	};
 	const openViewer = () => {
 		setPane(thumbRef.current?.closest<HTMLElement>(".omp-session-pane") ?? null);
@@ -140,6 +144,7 @@ export function ZoomableImage({
 	const step = (by: number) => {
 		setIndex(current => (current + by + items.length) % items.length);
 		setActualSize(false);
+		pinch.reset();
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		if (items.length < 2 || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
@@ -243,7 +248,8 @@ export function ZoomableImage({
 					</div>
 					{/* Clear of a phone's or tablet's home bar. */}
 					<div className="relative mb-(--safe-b,0px) min-h-0 flex-1">
-						<div className="absolute inset-0 flex overflow-auto">
+						{/* A pinched picture overflows by its transform: clipped, never scrolled (its own pan moves it). */}
+						<div className={cx("absolute inset-0 flex", pinch.zoomed ? "overflow-hidden" : "overflow-auto")}>
 							<button
 								aria-label={t(actualSize ? "image.fit" : "image.actualSize")}
 								aria-pressed={actualSize}
@@ -254,8 +260,14 @@ export function ZoomableImage({
 										: "flex h-full w-full cursor-zoom-in items-center justify-center",
 								)}
 								data-image-viewer
-								onClick={() => setActualSize(value => !value)}
+								data-pinch-zoomed={pinch.zoomed || undefined}
+								onClick={event => {
+									if (!pinch.touchClick(event.currentTarget)) setActualSize(value => !value);
+								}}
+								// The fitted picture takes every finger itself (zoom, move); actual size scrolls natively.
+								style={actualSize ? undefined : { touchAction: "none" }}
 								type="button"
+								{...(actualSize ? {} : pinch.handlers)}
 							>
 								<img
 									alt={shown.alt}
@@ -263,6 +275,14 @@ export function ZoomableImage({
 									// enlarging); actual size shows natural pixels and scrolls.
 									className={actualSize ? "max-w-none" : "h-full w-full object-contain"}
 									src={shown.src}
+									style={
+										pinch.zoomed && !actualSize
+											? {
+													transform: `translate(${pinch.view.x}px, ${pinch.view.y}px) scale(${pinch.view.scale})`,
+													transformOrigin: "0 0",
+												}
+											: undefined
+									}
 								/>
 							</button>
 						</div>
