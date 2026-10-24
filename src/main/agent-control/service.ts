@@ -3358,9 +3358,12 @@ export class AgentControl {
 		)
 			return;
 		const dispatch = this.#mailbox.current(tab.tabId);
-		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
-		// Only a finishing report of this dispatch stands for the answer: a milestone's progress, a note or a question the
-		// opener has since answered leave the finish to tell.
+		const state = this.#mailbox.state(tab.tabId, caller.tabId);
+		// A question or blocker the opener has not answered stays the child's standing word: a done would read as settled.
+		if (state?.waiting) return;
+		// Only a finishing report of this dispatch stands for the answer: a milestone's progress or a note leaves the finish
+		// to tell.
+		const report = state?.last;
 		if (report && report.dispatch === dispatch && (report.kind === "done" || report.kind === "review")) return;
 		if (this.#autoDoneFor.get(tab.tabId) === (dispatch ?? "")) return;
 		const answer = ((await this.#state(tab)).last ?? "").trim();

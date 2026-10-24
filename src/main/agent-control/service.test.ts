@@ -2390,8 +2390,8 @@ describe("autoClose: opened sessions whose work landed", () => {
 			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
 		});
 
-		it("still sends the done mail after a progress report or a question on the same dispatch", async () => {
-			for (const kind of ["progress", "question", "note"] as const) {
+		it("still sends the done mail after a progress report or a note on the same dispatch", async () => {
+			for (const kind of ["progress", "note"] as const) {
 				const { host, service, child } = await finishedChild({
 					patch: { last: "Parser fixed in a.ts.\nResult: ok" },
 				});
@@ -2402,6 +2402,30 @@ describe("autoClose: opened sessions whose work landed", () => {
 				);
 				expect(done, kind).toHaveLength(1);
 				expect(done[0]?.delivery, kind).toEqual({ triggerTurn: true, deliverAs: "aside" });
+			}
+		});
+
+		it("keeps an unanswered question or blocker waiting, and sends the done once the opener answered and it finished", async () => {
+			for (const kind of ["question", "blocked"] as const) {
+				const { host, service, child } = await finishedChild({
+					patch: { last: "Needs the opener's call on the schema.\nResult: problem — needs a decision" },
+				});
+				await service.run(child.tabId, T.report, { kind, text: "which schema?", dispatch: "d1" });
+				await service.autoClose("main0001");
+				expect(
+					host.mails.filter(mail => mail.to === "main0001" && mail.content.includes("Result:")),
+					kind,
+				).toHaveLength(0);
+				await service.run("main0001", T.send, { session: child.tabId, message: "use v2" });
+				child.busy = true;
+				await service.autoClose("main0001");
+				child.busy = false;
+				child.last = "Moved to schema v2.\nResult: ok";
+				await service.autoClose("main0001");
+				const done = host.mails.filter(
+					mail => mail.to === "main0001" && mail.content.includes("Moved to schema v2."),
+				);
+				expect(done, kind).toHaveLength(1);
 			}
 		});
 
