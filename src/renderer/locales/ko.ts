@@ -4367,6 +4367,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.eccHint": "프로젝트 언어에 맞는 ECC 스킬 안내",
 	"bridgeHealth.feature.backgroundChecks": "긴 검사 백그라운드 실행",
 	"bridgeHealth.feature.checkoutPeers": "같은 체크아웃을 쓰는 세션",
+	"bridgeHealth.feature.xdevNotice": "요청에 도구 목록 중복 없음",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "압축 한도",

@@ -4380,6 +4380,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.eccHint": "ECC skills named for the project's languages",
 	"bridgeHealth.feature.backgroundChecks": "Long checks run in the background",
 	"bridgeHealth.feature.checkoutPeers": "Sessions sharing a checkout",
+	"bridgeHealth.feature.xdevNotice": "Tool list not repeated in the request",
 
 	// Per-model compaction limits (compaction.modelThresholds, omp 18.8.5+)
 	"compactionLimits.title": "Compaction limits",

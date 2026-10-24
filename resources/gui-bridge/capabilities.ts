@@ -74,6 +74,7 @@ export const FEATURES = {
 	eccHint: "ECC skills named for the project's languages (prompt section)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
+	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
 	sessionDump: "Session dump archive saved as a file (/dump all, /dump anon)",
 	advisorStats: "Advisor spend and advisories (Run popover, Insights)",
 	todoReminder: "A refused todo call's reminder reaches its own turn, and the turn then reads finished",
@@ -389,6 +390,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	outputStyle: {},
 	/** modes/checkout-peers.ts: public hooks only (`before_agent_start`, `tool_call`). */
 	checkoutPeers: {},
+	/** xdev-notice.ts: the public `context` hook and the context's `getSystemPrompt()` (checked at run time). */
+	xdevNotice: {},
 	/** modes/pstack.ts: the always-on pstack section reads the main session's plan mode and tool set. */
 	pstack: {
 		pkg: ["AgentRegistry.global()", "MAIN_AGENT_ID"],
