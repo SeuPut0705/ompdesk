@@ -188,3 +188,32 @@ test("two fingers zoom an opened file, never the page; one finger then moves it 
 	await expect(area).not.toHaveAttribute("data-pinch-zoomed", "true");
 	await context.close();
 });
+
+test("a pinch that starts inside a rendered HTML file never zooms the page", async () => {
+	if (!browser) throw new Error("no browser");
+	const context = await browser.newContext({ ...devices["iPhone 15"], viewport: { width: 390, height: 844 } });
+	const page = await context.newPage();
+	await page.goto(`${origin}/harness.html?lang=en`);
+	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+	await page.locator('[data-tour="panel"]').click();
+	const sheet = page.locator("[data-sheet-panel]");
+	await page.locator("[data-panel-tabbar]").getByRole("button", { name: "Files", exact: true }).click();
+	await sheet
+		.locator(".omp-files-tree")
+		.getByRole("treeitem", { name: /page\.html/ })
+		.click({ timeout: 15_000 });
+	const frame = sheet.locator("[data-html-rendered]");
+	await expect(frame).toBeVisible({ timeout: 10_000 });
+	const box = await frame.boundingBox();
+	if (!box) throw new Error("no frame");
+	const cdp = await context.newCDPSession(page);
+	await cdp.send("Input.synthesizePinchGesture", {
+		x: Math.round(box.x + box.width / 2),
+		y: Math.round(box.y + Math.min(box.height / 2, 200)),
+		scaleFactor: 3,
+		gestureSourceType: "touch",
+	});
+	await page.waitForTimeout(300);
+	expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+	await context.close();
+});

@@ -4,7 +4,9 @@
  * scales its content by a transform (the views inside keep their own layout, scrollers and measurements), one finger
  * moves a zoomed view to its edge and then scrolls what is under the finger, and an unzoomed view scrolls natively.
  * Touch events only: a mouse or pen never reaches it. React attaches touch listeners as passive, so they are the
- * element's own here (a pinch must be cancelable to keep the browser from taking it).
+ * element's own here (a pinch must be cancelable to keep the browser from taking it). An iframe's touches never
+ * reach them (rendered HTML's sandboxed frame does not zoom); the area's `touch-action` still reaches into the frame,
+ * so a pinch there never zooms the page either.
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/format";

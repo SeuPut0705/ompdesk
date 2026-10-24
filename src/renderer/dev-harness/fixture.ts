@@ -550,6 +550,7 @@ export const FILE_TREE = [
 	},
 	{ name: "package.json", path: "package.json", kind: "file" },
 	{ name: "README.md", path: "README.md", kind: "file" },
+	{ name: "page.html", path: "page.html", kind: "file" },
 ];
 
 /** What `fs:read` answers per path. */
@@ -558,6 +559,8 @@ export const FILE_CONTENTS: Record<string, string> = {
 		"/** Poll `check` until it stops throwing, or fail with its last error after `timeoutMs`. */\nexport async function waitFor(check: () => void, timeoutMs = 1000): Promise<void> {\n\tconst end = Date.now() + timeoutMs;\n\tfor (;;) {\n\t\ttry {\n\t\t\treturn check();\n\t\t} catch (error) {\n\t\t\tif (Date.now() > end) throw error;\n\t\t\tawait new Promise(resolve => setTimeout(resolve, 20));\n\t\t}\n\t}\n}\n",
 	"package.json": '{\n\t"name": "ompdesk",\n\t"private": true\n}\n',
 	"README.md": "# OMPdesk\n\nA desktop for the omp agent.\n",
+	"page.html":
+		'<!doctype html><html><body style="margin:0;font:16px sans-serif"><h1>Report</h1><p style="height:2000px">A page an agent wrote.</p></body></html>\n',
 };
 
 /** The first screen of the harness terminal. */
