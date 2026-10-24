@@ -1059,3 +1059,53 @@ test("the host deletes a session a device has open: the device's tab and saved l
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	}
 });
+
+test("a suggestion a host's tab made while the link was down shows once the link is back", async () => {
+	test.setTimeout(240_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-suggestion-")));
+	const hostPort = await freePort();
+	const proxy = await linkProxy(hostPort);
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: hostPort,
+			env: { OMP_GUI_TEST_LATER_MS: "4000" },
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: Number(proxy.address.split(":")[1]),
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const a = client.page;
+		const b = host.page;
+		const deviceId = await connectHost(b, a, "Host B");
+		await openHostFolder(a, deviceId, hostProfile.project);
+		await send(a, "fixture later");
+		await expect(a.getByText("Working on it")).toBeVisible({ timeout: 30_000 });
+		await proxy.drop();
+		await expect(a.locator(`[data-remote-reconnecting="${deviceId}"]`)).toBeVisible({ timeout: 30_000 });
+		// The host's omp finishes the reply, and makes its suggestion, while the device is away.
+		await expect
+			.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).map(entry => entry.status), {
+				timeout: 30_000,
+			})
+			.toEqual(["ready"]);
+		await b.waitForTimeout(1_000);
+		await proxy.restore();
+		await expect(a.getByText("Finished while you were away")).toHaveCount(1, { timeout: 60_000 });
+		await expect(a.locator(".omp-composer-input").first()).toHaveAttribute("placeholder", "Run the tests", {
+			timeout: 15_000,
+		});
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await proxy.close();
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
