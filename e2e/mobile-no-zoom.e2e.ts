@@ -142,3 +142,49 @@ test("two fingers zoom a picture in the viewer, never the page, and one finger t
 	await expect(viewer).toHaveAttribute("aria-pressed", "false");
 	await context.close();
 });
+
+test("two fingers zoom an opened file, never the page; one finger then moves it and scrolls on past its edge", async () => {
+	if (!browser) throw new Error("no browser");
+	const context = await browser.newContext({ ...devices["iPhone 15"], viewport: { width: 390, height: 844 } });
+	const page = await context.newPage();
+	await page.goto(`${origin}/harness.html?lang=en`);
+	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
+	await page.locator('[data-tour="panel"]').click();
+	const sheet = page.locator("[data-sheet-panel]");
+	await expect(sheet).toBeVisible();
+	await page.locator("[data-panel-tabbar]").getByRole("button", { name: "Files", exact: true }).click();
+	const tree = sheet.locator(".omp-files-tree");
+	await tree.getByRole("treeitem", { name: /README\.md/ }).click({ timeout: 15_000 });
+	const area = sheet.locator("[data-pinch-area]");
+	await expect(area).toBeVisible({ timeout: 10_000 });
+	const box = await area.boundingBox();
+	if (!box) throw new Error("no file area");
+	const center = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 3) };
+	const cdp = await context.newCDPSession(page);
+	await cdp.send("Input.synthesizePinchGesture", { ...center, scaleFactor: 2, gestureSourceType: "touch" });
+	await page.waitForTimeout(300);
+	expect(await page.evaluate(() => window.visualViewport?.scale ?? 1), "the page").toBe(1);
+	await expect(area).toHaveAttribute("data-pinch-zoomed", "true");
+	const content = area.locator(":scope > div");
+	const transform = () =>
+		content.evaluate(node => {
+			const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+			return { scale: matrix.a, x: matrix.e, y: matrix.f };
+		});
+	const zoomed = await transform();
+	expect(zoomed.scale).toBeGreaterThan(1.6);
+	await cdp.send("Input.synthesizeScrollGesture", {
+		...center,
+		xDistance: 0,
+		yDistance: -60,
+		gestureSourceType: "touch",
+		speed: 400,
+	});
+	await page.waitForTimeout(300);
+	expect((await transform()).y).toBeLessThan(zoomed.y - 20);
+	// Another file starts at its own size.
+	await sheet.getByRole("button", { name: "Back to files" }).click();
+	await tree.getByRole("treeitem").nth(1).click();
+	await expect(area).not.toHaveAttribute("data-pinch-zoomed", "true");
+	await context.close();
+});
