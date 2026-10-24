@@ -14,7 +14,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
 import { normalizeRuntimeErrorReport } from "../runtime-log-core";
-import { connectFirst, type LinkState, probeHost, RemoteClient, type RemoteClientOptions, RemoteError } from "./client";
+import {
+	connectFirst,
+	type LinkState,
+	probeAny,
+	probeHost,
+	RemoteClient,
+	type RemoteClientOptions,
+	RemoteError,
+} from "./client";
 import { authKeys, dh, generateKeyPair } from "./crypto";
 import {
 	type GateResult,
@@ -427,6 +435,43 @@ describe("listening", () => {
 		await rig.host.rebind();
 		expect(rig.host.port).toBe(all);
 		expect(rig.host.listenError).toBeNull();
+	});
+});
+
+describe("a host's ports, one of them silent", () => {
+	// TEST-NET-1 belongs to no computer: a connect to it gets no answer, as a port a firewall drops does.
+	const SILENT = "192.0.2.1:47821";
+
+	it("connects on the next port when the first (the one it remembered) answers nothing", async () => {
+		const rig = await startHost();
+		const { a, hosts, paired } = await connectedClient(rig);
+		const remote = new RemoteClient({
+			identity: a.identity,
+			host: paired,
+			appVersion: APP_VERSION,
+			name: () => "Laptop",
+			hosts,
+			addresses: async () => [SILENT, `${LOOPBACK}:${rig.port}`],
+		});
+		cleanups.push(() => remote.close());
+		const started = Date.now();
+		remote.connect();
+		await untilState(remote, "online", 2_500);
+		expect(Date.now() - started).toBeLessThan(2_500);
+	});
+
+	it("finds a host in the tailnet list behind a silent port", async () => {
+		const rig = await startHost();
+		const found = await probeAny([SILENT, `${LOOPBACK}:${rig.port}`]);
+		expect(found.address).toBe(`${LOOPBACK}:${rig.port}`);
+		expect(found.probe.ok).toBe(true);
+	});
+
+	it("prefers the earlier port when both answer", async () => {
+		const first = await startHost();
+		const second = await startHost();
+		const found = await probeAny([`${LOOPBACK}:${first.port}`, `${LOOPBACK}:${second.port}`]);
+		expect(found.address).toBe(`${LOOPBACK}:${first.port}`);
 	});
 });
 
