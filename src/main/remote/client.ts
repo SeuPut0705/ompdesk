@@ -63,12 +63,15 @@ export class RemoteError extends Error {
 	readonly code: string;
 	/** The dial was refused or reset: the computer answered and nothing listens (not a timeout or no route). */
 	readonly refused: boolean;
+	/** The dial got no answer at all: the computer is not answering, on any port (asleep, off the tailnet). */
+	readonly timedOut: boolean;
 
-	constructor(code: string, message: string = code, refused = false) {
+	constructor(code: string, message: string = code, refused = false, timedOut = false) {
 		super(message);
 		this.name = "RemoteError";
 		this.code = code;
 		this.refused = refused;
+		this.timedOut = timedOut;
 	}
 }
 
@@ -76,13 +79,13 @@ function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS, signal?: AbortSi
 	const socket = connect({ host: target.host, port: target.port });
 	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
 	const cancelled = () => fail(new Error("dial cancelled"));
-	const fail = (error: Error) => {
+	const fail = (error: Error, timedOut = false) => {
 		signal?.removeEventListener("abort", cancelled);
 		socket.destroy();
 		const refused = "code" in error && (error.code === "ECONNREFUSED" || error.code === "ECONNRESET");
-		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused));
+		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused, timedOut));
 	};
-	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out")));
+	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out"), true));
 	socket.once("error", fail);
 	socket.once("connect", () => {
 		signal?.removeEventListener("abort", cancelled);
@@ -486,6 +489,8 @@ export class RemoteClient {
 				refused &&= failure.refused;
 				// The host itself answered: other addresses reach the same verdict.
 				if (failure.code !== "unreachable") break;
+				// Its computer answered nothing: its other ports would each wait out the same timeout.
+				if (failure.timedOut) break;
 			}
 		}
 		this.#attempting = false;

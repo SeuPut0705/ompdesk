@@ -7,7 +7,7 @@
  * static key to its Tailscale node; later ones must come from that node with that key. A node holds one device.
  */
 import { EventEmitter } from "node:events";
-import { type AddressInfo, createServer, type Server, type Socket } from "node:net";
+import { type AddressInfo, createServer, isIPv4, type Server, type Socket } from "node:net";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { formatAddress, remotePortCandidates } from "./address";
 import { DEVICE_RENAME_EVENT, HOST_NAME_EVENT, NAME_METHODS, NameParams } from "./app-protocol";
@@ -87,6 +87,8 @@ export interface RemoteHostOptions {
 	bindHosts: () => Promise<string[]>;
 	/** First port tried; defaults to `OMP_GUI_REMOTE_PORT` or 47821, then its successors (address.ts). */
 	port?: number;
+	/** Bind a server (tests stand in for the system refusing a port); resolves the port it listens on. */
+	bindPort?: (server: Server, port: number, host: string) => Promise<number>;
 	/** Decide who connects, from the peer's address (`::ffff:` already stripped). */
 	gate: (ip: string) => Promise<GateResult>;
 	/** A device the host never saw: may it be recorded? Resolves false to refuse it `declined`. */
@@ -167,8 +169,16 @@ function close(server: Server): Promise<void> {
 	return promise;
 }
 
-function addressInUse(error: unknown): boolean {
-	return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
+/**
+ * The port cannot be had on this computer, so the next one is tried: taken (EADDRINUSE), or reserved by the system
+ * (EACCES: Windows' excluded port ranges for Hyper-V, WSL and Docker).
+ */
+function portUnavailable(error: unknown): boolean {
+	return error instanceof Error && "code" in error && (error.code === "EADDRINUSE" || error.code === "EACCES");
+}
+
+function errorCode(error: unknown): string {
+	return error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : String(error);
 }
 
 export class RemoteHost {
@@ -178,7 +188,10 @@ export class RemoteHost {
 	readonly #links = new Set<Link>();
 	readonly #connections = new Set<PeerConnection>();
 	#servers: Server[] = [];
+	/** The tailnet addresses it was asked to listen on (a rebind with the same ones changes nothing). */
 	#bound: string[] = [];
+	/** Those it listens on now: the one devices dial, and the others that took the same port. */
+	#listening: string[] = [];
 	#port: number | null = null;
 	#listenError: ListenError | null = null;
 	#running = false;
@@ -229,35 +242,57 @@ export class RemoteHost {
 		this.#emitter.emit("listenChanged");
 	}
 
-	/** The first candidate port free on every address; the same port everywhere, so a device probes one list. */
+	/**
+	 * The first candidate port free on the address devices dial (its IPv4 tailnet address, `#hostAddresses` in
+	 * devices.ts), then the same port on the others where they take it: an address that refuses it (a Windows IPv6
+	 * tailnet address that answered EADDRINUSE for every port) never keeps the host off the one devices use.
+	 */
 	async #listenOn(hosts: string[]): Promise<void> {
 		const candidates = this.#opts.port === undefined ? remotePortCandidates() : remotePortCandidates(this.#opts.port);
+		const dialed = hosts.find(host => isIPv4(host)) ?? hosts[0];
+		if (dialed === undefined) return;
+		const bind = this.#opts.bindPort ?? listen;
+		const skipped: string[] = [];
 		for (const candidate of candidates) {
-			const servers: Server[] = [];
-			let port = candidate;
+			const server = createServer(socket => this.#accept(socket));
+			let port: number;
 			try {
-				for (const host of hosts) {
-					const server = createServer(socket => this.#accept(socket));
-					servers.push(server);
-					// Port 0 (tests): the first address picks, the others follow it.
-					port = await listen(server, port, host);
-				}
+				port = await bind(server, candidate, dialed);
 			} catch (error) {
-				await Promise.all(servers.map(server => (server.listening ? close(server) : Promise.resolve())));
-				if (addressInUse(error)) continue;
-				// Not a busy port (the address left this computer meanwhile): the next rebind tries again.
+				if (server.listening) await close(server);
+				if (portUnavailable(error)) {
+					skipped.push(`${candidate} ${errorCode(error)}`);
+					continue;
+				}
+				// Not a port of its own (the address left this computer meanwhile): the next rebind tries again.
 				this.#opts.log?.("listen-failed", { message: error instanceof Error ? error.message : String(error) });
 				return;
 			}
+			const servers = [server];
+			const listening = [dialed];
+			for (const host of hosts) {
+				if (host === dialed) continue;
+				const other = createServer(socket => this.#accept(socket));
+				try {
+					await bind(other, port, host);
+					servers.push(other);
+					listening.push(host);
+				} catch (error) {
+					if (other.listening) await close(other);
+					this.#opts.log?.("listen-skipped", { host, port, code: errorCode(error) });
+				}
+			}
 			this.#servers = servers;
 			this.#bound = hosts;
+			this.#listening = listening;
 			this.#port = port;
 			if (candidate !== candidates[0] && this.#loggedPort !== port) {
 				this.#loggedPort = port;
-				this.#opts.log?.("port", { port, wanted: candidates[0] });
+				this.#opts.log?.("port", { port, wanted: candidates[0], skipped: skipped.join(", ") });
 			}
 			return;
 		}
+		this.#opts.log?.("port-unavailable", { skipped: skipped.join(", ") });
 		this.#listenError = { code: "port_in_use", ports: candidates };
 	}
 
@@ -265,6 +300,7 @@ export class RemoteHost {
 		const servers = this.#servers;
 		this.#servers = [];
 		this.#bound = [];
+		this.#listening = [];
 		this.#port = null;
 		await Promise.all(servers.map(close));
 	}
@@ -281,7 +317,7 @@ export class RemoteHost {
 	addresses(): string[] {
 		const port = this.#port;
 		if (port === null) return [];
-		return this.#bound.map(host => formatAddress({ host, port }));
+		return this.#listening.map(host => formatAddress({ host, port }));
 	}
 
 	/** Peers with at least one live authenticated connection, with the OMPdesk version their newest one runs. */

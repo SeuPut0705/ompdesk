@@ -809,7 +809,9 @@ export class RemoteDevices {
 		for (const address of addresses) {
 			try {
 				probe = await probeHost(address);
-			} catch {
+			} catch (error) {
+				// No answer at all: the computer is away, and its other ports would each wait out the timeout too.
+				if (error instanceof RemoteError && error.timedOut) break;
 				continue;
 			}
 			// This computer itself (a test's two apps on one address).

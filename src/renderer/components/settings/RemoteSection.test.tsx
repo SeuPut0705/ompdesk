@@ -246,7 +246,7 @@ describe("RemoteSection", () => {
 		);
 		await mount();
 		expect(document.body.querySelector("[data-remote-port-in-use]")?.textContent).toBe(
-			translate("remote.host.portInUse", { first: "47821", last: "47823" }),
+			translate("remote.host.portInUse", { ports: "47821, 47822, 47823" }),
 		);
 		expect(document.body.querySelector("[data-remote-addresses]")).toBeNull();
 	});

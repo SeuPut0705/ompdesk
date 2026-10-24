@@ -5819,7 +5819,8 @@ export const en: Record<string, string> = {
 	"remote.host.addresses": "Tailnet addresses",
 	"remote.host.addressesDesc": "Shared only on these Tailscale addresses, never on your local network.",
 	"remote.host.noAddresses": "Not listening: Tailscale has no address for this computer yet.",
-	"remote.host.portInUse": "Ports {first}–{last} are in use by other programs, so sharing is off until one is free.",
+	"remote.host.portInUse":
+		"Every port sharing can use ({ports}) is taken by another program or reserved by the system, so sharing is off until one is free.",
 	"remote.host.peers": "Devices using this computer",
 	"remote.host.noPeers": "No device has connected yet.",
 	"remote.host.lastSeen": "Last seen {time}",

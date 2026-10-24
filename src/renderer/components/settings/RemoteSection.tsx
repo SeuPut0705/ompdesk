@@ -429,10 +429,7 @@ export function RemoteSection() {
 						>
 							{host.listenError ? (
 								<p className="text-sc-sm text-(--sc-warning)" data-remote-port-in-use role="status">
-									{t("remote.host.portInUse", {
-										first: String(host.listenError.ports[0] ?? ""),
-										last: String(host.listenError.ports.at(-1) ?? ""),
-									})}
+									{t("remote.host.portInUse", { ports: host.listenError.ports.join(", ") })}
 								</p>
 							) : host.addresses.length > 0 ? (
 								<ul className="flex flex-col gap-1" data-remote-addresses>

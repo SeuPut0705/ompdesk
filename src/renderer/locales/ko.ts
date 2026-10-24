@@ -5806,7 +5806,8 @@ export const ko: Record<string, string> = {
 	"remote.host.addresses": "테일넷 주소",
 	"remote.host.addressesDesc": "이 Tailscale 주소에서만 공유하고, 로컬 네트워크에는 열지 않아요.",
 	"remote.host.noAddresses": "대기 중이 아니에요. Tailscale이 아직 이 컴퓨터에 주소를 주지 않았어요.",
-	"remote.host.portInUse": "{first}–{last} 포트를 다른 프로그램이 쓰고 있어서, 하나가 비기 전까지 공유가 꺼져 있어요.",
+	"remote.host.portInUse":
+		"공유에 쓸 수 있는 포트({ports})를 모두 다른 프로그램이 쓰거나 시스템이 막아 두어서, 하나가 비기 전까지 공유가 꺼져 있어요.",
 	"remote.host.peers": "이 컴퓨터를 쓰는 기기",
 	"remote.host.noPeers": "아직 연결한 기기가 없어요.",
 	"remote.host.lastSeen": "마지막 연결 {time}",
