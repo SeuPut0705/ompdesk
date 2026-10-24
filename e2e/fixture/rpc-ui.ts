@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -853,9 +853,14 @@ export function runRpcUi(): void {
 			const entry = branch[index];
 			if (entry?.type === "message") return null;
 			if (entry?.type === "custom" && entry.customType === NEXT_PROMPT_ENTRY) {
-				const data = entry.data as { candidates?: unknown; at?: unknown } | undefined;
+				const data = entry.data as { id?: unknown; candidates?: unknown; at?: unknown } | undefined;
 				return Array.isArray(data?.candidates) && typeof data.at === "number"
-					? { candidates: data.candidates.map(String), at: data.at, used: nextPromptUsed() }
+					? {
+							...(typeof data.id === "string" ? { id: data.id } : {}),
+							candidates: data.candidates.map(String),
+							at: data.at,
+							used: nextPromptUsed(),
+						}
 					: null;
 			}
 		}
@@ -1010,11 +1015,13 @@ export function runRpcUi(): void {
 			"Commit these changes",
 			"Explain what you changed",
 		];
-		nextPromptKept = { candidates, at: Date.now(), used: nextPromptUsed() };
+		const id = randomUUID();
+		nextPromptKept = { id, candidates, at: Date.now(), used: nextPromptUsed() };
 		if (sessionFile) append({ type: "custom", customType: NEXT_PROMPT_ENTRY, data: nextPromptKept }, Date.now());
 		pushBridgeEvent({
 			type: "next_prompt_update",
 			status: "ready",
+			id,
 			trigger,
 			candidates,
 			used: nextPromptUsed(),

@@ -133,6 +133,11 @@ export interface NextPromptUpdate {
 	sessionFile?: string;
 	sessionId?: string;
 	trigger?: NextPromptTrigger;
+	/**
+	 * This suggestion's identity (`ready` only): the same in its frame, in `last` and in the journal, so a page tells
+	 * the suggestion it let go from a newer one without comparing two computers' clocks. Absent from an older bridge.
+	 */
+	id?: string;
 	/** Ranked best first, deduplicated, one line each; at most {@link MAX_CANDIDATES}. */
 	candidates?: string[];
 	reason?: NextPromptUnavailable;
@@ -143,8 +148,8 @@ export interface NextPromptUpdate {
 }
 
 /**
- * Journal entry type (`sessionManager.appendCustomEntry`) holding a session's last suggestion: `{candidates, used?,
- * at, key}`. An omp started on the session (a relaunch, an update's restart) answers it as `last` until a later
+ * Journal entry type (`sessionManager.appendCustomEntry`) holding a session's last suggestion: `{id, candidates,
+ * used?, at, key}`. An omp started on the session (a relaunch, an update's restart) answers it as `last` until a later
  * message makes it stale, so a suggestion outlives the process that made it.
  */
 export const NEXT_PROMPT_ENTRY = "ompdesk.next-prompt";
@@ -156,9 +161,14 @@ export const NEXT_PROMPT_ENTRY = "ompdesk.next-prompt";
  * nothing natural fitted.
  */
 export interface NextPromptLast {
+	/** The suggestion's identity, as its frame carried it (absent: an older bridge, or none made since a run). */
+	id?: string;
 	candidates: string[];
 	used?: NextPromptModelUsed;
-	/** When it was made, epoch ms on the clock of the computer the session runs on. */
+	/**
+	 * When it was made, epoch ms on the clock of the computer the session runs on: never compared with a page's clock
+	 * (a paired host's may be minutes off).
+	 */
 	at: number;
 	sessionFile?: string;
 	sessionId?: string;

@@ -22,7 +22,10 @@ import { parseNextPrompt } from "../lib/next-prompt";
  * session's last suggestion from its bridge (`get_next_prompt` → `last`,
  * `recordLast`), so a frame that never reached this page (its tab was in the
  * background, a reload, a hidden phone, a paired host's lost link, a relaunch)
- * comes back. It never undoes what happened on this page meanwhile.
+ * comes back. It never undoes what happened on this page meanwhile, and it
+ * orders nothing by two computers' clocks (a paired host's may be minutes
+ * off): a suggestion is told from the one this page let go by its identity,
+ * and a read from what the page did meanwhile by this page's own clock.
  */
 
 /** Sessions remembered at once; the least recently recorded drop first. */
@@ -35,6 +38,8 @@ export interface StoredSuggestion {
 	used?: NextPromptModelUsed;
 	/** Epoch ms it was recorded on this page. */
 	at: number;
+	/** The bridge's identity for it (absent for the legacy widget and an older bridge). */
+	id?: string;
 }
 
 export interface NextPromptStore {
@@ -50,9 +55,10 @@ export interface NextPromptStore {
 	recordWidget: (sessionKey: string, lines: readonly string[] | undefined) => void;
 	/**
 	 * Apply the session's last suggestion a hydration read (`get_next_prompt` → `last`), the read having started at
-	 * `since` (this page's clock). Ignored when this page recorded a frame for the session after the read started
-	 * (it is newer) or cleared it after the suggestion was made (the person sent something, a run began): it never
-	 * brings back what the page already let go. Candidates replace the entry; none drop it.
+	 * `since` (this page's clock). Ignored when this page recorded a frame for the session or let it go (the person
+	 * sent something, a run began) after the read started, and when it is the very suggestion this page let go (by
+	 * its `id`; an older bridge's by its text): it never brings back what the page already let go. `last.at` is the
+	 * other computer's clock and is never compared. Candidates replace the entry; none drop it.
 	 */
 	recordLast: (sessionKey: string, last: NextPromptLast, since: number) => void;
 	/** Forget the suggestion of every given session key. */
@@ -63,14 +69,28 @@ export interface NextPromptStore {
 /** Widget line arrays and update frames already recorded (each publication is a fresh object). */
 let recorded = new WeakSet<object>();
 
-/** When each session's suggestion was last let go on this page (a submit, a run): a read made before can't undo it. */
+/** When each session's suggestion was last let go on this page (a submit, a run): a read started before can't undo it. */
 const clearedAt = new Map<string, number>();
+/** The suggestions this page let go, per session, by identity: no later read brings one back. */
+const letGo = new Map<string, string[]>();
+/** Identities of let-go suggestions remembered per session. */
+const LET_GO_KEPT = 8;
 
-function noteCleared(sessionKey: string, at: number): void {
+/** A suggestion's identity: the bridge's id, else (an older bridge, the legacy widget) its text. */
+function identityOf(suggestion: { id?: string; candidates: readonly string[] }): string {
+	return suggestion.id ? `id:${suggestion.id}` : `text:${JSON.stringify(suggestion.candidates)}`;
+}
+
+function noteCleared(sessionKey: string, at: number, entry: StoredSuggestion | undefined): void {
 	clearedAt.delete(sessionKey);
 	clearedAt.set(sessionKey, at);
-	for (const stale of [...clearedAt.keys()].slice(0, Math.max(0, clearedAt.size - MAX_SESSIONS * 2)))
-		clearedAt.delete(stale);
+	if (entry) {
+		const identities = [...(letGo.get(sessionKey) ?? []), identityOf(entry)].slice(-LET_GO_KEPT);
+		letGo.delete(sessionKey);
+		letGo.set(sessionKey, identities);
+	}
+	for (const map of [clearedAt, letGo])
+		for (const stale of [...map.keys()].slice(0, Math.max(0, map.size - MAX_SESSIONS * 2))) map.delete(stale);
 }
 
 /** Replace one session's entry, evicting the oldest sessions beyond the bound. */
@@ -96,7 +116,14 @@ export const useNextPromptStore = create<NextPromptStore>()((set, get) => ({
 			get().clear(sessionKey);
 			return;
 		}
-		set({ suggestions: remember(get().suggestions, sessionKey, { candidates, used: update.used, at: Date.now() }) });
+		set({
+			suggestions: remember(get().suggestions, sessionKey, {
+				candidates,
+				used: update.used,
+				at: Date.now(),
+				...(update.id ? { id: update.id } : {}),
+			}),
+		});
 	},
 	recordWidget: (sessionKey, lines) => {
 		if (!lines || recorded.has(lines)) return;
@@ -108,19 +135,26 @@ export const useNextPromptStore = create<NextPromptStore>()((set, get) => ({
 	recordLast: (sessionKey, last, since) => {
 		const entry = get().suggestions[sessionKey];
 		if (entry && entry.at >= since) return;
-		// Made before this page let the session's suggestion go: stale. (`last.at` is the clock of the computer the
-		// session runs on; a paired computer's is close enough for a moment that spans a whole turn.)
-		if ((clearedAt.get(sessionKey) ?? Number.NEGATIVE_INFINITY) >= last.at) return;
+		// Let go on this page while the read ran: the answer may be the suggestion the page just let go.
+		if ((clearedAt.get(sessionKey) ?? Number.NEGATIVE_INFINITY) >= since) return;
+		if (letGo.get(sessionKey)?.includes(identityOf(last))) return;
 		const candidates = last.candidates.filter(text => text.trim() !== "");
 		if (candidates.length === 0) {
 			if (entry) get().clear(sessionKey);
 			return;
 		}
-		set({ suggestions: remember(get().suggestions, sessionKey, { candidates, used: last.used, at: Date.now() }) });
+		set({
+			suggestions: remember(get().suggestions, sessionKey, {
+				candidates,
+				used: last.used,
+				at: Date.now(),
+				...(last.id ? { id: last.id } : {}),
+			}),
+		});
 	},
 	clear: (...sessionKeys) => {
 		const now = Date.now();
-		for (const key of sessionKeys) if (key) noteCleared(key, now);
+		for (const key of sessionKeys) if (key) noteCleared(key, now, get().suggestions[key]);
 		const keys = sessionKeys.filter((key): key is string => !!key && key in get().suggestions);
 		if (keys.length === 0) return;
 		const suggestions = { ...get().suggestions };
@@ -130,6 +164,7 @@ export const useNextPromptStore = create<NextPromptStore>()((set, get) => ({
 	reset: () => {
 		recorded = new WeakSet();
 		clearedAt.clear();
+		letGo.clear();
 		set({ suggestions: {} });
 	},
 }));

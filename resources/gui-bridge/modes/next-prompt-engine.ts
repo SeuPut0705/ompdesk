@@ -334,6 +334,8 @@ const lastKeys = new Map<string, string>();
 
 /** A session's last suggestion: candidates empty once a run made it stale (or nothing fitted); `key` its moment. */
 interface Kept {
+	/** The suggestion's identity (its frame's `id`); absent once a run made it stale. */
+	id?: string;
 	candidates: string[];
 	used?: NextPromptModelUsed;
 	at: number;
@@ -396,6 +398,7 @@ function journaled(data: unknown): Kept | null {
 	const candidates = value.candidates.filter((text): text is string => typeof text === "string" && text.trim() !== "");
 	const used = value.used as Record<string, unknown> | undefined;
 	return {
+		...(typeof value.id === "string" ? { id: value.id } : {}),
 		candidates,
 		at: value.at,
 		...(typeof value.key === "string" ? { key: value.key } : {}),
@@ -436,6 +439,7 @@ function lastFor(session: NextPromptSession): NextPromptLast | undefined {
 	}
 	if (!entry) return undefined;
 	return {
+		...(entry.id ? { id: entry.id } : {}),
 		candidates: [...entry.candidates],
 		...(entry.used ? { used: entry.used } : {}),
 		at: entry.at,
@@ -466,6 +470,7 @@ function keepSuggestion(session: NextPromptSession, entry: Kept): void {
 	keep(sessionKey(session), entry);
 	try {
 		session.sessionManager.appendCustomEntry?.(NEXT_PROMPT_ENTRY, {
+			...(entry.id ? { id: entry.id } : {}),
 			candidates: entry.candidates,
 			...(entry.used ? { used: entry.used } : {}),
 			at: entry.at,
@@ -672,10 +677,12 @@ async function generate(trigger: NextPromptTrigger, signal: AbortSignal): Promis
 		});
 		const wasUnavailable = unavailable !== undefined;
 		unavailable = undefined;
-		keepSuggestion(session, { candidates, used: resolved.used, at: Date.now(), key: stateKey });
+		const id = crypto.randomUUID();
+		keepSuggestion(session, { id, candidates, used: resolved.used, at: Date.now(), key: stateKey });
 		const update: NextPromptUpdate = {
 			type: "next_prompt_update",
 			status: "ready",
+			id,
 			trigger,
 			candidates,
 			used: resolved.used,
