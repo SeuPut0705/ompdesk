@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.71.2] - 2026-10-23
+
+휴대폰에서 두 손가락으로 벌려도 앱 화면이 확대되지 않아요. 사진은 크게 띄운 뒤 두 손가락으로 확대할 수 있어요.
+
+### 새로 생긴 것
+- 휴대폰과 태블릿에서 사진을 크게 띄우면 두 손가락으로 확대하고, 한 손가락으로 옮기고, 한 번 탭해 확대했다 돌아올 수 있어요.
+
+### 고친 것
+- 휴대폰에서 두 손가락으로 벌리거나 두 번 탭하면 앱 화면 전체가 확대돼서 입력창과 막대가 화면 밖으로 밀려났어요. 이제 화면은 확대되지 않아요(아이폰 Safari 포함). 글자 크기는 설정 › 화면과 입력에서 바꿔요.
+
+<!-- en -->
+
+On a phone, spreading two fingers no longer zooms the app. Pictures zoom with two fingers once opened full size.
+
+### Added
+- On a phone or tablet, a picture opened full size zooms with two fingers, moves with one, and zooms in and back on a tap.
+
+### Fixed
+- On a phone, a pinch or a double tap zoomed the whole app, pushing the composer and the bars off screen. The page no longer zooms (iOS Safari included). Text size is in Settings › Appearance & input.
+
 ## [0.71.1] - 2026-10-23
 
 다른 컴퓨터의 세션을 볼 때 작업 현황의 하위 세션이 제대로 세어지고, 실제로 돌고 있는 컴퓨터에서 열려요.
