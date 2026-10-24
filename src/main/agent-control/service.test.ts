@@ -2371,6 +2371,53 @@ describe("autoClose: opened sessions whose work landed", () => {
 		expect(host.mails.slice(before).filter(mail => mail.to === child.tabId)).toHaveLength(0);
 	});
 
+	describe("the done report main sends for a child", () => {
+		it("sends the opener one done mail with the final answer when the child ended with a verdict and reported nothing", async () => {
+			const { host, service } = await finishedChild({ patch: { last: "Parser fixed in a.ts.\nResult: ok" } });
+			await service.autoClose("main0001");
+			await service.autoClose("main0001");
+			const toOpener = host.mails.filter(mail => mail.to === "main0001");
+			expect(toOpener).toHaveLength(1);
+			expect(toOpener[0]?.content).toContain("Parser fixed in a.ts.");
+			expect(toOpener[0]?.content).toContain("done");
+			expect(toOpener[0]?.delivery).toEqual({ triggerTurn: true, deliverAs: "aside" });
+		});
+
+		it("sends exactly one when the child reported done itself", async () => {
+			const { host, service, child } = await finishedChild();
+			await service.run(child.tabId, T.report, { kind: "done", text: "finished", dispatch: "d1" });
+			await service.autoClose("main0001");
+			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+		});
+
+		it("sends none for a failed or stopped turn, or one the person typed into", async () => {
+			for (const patch of [
+				{ lastRun: { stopReason: "error" } },
+				{ lastRun: { stopReason: "aborted" } },
+				{ userTouched: true },
+			] as Partial<FakeTab>[]) {
+				const { host, service } = await finishedChild({ patch });
+				await service.autoClose("main0001");
+				expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(0);
+			}
+		});
+
+		it("gives the next dispatch its own report", async () => {
+			const { host, service, child } = await finishedChild({ patch: { looked: true } });
+			await service.autoClose("main0001");
+			expect(host.mails.filter(mail => mail.to === "main0001")).toHaveLength(1);
+			await service.run("main0001", T.send, { session: child.tabId, message: "and again" });
+			child.busy = true;
+			await service.autoClose("main0001");
+			child.busy = false;
+			child.last = "Second round.\nResult: ok";
+			await service.autoClose("main0001");
+			const toOpener = host.mails.filter(mail => mail.to === "main0001");
+			expect(toOpener).toHaveLength(2);
+			expect(toOpener[1]?.content).toContain("Second round.");
+		});
+	});
+
 	it("waits while the opener runs until it has read the answer", async () => {
 		const { host, service, child } = await finishedChild();
 		const opener = host.tabsById.get("main0001") as FakeTab;

@@ -94,6 +94,7 @@ import {
 	ARGS,
 	type AutopilotArgs,
 	type ListArgs,
+	MESSAGE_MAX_CHARS,
 	type OpenOne,
 	READ_DEFAULT_MESSAGES,
 	READ_MAX_CHARS,
@@ -993,6 +994,8 @@ export class AgentControl {
 	>();
 	/** Callers whose `autoClose` pass is in flight. */
 	readonly #sweeping = new Set<string>();
+	/** Per child tab, the dispatch whose `done` report main sent for it (`#autoDone`). */
+	readonly #autoDoneFor = new Map<string, string>();
 	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
 	readonly #stored = new Map<string, StoredSession>();
 	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
@@ -3324,6 +3327,7 @@ export class AgentControl {
 				if (tab.status !== "ready" && !(tab.restored && tab.status === "asleep")) continue;
 				if (!tab.lastRun && !tab.restored) continue;
 				const facts = await this.#autoCloseFacts(tab, openerIdle);
+				await this.#autoDone(caller, tabs, tab, facts);
 				const decision = autoCloseDecision(facts);
 				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision.removeWorktree);
 				else await this.#nudgeSilent(caller, tab, facts);
@@ -3331,6 +3335,40 @@ export class AgentControl {
 		} finally {
 			this.#sweeping.delete(callerTabId);
 		}
+	}
+
+	/**
+	 * A child whose turn ended well with a verdict line (`Result: ok` / `Result: problem — <reason>`) and sent its
+	 * opener nothing on the current dispatch gets its `done` report sent for it: the final answer, through `#report`
+	 * (custody line, outbox, dedupe id, delivery). Measured: the child's own `ompdesk_report` done cost every worker
+	 * dispatch two extra model requests. Never a failed or stopped turn, one the person typed into, one a relaunch
+	 * restored, or a dispatch that already has a report.
+	 */
+	async #autoDone(caller: ControlTab, tabs: ControlTab[], tab: ControlTab, facts: AutoCloseFacts): Promise<void> {
+		if (
+			!facts.openedByAgent ||
+			!facts.idle ||
+			!facts.settled ||
+			!facts.answered ||
+			facts.ended !== "ok" ||
+			(facts.result !== "ok" && facts.result !== "problem") ||
+			facts.userTouched ||
+			tab.restored ||
+			this.#host.parentOf(tab.tabId) !== caller.tabId
+		)
+			return;
+		const dispatch = this.#mailbox.current(tab.tabId);
+		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
+		if (report && report.dispatch === dispatch) return;
+		if (this.#autoDoneFor.get(tab.tabId) === (dispatch ?? "")) return;
+		const answer = ((await this.#state(tab)).last ?? "").trim();
+		if (!parseWorkerResult(answer)) return;
+		this.#autoDoneFor.set(tab.tabId, dispatch ?? "");
+		await this.#report(tab, tabs, {
+			kind: "done",
+			text: cut(answer, MESSAGE_MAX_CHARS),
+			...(dispatch ? { dispatch } : {}),
+		}).catch(() => undefined);
 	}
 
 	/**
