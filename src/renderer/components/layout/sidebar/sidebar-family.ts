@@ -335,23 +335,31 @@ export function remoteOpenedChildren(
 	return children;
 }
 
+/** A paired host's row as the opener rule reads it (`SessionInfo`): what the host says of who opened it. */
+export interface HostFamilySession extends FamilySession {
+	openedBySession?: string | null;
+	promptOriginDevice?: string;
+}
+
 /**
- * Tabs on a paired device that a session on that same device opened (its agent ran `ompdesk_session_open` there):
- * child tab id → the opener's row key in the device's own list (its session file, else `tab:<id>` before stock wrote
- * one). Such a child nests under that row in the device's section, as a local child under its local opener; without
- * this a host session's children were loose rows of its list and its row showed none of them.
+ * Which of a paired host's sessions nest under which in that host's section: child row key → the row key (session
+ * file, else `tab:<id>` before stock wrote one) of the session that started its chain. The same rule as this
+ * computer's own rows (`openerOfSessions`) over the host's rows and this computer's tabs on that host: what the host
+ * says of a row (`openedBySession`: its windows' tabs, its records of children it closed) is the record, and the
+ * agent brief is read only for a row the host says it knows no opener of (`null`) and a paired device did not open, as
+ * the host's own sidebar reads it. An older host says nothing, so its rows nest only by the tabs here, as before.
  */
-export function hostOpenedChildren(tabs: readonly (FamilyTab & { device?: string })[]): Map<string, string> {
-	const children = new Map<string, string>();
-	for (const tab of tabs) {
-		if (tab.device === undefined) continue;
-		const opener =
-			(tab.openedBy ? tabs.find(entry => entry.id === tab.openedBy) : undefined) ??
-			(tab.openedBySession
-				? tabs.find(entry => entry.device === tab.device && entry.sessionPath === tab.openedBySession)
-				: undefined);
-		if (opener && opener.id !== tab.id && opener.device === tab.device)
-			children.set(tab.id, opener.sessionPath ?? `tab:${opener.id}`);
-	}
-	return children;
+export function hostOpenerOfSessions(
+	tabs: readonly FamilyTab[],
+	rows: readonly HostFamilySession[],
+): Map<string, string> {
+	const recorded = new Map<string, string>();
+	for (const row of rows) if (row.openedBySession) recorded.set(row.path, row.openedBySession);
+	return openerOfSessions(
+		tabs,
+		rows.map(row =>
+			row.openedBySession === null && !row.promptOriginDevice ? row : { ...row, firstMessage: undefined },
+		),
+		recorded,
+	);
 }

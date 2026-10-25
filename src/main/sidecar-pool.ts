@@ -2155,6 +2155,22 @@ export class SidecarPool {
 		});
 	}
 
+	/**
+	 * Who opened what in this computer's windows (`setTabOpener`): child session file → its opener's file, for the
+	 * devices paired to it (`LocalHostServices` `sessions.list`). A tab on a paired host and a view of a device's tab
+	 * here are left out, as in `liveSessions`.
+	 */
+	sessionOpeners(): Map<string, string> {
+		const openers = new Map<string, string>();
+		for (const entry of this.#entries) {
+			if (entry.device || entry.hostedView || !entry.sessionFile) continue;
+			const opener =
+				(entry.openedBy ? this.#byTabId.get(entry.openedBy)?.sessionFile : undefined) ?? entry.openedBySession;
+			if (opener && opener !== entry.sessionFile) openers.set(entry.sessionFile, opener);
+		}
+		return openers;
+	}
+
 	/** The session file a live tab shows, if it has one yet. */
 	sessionFileOf(tabId: string): string | undefined {
 		return this.#byTabId.get(tabId)?.sessionFile;

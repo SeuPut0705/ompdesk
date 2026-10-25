@@ -18,6 +18,7 @@ import type {
 	IpcBenchmarkRunResult,
 	IpcModelSetupRunResult,
 	ModelOverrideInput,
+	SessionInfo,
 } from "../../shared/ipc-types";
 import { HOST_DOWNLOAD_PART_BYTES, HOST_UPLOAD_PART_BYTES } from "../../shared/ipc-types";
 import type { ModelSetupRequest, ModelSetupStatus } from "../../shared/model-setup";
@@ -1765,6 +1766,23 @@ describe("LocalHostServices", () => {
 		await expect(
 			services.call(x.peer, "sessions.messages", { sessionPath: "/hidden/session.jsonl" }, x),
 		).rejects.toThrow("hid that session");
+	});
+
+	it("names who opened each session it lists to a device, and says null where it knows none", async () => {
+		const row = (path: string) => ({ path, id: path, title: path, cwd: workDir, firstMessage: "" });
+		const { services } = setup(60_000, {
+			sessionIndex: {
+				list: async () => [row("/s/boss.jsonl"), row("/s/kid.jsonl")],
+			} as unknown as HostServicesDeps["sessionIndex"],
+			sessionOpeners: () => new Map([["/s/kid.jsonl", "/s/boss.jsonl"]]),
+		});
+		const x = new FakeConnection(peer("device-x"));
+		const rows = (await services.call(x.peer, "sessions.list", { scope: "global" }, x)) as SessionInfo[];
+		// `null`, not absent: a device tells this host's rows from an older host's, which name nobody.
+		expect(rows.map(entry => [entry.path, entry.openedBySession])).toEqual([
+			["/s/boss.jsonl", null],
+			["/s/kid.jsonl", "/s/boss.jsonl"],
+		]);
 	});
 
 	it("reports which devices have a host tab running a turn, through settle, restart and close", async () => {

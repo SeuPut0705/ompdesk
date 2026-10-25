@@ -46,6 +46,7 @@ import { CHATS_ORDER_KEY, hostOrderKey, moveInOrder, orderByManual, reorderProje
 import { isChatSession, sessionDisplayTitle, sessionHasContent } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
+import { useAgentReviewStore } from "../../../stores/agent-review";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import { sessionListFeed } from "../../../stores/session-list";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
@@ -64,6 +65,7 @@ import {
 	MenuButton,
 	type MenuSelectModifiers,
 } from "../../common/ContextMenu";
+import { TimeAgo } from "../../common/TimeAgo";
 import { TabLiveAge, TabLiveTitle } from "../SessionLiveTitle";
 import { useHostWorkspace } from "./host-workspace";
 import { SidebarChats } from "./SidebarChats";
@@ -71,6 +73,7 @@ import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
 import { type FamilyOpened, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 import { SortableProject } from "./SortableProject";
+import { CHILD_TOKEN, hostOpenerOfSessions, openedChildStatus } from "./sidebar-family";
 
 const NO_OPENED: readonly FamilyOpened[] = [];
 
@@ -233,16 +236,16 @@ export function SidebarDeviceSection({
 	host,
 	query,
 	nested,
-	families,
+	childForTab,
 	pending = false,
 	onNewChat,
 }: {
 	host: HostView;
 	query: string;
-	/** Tab ids and session files of sessions another session opened here: they are rows of its family. */
+	/** Tab ids and session files of sessions a session of this computer opened here: they are rows of its family. */
 	nested?: ReadonlySet<string>;
-	/** This host's opener rows (session file, else `tab:<id>`) → the sessions their agent opened here. */
-	families?: ReadonlyMap<string, readonly FamilyOpened[]>;
+	/** The family row of a session here a tab of this computer holds (its live state is the tab's). */
+	childForTab: (tab: SessionTab) => FamilyOpened;
 	/** A host the last host-list read named, drawn before this launch's first read: still, as it will look. */
 	pending?: boolean;
 	/** The sidebar's own New chat, started on this host. */
@@ -319,7 +322,7 @@ export function SidebarDeviceSection({
 			{!collapsed &&
 				(showRows ? (
 					<DeviceSessions
-						families={families}
+						childForTab={childForTab}
 						host={host}
 						nested={nested}
 						onNewChat={() => onNewChat(host.deviceId)}
@@ -343,7 +346,7 @@ function DeviceSessions({
 	host,
 	query,
 	nested,
-	families,
+	childForTab,
 	onNewChat,
 	onOpen,
 	read,
@@ -351,7 +354,7 @@ function DeviceSessions({
 	host: HostView;
 	query: string;
 	nested: ReadonlySet<string> | undefined;
-	families: ReadonlyMap<string, readonly FamilyOpened[]> | undefined;
+	childForTab: (tab: SessionTab) => FamilyOpened;
 	onNewChat: () => void;
 	onOpen: (args: RemoteOpenArgs) => Promise<void>;
 	read: boolean;
@@ -375,10 +378,8 @@ function DeviceSessions({
 	// The order the person set for this host's projects and each of its lists, kept with this computer's own.
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
-	const hostTabs = useMemo(
-		() => allTabs.filter(tab => tab.device === host.deviceId && !nested?.has(tab.id)),
-		[allTabs, host.deviceId, nested],
-	);
+	const deviceTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
+	const hostTabs = useMemo(() => deviceTabs.filter(tab => !nested?.has(tab.id)), [deviceTabs, nested]);
 
 	// The host's own rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session opened
 	// there without a folder starts) is one of its chats, so it is here too.
@@ -386,7 +387,8 @@ function DeviceSessions({
 	// The host's own project list: its empty projects show here too, and one removed there (or here) is gone from both.
 	const projectList = useProjectList(host.deviceId, read);
 
-	const rows = useMemo<DeviceSession[]>(() => {
+	/** Every session the host's list holds, before the families and the filter take theirs. */
+	const hostRows = useMemo<DeviceSession[]>(() => {
 		// A file stock wrote before the first message is not a conversation yet (see Sidebar).
 		const listed = sessions.filter(session => sessionHasContent(session) && !nested?.has(session.path));
 		const listedPaths = new Set(listed.map(session => session.path));
@@ -415,16 +417,38 @@ function DeviceSessions({
 				device: host.deviceId,
 				liveTabId: tab.id,
 			}));
+		return [...listed, ...live];
+	}, [sessions, hostTabs, host.deviceId, nested]);
+	// A session the host's own agent opened is a row of its opener's family, as on the host (Sidebar.tsx): the
+	// opener's row key → what it opened, in the order it opened them.
+	const familyRootOf = useMemo(
+		() =>
+			hostOpenerOfSessions(
+				deviceTabs,
+				hostRows.map(row => ({ ...row, title: sessionDisplayTitle(row, "") })),
+			),
+		[deviceTabs, hostRows],
+	);
+	const familyChildrenOf = useMemo(() => {
+		const byRoot = new Map<string, DeviceSession[]>();
+		for (const row of hostRows.toSorted((a, b) => createdAt(a) - createdAt(b))) {
+			const root = familyRootOf.get(row.path);
+			if (root !== undefined) byRoot.set(root, [...(byRoot.get(root) ?? []), row]);
+		}
+		return byRoot;
+	}, [hostRows, familyRootOf]);
+	const rows = useMemo<DeviceSession[]>(() => {
 		const needle = query.toLocaleLowerCase();
-		return [...listed, ...live]
+		return hostRows
 			.filter(
 				session =>
-					!needle ||
-					sessionDisplayTitle(session, "").toLocaleLowerCase().includes(needle) ||
-					session.cwd.toLocaleLowerCase().includes(needle),
+					!familyRootOf.has(session.path) &&
+					(!needle ||
+						sessionDisplayTitle(session, "").toLocaleLowerCase().includes(needle) ||
+						session.cwd.toLocaleLowerCase().includes(needle)),
 			)
 			.toSorted((a, b) => createdAt(b) - createdAt(a));
-	}, [sessions, hostTabs, host.deviceId, query, nested]);
+	}, [hostRows, familyRootOf, query]);
 	/** A list's sessions in the order the person set, newest first for the ones never placed (as before any move). */
 	const ordered = useMemo(() => {
 		const key = (session: DeviceSession) => session.path;
@@ -548,6 +572,20 @@ function DeviceSessions({
 		() => new Map(host.live?.map(session => [session.sessionPath, session.state])),
 		[host.live],
 	);
+	// A window viewing an opener here hears main's review list of what its agent opened (Sidebar.tsx): the child's
+	// state when no tab here holds it. Child session file → its item.
+	const reviewByTab = useAgentReviewStore(s => s.byTab);
+	const reviewOfPath = useMemo(
+		() =>
+			new Map(
+				Object.values(reviewByTab).flatMap(items =>
+					items.flatMap(item =>
+						item.device === host.deviceId && item.sessionPath ? [[item.sessionPath, item] as const] : [],
+					),
+				),
+			),
+		[reviewByTab, host.deviceId],
+	);
 
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
 		hostTabs.find(
@@ -563,6 +601,70 @@ function DeviceSessions({
 		}
 		// openTab reports its own failures (toast) and resolves null.
 		void onOpen({ cwd: session.cwd, sessionPath: session.path, kind: session.kind ?? "agent" });
+	};
+
+	/**
+	 * A session the host's own agent opened, as a one-line child under its opener: the tab here when one holds it,
+	 * else what the host says of it (its working cue, the review list), by the local rows' status rule (Sidebar.tsx).
+	 */
+	const familyChildFor = (child: DeviceSession): FamilyOpened => {
+		const tab = tabFor(child);
+		if (tab) return childForTab(tab);
+		const live = hostLive.get(child.path);
+		const review = reviewOfPath.get(child.path);
+		const failed = review?.failed === true;
+		const running = live === "turn" || live === "background" || review?.state === "running";
+		const status = openedChildStatus({
+			waiting: live === "waiting" || review?.waiting === true,
+			running,
+			finished: !running,
+			failed,
+			unmerged:
+				review?.branch !== undefined &&
+				review.state !== "running" &&
+				(review.commitsAhead > 0 || review.uncommitted > 0),
+		});
+		const title = sessionDisplayTitle(child, t("sidebar.untitled"));
+		const statusLabel =
+			status === "problem"
+				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
+				: status === "waiting"
+					? t("sidebar.row.needsInput")
+					: status === "running"
+						? t("sidebar.signal.running")
+						: status === "done"
+							? t("tabs.done")
+							: "";
+		const id = `device:${host.deviceId}:${child.path}`;
+		const key = `session:${id}`;
+		return {
+			key: id,
+			kind: review?.branch !== undefined || projectList.worktrees[child.cwd] !== undefined ? "worktree" : "session",
+			status,
+			state: status ? CHILD_TOKEN[status] : null,
+			stateLabel: statusLabel,
+			title,
+			age: status !== "running" ? <TimeAgo className="text-(--sc-text-subtle)" iso={child.modified} /> : undefined,
+			device: host.name,
+			tooltip: [title, statusLabel, `${host.name} · ${child.cwd}`].filter(Boolean).join("\n"),
+			selected: false,
+			onOpen: () => openSession(child),
+			buttonProps: { tabIndex: -1, "data-roving-item": key },
+			rowProps: {
+				"data-session-path": child.path,
+				"data-sidebar-opened-session": true,
+				"data-device": host.deviceId,
+				"data-signal":
+					status === "waiting"
+						? "waiting"
+						: status === "running"
+							? "running"
+							: status === "problem"
+								? "error"
+								: undefined,
+				"data-child-status": status ?? undefined,
+			},
+		};
 	};
 
 	/**
@@ -691,7 +793,8 @@ function DeviceSessions({
 				: []),
 		];
 		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened on this host.
-		const opened = families?.get(session.path) ?? (tab ? families?.get(`tab:${tab.id}`) : undefined) ?? NO_OPENED;
+		const children = familyChildrenOf.get(session.path);
+		const opened = children ? children.map(familyChildFor) : NO_OPENED;
 		const family = tab !== undefined || opened.length > 0;
 		// Its own key: two hosts may keep a session at the same path, and this computer's prune never sees host rows.
 		const familyKey = `device:${host.deviceId}:${session.path}`;

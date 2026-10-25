@@ -1510,10 +1510,13 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		});
 		const layout = before.pool.tabLayoutForWindow(fw.win);
 		expect(layout?.tabs.map(tab => tab.openedBy)).toEqual([undefined, "/sessions/boss.jsonl"]);
+		// What the devices paired to this computer hear of it (their list of its sessions nests the child).
+		expect([...before.pool.sessionOpeners()]).toEqual([["/sessions/child.jsonl", "/sessions/boss.jsonl"]]);
 
 		// The opener's tab closing does not forget it: the file is what finds it again.
 		before.pool.releaseTab("tab-boss");
 		expect(before.pool.tabLayoutForWindow(fw.win)?.tabs[0]?.openedBy).toBe("/sessions/boss.jsonl");
+		expect([...before.pool.sessionOpeners()]).toEqual([["/sessions/child.jsonl", "/sessions/boss.jsonl"]]);
 
 		if (!layout) throw new Error("expected a layout");
 		const after = fakePool();
@@ -1522,6 +1525,7 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		const [boss, child] = after.pool.tabsForWindow(restoredWindow.win);
 		expect(child?.openedBySession).toBe("/sessions/boss.jsonl");
 		expect(boss?.openedBySession).toBeUndefined();
+		expect([...after.pool.sessionOpeners()]).toEqual([["/sessions/child.jsonl", "/sessions/boss.jsonl"]]);
 		// Written out again, so a second relaunch still knows.
 		expect(after.pool.tabLayoutForWindow(restoredWindow.win)?.tabs[1]?.openedBy).toBe("/sessions/boss.jsonl");
 	});

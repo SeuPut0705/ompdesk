@@ -250,6 +250,11 @@ export interface HostServicesDeps {
 	runChargesFile?: string;
 	/** The sessions this computer's own windows work on now (`SidecarPool.liveSessions`), for `liveSessions`. */
 	windowLiveSessions?: () => HostLiveSession[];
+	/**
+	 * Who opened each of this computer's sessions, as far as it knows (child file → opener's file: its windows' tabs,
+	 * its records of children it closed), so a device's list nests them as this computer's own sidebar does.
+	 */
+	sessionOpeners?: () => ReadonlyMap<string, string>;
 	/** This computer's Mobile web address while it serves phones (`MobileWebState.url`), else null. */
 	mobileWebUrl?: () => string | null;
 	/** Where a device's attached files land (`host.files.upload`): the phones' upload folder, same limits and lifetime. */
@@ -938,7 +943,10 @@ export class LocalHostServices implements HostServices {
 				return null;
 			case "sessions.list": {
 				const { scope, cwd } = parse(SessionsListParams, method, params);
-				return this.#deps.sessionIndex.list(scope, cwd);
+				const rows = await this.#deps.sessionIndex.list(scope, cwd);
+				const openers = this.#deps.sessionOpeners?.() ?? new Map<string, string>();
+				// Every row says, even `null` for none: an older host's rows say nothing, and a device lists those as before.
+				return rows.map(row => ({ ...row, openedBySession: openers.get(row.path) ?? null }));
 			}
 			case "sessions.search": {
 				const { query, scope, cwd } = parse(SessionsSearchParams, method, params);

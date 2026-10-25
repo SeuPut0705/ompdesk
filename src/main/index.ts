@@ -41,7 +41,13 @@ import {
 import { USER_PROFILE_PREF } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { OMPDESK_ROLES_FILE } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import { ACCOUNT_ROTATION_LEDGER_FILE, ACCOUNT_ROTATION_PREF } from "../shared/account-rotation";
-import { AGENT_CONTROL_PREF, AGENT_HIDDEN_PREFS_KEY, agentHiddenPaths } from "../shared/agent-control";
+import {
+	AGENT_CLOSED_CHILDREN_PREF,
+	AGENT_CONTROL_PREF,
+	AGENT_HIDDEN_PREFS_KEY,
+	agentHiddenPaths,
+	parseClosedChildren,
+} from "../shared/agent-control";
 import {
 	AI_MEMORY_LEARN_PREF,
 	AI_MEMORY_PREF,
@@ -883,6 +889,16 @@ app.whenReady().then(() => {
 		machine,
 		localTabs: sidecarPool,
 		windowLiveSessions: () => sidecarPool.liveSessions(),
+		sessionOpeners: () => {
+			// A record of a child main closed, for one on this computer; a tab that holds the session again wins.
+			const openers = new Map(
+				parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF)).flatMap(row =>
+					row.device ? [] : [[row.path, row.openedBySession] as const],
+				),
+			);
+			for (const [child, opener] of sidecarPool.sessionOpeners()) openers.set(child, opener);
+			return openers;
+		},
 		mobileWebUrl: () => mobileWebService?.state().url ?? null,
 		trashItem: abs => shell.trashItem(abs),
 		// Autopilot runs paired devices started here, charged to them until they end (remote/hosted-autopilot.ts).
