@@ -12,12 +12,14 @@ interface Layout {
 	natural?: number;
 	widget?: number;
 	banner?: number;
+	/** A transform scale on the card and the dock's cards, as their entrance animations start (0.95, 0.995). */
+	scale?: number;
 }
 
 // A session pane as SplitWorkspace lays it out at 1000x800. linkedom has no layout: `data-h` is each element's
-// height, `data-sh` a scroller's content height, `data-grow`, `data-pos` and `data-mt`/`data-mb` its flex, position
-// and margins. The ask dock holds its children's margins (flow-root), so its height counts the card's and the
-// widgets' 8 px.
+// laid-out height, `data-sh` a scroller's content height, `data-scale` a transform that shrinks its box on screen
+// only, `data-grow`, `data-pos` and `data-mt`/`data-mb` its flex, position and margins. The ask dock holds its
+// children's margins (flow-root), so its height counts the card's and the widgets' 8 px.
 function pane({
 	pane = 752,
 	strip = false,
@@ -26,6 +28,7 @@ function pane({
 	natural = card,
 	widget = 0,
 	banner = 0,
+	scale = 1,
 }: Layout): string {
 	const ask = (card ? card + 8 : 0) + (widget ? widget + 8 : 0);
 	return `<section class="omp-session-pane" data-h="${pane}">
@@ -37,14 +40,14 @@ function pane({
 			${strip ? '<div class="omp-work-strip" data-h="40"></div>' : ""}
 			<div class="omp-composer-region" data-h="${dock ? 214 : 8}">
 				<div data-workspace-dock data-h="${dock ? 206 : 0}">
-					${dock ? '<div data-h="40"></div><div data-testid="workspace-dock" data-h="148"></div>' : ""}
+					${dock ? `<div data-h="40"></div><div data-testid="workspace-dock" data-h="148"><div data-h="148" data-scale="${scale}"></div></div>` : ""}
 				</div>
 			</div>
 		</div>
 		<div class="omp-composer-region" data-h="${112 + ask}">
 			<div class="omp-ask-dock" data-h="${ask}">
 				${widget ? `<div data-h="${widget}" data-mb="8"></div>` : ""}
-				${card ? `<section data-prompt-card data-h="${card}" data-mb="8"><div data-h="${card}" data-sh="${natural}"></div></section>` : ""}
+				${card ? `<section data-prompt-card data-h="${card}" data-mb="8" data-scale="${scale}"><div data-h="${card}" data-sh="${natural}"></div></section>` : ""}
 			</div>
 			<div class="omp-composer-box" data-h="92"></div>
 		</div>
@@ -59,6 +62,7 @@ const saved = {
 function room(layout: Layout) {
 	const { document, window } = parseHTML(`<!doctype html><html><body>${pane(layout)}</body></html>`);
 	const height = (element: Element) => Number(element.getAttribute("data-h") ?? 0);
+	const onScreen = (element: Element) => height(element) * Number(element.getAttribute("data-scale") ?? 1);
 	Object.assign(globalThis, {
 		HTMLElement: window.HTMLElement,
 		getComputedStyle: (element: Element) => ({
@@ -66,6 +70,7 @@ function room(layout: Layout) {
 			position: element.getAttribute("data-pos") ?? "static",
 			marginTop: `${element.getAttribute("data-mt") ?? 0}px`,
 			marginBottom: `${element.getAttribute("data-mb") ?? 0}px`,
+			height: `${height(element)}px`,
 		}),
 	});
 	for (const [name, attribute] of [
@@ -80,7 +85,8 @@ function room(layout: Layout) {
 		});
 	}
 	window.HTMLElement.prototype.getBoundingClientRect = function (this: Element) {
-		return { top: 0, bottom: height(this), left: 0, right: 0, width: 0, height: height(this), x: 0, y: 0 } as DOMRect;
+		const h = onScreen(this);
+		return { top: 0, bottom: h, left: 0, right: 0, width: 0, height: h, x: 0, y: 0 } as DOMRect;
 	};
 	return measurePromptRoom(document.querySelector(".omp-ask-dock") as unknown as HTMLElement);
 }
@@ -93,6 +99,14 @@ describe("measurePromptRoom: the 240 px transcript floor", () => {
 	it("keeps the floor under an 8-option card with nothing else above the composer", () => {
 		// 752 pane − 36 header − 8 empty dock region − 92 composer box − 20 below it − 8 card margin − 240 floor.
 		expect(room({ card: 440 })).toEqual({ card: 348, dock: 0 });
+	});
+
+	it("measures the laid-out boxes, not a card or dock card still scaled by its entrance", () => {
+		const settled = room({ strip: true, dock: true, card: 293, natural: 440 });
+		expect(room({ strip: true, dock: true, card: 293, natural: 440, scale: 0.95 })).toEqual(settled);
+		expect(room({ strip: true, dock: true, card: 185, scale: 0.995 })).toEqual(
+			room({ strip: true, dock: true, card: 185 }),
+		);
 	});
 
 	it("takes the work strip off the room", () => {
