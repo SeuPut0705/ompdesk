@@ -373,7 +373,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			? [{ key: "failed", tone: "danger", text: t("workBoard.head.failed", { count: counts.failed }) }]
 			: []),
 	];
-	const statusFallback = turnActive || autopilotRunning ? t("workBoard.step.working") : t("workBoard.head.idle");
+	// No clause to say: the same `working` the pulse reads, so a running child alone is "Working…", never "Idle".
+	const statusFallback = working > 0 ? t("workBoard.step.working") : t("workBoard.head.idle");
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })

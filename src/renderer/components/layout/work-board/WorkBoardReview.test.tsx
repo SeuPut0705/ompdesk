@@ -267,6 +267,12 @@ describe("work board opened sessions", () => {
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 	});
 
+	it("says Working, never Idle, while a child it opened runs and nothing else does", async () => {
+		await mount([child("c-run", { status: "running", task: "Run the suite" })]);
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("working");
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("Working…");
+	});
+
 	it("shows four running opened sessions as one-line rows named by their task, none under Needs review", async () => {
 		const tasks = ["Fix upload", "Port the parser", "Write docs", "Audit deps"];
 		// Main pushes each running child with the stored title still empty.
