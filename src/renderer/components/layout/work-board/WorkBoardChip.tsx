@@ -27,7 +27,7 @@ import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
-import { SummaryBoard } from "./board-parts";
+import { SummaryBoard, type ZoneOpen } from "./board-parts";
 import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
@@ -117,17 +117,25 @@ function useStripRoom(root: RefObject<HTMLDivElement | null>, open: boolean, sho
 export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; reveal?: number }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
-	// Each open draws a fresh board, so its zones start as summary lines even when it reopens while still leaving.
-	const [opens, setOpens] = useState(0);
-	const expand = useCallback(() => {
-		setOpen(true);
-		setOpens(count => count + 1);
+	// The zones opened or closed in this open of the panel: a fresh open, also one while the last still leaves, starts
+	// on the summary; a reveal ("show the run") opens the run's zone, also in a panel already open.
+	const [zones, setZones] = useState<ZoneOpen>({});
+	const setZone = useCallback((id: keyof ZoneOpen, value: boolean) => {
+		setZones(previous => ({ ...previous, [id]: value }));
 	}, []);
+	const expand = useCallback(
+		(revealed = false) => {
+			if (!open) setZones(revealed ? { autopilot: true } : {});
+			else if (revealed) setZone("autopilot", true);
+			setOpen(true);
+		},
+		[open, setZone],
+	);
 	const seenReveal = useRef(reveal);
 	useEffect(() => {
 		if (reveal === seenReveal.current) return;
 		seenReveal.current = reveal;
-		expand();
+		expand(true);
 	}, [reveal, expand]);
 	/** The panel stays mounted for its exit (height transition); never under reduced motion. */
 	const [leaving, setLeaving] = useState(false);
@@ -160,6 +168,12 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		ensureAgentReviewSubscription();
 		if (tabId) void useAgentReviewStore.getState().refresh(tabId);
 	}, [runtimeTabId, activeTabId]);
+	const hasOpened = opened.rows.length > 0;
+	// The board's rows of those sessions are a lazy chunk: loaded before the panel opens, so a tap on Now's line shows
+	// them with the zone instead of a frame after it.
+	useEffect(() => {
+		if (hasOpened) void import("./WorkBoardOpened").catch(() => {});
+	}, [hasOpened]);
 	const goal = useSessionStore(state => state.goal);
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -305,8 +319,10 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 						if (row && !row.hasAttribute("data-board-expands")) close();
 					}}
 				>
-					<div className="omp-work-strip-body" key={opens}>
-						<SummaryBoard>{children}</SummaryBoard>
+					<div className="omp-work-strip-body">
+						<SummaryBoard onChange={setZone} open={zones}>
+							{children}
+						</SummaryBoard>
 					</div>
 					<div aria-hidden className="omp-work-strip-grip" onTouchEnd={swipeEnd} onTouchStart={swipeStart} />
 				</div>

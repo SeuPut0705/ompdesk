@@ -101,30 +101,40 @@ export function KindMark({
 	return <Icon aria-hidden className="omp-work-board-kind" data-tone={tone} />;
 }
 
+/** The zones a person opened (true) or closed (false) since the strip's panel opened. */
+export type ZoneOpen = Partial<Record<WorkBoardSectionId, boolean>>;
+
 interface SummaryScope {
-	open: Partial<Record<WorkBoardSectionId, boolean>>;
+	open: ZoneOpen;
 	set: (id: WorkBoardSectionId, open: boolean) => void;
 }
 
 const SummaryContext = createContext<SummaryScope | null>(null);
 
 /**
- * The strip panel's board (WorkBoardChip): the zones the person opened or closed since the panel opened. A zone with a
- * summary line starts closed, every other zone open. Nothing here is stored, so the docked board's folds
- * (`workBoardCollapsed`) never change and every open of the panel starts the same.
+ * The strip panel's board (WorkBoardChip holds `open` for one open of the panel). A zone with a summary line starts
+ * closed; Needs you starts open; any other zone starts as the docked board's fold left it. The folds are only read
+ * here, so `workBoardCollapsed` never changes from the strip.
  */
-export function SummaryBoard({ children }: { children: ReactNode }) {
-	const [open, setOpen] = useState<SummaryScope["open"]>({});
-	const scope = useMemo<SummaryScope>(
-		() => ({ open, set: (id, value) => setOpen(previous => ({ ...previous, [id]: value })) }),
-		[open],
-	);
+export function SummaryBoard({
+	open,
+	onChange,
+	children,
+}: {
+	open: ZoneOpen;
+	onChange: (id: WorkBoardSectionId, open: boolean) => void;
+	children: ReactNode;
+}) {
+	const scope = useMemo<SummaryScope>(() => ({ open, set: onChange }), [open, onChange]);
 	return <SummaryContext.Provider value={scope}>{children}</SummaryContext.Provider>;
 }
 
-function scrollIntoStripBody(zone: HTMLElement | null): void {
-	const body = zone?.closest<HTMLElement>(".omp-work-strip-body");
-	if (!zone || !body) return;
+/** How long a zone just opened keeps itself in view while its rows still arrive (a lazy chunk's). */
+const FOLLOW_MS = 1000;
+
+function scrollIntoStripBody(zone: HTMLElement): void {
+	const body = zone.closest<HTMLElement>(".omp-work-strip-body");
+	if (!body) return;
 	const box = zone.getBoundingClientRect();
 	const view = body.getBoundingClientRect();
 	const by = Math.min(box.top - view.top, box.bottom - view.bottom);
@@ -165,7 +175,7 @@ export function BoardSection({
 	const headId = useId();
 	const scope = useContext(SummaryContext);
 	const stored = useWorkBoardStore(state => state.collapsed[id] === true);
-	const open = scope ? (scope.open[id] ?? summary === undefined) : !stored;
+	const open = scope ? (scope.open[id] ?? (summary === undefined && (id === "needs" || !stored))) : !stored;
 	const zone = useRef<HTMLElement>(null);
 	const opening = useRef(false);
 	const toggle = () => {
@@ -174,9 +184,18 @@ export function BoardSection({
 		scope.set(id, !open);
 	};
 	useLayoutEffect(() => {
-		if (!open || !opening.current) return;
+		const element = zone.current;
+		if (!open || !opening.current || !element) return;
 		opening.current = false;
-		scrollIntoStripBody(zone.current);
+		scrollIntoStripBody(element);
+		if (typeof ResizeObserver !== "function") return;
+		const grown = new ResizeObserver(() => scrollIntoStripBody(element));
+		grown.observe(element);
+		const stop = window.setTimeout(() => grown.disconnect(), FOLLOW_MS);
+		return () => {
+			grown.disconnect();
+			window.clearTimeout(stop);
+		};
 	}, [open]);
 	const folded = !open;
 	const line = scope && folded ? summary : undefined;
