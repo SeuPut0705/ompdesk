@@ -627,6 +627,14 @@ html[data-input="touch"] [data-goal-dock] {
 	--hit-gap-y: 12px;
 }
 
+/* On a phone the buttons are 24 px (`--sc-control-sm`), so 10 and 12 px of gap reached only 32 × 34: 14 px each way
+   reaches 36 × 36 and stays inside the 38 px bar (responsive smoke at 390, once the strip panel stopped covering it). */
+html[data-shell="phone"][data-input="touch"] [data-goal-dock] {
+	gap: 14px;
+	--hit-gap-x: 14px;
+	--hit-gap-y: 14px;
+}
+
 /* A run's Pause, End and Stop now, and a section head's own buttons (an Autopilot log's copy), are 24 px boxes behind a
    1 px border whose ::after reaches from the padding box: 14 px apart and bounded at 14 px, each reaches 36. A
    head's buttons sit 8 px in from its end, so their 7 px reach stays inside the board. */

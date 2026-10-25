@@ -290,6 +290,10 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] [data-goal-dock]')).toMatch(
 			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*12px/,
 		);
+		// On a phone its 24 px buttons reached 32 × 34 with those gaps; 14 px each way reaches 36 inside the 38 px bar.
+		expect(rule('html[data-shell="phone"][data-input="touch"] [data-goal-dock]')).toMatch(
+			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
+		);
 		// The Autopilot board: Pause, End and Stop now reach 36 from 14 px apart; a section head's copy and a row's own
 		// pin or ✕ reach the touch row, never past the board's edge (a docked board scrolled sideways by 2 px).
 		declares("../components/autopilot/AutopilotBoard.tsx", "data-autopilot-controls");
