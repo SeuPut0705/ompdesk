@@ -359,6 +359,61 @@ describe("StepGroups", () => {
 			expect(cards()).toEqual(["c9", "c10"]);
 			expect(rows()[0]).toBe(first);
 		});
+
+		it("keeps a grouped last row whole while the stage shows its last call, and leaves that call out when opened", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["a", bash("a")],
+						["b", bash("b", "running")],
+					]),
+				),
+			);
+			const messages = [
+				assistant([
+					call("a", "bash", { command: "a" }, "Reading the board"),
+					call("b", "bash", { command: "b" }, "Reading the board"),
+				]),
+			];
+			act(() => stage.setState({ key: "b" }));
+			await show(messages, true);
+			const group = groups()[0];
+			expect(group?.querySelector("button")?.textContent).toContain("2 steps");
+			await act(async () =>
+				group?.querySelector("button")?.dispatchEvent(new Event("click", { bubbles: true }) as never),
+			);
+			expect(cards()).toEqual(["a"]);
+			act(() => stage.setState({ key: null }));
+			await show(messages, true);
+			expect(groups()[0]).toBe(group);
+			expect(cards()).toEqual(["a", "b"]);
+		});
+
+		it("leaves the stage's read out of an opened read group at the end, and lists it once it ends", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["r1", entry("read", { path: "a.ts" })],
+						["r2", entry("read", { path: "b.ts" }, "running")],
+					]),
+				),
+			);
+			const messages = [
+				assistant([
+					call("r1", "read", { path: "a.ts", __ompReadGroup: { path: "a.ts" } }),
+					call("r2", "read", { path: "b.ts", __ompReadGroup: { path: "b.ts" } }),
+				]),
+			];
+			act(() => stage.setState({ key: "r2" }));
+			await show(messages, true);
+			const readGroup = container.querySelector(".omp-read-group");
+			expect(readGroup?.textContent).toContain("a.ts");
+			expect(readGroup?.textContent).not.toContain("b.ts");
+			act(() => stage.setState({ key: null }));
+			await show(messages, true);
+			expect(container.querySelector(".omp-read-group")).toBe(readGroup);
+			expect(readGroup?.textContent).toContain("b.ts");
+		});
 	});
 });
 

@@ -76,8 +76,19 @@ function useStepThoughts(messages: readonly AgentMessage[] | undefined): StepTho
 	};
 }
 
-/** One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. */
-function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boolean }) {
+/**
+ * One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. `hidden`
+ * is the call the live stage shows running: a read group leaves it out until it ends.
+ */
+function StepItemView({
+	item,
+	inGroup = false,
+	hidden = null,
+}: {
+	item: StepItem;
+	inGroup?: boolean;
+	hidden?: string | null;
+}) {
 	const thoughts = useStepThoughts(item.kind === "message" ? undefined : item.thoughts);
 	switch (item.kind) {
 		case "message":
@@ -97,7 +108,7 @@ function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boo
 				</StepFrame>
 			);
 		case "reads":
-			return <ReadsRow inGroup={inGroup} item={item} thoughts={thoughts} />;
+			return <ReadsRow hidden={hidden} inGroup={inGroup} item={item} thoughts={thoughts} />;
 	}
 }
 
@@ -126,16 +137,19 @@ function ReadsRow({
 	item,
 	inGroup,
 	thoughts,
+	hidden,
 }: {
 	item: Extract<StepItem, { kind: "reads" }>;
 	inGroup: boolean;
 	thoughts: StepThoughts | undefined;
+	hidden: string | null;
 }) {
 	const keys = useMemo(() => item.entries.map(entry => entry.toolKey), [item.entries]);
 	const opens = useOpensItself(keys, useStepOutcomes(keys));
+	const entries = useMemo(() => item.entries.filter(entry => entry.toolKey !== hidden), [item.entries, hidden]);
 	return (
 		<ReadGroupCard
-			entries={item.entries}
+			entries={entries}
 			forceOpen={opens}
 			inset
 			intent={item.intent}
@@ -151,7 +165,7 @@ function ReadsRow({
  * Calls of one intent under one line. A group holding a failed step opens by itself (and again when a
  * finding asks for one of its steps); the rest stay one line, whose count and mark say what is inside.
  */
-function IntentGroup({ group }: { group: StepGroup }) {
+function IntentGroup({ group, hidden = null }: { group: StepGroup; hidden?: string | null }) {
 	const t = useT();
 	const outcomes = useStepOutcomes(group.callKeys);
 	const failed = outcomes.includes("failed");
@@ -207,9 +221,9 @@ function IntentGroup({ group }: { group: StepGroup }) {
 			{open ? (
 				<div className="omp-step-group-body">
 					{thoughts ? <StepFrame>{thoughts.body}</StepFrame> : null}
-					{group.items.map(item => (
-						<StepItemView inGroup item={item} key={item.key} />
-					))}
+					{group.items.map(item =>
+						item.key === hidden ? null : <StepItemView hidden={hidden} inGroup item={item} key={item.key} />,
+					)}
 				</div>
 			) : null}
 		</div>
@@ -256,10 +270,15 @@ export function StepGroups({
 	const stageCall = useStageCall();
 	const last = rows.at(-1);
 	const listed = last?.kind === "call" && last.key === stageCall ? rows.slice(0, -1) : rows;
+	// A grouped last row keeps its line and count; opened, it leaves the stage's call out.
+	const tail = listed === rows ? last?.key : undefined;
 	const mounted = useMountedCount(listed.length);
-	return listed
-		.slice(0, mounted)
-		.map(row =>
-			row.kind === "intent" ? <IntentGroup group={row} key={row.key} /> : <StepItemView item={row} key={row.key} />,
+	return listed.slice(0, mounted).map(row => {
+		const hidden = row.key === tail ? stageCall : null;
+		return row.kind === "intent" ? (
+			<IntentGroup group={row} hidden={hidden} key={row.key} />
+		) : (
+			<StepItemView hidden={hidden} item={row} key={row.key} />
 		);
+	});
 }
