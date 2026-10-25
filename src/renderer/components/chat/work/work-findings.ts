@@ -46,35 +46,44 @@ export function deriveFindings({ running, checks, failures, commands, failedStep
 }
 
 /**
- * The card's main-agent calls other than commands (those come from the ledger, `commandOperation`), as the verdict
- * reads them. Reads, searches and `wait` neither fail nor fix anything; a running, interrupted or skipped call has
- * no outcome.
+ * The card's main-agent calls other than commands (those come from the ledger, `commandOperation`) that can decide its
+ * verdict: each settled failed call that is no read, search or `wait`, and the later calls of the same tool, the only
+ * ones that can fix it. A card without such a failure has none, and costs nothing past the scan.
  */
 export function stepOperations(
 	entries: readonly (readonly [string, ToolEntry])[],
 	stoppedAt?: number,
 ): (OperationCall & { toolCallId: string })[] {
-	return entries.flatMap(([toolCallId, entry]) => {
-		if (entry.toolName === "bash") return [];
-		// An edit is never a read: its activity would also count its files.
-		const activity = TURN_EDIT_TOOLS.includes(entry.toolName)
-			? "edit"
-			: getToolActivity(entry.toolName, entry.args).activity;
-		const settled =
-			entry.status !== "aborted" &&
-			entry.status !== "pending" &&
-			entry.status !== "running" &&
-			!isInterruptedError(entry, stoppedAt);
+	const settled = (entry: ToolEntry) =>
+		entry.status !== "aborted" &&
+		entry.status !== "pending" &&
+		entry.status !== "running" &&
+		!isInterruptedError(entry, stoppedAt);
+	const failure = (entry: ToolEntry) =>
+		entry.toolName !== "bash" &&
+		(entry.status === "error" || entry.isError) &&
+		settled(entry) &&
+		entry.toolName !== "wait" &&
+		(TURN_EDIT_TOOLS.includes(entry.toolName) ||
+			!["read", "search"].includes(getToolActivity(entry.toolName, entry.args).activity));
+	const first = entries.findIndex(([, entry]) => failure(entry));
+	if (first < 0) return [];
+	// Every edit tool fixes a file the same way (`callKeys`): they are one tool here.
+	const family = (entry: ToolEntry) =>
+		TURN_EDIT_TOOLS.includes(entry.toolName) && !xdevWriteTarget(entry.args) ? "edit" : entry.toolName;
+	const tools = new Set(entries.slice(first).flatMap(([, entry]) => (failure(entry) ? [family(entry)] : [])));
+	return entries.slice(first).flatMap(([toolCallId, entry]) => {
+		if (!tools.has(family(entry)) || !settled(entry)) return [];
 		const failed = entry.status === "error" || entry.isError;
+		if (failed && !failure(entry)) return [];
 		return [
 			{
 				toolCallId,
 				toolName: entry.toolName,
 				args: entry.args,
-				inert: activity === "read" || activity === "search" || entry.toolName === "wait",
 				startTime: entry.startTime,
 				...(entry.endTime !== null ? { endTime: entry.endTime } : {}),
-				...(settled ? { outcome: failed ? ("failed" as const) : ("passed" as const) } : {}),
+				outcome: failed ? ("failed" as const) : ("passed" as const),
 			},
 		];
 	});

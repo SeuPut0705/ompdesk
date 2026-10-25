@@ -149,6 +149,7 @@ export function summarizeChecks(
 		return kind ? [{ command, kind, failed: commandFailed(command) }] : [];
 	});
 	let standing = unresolved;
+	if (!standing && !calls.some(entry => entry.failed)) standing = new Set();
 	if (!standing) {
 		const ops = calls.map(({ command }) => commandOperation(command));
 		const left = new Set(unresolvedFailures(ops, cwd));
@@ -279,18 +280,9 @@ export function commandOperation<T extends CheckInput>(command: T): T & Operatio
 // exit may be the one seen; a redirection's `&` (`2>&1`, `>&2`, `&>`) does not.
 const PROBE = /^(?:command\s+-[vV]|which|type|test|\[|grep|rg)\s/;
 const CONTROL = /[;|\n()`]|(?<![<>])&(?!>)/;
-// Whitespace-collapsed command text by its raw text: a card's commands are settled again on every tool event.
-const normalized = new Map<string, string>();
-
-function commandText(command: string): string {
-	let text = normalized.get(command);
-	if (text === undefined) {
-		if (normalized.size >= 16_384) normalized.clear();
-		text = command.trim().replace(/\s+/g, " ");
-		normalized.set(command, text);
-	}
-	return text;
-}
+// A command's key by its folder, the session's folder and its raw text: a card's commands are settled again on every
+// tool event.
+const commandKeys = new Map<string, string>();
 
 function isProbe(call: OperationCall): boolean {
 	if (call.exitCode !== 1 || call.toolName !== "bash" || typeof call.args.command !== "string") return false;
@@ -321,20 +313,35 @@ function canonical(value: unknown): unknown {
 export function callKeys(call: OperationCall, cwd = ""): readonly string[] {
 	const { command, cwd: folder } = call.args;
 	if (call.toolName === "bash" && typeof command === "string") {
-		let dir = workFilePathKey(typeof folder === "string" && folder ? folder : cwd, cwd);
-		let text = commandText(command);
-		const cd = LEADING_CD.exec(text);
-		if (cd?.[1] && cd[2]) {
-			dir = workFilePathKey(cd[1].replace(/^(["'])(.*)\1$/, "$2"), dir);
-			text = cd[2];
+		const base = typeof folder === "string" && folder ? folder : cwd;
+		const memo = `${base}\0${cwd}\0${command}`;
+		let key = commandKeys.get(memo);
+		if (key === undefined) {
+			if (commandKeys.size >= 16_384) commandKeys.clear();
+			let dir = workFilePathKey(base, cwd);
+			let text = command.trim().replace(/\s+/g, " ");
+			const cd = LEADING_CD.exec(text);
+			if (cd?.[1] && cd[2]) {
+				dir = workFilePathKey(cd[1].replace(/^(["'])(.*)\1$/, "$2"), dir);
+				text = cd[2];
+			}
+			key = `bash\0${dir}\0${text}`;
+			commandKeys.set(memo, key);
 		}
-		return [`bash\0${dir}\0${text}`];
+		return [key];
 	}
-	if (TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args)) {
-		return [...new Set(editArgumentPaths(call.args).map(path => `edit\0${workFilePathKey(path, cwd)}`))];
-	}
-	return [`${call.toolName}\0${JSON.stringify(canonical(call.args))}`];
+	// Stock's arguments object of a call never changes once the call is made: its keys are read once per folder.
+	const cached = argumentKeys.get(call.args);
+	if (cached?.cwd === cwd && cached.toolName === call.toolName) return cached.keys;
+	const keys =
+		TURN_EDIT_TOOLS.includes(call.toolName) && !xdevWriteTarget(call.args)
+			? [...new Set(editArgumentPaths(call.args).map(path => `edit\0${workFilePathKey(path, cwd)}`))]
+			: [`${call.toolName}\0${JSON.stringify(canonical(call.args))}`];
+	argumentKeys.set(call.args, { cwd, toolName: call.toolName, keys });
+	return keys;
 }
+
+const argumentKeys = new WeakMap<object, { cwd: string; toolName: string; keys: readonly string[] }>();
 
 /**
  * The failed calls, in order, split by whether a successful call of the same call (`callKeys`; an edit, of every file

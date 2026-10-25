@@ -268,8 +268,8 @@ function useUnlanded(): UnlandedSummary | null {
 }
 
 /**
- * The calls of the newest turn: the running one, else the last that ended, else (a reloaded tab) everything since the
- * last prompt.
+ * The finished calls of the newest turn (the running one, else the last that ended, else, in a reloaded tab, everything
+ * since the last prompt): a card's verdict needs its calls settled, and a stream that finishes no call reads nothing.
  */
 function useNewestTurnCalls(): readonly string[] {
 	const { tools } = useRunStores();
@@ -279,14 +279,13 @@ function useNewestTurnCalls(): readonly string[] {
 		return typeof at === "number" ? at : null;
 	});
 	const finishedVersion = useToolsStore(state => state.finishedVersion);
-	const live = useToolsStore(state => state.liveTools);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
 	return useMemo(() => {
 		const from = (start ?? prompted ?? 0) - TURN_CLOCK_SLACK_MS;
-		return [...tools.getState().finishedTools, ...live]
-			.filter(([, entry]) => entry.startTime >= from)
-			.map(([key]) => key);
-	}, [start, prompted, tools, live, finishedVersion]);
+		const keys: string[] = [];
+		for (const [key, entry] of tools.getState().finishedTools) if (entry.startTime >= from) keys.push(key);
+		return keys;
+	}, [start, prompted, tools, finishedVersion]);
 }
 
 /**

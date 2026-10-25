@@ -167,19 +167,21 @@ export function ExecutionGroup({
 	});
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `encoded` holds every status of the entries read here.
 	const { checks, failedCommands, failedSteps, clearedFailures, recovered } = useMemo(() => {
-		const commands = outcome.commands.map(commandOperation);
+		// Commands are keyed only on a card where one failed: most cards have none.
+		const commands = outcome.commands.some(command => command.failed || (command.exitCode ?? 0) !== 0)
+			? outcome.commands.map(commandOperation)
+			: [];
 		const steps = stepOperations(groupEntries, stoppedAt);
 		const fromCommands = settleFailures(commands, cwd);
 		const fromSteps = settleFailures(steps, cwd);
-		const standing = new Set<object>([...fromCommands.unresolved, ...fromSteps.unresolved]);
-		const cleared = new Set(
-			[...commands, ...steps].flatMap(call =>
-				call.outcome === "failed" && !standing.has(call) && call.toolCallId ? [call.toolCallId] : [],
-			),
-		);
+		// The head counts a failed call only while the verdict does: a fixed one, a probe, a read or a wait no longer.
+		// A command the ledger has no row for stays counted.
+		const standing = new Set([...fromCommands.unresolved, ...fromSteps.unresolved].map(call => call.toolCallId));
+		const ledgered = new Set(outcome.commands.map(command => command.toolCallId));
 		const clearedFailures = groupEntries.filter(
 			([id, entry]) =>
-				cleared.has(id) &&
+				!standing.has(id) &&
+				(entry.toolName !== "bash" || ledgered.has(id)) &&
 				entry.status !== "aborted" &&
 				(entry.status === "error" || entry.isError) &&
 				!isInterruptedError(entry, stoppedAt),
@@ -192,7 +194,7 @@ export function ExecutionGroup({
 			),
 		];
 		return {
-			checks: summarizeChecks(commands, cwd, new Set(fromCommands.unresolved)),
+			checks: summarizeChecks(commands.length ? commands : outcome.commands, cwd, new Set(fromCommands.unresolved)),
 			failedCommands: fromCommands.unresolved,
 			failedSteps: fromSteps.unresolved,
 			clearedFailures,
