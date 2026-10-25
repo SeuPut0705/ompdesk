@@ -151,6 +151,20 @@ async function renderRow(
 
 const words = (text: string) => text.replace(/\s+/g, " ").trim();
 
+/** Text a sighted reader sees: screen-reader-only words left out. */
+const visible = (node: Element | null): string =>
+	node
+		? [...node.childNodes]
+				.map(child =>
+					child.nodeType === 3
+						? (child.textContent ?? "")
+						: (child as Element).classList.contains("sr-only")
+							? ""
+							: visible(child as Element),
+				)
+				.join("")
+		: "";
+
 describe("ToolCard rows by intent", () => {
 	it.each([
 		["bash", { command: "bun run check:types" }, "Checking the types", "bun run check:types", "Run command"],
@@ -161,23 +175,33 @@ describe("ToolCard rows by intent", () => {
 			{ language: "py", title: "Montage", code: "print(1)" },
 			"Montaging captures side by side",
 			"Montage",
-			"Run",
+			"Run Python",
 		],
 	])(
-		"leads a %s row with its intent, the target after it, the tool label gone",
+		"leads a %s row with its intent, the target after it; a screen reader hears its kind first and its state last",
 		async (name, args, intent, target, label) => {
 			const { root, row } = await renderRow(finished("c", name, args, intent), name, args);
-			const text = words(row.textContent ?? "");
+			const text = words(visible(row));
 			expect(text.startsWith(intent)).toBe(true);
 			expect(text.indexOf(target)).toBeGreaterThan(intent.length - 1);
 			expect(text.slice(intent.length)).not.toContain(label);
 			const spoken = words(accessibleName(row));
-			expect(spoken).toContain(intent);
-			expect(spoken).toContain(target);
-			expect(spoken).toContain("Done");
+			expect(spoken.startsWith(`${label}, ${intent}`)).toBe(true);
+			expect(spoken.indexOf("Done")).toBeGreaterThan(spoken.indexOf(target));
 			await act(async () => root.unmount());
 		},
 	);
+
+	it.each([
+		["task", { i: "Reviewing the diff", agent: "reviewer", tasks: [] }, "Subagent"],
+		["wait", { i: "Waiting for the build" }, "Wait"],
+	])("keeps the kind of a %s row whose target only restates its intent", async (name, args, label) => {
+		const { root, row } = await renderRow(finished("c", name, args), name, args);
+		const spoken = words(accessibleName(row));
+		expect(spoken).toContain(label);
+		expect(spoken).toContain(args.i);
+		await act(async () => root.unmount());
+	});
 
 	it("says an intent once when its target only restates it, whole or cut short", async () => {
 		const long = `Reviewing the diff ${"and every file it touches ".repeat(8)}`.trim();
@@ -188,8 +212,8 @@ describe("ToolCard rows by intent", () => {
 		] as const) {
 			useToolsStore.getState().reset();
 			const { root, row } = await renderRow(finished("c", name, args), name, args);
-			expect(words(row.textContent ?? "").split("Reviewing the diff").length).toBeLessThanOrEqual(2);
-			expect(words(row.textContent ?? "").split("Waiting for the build").length).toBeLessThanOrEqual(2);
+			expect(words(visible(row)).split("Reviewing the diff").length).toBeLessThanOrEqual(2);
+			expect(words(visible(row)).split("Waiting for the build").length).toBeLessThanOrEqual(2);
 			await act(async () => root.unmount());
 		}
 	});
@@ -200,7 +224,7 @@ describe("ToolCard rows by intent", () => {
 			"mcp__github_search_issues",
 			{},
 		);
-		const text = words(row.textContent ?? "");
+		const text = words(visible(row));
 		expect(text.startsWith("Finding the bug report")).toBe(true);
 		expect(text).toContain("github · search_issues");
 		await act(async () => root.unmount());
@@ -215,7 +239,7 @@ describe("ToolCard rows by intent", () => {
 		] as const) {
 			useToolsStore.getState().reset();
 			const { root, row } = await renderRow(finished("c", "bash", args, intent), "bash", args, props);
-			const text = words(row.textContent ?? "");
+			const text = words(visible(row));
 			expect(text.startsWith("Run command")).toBe(true);
 			expect(text).toContain("ls -la");
 			expect(text).not.toContain("Listing files");
@@ -227,7 +251,14 @@ describe("ToolCard rows by intent", () => {
 describe("ToolCard opened bodies", () => {
 	/** What the row's target measures: the width it has and the width its text needs. */
 	const layout = { client: 200, scroll: 120 };
-	const resized: Array<() => void> = [];
+	/** Every ResizeObserver made, with what it watches; `resize()` delivers a resize to each. */
+	const observers: Array<{ callback: (entries: Array<{ target: Element }>) => void; targets: Set<Element> }> = [];
+	const resize = () =>
+		act(async () => {
+			for (const { callback, targets } of observers) {
+				if (targets.size > 0) callback([...targets].map(target => ({ target })));
+			}
+		});
 	const proto = HTMLElement.prototype as object;
 	beforeAll(() => {
 		for (const [key, field] of [
@@ -242,11 +273,20 @@ describe("ToolCard opened bodies", () => {
 			});
 		}
 		globals.ResizeObserver = class {
-			constructor(callback: () => void) {
-				resized.push(callback);
+			#watch: (typeof observers)[number];
+			constructor(callback: (typeof observers)[number]["callback"]) {
+				this.#watch = { callback, targets: new Set() };
+				observers.push(this.#watch);
 			}
-			observe() {}
-			disconnect() {}
+			observe(target: Element) {
+				this.#watch.targets.add(target);
+			}
+			unobserve(target: Element) {
+				this.#watch.targets.delete(target);
+			}
+			disconnect() {
+				this.#watch.targets.clear();
+			}
 		};
 	});
 	afterAll(() => {
@@ -256,22 +296,8 @@ describe("ToolCard opened bodies", () => {
 	});
 	afterEach(() => {
 		Object.assign(layout, { client: 200, scroll: 120 });
-		resized.length = 0;
 	});
 
-	/** Text a sighted reader sees: screen-reader-only words left out. */
-	const visible = (node: Element | null): string =>
-		node
-			? [...node.childNodes]
-					.map(child =>
-						child.nodeType === 3
-							? (child.textContent ?? "")
-							: (child as Element).classList.contains("sr-only")
-								? ""
-								: visible(child as Element),
-					)
-					.join("")
-			: "";
 	const count = (text: string, part: string) => text.split(part).length - 1;
 	const open = async (row: HTMLElement) =>
 		act(async () => row.dispatchEvent(new Event("click", { bubbles: true }) as never));
@@ -315,14 +341,10 @@ describe("ToolCard opened bodies", () => {
 		expect(body()?.querySelector(".omp-tool-open-file")).toBeNull();
 		// The row widens: the body stops repeating the path; it narrows again: the path comes back.
 		Object.assign(layout, { client: 200, scroll: 120 });
-		await act(async () => {
-			for (const callback of resized) callback();
-		});
+		await resize();
 		expect(body()?.querySelector(".omp-tool-open-file")).not.toBeNull();
 		Object.assign(layout, { client: 80, scroll: 120 });
-		await act(async () => {
-			for (const callback of resized) callback();
-		});
+		await resize();
 		expect(visible(body())).toContain("main.ts");
 		expect(body()?.querySelector(".omp-tool-open-file")).toBeNull();
 		await act(async () => root.unmount());
@@ -335,6 +357,25 @@ describe("ToolCard opened bodies", () => {
 		const card = row.parentElement as HTMLElement;
 		expect(card.querySelector(".omp-tool-open-file")).toBeNull();
 		expect(count(visible(card), "example.com")).toBe(1);
+		await act(async () => root.unmount());
+	});
+
+	it("draws no sliver of a target the row squeezes to a few pixels, and draws it again when there is room", async () => {
+		const args = { command: "grep -rn needle src" };
+		const { root, row } = await renderRow(finished("c", "bash", args, "Finding the needle"), "bash", args);
+		const target = () => row.querySelector(".omp-tool-summary");
+		Object.assign(layout, { client: 8, scroll: 150 });
+		await resize();
+		expect(target()?.hasAttribute("data-sliver")).toBe(true);
+		// Still read aloud: only drawing stops.
+		expect(words(accessibleName(row))).toContain("grep -rn needle src");
+		Object.assign(layout, { client: 200, scroll: 150 });
+		await resize();
+		expect(target()?.hasAttribute("data-sliver")).toBe(false);
+		// A short target that fits whole in little room is no sliver.
+		Object.assign(layout, { client: 16, scroll: 16 });
+		await resize();
+		expect(target()?.hasAttribute("data-sliver")).toBe(false);
 		await act(async () => root.unmount());
 	});
 });
