@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.73.1] - 2026-10-25
+
+작업 현황 맨 위 문장이 하위 세션만 실행 중일 때도 "작업 중…"이라고 말해요.
+
+### 고친 것
+- 직접 연 하위 세션만 실행 중이고 다른 일이 없을 때, 표시등은 작업 중인데 문장은 "대기 중"이라고 잘못 나왔어요. 이제 문장도 표시등과 같은 값을 읽어 "작업 중…"이라고 보여 줘요.
+
+<!-- en -->
+
+The work board's head now reads "Working…" while only a child session runs.
+
+### Fixed
+- With only a child session it opened running and nothing else, the pulse showed work while the sentence said "Idle". The sentence now reads the same count as the pulse.
+
 ## [0.73.0] - 2026-10-25
 
 작업 상자와 작업 현황을 새로 디자인해서, 무슨 일이 일어났고 지금 무엇이 진행 중인지 한눈에 읽혀요.
