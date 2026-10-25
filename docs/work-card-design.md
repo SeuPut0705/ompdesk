@@ -206,11 +206,15 @@ The rule: a failed call stops counting once a **later successful call is the sam
 
 | Call | The same call |
 | --- | --- |
-| Command | the same text (whitespace collapsed) in the same folder (stock bash `cwd`, else the session's) |
+| Command | the same text (whitespace collapsed) in the same folder (stock bash `cwd`, else the session's; a leading `cd <dir> &&` is the folder, as stock runs it) |
 | Edit tool | a successful edit of every file the failed one touched |
 | Any other tool, an `xd://` write included | the same tool with the same arguments (the model's `i`/`intent` aside) |
 | A whole `command -v X`, `which X`, `type X`, `test …`, `[ … ]`, `grep …` or `rg …` with exit 1 and no `&&`, `||`, `;`, `|`, background `&`, newline, subshell or substitution | no failure: its exit 1 is the answer |
 | Read, search, `wait` | neither fails nor fixes |
+
+The success must start after the failure ended. The main agent's success resolves anyone's failure (it runs in the
+real tree); a subagent's only its own (an isolated task runs in its own checkout). A failure the transcript reports
+on its own (a backgrounded job, `failedEvents`) is never resolved, so the head and the verdict block agree.
 
 Inferring "the same operation" from shell text was tried first and dropped: two audits found it resolving real
 failures in every direction (a dry run fixing a publish, `test:platform` fixing `test:e2e`, `check | tail` fixing
