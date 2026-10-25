@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.72.2] - 2026-10-25
+
+세션마다 보내는 도구 안내를 줄였고, 휴대폰 작업 보드의 진행 막대가 전체 너비로 보여요.
+
+### 바뀐 것
+- OMPdesk 제어 도구와 메모리 도구의 목록 요약을 짧게 바꿨어요. 전체 설명, 입력 형식과 안전 지침은 그대로예요. 메모리 도구는 중간 호출 도구를 거치지 않고 모두 직접 쓸 수 있어요.
+- REA는 자주 시작점이 되는 도구 두 개와 검색·호출 도구만 상시 목록에 보여 줘요. 나머지도 필요할 때 찾아 호출할 수 있고, 이름으로 조회하면 전체 설명과 입력·출력 형식, 메타데이터를 받아요. 서버의 안전 지침은 항상 유지해요.
+
+### 고친 것
+- 휴대폰에서 작업 보드를 펼치면 할 일 진행 막대가 24px로 뭉쳐 보이던 것을 고쳤어요. 이제 헤더 전체 너비를 써서 완료·진행·대기 구간을 구분할 수 있어요.
+
+<!-- en -->
+
+Sessions carry shorter tool listings, and the phone work board's progress bar now spans its full width.
+
+### Changed
+- OMPdesk control tools and memory tools have shorter listing summaries. Full descriptions, input schemas and safety instructions remain intact. Every memory tool stays directly callable without an intermediate dispatch tool.
+- REA's standing list contains two starting tools plus discovery and invocation tools. All other tools remain available on demand. A lookup by name returns the full description, input and output schemas, and metadata. The server's safety instructions stay enabled.
+
+### Fixed
+- Expanding the work board on a phone could squeeze the task progress bar into 24px. It now uses the full header width, keeping completed, active and pending segments distinct.
+
 ## [0.72.1] - 2026-10-25
 
 모든 세션의 첫 요청이 약 5천 토큰 가벼워졌고, 다른 에이전트가 연 세션은 일을 마친 뒤 보고하느라 모델을 두 번 더 부르지 않아요.
