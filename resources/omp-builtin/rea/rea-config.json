@@ -1,20 +1,4 @@
 {
 	"version": "6.7.0",
-	"curatedTools": [
-		"analyze_javascript_application",
-		"trace_application_feature",
-		"inspect_analysis_view",
-		"list_electron_targets",
-		"list_browser_targets",
-		"inspect_web_page",
-		"analyze_web_bundle",
-		"open_binary",
-		"binary_session",
-		"analyze_function",
-		"close_binary",
-		"inspect_managed_artifact",
-		"inspect_android_package",
-		"inspect_artifact",
-		"capture_process_scenario"
-	]
+	"curatedTools": ["analyze_javascript_application", "open_binary"]
 }

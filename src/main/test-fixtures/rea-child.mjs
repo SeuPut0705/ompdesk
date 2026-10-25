@@ -2,7 +2,10 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import config from "../../../resources/omp-builtin/rea/rea-config.json" with { type: "json" };
 
-let tools = [...config.curatedTools, ...Array.from({ length: 15 }, (_, i) => `extra_${i}`)].map(name => ({
+let tools = [
+	...config.curatedTools,
+	...Array.from({ length: 30 - config.curatedTools.length }, (_, i) => `extra_${i}`),
+].map(name => ({
 	name,
 	description: name === "extra_0" ? "JavaScript optional detail\nMore documentation" : `${name} analysis entry`,
 	inputSchema: { type: "object", properties: { marker: { type: "string" } }, additionalProperties: false },

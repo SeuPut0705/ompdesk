@@ -83,7 +83,7 @@ afterEach(async () => {
 });
 
 describe("REA relay", () => {
-	it("exposes 15 unchanged curated schemas plus two meta tools from a paginated 30-tool child", async () => {
+	it("exposes only the curated entry schemas plus two meta tools from a paginated 30-tool child", async () => {
 		const fixture = relay();
 		await initialize(fixture);
 		const listed = Tools.parse((await fixture.request("tools/list")).result).tools;
@@ -101,6 +101,28 @@ describe("REA relay", () => {
 			name: config.curatedTools[0],
 			arguments: { marker: "direct" },
 		});
+	});
+	it("keeps every catalog tool callable through rea_call and refuses a direct call to an unmounted one", async () => {
+		const fixture = relay();
+		await initialize(fixture);
+		const all = await fixture.request("tools/call", { name: "rea_catalog", arguments: {} });
+		const names = Tools.parse(JSON.parse(Content.parse(all.result).content[0].text)).tools.map(tool => tool.name);
+		expect(names).toHaveLength(30);
+		expect(names).toEqual(expect.arrayContaining(config.curatedTools));
+		for (const name of names) {
+			const called = await fixture.request("tools/call", {
+				name: "rea_call",
+				arguments: { name, arguments: { marker: name } },
+			});
+			expect(JSON.parse(Content.parse(called.result).content[0].text)).toEqual({
+				name,
+				arguments: { marker: name },
+			});
+		}
+		const unmounted = names.find(name => !config.curatedTools.includes(name)) ?? "";
+		const direct = await fixture.request("tools/call", { name: unmounted, arguments: {} });
+		expect(direct.error?.code).toBe(-32602);
+		expect(direct.error?.message).toContain("use rea_call");
 	});
 	it("searches the full catalog and supplies only a requested schema", async () => {
 		const fixture = relay();
