@@ -76,6 +76,12 @@ Code: `lib/messages.ts` (`abortActiveTurn`, `stopFromEscape`, `restoreAbortedQue
 - Idle chrome budget: `e2e/responsive-smoke.e2e.ts` `CHROME_SHARE_MAX` 19.4 % (measured 18.4 % at 390x844, plus one; the user chose the open composer over a lower share).
 - First-paint shell follows the phone composer: `COMPOSER_BOX_PX.phone` 77 px (`src/shared/boot-shell-geometry.ts`) and `--omp-scrollbar-size: 0` under `(pointer: coarse)` in `scripts/boot-shell.ts`; regenerate `web.html` with `bun run gen:icons`; `e2e/no-loading.e2e.ts` compares the boot box with the React box within 2 px.
 
+### Transcript floor
+
+- **A waiting card and the workspace dock leave the transcript 240 px** (`TRANSCRIPT_FLOOR_PX`, `dialogs/ask-dock.tsx` `measurePromptRoom`). The room above the composer box is the pane minus its fixed rows (header, banners), the transcript column's in-flow fixed rows (the work strip; the board's slot is out of flow), the composer box as currently sized, the dock's own rows (goal bar, island) and the floor. The card takes it first (`--omp-prompt-room` on the ask dock; `.omp-prompt-card` keeps `min(55vh, 38rem, max(9rem, …))`, so it never drops under 9rem), the dock's scrolling cards (plan mode, todos) take what the card leaves (`--omp-dock-room` on the pane, set only while a `[data-prompt-card]` is mounted; `WorkspaceDock` caps its scroller at `min(cap, var(--omp-dock-room, 100dvh))`), down to nothing. The composer box never shrinks or scrolls for it: only the 2-line draft rule above applies.
+- A plan under review lets its text box give way first, down to 7.5rem, so its first choice stays in view (`components.css`, `[data-plan-content]`).
+- Measured on the dev harness (`?board=busy&family=1&todos=mixed`, plan mode plus an 8-option question, phones with touch; transcript px before → after): 1600x1000 183 → 241, 1000x800 0 → 241 (4 of 8 options in view, the rest one scroll or a digit away), 390x844 70 → 240, 360x740 0 → 240; the composer box keeps its 92/78 px. A 2-option question is unchanged (589, 349, 460, 356). A landscape phone (844x390) cannot hold both: the card keeps 9rem (one option) and the transcript 34 px, a known limit. Pinned by `ask-dock.test.ts`.
+
 ### Run sheet (one line per row)
 
 User's rule, from phone screenshots (descriptions under every row, a full-width select with a caption, loose paragraphs, 2-line radio rows). The desktop/tablet popover is the same content at `w-96`.

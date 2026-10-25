@@ -548,13 +548,29 @@
 	container: omp-workspace / size;
 }
 
-/* A question or approval card above the composer. The dock publishes
-   --omp-prompt-room: the pane height left after its header, banners, the
-   composer as currently sized (multiline drafts, attachments) and a sliver of
-   transcript (ask-dock.tsx). The card's body scrolls, so its answer controls
-   and the composer stay inside the pane. */
+/* A question or approval card above the composer, capped by --omp-prompt-room
+   (ask-dock.tsx, which keeps a 240 px transcript floor). Its body scrolls so
+   the answer controls and the composer stay in the pane; the dock's cards
+   yield to it (--omp-dock-room). */
 .omp-prompt-card {
 	max-height: min(55vh, 38rem, max(9rem, var(--omp-prompt-room, 100vh)));
+}
+
+/* A plan under review: its text box gives way first, down to 7.5rem, so the
+   first choice stays in view while the card is capped. */
+.omp-prompt-card > :has(> * > [data-plan-content]) {
+	display: flex;
+	flex-direction: column;
+}
+
+.omp-prompt-card > * > :has(> [data-plan-content]) {
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.omp-prompt-card [data-plan-content] {
+	flex: 0 1 auto;
+	min-height: 7.5rem;
 }
 
 /* While a card waits for an answer, the draft yields: the textarea keeps two

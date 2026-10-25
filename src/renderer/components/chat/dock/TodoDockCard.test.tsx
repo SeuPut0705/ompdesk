@@ -201,7 +201,7 @@ describe("TodoDockCard", () => {
 		expect(container.querySelector('section[aria-label="Todos"]')).toBeNull();
 	});
 
-	it("keeps the dock internally scrollable and bounded so the composer is never clipped", async () => {
+	it("keeps the dock internally scrollable and bounded, yielding to a waiting card", async () => {
 		// The dock lives in the shrink-0 composer region, NOT inside the
 		// transcript scroll container: without its own max-height + overflow,
 		// a large list grows past the h-screen shell and clips the goal bar
@@ -212,10 +212,8 @@ describe("TodoDockCard", () => {
 		await mount(<WorkspaceDock />);
 
 		const dock = container.querySelector('[data-testid="workspace-dock"]');
-		expect(dock).not.toBeNull();
-		const className = dock?.getAttribute("class") ?? "";
-		expect(className).toContain("overflow-y-auto");
-		expect(className).toContain("max-h-");
+		expect(dock?.getAttribute("class") ?? "").toContain("overflow-y-auto");
+		expect(dock?.getAttribute("style") ?? "").toContain("var(--omp-dock-room");
 	});
 	it("applies an explicit inline max-height when a card is focused, so long lists scroll", async () => {
 		// Regression: the focused cap was expressed as an arbitrary Tailwind
