@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.72.3] - 2026-10-25
+
+휴대폰과 원격 세션에서 구독 계정 로그인을 진행할 수 있도록 브라우저 연결과 인증 화면을 고쳤어요.
+
+### 고친 것
+- 휴대폰에서는 호스트 컴퓨터의 로컬 주소 대신 프로바이더 인증 페이지를 열고, 인증 코드나 리디렉션 주소를 붙여 넣는 입력란을 바로 보여 줘요.
+- 에이전트가 로그인을 시작하면 인증 완료까지 도구 호출을 붙잡지 않고, 해당 세션의 모델 및 계정 화면을 열어요. 같은 탭의 중복 로그인은 차단해요.
+- 인증 코드 중복 제출과 이전 응답이 새 입력란을 지우는 문제를 고쳤어요. 첫 인증 요청 전에 누른 취소를 처리하고, 화면을 늦게 열어도 로그인 실패를 보여 줘요.
+- 연결된 웹 페이지에서 탭을 닫은 직후 통신이 끊겨 응답을 놓쳐도, 호스트가 이미 닫은 탭을 오류 없이 닫힌 상태로 유지해요.
+
+### 검증
+- 로그인, 취소, 새로고침, 원격 연결 복귀의 회귀 검증을 보강했어요. 자동 테스트는 실제 구독 계정과 분리된 환경을 사용해요.
+- 부하가 큰 환경의 작업 트리 질문, 30회가 넘는 Autopilot 실행, 빈 탭이 닫히는 성능 테스트의 검증 조건을 고쳤어요.
+
+<!-- en -->
+
+Phone and remote-session sign-in now open the correct browser page and show the authentication controls.
+
+### Fixed
+- Phones open the provider's authorization page instead of the host computer's loopback address and show the code or redirect-address input immediately.
+- Agent-started sign-in returns without waiting for authentication and opens Models & accounts for the calling session. A second login in the same tab is refused.
+- Code submission no longer sends duplicate answers or clears a newer prompt when an older answer arrives. Cancel before the first request is handled, and login failures remain visible when the panel opens late.
+- A paired web page keeps a tab closed without a false error when a dropped link loses the close response but the host has already removed the tab.
+
+### Verification
+- Added regression coverage for sign-in, cancellation, reload and remote reconnection using environments isolated from real subscription accounts.
+- Corrected test conditions for worktree questions under load, Autopilot runs beyond 30 cycles and performance scenarios where empty tabs close.
+
 ## [0.72.2] - 2026-10-25
 
 세션마다 보내는 도구 안내를 줄였고, 휴대폰 작업 보드의 진행 막대가 전체 너비로 보여요.
