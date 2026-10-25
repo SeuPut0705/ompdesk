@@ -44,9 +44,10 @@ function useDockRegistration(place: DockPlace) {
 /** Transcript height kept above the composer while a card waits: the card and the workspace dock share what is left. */
 const TRANSCRIPT_FLOOR_PX = 240;
 /**
- * Card height the floor never squeezes. A pane too short for both (a split, a short window, a widget over the card)
- * gives the card what it had before the floor existed, up to this: the transcript goes to nothing and the card covers
- * the column's rows (goal bar, work strip) from below, so a card that fit then still fits.
+ * Cards no taller than this, uncapped (a short question, a confirm, an approval), never scroll for the floor: in a
+ * pane too short for both (a split, a short window) such a card has what it had before the floor existed, the
+ * transcript goes to nothing and the card covers the column's rows (goal bar, work strip) from below. A taller card
+ * always gives way to the floor, down to the card's 9rem minimum (components.css).
  */
 const CARD_KEEP_PX = 240;
 
@@ -73,10 +74,9 @@ function fixedRows(container: Element, skip: ReadonlyArray<Element | null>): num
 /**
  * The room above the composer for the card, the dock's cards and the transcript: the pane minus every fixed row
  * (header, banners, the work strip), the composer box as sized, the ask dock's other children (extension widgets)
- * and the dock's own rows (goal bar, island). The card gets it less the transcript floor, but never under
- * `CARD_KEEP_PX` while the pane holds that beside the composer; the dock's cards get what the card leaves above the
- * floor. The ask dock contains its children's margins (`display: flow-root`), so the composer box measures the same
- * with or without a card.
+ * and the dock's own rows (goal bar, island). The card gets it less the transcript floor, except a card whose own
+ * height is `CARD_KEEP_PX` or less; the dock's cards get what the card leaves above the floor. The ask dock contains
+ * its children's margins (`display: flow-root`), so the composer box measures the same with or without a card.
  */
 export function measurePromptRoom(askDock: HTMLElement): PromptRoom | null {
 	const pane = askDock.closest<HTMLElement>(".omp-session-pane");
@@ -93,6 +93,9 @@ export function measurePromptRoom(askDock: HTMLElement): PromptRoom | null {
 	const ask = askDock.getBoundingClientRect().height;
 	const card = askDock.querySelector<HTMLElement>("[data-prompt-card]");
 	const cardHeight = card?.getBoundingClientRect().height ?? 0;
+	// The card's own height, uncapped: what its scrolling body hides comes on top of what it shows.
+	let natural = cardHeight;
+	for (const part of card?.children ?? []) natural += part.scrollHeight - part.clientHeight;
 	const composerBox = composer.getBoundingClientRect().height - ask;
 	const room =
 		pane.clientHeight -
@@ -103,7 +106,11 @@ export function measurePromptRoom(askDock: HTMLElement): PromptRoom | null {
 		(ask - cardHeight);
 	const atFloor = room - TRANSCRIPT_FLOOR_PX;
 	return {
-		card: Math.floor(Math.max(atFloor, Math.min(CARD_KEEP_PX, room + columnRows + dockRows))),
+		card: Math.floor(
+			card && natural <= CARD_KEEP_PX
+				? Math.max(atFloor, Math.min(CARD_KEEP_PX, room + columnRows + dockRows))
+				: atFloor,
+		),
 		dock: card ? Math.max(0, Math.floor(atFloor - cardHeight)) : null,
 	};
 }
