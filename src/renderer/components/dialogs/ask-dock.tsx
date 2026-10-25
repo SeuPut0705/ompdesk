@@ -57,6 +57,15 @@ export interface PromptRoom {
 	dock: number | null;
 }
 
+/**
+ * The element's laid-out height: its computed border box (preflight's `box-sizing: border-box`), which a transform
+ * leaves alone. A rect would read the card and the dock's cards shrunk while their entrance animations scale them, and
+ * a ResizeObserver never reports that, so the room stayed off by the scale until the next resize.
+ */
+function layoutHeight(element: Element, style = getComputedStyle(element)): number {
+	return Number.parseFloat(style.height) || 0;
+}
+
 function fixedRows(container: Element, skip: ReadonlyArray<Element | null>): number {
 	let sum = 0;
 	for (const child of container.children) {
@@ -64,7 +73,7 @@ function fixedRows(container: Element, skip: ReadonlyArray<Element | null>): num
 		const style = getComputedStyle(child);
 		if (style.flexGrow !== "0" || style.position === "absolute" || style.position === "fixed") continue;
 		sum +=
-			child.getBoundingClientRect().height +
+			layoutHeight(child, style) +
 			(Number.parseFloat(style.marginTop) || 0) +
 			(Number.parseFloat(style.marginBottom) || 0);
 	}
@@ -87,16 +96,14 @@ export function measurePromptRoom(askDock: HTMLElement): PromptRoom | null {
 	const column = dockRegion?.parentElement;
 	const columnRows = column && column !== pane ? fixedRows(column, [dockRegion]) : 0;
 	const scroller = dock?.querySelector<HTMLElement>('[data-testid="workspace-dock"]');
-	const dockRows = dockRegion
-		? dockRegion.getBoundingClientRect().height - (scroller?.getBoundingClientRect().height ?? 0)
-		: 0;
-	const ask = askDock.getBoundingClientRect().height;
+	const dockRows = dockRegion ? layoutHeight(dockRegion) - (scroller ? layoutHeight(scroller) : 0) : 0;
+	const ask = layoutHeight(askDock);
 	const card = askDock.querySelector<HTMLElement>("[data-prompt-card]");
-	const cardHeight = card?.getBoundingClientRect().height ?? 0;
+	const cardHeight = card ? layoutHeight(card) : 0;
 	// The card's own height, uncapped: what its scrolling body hides comes on top of what it shows.
 	let natural = cardHeight;
 	for (const part of card?.children ?? []) natural += part.scrollHeight - part.clientHeight;
-	const composerBox = composer.getBoundingClientRect().height - ask;
+	const composerBox = layoutHeight(composer) - ask;
 	const room =
 		pane.clientHeight -
 		fixedRows(pane, [composer, dockRegion]) -
