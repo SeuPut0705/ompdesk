@@ -194,3 +194,35 @@ What shipped, and where the facts of what was deleted live now:
 Phone: the facts start at the card's inset, the chips are compact and the dev-server chip is its globe alone, so the usual
 three chips fit one row; with four chips (files, two checks, preview) they still wrap, because a phone's chips keep their
 14 px touch gap.
+
+## Red only for a failure still standing (R3-3, 25 Oct 2026)
+
+A card used to go red for any failed call, so 57 of every 100 real turns were red while 2 to 19 of them ended
+broken (226 turns replayed from 98 journals and 60 hand-labelled). Most red came from calls the agent itself redid a
+step later: 281 of 476 failed calls were rejected edits, and nearly all of them were redone on the same file.
+
+The rule: a failed call stops counting once a **later successful call is the same call** (`callKeys`,
+`settleFailures` in `work-checks.ts`). Nothing else resolves anything.
+
+| Call | The same call |
+| --- | --- |
+| Command | the same text (whitespace collapsed) in the same folder (stock bash `cwd`, else the session's) |
+| Edit tool | a successful edit of every file the failed one touched |
+| Any other tool, an `xd://` write included | the same tool with the same arguments (the model's `i`/`intent` aside) |
+| A whole `command -v X`, `which X`, `type X`, `test …`, `[ … ]`, `grep …` or `rg …` with exit 1 and no `&&`, `||`, `;`, `|`, background `&`, newline, subshell or substitution | no failure: its exit 1 is the answer |
+| Read, search, `wait` | neither fails nor fixes |
+
+Inferring "the same operation" from shell text was tried first and dropped: two audits found it resolving real
+failures in every direction (a dry run fixing a publish, `test:platform` fixing `test:e2e`, `check | tail` fixing
+`check` though stock bash has no `pipefail`, another `--repo=`, another test selector, another stdin file). A rerun
+of the exact command is the common fix and the only one trusted. The chips, the verdict block and the board's check
+row read the same unresolved list, so a card never says a check both failed and was fixed.
+
+Replayed at the head's own functions over the same 226 turns: 38.5 red per 100 turns (57.1 before). Of 476 failed
+calls, 264 rejected edits and 2 commands are fixed by the same call, 59 reads, searches and waits are skipped, and
+151 still stand, among them every one of 58 exit-1 probes: in these journals no probe ran as a whole command. The rate
+is not a target. In 30 sampled turns each of the 97 fixes cites the later identical call.
+
+A fixed failure is still a step with its own ✕ in the opened card and a line under "Failed, then fixed by a later run"
+in Copy summary. A broken ending that no call reports (a script that prints a missed gate and exits 0) stays green,
+as before.
