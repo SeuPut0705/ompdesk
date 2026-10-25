@@ -230,17 +230,15 @@ const IntentGroup = memo(function IntentGroup({ group, hidden = null }: { group:
 	);
 });
 
-const ONE_BATCH: readonly number[] = [];
-
 /**
  * Batch starts for a list that was ever append-only: no row is grouped across one, so a row a person saw keeps its
- * shape, also after the run ends.
+ * shape, also after the run ends. `null` for a list that never was.
  */
-function useShownCuts(count: number, appendOnly: boolean): readonly number[] {
+function useShownCuts(count: number, appendOnly: boolean): readonly number[] | null {
 	const shown = useRef<{ cuts: readonly number[]; seen: number } | null>(null);
-	if (appendOnly && !shown.current) shown.current = { cuts: ONE_BATCH, seen: 0 };
+	if (appendOnly && !shown.current) shown.current = { cuts: [], seen: 0 };
 	const state = shown.current;
-	if (!state) return ONE_BATCH;
+	if (!state) return null;
 	if (count < state.seen) state.cuts = state.cuts.filter(cut => cut < count);
 	else if (count > state.seen && state.seen > (state.cuts.at(-1) ?? 0)) state.cuts = [...state.cuts, state.seen];
 	state.seen = count;
@@ -254,24 +252,25 @@ interface Batch {
 }
 
 /**
- * The rows of every batch. A batch whose messages and read targets are the very same objects keeps its row objects,
- * so a new message re-renders only the batch it joined.
+ * The rows of every batch. A batch whose messages are the very same objects keeps its row objects, so a new message
+ * re-renders only the batch it joined. Read metadata arriving later regroups a batch only in a list that was never
+ * append-only: in one that was, the rows were seen as they are.
  */
 function useBatchRows(
 	messages: readonly AgentMessage[],
-	cuts: readonly number[],
+	cuts: readonly number[] | null,
 	readTargets: ReadonlyMap<string, ReadGroupTarget | null> | undefined,
 ): StepRow[] {
 	const cache = useRef<Map<number, Batch>>(new Map());
 	return useMemo(() => {
-		const starts = [0, ...cuts];
+		const starts = [0, ...(cuts ?? [])];
 		const next = new Map<number, Batch>();
 		const rows = starts.flatMap((start, index) => {
 			const slice = messages.slice(start, starts[index + 1] ?? messages.length);
 			const kept = cache.current.get(start);
 			const batch =
 				kept &&
-				kept.readTargets === readTargets &&
+				(cuts !== null || kept.readTargets === readTargets) &&
 				kept.messages.length === slice.length &&
 				kept.messages.every((message, at) => message === slice[at])
 					? kept

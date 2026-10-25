@@ -4,6 +4,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentMessage, MessageContent, ToolCallContent } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { useMessagesStore } from "../../../stores/messages";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import type { StepReveal } from "./reveal-step";
@@ -34,6 +35,7 @@ afterEach(async () => {
 	container?.remove();
 	root = undefined;
 	useToolsStore.getState().reset();
+	useMessagesStore.getState().reset();
 	useUiStore.setState({ displayPreferences: {} });
 });
 
@@ -422,6 +424,35 @@ describe("StepGroups", () => {
 			await show(messages, true);
 			expect(container.querySelector(".omp-read-group")).toBe(readGroup);
 			expect(readGroup?.textContent).toContain("b.ts");
+		});
+
+		it("keeps two shown reads as they were when their read metadata arrives later", async () => {
+			act(() =>
+				useToolsStore.setState(
+					toolEntriesState([
+						["r1", entry("read", { path: "a.ts" })],
+						["r2", entry("read", { path: "b.ts" })],
+					]),
+				),
+			);
+			const messages = [
+				assistant([call("r1", "read", { path: "a.ts" })]),
+				assistant([call("r2", "read", { path: "b.ts" })]),
+			];
+			await show(messages, true);
+			const shown = rows();
+			expect(cards()).toEqual(["r1", "r2"]);
+			act(() =>
+				useMessagesStore.setState({
+					readTargets: new Map([
+						["r1", { path: "a.ts" }],
+						["r2", { path: "b.ts" }],
+					]),
+				}),
+			);
+			await show(messages, true);
+			expect(container.querySelector(".omp-read-group")).toBeNull();
+			expect(rows()).toEqual(shown);
 		});
 	});
 });
