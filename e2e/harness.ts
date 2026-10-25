@@ -239,6 +239,36 @@ export async function openSidebarFamily(page: Page): Promise<void> {
 }
 
 /**
+ * Drag a tab's sidebar row onto pane `targetIndex` of the split workspace at (`x`, `y`) of its box, the person's split
+ * gesture, and drop it. A fresh tab has no row until something is typed into it (`unstarted`, Sidebar.tsx), so the
+ * tab is named first with a shell line, which lists it the way the person's first prompt does, and its row is found
+ * by that name (keyed by its session file or by the tab, depending on what main has heard).
+ */
+export async function dragTabToPane(page: Page, tabId: string, targetIndex: number, x: number, y: number) {
+	await expect
+		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status)
+		.toBe("ready");
+	const title = `Split pane ${tabId}`;
+	const named = await page.evaluate(([id, command]) => window.omp.rpc.commandForTab(id, { type: "bash", command }), [
+		tabId,
+		`fixture:title:${title}`,
+	] as const);
+	expect(named).toMatchObject({ success: true });
+	const row = page.locator(".omp-sidebar-session-row", { hasText: title });
+	await expect(row).toHaveCount(1);
+	const source = await row.boundingBox();
+	const target = await page.locator(".omp-session-pane").nth(targetIndex).boundingBox();
+	if (!source || !target) throw new Error("Missing split drag geometry");
+	await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(source.x + source.width / 2 + 20, source.y + source.height / 2, { steps: 4 });
+	await page.mouse.move(target.x + target.width * x + 2, target.y + target.height * y, { steps: 12 });
+	await page.mouse.move(target.x + target.width * x, target.y + target.height * y, { steps: 2 });
+	await expect(page.locator("[data-split-ghost]")).toHaveCount(1);
+	await page.mouse.up();
+}
+
+/**
  * Open a sidebar destination page. The footer's Agents and Stats entries are off by default, so without them the
  * page opens the way a user without the pins does: ⌥A for Agents, the command palette for Stats. Both shortcuts
  * repeat until their target shows, since one pressed while the renderer still mounts is lost.

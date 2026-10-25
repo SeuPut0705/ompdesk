@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { exitApp, launchApp } from "./harness";
+import { dragTabToPane, exitApp, launchApp } from "./harness";
 import { freePort, remoteTailscale } from "./remote-harness";
 
 // Opt-in audit of the work card through whole flows on the fake omp's `fixture flow` run:
@@ -563,23 +563,12 @@ test("four live cards in a 2×2 split", async () => {
 				.toBe("ready");
 			tabs.push(tab.tabId);
 		}
-		await focusTab(page, first);
-		const drag = async (id: string, targetIndex: number, x: number, y: number) => {
-			const source = await page.locator(`[data-session-path="tab:${id}"]`).boundingBox();
-			const target = await page.locator(".omp-session-pane").nth(targetIndex).boundingBox();
-			if (!source || !target) throw new Error("Missing split drag geometry");
-			await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
-			await page.mouse.down();
-			await page.mouse.move(source.x + source.width / 2 + 20, source.y + source.height / 2, { steps: 4 });
-			await page.mouse.move(target.x + target.width * x + 2, target.y + target.height * y, { steps: 12 });
-			await page.mouse.move(target.x + target.width * x, target.y + target.height * y, { steps: 2 });
-			await expect(page.locator("[data-split-ghost]")).toHaveCount(1);
-			await page.mouse.up();
-		};
-		await drag(tabs[1] ?? "", 0, 0.92, 0.5);
+		// Background spawns leave the first tab in front (an empty tab has no sidebar row to click).
+		await expect.poll(async () => await activeTab(page)).toBe(first);
+		await dragTabToPane(page, tabs[1] ?? "", 0, 0.92, 0.5);
 		await expect(page.locator(".omp-session-pane")).toHaveCount(2);
-		await drag(tabs[2] ?? "", 0, 0.5, 0.92);
-		await drag(tabs[3] ?? "", 2, 0.5, 0.92);
+		await dragTabToPane(page, tabs[2] ?? "", 0, 0.5, 0.92);
+		await dragTabToPane(page, tabs[3] ?? "", 2, 0.5, 0.92);
 		await expect(page.locator(".omp-session-pane")).toHaveCount(4);
 		const runs = tabs.map(tab => driver(page, tab));
 		for (const run of runs) await run.prompt("fixture flow");

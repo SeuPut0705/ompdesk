@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { dragTabToPane, exitApp, launchApp } from "./harness";
 
 async function withLiveWorkApp(history: number, body: (page: Page) => Promise<void>): Promise<void> {
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-steps-"));
@@ -359,37 +359,12 @@ test("live work follows tool kinds and streams output", async () => {
 			if (!first) throw new Error("No active tab");
 			const spawned = await page.evaluate(() => window.omp.tabs.spawn({ kind: "agent" }));
 			if (!spawned?.tabId) throw new Error("No spawned tab");
-			const drag = async (id: string, targetIndex: number, x: number, y: number) => {
-				const source = await page.locator(`[data-session-path="tab:${id}"]`).boundingBox();
-				const target = await page.locator(".omp-session-pane").nth(targetIndex).boundingBox();
-				if (!source || !target) throw new Error("Missing split drag geometry");
-				await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
-				await page.mouse.down();
-				await page.mouse.move(source.x + source.width / 2 + 20, source.y + source.height / 2, { steps: 4 });
-				await page.mouse.move(target.x + target.width * x + 2, target.y + target.height * y, { steps: 12 });
-				await page.mouse.move(target.x + target.width * x, target.y + target.height * y, { steps: 2 });
-				await expect(page.locator("[data-split-ghost]")).toHaveCount(1);
-				await page.mouse.up();
-			};
-			await expect
-				.poll(
-					async () =>
-						(await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === spawned.tabId)?.status,
-				)
-				.toBe("ready");
-			await drag(spawned.tabId, 0, 0.92, 0.5);
+			await dragTabToPane(page, spawned.tabId, 0, 0.92, 0.5);
 			await expect(page.locator(".omp-session-pane")).toHaveCount(2);
 			for (const targetIndex of [0, 2]) {
 				const tab = await page.evaluate(() => window.omp.tabs.spawn({ kind: "agent" }));
 				if (!tab?.tabId) throw new Error("No spawned split tab");
-				await expect
-					.poll(
-						async () =>
-							(await page.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tab.tabId)
-								?.status,
-					)
-					.toBe("ready");
-				await drag(tab.tabId, targetIndex, 0.5, 0.92);
+				await dragTabToPane(page, tab.tabId, targetIndex, 0.5, 0.92);
 			}
 			await expect(page.locator(".omp-session-pane")).toHaveCount(4);
 			const pane = page.locator(`[data-tab-id="${first}"]`);

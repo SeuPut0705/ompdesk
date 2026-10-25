@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { exitApp, launchApp } from "./harness";
+import { dragTabToPane, exitApp, launchApp } from "./harness";
 
 // Opt-in audit of features meeting on one work card: a long command output, a media outcome (the
 // clip a read showed and the file the reply names), a steer delivered mid-run, a connection wait
@@ -57,23 +57,6 @@ async function launch(variant: Variant) {
 		.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 		.toBe("ready");
 	return { app, page, root, project };
-}
-
-/** Drag a tab onto a pane edge, the user's split gesture (as chat-media.e2e.ts does). */
-async function dragToPane(page: Page, tabId: string, targetIndex: number, x: number, y: number): Promise<void> {
-	await expect
-		.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status)
-		.toBe("ready");
-	const source = await page.locator(`[data-session-path="tab:${tabId}"]`).boundingBox();
-	const target = await page.locator(".omp-session-pane").nth(targetIndex).boundingBox();
-	if (!source || !target) throw new Error("Missing split drag geometry");
-	await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
-	await page.mouse.down();
-	await page.mouse.move(source.x + source.width / 2 + 20, source.y + source.height / 2, { steps: 4 });
-	await page.mouse.move(target.x + target.width * x + 2, target.y + target.height * y, { steps: 12 });
-	await page.mouse.move(target.x + target.width * x, target.y + target.height * y, { steps: 2 });
-	await expect(page.locator("[data-split-ghost]")).toHaveCount(1);
-	await page.mouse.up();
 }
 
 /** Anything of the transcript past its column that no horizontal scroller clips, plus page overflow. */
@@ -146,7 +129,7 @@ for (const variant of VARIANTS)
 				] as const) {
 					const spawned = await page.evaluate(() => window.omp.tabs.spawn({ kind: "agent" }));
 					if (!spawned?.tabId) throw new Error("No spawned split tab");
-					await dragToPane(page, spawned.tabId, targetIndex, x, y);
+					await dragTabToPane(page, spawned.tabId, targetIndex, x, y);
 				}
 				await expect(page.locator(".omp-session-pane")).toHaveCount(4);
 			}
