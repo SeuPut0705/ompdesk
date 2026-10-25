@@ -6,15 +6,27 @@ interface Layout {
 	pane?: number;
 	strip?: boolean;
 	dock?: boolean;
+	/** The card's height on screen. */
 	card?: number;
+	/** Its own height, uncapped (the body scrolls the rest); the height on screen when left out. */
+	natural?: number;
 	widget?: number;
 	banner?: number;
 }
 
 // A session pane as SplitWorkspace lays it out at 1000x800. linkedom has no layout: `data-h` is each element's
-// height, `data-grow`, `data-pos` and `data-mt`/`data-mb` its flex, position and margins. The ask dock holds its
-// children's margins (flow-root), so its height counts the card's and the widgets' 8 px.
-function pane({ pane = 752, strip = false, dock = false, card = 0, widget = 0, banner = 0 }: Layout): string {
+// height, `data-sh` a scroller's content height, `data-grow`, `data-pos` and `data-mt`/`data-mb` its flex, position
+// and margins. The ask dock holds its children's margins (flow-root), so its height counts the card's and the
+// widgets' 8 px.
+function pane({
+	pane = 752,
+	strip = false,
+	dock = false,
+	card = 0,
+	natural = card,
+	widget = 0,
+	banner = 0,
+}: Layout): string {
 	const ask = (card ? card + 8 : 0) + (widget ? widget + 8 : 0);
 	return `<section class="omp-session-pane" data-h="${pane}">
 		<header data-h="36"></header>
@@ -32,7 +44,7 @@ function pane({ pane = 752, strip = false, dock = false, card = 0, widget = 0, b
 		<div class="omp-composer-region" data-h="${112 + ask}">
 			<div class="omp-ask-dock" data-h="${ask}">
 				${widget ? `<div data-h="${widget}" data-mb="8"></div>` : ""}
-				${card ? `<section data-prompt-card data-h="${card}" data-mb="8"></section>` : ""}
+				${card ? `<section data-prompt-card data-h="${card}" data-mb="8"><div data-h="${card}" data-sh="${natural}"></div></section>` : ""}
 			</div>
 			<div class="omp-composer-box" data-h="92"></div>
 		</div>
@@ -56,11 +68,20 @@ function room(layout: Layout) {
 			marginBottom: `${element.getAttribute("data-mb") ?? 0}px`,
 		}),
 	});
+	for (const [name, attribute] of [
+		["clientHeight", "data-h"],
+		["scrollHeight", "data-sh"],
+	] as const) {
+		Object.defineProperty(window.HTMLElement.prototype, name, {
+			configurable: true,
+			get(this: Element) {
+				return Number(this.getAttribute(attribute) ?? this.getAttribute("data-h") ?? 0);
+			},
+		});
+	}
 	window.HTMLElement.prototype.getBoundingClientRect = function (this: Element) {
 		return { top: 0, bottom: height(this), left: 0, right: 0, width: 0, height: height(this), x: 0, y: 0 } as DOMRect;
 	};
-	const paneElement = document.querySelector(".omp-session-pane") as unknown as HTMLElement;
-	Object.defineProperty(paneElement, "clientHeight", { value: height(paneElement as unknown as Element) });
 	return measurePromptRoom(document.querySelector(".omp-ask-dock") as unknown as HTMLElement);
 }
 
@@ -112,8 +133,18 @@ describe("measurePromptRoom: the 240 px transcript floor", () => {
 		expect(short).toEqual({ card: 217, dock: 0 });
 	});
 
-	it("never lets the floor squeeze a card under 240 px while the pane holds it", () => {
-		// 520 px pane: 258 px of room, 18 above the floor; the card keeps 240 and the transcript gets the other 18.
-		expect(room({ pane: 520, strip: true, dock: true, card: 440 })).toEqual({ card: 240, dock: 0 });
+	it("keeps the floor for a tall card under a 100 px widget, with the dock and the strip, in a full window", () => {
+		// 752 − 36 − 40 strip − 66 dock rows − 112 composer region − 108 widget − 8 margin = 382; 142 above the floor.
+		expect(room({ strip: true, dock: true, widget: 100, card: 240, natural: 440 })).toEqual({ card: 142, dock: 0 });
+	});
+
+	it("gives a tall card in a short split pane only what the floor leaves", () => {
+		// 111 px of room: the card falls back on its 9rem minimum (components.css) and scrolls.
+		expect(room({ pane: 373, strip: true, dock: true, card: 225, natural: 440 })).toEqual({ card: -129, dock: 0 });
+	});
+
+	it("lets a short card held under its own height regrow in a short pane", () => {
+		// On screen at 150 px while its body scrolls 28 px more: 178 px is a short card, it keeps 217.
+		expect(room({ pane: 373, strip: true, dock: true, card: 150, natural: 178 })).toEqual({ card: 217, dock: 0 });
 	});
 });
