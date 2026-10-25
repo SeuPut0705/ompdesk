@@ -150,10 +150,12 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		useToolsStore.setState({ finishedTools: new Map([["b1", failed]]) });
 		useTodoStore.getState().setPhases([{ name: "Fix", tasks: [{ content: "Reproduce", status: "in_progress" }] }]);
 		await mount();
-		// The failed-check watcher loads after the first screen.
+		// The failed-check watcher loads after the first screen: its chunk transforms on first import, past a second
+		// under a busy test run.
 		const strip = container.querySelector("[data-work-chip]");
-		await vi.waitFor(() =>
-			expect(strip?.querySelector('[role="status"]')?.textContent).toBe(translate("attention.checkFailed")),
+		await vi.waitFor(
+			() => expect(strip?.querySelector('[role="status"]')?.textContent).toBe(translate("attention.checkFailed")),
+			{ timeout: 5000 },
 		);
 		expect(strip?.getAttribute("data-state")).toBe("waiting");
 	});

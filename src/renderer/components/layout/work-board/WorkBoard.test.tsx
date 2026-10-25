@@ -6,6 +6,7 @@ import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from 
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
+import { useAttentionStore } from "../../../stores/attention";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
@@ -487,6 +488,36 @@ describe("WorkBoard sections", () => {
 		goal = { enabled: true, status: "active", objective: "Ship it" };
 		await act(async () => {});
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Goal & todos");
+	});
+
+	it("keeps saying a failed check after the strip's panel opens and closes", async () => {
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"b1",
+					tool({
+						args: { command: "bun test" },
+						status: "error",
+						isError: true,
+						endTime: 9,
+						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+					}),
+				],
+			]),
+		});
+		useTodoStore.getState().setPhases([{ name: "Work", tasks: [{ content: "a", status: "pending" }] }]);
+		await mount(700);
+		const label = () => pane.querySelector('[data-work-chip] [role="status"]')?.textContent;
+		await vi.waitFor(() => expect(label()).toBe(translate("attention.checkFailed")));
+		await click("[data-work-chip]");
+		await vi.waitFor(() =>
+			expect(pane.querySelector("[data-work-strip-panel] [data-work-board-panel]")).not.toBeNull(),
+		);
+		await click("[data-work-chip]");
+		await vi.waitFor(() => expect(pane.querySelector("[data-work-strip-panel]")).toBeNull());
+		await act(async () => {});
+		expect(label()).toBe(translate("attention.checkFailed"));
+		expect(Object.hasOwn(useAttentionStore.getState().checkFailed, "t1")).toBe(true);
 	});
 
 	it("shows the goal with its status and a budget and a time meter", async () => {

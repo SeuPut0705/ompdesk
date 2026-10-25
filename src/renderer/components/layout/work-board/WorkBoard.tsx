@@ -404,9 +404,13 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			   linked worktree, then one line of meters: the subscription accounts' windows and a metered provider's
 			   charge side by side where they fit (each item's details are its tooltip). The strip names itself above. */}
 			<header className="omp-work-board-head" data-board-head>
-				<Suspense fallback={null}>
-					<FailedCheckWatch />
-				</Suspense>
+				{/* One watcher per pane: inside the strip the chip holds it, and a second one's cleanup on close would
+				   clear the failure the chip still sees. */}
+				{inline ? null : (
+					<Suspense fallback={null}>
+						<FailedCheckWatch />
+					</Suspense>
+				)}
 				<span aria-hidden className="omp-work-board-pulse" data-state={counts.pulse} />
 				<h2 className="omp-work-board-name" data-board-name>
 					{autopilotTab ? (
