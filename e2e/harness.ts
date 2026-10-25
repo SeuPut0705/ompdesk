@@ -210,16 +210,22 @@ export function openedSessions(text: string): string[] {
 
 /**
  * Wait until tab `tabId` is idle and its transcript holds the fake's answer `text` (by default its reply to a plain
- * prompt or an agent's brief). Never read it as the tab's last answer: main asks an agent-opened child whose turn
+ * prompt or an agent's brief), after the last user message containing `after` when given (the reply to a later
+ * message, not an earlier one). Never read it as the tab's last answer: main asks an agent-opened child whose turn
  * ended with no `Result:` line and no report to report (`#nudgeSilent`, agent-control/service.ts, about a second after
  * that turn), and the fake's answer to that note ("Read the note report from …") then follows the reply.
  */
-export async function untilAnswered(page: Page, tabId: string, text = "Local fixture reply"): Promise<void> {
+export async function untilAnswered(
+	page: Page,
+	tabId: string,
+	options: { text?: string; after?: string } = {},
+): Promise<void> {
+	const wanted = { text: options.text ?? "Local fixture reply", after: options.after ?? null };
 	await expect
 		.poll(
 			() =>
 				page.evaluate(
-					async ([id, wanted]) => {
+					async ([id, { text, after }]) => {
 						const tab = (await window.omp.tabs.list()).find(entry => entry.tabId === id);
 						if (tab?.status !== "ready") return false;
 						const response = await window.omp.rpc.commandForTab(id, {
@@ -227,16 +233,30 @@ export async function untilAnswered(page: Page, tabId: string, text = "Local fix
 							fromEnd: true,
 							limit: 50,
 						});
-						const messages = (response.data as { messages?: { role: string; content?: unknown }[] } | undefined)
-							?.messages;
-						return (messages ?? []).some(
-							message =>
-								message.role === "assistant" &&
-								Array.isArray(message.content) &&
-								message.content.some(part => part?.type === "text" && part.text === wanted),
+						const messages =
+							(response.data as { messages?: { role: string; content?: unknown }[] } | undefined)?.messages ??
+							[];
+						const texts = (content: unknown): string[] =>
+							typeof content === "string"
+								? [content]
+								: Array.isArray(content)
+									? content.flatMap(part => (part?.type === "text" ? [String(part.text)] : []))
+									: [];
+						const from =
+							after === null
+								? 0
+								: messages.findLastIndex(
+										message =>
+											message.role === "user" && texts(message.content).some(line => line.includes(after)),
+									);
+						return (
+							from >= 0 &&
+							messages
+								.slice(from)
+								.some(message => message.role === "assistant" && texts(message.content).includes(text))
 						);
 					},
-					[tabId, text] as const,
+					[tabId, wanted] as const,
 				),
 			{ timeout: 30_000 },
 		)

@@ -142,7 +142,9 @@ test("fan out into worktrees, compare, merge two through the tool, close a third
 	expect(compared.isError).toBe(false);
 	for (const child of made)
 		expect(compared.text).toContain(`branch ${child.branch} → main: 1 commit(s) ahead, 1 file(s) changed (+2 −0)`);
-	expect(compared.text).toContain("final answer: Local fixture reply");
+	// Each child's final answer, whichever came last: the brief's reply, or its answer to main's request to report (a
+	// child that ended its turn with no Result line is asked to; `untilAnswered`, harness.ts).
+	expect(compared.text.match(/final answer: (Local fixture reply|Read the note report from \w+\.)/g)).toHaveLength(3);
 	expect(compared.text).toContain("Compare runs no tests");
 
 	// The board has no review section and no Approve/Discard/Review buttons: the agent reviews and lands its own

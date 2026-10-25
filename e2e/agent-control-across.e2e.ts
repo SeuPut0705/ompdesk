@@ -4,7 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { controlToolCaller as caller, exitApp, launchApp, openedSessions as opened, readRecords } from "./harness";
+import {
+	controlToolCaller as caller,
+	exitApp,
+	launchApp,
+	openedSessions as opened,
+	readRecords,
+	untilAnswered,
+} from "./harness";
 import {
 	connectHost,
 	type LinkProxy,
@@ -106,14 +113,18 @@ test.describe("on this computer", () => {
 		expect(open.isError, open.text).toBe(false);
 		const [one, two] = opened(open.text);
 		expect(one && two).toBeTruthy();
+		// The replies are the briefs' answers in the transcript, not the last answers: main asks a child that ended its
+		// turn with no Result line to report, and the fake answers that note too (`untilAnswered`, harness.ts).
+		for (const id of [one, two]) await untilAnswered(page, id as string);
 		const done = await call("ompdesk_session_result", { sessions: [one, two], wait: true, timeout_seconds: 60 });
-		expect(done.text).toContain("Local fixture reply");
+		for (const id of [one, two]) expect(done.text).toContain(`[${id}]: idle`);
 		const judged = await call("ompdesk_compare", { sessions: [one, two], criteria: ["answers the task"] });
 		expect(judged.isError, judged.text).toBe(false);
 		expect(judged.text).toContain("Verdict by fixture/judge:");
 		expect(judged.text).toContain(`1. ${one}: 90/100`);
 		expect(judged.text).toContain(`Winner: ${one}. fixture judge picks the first`);
-		expect(judged.text).toContain("final answer: Local fixture reply");
+		// Its final answer, whichever came last: the brief's reply, or its answer to main's request to report.
+		expect(judged.text).toMatch(/final answer: (Local fixture reply|Read the note report from \w+\.)/);
 
 		// Closed, it is still a saved session: found by its text, read without a tab, opened again.
 		expect((await call("ompdesk_session_stop", { session: two, close: true })).isError).toBe(false);
@@ -283,7 +294,7 @@ test.describe("on a paired device", () => {
 
 	test("opens a session on a paired device, waits for it there, and reads its saved transcript back", async () => {
 		test.setTimeout(240_000);
-		const { hostProfile, clientProfile, deviceId, call } = await pairApps();
+		const { hostProfile, clientProfile, deviceId, call, client: app } = await pairApps();
 
 		const listed = await call("ompdesk_sessions");
 		expect(listed.text).toContain(`Paired devices: PC-B (id ${deviceId}, online)`);
@@ -292,8 +303,9 @@ test.describe("on a paired device", () => {
 		expect(open.isError, open.text).toBe(false);
 		expect(open.text).toContain("on PC-B");
 		const [child] = opened(open.text);
+		await untilAnswered(app.page, child as string);
 		const done = await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
-		expect(done.text).toContain("Local fixture reply");
+		expect(done.text).toContain(`[${child}]: idle`);
 		// The prompt ran on the device's omp, not this computer's.
 		const prompted = (records: Record<string, unknown>[]) =>
 			records.some(
@@ -710,9 +722,10 @@ test.describe("on a paired device", () => {
 		// Named by the device's stock worktree location (its agent dir's `wt`, the fake omp's), not this computer's.
 		expect(worktree?.path.startsWith(path.join(hostProfile.root, "agent", "wt", "gui-"))).toBe(true);
 		expect(git(repo, "worktree", "list", "--porcelain")).toContain(`branch refs/heads/${worktree?.branch}`);
+		await untilAnswered(client.page, child as string);
 		expect(
 			(await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 })).text,
-		).toContain("Local fixture reply");
+		).toContain(`[${child}]: idle`);
 
 		// The fake child does not edit: commit in its checkout on the device the way a real child's work lands.
 		const checkout = worktree?.path ?? "";

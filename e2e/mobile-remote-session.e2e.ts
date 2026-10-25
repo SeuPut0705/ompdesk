@@ -19,7 +19,7 @@ import { type Browser, chromium, devices, expect, type Page, test } from "@playw
 import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { defaultTailscaleScenario } from "./fixture/tailscale-scenario";
-import { controlToolCaller, cssString, exitApp, openedSessions, readRecords } from "./harness";
+import { controlToolCaller, cssString, exitApp, openedSessions, readRecords, untilAnswered } from "./harness";
 import {
 	connectHost,
 	freePort,
@@ -369,8 +369,10 @@ test("a paired phone opens and works in sessions of a remote host this computer 
 			});
 			expect(open.isError, open.text).toBe(false);
 			const [child] = openedSessions(open.text);
+			// The brief's reply in the transcript, not the last answer (`untilAnswered`, harness.ts).
+			await untilAnswered(phone, child as string);
 			const done = await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
-			expect(done.text).toContain("Local fixture reply");
+			expect(done.text).toContain(`[${child}]: idle`);
 			const childPath =
 				(await phone.evaluate(() => window.omp.tabs.list())).find(tab => tab.openedBy === opener)?.sessionPath ??
 				"";

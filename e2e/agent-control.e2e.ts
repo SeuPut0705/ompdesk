@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ElectronApplication, Page } from "playwright";
-import { exitApp, launchApp, readRecords } from "./harness";
+import { exitApp, launchApp, readRecords, untilAnswered } from "./harness";
 
 // OMPdesk control tools (src/main/agent-control): the main agent's host tools open a session, message it, wait for
 // it and read it back; and refuse what needs the user without the confirmation card. The fake
@@ -93,15 +93,18 @@ test("create a session, send it a message, wait for it and read its result", asy
 	// The user's view stays where it was.
 	expect((await tabs()).find(tab => tab.active)?.tabId).toBe(main);
 
+	// The reply is the brief's answer in the transcript, not the last answer: main asks a child that ended its turn with
+	// no Result line to report, and the fake answers that note too (`untilAnswered`, harness.ts).
+	await untilAnswered(page, child);
 	const first = await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
 	expect(first.isError).toBe(false);
-	expect(first.text).toContain("idle");
-	expect(first.text).toContain("Local fixture reply");
+	expect(first.text).toContain(`[${child}]: idle`);
 
 	const sent = await call("ompdesk_session_send", { session: child, message: "Now list the risks" });
 	expect(sent.text).toContain("Sent to");
+	await untilAnswered(page, child, { after: "Now list the risks" });
 	const second = await call("ompdesk_session_result", { sessions: [child], wait: true, timeout_seconds: 60 });
-	expect(second.text).toContain("Local fixture reply");
+	expect(second.text).toContain(`[${child}]: idle`);
 
 	const read = await call("ompdesk_session_read", { session: child });
 	expect(read.isError).toBe(false);
