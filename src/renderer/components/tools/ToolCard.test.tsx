@@ -251,12 +251,16 @@ describe("ToolCard rows by intent", () => {
 describe("ToolCard opened bodies", () => {
 	/** What the row's target measures: the width it has and the width its text needs. */
 	const layout = { client: 200, scroll: 120 };
-	/** Every ResizeObserver made, with what it watches; `resize()` delivers a resize to each. */
+	/**
+	 * Every ResizeObserver made, with what it watches. `resize()` is a change of the targets' own boxes while each row
+	 * keeps its width: it reaches only observers that watch a target, as a real one would.
+	 */
 	const observers: Array<{ callback: (entries: Array<{ target: Element }>) => void; targets: Set<Element> }> = [];
 	const resize = () =>
 		act(async () => {
 			for (const { callback, targets } of observers) {
-				if (targets.size > 0) callback([...targets].map(target => ({ target })));
+				const boxes = [...targets].filter(target => target.classList.contains("omp-tool-summary"));
+				if (boxes.length > 0) callback(boxes.map(target => ({ target })));
 			}
 		});
 	const proto = HTMLElement.prototype as object;
@@ -280,6 +284,9 @@ describe("ToolCard opened bodies", () => {
 			}
 			observe(target: Element) {
 				this.#watch.targets.add(target);
+				// A real observer reports a newly observed element once.
+				const { callback } = this.#watch;
+				queueMicrotask(() => callback([{ target }]));
 			}
 			unobserve(target: Element) {
 				this.#watch.targets.delete(target);
@@ -376,6 +383,27 @@ describe("ToolCard opened bodies", () => {
 		Object.assign(layout, { client: 16, scroll: 16 });
 		await resize();
 		expect(target()?.hasAttribute("data-sliver")).toBe(false);
+		await act(async () => root.unmount());
+	});
+
+	it("measures the target again when its text changes inside a row that keeps its width", async () => {
+		const before = { command: "ls" };
+		const after = { command: "grep -rn needle src/renderer/components" };
+		const { root, row } = await renderRow(finished("c", "bash", before, "Looking around"), "bash", before);
+		await open(row);
+		const body = () => row.parentElement?.querySelector(".omp-tool-body") ?? null;
+		expect(body()?.querySelector(".omp-bash-prompt")).toBeNull();
+		// The new command no longer fits, and nothing about the row's own box changes.
+		Object.assign(layout, { client: 8, scroll: 150 });
+		await act(async () => {
+			root.render(
+				<I18nProvider>
+					<ToolCard args={after} toolCallId="c" toolName="bash" />
+				</I18nProvider>,
+			);
+		});
+		expect(body()?.querySelector(".omp-bash-prompt")?.textContent).toContain(after.command);
+		expect(row.querySelector(".omp-tool-summary")?.hasAttribute("data-sliver")).toBe(true);
 		await act(async () => root.unmount());
 	});
 });
