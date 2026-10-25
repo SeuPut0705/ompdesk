@@ -2,6 +2,7 @@ import { createStore } from "zustand/vanilla";
 import type { IpcSignIn } from "../../shared/ipc-types";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest, isSignInRequest } from "../../shared/rpc-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
+import { webPwa } from "../web/pwa";
 import { createScopedStoreHook } from "./session-runtime-context";
 
 export type WidgetPlacement = "aboveEditor" | "belowEditor";
@@ -75,11 +76,11 @@ export interface ExtensionUiStore extends ExtensionUiSnapshot {
 /**
  * The address to open for an `open_url` request. `launchUrl` is served by the
  * OAuth callback server on the machine running omp (`http://localhost:<port>/launch`),
- * so a tab on a paired host opens the provider's own `url` instead: this
- * device's localhost is not the host's.
+ * so a paired host's tab or a web viewer opens the provider's own `url`
+ * instead: this browser's localhost is not the computer running omp.
  */
 export function openUrlTarget(request: Extract<ExtensionUIRequest, { method: "open_url" }>, remote: boolean): string {
-	return remote ? request.url : (request.launchUrl ?? request.url);
+	return remote || webPwa() !== null ? request.url : (request.launchUrl ?? request.url);
 }
 
 export type ApprovalSelect = Extract<ExtensionUIRequest, { method: "select" }>;

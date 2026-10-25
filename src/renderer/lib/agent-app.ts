@@ -5,6 +5,7 @@
  * previous value through the same `prefs.set` / `set_setting` Settings uses.
  */
 import { AGENT_VIEW_SHEETS, type AgentAppEvent, type AppUndo } from "../../shared/agent-control";
+import { useTabsStore } from "../stores/tabs";
 import { toast } from "../stores/toast";
 import { migrateDefaultPanelTab, useUiStore } from "../stores/ui";
 import { translate } from "./i18n";
@@ -70,6 +71,16 @@ export function applyAgentAppEvent(event: AgentAppEvent): void {
 			return;
 		case "settings":
 			useUiStore.getState().openSettings(event.sub ? `${event.section}:${event.sub}` : event.section);
+			return;
+		case "provider-sign-in":
+			void useTabsStore
+				.getState()
+				.switchTab(event.tabId)
+				.then(() => {
+					if (useTabsStore.getState().activeTabId === event.tabId)
+						useUiStore.getState().focusProvider(event.providerId);
+				})
+				.catch(error => toast({ variant: "error", message: String(error) }));
 			return;
 		case "toast": {
 			const step = event.undo;

@@ -19,6 +19,7 @@ export const IPC_ERROR_CODES = [
 	"session_delete_cancelled",
 	"session_name_empty",
 	"session_starting",
+	"login_in_progress",
 	"session_owned_elsewhere",
 	"session_kind_mismatch",
 	"session_open_in_tab",

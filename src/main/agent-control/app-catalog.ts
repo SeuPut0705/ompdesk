@@ -62,6 +62,7 @@ export interface ActionContext {
 	setPref(key: string, value: unknown): Promise<void>;
 	/** Send an RPC command to the calling session; resolves with the response data and throws on failure. */
 	rpc(command: RpcCommand): Promise<unknown>;
+	startProviderLogin(providerId: string): void;
 	/** Call an invoke channel's handler (`channel` must list the running action in `AGENT_CHANNELS`). */
 	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
 	/** Call a fire-and-forget channel's handler. */
@@ -775,8 +776,10 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		tier: "sensitive",
 		manage: { always: "signing in connects the person's account (a credential)" },
 		run: async (ctx, args) => {
-			await ctx.rpc({ type: "login", providerId: String(args.providerId) });
-			return { text: `Sign-in for ${String(args.providerId)} started: the person finishes it in the window.` };
+			ctx.startProviderLogin(String(args.providerId));
+			return {
+				text: `Sign-in for ${String(args.providerId)} requested: finish it in this session's Models & accounts panel.`,
+			};
 		},
 	},
 	{

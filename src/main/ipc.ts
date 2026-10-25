@@ -906,6 +906,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const signIn = cmd.type === "login" ? issuerTabId : null;
 		const login = cmd.type === "login" ? cmd.providerId : null;
 		let signInError: string | null = null;
+		if (signIn && sidecarPool.signInActive(signIn)) {
+			return {
+				id: _id,
+				type: "response",
+				command: "login",
+				success: false,
+				error: "A provider sign-in is already in progress in this tab",
+				code: "login_in_progress",
+			};
+		}
 		if (signIn && login) sidecarPool.noteSignIn(signIn, true, { providerId: login });
 		try {
 			// A prompt from a paired web device names its device to the omp first: the bridge journals it for the

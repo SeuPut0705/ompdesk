@@ -68,6 +68,7 @@ function refuse(what: string, tier: Tier): never {
 export class AppControl {
 	readonly #ports: AppPorts;
 	readonly #last = new Map<string, LastChange>();
+	readonly #signIns = new Set<string>();
 
 	readonly #registry: Readonly<Record<string, AppAction>>;
 
@@ -191,6 +192,22 @@ export class AppControl {
 				const response = await ports.rpc(callerTabId, command);
 				if (!response.success) throw new AppRefusal(response.error ?? `${command.type} failed.`);
 				return response.data;
+			},
+			startProviderLogin: providerId => {
+				const needed = rpcTier({ type: "login", providerId }, ports.fullEnabled());
+				if (!covers(granted, needed)) refuse("Provider sign-in", needed);
+				ports.send(callerTabId, { kind: "provider-sign-in", tabId: callerTabId, providerId });
+				if (this.#signIns.has(callerTabId)) return;
+				this.#signIns.add(callerTabId);
+				void ctx
+					.rpc({ type: "login", providerId })
+					.catch(error => {
+						ports.send(callerTabId, {
+							kind: "toast",
+							message: ports.localize("Sign-in failed: ", "로그인 실패: ") + String(error),
+						});
+					})
+					.finally(() => this.#signIns.delete(callerTabId));
 			},
 			invoke: (channel, ...args) => ports.invoke(callerTabId, this.#channel(channel, actionId, granted), args),
 			fire: (channel, ...args) => ports.fire(callerTabId, this.#channel(channel, actionId, granted), args),

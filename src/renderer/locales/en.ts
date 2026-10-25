@@ -1688,6 +1688,7 @@ export const en: Record<string, string> = {
 	"ipcError.session_delete_cancelled": "An extension cancelled the deletion.",
 	"ipcError.session_name_empty": "Enter a session name.",
 	"ipcError.session_starting": "The session is still starting. Try again in a moment.",
+	"ipcError.login_in_progress": "A provider sign-in is already in progress in this tab.",
 	"ipcError.session_owned_elsewhere": "This session is already open in another tab.",
 	"ipcError.session_deleted": "This session was deleted.",
 	"ipcError.session_folder_missing": "The folder this session belongs in no longer exists.",

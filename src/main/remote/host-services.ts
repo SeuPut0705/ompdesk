@@ -1813,6 +1813,8 @@ export class LocalHostServices implements HostServices {
 		// A provider sign-in runs here whether or not the device keeps its link: the device is told what is
 		// in flight (`signIn`), so its re-sent code paste is the login panel's while it runs.
 		const login = command.type === "login" ? command.providerId : null;
+		if (login !== null && (tab.signIns?.length ?? 0) > 0)
+			throw codedError("login_in_progress", "A provider sign-in is already in progress in this tab");
 		if (login !== null) this.#noteSignIn(tab, login);
 		let signInError: string | null = null;
 		try {

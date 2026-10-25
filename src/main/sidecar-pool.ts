@@ -2206,6 +2206,11 @@ export class SidecarPool {
 		if (!active) this.#signInEnded(entry, login?.providerId ?? null, login ? (login.error ?? null) : null);
 	}
 
+	signInActive(tabId: string): boolean {
+		const entry = this.#byTabId.get(tabId);
+		return entry !== undefined && this.#signInActive(entry);
+	}
+
 	/** Whether a `login` runs for the tab: one this window sent, or one a paired host reports (`signIn`). */
 	#signInActive(entry: PoolEntry): boolean {
 		return (entry.signIns ?? 0) > 0 || (entry.hostSignIns?.length ?? 0) > 0;

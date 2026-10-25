@@ -105,6 +105,7 @@ export type AppUndo = { kind: "pref"; key: string; value: unknown } | { kind: "s
 export type AgentAppEvent =
 	| { kind: "panel"; tab: (typeof AGENT_PANEL_TABS)[number] | (typeof AGENT_VIEW_SHEETS)[number] | null }
 	| { kind: "settings"; section: string; sub?: string }
+	| { kind: "provider-sign-in"; tabId: string; providerId: string }
 	| { kind: "pref"; key: string; value: unknown }
 	| { kind: "toast"; message: string; undo?: AppUndo };
 

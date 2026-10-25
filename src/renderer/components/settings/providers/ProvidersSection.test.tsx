@@ -28,6 +28,9 @@ import { SettingsDataProvider } from "../settings-data";
 import { SettingsNavigationProvider } from "../settings-navigation";
 import { ProvidersSection } from "./ProvidersSection";
 
+const viewer = vi.hoisted(() => ({ web: false }));
+vi.mock("../../../web/pwa", () => ({ webPwa: () => (viewer.web ? {} : null) }));
+
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
 	document,
@@ -230,6 +233,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
 	setFocusedSessionRuntime(null);
+	viewer.web = false;
 	openExternal.mockClear();
 	getProviders.mockReset();
 	getProviders.mockResolvedValue(providersResponse(snapshot([row("anthropic")])));
@@ -247,7 +251,7 @@ afterEach(async () => {
 	login.mockReset();
 	login.mockResolvedValue({ type: "response", command: "login", success: true });
 	cancelLogin.mockClear();
-	respondExtensionUi.mockClear();
+	respondExtensionUi.mockReset();
 });
 
 describe("ProvidersSection", () => {
@@ -682,6 +686,40 @@ describe("ProvidersSection", () => {
 		expect(listProviders).toHaveBeenLastCalledWith(HOST_ID);
 	});
 
+	it("honors Cancel before an API-key prompt arrives", async () => {
+		const pending = Promise.withResolvers<RpcResponse>();
+		login.mockReturnValueOnce(pending.promise);
+		getProviders.mockResolvedValue(
+			providersResponse(
+				snapshot([row("deepseek", { name: "DeepSeek", authenticated: false, loginAvailable: true })]),
+			),
+		);
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		await act(async () => button(translate("providers.picker.connect", { provider: "DeepSeek" }))?.click());
+		await act(async () => button(translate("common.cancel"))?.click());
+		expect(document.querySelector("[data-login-progress]")).toBeTruthy();
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "late-key",
+				method: "input",
+				title: "Paste your DeepSeek API key",
+			}),
+		);
+		expect(respondExtensionUi).toHaveBeenCalledWith({
+			type: "extension_ui_response",
+			id: "late-key",
+			cancelled: true,
+		});
+		expect(document.querySelector("[data-login-progress]")).toBeNull();
+		await act(async () =>
+			pending.resolve({ type: "response", command: "login", success: false, error: "Cancelled" }),
+		);
+		expect(text()).not.toContain(translate("providerList.login.failed", { provider: "DeepSeek" }));
+	});
+
 	describe("browser sign-in", () => {
 		// Stock's login sequence (rpc-mode `login` over a callback-server flow, as
 		// probed from omp 18.10.3): open_url with the loopback launch page, the
@@ -706,7 +744,11 @@ describe("ProvidersSection", () => {
 			}) as const;
 		let pendingLogin = Promise.withResolvers<RpcResponse>();
 
-		async function startSignIn(device: string | undefined, extra: ReactElement | null = null): Promise<void> {
+		async function startSignIn(
+			device: string | undefined,
+			extra: ReactElement | null = null,
+			beforeRequests?: () => Promise<void>,
+		): Promise<void> {
 			pendingLogin = Promise.withResolvers<RpcResponse>();
 			login.mockReturnValueOnce(pendingLogin.promise);
 			getProviders.mockResolvedValue(
@@ -725,6 +767,7 @@ describe("ProvidersSection", () => {
 			await act(async () =>
 				button(translate("providers.picker.connect", { provider: "Claude (Pro/Max)" }))?.click(),
 			);
+			await beforeRequests?.();
 			await act(async () => {
 				useExtensionUiStore.getState().pushRequest(openUrl);
 				useExtensionUiStore.getState().pushRequest({
@@ -760,6 +803,73 @@ describe("ProvidersSection", () => {
 			// The host's callback is unreachable from this browser, so the paste is open from the start.
 			expect(text()).toContain(translate("providerList.login.pasteLabel"));
 			expect(pasteField()).toBeTruthy();
+		});
+
+		it("on a web viewer's local-host tab opens the provider page only on a click and shows the paste fallback", async () => {
+			viewer.web = true;
+			await startSignIn(undefined);
+			expect(openExternal).not.toHaveBeenCalled();
+			expect(pasteField()).toBeTruthy();
+			expect(text()).toContain(translate("providerList.login.pasteHint"));
+			expect(button(translate("providerList.login.pasteToggle"))).toBeUndefined();
+
+			await act(async () => button(translate("providerList.login.openBrowser"))?.click());
+			expect(openExternal).toHaveBeenCalledExactlyOnceWith(openUrl.url);
+			expect(openExternal).not.toHaveBeenCalledWith(openUrl.launchUrl);
+		});
+
+		it("sends a pasted answer once while delivery is pending and allows retry after refusal", async () => {
+			await startSignIn(HOST_ID);
+			const delivery = Promise.withResolvers<void>();
+			respondExtensionUi.mockReturnValueOnce(delivery.promise);
+			await typeInto(pasteField(), "test-code");
+			const form = pasteField()?.closest("form");
+			await act(async () => {
+				form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+				form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+			});
+			expect(
+				respondExtensionUi.mock.calls.filter(([response]) => response.id === "code-1" && response.value),
+			).toHaveLength(1);
+			expect(pasteField()).toBeTruthy();
+
+			await act(async () => delivery.reject(new Error("Host is disconnected")));
+			expect(text()).toContain(translate("providerList.login.pasteLabel"));
+			expect(
+				useToastStore.getState().toasts.some(entry => entry.title === translate("extDialog.answerFailed")),
+			).toBe(true);
+			await act(async () => form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+			expect(
+				respondExtensionUi.mock.calls.filter(([response]) => response.id === "code-1" && response.value),
+			).toHaveLength(2);
+			expect(pasteField()).toBeNull();
+		});
+
+		it("does not clear a replacement prompt when the previous answer finishes delivery", async () => {
+			await startSignIn(HOST_ID);
+			const delivery = Promise.withResolvers<void>();
+			respondExtensionUi.mockReturnValueOnce(delivery.promise);
+			await typeInto(pasteField(), "first-code");
+			await act(async () =>
+				pasteField()
+					?.closest("form")
+					?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+			);
+			await act(async () => {
+				useExtensionUiStore.getState().pushRequest(pasteRequest("code-2"));
+			});
+			await act(async () => delivery.resolve());
+			expect(pasteField()).toBeTruthy();
+			await typeInto(pasteField(), "second-code");
+			await act(async () =>
+				pasteField()
+					?.closest("form")
+					?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+			);
+			expect(respondExtensionUi).toHaveBeenLastCalledWith(
+				{ type: "extension_ui_response", id: "code-2", value: "second-code" },
+				"t1",
+			);
 		});
 
 		it("on a local tab opens the launch page by itself, once, and shows no paste hint", async () => {
@@ -846,6 +956,22 @@ describe("ProvidersSection", () => {
 			expect(chat.textContent ?? "").toBe("");
 		});
 
+		it.each([undefined, HOST_ID])("honors Cancel before the browser link arrives on %s", async device => {
+			await startSignIn(device, null, async () => {
+				await act(async () => button(translate("common.cancel"))?.click());
+				expect(progress()).toBe(translate("providerList.login.starting"));
+				expect(cancelLogin).not.toHaveBeenCalled();
+			});
+			expect(cancelLogin).toHaveBeenCalledExactlyOnceWith(openUrl.url);
+			expect(openExternal).not.toHaveBeenCalled();
+			expect(document.querySelector("[data-login-progress]")).toBeNull();
+			await act(async () =>
+				pendingLogin.resolve({ type: "response", command: "login", success: false, error: "Cancelled" }),
+			);
+			expect(text()).not.toContain(translate("providerList.login.failed", { provider: "Anthropic" }));
+			expect(cancelledIds()).toEqual(["code-1"]);
+		});
+
 		it("cancel ends stock's login through its callback instead of answering the paste request", async () => {
 			await startSignIn(undefined, <ExtensionDialog />);
 			await act(async () => button(translate("common.cancel"))?.click());
@@ -882,7 +1008,7 @@ describe("ProvidersSection", () => {
 
 		describe("after a reload mid-sign-in", () => {
 			// The page lost the `login` call; main still runs it and hands the sign-in back.
-			async function reloadMidSignIn(): Promise<void> {
+			async function reloadMidSignIn(endedError?: string): Promise<void> {
 				getProviders.mockResolvedValue(
 					providersResponse(
 						snapshot([row("anthropic", { name: "Anthropic", authenticated: false, loginAvailable: true })]),
@@ -893,8 +1019,29 @@ describe("ProvidersSection", () => {
 				const store = useExtensionUiStore.getState();
 				store.adoptLogin({ active: true, providerId: "anthropic", link: openUrl });
 				store.restoreLoginRequest(pasteRequest("code-1"));
+				if (endedError) store.settleAdoptedLogin(endedError);
 				await mount(<ProvidersSection />);
 			}
+
+			it("shows an adopted failure even when the panel first mounts after the login ended", async () => {
+				await reloadMidSignIn("Authorization failed before the panel opened");
+				expect(text()).toContain("Authorization failed before the panel opened");
+				expect(button(translate("providerList.login.retry"))).toBeDefined();
+				expect(login).not.toHaveBeenCalled();
+				await act(async () => button(translate("providerList.login.retry"))?.click());
+				expect(login).toHaveBeenCalledWith("anthropic");
+			});
+
+			it("restores the paste fallback on a web viewer without opening a browser", async () => {
+				viewer.web = true;
+				await reloadMidSignIn();
+				expect(login).not.toHaveBeenCalled();
+				expect(openExternal).not.toHaveBeenCalled();
+				expect(pasteField()).toBeTruthy();
+				expect(button(translate("providerList.login.pasteToggle"))).toBeUndefined();
+				await act(async () => button(translate("providerList.login.openBrowser"))?.click());
+				expect(openExternal).toHaveBeenCalledExactlyOnceWith(openUrl.url);
+			});
 
 			it("shows the sign-in again with its browser link, the paste fallback and Cancel", async () => {
 				await reloadMidSignIn();

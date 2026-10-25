@@ -13,13 +13,14 @@
  * never closes it, so the panel keeps waiting for the browser first, offers
  * the paste as a secondary fallback, and answers the leftover request once
  * `login` returns. An empty answer before that would only make stock ask again.
- * A browser sign-in this page starts on a local tab opens the browser by itself; a
- * device code, a key page, a resumed sign-in and a paired host's tab leave it to the button.
+ * A browser sign-in this desktop page starts on a local tab opens the browser by itself;
+ * a device code, a key page, a resumed sign-in and a remote browser leave it to the button.
  *
- * On a tab that runs on a paired host, omp and its OAuth callback server run
- * there while the browser opens here: the link is the provider's own URL
- * (never the host's `localhost/launch`) and the paste is how the code reaches
- * the host, so the fallback starts open.
+ * On a paired host's tab or a web viewer, omp's callback server runs on another
+ * computer. The link is the provider's own URL (never the host's localhost/launch),
+ * and the paste is how the code reaches the host, so the fallback starts open.
+ * Cancel before the first request keeps the panel open until the link or prompt
+ * arrives, then cancels it without opening the browser.
  */
 
 import { ChevronDown, ExternalLink, Eye, EyeOff } from "lucide-react";
@@ -34,6 +35,7 @@ import { useFocusedHost, useFocusedTabDevice } from "../../../stores/remote";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { tabReady } from "../../../stores/tab-ready-gate";
 import { toastError } from "../../../stores/toast";
+import { webPwa } from "../../../web/pwa";
 import { Banner, Button, IconButton, Input, Spinner } from "../../common";
 
 interface LoginPrompt {
@@ -115,9 +117,12 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const adopted = useExtensionUiStore(state => state.adoptedLogin);
 	const hideAdoptedLogin = useExtensionUiStore(state => state.hideAdoptedLogin);
 	const dismissAdoptedLogin = useExtensionUiStore(state => state.dismissAdoptedLogin);
-	const remote = useFocusedTabDevice() !== undefined;
+	const remote = useFocusedTabDevice() !== undefined || webPwa() !== null;
 	const [state, setState] = useState<ProviderLoginState>(IDLE);
 	const attempt = useRef(0);
+	const loginSent = useRef(false);
+	const cancelRequested = useRef(false);
+	const submittedPrompts = useRef(new Set<string>());
 	const adoptedShown = useRef(false);
 	const stateRef = useRef(state);
 	stateRef.current = state;
@@ -140,7 +145,8 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 				const link = loginLink(request, remote);
 				setState(prev => ({ ...prev, link }));
 				// A browser sign-in this page started on this computer opens by itself; the panel's button reopens it.
-				if (link.oauth && !remote && !state.resumed && state.since > 0) openExternal(link.target);
+				if (link.oauth && !remote && !state.resumed && state.since > 0 && !cancelRequested.current)
+					openExternal(link.target);
 				// omp never waits on this answer; acknowledge it all the same.
 				void sendResponse({ type: "extension_ui_response", id: request.id, value: "done" });
 				removeRequest(request.id);
@@ -162,10 +168,11 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 		if (!adopted) return;
 		if (adopted.ended) {
 			dismissAdoptedLogin();
-			if (!adoptedShown.current) return;
+			const wasShown = adoptedShown.current;
 			adoptedShown.current = false;
-			if (adopted.ended.error) setState({ ...IDLE, providerId: adopted.providerId, error: adopted.ended.error });
-			else {
+			if (adopted.ended.error && !adopted.hidden && !cancelRequested.current)
+				setState({ ...IDLE, providerId: adopted.providerId, error: adopted.ended.error });
+			else if (wasShown) {
 				setState(IDLE);
 				if (adopted.ended.error === null) void onConnected(adopted.providerId);
 			}
@@ -176,6 +183,8 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			if (link) setState(prev => (prev.link ? prev : { ...prev, link }));
 		} else if (!adopted.hidden && !stateRef.current.running) {
 			adoptedShown.current = true;
+			cancelRequested.current = false;
+			submittedPrompts.current.clear();
 			setState({ ...IDLE, providerId: adopted.providerId, running: true, resumed: true, since: 0, link });
 		}
 	}, [adopted, dismissAdoptedLogin, onConnected, remote]);
@@ -183,6 +192,9 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const start = useCallback(
 		async (providerId: string): Promise<boolean> => {
 			const current = ++attempt.current;
+			submittedPrompts.current.clear();
+			loginSent.current = false;
+			cancelRequested.current = false;
 			beginInlineLogin();
 			setState({ ...IDLE, providerId, running: true, since: Date.now() });
 			// A starting omp would get `login` the moment it is ready (tab-runtime holds it), after a Cancel that had
@@ -197,6 +209,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			}
 			let outcome: { ok: true } | { ok: false; error: string | null };
 			try {
+				loginSent.current = true;
 				const response = await tabRpc.login(providerId);
 				outcome = response.success ? { ok: true } : { ok: false, error: response.error ?? null };
 			} catch (cause) {
@@ -211,7 +224,7 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 			const live = current === attempt.current;
 			if (!outcome.ok) {
 				// A cancelled or superseded sign-in fails quietly.
-				if (live) setState({ ...IDLE, providerId, error: outcome.error });
+				if (live) setState(cancelRequested.current ? IDLE : { ...IDLE, providerId, error: outcome.error });
 				return false;
 			}
 			// Connected even when the user cancelled a moment too late: the account is stored.
@@ -225,18 +238,27 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 	const submit = useCallback(
 		(value: string) => {
 			const prompt = stateRef.current.prompt;
-			if (!prompt) return;
+			const current = attempt.current;
+			if (!prompt || submittedPrompts.current.has(prompt.id)) return;
+			submittedPrompts.current.add(prompt.id);
 			// The prompt stays open when the answer was refused, so it can be sent again.
 			void respond(prompt.id, { value }).then(delivered => {
-				if (delivered) setState(prev => ({ ...prev, prompt: null }));
+				if (current !== attempt.current) return;
+				if (!delivered) submittedPrompts.current.delete(prompt.id);
+				else setState(prev => (prev.prompt?.id === prompt.id ? { ...prev, prompt: null } : prev));
 			});
 		},
 		[respond],
 	);
 
 	const cancel = useCallback(() => {
+		const { link, prompt, running, resumed } = stateRef.current;
+		if (running && !link?.oauth && !prompt && (loginSent.current || resumed)) {
+			cancelRequested.current = true;
+			return;
+		}
+		cancelRequested.current = false;
 		attempt.current++;
-		const { link, prompt } = stateRef.current;
 		if (link?.oauth) {
 			// Stock's RPC `login` takes no cancel and re-asks an empty paste, while it
 			// holds omp's command queue; its callback's denial ends it at once.
@@ -254,6 +276,10 @@ export function useProviderLogin(onConnected: (providerId: string) => Promise<vo
 		}
 		setState(IDLE);
 	}, [hideAdoptedLogin, respond, tabRpc]);
+
+	useEffect(() => {
+		if (cancelRequested.current && state.running && (state.link?.oauth || state.prompt)) cancel();
+	}, [cancel, state.link, state.prompt, state.running]);
 
 	return { state, start, submit, cancel };
 }
@@ -333,6 +359,7 @@ export function ProviderLoginPanel({
 	const t = useT();
 	const { state } = login;
 	const host = useFocusedHost();
+	const remote = useFocusedTabDevice() !== undefined || webPwa() !== null;
 	const [pasteOpen, setPasteOpen] = useState(false);
 	const pasteId = useId();
 
@@ -363,8 +390,8 @@ export function ProviderLoginPanel({
 	const fallback = state.link?.oauth === true ? state.prompt : null;
 	const primaryPrompt = fallback ? null : state.prompt;
 	const keyPage = primaryPrompt !== null && state.link?.oauth === false;
-	// A paired host's callback is out of this browser's reach: the paste is the way back.
-	const pasteShown = fallback !== null && (pasteOpen || host !== undefined);
+	// A remote browser cannot reach omp's callback, so the paste is the way back.
+	const pasteShown = fallback !== null && (pasteOpen || remote);
 	const progressKey = state.progress === null ? undefined : STOCK_PROGRESS[state.progress];
 
 	return (
@@ -431,7 +458,7 @@ export function ProviderLoginPanel({
 			)}
 			{fallback && (
 				<div className="flex flex-col gap-2 border-t border-(--sc-border-subtle) pt-3" data-login-paste="true">
-					{host === undefined && (
+					{!remote && (
 						<Button
 							aria-controls={pasteId}
 							aria-expanded={pasteShown}
@@ -450,7 +477,7 @@ export function ProviderLoginPanel({
 								{t("providerList.login.pasteHint")}
 							</p>
 							<PromptForm
-								autoFocus={host === undefined}
+								autoFocus={!remote}
 								describedBy={`${pasteId}-hint`}
 								key={fallback.id}
 								label={t("providerList.login.pasteLabel")}

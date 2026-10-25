@@ -235,3 +235,46 @@ test("a reload mid-sign-in leaves no chat card and the panel shows the sign-in a
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 });
+
+test("an agent starts provider sign-in without waiting for authentication and shows the person's login panel", async () => {
+	test.setTimeout(120_000);
+	const { app, page, record, errors, root } = await launch("en", "light");
+	try {
+		const tabId = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.tabId;
+		expect(tabId).toBeDefined();
+		await page.evaluate(({ tabId, command }) => window.omp.rpc.commandForTab(tabId, { type: "bash", command }), {
+			tabId: tabId ?? "",
+			command: `fixture:host-tool:ompdesk_app ${JSON.stringify({
+				action: "accounts.provider_sign_in",
+				args: { providerId: "anthropic" },
+			})}`,
+		});
+		await expect
+			.poll(
+				async () =>
+					(await readRecords(record))
+						.filter(frame => frame.type === "host_tool_result" && frame.recordedBy !== undefined)
+						.map(frame => frame.isError === true),
+				{ timeout: 10_000 },
+			)
+			.toEqual([false]);
+		const panel = page.locator("[data-login-panel]");
+		await expect(panel.locator("[data-login-progress]")).toBeVisible();
+		await expect(page.locator("[data-prompt-card]")).toHaveCount(0);
+		const duplicate = await page.evaluate(
+			tabId => window.omp.rpc.commandForTab(tabId, { type: "login", providerId: "anthropic" }),
+			tabId ?? "",
+		);
+		expect(duplicate).toMatchObject({ success: false, code: "login_in_progress" });
+		await page.screenshot({ path: test.info().outputPath("agent-login-panel.png") });
+		await panel.getByRole("button", { name: en["providerList.login.pasteToggle"] }).click();
+		await panel.getByLabel("Authorization code or redirect address").fill("abc");
+		await panel.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(page.getByText("Signed in to Anthropic")).toBeVisible();
+		await expect(panel.locator("[data-login-progress]")).toHaveCount(0);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});

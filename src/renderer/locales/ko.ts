@@ -1671,6 +1671,7 @@ export const ko: Record<string, string> = {
 	"ipcError.session_delete_cancelled": "확장 프로그램이 삭제를 취소했어요.",
 	"ipcError.session_name_empty": "세션 이름을 입력해 주세요.",
 	"ipcError.session_starting": "세션이 아직 시작하는 중이에요. 잠시 후 다시 시도해 보세요.",
+	"ipcError.login_in_progress": "이 탭에서 이미 프로바이더 로그인을 진행하고 있어요.",
 	"ipcError.session_owned_elsewhere": "이 세션은 이미 다른 탭에서 열려 있어요.",
 	"ipcError.session_deleted": "삭제된 세션이에요.",
 	"ipcError.session_folder_missing": "이 세션이 속한 폴더가 없어졌어요.",

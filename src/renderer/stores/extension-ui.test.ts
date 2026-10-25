@@ -3,9 +3,15 @@
  * replace or clear their key, a `cancel` takes the card and its arrival time away, a question queues behind the
  * open ones with its arrival time, and a sign-in page's host is kept for the paste card that names no provider.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionUIRequest } from "../../shared/rpc-types";
 import { applyExtensionUiRequest, type ExtensionUiSnapshot, openUrlTarget } from "./extension-ui";
+
+const viewer = vi.hoisted(() => ({ web: false }));
+vi.mock("../web/pwa", () => ({ webPwa: () => (viewer.web ? {} : null) }));
+afterEach(() => {
+	viewer.web = false;
+});
 
 const empty: ExtensionUiSnapshot = {
 	pendingRequests: [],
@@ -97,6 +103,13 @@ describe("openUrlTarget", () => {
 	it("opens omp's local launch page on this computer and the provider's page for a paired host's tab", () => {
 		expect(openUrlTarget(open, false)).toBe("http://localhost:51121/launch");
 		// The host's localhost is not this device's.
+		expect(openUrlTarget(open, true)).toBe("https://provider.example/authorize");
+		expect(openUrlTarget({ ...open, launchUrl: undefined }, false)).toBe("https://provider.example/authorize");
+	});
+
+	it("never opens the host's loopback launch page in a web viewer, regardless of the tab's device", () => {
+		viewer.web = true;
+		expect(openUrlTarget(open, false)).toBe("https://provider.example/authorize");
 		expect(openUrlTarget(open, true)).toBe("https://provider.example/authorize");
 		expect(openUrlTarget({ ...open, launchUrl: undefined }, false)).toBe("https://provider.example/authorize");
 	});
