@@ -66,7 +66,10 @@ for (const fail of shots ? [false, true] : []) {
 				await expect(page.locator(".omp-execution-group[data-state='running']")).toHaveCount(0, {
 					timeout: 30_000,
 				});
-				await expect(page.locator(".omp-execution-group-summary").last()).toContainText(/types|타입|command|명령/);
+				await expect(page.locator(".omp-execution-group-header").last()).toHaveAttribute(
+					"aria-label",
+					/types|타입|command|명령/,
+				);
 				for (const size of SIZES) {
 					await app.evaluate(
 						({ BrowserWindow }, { width, height }) =>

@@ -83,6 +83,9 @@ function StatefulExecutionGroup({
 	);
 }
 
+/** The head button's accessible name: every fact of the run, whether or not the head draws it. */
+const headLabel = () => container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label");
+
 async function mount(
 	toolCallIds: string[] = [],
 	live = false,
@@ -185,7 +188,10 @@ describe("ExecutionGroup", () => {
 			]),
 		);
 		await mount(["write", "edit"]);
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 file changed +1 −0");
+		expect(headLabel()).toMatch(/^Steps: 1 file changed \+1 −0/);
+		// Files are said by the metric strip below, not twice in the head.
+		expect(container.querySelector(".omp-execution-group-summary")).toBeNull();
+		expect(container.querySelector('[data-work-finding="changes"]')?.textContent).toContain("1");
 	});
 
 	it("keeps completed work to one summary line until requested", async () => {
@@ -361,7 +367,9 @@ describe("ExecutionGroup", () => {
 		await mount(["read-1", "read-2", "edit-1", "bash-1"]);
 
 		// The same run model as the outcome: what changed and what ran, not one count per tool kind.
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 file changed · 1 command");
+		expect(headLabel()).toBe("Steps: 1 file changed · 1 command · 16.0s");
+		// The head keeps what the strip does not say; the files are the strip's.
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 command");
 		expect(container.textContent).toContain("16.0s");
 		expect(container.querySelector('[data-state="complete"]')).not.toBeNull();
 	});
@@ -622,7 +630,8 @@ describe("ExecutionGroup", () => {
 		expect(work?.querySelector(".omp-work-narrative")?.textContent).toBe("Work interrupted");
 		// One name for a user stop: "Interrupted", never stock's "cancelled".
 		expect(work?.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe("Interrupted");
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toMatch(/^1 interrupted · /);
+		expect(headLabel()).toMatch(/^Steps: 1 interrupted · /);
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("1 interrupted");
 		expect(container.textContent).not.toContain("Work complete");
 	});
 
@@ -654,7 +663,7 @@ describe("ExecutionGroup", () => {
 				},
 			]);
 			await mount(["task"]);
-			expect(container.querySelector(".omp-execution-group-summary")?.textContent?.startsWith(summary)).toBe(true);
+			expect(headLabel()?.startsWith(`Steps: ${summary}`)).toBe(true);
 			expect(container.querySelector(".omp-live-step .omp-work-narrative")?.textContent).toBe(head);
 			expect(container.querySelector(".omp-work-head [role='img']")?.getAttribute("aria-label")).toBe(label);
 			expect(container.querySelector(".omp-work-card-button")?.textContent).toContain(head);

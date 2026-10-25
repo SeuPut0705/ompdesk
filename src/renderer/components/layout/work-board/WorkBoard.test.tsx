@@ -234,7 +234,7 @@ describe("WorkBoard visibility", () => {
 });
 
 describe("WorkBoard header", () => {
-	it("sums the session up in one line and shows the todo progress as a bar", async () => {
+	it("says what runs and waits in one sentence and shows the plan as one bar", async () => {
 		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "running", 1)]);
 		useExtensionUiStore
 			.getState()
@@ -250,8 +250,7 @@ describe("WorkBoard header", () => {
 			},
 		]);
 		await mount();
-		// What the sections already say is not repeated in a status line.
-		expect(pane.querySelector(".omp-work-board-status")).toBeNull();
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 running · 1 waiting for you");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 		const bar = pane.querySelector(".omp-work-board-segments");
 		expect(bar?.getAttribute("aria-label")).toBe("1 of 3 done");
@@ -261,14 +260,47 @@ describe("WorkBoard header", () => {
 			"pending",
 		]);
 		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toBe("1/3");
+		// The plan's figure is stated once, in the head: its section carries no count.
+		expect(section("todos")?.querySelector(".omp-work-board-count")).toBeNull();
 	});
 
 	it("says it is idle when only the last turn is left", async () => {
 		await mount();
 		await act(async () => useTodoStore.getState().setTurnActive(true, Date.now() - 3000));
 		await act(async () => useTodoStore.getState().setTurnActive(false));
-		expect(pane.querySelector(".omp-work-board-status")).toBeNull();
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("Idle");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("idle");
+	});
+
+	it("counts in the sentence exactly what the sections it summarizes count", async () => {
+		useSubagentsStore.getState().setSnapshots([agent("a1", "running", 0), agent("a2", "parked", 1)]);
+		rows = [jobRow({ id: "j1", type: "bash", status: "running", label: "watch", startTime: Date.now() })];
+		useExtensionUiStore
+			.getState()
+			.pushRequest({ type: "extension_ui_request", id: "c1", method: "confirm", title: "Go?", message: "" });
+		usePlanApprovalStore.getState().showProposal({ planFilePath: "/w/PLAN.md", planContent: "# Plan", options: [] });
+		useToolsStore.setState({
+			finishedTools: new Map([
+				[
+					"b1",
+					tool({
+						args: { command: "bun test" },
+						status: "error",
+						isError: true,
+						endTime: 9,
+						result: { content: [{ type: "text", text: "1 fail" }], details: { exitCode: 1 } },
+					}),
+				],
+			]),
+		});
+		await mount();
+		await vi.waitFor(() => expect(section("check")).not.toBeNull());
+		const counted = (id: string) => Number(section(id)?.querySelector(".omp-work-board-count")?.textContent);
+		expect(counted("running")).toBe(3);
+		expect(counted("waiting")).toBe(2);
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(
+			`${counted("running")} running · ${counted("waiting")} waiting for you · 1 failed`,
+		);
 	});
 });
 
@@ -339,7 +371,9 @@ describe("WorkBoard sections", () => {
 		expect(pane.hasAttribute("data-work-board-todo")).toBe(true);
 		expect(pane.hasAttribute("data-work-board-running")).toBe(false);
 		const plan = section("todos");
-		expect(plan?.textContent).toContain("5/7");
+		// The plan's figure is the head's one bar; the section lists the work and carries no count.
+		expect(pane.querySelector(".omp-work-board-progress")?.textContent).toBe("5/7");
+		expect(plan?.querySelector(".omp-work-board-count")).toBeNull();
 		expect(plan?.textContent).toContain("5 done");
 		expect(plan?.querySelector('[data-todo-status="in_progress"]')?.textContent).toContain("Write the board");
 		// Every finished task folds into one "5 done" row; none is left struck through above the active one.
@@ -360,13 +394,14 @@ describe("WorkBoard sections", () => {
 	it("shows the turn's token speed beside its elapsed time only while the turn streams", async () => {
 		await mount();
 		await act(async () => {
-			useTodoStore.getState().setTurnActive(true, Date.now() - 4000);
-			useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 4000, rate: 70.4 } });
+			useTodoStore.getState().setTurnActive(true, Date.now() - 24_000);
+			useMessagesStore.setState({ turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 24_000, rate: 70.4 } });
 		});
-		expect(section("turn")?.querySelector(".omp-work-board-aside")?.textContent).toMatch(/^\d+s · 70 tok\/s$/);
+		// The turn's clock reads in ten-second steps (24 s of it, or 25 s on a slow run, shows as 20s).
+		expect(section("turn")?.querySelector(".omp-work-board-aside")?.textContent).toMatch(/^20s · 70 tok\/s$/);
 		await act(async () =>
 			useMessagesStore.setState({
-				turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 4000, endedAt: Date.now(), rate: 70.4 },
+				turnMeter: { ...EMPTY_TURN_METER, startedAt: Date.now() - 24_000, endedAt: Date.now(), rate: 70.4 },
 			}),
 		);
 		expect(section("turn")?.textContent ?? "").not.toContain("tok/s");
@@ -531,7 +566,8 @@ describe("WorkBoard sections", () => {
 				liveTools: new Map([["c1", tool({ intent: "Run the unit tests", startTime: startedAt + 3000 })]]),
 			});
 		});
-		expect(section("turn")?.textContent).toMatch(/12s|13s/);
+		// 12 s into the turn the clock reads 10s: steps of ten seconds, not a count that moves every second.
+		expect(section("turn")?.textContent).toContain("10s");
 		expect(pane.querySelectorAll("[data-board-step]")).toHaveLength(2);
 		const done = pane.querySelector('[data-board-step="done"]');
 		expect(done?.textContent).toContain("src/a.ts");

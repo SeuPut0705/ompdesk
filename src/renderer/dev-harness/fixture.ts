@@ -15,6 +15,7 @@ import type {
 } from "../../shared/rpc-types";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import { BOARD_BUSY, boardTurnMessages, CHILDREN_WAIT } from "./fixture-board";
+import { cardTurnMessages } from "./fixture-card";
 
 const NOW = Date.parse("2026-10-17T09:30:00Z");
 const MINUTE = 60_000;
@@ -448,10 +449,12 @@ function mailMessages(base: number): Record<string, unknown>[] {
 export function entriesFor(tabId: string): Entry[] {
 	if (tabId !== "tab-1") return entriesFixture(tabId).slice(0, 4);
 	const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
-	if (!params.has("stress") && !params.has("mail") && !BOARD_BUSY) return entriesFixture(tabId);
+	const card = params.get("card");
+	if (!params.has("stress") && !params.has("mail") && !BOARD_BUSY && !card) return entriesFixture(tabId);
 	const all = [
 		...entriesFixture(tabId).map(entry => entry.message),
 		...(params.has("stress") ? stressMessages(NOW - 20 * MINUTE) : []),
+		...(card ? cardTurnMessages(NOW - 30 * MINUTE, card === "fail") : []),
 		...(params.has("mail") ? mailMessages(NOW - 10 * MINUTE) : []),
 		// The live wait (`&children=wait`) is the turn running now: its clock reads from real time, not the fixture's day.
 		...(BOARD_BUSY ? boardTurnMessages(CHILDREN_WAIT ? Date.now() - 3 * MINUTE : NOW - 8 * MINUTE) : []),

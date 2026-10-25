@@ -6,7 +6,7 @@
 .omp-work-board {
 	display: flex;
 	flex-direction: column;
-	gap: var(--sc-space-3);
+	gap: var(--sc-space-2);
 	max-height: 100%;
 	overflow-y: auto;
 	overscroll-behavior: contain;
@@ -15,15 +15,17 @@
 	scrollbar-width: thin;
 }
 
-/* Head: one line (pulse, name, plan progress), the project of a linked worktree, then the meters line. The board has
-   no close: it docks whenever a pane has room and nothing opened it again (the user's call, 22 Oct 2026). */
+/* Head: the status sentence (what is running, waiting, failed) with the pulse, the plan's one bar, the project of a
+   linked worktree, then the meters line. The board has no close: it docks whenever a pane has room and nothing opened
+   it again (the user's call, 22 Oct 2026). */
 .omp-work-board-head {
 	display: grid;
-	grid-template-columns: auto auto minmax(0, 1fr);
+	grid-template-columns: auto minmax(0, 1fr);
 	align-items: center;
 	column-gap: var(--sc-space-2);
-	row-gap: var(--sc-space-1);
+	row-gap: var(--sc-space-1-5);
 	padding-inline: var(--sc-space-1-5);
+	padding-block-end: var(--sc-space-1);
 	/* A touch reach stops at the head's padding: a control at the board's edge reached past it and the board, a
 	   scroller, grew a horizontal scrollbar. */
 	--hit-gap-x: calc(2 * var(--sc-space-1-5));
@@ -49,11 +51,42 @@
 	background: var(--sc-warning);
 }
 
+/* The board's name is for screen readers: the sentence under the pulse says what the board is saying. */
 .omp-work-board-name {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/* The sentence wraps to a second line before it clips (the clause cut off at the end would be the failure), and
+   it wraps between clauses, never inside one. */
+.omp-work-board-status {
+	min-width: 0;
 	margin: 0;
-	font-size: var(--sc-font-xs);
+	font-size: var(--sc-font-sm);
 	font-weight: 600;
-	color: var(--sc-text-muted);
+	line-height: 18px;
+	color: var(--sc-text);
+}
+
+.omp-work-board-status > span {
+	white-space: nowrap;
+}
+
+.omp-work-board-status [data-tone="warning"] {
+	color: var(--sc-warning);
+}
+
+.omp-work-board-status [data-tone="danger"] {
+	color: var(--sc-danger);
+}
+
+/* The strip hides the pulse, so the sentence would land in the grid's auto column. */
+.omp-work-strip-panel .omp-work-board-status {
+	grid-column: 1 / -1;
 }
 
 /* A linked worktree's project and what it is for (`acme-web · Autopilot`); the full path is its tooltip. */
@@ -100,6 +133,7 @@
    spills past its box over the count (30 segments once overflowed a 64 px box onto "18/30"). */
 .omp-work-board-progress {
 	display: flex;
+	grid-column: 1 / -1;
 	min-width: 0;
 	align-items: center;
 	gap: var(--sc-space-1-5);
@@ -120,14 +154,15 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--sc-space-2);
-	margin: 0 0 var(--sc-space-1);
+	margin: 0;
 	font-size: var(--sc-font-xs);
-	font-weight: 500;
-	color: var(--sc-text-muted);
+	font-weight: 600;
+	color: var(--sc-text-secondary);
 }
 
 .omp-work-board-fold {
 	display: inline-flex;
+	flex: 1 1 auto;
 	min-width: 0;
 	min-height: 24px;
 	align-items: center;
@@ -168,6 +203,12 @@ button.omp-work-board-row:focus-visible {
 	white-space: nowrap;
 }
 
+/* A section's count sits at the right end of its head, before its aside. */
+.omp-work-board-count {
+	margin-inline-start: auto;
+	font-weight: 500;
+}
+
 .omp-work-board-aside {
 	padding-inline-end: var(--sc-space-1-5);
 }
@@ -192,7 +233,7 @@ button.omp-work-board-row:focus-visible {
 	min-width: 0;
 	align-items: flex-start;
 	gap: var(--sc-space-2);
-	padding: 5px var(--sc-space-1-5);
+	padding: 3px var(--sc-space-1-5);
 	border-radius: var(--sc-radius-sm);
 	font-size: var(--sc-font-sm);
 	line-height: 20px;
@@ -212,11 +253,35 @@ button.omp-work-board-row:hover {
 
 .omp-work-board-lead {
 	display: flex;
-	width: 12px;
+	width: 14px;
 	height: 20px;
 	flex: none;
 	align-items: center;
 	justify-content: center;
+}
+
+/* A lead mark that names the kind of thing (a subagent, a job, a file, a branch), tinted by its state. */
+.omp-work-board-kind {
+	width: 14px;
+	height: 14px;
+	flex: none;
+	color: var(--sc-text-subtle);
+}
+
+.omp-work-board-kind[data-tone="info"] {
+	color: var(--sc-info);
+}
+
+.omp-work-board-kind[data-tone="success"] {
+	color: var(--sc-success);
+}
+
+.omp-work-board-kind[data-tone="warning"] {
+	color: var(--sc-warning);
+}
+
+.omp-work-board-kind[data-tone="danger"] {
+	color: var(--sc-danger);
 }
 
 .omp-work-board-meta {
@@ -344,9 +409,23 @@ button.omp-work-board-more:hover {
 	box-shadow: inset 0 0 0 1px var(--sc-text-subtle);
 }
 
-/* What waits on the user comes first and wears the warning wash. */
+/* What waits on the user and a failed check come first, each a washed block: the section is the callout, its rows stay
+   plain on it. */
+.omp-work-board-section[data-tone] {
+	padding-block: var(--sc-space-1);
+	border-radius: var(--sc-radius-md);
+}
+
+.omp-work-board-section[data-tone="warning"] {
+	background: var(--sc-warning-soft);
+}
+
+.omp-work-board-section[data-tone="danger"] {
+	background: var(--sc-danger-soft);
+}
+
 .omp-work-board-section[data-tone="warning"] .omp-work-board-title {
-	color: var(--sc-warning);
+	color: var(--sc-warning-on-soft);
 }
 
 /* The warning wash takes the quiet text's contrast under 4.5:1 (dark: a waiting child's step read 4.33:1): on a washed
@@ -358,17 +437,19 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"] {
 }
 
 .omp-work-board-section[data-tone="warning"] button.omp-work-board-row {
-	background: var(--sc-warning-soft);
 	color: var(--sc-text);
 }
 
 .omp-work-board-section[data-tone="warning"] button.omp-work-board-row:hover {
-	background: color-mix(in srgb, var(--sc-warning) 18%, transparent);
+	background: color-mix(in srgb, var(--sc-warning) 14%, transparent);
 }
 
-/* A failed check comes first too, in the danger tone. */
 .omp-work-board-section[data-tone="danger"] .omp-work-board-title {
-	color: var(--sc-danger);
+	color: var(--sc-danger-on-soft);
+}
+
+.omp-work-board-section[data-tone="danger"] button.omp-work-board-row:hover {
+	background: color-mix(in srgb, var(--sc-danger) 14%, transparent);
 }
 
 /* An opened session that waits on the user: only its own row wears the wash, the list stays plain. */
@@ -417,17 +498,27 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 }
 
 /* The head's meters line: the subscription accounts' gauges (AccountLimit.tsx) and a metered provider's charge
-   (SessionSpendLine.tsx) side by side, wrapping only when they do not fit. Each item's details are its tooltip. */
+   (SessionSpendLine.tsx) on one line; the provider's name gives way first, then the tail clips. Each item's details
+   are its tooltip. */
 .omp-work-board-meters {
 	grid-column: 1 / -1;
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	align-items: center;
-	gap: var(--sc-space-1) var(--sc-space-2);
+	gap: var(--sc-space-2);
+	overflow: hidden;
 	min-width: 0;
 }
 
 .omp-work-board-meters:empty {
+	display: none;
+}
+
+.omp-work-board-meters > * {
+	flex: 0 1 auto;
+}
+
+.omp-work-board-meters:has(.omp-work-board-account) [data-board-spend-name] {
 	display: none;
 }
 
@@ -464,4 +555,3 @@ button.omp-work-board-row[data-board-opened][data-status="waiting"]:hover {
 	font-size: var(--sc-font-xs);
 	color: var(--sc-text-secondary);
 }
-

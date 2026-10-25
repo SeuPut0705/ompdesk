@@ -1,15 +1,13 @@
 /**
- * What a finished card's findings row offers, derived from the run's ledger alone (no model call):
- * the failing step, the passing test run, the dev server a command started, and the plain-text
- * summary the row copies. Pure; `ExecutionGroup.tsx` draws it.
+ * What a finished card's findings offer, derived from the run's ledger alone (no model call): the
+ * failing step, the dev server a command started, and the plain-text summary Copy puts on the
+ * clipboard. Pure; `ExecutionGroup.tsx` draws it.
  */
 import { type CheckInput, type CheckSummary, firstErrorLine, firstFailure } from "./work-checks";
 
 export interface WorkFindings {
 	/** Something failed: the cause line when the output says one, and the call to show. */
 	error?: { cause?: string; toolCallId?: string };
-	/** The last test run passed: its count when the runner printed one. */
-	tests?: { count?: number; toolCallId?: string };
 	/** The address a dev server printed (the last one). */
 	previewUrl?: string;
 }
@@ -32,13 +30,6 @@ export function deriveFindings({ running, checks, commands, failedStep }: Findin
 	const toolCallId = failedCheck?.toolCallId ?? failure?.toolCallId ?? failedStep;
 	if (failedCheck || failure || failedStep) {
 		findings.error = { ...(cause ? { cause } : {}), ...(toolCallId ? { toolCallId } : {}) };
-	}
-	const tests = checks.find(check => check.kind === "test" && check.passed);
-	if (tests) {
-		findings.tests = {
-			...(tests.tests?.passed !== undefined ? { count: tests.tests.passed } : {}),
-			...(tests.toolCallId ? { toolCallId: tests.toolCallId } : {}),
-		};
 	}
 	const previewUrl = commands.findLast(command => command.previewUrl)?.previewUrl;
 	if (previewUrl) findings.previewUrl = previewUrl;

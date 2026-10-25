@@ -157,6 +157,7 @@ export function LiveStepPeek({
 	stepsListed = false,
 	summaryRow,
 	findings,
+	attention = false,
 	carriesContext = false,
 	todoSnapshots,
 	notes,
@@ -177,6 +178,8 @@ export function LiveStepPeek({
 	summaryRow?: ReactNode;
 	/** A finished run's findings (failure cause, Changes), right under the head. */
 	findings?: ReactNode;
+	/** A finished run whose own check or command failed: the head's mark says so instead of a green tick. */
+	attention?: boolean;
 	/** Only the transcript's live-tail group carries the session context. */
 	carriesContext?: boolean;
 	todoSnapshots?: readonly TodoSnapshot[];
@@ -583,7 +586,7 @@ export function LiveStepPeek({
 	const sub =
 		liveSub ||
 		(turnIsLive && !nested && entry && surfaceKey !== "thinking" ? stepDetail(header, narrative, partial) : "");
-	const headState: WorkState = state === "interrupted" ? "stopped" : state;
+	const headState: WorkState = state === "interrupted" ? "stopped" : attention ? "failed" : state;
 	// The step's own clock, or the no-output warning for a silent command that has not exited yet.
 	const exited = typeof resultDetails(partial)?.exitCode === "number";
 	const stalled = running && !exited && (kind === "bash" || kind === "eval") && silentSeconds > 10;
@@ -651,13 +654,15 @@ export function LiveStepPeek({
 					<WorkStatus
 						state={headState}
 						label={t(
-							state === "running"
-								? "subagent.status.started"
-								: state === "failed"
-									? "subagent.status.failed"
-									: state === "interrupted"
-										? "tools.status.interrupted"
-										: "subagent.status.completed",
+							attention
+								? "chat.work.verdict.failed"
+								: state === "running"
+									? "subagent.status.started"
+									: state === "failed"
+										? "subagent.status.failed"
+										: state === "interrupted"
+											? "tools.status.interrupted"
+											: "subagent.status.completed",
 						)}
 						motion={motion}
 					/>

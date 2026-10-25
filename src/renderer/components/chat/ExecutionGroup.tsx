@@ -1,4 +1,4 @@
-import { Check, ChevronRight, CircleX, FileDiff, Globe } from "lucide-react";
+import { ChevronRight, CircleX } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { useFrameSelector } from "../../hooks/use-frame-selector";
@@ -15,6 +15,7 @@ import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
 import { revealStep, type StepReveal, StepRevealContext } from "./work/reveal-step";
 import { useRunOutcome, useRunStores } from "./work/use-work-run";
+import { type WorkFact, WorkMetrics } from "./work/WorkFacts";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
 import { checkKind, summarizeChecks } from "./work/work-checks";
 import { deriveFindings, workSummaryText } from "./work/work-findings";
@@ -180,10 +181,16 @@ export function ExecutionGroup({
 	});
 	const totalSteps = Math.max(0, stepCount - skipped);
 	const plural = totalSteps === 1 ? "" : "s";
-	// One fact line for every finished card: failures once, then what the whole run produced.
+	// Every fact of a finished card, for the head button's accessible name and Copy summary. The ones
+	// the metric strip and the agent lanes below do not already say stay in the head beside the time.
 	const facts: string[] = [];
-	if (failed > 0) facts.push(t("chat.work.commandsFailed", { count: failed }));
-	if (state === "interrupted" && interrupted > 0) facts.push(t("chat.work.interruptedCount", { count: interrupted }));
+	const headFacts: string[] = [];
+	const say = (fact: string, shownBelow = false) => {
+		facts.push(fact);
+		if (!shownBelow) headFacts.push(fact);
+	};
+	if (failed > 0) say(t("chat.work.commandsFailed", { count: failed }));
+	if (state === "interrupted" && interrupted > 0) say(t("chat.work.interruptedCount", { count: interrupted }));
 	const produced = facts.length;
 	if (outcome.files.length) {
 		const hasStats = outcome.files.some(file => file.added !== undefined);
@@ -192,7 +199,7 @@ export function ExecutionGroup({
 		const files = t("chat.work.filesChanged", {
 			count: outcome.files.length,
 		});
-		facts.push(hasStats ? `${files} +${added} −${removed}` : files);
+		say(hasStats ? `${files} +${added} −${removed}` : files, state !== "running");
 	}
 	// What the commands checked reads as its result ("tests passed", "build failed"); the
 	// other commands keep their count.
@@ -208,18 +215,17 @@ export function ExecutionGroup({
 					: t(`chat.work.check.${check.kind}.${verdict}`),
 		};
 	});
-	for (const check of checkLabels) facts.push(check.label);
+	for (const check of checkLabels) say(check.label, true);
 	const otherCommands = outcome.commands.filter(
 		command => command.interrupted || command.unknown || !checkKind(command.command),
 	).length;
-	if (otherCommands) facts.push(t("chat.work.commandsRun", { count: otherCommands }));
-	// The failing step, the passing test run and a dev server's address: the findings row's chips.
-	if (agents.length) facts.push(t("chat.work.agentsDone", { count: agents.length }));
+	if (otherCommands) say(t("chat.work.commandsRun", { count: otherCommands }));
+	if (agents.length) say(t("chat.work.agentsDone", { count: agents.length }), true);
 	if (facts.length === produced) {
-		if (reads) facts.push(t("chat.process.kind.read", { count: reads }));
-		if (searches) facts.push(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
+		if (reads) say(t("chat.process.kind.read", { count: reads }));
+		if (searches) say(t("chat.process.kind.search", { count: searches, plural: searches === 1 ? "" : "es" }));
 	}
-	if (facts.length === produced) facts.push(t("chat.work.stepCount", { total: totalSteps, plural }));
+	if (facts.length === produced) say(t("chat.work.stepCount", { total: totalSteps, plural }));
 	const summary =
 		state === "running" && running > 0
 			? t("chat.process.statusRunning", { running, total: totalSteps, plural })
@@ -232,7 +238,7 @@ export function ExecutionGroup({
 	const duration = state !== "running" && spanMs > 0 ? formatDuration(spanMs) : null;
 	// While running, the card's status mark and narrative already say what is running:
 	// the row keeps only the step count and the toggle.
-	const shownParts = state === "running" ? [t("chat.work.stepCount", { total: totalSteps, plural })] : facts;
+	const shownParts = state === "running" ? [t("chat.work.stepCount", { total: totalSteps, plural })] : headFacts;
 	const groupEntries = toolCallIds.flatMap(id => {
 		const entry = selectToolEntry(tools.getState(), id);
 		return entry ? [[id, entry] as const] : [];
@@ -246,7 +252,7 @@ export function ExecutionGroup({
 						!isInterruptedError(entry, stoppedAt),
 				)?.[0]
 			: undefined;
-	const { error, tests, previewUrl } = deriveFindings({
+	const { error, previewUrl } = deriveFindings({
 		running: state === "running",
 		checks,
 		commands: outcome.commands,
@@ -255,7 +261,13 @@ export function ExecutionGroup({
 	const changed = state !== "running" && outcome.files.length > 0;
 	// The run's todo as its own todo call recorded it, so a reload shows the same row as live.
 	const todo = transcriptTodoSnapshot(groupEntries) ?? todoSnapshots?.at(-1);
-	const headline = finishedHeadline({ goal, todo });
+	// A run that ended but whose own check or command failed never wears the green tick.
+	const attention = state === "complete" && error !== undefined;
+	const headline =
+		finishedHeadline({ goal, todo }) ??
+		(attention
+			? t(checks.some(check => !check.passed) ? "chat.work.verdict.failed" : "chat.work.verdict.stepFailed")
+			: undefined);
 	const lanes = new Set(agents.map(agent => agent.id));
 	const shownNotes = notes?.filter(note => !settlesLanesOnly(note, lanes));
 	const header = (
@@ -282,13 +294,15 @@ export function ExecutionGroup({
 						{duration}
 					</span>
 				) : null}
-				<span aria-atomic="true" aria-live="polite" className="omp-execution-group-summary" role="status">
-					{shownParts.map((part, index) => (
-						<span className="omp-summary-part" key={part}>
-							{index ? ` · ${part}` : part}
-						</span>
-					))}
-				</span>
+				{shownParts.length ? (
+					<span aria-atomic="true" aria-live="polite" className="omp-execution-group-summary" role="status">
+						{shownParts.map((part, index) => (
+							<span className="omp-summary-part" key={part}>
+								{index ? ` · ${part}` : part}
+							</span>
+						))}
+					</span>
+				) : null}
 				{state === "running" ? (
 					<LiveTurnMeter />
 				) : output ? (
@@ -308,95 +322,119 @@ export function ExecutionGroup({
 		onExpandedChange(true);
 		if (key) setReveal({ key });
 	};
+	const causeButton = error ? (
+		// controls-ok: the omp-work-cause class draws the whole control
+		<button
+			aria-label={`${t("chat.work.cause.open")}${error.cause ? `: ${error.cause}` : ""}`}
+			className="omp-work-cause"
+			data-work-cause={error.cause ? "" : undefined}
+			data-work-finding="error"
+			onClick={() => show(error.toolCallId)}
+			title={error.cause ?? t("chat.work.cause.open")}
+			type="button"
+		>
+			<CircleX aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
+			<span className="truncate">{error.cause ?? t("chat.work.chip.error")}</span>
+		</button>
+	) : null;
+	const copyButton = (
+		<CopyButton
+			className="omp-work-copy"
+			label={t("chat.work.copySummary")}
+			text={() =>
+				workSummaryText({
+					head: [headline, [duration, ...facts].filter(Boolean).join(" · ")].filter(Boolean).join("\n"),
+					cause: error?.cause,
+					files: outcome.files,
+					checks: checkLabels,
+					previewUrl,
+					labels: {
+						cause: t("chat.work.copy.cause"),
+						changed: t("chat.work.copy.changed", { count: outcome.files.length }),
+						checks: t("chat.work.copy.checks"),
+						preview: t("chat.work.chip.preview"),
+						deleted: t("chat.work.copy.deleted"),
+					},
+				})
+			}
+		/>
+	);
+	// What the run did, as the metric strip's buttons: what failed, what changed, what passed, the dev
+	// server. Finished cards only, so a running card never reflows.
+	const metrics: WorkFact[] = [];
+	if (state !== "running") {
+		const checkFact = (check: (typeof checks)[number], index: number): WorkFact => {
+			const sentence = checkLabels[index]?.label ?? "";
+			const count = check.passed ? check.tests?.passed : check.tests?.failed;
+			return {
+				key: `check-${check.kind}`,
+				finding: check.kind === "test" && check.passed ? "tests" : `check-${check.kind}`,
+				tone: check.passed ? "ok" : "fail",
+				icon: check.passed ? "check" : "error",
+				label: t(check.kind === "test" ? "chat.work.chip.tests" : `chat.work.metric.${check.kind}`),
+				...(count !== undefined ? { figure: count } : {}),
+				sentence,
+				title: !check.passed
+					? t("chat.work.cause.open")
+					: check.kind === "test"
+						? t("chat.work.chip.testsOpen")
+						: sentence,
+				onSelect: () => show(check.toolCallId),
+			};
+		};
+		const checkFacts = checks.map((check, index) => checkFact(check, index));
+		metrics.push(...checkFacts.filter((_, index) => !checks[index]?.passed));
+		if (changed) {
+			const stats = outcome.files.some(file => file.added !== undefined);
+			const added = outcome.files.reduce((sum, file) => sum + (file.added ?? 0), 0);
+			const removed = outcome.files.reduce((sum, file) => sum + (file.removed ?? 0), 0);
+			metrics.push({
+				key: "files",
+				finding: "changes",
+				tone: "neutral",
+				icon: "files",
+				label: t("chat.work.metric.files"),
+				figure: (
+					<>
+						{outcome.files.length}
+						{stats ? (
+							<span className="omp-work-diff">
+								<span data-diff="added">+{added}</span> <span data-diff="removed">−{removed}</span>
+							</span>
+						) : null}
+					</>
+				),
+				sentence: t("chat.work.filesChanged", { count: outcome.files.length }),
+				title: t("chat.work.openChanges"),
+				onSelect: () => setPanelTab("diff"),
+			});
+		}
+		metrics.push(...checkFacts.filter((_, index) => checks[index]?.passed));
+		if (previewUrl) {
+			metrics.push({
+				key: "preview",
+				finding: "preview",
+				tone: "neutral",
+				icon: "preview",
+				label: t("chat.work.chip.preview"),
+				sentence: t("chat.work.chip.previewOpen", { url: previewUrl }),
+				title: t("chat.work.chip.previewOpen", { url: previewUrl }),
+				onSelect: () => openPreview(previewUrl),
+			});
+		}
+	}
 	const findings =
-		error || tests || changed || previewUrl ? (
-			<div className="omp-work-findings">
-				{error ? (
-					// controls-ok: the omp-work-cause class draws the whole control
-					<button
-						aria-label={`${t("chat.work.cause.open")}${error.cause ? `: ${error.cause}` : ""}`}
-						className="omp-work-cause"
-						data-work-cause={error.cause ? "" : undefined}
-						data-work-finding="error"
-						onClick={() => show(error.toolCallId)}
-						title={error.cause ?? t("chat.work.cause.open")}
-						type="button"
-					>
-						<CircleX aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
-						<span className="truncate">{error.cause ?? t("chat.work.chip.error")}</span>
-					</button>
-				) : null}
-				{tests ? (
-					// controls-ok: the omp-work-finding class draws the whole control
-					<button
-						aria-label={
-							tests.count !== undefined
-								? t("chat.work.chip.testsPassedCount", { count: tests.count })
-								: t("chat.work.chip.testsPassed")
-						}
-						className="omp-work-finding"
-						data-work-finding="tests"
-						onClick={() => show(tests.toolCallId)}
-						title={t("chat.work.chip.testsOpen")}
-						type="button"
-					>
-						<span>{t("chat.work.chip.tests")}</span>
-						<Check aria-hidden="true" className="size-(--sc-icon-sm) shrink-0 text-(--sc-success)" />
-						{tests.count !== undefined ? <span className="tabular-nums">{tests.count}</span> : null}
-					</button>
-				) : null}
-				{changed ? (
-					// controls-ok: the omp-work-finding class draws the whole control
-					<button
-						className="omp-work-finding"
-						data-work-finding="changes"
-						onClick={() => setPanelTab("diff")}
-						title={t("chat.work.openChanges")}
-						type="button"
-					>
-						<FileDiff aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
-						<span>{t("chat.work.openChanges")}</span>
-					</button>
-				) : null}
-				{previewUrl ? (
-					// controls-ok: the omp-work-finding class draws the whole control
-					<button
-						className="omp-work-finding"
-						data-work-finding="preview"
-						onClick={() => openPreview(previewUrl)}
-						title={t("chat.work.chip.previewOpen", { url: previewUrl })}
-						type="button"
-					>
-						<Globe aria-hidden="true" className="size-(--sc-icon-sm) shrink-0" />
-						<span>{t("chat.work.chip.preview")}</span>
-					</button>
-				) : null}
-				<CopyButton
-					className="omp-work-copy"
-					label={t("chat.work.copySummary")}
-					text={() =>
-						workSummaryText({
-							head: [headline, [duration, ...facts].filter(Boolean).join(" · ")].filter(Boolean).join("\n"),
-							cause: error?.cause,
-							files: outcome.files,
-							checks: checkLabels,
-							previewUrl,
-							labels: {
-								cause: t("chat.work.copy.cause"),
-								changed: t("chat.work.copy.changed", { count: outcome.files.length }),
-								checks: t("chat.work.copy.checks"),
-								preview: t("chat.work.chip.preview"),
-								deleted: t("chat.work.copy.deleted"),
-							},
-						})
-					}
-				/>
-			</div>
-		) : null;
+		metrics.length || causeButton ? <WorkMetrics facts={metrics} cause={causeButton} trailing={copyButton} /> : null;
 
 	return (
-		<section className={cx("omp-execution-group", className)} data-state={state} ref={sectionRef}>
+		<section
+			className={cx("omp-execution-group", className)}
+			data-state={state}
+			data-verdict={attention ? "failed" : undefined}
+			ref={sectionRef}
+		>
 			<LiveStepPeek
+				attention={attention}
 				summaryRow={header}
 				findings={findings}
 				thinkingLive={thinkingLive}

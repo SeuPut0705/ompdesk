@@ -237,13 +237,14 @@ describe("controls close enough to take each other's taps", () => {
 			/margin-block-end:\s*12px/,
 		);
 		expect(rule('html[data-input="touch"] [data-benchmark-chips]')).toMatch(/gap:\s*12px;[^}]*--hit-gap-y:\s*12px/);
-		// A finished work card's findings and copy reach 36 (26 before), staying clear of the steps header and inside the
+		// A finished work card's facts and copy reach 36 (26 before), staying clear of the steps header and inside the
 		// card; the phone Run sheet's Autopilot buttons sit 14 px apart (10 left a phone's 24 px buttons 32).
-		expect(rule('html[data-input="touch"] .omp-work-findings')).toMatch(
-			/gap:\s*14px 10px;[^}]*margin-top:\s*4px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
+		expect(rule('html[data-input="touch"] .omp-work-facts')).toMatch(/gap:\s*14px;[^}]*margin-top:\s*4px/);
+		expect(rule('html[data-input="touch"] .omp-work-metrics')).toMatch(
+			/gap:\s*14px 10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
 		);
-		expect(rule('html[data-input="touch"] .omp-work-findings > .omp-work-cause')).toMatch(/--hit-gap-y:\s*12px/);
-		expect(rule('html[data-shell="phone"] .omp-work-findings > .omp-work-copy')).toMatch(/--hit-gap-y:\s*14px/);
+		expect(rule('html[data-input="touch"] .omp-work-facts > .omp-work-cause')).toMatch(/--hit-gap-y:\s*12px/);
+		expect(rule('html[data-shell="phone"] .omp-work-metrics > .omp-work-copy')).toMatch(/--hit-gap-y:\s*14px/);
 		expect(rule('html[data-input="touch"] .omp-work-outcome summary')).toMatch(/min-height:\s*var\(--sc-row-touch\)/);
 		expect(rule('html[data-shell="phone"] [data-autopilot-run-actions]')).toMatch(
 			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
@@ -352,11 +353,12 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] .omp-update-card')).toMatch(
 			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,
 		);
-		// A phone's work-card findings (24 px chips) sit 14 px apart each way and reach 36, 7 px under the head so their
+		// A phone's work-card metric chips (24 px) sit 14 px apart each way and reach 36, 7 px under the head so their
 		// reach up starts where the Steps toggle's 6 px reach down ends (at 1 px a chip took its edge at 412 px).
-		expect(rule('html[data-shell="phone"][data-input="touch"] .omp-work-findings')).toMatch(
-			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px;[^}]*margin-top:\s*7px/,
+		expect(rule('html[data-shell="phone"][data-input="touch"] .omp-work-metrics')).toMatch(
+			/gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);
+		expect(rule('html[data-shell="phone"][data-input="touch"] .omp-work-facts')).toMatch(/margin-top:\s*7px/);
 		declares("../components/dialogs/WorktreeDialog.tsx", "data-worktree-base");
 		expect(rule('html[data-input="touch"] [data-worktree-base]')).toMatch(/--hit-gap-y:\s*6px/);
 		expect(rule('html[data-input="touch"] [data-worktree-base] > label')).toMatch(

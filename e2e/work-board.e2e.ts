@@ -131,7 +131,8 @@ for (const language of variants(["en", "ko"] as const))
 				const explore = board.locator('[data-board-agent="sa-explore"]');
 				await expect(explore).toContainText("Map the settings code");
 				await expect(board.locator('[data-board-agent="sa-review"]')).toHaveCount(0);
-				await expect(board.locator('[data-board-section="todos"]')).toContainText("0/6");
+				// The plan's count is said once, by the head's bar.
+				await expect(board.locator(".omp-work-board-progress")).toContainText("0/6");
 				await expect(board.locator('[data-board-section="todos"]')).toContainText("Fixture task 1");
 
 				// The board sits in the right margin, clear of the columns, which line up with each other.
@@ -212,12 +213,12 @@ test("a 30-task plan's bar stays left of its count, and the count stays in the h
 					const count = head
 						.querySelector(".omp-work-board-progress > span[aria-hidden]")
 						?.getBoundingClientRect();
-					const name = box(".omp-work-board-name");
+					const pulse = box(".omp-work-board-pulse");
 					const headBox = head.getBoundingClientRect();
 					const last = bar?.lastElementChild?.getBoundingClientRect();
 					return {
 						barClearOfCount: !!last && !!count && last.right <= count.left,
-						barAfterName: !!bar && !!name && bar.getBoundingClientRect().left >= name.right,
+						barAfterPulse: !!bar && !!pulse && bar.getBoundingClientRect().left >= pulse.left,
 						countInHead: !!count && count.right <= headBox.right,
 					};
 				});
@@ -225,7 +226,7 @@ test("a 30-task plan's bar stays left of its count, and the count stays in the h
 					fontSize,
 					width,
 					barClearOfCount: true,
-					barAfterName: true,
+					barAfterPulse: true,
 					countInHead: true,
 				});
 			}

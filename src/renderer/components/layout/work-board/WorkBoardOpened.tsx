@@ -5,11 +5,10 @@
  * finished children and unused worktrees too). Loaded on demand by `WorkBoard.tsx` (the phone's first screen never
  * needs them).
  */
-import { Check, Network, X } from "lucide-react";
+import { Check, GitFork, Network } from "lucide-react";
 import { useState } from "react";
 import { useLiveReview } from "../../../hooks/use-live-review";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
-import { formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
@@ -19,7 +18,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 import { CostAmount, hasCost } from "../../common/CostAmount";
-import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
+import { BoardRow, BoardSection, CappedRows, elapsedLabel, KindMark, SECTION_CAP } from "./board-parts";
 import { childActivity, type OpenedChildRow } from "./opened-children";
 
 /** A session this one's agent opened, as a child like a subagent: status, what it does now, how long, its branch. */
@@ -87,12 +86,18 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 			lead={
 				status === "done" ? (
 					<Check aria-hidden className="size-3 text-(--sc-success)" />
-				) : status === "problem" ? (
-					<X aria-hidden className="size-3 text-(--sc-danger)" />
 				) : (
-					<Dot
-						ring={status === null}
-						tone={status === "waiting" ? "warning" : status === "running" ? "info" : "muted"}
+					<KindMark
+						icon={GitFork}
+						tone={
+							status === "problem"
+								? "danger"
+								: status === "waiting"
+									? "warning"
+									: status === "running"
+										? "info"
+										: "muted"
+						}
 					/>
 				)
 			}
@@ -101,7 +106,7 @@ function OpenedRow({ row, now }: { row: OpenedChildRow; now: number }) {
 			// tooltip.
 			meta={
 				status === "running" && row.since ? (
-					formatElapsed(Math.max(0, now - row.since))
+					elapsedLabel(Math.max(0, now - row.since))
 				) : hasCost(kinds) ? (
 					<CostAmount className="tabular-nums" data={{ "data-board-opened-cost": true }} kinds={kinds} />
 				) : undefined

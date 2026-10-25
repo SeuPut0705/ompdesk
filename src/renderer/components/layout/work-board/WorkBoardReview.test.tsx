@@ -253,6 +253,20 @@ describe("work board opened sessions", () => {
 		expect(opened()?.querySelector(".omp-work-board-count")).toBeNull();
 	});
 
+	it("says the children waiting for an answer in the head's sentence, as many as their rows, never as Idle", async () => {
+		await mount([
+			child("c-ask1", { title: "First question", awaitingInput: "input" }),
+			child("c-ask2", { title: "Second question", awaitingInput: "input" }),
+			child("c-run", { status: "running", task: "Run the suite" }),
+		]);
+		const waitingRows = opened()?.querySelectorAll('[data-board-opened][data-status="waiting"]') ?? [];
+		expect(waitingRows).toHaveLength(2);
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 child sessions waiting");
+		// Not "waiting on you": that section is the questions and plan reviews of this session only.
+		expect(pane.querySelector('[data-board-section="waiting"]')).toBeNull();
+		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
+	});
+
 	it("shows four running opened sessions as one-line rows named by their task, none under Needs review", async () => {
 		const tasks = ["Fix upload", "Port the parser", "Write docs", "Audit deps"];
 		// Main pushes each running child with the stored title still empty.

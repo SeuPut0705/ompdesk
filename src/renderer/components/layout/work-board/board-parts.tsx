@@ -1,12 +1,25 @@
 /**
- * The work board's building blocks (WorkBoard.tsx and every section beside it): a state dot, a folding section and a
- * one-line row. Look in styles/work-board.css.
+ * The work board's building blocks (WorkBoard.tsx and every section beside it): a state dot, a kind icon, a folding
+ * section and a one-line row. Look in styles/work-board.css.
  */
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, type LucideIcon } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
-import { useT } from "../../../lib/i18n";
+import { translate, useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work-board";
+
+/**
+ * A running row's clock: nothing in the first ten seconds, ten-second steps under a minute, then whole minutes, so a
+ * column of running clocks moves a few times a minute instead of every second.
+ */
+export function elapsedLabel(ms: number): string {
+	const seconds = Math.floor(ms / 1000);
+	if (!(seconds >= 10)) return "";
+	if (seconds < 60) return translate("time.secondsShort", { count: seconds - (seconds % 10) });
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return translate("time.minutesShort", { count: minutes });
+	return translate("time.hoursMinutesShort", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+}
 
 /**
  * Rows a section lists before the rest fold into one "+N more" row; a tap shows them all until the section remounts.
@@ -70,6 +83,20 @@ export function Dot({
 	ring?: boolean;
 }) {
 	return <span aria-hidden className="omp-work-board-dot" data-ring={ring || undefined} data-tone={tone} />;
+}
+
+/**
+ * A row's lead mark when the kind of thing (subagent, job, file, branch…) is the information: an icon tinted by its
+ * state. A dot (`Dot`) is for rows whose state is all there is to say.
+ */
+export function KindMark({
+	icon: Icon,
+	tone = "muted",
+}: {
+	icon: LucideIcon;
+	tone?: "info" | "success" | "warning" | "danger" | "muted";
+}) {
+	return <Icon aria-hidden className="omp-work-board-kind" data-tone={tone} />;
 }
 
 export function BoardSection({

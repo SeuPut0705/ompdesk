@@ -63,8 +63,13 @@ test("a work run whose frames arrive late and twice ends without phantom or dupl
 		await expect(page.locator(".omp-work-outcome")).toBeVisible();
 		// No step is left running behind the outcome, and nothing counts twice.
 		await expect(page.locator(".omp-execution-group-header[aria-label*='running']")).toHaveCount(0);
-		// Three commands: one type check, which reads as its result, and two others.
-		await expect(page.locator(".omp-execution-group-summary").last()).toContainText("types OK · 2 commands");
+		// Three commands: one type check, which reads as its result, and two others. The head's accessible
+		// name lists every fact; the metric strip says the check once, as its own button.
+		await expect(page.locator(".omp-execution-group-header").last()).toHaveAttribute(
+			"aria-label",
+			/types OK · 2 commands/,
+		);
+		await expect(page.locator('[data-work-finding="check-typecheck"]').last()).toHaveAttribute("data-tone", "ok");
 		await expect(page.locator('[data-work-finding="changes"]').last()).toBeVisible();
 		if (process.env.OMP_GUI_WORK_CARD_SHOTS)
 			await page

@@ -18,20 +18,16 @@ function derive(commands: ReturnType<typeof bash>[], failedStep?: string, runnin
 }
 
 describe("deriveFindings", () => {
-	it("points a passing test run at its call with the runner's count", () => {
-		expect(derive([bash("bunx vitest run", " Tests  128 passed (128)", 0, "t1")])).toEqual({
-			tests: { count: 128, toolCallId: "t1" },
-		});
-		expect(derive([bash("npm test", "ok", 0, "t2")])).toEqual({ tests: { toolCallId: "t2" } });
+	it("passes no verdict for a passing check: the card's metric strip reads the checks itself", () => {
+		expect(derive([bash("bunx vitest run", " Tests  128 passed (128)", 0, "t1")])).toEqual({});
 	});
 
-	it("points a failing check at its call with the cause, and shows no passing-tests chip for it", () => {
+	it("points a failing check at its call with the cause", () => {
 		expect(
 			derive([
 				bash("bun run check:types", "src/a.ts(1,1): error TS2322: nope\nerror: script exited with code 2", 2, "c1"),
 			]),
 		).toEqual({ error: { cause: "src/a.ts(1,1): error TS2322: nope", toolCallId: "c1" } });
-		expect(derive([bash("bunx vitest run", "Tests  2 failed | 5 passed (7)", 1, "t1")]).tests).toBeUndefined();
 	});
 
 	it("names a failed command that is no check, and falls back to the first failed step of any tool", () => {

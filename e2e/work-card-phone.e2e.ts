@@ -86,7 +86,10 @@ for (const fail of shots ? [false, true] : []) {
 			await expect(phone.locator(".omp-execution-group[data-state='running']")).toHaveCount(0, {
 				timeout: 30_000,
 			});
-			await expect(phone.locator(".omp-execution-group-summary").last()).toContainText(/types|타입|command|명령/);
+			await expect(phone.locator(".omp-execution-group-header").last()).toHaveAttribute(
+				"aria-label",
+				/types|타입|command|명령/,
+			);
 			const card = phone.locator(".omp-execution-group").last();
 			for (const theme of THEMES) {
 				// The theme is the phone's own record; the page reads it at boot, so a reload shows it.

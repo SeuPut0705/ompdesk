@@ -376,9 +376,10 @@ describe("agents after a relaunch", () => {
 		const lanes = [...container.querySelectorAll(".omp-work-card-button")];
 		expect(lanes.map(lane => lane.querySelector(".omp-work-card-name")?.textContent)).toEqual(["Scout"]);
 		expect(lanes[0]?.querySelector(".omp-work-card-activity")?.textContent).toBe("Work interrupted");
-		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe(
-			"2 interrupted · build OK · 1 command · 1 agent",
+		expect(container.querySelector(".omp-execution-group-header")?.getAttribute("aria-label")).toMatch(
+			/^Steps: 2 interrupted · build OK · 1 command · 1 agent/,
 		);
+		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 interrupted · 1 command");
 	});
 
 	it("heads a finished run with one agent by how the run ended, never the agent's own task", async () => {

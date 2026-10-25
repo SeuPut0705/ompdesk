@@ -13,8 +13,18 @@
  * Empty sections collapse, and a board with no section at all takes no room.
  */
 
-import { Check, Pause, Rocket } from "lucide-react";
-import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Bot, Check, Rocket, SquareTerminal, Target } from "lucide-react";
+import {
+	type CSSProperties,
+	Fragment,
+	lazy,
+	Suspense,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
@@ -23,7 +33,7 @@ import { usePresence } from "../../../hooks/use-presence";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { useShellMode } from "../../../hooks/use-shell-mode";
 import { lazyChunk } from "../../../lib/chunk-load";
-import { cx, formatDuration, formatElapsed, formatTokens } from "../../../lib/format";
+import { cx, formatDuration, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { actionShortcut } from "../../../lib/keymap";
 import { useNowTick } from "../../../lib/now-tick";
@@ -50,7 +60,7 @@ import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panel
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
 import { childUsageText } from "../sidebar/sidebar-family";
-import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "./board-parts";
+import { BoardRow, BoardSection, CappedRows, Dot, elapsedLabel, KindMark, SECTION_CAP } from "./board-parts";
 import { WorkBoardChip } from "./WorkBoardChip";
 import {
 	goalMeta,
@@ -78,6 +88,10 @@ const FailedCheckSlot = lazyChunk(() =>
 	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckSlot })),
 );
 const SessionSlot = lazyChunk(() => import("./WorkBoardSession").then(module => ({ default: module.SessionSlot })));
+/** Whether the newest check failed, for the prototypes' head (the counters and the status sentence). */
+const FailedCheckWatch = lazyChunk(() =>
+	import("./WorkBoardSession").then(module => ({ default: module.FailedCheckWatch })),
+);
 /** The metered-spend rows load when this session spent on a metered provider (most sessions run on subscriptions). */
 const SessionSpendLine = lazy(() =>
 	import("./SessionSpendLine").then(module => ({ default: module.SessionSpendLine })),
@@ -203,8 +217,8 @@ function AgentRow({
 			exiting={exiting}
 			data={{ "data-board-agent": agent.id, "data-status": agent.status }}
 			label={label}
-			lead={waiting ? <Pause aria-hidden className="size-3 text-(--sc-text-subtle)" /> : <Dot tone="info" />}
-			meta={elapsed === null ? undefined : formatElapsed(elapsed)}
+			lead={waiting ? <KindMark icon={Bot} tone="muted" /> : <KindMark icon={Bot} tone="info" />}
+			meta={elapsed === null ? undefined : elapsedLabel(elapsed)}
 			onClick={onOpen}
 			title={[
 				label,
@@ -292,6 +306,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	useEffect(() => {
 		void hydrate();
 	}, [hydrate]);
+	const [checkFailed, setCheckFailed] = useState(false);
 
 	const waiting = blocking.length + (planProposal ? 1 : 0);
 	const showsLast = !turnActive && lastTurn !== null;
@@ -326,6 +341,39 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		opened.counts.running +
 		(turnActive || autopilotRunning ? 1 : 0);
 	const pulse = waiting > 0 || opened.counts.waiting > 0 ? "waiting" : working > 0 ? "working" : "idle";
+	// The head's sentence and the sections' headers read these, so a figure is never stated twice with two values.
+	// "Waiting on you" is the Waiting section's questions and plan review; a child session that waits for an answer
+	// has its own clause (its row is in Child sessions); a child at work is not "running".
+	const counts = {
+		running: agents.length + jobs.length,
+		waiting,
+		children: opened.counts.waiting,
+		failed: checkFailed ? 1 : 0,
+	};
+	const statusParts = [
+		...(counts.running > 0
+			? [{ key: "running", tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }]
+			: []),
+		...(counts.waiting > 0
+			? [{ key: "waiting", tone: "warning", text: t("workBoard.head.waiting", { count: counts.waiting }) }]
+			: []),
+		...(counts.children > 0
+			? [
+					{
+						key: "children",
+						tone: "warning",
+						text: t("workBoard.head.children", {
+							count: counts.children,
+							plural: counts.children === 1 ? "" : "s",
+						}),
+					},
+				]
+			: []),
+		...(counts.failed > 0
+			? [{ key: "failed", tone: "danger", text: t("workBoard.head.failed", { count: counts.failed }) }]
+			: []),
+	];
+	const statusFallback = turnActive || autopilotRunning ? t("workBoard.step.working") : t("workBoard.head.idle");
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
@@ -337,7 +385,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					? t("workBoard.step.working")
 					: null;
 	const startedAt = turnStartedAt;
-	const clock = (from: number | null) => (from === null ? "" : formatElapsed(Math.max(0, now - from)));
+	const clock = (from: number | null) => (from === null ? "" : elapsedLabel(Math.max(0, now - from)));
 	// The turn's paced token rate, the one the per-message meter shows; not shown between turns.
 	const speed = turnLive && rate != null && rate > 0 ? t("chat.meter.rate", { rate: formatTokenRate(rate) }) : "";
 	const jumpKey = actionShortcut("board.focus");
@@ -347,7 +395,10 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			{/* One line: the board's name, the plan's progress and its close; then the project of a linked worktree; then
 			   one line of meters, the subscription accounts' windows and a metered provider's charge side by side where
 			   they fit (each item's details are its tooltip). */}
-			<header className="omp-work-board-head">
+			<header className="omp-work-board-head" data-board-head>
+				<Suspense fallback={null}>
+					<FailedCheckWatch onChange={setCheckFailed} />
+				</Suspense>
 				<span aria-hidden className="omp-work-board-pulse" data-state={pulse} />
 				<h2 className="omp-work-board-name" data-board-name>
 					{autopilotTab ? (
@@ -360,6 +411,16 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						t("workBoard.label")
 					)}
 				</h2>
+				<p className="omp-work-board-status" data-board-status>
+					{statusParts.length === 0
+						? statusFallback
+						: statusParts.map((part, index) => (
+								<Fragment key={part.key}>
+									{index > 0 ? " · " : null}
+									<span data-tone={part.tone}>{part.text}</span>
+								</Fragment>
+							))}
+				</p>
 				{plan ? (
 					<span
 						className="omp-work-board-progress"
@@ -373,9 +434,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 							{plan.done}/{plan.total}
 						</span>
 					</span>
-				) : (
-					<span />
-				)}
+				) : null}
 				{autopilotTab ? (
 					<Suspense fallback={null}>
 						<AutopilotBoardHead />
@@ -408,7 +467,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			{waiting > 0 && (
 				<BoardSection
 					aside={jumpKey ? <Kbd shortcut={jumpKey} /> : null}
-					count={waiting}
+					count={counts.waiting}
 					live={t("workBoard.status.waiting", { count: waiting })}
 					id="waiting"
 					title={t("workBoard.waiting")}
@@ -491,7 +550,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			)}
 
 			{presentedAgents.length + presentedJobs.length > 0 && (
-				<BoardSection count={agents.length + jobs.length} id="running" title={t("workBoard.running")}>
+				<BoardSection count={counts.running} id="running" title={t("workBoard.running")}>
 					<CappedRows
 						cap={SECTION_CAP.running}
 						items={[
@@ -516,7 +575,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 									exiting={entry.exiting}
 									key={entry.item.id}
 									label={entry.item.label}
-									lead={<Dot tone="info" />}
+									lead={<KindMark icon={SquareTerminal} tone="info" />}
 									meta={clock(entry.item.startTime)}
 									onClick={() => useUiStore.getState().openJobs()}
 									title={`${entry.item.label}\n${t(`jobs.type.${entry.item.type}`)}`}
@@ -534,20 +593,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			)}
 
 			{plan && (
-				<BoardSection
-					count={
-						<>
-							<span aria-hidden>
-								{plan.done}/{plan.total}
-							</span>
-							<span className="sr-only">
-								{t("workBoard.planProgress", { done: plan.done, total: plan.total })}
-							</span>
-						</>
-					}
-					id="todos"
-					title={t("dock.todo")}
-				>
+				<BoardSection id="todos" title={t("dock.todo")}>
 					{plan.done > 0 && (
 						<BoardRow
 							data={{ "data-board-done-folded": "" }}
@@ -600,7 +646,10 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 						data={{ "data-board-goal": goalStatus ?? "" }}
 						label={goal.objective?.trim() || t("input.goal.label")}
 						lead={
-							<Dot tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"} />
+							<KindMark
+								icon={Target}
+								tone={goalStatus === "complete" ? "success" : goalStatus === "active" ? "info" : "warning"}
+							/>
 						}
 						meta={goalMeta(goalDetail)}
 						onClick={() => useUiStore.getState().openModes("goal")}

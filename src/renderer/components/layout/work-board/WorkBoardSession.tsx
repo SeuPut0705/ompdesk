@@ -4,6 +4,7 @@
  * check (a failed one is its own section at the top), the dev servers running, the other sessions in the checkout
  * and the memory the turn used. `useSessionBoard` reads them all once; the section draws what it found.
  */
+import { Brain, FileDiff, FlaskConical, GitBranch, Globe, Users } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { READ_ONLY_TOOLS } from "../../../../shared/agent-definition";
 import type { RpcGitUnlanded } from "../../../../shared/rpc-types";
@@ -11,7 +12,7 @@ import type { FamilyEdits, FamilyMemberEdits } from "../../../../shared/turn-edi
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { routeToSessionOwner } from "../../../hooks/use-session-switch";
-import { formatDuration, formatElapsed } from "../../../lib/format";
+import { formatDuration } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -26,7 +27,7 @@ import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
-import { BoardRow, BoardSection, Dot } from "./board-parts";
+import { BoardRow, BoardSection, elapsedLabel, KindMark } from "./board-parts";
 import {
 	type ChangesSummary,
 	type DevServer,
@@ -324,7 +325,7 @@ function CheckRow({ check }: { check: LastCheck }) {
 			? t(`chat.work.check.${check.kind}.${verdict}Count`, { count: check.count })
 			: t(`chat.work.check.${check.kind}.${verdict}`);
 	const meta = running
-		? formatElapsed(now - check.startedAt)
+		? elapsedLabel(now - check.startedAt)
 		: check.durationMs !== undefined
 			? formatDuration(check.durationMs)
 			: undefined;
@@ -332,7 +333,9 @@ function CheckRow({ check }: { check: LastCheck }) {
 		<BoardRow
 			data={{ "data-board-session": "check", "data-state": check.state }}
 			label={label}
-			lead={<Dot tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />}
+			lead={
+				<KindMark icon={FlaskConical} tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />
+			}
 			meta={meta}
 			onClick={check.state === "failed" && tabId ? () => requestRevealStep({ tabId, key: check.key }) : undefined}
 			title={check.command}
@@ -372,7 +375,7 @@ function ChangesRow(summary: FamilyChangesSummary) {
 		<BoardRow
 			data={{ "data-board-session": "changes", ...(summary.parts.length > 0 ? { "data-board-family": "" } : {}) }}
 			label={t("chat.work.filesChanged", { count, plural: plural(summary.files) })}
-			lead={<Dot tone="muted" />}
+			lead={<KindMark icon={FileDiff} tone="muted" />}
 			meta={meta}
 			onClick={() => useUiStore.getState().setPanelTab("diff")}
 			title={title || undefined}
@@ -387,7 +390,7 @@ function UnlandedRow(summary: UnlandedSummary) {
 		<BoardRow
 			data={{ "data-board-session": "unlanded" }}
 			label={t("workBoard.current.unlanded", { target: summary.target, count, plural: plural(summary.files) })}
-			lead={<Dot tone="muted" />}
+			lead={<KindMark icon={GitBranch} tone="muted" />}
 			meta={meta}
 			title={t("workBoard.current.unlandedTitle", { branch: summary.branch, target: summary.target })}
 		/>
@@ -399,7 +402,7 @@ function DevServerRow({ url, host, command }: DevServer) {
 		<BoardRow
 			data={{ "data-board-session": "dev-server" }}
 			label={host}
-			lead={<Dot tone="success" />}
+			lead={<KindMark icon={Globe} tone="success" />}
 			onClick={() => useUiStore.getState().openPreview(url)}
 			title={command}
 		/>
@@ -449,7 +452,7 @@ function PeersRow({ worktree, repo, peers }: PeersSummary) {
 								plural: plural(peers.length),
 							})
 				}
-				lead={<Dot tone="muted" />}
+				lead={<KindMark icon={Users} tone="muted" />}
 				onClick={() => setOpen(!open)}
 				title={peers.map(peer => (peer.device ? `${name(peer)} (${peer.device})` : name(peer))).join("\n")}
 			/>
@@ -500,7 +503,7 @@ function RecallRow({ titles }: { titles: string[] }) {
 			<BoardRow
 				data={{ "data-board-session": "recall", "data-open": String(open), "data-board-expands": "" }}
 				label={t("workBoard.session.recall.label", { title: first ?? "" })}
-				lead={<Dot tone="muted" />}
+				lead={<KindMark icon={Brain} tone="muted" />}
 				meta={rest.length > 0 ? `+${rest.length}` : undefined}
 				onClick={rest.length > 0 ? () => setOpen(!open) : undefined}
 				title={[
