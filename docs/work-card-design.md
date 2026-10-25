@@ -34,8 +34,8 @@ facts. C's list is the opened card's job, and without stock intents it is a list
 
 Direction C's idea survives where it costs nothing: inside the opened body, `groupSteps` (`work-steps.ts`) lines
 consecutive calls of one stock intent (`ToolCallContent.intent`, then the arguments' `intent`/`i`; a generic
-"Running requested command" names nothing) under one row — "Checking the types · 3 steps" — and folds consecutive
-collapsible reads into the transcript's own read-group card. Rules that keep it honest:
+"Running requested command" names nothing) under one row — "Checking the types · 3 steps" — and folds two or more
+consecutive collapsible reads into the transcript's own read-group card. Rules that keep it honest:
 
 - Every call stays one `ToolCard`; a group is a closed row, never a summary that replaces them. A run of one call,
   and calls with no intent, stay plain rows.
@@ -43,7 +43,42 @@ collapsible reads into the transcript's own read-group card. Rules that keep it 
 - Only thinking may sit between two calls of one intent; a visible reply or a note ends the group.
 - Only a finished card groups. A running card keeps one bubble per message as it arrives, so the live list never
   rearranges under the reader's eye; it lines up when the run ends.
-- `transcriptDetail` full mode is unchanged: it has no work card, and its own read grouping is untouched.
+- `transcriptDetail` full mode has no work card and keeps its own read grouping; its tool rows are `ToolCard`s too,
+  so they lead with the intent as below.
+
+### Rows by intent (R3-4, 25 Oct 2026)
+
+Opened, the 165-step v0.73 redesign turn read as tool names: "Read board-cmp-phone.png", "Run command grep -n …",
+with a "Thought · 144 words" line between most steps (28 % of its rows). Every one of its 352 calls carried an intent.
+
+- A row leads with what the agent meant to do (`stepIntent`: "Montaging board captures side by side"), and the
+  call's target (file name first, command, pattern) follows muted. The target starts from no width and takes only
+  the room the intent leaves (`AFTER_INTENT_CLASS`), so a narrow row clips the target first and the intent only when
+  it alone does not fit. A clipped target left under about four characters (32 px; at 390 px, 16 rows of the long
+  turn showed "g." or ":") is not drawn (`useSliverGuard`: one shared `ResizeObserver` marks it `data-sliver`, no
+  re-render), and the opened body then names the file or command. An MCP server's tool or a device is always named
+  on the row after the intent ("Finding the bug report · github · search_issues · flaky sidebar"), and a row with no
+  other target names its tool there too. A call with no intent, a generic one, and a call inside an
+  intent group (whose row already says it; reads in a read group there too) keep the tool's label and target. A
+  target that only restates the intent (a wait's `i`, a subagent's, also when the row cut it to its first line or
+  160 characters) is said once. A screen reader hears the kind of tool first, then the intent, the target and the
+  state ("Run command, Checking the types, bun run check:types, Done"); failed and interrupted rows and groups show
+  their state in words.
+- An opened body starts with what its row did not say. `ToolCard` measures its target while the body is open (a
+  `ResizeObserver` on the target's own box, so a narrowed window, split, side panel or rotation counts, and so does a
+  longer intent, state or time beside it in a row already at its widest; a new target text is measured again) and passes
+  `rowShowsTarget` only while the target shows whole. Then edit, write and read bodies keep an "Open file" link (the
+  file name read aloud with it, an edit's first changed line beside it) instead of the path and `+N −M`; a URL or
+  internal resource read keeps nothing about it; bash keeps its exit, timeout and wall-time badges without the
+  `$ command` line (a multi-line command always keeps it), and says "(no output)" when nothing else is left. The
+  wall time stays because the row's time counts from the assistant message and so includes the model's turn. A
+  write body no longer repeats the row's diagnostics chip.
+- Thoughts fold into the step after them: the row counts their thinking blocks ("1 thought") and, opened, shows
+  them first, each its own collapsed Thought line. A run of thoughts no step follows (the card's end, or before a
+  reply) stays one row, their thinking joined, their usage and time summed. With thinking hidden (`hideThinkingBlock`) a
+  row neither counts nor opens to them. On the long turn no "Thought · N words" line is left between steps.
+- A lone read is a plain row that opens straight to the file; two or more consecutive reads still fold into the
+  read-group card, which leads with their intent when they came as one run of it.
 
 ## Chips
 

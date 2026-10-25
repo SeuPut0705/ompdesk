@@ -9,7 +9,7 @@ import { ErrorDetail } from "../../common";
 import { unifiedDiffStats } from "../diff-stats";
 import { editArgumentPaths, editInputSections, editRecordDiff } from "../edit-args";
 import { PathLink } from "../media/PathLink";
-import { DiffStatChip, ToolPathTarget, type ToolRendererProps } from "../ToolCard";
+import { BodyPathLink, DiffStatChip, ToolPathTarget, type ToolRendererProps } from "../ToolCard";
 import { DiagnosticsSection, diagnosticsCount, resultDiagnostics } from "./Diagnostics";
 import { liveDiffProps } from "./live-diff";
 import { resultBodyText, resultDetails } from "./result";
@@ -71,9 +71,24 @@ interface EditHeaderProps {
 	isError?: boolean;
 	/** Live multi-file block: the card names the operation, so only the file and its stats remain. */
 	bare?: boolean;
+	/**
+	 * The row above shows this file with its `+N −M`: only what it lacks stays (a create, delete or move, the move's
+	 * target) beside an "Open file" link.
+	 */
+	rowShowsTarget?: boolean;
 }
 
-function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError, bare }: EditHeaderProps) {
+function EditHeader({
+	op,
+	title,
+	path,
+	moveTo,
+	firstChangedLine,
+	diff,
+	isError,
+	bare,
+	rowShowsTarget,
+}: EditHeaderProps) {
 	const t = useT();
 	const Icon = op === "delete" ? Trash2 : op === "create" ? FilePlus2 : title != null ? ArrowRightLeft : Pencil;
 	const label =
@@ -83,10 +98,12 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError, 
 			: op === "delete"
 				? t("tools.edit.op.delete")
 				: t("tools.edit.op.edit"));
-	const stats = diff ? unifiedDiffStats(diff) : null;
+	const stats = diff && !rowShowsTarget ? unifiedDiffStats(diff) : null;
+	// Under a row that shows the file, a plain edit's label and icon only repeat the row's pencil.
+	const plainEdit = rowShowsTarget && title == null && op !== "create" && op !== "delete";
 	return (
 		<div className="omp-tool-edit-heading flex items-center gap-1.5 font-mono text-omp-sm">
-			{bare ? null : (
+			{bare || plainEdit ? null : (
 				<>
 					<Icon
 						size={12}
@@ -103,9 +120,11 @@ function EditHeader({ op, title, path, moveTo, firstChangedLine, diff, isError, 
 				</>
 			)}
 			{path && (
-				<PathLink path={path} className="truncate">
-					<ToolPathTarget path={path} suffix={firstChangedLine ? `:${firstChangedLine}` : undefined} />
-				</PathLink>
+				<BodyPathLink
+					path={path}
+					rowShowsTarget={rowShowsTarget}
+					suffix={firstChangedLine ? `:${firstChangedLine}` : undefined}
+				/>
 			)}
 			{moveTo && (
 				<>
@@ -233,7 +252,15 @@ export function EditRenderer(props: ToolRendererProps) {
 	);
 }
 
-function EditContent({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
+function EditContent({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	livePreview,
+	rowShowsTarget,
+}: ToolRendererProps) {
 	const t = useT();
 	const details = resultDetails(result) ?? resultDetails(partialResult);
 	const perFileResults = asPerFileResults(details?.perFileResults);
@@ -285,7 +312,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		const { head: cappedError, omitted } = headLines(rawError, EDIT_ERROR_LINES);
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} isError />
+				<EditHeader op={op} path={rawPath} moveTo={rename} isError rowShowsTarget={rowShowsTarget} />
 				<div className="max-h-72 overflow-y-auto rounded bg-[var(--omp-tool-error-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-error)]">
 					{t("tools.edit.failed")}
 					<ErrorDetail className="mt-1 whitespace-pre-wrap" error={cappedError} />
@@ -305,6 +332,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 				title={op === "delete" ? undefined : t("tools.edit.op.move")}
 				path={rawPath}
 				moveTo={rename}
+				rowShowsTarget={rowShowsTarget}
 			/>
 		);
 	}
@@ -329,6 +357,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 							moveTo={rename}
 							firstChangedLine={firstChangedLine}
 							diff={singleDiff}
+							rowShowsTarget={rowShowsTarget}
 						/>
 					)
 				}
@@ -343,7 +372,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 		// No textual diff: a create (header says it all) or a genuine no-op.
 		return (
 			<div className="flex flex-col gap-1.5">
-				<EditHeader op={op} path={rawPath} moveTo={rename} />
+				<EditHeader op={op} path={rawPath} moveTo={rename} rowShowsTarget={rowShowsTarget} />
 				{op !== "create" && (
 					<div className="text-omp-sm italic text-[var(--omp-dim)]">
 						{rawPath ? t("tools.edit.noChangesTo", { path: rawPath }) : t("tools.edit.noChanges")}
@@ -366,6 +395,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 						path={multiFileArgs ? "" : rawPath}
 						moveTo={rename}
 						diff={argEdits.length === 1 ? editRecordDiff(argEdits[0]) : undefined}
+						rowShowsTarget={rowShowsTarget && !multiFileArgs}
 					/>
 				)}
 				{argEdits.map((entry, index) => {
@@ -430,7 +460,7 @@ function EditContent({ args, result, isError, isPartial, partialResult, livePrev
 	if (pending) return pending;
 	return (
 		<div className="flex flex-col gap-1.5">
-			<EditHeader op={op} path={rawPath} moveTo={rename} />
+			<EditHeader op={op} path={rawPath} moveTo={rename} rowShowsTarget={rowShowsTarget} />
 			<div className="text-omp-sm italic text-[var(--omp-dim)]">{t("tools.edit.applied")}</div>
 		</div>
 	);

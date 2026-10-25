@@ -234,8 +234,20 @@ export function isSilentCommand(args: Record<string, unknown>, result: unknown):
 	);
 }
 
-/** Bash: command line with exit/elapsed badges, terminal-style output, then any job/artifact note. */
-export function BashRenderer({ args, result, isError, isPartial, partialResult, livePreview }: ToolRendererProps) {
+/**
+ * Bash: command line with exit and elapsed badges, terminal-style output, then any job/artifact note. Under a row
+ * that shows the whole command (`rowShowsTarget`) the command line keeps only its badges; the elapsed badge stays,
+ * since it is the command's own wall time and the row's time also counts the model's turn before it.
+ */
+export function BashRenderer({
+	args,
+	result,
+	isError,
+	isPartial,
+	partialResult,
+	livePreview,
+	rowShowsTarget,
+}: ToolRendererProps) {
 	const t = useT();
 	const command = typeof args.command === "string" ? args.command : "";
 	const effective = isPartial ? partialResult : result;
@@ -255,6 +267,15 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 	const outputLines = livePreview ? liveOutput.split("\n") : null;
 	// Lines complete when the surface mounted; the open last line still counts as arriving.
 	const [settledLines] = useState(() => (outputLines?.length ?? 1) - 1);
+	const running = isPartial && parsed.exitCode == null && parsed.wallTimeMs == null;
+	// The row says a one-line command: the prompt line then stays only for its badges.
+	const rowShowsCommand = rowShowsTarget === true && !command.trim().includes("\n");
+	const prompt =
+		command !== "" &&
+		(!rowShowsCommand || parsed.timedOut || parsed.exitCode != null || parsed.wallTimeMs != null || running);
+	// A finished command that printed nothing and whose row already says it would open to nothing.
+	const nothing =
+		!prompt && !hasOutput && !livePreview && !isPartial && !isError && images.length === 0 && notes.length === 0;
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -268,12 +289,16 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 				data-silent={silent || undefined}
 			>
 				{/* A call whose arguments are still streaming has no command yet: no bare `$`. */}
-				{command ? (
+				{prompt ? (
 					<div className="omp-bash-prompt flex items-start gap-2 px-2.5 py-1.5 leading-normal">
-						<span aria-hidden className="shrink-0 select-none text-(--sc-text-subtle)">
-							$
-						</span>
-						<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-(--sc-text)">{command}</span>
+						{rowShowsCommand ? null : (
+							<>
+								<span aria-hidden className="shrink-0 select-none text-(--sc-text-subtle)">
+									$
+								</span>
+								<span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-(--sc-text)">{command}</span>
+							</>
+						)}
 						{parsed.timedOut && (
 							<span className="omp-bash-badge shrink-0 rounded-(--sc-radius-xs) bg-(--sc-warning)/15 px-1 text-sc-2xs font-medium text-(--sc-warning)">
 								{t("tools.bash.timedOut")}
@@ -299,7 +324,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 								{formatDuration(parsed.wallTimeMs)}
 							</span>
 						)}
-						{isPartial && parsed.exitCode == null && parsed.wallTimeMs == null && (
+						{running && (
 							<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.bash.running")}</span>
 						)}
 					</div>
@@ -308,7 +333,7 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 					<div
 						className={cx(
 							"px-2.5 py-1.5 leading-normal text-(--omp-tool-output)",
-							command && "border-t border-(--sc-divider)",
+							prompt && "border-t border-(--sc-divider)",
 							PREVIEW_SCROLL_MD,
 						)}
 					>
@@ -323,6 +348,9 @@ export function BashRenderer({ args, result, isError, isPartial, partialResult, 
 						</div>
 					</div>
 				)}
+				{nothing ? (
+					<div className="px-2.5 py-1.5 leading-normal text-(--sc-text-muted)">{t("chat.exec.noOutput")}</div>
+				) : null}
 			</div>
 			{devServer && !isPartial && (
 				<LinkButton

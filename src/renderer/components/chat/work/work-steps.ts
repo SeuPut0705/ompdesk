@@ -1,12 +1,14 @@
 /**
  * How a finished work card lists its steps when opened: consecutive calls that carry the same stock
- * intent ("Checking the types" ×3) sit under one line, and consecutive collapsible reads fold into
- * the transcript's own read-group card. Every call stays one `ToolCard` in the list; nothing is
- * hidden, only lined up. Pure: the component decides what is open (`StepGroups.tsx`).
+ * intent ("Checking the types" ×3) sit under one line, two or more consecutive collapsible reads fold
+ * into the transcript's own read-group card, and the thoughts before a step fold into that step's row
+ * (`thoughts`, shown as a count; the opened row shows them first). Every call stays one `ToolCard` in the
+ * list; nothing is hidden, only lined up. Pure: the component decides what is open (`StepGroups.tsx`).
  *
  * A message is split into its blocks (the very same block objects, which `toolEntryKey` keys its
  * store entries by), so a text between two calls still reads in place. Only thinking may sit
- * between two calls of one intent; a visible reply or a note ends the line.
+ * between two calls of one intent; a visible reply or a note ends the line. Thoughts that no step
+ * follows (the card's end, or a reply) stay one row however many there are.
  */
 import type { AgentMessage, MessageContent, ReadGroupTarget, ToolCallContent } from "../../../../shared/rpc-types";
 import { isRenderableMessageText } from "../../../lib/messages";
@@ -14,10 +16,20 @@ import { collapsibleReadTarget, type ReadGroupEntry, type ReadGroupUsage } from 
 import { toolEntryKey } from "../../../stores/tools";
 import { GENERIC_INTENT } from "./work-view";
 
+type MessageItem = { kind: "message"; key: string; message: AgentMessage; thinkingOnly: boolean };
+
 export type StepItem =
-	| { kind: "message"; key: string; message: AgentMessage; thinkingOnly: boolean }
-	| { kind: "call"; key: string; call: ToolCallContent; usage?: ReadGroupUsage }
-	| { kind: "reads"; key: string; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] };
+	| MessageItem
+	| { kind: "call"; key: string; call: ToolCallContent; usage?: ReadGroupUsage; thoughts?: AgentMessage[] }
+	| {
+			kind: "reads";
+			key: string;
+			entries: ReadGroupEntry[];
+			usage?: ReadGroupUsage[];
+			/** The intent every read in it states, when they came as one run of it. */
+			intent?: string;
+			thoughts?: AgentMessage[];
+	  };
 
 /** Consecutive calls of one intent. `callKeys` are the entry keys of every call inside, folded reads too. */
 export interface StepGroup {
@@ -26,11 +38,16 @@ export interface StepGroup {
 	label: string;
 	items: StepItem[];
 	callKeys: string[];
+	/** The thoughts just before the group's first call. */
+	thoughts?: AgentMessage[];
 }
 
 export type StepRow = StepItem | StepGroup;
 
-/** The intent a call states: stock's wire intent, then the arguments' own. A generic one names nothing. */
+/**
+ * The intent a call states: stock's wire intent, then the arguments' own. A generic one names nothing.
+ * A step row leads with it (`ToolCard`), and consecutive calls of one intent share a row (`groupSteps`).
+ */
 export function stepIntent(call: Pick<ToolCallContent, "intent" | "arguments">): string | undefined {
 	for (const intent of [call.intent, call.arguments.intent, call.arguments.i]) {
 		if (typeof intent === "string" && intent.trim() && !GENERIC_INTENT.test(intent.trim())) return intent.trim();
@@ -104,16 +121,26 @@ function splitSteps(messages: readonly AgentMessage[]): StepItem[] {
 	return items;
 }
 
-/** Consecutive collapsible reads become one read-group item (`groupReadRows`' rule, within a card). */
+/**
+ * Two or more consecutive collapsible reads become one read-group item (`groupReadRows`' rule, within a
+ * card). A lone read stays a call: its row reads by its intent and opens straight to the file.
+ */
 function foldReads(items: readonly StepItem[], readTargets?: ReadonlyMap<string, ReadGroupTarget | null>): StepItem[] {
 	const out: StepItem[] = [];
-	let run: ReadGroupEntry[] = [];
-	let usage: ReadGroupUsage[] = [];
+	let run: Array<{ item: StepItem; entry: ReadGroupEntry }> = [];
 	const flush = () => {
-		if (run.length === 0) return;
-		out.push({ kind: "reads", key: `reads:${run[0]?.toolKey}`, entries: run, ...(usage.length ? { usage } : {}) });
+		const [first] = run;
+		if (run.length === 1 && first) out.push(first.item);
+		else if (first) {
+			const usage = run.flatMap(({ item }) => (item.kind === "call" && item.usage ? [item.usage] : []));
+			out.push({
+				kind: "reads",
+				key: `reads:${first.entry.toolKey}`,
+				entries: run.map(({ entry }) => entry),
+				...(usage.length ? { usage } : {}),
+			});
+		}
 		run = [];
-		usage = [];
 	};
 	for (const item of items) {
 		if (item.kind === "call" && item.call.name === "read") {
@@ -123,13 +150,71 @@ function foldReads(items: readonly StepItem[], readTargets?: ReadonlyMap<string,
 					: { __ompReadGroup: readTargets.get(item.call.id) },
 			);
 			if (read) {
-				run.push({ callId: item.call.id, toolKey: item.key, ...read, args: item.call.arguments });
-				if (item.usage) usage.push(item.usage);
+				run.push({ item, entry: { callId: item.call.id, toolKey: item.key, ...read, args: item.call.arguments } });
 				continue;
 			}
 		}
 		flush();
 		out.push(item);
+	}
+	flush();
+	return out;
+}
+
+/** Two usage records added field by field: numbers summed, nested records (`cost`) too. */
+function addUsage(a: unknown, b: unknown): unknown {
+	if (typeof a === "number" && typeof b === "number") return a + b;
+	if (a && b && typeof a === "object" && typeof b === "object") {
+		const sum: Record<string, unknown> = { ...a };
+		for (const [key, value] of Object.entries(b)) sum[key] = key in sum ? addUsage(sum[key], value) : value;
+		return sum;
+	}
+	return b ?? a;
+}
+
+/** Several thought rows as one: their thinking joined into one block, their usage and time summed. */
+function mergeThoughts(thoughts: readonly MessageItem[]): MessageItem | undefined {
+	const [first] = thoughts;
+	if (thoughts.length < 2 || !first) return first;
+	const thinking = thoughts
+		.flatMap(({ message }) => (Array.isArray(message.content) ? message.content : []))
+		.flatMap(block => (block.type === "thinking" && isVisible(block) ? [block.thinking] : []))
+		.join("\n\n");
+	const usage = thoughts.reduce<unknown>((sum, { message }) => addUsage(sum, message.usage), undefined);
+	// The usage row's rate is tokens over this time, so both add up together.
+	const duration = thoughts.reduce<unknown>((sum, { message }) => addUsage(sum, message.duration), undefined);
+	return {
+		...first,
+		message: {
+			...first.message,
+			content: [{ type: "thinking", thinking }],
+			usage: usage as AgentMessage["usage"],
+			duration: duration as AgentMessage["duration"],
+		},
+	};
+}
+
+/**
+ * Thought rows fold into the step row after them (`thoughts`); a run that no step follows (the end, or
+ * a reply) stays one merged row.
+ */
+function foldThoughts<Row extends StepRow>(rows: readonly Row[]): Array<Row | MessageItem> {
+	const out: Array<Row | MessageItem> = [];
+	let pending: MessageItem[] = [];
+	const flush = () => {
+		const merged = mergeThoughts(pending);
+		if (merged) out.push(merged);
+		pending = [];
+	};
+	for (const row of rows) {
+		if (row.kind === "message" && row.thinkingOnly) pending.push(row);
+		else if (row.kind === "message") {
+			flush();
+			out.push(row);
+		} else {
+			out.push(pending.length ? { ...row, thoughts: pending.map(thought => thought.message) } : row);
+			pending = [];
+		}
 	}
 	flush();
 	return out;
@@ -142,7 +227,8 @@ export function itemCallKeys(item: StepItem): string[] {
 
 /**
  * A finished card's step rows. Two or more consecutive calls of one intent become a `StepGroup`;
- * every other call stays a row of its own, and reads fold wherever they are consecutive.
+ * every other call stays a row of its own, reads fold wherever two or more are consecutive, and
+ * thoughts fold into the step after them.
  */
 export function groupSteps(
 	messages: readonly AgentMessage[],
@@ -191,17 +277,17 @@ export function groupSteps(
 		flushLoose();
 		const folded = foldReads(run, readTargets);
 		const only = folded.length === 1 ? folded[0] : undefined;
-		if (only?.kind === "reads") rows.push(only);
+		if (only?.kind === "reads") rows.push({ ...only, intent: label });
 		else
 			rows.push({
 				kind: "intent",
 				key: `intent:${item.key}`,
 				label,
-				items: folded,
+				items: foldThoughts(folded),
 				callKeys: folded.flatMap(itemCallKeys),
 			});
 		index = end;
 	}
 	flushLoose();
-	return rows;
+	return foldThoughts(rows);
 }

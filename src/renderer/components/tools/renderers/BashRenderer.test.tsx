@@ -124,6 +124,31 @@ describe("BashRenderer", () => {
 		expect(container.textContent).not.toContain("Command timed out");
 	});
 
+	it("does not repeat a one-line command the row shows whole, and keeps its exit code and wall time", async () => {
+		const run = (
+			command: string,
+			rowShowsTarget: boolean,
+			details: Record<string, unknown> = {},
+			text = "listing",
+		) => <BashRenderer args={{ command }} result={bashResult(text, details)} rowShowsTarget={rowShowsTarget} />;
+		await mount(run("ls -la", true, { exitCode: 2, wallTimeMs: 420 }));
+		expect(container.textContent).not.toContain("ls -la");
+		expect(container.querySelector(".omp-bash-prompt .omp-bash-badge")?.textContent).toBe("exit 2");
+		expect(container.querySelector(".omp-bash-prompt .omp-bash-elapsed")?.textContent).toBe("420ms");
+		expect(container.textContent).toContain("listing");
+		await mount(run("ls -la", true));
+		expect(container.querySelector(".omp-bash-prompt")).toBeNull();
+		expect(container.textContent).toBe("listing");
+		// Nothing printed and nothing left to say: the body says so instead of opening to nothing.
+		await mount(run("touch a", true, {}, ""));
+		expect(container.textContent).toBe("(no output)");
+		// A clipped row, or a command whose later lines the row never shows, keeps the command in the body.
+		await mount(run("ls -la", false));
+		expect(container.querySelector(".omp-bash-prompt")?.textContent).toContain("ls -la");
+		await mount(run("cd src\nls -la", true));
+		expect(container.querySelector(".omp-bash-prompt")?.textContent).toContain("ls -la");
+	});
+
 	it("strips the background-job trailer and restates the job id", async () => {
 		await mount(
 			<BashRenderer
