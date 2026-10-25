@@ -3,8 +3,7 @@
 		"rea": {
 			"type": "stdio",
 			"command": "node",
-			"args": ["${OMP_PLUGIN_ROOT}/rea-relay.mjs"],
-			"instructions": false
+			"args": ["${OMP_PLUGIN_ROOT}/rea-relay.mjs"]
 		}
 	}
 }

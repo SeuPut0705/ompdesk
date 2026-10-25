@@ -9,6 +9,13 @@ let tools = [
 	name,
 	description: name === "extra_0" ? "JavaScript optional detail\nMore documentation" : `${name} analysis entry`,
 	inputSchema: { type: "object", properties: { marker: { type: "string" } }, additionalProperties: false },
+	...(name === "extra_0"
+		? {
+				annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+				outputSchema: { type: "object", properties: { evidence: { type: "string" } }, required: ["evidence"] },
+				_meta: { provenance: { untrusted_content: true } },
+			}
+		: {}),
 }));
 const send = message => process.stdout.write(`${JSON.stringify(message)}\n`);
 const lines = createInterface({ input: process.stdin });

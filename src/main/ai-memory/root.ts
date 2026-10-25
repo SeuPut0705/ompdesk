@@ -12,8 +12,8 @@
  * a launch that changed nothing touches nothing (a running omp keeps its files open on Windows) and ai-memory's
  * `.bak-<timestamp>` backups never pile up inside the root. The one thing OMPdesk adds: the generated MCP entry
  * (`ai-memory mcp-bridge …`) is started through `memory-relay.mjs` (`resources/omp-builtin/ai-memory/`, copied into
- * the root), which keeps the server's long instructions and its admin tools out of every session's first request
- * while every tool stays callable. The entry's own command and arguments follow the relay's, unchanged.
+ * the root), which adds route summaries without changing tool names, schemas or metadata. The upstream scope and
+ * trust instructions stay intact. The entry's own command and arguments follow the relay's, unchanged.
  */
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";

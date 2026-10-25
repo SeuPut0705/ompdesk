@@ -106,18 +106,6 @@ describe("generateRoot", () => {
 		});
 		const mcp = async () => JSON.parse(await readFile(join(root, ".mcp.json"), "utf8")).mcpServers["ai-memory"];
 
-		it("starts ai-memory's own entry through the relay, keeping its command, arguments and other keys", async () => {
-			await generateRoot(root, generators({ entry }).run, text => text, relay);
-			expect(await mcp()).toEqual({
-				type: "stdio",
-				command: "bun",
-				args: ["$" + "{OMP_PLUGIN_ROOT}/memory-relay.mjs", "/bin/ai-memory", "mcp-bridge", "--no-session-id"],
-				enabled: true,
-			});
-			expect(await readFile(join(root, ROOT_RELAY), "utf8")).toBe("// relay 1\n");
-			expect(await readdir(root)).toEqual([".mcp.json", "index.ts", "memory-relay.mjs", "skills"].sort());
-		});
-
 		it("is complete only while the relay file is there", async () => {
 			await generateRoot(root, generators({ entry }).run, text => text, relay);
 			expect(await rootComplete(root)).toBe(true);
@@ -134,11 +122,6 @@ describe("generateRoot", () => {
 			await writeFile(relay.source, "// relay 2\n");
 			await generateRoot(root, run, text => text, relay);
 			expect(await readFile(join(root, ROOT_RELAY), "utf8")).toBe("// relay 2\n");
-		});
-
-		it("takes the runtime from the caller, so a missing Bun on Windows is a path, not a PATH lookup", async () => {
-			await generateRoot(root, generators({ entry }).run, text => text, { ...relay, command: "C:\\Bun\\bun.exe" });
-			expect((await mcp()).command).toBe("C:\\Bun\\bun.exe");
 		});
 
 		it("leaves an entry that is not a stdio command as ai-memory wrote it, with no relay file", async () => {

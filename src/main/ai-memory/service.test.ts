@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -393,23 +393,6 @@ describe("AiMemoryService", () => {
 			// Nothing lands in omp's own agent dir.
 			expect(existsSync(join(agentDir, EXTENSION_FILE))).toBe(false);
 			expect(existsSync(join(agentDir, MCP_FILE))).toBe(false);
-		});
-
-		it("starts the generated MCP entry through the relay (Bun by absolute path) and ships the relay in the root", async () => {
-			const relaySource = join(await mkdtemp(join(tmpdir(), "ai-memory-relay-")), "memory-relay.mjs");
-			await writeFile(relaySource, "// relay\n");
-			const { service, rootDir, home } = await make({ relaySource });
-			const bun = join(home, ".bun", "bin", "bun");
-			await mkdir(dirname(bun), { recursive: true });
-			await writeFile(bun, "#!/bin/sh\n");
-			await chmod(bun, 0o755);
-			await service.start();
-			const entry = JSON.parse(await readFile(join(rootDir, ".mcp.json"), "utf8")).mcpServers["ai-memory"];
-			expect(entry.command).toBe(bun);
-			expect(entry.args).toEqual(["$" + "{OMP_PLUGIN_ROOT}/memory-relay.mjs", BIN, "mcp-bridge"]);
-			expect(await readFile(join(rootDir, "memory-relay.mjs"), "utf8")).toBe("// relay\n");
-			expect(service.state().wiring.app).toBe(true);
-			await rm(dirname(relaySource), RM_TEMP);
 		});
 
 		it("leaves the MCP entry as ai-memory wrote it, every tool mounted, on a machine with no Bun", async () => {

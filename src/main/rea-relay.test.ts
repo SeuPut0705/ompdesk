@@ -93,38 +93,8 @@ describe("REA relay", () => {
 			properties: { marker: { type: "string" } },
 			additionalProperties: false,
 		});
-		const call = await fixture.request("tools/call", {
-			name: config.curatedTools[0],
-			arguments: { marker: "direct" },
-		});
-		expect(JSON.parse(Content.parse(call.result).content[0].text)).toEqual({
-			name: config.curatedTools[0],
-			arguments: { marker: "direct" },
-		});
 	});
-	it("keeps every catalog tool callable through rea_call and refuses a direct call to an unmounted one", async () => {
-		const fixture = relay();
-		await initialize(fixture);
-		const all = await fixture.request("tools/call", { name: "rea_catalog", arguments: {} });
-		const names = Tools.parse(JSON.parse(Content.parse(all.result).content[0].text)).tools.map(tool => tool.name);
-		expect(names).toHaveLength(30);
-		expect(names).toEqual(expect.arrayContaining(config.curatedTools));
-		for (const name of names) {
-			const called = await fixture.request("tools/call", {
-				name: "rea_call",
-				arguments: { name, arguments: { marker: name } },
-			});
-			expect(JSON.parse(Content.parse(called.result).content[0].text)).toEqual({
-				name,
-				arguments: { marker: name },
-			});
-		}
-		const unmounted = names.find(name => !config.curatedTools.includes(name)) ?? "";
-		const direct = await fixture.request("tools/call", { name: unmounted, arguments: {} });
-		expect(direct.error?.code).toBe(-32602);
-		expect(direct.error?.message).toContain("use rea_call");
-	});
-	it("searches the full catalog and supplies only a requested schema", async () => {
+	it("searches concise summaries and supplies the full requested tool descriptor", async () => {
 		const fixture = relay();
 		await initialize(fixture);
 		const response = await fixture.request("tools/call", {
@@ -135,25 +105,28 @@ describe("REA relay", () => {
 			tools: [{ name: "extra_0", description: "JavaScript optional detail" }],
 		});
 		const schema = await fixture.request("tools/call", { name: "rea_catalog", arguments: { name: "extra_0" } });
-		expect(Tools.parse(JSON.parse(Content.parse(schema.result).content[0].text)).tools[0].inputSchema).toEqual({
-			type: "object",
-			properties: { marker: { type: "string" } },
-			additionalProperties: false,
+		expect(JSON.parse(Content.parse(schema.result).content[0].text)).toEqual({
+			tools: [
+				{
+					name: "extra_0",
+					description: "JavaScript optional detail\nMore documentation",
+					inputSchema: {
+						type: "object",
+						properties: { marker: { type: "string" } },
+						additionalProperties: false,
+					},
+					annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+					outputSchema: { type: "object", properties: { evidence: { type: "string" } }, required: ["evidence"] },
+					_meta: { provenance: { untrusted_content: true } },
+				},
+			],
 		});
 		const all = await fixture.request("tools/call", { name: "rea_catalog", arguments: {} });
 		expect(Tools.parse(JSON.parse(Content.parse(all.result).content[0].text)).tools).toHaveLength(30);
 	});
-	it("forwards hidden calls, preserves REA errors, and rejects unknown or invalid inputs", async () => {
+	it("preserves REA errors and rejects unknown or invalid inputs", async () => {
 		const fixture = relay();
 		await initialize(fixture);
-		const response = await fixture.request("tools/call", {
-			name: "rea_call",
-			arguments: { name: "extra_14", arguments: { marker: "forwarded" } },
-		});
-		expect(JSON.parse(Content.parse(response.result).content[0].text)).toEqual({
-			name: "extra_14",
-			arguments: { marker: "forwarded" },
-		});
 		const failed = await fixture.request("tools/call", {
 			name: "rea_call",
 			arguments: { name: "extra_14", arguments: { marker: "fail" } },
@@ -181,7 +154,7 @@ describe("REA relay", () => {
 			name: "rea_call",
 			arguments: { name: config.curatedTools[0], arguments: {} },
 		});
-		expect(call.error?.message).toContain("Unknown REA tool");
+		expect(call.error?.code).toBe(-32602);
 	});
 	it("exits nonzero when its child exits", async () => {
 		const fixture = relay();

@@ -190,11 +190,11 @@ export function startRelay(
 						{
 							type: "text",
 							text: JSON.stringify({
-								tools: matches.map(tool => ({
-									name: tool.name,
-									description: (tool.description ?? "").split(/\r?\n/)[0],
-									...(input.name ? { inputSchema: tool.inputSchema } : {}),
-								})),
+								tools: matches.map(tool =>
+									input.name
+										? tool
+										: { name: tool.name, description: (tool.description ?? "").split(/\r?\n/)[0] },
+								),
 							}),
 						},
 					],

@@ -12,7 +12,6 @@ import * as path from "node:path";
 import { type PlistObject, parsePlistFile, savePlistFile } from "app-builder-lib/out/util/plist";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import reaConfig from "../../resources/omp-builtin/rea/rea-config.json" with { type: "json" };
 import { REA_VERSION } from "../shared/builtin-mcp";
 import { UPDATE_ASSETS } from "./update-release";
 
@@ -198,15 +197,12 @@ describe("mac bundle configs", () => {
 		const declaration: unknown = JSON.parse(
 			fs.readFileSync(path.join(PACKAGE_ROOT, "resources/omp-builtin/rea/.mcp.json"), "utf8"),
 		);
-		// `instructions: false` keeps REA's 284-token server text out of every session's system prompt (stock's
-		// per-server switch); the skill below carries it, so the injection guard still reaches an agent that reads it.
 		expect(declaration).toEqual({
 			mcpServers: {
 				rea: {
 					type: "stdio",
 					command: "node",
 					args: ["$" + "{OMP_PLUGIN_ROOT}/rea-relay.mjs"],
-					instructions: false,
 				},
 			},
 		});
@@ -232,12 +228,6 @@ describe("mac bundle configs", () => {
 		// Upstream's own commands name the release the skill was generated for.
 		const releases = new Set(Array.from(skill.matchAll(/rea-agents@(\d+\.\d+\.\d+)/g), match => match[1]));
 		expect([...releases]).toEqual([REA_VERSION]);
-		// The server's instructions are dropped from the prompt (`instructions: false`), so the skill's OMPdesk
-		// section names what is mounted and keeps their injection guard and close_binary guidance.
-		for (const tool of reaConfig.curatedTools) expect(skill).toContain(`\`${tool}\``);
-		expect(skill).toContain("Only the entry tools");
-		expect(skill).toContain("prompt-injection attempt");
-		expect(skill).toContain("call `close_binary`");
 	});
 
 	it("ships the license texts of vendored code on both platforms", () => {
