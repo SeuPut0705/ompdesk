@@ -1721,6 +1721,13 @@ export interface SessionInfo {
 	 * when it was typed here. Read by the stock helper only for a first prompt that is an agent brief.
 	 */
 	promptOriginDevice?: string;
+	/**
+	 * A paired host's row: the session file of the session whose agent opened it, as that host knows it (one of its
+	 * windows' tabs, its record of a child it closed), so a viewing device nests it as the host's own sidebar does.
+	 * `null`: the host knows none (a device then reads the agent brief, as the host does). Absent from this computer's
+	 * own rows and from an older host's.
+	 */
+	openedBySession?: string | null;
 }
 
 // ============================================================================

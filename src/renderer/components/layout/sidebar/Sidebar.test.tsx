@@ -3235,6 +3235,106 @@ describe("Sidebar device sections", () => {
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBeNull();
 	});
 
+	describe("the sessions a host's own agents opened", () => {
+		const APP = "/Users/kim/code/app";
+		const BOSS = "/Users/kim/.omp/agent/sessions/app/boss.jsonl";
+		const AT_WORK = "/Users/kim/.omp/agent/sessions/wt/at-work.jsonl";
+		const ASKING = "/Users/kim/.omp/agent/sessions/wt/asking.jsonl";
+		const LANDED = "/Users/kim/.omp/agent/sessions/wt/landed.jsonl";
+		const BOSS_KEY = `device:dev-studio:${BOSS}`;
+		const hostRows = (opener: (path: string) => Partial<SessionInfo>) => [
+			session(BOSS, APP, { title: "Plan the redesign", device: "dev-studio", ...opener(BOSS) }),
+			...(
+				[
+					[AT_WORK, "Child at work"],
+					[ASKING, "Child asking"],
+					[LANDED, "Child landed"],
+				] as const
+			).map(([path, title], index) =>
+				session(path, APP, {
+					title,
+					device: "dev-studio",
+					firstMessage: wrapAgentMessage(`Title: ${title}\nDetails.`, "Plan the redesign"),
+					created: `2026-01-0${index + 2}T00:00:00Z`,
+					...opener(path),
+				}),
+			),
+		];
+		function mountHost(rows: SessionInfo[]) {
+			const omp = installMockOmp(LIST);
+			omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? rows : LIST));
+			seedStores();
+			pairHost("online");
+			const remote = useRemoteStore.getState().state;
+			if (!remote) throw new Error("no remote state");
+			// The host works on two of them in its own windows; no tab of this computer holds any.
+			useRemoteStore.getState().apply({
+				...remote,
+				hosts: [
+					{
+						deviceId: "dev-studio",
+						name: "studio",
+						state: "online",
+						live: [
+							{ sessionPath: AT_WORK, state: "turn" },
+							{ sessionPath: ASKING, state: "waiting" },
+						],
+					},
+				],
+			});
+			return mount(<Sidebar />);
+		}
+		const device = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		const listed = () =>
+			[...(device()?.querySelectorAll("[data-device-session]") ?? [])].map(row =>
+				row.getAttribute("data-device-session"),
+			);
+		const familyPaths = () =>
+			[
+				...(device()?.querySelectorAll(`[data-sidebar-family="${BOSS_KEY}"] [data-sidebar-opened-session]`) ?? []),
+			].map(row => row.getAttribute("data-session-path"));
+
+		it("nests the children the host names under their opener's row, folded, the waiting one surfaced alone", async () => {
+			// The host says who opened each (its windows' tabs, its closed records); the opener says none.
+			await mountHost(hostRows(path => ({ openedBySession: path === BOSS ? null : BOSS })));
+
+			expect(listed()).toEqual([BOSS]);
+			const boss = device()?.querySelector(`[data-device-session="${BOSS}"]`);
+			// The chip counts the one at work and warns of the one that waits.
+			expect(boss?.querySelector("[data-family-running]")?.textContent).toBe("1");
+			expect(boss?.querySelector("[data-family-waiting]")?.getAttribute("data-family-waiting")).toBe("1");
+			// Folded by default: only the child that waits for the person shows.
+			expect(useSidebarSubagentsStore.getState().expanded.has(BOSS_KEY)).toBe(false);
+			expect(device()?.querySelector(`[data-sidebar-surfaced="${BOSS_KEY}"]`)).not.toBeNull();
+			expect(familyPaths()).toEqual([ASKING]);
+
+			await fire(boss?.querySelector("[data-sidebar-subagents-toggle]") ?? null, "onClick");
+			// The finished one that the host did not keep at work is not listed anywhere.
+			expect(familyPaths()).toEqual([AT_WORK, ASKING]);
+			const atWork = device()?.querySelector(`[data-session-path="${AT_WORK}"]`);
+			expect(atWork?.getAttribute("data-child-status")).toBe("running");
+			expect(device()?.textContent ?? "").not.toContain("Child landed");
+
+			// A tap opens the child on the host, as its own row would.
+			const omp = window.omp as unknown as MockOmp;
+			await fire(atWork?.querySelector("button") ?? null, "onClick");
+			expect(omp.tabs.spawn).toHaveBeenCalledWith(
+				expect.objectContaining({ cwd: APP, sessionPath: AT_WORK, device: "dev-studio" }),
+			);
+		});
+
+		it("falls back to the brief only for rows the host says it knows no opener of", async () => {
+			await mountHost(hostRows(() => ({ openedBySession: null })));
+			expect(listed()).toEqual([BOSS]);
+		});
+
+		it("lists an older host's rows, which name no opener, as before", async () => {
+			await mountHost(hostRows(() => ({})));
+			expect(listed().toSorted()).toEqual([AT_WORK, ASKING, BOSS, LANDED].toSorted());
+			expect(device()?.querySelector("[data-sidebar-opened-session]")).toBeNull();
+		});
+	});
+
 	it("Move up and down reorder a host's projects and sessions, kept in this computer's prefs under the host's id", async () => {
 		const omp = installWithRemote();
 		const host = [
