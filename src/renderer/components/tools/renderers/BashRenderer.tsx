@@ -235,8 +235,9 @@ export function isSilentCommand(args: Record<string, unknown>, result: unknown):
 }
 
 /**
- * Bash: command line with exit (and, on the live stage, elapsed) badges, terminal-style output, then any job/artifact
- * note. Under a row that shows the whole command (`rowShowsTarget`) the command line keeps only its badges.
+ * Bash: command line with exit and elapsed badges, terminal-style output, then any job/artifact note. Under a row
+ * that shows the whole command (`rowShowsTarget`) the command line keeps only its badges; the elapsed badge stays,
+ * since it is the command's own wall time and the row's time also counts the model's turn before it.
  */
 export function BashRenderer({
 	args,
@@ -267,9 +268,14 @@ export function BashRenderer({
 	// Lines complete when the surface mounted; the open last line still counts as arriving.
 	const [settledLines] = useState(() => (outputLines?.length ?? 1) - 1);
 	const running = isPartial && parsed.exitCode == null && parsed.wallTimeMs == null;
-	// The row says a one-line command and its time: the prompt line then stays only for what it adds.
+	// The row says a one-line command: the prompt line then stays only for its badges.
 	const rowShowsCommand = rowShowsTarget === true && !command.trim().includes("\n");
-	const prompt = command !== "" && (!rowShowsCommand || parsed.timedOut || parsed.exitCode != null || running);
+	const prompt =
+		command !== "" &&
+		(!rowShowsCommand || parsed.timedOut || parsed.exitCode != null || parsed.wallTimeMs != null || running);
+	// A finished command that printed nothing and whose row already says it would open to nothing.
+	const nothing =
+		!prompt && !hasOutput && !livePreview && !isPartial && !isError && images.length === 0 && notes.length === 0;
 
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -310,7 +316,7 @@ export function BashRenderer({
 								{t("tools.bash.exit", { code: parsed.exitCode })}
 							</span>
 						)}
-						{livePreview && parsed.wallTimeMs != null && (
+						{parsed.wallTimeMs != null && (
 							<span
 								className="omp-bash-elapsed shrink-0 text-sc-2xs tabular-nums text-(--sc-text-subtle)"
 								title={t("tools.bash.wallTime")}
@@ -342,6 +348,9 @@ export function BashRenderer({
 						</div>
 					</div>
 				)}
+				{nothing ? (
+					<div className="px-2.5 py-1.5 leading-normal text-(--sc-text-muted)">{t("chat.exec.noOutput")}</div>
+				) : null}
 			</div>
 			{devServer && !isPartial && (
 				<LinkButton

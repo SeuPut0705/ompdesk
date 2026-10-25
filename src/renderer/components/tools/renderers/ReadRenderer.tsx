@@ -130,6 +130,9 @@ export function ReadRenderer({
 		meta.push(t("tools.read.summary", { count: elidedSpans }));
 	}
 	const HeadIcon = cfgPath !== null ? Settings2 : isUrl ? Globe : FileText;
+	// Under a row that shows it, a file keeps only an "Open file" link; a URL or internal resource is no file to open.
+	const rowShowsResource = rowShowsTarget === true && cfgPath === null;
+	const showsPath = !rowShowsResource || !(isUrl || /^[a-z][a-z0-9+.-]*:\/\//i.test(basePath));
 
 	return (
 		<div
@@ -139,21 +142,23 @@ export function ReadRenderer({
 		>
 			{!livePreview && (
 				<div className="flex flex-col gap-0.5">
-					<div className="flex items-center gap-1.5 font-mono text-omp-sm">
-						{rowShowsTarget && cfgPath === null ? null : (
-							<HeadIcon size={12} className="shrink-0 text-[var(--omp-dim)]" />
-						)}
-						{cfgPath !== null ? (
-							<span className="min-w-0 truncate text-[var(--omp-muted)]">{cfgPath || t("tools.cfg.all")}</span>
-						) : (
-							<BodyPathLink path={basePath} rowShowsTarget={rowShowsTarget} />
-						)}
-						{conflicts > 0 && (
-							<span className="shrink-0 text-sc-xs text-(--sc-warning)">
-								{t("tools.read.conflicts", { count: conflicts })}
-							</span>
-						)}
-					</div>
+					{showsPath || conflicts > 0 ? (
+						<div className="flex items-center gap-1.5 font-mono text-omp-sm">
+							{rowShowsResource ? null : <HeadIcon size={12} className="shrink-0 text-[var(--omp-dim)]" />}
+							{cfgPath !== null ? (
+								<span className="min-w-0 truncate text-[var(--omp-muted)]">
+									{cfgPath || t("tools.cfg.all")}
+								</span>
+							) : showsPath ? (
+								<BodyPathLink path={basePath} rowShowsTarget={rowShowsTarget} />
+							) : null}
+							{conflicts > 0 && (
+								<span className="shrink-0 text-sc-xs text-(--sc-warning)">
+									{t("tools.read.conflicts", { count: conflicts })}
+								</span>
+							)}
+						</div>
+					) : null}
 					{meta.length > 0 && (
 						<div className="text-sc-xs text-(--sc-text-subtle)" data-read-meta>
 							{meta.join(" · ")}

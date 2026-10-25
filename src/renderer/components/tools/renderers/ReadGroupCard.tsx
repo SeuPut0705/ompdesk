@@ -37,6 +37,7 @@ export function ReadGroupCard({
 	inset,
 	intent,
 	runningIndicator = "spinner",
+	showIntent = true,
 	thoughts,
 	usage,
 }: {
@@ -47,6 +48,8 @@ export function ReadGroupCard({
 	/** What every read in it was for: the row leads with it, the files follow muted. */
 	intent?: string;
 	runningIndicator?: RunningIndicator;
+	/** Its reads may lead with their own intents; off under a row that already says it. */
+	showIntent?: boolean;
 	/** The thoughts just before the reads, folded into the row. */
 	thoughts?: StepThoughts;
 	/** Usage carried from fully-consumed assistant turns (TUI parity). */
@@ -119,6 +122,8 @@ export function ReadGroupCard({
 					<span className="shrink-0 text-sc-xs font-medium text-(--sc-danger)">{t("tools.status.failed")}</span>
 				) : state === "aborted" ? (
 					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.status.interrupted")}</span>
+				) : state === "running" ? (
+					<span className="sr-only">{t("chat.exec.running")}</span>
 				) : null}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				<ChevronRight
@@ -139,7 +144,7 @@ export function ReadGroupCard({
 							toolName="read"
 							args={entry.args}
 							runningIndicator="dot"
-							showIntent={!intent}
+							showIntent={showIntent && !intent}
 						/>
 					))}
 				</div>

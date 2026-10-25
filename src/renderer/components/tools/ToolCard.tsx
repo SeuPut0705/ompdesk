@@ -1,5 +1,5 @@
 import { Ban, ChevronRight, CircleX } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { basename, cx, dirname, durationBetween, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -141,7 +141,8 @@ export function ToolPathTarget({
 
 /**
  * The file an opened body names: its path as a link, or, when the row above already shows that path, only an
- * "Open file" link (the whole path in its tooltip), so opening the file stays one click without saying it twice.
+ * "Open file" link (the file's name read aloud with it, the whole path in its tooltip) and the line it starts at,
+ * so opening the file stays one click without saying the path twice.
  */
 export function BodyPathLink({
 	path,
@@ -163,9 +164,13 @@ export function BodyPathLink({
 		);
 	}
 	return (
-		<PathLink path={openPath} className="omp-tool-open-file shrink-0 font-sans text-sc-xs text-(--sc-text-muted)">
-			{t("tools.path.open")}
-		</PathLink>
+		<>
+			<PathLink path={openPath} className="omp-tool-open-file shrink-0 font-sans text-sc-xs text-(--sc-text-muted)">
+				{t("tools.path.open")}
+				<span className="sr-only"> {basename(path)}</span>
+			</PathLink>
+			{suffix ? <span className="shrink-0 font-mono text-sc-xs text-(--sc-text-subtle)">{suffix}</span> : null}
+		</>
 	);
 }
 
@@ -218,8 +223,28 @@ export function ToolCard({
 		toolName === "eval" && entry?.status === "running" ? selectDesktopSlotPosition(s, tabId) : null,
 	);
 	const [expanded, setExpanded] = useState(expandAll.expanded);
-	// Measured as the row opens: whether its target shows whole, so the body need not repeat it.
+	// Whether the row shows its target whole, measured while the body is open (the row narrows with the window, a
+	// split or the side panel), so the body repeats only what the row cannot show.
 	const [targetShown, setTargetShown] = useState(false);
+	const rowRef = useRef<HTMLButtonElement>(null);
+	useLayoutEffect(() => {
+		const row = rowRef.current;
+		if (!expanded || !row) return;
+		const measure = () => {
+			const summary = row.querySelector<HTMLElement>(".omp-tool-summary:not([data-desktop-slot-waiting])");
+			setTargetShown(
+				summary !== null &&
+					summary.clientWidth > 0 &&
+					summary.scrollWidth <= summary.clientWidth &&
+					!summary.textContent?.endsWith("…"),
+			);
+		};
+		measure();
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(measure);
+		observer.observe(row);
+		return () => observer.disconnect();
+	}, [expanded]);
 	// Only an open body shows streaming output, so a collapsed card ignores it.
 	const partialResult = useToolsStore(s => (expanded ? s.partialResults.get(toolCallId) : undefined));
 
@@ -249,17 +274,15 @@ export function ToolCard({
 	const KindIcon = header.icon;
 	const result = entry?.result;
 	const intent = showIntent ? stepIntent({ intent: entry?.intent, arguments: args }) : undefined;
-	// A target that only restates the intent (a wait's `i`) is said once.
-	const target = intent && header.target.toLocaleLowerCase() === intent.toLocaleLowerCase() ? "" : header.target;
-	const toggle = (row: HTMLElement) => {
-		if (!expanded) {
-			const summary = row.querySelector<HTMLElement>(".omp-tool-summary");
-			setTargetShown(
-				summary !== null && summary.scrollWidth <= summary.clientWidth && !summary.textContent?.endsWith("…"),
-			);
-		}
-		setExpanded(value => !value);
-	};
+	// A target that only restates the intent (a wait's `i`, cut to its first line or 160 characters) is said once.
+	const targetCore = header.target.replace(/…$/, "").toLocaleLowerCase();
+	const restates =
+		intent !== undefined &&
+		targetCore !== "" &&
+		(intent.toLocaleLowerCase() === targetCore ||
+			((header.target.endsWith("…") || intent.includes("\n")) && intent.toLocaleLowerCase().startsWith(targetCore)));
+	const target = restates ? "" : header.target;
+	const label = header.labelKey ? t(header.labelKey, header.labelParams) : header.tool;
 	const diffStats = useMemo(
 		() => (isAborted ? null : toolDiffStats(toolName, args, result, failed)),
 		[toolName, args, result, failed, isAborted],
@@ -279,9 +302,10 @@ export function ToolCard({
 			data-tool-error={isError ? "true" : undefined}
 		>
 			<button
+				ref={rowRef}
 				type="button"
 				aria-expanded={expanded}
-				onClick={event => toggle(event.currentTarget)}
+				onClick={() => setExpanded(value => !value)}
 				className={TOOL_ROW_CLASS}
 			>
 				<ToolStatusIcon
@@ -297,7 +321,7 @@ export function ToolCard({
 					)}
 					title={intent}
 				>
-					{intent ?? (header.labelKey ? t(header.labelKey, header.labelParams) : header.tool)}
+					{intent ?? label}
 				</span>
 				{status === "running" && !failed ? <span className="sr-only">{t("chat.exec.running")}</span> : null}
 				{slotPosition !== null && !failed ? (
@@ -323,6 +347,11 @@ export function ToolCard({
 				) : streamingSummary ? (
 					<span className="omp-tool-summary min-w-0 truncate font-mono text-(--sc-text-subtle)">
 						{streamingSummary}…
+					</span>
+				) : intent ? (
+					// No other target: the tool that ran (an MCP server's tool, a device) stays named after the intent.
+					<span className={cx("omp-tool-kind min-w-0 truncate", AFTER_INTENT_CLASS)} title={label}>
+						{label}
 					</span>
 				) : null}
 				{diffStats && (diffStats.added > 0 || diffStats.removed > 0) ? <DiffStatChip stats={diffStats} /> : null}
@@ -366,7 +395,7 @@ export function ToolCard({
 								isPartial={isPartial}
 								partialResult={partialResult}
 								interrupted={isAborted}
-								rowShowsTarget={header.path ? true : targetShown}
+								rowShowsTarget={targetShown}
 							/>
 							{!isError && !isPartial && entry?.result != null ? (
 								<ToolResultMedia args={args} result={entry.result} toolName={toolName} />

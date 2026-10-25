@@ -1,6 +1,7 @@
 import { ChevronRight, ListChecks } from "lucide-react";
 import { type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import type { AgentMessage } from "../../../../shared/rpc-types";
+import { useDisplayPreference } from "../../../lib/display-preferences";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isRenderableMessageText } from "../../../lib/messages";
@@ -44,11 +45,19 @@ function StepFrame({ children }: { children: ReactNode }) {
 	);
 }
 
-/** The thoughts folded into a step's row, as they read when it opens: each one's own Thought line. */
-function stepThoughts(messages: readonly AgentMessage[] | undefined): StepThoughts | undefined {
-	if (!messages?.length) return undefined;
+/**
+ * The thoughts folded into a step's row, as they read when it opens: each thinking block its own Thought line.
+ * With thinking hidden (`hideThinkingBlock`) the row neither counts them nor opens to them.
+ */
+function useStepThoughts(messages: readonly AgentMessage[] | undefined): StepThoughts | undefined {
+	const hidden = useDisplayPreference("hideThinkingBlock");
+	if (hidden || !messages?.length) return undefined;
+	const count = messages
+		.flatMap(message => (Array.isArray(message.content) ? message.content : []))
+		.filter(block => block.type === "thinking" && isRenderableMessageText(block.thinking)).length;
+	if (count === 0) return undefined;
 	return {
-		count: messages.length,
+		count,
 		body: (
 			<div className="omp-step-thoughts-body">
 				{messages.map((message, index) => (
@@ -68,6 +77,7 @@ function stepThoughts(messages: readonly AgentMessage[] | undefined): StepThough
 
 /** One step. Inside an intent group the group's row already says the intent, so its calls do not repeat it. */
 function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boolean }) {
+	const thoughts = useStepThoughts(item.kind === "message" ? undefined : item.thoughts);
 	switch (item.kind) {
 		case "message":
 			return <MessageBubble compact message={item.message} runningIndicator="dot" />;
@@ -78,7 +88,7 @@ function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boo
 						args={item.call.arguments}
 						runningIndicator="dot"
 						showIntent={!inGroup}
-						thoughts={stepThoughts(item.thoughts)}
+						thoughts={thoughts}
 						toolCallId={item.key}
 						toolName={item.call.name}
 					/>
@@ -86,7 +96,7 @@ function StepItemView({ item, inGroup = false }: { item: StepItem; inGroup?: boo
 				</StepFrame>
 			);
 		case "reads":
-			return <ReadsRow item={item} />;
+			return <ReadsRow inGroup={inGroup} item={item} thoughts={thoughts} />;
 	}
 }
 
@@ -111,7 +121,15 @@ function useOpensItself(keys: readonly string[], outcomes: string): boolean | St
 }
 
 /** Folded reads: the transcript's read-group card, opened by a failed read. */
-function ReadsRow({ item }: { item: Extract<StepItem, { kind: "reads" }> }) {
+function ReadsRow({
+	item,
+	inGroup,
+	thoughts,
+}: {
+	item: Extract<StepItem, { kind: "reads" }>;
+	inGroup: boolean;
+	thoughts: StepThoughts | undefined;
+}) {
 	const keys = useMemo(() => item.entries.map(entry => entry.toolKey), [item.entries]);
 	const opens = useOpensItself(keys, useStepOutcomes(keys));
 	return (
@@ -121,7 +139,8 @@ function ReadsRow({ item }: { item: Extract<StepItem, { kind: "reads" }> }) {
 			inset
 			intent={item.intent}
 			runningIndicator="dot"
-			thoughts={stepThoughts(item.thoughts)}
+			showIntent={!inGroup}
+			thoughts={thoughts}
 			usage={item.usage}
 		/>
 	);
@@ -143,7 +162,7 @@ function IntentGroup({ group }: { group: StepGroup }) {
 		if (opens) setOpen(true);
 	}, [opens]);
 	const state = running ? "running" : failed ? "error" : outcomes.includes("interrupted") ? "aborted" : "done";
-	const thoughts = stepThoughts(group.thoughts);
+	const thoughts = useStepThoughts(group.thoughts);
 	return (
 		<div className="omp-step-group" data-step-group="" data-open={open} data-state={state}>
 			{/* controls-ok: the omp-step-group-header class draws the whole control */}
@@ -168,6 +187,10 @@ function IntentGroup({ group }: { group: StepGroup }) {
 				</span>
 				{failed ? (
 					<span className="shrink-0 text-sc-xs font-medium text-(--sc-danger)">{t("tools.status.failed")}</span>
+				) : state === "aborted" ? (
+					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.status.interrupted")}</span>
+				) : state === "running" ? (
+					<span className="sr-only">{t("chat.exec.running")}</span>
 				) : null}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
 				<ChevronRight

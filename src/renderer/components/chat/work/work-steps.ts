@@ -161,18 +161,29 @@ function foldReads(items: readonly StepItem[], readTargets?: ReadonlyMap<string,
 	return out;
 }
 
-/** Several thought rows as one: their thinking joined into one block, the last one's usage kept. */
+/** Two usage records added field by field: numbers summed, nested records (`cost`) too. */
+function addUsage(a: unknown, b: unknown): unknown {
+	if (typeof a === "number" && typeof b === "number") return a + b;
+	if (a && b && typeof a === "object" && typeof b === "object") {
+		const sum: Record<string, unknown> = { ...a };
+		for (const [key, value] of Object.entries(b)) sum[key] = key in sum ? addUsage(sum[key], value) : value;
+		return sum;
+	}
+	return b ?? a;
+}
+
+/** Several thought rows as one: their thinking joined into one block, their usage summed. */
 function mergeThoughts(thoughts: readonly MessageItem[]): MessageItem | undefined {
 	const [first] = thoughts;
-	const last = thoughts.at(-1);
-	if (thoughts.length < 2 || !first || !last) return first;
+	if (thoughts.length < 2 || !first) return first;
 	const thinking = thoughts
 		.flatMap(({ message }) => (Array.isArray(message.content) ? message.content : []))
 		.flatMap(block => (block.type === "thinking" && isVisible(block) ? [block.thinking] : []))
 		.join("\n\n");
+	const usage = thoughts.reduce<unknown>((sum, { message }) => addUsage(sum, message.usage), undefined);
 	return {
 		...first,
-		message: { ...first.message, content: [{ type: "thinking", thinking }], usage: last.message.usage },
+		message: { ...first.message, content: [{ type: "thinking", thinking }], usage: usage as AgentMessage["usage"] },
 	};
 }
 
