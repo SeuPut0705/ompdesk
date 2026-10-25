@@ -536,6 +536,7 @@ export function TitleBar() {
 				aria-live="polite"
 				className="omp-titlebar-status no-drag flex min-w-0 shrink-0 items-center px-1.5"
 				data-tone={tone}
+				aria-label={statusLabel}
 				role="status"
 				title={statusLabel}
 			>

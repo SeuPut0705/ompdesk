@@ -565,10 +565,10 @@ describe("TitleBar", () => {
 		await act(async () => sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ status: "ready" }));
 		expect(container.textContent).toContain(translate("attention.childWaiting"));
 		expect(container.textContent).not.toContain(translate("titlebar.status.ready"));
-		// A phone's bar hides the word: the status keeps it as its tooltip.
-		expect(document.querySelector(".omp-titlebar-status")?.getAttribute("title")).toBe(
-			translate("attention.childWaiting"),
-		);
+		// A phone's bar hides the word: the status keeps it as its accessible name and tooltip.
+		const status = document.querySelector(".omp-titlebar-status");
+		expect(status?.getAttribute("aria-label")).toBe(translate("attention.childWaiting"));
+		expect(status?.getAttribute("title")).toBe(translate("attention.childWaiting"));
 		await act(async () => {
 			useTabsStore.setState(state => ({
 				tabs: state.tabs.map(tab => (tab.id === "c1" ? { ...tab, awaitingInput: undefined } : tab)),
