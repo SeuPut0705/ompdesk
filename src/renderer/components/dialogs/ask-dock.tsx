@@ -41,29 +41,85 @@ function useDockRegistration(place: DockPlace) {
 	return ref;
 }
 
-/** Transcript height kept visible above a docked card, so the card never takes the whole pane. */
-const MIN_TRANSCRIPT_PX = 32;
+/** Transcript height kept above the composer while a card waits: the card and the workspace dock share what is left. */
+const TRANSCRIPT_FLOOR_PX = 240;
+/**
+ * Cards no taller than this, uncapped (a short question, a confirm, an approval), never scroll for the floor: in a
+ * pane too short for both (a split, a short window) such a card has what it had before the floor existed, the
+ * transcript goes to nothing and the card covers the column's rows (goal bar, work strip) from below. A taller card
+ * always gives way to the floor, down to the card's 9rem minimum (components.css).
+ */
+const CARD_KEEP_PX = 240;
+
+/** Room above the composer box: the card's ceiling, and the workspace dock's while a card is mounted. */
+export interface PromptRoom {
+	card: number;
+	dock: number | null;
+}
 
 /**
- * Height a docked card may take: the pane minus its fixed rows (header, banners),
- * minus the composer under the card (it grows with a multiline draft and
- * attachments), minus some transcript. Published as `--omp-prompt-room` on the dock;
- * `.omp-prompt-card` caps itself by it, so the answer controls and the composer
- * stay inside the pane whatever the composer's current size.
+ * The element's laid-out height: its computed border box (preflight's `box-sizing: border-box`), which a transform
+ * leaves alone. A rect would read the card and the dock's cards shrunk while their entrance animations scale them, and
+ * a ResizeObserver never reports that, so the room stayed off by the scale until the next resize.
  */
-function measurePromptRoom(dock: HTMLElement): number | null {
-	const pane = dock.closest<HTMLElement>(".omp-session-pane");
-	const region = dock.closest<HTMLElement>(".omp-composer-region");
-	if (!pane || !region) return null;
-	let fixedRows = 0;
-	for (const child of pane.children) {
-		if (!(child instanceof HTMLElement) || child === region || child.contains(region)) continue;
-		// The transcript column flexes; every other row keeps its height.
-		if (getComputedStyle(child).flexGrow !== "0") continue;
-		fixedRows += child.getBoundingClientRect().height;
+function layoutHeight(element: Element, style = getComputedStyle(element)): number {
+	return Number.parseFloat(style.height) || 0;
+}
+
+function fixedRows(container: Element, skip: ReadonlyArray<Element | null>): number {
+	let sum = 0;
+	for (const child of container.children) {
+		if (!(child instanceof HTMLElement) || skip.some(element => element && child.contains(element))) continue;
+		const style = getComputedStyle(child);
+		if (style.flexGrow !== "0" || style.position === "absolute" || style.position === "fixed") continue;
+		sum +=
+			layoutHeight(child, style) +
+			(Number.parseFloat(style.marginTop) || 0) +
+			(Number.parseFloat(style.marginBottom) || 0);
 	}
-	const composer = region.getBoundingClientRect().height - dock.getBoundingClientRect().height;
-	return Math.floor(pane.clientHeight - fixedRows - composer - MIN_TRANSCRIPT_PX);
+	return sum;
+}
+
+/**
+ * The room above the composer for the card, the dock's cards and the transcript: the pane minus every fixed row
+ * (header, banners, the work strip), the composer box as sized, the ask dock's other children (extension widgets)
+ * and the dock's own rows (goal bar, island). The card gets it less the transcript floor, except a card whose own
+ * height is `CARD_KEEP_PX` or less; the dock's cards get what the card leaves above the floor. The ask dock contains
+ * its children's margins (`display: flow-root`), so the composer box measures the same with or without a card.
+ */
+export function measurePromptRoom(askDock: HTMLElement): PromptRoom | null {
+	const pane = askDock.closest<HTMLElement>(".omp-session-pane");
+	const composer = askDock.closest<HTMLElement>(".omp-composer-region");
+	if (!pane || !composer) return null;
+	const dock = pane.querySelector<HTMLElement>("[data-workspace-dock]");
+	const dockRegion = dock?.closest<HTMLElement>(".omp-composer-region") ?? dock ?? null;
+	const column = dockRegion?.parentElement;
+	const columnRows = column && column !== pane ? fixedRows(column, [dockRegion]) : 0;
+	const scroller = dock?.querySelector<HTMLElement>('[data-testid="workspace-dock"]');
+	const dockRows = dockRegion ? layoutHeight(dockRegion) - (scroller ? layoutHeight(scroller) : 0) : 0;
+	const ask = layoutHeight(askDock);
+	const card = askDock.querySelector<HTMLElement>("[data-prompt-card]");
+	const cardHeight = card ? layoutHeight(card) : 0;
+	// The card's own height, uncapped: what its scrolling body hides comes on top of what it shows.
+	let natural = cardHeight;
+	for (const part of card?.children ?? []) natural += part.scrollHeight - part.clientHeight;
+	const composerBox = layoutHeight(composer) - ask;
+	const room =
+		pane.clientHeight -
+		fixedRows(pane, [composer, dockRegion]) -
+		columnRows -
+		dockRows -
+		composerBox -
+		(ask - cardHeight);
+	const atFloor = room - TRANSCRIPT_FLOOR_PX;
+	return {
+		card: Math.floor(
+			card && natural <= CARD_KEEP_PX
+				? Math.max(atFloor, Math.min(CARD_KEEP_PX, room + columnRows + dockRows))
+				: atFloor,
+		),
+		dock: card ? Math.max(0, Math.floor(atFloor - cardHeight)) : null,
+	};
 }
 
 /** Mount point for the ask card; renders nothing visible while empty. */
@@ -74,17 +130,48 @@ export function AskDockSlot() {
 		const pane = element?.closest<HTMLElement>(".omp-session-pane");
 		const region = element?.closest<HTMLElement>(".omp-composer-region");
 		if (!element || !pane || !region || typeof ResizeObserver === "undefined") return;
-		const update = () => {
+		const column = pane.querySelector("[data-workspace-dock]")?.closest(".omp-composer-region")?.parentElement;
+		let frame = 0;
+		const write = () => {
+			frame = 0;
 			const room = measurePromptRoom(element);
 			if (room === null) element.style.removeProperty("--omp-prompt-room");
-			else element.style.setProperty("--omp-prompt-room", `${room}px`);
+			else element.style.setProperty("--omp-prompt-room", `${room.card}px`);
+			const dock = pane.querySelector<HTMLElement>("[data-workspace-dock]");
+			if (!dock) return;
+			if (room === null || room.dock === null) dock.style.removeProperty("--omp-dock-room");
+			else dock.style.setProperty("--omp-dock-room", `${room.dock}px`);
+			dock.toggleAttribute("data-dock-yielded", room?.dock === 0);
 		};
-		const observer = new ResizeObserver(update);
-		// The region grows with the draft, attachments and the card itself; the pane with the layout.
+		// Written a frame later: a write inside the observer's callback resizes what it observes in that same frame,
+		// which the browser reports as a ResizeObserver loop error.
+		const schedule = () => {
+			if (frame === 0) frame = requestAnimationFrame(write);
+		};
+		const observer = new ResizeObserver(schedule);
 		observer.observe(pane);
 		observer.observe(region);
-		update();
-		return () => observer.disconnect();
+		// The transcript column's rows: the work strip comes and goes, a session switch remounts the transcript.
+		const rows = new MutationObserver(records => {
+			for (const record of records) {
+				for (const node of record.addedNodes) if (node instanceof Element) observer.observe(node);
+				for (const node of record.removedNodes) if (node instanceof Element) observer.unobserve(node);
+			}
+			schedule();
+		});
+		if (column) {
+			for (const row of column.children) observer.observe(row);
+			rows.observe(column, { childList: true });
+		}
+		write();
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+			rows.disconnect();
+			const dock = pane.querySelector<HTMLElement>("[data-workspace-dock]");
+			dock?.style.removeProperty("--omp-dock-room");
+			dock?.removeAttribute("data-dock-yielded");
+		};
 	}, [ref]);
 	return <div className="omp-ask-dock" ref={ref} />;
 }

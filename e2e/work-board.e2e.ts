@@ -320,3 +320,103 @@ for (const language of variants(["en", "ko"] as const))
 				await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 			}
 		});
+
+/** The pane's transcript, the room the ask dock wrote for its card, and the work strip's height (0 without one). */
+const promptRoom = (page: Page) =>
+	page.evaluate(() => {
+		const pane = document.querySelector(".omp-session-pane");
+		const transcript = pane?.querySelector(".omp-transcript-editorial")?.getBoundingClientRect().height ?? 0;
+		const askDock = pane?.querySelector<HTMLElement>(".omp-ask-dock");
+		const strip = pane?.querySelector(".omp-work-strip")?.getBoundingClientRect().height ?? 0;
+		return {
+			transcript,
+			room: Number.parseFloat(askDock?.style.getPropertyValue("--omp-prompt-room") ?? ""),
+			strip,
+		};
+	});
+
+test("after a session switch in the same tab, the room above the composer follows the work strip coming and going (en light)", async () => {
+	test.setTimeout(180_000);
+	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-work-board-switch-")));
+	const [project, desktop, agent] = ["project", "desktop", "agent"].map(name => path.join(root, name));
+	await Promise.all([project, desktop, agent].map(dir => fs.mkdir(dir)));
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	// A stored session of this folder, which the session picker switches the tab to in place.
+	const stored = path.join(agent, "sessions", "seeded", "switched-1.jsonl");
+	await fs.mkdir(path.dirname(stored), { recursive: true });
+	const at = new Date().toISOString();
+	await fs.writeFile(
+		stored,
+		`${[
+			{ type: "title", v: 1, title: "The switched session", updatedAt: at },
+			{ type: "session", version: 3, id: "switched-1", timestamp: at, cwd: project },
+			{ type: "message", id: "s-1", parentId: null, timestamp: at, message: { role: "user", content: "Earlier" } },
+			{
+				type: "message",
+				id: "s-2",
+				parentId: "s-1",
+				timestamp: at,
+				message: { role: "assistant", content: [{ type: "text", text: "Earlier answer" }] },
+			},
+		]
+			.map(line => JSON.stringify(line))
+			.join("\n")}\n`,
+	);
+	const app = await launchApp({ project, desktop, agent, profile: root, env: { OMP_GUI_TEST_SESSION_FILES: "1" } });
+	try {
+		const page = await app.firstWindow();
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		await resize(app, 1600, 1000);
+		await page.waitForFunction(() => window.omp?.rpc != null);
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
+			.toBe("ready");
+		await send(page, "hello");
+		const [tab] = await page.evaluate(() => window.omp.tabs.list());
+
+		// The session picker switches this tab to the stored session: still one tab, now on the other file.
+		const option = page.getByRole("option").filter({ hasText: "The switched session" });
+		await expect(async () => {
+			if (!(await page.getByRole("dialog").isVisible())) await page.keyboard.press("ControlOrMeta+Shift+F");
+			await expect(option).toBeVisible({ timeout: 5_000 });
+		}).toPass({ timeout: 30_000 });
+		await option.click();
+		await expect
+			.poll(async () => (await page.evaluate(() => window.omp.tabs.list())).map(entry => entry.sessionPath), {
+				timeout: 30_000,
+			})
+			.toEqual([stored]);
+		expect((await page.evaluate(() => window.omp.tabs.list()))[0]?.tabId).toBe(tab?.tabId);
+		await expect(page.getByText("Earlier answer")).toBeVisible({ timeout: 30_000 });
+
+		// A plan and an 8-option question: the board docks beside the pane, no strip; the transcript keeps its floor.
+		await fixture(page, "fixture:todo");
+		await fixture(page, "fixture:select 8");
+		await expect(page.locator("[data-prompt-card]")).toContainText("Follow-up 8");
+		await expect(page.locator("aside[data-work-board-panel]")).toBeVisible();
+		await expect.poll(async () => (await promptRoom(page)).transcript).toBeGreaterThanOrEqual(240);
+		const docked = await promptRoom(page);
+		expect(docked.strip).toBe(0);
+
+		// The side panel takes the board's margin: the strip appears and the card's room gives up its height.
+		await page.keyboard.press("ControlOrMeta+j");
+		await expect(page.locator("[data-work-strip]")).toBeVisible();
+		await expect
+			.poll(async () => {
+				const { room, strip, transcript } = await promptRoom(page);
+				return strip > 0 && transcript >= 240 && Math.abs(docked.room - strip - room) <= 1;
+			})
+			.toBe(true);
+
+		// Closed again: the strip goes and the room comes back.
+		await page.keyboard.press("ControlOrMeta+j");
+		await expect(page.locator("[data-work-strip]")).toHaveCount(0);
+		await expect.poll(async () => (await promptRoom(page)).room).toBe(docked.room);
+		expect((await promptRoom(page)).transcript).toBeGreaterThanOrEqual(240);
+		expect(errors).toEqual([]);
+	} finally {
+		await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});

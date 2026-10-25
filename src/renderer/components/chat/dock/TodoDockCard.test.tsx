@@ -201,22 +201,6 @@ describe("TodoDockCard", () => {
 		expect(container.querySelector('section[aria-label="Todos"]')).toBeNull();
 	});
 
-	it("keeps the dock internally scrollable and bounded so the composer is never clipped", async () => {
-		// The dock lives in the shrink-0 composer region, NOT inside the
-		// transcript scroll container: without its own max-height + overflow,
-		// a large list grows past the h-screen shell and clips the goal bar
-		// and composer with no reachable scrollbar.
-		useTodoStore
-			.getState()
-			.setPhases([{ name: "Live", tasks: [{ content: "Visible task", status: "in_progress" }] }]);
-		await mount(<WorkspaceDock />);
-
-		const dock = container.querySelector('[data-testid="workspace-dock"]');
-		expect(dock).not.toBeNull();
-		const className = dock?.getAttribute("class") ?? "";
-		expect(className).toContain("overflow-y-auto");
-		expect(className).toContain("max-h-");
-	});
 	it("applies an explicit inline max-height when a card is focused, so long lists scroll", async () => {
 		// Regression: the focused cap was expressed as an arbitrary Tailwind
 		// class whose calc() had an invalid bare dash — the declaration was

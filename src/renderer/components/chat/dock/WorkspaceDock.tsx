@@ -9,14 +9,14 @@
  * The dock still owns the stream-time roster poll, since it is mounted in every tab.
  * Each card self-gates its visibility, so the region collapses to zero height
  * on an idle session; the stack scrolls within a capped height so the composer
- * is never pushed off-screen, and every card sits behind its own error
+ * is never pushed off-screen, and gives way to a card waiting above the composer
+ * (`--omp-dock-room`, ask-dock.tsx) down to nothing. Every card sits behind its own error
  * boundary: a card crash must never take down the composer.
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSubagentRosterPoll } from "../../../hooks/use-subagent-roster-poll";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
@@ -116,8 +116,19 @@ function WorkspaceDockContent() {
 		persistHeight(next);
 	};
 
+	// Summary state stays compact; a focused card renders the full list under the handle's height.
+	const cap = focusedCard
+		? focusHeight === null
+			? "min(50dvh, calc(100dvh - 300px))"
+			: `${focusHeight}px`
+		: "min(40vh, 320px)";
+
 	return (
-		<div className="flex flex-col gap-2 pb-2 empty:hidden" data-focused-card={focusedCard ?? undefined}>
+		<div
+			className="flex flex-col gap-2 pb-2 empty:hidden"
+			data-focused-card={focusedCard ?? undefined}
+			data-workspace-dock
+		>
 			<PanelErrorBoundary>
 				<WorkspaceIsland />
 			</PanelErrorBoundary>
@@ -142,20 +153,17 @@ function WorkspaceDockContent() {
 						/>
 					)}
 					<div
-						className={cx(
-							// No stable scrollbar gutter: it would inset the cards from
-							// the composer's edges. Overlay scrollbars need none.
-							"flex flex-col gap-2 overflow-y-auto overscroll-contain",
-							// Summary state stays compact. A FOCUSED card renders the full
-							// list; its cap is an INLINE style — arbitrary-value classes
-							// cannot express `calc(100dvh - 240px)` (the bare dash makes
-							// the declaration invalid, silently removing every bound and
-							// killing scrollability).
-							focusedCard ? undefined : "max-h-[min(40vh,320px)]",
-						)}
+						// No stable scrollbar gutter: it would inset the cards from
+						// the composer's edges. Overlay scrollbars need none.
+						className="flex flex-col gap-2 overflow-y-auto overscroll-contain"
 						data-testid="workspace-dock"
 						ref={scrollerRef}
-						style={focusedCard ? { maxHeight: focusHeight ?? "min(50dvh, calc(100dvh - 300px))" } : undefined}
+						// The cap is inline: an arbitrary-value class cannot hold `calc(100dvh - 300px)` (the bare dash
+						// drops the declaration). While a card waits above the composer, the cards yield to it and to the
+						// transcript floor (`--omp-dock-room`, ask-dock.tsx).
+						style={{
+							maxHeight: `min(${cap}, var(--omp-dock-room, 100dvh))`,
+						}}
 					>
 						{planCardVisible && (
 							<PanelErrorBoundary>
