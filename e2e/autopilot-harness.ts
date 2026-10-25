@@ -214,8 +214,13 @@ export async function startRun(page: Page, tabId: string, options: Record<string
 	return started;
 }
 
+/**
+ * The run's status with every cycle (`allCycles`): what a window gets holds only the newest `STATUS_CYCLES`, and a
+ * fast fixture run on a loaded machine passes 30 cycles before a test reads back an early one (cycle 1 vanished from
+ * autopilot-ship's revert check once 63 cycles had run).
+ */
 export async function status(page: Page, tabId: string): Promise<AutopilotStatus> {
-	const response = await command(page, tabId, { type: "get_autopilot" });
+	const response = await command(page, tabId, { type: "get_autopilot", allCycles: true });
 	return (response.data ?? { active: false }) as AutopilotStatus;
 }
 
