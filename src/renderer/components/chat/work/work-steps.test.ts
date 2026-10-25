@@ -95,14 +95,21 @@ describe("groupSteps", () => {
 			assistant([{ type: "thinking", thinking: "one" }]),
 			assistant([{ type: "thinking", thinking: "two" }]),
 			assistant([{ type: "text", text: "Done." }]),
-			assistant([{ type: "thinking", thinking: "three" }]),
+			assistant([{ type: "thinking", thinking: "three" }], { usage }),
 			assistant([{ type: "thinking", thinking: "four" }], { usage }),
 		]);
 		expect(rows.map(shape)).toEqual(["call:a", "thinking", "text", "thinking"]);
 		const merged = rows.map(row => (row.kind === "message" && row.thinkingOnly ? row.message : null));
 		expect(merged[1]?.content).toEqual([{ type: "thinking", thinking: "one\n\ntwo" }]);
 		expect(merged[3]?.content).toEqual([{ type: "thinking", thinking: "three\n\nfour" }]);
-		expect(merged[3]?.usage).toBe(usage);
+		expect(merged[3]?.usage).toEqual({
+			input: 2,
+			output: 4,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 6,
+			cost: { total: 0.02 },
+		});
 	});
 
 	it("folds two or more consecutive collapsible reads into the read group, inside and outside an intent", () => {

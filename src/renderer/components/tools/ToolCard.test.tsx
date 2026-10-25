@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { useToolsStore } from "../../stores/tools";
@@ -179,10 +179,30 @@ describe("ToolCard rows by intent", () => {
 		},
 	);
 
-	it("says a subagent's intent once when its target only restates it", async () => {
-		const args = { i: "Reviewing the diff", agent: "reviewer", tasks: [] };
-		const { root, row } = await renderRow(finished("c", "task", args), "task", args);
-		expect(words(row.textContent ?? "").split("Reviewing the diff")).toHaveLength(2);
+	it("says an intent once when its target only restates it, whole or cut short", async () => {
+		const long = `Reviewing the diff ${"and every file it touches ".repeat(8)}`.trim();
+		for (const [name, args] of [
+			["task", { i: "Reviewing the diff", agent: "reviewer", tasks: [] }],
+			["wait", { i: long }],
+			["wait", { i: "Waiting for the build\nthen the tests" }],
+		] as const) {
+			useToolsStore.getState().reset();
+			const { root, row } = await renderRow(finished("c", name, args), name, args);
+			expect(words(row.textContent ?? "").split("Reviewing the diff").length).toBeLessThanOrEqual(2);
+			expect(words(row.textContent ?? "").split("Waiting for the build").length).toBeLessThanOrEqual(2);
+			await act(async () => root.unmount());
+		}
+	});
+
+	it("keeps the tool that ran named after the intent when the row has no other target", async () => {
+		const { root, row } = await renderRow(
+			finished("c", "mcp__github_search_issues", {}, "Finding the bug report"),
+			"mcp__github_search_issues",
+			{},
+		);
+		const text = words(row.textContent ?? "");
+		expect(text.startsWith("Finding the bug report")).toBe(true);
+		expect(text).toContain("github · search_issues");
 		await act(async () => root.unmount());
 	});
 
@@ -205,25 +225,116 @@ describe("ToolCard rows by intent", () => {
 });
 
 describe("ToolCard opened bodies", () => {
+	/** What the row's target measures: the width it has and the width its text needs. */
+	const layout = { client: 200, scroll: 120 };
+	const resized: Array<() => void> = [];
+	const proto = HTMLElement.prototype as object;
+	beforeAll(() => {
+		for (const [key, field] of [
+			["clientWidth", "client"],
+			["scrollWidth", "scroll"],
+		] as const) {
+			Object.defineProperty(proto, key, {
+				configurable: true,
+				get(this: Element) {
+					return this.classList?.contains("omp-tool-summary") ? layout[field] : 0;
+				},
+			});
+		}
+		globals.ResizeObserver = class {
+			constructor(callback: () => void) {
+				resized.push(callback);
+			}
+			observe() {}
+			disconnect() {}
+		};
+	});
+	afterAll(() => {
+		Reflect.deleteProperty(proto, "clientWidth");
+		Reflect.deleteProperty(proto, "scrollWidth");
+		delete globals.ResizeObserver;
+	});
+	afterEach(() => {
+		Object.assign(layout, { client: 200, scroll: 120 });
+		resized.length = 0;
+	});
+
+	/** Text a sighted reader sees: screen-reader-only words left out. */
+	const visible = (node: Element | null): string =>
+		node
+			? [...node.childNodes]
+					.map(child =>
+						child.nodeType === 3
+							? (child.textContent ?? "")
+							: (child as Element).classList.contains("sr-only")
+								? ""
+								: visible(child as Element),
+					)
+					.join("")
+			: "";
 	const count = (text: string, part: string) => text.split(part).length - 1;
+	const open = async (row: HTMLElement) =>
+		act(async () => row.dispatchEvent(new Event("click", { bubbles: true }) as never));
+	const edit = { path: "src/app/main.ts", edits: [] };
+	const editResult = { diff: "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n", firstChangedLine: 3 };
 
 	it.each([
-		["edit", { path: "src/app/main.ts", edits: [] }, { diff: "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n" }],
+		["edit", edit, editResult],
 		["read", { path: "src/app/main.ts" }, undefined],
 	])(
 		"names an opened %s step's file and line counts once, and keeps a link that opens it",
 		async (name, args, details) => {
 			const { root, row } = await renderRow(finished("c", name, args, "Fixing the import", details), name, args);
-			await act(async () => row.dispatchEvent(new Event("click", { bubbles: true }) as never));
+			await open(row);
 			const card = row.parentElement as HTMLElement;
 			expect(card.querySelector(".omp-tool-body")).not.toBeNull();
-			expect(count(card.textContent ?? "", "main.ts")).toBe(1);
-			expect(count(card.textContent ?? "", "src/app")).toBe(1);
+			expect(count(visible(card), "main.ts")).toBe(1);
+			expect(count(visible(card), "src/app")).toBe(1);
 			if (details) expect(card.querySelectorAll(".omp-tool-diffstat")).toHaveLength(1);
-			const open = card.querySelector(".omp-tool-body .omp-tool-open-file");
-			expect(open?.textContent).toBe("Open file");
-			expect(open?.getAttribute("title")).toBe("src/app/main.ts");
+			const link = card.querySelector(".omp-tool-body .omp-tool-open-file");
+			expect(visible(link)).toBe("Open file");
+			expect(words(link?.textContent ?? "")).toBe("Open file main.ts");
+			expect(link?.getAttribute("title")).toBe("src/app/main.ts");
 			await act(async () => root.unmount());
 		},
 	);
+
+	it("keeps an edit's first changed line beside the link", async () => {
+		const { root, row } = await renderRow(finished("c", "edit", edit, "Fixing the import", editResult), "edit", edit);
+		await open(row);
+		expect(visible(row.parentElement?.querySelector(".omp-tool-edit-heading") ?? null)).toBe("Open file:3");
+		await act(async () => root.unmount());
+	});
+
+	it("names the file in the body while the row cannot show it, and again after the row narrows", async () => {
+		layout.client = 0;
+		const { root, row } = await renderRow(finished("c", "edit", edit, "Fixing the import", editResult), "edit", edit);
+		await open(row);
+		const body = () => row.parentElement?.querySelector(".omp-tool-body") ?? null;
+		expect(visible(body())).toContain("main.ts");
+		expect(body()?.querySelector(".omp-tool-open-file")).toBeNull();
+		// The row widens: the body stops repeating the path; it narrows again: the path comes back.
+		Object.assign(layout, { client: 200, scroll: 120 });
+		await act(async () => {
+			for (const callback of resized) callback();
+		});
+		expect(body()?.querySelector(".omp-tool-open-file")).not.toBeNull();
+		Object.assign(layout, { client: 80, scroll: 120 });
+		await act(async () => {
+			for (const callback of resized) callback();
+		});
+		expect(visible(body())).toContain("main.ts");
+		expect(body()?.querySelector(".omp-tool-open-file")).toBeNull();
+		await act(async () => root.unmount());
+	});
+
+	it("offers no file to open for a URL the row shows", async () => {
+		const args = { path: "https://example.com/report" };
+		const { root, row } = await renderRow(finished("c", "read", args, "Reading the report"), "read", args);
+		await open(row);
+		const card = row.parentElement as HTMLElement;
+		expect(card.querySelector(".omp-tool-open-file")).toBeNull();
+		expect(count(visible(card), "example.com")).toBe(1);
+		await act(async () => root.unmount());
+	});
 });

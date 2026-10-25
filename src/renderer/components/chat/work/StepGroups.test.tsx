@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentMessage, MessageContent, ToolCallContent } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
+import { useUiStore } from "../../../stores/ui";
 import type { StepReveal } from "./reveal-step";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -32,6 +33,7 @@ afterEach(async () => {
 	container?.remove();
 	root = undefined;
 	useToolsStore.getState().reset();
+	useUiStore.setState({ displayPreferences: {} });
 });
 
 function call(id: string, name: string, args: Record<string, unknown>, intent?: string): ToolCallContent {
@@ -239,5 +241,73 @@ describe("StepGroups", () => {
 		expect(groups()[0]?.getAttribute("data-open")).toBe("true");
 		expect(groups()[0]?.querySelector("button")?.textContent).toContain("1 thought");
 		expect(cards()).toEqual(["a", "b"]);
+	});
+});
+
+describe("StepGroups, review fixes", () => {
+	const think = (text: string) => assistant([{ type: "thinking", thinking: text }]);
+	const open = (button: Element | null | undefined) =>
+		act(async () => button?.dispatchEvent(new Event("click", { bubbles: true }) as never));
+
+	it("neither counts nor opens to thoughts while thinking is hidden", async () => {
+		useUiStore.setState({ displayPreferences: { hideThinkingBlock: true } });
+		await mount(
+			[
+				think("First idea"),
+				assistant([call("a", "bash", { command: "ls" }, "Listing")]),
+				think("Group idea"),
+				assistant([call("b", "bash", { command: "x" }, "Same"), call("c", "bash", { command: "x" }, "Same")]),
+			],
+			[
+				["a", bash("ls")],
+				["b", bash("x")],
+				["c", bash("x")],
+			],
+		);
+		expect(container.textContent).not.toContain("thought");
+		await open(container.querySelector("[data-tool-call-id='a'] button"));
+		await open(groups()[0]?.querySelector("button"));
+		expect(container.querySelectorAll(".omp-step-thoughts-body")).toHaveLength(0);
+	});
+
+	it("lets the reads inside an intent group lead with their tool, as the group's other calls do", async () => {
+		const read = (path: string) => ({ ...entry("read", { path }), intent: "Looking around" });
+		await mount(
+			[
+				assistant([
+					call("r1", "read", { path: "a.ts", __ompReadGroup: { path: "a.ts" } }, "Looking around"),
+					call("r2", "read", { path: "b.ts", __ompReadGroup: { path: "b.ts" } }, "Looking around"),
+					call("g", "grep", { pattern: "x" }, "Looking around"),
+				]),
+			],
+			[
+				["r1", read("a.ts")],
+				["r2", read("b.ts")],
+				["g", { ...entry("grep", { pattern: "x" }), intent: "Looking around" }],
+			],
+		);
+		await open(groups()[0]?.querySelector("button"));
+		await open(container.querySelector(".omp-read-group-header"));
+		const body = container.querySelector(".omp-step-group-body");
+		expect(body?.textContent).not.toContain("Looking around");
+		expect([...(body?.querySelectorAll(".omp-tool-name") ?? [])].map(node => node.textContent)).toEqual([
+			"Read",
+			"Read",
+			"Search",
+		]);
+	});
+
+	it("says in words that a group's calls were interrupted or still run", async () => {
+		await mount(
+			[assistant([call("a", "bash", { command: "x" }, "Same"), call("b", "bash", { command: "x" }, "Same")])],
+			[
+				["a", bash("x")],
+				["b", bash("x", "aborted")],
+			],
+		);
+		expect(groups()[0]?.querySelector("button")?.textContent).toContain("Interrupted");
+		useToolsStore.setState(toolEntriesState([["b", bash("x", "running")]]));
+		await act(async () => {});
+		expect(groups()[0]?.querySelector("button")?.textContent).toContain("running");
 	});
 });
