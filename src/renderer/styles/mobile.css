@@ -565,6 +565,12 @@ html[data-shell="phone"] kbd {
 	white-space: nowrap;
 }
 
+/* With the pulse and the name out of the head's flow, the plan's progress would land in the grid's first `auto`
+   column and shrink its bar to the 24 px floor: it spans the head's line instead. */
+.omp-work-strip-panel .omp-work-board-progress {
+	grid-column: 1 / -1;
+}
+
 /* Under a finger the board's rows, section heads, "+N more" rows and head items are a touch row tall: one line still,
    but each its own tap (the strip bounds every reach to its box, so a 30 px row was a 30 px target). */
 html[data-input="touch"]
