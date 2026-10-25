@@ -5747,6 +5747,19 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
+				// `fixture:select <n>`: an n-option question docked above the composer, held until answered.
+				if (line.startsWith("fixture:select ")) {
+					const count = Number(line.split(" ")[1]);
+					write({
+						type: "extension_ui_request",
+						id: `fixture-select-${Date.now()}`,
+						method: "select",
+						title: `Which of these ${count} follow-ups should run first?`,
+						options: Array.from({ length: count }, (_, index) => `Follow-up ${index + 1}`),
+					});
+					ok();
+					break;
+				}
 				// A todo tool call settling mid-run: the workspace dock appears above
 				// the composer and takes height from the transcript viewport. `fixture:todo <n>` lists n tasks
 				// (default 6), the first half done and the next one in progress.
