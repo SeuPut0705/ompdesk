@@ -95,8 +95,8 @@ describe("groupSteps", () => {
 			assistant([{ type: "thinking", thinking: "one" }]),
 			assistant([{ type: "thinking", thinking: "two" }]),
 			assistant([{ type: "text", text: "Done." }]),
-			assistant([{ type: "thinking", thinking: "three" }], { usage }),
-			assistant([{ type: "thinking", thinking: "four" }], { usage }),
+			assistant([{ type: "thinking", thinking: "three" }], { usage, duration: 3000 }),
+			assistant([{ type: "thinking", thinking: "four" }], { usage, duration: 3000 }),
 		]);
 		expect(rows.map(shape)).toEqual(["call:a", "thinking", "text", "thinking"]);
 		const merged = rows.map(row => (row.kind === "message" && row.thinkingOnly ? row.message : null));
@@ -110,6 +110,8 @@ describe("groupSteps", () => {
 			totalTokens: 6,
 			cost: { total: 0.02 },
 		});
+		// Time adds up with the tokens, so the merged row's rate stays the run's own.
+		expect(merged[3]?.duration).toBe(6000);
 	});
 
 	it("folds two or more consecutive collapsible reads into the read group, inside and outside an intent", () => {

@@ -308,6 +308,6 @@ describe("StepGroups, review fixes", () => {
 		expect(groups()[0]?.querySelector("button")?.textContent).toContain("Interrupted");
 		useToolsStore.setState(toolEntriesState([["b", bash("x", "running")]]));
 		await act(async () => {});
-		expect(groups()[0]?.querySelector("button")?.textContent).toContain("running");
+		expect(groups()[0]?.querySelector("button")?.textContent).toContain("Running");
 	});
 });

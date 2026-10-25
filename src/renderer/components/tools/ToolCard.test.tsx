@@ -218,15 +218,46 @@ describe("ToolCard rows by intent", () => {
 		}
 	});
 
-	it("keeps the tool that ran named after the intent when the row has no other target", async () => {
+	it.each([
+		[{}, ""],
+		[{ query: "flaky sidebar" }, "flaky sidebar"],
+	])("keeps an MCP tool's name on the row after the intent, with or without a target (%o)", async (args, target) => {
 		const { root, row } = await renderRow(
-			finished("c", "mcp__github_search_issues", {}, "Finding the bug report"),
+			finished("c", "mcp__github_search_issues", args, "Finding the bug report"),
 			"mcp__github_search_issues",
-			{},
+			args,
 		);
 		const text = words(visible(row));
 		expect(text.startsWith("Finding the bug report")).toBe(true);
 		expect(text).toContain("github · search_issues");
+		if (target) expect(text.indexOf(target)).toBeGreaterThan(text.indexOf("github · search_issues"));
+		// Said once: the visible name is not repeated to a screen reader.
+		expect(words(accessibleName(row)).split("github · search_issues")).toHaveLength(2);
+		await act(async () => root.unmount());
+	});
+
+	it("keeps a device's name on the row after the intent", async () => {
+		const args = { path: "xd://lsp", content: JSON.stringify({ action: "references", symbol: "groupSteps" }) };
+		const { root, row } = await renderRow(finished("c", "write", args, "Finding every caller"), "write", args);
+		const text = words(visible(row));
+		expect(text.startsWith("Finding every caller")).toBe(true);
+		expect(text).toContain("Code intelligence");
+		expect(text).toContain("references groupSteps");
+		await act(async () => root.unmount());
+	});
+
+	it("says every state with the visible words' casing", async () => {
+		useToolsStore.getState().applyEvents([
+			{
+				type: "tool_execution_start",
+				toolCallId: "c",
+				toolName: "bash",
+				args: { command: "ls" },
+				intent: "Listing",
+			},
+		]);
+		const { root, row } = await renderRow([], "bash", { command: "ls" });
+		expect(words(accessibleName(row))).toContain("Running");
 		await act(async () => root.unmount());
 	});
 
