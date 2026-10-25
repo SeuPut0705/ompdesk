@@ -56,8 +56,9 @@ with a "Thought · 144 words" line between most steps (28 % of its rows). Every 
   the room the intent leaves (`AFTER_INTENT_CLASS`), so a narrow row clips the target first and the intent only when
   it alone does not fit. A clipped target left under about four characters (32 px; at 390 px, 16 rows of the long
   turn showed "g." or ":") is not drawn (`useSliverGuard`: one shared `ResizeObserver` marks it `data-sliver`, no
-  re-render), and the opened body then names the file or command. A row with no other target names the tool that
-  ran after the intent (an MCP server's tool, a device). A call with no intent, a generic one, and a call inside an
+  re-render), and the opened body then names the file or command. An MCP server's tool or a device is always named
+  on the row after the intent ("Finding the bug report · github · search_issues · flaky sidebar"), and a row with no
+  other target names its tool there too. A call with no intent, a generic one, and a call inside an
   intent group (whose row already says it; reads in a read group there too) keep the tool's label and target. A
   target that only restates the intent (a wait's `i`, a subagent's, also when the row cut it to its first line or
   160 characters) is said once. A screen reader hears the kind of tool first, then the intent, the target and the
@@ -74,7 +75,7 @@ with a "Thought · 144 words" line between most steps (28 % of its rows). Every 
   write body no longer repeats the row's diagnostics chip.
 - Thoughts fold into the step after them: the row counts their thinking blocks ("1 thought") and, opened, shows
   them first, each its own collapsed Thought line. A run of thoughts no step follows (the card's end, or before a
-  reply) stays one row, their thinking joined and their usage summed. With thinking hidden (`hideThinkingBlock`) a
+  reply) stays one row, their thinking joined, their usage and time summed. With thinking hidden (`hideThinkingBlock`) a
   row neither counts nor opens to them. On the long turn no "Thought · N words" line is left between steps.
 - A lone read is a plain row that opens straight to the file; two or more consecutive reads still fold into the
   read-group card, which leads with their intent when they came as one run of it.

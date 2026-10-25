@@ -3301,6 +3301,7 @@ export const en: Record<string, string> = {
 	"chat.work.group.steps": "{count} step{plural}",
 	"chat.work.thoughts": "{count} thought{plural}",
 	"tools.status.done": "Done",
+	"tools.status.running": "Running",
 	"tools.path.open": "Open file",
 	"chat.work.agentsDone": "{count} agent{plural}",
 	"chat.work.exit": "exit {code}",

@@ -172,7 +172,7 @@ function addUsage(a: unknown, b: unknown): unknown {
 	return b ?? a;
 }
 
-/** Several thought rows as one: their thinking joined into one block, their usage summed. */
+/** Several thought rows as one: their thinking joined into one block, their usage and time summed. */
 function mergeThoughts(thoughts: readonly MessageItem[]): MessageItem | undefined {
 	const [first] = thoughts;
 	if (thoughts.length < 2 || !first) return first;
@@ -181,9 +181,16 @@ function mergeThoughts(thoughts: readonly MessageItem[]): MessageItem | undefine
 		.flatMap(block => (block.type === "thinking" && isVisible(block) ? [block.thinking] : []))
 		.join("\n\n");
 	const usage = thoughts.reduce<unknown>((sum, { message }) => addUsage(sum, message.usage), undefined);
+	// The usage row's rate is tokens over this time, so both add up together.
+	const duration = thoughts.reduce<unknown>((sum, { message }) => addUsage(sum, message.duration), undefined);
 	return {
 		...first,
-		message: { ...first.message, content: [{ type: "thinking", thinking }], usage: usage as AgentMessage["usage"] },
+		message: {
+			...first.message,
+			content: [{ type: "thinking", thinking }],
+			usage: usage as AgentMessage["usage"],
+			duration: duration as AgentMessage["duration"],
+		},
 	};
 }
 

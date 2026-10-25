@@ -297,6 +297,11 @@ export function ToolCard({
 	const label = header.labelKey ? t(header.labelKey, header.labelParams) : header.tool;
 	// With no other target the tool's label follows the intent on the row; otherwise a screen reader hears it first.
 	const labelAfterIntent = intent !== undefined && !header.path && !target && !streamingSummary;
+	// An MCP server's tool or a device is named on the row whatever its target: the intent cannot say which one ran.
+	const namedTool =
+		intent !== undefined &&
+		!labelAfterIntent &&
+		(header.labelKey === "tools.label.mcpTool" || header.tool !== toolName);
 	// The text the row's target shows: a change measures it again even when its box keeps its size.
 	const targetText = header.path ?? (target || streamingSummary || (labelAfterIntent ? label : ""));
 	useSliverGuard(rowRef, targetText);
@@ -348,7 +353,7 @@ export function ToolCard({
 					runningIndicator={runningIndicator}
 					state={failed ? "error" : isAborted ? "aborted" : status === "running" ? "running" : "done"}
 				/>
-				{intent && !labelAfterIntent ? <span className="sr-only">{`${label}, `}</span> : null}
+				{intent && !labelAfterIntent && !namedTool ? <span className="sr-only">{`${label}, `}</span> : null}
 				<span
 					className={cx(
 						intent ? "omp-tool-intent min-w-0 truncate" : "omp-tool-name shrink-0",
@@ -365,6 +370,14 @@ export function ToolCard({
 						data-desktop-slot-waiting={slotPosition}
 					>
 						{t("desktopSlot.waiting", { position: slotPosition })}
+					</span>
+				) : null}
+				{namedTool ? (
+					<span
+						className="omp-tool-named min-w-0 max-w-[45%] shrink-0 truncate text-(--sc-text-muted)"
+						title={label}
+					>
+						{label}
 					</span>
 				) : null}
 				{header.path ? (
@@ -400,7 +413,7 @@ export function ToolCard({
 						{t("tools.status.interrupted")}
 					</span>
 				) : status === "running" ? (
-					<span className="sr-only">{t("chat.exec.running")}</span>
+					<span className="sr-only">{t("tools.status.running")}</span>
 				) : (
 					<span className="sr-only">{t("tools.status.done")}</span>
 				)}

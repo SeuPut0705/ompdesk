@@ -3293,6 +3293,7 @@ export const ko: Record<string, string> = {
 	"chat.work.group.steps": "{count}단계",
 	"chat.work.thoughts": "생각 {count}개",
 	"tools.status.done": "완료",
+	"tools.status.running": "실행 중",
 	"tools.path.open": "파일 열기",
 	"chat.work.agentsDone": "에이전트 {count}개",
 	"chat.work.exit": "종료 코드 {code}",

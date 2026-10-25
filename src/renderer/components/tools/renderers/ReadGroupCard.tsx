@@ -128,7 +128,7 @@ export function ReadGroupCard({
 				) : state === "aborted" ? (
 					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("tools.status.interrupted")}</span>
 				) : state === "running" ? (
-					<span className="sr-only">{t("chat.exec.running")}</span>
+					<span className="sr-only">{t("tools.status.running")}</span>
 				) : (
 					<span className="sr-only">{t("tools.status.done")}</span>
 				)}
