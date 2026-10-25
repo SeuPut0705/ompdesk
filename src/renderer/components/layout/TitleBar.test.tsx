@@ -520,8 +520,8 @@ describe("TitleBar", () => {
 			});
 		});
 		// A question is not an approval.
-		expect(container.textContent).toContain(translate("titlebar.status.needsInput"));
-		expect(container.textContent).not.toContain(translate("titlebar.status.needsApproval"));
+		expect(container.textContent).toContain(translate("attention.question"));
+		expect(container.textContent).not.toContain(translate("attention.approval"));
 		await act(async () => {
 			extensionUi?.getState().removeRequest("ask");
 			extensionUi?.getState().pushRequest({
@@ -532,7 +532,7 @@ describe("TitleBar", () => {
 				options: ["Approve", "Deny"],
 			});
 		});
-		expect(container.textContent).toContain(translate("titlebar.status.needsApproval"));
+		expect(container.textContent).toContain(translate("attention.approval"));
 
 		// Unpaired in Settings: the host is gone for good, not reconnecting.
 		await act(async () => {
@@ -540,6 +540,34 @@ describe("TitleBar", () => {
 		});
 		expect(container.textContent).toContain(translate("remote.tab.statusRemoved"));
 		expect(container.textContent).not.toContain(translate("remote.tab.statusReconnecting"));
+		deleteSessionRuntime("t1");
+	});
+
+	it("says a waiting child on an idle session, as a question is said", async () => {
+		useTabsStore.setState({
+			tabs: [
+				{ id: "t1", cwd: "/tmp/project", status: "ready", kind: "agent", unreadDone: false },
+				{
+					id: "c1",
+					cwd: "/tmp/project",
+					status: "running",
+					kind: "agent",
+					unreadDone: false,
+					openedBy: "t1",
+					awaitingInput: "input",
+				},
+			],
+			activeTabId: "t1",
+		});
+		await mount("t1");
+		expect(container.textContent).toContain(translate("attention.childWaiting"));
+		expect(container.textContent).not.toContain(translate("titlebar.status.ready"));
+		await act(async () => {
+			useTabsStore.setState(state => ({
+				tabs: state.tabs.map(tab => (tab.id === "c1" ? { ...tab, awaitingInput: undefined } : tab)),
+			}));
+		});
+		expect(container.textContent).not.toContain(translate("attention.childWaiting"));
 		deleteSessionRuntime("t1");
 	});
 

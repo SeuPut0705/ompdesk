@@ -23,10 +23,11 @@ import type { SessionInfo } from "../../../shared/ipc-types";
 import { worktreeLabel } from "../../../shared/project-origin";
 import type { SessionStats } from "../../../shared/rpc-types";
 import { useAutoTitle } from "../../hooks/use-auto-title";
-import { useAwaitedInput } from "../../hooks/use-awaited-input";
+import { useSessionAttention } from "../../hooks/use-awaited-input";
 import { useCurrentSessionTitle } from "../../hooks/use-current-session-title";
 import { useSessionList } from "../../hooks/use-session-list";
 import { useDrawerMode } from "../../hooks/use-shell-mode";
+import { ATTENTION_LABEL_KEY } from "../../lib/attention";
 import { cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -174,7 +175,7 @@ export function TitleBar() {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
 	const statsPulse = useSessionStore(s => s.statsPulse);
-	const awaiting = useAwaitedInput();
+	const attention = useSessionAttention();
 	const isChat = useActiveTabKind() === "chat";
 	// A remote tab names its host; while the link is down the tab is reconnecting,
 	// not failed. A host that is gone from the device list (unpaired) never comes back.
@@ -319,8 +320,8 @@ export function TitleBar() {
 		? ["error", t("remote.tab.statusRemoved")]
 		: reconnecting
 			? ["pending", t("remote.tab.statusReconnecting")]
-			: awaiting
-				? ["attention", t(awaiting === "approval" ? "titlebar.status.needsApproval" : "titlebar.status.needsInput")]
+			: attention
+				? [attention.kind === "checkFailed" ? "error" : "attention", t(ATTENTION_LABEL_KEY[attention.kind])]
 				: working
 					? ["busy", t("titlebar.status.working")]
 					: status === "ready"

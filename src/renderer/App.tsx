@@ -34,7 +34,7 @@ import { SetupTakeoverHost } from "./components/onboarding/SetupTakeover";
 import { StarterTour } from "./components/onboarding/StarterTour";
 import { RemoteFolderPickerHost } from "./components/remote/RemoteFolderPicker";
 import { SshPromptDialog } from "./components/settings/SshPromptDialog";
-import { useAwaitedInput } from "./hooks/use-awaited-input";
+import { useSessionAttention } from "./hooks/use-awaited-input";
 import { useExtensionUi } from "./hooks/use-extension-ui";
 import { useHostAppearance } from "./hooks/use-host-appearance";
 import { useIdleCompactionDraft } from "./hooks/use-idle-compaction-draft";
@@ -134,9 +134,9 @@ function FocusedSessionEffects() {
 	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window
 	// while its tab is in front; each tab keeps its own.
 	const titleExtension = useExtensionUiStore(s => s.title);
-	const titleAwaiting = useAwaitedInput();
+	// One read for the window title and the dock badge: a waiting child or a failed check counts as a question does.
+	const awaiting = useSessionAttention() !== null;
 	const progressStreaming = useSessionStore(s => s.isStreaming);
-	const progressAwaiting = useAwaitedInput();
 	const compactDensity = useUiStore(s => s.compactDensity);
 	const colorBlindMode = useUiStore(s => s.colorBlindMode);
 
@@ -152,15 +152,15 @@ function FocusedSessionEffects() {
 	useEffect(() => {
 		const base = titleExtension ?? titleSessionName ?? "OMPdesk";
 		const name = titleProject ? `${base} — ${titleProject}` : base;
-		document.title = titleAwaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
-	}, [titleAwaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
+		document.title = awaiting ? `! ${name}` : titleStreaming ? `● ${name}` : `› ${name}`;
+	}, [awaiting, titleStreaming, titleSessionName, titleExtension, titleProject]);
 	useEffect(() => startVoiceAutoSpeak(), []);
 	useEffect(() => startAgentAppEvents(), []);
 	useEffect(() => {
-		const state: RunProgressState = progressAwaiting ? "waiting" : progressStreaming ? "working" : "idle";
+		const state: RunProgressState = awaiting ? "waiting" : progressStreaming ? "working" : "idle";
 		const timer = setTimeout(() => window.omp.progress.set(state), 200);
 		return () => clearTimeout(timer);
-	}, [progressAwaiting, progressStreaming]);
+	}, [awaiting, progressStreaming]);
 	useEffect(() => {
 		document.documentElement.dataset.density = compactDensity ? "tight" : "comfortable";
 		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";

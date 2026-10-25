@@ -69,10 +69,11 @@ import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { splitTabIds } from "../../../../shared/split-layout";
-import { useAwaitedInput } from "../../../hooks/use-awaited-input";
+import { useSessionAttention } from "../../../hooks/use-awaited-input";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
+import { ATTENTION_LABEL_KEY, type AttentionKind } from "../../../lib/attention";
 import { activeComposerInput } from "../../../lib/composer-focus";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
 import { hideNativeDragImage } from "../../../lib/drag-image";
@@ -598,9 +599,9 @@ export function Sidebar() {
 	const isStreaming = useSessionStore(s => s.isStreaming);
 	const isCompacting = useSessionStore(s => s.isCompacting);
 	const destination = useUiStore(s => s.destination);
-	// A blocking confirmation (plan approval / ask / permission) on the
-	// attached session outranks "running": it needs the user, not just time.
-	const awaitedInput = useAwaitedInput();
+	// What the attached session needs from the person (`sessionAttention`: its question or approval, a child waiting
+	// on an answer, a failed check) outranks "running": it needs the user, not just time.
+	const attention = useSessionAttention();
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -1261,7 +1262,7 @@ export function Sidebar() {
 			: null;
 	};
 	const isSessionBusy = (session: SidebarSession) => {
-		if (isCurrentSession(session) && awaitedInput) return true;
+		if (isCurrentSession(session) && attention && attention.kind !== "checkFailed") return true;
 		const signal = sessionTabSignal(session);
 		if (signal) return signal.active;
 		if (isCurrentSession(session) && (isStreaming || isCompacting)) return true;
@@ -1617,8 +1618,12 @@ export function Sidebar() {
 		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag. A paired device's
 		// tab here that no tab of this window shows says it through its hosted state.
 		const hosted = tab === undefined ? hostedFor(session) : undefined;
-		const waiting =
-			(isCurrent ? awaitedInput : null) ?? tab?.awaitingInput ?? (hosted?.awaitingInput ? "input" : undefined);
+		// What the session needs from the person: the attached one's from `sessionAttention`, another tab's prompt from
+		// its tab entry, a paired device's from its hosted state (which only knows a question waits).
+		const waiting: AttentionKind | undefined =
+			(isCurrent ? attention?.kind : undefined) ??
+			(tab?.awaitingInput ? (tab.awaitingInput === "approval" ? "approval" : "question") : undefined) ??
+			(hosted?.awaitingInput ? "question" : undefined);
 		const running = !waiting && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
 		// Of `running`: its turn ended and only stock's background work keeps it on (the light's `background`).
 		const settling = running && (tab?.settling === true || hosted?.settling === true);
@@ -1628,10 +1633,8 @@ export function Sidebar() {
 			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
 		const done = !waiting && !running && !failed && tabSignal?.labelKey === "tabs.done";
 		const openElsewhere = tab !== undefined && !isCurrent && !inVisibleSplit;
-		const busy = waiting !== undefined || running || tabSignal?.active === true;
-		const waitingLabel = waiting
-			? t(waiting === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput")
-			: null;
+		const busy = (waiting !== undefined && waiting !== "checkFailed") || running || tabSignal?.active === true;
+		const waitingLabel = waiting ? t(ATTENTION_LABEL_KEY[waiting]) : null;
 		const statusLabel =
 			waitingLabel ??
 			(running
@@ -1722,7 +1725,7 @@ export function Sidebar() {
 				: status === "done"
 					? t("tabs.done")
 					: status === "waiting" && row.waiting === undefined
-						? t("sidebar.row.needsInput")
+						? t(ATTENTION_LABEL_KEY.question)
 						: status === "running" && !row.running
 							? t("sidebar.signal.running")
 							: (row.statusLabel ?? "");
@@ -1820,7 +1823,7 @@ export function Sidebar() {
 			status === "problem"
 				? t(failed ? "sidebar.row.failed" : "sidebar.family.unmerged")
 				: status === "waiting"
-					? t(tab.awaitingInput === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput")
+					? t(ATTENTION_LABEL_KEY[tab.awaitingInput === "approval" ? "approval" : "question"])
 					: status === "running"
 						? t("sidebar.signal.running")
 						: status === "done"
@@ -1911,7 +1914,9 @@ export function Sidebar() {
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
 		// alone; else a chat, a pin, a worktree's kind or a fork.
-		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
+		// A failed check is the danger signal; anything else that needs the person, the warning one.
+		const signal =
+			waiting === "checkFailed" ? "error" : waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		const marker: ReactNode = done ? (
 			<Check aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" data-sidebar-done />
@@ -1929,7 +1934,7 @@ export function Sidebar() {
 		// the time since it last did something.
 		const runningOpened = opened.filter(child => child.status === "running").length;
 		const age = waiting ? (
-			<Badge className="omp-sidebar-approval" variant="warning">
+			<Badge className="omp-sidebar-approval" variant={waiting === "checkFailed" ? "error" : "warning"}>
 				{waitingLabel}
 			</Badge>
 		) : (

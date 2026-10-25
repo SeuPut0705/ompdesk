@@ -9,26 +9,26 @@
 
 import { useEffect } from "react";
 import type { TrayState } from "../../shared/ipc-types";
+import type { Attention } from "../lib/attention";
 import { contextUsageView } from "../lib/context-usage";
 import { basename } from "../lib/format";
 import { useLang } from "../lib/i18n";
 import { isTabFailed } from "../lib/tab-signal";
-import type { AwaitedInput } from "../stores/extension-ui";
 import { useModelStore } from "../stores/model";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useAwaitedInput } from "./use-awaited-input";
+import { useSessionAttention } from "./use-awaited-input";
 import { useSessionList } from "./use-session-list";
 
 /** What the tray says of the focused session. A session another omp still holds is a wait that ends by itself, not an error. */
 export function trayStatusOf(state: {
 	status: string;
 	sessionHeld: boolean;
-	awaitedInput: AwaitedInput | null;
+	attention: Attention | null;
 	isStreaming: boolean;
 }): TrayState["status"] {
 	if (isTabFailed(state)) return "error";
-	return state.awaitedInput ?? (state.isStreaming ? "streaming" : "idle");
+	return state.attention?.kind ?? (state.isStreaming ? "streaming" : "idle");
 }
 
 export function useTraySync(): void {
@@ -39,7 +39,7 @@ export function useTraySync(): void {
 	const approvalMode = useSettingsStore(s => s.approvalMode);
 	const cwd = useSessionStore(s => s.cwd);
 	const isStreaming = useSessionStore(s => s.isStreaming);
-	const awaitedInput = useAwaitedInput();
+	const attention = useSessionAttention();
 	const status = useSessionStore(s => s.status);
 	const sessionHeld = useSessionStore(s => s.sidecarHeld);
 	const contextUsage = useSessionStore(s => s.contextUsage);
@@ -62,7 +62,7 @@ export function useTraySync(): void {
 			.slice(0, 9)
 			.map(wsCwd => ({ cwd: wsCwd, name: basename(wsCwd) || wsCwd, current: wsCwd === cwd }));
 
-		const trayStatus = trayStatusOf({ status, sessionHeld, awaitedInput, isStreaming });
+		const trayStatus = trayStatusOf({ status, sessionHeld, attention, isStreaming });
 
 		window.omp.tray.pushState({
 			status: trayStatus,
@@ -85,7 +85,7 @@ export function useTraySync(): void {
 		approvalMode,
 		cwd,
 		isStreaming,
-		awaitedInput,
+		attention,
 		status,
 		sessionHeld,
 		contextPercent,

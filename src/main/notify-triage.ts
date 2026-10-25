@@ -1,8 +1,9 @@
 /**
  * Desktop notifications from the renderer (`SYSTEM_NOTIFY`): the per-window repeat filter, and the judge-model
  * triage of a completion (resources/gui-bridge/modes/judge-assist-contracts.ts). A finished turn whose last reply
- * waits for the person is shown as `ask` ("Needs you · <tab>"), which notification-batch.ts already ranks above
- * errors and completions; anything else is the completion exactly as the renderer sent it.
+ * waits for the person is shown as `ask` ("Needs your answer · <tab>", the question word of every attention surface),
+ * which notification-batch.ts already ranks above errors and completions; anything else is the completion exactly as
+ * the renderer sent it.
  *
  * It lives in main, not the renderer: a renderer RPC would meter a paired web page's quota and make a hidden phone
  * the tab's driver even with no judge, add a round trip to every banner, and let two windows that show one tab

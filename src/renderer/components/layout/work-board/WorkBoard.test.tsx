@@ -250,8 +250,8 @@ describe("WorkBoard header", () => {
 			},
 		]);
 		await mount();
-		// What needs the person first; what runs is a figure beside it.
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("1 needs you");
+		// What needs the person first, one thing by its word; what runs is a figure beside it.
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.question"));
 		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("2 running");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
 		const bar = pane.querySelector(".omp-work-board-segments");
@@ -480,7 +480,7 @@ describe("WorkBoard sections", () => {
 		await mount();
 		await vi.waitFor(() => expect(section("needs")).not.toBeNull());
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
-		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("1 needs you");
+		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.checkFailed"));
 		// Todos alone: "Todos", not "Plan" (the plan-mode card's word, which Needs you's "plan ready for review" says).
 		expect(section("plan")?.querySelector(".omp-work-board-title")?.textContent).toContain("Todos");
 		useSessionStore.setState({ goal: { objective: "Ship it" }, goalState: { status: "active" } });

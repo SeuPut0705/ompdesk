@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { trayStatusOf } from "./use-tray-sync";
 
 describe("trayStatusOf", () => {
-	const base = { status: "ready", sessionHeld: false, awaitedInput: null, isStreaming: false } as const;
+	const base = { status: "ready", sessionHeld: false, attention: null, isStreaming: false } as const;
 
 	it("reports a failed session as an error", () => {
 		expect(trayStatusOf({ ...base, status: "error" })).toBe("error");
@@ -12,8 +12,12 @@ describe("trayStatusOf", () => {
 		expect(trayStatusOf({ ...base, status: "error", sessionHeld: true })).toBe("idle");
 	});
 
-	it("puts an answer the person owes ahead of streaming", () => {
-		expect(trayStatusOf({ ...base, awaitedInput: "approval", isStreaming: true })).toBe("approval");
+	it("puts what the person owes ahead of streaming, by its kind", () => {
+		expect(trayStatusOf({ ...base, attention: { kind: "approval", count: 1 }, isStreaming: true })).toBe("approval");
+		expect(trayStatusOf({ ...base, attention: { kind: "childWaiting", count: 2 } })).toBe("childWaiting");
+		expect(trayStatusOf({ ...base, attention: { kind: "checkFailed", count: 1 }, isStreaming: true })).toBe(
+			"checkFailed",
+		);
 		expect(trayStatusOf({ ...base, isStreaming: true })).toBe("streaming");
 	});
 });

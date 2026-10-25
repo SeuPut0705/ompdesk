@@ -6,7 +6,6 @@
  * move to project, pinned-first ordering,
  * per-session busy gates, status as icon + text, and tab-first opening (an
  * untouched empty tab is replaced instead of left behind).
- * Same linkedom + react-dom harness as TabBar.test.tsx.
  */
 
 import { readFileSync } from "node:fs";
@@ -35,7 +34,11 @@ import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-list";
-import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
+import {
+	deleteSessionRuntime,
+	sessionRuntimeStore,
+	setFocusedSessionRuntime,
+} from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarProjects } from "../../../stores/sidebar-projects";
@@ -930,7 +933,7 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		const waiting = rowFor("Session /work/beta/three");
 		expect(waiting.getAttribute("data-signal")).toBe("waiting");
-		expect(waiting.textContent).toContain("Needs input");
+		expect(waiting.textContent).toContain("Needs your answer");
 		const failed = rowFor("Session /work/alpha/one");
 		expect(failed.getAttribute("data-signal")).toBe("error");
 		expect(failed.textContent).toContain("Failed");
@@ -999,7 +1002,7 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		act(() => useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running", awaitingInput: true }] }));
 		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("waiting");
-		expect(rowFor("Fix login").textContent).toContain("Needs input");
+		expect(rowFor("Fix login").textContent).toContain("Needs your answer");
 
 		// Before it was known as a hosted session, the brief folded it away as a finished helper of nobody listed.
 		act(() => useHostedSessionsStore.setState({ sessions: [] }));
@@ -2937,6 +2940,27 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		await setTab("tc", { status: "ready" });
 		expect(boss().querySelector("[data-working]")).toBeNull();
 		expect(slotOf(boss())).toBe("age");
+	});
+
+	it("marks the attached idle boss's row when a session it opened waits on the person", async () => {
+		mountFamily();
+		useTabsStore.setState({ activeTabId: "t1" });
+		setFocusedSessionRuntime("t1");
+		try {
+			await mount(<Sidebar />);
+			const boss = () => rowFor("Session /work/alpha/two");
+			expect(boss().getAttribute("data-signal")).toBeNull();
+			await act(async () => {
+				useTabsStore.setState(state => ({
+					tabs: state.tabs.map(tab => (tab.id === "ta" ? { ...tab, awaitingInput: "input" as const } : tab)),
+				}));
+			});
+			await flush();
+			expect(boss().getAttribute("data-signal")).toBe("waiting");
+			expect(boss().textContent).toContain(translate("attention.childWaiting"));
+		} finally {
+			setFocusedSessionRuntime(null);
+		}
 	});
 
 	it("lights the boss's row in a window viewing it while a session its agent opened runs as another window's tab", async () => {

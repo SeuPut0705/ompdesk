@@ -135,8 +135,8 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 
 	await fixtureCommand(background, "fixture:confirm");
 	const row = sidebarRow(background);
-	await expect(row).toContainText("Needs input");
-	await expect(sidebarRow(front)).not.toContainText("Needs input");
+	await expect(row).toContainText("Needs your answer");
+	await expect(sidebarRow(front)).not.toContainText("Needs your answer");
 	// The dialog belongs to the background tab, not the one in front.
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 
@@ -152,7 +152,7 @@ test("a background tab's confirm flags its sidebar row, shows on switch, and the
 			(await recordsOfType(record, "extension_ui_response")).filter(entry => entry.id === "fixture-confirm"),
 		)
 		.toEqual([{ type: "extension_ui_response", id: "fixture-confirm", confirmed: true, recordedBy: owner }]);
-	await expect(row).not.toContainText("Needs input");
+	await expect(row).not.toContainText("Needs your answer");
 	// The answer let the turn finish.
 	await expect(page.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 	expect(errors).toEqual([]);

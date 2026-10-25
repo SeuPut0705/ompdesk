@@ -1,4 +1,5 @@
 import type { SessionTab } from "../stores/tabs";
+import { ATTENTION_LABEL_KEY } from "./attention";
 
 export interface TabSignalPresentation {
 	active: boolean;
@@ -28,7 +29,7 @@ export function tabSignalPresentation(
 	const running = tab.status === "running" || tab.compacting === true || activeRuntime;
 	// A session blocked on the user outranks "running": it needs the user, not just time.
 	if (tab.awaitingInput) {
-		const labelKey = tab.awaitingInput === "approval" ? "sidebar.row.needsApproval" : "sidebar.row.needsInput";
+		const labelKey = ATTENTION_LABEL_KEY[tab.awaitingInput === "approval" ? "approval" : "question"];
 		return { active: true, color: "var(--omp-warning)", labelKey, running };
 	}
 	if (running) {

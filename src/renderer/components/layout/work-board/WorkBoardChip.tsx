@@ -15,11 +15,13 @@ import {
 import { useBackLayer } from "../../../hooks/use-back-layer";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
+import { pendingAsks } from "../../../lib/attention";
 import { lazyChunk } from "../../../lib/chunk-load";
 import { useT } from "../../../lib/i18n";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
+import { useCheckFailed } from "../../../stores/attention";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
-import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
+import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -27,7 +29,7 @@ import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
-import { boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
+import { attentionClause, boardCounts, liveSubagents, todoBoard, workingSubagents } from "./work-board";
 
 const PANEL_ID = "omp-work-strip-panel";
 /** Exit time of the panel's height transition (mobile.css `omp-strip-out`). */
@@ -160,11 +162,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const goal = useSessionStore(state => state.goal);
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
-	const blocking = useMemo(
-		() => pending.filter(request => isUserBlockingRequest({ loginRequestIds }, request)),
-		[pending, loginRequestIds],
-	);
-	const planProposal = usePlanApprovalStore(state => state.pending);
+	const planPending = usePlanApprovalStore(state => state.pending !== null);
 	// A run's own words (cycle and area, a pause reason, a quota wait, its end): in an Autopilot tab the strip is where
 	// the run is reached wherever the board cannot dock.
 	const runText = useAutopilotStateText();
@@ -173,11 +171,11 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
 
 	// A failed check is a row of Needs you, so it is said with what waits on the person: the board counts it in the same
-	// figure. Its rules are the session rows' lazy chunk (the phone's first screen has no room), which reports here
-	// once loaded.
-	const [failed, setFailed] = useState(false);
+	// figure. Its rules are the session rows' lazy chunk (the phone's first screen has no room), which writes it to the
+	// attention store once loaded.
+	const failed = useCheckFailed(runtimeTabId ?? activeTabId);
 	const counts = boardCounts({
-		asks: blocking.length + (planProposal ? 1 : 0),
+		asks: pendingAsks({ pendingRequests: pending, loginRequestIds }, planPending),
 		childrenWaiting: opened.counts.waiting,
 		childrenRunning: opened.counts.running,
 		checkFailed: failed,
@@ -187,20 +185,19 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 		turnWorking: turnActive || autopilotRunning,
 	});
 	const running = counts.running + counts.childrenRunning;
-	const label =
-		counts.needs > 0
-			? t("workBoard.head.needs", { count: counts.needs, s: counts.needs === 1 ? "s" : "" })
-			: autopilotState
-				? `${t("autopilot.name")} · ${autopilotState}`
-				: plan
-					? t("workBoard.planProgress", { done: plan.done, total: plan.total })
-					: turnActive
-						? t("workBoard.step.working")
-						: running > 0
-							? `${t("workBoard.running")} · ${running}`
-							: goal
-								? t("workBoard.goal")
-								: null;
+	const label = counts.attention
+		? attentionClause(counts.attention, t)
+		: autopilotState
+			? `${t("autopilot.name")} · ${autopilotState}`
+			: plan
+				? t("workBoard.planProgress", { done: plan.done, total: plan.total })
+				: turnActive
+					? t("workBoard.step.working")
+					: running > 0
+						? `${t("workBoard.running")} · ${running}`
+						: goal
+							? t("workBoard.goal")
+							: null;
 	// What the strip says is gone (the run ended and the board emptied): nothing to expand either.
 	useEffect(() => {
 		if (label === null && open) close();
@@ -216,7 +213,7 @@ export function WorkBoardChip({ children, reveal = 0 }: { children: ReactNode; r
 	}, [open, close]);
 	const watch = (
 		<Suspense fallback={null}>
-			<FailedCheckWatch onChange={setFailed} />
+			<FailedCheckWatch />
 		</Suspense>
 	);
 	// Measured while collapsed too (the chevron points the way the panel will open), and again at each open.

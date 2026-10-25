@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider } from "../../../lib/i18n";
+import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useSessionStore } from "../../../stores/session";
@@ -136,7 +136,7 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		expect(strip?.querySelector('[role="status"] .sr-only')?.textContent).toBe("0 of 1 done");
 	});
 
-	it("reads a failed check as Needs you's one item, with the waiting pulse, though nothing else waits", async () => {
+	it("says a failed check by its word, with the waiting pulse, though nothing else waits", async () => {
 		const failed: ToolEntry = {
 			toolName: "bash",
 			args: { command: "bun test" },
@@ -152,7 +152,9 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		await mount();
 		// The failed-check watcher loads after the first screen.
 		const strip = container.querySelector("[data-work-chip]");
-		await vi.waitFor(() => expect(strip?.querySelector('[role="status"]')?.textContent).toBe("1 needs you"));
+		await vi.waitFor(() =>
+			expect(strip?.querySelector('[role="status"]')?.textContent).toBe(translate("attention.checkFailed")),
+		);
 		expect(strip?.getAttribute("data-state")).toBe("waiting");
 	});
 

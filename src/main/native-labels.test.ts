@@ -115,8 +115,12 @@ describe("one name per place", () => {
 				expect(thinkingLabel(language, level)).toBe(RENDERER[language][`input.thinking.name.${level}`]);
 			expect(statusLabel(language, "idle")).toBe(RENDERER[language]["titlebar.status.ready"]);
 			expect(statusLabel(language, "streaming")).toBe(RENDERER[language]["titlebar.status.working"]);
-			expect(statusLabel(language, "approval")).toBe(RENDERER[language]["titlebar.status.needsApproval"]);
-			expect(statusLabel(language, "input")).toBe(RENDERER[language]["titlebar.status.needsInput"]);
+			for (const kind of ["question", "approval", "childWaiting", "checkFailed"] as const)
+				expect(statusLabel(language, kind)).toBe(RENDERER[language][`attention.${kind}`]);
+			// The judge's "this reply waits for you" banner says the question word too.
+			expect(
+				MAIN_TEXT["notify.needsYou"][language].startsWith(`${RENDERER[language]["attention.question"]} · `),
+			).toBe(true);
 		});
 		it(`names each palette command like the help menu and the window it opens (${language})`, () => {
 			const strings = RENDERER[language];

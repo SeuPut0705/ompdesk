@@ -90,7 +90,6 @@ export const ko: Record<string, string> = {
 	"titlebar.openProjectFailed": "프로젝트를 열 수 없어요",
 	"titlebar.renameFailed": "세션 이름을 바꾸지 못했어요",
 
-	// Session tab strip (TabBar)
 	"tabs.kindMismatch":
 		"이 세션은 유형이 달라요. 에이전트 세션과 채팅 세션은 서로 변환할 수 없으니 세션 목록에서 여세요.",
 	"tabs.folderMissing":
@@ -4745,8 +4744,6 @@ export const ko: Record<string, string> = {
 	"sidebar.project.newFolder": "프로젝트 폴더 열기·만들기",
 	"sidebar.project.newFolderTitle": "프로젝트 폴더를 고르거나 ‘새로운 폴더’로 만드세요",
 	"sidebar.project.newFolderButton": "이 폴더에서 시작",
-	"sidebar.row.needsApproval": "승인 필요",
-	"sidebar.row.needsInput": "입력 필요",
 	"sidebar.row.failed": "실패",
 	"sidebar.row.open": "열려 있음",
 	"sidebar.row.fork": "분기",
@@ -4766,8 +4763,11 @@ export const ko: Record<string, string> = {
 	"titlebar.breadcrumb": "프로젝트와 세션",
 	"titlebar.switchProject": "프로젝트 전환",
 	"titlebar.sidePanel": "사이드 패널",
-	"titlebar.status.needsApproval": "승인 필요",
-	"titlebar.status.needsInput": "입력 필요",
+	// What a session needs from the person, one word set for every surface (lib/attention.ts).
+	"attention.question": "답변 필요",
+	"attention.approval": "승인 필요",
+	"attention.childWaiting": "하위 세션 확인 필요",
+	"attention.checkFailed": "검사 실패",
 	"sessionStatus.title": "세션 상태",
 	"sessionStatus.trigger": "세션 상태, 비용 {cost}",
 	"sessionStatus.tokens": "토큰",
@@ -4793,7 +4793,6 @@ export const ko: Record<string, string> = {
 	"dock.goal.active": "활성 목표",
 	"dock.goal.paused": "일시정지된 목표",
 	"dock.goal.edit": "목표 편집",
-	"dock.goal.needsAnswer": "답변 필요",
 	"dock.goal.actionFailed": "목표를 업데이트할 수 없어요",
 	"dock.island.label": "백그라운드 작업",
 	"dock.island.agents": "에이전트",

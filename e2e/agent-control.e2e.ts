@@ -135,11 +135,11 @@ test("with full control off, deleting a session the agent did not open needs the
 	await expect.poll(async () => (await tabs()).find(tab => tab.tabId === theirs)?.status).toBe("ready");
 	// The user typed in it, so it stays when the person goes back to the main tab.
 	await fixtureCommand(theirs, "fixture:title:Theirs");
-	// The main agent asks; its card waits on the main tab, which the sidebar marks "Needs input".
+	// The main agent asks; its card waits on the main tab, which the sidebar marks "Needs your answer".
 
 	const pending = call("ompdesk_session_stop", { session: theirs, delete: true });
 	await page
-		.getByRole("button", { name: /Needs input/ })
+		.getByRole("button", { name: /Needs your answer/ })
 		.first()
 		.click({ timeout: 30_000 });
 	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });
@@ -150,7 +150,7 @@ test("with full control off, deleting a session the agent did not open needs the
 
 	const approved = call("ompdesk_session_stop", { session: theirs, delete: true });
 	await page
-		.getByRole("button", { name: /Needs input/ })
+		.getByRole("button", { name: /Needs your answer/ })
 		.first()
 		.click({ timeout: 30_000 });
 	await expect(page.getByText("[OMPdesk]").first()).toBeVisible({ timeout: 30_000 });

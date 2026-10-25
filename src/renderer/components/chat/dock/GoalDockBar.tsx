@@ -4,8 +4,6 @@ import { useTabGuard } from "../../../hooks/use-tab-guard";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
-import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
-import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
@@ -26,13 +24,7 @@ export function GoalDockBar() {
 	const openModes = useUiStore(state => state.openModes);
 	const [busy, setBusy] = useState<GoalAction | null>(null);
 	const { capture, isActive } = useTabGuard();
-	// Stock goals have no "blocked" status; a question or plan waiting on the user is that state.
-	const questionPending = useExtensionUiStore(state =>
-		state.pendingRequests.some(request => isUserBlockingRequest(state, request)),
-	);
-	const planPending = usePlanApprovalStore(state => state.pending !== null);
 	const autopilot = useAutopilotStore(isLiveAutopilot);
-	const needsAnswer = questionPending || planPending;
 
 	if (!goal) return null;
 	// An Autopilot run is a Goal underneath; its own strip replaces this one (pausing or dropping here would fight it).
@@ -73,14 +65,6 @@ export function GoalDockBar() {
 			<span className="shrink-0 text-sc-md font-medium text-(--sc-text)">
 				{paused ? t("dock.goal.paused") : t("dock.goal.active")}
 			</span>
-			{needsAnswer && !paused && (
-				<span
-					className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 text-sc-xs text-(--sc-warning-on-soft)"
-					data-goal-needs-answer
-				>
-					{t("dock.goal.needsAnswer")}
-				</span>
-			)}
 			<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text-secondary)" title={objective}>
 				{objective}
 			</span>
