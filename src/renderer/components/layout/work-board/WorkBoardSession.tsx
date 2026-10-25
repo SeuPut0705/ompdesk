@@ -25,7 +25,7 @@ import { transcriptToolEntries, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
-import { useRunStores } from "../../chat/work/use-work-run";
+import { useRunOutcome, useRunStores } from "../../chat/work/use-work-run";
 import { workOutcomes } from "../../chat/work/work-view";
 import { BoardRow, BoardSection, elapsedLabel, KindMark, type RowTag } from "./board-parts";
 import {
@@ -267,17 +267,49 @@ function useUnlanded(): UnlandedSummary | null {
 	return unlanded;
 }
 
-/** The session's newest check over its finished and live calls, with the verdicts of backgrounded ones. */
+/**
+ * The calls of the newest turn: the running one, else the last that ended, else (a reloaded tab) everything since the
+ * last prompt.
+ */
+function useNewestTurnCalls(): readonly string[] {
+	const { tools } = useRunStores();
+	const start = useTodoStore(state => (state.turnActive ? state.turnStartedAt : (state.lastTurn?.start ?? null)));
+	const prompted = useMessagesStore(state => {
+		const at = state.messages.findLast(message => message.role === "user")?.timestamp;
+		return typeof at === "number" ? at : null;
+	});
+	const finishedVersion = useToolsStore(state => state.finishedVersion);
+	const live = useToolsStore(state => state.liveTools);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
+	return useMemo(() => {
+		const from = (start ?? prompted ?? 0) - TURN_CLOCK_SLACK_MS;
+		return [...tools.getState().finishedTools, ...live]
+			.filter(([, entry]) => entry.startTime >= from)
+			.map(([key]) => key);
+	}, [start, prompted, tools, live, finishedVersion]);
+}
+
+/**
+ * The check the board names, as the newest work card reads it: that turn's ledger comes from the card's own builder
+ * (`useRunOutcome`, subagents' calls included), the session's finished and live calls give the newest run.
+ */
 export function useLastCheck(): LastCheck | null {
 	const { tools } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
 	const live = useToolsStore(state => state.liveTools);
 	const finishedVersion = useToolsStore(state => state.finishedVersion);
 	const messages = useMessagesStore(state => state.messages);
+	const { outcome } = useRunOutcome(useNewestTurnCalls());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
 	return useMemo(
-		() => lastCheck([...tools.getState().finishedTools, ...live], cwd, backgroundJobVerdicts(messages)),
-		[tools, live, finishedVersion, cwd, messages],
+		() =>
+			lastCheck(
+				[...tools.getState().finishedTools, ...live],
+				outcome.commands,
+				cwd,
+				backgroundJobVerdicts(messages),
+			),
+		[tools, live, finishedVersion, cwd, messages, outcome],
 	);
 }
 
@@ -315,6 +347,7 @@ function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
 	const running = check.state === "running";
+	const key = check.key;
 	const now = useNowTick(running);
 	const verdict = check.state === "passed" ? "passed" : "failed";
 	const label = running
@@ -336,7 +369,7 @@ function CheckRow({ check, tag }: { check: LastCheck; tag?: RowTag }) {
 				<KindMark icon={FlaskConical} tone={running ? "info" : check.state === "passed" ? "success" : "danger"} />
 			}
 			meta={meta}
-			onClick={check.state === "failed" && tabId ? () => requestRevealStep({ tabId, key: check.key }) : undefined}
+			onClick={check.state === "failed" && tabId && key ? () => requestRevealStep({ tabId, key }) : undefined}
 			title={check.command}
 		/>
 	);
